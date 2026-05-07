@@ -4,7 +4,7 @@
     {!Llm_provider.Complete.complete}, which fires [on_request_end] once
     per turn.  Before PR-O2 the legacy [Api.create_message] path bypassed
     this callback, leaving downstream telemetry (dashboard latency panel,
-    cost tracking) with [request_latency_ms = 0] on every request.
+    cost tracking) with unknown [request_latency_ms] on every request.
 
     Test strategy:
     - Construct an [Llm_transport.t] that returns a canned response
@@ -33,7 +33,7 @@ let mk_mock_transport (counter : int ref) : Llm_provider.Llm_transport.t =
   { complete_sync =
       (fun _req ->
         incr counter;
-        { response = Ok (mk_mock_response ()); latency_ms = 42 })
+        { response = Ok (mk_mock_response ()); latency_ms = Some 42 })
   ; complete_stream =
       (fun ~on_event:_ _req ->
         incr counter;

@@ -19,7 +19,7 @@ let scripted_transport scripted_responses request_count : Llm_transport.t =
         match !responses with
         | next :: rest ->
           responses := rest;
-          { Llm_transport.response = next; latency_ms = 1 }
+          { Llm_transport.response = next; latency_ms = Some 1 }
         | [] -> failwith "scripted transport exhausted")
   ; complete_stream =
       (fun ~on_event:_ _req -> failwith "stream transport not used in this test")

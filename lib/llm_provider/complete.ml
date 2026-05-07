@@ -100,15 +100,15 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
     Delegates to {!Provider_config.reasoning_effort_of_config}. *)
 let reasoning_effort_of_config = Provider_config.reasoning_effort_of_config
 
-(** Patch {!Types.api_response} telemetry with measured request latency
-    and provider metadata.
-    The JSON parser sets [request_latency_ms = 0] because it cannot see the
-    HTTP round-trip time; this function fills the actual value after the
-    request completes. *)
+(** Patch {!Types.api_response} telemetry with transport latency and provider
+    metadata.
+    The JSON parser sets [request_latency_ms = None] because it cannot see the
+    transport round-trip time; this function fills [Some ms] when the transport
+    measured one and preserves [None] when latency is genuinely unknown. *)
 let patch_telemetry
       (resp : Types.api_response)
       ~(config : Provider_config.t)
-      (latency_ms : int)
+      (latency_ms : int option)
   : Types.api_response
   =
   let pk = Some config.kind in
@@ -740,7 +740,7 @@ let complete
              transient network failure. *)
            let kind = Provider_registry.provider_name_of_config config in
            { Llm_transport.response = Error (Http_client.CliTransportRequired { kind })
-           ; latency_ms = 0
+           ; latency_ms = None
            }
          | None ->
            let resp, lat =
@@ -754,7 +754,7 @@ let complete
                ~tools
                ()
            in
-           { Llm_transport.response = resp; latency_ms = lat }
+           { Llm_transport.response = resp; latency_ms = Some lat }
        in
        (* HTTP-backed transports bypass complete_http, so emit the status
          here using the transport result. Non-HTTP CLI transports must
@@ -1125,7 +1125,7 @@ let complete_stream_http
                   ; timings
                   ; reasoning_tokens = None
                   ; reasoning_tokens_estimated = false
-                  ; request_latency_ms = 0
+                  ; request_latency_ms = None
                   ; peak_memory_gb = None
                   ; provider_kind = None
                   ; reasoning_effort = None
@@ -1137,7 +1137,7 @@ let complete_stream_http
             { resp with usage; telemetry }
           | _ -> resp
         in
-        Ok (patch_telemetry resp ~config latency_ms)
+        Ok (patch_telemetry resp ~config (Some latency_ms))
       | Ok (Error msg)
         when String.length msg >= 31
              && String.equal (String.sub msg 0 31) "body_timeout_s deadline exceeded" ->
@@ -1202,7 +1202,7 @@ let complete_stream
       (fun resp ->
          let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
          let resp = Pricing.annotate_response_cost resp in
-         patch_telemetry resp ~config latency_ms)
+         patch_telemetry resp ~config (Some latency_ms))
       result
 ;;
 
@@ -1220,7 +1220,7 @@ let make_http_transport ~sw ~net : Llm_transport.t =
             ~tools:req.tools
             ()
         in
-        { Llm_transport.response; latency_ms })
+        { Llm_transport.response; latency_ms = Some latency_ms })
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
         complete_stream_http
@@ -1609,7 +1609,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
           ; timings = None
           ; reasoning_tokens = Some 10
           ; reasoning_tokens_estimated = false
-          ; request_latency_ms = 0
+          ; request_latency_ms = None
           ; peak_memory_gb = None
           ; provider_kind = None
           ; reasoning_effort = None
@@ -1619,10 +1619,10 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
           }
     }
   in
-  let patched = patch_telemetry resp ~config 42 in
+  let patched = patch_telemetry resp ~config (Some 42) in
   match patched.telemetry with
   | Some t ->
-    t.request_latency_ms = 42
+    t.request_latency_ms = Some 42
     && t.system_fingerprint = Some "fp-1"
     && t.reasoning_tokens = Some 10
     && t.provider_kind = Some Provider_config.Ollama
@@ -1650,10 +1650,10 @@ let%test "patch_telemetry creates telemetry when None" =
     ; telemetry = None
     }
   in
-  let patched = patch_telemetry resp ~config 100 in
+  let patched = patch_telemetry resp ~config (Some 100) in
   match patched.telemetry with
   | Some t ->
-    t.request_latency_ms = 100
+    t.request_latency_ms = Some 100
     && t.provider_kind = Some Provider_config.OpenAI_compat
     && t.canonical_model_id = Some "gpt-4"
     && t.effective_context_window = Some 128_000
@@ -1679,7 +1679,7 @@ let%test "patch_telemetry fills blank response model" =
     ; telemetry = None
     }
   in
-  let patched = patch_telemetry resp ~config 100 in
+  let patched = patch_telemetry resp ~config (Some 100) in
   patched.model = "gpt-5.4-mini"
 ;;
 

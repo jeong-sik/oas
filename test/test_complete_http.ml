@@ -101,7 +101,7 @@ let mock_transport_response text =
 ;;
 
 let make_transport response : Llm_transport.t =
-  { complete_sync = (fun _ -> { Llm_transport.response; latency_ms = 7 })
+  { complete_sync = (fun _ -> { Llm_transport.response; latency_ms = Some 7 })
   ; complete_stream = (fun ~on_event:_ _ -> response)
   }
 ;;
@@ -217,7 +217,11 @@ let test_complete_openai_mlx_vlm_telemetry () =
        | None -> fail "expected usage");
       (match resp.telemetry with
        | Some t ->
-         check bool "latency patched" true (t.request_latency_ms > 0);
+         check
+           bool
+           "latency patched"
+           true
+           (Option.value ~default:0 t.request_latency_ms > 0);
          check (option string) "canonical model id" (Some "gpt-4") t.canonical_model_id;
          check (option (float 0.001)) "peak memory" (Some 52.66) t.peak_memory_gb;
          (match t.timings with
@@ -504,7 +508,7 @@ let test_metrics_global_default_is_noop () =
   (* Default state: the noop callbacks should not raise and should be
      distinguishable by reference from a custom instance below. *)
   g.on_cache_hit ~model_id:"m";
-  g.on_request_end ~model_id:"m" ~latency_ms:1;
+  g.on_request_end ~model_id:"m" ~latency_ms:(Some 1);
   g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:200;
   (* No side effects observable. *)
   check bool "default global accepts noop calls" true true

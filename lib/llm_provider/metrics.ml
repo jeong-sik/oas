@@ -4,7 +4,7 @@ type t =
   { on_cache_hit : model_id:string -> unit
   ; on_cache_miss : model_id:string -> unit
   ; on_request_start : model_id:string -> unit
-  ; on_request_end : model_id:string -> latency_ms:int -> unit
+  ; on_request_end : model_id:string -> latency_ms:int option -> unit
   ; on_error : model_id:string -> error:string -> unit
   ; on_http_status : provider:string -> model_id:string -> status:int -> unit
   ; on_capability_drop : model_id:string -> field:string -> unit
@@ -138,9 +138,12 @@ module Aggregating = struct
     ; on_request_end =
         (fun ~model_id ~latency_ms ->
           agg.hooks.on_request_end ~model_id ~latency_ms;
-          with_state agg ("unknown/" ^ model_id) (fun s ->
-            s.latency_ms_sum <- s.latency_ms_sum + latency_ms;
-            s.latency_ms_count <- s.latency_ms_count + 1))
+          match latency_ms with
+          | Some measured ->
+            with_state agg ("unknown/" ^ model_id) (fun s ->
+              s.latency_ms_sum <- s.latency_ms_sum + measured;
+              s.latency_ms_count <- s.latency_ms_count + 1)
+          | None -> ())
     ; on_error =
         (fun ~model_id ~error ->
           agg.hooks.on_error ~model_id ~error;

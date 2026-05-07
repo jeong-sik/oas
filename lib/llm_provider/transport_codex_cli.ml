@@ -615,7 +615,7 @@ let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
         ; timings = None
         ; reasoning_tokens = None
         ; reasoning_tokens_estimated = false
-        ; request_latency_ms = 0
+        ; request_latency_ms = None
         ; peak_memory_gb = None
         ; provider_kind = None
         ; reasoning_effort = None
@@ -697,7 +697,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
         | Some msg ->
           { Llm_transport.response =
               Error (Http_client.NetworkError { message = msg; kind = Unknown })
-          ; latency_ms = 0
+          ; latency_ms = None
           }
         | None ->
           let argv, mcp_extra_env =
@@ -728,10 +728,10 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                ?stdout_idle_timeout_s:config.stdout_idle_timeout_s
                argv
            with
-           | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+           | Error _ as e -> { Llm_transport.response = e; latency_ms = None }
            | Ok { stdout = _; stderr = _; latency_ms } ->
              let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
-             { Llm_transport.response; latency_ms }))
+             { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
         warn_unsupported_once config req.config warned;

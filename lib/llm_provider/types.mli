@@ -182,7 +182,7 @@ type inference_telemetry =
   ; reasoning_tokens_estimated : bool
     (** [true] when reasoning_tokens was derived from text length / chars_per_token
         approximation rather than reported by the provider. *)
-  ; request_latency_ms : int
+  ; request_latency_ms : int option
   ; peak_memory_gb : float option
   ; provider_kind : Provider_kind.t option
     (** Set by the inference pipeline to record which provider produced the

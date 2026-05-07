@@ -21,7 +21,7 @@ type t =
   { on_cache_hit : model_id:string -> unit
   ; on_cache_miss : model_id:string -> unit
   ; on_request_start : model_id:string -> unit
-  ; on_request_end : model_id:string -> latency_ms:int -> unit
+  ; on_request_end : model_id:string -> latency_ms:int option -> unit
   ; on_error : model_id:string -> error:string -> unit
   ; on_http_status : provider:string -> model_id:string -> status:int -> unit
   ; on_capability_drop : model_id:string -> field:string -> unit
@@ -65,6 +65,8 @@ val get_global : unit -> t
 
 (** Immutable snapshot of accumulated counters for a single provider/model
     pair. Suitable for OTLP/Prometheus export or structured logging.
+    [latency_ms_sum] and [latency_ms_count] include measured latency samples
+    only; completions with unknown latency still increment [request_total].
 
     @since 0.188.0 *)
 type provider_snapshot =

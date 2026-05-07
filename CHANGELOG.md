@@ -8,6 +8,9 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Changed
+- `Llm_provider.Llm_transport.sync_result.latency_ms`, `Types.inference_telemetry.request_latency_ms`, and `Metrics.on_request_end` now carry `int option` latency. Transports report `Some ms` only when they measured elapsed time and `None` when latency is unavailable, so telemetry JSON emits `null` instead of conflating unknown latency with a measured `0`. Downstream repos such as `masc-mcp` must handle the optional field when updating their OAS pin. (#1450)
+
 ## [0.190.26] - 2026-05-06
 
 ### Fixed

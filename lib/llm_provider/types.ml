@@ -305,7 +305,7 @@ type inference_telemetry =
   ; timings : inference_timings option
   ; reasoning_tokens : int option
   ; reasoning_tokens_estimated : bool
-  ; request_latency_ms : int
+  ; request_latency_ms : int option
   ; peak_memory_gb : float option
   ; provider_kind : Provider_kind.t option
   ; reasoning_effort : string option
