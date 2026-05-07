@@ -194,7 +194,7 @@ let telemetry_of_openai_json json =
     ; timings
     ; reasoning_tokens
     ; reasoning_tokens_estimated
-    ; request_latency_ms = 0
+    ; request_latency_ms = None
     ; peak_memory_gb
     ; provider_kind = None
     ; reasoning_effort = None

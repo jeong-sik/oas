@@ -33,22 +33,20 @@ let parse_openai_response_result =
   Llm_provider.Backend_openai_parse.parse_openai_response_result
 ;;
 
-(* Wall-clock latency patch. Parser layers (api_anthropic and backend_ollama)
-   leave request_latency_ms at 0 as a sentinel because they only see the JSON
-   response body; only the transport layer measures wall time. Without this
-   patch, downstream telemetry (latency panels, model_inference_metrics
-   percentiles) treats every turn as zero-latency and filters it out. *)
+(* Wall-clock latency patch. Parser layers leave request_latency_ms unknown
+   because they only see the JSON response body; only the transport layer
+   measures wall time. *)
 let patch_latency (resp : Types.api_response) (latency_ms : int) : Types.api_response =
   let telemetry =
     match resp.telemetry with
-    | Some t -> Some { t with Llm_provider.Types.request_latency_ms = latency_ms }
+    | Some t -> Some { t with Llm_provider.Types.request_latency_ms = Some latency_ms }
     | None ->
       Some
         { Llm_provider.Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
         ; reasoning_tokens_estimated = false
-        ; request_latency_ms = latency_ms
+        ; request_latency_ms = Some latency_ms
         ; peak_memory_gb = None
         ; provider_kind = None
         ; reasoning_effort = None
@@ -426,7 +424,7 @@ let%test "patch_latency creates telemetry when None with measured ms" =
   in
   let patched = patch_latency resp 500 in
   match patched.telemetry with
-  | Some t -> t.Llm_provider.Types.request_latency_ms = 500
+  | Some t -> t.Llm_provider.Types.request_latency_ms = Some 500
   | None -> false
 ;;
 
@@ -436,8 +434,8 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     ; timings = None
     ; reasoning_tokens = Some 10
     ; reasoning_tokens_estimated = false
-    ; request_latency_ms = 0
-    ; (* parser sentinel *)
+    ; request_latency_ms = None
+    ; (* parser cannot observe transport latency *)
       peak_memory_gb = None
     ; provider_kind = Some Llm_provider.Provider_config.Anthropic
     ; reasoning_effort = None
@@ -458,7 +456,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
   let patched = patch_latency resp 1234 in
   match patched.telemetry with
   | Some t ->
-    t.request_latency_ms = 1234
+    t.request_latency_ms = Some 1234
     && t.system_fingerprint = Some "fp" (* preserved *)
     && t.reasoning_tokens = Some 10 (* preserved *)
     && t.canonical_model_id = Some "claude-4-sonnet" (* preserved *)

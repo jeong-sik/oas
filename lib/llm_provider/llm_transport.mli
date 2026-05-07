@@ -47,7 +47,7 @@ type completion_request =
 (** Result of a sync completion. *)
 type sync_result =
   { response : (Types.api_response, Http_client.http_error) result
-  ; latency_ms : int
+  ; latency_ms : int option
   }
 
 (** Result of a streaming completion. *)

@@ -70,12 +70,24 @@ let test_aggregating_on_request_end_latency () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
   hooks.on_request_start ~model_id:"lat-model";
-  hooks.on_request_end ~model_id:"lat-model" ~latency_ms:100;
-  hooks.on_request_end ~model_id:"lat-model" ~latency_ms:200;
+  hooks.on_request_end ~model_id:"lat-model" ~latency_ms:(Some 100);
+  hooks.on_request_end ~model_id:"lat-model" ~latency_ms:(Some 200);
   let snap = Agg.snapshot agg in
   let entry = List.hd snap in
   check int "latency_ms_sum" 300 entry.M.latency_ms_sum;
   check int "latency_ms_count" 2 entry.M.latency_ms_count
+;;
+
+let test_aggregating_unknown_latency_does_not_add_sample () =
+  let agg = Agg.create () in
+  let hooks = Agg.to_hooks agg in
+  hooks.on_request_start ~model_id:"lat-model";
+  hooks.on_request_end ~model_id:"lat-model" ~latency_ms:None;
+  let snap = Agg.snapshot agg in
+  let entry = List.hd snap in
+  check int "request_total" 1 entry.M.request_total;
+  check int "latency_ms_sum" 0 entry.M.latency_ms_sum;
+  check int "latency_ms_count" 0 entry.M.latency_ms_count
 ;;
 
 let test_aggregating_reset () =
@@ -134,6 +146,10 @@ let () =
             "on_request_end latency"
             `Quick
             test_aggregating_on_request_end_latency
+        ; test_case
+            "unknown request latency is not sampled"
+            `Quick
+            test_aggregating_unknown_latency_does_not_add_sample
         ] )
     ; ( "lifecycle"
       , [ test_case "reset clears all" `Quick test_aggregating_reset

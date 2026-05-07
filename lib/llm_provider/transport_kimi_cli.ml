@@ -447,10 +447,10 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
             argv
         with
         | Error _ as e ->
-          { Llm_transport.response = classify_cli_error e; latency_ms = 0 }
+          { Llm_transport.response = classify_cli_error e; latency_ms = None }
         | Ok { latency_ms; _ } ->
           let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
-          { Llm_transport.response; latency_ms })
+          { Llm_transport.response; latency_ms = Some latency_ms })
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
         warn_external_tools_once warned req.tools;

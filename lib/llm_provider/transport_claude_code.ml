@@ -689,10 +689,10 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
               ?cancel:config.cancel
               argv
           with
-          | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+          | Error _ as e -> { Llm_transport.response = e; latency_ms = None }
           | Ok { stdout = _; stderr = _; latency_ms } ->
             let response = parse_stream_result (List.rev !seen_lines) in
-            { Llm_transport.response; latency_ms })
+            { Llm_transport.response; latency_ms = Some latency_ms })
         else (
           let args =
             build_args
@@ -705,10 +705,10 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
               ()
           in
           match run ~sw ~mgr ~config ?stdin_content:(stdin_for_prompt prompt) args with
-          | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+          | Error _ as e -> { Llm_transport.response = e; latency_ms = None }
           | Ok { stdout; stderr = _; latency_ms } ->
             let response = parse_json_result ~prompt (String.trim stdout) in
-            { Llm_transport.response; latency_ms }))
+            { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
         let messages = Cli_common_prompt.non_system_messages req.messages in

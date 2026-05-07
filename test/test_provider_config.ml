@@ -488,7 +488,7 @@ let telemetry_with_kind (pk : Provider_config.provider_kind option)
   ; timings = None
   ; reasoning_tokens = None
   ; reasoning_tokens_estimated = false
-  ; request_latency_ms = 0
+  ; request_latency_ms = None
   ; peak_memory_gb = None
   ; provider_kind = pk
   ; reasoning_effort = None
@@ -549,6 +549,42 @@ let test_wire_kind_none_roundtrip () =
          false
          (contains_substring ~sub:s encoded))
     [ "\"anthropic\""; "\"ollama\""; "\"openai_compat\"" ]
+;;
+
+let test_wire_unknown_latency_is_null () =
+  let original = telemetry_with_kind None in
+  let encoded = Yojson.Safe.to_string (Types.inference_telemetry_to_yojson original) in
+  Alcotest.(check bool)
+    "unknown latency encoded as JSON null"
+    true
+    (contains_substring ~sub:"\"request_latency_ms\":null" encoded);
+  let decoded =
+    match Types.inference_telemetry_of_yojson (Yojson.Safe.from_string encoded) with
+    | Ok t -> t
+    | Error msg -> Alcotest.failf "roundtrip decode failed: %s" msg
+  in
+  Alcotest.(check (option int))
+    "unknown latency roundtrips"
+    None
+    decoded.request_latency_ms
+;;
+
+let test_wire_measured_zero_latency_is_distinct () =
+  let original = { (telemetry_with_kind None) with request_latency_ms = Some 0 } in
+  let encoded = Yojson.Safe.to_string (Types.inference_telemetry_to_yojson original) in
+  Alcotest.(check bool)
+    "measured zero encoded as JSON zero"
+    true
+    (contains_substring ~sub:"\"request_latency_ms\":0" encoded);
+  let decoded =
+    match Types.inference_telemetry_of_yojson (Yojson.Safe.from_string encoded) with
+    | Ok t -> t
+    | Error msg -> Alcotest.failf "roundtrip decode failed: %s" msg
+  in
+  Alcotest.(check (option int))
+    "measured zero roundtrips"
+    (Some 0)
+    decoded.request_latency_ms
 ;;
 
 (* ── enumeration & default_api_key_env ────────────────── *)
@@ -821,6 +857,14 @@ let () =
             "None kind stays absent / no kind leaks"
             `Quick
             test_wire_kind_none_roundtrip
+        ; Alcotest.test_case
+            "unknown latency is encoded as null"
+            `Quick
+            test_wire_unknown_latency_is_null
+        ; Alcotest.test_case
+            "measured zero latency remains zero"
+            `Quick
+            test_wire_measured_zero_latency_is_distinct
         ; Alcotest.test_case
             "record JSON roundtrip preserves variant"
             `Quick

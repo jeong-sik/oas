@@ -273,7 +273,7 @@ let test_circuit_open_skips_provider_and_falls_back () =
     { complete_sync =
         (fun (req : Llm_transport.completion_request) ->
           seen_models := req.config.model_id :: !seen_models;
-          { Llm_transport.response = Ok dummy_response; latency_ms = 25 })
+          { Llm_transport.response = Ok dummy_response; latency_ms = Some 25 })
     ; complete_stream =
         (fun ~on_event:_ (req : Llm_transport.completion_request) ->
           seen_models := req.config.model_id :: !seen_models;
@@ -345,7 +345,7 @@ let test_hard_quota_stops_without_calling_fallback () =
             then Error hard_quota_error
             else Ok dummy_response
           in
-          { Llm_transport.response; latency_ms = 25 })
+          { Llm_transport.response; latency_ms = Some 25 })
     ; complete_stream =
         (fun ~on_event:_ (req : Llm_transport.completion_request) ->
           called_models := req.config.model_id :: !called_models;
@@ -384,7 +384,7 @@ let test_attempt_timeout_fast_paths_without_retrying_same_step () =
         (fun _ ->
           Atomic.incr calls;
           Eio.Time.sleep clock 5.0;
-          { Llm_transport.response = Ok dummy_response; latency_ms = 5000 })
+          { Llm_transport.response = Ok dummy_response; latency_ms = Some 5000 })
     ; complete_stream =
         (fun ~on_event:_ _ ->
           Atomic.incr calls;
@@ -444,7 +444,7 @@ let test_attempt_timeout_disable_via_nonpositive_sentinel () =
     { complete_sync =
         (fun _ ->
           Eio.Time.sleep clock 0.05;
-          { Llm_transport.response = Ok dummy_response; latency_ms = 50 })
+          { Llm_transport.response = Ok dummy_response; latency_ms = Some 50 })
     ; complete_stream =
         (fun ~on_event:_ _ ->
           Eio.Time.sleep clock 0.05;

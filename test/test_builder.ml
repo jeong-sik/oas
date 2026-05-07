@@ -355,7 +355,7 @@ let test_with_transport () =
               Error
                 (Llm_provider.Http_client.NetworkError
                    { message = "mock"; kind = Unknown })
-          ; latency_ms = 0
+          ; latency_ms = Some 0
           })
     ; complete_stream =
         (fun ~on_event:_ _req ->

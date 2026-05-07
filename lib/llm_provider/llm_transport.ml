@@ -85,7 +85,7 @@ let runtime_mcp_policy_to_yojson (policy : runtime_mcp_policy) =
 
 type sync_result =
   { response : (Types.api_response, Http_client.http_error) result
-  ; latency_ms : int
+  ; latency_ms : int option
   }
 
 type stream_result = (Types.api_response, Http_client.http_error) result

@@ -135,7 +135,10 @@ let test_anthropic_parse_response_initializes_telemetry () =
   let resp = BA.parse_response json in
   match resp.telemetry with
   | Some t ->
-    Alcotest.(check int) "request_latency_ms defaults to zero" 0 t.request_latency_ms;
+    Alcotest.(check (option int))
+      "request_latency_ms defaults to unknown"
+      None
+      t.request_latency_ms;
     let provider_kind_t = Alcotest.testable PC.pp_provider_kind ( = ) in
     Alcotest.(check (option provider_kind_t))
       "provider_kind placeholder"

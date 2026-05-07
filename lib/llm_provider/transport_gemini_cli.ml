@@ -486,7 +486,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                        "gemini_cli does not support request-scoped runtime MCP \
                         configuration"
                    })
-          ; latency_ms = 0
+          ; latency_ms = None
           }
         | None ->
           warn_unsupported_once config warned;
@@ -498,7 +498,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           let argv = build_args ~config ~req_config:req.config ~prompt ~system_prompt in
           let model = selected_model ~config ~req_config:req.config in
           (match run ~sw ~mgr ~config ?model argv with
-           | Error _ as e -> { Llm_transport.response = e; latency_ms = 0 }
+           | Error _ as e -> { Llm_transport.response = e; latency_ms = None }
            | Ok { stdout; stderr = _; latency_ms } ->
              let prompt_for_estimation =
                Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
@@ -510,7 +510,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
                  ~model_id
                  (String.trim stdout)
              in
-             { Llm_transport.response; latency_ms }))
+             { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =
       (fun ~on_event (req : Llm_transport.completion_request) ->
         match req.runtime_mcp_policy with
@@ -945,7 +945,7 @@ let%test_unit "complete_sync rejects request-scoped runtime MCP policy" =
                    { capability = Some "request_scoped_runtime_mcp" }
              ; message
              })
-    ; latency_ms = 0
+    ; latency_ms = None
     } -> assert (String.equal message runtime_mcp_policy_error_message)
   | _ -> assert false
 ;;
