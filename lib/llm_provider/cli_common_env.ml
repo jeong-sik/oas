@@ -51,11 +51,85 @@ let kv_pairs name =
   | Some v -> Some (split_on_char_trim ',' v |> List.filter_map parse_kv)
 ;;
 
-let int ~default var =
+let int ?(allow_negative = false) ~default var =
   match Sys.getenv_opt var with
   | Some raw ->
-    (match int_of_string_opt (String.trim raw) with
-     | Some v when v >= 0 -> v
-     | _ -> default)
+    let trimmed = String.trim raw in
+    if trimmed = ""
+    then default
+    else (
+      match int_of_string_opt trimmed with
+      | Some v when allow_negative || v >= 0 -> v
+      | Some v ->
+        Diag.warn
+          "cli_common_env"
+          "%s=%S is negative (%d); using default %d"
+          var
+          raw
+          v
+          default;
+        default
+      | None ->
+        Diag.warn
+          "cli_common_env"
+          "%s=%S is not an integer; using default %d"
+          var
+          raw
+          default;
+        default)
   | None -> default
+;;
+
+[@@@coverage off]
+
+let with_env name value f =
+  let original = Sys.getenv_opt name in
+  let restore () =
+    match original with
+    | None -> Unix.putenv name ""
+    | Some v -> Unix.putenv name v
+  in
+  Fun.protect ~finally:restore (fun () ->
+    Unix.putenv name value;
+    f ())
+;;
+
+let%test "int accepts positive env value" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_INT_POSITIVE" "12" (fun () ->
+    int ~default:7 "OAS_TEST_CLI_COMMON_ENV_INT_POSITIVE" = 12)
+;;
+
+let%test "int rejects negative env value by default" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_INT_NEGATIVE" "-1" (fun () ->
+    let warnings = ref [] in
+    let value =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> int ~default:7 "OAS_TEST_CLI_COMMON_ENV_INT_NEGATIVE")
+    in
+    value = 7
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg '-')
+         !warnings)
+;;
+
+let%test "int allows negative env value when requested" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_INT_ALLOW_NEGATIVE" "-1" (fun () ->
+    int ~allow_negative:true ~default:7 "OAS_TEST_CLI_COMMON_ENV_INT_ALLOW_NEGATIVE" = -1)
+;;
+
+let%test "int rejects non-numeric env value" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_INT_NON_NUMERIC" "not-a-number" (fun () ->
+    let warnings = ref [] in
+    let value =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> int ~default:7 "OAS_TEST_CLI_COMMON_ENV_INT_NON_NUMERIC")
+    in
+    value = 7
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg 'n')
+         !warnings)
 ;;
