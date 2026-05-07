@@ -8,12 +8,34 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.191.0] - 2026-05-07
+
 ### Changed
-- `Llm_provider.Llm_transport.sync_result.latency_ms`, `Types.inference_telemetry.request_latency_ms`, and `Metrics.on_request_end` now carry `int option` latency. Transports report `Some ms` only when they measured elapsed time and `None` when latency is unavailable, so telemetry JSON emits `null` instead of conflating unknown latency with a measured `0`. Downstream repos such as `masc-mcp` must handle the optional field when updating their OAS pin. (#1450)
+- `Llm_provider.Llm_transport.sync_result.latency_ms`, `Types.inference_telemetry.request_latency_ms`, and `Metrics.on_request_end` now carry `int option` latency. Transports report `Some ms` only when they measured elapsed time and `None` when latency is unavailable, so telemetry JSON emits `null` instead of conflating unknown latency with a measured `0`. Downstream consumers must handle the optional field when updating their OAS pin. (#1450, #1463)
 
 ### Added
-- `lib/cognitive_event.{ml,mli}`: typed JSON-codecable cognitive event schema for SDK consumers. Four variants — `Gravity_ranked`, `Intent_predicted`, `Mode_transitioned`, `Disclosure_level` — backed by `[@@deriving yojson, show]` plus a `name` label getter and an `is_well_formed` invariant checker. The host (masc-mcp) emits these; the SDK does not produce them itself in this PR. The type lives here so future SDK-side consumers (Hooks, Tracing) share a single schema. RFC-0036 PR-B.
-- `test/test_cognitive_event.ml`: 5 alcotest cases (label stability, well-formed accepts, well-formed rejects 12 invalid inputs, yojson roundtrip, yojson rejects garbage).
+- `lib/cognitive_event.{ml,mli}`: typed JSON-codecable cognitive event schema for SDK consumers. Four variants — `Gravity_ranked`, `Intent_predicted`, `Mode_transitioned`, `Disclosure_level` — backed by `[@@deriving yojson, show]` plus a `name` label getter and an `is_well_formed` invariant checker. Host coordinators emit these; the SDK does not produce them itself in this release. The type lives here so future SDK-side consumers (Hooks, Tracing) share a single schema. RFC-0036 PR-B. (#1451)
+- `Context_intent.Cognitive_op` variant: routes to `Skip` retrieval depth so coordinator hosts can request classification without triggering heavy retrieval. RFC-0036 Extension A. (#1453)
+- Transport CLI configs (`codex`, `claude_code`, `kimi_cli`, `gemini_cli`) expose `clock` and `stdout_idle_timeout_s` options to bound subprocess silence. Both must be `Some _` for the idle bound to engage. (#1458, #1459, #1460, #1461)
+- `Provider_adapter`: map transport errors to typed provider errors. (#1448)
+- Execution manifest carries risk-class cascade defaults. (#1441)
+- Contract carries quota allocations. (#1443)
+- Cascade timeout attempt diagnostics. (#1452)
+- CLI stdout recovery metadata exposed via `recovered_exit_code` field. (#1457)
+- `test/test_cognitive_event.ml`: 5 alcotest cases (label stability, well-formed accepts, well-formed rejects 12 invalid inputs, yojson roundtrip, yojson rejects garbage). (#1451)
+
+### Fixed
+- `Cascade`: stop provider terminal fallthrough. (#1454)
+- `Tool_selector`: replace `failwith` with empty list for unimplemented LLM categorical classifier (still fails loudly via downstream contract checks; localized to one classifier site). (#1455)
+- Warn on invalid CLI integer env. (#1456)
+- `Types.api_response.usage`: preserve missing response usage instead of defaulting to zero. (#1449)
+- `Agent`: stop periodic callbacks on cancellation. (#1447)
+
+### Internal
+- `scripts/check-sdk-independence.sh`: 2-tier scan with `--include-tests` and `--strict-tests` flags; OCaml comment heuristic + `boundary-allow` markers for intentional historical references. (#1462)
+- Test fixtures neutralized of coordinator-specific vocabulary; long-standing migration / incident comments tagged with `boundary-allow`. (#1462)
+- Restore SDK independence after merges that re-introduced coordinator terminology in `lib/` doc comments. (#1464)
+- `chore(fmt)`: format execution manifest defaults; ocamlformat applied to contract + test_contract. (#1445, #1446)
 
 
 ## [0.190.26] - 2026-05-06
