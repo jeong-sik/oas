@@ -299,7 +299,7 @@ let () =
             check int "2 blocks in first" 2 (List.length first.content))
         ; test_case "message metadata roundtrip" `Quick (fun () ->
             let replay_metadata =
-              [ ( "masc.replay"
+              [ ( "replay.namespace"
                 , `Assoc
                     [ "kind", `String "state_snapshot"
                     ; "version", `Int 1
@@ -310,7 +310,7 @@ let () =
             let msgs =
               [ { Types.role = Types.Assistant
                 ; content = [ Types.Text "Visible reply" ]
-                ; name = Some "keeper"
+                ; name = Some "agent_role_a"
                 ; tool_call_id = Some "call_1"
                 ; metadata = replay_metadata
                 }
@@ -320,7 +320,7 @@ let () =
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             match cp2.messages with
             | [ msg ] ->
-              check (option string) "name" (Some "keeper") msg.name;
+              check (option string) "name" (Some "agent_role_a") msg.name;
               check (option string) "tool_call_id" (Some "call_1") msg.tool_call_id;
               check
                 string

@@ -217,8 +217,8 @@ let test_default_retry_config () =
 ;;
 
 (* NOTE: Cascade_config (parse_model_string, load_profile, etc.) was removed
-   from OAS in 0.144.0 as part of the MASC migration. Multi-provider cascade
-   configuration and group orchestration are now MASC-owned. Tests for that
+   from OAS in 0.144.0 as part of the MASC migration (boundary-allow). Multi-provider cascade
+   configuration and group orchestration are now MASC-owned (boundary-allow). Tests for that
    module have been archived. *)
 
 (* ═══════════════════════════════════════════════════
@@ -1378,7 +1378,7 @@ let test_glm_capabilities () =
      tool_choice contract to [Allow_text_or_tool] and a text response is
      accepted instead of raising [CompletionContractViolation].
      Regression guard added after 2026-04-18 incident (8+ violations in
-     a single MASC session against glm-5-turbo / glm-4.7 / glm-5.1). *)
+     a single MASC session against glm-5-turbo / glm-4.7 / glm-5.1) (boundary-allow). *)
   Alcotest.(check bool) "supports_tool_choice relaxed" false c.supports_tool_choice;
   Alcotest.(check bool) "structured output disabled" false c.supports_structured_output;
   Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;

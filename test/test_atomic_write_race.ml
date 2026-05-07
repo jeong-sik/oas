@@ -5,7 +5,7 @@
     tmp path. Afterwards the target contains exactly one writer's
     bytes and no stray tmp sibling is left behind.
 
-    Reference: masc-mcp#9780 — two fibers wrote to "<id>.json.tmp"
+    Reference: masc-mcp#9780 (boundary-allow) — two fibers wrote to "<id>.json.tmp"
     and the second fiber's [rename] blew up when the first already
     consumed the shared tmp.
 

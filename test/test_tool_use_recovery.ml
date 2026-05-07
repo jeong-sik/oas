@@ -53,11 +53,11 @@ let test_find_object_none () =
 let test_extract_anthropic_style () =
   let json =
     `Assoc
-      [ "name", `String "keeper_board_post"; "input", `Assoc [ "title", `String "hi" ] ]
+      [ "name", `String "mock_tool_post"; "input", `Assoc [ "title", `String "hi" ] ]
   in
   match TUR.extract_name_and_input json with
   | Some (name, input) ->
-    check string "name" "keeper_board_post" name;
+    check string "name" "mock_tool_post" name;
     check
       (option string)
       "title"

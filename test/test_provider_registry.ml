@@ -468,14 +468,14 @@ let mk_config_for_kind kind =
   Provider_config.make ~kind ~model_id:"test" ~base_url ()
 ;;
 
-(** Regression guard for the masc-mcp capability-lookup bug fixed in
-    masc-mcp#9306. That bug passed [Provider_adapter.string_of_provider_kind]
-    (masc canonical_name: "claude-api", "kimi-api", "codex-api", ...) to
+(** Regression guard for the masc-mcp capability-lookup bug (boundary-allow) fixed in
+    masc-mcp#9306 (boundary-allow). That bug passed [Provider_adapter.string_of_provider_kind]
+    (masc canonical_name: "claude-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
     returned by [Provider_registry.provider_name_of_config] ("claude",
     "kimi", "llama", "ollama", "claude_code", "gemini_cli", ...). For
     direct-API kinds the lookup silently fell back to
-    [default_capabilities]; for CLI kinds the masc vocabulary happened
+    [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
     to match direct-API entries ("claude" → Anthropic, "gemini" → Gemini,
     "kimi" → Kimi) and returned the wrong capability matrix.
 
@@ -513,7 +513,7 @@ let test_every_kind_resolves_in_registry () =
 ;;
 
 (** Sharper assertion for the two CLI kinds that were the primary
-    wrong-hit victims in masc-mcp#9306: assert their registry entries
+    wrong-hit victims in masc-mcp#9306 (boundary-allow): assert their registry entries
     are CLI-shaped, not direct-API-shaped. If a regression reverts
     [provider_name_of_config Claude_code] back to ["claude"], this
     test fails because the resolved entry's [defaults.kind] will be
