@@ -2,6 +2,7 @@ type collect_result =
   { stdout : string
   ; stderr : string
   ; latency_ms : int
+  ; recovered_exit_code : int option
   }
 
 let starts_with s prefix =
@@ -218,7 +219,13 @@ let run_core
            }))
     else (
       match status with
-      | `Exited 0 -> Ok { stdout = stdout_str; stderr = stderr_str; latency_ms }
+      | `Exited 0 ->
+        Ok
+          { stdout = stdout_str
+          ; stderr = stderr_str
+          ; latency_ms
+          ; recovered_exit_code = None
+          }
       | `Exited code ->
         (* Some CLI transports complete the LLM response on stdout but exit
          nonzero on post-response bookkeeping (e.g. codex-cli 0.125.0+
@@ -244,7 +251,23 @@ let run_core
           | None -> false
         in
         if recovered
-        then Ok { stdout = stdout_str; stderr = stderr_str; latency_ms }
+        then (
+          let stderr_detail =
+            match last_nonempty_line stderr_str with
+            | Some line -> line
+            | None -> "<empty stderr>"
+          in
+          Eio.traceln
+            "cli_common_subprocess: stdout_recovery accepted nonzero exit code %d; \
+             stderr_last=%s"
+            code
+            stderr_detail;
+          Ok
+            { stdout = stdout_str
+            ; stderr = stderr_str
+            ; latency_ms
+            ; recovered_exit_code = Some code
+            })
         else (
           let detail =
             if stderr_str <> ""
@@ -392,10 +415,10 @@ let%test "run_collect: stdout_recovery rescues nonzero exit when predicate match
       ~on_stderr_line:(fun _ -> ())
       [ "sh"; "-c"; "printf 'turn.completed marker\\n'; exit 1" ]
   with
-  | Ok { stdout; _ } ->
+  | Ok { stdout; recovered_exit_code; _ } ->
     (* The 'turn.completed marker\n' payload should be captured even
        though the subprocess exited 1. *)
-    String.length stdout > 0
+    String.length stdout > 0 && recovered_exit_code = Some 1
   | _ -> false
 ;;
 
@@ -437,6 +460,7 @@ let%test "run_collect: zero exit ignores stdout_recovery (still Ok)" =
       ~on_stderr_line:(fun _ -> ())
       [ "sh"; "-c"; "printf 'fine\\n'; exit 0" ]
   with
-  | Ok _ -> true
+  | Ok { recovered_exit_code = None; _ } -> true
+  | Ok _ -> false
   | _ -> false
 ;;

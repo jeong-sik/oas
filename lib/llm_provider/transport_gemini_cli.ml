@@ -511,7 +511,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           let model = selected_model ~config ~req_config:req.config in
           (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> { Llm_transport.response = e; latency_ms = None }
-           | Ok { stdout; stderr = _; latency_ms } ->
+           | Ok { stdout; stderr = _; latency_ms; recovered_exit_code = _ } ->
              let prompt_for_estimation =
                Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
              in
@@ -548,7 +548,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
          after the sync call completes. *)
           (match run ~sw ~mgr ~config ?model argv with
            | Error _ as e -> e
-           | Ok { stdout; stderr = _; latency_ms = _ } ->
+           | Ok { stdout; stderr = _; latency_ms = _; recovered_exit_code = _ } ->
              let prompt_for_estimation =
                Cli_common_prompt.prompt_with_system_prompt ~prompt ~system_prompt
              in

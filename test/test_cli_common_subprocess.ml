@@ -18,9 +18,10 @@ let test_run_collect_ok () =
       ~extra_env:[]
       [ sh; "-c"; "printf a; printf b >&2" ]
   with
-  | Ok { stdout; stderr; latency_ms } ->
+  | Ok { stdout; stderr; latency_ms; recovered_exit_code } ->
     Alcotest.(check string) "stdout" "a\n" stdout;
     Alcotest.(check string) "stderr" "b\n" stderr;
+    Alcotest.(check (option int)) "not recovered" None recovered_exit_code;
     Alcotest.(check bool) "latency non-negative" true (latency_ms >= 0)
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
