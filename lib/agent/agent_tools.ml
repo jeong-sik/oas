@@ -60,14 +60,15 @@ let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =
      | None -> Tool.Sequential_workspace)
 ;;
 
+(* RFC-OAS-009 v2 PR-B: removed CDAL builtin_descriptor fallback.
+   Tools without descriptor fall through to Sequential_workspace
+   (fail-closed). Consumers should supply Tool.descriptor at
+   construction time so the agent runtime never reaches into the
+   CDAL builtin registry to classify concurrency. *)
 let concurrency_class_of_tool tool =
   match Tool.descriptor tool with
   | Some descriptor -> concurrency_class_from_descriptor descriptor
-  | None ->
-    (* Fallback: check builtin descriptor registry before defaulting *)
-    (match Mode_enforcer.builtin_descriptor tool.schema.name with
-     | Some descriptor -> concurrency_class_from_descriptor descriptor
-     | None -> Tool.Sequential_workspace)
+  | None -> Tool.Sequential_workspace
 ;;
 
 let find_tool_by_name tools name =
