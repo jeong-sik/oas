@@ -188,15 +188,71 @@ let effect_evidence st = List.rev st.effect_evidence
 
 (* ── Tool classification ─────────────────────────────────────────── *)
 
+(** Total mapping from typed tool identifier to effect class. The match
+    is exhaustive on [Tool_id.t]; adding a new builtin constructor in
+    [lib/base/tool_id.ml] forces the compiler to update this branch.
+    See RFC-OAS-008. *)
+let effect_class_of_tool_id : Tool_id.t -> tool_effect_class = function
+  (* Read-only *)
+  | Read
+  | Glob
+  | Grep
+  | Search
+  | List_dir
+  | Find_file
+  | Read_file
+  | Find_symbol
+  | Get_symbols_overview
+  | Find_referencing_symbols
+  | Search_for_pattern
+  | Notebook_read
+  | Read_console_messages
+  | Read_network_requests
+  | Get_page_text
+  | Read_page
+  | Tabs_context_mcp
+  | Task_list
+  | Task_get
+  | Task_output -> Read_only
+  (* Local-mutation *)
+  | Write
+  | Edit
+  | Create_text_file
+  | Replace_content
+  | Rename_symbol
+  | Insert_after_symbol
+  | Insert_before_symbol
+  | Replace_symbol_body
+  | Notebook_edit
+  | Task_create
+  | Task_update
+  | Task_stop
+  | Team_create
+  | Team_delete -> Local_mutation
+  (* External-effect *)
+  | Ask_user_question
+  | Web_fetch
+  | Web_search
+  | Navigate
+  | Computer
+  | Find
+  | Form_input
+  | Javascript_tool
+  | Tabs_create_mcp
+  | Upload_image -> External_effect
+  (* Shell-dynamic *)
+  | Bash
+  | Execute_shell_command -> Shell_dynamic
+  (* Escape hatches: fail closed for MCP and user-supplied unknowns. *)
+  | Mcp _ -> External_effect
+  | User _ -> External_effect
+;;
+
 let classify_tool name =
   let key = String.lowercase_ascii name in
   match Hashtbl.find_opt tool_registry key with
   | Some cls -> cls
-  | None ->
-    (* Fail closed: MCP tools and anything unknown -> External_effect *)
-    if String.length key > 5 && String.sub key 0 5 = "mcp__"
-    then External_effect
-    else External_effect
+  | None -> effect_class_of_tool_id (Tool_id.of_string name)
 ;;
 
 (** Structured shell-command pattern entries.
@@ -328,7 +384,15 @@ let effect_class_to_permission = function
 
 let builtin_descriptor name : Tool.descriptor option =
   let key = String.lowercase_ascii name in
-  match Hashtbl.find_opt tool_registry key with
+  let cls_opt =
+    match Hashtbl.find_opt tool_registry key with
+    | Some cls -> Some cls
+    | None ->
+      (match Tool_id.of_string name with
+       | Tool_id.Mcp _ | Tool_id.User _ -> None
+       | id -> Some (effect_class_of_tool_id id))
+  in
+  match cls_opt with
   | None -> None
   | Some cls ->
     Some
@@ -595,4 +659,31 @@ let%test "register_tool_class extends registry" =
   match builtin_descriptor "my_custom_tool" with
   | Some d -> d.mutation_class = Some "read_only"
   | None -> false
+;;
+
+(* ── RFC-OAS-008 parity: Tool_id ↔ default_tool_entries ────────────── *)
+(* Every entry in [default_tool_entries] must round-trip through the
+   typed identifier with the same effect class. If this fails, either a
+   new builtin was added to [default_tool_entries] without a matching
+   constructor in [Tool_id.t], or the [effect_class_of_tool_id] match
+   disagrees with the seeded list. *)
+
+let%test "tool_id_parity_with_default_entries" =
+  List.for_all
+    (fun (name, expected) ->
+      let derived = effect_class_of_tool_id (Tool_id.of_string name) in
+      derived = expected)
+    default_tool_entries
+;;
+
+let%test "tool_id_classify_unknown_falls_back_to_external_effect" =
+  classify_tool "definitely_not_a_real_tool_xyz_42" = External_effect
+;;
+
+let%test "tool_id_classify_mcp_prefix_is_external_effect" =
+  classify_tool "mcp__some_server__some_tool" = External_effect
+;;
+
+let%test "tool_id_classify_uppercase_normalizes" =
+  classify_tool "READ" = Read_only && classify_tool "BASH" = Shell_dynamic
 ;;
