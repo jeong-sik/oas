@@ -368,3 +368,8 @@
  (name test_cognitive_event)
  (modules test_cognitive_event)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_agent_cancellation_tla_parity)
+ (modules test_agent_cancellation_tla_parity)
+ (libraries agent_sdk alcotest))
