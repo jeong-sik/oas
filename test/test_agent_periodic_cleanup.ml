@@ -30,7 +30,7 @@ let make_transport ~clock ~sleep_s () : Llm_provider.Llm_transport.t =
   in
   { complete_sync =
       (fun _req ->
-        { Llm_provider.Llm_transport.response = Ok (complete ()); latency_ms = 0 })
+        { Llm_provider.Llm_transport.response = Ok (complete ()); latency_ms = Some 0 })
   ; complete_stream = (fun ~on_event:_ _req -> Ok (complete ()))
   }
 ;;

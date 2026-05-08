@@ -450,7 +450,7 @@ let test_provider_terminal_stops_without_calling_fallback () =
             then Error terminal_error
             else Ok dummy_response
           in
-          { Llm_transport.response; latency_ms = 25 })
+          { Llm_transport.response; latency_ms = Some 25 })
     ; complete_stream =
         (fun ~on_event:_ (req : Llm_transport.completion_request) ->
           called_models := req.config.model_id :: !called_models;

@@ -313,27 +313,48 @@ let test_transition_error_to_string () =
   Alcotest.(check bool) "contains 'terminal'" true (String.length s2 > 0)
 ;;
 
-(* ── yojson round-trip tests ────────────────────────────── *)
+(* ── yojson round-trip tests (PR-A3 mirror) ───────────────── *)
+(* Mirrors AgentLifecycle.tla state set {Accepted, Ready, Running,
+   Completed, Failed} via ppx_deriving_yojson.  Round-trip ensures that
+   adding a constructor without updating wire encoders is caught at
+   test time rather than at deserialization. *)
 
-let test_lifecycle_status_roundtrip () =
-  let statuses =
+let test_yojson_round_trip () =
+  let all_states =
     [ Agent_lifecycle.Accepted
-    ; Ready
-    ; Running
-    ; Completed
-    ; Failed
+    ; Agent_lifecycle.Ready
+    ; Agent_lifecycle.Running
+    ; Agent_lifecycle.Completed
+    ; Agent_lifecycle.Failed
     ]
   in
   List.iter
-    (fun s ->
-       let json = Agent_lifecycle.lifecycle_status_to_yojson s in
-       match Agent_lifecycle.lifecycle_status_of_yojson json with
-       | Ok s' ->
-         Alcotest.(check bool) "roundtrip" true (s = s')
-       | Error e ->
-         Alcotest.failf "lifecycle_status roundtrip failed: %s" e)
-    statuses
+    (fun status ->
+      let json = Agent_lifecycle.lifecycle_status_to_yojson status in
+      match Agent_lifecycle.lifecycle_status_of_yojson json with
+      | Ok parsed ->
+        Alcotest.(check bool)
+          (Printf.sprintf
+             "round-trip %s"
+             (Agent_lifecycle.show_lifecycle_status status))
+          true
+          (status = parsed)
+      | Error msg ->
+        Alcotest.fail
+          (Printf.sprintf
+             "round-trip failed for %s: %s"
+             (Agent_lifecycle.show_lifecycle_status status)
+             msg))
+    all_states
 ;;
+
+let test_yojson_rejects_unknown () =
+  let bogus = `String "NonexistentStatus" in
+  match Agent_lifecycle.lifecycle_status_of_yojson bogus with
+  | Error _ -> () (* expected — unknown value rejected *)
+  | Ok _ -> Alcotest.fail "unknown string should be rejected"
+;;
+
 
 let test_lifecycle_snapshot_roundtrip () =
   let snap =
@@ -357,7 +378,6 @@ let test_lifecycle_snapshot_roundtrip () =
   | Error e ->
     Alcotest.failf "lifecycle_snapshot roundtrip failed: %s" e
 ;;
-
 (* ── Test runner ────────────────────────────────────────── *)
 
 let () =
@@ -382,7 +402,7 @@ let () =
       , [ Alcotest.test_case
             "lifecycle_status roundtrip"
             `Quick
-            test_lifecycle_status_roundtrip
+            test_yojson_round_trip
         ; Alcotest.test_case
             "lifecycle_snapshot roundtrip"
             `Quick
@@ -439,6 +459,10 @@ let () =
             `Quick
             test_valid_transitions_exhaustive
         ; Alcotest.test_case "error_to_string" `Quick test_transition_error_to_string
+        ] )
+    ; ( "yojson"
+      , [ Alcotest.test_case "round-trip all states" `Quick test_yojson_round_trip
+        ; Alcotest.test_case "rejects unknown" `Quick test_yojson_rejects_unknown
         ] )
     ]
 ;;
