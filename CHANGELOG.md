@@ -8,11 +8,118 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.0] - 2026-05-09
+
+### BREAKING CHANGES
+
+- **CDAL framework relocated to `masc_mcp.cdal_runtime`** (RFC-OAS-011). The
+  Contract-Driven Agent Loop modules previously hosted in `agent_sdk` were
+  consumer-side governance only ever used by `masc-mcp`; their presence in
+  the SDK was a layering violation surfaced by RFC-OAS-009 v2. All 23
+  modules now live in `masc_mcp.cdal_runtime` (jeong-sik/masc-mcp); `agent_sdk`
+  no longer exposes them.
+
+  Modules removed from `Agent_sdk`:
+  `Cdal_proof`, `Mode_enforcer`, `Mode_resolver`, `Risk_contract`,
+  `Risk_class`, `Execution_mode`, `Proof_capture`, `Proof_store`,
+  `Contract_runner`, `Effect_evidence`, `Direct_evidence`, `Verified_output`,
+  `Conformance`, `Cognitive_event`, `Audit`, `Autonomy_exec`,
+  `Autonomy_diff_guard`, `Autonomy_trace_analyzer`, `Sessions_proof`,
+  `Runtime_evidence`. Façade re-exports from `lib/agent_sdk.{ml,mli}`
+  also dropped (#1489).
+
+  Migration: external consumers should depend on `masc_mcp.cdal_runtime`
+  for these symbols, or define their own equivalents.
+
+- **`lib/sessions.{ml,mli}` no longer `include module type of Sessions_proof`**
+  (#1489). The proof-bundle assembly migrated with the rest of CDAL.
+  `Sessions_types` and `Sessions_store` includes are unchanged. Code using
+  `Agent_sdk.Sessions.proof_bundle` etc. needs to switch to
+  `Masc_mcp_cdal_runtime.Sessions_proof.proof_bundle`.
+
+### Removed
+
+- `lib/execution_manifest.{ml,mli}` (#1486): dead module, zero callers
+  across OAS+masc-mcp ecosystem. Surfaced by the expanded CDAL boundary
+  lint because its mli carried `Execution_mode.t`/`Risk_class.t` fields.
+- `lib/runtime_server_worker.{ml,mli}` (#1487): dead module, zero
+  production callers. Removed alongside its `Runtime_evidence` 15-call
+  dependency chain and three associated test files (`test_runtime_evidence`,
+  `test_runtime_server_worker`, `test_runtime_worker_integration`).
+- 18 CDAL test files + 4 demo executables purged (#1488): coverage
+  follows the modules to `masc_mcp.cdal_runtime`. `test_tool.ml` also
+  drops its `builtin_descriptor` test group (5 cases) — RFC-OAS-009 v2
+  PR-B/C unwired the API and PR-6 deletes the function entirely.
+
 ### Added
-- `lib/base/tool_id.{ml,mli}`: closed Variant `Tool_id.t` module. Identifier moves from string SSOT to typed Variant; Phase 1 of RFC-OAS-008. (#1475)
+
+- `scripts/lint-core-cdal-boundary.sh` (#1483, #1485): rg-based CI guard
+  that forbids OAS core (`lib/agent`, `lib/llm_provider`, `lib/protocol`,
+  `lib/base`) from referencing CDAL modules. Originally 9 prefixes
+  (RFC-OAS-009 v2 PR-D), expanded to 20 (RFC-OAS-011 OAS-E PR-1) after
+  inventory revealed 14 implied-CDAL prefixes (`Audit`, `Autonomy_*`,
+  `Sessions_proof`, `Runtime_evidence`, etc.) had been silently leaking.
+- `lib/base/tool_id.{ml,mli}`: closed Variant `Tool_id.t` module.
+  Identifier moves from string SSOT to typed Variant; Phase 1 of
+  RFC-OAS-008. (#1475)
+- New `Boundary Lint (Core→CDAL)` GitHub Actions job (#1483): fast
+  `ripgrep`-only check, runs on Drafts, ≤5 min timeout. Provides
+  same-minute feedback ahead of the heavier `Build & Test` matrix.
+
+### Changed
+
+- `lib/agent/agent_tools.ml:68` (#1481): `concurrency_class_of_tool` no
+  longer falls back to `Mode_enforcer.builtin_descriptor` when the
+  Tool's descriptor is missing. Instead returns
+  `Tool.Sequential_workspace` (fail-closed). Severs the first of two
+  core→CDAL reverse dependencies identified by RFC-OAS-009 v2 §1.1.1.
+- `lib/protocol/mcp_schema.ml:63` (#1482): drops the
+  `descriptor_for_builtin_tool` alias and its inline tests.
+  `mcp_tool_to_sdk_tool` now creates `Tool.t` with `descriptor = None`
+  by default; consumers supply via `Tool.with_descriptor` or MCP tool
+  annotation. Severs the second of the two reverse dependencies.
+- `lib/agent/agent_turn.ml:137` (#1485): doc comment reword
+  ("Audit log…" → "Diagnostic log…") so the expanded boundary lint
+  doesn't catch a coincidental keyword in a comment that was never an
+  actual `Audit` module reference.
+
+### Reclassified (no breaking change)
+
+- `Agent_sdk.Guardrails_async` / `Guardrail_llm` / `Guardrail_tripwire`
+  intentionally **stay** in OAS core. The OAS-E boundary-lint expansion
+  initially flagged them but they are SDK-native safety hooks (carried
+  as record fields in `agent_types.t` / `builder.t`) — Anthropic-style
+  surface, not CDAL. Documented in `scripts/lint-core-cdal-boundary.sh`.
+  Their cdal_runtime copies (introduced during MM-2 migration) are now
+  redundant artifacts to be retired in masc-mcp's RFC-OAS-013.
 
 ### Documentation
-- `docs/rfc/RFC-OAS-008-typed-tool-identification.md`: typed tool identification design (Phase 1 only). Scope intentionally narrow — registry / lookup migration deferred. (#1474)
+
+- `docs/rfc/RFC-OAS-008-typed-tool-identification.md`: typed tool
+  identification design (Phase 1 only). Scope intentionally narrow —
+  registry / lookup migration deferred. (#1474)
+- `docs/rfc/RFC-OAS-009-tool-name-ignorance.md`: redefined v2 (Sever
+  Core→CDAL Dependencies) supersedes the merged v1 (default_tool_entries
+  cleanup). v1's original intent migrates to RFC-OAS-012 once CDAL is
+  hosted by masc-mcp.
+- `docs/rfc/RFC-OAS-011-cdal-migration-to-masc-mcp.md`: cross-repo CDAL
+  migration plan (#1480). Records the leaf-first batch ordering, the
+  zero-downtime three-step merge sequence (masc-mcp self-contained →
+  OAS-side removal → opam pin bump), and Sessions facade trim handoff.
+- `docs/rfc/RFC-OAS-012-tool-name-ignorance-within-cdal.md`: post-migration
+  cleanup plan (#1480). RFC-OAS-009 v1's original intent
+  (`default_tool_entries` empty, `classify_tool` global removal,
+  `capability_snapshot.tools` schema bump) now lives inside
+  `masc_mcp.cdal_runtime` rather than OAS.
+
+### Stat
+
+OAS-E sweep total: **-18,237 LoC** removed across 6 PRs (#1485–#1489
+plus #1483). Counterpart: ~7,531 LoC migrated into
+`masc_mcp.cdal_runtime` across MM-2 batches (jeong-sik/masc-mcp PRs
+#14248, #14253, #14255, #14259, #14264). Net OAS lib reduction
+larger than the migrated payload — most of the delta was over-tested
+dead surface accumulated alongside the CDAL framework.
 
 ## [0.192.1] - 2026-05-08
 
