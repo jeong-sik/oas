@@ -101,13 +101,36 @@ total
 패턴 예:
 ```ocaml
 let x = ref initial in
-(* no := anywhere *)
+(* no `:=`, no `incr x`, no `decr x` *)
 ... !x ...
 ```
 
 이런 ref는 *완전히 불필요*. let binding 직접 교체.
 
 **처리**: *우선순위 cleanup*. 위험 0, 면적 작음.
+
+#### 2.3.1 Identification grep recipe
+
+```bash
+# Look for ref vars with NO mutation of any kind:
+#   `:=` assignment, `incr v`, `decr v`.
+# Pattern (rg with -e to avoid shell quoting traps):
+for f in $(rg -l 'let \w+ = ref ' lib/); do
+  for v in $(grep -oE 'let [a-z_][a-z_0-9]* = ref ' "$f" | awk '{print $2}'); do
+    mut=$(rg -c -e "\b$v\s*:=" -e "\bincr\s+$v\b" -e "\bdecr\s+$v\b" "$f" 2>/dev/null \
+          | awk -F: '{s+=$NF} END{print s+0}')
+    rd=$(rg -c "!$v\b" "$f" 2>/dev/null || echo 0)
+    if [ "$mut" = "0" ] && [ "$rd" -ge "1" ]; then
+      echo "$f: '$v' is Category C (no mutation, $rd reads)"
+    fi
+  done
+done
+```
+
+PR-A의 *first attempt* (단일 regex 안 alternation `\|`)는 *shell-escape false negative*로
+`incr` / `decr`를 놓쳐 *Category B*를 *Category C*로 오분류했다 — 후속 PR-B에서
+`harness.ml:366` `common` ref가 실은 `incr common` (Category B)임을 발견. 위 recipe는
+`-e` 분리 alternation으로 그 false negative를 차단한다.
 
 ## 3. Quick-win Demo (이 PR)
 
