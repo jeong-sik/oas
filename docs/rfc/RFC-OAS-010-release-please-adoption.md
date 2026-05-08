@@ -1,4 +1,4 @@
-# RFC-OAS-009: release-please Adoption
+# RFC-OAS-010: release-please Adoption
 
 | | |
 |---|---|
