@@ -45,9 +45,6 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
-  test_audit
-  test_autonomy_smoke
-  test_autonomy_trace_unit
   test_backend_gemini
   test_body_timeout
   test_budget_strategy
@@ -56,8 +53,6 @@
   test_cache
   test_capabilities_wiring
   test_capability_filter
-  test_cdal
-  test_cdal_proof
   test_checkpoint
   test_checkpoint_store
   test_checkpoint_validation
@@ -65,9 +60,6 @@
   test_clone
   test_complete_ext
   test_conditional_orch
-  test_conformance
-  test_conformance_cov2
-  test_conformance_pure
   test_consumer
   test_content_replacement_event_bridge
   test_context
@@ -76,7 +68,6 @@
   test_context_offload
   test_context_reducer
   test_contract
-  test_contract_runner
   test_correction_pipeline
   test_cost_integration
   test_cost_tracker
@@ -85,8 +76,6 @@
   test_deep_coverage
   test_defaults
   test_defaults_unit
-  test_direct_evidence
-  test_direct_evidence_unit
   test_discovery
   test_durable
   test_durable_event
@@ -105,10 +94,8 @@
   test_event_bus
   test_event_envelope
   test_event_forward
-  test_evidence_pipeline_cov
   test_fs_result
   test_gemini_edge_cases
-  test_governance_integration
   test_guardrail_llm
   test_guardrail_tripwire
   test_guardrails
@@ -164,9 +151,7 @@
   test_plan
   test_policy
   test_policy_channel
-  test_policy_decision
   test_progressive_tools
-  test_proof_store_cross_run
   test_provider
   test_provider_config
   test_provider_intf
@@ -189,7 +174,6 @@
   test_session_advanced
   test_session_resume
   test_sessions_cov2
-  test_sessions_proof_unit
   test_sessions_types
   test_sessions_types_deep
   test_skill
@@ -236,8 +220,7 @@
   test_usability_v030
   test_util
   test_v024_fixes
-  test_vcs_graph_snapshot
-  test_verified_output)
+  test_vcs_graph_snapshot)
  (libraries agent_sdk alcotest)
  (deps %{bin:oas-runtime})
  (action
@@ -345,11 +328,6 @@
  (name test_guardrails_async)
  (modules test_guardrails_async)
  (libraries agent_sdk alcotest eio eio_main))
-
-(test
- (name test_cognitive_event)
- (modules test_cognitive_event)
- (libraries agent_sdk alcotest))
 
 (test
  (name test_agent_cancellation_tla_parity)
