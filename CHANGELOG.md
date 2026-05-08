@@ -8,6 +8,40 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.0](https://github.com/jeong-sik/oas/compare/v0.192.1...v0.193.0) (2026-05-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove migrated CDAL modules + façade re-exports (RFC-OAS-011 OAS-E PR-6)
+
+### Features
+
+* **agent_tools:** remove CDAL builtin_descriptor fallback (RFC-OAS-009 v2 PR-B) ([39082f6](https://github.com/jeong-sik/oas/commit/39082f6005888209a5b16c6aaa0b60bd25df050f))
+* **agent_tools:** remove CDAL builtin_descriptor fallback (RFC-OAS-009 v2 PR-B) ([41d0144](https://github.com/jeong-sik/oas/commit/41d0144f22fbfc36ea0da2c92487caff638bf807))
+* **base:** Tool_id closed Variant identifier (RFC-OAS-008 PR-2/5) ([3c67d1e](https://github.com/jeong-sik/oas/commit/3c67d1e510fca49692937effd08cefc89aebd079))
+* **base:** Tool_id closed Variant identifier (RFC-OAS-008 PR-2/5) ([8f413f8](https://github.com/jeong-sik/oas/commit/8f413f8a063273524f4fd2a22d14e69b1934709e))
+* **ci:** boundary-lint for core→CDAL zero dependency (RFC-OAS-009 v2 PR-D) ([b0c7a44](https://github.com/jeong-sik/oas/commit/b0c7a4484fe1a6514c1a308e9ce01581e356c81a))
+* **ci:** boundary-lint for core→CDAL zero dependency (RFC-OAS-009 v2 PR-D) ([f53a3f5](https://github.com/jeong-sik/oas/commit/f53a3f550a9b27848cc58e52ed024036cb86f281))
+* **ci:** expand boundary-lint to 20 CDAL prefixes (RFC-OAS-011 OAS-E PR-1) ([0a306ce](https://github.com/jeong-sik/oas/commit/0a306ce0f30e28d44e780eedb68551d2ded634a3))
+* **ci:** expand boundary-lint to 20 CDAL prefixes (RFC-OAS-011 OAS-E PR-1) ([e189ed7](https://github.com/jeong-sik/oas/commit/e189ed75b1d25b97a6bf9c4d8536d7c5b79188bc))
+* **mcp_schema:** remove descriptor_for_builtin_tool alias (RFC-OAS-009 v2 PR-C) ([ffb8aff](https://github.com/jeong-sik/oas/commit/ffb8aff3a3bac4bdfce823fe41ca176226ba2f13))
+* **mcp_schema:** remove descriptor_for_builtin_tool alias (RFC-OAS-009 v2 PR-C) ([2c41611](https://github.com/jeong-sik/oas/commit/2c416118433aa703f97f1e891b5671e9f67bb931))
+* **release:** adopt release-please for version + CHANGELOG automation ([fd9931d](https://github.com/jeong-sik/oas/commit/fd9931d7f60f3b966140fdc700fd29c982ac5ea5))
+* **release:** adopt release-please for version + CHANGELOG automation ([058ea4b](https://github.com/jeong-sik/oas/commit/058ea4bea2205b21854960f7cd4cb885043a9de8))
+
+
+### Bug Fixes
+
+* **main:** unblock 3 CI categories after [#1469](https://github.com/jeong-sik/oas/issues/1469)-[#1471](https://github.com/jeong-sik/oas/issues/1471) cascade ([ebfc95d](https://github.com/jeong-sik/oas/commit/ebfc95d6fb94c4e5c2a1c47af1380aa3f78fdbff))
+* **zai_catalog:** remove unsupported glm-5-code from coding auto-models ([92f108c](https://github.com/jeong-sik/oas/commit/92f108c6045b1e0065504ab059ac85a144db7f39))
+* **zai_catalog:** remove unsupported glm-5-code from coding auto-models ([186e51c](https://github.com/jeong-sik/oas/commit/186e51c24e0e1eadc50840073396630cdb6b74b9))
+
+
+### Code Refactoring
+
+* remove migrated CDAL modules + façade re-exports (RFC-OAS-011 OAS-E PR-6) ([c5b120d](https://github.com/jeong-sik/oas/commit/c5b120d6f04eb8ea203dec2d1ffc5f8920656cdf))
+
 ## [0.193.0] - 2026-05-09
 
 ### BREAKING CHANGES
@@ -3030,4 +3064,3 @@ match Builder.build_safe builder with
 
 ### Added
 - Initial release: Types, API client, basic agent loop
- 
