@@ -105,12 +105,19 @@ let assistant_reasoning_content_of_blocks blocks =
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(include_reasoning_content = false)
+      ?(modality_priority = Modality.Preserve_input_order)
       (msg : message)
   : Yojson.Safe.t list
   =
   match msg.role with
   | User ->
-    let content_parts = openai_content_parts_of_blocks msg.content in
+    (* Apply modality reordering policy before flattening into JSON parts.
+       For [Preserve_input_order] (default) this is a no-op; for
+       [Visual_first] image/audio/document blocks move ahead of text.
+       has_multimodal inspects the input list (pre-reorder) — the boolean
+       is invariant under reordering, so either input is correct. *)
+    let ordered_content = Modality.reorder modality_priority msg.content in
+    let content_parts = openai_content_parts_of_blocks ordered_content in
     let has_multimodal =
       List.exists
         (function
@@ -198,8 +205,17 @@ let glm_messages_of_message msg =
     msg
 ;;
 
-let ollama_messages_of_message msg =
-  messages_of_message_with ~tool_calls_fn:tool_calls_to_ollama_json msg
+let modality_priority_for_model_id model_id =
+  match Capabilities.for_model_id model_id with
+  | Some c -> c.modality_priority
+  | None -> Modality.Preserve_input_order
+;;
+
+let ollama_messages_of_message ?(model_id = "") msg =
+  messages_of_message_with
+    ~tool_calls_fn:tool_calls_to_ollama_json
+    ~modality_priority:(modality_priority_for_model_id model_id)
+    msg
 ;;
 
 (** Strip ToolResult blocks whose tool_use_id has no matching ToolUse

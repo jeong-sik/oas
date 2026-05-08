@@ -19,6 +19,7 @@
 (tests
  (names
   test_metrics_aggregating
+  test_modality
   test_capabilities
   test_call_time_pruner_config
   test_agent

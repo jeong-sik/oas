@@ -46,6 +46,10 @@ type capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; modality_priority : Modality.priority
+    (** Block ordering applied to multimodal user messages just before
+        serialization. [Visual_first] for Gemma 4 family.
+        @since 0.193.0 *)
   ; (* ── Protocol ──────────────────────────────────────── *)
     supports_native_streaming : bool
   ; supports_system_prompt : bool
@@ -100,6 +104,7 @@ let default_capabilities =
   ; supports_image_input = false
   ; supports_audio_input = false
   ; supports_video_input = false
+  ; modality_priority = Modality.Preserve_input_order
   ; supports_native_streaming = false
   ; supports_system_prompt = true
   ; (* most models support it *)
@@ -597,6 +602,9 @@ let for_model_id_static model_id =
       ; supports_audio_input = is_large
       ; supports_native_streaming = true
       ; supports_seed = true
+      ; modality_priority = Modality.Visual_first
+        (* Gemma 4 best practices: place image/audio before text for
+           optimal multimodal performance. *)
       }
     (* GLM flash/air variants: faster, no reasoning, smaller output.
      Must precede the broad glm-4.5/4.6/4.7/5 match below. *))
