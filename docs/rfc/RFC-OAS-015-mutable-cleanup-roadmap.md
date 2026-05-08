@@ -112,12 +112,18 @@ let x = ref initial in
 #### 2.3.1 Identification grep recipe
 
 ```bash
-# Look for ref vars with NO mutation of any kind:
-#   `:=` assignment, `incr v`, `decr v`.
-# Pattern (rg with -e to avoid shell quoting traps):
+# Look for ref vars with NO mutation of any kind across the whole file:
+#   `:=` assignment (any newline-formatting), `incr v`, `decr v`.
+# Multi-line (-U) is required: OCaml frequently formats long mutations as
+#   `varname\n        := <expression>` over two lines, and a line-based
+# rg call would treat the `:=` line as not containing the variable.
 for f in $(rg -l 'let \w+ = ref ' lib/); do
   for v in $(grep -oE 'let [a-z_][a-z_0-9]* = ref ' "$f" | awk '{print $2}'); do
-    mut=$(rg -c -e "\b$v\s*:=" -e "\bincr\s+$v\b" -e "\bdecr\s+$v\b" "$f" 2>/dev/null \
+    mut=$(rg -U -c \
+            -e "\b$v\s*:=" \
+            -e "\bincr\s+$v\b" \
+            -e "\bdecr\s+$v\b" \
+            "$f" 2>/dev/null \
           | awk -F: '{s+=$NF} END{print s+0}')
     rd=$(rg -c "!$v\b" "$f" 2>/dev/null || echo 0)
     if [ "$mut" = "0" ] && [ "$rd" -ge "1" ]; then
@@ -127,10 +133,47 @@ for f in $(rg -l 'let \w+ = ref ' lib/); do
 done
 ```
 
-PR-A의 *first attempt* (단일 regex 안 alternation `\|`)는 *shell-escape false negative*로
-`incr` / `decr`를 놓쳐 *Category B*를 *Category C*로 오분류했다 — 후속 PR-B에서
-`harness.ml:366` `common` ref가 실은 `incr common` (Category B)임을 발견. 위 recipe는
-`-e` 분리 alternation으로 그 false negative를 차단한다.
+##### Known false-negative classes (lessons learned)
+
+| Iteration | Pattern that fooled it | Fix |
+|---|---|---|
+| PR-A | single regex with shell-quoted `\|` alternation | use `rg -e` per pattern |
+| PR-B | `incr` / `decr` not covered | added per-pattern `-e` clauses |
+| PR-C (this) | multi-line formatting `var\n  := ...` (line-based rg miss) | added `rg -U` (multiline) |
+
+##### Closure-around-ref caveat (still a Category B, not C)
+
+The recipe above flags *zero file-wide mutation*. It does **not** distinguish
+between:
+
+- *truly unused mutation* (Category C) — let-binding suffices
+- *closure-mediated mutation* (Category B) — a helper inside the same function
+  body mutates the ref:
+
+```ocaml
+let violations = ref [] in
+let add ~axis ~code ~severity ~message =
+  violations := add_violation !violations ~axis ~code ~severity ~message
+in
+... add ~... ; add ~... ; ...
+List.rev !violations
+```
+
+Both `:=` and `!violations` exist; the recipe correctly counts them. But the
+mutation is *inside a let-binding closure*, and a single mass-conversion is
+risky because every caller of `add` becomes responsible for threading the
+accumulator. Treat closure-around-ref as **Category B with elevated review
+cost** — defer to lab/ branch demos, never bulk-cleanup.
+
+##### Verified scan as of RFC-OAS-015 PR-C
+
+| Repo | Category C strict (true zero mutation) |
+|---|---|
+| OAS `lib/` | **0** after PR-A + PR-B (eval_stats.idx and harness.common were Category B incr-loops, both converted) |
+| masc-mcp `lib/` | **2** false-positives traced to multi-line `:=` formatting (`cdal_runtime/proof_capture.ml: refs`, `coordination_product.ml: violations`) — both reclassified Category B (closure-around-ref) and deferred. |
+
+→ *true Category C is the rare case*. Most "looks like a bare ref" is actually
+Category B with a non-obvious mutator.
 
 ## 3. Quick-win Demo (이 PR)
 
