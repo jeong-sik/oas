@@ -71,7 +71,8 @@ type lifecycle_snapshot =
   ; started_at : float option
   ; last_progress_at : float option
   ; finished_at : float option
-  } [@@deriving yojson]
+  }
+[@@deriving yojson]
 
 let provider_runtime_name (cfg : Provider.config option) =
   match cfg with
