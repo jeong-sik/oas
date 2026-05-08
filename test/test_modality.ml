@@ -16,7 +16,6 @@ let block_kind = function
 ;;
 
 let kinds bs = List.map block_kind bs
-
 let mk_text s = Types.Text s
 
 let mk_image () =
@@ -28,8 +27,7 @@ let mk_audio () =
 ;;
 
 let mk_document () =
-  Types.Document
-    { media_type = "application/pdf"; data = "CCCC"; source_type = "base64" }
+  Types.Document { media_type = "application/pdf"; data = "CCCC"; source_type = "base64" }
 ;;
 
 let test_preserve_input_order () =
@@ -46,9 +44,7 @@ let test_visual_first_moves_image_ahead () =
 
 let test_visual_first_stable_within_groups () =
   (* Image, Text, Audio, Text → Visual_first → Image, Audio, Text, Text *)
-  let blocks =
-    [ mk_image (); mk_text "t1"; mk_audio (); mk_text "t2"; mk_document () ]
-  in
+  let blocks = [ mk_image (); mk_text "t1"; mk_audio (); mk_text "t2"; mk_document () ] in
   let result = Modality.reorder Modality.Visual_first blocks in
   check
     (list string)
@@ -88,8 +84,7 @@ let test_non_gemma_inherits_preserve () =
   | Some c ->
     (match c.modality_priority with
      | Modality.Preserve_input_order -> ()
-     | Modality.Visual_first ->
-       Alcotest.fail "claude should not opt into Visual_first")
+     | Modality.Visual_first -> Alcotest.fail "claude should not opt into Visual_first")
 ;;
 
 let () =

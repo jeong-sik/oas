@@ -182,7 +182,12 @@ let parse_mcp s =
     | None -> None
     | Some i ->
       let server = String.sub rest 0 i in
-      let tool = String.sub rest (i + String.length mcp_separator) (rlen - i - String.length mcp_separator) in
+      let tool =
+        String.sub
+          rest
+          (i + String.length mcp_separator)
+          (rlen - i - String.length mcp_separator)
+      in
       if String.equal server "" || String.equal tool ""
       then None
       else Some (Mcp { server; tool }))
@@ -251,7 +256,9 @@ let%test "of_string_lowercases_builtin" = equal (of_string "READ") Read
 let%test "of_string_user_lowercases" = equal (of_string "MyTool") (User "mytool")
 
 let%test "of_string_mcp_parses" =
-  equal (of_string "mcp__claude__read_file") (Mcp { server = "claude"; tool = "read_file" })
+  equal
+    (of_string "mcp__claude__read_file")
+    (Mcp { server = "claude"; tool = "read_file" })
 ;;
 
 let%test "of_string_mcp_lowercases" =

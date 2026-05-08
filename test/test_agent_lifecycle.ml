@@ -330,21 +330,19 @@ let test_yojson_round_trip () =
   in
   List.iter
     (fun status ->
-      let json = Agent_lifecycle.lifecycle_status_to_yojson status in
-      match Agent_lifecycle.lifecycle_status_of_yojson json with
-      | Ok parsed ->
-        Alcotest.(check bool)
-          (Printf.sprintf
-             "round-trip %s"
-             (Agent_lifecycle.show_lifecycle_status status))
-          true
-          (status = parsed)
-      | Error msg ->
-        Alcotest.fail
-          (Printf.sprintf
-             "round-trip failed for %s: %s"
-             (Agent_lifecycle.show_lifecycle_status status)
-             msg))
+       let json = Agent_lifecycle.lifecycle_status_to_yojson status in
+       match Agent_lifecycle.lifecycle_status_of_yojson json with
+       | Ok parsed ->
+         Alcotest.(check bool)
+           (Printf.sprintf "round-trip %s" (Agent_lifecycle.show_lifecycle_status status))
+           true
+           (status = parsed)
+       | Error msg ->
+         Alcotest.fail
+           (Printf.sprintf
+              "round-trip failed for %s: %s"
+              (Agent_lifecycle.show_lifecycle_status status)
+              msg))
     all_states
 ;;
 
@@ -354,7 +352,6 @@ let test_yojson_rejects_unknown () =
   | Error _ -> () (* expected — unknown value rejected *)
   | Ok _ -> Alcotest.fail "unknown string should be rejected"
 ;;
-
 
 let test_lifecycle_snapshot_roundtrip () =
   let snap =
@@ -372,12 +369,18 @@ let test_lifecycle_snapshot_roundtrip () =
   | Ok snap' ->
     Alcotest.(check string) "agent_name" snap.agent_name snap'.agent_name;
     Alcotest.(check bool) "status" true (snap.status = snap'.status);
-    Alcotest.(check (option (float 0.001))) "accepted_at" snap.accepted_at snap'.accepted_at;
+    Alcotest.(check (option (float 0.001)))
+      "accepted_at"
+      snap.accepted_at
+      snap'.accepted_at;
     Alcotest.(check (option (float 0.001))) "started_at" snap.started_at snap'.started_at;
-    Alcotest.(check (option (float 0.001))) "finished_at" snap.finished_at snap'.finished_at
-  | Error e ->
-    Alcotest.failf "lifecycle_snapshot roundtrip failed: %s" e
+    Alcotest.(check (option (float 0.001)))
+      "finished_at"
+      snap.finished_at
+      snap'.finished_at
+  | Error e -> Alcotest.failf "lifecycle_snapshot roundtrip failed: %s" e
 ;;
+
 (* ── Test runner ────────────────────────────────────────── *)
 
 let () =
@@ -399,10 +402,7 @@ let () =
     ; ( "hook_decision"
       , [ Alcotest.test_case "string conversion" `Quick test_hook_decision_strings ] )
     ; ( "yojson_roundtrip"
-      , [ Alcotest.test_case
-            "lifecycle_status roundtrip"
-            `Quick
-            test_yojson_round_trip
+      , [ Alcotest.test_case "lifecycle_status roundtrip" `Quick test_yojson_round_trip
         ; Alcotest.test_case
             "lifecycle_snapshot roundtrip"
             `Quick
