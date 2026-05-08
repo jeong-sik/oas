@@ -60,13 +60,16 @@ let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
   }
 ;;
 
-let descriptor_for_builtin_tool = Mode_enforcer.builtin_descriptor
+(* RFC-OAS-009 v2 PR-C: removed descriptor_for_builtin_tool alias.
+   MCP→SDK Tool conversion no longer consults the CDAL builtin
+   descriptor registry. Consumers are responsible for supplying
+   Tool.descriptor through MCP tool annotation or a post-conversion
+   enrichment hook. *)
 
 (** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
 let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
   let params = json_schema_to_params mcp_tool.input_schema in
   Tool.create
-    ?descriptor:(descriptor_for_builtin_tool mcp_tool.name)
     ~name:mcp_tool.name
     ~description:mcp_tool.description
     ~parameters:params
@@ -171,39 +174,10 @@ let%test "mcp_tool_of_sdk_tool None description becomes empty" =
   result.description = ""
 ;;
 
-let%test "descriptor_for_builtin_tool read is read_only" =
-  match descriptor_for_builtin_tool "read" with
-  | Some d ->
-    d.mutation_class = Some "read_only"
-    && d.concurrency_class = Some Tool.Parallel_read
-    && d.permission = Some Tool.ReadOnly
-  | None -> false
-;;
-
-let%test "descriptor_for_builtin_tool web_fetch is external" =
-  match descriptor_for_builtin_tool "web_fetch" with
-  | Some d ->
-    d.mutation_class = Some "external_effect"
-    && d.concurrency_class = Some Tool.Exclusive_external
-    && d.permission = Some Tool.Destructive
-  | None -> false
-;;
-
-let%test "descriptor_for_builtin_tool task_create is mutation" =
-  match descriptor_for_builtin_tool "task_create" with
-  | Some d ->
-    d.mutation_class = Some "local_mutation"
-    && d.concurrency_class = Some Tool.Sequential_workspace
-    && d.permission = Some Tool.Write
-  | None -> false
-;;
-
-let%test "descriptor_for_builtin_tool ask_user_question is external" =
-  match descriptor_for_builtin_tool "ask_user_question" with
-  | Some d -> d.concurrency_class = Some Tool.Exclusive_external
-  | None -> false
-;;
-
-let%test "descriptor_for_builtin_tool unknown returns None" =
-  descriptor_for_builtin_tool "nonexistent_xyz" = None
-;;
+(* RFC-OAS-009 v2 PR-C: removed 5 inline tests for descriptor_for_builtin_tool.
+   These tests pinned Claude Code/Serena/Team builtin names ("read", "web_fetch",
+   "task_create", "ask_user_question", "nonexistent_xyz") into mcp_schema's
+   inline tests, which is the precise layering violation RFC-OAS-009 v2 closes.
+   The descriptor_for_builtin_tool alias itself is also removed (line 63).
+   Behavior of mcp_tool_to_sdk_tool is now: descriptor=None for every MCP tool —
+   consumers supply via Tool.with_descriptor or a post-conversion enrichment. *)
