@@ -134,7 +134,7 @@ let prepare_tools
       { merged with Guardrails.tool_filter = intersected }
     | None -> merged
   in
-  (* Audit log when operator policy is active *)
+  (* Diagnostic log when operator policy is active *)
   (match source with
    | Guardrails.Operator ->
      let _log = Log.create ~module_name:"agent_turn" () in

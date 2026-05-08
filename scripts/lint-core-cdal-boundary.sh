@@ -35,10 +35,29 @@ CORE_DIRS=(
 )
 
 # CDAL module prefixes to forbid in core.
-# Gold-standard set: the seven mli files that self-tag "Part of CDAL PoC-1"
-# plus their direct dependents (mode_enforcer, contract_runner) which
-# constitute the CDAL boundary surface.
-CDAL_PATTERN='\b(Cdal_proof|Mode_enforcer|Mode_resolver|Risk_contract|Risk_class|Execution_mode|Proof_capture|Proof_store|Contract_runner)\b'
+#
+# Original gold-standard set (RFC-OAS-009 v2 PR-D, 9 prefixes): the seven mli
+# files that self-tag "Part of CDAL PoC-1" plus their direct dependents
+# (mode_enforcer, contract_runner).
+#
+# Expanded set (RFC-OAS-011 OAS-E PR-1, +11 prefixes): the "Implied CDAL"
+# modules that RFC-OAS-009 v2 §1.1.2 listed but the lint did NOT cover.
+# Their omission allowed core → CDAL leakage that surfaced during
+# OAS-E inventory:
+#   - lib/agent/agent_turn.ml comment containing "Audit"      → diagnostic log
+#   - lib/pipeline/pipeline.ml using Guardrails_async         → reclassified core
+#   - lib/runtime_server_worker.ml using Runtime_evidence     → 15 call sites
+#   - lib/sessions.mli include of Sessions_proof              → signature surface
+#   - lib/execution_manifest.mli using Execution_mode/Risk_class → field types
+#
+# Reclassification (Guardrails are SDK core, not CDAL):
+# Guardrail_llm / Guardrail_tripwire / Guardrails_async are part of the
+# agent runtime surface (Anthropic-style safety hooks integral to the
+# turn pipeline) — agent_types/builder both depend on Guardrails_async.t
+# as a record field. They were over-classified during the MM-2 migration;
+# the cdal_runtime copies are now redundant artifacts to be retired in
+# RFC-OAS-013. Excluded from this lint pattern.
+CDAL_PATTERN='\b(Cdal_proof|Mode_enforcer|Mode_resolver|Risk_contract|Risk_class|Execution_mode|Proof_capture|Proof_store|Contract_runner|Effect_evidence|Verified_output|Conformance|Cognitive_event|Direct_evidence|Audit|Autonomy_exec|Autonomy_diff_guard|Autonomy_trace_analyzer|Sessions_proof|Runtime_evidence)\b'
 
 # Pick the search tool.
 if command -v rg >/dev/null 2>&1; then
@@ -68,7 +87,10 @@ if [ -z "$matches" ]; then
   echo "  Scanned: ${existing_dirs[*]}"
   echo "  Forbidden: Cdal_proof | Mode_enforcer | Mode_resolver | Risk_contract"
   echo "             | Risk_class | Execution_mode | Proof_capture | Proof_store"
-  echo "             | Contract_runner"
+  echo "             | Contract_runner | Effect_evidence | Verified_output"
+  echo "             | Conformance | Cognitive_event | Direct_evidence | Audit"
+  echo "             | Autonomy_exec | Autonomy_diff_guard"
+  echo "             | Autonomy_trace_analyzer | Sessions_proof | Runtime_evidence"
   exit 0
 fi
 
