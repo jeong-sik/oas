@@ -313,6 +313,51 @@ let test_transition_error_to_string () =
   Alcotest.(check bool) "contains 'terminal'" true (String.length s2 > 0)
 ;;
 
+(* ── yojson round-trip tests ────────────────────────────── *)
+
+let test_lifecycle_status_roundtrip () =
+  let statuses =
+    [ Agent_lifecycle.Accepted
+    ; Ready
+    ; Running
+    ; Completed
+    ; Failed
+    ]
+  in
+  List.iter
+    (fun s ->
+       let json = Agent_lifecycle.lifecycle_status_to_yojson s in
+       match Agent_lifecycle.lifecycle_status_of_yojson json with
+       | Ok s' ->
+         Alcotest.(check bool) "roundtrip" true (s = s')
+       | Error e ->
+         Alcotest.failf "lifecycle_status roundtrip failed: %s" e)
+    statuses
+;;
+
+let test_lifecycle_snapshot_roundtrip () =
+  let snap =
+    Agent_lifecycle.build_snapshot
+      ~agent_name:"roundtrip-test"
+      ~provider:None
+      ~model:"claude-sonnet-4-6"
+      ~accepted_at:100.0
+      ~started_at:101.0
+      ~finished_at:200.0
+      Agent_lifecycle.Completed
+  in
+  let json = Agent_lifecycle.lifecycle_snapshot_to_yojson snap in
+  match Agent_lifecycle.lifecycle_snapshot_of_yojson json with
+  | Ok snap' ->
+    Alcotest.(check string) "agent_name" snap.agent_name snap'.agent_name;
+    Alcotest.(check bool) "status" true (snap.status = snap'.status);
+    Alcotest.(check (option (float 0.001))) "accepted_at" snap.accepted_at snap'.accepted_at;
+    Alcotest.(check (option (float 0.001))) "started_at" snap.started_at snap'.started_at;
+    Alcotest.(check (option (float 0.001))) "finished_at" snap.finished_at snap'.finished_at
+  | Error e ->
+    Alcotest.failf "lifecycle_snapshot roundtrip failed: %s" e
+;;
+
 (* ── Test runner ────────────────────────────────────────── *)
 
 let () =
@@ -333,6 +378,16 @@ let () =
         ] )
     ; ( "hook_decision"
       , [ Alcotest.test_case "string conversion" `Quick test_hook_decision_strings ] )
+    ; ( "yojson_roundtrip"
+      , [ Alcotest.test_case
+            "lifecycle_status roundtrip"
+            `Quick
+            test_lifecycle_status_roundtrip
+        ; Alcotest.test_case
+            "lifecycle_snapshot roundtrip"
+            `Quick
+            test_lifecycle_snapshot_roundtrip
+        ] )
     ; ( "transition_guards"
       , [ Alcotest.test_case "Accepted -> Ready" `Quick test_transition_accepted_to_ready
         ; Alcotest.test_case "Ready -> Running" `Quick test_transition_ready_to_running

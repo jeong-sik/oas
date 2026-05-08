@@ -100,7 +100,7 @@ type lifecycle_status = Agent_lifecycle.lifecycle_status =
   | Running
   | Completed
   | Failed
-[@@deriving show]
+[@@deriving show, yojson]
 
 type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot =
   { current_run_id : string option
@@ -120,6 +120,7 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot =
   ; last_progress_at : float option
   ; finished_at : float option
   }
+[@@deriving yojson]
 
 let default_options =
   { base_url = Api.default_base_url

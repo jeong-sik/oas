@@ -28,7 +28,7 @@ type lifecycle_status =
   | Running
   | Completed
   | Failed
-[@@deriving show]
+[@@deriving show, yojson]
 
 (** {1 Transition guards} *)
 
@@ -78,6 +78,7 @@ type lifecycle_snapshot =
   ; last_progress_at : float option
   ; finished_at : float option
   }
+[@@deriving yojson]
 
 (** {1 Construction} *)
 
