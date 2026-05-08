@@ -8,6 +8,33 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Added
+- `lib/base/tool_id.{ml,mli}`: closed Variant `Tool_id.t` module. Identifier moves from string SSOT to typed Variant; Phase 1 of RFC-OAS-008. (#1475)
+
+### Documentation
+- `docs/rfc/RFC-OAS-008-typed-tool-identification.md`: typed tool identification design (Phase 1 only). Scope intentionally narrow — registry / lookup migration deferred. (#1474)
+
+## [0.192.1] - 2026-05-08
+
+### Added
+- `lib/llm_provider/modality.{ml,mli}`: `Modality.priority` type with `Preserve_input_order` (default) and `Visual_first` (Gemma 4 family) variants. Stable sort within group, no behavior change for non-Gemma callers. (#1469)
+- `test/test_agent_cancellation_tla_parity.ml`: OCaml mirror predicates for `specs/AgentCancellation.tla` invariants. Validates `Runtime.phase` 7-state alphabet, 3 terminal phases, and `TerminalIsStable` (terminal → non-terminal disallowed). (#1471)
+
+### Fixed
+- `examples/cli_transports_demo.ml`: unwrap `latency_ms : int option` with `-1` sentinel for unmeasured case. Build error from #1463 (latency option migration) now resolved. (#1473)
+- `.github/workflows/ci.yml`: TLA buggy-spec gate accepts both TLC exit codes 12 (state-level) and 13 (trace-level) as expected invariant violation. `ContentReplacementState` was producing exit 13 and falling through. (#1473)
+- `lib/{cognitive_event.ml,llm_provider/capabilities.ml,llm_provider/modality.{ml,mli},llm_provider/types.ml,agent/agent_lifecycle.{ml,mli}}`: ocamlformat 0.29.0 (janestreet profile) drift accumulated across #1469-#1471 merges. (#1473)
+
+### Changed
+- `.github/workflows/ci.yml`: deduplicate `tla-model-check` job, keep `tla-specs` only. Removes redundant runtime. (#1470)
+
+## [0.192.0] - 2026-05-08
+
+### Added
+- `specs/AgentCancellation.tla`: TLA+ specification for agent cancellation lifecycle. 7-phase alphabet, 3 terminal phases, `TerminalIsStable` and `CancelledRequiresSignal` invariants. Companion `.cfg` + `-buggy.cfg` for clean/buggy parity. (#1465, #1467)
+- `Lifecycle_status.t`: `[@@deriving yojson]` derivation for JSON codec. (#1467)
+- `.github/workflows/ci.yml`: `tla-specs` CI gate runs TLC against all `specs/*.cfg` (clean) and asserts invariant violation against `specs/*-buggy.cfg`. (#1465, #1467)
+
 ## [0.191.0] - 2026-05-07
 
 ### Changed
