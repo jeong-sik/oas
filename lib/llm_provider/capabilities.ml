@@ -602,8 +602,9 @@ let for_model_id_static model_id =
       ; supports_audio_input = is_large
       ; supports_native_streaming = true
       ; supports_seed = true
-      ; modality_priority = Modality.Visual_first
-        (* Gemma 4 best practices: place image/audio before text for
+      ; modality_priority =
+          Modality.Visual_first
+          (* Gemma 4 best practices: place image/audio before text for
            optimal multimodal performance. *)
       }
     (* GLM flash/air variants: faster, no reasoning, smaller output.

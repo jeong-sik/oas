@@ -120,7 +120,7 @@ let () =
    | Ok resp ->
      Printf.printf
        "  latency=%d ms id=%s model=%s blocks=%d\n"
-       latency_ms
+       (Option.value latency_ms ~default:(-1))
        resp.id
        resp.model
        (List.length resp.content);

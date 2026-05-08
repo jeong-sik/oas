@@ -18,10 +18,9 @@
     boolean so future policies (e.g. interleaved, audio-only-first) can
     be added without breaking existing call sites. *)
 type priority =
-  | Preserve_input_order
-    (** Default. Caller's block order is kept verbatim. *)
+  | Preserve_input_order (** Default. Caller's block order is kept verbatim. *)
   | Visual_first
-    (** [Image], [Audio], and [Document] blocks are moved ahead of
+  (** [Image], [Audio], and [Document] blocks are moved ahead of
         [Text] blocks. Other block kinds (tool calls, thinking) keep
         their relative position. Stable: within each group input order
         is preserved. Recommended for Gemma 4 family models. *)
