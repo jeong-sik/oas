@@ -228,6 +228,55 @@ jobs:
 
           echo "Version consistency check passed: $DUNE_VER"
 
+  tla-model-check:
+    name: TLA+ Model Check
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Download TLC
+        run: |
+          wget -q https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+          ls -la tla2tools.jar
+
+      - name: Run clean TLA+ specs
+        run: |
+          for spec in AgentLifecycle ContentReplacementState ContextWindowExhaustion EventBusCausality; do
+            echo "::group::TLC $spec (clean)"
+            java -cp tla2tools.jar tlc2.TLC -config "specs/${spec}.cfg" "specs/${spec}.tla"
+            echo "::endgroup::"
+          done
+
+      - name: Verify Bug Model (buggy variants should fail)
+        run: |
+          check_buggy() {
+            local cfg="$1"
+            local tla="$2"
+            echo "::group::TLC $(basename "$cfg") (buggy — expect violation)"
+            if java -cp tla2tools.jar tlc2.TLC -config "$cfg" "$tla" 2>&1 | tee /tmp/tlc-buggy.log | grep -q "is violated"; then
+              echo "✓ Buggy variant $(basename "$cfg") correctly violates invariant"
+            else
+              echo "✗ Buggy variant $(basename "$cfg") did not violate expected invariant"
+              cat /tmp/tlc-buggy.log
+              exit 1
+            fi
+            echo "::endgroup::"
+          }
+          check_buggy specs/AgentLifecycle-buggy.cfg specs/AgentLifecycle.tla
+          check_buggy specs/ContentReplacementState-buggy.cfg specs/ContentReplacementState.tla
+          check_buggy specs/ContextWindowExhaustion-buggy.cfg specs/ContextWindowExhaustion.tla
+          check_buggy specs/EventBusCausality-buggy.cfg specs/EventBusCausality.tla
+
   transport-drift:
     name: Transport Drift Gate
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}

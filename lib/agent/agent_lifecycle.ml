@@ -10,7 +10,7 @@ type lifecycle_status =
   | Running
   | Completed
   | Failed
-[@@deriving show]
+[@@deriving show, yojson]
 
 (* ── Transition guards ─────────────────────────── *)
 
