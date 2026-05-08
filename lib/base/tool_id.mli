@@ -70,18 +70,18 @@ type t =
   | User of string
 [@@deriving show]
 
-val equal : t -> t -> bool
 (** Structural equality. [Mcp] compares by [server] and [tool] fields;
     [User name] compares by exact (lowercased) name. *)
+val equal : t -> t -> bool
 
-val to_string : t -> string
 (** Stable string form. Builtins and [Mcp] round-trip with [of_string].
     [User name] returns the (already lowercased) name. *)
+val to_string : t -> string
 
-val of_string : string -> t
 (** Total. Lowercases input, matches builtins, parses [mcp__server__tool] into
     [Mcp], otherwise returns [User <lowercased>]. Never raises. *)
+val of_string : string -> t
 
-val all_builtins : t list
 (** Every builtin constructor in declaration order. Excludes [Mcp _] and
     [User _]. Used by parity tests against [Mode_enforcer.default_tool_entries]. *)
+val all_builtins : t list
