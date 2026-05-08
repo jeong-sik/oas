@@ -134,14 +134,16 @@ let detect_trend ~window data =
       let m = mean xs in
       let fn = float_of_int n in
       let x_mean = (fn -. 1.0) /. 2.0 in
-      let idx = ref 0 in
-      let num, den =
+      (* RFC-OAS-015: idx counter folded into the accumulator tuple instead
+         of an external [ref] mutated via [incr]. Same arithmetic, no
+         observable behaviour change — Category B (idiomatic but replaceable
+         mutable). *)
+      let _, num, den =
         List.fold_left
-          (fun (num, den) y ->
-             let dx = float_of_int !idx -. x_mean in
-             incr idx;
-             num +. (dx *. (y -. m)), den +. (dx *. dx))
-          (0.0, 0.0)
+          (fun (idx, num, den) y ->
+             let dx = float_of_int idx -. x_mean in
+             idx + 1, num +. (dx *. (y -. m)), den +. (dx *. dx))
+          (0, 0.0, 0.0)
           xs
       in
       if den < 1e-12
