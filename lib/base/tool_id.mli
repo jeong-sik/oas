@@ -1,9 +1,12 @@
 (** Typed tool identifier.
 
     Closed Variant for builtins, escape hatches for MCP and user-supplied tools.
-    See RFC-OAS-008 for the rationale. PR-2 ships only the identifier and
-    string conversion; PR-3 wires this into [Mode_enforcer] without changing
-    its external API. *)
+    See RFC-OAS-008 for the original rationale. PR-2 ships only the identifier
+    and string conversion. The wiring into the (CDAL-resident) classifier
+    that RFC-OAS-008 PR-3 originally proposed has been superseded by
+    RFC-OAS-009 v2: OAS core no longer references CDAL modules, and the
+    builtin variants here are scheduled for removal in RFC-OAS-012 once
+    CDAL migrates to masc-mcp (RFC-OAS-011). *)
 
 type t =
   (* Read-only — file & code navigation *)
@@ -83,5 +86,7 @@ val to_string : t -> string
 val of_string : string -> t
 
 (** Every builtin constructor in declaration order. Excludes [Mcp _] and
-    [User _]. Used by parity tests against [Mode_enforcer.default_tool_entries]. *)
+    [User _]. Originally introduced by RFC-OAS-008 PR-2 for parity with
+    the (CDAL-resident) builtin classifier; scheduled for removal in
+    RFC-OAS-012 alongside the CDAL migration in RFC-OAS-011. *)
 val all_builtins : t list
