@@ -77,7 +77,7 @@ type lifecycle_snapshot =
   ; started_at : float option
   ; last_progress_at : float option
   ; finished_at : float option
-  }
+  } [@@deriving yojson]
 
 (** {1 Construction} *)
 
