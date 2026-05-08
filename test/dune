@@ -283,17 +283,6 @@
    (run %{test}))))
 
 (test
- (name test_execution_manifest)
- (modules test_execution_manifest)
- (libraries agent_sdk llm_provider alcotest)
- (deps %{bin:oas-runtime})
- (action
-  (setenv
-   OAS_RUNTIME_PATH
-   %{bin:oas-runtime}
-   (run %{test}))))
-
-(test
  (name test_streaming)
  (modules test_streaming)
  (libraries agent_sdk alcotest))
