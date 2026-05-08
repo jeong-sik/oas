@@ -157,6 +157,23 @@ jobs:
           opam install odoc --yes
           opam exec -- dune build @doc
 
+  boundary-lint:
+    # RFC-OAS-009 v2 PR-D — Core→CDAL boundary check.
+    # Runs on every push and PR (including drafts) to give fast feedback
+    # without waiting for the full opam-based build matrix.
+    name: Boundary Lint (Core→CDAL)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
+
+      - name: Forbid CDAL references in OAS core
+        run: bash scripts/lint-core-cdal-boundary.sh
+
   lint:
     name: Lint
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
