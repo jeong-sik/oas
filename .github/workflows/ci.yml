@@ -279,3 +279,53 @@ jobs:
 
       - name: Enforce tag drift (strict)
         run: bash scripts/check-tag-drift.sh --strict --allow-current-untagged
+
+  tla-specs:
+    name: TLA+ Model Checking
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Download tla2tools.jar
+        run: |
+          curl -fsSL -o specs/tla2tools.jar \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+
+      - name: Check clean specs
+        run: |
+          for cfg in specs/*.cfg; do
+            if echo "$cfg" | grep -q buggy; then continue; fi
+            tla="${cfg%.cfg}.tla"
+            echo "=== Checking $(basename "$tla") with $(basename "$cfg") ==="
+            java -cp specs/tla2tools.jar tlc2.TLC -config "$cfg" "$tla"
+          done
+
+      - name: Check buggy specs
+        run: |
+          for cfg in specs/*-buggy.cfg; do
+            tla="${cfg%-buggy.cfg}.tla"
+            echo "=== Checking buggy $(basename "$tla") with $(basename "$cfg") ==="
+            set +e
+            java -cp specs/tla2tools.jar tlc2.TLC -config "$cfg" "$tla"
+            exit_code=$?
+            set -e
+            if [ $exit_code -eq 12 ]; then
+              echo "  Invariant violated as expected (exit 12)"
+            elif [ $exit_code -eq 0 ]; then
+              echo "ERROR: Buggy spec should have violated invariant but passed"
+              exit 1
+            else
+              echo "ERROR: Unexpected exit code $exit_code"
+              exit 1
+            fi
+          done
