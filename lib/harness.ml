@@ -355,7 +355,10 @@ module Regression = struct
          | Ok golden_json -> cmp obs.output_json golden_json, None
          | Error msg -> false, Some (Printf.sprintf "Invalid golden JSON: %s" msg))
       | FuzzyMatch { threshold } ->
-        (* Simple character-level similarity *)
+        (* Simple character-level similarity.
+           RFC-OAS-015 PR-B: replaced the imperative `for` loop with an
+           external `ref common` counter by a tail-recursive accumulator.
+           Same arithmetic, identical traversal order. *)
         let len1 = String.length obs.output_text in
         let len2 = String.length golden in
         let max_len = max len1 len2 in
@@ -363,12 +366,16 @@ module Regression = struct
           if max_len = 0
           then true
           else (
-            let common = ref 0 in
             let min_len = min len1 len2 in
-            for i = 0 to min_len - 1 do
-              if obs.output_text.[i] = golden.[i] then incr common
-            done;
-            Float.of_int !common /. Float.of_int max_len >= threshold)
+            let rec count_matches i acc =
+              if i >= min_len
+              then acc
+              else if obs.output_text.[i] = golden.[i]
+              then count_matches (i + 1) (acc + 1)
+              else count_matches (i + 1) acc
+            in
+            let common = count_matches 0 0 in
+            Float.of_int common /. Float.of_int max_len >= threshold)
         in
         passed, None
     in
