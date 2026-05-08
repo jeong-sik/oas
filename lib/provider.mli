@@ -55,6 +55,7 @@ type capabilities =
   ; supports_image_input : bool
   ; supports_audio_input : bool
   ; supports_video_input : bool
+  ; modality_priority : Llm_provider.Modality.priority
   ; supports_native_streaming : bool
   ; supports_system_prompt : bool
   ; supports_caching : bool

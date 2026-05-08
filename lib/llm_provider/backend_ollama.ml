@@ -29,7 +29,9 @@ let build_request
            [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
        ]
      | _ -> [])
-    @ List.concat_map Backend_openai_serialize.ollama_messages_of_message messages
+    @ List.concat_map
+        (Backend_openai_serialize.ollama_messages_of_message ~model_id:config.model_id)
+        messages
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
   (* think: false by default for Ollama to prevent thinking models from
