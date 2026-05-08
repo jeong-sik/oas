@@ -16,6 +16,7 @@ _opam/
 .idea/
 
 # TLA+ / TLC artifacts
+/states/
 specs/states/
 specs/*_TTrace_*.tla
 specs/*_TTrace_*.bin
