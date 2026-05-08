@@ -215,10 +215,13 @@ jobs:
 
       - name: Verify version strings match
         run: |
-          DUNE_VER=$(grep '(version' dune-project | head -1 | sed 's/.*version \(.*\))/\1/')
+          # Tolerant of trailing release-please annotations:
+          #   (version 0.192.1) ; x-release-please-version
+          #   let version = "0.192.1" (* x-release-please-version *)
+          DUNE_VER=$(grep -E '^\(version ' dune-project | head -1 | sed -E 's/^\(version ([^ )]+).*/\1/')
           echo "dune-project version: $DUNE_VER"
 
-          SDK_VER=$(grep 'let version' lib/sdk_version.ml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          SDK_VER=$(grep -E '^let version' lib/sdk_version.ml | head -1 | sed -E 's/^let version = "([^"]+)".*/\1/')
           echo "sdk_version.ml version: $SDK_VER"
 
           if [ "$DUNE_VER" != "$SDK_VER" ]; then
