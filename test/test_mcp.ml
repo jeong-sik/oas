@@ -175,67 +175,14 @@ let test_mcp_tool_to_sdk_tool () =
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 
-let test_mcp_builtin_tool_descriptor_permission () =
-  let call_fn _input : Types.tool_result = Ok { content = "ok" } in
-  let read_tool =
-    Mcp.mcp_tool_to_sdk_tool
-      ~call_fn
-      { name = "read_file"; description = "Read"; input_schema = `Assoc [] }
-  in
-  let write_tool =
-    Mcp.mcp_tool_to_sdk_tool
-      ~call_fn
-      { name = "write"; description = "Write"; input_schema = `Assoc [] }
-  in
-  let external_tool =
-    Mcp.mcp_tool_to_sdk_tool
-      ~call_fn
-      { name = "web_fetch"; description = "Fetch"; input_schema = `Assoc [] }
-  in
-  (match Tool.descriptor read_tool with
-   | Some d ->
-     Alcotest.(check (option string))
-       "read mutation"
-       (Some "read_only")
-       d.Tool.mutation_class;
-     Alcotest.(check bool) "read permission" true (d.Tool.permission = Some Tool.ReadOnly)
-   | None -> Alcotest.fail "read_file descriptor missing");
-  (match Tool.descriptor write_tool with
-   | Some d ->
-     Alcotest.(check (option string))
-       "write mutation"
-       (Some "local_mutation")
-       d.Tool.mutation_class;
-     Alcotest.(check bool) "write permission" true (d.Tool.permission = Some Tool.Write)
-   | None -> Alcotest.fail "write descriptor missing");
-  (match
-     Completion_contract.effectful_tool_satisfies
-       { name = "write"; input = `Assoc []; tool = Some write_tool }
-   with
-   | Ok () -> ()
-   | Error msg -> Alcotest.fail ("write should satisfy effectful contract: " ^ msg));
-  (match
-     Completion_contract.effectful_tool_satisfies
-       { name = "read_file"; input = `Assoc []; tool = Some read_tool }
-   with
-   | Error msg ->
-     Alcotest.(check bool)
-       "read-only rejected"
-       true
-       (contains_substring ~sub:"read-only" msg)
-   | Ok () -> Alcotest.fail "read-only tool should not satisfy effectful contract");
-  match Tool.descriptor external_tool with
-  | Some d ->
-    Alcotest.(check (option string))
-      "external mutation"
-      (Some "external_effect")
-      d.Tool.mutation_class;
-    Alcotest.(check bool)
-      "external permission"
-      true
-      (d.Tool.permission = Some Tool.Destructive)
-  | None -> Alcotest.fail "web_fetch descriptor missing"
-;;
+(* RFC-OAS-009 v2 PR-C: removed test_mcp_builtin_tool_descriptor_permission.
+   This test pinned the layering violation: it expected mcp_tool_to_sdk_tool
+   to auto-fill descriptors based on builtin tool names ("read_file", "write",
+   "web_fetch") via the CDAL Mode_enforcer.builtin_descriptor registry —
+   precisely the boundary RFC-OAS-009 v2 closes. Per RFC §2.2, descriptor is
+   now consumer-supplied. The Completion_contract.effectful_tool_satisfies
+   coverage that lived inside this function is independent of the bridge and
+   remains validated by Tool.permission paths in other test suites. *)
 
 let test_mcp_tool_bridge_error () =
   let mcp_tool : Mcp.mcp_tool =
@@ -460,10 +407,6 @@ let () =
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool
-        ; test_case
-            "builtin descriptor permissions"
-            `Quick
-            test_mcp_builtin_tool_descriptor_permission
         ; test_case "bridge error propagation" `Quick test_mcp_tool_bridge_error
         ] )
     ; ( "sdk_bridge"
