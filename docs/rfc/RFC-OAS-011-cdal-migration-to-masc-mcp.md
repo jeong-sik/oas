@@ -2,15 +2,42 @@
 
 | | |
 |---|---|
-| Status | Draft |
+| Status | **Resolved** (2026-05-08) |
 | Author | jeong-sik (with Claude analysis) |
 | Created | 2026-05-08 |
-| Target | `agent_sdk` (oas) v0.193+ → CDAL 30+ 모듈 제거 / `masc_mcp` v0.20+ → `masc_mcp.cdal` sublibrary 신설 |
+| Resolved-by | OAS-E PR-1~6 (#1485, #1486, #1487, #1488, #1489) + release 0.193.0 (#1490, #1492) |
+| Target | ~~`agent_sdk` (oas) v0.193+ → CDAL 30+ 모듈 제거 / `masc_mcp` v0.20+ → `masc_mcp.cdal` sublibrary 신설~~ — **둘 다 완료** |
 | Supersedes | None |
-| Depends-on | RFC-OAS-009 v2 (Sever Core→CDAL Dependencies) — *완료 후* 본 RFC 진행 |
+| Depends-on | RFC-OAS-009 v2 (Sever Core→CDAL Dependencies) — 완료 (#1481, #1482, #1483) |
 | Related | RFC-OAS-012 (Tool Name Ignorance within CDAL) |
 
-## 0. Summary
+## 0. Status (2026-05-10 closure note)
+
+**RFC-OAS-011은 완료됨.** OAS-E PR-1부터 PR-6까지 5/8 13:03~17:19 사이 모두 머지. release 0.193.0이 5/8 17:19 발행.
+
+**검증 (origin/main `9aabd00f` 기준, 2026-05-10 04:00 KST 측정)**:
+- `lib/cdal_proof.{ml,mli}` 등 20 CDAL 모듈 → **모두 제거됨** (`git ls-tree origin/main` 0 hits)
+- `rg "Part of the Contract-Driven Agent Loop|CDAL PoC" lib/` → **0 hits**
+- `lib/execution_manifest.{ml,mli}` (dead module) → **제거됨** (PR #1486)
+- `Sessions_proof` façade include → **제거됨** (PR #1489 surgical)
+- boundary-lint CI 활성 — `scripts/check-sdk-independence.sh` + `scripts/lint-core-cdal-boundary.sh`
+
+**masc-mcp 측 (검증, masc-mcp `02ff86c40a`)**:
+- `lib/cdal_runtime/` SSOT 정착 (RFC-0056 Phase 0 PR #14384 머지로 `lib/cdal/` sub-library도 활성)
+- masc-mcp가 OAS namespace `Agent_sdk.{Cdal_proof, Mode_enforcer, ...}` import → **0 hits** (자체 SSOT만 사용)
+- mode_enforcer.ml fork in flight: *오인 — OAS 측 모듈이 이미 제거되어 fork 비교 자체 무효*. masc-mcp 단독 소유.
+- effect_evidence 이름 충돌: *해소 — OAS 측 모듈 제거됨*. masc-mcp `lib/effect_evidence.{ml,mli}`는 자기 namespace 단독.
+
+### 0.1 G0/G1 측정값 retraction (2026-05-09)
+
+본 PR(#1495)의 commit `b4b77491` (G0)과 `0a23070c` (G1) 측정값은 **OAS main repo root local working tree(HEAD `92f108c6`, origin/main보다 20 commits behind)** 기준이었음. 즉 *5/1 시점의 stale 파일을 origin/main의 진실로 오인*. 두 commit의 §1.1.2 표 갱신 / §1.2 split-brain 분석은 **무효** — origin/main 기준 측정으로는 모든 CDAL 모듈이 이미 제거된 상태.
+
+이 measurement drift의 root cause는 *stale local main HEAD*. 다음 측정 protocol:
+- 모든 file existence 기반 측정 전 `git rev-parse HEAD` vs `git rev-parse origin/main` 비교 강제
+- `git status --porcelain` 잔여 staged/unstaged 검사 강제
+- `git ls-tree origin/main <path>` cross-check 권장
+
+## 0.x Original Summary (보존)
 
 CDAL (Contract-Driven Agent Loop) 30+ 모듈을 OAS lib에서 *제거*하고 masc-mcp의 새 sublibrary `masc_mcp.cdal`로 이주한다.
 
