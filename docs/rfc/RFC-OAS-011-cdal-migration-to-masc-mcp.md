@@ -119,19 +119,70 @@ CDAL 모듈끼리의 의존 그래프 (RFC-OAS-009 §1.1.7 verified, §1.1.2 검
 - `guardrails_async` (G0)
 - `runtime_evidence` (G0 — `runtime_server_worker` 16 호출, core stratum)
 
-### 1.2 masc-mcp 측 사용 표면 (이주 후 inline 가능 여부 평가)
+### 1.2 masc-mcp 측 사용 표면 (G1 측정으로 가정 변경)
 
-masc-mcp가 *사용하는* CDAL 표면 (RFC-OAS-009 §1.1.6):
-- `Mode_enforcer.violation_kind` / `violation` / serialization (`violation_record.ml`/`mli`)
-- `Cdal_proof.t` / `schema_version_current` / `of_json` / `to_json` / `run_id` / `result_status` / `artifact_ref`
-- `Risk_contract.t` / `of_yojson` / `contract_id`
-- `Execution_mode.t` / variants / `of_yojson`
+**G1 측정 결과 (2026-05-09, masc-mcp `02ff86c40a`)**: §1.2 v1 가정("masc-mcp가 *사용하는* CDAL 표면 = OAS의 4개 type 일부")는 **false**. 실측치:
 
-이주 후 masc-mcp가 *직접 정의*: `Masc_mcp.Cdal.Mode_enforcer.violation`, `Masc_mcp.Cdal.Cdal_proof.t`, … 동일 type, 동일 serialization. 호출 코드만 prefix 변경.
+#### 1.2.1 masc-mcp는 OAS CDAL을 import하지 않는다
 
-이주 후 masc-mcp가 *호출하지 않는* CDAL API: `classify_tool` / `all_read_only` / `all_workspace_only` / `builtin_descriptor` / `create` / `hooks` / `Contract_runner.*` / `Mode_resolver.*` / `Proof_capture.*` / `Audit.*` / `Autonomy_*.*` / `Effect_evidence.*` / `Direct_evidence.*` / `Verified_output.*` / `Conformance.*` / `Cognitive_event.*` — 즉 *대부분의 CDAL*은 masc-mcp 자체 호출자도 없음. *self-contained governance framework*가 *외부 호출 0*인 상태로 lib에 거주.
+```
+$ rg -l "Agent_sdk\.(Cdal_proof|Mode_enforcer|Risk_contract|Execution_mode|Effect_evidence)" lib/ bin/
+(0 hits)
+```
 
-→ 이주 후 *masc-mcp가 자기 호출 시작*할지, *deprecate*할지는 RFC-OAS-013+에서 결정 (본 RFC 범위 외).
+masc-mcp는 *자기 lib/cdal_runtime/* 디렉토리에 **OAS CDAL 9 모듈을 통째 카피**해 두고 그것만 import. RFC-0056 Phase 0 (#14384) 머지 이후 정착된 패턴.
+
+#### 1.2.2 카피 동기화 상태 (split-brain matrix)
+
+`diff -q oas/lib/<m>.<ext> masc-mcp/lib/cdal_runtime/<m>.<ext>` 결과 (18개 파일):
+
+| 모듈 (.ml/.mli) | OAS vs masc-mcp 카피 |
+|---|---|
+| `cdal_proof` | 동일 / 동일 |
+| `execution_mode` | 동일 / 동일 |
+| `mode_resolver` | 동일 / 동일 |
+| `mode_enforcer` | **DIFF** / 동일 |
+| `proof_capture` | 동일 / 동일 |
+| `proof_store` | 동일 / 동일 |
+| `risk_class` | 동일 / 동일 |
+| `risk_contract` | 동일 / 동일 |
+| `contract_runner` | 동일 / 동일 |
+
+→ **17/18 byte-equal, 1 fork in flight** (`mode_enforcer.ml`). mode_enforcer는 OAS core(`agent_tools.ml:68`, `mcp_schema.ml:63`)도 사용하는 split-personality 모듈 — fork가 진행 중인 *바로 그 모듈*.
+
+#### 1.2.3 `effect_evidence` 이름 충돌 (separate fork)
+
+| | OAS `lib/effect_evidence.{ml,mli}` | masc-mcp `lib/effect_evidence.{ml,mli}` |
+|---|---|---|
+| LOC (.ml) | 280 | 68 |
+| LOC (.mli) | 83 | 47 |
+| relation | byte-equal? | **다름 (full fork, 4:1 size ratio)** |
+
+두 repo가 *동일 이름의 모듈*을 *다른 책임*으로 보유. 같은 namespace를 공유하지 않으므로 즉시 충돌하지 않으나, 이주 시 1:1 매핑 불가능.
+
+### 1.3 §1.2 결과로 본 RFC-OAS-011의 의미 변경
+
+§1.2 v1 가정 실패는 *RFC의 motion*을 다음과 같이 재정의함:
+
+| | RFC-OAS-011 v1 (5/8) | 현실 (G1, 5/9) |
+|---|---|---|
+| 작업 명칭 | "Migration" (OAS → masc-mcp 이전) | **"Dead CDAL 제거 + masc-mcp 카피 SSOT화"** |
+| masc-mcp 측 |  새 sublibrary 작성 | **이미 lib/cdal_runtime/ 존재** (RFC-0056 Phase 0 #14384 merged) |
+| 호출 사이트 변환 | `Agent_sdk.Cdal_proof` → `Masc_mcp.Cdal.Cdal_proof` | **불필요** (masc-mcp가 OAS CDAL을 import하지 않음) |
+| 잔존 작업 | OAS lib에서 .ml/.mli 삭제 + dune 정리 | **동일** + mode_enforcer.ml fork 변경분 reconcile + effect_evidence 이름 충돌 해결 |
+
+### 1.4 시나리오 비교 (사용자 결정 항목)
+
+§1.2 결과 후 가능한 3개 시나리오:
+
+| 시나리오 | 설명 | 권장 |
+|---|---|---|
+| **X** | OAS의 CDAL 30+ 제거 + masc-mcp의 `lib/cdal_runtime/`을 SSOT로. mode_enforcer fork 변경분은 masc-mcp가 흡수 (이미 carry함). effect_evidence는 두 repo 별개 책임으로 유지하거나 OAS 측 삭제. | **권장** — RFC-OAS-011 v1 의도 + RFC-OAS-009 v2 + RFC-0056 Phase 0과 모두 정합. "OAS는 masc를 몰라야 한다" 원칙 회복 |
+| Y | masc-mcp의 `lib/cdal_runtime/` 제거 + OAS의 `Agent_sdk.Cdal_*`을 SSOT로 갈아탐 | **반대** — OAS에 CDAL이 잔존하므로 §1.0.1 (OAS 공식 문서가 CDAL을 모름) 위반 지속 |
+| Z | 현 상태 유지 (split-brain) | **반대** — mode_enforcer fork divergence가 매주 늘어남, anti-pattern |
+
+**X 채택 시 §1.1.3 batch는 다음과 같이 단순화 가능**:
+- B1~B5는 *masc-mcp 측 새 모듈 작성*이 아니라 *OAS 측 `.ml/.mli`/dune 삭제* + *masc-mcp `lib/cdal_runtime/`로 import 흡수*. 사실상 *deletion-only PR + reconcile*.
 
 ## 2. Proposal
 
