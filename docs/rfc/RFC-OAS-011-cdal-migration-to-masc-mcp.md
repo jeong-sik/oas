@@ -60,41 +60,64 @@ $ rg -l "Part of the Contract-Driven Agent Loop|CDAL PoC" lib/
 
 #### 1.1.2 Implied CDAL (gold-standard에 의존, 동일 layer로 간주)
 
-| 모듈 | gold-standard 의존 | 비고 |
-|---|---|---|
-| `mode_enforcer` | `Execution_mode`, `Risk_contract` | core가 호출 (RFC-OAS-009 §1.1.1) — RFC-OAS-009 v2 PR-B/C에서 끊음 |
-| `contract_runner` | `Risk_contract`, `Execution_mode`, `Cdal_proof` | masc-mcp 호출 0 |
-| `audit` | `Cdal_proof` | masc-mcp 호출 0 |
-| `autonomy_exec` | `Audit`, `Cdal_proof` | masc-mcp 호출 0 |
-| `autonomy_diff_guard` | `Audit` | masc-mcp 호출 0 |
-| `autonomy_trace_analyzer` | (검증 필요) | masc-mcp 호출 0 |
-| `cognitive_event` | `Cdal_proof` | masc-mcp 호출 0 |
-| `completion_contract` | base only — *core* (RFC-OAS-009 §1.1.3) | **이주 대상 아님** |
-| `guardrail_llm` | (CDAL imports 0) | mli에 PoC 표기 없음, 의존 그래프상 CDAL — 분류 검토 |
-| `guardrail_tripwire` | (검증 필요) | 분류 검토 |
-| `guardrails_async` | (검증 필요) | 분류 검토 |
-| `verified_output` | `Cdal_proof` | masc-mcp 호출 0 |
-| `conformance` | `Cdal_proof` | masc-mcp 호출 0 |
-| `direct_evidence` | `Cdal_proof` | masc-mcp 호출 0 |
-| `effect_evidence` | (CDAL imports 0) | 분류 검토 |
-| `runtime_evidence` | (검증 필요) | 분류 검토 |
-| `sessions_proof` | `Cdal_proof` | masc-mcp 호출 0 |
+| 모듈 | gold-standard 의존 | OAS-내 caller (lib/ + bin/) | 비고 |
+|---|---|---|---|
+| `mode_enforcer` | `Execution_mode`, `Risk_contract`, `Effect_evidence` | core가 호출 (RFC-OAS-009 §1.1.1) — RFC-OAS-009 v2 PR-B/C에서 끊음 | 이주 대상 (CDAL) |
+| `contract_runner` | `Risk_contract`, `Execution_mode`, `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `audit` | `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `autonomy_exec` | `Audit`, `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `autonomy_diff_guard` | `Audit` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `autonomy_trace_analyzer` | 0 (검증) | **lib/ + bin/ caller 0**, test 2 (`test_autonomy_smoke`, `test_autonomy_trace_unit`) | **dead-in-lib (test-only)** — 이주 대상 (CDAL test와 함께) |
+| `cognitive_event` | `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `completion_contract` | base only — *core* (RFC-OAS-009 §1.1.3) | 9 (`pipeline_common`, `pipeline`, `agent_sdk` façade, `agent_types`, `builder`) | **이주 대상 아님 (core)** |
+| `guardrail_llm` | 0 (검증) | 2 (`agent_sdk` façade .ml/.mli) | **이주 대상 아님 (core)** — façade 직접 노출, mli에 PoC 표기 없음 |
+| `guardrail_tripwire` | 0 (검증) | 2 (`agent_sdk` façade .ml/.mli) | **이주 대상 아님 (core)** — façade 직접 노출 |
+| `guardrails_async` | 0 (검증, `open Types`) | 10 (`pipeline`, `agent_types`, `builder`, `agent_sdk` façade …) | **이주 대상 아님 (core)** — pipeline 통합 |
+| `verified_output` | `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `conformance` | `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `direct_evidence` | `Cdal_proof`, `Runtime_evidence` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
+| `effect_evidence` | 0 (검증, `open Result_syntax`) | 3 (`mode_enforcer.ml/.mli`, `proof_capture`) — 모두 CDAL gold-standard | **이주 대상 (CDAL)** — caller 모두 CDAL |
+| `runtime_evidence` | 0 (검증, `open Runtime`) | 2 — `runtime_server_worker` (core, 16 호출) + `direct_evidence` (CDAL, 11 호출) | **이주 대상 아님 (core stratum)** — core가 16곳 사용. CDAL이 import하는 정상 방향 |
+| `sessions_proof` | `Cdal_proof` | masc-mcp 호출 0 | 이주 대상 (CDAL) |
 
-→ **PR-A 머지 전 검증 필요**: 분류 검토 표시된 모듈은 PR-A 작성 직전 mli/ml 1차 grep으로 *정확한 layer*를 확정한다. core이면 이주 제외, CDAL이면 이주 포함.
+→ **§1.1.2 검증 결과 (2026-05-09, origin/main `9aabd00f`)**: 분류 검토 표시였던 7개 모듈을 grep으로 layer 확정. 결과:
+- **이주 대상 (CDAL) 추가**: `autonomy_trace_analyzer` (test-only, dead-in-lib), `effect_evidence`
+- **이주 제외 (core) 확정**: `guardrail_llm`, `guardrail_tripwire`, `guardrails_async`, `runtime_evidence`, `completion_contract`(기존)
+- 측정 명령:
+  ```bash
+  $ rg -n "Cdal_proof|Mode_enforcer|Risk_contract|Execution_mode|Risk_class|Proof_capture|Proof_store|Mode_resolver|Audit\.|Cognitive_event|Conformance|Verified_output|Direct_evidence|Sessions_proof|Effect_evidence|Autonomy_|Runtime_evidence" lib/<m>.{ml,mli}
+  $ rg -l "\b<Module>\b" lib/ bin/ test/
+  ```
+
+→ §1.1.2 검증 의무는 G0로 *해소*. PR-A는 §1.1.3 batch 정의에 따라 곧장 작업 가능.
+
+→ 본 검증으로 §1.1.3 B5 ("분류 검토 통과 모듈") 항목은 사실상 **0개 추가** (분류 검토 통과 7개 중 1개만 CDAL = `effect_evidence`이고, 그건 §1.1.3에서 이미 B1 leaf로 명시됨; `autonomy_trace_analyzer`는 dead-in-lib로 별도 처리 가능).
 
 #### 1.1.3 Migration batch 순서 (leaf-first, 5 batches)
 
-CDAL 모듈끼리의 의존 그래프 (RFC-OAS-009 §1.1.7 verified):
+CDAL 모듈끼리의 의존 그래프 (RFC-OAS-009 §1.1.7 verified, §1.1.2 검증 결과 반영):
 
 | Batch | 모듈 | leaf-status |
 |---|---|---|
-| **B1 (pure leaves)** | `execution_mode`, `effect_evidence`, `guardrail_llm` | 0 CDAL imports |
+| **B1 (pure leaves)** | `execution_mode`, `effect_evidence`, `autonomy_trace_analyzer` (+ test 2개) | 0 CDAL imports |
 | **B2 (low-deps)** | `risk_class`, `verified_output`, `conformance` | 1 CDAL import |
 | **B3 (mid-deps)** | `risk_contract`, `cdal_proof`, `mode_resolver`, `cognitive_event` | 2+ CDAL imports |
 | **B4 (high-deps)** | `proof_capture`, `proof_store`, `mode_enforcer`, `contract_runner`, `direct_evidence` | gold-standard 다수 의존 |
-| **B5 (top-deps)** | `audit`, `autonomy_exec`, `autonomy_diff_guard`, `sessions_proof` + 분류 검토 통과 모듈 | 모두 합체 |
+| **B5 (top-deps)** | `audit`, `autonomy_exec`, `autonomy_diff_guard`, `sessions_proof` | 모두 합체 |
 
 각 batch는 *별도 PR*. 빌드 clean + dune runtest 회귀 0이 batch 통과 조건.
+
+**B1 변경 사항 (G0 결과 반영)**:
+- `guardrail_llm`은 *core 잔류* 확정 (façade `agent_sdk.{ml,mli}` 직접 노출). B1에서 제외.
+- `autonomy_trace_analyzer`는 dead-in-lib (test-only) → B1에 포함하되 `test_autonomy_smoke.ml`, `test_autonomy_trace_unit.ml`도 함께 이주.
+- `effect_evidence`는 §1.1.2 검증으로 CDAL 확정 (caller 모두 CDAL gold-standard).
+
+**Core 잔류 확정 모듈 (이주 제외)**:
+- `completion_contract` (RFC-OAS-009 §1.1.3 + G0 caller 9건 확인)
+- `guardrail_llm` (G0)
+- `guardrail_tripwire` (G0)
+- `guardrails_async` (G0)
+- `runtime_evidence` (G0 — `runtime_server_worker` 16 호출, core stratum)
 
 ### 1.2 masc-mcp 측 사용 표면 (이주 후 inline 가능 여부 평가)
 
