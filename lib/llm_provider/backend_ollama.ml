@@ -291,6 +291,8 @@ let parse_ollama_response json_str =
         ; canonical_model_id = None
         ; effective_context_window = None
         ; provider_internal_action_count = None
+        ; ttfrc_ms = None
+        ; prefill_ms = None
         }
     in
     Ok

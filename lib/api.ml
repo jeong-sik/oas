@@ -53,6 +53,8 @@ let patch_latency (resp : Types.api_response) (latency_ms : int) : Types.api_res
         ; canonical_model_id = None
         ; effective_context_window = None
         ; provider_internal_action_count = None
+        ; ttfrc_ms = None
+        ; prefill_ms = None
         }
   in
   { resp with telemetry }
@@ -442,6 +444,8 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     ; canonical_model_id = Some "claude-4-sonnet"
     ; effective_context_window = Some 200_000
     ; provider_internal_action_count = None
+    ; ttfrc_ms = None
+    ; prefill_ms = None
     }
   in
   let resp : Types.api_response =

@@ -197,6 +197,10 @@ type inference_telemetry =
     (** Model's context window in tokens, from capabilities *)
   ; provider_internal_action_count : int option
     (** Telemetry-only count of provider-native actions that are not surfaced as OAS tool calls. *)
+  ; ttfrc_ms : float option
+    (** Time-to-first-response-chunk in milliseconds (wall-clock). *)
+  ; prefill_ms : float option
+    (** Prompt evaluation (prefill) duration in milliseconds. *)
   }
 [@@deriving show, yojson]
 

@@ -622,6 +622,8 @@ let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
         ; canonical_model_id = None
         ; effective_context_window = None
         ; provider_internal_action_count = Some !provider_internal_action_count
+        ; ttfrc_ms = None
+        ; prefill_ms = None
         }
     else None
   in
