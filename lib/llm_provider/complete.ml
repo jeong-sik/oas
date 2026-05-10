@@ -108,6 +108,8 @@ let reasoning_effort_of_config = Provider_config.reasoning_effort_of_config
 let patch_telemetry
       (resp : Types.api_response)
       ~(config : Provider_config.t)
+      ?(ttfrc_ms : float option = None)
+      ?(prefill_ms : float option = None)
       (latency_ms : int option)
   : Types.api_response
   =
@@ -145,6 +147,8 @@ let patch_telemetry
         ; reasoning_effort = re
         ; canonical_model_id = canonical
         ; effective_context_window = ctx_window
+        ; ttfrc_ms = (match ttfrc_ms with Some _ as v -> v | None -> t.ttfrc_ms)
+        ; prefill_ms = (match prefill_ms with Some _ as v -> v | None -> t.prefill_ms)
         }
     | None ->
       Some
@@ -159,6 +163,8 @@ let patch_telemetry
         ; canonical_model_id = canonical
         ; effective_context_window = ctx_window
         ; provider_internal_action_count = None
+        ; ttfrc_ms
+        ; prefill_ms
         }
   in
   let patched = { resp with model; telemetry } in
@@ -987,6 +993,7 @@ let complete_stream_http
         | _ -> Http_client.inject_stream_param body_str
       in
       let t0 = Unix.gettimeofday () in
+      let ttfrc_ref = ref None in
       (* Ollama-specific side channel: prompt_eval_count / eval_count and
      the four duration fields only appear on the [done:true] line, so
      stream_acc (which only sees content/tool deltas) cannot capture
@@ -1034,6 +1041,7 @@ let complete_stream_http
                   then (
                     first_chunk_seen := true;
                     let ttfrc_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+                    ttfrc_ref := Some ttfrc_ms;
                     emit_telemetry
                       (Telemetry_event.Streaming_first_chunk
                          { provider; model; ttfrc_ms; requested_at = t0 });
@@ -1171,6 +1179,8 @@ let complete_stream_http
                   ; canonical_model_id = None
                   ; effective_context_window = None
                   ; provider_internal_action_count = None
+                  ; ttfrc_ms = None
+                  ; prefill_ms = None
                   }
             in
             { resp with usage; telemetry }
@@ -1192,7 +1202,8 @@ let complete_stream_http
              (Telemetry_event.Prefill_complete
                 { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
          | _ -> ());
-        Ok (patch_telemetry resp ~config (Some latency_ms))
+        let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
+        Ok (patch_telemetry resp ~config ~ttfrc_ms:!ttfrc_ref ~prefill_ms (Some latency_ms))
       | Ok (Error msg)
         when String.length msg >= 31
              && String.equal (String.sub msg 0 31) "body_timeout_s deadline exceeded" ->
@@ -1260,7 +1271,10 @@ let complete_stream
       (fun resp ->
          let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
          let resp = Pricing.annotate_response_cost resp in
-         patch_telemetry resp ~config (Some latency_ms))
+         let existing_telemetry = resp.telemetry in
+         let ttfrc_ms = Option.bind existing_telemetry (fun t -> t.ttfrc_ms) in
+         let prefill_ms = Option.bind existing_telemetry (fun t -> t.prefill_ms) in
+         patch_telemetry resp ~config ~ttfrc_ms ~prefill_ms (Some latency_ms))
       result
 ;;
 
@@ -1675,6 +1689,8 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
           ; canonical_model_id = None
           ; effective_context_window = None
           ; provider_internal_action_count = None
+          ; ttfrc_ms = None
+          ; prefill_ms = None
           }
     }
   in
@@ -1689,6 +1705,8 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
     && t.canonical_model_id = Some "qwen3.5:9b"
     && t.effective_context_window = Some 262_144
     && t.provider_internal_action_count = None
+    && t.ttfrc_ms = None
+    && t.prefill_ms = None
   | None -> false
 ;;
 
@@ -1718,6 +1736,8 @@ let%test "patch_telemetry creates telemetry when None" =
     && t.effective_context_window = Some 128_000
     && t.reasoning_effort = None
     && t.provider_internal_action_count = None
+    && t.ttfrc_ms = None
+    && t.prefill_ms = None
   | None -> false
 ;;
 
