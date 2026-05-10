@@ -97,7 +97,7 @@ let dispatch_sync ~sw ?clock agent prep =
   | Error err -> Error (sdk_error_of_http_error err)
 ;;
 
-let dispatch_stream ~sw ?clock agent prep ~on_event =
+let dispatch_stream ~sw ?clock agent prep ~on_event ?on_telemetry () =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let open Result in
   let* pc =
@@ -117,6 +117,7 @@ let dispatch_stream ~sw ?clock agent prep ~on_event =
       ~tools
       ?runtime_mcp_policy:agent.options.runtime_mcp_policy
       ~on_event
+      ?on_telemetry
       ?priority:agent.options.priority
       ()
   with
@@ -137,7 +138,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; extra = []
       }
       (fun _tracer -> dispatch_sync ~sw ?clock agent prep)
-  | Stream { on_event } ->
+  | Stream { on_event; on_telemetry } ->
     Tracing.with_span
       agent.options.tracer
       { kind = Api_call
@@ -146,5 +147,5 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_stream ~sw ?clock agent prep ~on_event)
+      (fun _tracer -> dispatch_stream ~sw ?clock agent prep ~on_event ?on_telemetry ())
 ;;

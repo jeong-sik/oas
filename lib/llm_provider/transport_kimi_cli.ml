@@ -464,7 +464,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
           { Llm_transport.response; latency_ms = Some latency_ms })
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry:_ ~on_event (req : Llm_transport.completion_request) ->
         warn_external_tools_once warned req.tools;
         let prompt, _resume_existing_session = prepare_prompt_and_messages req in
         let prompt = sanitize_for_kimi prompt in

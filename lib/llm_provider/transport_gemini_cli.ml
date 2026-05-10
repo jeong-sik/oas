@@ -524,7 +524,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
              in
              { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry:_ ~on_event (req : Llm_transport.completion_request) ->
         match req.runtime_mcp_policy with
         | Some _ ->
           Error

@@ -93,5 +93,8 @@ type stream_result = (Types.api_response, Http_client.http_error) result
 type t =
   { complete_sync : completion_request -> sync_result
   ; complete_stream :
-      on_event:(Types.sse_event -> unit) -> completion_request -> stream_result
+      ?on_telemetry:(Telemetry_event.t -> unit)
+      -> on_event:(Types.sse_event -> unit)
+      -> completion_request
+      -> stream_result
   }

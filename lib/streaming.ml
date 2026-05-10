@@ -337,11 +337,14 @@ let create_message_stream
                         in
                         on_event evt;
                         accumulate_event acc evt);
+                      let evs, _tel =
+                        Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                      in
                       List.iter
                         (fun evt ->
                            on_event evt;
                            accumulate_event acc evt)
-                        (Llm_provider.Streaming.openai_chunk_to_events oai_state chunk)))
+                        evs))
                 ();
               on_event MessageStop;
               finalize_stream_acc acc)

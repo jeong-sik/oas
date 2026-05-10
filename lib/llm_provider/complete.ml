@@ -929,6 +929,7 @@ let complete_stream_http
       ?clock
       ?stream_idle_timeout_s
       ?body_timeout_s
+      ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -990,6 +991,13 @@ let complete_stream_http
      the four duration fields only appear on the [done:true] line, so
      stream_acc (which only sees content/tool deltas) cannot capture
      them. We trap them here and patch the finalised response below. *)
+      let provider = Provider_config.string_of_provider_kind config.kind in
+      let model = config.model_id in
+      let emit_telemetry evt =
+        match on_telemetry with
+        | Some f -> f evt
+        | None -> ()
+      in
       let ollama_usage = ref None in
       let ollama_timings = ref None in
       match
@@ -1003,20 +1011,45 @@ let complete_stream_http
             let body_logic () =
               let acc = create_stream_acc () in
               let openai_state = ref None in
+              let first_chunk_seen = ref false in
+              let chunk_counter = ref 0 in
+              let last_chunk_t = ref 0.0 in
               let get_state () =
                 match !openai_state with
                 | Some s -> s
                 | None ->
-                  let s = Streaming.create_openai_stream_state () in
+                  let s = Streaming.create_openai_stream_state ~provider ~model () in
                   openai_state := Some s;
                   s
               in
-              let dispatch events =
+              let dispatch (events, tel_opt) =
                 List.iter
                   (fun evt ->
                      on_event evt;
                      accumulate_event acc evt)
-                  events
+                  events;
+                if events <> []
+                then (
+                  if not !first_chunk_seen
+                  then (
+                    first_chunk_seen := true;
+                    let ttfrc_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+                    emit_telemetry
+                      (Telemetry_event.Streaming_first_chunk
+                         { provider; model; ttfrc_ms; requested_at = t0 });
+                    last_chunk_t := Unix.gettimeofday ();
+                    chunk_counter := 1)
+                  else (
+                    let now = Unix.gettimeofday () in
+                    let inter_chunk_ms = (now -. !last_chunk_t) *. 1000.0 in
+                    emit_telemetry
+                      (Telemetry_event.Streaming_chunk_n
+                         { provider; model; chunk_index = !chunk_counter; inter_chunk_ms });
+                    last_chunk_t := now;
+                    incr chunk_counter));
+                match tel_opt with
+                | Some evt -> emit_telemetry evt
+                | None -> ()
               in
               (match config.kind with
                | Provider_config.Ollama ->
@@ -1046,28 +1079,28 @@ let complete_stream_http
                        match config.kind with
                        | Provider_config.Anthropic | Provider_config.Kimi ->
                          (match Streaming.parse_sse_event event_type data with
-                          | Some evt -> [ evt ]
-                          | None -> [])
+                          | Some evt -> [ evt ], None
+                          | None -> [], None)
                        | Provider_config.OpenAI_compat | Provider_config.DashScope ->
                          (match Streaming.parse_openai_sse_chunk data with
                           | Some chunk ->
                             Streaming.openai_chunk_to_events (get_state ()) chunk
-                          | None -> [])
+                          | None -> [], None)
                        | Provider_config.Gemini ->
                          (match Streaming.parse_gemini_sse_chunk data with
                           | Some chunk ->
                             Streaming.gemini_chunk_to_events (get_state ()) chunk
-                          | None -> [])
+                          | None -> [], None)
                        | Provider_config.Glm ->
                          (match Backend_glm.parse_stream_chunk data with
                           | Some chunk ->
                             Streaming.openai_chunk_to_events (get_state ()) chunk
-                          | None -> [])
-                       | Provider_config.Ollama -> [] (* unreachable: handled above *)
+                          | None -> [], None)
+                       | Provider_config.Ollama -> [], None (* unreachable: handled above *)
                        | Provider_config.Claude_code
                        | Provider_config.Gemini_cli
                        | Provider_config.Kimi_cli
-                       | Provider_config.Codex_cli -> []
+                       | Provider_config.Codex_cli -> [], None
                      in
                      dispatch events)
                    ());
@@ -1088,6 +1121,12 @@ let complete_stream_http
             | Some clk, Some timeout_s ->
               (try Eio.Time.with_timeout_exn clk timeout_s body_logic with
                | Eio.Time.Timeout ->
+                 emit_telemetry
+                   (Telemetry_event.Timeout
+                      { provider
+                      ; model
+                      ; timeout_type = No_response
+                      });
                  Error
                    (Printf.sprintf
                       "body_timeout_s deadline exceeded after %.1fs (configured via \
@@ -1137,6 +1176,22 @@ let complete_stream_http
             { resp with usage; telemetry }
           | _ -> resp
         in
+        (match !ollama_timings with
+         | Some
+             { Types.prompt_n = Some prompt_eval_tokens
+             ; prompt_ms = Some prompt_eval_ms
+             ; cache_n
+             ; _
+             } ->
+           let cache_hit =
+             match cache_n with
+             | Some n when n > 0 -> true
+             | _ -> false
+           in
+           emit_telemetry
+             (Telemetry_event.Prefill_complete
+                { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
+         | _ -> ());
         Ok (patch_telemetry resp ~config (Some latency_ms))
       | Ok (Error msg)
         when String.length msg >= 31
@@ -1166,6 +1221,7 @@ let complete_stream
       ?runtime_mcp_policy
       ~(on_event : Types.sse_event -> unit)
       ?(priority : Request_priority.t option)
+      ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ()
   =
   match validate_all config with
@@ -1177,6 +1233,7 @@ let complete_stream
       match transport with
       | Some t ->
         t.complete_stream
+          ?on_telemetry
           ~on_event
           { Llm_transport.config; messages; tools; runtime_mcp_policy }
       | None when requires_non_http_transport config.kind ->
@@ -1192,6 +1249,7 @@ let complete_stream
           ?clock
           ?stream_idle_timeout_s
           ?body_timeout_s
+          ?on_telemetry
           ~config
           ~messages
           ~tools
@@ -1222,7 +1280,7 @@ let make_http_transport ~sw ~net : Llm_transport.t =
         in
         { Llm_transport.response; latency_ms = Some latency_ms })
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
         complete_stream_http
           ~sw
           ~net
@@ -1230,6 +1288,7 @@ let make_http_transport ~sw ~net : Llm_transport.t =
           ~messages:req.messages
           ~tools:req.tools
           ~on_event
+          ?on_telemetry
           ())
   }
 ;;

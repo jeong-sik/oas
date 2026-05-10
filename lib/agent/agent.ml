@@ -17,7 +17,10 @@ let _log = Log.create ~module_name:"agent" ()
 
 type api_strategy = Pipeline.api_strategy =
   | Sync
-  | Stream of { on_event : Types.sse_event -> unit }
+  | Stream of
+      { on_event : Types.sse_event -> unit
+      ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
+      }
 
 (** Run a single turn via the 6-stage pipeline.
     Converts Pipeline.turn_outcome to the polymorphic variant interface
@@ -26,7 +29,7 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
   let api_strat =
     match api_strategy with
     | Sync -> Pipeline.Sync
-    | Stream { on_event } -> Pipeline.Stream { on_event }
+    | Stream { on_event; on_telemetry } -> Pipeline.Stream { on_event; on_telemetry }
   in
   match Pipeline.run_turn ~sw ?clock ~api_strategy:api_strat ?raw_trace_run agent with
   | Ok (Pipeline.Complete response) -> Ok (`Complete response)
@@ -160,7 +163,22 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
   (* First turn: caller already holds slot, no resume needed *)
   let rec loop ~is_first_turn =
     match check_loop_guard agent with
-    | Some err -> Error err
+    | Some err ->
+      (match err with
+       | Error.Agent (Error.CostBudgetExceeded { spent_usd; limit_usd }) ->
+         (match agent.options.event_bus with
+          | Some bus ->
+            Telemetry_bus.publish
+              (Telemetry_bus.of_event_bus bus)
+              (Llm_provider.Telemetry_event.Budget_exceeded
+                 { agent_name = agent.state.config.name
+                 ; run_id = Event_bus.fresh_id ()
+                 ; spent_usd
+                 ; limit_usd
+                 })
+          | None -> ())
+       | _ -> ());
+      Error err
     | None ->
       (* Resume slot before LLM turn (skip on first turn) *)
       if yield_enabled && not is_first_turn then do_resume ();
@@ -286,11 +304,16 @@ let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
 ;;
 
 let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
+  let on_telemetry =
+    Option.map
+      (fun bus -> Telemetry_bus.publish (Telemetry_bus.of_event_bus bus))
+      agent.options.event_bus
+  in
   with_periodic_callbacks ~sw ?clock agent (fun () ->
     run_loop
       ~sw
       ?clock
-      ~api_strategy:(Stream { on_event })
+      ~api_strategy:(Stream { on_event; on_telemetry })
       ?on_yield
       ?on_resume
       agent
@@ -486,9 +509,9 @@ let checkpoint ?(session_id = "") ?working_context agent =
     ()
 ;;
 
-let run_turn_stream ~sw ?clock ~on_event agent =
+let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
   with_optional_timeout ?clock agent (fun () ->
-    run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event }) agent)
+    run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event; on_telemetry }) agent)
 ;;
 
 let save_journal agent path =

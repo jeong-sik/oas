@@ -252,6 +252,11 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
 ;;
 
 (** Mutable state for converting OpenAI flat deltas to block-based events. *)
+type thinking_state =
+  | Not_thinking
+  | Thinking_started of float
+  | Thinking_done
+
 type openai_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
@@ -259,15 +264,21 @@ type openai_stream_state =
   ; mutable text_block_index : int
   ; tool_block_indices : (int, int) Hashtbl.t (** tool_call index -> block index *)
   ; mutable next_block_index : int
+  ; mutable thinking_state : thinking_state
+  ; provider : string
+  ; model : string
   }
 
-let create_openai_stream_state () =
+let create_openai_stream_state ?(provider = "") ?(model = "") () =
   { thinking_block_started = false
   ; thinking_block_index = -1
   ; text_block_started = false
   ; text_block_index = -1
   ; tool_block_indices = Hashtbl.create 4
   ; next_block_index = 0
+  ; thinking_state = Not_thinking
+  ; provider
+  ; model
   }
 ;;
 
@@ -275,13 +286,18 @@ let create_openai_stream_state () =
     Synthesizes [ContentBlockStart] events on first occurrence of
     text content or each new tool_call index. *)
 let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
-  : sse_event list
+  : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
   let emit evt = events := evt :: !events in
+  let telemetry_event = ref None in
   (* Reasoning content delta — emitted before text *)
   (match chunk.delta_reasoning with
    | Some text when text <> "" ->
+     (match state.thinking_state with
+      | Not_thinking ->
+        state.thinking_state <- Thinking_started (Unix.gettimeofday ());
+      | _ -> ());
      if not state.thinking_block_started
      then (
        state.thinking_block_index <- state.next_block_index;
@@ -297,6 +313,19 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
      emit
        (ContentBlockDelta
           { index = state.thinking_block_index; delta = ThinkingDelta text })
+   | Some "" ->
+     (match state.thinking_state with
+      | Thinking_started t0 ->
+        let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+        state.thinking_state <- Thinking_done;
+        telemetry_event
+          := Some
+               (Telemetry_event.Thinking_complete
+                  { provider = state.provider
+                  ; model = state.model
+                  ; thinking_duration_ms
+                  })
+      | _ -> ())
    | _ -> ());
   (* Text content delta *)
   (match chunk.delta_content with
@@ -351,7 +380,7 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
    | None -> ());
-  List.rev !events
+  List.rev !events, !telemetry_event
 ;;
 
 (** {1 Gemini SSE Streaming}
@@ -406,11 +435,36 @@ let parse_gemini_sse_chunk data_str : gemini_chunk option =
 ;;
 
 let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
-  : sse_event list
+  : sse_event list * Telemetry_event.t option
   =
   let open Yojson.Safe.Util in
   let events = ref [] in
   let emit evt = events := evt :: !events in
+  let telemetry_event = ref None in
+  let has_thought_part =
+    List.exists
+      (fun part ->
+         Cli_common_json.member_bool "thought" part
+         &&
+         match part |> member "text" |> to_string_option with
+         | Some text when text <> "" -> true
+         | _ -> false)
+      chunk.gem_parts
+  in
+  (match state.thinking_state, has_thought_part with
+   | Not_thinking, true | Thinking_done, true ->
+     state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+   | Thinking_started t0, false ->
+     let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+     state.thinking_state <- Thinking_done;
+     telemetry_event
+       := Some
+            (Telemetry_event.Thinking_complete
+               { provider = state.provider
+               ; model = state.model
+               ; thinking_duration_ms
+               })
+   | _ -> ());
   List.iter
     (fun part ->
        let is_thought = Cli_common_json.member_bool "thought" part in
@@ -479,7 +533,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.gem_usage })
    | None -> ());
-  List.rev !events
+  List.rev !events, !telemetry_event
 ;;
 
 (** {1 Ollama NDJSON Streaming}
@@ -626,13 +680,18 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
 (** Convert a parsed {!ollama_chunk} into {!sse_event} list.
     Reuses {!openai_stream_state} for block index tracking. *)
 let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
-  : sse_event list
+  : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
   let emit evt = events := evt :: !events in
+  let telemetry_event = ref None in
   (* Thinking content delta *)
   (match chunk.oll_delta_thinking with
    | Some text when text <> "" ->
+     (match state.thinking_state with
+      | Not_thinking ->
+        state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+      | _ -> ());
      if not state.thinking_block_started
      then (
        state.thinking_block_index <- state.next_block_index;
@@ -648,7 +707,19 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
      emit
        (ContentBlockDelta
           { index = state.thinking_block_index; delta = ThinkingDelta text })
-   | _ -> ());
+   | _ ->
+     (match state.thinking_state with
+      | Thinking_started t0 ->
+        let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+        state.thinking_state <- Thinking_done;
+        telemetry_event
+          := Some
+               (Telemetry_event.Thinking_complete
+                  { provider = state.provider
+                  ; model = state.model
+                  ; thinking_duration_ms
+                  })
+      | _ -> ()));
   (* Text content delta *)
   (match chunk.oll_delta_content with
    | Some text when text <> "" ->
@@ -708,7 +779,7 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
          | other -> Some (Unknown other))
     in
     emit (MessageDelta { stop_reason; usage = chunk.oll_usage }));
-  List.rev !events
+  List.rev !events, !telemetry_event
 ;;
 
 [@@@coverage off]
@@ -813,7 +884,7 @@ let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
     ; oll_timings = None
     }
   in
-  let events = ollama_chunk_to_events state chunk in
+  let events, _tel = ollama_chunk_to_events state chunk in
   match events with
   | [ ContentBlockStart { index = 0; content_type = "text"; _ }
     ; ContentBlockDelta { index = 0; delta = TextDelta "hello" }
@@ -835,7 +906,7 @@ let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
     }
   in
   let _ = ollama_chunk_to_events state (mk "he") in
-  let events = ollama_chunk_to_events state (mk "llo") in
+  let events, _tel = ollama_chunk_to_events state (mk "llo") in
   (* Second chunk: only Delta, no new Start *)
   match events with
   | [ ContentBlockDelta { index = 0; delta = TextDelta "llo" } ] -> true
@@ -862,7 +933,7 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
     ; oll_timings = None
     }
   in
-  let events = ollama_chunk_to_events state chunk in
+  let events, _tel = ollama_chunk_to_events state chunk in
   match events with
   | [ MessageDelta { stop_reason = Some EndTurn; usage = Some u } ] ->
     u.input_tokens = 10 && u.output_tokens = 20
@@ -888,7 +959,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
     ; oll_timings = None
     }
   in
-  let events = ollama_chunk_to_events state chunk in
+  let events, _tel = ollama_chunk_to_events state chunk in
   match events with
   | [ ContentBlockStart
         { index = 0; content_type = "tool_use"; tool_name = Some "search"; _ }
@@ -911,7 +982,7 @@ let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
     ; oll_timings = None
     }
   in
-  let events = ollama_chunk_to_events state chunk in
+  let events, _tel = ollama_chunk_to_events state chunk in
   match events with
   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "considering" }

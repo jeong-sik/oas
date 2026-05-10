@@ -724,7 +724,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
             let response = parse_json_result ~prompt (String.trim stdout) in
             { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry:_ ~on_event (req : Llm_transport.completion_request) ->
         let messages = Cli_common_prompt.non_system_messages req.messages in
         let prompt =
           Cli_common_prompt.prompt_of_messages

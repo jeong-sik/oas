@@ -733,7 +733,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
              let response = parse_jsonl_result ~model_id ~prompt (List.rev !seen_lines) in
              { Llm_transport.response; latency_ms = Some latency_ms }))
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry:_ ~on_event (req : Llm_transport.completion_request) ->
         warn_unsupported_once config req.config warned;
         let messages = Cli_common_prompt.non_system_messages req.messages in
         let system_prompt =
