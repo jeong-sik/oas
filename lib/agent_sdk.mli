@@ -45,6 +45,7 @@ module Tool_set = Tool_set
 module Log = Log
 module Event_envelope = Event_envelope
 module Event_bus = Event_bus
+module Telemetry_bus = Telemetry_bus
 module Skill = Skill
 module Skill_registry = Skill_registry
 module Contract = Contract

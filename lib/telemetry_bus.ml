@@ -1,0 +1,68 @@
+(** Typed telemetry event bus — wraps {!Event_bus.t} with a
+    {!Llm_provider.Telemetry_event.t}-typed API.
+
+    Events are serialized to JSON and published as
+    [Event_bus.Custom("telemetry_event", json)].  Subscribers that only
+    want telemetry events can use [Event_bus.filter_topic "telemetry_event"]
+    on the underlying bus; the typed API here handles the
+    serialization round-trip automatically.
+
+    @since 0.189.0 *)
+
+type t = { bus : Event_bus.t }
+
+type subscription = { inner : Event_bus.subscription }
+
+let create ?(buffer_size = 256) ?(policy = Event_bus.Drop_oldest) () =
+  { bus = Event_bus.create ~buffer_size ~policy () }
+;;
+
+let of_event_bus bus = { bus }
+;;
+
+(* ── Publish ──────────────────────────────────────────────────────── *)
+
+let publish bus event =
+  let json = Llm_provider.Telemetry_event.to_yojson event in
+  let payload = Event_bus.Custom ("telemetry_event", json) in
+  let ev = Event_bus.mk_event payload in
+  Event_bus.publish bus.bus ev
+;;
+
+(* ── Subscribe ────────────────────────────────────────────────────── *)
+
+let subscribe ?filter ?purpose bus =
+  let telemetry_filter (ev : Event_bus.event) =
+    match ev.payload with
+    | Event_bus.Custom ("telemetry_event", json) ->
+      (match Llm_provider.Telemetry_event.of_yojson json with
+       | Ok te ->
+         (match filter with
+          | Some f -> f te
+          | None -> true)
+       | Error _ -> false)
+    | _ -> false
+  in
+  let inner = Event_bus.subscribe ~filter:telemetry_filter ?purpose bus.bus in
+  { inner }
+;;
+
+let unsubscribe bus sub = Event_bus.unsubscribe bus.bus sub.inner
+
+(* ── Drain ────────────────────────────────────────────────────────── *)
+
+let drain sub =
+  Event_bus.drain sub.inner
+  |> List.filter_map (fun (ev : Event_bus.event) ->
+    match ev.payload with
+    | Event_bus.Custom ("telemetry_event", json) ->
+      (match Llm_provider.Telemetry_event.of_yojson json with
+       | Ok te -> Some te
+       | Error _ -> None)
+    | _ -> None)
+;;
+
+(* ── Queries ──────────────────────────────────────────────────────── *)
+
+let subscriber_count bus = Event_bus.subscriber_count bus.bus
+let stats bus = Event_bus.stats bus.bus

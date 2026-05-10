@@ -105,7 +105,7 @@ let test_events_text_first_chunk () =
     ; chunk_usage = None
     }
   in
-  let events = S.openai_chunk_to_events state chunk in
+  let events, _tel = S.openai_chunk_to_events state chunk in
   Alcotest.(check int) "2 events" 2 (List.length events);
   (match List.nth events 0 with
    | ContentBlockStart { index = 0; content_type; _ } ->
@@ -133,7 +133,7 @@ let test_events_text_subsequent () =
       }
   in
   (* Second chunk: no ContentBlockStart *)
-  let events =
+  let events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -160,7 +160,7 @@ let test_events_tool_call () =
     ; tc_arguments = Some "{\"x\":1}"
     }
   in
-  let events =
+  let events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -187,7 +187,7 @@ let test_events_tool_call () =
 
 let test_events_finish_reason () =
   let state = S.create_openai_stream_state () in
-  let events =
+  let events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -207,7 +207,7 @@ let test_events_finish_reason () =
 
 let test_events_tool_calls_finish () =
   let state = S.create_openai_stream_state () in
-  let events =
+  let events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -226,7 +226,7 @@ let test_events_tool_calls_finish () =
 
 let test_events_length_finish () =
   let state = S.create_openai_stream_state () in
-  let events =
+  let events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -245,7 +245,7 @@ let test_events_length_finish () =
 
 let test_events_empty_content_ignored () =
   let state = S.create_openai_stream_state () in
-  let events =
+  let events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -319,7 +319,7 @@ let test_parse_blank_reasoning_content_falls_back () =
 
 let test_events_reasoning_then_text () =
   let state = S.create_openai_stream_state () in
-  let r_events =
+  let r_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -340,7 +340,7 @@ let test_events_reasoning_then_text () =
    | ContentBlockDelta { index = 0; delta = ThinkingDelta s } ->
      Alcotest.(check string) "thinking text" "thinking..." s
    | _ -> Alcotest.fail "expected ThinkingDelta at index 0");
-  let t_events =
+  let t_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -368,7 +368,7 @@ let test_events_reasoning_then_text () =
 let test_events_reasoning_delta_index_multi_chunk () =
   let state = S.create_openai_stream_state () in
   (* First reasoning chunk: starts block at index 0 *)
-  let r1 =
+  let r1, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -391,7 +391,7 @@ let test_events_reasoning_delta_index_multi_chunk () =
      Alcotest.(check int) "thinking delta index matches start" 0 index
    | _ -> Alcotest.fail "expected ThinkingDelta");
   (* Second reasoning chunk: must still use the same block index *)
-  let r2 =
+  let r2, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -410,7 +410,7 @@ let test_events_reasoning_delta_index_multi_chunk () =
      Alcotest.(check string) "text" "step 2" s
    | _ -> Alcotest.fail "expected ThinkingDelta at index 0");
   (* Text after thinking: must get index 1, not 0 *)
-  let t_events =
+  let t_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -440,7 +440,7 @@ let test_events_tool_first_then_text () =
     ; tc_arguments = Some {|{"city":"Seoul"}|}
     }
   in
-  let tool_events =
+  let tool_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -463,7 +463,7 @@ let test_events_tool_first_then_text () =
      Alcotest.(check int) "tool delta index" 0 index
    | _ -> Alcotest.fail "expected InputJsonDelta at index 0");
   (* Step 2: text arrives — must get index 1, not 0 *)
-  let text_events =
+  let text_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -487,7 +487,7 @@ let test_events_tool_first_then_text () =
      Alcotest.(check string) "text content" "sunny" s
    | _ -> Alcotest.fail "expected TextDelta at index 1");
   (* Step 3: subsequent text must reuse the same block index *)
-  let text2_events =
+  let text2_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -539,7 +539,7 @@ let test_events_multi_tool_then_text () =
   in
   Alcotest.(check int) "next_block_index after 2 tools" 2 state.next_block_index;
   (* Text must get index 2 *)
-  let text_events =
+  let text_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"
@@ -600,7 +600,7 @@ let test_events_thinking_tool_text () =
   in
   Alcotest.(check int) "next after tool" 2 state.next_block_index;
   (* Text: must get index 2 *)
-  let text_events =
+  let text_events, _tel =
     S.openai_chunk_to_events
       state
       { chunk_id = "c"

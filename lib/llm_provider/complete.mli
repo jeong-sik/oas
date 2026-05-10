@@ -151,6 +151,7 @@ val complete_stream
   -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
   -> on_event:(Types.sse_event -> unit)
   -> ?priority:Request_priority.t
+  -> ?on_telemetry:(Telemetry_event.t -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 (** [body_timeout_s] caps the total HTTP body consumption time, in

@@ -113,7 +113,10 @@ val card : t -> Agent_card.agent_card
 
 type api_strategy =
   | Sync
-  | Stream of { on_event : Types.sse_event -> unit }
+  | Stream of
+      { on_event : Types.sse_event -> unit
+      ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
+      }
 
 (** Run agent to completion. [on_yield] is called when the agent enters
     tool execution and [on_resume] before the next LLM turn, allowing
@@ -143,6 +146,7 @@ val run_turn_stream
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
   -> on_event:(Types.sse_event -> unit)
+  -> ?on_telemetry:(Llm_provider.Telemetry_event.t -> unit)
   -> t
   -> ([ `Complete of Types.api_response | `ToolsExecuted ], Error.sdk_error) result
 

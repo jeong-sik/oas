@@ -11,7 +11,10 @@
 
 type api_strategy =
   | Sync
-  | Stream of { on_event : Types.sse_event -> unit }
+  | Stream of
+      { on_event : Types.sse_event -> unit
+      ; on_telemetry : (Llm_provider.Telemetry_event.t -> unit) option
+      }
 
 type turn_outcome =
   | Complete of Types.api_response

@@ -439,7 +439,7 @@ let test_gemini_stream_text () =
   | Some chunk ->
     check int "one part" 1 (List.length chunk.gem_parts);
     let state = Streaming.create_openai_stream_state () in
-    let events = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     check bool "has events" true (List.length events > 0)
   | None -> fail "expected Some chunk"
 ;;
@@ -458,7 +458,7 @@ let test_gemini_stream_thinking () =
   match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_thinking =
       List.exists
         (function
@@ -486,7 +486,7 @@ let test_gemini_stream_function_call () =
   match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_tool =
       List.exists
         (function
@@ -511,7 +511,7 @@ let test_gemini_stream_finish () =
   match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_delta =
       List.exists
         (function
@@ -610,7 +610,7 @@ let test_gemini_stream_thinking_delta_index () =
   let state = Streaming.create_openai_stream_state () in
   (match Streaming.parse_gemini_sse_chunk data1 with
    | Some chunk ->
-     let events = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (* ContentBlockStart at index 0, ContentBlockDelta at index 0 *)
      (match events with
       | [ ContentBlockStart { index = start_idx; content_type = "thinking"; _ }
@@ -633,7 +633,7 @@ let test_gemini_stream_thinking_delta_index () =
   in
   (match Streaming.parse_gemini_sse_chunk data2 with
    | Some chunk ->
-     let events = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockDelta { index; delta = ThinkingDelta _; _ } ] ->
         check int "subsequent thinking index" 0 index
@@ -652,7 +652,7 @@ let test_gemini_stream_thinking_delta_index () =
   in
   match Streaming.parse_gemini_sse_chunk data3 with
   | Some chunk ->
-    let events = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     (match events with
      | [ ContentBlockStart { index = start_idx; content_type = "text"; _ }
        ; ContentBlockDelta { index = delta_idx; delta = TextDelta "answer"; _ }
@@ -680,7 +680,7 @@ let test_gemini_stream_tool_first_then_text () =
   in
   (match Streaming.parse_gemini_sse_chunk data1 with
    | Some chunk ->
-     let events = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockStart { index; content_type = "tool_use"; _ }
         ; ContentBlockDelta { index = d_idx; delta = InputJsonDelta _; _ }
@@ -702,7 +702,7 @@ let test_gemini_stream_tool_first_then_text () =
   in
   (match Streaming.parse_gemini_sse_chunk data2 with
    | Some chunk ->
-     let events = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockStart { index = s_idx; content_type = "text"; _ }
         ; ContentBlockDelta { index = d_idx; delta = TextDelta "here are the results"; _ }
@@ -724,7 +724,7 @@ let test_gemini_stream_tool_first_then_text () =
   in
   match Streaming.parse_gemini_sse_chunk data3 with
   | Some chunk ->
-    let events = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     (match events with
      | [ ContentBlockDelta { index; delta = TextDelta " for your query"; _ } ] ->
        check int "subsequent text index" 1 index

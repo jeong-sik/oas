@@ -31,6 +31,11 @@ type openai_chunk =
   ; chunk_usage : api_usage option
   }
 
+type thinking_state =
+  | Not_thinking
+  | Thinking_started of float
+  | Thinking_done
+
 type openai_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
@@ -38,11 +43,14 @@ type openai_stream_state =
   ; mutable text_block_index : int
   ; tool_block_indices : (int, int) Hashtbl.t
   ; mutable next_block_index : int
+  ; mutable thinking_state : thinking_state
+  ; provider : string
+  ; model : string
   }
 
 val parse_openai_sse_chunk : string -> openai_chunk option
-val create_openai_stream_state : unit -> openai_stream_state
-val openai_chunk_to_events : openai_stream_state -> openai_chunk -> sse_event list
+val create_openai_stream_state : ?provider:string -> ?model:string -> unit -> openai_stream_state
+val openai_chunk_to_events : openai_stream_state -> openai_chunk -> sse_event list * Telemetry_event.t option
 
 (** {1 Gemini SSE}
 
@@ -59,7 +67,7 @@ type gemini_chunk =
   }
 
 val parse_gemini_sse_chunk : string -> gemini_chunk option
-val gemini_chunk_to_events : openai_stream_state -> gemini_chunk -> sse_event list
+val gemini_chunk_to_events : openai_stream_state -> gemini_chunk -> sse_event list * Telemetry_event.t option
 
 (** {1 Ollama NDJSON Streaming}
 
@@ -105,4 +113,4 @@ val parse_ollama_ndjson_chunk : string -> ollama_chunk option
     text / thinking content and on each new tool_call. The terminal
     [done:true] chunk also emits [MessageDelta] carrying the
     stop_reason and any token-count usage. *)
-val ollama_chunk_to_events : openai_stream_state -> ollama_chunk -> sse_event list
+val ollama_chunk_to_events : openai_stream_state -> ollama_chunk -> sse_event list * Telemetry_event.t option
