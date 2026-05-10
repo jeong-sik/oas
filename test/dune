@@ -299,6 +299,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_telemetry_sca)
+ (modules test_telemetry_sca)
+ (libraries agent_sdk alcotest))
+
+(test
  (name test_lenient_json)
  (modules test_lenient_json)
  (libraries agent_sdk alcotest))
@@ -343,3 +348,8 @@
  (name test_agent_cancellation_tla_parity)
  (modules test_agent_cancellation_tla_parity)
  (libraries agent_sdk alcotest))
+
+(rule
+ (alias telemetry_sca_check)
+ (deps test_telemetry_sca.exe)
+ (action (run ./test_telemetry_sca.exe)))
