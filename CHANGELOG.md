@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.1](https://github.com/jeong-sik/oas/compare/v0.193.0...v0.193.1) (2026-05-10)
+
+
+### Bug Fixes
+
+* **runtime:** absorb runtime_server_worker into runtime_server, restore runtime_evidence ([b09ace3](https://github.com/jeong-sik/oas/commit/b09ace33a5b19934aa5057a6e6955ad7c9c16609))
+* **runtime:** absorb runtime_server_worker, restore runtime_evidence ([692a4c2](https://github.com/jeong-sik/oas/commit/692a4c2348d1240ed50fc9102c28c9081e61c2f1))
+
 ## [0.193.0](https://github.com/jeong-sik/oas/compare/v0.192.1...v0.193.0) (2026-05-08)
 
 
