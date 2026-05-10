@@ -71,9 +71,9 @@ let create ~sw ~net ~(config : config) : Llm_transport.t =
         let merged = merge_config ~transport_cfg:config req.config in
         http_transport.complete_sync { req with config = merged })
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
         let merged = merge_config ~transport_cfg:config req.config in
-        http_transport.complete_stream ~on_event { req with config = merged })
+        http_transport.complete_stream ?on_telemetry ~on_event { req with config = merged })
   }
 ;;
 

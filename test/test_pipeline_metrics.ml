@@ -35,7 +35,7 @@ let mk_mock_transport (counter : int ref) : Llm_provider.Llm_transport.t =
         incr counter;
         { response = Ok (mk_mock_response ()); latency_ms = Some 42 })
   ; complete_stream =
-      (fun ~on_event:_ _req ->
+      (fun ?on_telemetry:_ ~on_event:_ _req ->
         incr counter;
         Ok (mk_mock_response ()))
   }

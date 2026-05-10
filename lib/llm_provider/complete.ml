@@ -1233,6 +1233,7 @@ let complete_stream
       match transport with
       | Some t ->
         t.complete_stream
+          ?on_telemetry
           ~on_event
           { Llm_transport.config; messages; tools; runtime_mcp_policy }
       | None when requires_non_http_transport config.kind ->
@@ -1279,7 +1280,7 @@ let make_http_transport ~sw ~net : Llm_transport.t =
         in
         { Llm_transport.response; latency_ms = Some latency_ms })
   ; complete_stream =
-      (fun ~on_event (req : Llm_transport.completion_request) ->
+      (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
         complete_stream_http
           ~sw
           ~net
@@ -1287,6 +1288,7 @@ let make_http_transport ~sw ~net : Llm_transport.t =
           ~messages:req.messages
           ~tools:req.tools
           ~on_event
+          ?on_telemetry
           ())
   }
 ;;

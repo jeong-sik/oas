@@ -316,7 +316,7 @@ let test_circuit_open_skips_provider_and_falls_back () =
           seen_models := req.config.model_id :: !seen_models;
           { Llm_transport.response = Ok dummy_response; latency_ms = Some 25 })
     ; complete_stream =
-        (fun ~on_event:_ (req : Llm_transport.completion_request) ->
+        (fun ?on_telemetry:_ ~on_event:_ (req : Llm_transport.completion_request) ->
           seen_models := req.config.model_id :: !seen_models;
           Ok dummy_response)
     }
@@ -388,7 +388,7 @@ let test_hard_quota_stops_without_calling_fallback () =
           in
           { Llm_transport.response; latency_ms = Some 25 })
     ; complete_stream =
-        (fun ~on_event:_ (req : Llm_transport.completion_request) ->
+        (fun ?on_telemetry:_ ~on_event:_ (req : Llm_transport.completion_request) ->
           called_models := req.config.model_id :: !called_models;
           if String.equal req.config.model_id primary.model_id
           then Error hard_quota_error
@@ -452,7 +452,7 @@ let test_provider_terminal_stops_without_calling_fallback () =
           in
           { Llm_transport.response; latency_ms = Some 25 })
     ; complete_stream =
-        (fun ~on_event:_ (req : Llm_transport.completion_request) ->
+        (fun ?on_telemetry:_ ~on_event:_ (req : Llm_transport.completion_request) ->
           called_models := req.config.model_id :: !called_models;
           if String.equal req.config.model_id primary.model_id
           then Error terminal_error
@@ -506,7 +506,7 @@ let test_attempt_timeout_fast_paths_without_retrying_same_step () =
           Eio.Time.sleep clock 5.0;
           { Llm_transport.response = Ok dummy_response; latency_ms = Some 5000 })
     ; complete_stream =
-        (fun ~on_event:_ _ ->
+        (fun ?on_telemetry:_ ~on_event:_ _ ->
           Atomic.incr calls;
           Eio.Time.sleep clock 5.0;
           Ok dummy_response)
@@ -573,7 +573,7 @@ let test_attempt_timeout_disable_via_nonpositive_sentinel () =
           Eio.Time.sleep clock 0.05;
           { Llm_transport.response = Ok dummy_response; latency_ms = Some 50 })
     ; complete_stream =
-        (fun ~on_event:_ _ ->
+        (fun ?on_telemetry:_ ~on_event:_ _ ->
           Eio.Time.sleep clock 0.05;
           Ok dummy_response)
     }

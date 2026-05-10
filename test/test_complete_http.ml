@@ -102,7 +102,7 @@ let mock_transport_response text =
 
 let make_transport response : Llm_transport.t =
   { complete_sync = (fun _ -> { Llm_transport.response; latency_ms = Some 7 })
-  ; complete_stream = (fun ~on_event:_ _ -> response)
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _ -> response)
   }
 ;;
 
