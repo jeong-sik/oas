@@ -128,7 +128,6 @@ module Eval_stats = Eval_stats
 module Defaults = Defaults
 module Runtime_store = Runtime_store
 module Runtime_server_types = Runtime_server_types
-module Runtime_server_worker = Runtime_server_worker
 module Runtime_server_resolve = Runtime_server_resolve
 module Runtime_health = Runtime_health
 module Durable = Durable
