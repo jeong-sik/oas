@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.2](https://github.com/jeong-sik/oas/compare/v0.193.1...v0.193.2) (2026-05-10)
+
+
+### Features
+
+* **telemetry:** add SCA registry and audit tests for signal producer coverage ([1f57f3e](https://github.com/jeong-sik/oas/commit/1f57f3ebd1f2e678f638bcffe0ac0ebf87a61321))
+* **telemetry:** per-turn typed telemetry events and bus ([7396ed6](https://github.com/jeong-sik/oas/commit/7396ed645cfb33a7f92df49f8c49806779044791))
+
 ## [0.193.1](https://github.com/jeong-sik/oas/compare/v0.193.0...v0.193.1) (2026-05-10)
 
 
