@@ -51,6 +51,7 @@ type options = Agent_types.options =
   ; operator_policy : Guardrails.tool_filter option
   ; policy_channel : Policy_channel.t option
   ; tool_selector : Tool_selector.strategy option
+  ; disclosure_level : Tool.disclosure_level option
   ; priority : Llm_provider.Request_priority.t option
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option

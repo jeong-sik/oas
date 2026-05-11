@@ -109,6 +109,44 @@ val validate_descriptor : descriptor -> (unit, string) result
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t
 
+(** Disclosure depth for tool schema serialization to LLM providers.
+
+    Background: when an agent exposes many tools, sending the full
+    [input_schema] for every tool on every turn inflates prompt tokens.
+    [Tool_selector] narrows the candidate set, but [schema_to_json] still
+    emits the full schema for whatever survives selection. This type
+    lets callers choose how much of each surviving tool's schema is sent.
+
+    Risk: [Minimal_index] omits [input_schema]. Models that rely on the
+    schema to compose [function_call] arguments may fail to populate
+    parameters correctly. Use [Full_schema] (the default) unless model
+    compatibility has been verified.
+
+    @since 0.194.0 *)
+type disclosure_level =
+  | Full_schema
+    (** Emit [name], [description], and [input_schema]. Identical to
+        legacy [schema_to_json] output. *)
+  | Minimal_index
+    (** Emit [name] and [description] only. [input_schema] is omitted.
+        Used to give the model an "index" of available tools without
+        paying for full parameter schemas. *)
+  | Hybrid of { full_names : string list }
+    (** Tools whose [schema.name] is in [full_names] are rendered with
+        [Full_schema]; all others with [Minimal_index]. Useful for the
+        2-stage pattern: pre-selected top-K tools get full schemas,
+        the remainder are visible by name only. *)
+[@@deriving show]
+
+(** Serialize a tool's schema at the requested disclosure level.
+
+    [schema_to_json_with_disclosure Full_schema t] is byte-identical to
+    [schema_to_json t]. Callers that don't care about disclosure should
+    continue using [schema_to_json].
+
+    @since 0.194.0 *)
+val schema_to_json_with_disclosure : disclosure_level -> t -> Yojson.Safe.t
+
 (** Wrap a tool to inject default arguments when not provided.
     Defaults are merged into the input JSON before the handler runs. *)
 val with_defaults : (string * Yojson.Safe.t) list -> t -> t

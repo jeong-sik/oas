@@ -99,6 +99,7 @@ let prepare_tools
       ~turn_params
       ?tool_selector
       ?messages
+      ?(disclosure_level = Tool.Full_schema)
       ()
   =
   (* Precedence: policy_channel > operator > hook > agent.
@@ -156,7 +157,9 @@ let prepare_tools
       in
       Tool_selector.select ~strategy ~context ~tools:(Tool_set.to_list visible)
   in
-  let tool_schemas = List.map Tool.schema_to_json selected in
+  let tool_schemas =
+    List.map (Tool.schema_to_json_with_disclosure disclosure_level) selected
+  in
   let tools_json = if tool_schemas = [] then None else Some tool_schemas in
   let visible_tool_names = List.map (fun (t : Tool.t) -> t.schema.name) selected in
   tools_json, visible_tool_names, effective_guardrails
@@ -306,6 +309,7 @@ let prepare_turn
       ~tiered_memory
       ~turn_params
       ?tool_selector
+      ?disclosure_level
       ()
   =
   let tools_json, visible_tool_names, effective_guardrails =
@@ -316,6 +320,7 @@ let prepare_turn
       ~tools
       ~turn_params
       ?tool_selector
+      ?disclosure_level
       ~messages
       ()
   in

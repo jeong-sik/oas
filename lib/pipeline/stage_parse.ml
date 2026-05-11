@@ -47,6 +47,7 @@ let prepare_turn_for_agent agent ~turn_params =
     ~tiered_memory:agent.options.tiered_memory
     ~turn_params
     ?tool_selector:agent.options.tool_selector
+    ?disclosure_level:agent.options.disclosure_level
     ()
 ;;
 

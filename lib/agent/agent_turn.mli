@@ -88,8 +88,13 @@ type turn_preparation =
     Priority: [turn_params.tool_filter_override] > [operator_policy] > [guardrails]
     Then: [tool_selector] narrows the guardrails-filtered set.
 
+    [disclosure_level] controls how each surviving tool's schema is
+    serialized. Default [Tool.Full_schema] preserves legacy behavior
+    byte-for-byte. See {!Tool.disclosure_level}.
+
     @since 0.94.0 added [operator_policy] parameter
-    @since 0.100.0 added [tool_selector] and [messages] parameters *)
+    @since 0.100.0 added [tool_selector] and [messages] parameters
+    @since 0.194.0 added [disclosure_level] parameter *)
 val prepare_tools
   :  guardrails:Guardrails.t
   -> operator_policy:Guardrails.tool_filter option
@@ -98,6 +103,7 @@ val prepare_tools
   -> turn_params:Hooks.turn_params
   -> ?tool_selector:Tool_selector.strategy
   -> ?messages:Types.message list
+  -> ?disclosure_level:Tool.disclosure_level
   -> unit
   -> Yojson.Safe.t list option * string list * Guardrails.t
 (** Returns [(tools_json, visible_tool_names, effective_guardrails)].
@@ -143,6 +149,7 @@ val prepare_turn
   -> tiered_memory:tiered_memory option
   -> turn_params:Hooks.turn_params
   -> ?tool_selector:Tool_selector.strategy
+  -> ?disclosure_level:Tool.disclosure_level
   -> unit
   -> turn_preparation
 

@@ -242,6 +242,25 @@ val with_progressive_tools : Progressive_tools.disclosure_strategy -> t -> t
     @since 0.100.0 *)
 val with_tool_selector : Tool_selector.strategy -> t -> t
 
+(** Set tool schema disclosure level for this agent.
+
+    Default behavior (no call) is [Tool.Full_schema], preserving the
+    legacy contract that every surviving tool's [input_schema] is sent
+    to the LLM on every turn.
+
+    [Tool.Minimal_index] omits [input_schema] from every tool — tokens
+    are minimized but the model must compose [function_call] arguments
+    without seeing the parameter schema. Verify model compatibility
+    before using.
+
+    [Tool.Hybrid { full_names }] sends [Full_schema] for the named tools
+    and [Minimal_index] for the rest. Pairs naturally with
+    {!with_tool_selector}: pre-selected top-K can be promoted to full
+    while the remainder stays as an index.
+
+    @since 0.194.0 *)
+val with_disclosure_level : Tool.disclosure_level -> t -> t
+
 (** Set a shared policy channel for lazy tool policy propagation.
     Children that share the same channel pick up parent policy changes
     at their next turn boundary via lock-free polling.

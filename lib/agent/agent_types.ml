@@ -40,6 +40,7 @@ type options =
   ; operator_policy : Guardrails.tool_filter option
   ; policy_channel : Policy_channel.t option
   ; tool_selector : Tool_selector.strategy option
+  ; disclosure_level : Tool.disclosure_level option
   ; priority : Llm_provider.Request_priority.t option
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
@@ -151,6 +152,7 @@ let default_options =
   ; operator_policy = None
   ; policy_channel = None
   ; tool_selector = None
+  ; disclosure_level = None
   ; priority = None
   ; slot_id = None
   ; on_run_complete = None
