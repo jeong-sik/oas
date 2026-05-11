@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.6](https://github.com/jeong-sik/oas/compare/v0.193.5...v0.193.6) (2026-05-11)
+
+
+### Bug Fixes
+
+* **scripts:** recognize release-please CHANGELOG header format ([#1513](https://github.com/jeong-sik/oas/issues/1513)) ([188efa6](https://github.com/jeong-sik/oas/commit/188efa67bdb95de6888f0c7660d236e3cc9de2df))
+
 ## [0.193.5](https://github.com/jeong-sik/oas/compare/v0.193.4...v0.193.5) (2026-05-11)
 
 
