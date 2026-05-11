@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.3](https://github.com/jeong-sik/oas/compare/v0.193.2...v0.193.3) (2026-05-11)
+
+
+### Features
+
+* **llm_provider:** wire ttfrc_ms and prefill_ms into inference_telemetry ([809b63a](https://github.com/jeong-sik/oas/commit/809b63a5c4dfbeed427d660295de26df3ed928eb))
+* **telemetry:** wire ttfrc_ms and prefill_ms through patch_telemetry ([39f15ea](https://github.com/jeong-sik/oas/commit/39f15ea25dfa980375253af8f9b1c50815b17165))
+* **telemetry:** wire ttfrc_ms and prefill_ms through patch_telemetry ([ef4ef9e](https://github.com/jeong-sik/oas/commit/ef4ef9e51d87411ec5a680a14385fcd613729974))
+* **telemetry:** wire ttfrc_ms and prefill_ms to inference_telemetry ([98d5335](https://github.com/jeong-sik/oas/commit/98d5335fa0198e271dae98a420521f396af4934c))
+
 ## [0.193.2](https://github.com/jeong-sik/oas/compare/v0.193.1...v0.193.2) (2026-05-10)
 
 
