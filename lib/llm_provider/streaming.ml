@@ -296,8 +296,13 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
    | Some text when text <> "" ->
      (match state.thinking_state with
       | Not_thinking ->
-        state.thinking_state <- Thinking_started (Unix.gettimeofday ());
-      | _ -> ());
+        state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+      | Thinking_started _ | Thinking_done ->
+        (* Already started, or model is re-emitting reasoning after a
+           closure — keep current state. Enumerated explicitly so adding
+           a new [thinking_state] variant forces review of how it should
+           react to a fresh reasoning chunk. *)
+        ());
      if not state.thinking_block_started
      then (
        state.thinking_block_index <- state.next_block_index;
@@ -325,7 +330,11 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
                   ; model = state.model
                   ; thinking_duration_ms
                   })
-      | _ -> ())
+      | Not_thinking | Thinking_done ->
+        (* Empty reasoning chunk while never started, or after a prior
+           close — no telemetry to emit. Enumerated explicitly so a new
+           [thinking_state] variant cannot silently inherit the no-op. *)
+        ())
    | _ -> ());
   (* Text content delta *)
   (match chunk.delta_content with
