@@ -194,7 +194,7 @@ let progress t =
          let d =
            match s.status with
            | Done | Skipped -> 1
-           | _ -> 0
+           | Pending | Running | Failed _ -> 0
          in
          tot + 1, done_n + d)
       (0, 0)
@@ -206,7 +206,7 @@ let progress t =
 let is_done t =
   match t.status with
   | Completed | Abandoned _ -> true
-  | _ -> false
+  | Planning | Executing | Replanning -> false
 ;;
 
 let deps_satisfied t step_id =
