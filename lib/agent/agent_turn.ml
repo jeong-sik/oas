@@ -201,18 +201,28 @@ let tiered_memory_tokens tiered_memory =
   | Some recall -> Context_reducer.estimate_message_tokens recall
 ;;
 
-let rec reserve_strategy_budget ~reserved_tokens strategy =
+let rec reserve_strategy_budget ~reserved_tokens (strategy : Context_reducer.strategy) =
   match strategy with
-  | Context_reducer.Token_budget budget ->
+  | Token_budget budget ->
     Context_reducer.Token_budget (Int.max 0 (budget - reserved_tokens))
-  | Context_reducer.Compose strategies ->
+  | Compose strategies ->
     Context_reducer.Compose
       (List.map (reserve_strategy_budget ~reserved_tokens) strategies)
-  | Context_reducer.Dynamic selector ->
+  | Dynamic selector ->
     Context_reducer.Dynamic
       (fun ~turn ~messages ->
         reserve_strategy_budget ~reserved_tokens (selector ~turn ~messages))
-  | other -> other
+  (* Enumerate every other [strategy] variant so the compiler flags any
+     new constructor here. A new strategy that *does* carry a token budget
+     (e.g. a future [Hard_token_cap]) would silently inherit identity
+     passthrough under the previous [other -> other] catch-all, defeating
+     the per-call budget-reservation contract. *)
+  | ( Keep_last_n _ | Prune_tool_outputs _ | Prune_tool_args _
+    | Repair_dangling_tool_calls | Repair_orphaned_tool_results
+    | Merge_contiguous | Drop_thinking | Keep_first_and_last _
+    | Prune_by_role _ | Summarize_old _ | Clear_tool_results _
+    | Stub_tool_results _ | Cap_message_tokens _ | Cache_alignment _
+    | Relocate_tool_results _ | Custom _ ) as s -> s
 ;;
 
 let reserve_context_reducer ~tiered_memory = function
