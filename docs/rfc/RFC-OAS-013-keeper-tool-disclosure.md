@@ -99,7 +99,7 @@ let next_disclosure ~prev_disclosure ~last_tool_errors =
 | `Tool_selector`가 잘못 narrowing해서 진짜 필요한 tool이 `Minimal`로 강등 | MEDIUM | top-K 크기를 보수적으로 시작 (10+). `Tool_selector.strategy`는 본 RFC 변경 없음. |
 | Prefix cache invalidation | MEDIUM | `full_names`를 매 turn `List.sort compare` 적용해 결정성 확보. |
 | Telemetry 측정 오류 / 잘못된 baseline | MEDIUM | P0 기간 baseline은 활성화 *직전* 7일 — 같은 keeper, 같은 worker pool. |
-| RFC 머지만 하고 활성화 PR 지연되면 dormant 시간 길어짐 | LOW | RFC 머지와 활성화 PR을 *같은 sprint* 안에 묶는다. RFC body에 "P0 시작 expected date" 명시. |
+| RFC 머지만 하고 활성화 PR 지연되면 dormant 시간 길어짐 | LOW | RFC 머지와 활성화 PR을 *같은 sprint* 안에 묶는다. |
 
 ## 5. Rollback
 
