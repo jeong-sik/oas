@@ -34,7 +34,7 @@ OAS PR #1508은 `Tool.disclosure_level = Full_schema | Minimal_index | Hybrid` �
 
 ### 1.3 PR #1508 이후 잔존 책임
 
-PR #1508은 *인프라*만 추가. default `Full_schema`로 머지 시 wire byte-identical → 측정 가능한 효과 0. 본 RFC가 *없으면* PR #1508은 dormant code로 남는다 (MEMORY `feedback_lint_string_classifier_is_workaround_not_fundamental` 경고 패턴).
+PR #1508은 *인프라*만 추가. default `Full_schema`로 머지 시 wire byte-identical → 측정 가능한 효과 0. 본 RFC가 *없으면* PR #1508은 dormant code로 남는다 (인프라는 추가됐지만 활성화 RFC가 없으면 근본 효과 없이 우회용 코드로 남는다는 경고 패턴).
 
 ## 2. Proposal
 
