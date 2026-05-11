@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.5](https://github.com/jeong-sik/oas/compare/v0.193.4...v0.193.5) (2026-05-11)
+
+
+### Features
+
+* **agent:** add disclosure_resolver for per-turn adaptive disclosure ([#1511](https://github.com/jeong-sik/oas/issues/1511)) ([7ed9c05](https://github.com/jeong-sik/oas/commit/7ed9c05260dce7b813bfaf524a2799573eb6479d))
+
 ## [0.193.4](https://github.com/jeong-sik/oas/compare/v0.193.3...v0.193.4) (2026-05-11)
 
 
