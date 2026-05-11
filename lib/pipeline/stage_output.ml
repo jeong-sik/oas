@@ -10,9 +10,11 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | StopToolUse ->
     let tool_uses =
       List.filter
-        (function
+        (fun (block : Types.content_block) ->
+          match block with
           | ToolUse _ -> true
-          | _ -> false)
+          | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
+          | Image _ | Document _ | Audio _ -> false)
         response.content
     in
     let result = stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses in
