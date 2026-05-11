@@ -64,13 +64,18 @@ let skip_step t step_id = update_step t step_id (fun s -> { s with status = Skip
 (* ── Re-planning ──────────────────────────────────── *)
 
 let replan t ~new_steps =
-  (* Keep non-Pending steps, replace Pending with new_steps *)
+  (* Keep non-Pending steps, replace Pending with new_steps.
+     Enumerate every [step_status] variant so the compiler flags any
+     new constructor. A future variant that should also be discarded on
+     replan (e.g. a hypothetical [Cancelled]) would silently inherit
+     "keep" under the previous [_ -> true] catch-all — defeating the
+     per-status retention semantics. *)
   let kept =
     List.filter
       (fun (s : step) ->
          match s.status with
          | Pending -> false
-         | _ -> true)
+         | Running | Done | Failed _ | Skipped -> true)
       t.steps
   in
   { t with steps = kept @ new_steps; status = Replanning }
