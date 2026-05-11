@@ -69,6 +69,7 @@ module Agent_checkpoint = Agent_checkpoint
 module Agent_turn_budget = Agent_turn_budget
 module Agent = Agent
 module Builder = Builder
+module Disclosure_resolver = Disclosure_resolver
 module Agent_card = Agent_card
 module Agent_registry = Agent_registry
 module Agent_config = Agent_config

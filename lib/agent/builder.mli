@@ -261,6 +261,37 @@ val with_tool_selector : Tool_selector.strategy -> t -> t
     @since 0.194.0 *)
 val with_disclosure_level : Tool.disclosure_level -> t -> t
 
+(** Install a per-turn resolver that adapts disclosure based on the
+    most recent tool results.
+
+    The resolver receives the latest [Types.tool_result] list extracted
+    from message history (left-to-right; empty list if no tool results
+    seen yet). It returns:
+    - [Some override]: use [override] for this turn only.
+    - [None]: fall through to the static [with_disclosure_level] value
+      (or [Tool.Full_schema] if none was set).
+
+    Typical pattern — "demote to Full_schema when the previous turn's
+    tool call failed validation":
+
+    {[
+      let resolver (results : Types.tool_result list) =
+        let has_error = List.exists Result.is_error results in
+        if has_error then Some Tool.Full_schema else None
+      in
+      Builder.with_disclosure_resolver resolver builder
+    ]}
+
+    Caller owns the policy (TTL, sticky promotion, session scope, etc.);
+    OAS only provides the mechanism. Combine freely with
+    {!with_disclosure_level} and {!with_tool_selector}.
+
+    @since 0.195.0 *)
+val with_disclosure_resolver
+  :  (Types.tool_result list -> Tool.disclosure_level option)
+  -> t
+  -> t
+
 (** Set a shared policy channel for lazy tool policy propagation.
     Children that share the same channel pick up parent policy changes
     at their next turn boundary via lock-free polling.

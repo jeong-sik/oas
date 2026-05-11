@@ -76,6 +76,7 @@
   test_deep_coverage
   test_defaults
   test_defaults_unit
+  test_disclosure_resolver
   test_discovery
   test_durable
   test_durable_event
