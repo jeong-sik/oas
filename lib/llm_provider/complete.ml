@@ -1741,6 +1741,84 @@ let%test "patch_telemetry creates telemetry when None" =
   | None -> false
 ;;
 
+let%test "patch_telemetry preserves ttfrc_ms/prefill_ms when optional args omitted" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"qwen3.5:9b"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let resp =
+    { Types.id = "test"
+    ; model = "m"
+    ; stop_reason = Types.EndTurn
+    ; content = []
+    ; usage = None
+    ; telemetry =
+        Some
+          { Types.system_fingerprint = None
+          ; timings = None
+          ; reasoning_tokens = None
+          ; reasoning_tokens_estimated = false
+          ; request_latency_ms = None
+          ; peak_memory_gb = None
+          ; provider_kind = None
+          ; reasoning_effort = None
+          ; canonical_model_id = None
+          ; effective_context_window = None
+          ; provider_internal_action_count = None
+          ; ttfrc_ms = Some 12.5
+          ; prefill_ms = Some 8.0
+          }
+    }
+  in
+  let patched = patch_telemetry resp ~config (Some 42) in
+  match patched.telemetry with
+  | Some t -> t.ttfrc_ms = Some 12.5 && t.prefill_ms = Some 8.0
+  | None -> false
+;;
+
+let%test "patch_telemetry overrides ttfrc_ms/prefill_ms when passed as Some" =
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"qwen3.5:9b"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let resp =
+    { Types.id = "test"
+    ; model = "m"
+    ; stop_reason = Types.EndTurn
+    ; content = []
+    ; usage = None
+    ; telemetry =
+        Some
+          { Types.system_fingerprint = None
+          ; timings = None
+          ; reasoning_tokens = None
+          ; reasoning_tokens_estimated = false
+          ; request_latency_ms = None
+          ; peak_memory_gb = None
+          ; provider_kind = None
+          ; reasoning_effort = None
+          ; canonical_model_id = None
+          ; effective_context_window = None
+          ; provider_internal_action_count = None
+          ; ttfrc_ms = Some 12.5
+          ; prefill_ms = Some 8.0
+          }
+    }
+  in
+  let patched =
+    patch_telemetry resp ~config ~ttfrc_ms:(Some 99.0) ~prefill_ms:(Some 50.0) (Some 42)
+  in
+  match patched.telemetry with
+  | Some t -> t.ttfrc_ms = Some 99.0 && t.prefill_ms = Some 50.0
+  | None -> false
+;;
+
 let%test "patch_telemetry fills blank response model" =
   let config =
     Provider_config.make
