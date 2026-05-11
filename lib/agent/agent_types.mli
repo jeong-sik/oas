@@ -98,6 +98,13 @@ type options =
         user's query, improving selection accuracy from ~42% to 83-100%.
         Applied after guardrails and operator policy filtering.
         @since 0.100.0 *)
+  ; disclosure_level : Tool.disclosure_level option
+    (** Controls how each surviving tool's schema is serialized.
+        [None] preserves legacy behavior ([Full_schema]). See
+        {!Tool.disclosure_level} for risk notes — [Minimal_index] omits
+        [input_schema] and may break models that need it to compose
+        arguments.
+        @since 0.194.0 *)
   ; priority : Llm_provider.Request_priority.t option
     (** Scheduling priority for LLM requests at the options level.
         When [Some], overrides [agent_config.priority] on the resume path.

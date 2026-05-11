@@ -192,6 +192,29 @@ let schema_to_json tool =
     ]
 ;;
 
+type disclosure_level =
+  | Full_schema
+  | Minimal_index
+  | Hybrid of { full_names : string list }
+[@@deriving show]
+
+let schema_to_json_minimal tool =
+  `Assoc
+    [ "name", `String tool.schema.name
+    ; "description", `String tool.schema.description
+    ]
+;;
+
+let schema_to_json_with_disclosure level tool =
+  match level with
+  | Full_schema -> schema_to_json tool
+  | Minimal_index -> schema_to_json_minimal tool
+  | Hybrid { full_names } ->
+    if List.mem tool.schema.name full_names
+    then schema_to_json tool
+    else schema_to_json_minimal tool
+;;
+
 (** Wrap a tool to inject default arguments when not provided by the LLM.
     Defaults are merged into JSON object args before the handler runs. *)
 let with_defaults (defaults : (string * Yojson.Safe.t) list) (tool : t) : t =

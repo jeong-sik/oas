@@ -63,6 +63,7 @@ type t =
   ; yield_on_tool : bool
   ; exit_condition : (int -> bool) option
   ; tool_selector : Tool_selector.strategy option
+  ; disclosure_level : Tool.disclosure_level option
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
   ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
@@ -133,6 +134,7 @@ let create ~net ~model =
   ; yield_on_tool = false
   ; exit_condition = None
   ; tool_selector = None
+  ; disclosure_level = None
   ; slot_id = None
   ; on_run_complete = None
   ; tool_result_relocation = None
@@ -294,6 +296,7 @@ let with_context_injector injector b = { b with context_injector = Some injector
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_progressive_tools strategy b = { b with progressive_tools = Some strategy }
 let with_tool_selector strategy b = { b with tool_selector = Some strategy }
+let with_disclosure_level level b = { b with disclosure_level = Some level }
 let with_policy_channel ch b = { b with policy_channel = Some ch }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
@@ -419,6 +422,7 @@ let build b =
     ; operator_policy = b.operator_policy
     ; policy_channel = b.policy_channel
     ; tool_selector = b.tool_selector
+    ; disclosure_level = b.disclosure_level
     ; priority = b.priority
     ; slot_id = b.slot_id
     ; on_run_complete = b.on_run_complete
