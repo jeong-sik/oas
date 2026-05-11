@@ -113,7 +113,7 @@ let next_disclosure ~prev_disclosure ~last_tool_errors =
 
 | 차후 작업 | 이유 |
 |---|---|
-| `Y`: `input_schema` required-only 압축 | `disclosure_level`과 직교한 별도 절감 축. P2 이후 별도 RFC. |
+| `input_schema` required-only 압축 | `disclosure_level`과 직교한 별도 절감 축. P2 이후 별도 RFC. |
 | Final prompt hard cap | masc-mcp `keeper_run_prompt.ml:153` gate, 결정성 보장 별도 축. |
 | Section-wise enforcement gate | `keeper_agent_prompt_metrics`가 측정만 함 → enforce 추가는 별도 RFC. |
 | Tool_selector strategy 변경 | 본 RFC는 strategy 무변경. selection 알고리즘 자체 개선은 별도. |
