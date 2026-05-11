@@ -20,7 +20,8 @@
         },
         {
           "type": "generic",
-          "path": "agent_sdk.opam"
+          "path": "agent_sdk.opam",
+          "pattern": "^version: \"(?<version>\\d+\\.\\d+\\.\\d+)\""
         }
       ]
     }
