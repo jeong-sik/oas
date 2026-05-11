@@ -74,17 +74,21 @@ if [[ -z "${current_version}" ]]; then
 fi
 
 # Extract CHANGELOG versions in document order (newest first, by convention).
-# A valid entry looks like: `## [0.169.0] - 2026-04-21` — skip unreleased /
-# placeholder headers like `## [Unreleased]`.
+# Two header shapes are accepted:
+#   manual:         `## [0.169.0] - 2026-04-21`
+#   release-please: `## [0.193.4](https://.../compare/v0.193.3...v0.193.4) (2026-05-11)`
+# The character class `[ (]` right after `\]` admits both — a space (manual
+# style) or `(` (release-please style). Unreleased / placeholder headers like
+# `## [Unreleased]` are skipped because they have no version digits.
 all_versions=()
 while IFS= read -r line; do
   all_versions+=("$line")
 done < <(
-  sed -n 's/^## \[\([0-9][0-9]*\(\.[0-9][0-9]*\)\{1,2\}\)\] .*/\1/p' CHANGELOG.md
+  sed -n 's/^## \[\([0-9][0-9]*\(\.[0-9][0-9]*\)\{1,2\}\)\][ (].*/\1/p' CHANGELOG.md
 )
 
 if (( ${#all_versions[@]} == 0 )); then
-  echo "check-tag-drift: no CHANGELOG versions found (regex: ^## \\[X.Y(.Z)\\] ...)" >&2
+  echo "check-tag-drift: no CHANGELOG versions found (regex: ^## \\[X.Y(.Z)\\][ (]...)" >&2
   exit 2
 fi
 
@@ -129,7 +133,9 @@ if (( current_has_changelog == 0 )); then
   echo ""
   echo "Current version lacks a CHANGELOG entry:"
   echo "  - dune-project version: ${current_version}"
-  echo "  - expected header: ## [${current_version}] - YYYY-MM-DD"
+  echo "  - expected header (either form is accepted):"
+  echo "      ## [${current_version}] - YYYY-MM-DD"
+  echo "      ## [${current_version}](URL) (YYYY-MM-DD)   # release-please"
   echo ""
   echo "This blocks scripts/release.sh and should be fixed before cutting a tag."
 
