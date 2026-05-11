@@ -98,6 +98,13 @@ let last_tool_results_from messages =
     messages
 ;;
 
+let resolve_disclosure_level agent =
+  Disclosure_resolver.resolve
+    ~resolver:agent.options.disclosure_resolver
+    ~static:agent.options.disclosure_level
+    ~last_results:(last_tool_results_from agent.state.messages)
+;;
+
 let prepare_turn_for_agent agent ~turn_params =
   Agent_turn.prepare_turn
     ~config:agent.state.config
@@ -110,7 +117,7 @@ let prepare_turn_for_agent agent ~turn_params =
     ~tiered_memory:agent.options.tiered_memory
     ~turn_params
     ?tool_selector:agent.options.tool_selector
-    ?disclosure_level:agent.options.disclosure_level
+    ?disclosure_level:(resolve_disclosure_level agent)
     ()
 ;;
 

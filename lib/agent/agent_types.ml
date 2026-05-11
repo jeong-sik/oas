@@ -41,6 +41,18 @@ type options =
   ; policy_channel : Policy_channel.t option
   ; tool_selector : Tool_selector.strategy option
   ; disclosure_level : Tool.disclosure_level option
+  ; disclosure_resolver : (Types.tool_result list -> Tool.disclosure_level option) option
+    (** Optional resolver that decides the disclosure level for the
+        next turn based on the most recent tool results.  When
+        [Some f], it is called before each turn with the latest
+        [Types.tool_result] list extracted from message history.
+        - [f results = Some override] uses [override] for this turn.
+        - [f results = None] falls back to the static
+          [disclosure_level] field.
+        When [None], [disclosure_level] is used as-is.
+        Caller owns the policy (TTL, sticky promotion, session scope);
+        OAS only provides the mechanism.
+        @since 0.195.0 *)
   ; priority : Llm_provider.Request_priority.t option
   ; slot_id : int option
   ; on_run_complete : (bool -> unit) option
@@ -153,6 +165,7 @@ let default_options =
   ; policy_channel = None
   ; tool_selector = None
   ; disclosure_level = None
+  ; disclosure_resolver = None
   ; priority = None
   ; slot_id = None
   ; on_run_complete = None

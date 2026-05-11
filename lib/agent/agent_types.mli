@@ -105,6 +105,15 @@ type options =
         [input_schema] and may break models that need it to compose
         arguments.
         @since 0.194.0 *)
+  ; disclosure_resolver : (Types.tool_result list -> Tool.disclosure_level option) option
+    (** Optional resolver that decides the disclosure level for the
+        next turn based on the most recent tool results. When
+        [Some f], it is called with the latest [Types.tool_result] list
+        extracted from message history. [Some override] uses [override]
+        this turn; [None] falls back to the static [disclosure_level].
+        Caller owns the policy (TTL, sticky promotion, session scope);
+        OAS provides the mechanism only.
+        @since 0.195.0 *)
   ; priority : Llm_provider.Request_priority.t option
     (** Scheduling priority for LLM requests at the options level.
         When [Some], overrides [agent_config.priority] on the resume path.

@@ -31,6 +31,13 @@ let last_tool_results_from messages =
     messages
 ;;
 
+let resolve_disclosure_level agent =
+  Disclosure_resolver.resolve
+    ~resolver:agent.options.disclosure_resolver
+    ~static:agent.options.disclosure_level
+    ~last_results:(last_tool_results_from agent.state.messages)
+;;
+
 (** Prepare the turn using current [agent.state.messages] and the given
     [turn_params].  Centralises the [Agent_turn.prepare_turn] parameter
     list to avoid duplication between [stage_parse] and post-compaction
@@ -47,7 +54,7 @@ let prepare_turn_for_agent agent ~turn_params =
     ~tiered_memory:agent.options.tiered_memory
     ~turn_params
     ?tool_selector:agent.options.tool_selector
-    ?disclosure_level:agent.options.disclosure_level
+    ?disclosure_level:(resolve_disclosure_level agent)
     ()
 ;;
 
