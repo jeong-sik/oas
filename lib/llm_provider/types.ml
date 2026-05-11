@@ -312,6 +312,8 @@ type inference_telemetry =
   ; canonical_model_id : string option
   ; effective_context_window : int option
   ; provider_internal_action_count : int option
+  ; ttfrc_ms : float option
+  ; prefill_ms : float option
   }
 [@@deriving show, yojson]
 
