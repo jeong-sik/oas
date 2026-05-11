@@ -18,10 +18,16 @@ type tool_call_fingerprint =
 
 let compute_fingerprints tool_uses =
   List.filter_map
-    (function
+    (fun (block : content_block) ->
+      match block with
       | ToolUse { name; input; _ } ->
         Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
-      | _ -> None)
+      | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
+      | Image _ | Document _ | Audio _ ->
+        (* Non-tool blocks do not participate in tool-call fingerprinting.
+           Enumerated so a new [content_block] variant forces review of
+           whether it should influence idle detection. *)
+        None)
     tool_uses
 ;;
 
@@ -78,9 +84,15 @@ let extract_last_user_text (messages : message list) : string =
       then (
         let texts =
           List.filter_map
-            (function
+            (fun (block : content_block) ->
+              match block with
               | Text s -> Some s
-              | _ -> None)
+              | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _
+              | Image _ | Document _ | Audio _ ->
+                (* Tool_selector context only consumes user-authored prose;
+                   non-text user blocks (e.g. inline images) are excluded
+                   by design. Enumerated to surface new variants for review. *)
+                None)
             msg.content
         in
         match texts with
