@@ -6,7 +6,7 @@
     that RFC-OAS-008 PR-3 originally proposed has been superseded by
     RFC-OAS-009 v2: OAS core no longer references CDAL modules, and the
     builtin variants here are scheduled for removal in RFC-OAS-012 once
-    CDAL migrates to masc-mcp (RFC-OAS-011). *)
+    CDAL migrates to masc-mcp (RFC-OAS-011).  (* boundary-allow *) *)
 
 type t =
   (* Read-only — file & code navigation *)

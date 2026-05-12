@@ -25,11 +25,7 @@ let check_float msg expected actual = check (float 0.001) msg expected actual
 let test_streaming_first_chunk () =
   let ev =
     Telemetry_event.Streaming_first_chunk
-      { provider = "openai"
-      ; model = "gpt-4"
-      ; ttfrc_ms = 123.456
-      ; requested_at = 1000.0
-      }
+      { provider = "openai"; model = "gpt-4"; ttfrc_ms = 123.456; requested_at = 1000.0 }
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_first_chunk r ->
@@ -72,10 +68,7 @@ let test_thinking_complete () =
 let test_timeout_no_response () =
   let ev =
     Telemetry_event.Timeout
-      { provider = "gemini"
-      ; model = "flash"
-      ; timeout_type = Telemetry_event.No_response
-      }
+      { provider = "gemini"; model = "flash"; timeout_type = Telemetry_event.No_response }
   in
   match roundtrip ev with
   | Telemetry_event.Timeout r ->
@@ -123,11 +116,7 @@ let test_prefill_complete () =
 let test_budget_exceeded () =
   let ev =
     Telemetry_event.Budget_exceeded
-      { agent_name = "alpha"
-      ; run_id = "run-1"
-      ; spent_usd = 1.23
-      ; limit_usd = 1.00
-      }
+      { agent_name = "alpha"; run_id = "run-1"; spent_usd = 1.23; limit_usd = 1.00 }
   in
   match roundtrip ev with
   | Telemetry_event.Budget_exceeded r ->
@@ -143,23 +132,14 @@ let test_budget_exceeded () =
 let test_event_type_name () =
   let cases : (Telemetry_event.t * string) list =
     [ ( Streaming_first_chunk
-          { provider = ""
-          ; model = ""
-          ; ttfrc_ms = 0.0
-          ; requested_at = 0.0
-          }
+          { provider = ""; model = ""; ttfrc_ms = 0.0; requested_at = 0.0 }
       , "streaming_first_chunk" )
     ; ( Streaming_chunk_n
-          { provider = ""
-          ; model = ""
-          ; chunk_index = 0
-          ; inter_chunk_ms = 0.0
-          }
+          { provider = ""; model = ""; chunk_index = 0; inter_chunk_ms = 0.0 }
       , "streaming_chunk_n" )
     ; ( Thinking_complete { provider = ""; model = ""; thinking_duration_ms = 0.0 }
       , "thinking_complete" )
-    ; ( Timeout { provider = ""; model = ""; timeout_type = No_response }
-      , "timeout" )
+    ; Timeout { provider = ""; model = ""; timeout_type = No_response }, "timeout"
     ; ( Prefill_complete
           { provider = ""
           ; model = ""
@@ -168,8 +148,7 @@ let test_event_type_name () =
           ; cache_hit = false
           }
       , "prefill_complete" )
-    ; ( Budget_exceeded
-          { agent_name = ""; run_id = ""; spent_usd = 0.0; limit_usd = 0.0 }
+    ; ( Budget_exceeded { agent_name = ""; run_id = ""; spent_usd = 0.0; limit_usd = 0.0 }
       , "budget_exceeded" )
     ]
   in
@@ -219,20 +198,19 @@ let () =
   run
     "Telemetry_event"
     [ ( "serialization"
-      , [ test_case "Streaming_first_chunk roundtrip" `Quick
-            test_streaming_first_chunk
+      , [ test_case "Streaming_first_chunk roundtrip" `Quick test_streaming_first_chunk
         ; test_case "Streaming_chunk_n roundtrip" `Quick test_streaming_chunk_n
         ; test_case "Thinking_complete roundtrip" `Quick test_thinking_complete
         ; test_case "Timeout No_response roundtrip" `Quick test_timeout_no_response
-        ; test_case "Timeout Ttft_exceeded roundtrip" `Quick
-            test_timeout_ttft_exceeded
+        ; test_case "Timeout Ttft_exceeded roundtrip" `Quick test_timeout_ttft_exceeded
         ; test_case "Prefill_complete roundtrip" `Quick test_prefill_complete
         ; test_case "Budget_exceeded roundtrip" `Quick test_budget_exceeded
         ] )
-    ; ( "event_type_name"
-      , [ test_case "all variants" `Quick test_event_type_name ] )
+    ; "event_type_name", [ test_case "all variants" `Quick test_event_type_name ]
     ; ( "telemetry_bus"
-      , [ test_case "Drop_oldest evicts queue head when full" `Quick
+      , [ test_case
+            "Drop_oldest evicts queue head when full"
+            `Quick
             test_telemetry_bus_drop_oldest
         ] )
     ]

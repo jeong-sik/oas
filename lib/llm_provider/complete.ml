@@ -147,8 +147,14 @@ let patch_telemetry
         ; reasoning_effort = re
         ; canonical_model_id = canonical
         ; effective_context_window = ctx_window
-        ; ttfrc_ms = (match ttfrc_ms with Some _ as v -> v | None -> t.ttfrc_ms)
-        ; prefill_ms = (match prefill_ms with Some _ as v -> v | None -> t.prefill_ms)
+        ; ttfrc_ms =
+            (match ttfrc_ms with
+             | Some _ as v -> v
+             | None -> t.ttfrc_ms)
+        ; prefill_ms =
+            (match prefill_ms with
+             | Some _ as v -> v
+             | None -> t.prefill_ms)
         }
     | None ->
       Some
@@ -1036,7 +1042,7 @@ let complete_stream_http
                      accumulate_event acc evt)
                   events;
                 if events <> []
-                then (
+                then
                   if not !first_chunk_seen
                   then (
                     first_chunk_seen := true;
@@ -1054,7 +1060,7 @@ let complete_stream_http
                       (Telemetry_event.Streaming_chunk_n
                          { provider; model; chunk_index = !chunk_counter; inter_chunk_ms });
                     last_chunk_t := now;
-                    incr chunk_counter));
+                    incr chunk_counter);
                 match tel_opt with
                 | Some evt -> emit_telemetry evt
                 | None -> ()
@@ -1104,7 +1110,8 @@ let complete_stream_http
                           | Some chunk ->
                             Streaming.openai_chunk_to_events (get_state ()) chunk
                           | None -> [], None)
-                       | Provider_config.Ollama -> [], None (* unreachable: handled above *)
+                       | Provider_config.Ollama ->
+                         [], None (* unreachable: handled above *)
                        | Provider_config.Claude_code
                        | Provider_config.Gemini_cli
                        | Provider_config.Kimi_cli
@@ -1131,10 +1138,7 @@ let complete_stream_http
                | Eio.Time.Timeout ->
                  emit_telemetry
                    (Telemetry_event.Timeout
-                      { provider
-                      ; model
-                      ; timeout_type = No_response
-                      });
+                      { provider; model; timeout_type = No_response });
                  Error
                    (Printf.sprintf
                       "body_timeout_s deadline exceeded after %.1fs (configured via \
@@ -1203,7 +1207,13 @@ let complete_stream_http
                 { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
          | _ -> ());
         let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
-        Ok (patch_telemetry resp ~config ~ttfrc_ms:!ttfrc_ref ~prefill_ms (Some latency_ms))
+        Ok
+          (patch_telemetry
+             resp
+             ~config
+             ~ttfrc_ms:!ttfrc_ref
+             ~prefill_ms
+             (Some latency_ms))
       | Ok (Error msg)
         when String.length msg >= 31
              && String.equal (String.sub msg 0 31) "body_timeout_s deadline exceeded" ->

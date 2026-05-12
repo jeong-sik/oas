@@ -64,11 +64,7 @@ let test_every_signal_has_producer () =
            0
            entry.producer_files
        in
-       check
-         bool
-         (Printf.sprintf "%s has >=1 producer" entry.signal)
-         true
-         (total > 0))
+       check bool (Printf.sprintf "%s has >=1 producer" entry.signal) true (total > 0))
     registry
 ;;
 
@@ -77,9 +73,8 @@ let test_no_orphan_producer_variants () =
   let cmd =
     Printf.sprintf
       "grep -ho 'Telemetry_event\\.[A-Z][A-Za-z_]*' %s/lib/llm_provider/complete.ml \
-       %s/lib/llm_provider/streaming.ml \
-       %s/lib/agent/agent.ml \
-       2>/dev/null | sed 's/Telemetry_event\\.//' | sort -u"
+       %s/lib/llm_provider/streaming.ml %s/lib/agent/agent.ml 2>/dev/null | sed \
+       's/Telemetry_event\\.//' | sort -u"
       repo_root
       repo_root
       repo_root
@@ -109,9 +104,10 @@ let test_no_orphan_producer_variants () =
 let () =
   run
     "telemetry_sca"
-    [ ( "registry",
-        [ test_case "covers_all_variants" `Quick test_registry_covers_all_variants
+    [ ( "registry"
+      , [ test_case "covers_all_variants" `Quick test_registry_covers_all_variants
         ; test_case "every_signal_has_producer" `Quick test_every_signal_has_producer
         ; test_case "no_orphan_producers" `Quick test_no_orphan_producer_variants
         ] )
     ]
+;;

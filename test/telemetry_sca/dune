@@ -2,4 +2,5 @@
  (name test_telemetry_sca)
  (modules test_telemetry_sca)
  (libraries agent_sdk llm_provider alcotest)
- (deps (source_tree ../../lib)))
+ (deps
+  (source_tree ../../lib)))

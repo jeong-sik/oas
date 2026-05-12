@@ -355,4 +355,5 @@
 (rule
  (alias telemetry_sca_check)
  (deps test_telemetry_sca.exe)
- (action (run ./test_telemetry_sca.exe)))
+ (action
+  (run ./test_telemetry_sca.exe)))

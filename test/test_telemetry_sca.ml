@@ -10,8 +10,10 @@ let string_contains haystack needle =
   let hlen = String.length haystack in
   let nlen = String.length needle in
   let rec aux i =
-    if i + nlen > hlen then false
-    else if String.sub haystack i nlen = needle then true
+    if i + nlen > hlen
+    then false
+    else if String.sub haystack i nlen = needle
+    then true
     else aux (i + 1)
   in
   aux 0
@@ -24,16 +26,18 @@ let read_file path =
     let s = really_input_string ic n in
     close_in ic;
     s
-  with exn ->
-    Printf.sprintf "(* could not read %s: %s *)" path (Printexc.to_string exn)
+  with
+  | exn -> Printf.sprintf "(* could not read %s: %s *)" path (Printexc.to_string exn)
 ;;
+
+let repo_root = Filename.dirname (Filename.dirname (Sys.getcwd ()))
 
 let check_entry entry () =
   let signal = entry.Telemetry_sca_registry.signal in
   let producer_files = entry.Telemetry_sca_registry.producer_files in
   List.iter
     (fun file ->
-       let path = Filename.concat ".." file in
+       let path = Filename.concat repo_root file in
        let content = read_file path in
        Alcotest.check
          Alcotest.bool
@@ -48,10 +52,7 @@ let () =
   let tests =
     List.map
       (fun entry ->
-         Alcotest.test_case
-           entry.Telemetry_sca_registry.signal
-           `Quick
-           (check_entry entry))
+         Alcotest.test_case entry.Telemetry_sca_registry.signal `Quick (check_entry entry))
       registry
   in
   Alcotest.run "Telemetry SCA" [ "producer_coverage", tests ]
