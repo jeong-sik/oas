@@ -444,9 +444,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
   then (
     let tool_names =
       List.filter_map
-        (function
+        (fun (block : content_block) ->
+          match block with
           | ToolUse { name; _ } -> Some name
-          | _ -> None)
+          | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
+          | Image _ | Document _ | Audio _ -> None)
         tool_uses
     in
     let consecutive_idle_turns = agent.consecutive_idle_turns in
@@ -598,9 +600,11 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | StopToolUse ->
     let tool_uses =
       List.filter
-        (function
+        (fun (block : content_block) ->
+          match block with
           | ToolUse _ -> true
-          | _ -> false)
+          | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
+          | Image _ | Document _ | Audio _ -> false)
         response.content
     in
     let result = stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses in
