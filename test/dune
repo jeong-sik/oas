@@ -515,6 +515,7 @@
  (name test_telemetry_pipeline)
  (modules test_telemetry_pipeline)
  (libraries agent_sdk llm_provider alcotest eio_main))
+
 (test
  (name test_lenient_json)
  (modules test_lenient_json)
