@@ -35,6 +35,98 @@ let provider_runtime_name selected (cfg : Provider.config option) =
      | Provider.Custom_registered { name } -> "custom:" ^ name)
 ;;
 
+let registry_valid_provider_detail registry =
+  let names =
+    Llm_provider.Provider_registry.all registry
+    |> List.map (fun (entry : Llm_provider.Provider_registry.entry) -> entry.name)
+    |> List.sort_uniq String.compare
+  in
+  let names = "local" :: names in
+  let names =
+    if Defaults.allow_test_providers () then "mock" :: "echo" :: names else names
+  in
+  String.concat ", " (List.sort_uniq String.compare names)
+;;
+
+let provider_config_of_registry_entry
+      ~provider_name
+      ~model_id
+      (entry : Llm_provider.Provider_registry.entry)
+  =
+  match entry.defaults.kind with
+  | Llm_provider.Provider_config.Anthropic ->
+    { Provider.provider = Provider.Anthropic
+    ; model_id
+    ; api_key_env = entry.defaults.api_key_env
+    }
+  | Llm_provider.Provider_config.OpenAI_compat ->
+    { Provider.provider =
+        Provider.OpenAICompat
+          { base_url = entry.defaults.base_url
+          ; auth_header =
+              (if String.trim entry.defaults.api_key_env = ""
+               then None
+               else Some "Authorization")
+          ; path = entry.defaults.request_path
+          ; static_token = None
+          }
+    ; model_id
+    ; api_key_env = entry.defaults.api_key_env
+    }
+  | _ ->
+    { Provider.provider = Provider.Custom_registered { name = provider_name }
+    ; model_id
+    ; api_key_env = entry.defaults.api_key_env
+    }
+;;
+
+let catalog_default_model provider_name =
+  match Llm_provider.Provider_catalog.global () with
+  | None -> None
+  | Some catalog -> Llm_provider.Provider_catalog.default_model_for_provider catalog provider_name
+;;
+
+let effective_model_id ~provider_name ~entry ?model () =
+  match model with
+  | Some value when String.trim value <> "" -> value
+  | _ ->
+    (match catalog_default_model provider_name with
+     | Some model_id when String.trim model_id <> "" -> model_id
+     | _ ->
+       (match entry.Llm_provider.Provider_registry.defaults.kind with
+        | Llm_provider.Provider_config.Ollama -> "default"
+        | _ -> Model_registry.default_model_id))
+;;
+
+let resolve_from_registry registry ~provider_name ?model () =
+  match Llm_provider.Provider_registry.find registry provider_name with
+  | Some entry ->
+    let model_id = effective_model_id ~provider_name ~entry ?model () in
+    Ok (Some (provider_config_of_registry_entry ~provider_name ~model_id entry))
+  | None ->
+    let resolved_model = Model_registry.resolve_model_id provider_name in
+    if not (String.equal resolved_model provider_name)
+    then (
+      match Llm_provider.Provider_registry.find registry "claude" with
+      | Some entry ->
+        Ok
+          (Some
+             (provider_config_of_registry_entry
+                ~provider_name:"claude"
+                ~model_id:resolved_model
+                entry))
+      | None ->
+        unsupported_provider
+          "provider alias resolved to an Anthropic model but provider catalog has no \
+           \"claude\" entry")
+    else
+      unsupported_provider
+        (Printf.sprintf
+           "unknown provider %S; valid: %s"
+           provider_name
+           (registry_valid_provider_detail registry))
+;;
+
 let resolve_provider ?provider ?model () =
   let selected =
     match provider with
@@ -42,22 +134,14 @@ let resolve_provider ?provider ?model () =
       String.lowercase_ascii (String.trim value)
     | _ -> Defaults.fallback_provider
   in
+  let registry = Llm_provider.Provider_registry.default () in
   let base =
     match selected with
     | "mock" | "echo" ->
       let* () = ensure_test_provider_enabled selected in
       Ok None
     | "local" -> Ok (Some (Provider.local_llm ()))
-    | "sonnet" -> Ok (Some (Provider.anthropic_sonnet ()))
-    | "haiku" -> Ok (Some (Provider.anthropic_haiku ()))
-    | "opus" -> Ok (Some (Provider.anthropic_opus ()))
-    | "openrouter" -> Ok (Some (Provider.openrouter ()))
-    | other ->
-      unsupported_provider
-        (Printf.sprintf
-           "unknown provider %S; valid: local, sonnet, haiku, opus, openrouter%s"
-           other
-           (if Defaults.allow_test_providers () then ", mock, echo" else ""))
+    | other -> resolve_from_registry registry ~provider_name:other ?model ()
   in
   match base with
   | Error _ as e -> e

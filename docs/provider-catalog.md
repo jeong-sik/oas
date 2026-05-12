@@ -1,0 +1,196 @@
+# Provider Catalog
+
+OAS supports an external provider catalog for adding or overriding provider
+connection metadata without changing SDK code. This is the provider-side
+companion to `OAS_CAPABILITY_MANIFEST`: capabilities describe what a model can
+do, while the provider catalog describes how a runtime connects to that model.
+
+The catalog is intentionally coordinator-neutral. It must not contain
+downstream orchestration concepts such as domain roles, workflow queues,
+operator-facing UI, or product-specific routing policies. Coordinators may
+project their own configuration into this catalog shape, but OAS only consumes
+generic provider/runtime facts.
+
+## Loading
+
+Set `OAS_PROVIDER_CATALOG` to a JSON file:
+
+```sh
+export OAS_PROVIDER_CATALOG="$HOME/.config/oas/providers.json"
+```
+
+Embedding applications can also install a process-local catalog with
+`Llm_provider.Provider_catalog.set_global`.
+
+Resolution order:
+
+1. Runtime override installed with `Provider_catalog.set_global`
+2. `OAS_PROVIDER_CATALOG`
+3. Built-in provider seed data
+
+Catalog entries overwrite built-in provider ids when ids collide. Aliases are
+registered as additional lookup keys for the same entry.
+
+## Schema
+
+```json
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "vllm-local",
+      "aliases": ["subscriber-local"],
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "http://127.0.0.1:8000",
+      "request_path": "/v1/chat/completions",
+      "auth": {"type": "none"},
+      "default_model": "local-model",
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "max_context_tokens": 131072,
+        "supports_tools": true,
+        "supports_tool_choice": true
+      },
+      "non_interactive": true,
+      "interactive_required": false,
+      "daemon_safe": true
+    }
+  ]
+}
+```
+
+Required fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `schema_version` | integer | Must be `1`. |
+| `providers[].id` | string | Opaque provider id. This is config identity, not a vendor branch in code. |
+
+Important provider fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | string | Existing wire/runtime kind, for example `openai_compat`, `anthropic`, `gemini`, `codex_cli`. Defaults to `openai_compat`. |
+| `transport` | string | `http`, `cli`, `managed`, or `custom_openai_compat`. |
+| `command` | string | CLI binary name for `transport = "cli"`. Used for availability. |
+| `base_url` | string | HTTP endpoint base URL. |
+| `request_path` | string | Completion request path. Defaults from `kind`. |
+| `auth` | object | Credential mode. See below. |
+| `default_model` | string | Used when a caller selects the provider without a model. |
+| `aliases` | string array | Additional provider ids registered to the same entry. |
+| `capabilities_base` | string | Provider preset from `Capabilities.capabilities_for_provider_label`. |
+| `capabilities` | object | Optional capability overrides. |
+| `non_interactive` | bool | Runtime can run without prompts once credentials exist. |
+| `interactive_required` | bool | Runtime may require browser/login/user interaction at call time. |
+| `daemon_safe` | bool | Runtime is suitable for long-running background processes. |
+| `credential_scope` | string | Human-readable credential scope label. |
+
+Auth modes:
+
+| `auth.type` | Extra field | Use case |
+|---|---|---|
+| `none` | | Local unauthenticated endpoints. |
+| `api_key_env` | `env` | Cloud APIs using an API key environment variable. |
+| `setup_token_env` | `env` | Setup/bootstrap token environment variable. |
+| `cli_cached_login` | | Subscription CLI already logged in locally. |
+| `oauth_cached_login` | | OAuth-backed cached login. |
+| `file` | `path` | Credential file owned by the embedding app. |
+| `exec` | `command` | External credential helper. OAS records availability only; it does not shell out from the catalog loader. |
+
+## Cloud API Example
+
+```json
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "acme-cloud",
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "https://api.acme.example/v1",
+      "request_path": "/chat/completions",
+      "auth": {"type": "api_key_env", "env": "ACME_API_KEY"},
+      "default_model": "acme-large",
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "supports_tools": true,
+        "supports_response_format_json": true
+      },
+      "daemon_safe": true
+    }
+  ]
+}
+```
+
+Use this for OpenAI-compatible cloud providers, hosted vLLM gateways,
+OpenRouter-style aggregators, and private model APIs that already follow the
+chat-completions contract.
+
+## CLI / Subscriber Runtime Example
+
+```json
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "subscriber-codex",
+      "kind": "codex_cli",
+      "transport": "cli",
+      "command": "codex",
+      "auth": {"type": "cli_cached_login"},
+      "default_model": "auto",
+      "capabilities_base": "codex_cli",
+      "non_interactive": true,
+      "interactive_required": false,
+      "daemon_safe": false,
+      "credential_scope": "local subscription login"
+    }
+  ]
+}
+```
+
+Use this for users who want to consume a local subscription or cached CLI
+login in non-interactive mode. `daemon_safe = false` is a useful default for
+CLI runtimes whose cached login or binary behavior is not guaranteed to be
+stable in a long-running service.
+
+## Capability Overrides
+
+The `capabilities` object accepts the same capability field names used by
+`Capabilities.capabilities`, including:
+
+- `max_context_tokens`, `max_output_tokens`
+- `supports_tools`, `supports_tool_choice`, `supports_parallel_tool_calls`
+- `supports_runtime_mcp_tools`, `supports_runtime_tool_events`
+- `supports_reasoning`, `supports_extended_thinking`, `supports_reasoning_budget`
+- `thinking_control_format`
+- `supports_response_format_json`, `supports_structured_output`
+- `supports_image_input`, `supports_audio_input`, `supports_video_input`
+- `supports_native_streaming`, `supports_system_prompt`
+- `supports_top_k`, `supports_min_p`, `supports_seed`
+- `emits_usage_tokens`, `supported_models`
+
+Model-specific facts should still live in `OAS_CAPABILITY_MANIFEST`. Provider
+catalog capabilities should describe runtime/provider defaults and transport
+constraints.
+
+## External Design References
+
+The catalog shape follows a common pattern in current agent tools:
+
+- Hermes Agent separates primary/fallback providers and provider credentials.
+- OpenClaw exposes model/provider status, auth modes, and fallback chains.
+- OpenAI Agents SDK separates `Model` from `ModelProvider`.
+- Claude Agent SDK supports SDK and CLI-driven agent loops.
+- Google ADK uses provider connectors such as LiteLLM for broad model coverage.
+
+References were checked on 2026-05-12:
+
+- https://hermes-agent.nousresearch.com/docs/user-guide/features/fallback-providers/
+- https://docs.openclaw.ai/concepts/model-failover
+- https://docs.openclaw.ai/cli/models
+- https://docs.openclaw.ai/gateway/authentication
+- https://openai.github.io/openai-agents-js/guides/models/
+- https://code.claude.com/docs/en/agent-sdk
+- https://adk.dev/agents/models/litellm/

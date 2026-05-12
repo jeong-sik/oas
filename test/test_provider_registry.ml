@@ -385,6 +385,217 @@ let test_blank_zai_base_urls_fall_back () =
        | None -> fail "glm-coding should exist")
 ;;
 
+(* ── Provider catalog overlay ────────────────────────── *)
+
+let with_provider_catalog json f =
+  match Provider_catalog.of_json (Yojson.Safe.from_string json) with
+  | Error msg -> fail msg
+  | Ok catalog ->
+    Provider_catalog.set_global catalog;
+    Fun.protect ~finally:Provider_catalog.clear_global f
+;;
+
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  Unix.putenv key value;
+  Fun.protect
+    ~finally:(fun () ->
+      match previous with
+      | Some previous -> Unix.putenv key previous
+      | None -> Unix.putenv key "")
+    f
+;;
+
+let test_catalog_overlay_adds_provider_and_alias () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "vllm-local",
+          "aliases": ["Subscriber-Local"],
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "http://127.0.0.1:8000",
+          "request_path": "/v1/chat/completions",
+          "auth": {"type": "none"},
+          "default_model": "local-model",
+          "capabilities_base": "openai_chat",
+          "capabilities": {
+            "max_context_tokens": 131072,
+            "supports_tools": true,
+            "supports_tool_choice": true
+          }
+        }
+      ]
+    }|}
+    (fun () ->
+       let reg = Provider_registry.default () in
+       (match Provider_registry.find reg "vllm-local" with
+        | Some e ->
+          check string "base url" "http://127.0.0.1:8000" e.defaults.base_url;
+          check int "max context" 131_072 e.max_context;
+          check bool "tools" true e.capabilities.supports_tools;
+          check bool "tool choice" true e.capabilities.supports_tool_choice
+        | None -> fail "catalog provider should be registered");
+       match Provider_registry.find reg "subscriber-local" with
+       | Some e -> check string "alias base url" "http://127.0.0.1:8000" e.defaults.base_url
+       | None -> fail "catalog alias should be registered")
+;;
+
+let test_catalog_overlay_replaces_seed_provider () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "openrouter",
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "https://example.test/openrouter",
+          "request_path": "/chat/completions",
+          "auth": {"type": "api_key_env", "env": "OPENROUTER_API_KEY"},
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       let reg = Provider_registry.default () in
+       match Provider_registry.find reg "openrouter" with
+       | Some e ->
+         check string "catalog wins" "https://example.test/openrouter" e.defaults.base_url
+       | None -> fail "openrouter should still exist")
+;;
+
+let test_catalog_overlay_normalizes_provider_id () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "Acme-Cloud",
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "https://acme.example/v1",
+          "auth": {"type": "none"},
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       let reg = Provider_registry.default () in
+       match Provider_registry.find reg "acme-cloud" with
+       | Some e -> check string "base url" "https://acme.example/v1" e.defaults.base_url
+       | None -> fail "catalog provider id should be normalized")
+;;
+
+let test_catalog_cli_noninteractive_availability_uses_command () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "ghost-cli",
+          "kind": "codex_cli",
+          "transport": "cli",
+          "command": "provider-registry-missing-binary",
+          "auth": {"type": "cli_cached_login"},
+          "capabilities_base": "codex_cli",
+          "non_interactive": true,
+          "daemon_safe": false
+        }
+      ]
+    }|}
+    (fun () ->
+       let reg = Provider_registry.default () in
+       match Provider_registry.find reg "ghost-cli" with
+       | Some e -> check bool "missing command unavailable" false (e.is_available ())
+       | None -> fail "ghost-cli should be registered")
+;;
+
+let test_catalog_rejects_empty_provider_id () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "  ", "kind": "openai_compat"}
+           ]
+         }|})
+  with
+  | Error _ -> ()
+  | Ok _ -> fail "empty provider id should be rejected"
+;;
+
+let test_catalog_load_file_and_lookup_alias () =
+  let path = Filename.temp_file "provider-catalog" ".json" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () ->
+       let oc = open_out path in
+       Fun.protect
+         ~finally:(fun () -> close_out_noerr oc)
+         (fun () ->
+            output_string
+              oc
+              {|{
+                "schema_version": 1,
+                "providers": [
+                  {
+                    "id": "file-cloud",
+                    "aliases": ["file-cloud-alias"],
+                    "kind": "openai_compat",
+                    "transport": "http",
+                    "base_url": "https://file-cloud.example/v1",
+                    "default_model": "file-model",
+                    "auth": {"type": "none"}
+                  }
+                ]
+              }|});
+       match Provider_catalog.load_file path with
+       | Error msg -> fail msg
+       | Ok catalog ->
+         (match Provider_catalog.lookup catalog "file-cloud-alias" with
+          | Some entry ->
+            check string "id" "file-cloud" entry.id;
+            check (option string) "default model" (Some "file-model") entry.default_model
+          | None -> fail "catalog alias should resolve"))
+;;
+
+let test_catalog_api_key_env_availability () =
+  let env_name = "OAS_TEST_PROVIDER_CATALOG_API_KEY" in
+  let json =
+    Printf.sprintf
+      {|{
+        "schema_version": 1,
+        "providers": [
+          {
+            "id": "cloud-api",
+            "kind": "openai_compat",
+            "transport": "http",
+            "base_url": "https://cloud-api.example/v1",
+            "auth": {"type": "api_key_env", "env": "%s"},
+            "capabilities_base": "openai_chat"
+          }
+        ]
+      }|}
+      env_name
+  in
+  let available_with value =
+    with_env env_name value (fun () ->
+      with_provider_catalog json (fun () ->
+        let reg = Provider_registry.default () in
+        match Provider_registry.find reg "cloud-api" with
+        | Some entry -> entry.is_available ()
+        | None -> fail "cloud-api should be registered"))
+  in
+  check bool "missing api key unavailable" false (available_with "");
+  check bool "present api key available" true (available_with "secret")
+;;
+
 (* ── Types usage helpers ───────────────────────────── *)
 
 let test_zero_api_usage () =
@@ -599,6 +810,36 @@ let () =
             "blank zai base urls fall back"
             `Quick
             test_blank_zai_base_urls_fall_back
+        ] )
+    ; ( "provider_catalog"
+      , [ test_case
+            "overlay adds provider and alias"
+            `Quick
+            test_catalog_overlay_adds_provider_and_alias
+        ; test_case
+            "overlay replaces seed provider"
+            `Quick
+            test_catalog_overlay_replaces_seed_provider
+        ; test_case
+            "overlay normalizes provider id"
+            `Quick
+            test_catalog_overlay_normalizes_provider_id
+        ; test_case
+            "cli non-interactive availability uses command"
+            `Quick
+            test_catalog_cli_noninteractive_availability_uses_command
+        ; test_case
+            "rejects empty provider id"
+            `Quick
+            test_catalog_rejects_empty_provider_id
+        ; test_case
+            "load_file and lookup alias"
+            `Quick
+            test_catalog_load_file_and_lookup_alias
+        ; test_case
+            "api key env gates availability"
+            `Quick
+            test_catalog_api_key_env_availability
         ] )
     ; ( "kind_registry_integrity"
       , [ test_case "every kind resolves" `Quick test_every_kind_resolves_in_registry

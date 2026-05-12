@@ -4,6 +4,11 @@ OAS supports an **external JSON capability manifest** that lets operators and
 model deployers describe the capabilities of custom, quantized, or future
 model variants without requiring an OAS code change.
 
+Provider connection metadata is handled separately by
+[`docs/provider-catalog.md`](provider-catalog.md). Use the provider catalog for
+endpoint/auth/transport/default-model facts, and use this capability manifest
+for model-specific feature and limit facts.
+
 ## Why
 
 `Capabilities.for_model_id` uses a built-in prefix table (H12 anti-pattern).
