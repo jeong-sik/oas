@@ -50,6 +50,7 @@ let usage_stats_gen =
     ; total_cache_read_input_tokens = cache_read
     ; api_calls
     ; estimated_cost_usd = float_of_int estimated_cost_cents /. 100.0
+    ; unpriced_model = None
     }
 ;;
 
