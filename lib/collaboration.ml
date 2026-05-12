@@ -213,7 +213,12 @@ let open_claim item_id = { item_id; phase = Open; claimant = None; logical_clock
 
 let is_claimable = function
   | { phase = Open; claimant = None; _ } -> true
-  | _ -> false
+  (* Enumerate every [claim_phase] outcome so the compiler flags any new
+     phase added to [claim_phase]. [verify_claim] below already follows
+     this pattern; [is_claimable] was inconsistent with [_ -> false]. *)
+  | { phase = Open; claimant = Some _; _ }
+  | { phase = Claimed; _ }
+  | { phase = Closed; _ } -> false
 ;;
 
 let claim ~actor_id ~logical_clock snapshot =
