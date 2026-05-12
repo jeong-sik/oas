@@ -45,8 +45,12 @@ lowercased before comparison. `"VLLM-LOCAL"`, `"vllm-local"`, and
 
 Invalid identifiers are rejected or skipped:
 
-- Empty/whitespace **id** at parse time → `of_json` returns `Error`.
-- Empty/whitespace **alias** at overlay time → skipped and logged via
+- Empty/whitespace **id** in a JSON catalog → `of_json` returns `Error`.
+- Empty/whitespace **alias** in a JSON catalog → skipped by `of_json`
+  before registry overlay, so JSON-file catalogs do not emit the
+  `provider_registry` empty-alias warning.
+- Empty/whitespace **alias** in a programmatically constructed catalog →
+  skipped at overlay time and logged via
   `Diag.warn` (ctx `provider_registry`, format `ignoring empty %s for
   provider %S in catalog overlay`, e.g. `ignoring empty alias for
   provider "vllm-local" in catalog overlay`).
