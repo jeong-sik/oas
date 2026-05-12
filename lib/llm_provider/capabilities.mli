@@ -12,8 +12,11 @@ type thinking_control_format =
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** OpenAI-style top-level [reasoning_effort: low | medium | high | minimal]
-      string. Ollama's OpenAI-compatible mode uses this shape. *)
+  (** OpenAI-style top-level [reasoning_effort] string field. The set of
+      values this codebase emits is [{"none","low","medium","high"}] —
+      see {!Provider_config.effort_of_thinking_config}. (OpenAI's spec
+      also accepts ["minimal"], but no current OAS request builder emits
+      it.) Ollama's OpenAI-compatible mode uses this shape. *)
 
 type capabilities =
   { (* Numeric limits *)
