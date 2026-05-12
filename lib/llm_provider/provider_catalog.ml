@@ -144,8 +144,8 @@ let parse_transport = function
      | other ->
        Error
          (Printf.sprintf
-            "unknown transport %S (expected one of: http, cli, managed, \
-             custom_openai_compat)"
+            "unknown transport %S (canonical: http, cli, managed, custom_openai_compat; \
+             dashed aliases also accepted)"
             other))
 ;;
 
@@ -182,8 +182,9 @@ let parse_auth json =
      | other ->
        Error
          (Printf.sprintf
-            "unknown auth type %S (expected one of: none, api_key_env, setup_token_env, \
-             cli_cached_login, oauth_cached_login, file, exec)"
+            "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
+             cli_cached_login, oauth_cached_login, file, exec; dashed and short aliases \
+             also accepted, e.g. api-key-env, env)"
             other))
   | _ ->
     (match member_string "api_key_env" json with
@@ -205,8 +206,9 @@ let parse_thinking_control_format = function
      | other ->
        Error
          (Printf.sprintf
-            "unknown thinking_control_format %S (expected one of: none, thinking_object, \
-             chat_template_kwargs)"
+            "unknown thinking_control_format %S (canonical: none, thinking_object, \
+             chat_template_kwargs; dashed and full-word aliases also accepted, e.g. \
+             no_thinking_control, thinking-object)"
             other))
 ;;
 
