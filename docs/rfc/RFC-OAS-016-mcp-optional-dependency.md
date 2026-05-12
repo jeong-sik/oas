@@ -13,7 +13,7 @@
 
 `agent_sdk.opam` lists `mcp_protocol >= 1.3.0` as an **unconditional** dependency. The `mcp_protocol` package is a fork (`jeong-sik/mcp-protocol-sdk`) not present on the opam registry, so every consumer of `agent_sdk` must pin the fork in their switch — even when they never instantiate an MCP server.
 
-This RFC proposes splitting MCP integration into an optional sub-library `agent_sdk.mcp` so the core `agent_sdk` library has no `mcp_protocol` dep. Audit shows the coupling is **not structural**: `Mcp_protocol.Mcp_types` only leaks into one OAS file (`lib/protocol/mcp_schema.ml`). What is load-bearing is OAS's **own** `Mcp.managed` / `Mcp_session.info` types being embedded in core agent state (`agent_types.ml`, `builder.ml`, `checkpoint*.ml`, `contract.ml`, `tool_middleware.ml`). Migration requires relocating those touchpoints behind an abstract type or callback, not rewriting MCP itself.
+This RFC proposes splitting MCP integration into an optional sub-library `agent_sdk.mcp` so the core `agent_sdk` library has no `mcp_protocol` dep. Audit shows the coupling is **not structural**: `Mcp_protocol.Mcp_types` only leaks into one OAS implementation file (`lib/protocol/mcp_schema.ml`) and its interface (`lib/protocol/mcp_schema.mli`) — see §2.1 for the full list. What is load-bearing is OAS's **own** `Mcp.managed` / `Mcp_session.info` types being embedded in core agent state (`agent_types.ml`, `builder.ml`, `checkpoint*.ml`, `contract.ml`, `tool_middleware.ml`). Migration requires relocating those touchpoints behind an abstract type or callback, not rewriting MCP itself.
 
 ## 1. Problem
 
@@ -21,8 +21,8 @@ This RFC proposes splitting MCP integration into an optional sub-library `agent_
 
 | Site | Verified |
 |---|---|
-| `agent_sdk.opam:22` | `"mcp_protocol" {>= "1.3.0"}` — no `with-test` / `with-doc` filter |
-| `dune-project` `(package agent_sdk)` `depends` stanza | `(mcp_protocol (>= 1.3.0))` — bare |
+| `agent_sdk.opam` (currently line 25 on `origin/main`; `agent_sdk.opam` is generated from `dune-project`, so the exact line drifts) | `"mcp_protocol" {>= "1.3.0"}` — no `with-test` / `with-doc` filter |
+| `dune-project` `(package agent_sdk)` `depends` stanza | `(mcp_protocol (>= 1.3.0))` — bare, this is the source of truth |
 | `lib/dune:6-22` | flat `agent_sdk` library lists `mcp_protocol`, `mcp_protocol.eio`, `mcp_protocol.http` in `(libraries ...)` |
 | `lib/base/dune` (`agent_sdk_base`) | does **not** reference `mcp_protocol` |
 | `lib/llm_provider/dune` (`llm_provider`) | does **not** reference `mcp_protocol` |
@@ -42,6 +42,7 @@ Any consumer who wants to use `agent_sdk` for a non-MCP agent app must still pin
 ```
 lib/protocol/mcp.ml:9          Mcp_protocol_eio.Client
 lib/protocol/mcp_http.ml:2     Mcp_protocol_http.Http_client
+lib/protocol/mcp_http.mli:1    Mcp_protocol_http.Http_client  (doc-comment reference)
 lib/protocol/mcp_schema.ml:2   Mcp_protocol.Mcp_types  (as aliased Sdk_types)
 lib/protocol/mcp_schema.mli:6  Mcp_protocol.Mcp_types
 ```
@@ -145,7 +146,7 @@ Drop `module Mcp = Mcp` etc. from `agent_sdk.ml` so the **public facade** doesn'
 - Drop `mcp_protocol` from `lib/dune`'s top-level library.
 - Either:
   - **C-1**: keep both packages in the same opam (`agent_sdk.opam`, `agent_sdk_mcp.opam` via dune `(package ...)` stanzas), so `opam install agent_sdk` doesn't pull MCP — consumer opts in with `opam install agent_sdk_mcp`; OR
-  - **C-2**: keep one opam file but mark `mcp_protocol` `{optional & ...}` — works if dune's optional library mechanism is acceptable.
+  - **C-2**: keep one opam file but move `mcp_protocol` to a `depopts:` stanza — `depopts:` is opam's standard mechanism for optional package dependencies. Note that `optional` is *not* a filter variable (unlike `with-test`, `with-doc`, `build`, `dev`), so `{optional & ...}` inside `depends:` would not parse as opam intends. Combine `depopts:` with a dune `(optional)` library wrapper around `lib/protocol/mcp*` so the SDK still links when `mcp_protocol` is absent.
 - Move public re-exports from `agent_sdk.ml` to `agent_sdk_mcp.ml` (or keep but gate behind a `(optional)` library include).
 - Acceptance: `opam install agent_sdk` in a clean switch does **not** pull `jeong-sik/mcp-protocol-sdk`.
 
