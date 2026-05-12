@@ -107,6 +107,17 @@ val lookup : t -> string -> entry option
         installed, at most once per process).
 
     Returns [None] when neither source supplies a manifest. *)
+    Reads [OAS_CAPABILITY_MANIFEST] env var on first call.  Returns
+    [None] when the variable is unset or when the file cannot be
+    loaded (a warning is emitted via {!Diag} in that case). *)
+    Resolution order (highest priority first):
+    + 1. Runtime override set by {!set_global} — embedding hosts
+        (e.g. masc-mcp loading its declarative cascade.toml) install  (* boundary-allow *)
+        a programmatic manifest at boot.
+    + 2. [OAS_CAPABILITY_MANIFEST] env var pointing at a JSON file
+        (loaded lazily on first call, once per process).
+
+    Returns [None] when neither source supplies a manifest. *)
 val global : unit -> t option
 
 (** [set_global m] installs [m] as the runtime-override manifest,
@@ -123,6 +134,24 @@ val global : unit -> t option
     concurrent [set_global]/[clear_global]/[global] are race-free but
     the resulting observed value is whichever set/clear was atomically
     most recent.
+
+    @since 0.194.0 *)
+val set_global : t -> unit
+
+(** [clear_global ()] removes the runtime override and lets
+    {!global} fall back to the env-var-loaded manifest (or [None]).
+
+    @since 0.194.0 *)
+val clear_global : unit -> unit
+
+(** [set_global m] installs [m] as the runtime-override manifest,
+    shadowing any [OAS_CAPABILITY_MANIFEST]-loaded entries until
+    {!clear_global} is called.
+
+    Idempotent — calling twice replaces the override with the latest
+    value. Intended for hosts that own the model catalog (e.g.
+    masc-mcp's [cascade.toml]) and want OAS to consume the same  (* boundary-allow *)
+    capability data without round-tripping through a JSON file.
 
     @since 0.194.0 *)
 val set_global : t -> unit

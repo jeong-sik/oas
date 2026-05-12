@@ -199,8 +199,7 @@ type inference_telemetry =
     (** Telemetry-only count of provider-native actions that are not surfaced as OAS tool calls. *)
   ; ttfrc_ms : float option
     (** Time-to-first-response-chunk in milliseconds (wall-clock). *)
-  ; prefill_ms : float option
-    (** Prompt evaluation (prefill) duration in milliseconds. *)
+  ; prefill_ms : float option (** Prompt evaluation (prefill) duration in milliseconds. *)
   }
 [@@deriving show, yojson]
 

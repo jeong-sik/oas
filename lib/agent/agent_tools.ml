@@ -628,10 +628,15 @@ let execute_tools
   =
   let tool_use_blocks =
     List.filter_map
-      (fun block ->
+      (fun (block : Types.content_block) ->
          match block with
          | ToolUse { id; name; input } -> Some (id, name, input)
-         | _ -> None)
+         | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
+         | Image _ | Document _ | Audio _ ->
+           (* Only [ToolUse] blocks dispatch tools. Enumerated explicitly
+              so a new [content_block] variant cannot inherit "no tool"
+              behavior without review. *)
+           None)
       tool_uses
   in
   let scheduled = List.mapi (schedule_tool_use ~tools) tool_use_blocks in

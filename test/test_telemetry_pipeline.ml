@@ -20,7 +20,9 @@ let make_mock_transport () : Llm_provider.Llm_transport.t =
       (fun _req ->
         { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
   ; complete_stream =
-      (fun ?on_telemetry ~on_event (_req : Llm_provider.Llm_transport.completion_request) ->
+      (fun ?on_telemetry
+        ~on_event
+        (_req : Llm_provider.Llm_transport.completion_request) ->
         on_event
           (Types.MessageStart { id = "mock-1"; model = "mock-model"; usage = None });
         on_event (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "ok" });
@@ -74,13 +76,7 @@ let test_run_stream_emits_telemetry_via_pipeline () =
   let agent, event_bus = make_agent ~net ~transport () in
   let telemetry_bus = Telemetry_bus.of_event_bus event_bus in
   let sub = Telemetry_bus.subscribe telemetry_bus in
-  (match
-     Agent.run_stream
-       ~sw
-       ~on_event:(fun _ -> ())
-       agent
-       "trigger streaming turn"
-   with
+  (match Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "trigger streaming turn" with
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected stream success: " ^ Error.to_string err));
   let events = Telemetry_bus.drain sub in
@@ -130,22 +126,15 @@ let test_run_stream_without_event_bus_skips_telemetry () =
           transport.complete_stream ?on_telemetry ~on_event req)
     }
   in
-  let options =
-    { options with
-      transport = Some transport_with_probe
-    }
-  in
+  let options = { options with transport = Some transport_with_probe } in
   let agent = Agent.create ~net ~config ~options () in
-  (match
-     Agent.run_stream
-       ~sw
-       ~on_event:(fun _ -> ())
-       agent
-       "trigger streaming turn"
-   with
+  (match Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "trigger streaming turn" with
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected stream success: " ^ Error.to_string err));
-  Alcotest.(check bool) "on_telemetry is None when no event_bus" false (Atomic.get on_telemetry_received)
+  Alcotest.(check bool)
+    "on_telemetry is None when no event_bus"
+    false
+    (Atomic.get on_telemetry_received)
 ;;
 
 let () =

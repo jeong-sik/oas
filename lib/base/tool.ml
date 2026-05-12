@@ -200,9 +200,7 @@ type disclosure_level =
 
 let schema_to_json_minimal tool =
   `Assoc
-    [ "name", `String tool.schema.name
-    ; "description", `String tool.schema.description
-    ]
+    [ "name", `String tool.schema.name; "description", `String tool.schema.description ]
 ;;
 
 let schema_to_json_with_disclosure level tool =

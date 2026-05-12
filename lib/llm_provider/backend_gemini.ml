@@ -319,10 +319,16 @@ let parse_response json =
       |> Option.value ~default:"STOP"
     in
     let has_tool_use =
+      (* N-of-M followup to PR #1519 / #1521 — same content_block
+         catch-all that was closed in tool_use_recovery.ml and
+         context_reducer_apply.ml. The Gemini backend's stop-reason
+         inference uses the same shape and was missed in those sweeps. *)
       List.exists
-        (function
+        (fun (block : Types.content_block) ->
+          match block with
           | ToolUse _ -> true
-          | _ -> false)
+          | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
+          | Image _ | Document _ | Audio _ -> false)
         content
     in
     let stop_reason =

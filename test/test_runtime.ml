@@ -514,7 +514,7 @@ let test_runtime_finalize_generates_telemetry_and_evidence () =
       true
       (List.exists
          (fun (file : Sessions.evidence_file) -> String.equal file.label "proof_json")
-         evidence.files);
+         evidence.files)
 ;;
 
 let test_high_level_query_and_sessions () =

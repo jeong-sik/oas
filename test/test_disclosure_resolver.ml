@@ -11,11 +11,7 @@ open Agent_sdk
 let ok_result content : Types.tool_result = Ok { Types.content }
 
 let err_result message : Types.tool_result =
-  Error
-    { Types.message
-    ; recoverable = true
-    ; error_class = Some Types.Deterministic
-    }
+  Error { Types.message; recoverable = true; error_class = Some Types.Deterministic }
 ;;
 
 let test_no_resolver_returns_static () =
@@ -29,9 +25,7 @@ let test_no_resolver_returns_static () =
 ;;
 
 let test_no_resolver_no_static_returns_none () =
-  let actual =
-    Disclosure_resolver.resolve ~resolver:None ~static:None ~last_results:[]
-  in
+  let actual = Disclosure_resolver.resolve ~resolver:None ~static:None ~last_results:[] in
   check bool "None when neither set" true (actual = None)
 ;;
 
@@ -60,10 +54,7 @@ let test_resolver_none_falls_through_to_static () =
 let test_resolver_none_no_static_returns_none () =
   let resolver _ = None in
   let actual =
-    Disclosure_resolver.resolve
-      ~resolver:(Some resolver)
-      ~static:None
-      ~last_results:[]
+    Disclosure_resolver.resolve ~resolver:(Some resolver) ~static:None ~last_results:[]
   in
   check bool "double None means None" true (actual = None)
 ;;
@@ -76,10 +67,7 @@ let test_resolver_receives_last_results_verbatim () =
   in
   let input = [ ok_result "a"; err_result "bad"; ok_result "c" ] in
   let _ =
-    Disclosure_resolver.resolve
-      ~resolver:(Some resolver)
-      ~static:None
-      ~last_results:input
+    Disclosure_resolver.resolve ~resolver:(Some resolver) ~static:None ~last_results:input
   in
   check int "resolver got all 3 results" 3 (List.length !seen);
   check bool "results passed by value" true (!seen = input)
@@ -112,11 +100,7 @@ let test_caller_pattern_with_error_demotes () =
       ~static:(Some Tool.Minimal_index)
       ~last_results:[ ok_result "a"; err_result "schema bad" ]
   in
-  check
-    bool
-    "error present: demote to Full_schema"
-    true
-    (actual = Some Tool.Full_schema)
+  check bool "error present: demote to Full_schema" true (actual = Some Tool.Full_schema)
 ;;
 
 let test_caller_pattern_empty_results_no_demote () =

@@ -11,40 +11,44 @@
 
 type t
 
-val create : ?buffer_size:int -> ?policy:Event_bus.backpressure_policy -> unit -> t
 (** Create a telemetry bus.
 
     - [?buffer_size] — per-subscriber stream capacity (default 256).
     - [?policy] — backpressure policy (default [Drop_oldest]). *)
+val create : ?buffer_size:int -> ?policy:Event_bus.backpressure_policy -> unit -> t
 
-val of_event_bus : Event_bus.t -> t
 (** Wrap an existing {!Event_bus.t} as a telemetry bus.
 
     Events are published to the same underlying bus, so subscribers
     using {!Event_bus} directly will also receive them. *)
+val of_event_bus : Event_bus.t -> t
 
-val publish : t -> Llm_provider.Telemetry_event.t -> unit
 (** Publish a telemetry event to all subscribers.
 
     The event is wrapped in an [Event_bus.event] with
     [Custom("telemetry_event", json)] payload and a fresh envelope. *)
+val publish : t -> Llm_provider.Telemetry_event.t -> unit
 
 (** {2 Subscription} *)
 
 type subscription
 
-val subscribe : ?filter:(Llm_provider.Telemetry_event.t -> bool) -> ?purpose:string -> t -> subscription
 (** Subscribe to telemetry events.
 
     - [?filter] — event predicate (default: accept all).
     - [?purpose] — free-form label surfaced in stats. *)
+val subscribe
+  :  ?filter:(Llm_provider.Telemetry_event.t -> bool)
+  -> ?purpose:string
+  -> t
+  -> subscription
 
 val unsubscribe : t -> subscription -> unit
 
 (** {2 Drain} *)
 
-val drain : subscription -> Llm_provider.Telemetry_event.t list
 (** Remove and return all queued events for a subscriber. *)
+val drain : subscription -> Llm_provider.Telemetry_event.t list
 
 (** {2 Queries} *)
 

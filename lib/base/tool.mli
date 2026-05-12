@@ -125,14 +125,14 @@ val schema_to_json : t -> Yojson.Safe.t
     @since 0.194.0 *)
 type disclosure_level =
   | Full_schema
-    (** Emit [name], [description], and [input_schema]. Identical to
+  (** Emit [name], [description], and [input_schema]. Identical to
         legacy [schema_to_json] output. *)
   | Minimal_index
-    (** Emit [name] and [description] only. [input_schema] is omitted.
+  (** Emit [name] and [description] only. [input_schema] is omitted.
         Used to give the model an "index" of available tools without
         paying for full parameter schemas. *)
   | Hybrid of { full_names : string list }
-    (** Tools whose [schema.name] is in [full_names] are rendered with
+  (** Tools whose [schema.name] is in [full_names] are rendered with
         [Full_schema]; all others with [Minimal_index]. Useful for the
         2-stage pattern: pre-selected top-K tools get full schemas,
         the remainder are visible by name only. *)
