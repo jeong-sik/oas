@@ -2,12 +2,13 @@
 
 | | |
 |---|---|
-| Status | Draft |
+| Status | Amended (2026-05-12) |
 | Author | jeong-sik (with Claude analysis) |
 | Created | 2026-05-11 |
-| Target | `agent_sdk` (oas) v0.194+ — API merged via PR #1508 / `masc_mcp` v0.20+ — keeper activation |
+| Amended | 2026-05-12 — v1 §2.1 wiring 의사코드가 OAS 인프라와 mismatch 발견 → v2 static Hybrid로 정정 |
+| Target | `agent_sdk` (oas) v0.193.4 / `masc_mcp` keeper activation |
 | Supersedes | None |
-| Depends-on | PR #1508 (merged f48ccec3) — introduces `Tool.disclosure_level` and `Builder.with_disclosure_level` |
+| Depends-on | OAS PR #1508 (merged f48ccec3) `Tool.disclosure_level`; OAS PR #1511 (merged 7ed9c052) `Disclosure_resolver` |
 | Related | RFC-OAS-004 (Code Snippet Tool Strategy), Tool_selector (`lib/tool_selector.mli`, 2-stage routing) |
 
 ## 0. Summary
@@ -40,15 +41,61 @@ PR #1508은 *인프라*만 추가. default `Full_schema`로 머지 시 wire byte
 
 ### 2.1 활성화 형태
 
-masc-mcp `lib/keeper/keeper_run_tools.ml`에서 keeper 생성 시:
+**Amend 2026-05-12 (v2)**: 초안 v1의 wiring 의사코드는 *현재 머지된 OAS 인프라*와 안 맞음 (post-merge 정직 평가에서 발견). v1의 형태:
 
 ```ocaml
+(* v1 — 작동 불가 *)
 let selected_names = Tool_selector.select_names ~strategy ~context ~tools in
-let disclosure = Tool.Hybrid { full_names = selected_names } in
-Builder.with_disclosure_level disclosure builder
+Builder.with_disclosure_level (Tool.Hybrid { full_names = selected_names }) builder
 ```
 
-`Tool_selector`가 이미 top-K를 결정하므로 `full_names`에 그 결과를 그대로 위임. Selector와 Disclosure가 **동일한 데이터(top-K names)** 를 공유 — 두 단계가 한 점에서 결정됨.
+이 형태는 **두 가지 mismatch**:
+1. `Builder.with_disclosure_level`는 agent 생성 시 *1회* 설정 → agent lifetime 동안 *동일 값*.
+2. `Tool_selector.select_names`는 *매 turn의 query context 기반* 동적 결과.
+
+→ static builder 자리에 dynamic selector 출력을 박으면 *첫 turn의 query*만 반영되고 두 번째 turn부터 stale.
+
+OAS의 `Disclosure_resolver.resolve` signature는:
+```ocaml
+resolver : Types.tool_result list -> Tool.disclosure_level option
+```
+*last_results만* 받음. selector 결과나 query messages는 못 봄 → v1 의사코드의 *매 turn dynamic Hybrid* 를 OAS 인프라만으로 구현할 수 없음.
+
+#### v2 활성화 형태 (P0 범위)
+
+masc-mcp `lib/worker_oas.ml`의 keeper builder 파이프라인에서:
+
+```ocaml
+(* P0: imseonghan keeper에만 static Hybrid 적용. *)
+|> (fun b ->
+     if meta.name = "imseonghan"
+     then
+       let core_names = Keeper_run_tools.core_tool_names meta in
+       Agent_sdk.Builder.with_disclosure_level
+         (Agent_sdk.Tool.Hybrid
+            { full_names = List.sort compare core_names })
+         b
+     else b)
+|> (fun b ->
+     if meta.name = "imseonghan"
+     then
+       let demote_on_error (results : Agent_sdk.Types.tool_result list) =
+         if List.exists Result.is_error results
+         then Some Agent_sdk.Tool.Full_schema
+         else None
+       in
+       Agent_sdk.Builder.with_disclosure_resolver demote_on_error b
+     else b)
+```
+
+핵심 결정:
+- **Static Hybrid**: `full_names`는 **keeper의 `always_include` core tools 만**. selector top-K 추적 *안 함*. selector는 *시각적으로* visible_tools를 좁히는 역할, disclosure는 *그 안에서* schema 깊이를 다시 좁힘 — 두 단계는 독립.
+- **List.sort compare**: prefix cache hit 유지를 위해 결정적 순서 강제.
+- **Resolver = demote-on-error**: 직전 turn에 *어떤* tool error라도 있으면 다음 turn은 Full_schema. 정밀 분류(`error_class = Deterministic` 등)는 v3 후속.
+
+#### Selector top-K 동적 forwarding 은 v3 (Out of Scope, §6)
+
+매 turn selector top-K → Hybrid.full_names 전달이 더 정밀한 절감이지만, OAS `Disclosure_resolver.resolve` signature 확장(`~messages` 또는 `~tool_selector_result` 인자 추가) 필요. 별도 OAS PR + RFC §6 항목으로 분리.
 
 ### 2.2 Activation Plan (3-phase canary)
 
@@ -60,23 +107,36 @@ Builder.with_disclosure_level disclosure builder
 
 P0/P1 종료 후 데이터로 P2 진입 결정. 한 phase 실패 시 즉시 `with_disclosure_level Full_schema` (또는 호출 자체 제거)로 롤백.
 
-### 2.3 Fallback Design (별도 OAS PR로 분리)
+### 2.3 Fallback Design
 
-`Minimal_index` tool에 대한 `tool_use` 실패를 감지하면 다음 turn에서 해당 keeper만 `Full_schema` 강등.
+**Amend 2026-05-12 (v2)**: OAS PR #1511(머지)로 `Disclosure_resolver` mechanism이 들어옴. v1 의사코드의 `next_disclosure ~prev_disclosure ~last_tool_errors`는 *policy를 OAS에 박는* 형태였는데, 머지된 mechanism은 *policy를 caller(masc-mcp)에 위임*:
 
 ```ocaml
-(* lib/agent/agent_turn.ml 신규 logic *)
-let next_disclosure ~prev_disclosure ~last_tool_errors =
-  match prev_disclosure, last_tool_errors with
-  | Hybrid _, errors when has_schema_shape_error errors -> Full_schema
-  | level, _ -> level
+(* OAS 측 — mechanism only *)
+val Disclosure_resolver.resolve
+  :  resolver:(Types.tool_result list -> Tool.disclosure_level option) option
+  -> static:Tool.disclosure_level option
+  -> last_results:Types.tool_result list
+  -> Tool.disclosure_level option
+
+(* masc-mcp 측 — policy 결정 (P0 v2 형태) *)
+let demote_on_error (results : Types.tool_result list) =
+  if List.exists Result.is_error results
+  then Some Tool.Full_schema
+  else None
+;;
+Builder.with_disclosure_resolver demote_on_error builder
 ```
 
-`has_schema_shape_error`는 `Llm_provider`의 tool argument validation error를 식별. 본 RFC 머지 *전*에 OAS에 fallback PR(별도) 먼저 머지 — 카나리 안전망.
+**Signature 한계**: resolver는 `last_results`만 받음 → 직전 turn에 *어떤* tool result가 있었는지만 봄. selector 결과, messages 전체, 현재 turn의 query는 못 봄. 그래서 § 2.1 v2가 *selector top-K dynamic forwarding*을 P0 범위에서 제외하고 v3 (Out of Scope §6)으로 미룸.
+
+**fallback 정밀도**: v2 P0의 `demote_on_error`는 `Result.is_error` 기반 — *모든 tool error*가 demote 트리거. 정밀한 schema-shape error 분류 (`Tool_input_validation.Invalid` 만 트리거)는 OAS resolver signature 확장과 함께 v3.
 
 ### 2.4 결정성 보장
 
-`Hybrid { full_names = [...] }`의 `full_names`는 매 turn 결정적으로 구성됨 (Tool_selector 결과 = 결정적 함수). prefix cache hit이 유지되도록 list 순서도 안정 정렬 필수 (`List.sort compare`).
+`Hybrid { full_names = [...] }`의 `full_names`는 **keeper config 또는 keeper meta에서 도출**한 core tool 이름 (v2: static). v1의 "Tool_selector 결과를 결정적 함수로 사용"은 *별도 turn마다 다른 결과*라 prefix cache 안정성과 충돌. v2는 *agent lifetime 전체 동일* full_names → prefix cache 안정성 자동 확보.
+
+순서 결정성을 위해 `List.sort compare full_names` 강제 — v1과 동일 원칙.
 
 ## 3. Measurement
 
@@ -113,6 +173,8 @@ let next_disclosure ~prev_disclosure ~last_tool_errors =
 
 | 차후 작업 | 이유 |
 |---|---|
+| **v3: Disclosure_resolver signature 확장** (Amend 2026-05-12) | 현재 resolver는 `last_results : tool_result list`만 받음. selector top-K, messages, 현재 query를 못 봐서 §2.1 v1의 *매 turn dynamic Hybrid* 구현 불가. OAS 측 `~messages` 또는 `~tool_selector_result` 인자 추가 PR → 본 RFC §2.1 v3 wiring으로 확대. |
+| **v3: 정밀 fallback 분류** (Amend 2026-05-12) | v2의 `demote_on_error`는 `Result.is_error` 기반(*모든* tool error 트리거). `Tool_input_validation.Invalid`만 트리거하는 정밀 분류는 OAS `tool_error.error_class` 활성화 + resolver signature 확장 함께. |
 | `input_schema` required-only 압축 | `disclosure_level`과 직교한 별도 절감 축. P2 이후 별도 RFC. |
 | Final prompt hard cap | masc-mcp `keeper_run_prompt.ml:153` gate, 결정성 보장 별도 축. |
 | Section-wise enforcement gate | `keeper_agent_prompt_metrics`가 측정만 함 → enforce 추가는 별도 RFC. |
@@ -121,14 +183,23 @@ let next_disclosure ~prev_disclosure ~last_tool_errors =
 
 ## 7. Activation Sequence (작업 순서)
 
-1. **OAS fallback PR** — `next_disclosure` 로직 + `has_schema_shape_error` 추가. `Llm_provider` argument-validation error 식별 경로 신규. ~80-150 LOC + 테스트.
-2. **본 RFC 머지** — masc-mcp `pr-rfc-check.sh` 트리거 통과 조건.
-3. **masc-mcp 활성화 PR (P0)** — keeper 1명 한정. RFC-OAS-013 인용. `lib/keeper/keeper_run_tools.ml` 수정.
-4. **P0 telemetry 1주 → P1 확대 PR**.
-5. **P1 telemetry 1주 → P2 전체 적용**.
+**Amend 2026-05-12 — actual sequence**:
+
+1. ✅ **OAS PR #1508** (merged f48ccec3) — `Tool.disclosure_level` infrastructure.
+2. ✅ **OAS PR #1511** (merged 7ed9c052) — `Disclosure_resolver` mechanism (RFC §2.3 fallback의 머지된 형태).
+3. ✅ **OAS PR #1510 — 본 RFC v1** (merged bf68fa55) — masc-mcp `pr-rfc-check.sh` 트리거 통과 조건.
+4. ✅ **masc-mcp PR #14676** (merged) — `agent_sdk` lock bump 0.184 → 0.193.4 (catch-up).
+5. 🟡 **본 amend PR** — §2.1 v1 → v2 정정 (정직성 회복).
+6. ⏭ **masc-mcp 활성화 PR (P0)** — imseonghan keeper에 §2.1 v2 wiring 적용. `lib/worker_oas.ml` 분기. `masc_mcp.opam` + `dune-project` constraint를 `>= 0.193.4`로 좁힘 (constraint widening + 실제 호출을 같은 PR — N-of-M 회피).
+7. ⏭ **P0 telemetry 1주 → P1 확대 PR**.
+8. ⏭ **P1 telemetry 1주 → P2 전체 적용**.
+9. ⏭ **v3 OAS PR — Disclosure_resolver signature 확장** — `~messages` 또는 `~tool_selector_result` 인자 추가. §2.1 v3 wiring(매 turn dynamic Hybrid) 가능해짐.
+10. ⏭ **v3 활성화 PR** — selector top-K → Hybrid.full_names 매 turn forward.
 
 ## 8. Open Questions
 
-- (Q1) `Tool_selector` strategy 미설정 keeper (default = `All`)는 어떻게? — P0 대상은 `TopK_llm` 설정된 keeper로 제한. 미설정 keeper는 P2까지 default Full 유지.
-- (Q2) MCP tool과 inline tool 혼합 시 disclosure 적용 일관성? — 양쪽 모두 `Tool.t`로 들어오므로 동일 처리. CLI runtime-MCP tool은 본 PR 영향 밖.
-- (Q3) `full_names`에 selected에 없는 이름이 들어가면? — PR #1508 구현은 `List.mem` 단순 매치, 단순 무시 (성능 무영향). 별도 검증 불요.
+- (Q1) `Tool_selector` strategy 미설정 keeper는 v2 wiring에서? — v2는 selector와 독립. `full_names = core_tool_names`만 사용 → selector strategy 무관. **v2에서 Q1은 무의미해짐**.
+- (Q2) MCP tool과 inline tool 혼합 시 disclosure 적용 일관성? — 양쪽 모두 `Tool.t`로 들어오므로 동일 처리. CLI runtime-MCP tool은 본 RFC 영향 밖.
+- (Q3) `full_names`에 keeper tool set에 없는 이름이 들어가면? — OAS PR #1508 구현은 `List.mem` 단순 매치, mismatch 시 silent ignore (해당 이름은 그 turn에 그냥 무효). v2에서는 `core_tool_names`가 meta에서 도출되므로 mismatch 가능성 낮음.
+- (Q4 v2 신규) **`core_tool_names`의 SSOT는?** — `Keeper_run_tools.core_tool_names meta`로 가정했지만 실제 함수가 없으면 활성화 PR이 helper 추가. keeper TOML config의 `always_include` 필드가 1차 후보, 코드에서 derive하는 helper가 2차.
+- (Q5 v2 신규) **v3 이전 P0 절감 추정?** — v2 static Hybrid는 core tools(보통 5-8개)만 Full, 나머지 30+ 개 Minimal → schema bucket -50~70% 예상. v3 dynamic top-K Hybrid는 절감 폭 비슷하지만 *적합도*가 더 높음 (turn의 실제 query에 맞는 tool만 Full). v2 P0의 1차 목표는 *모델이 minimal로 args 채울 수 있는가* 시그널 — token saving은 부차적.
