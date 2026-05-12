@@ -11,9 +11,10 @@
     - [resolver = Some f]: when [f last_results = Some override],
       return [Some override]; otherwise return [static].
 
-    The function is pure: it does not raise, does not log, and is
-    deterministic in its inputs. Callers that need TTL, sticky
-    promotion, or session state should encode that in [resolver]. *)
+    The function performs no effects beyond invoking [resolver].  If the
+    resolver raises or performs side effects, those propagate to the caller.
+    Callers that need TTL, sticky promotion, or session state should encode
+    that in [resolver]. *)
 val resolve
   :  resolver:(Types.tool_result list -> Tool.disclosure_level option) option
   -> static:Tool.disclosure_level option

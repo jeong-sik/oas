@@ -98,7 +98,10 @@ scan_tier() {
   local tier_fail=0
   for pattern in "${patterns_arr[@]}"; do
     local matches
-    matches="$(rg -n -i -e "$pattern" "${targets[@]}" 2>/dev/null | filter_noise | grep -v 'lib/telemetry_sca_registry.ml:' || true)"
+    matches="$(rg -n -i -e "$pattern" "${targets[@]}" 2>/dev/null | filter_noise || true)"
+    if [[ "$fail_on_match" -eq 1 ]]; then
+      matches="$(printf '%s\n' "$matches" | grep -v 'lib/telemetry_sca_registry.ml:' || true)"
+    fi
     if [[ -n "$matches" ]]; then
       if [[ "$fail_on_match" -eq 1 ]]; then
         echo "FAIL [$tier]: coordinator-specific term matched pattern: $pattern" >&2

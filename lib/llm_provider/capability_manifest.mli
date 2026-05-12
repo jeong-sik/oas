@@ -113,11 +113,9 @@ val global : unit -> t option
     shadowing any [OAS_CAPABILITY_MANIFEST]-loaded entries until
     {!clear_global} is called.
 
-    Last-write-wins — calling multiple times replaces the override
-    with the most recent value. Intended for hosts that own the model
-    catalog (e.g. the embedding host's declarative manifest) and want OAS to consume
-    the same capability data without round-tripping through a JSON
-    file.
+    catalog (e.g. the embedding host's declarative manifest) and want
+    OAS to consume the same capability data without round-tripping
+    through a JSON file.
 
     Safe under multi-domain concurrency via [Atomic.t] internally;
     concurrent [set_global]/[clear_global]/[global] are race-free but

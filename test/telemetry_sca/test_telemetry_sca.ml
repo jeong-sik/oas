@@ -1,8 +1,8 @@
 (** Telemetry Signal-Consumer Audit (SCA) check.
 
     Verifies that every {!Llm_provider.Telemetry_event.t} constructor
-    has at least one producer site in the OAS codebase.  The companion
-    check in MASC verifies consumers.
+    has at least one producer site in the OAS codebase.  Companion
+    downstream checks verify consumers.
 
     @since 0.193.0 *)
 
@@ -11,7 +11,15 @@ open Agent_sdk.Telemetry_sca_registry
 
 (* ── Helpers ─────────────────────────────────────────────── *)
 
-let repo_root = Filename.dirname (Filename.dirname (Sys.getcwd ()))
+let rec find_repo_root dir =
+  if Sys.file_exists (Filename.concat dir "dune-project")
+  then dir
+  else
+    let parent = Filename.dirname dir in
+    if String.equal parent dir then dir else find_repo_root parent
+;;
+
+let repo_root = find_repo_root (Sys.getcwd ())
 
 let debug_file_exists file =
   let path = Filename.concat repo_root file in
