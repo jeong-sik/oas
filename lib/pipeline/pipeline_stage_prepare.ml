@@ -107,10 +107,13 @@ let last_tool_results_from messages =
 ;;
 
 let resolve_disclosure_level agent =
-  Disclosure_resolver.resolve
-    ~resolver:agent.options.disclosure_resolver
-    ~static:agent.options.disclosure_level
-    ~last_results:(last_tool_results_from agent.state.messages)
+  match agent.options.disclosure_resolver with
+  | None -> agent.options.disclosure_level
+  | Some resolver ->
+    Disclosure_resolver.resolve
+      ~resolver:(Some resolver)
+      ~static:agent.options.disclosure_level
+      ~last_results:(last_tool_results_from agent.state.messages)
 ;;
 
 let prepare_turn_for_agent agent ~turn_params =

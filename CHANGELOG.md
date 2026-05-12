@@ -52,6 +52,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** add disclosure_level for tool schema serialization ([#1508](https://github.com/jeong-sik/oas/issues/1508)) ([f48ccec](https://github.com/jeong-sik/oas/commit/f48ccec3d1f6045627bb51c913944b7b879baf4d))
 
+### Compatibility Notes
+
+* `Agent.options` is a concrete stable record in `Agent.mli`; the added `disclosure_level` field is source-breaking for downstream code that constructs or pattern-matches the record directly. Prefer `Builder.with_disclosure_level` for new code.
+
 ## [0.193.3](https://github.com/jeong-sik/oas/compare/v0.193.2...v0.193.3) (2026-05-11)
 
 
