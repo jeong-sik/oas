@@ -631,8 +631,13 @@ let execute_tools
       (fun (block : Types.content_block) ->
          match block with
          | ToolUse { id; name; input } -> Some (id, name, input)
-         | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
-         | Image _ | Document _ | Audio _ ->
+         | Text _
+         | Thinking _
+         | RedactedThinking _
+         | ToolResult _
+         | Image _
+         | Document _
+         | Audio _ ->
            (* Only [ToolUse] blocks dispatch tools. Enumerated explicitly
               so a new [content_block] variant cannot inherit "no tool"
               behavior without review. *)

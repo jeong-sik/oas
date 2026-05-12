@@ -33,7 +33,9 @@ let test_unknown_protocol () =
 
 let test_registered_protocols_sorted () =
   let protocols = registered_protocols () in
-  check (list string) "sorted"
+  check
+    (list string)
+    "sorted"
     [ "anthropic-cli"; "codex-cli"; "google-cli"; "kimi-cli" ]
     protocols
 ;;
@@ -48,13 +50,15 @@ let test_registry_consistency () =
      [is_known_protocol], and vice versa for the documented set.
      Catches drift between the two views of [supported_protocols]. *)
   List.iter
-    (fun p ->
-      check bool ("registered ⇒ known: " ^ p) true (is_known_protocol p))
+    (fun p -> check bool ("registered ⇒ known: " ^ p) true (is_known_protocol p))
     (registered_protocols ());
   List.iter
     (fun p ->
-      check bool ("documented ⇒ registered: " ^ p) true
-        (List.mem p (registered_protocols ())))
+       check
+         bool
+         ("documented ⇒ registered: " ^ p)
+         true
+         (List.mem p (registered_protocols ())))
     [ "anthropic-cli"; "codex-cli"; "google-cli"; "kimi-cli" ]
 ;;
 
@@ -81,10 +85,12 @@ let test_default_config_bool_option_fields () =
   (* Phase B regression guard: protocol-specific flags must default to
      [None] so the factory inherits the transport's native default
      rather than silently forcing [false].  See PR #1520 review. *)
-  check (option bool) "tool_use_via_stream_json None"
-    None default_config.tool_use_via_stream_json;
-  check (option bool) "forward_tool_results None"
-    None default_config.forward_tool_results;
+  check
+    (option bool)
+    "tool_use_via_stream_json None"
+    None
+    default_config.tool_use_via_stream_json;
+  check (option bool) "forward_tool_results None" None default_config.forward_tool_results;
   check (option bool) "yolo None" None default_config.yolo
 ;;
 
@@ -102,37 +108,46 @@ let test_default_config_list_fields () =
    re-reviewed.  --- *)
 
 let test_transport_native_defaults () =
-  check bool "claude tool_use_via_stream_json default true" true
+  check
+    bool
+    "claude tool_use_via_stream_json default true"
+    true
     Transport_claude_code.default_config.tool_use_via_stream_json;
-  check bool "claude forward_tool_results default false" false
+  check
+    bool
+    "claude forward_tool_results default false"
+    false
     Transport_claude_code.default_config.forward_tool_results;
-  check bool "kimi forward_tool_results default true" true
+  check
+    bool
+    "kimi forward_tool_results default true"
+    true
     Transport_kimi_cli.default_config.forward_tool_results;
-  check bool "gemini yolo default true" true
-    Transport_gemini_cli.default_config.yolo
+  check bool "gemini yolo default true" true Transport_gemini_cli.default_config.yolo
 ;;
 
 (* --- Test suite --- *)
 
 let () =
-  run "cli-transport-factory"
-    [ "is_known_protocol", [
-        test_case "known protocols" `Quick test_known_protocols;
-        test_case "unknown protocols" `Quick test_unknown_protocol;
-      ];
-      "registered_protocols", [
-        test_case "sorted list" `Quick test_registered_protocols_sorted;
-        test_case "count" `Quick test_registered_protocols_count;
-        test_case "registry consistency" `Quick test_registry_consistency;
-      ];
-      "default_config", [
-        test_case "command empty" `Quick test_default_config_command;
-        test_case "none fields" `Quick test_default_config_none_fields;
-        test_case "int fields" `Quick test_default_config_int_fields;
-        test_case "bool option fields" `Quick test_default_config_bool_option_fields;
-        test_case "list fields" `Quick test_default_config_list_fields;
-      ];
-      "transport_defaults", [
-        test_case "native default pins" `Quick test_transport_native_defaults;
-      ];
+  run
+    "cli-transport-factory"
+    [ ( "is_known_protocol"
+      , [ test_case "known protocols" `Quick test_known_protocols
+        ; test_case "unknown protocols" `Quick test_unknown_protocol
+        ] )
+    ; ( "registered_protocols"
+      , [ test_case "sorted list" `Quick test_registered_protocols_sorted
+        ; test_case "count" `Quick test_registered_protocols_count
+        ; test_case "registry consistency" `Quick test_registry_consistency
+        ] )
+    ; ( "default_config"
+      , [ test_case "command empty" `Quick test_default_config_command
+        ; test_case "none fields" `Quick test_default_config_none_fields
+        ; test_case "int fields" `Quick test_default_config_int_fields
+        ; test_case "bool option fields" `Quick test_default_config_bool_option_fields
+        ; test_case "list fields" `Quick test_default_config_list_fields
+        ] )
+    ; ( "transport_defaults"
+      , [ test_case "native default pins" `Quick test_transport_native_defaults ] )
     ]
+;;

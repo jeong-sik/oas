@@ -102,8 +102,13 @@ let apply_repair_dangling_tool_calls messages =
              match block with
              | ToolUse { id; _ } when not (List.mem id result_ids) -> Some id
              | ToolUse _
-             | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
-             | Image _ | Document _ | Audio _ -> None)
+             | Text _
+             | Thinking _
+             | RedactedThinking _
+             | ToolResult _
+             | Image _
+             | Document _
+             | Audio _ -> None)
           msg.content
       in
       if orphan_ids = []
@@ -140,8 +145,13 @@ let apply_repair_orphaned_tool_results messages =
            (fun acc (block : content_block) ->
               match block with
               | ToolUse { id; _ } -> id :: acc
-              | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
-              | Image _ | Document _ | Audio _ -> acc)
+              | Text _
+              | Thinking _
+              | RedactedThinking _
+              | ToolResult _
+              | Image _
+              | Document _
+              | Audio _ -> acc)
            acc
            msg.content)
       []
@@ -154,8 +164,13 @@ let apply_repair_orphaned_tool_results messages =
            (fun (block : content_block) ->
               match block with
               | ToolResult { tool_use_id; _ } -> List.mem tool_use_id use_ids
-              | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
-              | Image _ | Document _ | Audio _ -> true)
+              | Text _
+              | Thinking _
+              | RedactedThinking _
+              | ToolUse _
+              | Image _
+              | Document _
+              | Audio _ -> true)
            msg.content
        in
        if content = [] then None else Some { msg with content })
@@ -172,18 +187,28 @@ let apply_merge_contiguous messages =
               && (not
                     (List.exists
                        (fun (block : content_block) ->
-                         match block with
-                         | ToolResult _ -> true
-                         | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
-                         | Image _ | Document _ | Audio _ -> false)
+                          match block with
+                          | ToolResult _ -> true
+                          | Text _
+                          | Thinking _
+                          | RedactedThinking _
+                          | ToolUse _
+                          | Image _
+                          | Document _
+                          | Audio _ -> false)
                        msg.content))
               && not
                    (List.exists
                       (fun (block : content_block) ->
-                        match block with
-                        | ToolResult _ -> true
-                        | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
-                        | Image _ | Document _ | Audio _ -> false)
+                         match block with
+                         | ToolResult _ -> true
+                         | Text _
+                         | Thinking _
+                         | RedactedThinking _
+                         | ToolUse _
+                         | Image _
+                         | Document _
+                         | Audio _ -> false)
                       prev.content) ->
          let merged = { prev with content = prev.content @ msg.content } in
          aux (merged :: acc_rest) rest
@@ -204,8 +229,8 @@ let apply_drop_thinking messages =
              (fun (block : content_block) ->
                 match block with
                 | Thinking _ | RedactedThinking _ -> false
-                | Text _ | ToolUse _ | ToolResult _
-                | Image _ | Document _ | Audio _ -> true)
+                | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
+                  true)
              msg.content
          in
          if content = [] then None else Some { msg with content }))
@@ -218,18 +243,28 @@ let apply_prune_by_role ~drop_roles messages =
     && (not
           (List.exists
              (fun (block : content_block) ->
-               match block with
-               | ToolResult _ -> true
-               | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
-               | Image _ | Document _ | Audio _ -> false)
+                match block with
+                | ToolResult _ -> true
+                | Text _
+                | Thinking _
+                | RedactedThinking _
+                | ToolUse _
+                | Image _
+                | Document _
+                | Audio _ -> false)
              msg.content))
     && not
          (List.exists
             (fun (block : content_block) ->
-              match block with
-              | ToolUse _ -> true
-              | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
-              | Image _ | Document _ | Audio _ -> false)
+               match block with
+               | ToolUse _ -> true
+               | Text _
+               | Thinking _
+               | RedactedThinking _
+               | ToolResult _
+               | Image _
+               | Document _
+               | Audio _ -> false)
             msg.content)
   in
   List.filter (fun msg -> not (should_drop msg)) messages
@@ -344,8 +379,8 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
       let is_pair_block (block : content_block) =
         match block with
         | ToolUse _ | ToolResult _ -> true
-        | Text _ | Thinking _ | RedactedThinking _
-        | Image _ | Document _ | Audio _ -> false
+        | Text _ | Thinking _ | RedactedThinking _ | Image _ | Document _ | Audio _ ->
+          false
       in
       let cap_message (msg : message) =
         let msg_tokens = estimate_message_tokens msg in

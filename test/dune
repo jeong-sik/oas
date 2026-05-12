@@ -224,6 +224,213 @@
   test_util
   test_v024_fixes
   test_vcs_graph_snapshot)
+ (modules
+  test_metrics_aggregating
+  test_modality
+  test_capabilities
+  test_call_time_pruner_config
+  test_agent
+  test_agent_card
+  test_agent_auto_dump
+  test_agent_config
+  test_agent_config_deep
+  test_agent_lifecycle
+  test_agent_pipeline
+  test_agent_periodic_cleanup
+  test_agent_race
+  test_agent_registry
+  test_agent_sdk
+  test_agent_stream
+  test_agent_tool
+  test_agent_turn
+  test_agent_turn_budget_unit
+  test_agent_typed
+  test_api_dispatch
+  test_append_instruction
+  test_approval
+  test_approval_pipeline
+  test_artifact_service
+  test_async_agent
+  test_atomic_write_race
+  test_backend_gemini
+  test_body_timeout
+  test_budget_strategy
+  test_bug_hunt
+  test_builder_coverage
+  test_cache
+  test_capabilities_wiring
+  test_capability_filter
+  test_checkpoint
+  test_checkpoint_store
+  test_checkpoint_validation
+  test_cli_common_subprocess
+  test_clone
+  test_complete_ext
+  test_conditional_orch
+  test_consumer
+  test_content_replacement_event_bridge
+  test_context
+  test_context_flow_proof
+  test_context_intent
+  test_context_offload
+  test_context_reducer
+  test_contract
+  test_correction_pipeline
+  test_cost_integration
+  test_cost_tracker
+  test_coverage_hotspots_srt
+  test_custom_provider
+  test_deep_coverage
+  test_defaults
+  test_defaults_unit
+  test_disclosure_resolver
+  test_discovery
+  test_durable
+  test_durable_event
+  test_e2e_v024
+  test_eio_cancellability
+  test_elicitation
+  test_error
+  test_error_domain
+  test_eval
+  test_eval_baseline
+  test_eval_coverage
+  test_eval_otel_bridge
+  test_eval_report
+  test_eval_report_full
+  test_eval_stats
+  test_event_bus
+  test_event_envelope
+  test_event_forward
+  test_fs_result
+  test_gemini_edge_cases
+  test_guardrail_llm
+  test_guardrail_tripwire
+  test_guardrails
+  test_guardrails_integration
+  test_harness
+  test_harness_case
+  test_harness_deep
+  test_harness_runner
+  test_hooks
+  test_hooks_integration
+  test_http_client
+  test_initial_messages
+  test_injection
+  test_integration
+  test_journal_bridge
+  test_judge
+  test_llm_cache
+  test_llm_call
+  test_llm_provider_error
+  test_log
+  test_mcp
+  test_mcp_coverage
+  test_mcp_deep
+  test_mcp_http
+  test_mcp_integration
+  test_mcp_session
+  test_memory
+  test_memory_access
+  test_memory_coverage
+  test_memory_episodic
+  test_memory_file_backend
+  test_memory_lt_backend
+  test_memory_procedural
+  test_memory_tools
+  test_memory_tools_parse
+  test_metric_contract
+  test_metrics
+  test_model_registry
+  test_module_check
+  test_multimodal
+  test_multivendor_events
+  test_multivendor_live
+  test_operator_policy
+  test_orchestrator
+  test_orchestrator_coverage
+  test_orchestrator_steps
+  test_otel
+  test_otel_export
+  test_otel_tracer
+  test_pipeline
+  test_pipeline_deep
+  test_pipeline_metrics
+  test_plan
+  test_policy
+  test_policy_channel
+  test_progressive_tools
+  test_provider
+  test_provider_config
+  test_provider_intf
+  test_provider_registry
+  test_raw_trace
+  test_raw_trace_deep
+  test_reflexion
+  test_relay_delivery
+  test_request_priority
+  test_retry
+  test_runtime
+  test_runtime_projection_cov2
+  test_runtime_server_resolve
+  test_runtime_server_types
+  test_runtime_store_unit
+  test_runtime_sync
+  test_runtime_types
+  test_sdk_client_types
+  test_session
+  test_session_advanced
+  test_session_resume
+  test_sessions_cov2
+  test_sessions_types
+  test_sessions_types_deep
+  test_skill
+  test_skill_coverage
+  test_skill_coverage2
+  test_skill_discovery
+  test_skill_registry
+  test_slot_scheduler_event_bridge
+  test_sse_parser
+  test_stream_accumulator
+  test_streaming_cov
+  test_streaming_coverage
+  test_streaming_e2e
+  test_streaming_keepalive_idle
+  test_streaming_openai
+  test_structured
+  test_structured_coverage
+  test_structured_deep
+  test_structured_ext
+  test_structured_stream
+  test_subagent
+  test_succession
+  test_swiss_verdict_json
+  test_tool
+  test_tool_disclosure
+  test_tool_index
+  test_tool_input_validation
+  test_tool_middleware
+  test_tool_result_relocation
+  test_tool_schema_gen
+  test_tool_selector
+  test_tool_use_recovery
+  test_trace_eval
+  test_tracing
+  test_trajectory
+  test_trajectory_unit
+  test_cli_transport_factory
+  test_transport_deep
+  test_transport_integration
+  test_turn_budget
+  test_turn_params
+  test_typed_tool
+  test_typed_tool_safe
+  test_types
+  test_uncertain
+  test_usability_v030
+  test_util
+  test_v024_fixes
+  test_vcs_graph_snapshot)
  (libraries agent_sdk alcotest)
  (deps %{bin:oas-runtime})
  (action
@@ -236,6 +443,14 @@
 
 (tests
  (names
+  test_checkpoint_delta
+  test_context_properties
+  test_memory_advanced
+  test_property
+  test_property_advanced
+  test_tool_op
+  test_tool_set)
+ (modules
   test_checkpoint_delta
   test_context_properties
   test_memory_advanced
@@ -302,11 +517,6 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
- (name test_telemetry_sca)
- (modules test_telemetry_sca)
- (libraries agent_sdk alcotest))
-
-(test
  (name test_lenient_json)
  (modules test_lenient_json)
  (libraries agent_sdk alcotest))
@@ -351,9 +561,3 @@
  (name test_agent_cancellation_tla_parity)
  (modules test_agent_cancellation_tla_parity)
  (libraries agent_sdk alcotest))
-
-(rule
- (alias telemetry_sca_check)
- (deps test_telemetry_sca.exe)
- (action
-  (run ./test_telemetry_sca.exe)))

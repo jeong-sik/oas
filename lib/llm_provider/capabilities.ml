@@ -1156,13 +1156,13 @@ let detect_drift (caps : capabilities) (resp : Types.api_response)
   and has_thinking = ref false in
   List.iter
     (fun (block : Types.content_block) ->
-      match block with
-      | ToolUse _ -> has_tool_use := true
-      | Thinking _ | RedactedThinking _ -> has_thinking := true
-      | Text _ | ToolResult _ | Image _ | Document _ | Audio _ ->
-        (* No capability-drift signal: these blocks are valid against any
+       match block with
+       | ToolUse _ -> has_tool_use := true
+       | Thinking _ | RedactedThinking _ -> has_thinking := true
+       | Text _ | ToolResult _ | Image _ | Document _ | Audio _ ->
+         (* No capability-drift signal: these blocks are valid against any
            capability set the response declares. *)
-        ())
+         ())
     resp.content;
   if !has_tool_use && not caps.supports_tools
   then obs := Tools_used_but_declared_unsupported :: !obs;
