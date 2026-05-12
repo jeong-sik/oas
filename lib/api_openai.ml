@@ -125,26 +125,27 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let body_assoc =
     match config.config.enable_thinking with
     | Some enabled when capabilities.supports_reasoning ->
-      if capabilities.is_ollama
-      then (
-        let effort =
-          Llm_provider.Provider_config.effort_of_thinking_config
-            ~enable_thinking:(Some enabled)
-            ~thinking_budget:config.config.thinking_budget
-        in
-        ("reasoning_effort", `String effort) :: body_assoc)
-      else if is_glm_request ?provider_config config
-      then (
-        let thinking =
-          if enabled
-          then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
-          else `Assoc [ "type", `String "disabled" ]
-        in
-        ("thinking", thinking) :: body_assoc)
-      else
-        ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
-        :: body_assoc
-    | None when capabilities.is_ollama ->
+      (match capabilities.thinking_control_format with
+       | Llm_provider.Capabilities.Reasoning_effort ->
+         let effort =
+           Llm_provider.Provider_config.effort_of_thinking_config
+             ~enable_thinking:(Some enabled)
+             ~thinking_budget:config.config.thinking_budget
+         in
+         ("reasoning_effort", `String effort) :: body_assoc
+       | _ when is_glm_request ?provider_config config ->
+         let thinking =
+           if enabled
+           then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
+           else `Assoc [ "type", `String "disabled" ]
+         in
+         ("thinking", thinking) :: body_assoc
+       | _ ->
+         ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
+         :: body_assoc)
+    | None
+      when capabilities.thinking_control_format
+           = Llm_provider.Capabilities.Reasoning_effort ->
       ("reasoning_effort", `String "none") :: body_assoc
     | None -> body_assoc
     | Some _ -> body_assoc

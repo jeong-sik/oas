@@ -334,28 +334,28 @@ let probe_ollama_context ~sw ~net base_url =
 
 (* ── Capability inference ────────────────────────────────── *)
 
-(** Overlay Ollama-specific identity fields onto a capability record returned
+(** Overlay Ollama-specific behavior flags onto a capability record returned
     by a model-specific lookup ([for_model_id]).  When the serving endpoint is
-    Ollama, the identity ([is_ollama]), seed support, and
-    [thinking_control_format] fields must reflect the Ollama backend even when
-    the base capabilities come from a cloud-model entry in the built-in table. *)
+    Ollama, [supports_seed], [supports_seed_with_images], and
+    [thinking_control_format = Reasoning_effort] reflect the Ollama
+    OpenAI-compatible wire format even when the base capabilities come from
+    a cloud-model entry in the built-in table. *)
 let with_ollama_flags (caps : Capabilities.capabilities) : Capabilities.capabilities =
   { caps with
-    is_ollama = true
-  ; supports_seed = true
+    supports_seed = true
   ; supports_seed_with_images = true
-  ; thinking_control_format = Capabilities.Chat_template_kwargs
+  ; thinking_control_format = Capabilities.Reasoning_effort
   }
 ;;
 
 (** Infer capabilities from model info and server props.
     Priority: model-specific lookup > generic inference > default.
     When [is_ollama] is [true], [ollama_capabilities] is used as the
-    fallback base so that Ollama identity flags ([is_ollama], seed,
-    [thinking_control_format]) are always set.  For model-specific
-    lookups, Ollama identity fields are overlaid via {!with_ollama_flags}
-    so provider-level semantics are preserved without losing context-window
-    or reasoning metadata from the built-in table. *)
+    fallback base so that Ollama behavior flags (seed,
+    [thinking_control_format = Reasoning_effort]) are always set.  For
+    model-specific lookups, Ollama behavior is overlaid via
+    {!with_ollama_flags} so provider-level semantics are preserved without
+    losing context-window or reasoning metadata from the built-in table. *)
 let infer_capabilities ~is_ollama models props =
   (* 1. Try model-specific lookup *)
   let from_lookup =
@@ -364,18 +364,19 @@ let infer_capabilities ~is_ollama models props =
   let base =
     match from_lookup with
     | Some caps ->
-      (* Overlay Ollama identity flags when running on an Ollama endpoint
+      (* Overlay Ollama behavior flags when running on an Ollama endpoint
          so model-specific context-window and reasoning metadata is kept
-         while provider-level flags (is_ollama, seed, thinking_control_format)
+         while provider-level flags (seed, thinking_control_format)
          reflect the actual serving backend. *)
       if is_ollama then with_ollama_flags caps else caps
     | None ->
       if is_ollama
       then
         (* Ollama base: inherits extended reasoning, top_k/min_p, and
-           Ollama-specific flags (is_ollama, seed, conservative tool_choice).
-           Dynamic tool support from /api/show template analysis is merged
-           below via the props handling in step 3. *)
+           Ollama-specific flags (seed, conservative tool_choice,
+           reasoning_effort thinking format). Dynamic tool support from
+           /api/show template analysis is merged below via the props
+           handling in step 3. *)
         Capabilities.ollama_capabilities
       else (
         (* 2. Generic inference by model name for non-Ollama endpoints *)
@@ -1325,16 +1326,18 @@ let%test "infer_capabilities defaults to 262K when no props for qwen" =
 
 (* --- infer_capabilities Ollama identity --- *)
 
-let%test "infer_capabilities ollama unknown model gets is_ollama flag" =
+let%test "infer_capabilities ollama unknown model gets reasoning_effort format" =
   let models = [ { id = "llama3.3"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~is_ollama:true models None in
-  caps.is_ollama = true
+  caps.thinking_control_format = Capabilities.Reasoning_effort
 ;;
 
 let%test "infer_capabilities ollama unknown model gets seed and conservative tool_choice" =
   let models = [ { id = "phi4"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~is_ollama:true models None in
-  caps.is_ollama = true && caps.supports_seed = true && caps.supports_tool_choice = false
+  caps.thinking_control_format = Capabilities.Reasoning_effort
+  && caps.supports_seed = true
+  && caps.supports_tool_choice = false
 ;;
 
 let%test "infer_capabilities ollama tool support propagated from api_show template" =
@@ -1343,7 +1346,7 @@ let%test "infer_capabilities ollama tool support propagated from api_show templa
     Some { total_slots = 1; ctx_size = 65536; model = "phi4"; supports_tools = Some true }
   in
   let caps = infer_capabilities ~is_ollama:true models props in
-  caps.is_ollama = true
+  caps.thinking_control_format = Capabilities.Reasoning_effort
   && caps.supports_tools = true
   && caps.max_context_tokens = Some 65536
 ;;
@@ -1356,7 +1359,7 @@ let%test
      On an Ollama endpoint, Ollama identity flags should be overlaid. *)
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~is_ollama:true models None in
-  caps.is_ollama = true
+  caps.thinking_control_format = Capabilities.Reasoning_effort
   && caps.supports_seed = true
   && caps.max_context_tokens = Some 262_144
   && caps.supports_reasoning = true

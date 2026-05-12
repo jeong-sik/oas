@@ -11,6 +11,9 @@ type thinking_control_format =
   | Thinking_object (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
+  | Reasoning_effort
+  (** OpenAI-style top-level [reasoning_effort: low | medium | high | minimal]
+      string. Ollama's OpenAI-compatible mode uses this shape. *)
 
 type capabilities =
   { (* Numeric limits *)
@@ -56,8 +59,6 @@ type capabilities =
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool
-  ; (* Provider identity *)
-    is_ollama : bool
   ; (* Usage reporting *)
     emits_usage_tokens : bool
     (** Whether the provider's standard response carries usage tokens

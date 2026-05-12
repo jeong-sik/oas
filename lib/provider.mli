@@ -32,10 +32,11 @@ type modality =
   | Video
   | Multimodal
 
-type thinking_control_format =
+type thinking_control_format = Llm_provider.Capabilities.thinking_control_format =
   | No_thinking_control
   | Thinking_object
   | Chat_template_kwargs
+  | Reasoning_effort
 
 type capabilities =
   { max_context_tokens : int option
@@ -67,8 +68,6 @@ type capabilities =
   ; supports_seed_with_images : bool
   ; supports_computer_use : bool
   ; supports_code_execution : bool
-  ; (* Provider identity *)
-    is_ollama : bool
   ; (* Usage reporting *)
     emits_usage_tokens : bool
   ; supported_models : string list option
