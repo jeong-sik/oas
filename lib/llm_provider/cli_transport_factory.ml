@@ -7,29 +7,24 @@
     - ["kimi-cli"]      → [Transport_kimi_cli]
 
     Each protocol maps to an existing transport module's [create] function.
-    Fields in [cli_config] not used by a given protocol are silently ignored. *)
+    Fields in [cli_config] not consumed by a given protocol are ignored. *)
 
 type cli_config = {
   command : string;
   model : string option;
   cwd : string option;
-  (* MCP config — shared by claude, codex, gemini (single file path) *)
   mcp_config : string option;
-  (* MCP config — kimi-specific (lists of file paths / JSON strings) *)
   mcp_config_files : string list;
   mcp_config_json : string list;
-  (* Tool config *)
   allowed_tools : string list;
   max_turns : int option;
   permission_mode : string option;
-  (* Protocol-specific flags *)
-  tool_use_via_stream_json : bool;   (** [anthropic-cli] only *)
-  forward_tool_results : bool;       (** [anthropic-cli], [kimi-cli] *)
-  yolo : bool;                       (** [google-cli] only *)
-  config_file : string option;       (** [kimi-cli] only *)
-  extra_env : (string * string) list; (** [kimi-cli] only *)
-  session_id : string option;        (** [kimi-cli] only *)
-  (* Infrastructure *)
+  tool_use_via_stream_json : bool option;
+  forward_tool_results : bool option;
+  yolo : bool option;
+  config_file : string option;
+  extra_env : (string * string) list;
+  session_id : string option;
   cancel : unit Eio.Promise.t option;
   clock : float Eio.Time.clock_ty Eio.Resource.t option;
   stdout_idle_timeout_s : float option;
@@ -45,9 +40,9 @@ let default_config =
   ; allowed_tools = []
   ; max_turns = None
   ; permission_mode = None
-  ; tool_use_via_stream_json = false
-  ; forward_tool_results = false
-  ; yolo = false
+  ; tool_use_via_stream_json = None
+  ; forward_tool_results = None
+  ; yolo = None
   ; config_file = None
   ; extra_env = []
   ; session_id = None
@@ -57,38 +52,63 @@ let default_config =
   }
 ;;
 
-let registered_protocols () =
-  List.sort String.compare [ "anthropic-cli"; "codex-cli"; "google-cli"; "kimi-cli" ]
+(* Single source of truth — [registered_protocols], [is_known_protocol],
+   and [create]'s match all flow from this list. Adding a new CLI
+   protocol means adding here AND wiring a [create] arm; the build
+   surfaces the second because [unknown] catch-all is fatal. *)
+let supported_protocols =
+  [ "anthropic-cli"; "codex-cli"; "google-cli"; "kimi-cli" ]
 ;;
 
-let is_known_protocol protocol =
-  match protocol with
-  | "anthropic-cli" | "codex-cli" | "google-cli" | "kimi-cli" -> true
-  | _ -> false
-;;
+let registered_protocols () = List.sort String.compare supported_protocols
+
+let is_known_protocol protocol = List.mem protocol supported_protocols
 
 let create ~protocol ~config ~sw ~mgr =
+  if not (is_known_protocol protocol) then
+    failwith
+      (Printf.sprintf
+         "Cli_transport_factory.create: unknown CLI protocol %S (expected one of: %s)"
+         protocol
+         (String.concat ", " (registered_protocols ())));
+  if String.trim config.command = "" then
+    failwith
+      (Printf.sprintf
+         "Cli_transport_factory.create: protocol %S requires a non-empty command"
+         protocol);
   match protocol with
   | "anthropic-cli" ->
     let tc =
-      { Transport_claude_code.claude_path = config.command
+      { Transport_claude_code.default_config with
+        claude_path = config.command
       ; model = config.model
       ; max_turns = config.max_turns
       ; allowed_tools = config.allowed_tools
       ; permission_mode = config.permission_mode
       ; mcp_config = config.mcp_config
       ; cwd = config.cwd
-      ; tool_use_via_stream_json = config.tool_use_via_stream_json
-      ; forward_tool_results = config.forward_tool_results
       ; cancel = config.cancel
       ; clock = config.clock
       ; stdout_idle_timeout_s = config.stdout_idle_timeout_s
       }
     in
+    let tc =
+      match config.tool_use_via_stream_json with
+      | Some v -> { tc with Transport_claude_code.tool_use_via_stream_json = v }
+      | None -> tc
+    in
+    let tc =
+      match config.forward_tool_results with
+      | Some v -> { tc with Transport_claude_code.forward_tool_results = v }
+      | None -> tc
+    in
     Transport_claude_code.create ~sw ~mgr ~config:tc
   | "codex-cli" ->
-    let tc =
-      { Transport_codex_cli.codex_path = config.command
+    (* Codex CLI has no protocol-specific bool flags, so the cli_config
+       layer can fully specify the record. Listing all fields explicitly
+       is the warning-23-clean alternative to a useless [with]. *)
+    let tc : Transport_codex_cli.config =
+      { codex_path = config.command
       ; model = config.model
       ; cwd = config.cwd
       ; mcp_config = config.mcp_config
@@ -103,9 +123,9 @@ let create ~protocol ~config ~sw ~mgr =
     Transport_codex_cli.create ~sw ~mgr ~config:tc
   | "google-cli" ->
     let tc =
-      { Transport_gemini_cli.gemini_path = config.command
+      { Transport_gemini_cli.default_config with
+        gemini_path = config.command
       ; model = config.model
-      ; yolo = config.yolo
       ; cwd = config.cwd
       ; mcp_config = config.mcp_config
       ; allowed_tools = config.allowed_tools
@@ -116,16 +136,21 @@ let create ~protocol ~config ~sw ~mgr =
       ; stdout_idle_timeout_s = config.stdout_idle_timeout_s
       }
     in
+    let tc =
+      match config.yolo with
+      | Some v -> { tc with Transport_gemini_cli.yolo = v }
+      | None -> tc
+    in
     Transport_gemini_cli.create ~sw ~mgr ~config:tc
   | "kimi-cli" ->
     let tc =
-      { Transport_kimi_cli.kimi_path = config.command
+      { Transport_kimi_cli.default_config with
+        kimi_path = config.command
       ; model = config.model
       ; cwd = config.cwd
       ; config_file = config.config_file
       ; mcp_config_files = config.mcp_config_files
       ; mcp_config_json = config.mcp_config_json
-      ; forward_tool_results = config.forward_tool_results
       ; extra_env = config.extra_env
       ; cancel = config.cancel
       ; session_id = config.session_id
@@ -133,11 +158,19 @@ let create ~protocol ~config ~sw ~mgr =
       ; stdout_idle_timeout_s = config.stdout_idle_timeout_s
       }
     in
+    let tc =
+      match config.forward_tool_results with
+      | Some v -> { tc with Transport_kimi_cli.forward_tool_results = v }
+      | None -> tc
+    in
     Transport_kimi_cli.create ~sw ~mgr ~config:tc
   | unknown ->
+    (* Unreachable: [is_known_protocol] gate above rejects unknown values.
+       Kept as defensive arm so [supported_protocols] drift cannot reach
+       a partial match. *)
     failwith
       (Printf.sprintf
-         "Cli_transport_factory: unknown CLI protocol %S (expected one of: %s)"
-         unknown
-         (String.concat ", " (registered_protocols ())))
+         "Cli_transport_factory.create: unhandled CLI protocol %S \
+          (supported_protocols drift — add a dispatch arm)"
+         unknown)
 ;;
