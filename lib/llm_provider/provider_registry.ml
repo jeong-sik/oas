@@ -92,21 +92,27 @@ let register_catalog_entry t (entry : Provider_catalog.entry) =
     ; request_path = entry.request_path
     }
   in
-  let register_name name =
-    let name = String.lowercase_ascii (String.trim name) in
-    if name <> ""
+  let register_name ~origin name =
+    let normalized = String.lowercase_ascii (String.trim name) in
+    if normalized = ""
     then
+      Diag.warn
+        "provider_registry"
+        "ignoring empty %s for provider %S in catalog overlay"
+        origin
+        entry.id
+    else
       register
         t
-        { name
+        { name = normalized
         ; defaults
         ; max_context
         ; capabilities = entry.capabilities
         ; is_available = (fun () -> catalog_entry_available entry)
         }
   in
-  register_name entry.id;
-  List.iter register_name entry.aliases
+  register_name ~origin:"id" entry.id;
+  List.iter (register_name ~origin:"alias") entry.aliases
 ;;
 
 let overlay_provider_catalog t =
