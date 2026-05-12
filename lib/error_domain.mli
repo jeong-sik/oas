@@ -46,6 +46,9 @@ type agent_error =
   [ `Max_turns_exceeded of int * int (** turns, limit *)
   | `Token_budget_exceeded of int * int (** used, limit *)
   | `Cost_budget_exceeded
+  | `Cost_budget_unenforceable of string * float
+    (** model_id, limit_usd — [max_cost_usd] is set but a turn ran a model
+        with no pricing entry, so the cap cannot be enforced. *)
   | `Idle_detected of int (** consecutive_idle_turns *)
   | `Tool_retry_exhausted of int * int * string (** attempts, limit, detail *)
   | `Completion_contract_violation of Completion_contract_id.t * string

@@ -29,6 +29,10 @@ type agent_error =
       { spent_usd : float
       ; limit_usd : float
       }
+  | CostBudgetUnenforceable of
+      { model_id : string
+      ; limit_usd : float
+      }
   | UnrecognizedStopReason of { reason : string }
   | IdleDetected of { consecutive_idle_turns : int }
   | ToolRetryExhausted of
@@ -148,6 +152,12 @@ let agent_error_to_string = function
       "Cost budget exceeded: $%.4f spent (limit $%.4f)"
       r.spent_usd
       r.limit_usd
+  | CostBudgetUnenforceable r ->
+    Printf.sprintf
+      "Cost budget ($%.4f limit) cannot be enforced: model %S has no pricing entry; add \
+       it to Pricing.pricing_for_model_opt or remove max_cost_usd"
+      r.limit_usd
+      r.model_id
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
   | IdleDetected r ->

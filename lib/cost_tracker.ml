@@ -22,18 +22,33 @@ type cost_report =
 
 (** Check whether the accumulated cost exceeds the configured budget.
 
-    Returns [Some error] when [config.max_cost_usd] is set and
-    [usage.estimated_cost_usd] exceeds it; [None] otherwise.
+    Returns [Some error] when [config.max_cost_usd] is set and either:
+    - [usage.estimated_cost_usd] exceeds the limit, OR
+    - [usage.unpriced_model = Some _], meaning at least one turn used a
+      model with no pricing entry so [estimated_cost_usd] under-reports
+      by an unknown amount.  In that case the dollar cap cannot be
+      enforced and we fail closed with [CostBudgetUnenforceable] rather
+      than let the cap be silently void.
+
+    Returns [None] otherwise.
 
     Intended to be called in the agent run loop alongside
     {!Agent_turn.check_token_budget}. *)
 let check_budget (config : Types.agent_config) (usage : Types.usage_stats) =
   match config.max_cost_usd with
-  | Some limit when usage.estimated_cost_usd > limit ->
-    Some
-      (Error.Agent
-         (CostBudgetExceeded { spent_usd = usage.estimated_cost_usd; limit_usd = limit }))
-  | _ -> None
+  | None -> None
+  | Some limit ->
+    (match usage.unpriced_model with
+     | Some model_id ->
+       Some (Error.Agent (CostBudgetUnenforceable { model_id; limit_usd = limit }))
+     | None ->
+       if usage.estimated_cost_usd > limit
+       then
+         Some
+           (Error.Agent
+              (CostBudgetExceeded
+                 { spent_usd = usage.estimated_cost_usd; limit_usd = limit }))
+       else None)
 ;;
 
 (** Generate a cost report from accumulated usage stats. *)

@@ -257,6 +257,7 @@ let extract_with_retry
       ; api_calls = acc.api_calls + 1
       ; estimated_cost_usd =
           acc.estimated_cost_usd +. Option.value ~default:0.0 u.cost_usd
+      ; unpriced_model = acc.unpriced_model
       }
   in
   let initial_message =

@@ -97,12 +97,17 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
           (Agent_types.options agent).max_idle_turns > 0
           && agent.consecutive_idle_turns >= max_idle_before_extend
         then Error Agent_idle
-        (* Cost check: deny if cost budget exceeded *)
+        (* Cost check: deny if cost budget exceeded, or if any past turn
+           ran an unpriced model so the dollar cap cannot be enforced. *)
         else (
           match state.config.max_cost_usd with
-          | Some max_cost when state.usage.estimated_cost_usd >= max_cost ->
-            Error Cost_exceeded
-          | _ -> Ok ())
+          | None -> Ok ()
+          | Some max_cost ->
+            if Option.is_some state.usage.unpriced_model
+            then Error Cost_exceeded
+            else if state.usage.estimated_cost_usd >= max_cost
+            then Error Cost_exceeded
+            else Ok ())
     in
     match agent_check with
     | Error reason_code ->

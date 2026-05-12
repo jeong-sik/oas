@@ -338,6 +338,7 @@ let () =
               ; total_cache_read_input_tokens = 100
               ; api_calls = 3
               ; estimated_cost_usd = 0.0
+              ; unpriced_model = None
               }
             in
             let cp = make_checkpoint ~usage:u () in
@@ -455,6 +456,7 @@ let () =
               ; total_cache_read_input_tokens = 0
               ; api_calls = 1
               ; estimated_cost_usd = 0.0
+              ; unpriced_model = None
               }
             in
             let cp = make_checkpoint ~usage:u () in
@@ -496,6 +498,7 @@ let () =
                   ; total_cache_read_input_tokens = 0
                   ; api_calls = 1
                   ; estimated_cost_usd = 0.0
+                  ; unpriced_model = None
                   }
               };
             let cp = Agent.checkpoint ~session_id:"sess-1" agent in

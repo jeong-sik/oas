@@ -28,6 +28,13 @@ type agent_error =
       { spent_usd : float
       ; limit_usd : float
       }
+  | CostBudgetUnenforceable of
+      { model_id : string
+      ; limit_usd : float
+      }
+  (** [max_cost_usd] is set but at least one turn ran a model with no pricing
+            entry, so [estimated_cost_usd] silently under-reports.  Fail closed
+            rather than let the dollar cap be void. *)
   | UnrecognizedStopReason of { reason : string }
   | IdleDetected of { consecutive_idle_turns : int }
   | ToolRetryExhausted of

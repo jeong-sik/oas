@@ -23,6 +23,7 @@ type agent_error =
   [ `Max_turns_exceeded of int * int
   | `Token_budget_exceeded of int * int
   | `Cost_budget_exceeded
+  | `Cost_budget_unenforceable of string * float
   | `Idle_detected of int
   | `Tool_retry_exhausted of int * int * string
   | `Completion_contract_violation of Completion_contract_id.t * string
@@ -84,6 +85,8 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (MaxTurnsExceeded r) -> `Max_turns_exceeded (r.turns, r.limit)
   | Error.Agent (TokenBudgetExceeded r) -> `Token_budget_exceeded (r.used, r.limit)
   | Error.Agent (CostBudgetExceeded _) -> `Cost_budget_exceeded
+  | Error.Agent (CostBudgetUnenforceable r) ->
+    `Cost_budget_unenforceable (r.model_id, r.limit_usd)
   | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
   | Error.Agent (ToolRetryExhausted r) ->
     `Tool_retry_exhausted (r.attempts, r.limit, r.detail)
@@ -137,6 +140,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
     Error.Agent (TokenBudgetExceeded { kind = "total"; used; limit })
   | `Cost_budget_exceeded ->
     Error.Agent (CostBudgetExceeded { spent_usd = 0.0; limit_usd = 0.0 })
+  | `Cost_budget_unenforceable (model_id, limit_usd) ->
+    Error.Agent (CostBudgetUnenforceable { model_id; limit_usd })
   | `Idle_detected n -> Error.Agent (IdleDetected { consecutive_idle_turns = n })
   | `Tool_retry_exhausted (attempts, limit, detail) ->
     Error.Agent (ToolRetryExhausted { attempts; limit; detail })

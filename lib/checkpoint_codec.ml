@@ -11,6 +11,10 @@ let usage_to_json u =
     ; "total_cache_read_input_tokens", `Int u.total_cache_read_input_tokens
     ; "api_calls", `Int u.api_calls
     ; "estimated_cost_usd", `Float u.estimated_cost_usd
+    ; ( "unpriced_model"
+      , match u.unpriced_model with
+        | Some s -> `String s
+        | None -> `Null )
     ]
 ;;
 
@@ -34,6 +38,14 @@ let usage_of_json json =
        | `Float f -> f
        | `Int i -> Float.of_int i
        | _ -> 0.0)
+  ; unpriced_model =
+      (* Older checkpoints (pre cost-estimation flag) lack this field; treat
+         them as fully-priced.  This is the safe direction for replay: a
+         resumed session re-runs accumulate_usage and re-detects unpriced
+         models on its own. *)
+      (match json |> member "unpriced_model" with
+       | `String s -> Some s
+       | _ -> None)
   }
 ;;
 

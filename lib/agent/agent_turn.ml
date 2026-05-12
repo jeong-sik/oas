@@ -378,25 +378,41 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
   match response_usage with
   | Some u ->
     let base = add_usage current_usage u in
-    let turn_cost =
-      match u.cost_usd with
-      | Some cost -> cost
-      | None ->
-        let model_id =
-          match provider with
-          | Some (cfg : Provider.config) -> cfg.model_id
-          | None -> ""
-        in
-        let pricing = Provider.pricing_for_model model_id in
-        Provider.estimate_cost
-          ~pricing
-          ~input_tokens:u.input_tokens
-          ~output_tokens:u.output_tokens
-          ~cache_creation_input_tokens:u.cache_creation_input_tokens
-          ~cache_read_input_tokens:u.cache_read_input_tokens
-          ()
-    in
-    { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
+    (match u.cost_usd with
+     | Some cost -> { base with estimated_cost_usd = base.estimated_cost_usd +. cost }
+     | None ->
+       let model_id =
+         match provider with
+         | Some (cfg : Provider.config) -> cfg.model_id
+         | None -> ""
+       in
+       (* Use [pricing_for_model_opt] so an unknown model does not silently
+          collapse to zero_pricing.  When there is no pricing entry, leave
+          [estimated_cost_usd] unchanged and mark the accumulator incomplete;
+          [Cost_tracker.check_budget] returns [CostBudgetUnenforceable] for
+          hosts that opted in to [max_cost_usd], so the dollar cap fails
+          closed rather than being silently void. *)
+       (match Provider.pricing_for_model_opt model_id with
+        | Some pricing ->
+          let turn_cost =
+            Provider.estimate_cost
+              ~pricing
+              ~input_tokens:u.input_tokens
+              ~output_tokens:u.output_tokens
+              ~cache_creation_input_tokens:u.cache_creation_input_tokens
+              ~cache_read_input_tokens:u.cache_read_input_tokens
+              ()
+          in
+          { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
+        | None ->
+          (* Record only the first unpriced model so the eventual error
+             message stays stable across many cascade fallbacks. *)
+          let unpriced_model =
+            match base.unpriced_model with
+            | Some _ as already -> already
+            | None -> Some model_id
+          in
+          { base with unpriced_model }))
   | None -> { current_usage with api_calls = current_usage.api_calls + 1 }
 ;;
 
