@@ -214,12 +214,15 @@ let env_loaded_manifest : t option Lazy.t =
      | Some path -> load_runtime_file path)
 ;;
 
-let runtime_override : t option ref = ref None
-let set_global m = runtime_override := Some m
-let clear_global () = runtime_override := None
+(* Process-wide runtime override. [Atomic.t] makes [set_global] /
+   [clear_global] / [global] safe under OCaml 5 multi-domain concurrency
+   (cf. [lib/llm_provider/pricing.ml]'s [_overrides] table). *)
+let runtime_override : t option Atomic.t = Atomic.make None
+let set_global m = Atomic.set runtime_override (Some m)
+let clear_global () = Atomic.set runtime_override None
 
 let global () =
-  match !runtime_override with
+  match Atomic.get runtime_override with
   | Some _ as o -> o
   | None -> Lazy.force env_loaded_manifest
 ;;
@@ -350,7 +353,14 @@ let%test "set_global / clear_global: runtime override roundtrips" =
   observed_after_set && observed_after_clear
 ;;
 
-let%test "set_global takes precedence regardless of env var presence" =
+(* Title scoped to what this test actually verifies: set_global makes
+   global() return [Some] with the installed manifest. Verifying that
+   the runtime override *shadows* an env-var-loaded manifest is not
+   reachable from an inline test because [env_loaded_manifest] is a
+   [Lazy.t] that is forced at most once per process, and the test
+   harness shares that process. A deterministic env-shadowing assertion
+   would require module-level reset (out of scope for this PR). *)
+let%test "set_global installs runtime override and returns it from global ()" =
   let json =
     Yojson.Safe.from_string
       {|{"schema_version":1,"models":[{"id_prefix":"override-precedence-test"}]}|}

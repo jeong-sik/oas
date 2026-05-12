@@ -103,7 +103,8 @@ val lookup : t -> string -> entry option
         (e.g. masc-mcp loading its declarative cascade.toml) install
         a programmatic manifest at boot.
     + 2. [OAS_CAPABILITY_MANIFEST] env var pointing at a JSON file
-        (loaded lazily on first call, once per process).
+        (loaded lazily on first call when no runtime override is
+        installed, at most once per process).
 
     Returns [None] when neither source supplies a manifest. *)
 val global : unit -> t option
@@ -112,10 +113,16 @@ val global : unit -> t option
     shadowing any [OAS_CAPABILITY_MANIFEST]-loaded entries until
     {!clear_global} is called.
 
-    Idempotent — calling twice replaces the override with the latest
-    value. Intended for hosts that own the model catalog (e.g.
-    masc-mcp's [cascade.toml]) and want OAS to consume the same
-    capability data without round-tripping through a JSON file.
+    Last-write-wins — calling multiple times replaces the override
+    with the most recent value. Intended for hosts that own the model
+    catalog (e.g. masc-mcp's [cascade.toml]) and want OAS to consume
+    the same capability data without round-tripping through a JSON
+    file.
+
+    Safe under multi-domain concurrency via [Atomic.t] internally;
+    concurrent [set_global]/[clear_global]/[global] are race-free but
+    the resulting observed value is whichever set/clear was atomically
+    most recent.
 
     @since 0.194.0 *)
 val set_global : t -> unit
