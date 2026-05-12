@@ -8,6 +8,33 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.8](https://github.com/jeong-sik/oas/compare/v0.193.7...v0.193.8) (2026-05-12)
+
+
+### Features
+
+* **provider:** add external provider catalog overlay ([35241e9](https://github.com/jeong-sik/oas/commit/35241e9a82ce30360449f19a115d6589041f8f79))
+* **provider:** load external provider catalog ([a13a1d0](https://github.com/jeong-sik/oas/commit/a13a1d0caa6baf0eaf77cfaa1e0ebdbed380d490))
+
+
+### Bug Fixes
+
+* **capabilities:** keep reasoning effort overlay conservative ([44ef91e](https://github.com/jeong-sik/oas/commit/44ef91e7822792986e73c6356fa481dd3c46c173))
+* **ci:** restore main build after usage update ([36425dc](https://github.com/jeong-sik/oas/commit/36425dc4e7f9a5d8453c11dff7765b7e177f618d))
+* **ci:** restore main build after usage update ([9d8b912](https://github.com/jeong-sik/oas/commit/9d8b912743aedb567a0f65317ce2f3eaada27144))
+* **cost:** address Copilot review findings on the fail-closed path ([85f0e1f](https://github.com/jeong-sik/oas/commit/85f0e1fdd63c73a9712b2078b587e3c72551ce79))
+* **cost:** fail closed when max_cost_usd is set + a turn ran an unpriced model ([dfa9bf1](https://github.com/jeong-sik/oas/commit/dfa9bf1c0ac363c571a2c4bc8556b413de47d02c))
+* **cost:** fail closed when max_cost_usd is set + unpriced model ([6ec5725](https://github.com/jeong-sik/oas/commit/6ec5725f4e73093b5a7149bc467293d95b9390eb))
+* **discovery:** validate env scan ports ([e6553c7](https://github.com/jeong-sik/oas/commit/e6553c7a8f8a10ef16883b49c15042071b89bce3))
+* **hooks:** catch user-hook exceptions in invoke / invoke_validated ([e92553e](https://github.com/jeong-sik/oas/commit/e92553ee4379b9b33277848bd0fdf1f95e743b8e))
+* **hooks:** catch user-hook exceptions in invoke / invoke_validated ([51692a5](https://github.com/jeong-sik/oas/commit/51692a51a1eeb85fa087d7cab5f04b1ae3544dc5))
+* **provider_catalog:** fail-fast on unknown enum strings ([bb73cdc](https://github.com/jeong-sik/oas/commit/bb73cdc0d0db9afaae67c6d66a314d8169af7275))
+* **provider_catalog:** fail-fast on unknown enum strings ([5a1cf67](https://github.com/jeong-sik/oas/commit/5a1cf674ff379871d20388b24f14fecc0e9b45d9))
+* **provider:** apply ocamlformat to catalog overlay ([edb91b2](https://github.com/jeong-sik/oas/commit/edb91b29d35df8130d844e531a7492af89e3fefc))
+* **provider:** apply ocamlformat to catalog overlay ([0b58dfe](https://github.com/jeong-sik/oas/commit/0b58dfecd53d0b5b7687051e3fcfea3588add8e1))
+* **review:** harden recent OAS follow-ups ([66cff92](https://github.com/jeong-sik/oas/commit/66cff92c1987db2f9f69141d8ca736f91f8c11be))
+* **test:** make telemetry SCA repo-root discovery fail fast ([b9d4f57](https://github.com/jeong-sik/oas/commit/b9d4f57e21904658f7163e6fcfe52f0fb18b6072))
+
 ## [0.193.7](https://github.com/jeong-sik/oas/compare/v0.193.6...v0.193.7) (2026-05-12)
 
 
