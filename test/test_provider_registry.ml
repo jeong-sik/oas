@@ -594,6 +594,117 @@ let test_catalog_rejects_unknown_thinking_control_format () =
     fail "unknown thinking_control_format should be rejected, not silently coerced"
 ;;
 
+let test_catalog_lookup_first_match_wins () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "dup", "kind": "openai_compat",
+              "base_url": "http://first.example"},
+             {"id": "dup", "kind": "openai_compat",
+              "base_url": "http://second.example"}
+           ]
+         }|})
+  with
+  | Error msg -> fail msg
+  | Ok catalog ->
+    (match Provider_catalog.lookup catalog "dup" with
+     | Some entry ->
+       check
+         string
+         "first-match-wins resolves to earlier entry"
+         "http://first.example"
+         entry.base_url
+     | None -> fail "duplicate id should still resolve to first entry")
+;;
+
+let test_catalog_lookup_case_insensitive () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "mixed-Case",
+              "aliases": ["AlsoMixed"],
+              "kind": "openai_compat",
+              "base_url": "http://x.example"}
+           ]
+         }|})
+  with
+  | Error msg -> fail msg
+  | Ok catalog ->
+    check
+      bool
+      "id uppercase MIXED-CASE"
+      true
+      (Option.is_some (Provider_catalog.lookup catalog "MIXED-CASE"));
+    check
+      bool
+      "id lowercase mixed-case"
+      true
+      (Option.is_some (Provider_catalog.lookup catalog "mixed-case"));
+    check
+      bool
+      "alias uppercase ALSOMIXED"
+      true
+      (Option.is_some (Provider_catalog.lookup catalog "ALSOMIXED"));
+    check
+      bool
+      "alias trim/whitespace"
+      true
+      (Option.is_some (Provider_catalog.lookup catalog "  alsomixed  "))
+;;
+
+let test_catalog_empty_alias_not_registered () =
+  let json =
+    {|{
+       "schema_version": 1,
+       "providers": [
+         {"id": "host", "kind": "openai_compat",
+          "aliases": ["good-alias", "", "   "],
+          "base_url": "http://host.example",
+          "auth": {"type": "none"}}
+       ]
+     }|}
+  in
+  let warns = ref [] in
+  let sink level ~ctx msg =
+    match level with
+    | Diag.Warn -> warns := (ctx, msg) :: !warns
+    | _ -> ()
+  in
+  with_provider_catalog json (fun () ->
+    Diag.with_sink sink (fun () ->
+      let reg = Provider_registry.default () in
+      check bool "id registered" true (Option.is_some (Provider_registry.find reg "host"));
+      check
+        bool
+        "good alias registered"
+        true
+        (Option.is_some (Provider_registry.find reg "good-alias"));
+      check
+        bool
+        "empty alias not registered"
+        false
+        (Option.is_some (Provider_registry.find reg ""))));
+  let empty_alias_warns =
+    List.filter
+      (fun (ctx, msg) ->
+         ctx = "provider_registry"
+         && String.length msg >= 20
+         && String.sub msg 0 20 = "ignoring empty alias")
+      !warns
+  in
+  check
+    bool
+    "Diag.warn emitted for empty alias from provider_registry ctx"
+    true
+    (List.length empty_alias_warns >= 1)
+;;
+
 let test_catalog_load_file_and_lookup_alias () =
   let path = Filename.temp_file "provider-catalog" ".json" in
   Fun.protect
@@ -914,6 +1025,18 @@ let () =
             "rejects unknown thinking_control_format"
             `Quick
             test_catalog_rejects_unknown_thinking_control_format
+        ; test_case
+            "lookup first-match-wins on duplicate id"
+            `Quick
+            test_catalog_lookup_first_match_wins
+        ; test_case
+            "lookup is case-insensitive"
+            `Quick
+            test_catalog_lookup_case_insensitive
+        ; test_case
+            "empty alias not registered"
+            `Quick
+            test_catalog_empty_alias_not_registered
         ; test_case
             "load_file and lookup alias"
             `Quick

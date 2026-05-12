@@ -31,6 +31,30 @@ Resolution order:
 Catalog entries overwrite built-in provider ids when ids collide. Aliases are
 registered as additional lookup keys for the same entry.
 
+## Lookup and collisions
+
+| Surface | Collision rule |
+|---|---|
+| `Provider_catalog.lookup` (in-catalog match) | **First match in source order wins.** Later duplicate ids/aliases in the same catalog file are unreachable through `lookup`. |
+| `Provider_registry` overlay (catalog vs. built-in) | **Catalog overwrites built-in** by id when registered (`Hashtbl.replace`). The catalog overlay is applied last in `Provider_registry.default ()`. |
+| `Provider_registry` overlay (catalog vs. catalog) | **Last register wins.** If two catalog entries share an id (or one's alias collides with another's id), the entry registered later replaces the earlier one in the registry — even though `Provider_catalog.lookup` would still return the earlier one. This is intentionally asymmetric: write to the catalog, read in source order. |
+
+Lookup is **case-insensitive**: both ids and aliases are trimmed and
+lowercased before comparison. `"VLLM-LOCAL"`, `"vllm-local"`, and
+`"  vllm-local  "` resolve to the same entry.
+
+Invalid identifiers are rejected or skipped:
+
+- Empty/whitespace **id** at parse time → `of_json` returns `Error`.
+- Empty/whitespace **alias** at overlay time → skipped and logged via
+  `Diag.warn` (ctx `provider_registry`, format `ignoring empty %s for
+  provider %S in catalog overlay`, e.g. `ignoring empty alias for
+  provider "vllm-local" in catalog overlay`).
+
+If you have duplicate ids in a single catalog file, the recommended fix
+is to consolidate them — relying on first-match-wins or last-write-wins
+makes the behavior depend on which API the caller used.
+
 ## Schema
 
 ```json

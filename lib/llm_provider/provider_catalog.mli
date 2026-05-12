@@ -72,10 +72,20 @@ val of_json : Yojson.Safe.t -> (t, string) result
 val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
 
-(** Find an entry by id or alias. *)
+(** Find an entry by id or alias.
+
+    Lookup is case-insensitive (id and alias are trimmed + lowercased
+    before comparison). When more than one entry shares the same id or
+    alias, the {b first} matching entry in source order wins; later
+    duplicates are unreachable through this function.
+
+    Empty or whitespace-only ids are rejected at parse time by
+    {!of_json}, so they will not appear here. *)
 val lookup : t -> string -> entry option
 
-(** Return an entry's explicit default model by id or alias. *)
+(** Return an entry's explicit default model by id or alias.
+
+    Follows the same first-match-wins semantics as {!lookup}. *)
 val default_model_for_provider : t -> string -> string option
 
 (** Process-wide catalog overlay.
