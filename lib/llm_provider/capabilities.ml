@@ -1145,14 +1145,24 @@ let detect_drift (caps : capabilities) (resp : Types.api_response)
   (* Usage drift *)
   if caps.emits_usage_tokens && resp.usage = None
   then obs := Usage_missing_but_declared :: !obs;
-  (* Content block analysis *)
+  (* Content block analysis.
+     Enumerate every [Types.content_block] variant explicitly so that adding
+     a new constructor (e.g. [Video], [Reasoning_summary]) triggers an
+     exhaustiveness warning here, forcing a deliberate decision on whether
+     the new block carries tool-use or reasoning semantics. The previous
+     [_ -> ()] catch-all silently grouped 5 unrelated variants and would
+     have absorbed any future block without review. *)
   let has_tool_use = ref false
   and has_thinking = ref false in
   List.iter
-    (function
-      | Types.ToolUse _ -> has_tool_use := true
-      | Types.Thinking _ | Types.RedactedThinking _ -> has_thinking := true
-      | _ -> ())
+    (fun (block : Types.content_block) ->
+      match block with
+      | ToolUse _ -> has_tool_use := true
+      | Thinking _ | RedactedThinking _ -> has_thinking := true
+      | Text _ | ToolResult _ | Image _ | Document _ | Audio _ ->
+        (* No capability-drift signal: these blocks are valid against any
+           capability set the response declares. *)
+        ())
     resp.content;
   if !has_tool_use && not caps.supports_tools
   then obs := Tools_used_but_declared_unsupported :: !obs;

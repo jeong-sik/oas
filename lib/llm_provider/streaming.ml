@@ -295,8 +295,14 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
   (match chunk.delta_reasoning with
    | Some text when text <> "" ->
      (match state.thinking_state with
-      | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
-      | _ -> ());
+      | Not_thinking ->
+        state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+      | Thinking_started _ | Thinking_done ->
+        (* Already started, or model is re-emitting reasoning after a
+           closure — keep current state. Enumerated explicitly so adding
+           a new [thinking_state] variant forces review of how it should
+           react to a fresh reasoning chunk. *)
+        ());
      if not state.thinking_block_started
      then (
        state.thinking_block_index <- state.next_block_index;
@@ -318,10 +324,17 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
         let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
         state.thinking_state <- Thinking_done;
         telemetry_event
-        := Some
-             (Telemetry_event.Thinking_complete
-                { provider = state.provider; model = state.model; thinking_duration_ms })
-      | _ -> ())
+          := Some
+               (Telemetry_event.Thinking_complete
+                  { provider = state.provider
+                  ; model = state.model
+                  ; thinking_duration_ms
+                  })
+      | Not_thinking | Thinking_done ->
+        (* Empty reasoning chunk while never started, or after a prior
+           close — no telemetry to emit. Enumerated explicitly so a new
+           [thinking_state] variant cannot silently inherit the no-op. *)
+        ())
    | _ -> ());
   (* Text content delta *)
   (match chunk.delta_content with
@@ -454,9 +467,12 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
      let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
      state.thinking_state <- Thinking_done;
      telemetry_event
-     := Some
-          (Telemetry_event.Thinking_complete
-             { provider = state.provider; model = state.model; thinking_duration_ms })
+       := Some
+            (Telemetry_event.Thinking_complete
+               { provider = state.provider
+               ; model = state.model
+               ; thinking_duration_ms
+               })
    | _ -> ());
   List.iter
     (fun part ->
@@ -682,7 +698,8 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
   (match chunk.oll_delta_thinking with
    | Some text when text <> "" ->
      (match state.thinking_state with
-      | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+      | Not_thinking ->
+        state.thinking_state <- Thinking_started (Unix.gettimeofday ())
       | _ -> ());
      if not state.thinking_block_started
      then (
@@ -705,9 +722,12 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
         let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
         state.thinking_state <- Thinking_done;
         telemetry_event
-        := Some
-             (Telemetry_event.Thinking_complete
-                { provider = state.provider; model = state.model; thinking_duration_ms })
+          := Some
+               (Telemetry_event.Thinking_complete
+                  { provider = state.provider
+                  ; model = state.model
+                  ; thinking_duration_ms
+                  })
       | _ -> ()));
   (* Text content delta *)
   (match chunk.oll_delta_content with

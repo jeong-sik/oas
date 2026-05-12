@@ -11,7 +11,8 @@ let last_tool_results_from messages =
     then []
     else
       List.filter_map
-        (function
+        (fun (block : content_block) ->
+          match block with
           | ToolResult { content; is_error; _ } ->
             if is_error
             then
@@ -19,7 +20,8 @@ let last_tool_results_from messages =
                 (Error { Types.message = content; recoverable = true; error_class = None }
                  : Types.tool_result)
             else Some (Ok { Types.content } : Types.tool_result)
-          | _ -> None)
+          | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
+          | Image _ | Document _ | Audio _ -> None)
         msg.content
   in
   List.fold_left
