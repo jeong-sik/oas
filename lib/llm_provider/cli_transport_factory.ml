@@ -64,6 +64,17 @@ let registered_protocols () = List.sort String.compare supported_protocols
 
 let is_known_protocol protocol = List.mem protocol supported_protocols
 
+(* Coalesce caller-supplied option with transport's native default.
+   [None] from the caller means "inherit the transport's default" —
+   used for fields like [model] where each transport ships a sensible
+   default (e.g. Kimi's "kimi-for-coding") that must not be silently
+   overwritten by [Cli_transport_factory.default_config]'s [None]. *)
+let inherit_or_override caller_value ~transport_default =
+  match caller_value with
+  | Some _ -> caller_value
+  | None -> transport_default
+;;
+
 let create ~protocol ~config ~sw ~mgr =
   if not (is_known_protocol protocol) then
     failwith
@@ -81,7 +92,9 @@ let create ~protocol ~config ~sw ~mgr =
     let tc =
       { Transport_claude_code.default_config with
         claude_path = config.command
-      ; model = config.model
+      ; model =
+          inherit_or_override config.model
+            ~transport_default:Transport_claude_code.default_config.model
       ; max_turns = config.max_turns
       ; allowed_tools = config.allowed_tools
       ; permission_mode = config.permission_mode
@@ -109,7 +122,9 @@ let create ~protocol ~config ~sw ~mgr =
        is the warning-23-clean alternative to a useless [with]. *)
     let tc : Transport_codex_cli.config =
       { codex_path = config.command
-      ; model = config.model
+      ; model =
+          inherit_or_override config.model
+            ~transport_default:Transport_codex_cli.default_config.model
       ; cwd = config.cwd
       ; mcp_config = config.mcp_config
       ; allowed_tools = config.allowed_tools
@@ -125,7 +140,9 @@ let create ~protocol ~config ~sw ~mgr =
     let tc =
       { Transport_gemini_cli.default_config with
         gemini_path = config.command
-      ; model = config.model
+      ; model =
+          inherit_or_override config.model
+            ~transport_default:Transport_gemini_cli.default_config.model
       ; cwd = config.cwd
       ; mcp_config = config.mcp_config
       ; allowed_tools = config.allowed_tools
@@ -146,7 +163,9 @@ let create ~protocol ~config ~sw ~mgr =
     let tc =
       { Transport_kimi_cli.default_config with
         kimi_path = config.command
-      ; model = config.model
+      ; model =
+          inherit_or_override config.model
+            ~transport_default:Transport_kimi_cli.default_config.model
       ; cwd = config.cwd
       ; config_file = config.config_file
       ; mcp_config_files = config.mcp_config_files
