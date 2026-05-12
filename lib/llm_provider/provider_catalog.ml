@@ -416,7 +416,9 @@ let parse_capabilities provider_json =
       cap_json
   in
   let caps =
-    match parse_thinking_control_format (member_string "thinking_control_format" cap_json) with
+    match
+      parse_thinking_control_format (member_string "thinking_control_format" cap_json)
+    with
     | Some thinking_control_format -> { caps with Capabilities.thinking_control_format }
     | None -> caps
   in
@@ -432,65 +434,62 @@ let parse_entry json =
     let id = String.trim id in
     if id = ""
     then Error "provider entry has empty \"id\" field"
-    else
+    else (
       let kind_raw = member_string_default "kind" ~default:"openai_compat" json in
-      (match Provider_kind.of_string kind_raw with
-       | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
-       | Some kind ->
-         let auth = parse_auth json in
-         let api_key_env =
-           match member_string "api_key_env" json with
-           | Some env -> env
-           | None -> auth_env auth
-         in
-         let transport =
-           match parse_transport (member_string "transport" json) with
-           | Some transport -> transport
-           | None -> default_transport_for_kind kind
-         in
-         let interactive_required =
-           member_bool_default "interactive_required" ~default:false json
-         in
-         let non_interactive =
-           member_bool_default
-             "non_interactive"
-             ~default:(not interactive_required)
-             json
-         in
-         let daemon_safe =
-           member_bool_default
-             "daemon_safe"
-             ~default:(non_interactive && not interactive_required)
-             json
-         in
-         let capabilities = parse_capabilities json in
-         let max_context =
-           match member_int "max_context" json with
-           | Some _ as v -> v
-           | None -> capabilities.Capabilities.max_context_tokens
-         in
-         Ok
-           { id
-           ; aliases = Option.value (member_string_list "aliases" json) ~default:[]
-           ; kind
-           ; transport
-           ; command = member_string "command" json
-           ; base_url = member_string_default "base_url" ~default:"" json
-           ; request_path =
-               member_string_default
-                 "request_path"
-                 ~default:(Provider_config.request_path_default_for_kind kind)
-                 json
-           ; api_key_env
-           ; auth
-           ; default_model = member_string "default_model" json
-           ; max_context
-           ; capabilities
-           ; non_interactive
-           ; interactive_required
-           ; daemon_safe
-           ; credential_scope = member_string "credential_scope" json
-           })
+      match Provider_kind.of_string kind_raw with
+      | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
+      | Some kind ->
+        let auth = parse_auth json in
+        let api_key_env =
+          match member_string "api_key_env" json with
+          | Some env -> env
+          | None -> auth_env auth
+        in
+        let transport =
+          match parse_transport (member_string "transport" json) with
+          | Some transport -> transport
+          | None -> default_transport_for_kind kind
+        in
+        let interactive_required =
+          member_bool_default "interactive_required" ~default:false json
+        in
+        let non_interactive =
+          member_bool_default "non_interactive" ~default:(not interactive_required) json
+        in
+        let daemon_safe =
+          member_bool_default
+            "daemon_safe"
+            ~default:(non_interactive && not interactive_required)
+            json
+        in
+        let capabilities = parse_capabilities json in
+        let max_context =
+          match member_int "max_context" json with
+          | Some _ as v -> v
+          | None -> capabilities.Capabilities.max_context_tokens
+        in
+        Ok
+          { id
+          ; aliases = Option.value (member_string_list "aliases" json) ~default:[]
+          ; kind
+          ; transport
+          ; command = member_string "command" json
+          ; base_url = member_string_default "base_url" ~default:"" json
+          ; request_path =
+              member_string_default
+                "request_path"
+                ~default:(Provider_config.request_path_default_for_kind kind)
+                json
+          ; api_key_env
+          ; auth
+          ; default_model = member_string "default_model" json
+          ; max_context
+          ; capabilities
+          ; non_interactive
+          ; interactive_required
+          ; daemon_safe
+          ; credential_scope = member_string "credential_scope" json
+          })
 ;;
 
 let of_json json =
