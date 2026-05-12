@@ -6,7 +6,7 @@
 | Author | jeong-sik (with Claude analysis) |
 | Created | 2026-05-11 |
 | Amended | 2026-05-12 — v1 §2.1 wiring 의사코드가 OAS 인프라와 mismatch 발견 → v2 static Hybrid로 정정 |
-| Target | `agent_sdk` (oas) v0.193.4 / `masc_mcp` keeper activation |
+| Target | `agent_sdk` (oas) >= v0.193.6 / `masc_mcp` keeper activation |
 | Supersedes | None |
 | Depends-on | OAS PR #1508 (merged f48ccec3) `Tool.disclosure_level`; OAS PR #1511 (merged 7ed9c052) `Disclosure_resolver` |
 | Related | RFC-OAS-004 (Code Snippet Tool Strategy), Tool_selector (`lib/tool_selector.mli`, 2-stage routing) |
@@ -190,7 +190,7 @@ Builder.with_disclosure_resolver demote_on_error builder
 3. ✅ **OAS PR #1510 — 본 RFC v1** (merged bf68fa55) — masc-mcp `pr-rfc-check.sh` 트리거 통과 조건.
 4. ✅ **masc-mcp PR #14676** (merged) — `agent_sdk` lock bump 0.184 → 0.193.4 (catch-up).
 5. 🟡 **본 amend PR** — §2.1 v1 → v2 정정 (정직성 회복).
-6. ⏭ **masc-mcp 활성화 PR (P0)** — imseonghan keeper에 §2.1 v2 wiring 적용. `lib/worker_oas.ml` 분기. `masc_mcp.opam` + `dune-project` constraint를 `>= 0.193.4`로 좁힘 (constraint widening + 실제 호출을 같은 PR — N-of-M 회피).
+6. ⏭ **masc-mcp 활성화 PR (P0)** — imseonghan keeper에 §2.1 v2 wiring 적용. `lib/worker_oas.ml` 분기. `masc_mcp.opam` + `dune-project` constraint를 `>= 0.193.6`로 좁힘 (Disclosure_resolver는 OAS PR #1511에서 0.193.5로 릴리스됨; 현재 SDK는 0.193.6 — constraint widening + 실제 호출을 같은 PR — N-of-M 회피).
 7. ⏭ **P0 telemetry 1주 → P1 확대 PR**.
 8. ⏭ **P1 telemetry 1주 → P2 전체 적용**.
 9. ⏭ **v3 OAS PR — Disclosure_resolver signature 확장** — `~messages` 또는 `~tool_selector_result` 인자 추가. §2.1 v3 wiring(매 turn dynamic Hybrid) 가능해짐.
