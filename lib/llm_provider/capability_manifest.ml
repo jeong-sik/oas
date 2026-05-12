@@ -201,16 +201,28 @@ let lookup (t : t) model_id =
     t
 ;;
 
-(* ── Global lazy manifest ───────────────────────────────── *)
+(* ── Global manifest ───────────────────────────────────────
+   Two-tier source: runtime override (set by host application via
+   [set_global]) takes precedence over the env-var-loaded lazy
+   manifest. The env path stays as the file-based default for
+   standalone OAS deployments without an embedding host. *)
 
-let global_manifest : t option Lazy.t =
+let env_loaded_manifest : t option Lazy.t =
   lazy
     (match Cli_common_env.get "OAS_CAPABILITY_MANIFEST" with
      | None -> None
      | Some path -> load_runtime_file path)
 ;;
 
-let global () = Lazy.force global_manifest
+let runtime_override : t option ref = ref None
+let set_global m = runtime_override := Some m
+let clear_global () = runtime_override := None
+
+let global () =
+  match !runtime_override with
+  | Some _ as o -> o
+  | None -> Lazy.force env_loaded_manifest
+;;
 
 (* ── Inline tests ───────────────────────────────────────── *)
 
@@ -309,4 +321,43 @@ let%test "of_json: unknown fields are ignored (forward-compat)" =
   match of_json json with
   | Ok [ entry ] -> entry.id_prefix = "m"
   | _ -> false
+;;
+
+let%test "set_global / clear_global: runtime override roundtrips" =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"runtime-override-token-9fX","base":"openai_chat"}]}|}
+  in
+  let manifest = of_json json |> Result.get_ok in
+  set_global manifest;
+  let observed_after_set =
+    match global () with
+    | Some entries ->
+      List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries
+    | None -> false
+  in
+  clear_global ();
+  (* After [clear_global], the override is gone. Whether [global ()] returns
+     [None] or some env-loaded value depends on the test runner's environment;
+     we only assert the override entry no longer surfaces. *)
+  let observed_after_clear =
+    match global () with
+    | Some entries ->
+      not
+        (List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries)
+    | None -> true
+  in
+  observed_after_set && observed_after_clear
+;;
+
+let%test "set_global takes precedence regardless of env var presence" =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"override-precedence-test"}]}|}
+  in
+  let manifest = of_json json |> Result.get_ok in
+  set_global manifest;
+  let entry = lookup (Option.get (global ())) "override-precedence-test-v2" in
+  clear_global ();
+  Option.is_some entry
 ;;
