@@ -224,7 +224,15 @@ let clear_global () = Atomic.set runtime_override None
 let global () =
   match Atomic.get runtime_override with
   | Some _ as o -> o
-  | None -> Lazy.force env_loaded_manifest
+  | None ->
+    let env_value = Lazy.force env_loaded_manifest in
+    (* Re-check the override after forcing the (possibly slow) lazy env
+       load: if another domain installed an override during the force,
+       its value takes precedence so [global] stays linearizable with
+       respect to [set_global]/[clear_global]. *)
+    (match Atomic.get runtime_override with
+     | Some _ as o -> o
+     | None -> env_value)
 ;;
 
 (* ── Inline tests ───────────────────────────────────────── *)
@@ -331,26 +339,35 @@ let%test "set_global / clear_global: runtime override roundtrips" =
     Yojson.Safe.from_string
       {|{"schema_version":1,"models":[{"id_prefix":"runtime-override-token-9fX","base":"openai_chat"}]}|}
   in
-  let manifest = of_json json |> Result.get_ok in
-  set_global manifest;
-  let observed_after_set =
-    match global () with
-    | Some entries ->
-      List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries
-    | None -> false
-  in
-  clear_global ();
-  (* After [clear_global], the override is gone. Whether [global ()] returns
-     [None] or some env-loaded value depends on the test runner's environment;
-     we only assert the override entry no longer surfaces. *)
-  let observed_after_clear =
-    match global () with
-    | Some entries ->
-      not
-        (List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries)
-    | None -> true
-  in
-  observed_after_set && observed_after_clear
+  match of_json json with
+  | Error _ -> false
+  | Ok manifest ->
+    (* Always restore process-global state on exit so a failure in this
+       test cannot leak the override into siblings (order-dependent
+       failure source). *)
+    Fun.protect
+      ~finally:clear_global
+      (fun () ->
+        set_global manifest;
+        let observed_after_set =
+          match global () with
+          | Some entries ->
+            List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries
+          | None -> false
+        in
+        clear_global ();
+        (* After [clear_global], the override is gone. Whether [global ()]
+           returns [None] or some env-loaded value depends on the test
+           runner's environment; we only assert the override entry no
+           longer surfaces. *)
+        let observed_after_clear =
+          match global () with
+          | Some entries ->
+            not
+              (List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries)
+          | None -> true
+        in
+        observed_after_set && observed_after_clear)
 ;;
 
 (* Title scoped to what this test actually verifies: set_global makes
@@ -365,9 +382,19 @@ let%test "set_global installs runtime override and returns it from global ()" =
     Yojson.Safe.from_string
       {|{"schema_version":1,"models":[{"id_prefix":"override-precedence-test"}]}|}
   in
-  let manifest = of_json json |> Result.get_ok in
-  set_global manifest;
-  let entry = lookup (Option.get (global ())) "override-precedence-test-v2" in
-  clear_global ();
-  Option.is_some entry
+  match of_json json with
+  | Error _ -> false
+  | Ok manifest ->
+    Fun.protect
+      ~finally:clear_global
+      (fun () ->
+        set_global manifest;
+        match global () with
+        | None -> false
+        | Some m ->
+          (* Option.get/Result.get_ok would raise on the unhappy path and
+             skip [clear_global] — Fun.protect's finally restores state
+             either way, but matching explicitly avoids relying on
+             exception flow. *)
+          Option.is_some (lookup m "override-precedence-test-v2"))
 ;;
