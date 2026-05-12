@@ -70,7 +70,7 @@ let default_endpoint =
 let ollama_endpoint =
   match Cli_common_env.get "OLLAMA_HOST" with
   | Some url -> url
-  | None -> "http://127.0.0.1:11434"
+  | None -> Constants.Endpoints.ollama_default_url
 ;;
 
 let parse_llm_endpoints_env () =
@@ -460,7 +460,7 @@ let port_of_url (url : string) : int option =
     paths (/api/:11434), and query strings (?p=:11434). *)
 let url_is_ollama (url : string) : bool =
   match port_of_url url with
-  | Some 11434 -> true
+  | Some p when p = Constants.Endpoints.ollama_default_port -> true
   | _ -> String.equal (String.trim url) (String.trim ollama_endpoint)
 ;;
 
@@ -630,7 +630,16 @@ let refresh_and_sync ~sw ~net ~endpoints =
   statuses
 ;;
 
-let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
+let default_scan_ports =
+  [ Constants.Endpoints.default_llama_port
+  ; 8086
+  ; 8087
+  ; 8088
+  ; 8089
+  ; 8090
+  ; Constants.Endpoints.ollama_default_port
+  ]
+;;
 
 let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
   let candidates = List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports in

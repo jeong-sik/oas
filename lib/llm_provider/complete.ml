@@ -1677,7 +1677,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
     Provider_config.make
       ~kind:Ollama
       ~model_id:"qwen3.5:9b"
-      ~base_url:"http://localhost:11434"
+      ~base_url:Constants.Endpoints.ollama_default_url
       ()
   in
   let resp =
@@ -1756,7 +1756,7 @@ let%test "patch_telemetry preserves ttfrc_ms/prefill_ms when optional args omitt
     Provider_config.make
       ~kind:Ollama
       ~model_id:"qwen3.5:9b"
-      ~base_url:"http://localhost:11434"
+      ~base_url:Constants.Endpoints.ollama_default_url
       ()
   in
   let resp =
@@ -1794,7 +1794,7 @@ let%test "patch_telemetry overrides ttfrc_ms/prefill_ms when passed as Some" =
     Provider_config.make
       ~kind:Ollama
       ~model_id:"qwen3.5:9b"
-      ~base_url:"http://localhost:11434"
+      ~base_url:Constants.Endpoints.ollama_default_url
       ()
   in
   let resp =
@@ -1852,7 +1852,11 @@ let%test "patch_telemetry fills blank response model" =
 
 let%test "reasoning_effort_of_config Ollama default is none" =
   let config =
-    Provider_config.make ~kind:Ollama ~model_id:"m" ~base_url:"http://localhost:11434" ()
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"m"
+      ~base_url:Constants.Endpoints.ollama_default_url
+      ()
   in
   reasoning_effort_of_config config = Some "none"
 ;;
@@ -1862,7 +1866,7 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=4096 is medium"
     Provider_config.make
       ~kind:Ollama
       ~model_id:"m"
-      ~base_url:"http://localhost:11434"
+      ~base_url:Constants.Endpoints.ollama_default_url
       ~enable_thinking:true
       ~thinking_budget:4096
       ()
@@ -1875,7 +1879,7 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=16384 is high" 
     Provider_config.make
       ~kind:Ollama
       ~model_id:"m"
-      ~base_url:"http://localhost:11434"
+      ~base_url:Constants.Endpoints.ollama_default_url
       ~enable_thinking:true
       ~thinking_budget:16384
       ()

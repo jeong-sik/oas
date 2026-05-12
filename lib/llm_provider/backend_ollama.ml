@@ -332,7 +332,7 @@ let%test "build_request pins keep_alive=-1 as integer by default" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ()
     in
     let messages =
@@ -358,7 +358,7 @@ let%test "build_request integer override sent as `Int" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ()
     in
     let messages =
@@ -382,7 +382,7 @@ let%test "build_request duration string override sent as `String" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ()
     in
     let messages =
@@ -406,7 +406,7 @@ let%test "build_request trims whitespace around override" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ()
     in
     let messages =
@@ -430,7 +430,7 @@ let%test "build_request whitespace-only env falls back to default integer" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ()
     in
     let messages =
@@ -454,7 +454,7 @@ let%test "build_request config.keep_alive overrides env (string form)" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~keep_alive:"5m"
         ()
     in
@@ -479,7 +479,7 @@ let%test "build_request config.keep_alive integer form sent as `Int" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3.5:35b-a3b-nvfp4"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~keep_alive:"600"
         ()
     in
@@ -504,7 +504,7 @@ let%test "build_request config.num_ctx injected into options" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~num_ctx:8192
         ()
     in
@@ -529,7 +529,7 @@ let%test "build_request omits num_ctx when None" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ()
     in
     let messages =
@@ -553,7 +553,7 @@ let%test "build_request num_ctx<=0 treated as unset" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~num_ctx:0
         ()
     in
@@ -650,7 +650,7 @@ let%test "build_request sets think=true when enable_thinking=true" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~enable_thinking:true
         ()
     in
@@ -666,7 +666,7 @@ let%test "build_request sets think=false when enable_thinking=false" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~enable_thinking:false
         ()
     in
@@ -682,7 +682,7 @@ let%test "build_request maps max_tokens to num_predict in options" =
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~max_tokens:2048
         ()
     in
@@ -706,7 +706,7 @@ let%test
       Provider_config.make
         ~kind:Ollama
         ~model_id:"qwen3:8b"
-        ~base_url:"http://127.0.0.1:11434"
+        ~base_url:Constants.Endpoints.ollama_default_url
         ~top_k:40
         ()
     in

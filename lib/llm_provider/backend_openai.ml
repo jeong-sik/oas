@@ -172,7 +172,7 @@ let%test "ollama preserves min_p (llama.cpp supports it)" =
     Provider_config.make
       ~kind:Provider_config.Ollama
       ~model_id:"qwen3.5:35b-a3b-nvfp4"
-      ~base_url:"http://127.0.0.1:11434"
+      ~base_url:Constants.Endpoints.ollama_default_url
       ~min_p:0.05
       ()
   in

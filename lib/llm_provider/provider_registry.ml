@@ -199,7 +199,7 @@ let kimi_defaults =
 
 let ollama_defaults =
   { kind = Ollama
-  ; base_url = env_or_default "OLLAMA_HOST" "http://127.0.0.1:11434"
+  ; base_url = env_or_default "OLLAMA_HOST" Constants.Endpoints.ollama_default_url
   ; api_key_env = ""
   ; request_path = "/api/chat"
   }

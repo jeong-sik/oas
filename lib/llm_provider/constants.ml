@@ -162,14 +162,21 @@ end
     constants instead of hardcoding URL literals.
     @since 0.105.0 *)
 module Endpoints = struct
-  (** Default port for llama.cpp servers.
-      Ollama uses 11434 — configure via endpoint config or LLM_ENDPOINTS env. *)
+  (** Default port for llama.cpp servers.  Override per-instance via
+      endpoint config or [LLM_ENDPOINTS] env.  Ollama's port is
+      {!ollama_default_port}. *)
   let default_llama_port = 8085
 
   let default_url = "http://127.0.0.1:" ^ string_of_int default_llama_port
   let default_url_localhost = "http://localhost:" ^ string_of_int default_llama_port
   let local_prefix = "http://127.0.0.1"
   let localhost_prefix = "http://localhost"
+
+  (** Default port for Ollama's OpenAI-compatible / native API server.
+      Override per-instance via endpoint config or [OLLAMA_HOST] env. *)
+  let ollama_default_port = 11434
+
+  let ollama_default_url = "http://127.0.0.1:" ^ string_of_int ollama_default_port
 end
 
 (* ── Thinking ────────────────────────────────────── *)
