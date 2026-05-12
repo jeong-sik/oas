@@ -83,7 +83,8 @@ let provider_config_of_registry_entry
 let catalog_default_model provider_name =
   match Llm_provider.Provider_catalog.global () with
   | None -> None
-  | Some catalog -> Llm_provider.Provider_catalog.default_model_for_provider catalog provider_name
+  | Some catalog ->
+    Llm_provider.Provider_catalog.default_model_for_provider catalog provider_name
 ;;
 
 let effective_model_id ~provider_name ~entry ?model () =

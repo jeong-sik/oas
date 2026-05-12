@@ -439,7 +439,8 @@ let test_catalog_overlay_adds_provider_and_alias () =
           check bool "tool choice" true e.capabilities.supports_tool_choice
         | None -> fail "catalog provider should be registered");
        match Provider_registry.find reg "subscriber-local" with
-       | Some e -> check string "alias base url" "http://127.0.0.1:8000" e.defaults.base_url
+       | Some e ->
+         check string "alias base url" "http://127.0.0.1:8000" e.defaults.base_url
        | None -> fail "catalog alias should be registered")
 ;;
 
