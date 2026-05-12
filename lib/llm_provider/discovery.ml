@@ -346,6 +346,7 @@ let apply_reasoning_effort_overlay (caps : Capabilities.capabilities)
   { caps with
     supports_seed = true
   ; supports_seed_with_images = true
+  ; supports_tool_choice = false
   ; thinking_control_format = Capabilities.Reasoning_effort
   }
 ;;
@@ -1376,6 +1377,7 @@ let%test
   && caps.supports_seed = true
   && caps.max_context_tokens = Some 262_144
   && caps.supports_reasoning = true
+  && caps.supports_tool_choice = false
 ;;
 
 (* --- discovered context state (atomic snapshot) --- *)

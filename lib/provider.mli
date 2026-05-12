@@ -37,20 +37,20 @@ type modality =
     {b API stability note (pre-1.0).}  This type is part of the Stable
     surface but is intentionally a transparent equation of
     {!Llm_provider.Capabilities.thinking_control_format} (which is
-    declared Internal).  Two consequences callers should know about:
+    declared Internal).  Two consequences callers should know about.
 
-    {ol
-    {- Adding a constructor (e.g. [Reasoning_effort] in 0.195.0) is
-       source-breaking for downstream exhaustive [match] expressions.
-       Constructors are added here only when a new wire format is
-       required to talk to a real backend — they will not be added for
-       refactoring convenience.}
-    {- The shared identity with the Internal type is deliberate: it
-       closes a long-standing source of duplication where the same
-       enum had to be hand-synchronized in two modules.  Treating
-       these as two nominally-distinct types reintroduces that
-       duplication — full decoupling is a stability-RFC concern,
-       tracked separately from this PR.}}
+    First, adding a constructor (e.g. [Reasoning_effort] in 0.195.0)
+    is source-breaking for downstream exhaustive [match] expressions.
+    Constructors are added here only when a new wire format is required
+    to talk to a real backend — they will not be added for refactoring
+    convenience.
+
+    Second, the shared identity with the Internal type is deliberate:
+    it closes a long-standing source of duplication where the same enum
+    had to be hand-synchronized in two modules.  Treating these as two
+    nominally-distinct types reintroduces that duplication — full
+    decoupling is a stability-RFC concern, tracked separately from this
+    PR.
 
     @since 0.93.1 *)
 type thinking_control_format = Llm_provider.Capabilities.thinking_control_format =
