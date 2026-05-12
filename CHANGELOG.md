@@ -8,6 +8,29 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.7](https://github.com/jeong-sik/oas/compare/v0.193.6...v0.193.7) (2026-05-12)
+
+
+### Features
+
+* **capability_manifest:** add set_global / clear_global runtime override ([#1516](https://github.com/jeong-sik/oas/issues/1516)) ([c3a786f](https://github.com/jeong-sik/oas/commit/c3a786f36f6fc37306c1f8932267b9f684180ed5))
+* **llm_provider:** RFC-0058 Phase B — CLI transport factory ([#1520](https://github.com/jeong-sik/oas/issues/1520)) ([41e87e0](https://github.com/jeong-sik/oas/commit/41e87e0cd1fe4d57c4f627958b34fcf419839745))
+
+
+### Bug Fixes
+
+* **agent_turn:** make reserve_strategy_budget strategy match exhaustive ([#1522](https://github.com/jeong-sik/oas/issues/1522)) ([c6428ae](https://github.com/jeong-sik/oas/commit/c6428ae937bd378ff72228671adcb9d328495dc7))
+* **api_openai:** make is_zai_provider_config Provider.config match exhaustive ([#1523](https://github.com/jeong-sik/oas/issues/1523)) ([98814d1](https://github.com/jeong-sik/oas/commit/98814d1c56f151ca9b32b46d5e5639e09ab0869a))
+* **backend_gemini:** make has_tool_use content_block match exhaustive (N-of-M followup to [#1519](https://github.com/jeong-sik/oas/issues/1519)/[#1521](https://github.com/jeong-sik/oas/issues/1521)) ([#1525](https://github.com/jeong-sik/oas/issues/1525)) ([01d3276](https://github.com/jeong-sik/oas/commit/01d3276dcc48b37a9ee9ea42f1eee95c4b486e10))
+* **backend_openai:** make Thinking-detection content_block matches exhaustive (2 sites, N-of-M followup) ([#1526](https://github.com/jeong-sik/oas/issues/1526)) ([591c961](https://github.com/jeong-sik/oas/commit/591c961fb8f14eb5f45c061774e0ba8fe465685b))
+* **capability_manifest:** post-merge follow-up to [#1516](https://github.com/jeong-sik/oas/issues/1516) — Atomic.t + docstrings + test title ([#1529](https://github.com/jeong-sik/oas/issues/1529)) ([ea0023e](https://github.com/jeong-sik/oas/commit/ea0023ece0d9812995ebe8854bcfa1e8aa67f934))
+* **collaboration:** make is_claimable claim_phase match exhaustive ([#1524](https://github.com/jeong-sik/oas/issues/1524)) ([a09983d](https://github.com/jeong-sik/oas/commit/a09983dd1c5006c764c9230d5a29ca5200bbfb00))
+* **content_block:** close 7 catch-all sites across pipeline + context_reducer + tool_use_recovery ([#1519](https://github.com/jeong-sik/oas/issues/1519)) ([c52b945](https://github.com/jeong-sik/oas/commit/c52b9451b6214a3fad94df79a61f1287505b446e))
+* **context_reducer:** close 9 content_block catch-all sites in apply ([#1521](https://github.com/jeong-sik/oas/issues/1521)) ([92590ae](https://github.com/jeong-sik/oas/commit/92590ae10e99bbb929ad45705058964729555309))
+* harden exhaustive matches on closed variants (capabilities/streaming/agent) ([#1517](https://github.com/jeong-sik/oas/issues/1517)) ([1cd5d5a](https://github.com/jeong-sik/oas/commit/1cd5d5a9926a2010ca990f66739823e536a5f83d))
+* **plan:** make progress + is_done variant matches exhaustive ([#1518](https://github.com/jeong-sik/oas/issues/1518)) ([fd82743](https://github.com/jeong-sik/oas/commit/fd827431dc98a0f41fcf3dc7409f6c5bdc35e103))
+* resolve main build failures after release 0.193.6 ([#1532](https://github.com/jeong-sik/oas/issues/1532)) ([04447d4](https://github.com/jeong-sik/oas/commit/04447d4e1ded4ccc49bc101a209d404b206e1a10))
+
 ## [0.193.6](https://github.com/jeong-sik/oas/compare/v0.193.5...v0.193.6) (2026-05-11)
 
 
