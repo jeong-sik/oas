@@ -80,6 +80,7 @@ let sample_usage : Types.usage_stats =
   ; total_cache_read_input_tokens = 10
   ; api_calls = 3
   ; estimated_cost_usd = 0.0
+  ; unpriced_model = None
   }
 ;;
 
@@ -404,6 +405,7 @@ let test_resume_cache_tokens () =
     ; total_cache_read_input_tokens = 25
     ; api_calls = 2
     ; estimated_cost_usd = 0.0
+    ; unpriced_model = None
     }
   in
   let cp = make_checkpoint ~usage () in

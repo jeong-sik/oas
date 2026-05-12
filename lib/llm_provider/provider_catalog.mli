@@ -79,8 +79,11 @@ val load_runtime_file : string -> t option
     alias, the {b first} matching entry in source order wins; later
     duplicates are unreachable through this function.
 
-    Empty or whitespace-only ids are rejected at parse time by
-    {!of_json}, so they will not appear here. *)
+    For catalogs produced by {!of_json}, empty or whitespace-only ids
+    are rejected at parse time and empty aliases are dropped before
+    lookup. Programmatically constructed catalogs must preserve the same
+    non-empty id/alias invariant themselves; [lookup] only normalizes and
+    compares the data it is given. *)
 val lookup : t -> string -> entry option
 
 (** Return an entry's explicit default model by id or alias.

@@ -399,6 +399,7 @@ let test_retry_result_type () =
         ; total_cache_read_input_tokens = 5
         ; api_calls = 2
         ; estimated_cost_usd = 0.0
+        ; unpriced_model = None
         }
     ; attempts = 2
     }
