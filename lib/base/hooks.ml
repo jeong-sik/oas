@@ -395,29 +395,65 @@ let validate_decision ~stage decision =
     Error msg)
 ;;
 
-(** Invoke a hook if present, returning Continue if absent *)
+(* Run a user-supplied hook and capture its decision.  Reserved exceptions
+   ([Out_of_memory], [Stack_overflow], [Eio.Cancel.Cancelled]) propagate;
+   anything else is captured so callers can degrade to [Continue].  This
+   mirrors the context_injector exception-wrap in
+   [Agent_turn.apply_context_injection] so a buggy lifecycle hook cannot
+   abort an agent run. *)
+let try_hook f event =
+  try Ok (f event) with
+  | (Out_of_memory | Stack_overflow | Eio.Cancel.Cancelled _) as e -> raise e
+  | exn -> Error exn
+;;
+
+let warn_hook_raised stage exn =
+  Eio.traceln
+    "[warn] [hooks] user hook for %s raised %s -- treating as Continue"
+    stage
+    (Printexc.to_string exn)
+;;
+
+(** Invoke a hook if present, returning Continue if absent.
+
+    If the hook raises a non-reserved exception, logs a warning via
+    [Eio.traceln] and returns [Continue] rather than propagating; this
+    matches the safety of the tool-path hooks (caught in [Agent_tools])
+    and the context-injector path. *)
 let invoke hook_opt event =
   match hook_opt with
   | None -> Continue
-  | Some f -> f event
+  | Some f ->
+    (match try_hook f event with
+     | Ok decision -> decision
+     | Error exn ->
+       warn_hook_raised (stage_of_event event) exn;
+       Continue)
 ;;
 
 (** Invoke a hook with decision validation.
     If the hook returns an illegal decision for the stage,
-    falls back to [Continue] and calls [on_illegal] (if provided). *)
+    falls back to [Continue] and calls [on_illegal] (if provided).
+    If the hook raises (non-reserved), the exception is logged and
+    [Continue] is returned without invoking [on_illegal] (which is
+    reserved for decision-shape errors, not exceptions). *)
 let invoke_validated ?on_illegal hook_opt event =
   match hook_opt with
   | None -> Continue
   | Some f ->
-    let decision = f event in
     let stage = stage_of_event event in
-    (match validate_decision ~stage decision with
-     | Ok d -> d
-     | Error msg ->
-       (match on_illegal with
-        | Some cb -> cb ~stage ~decision ~msg
-        | None -> ());
-       Continue)
+    (match try_hook f event with
+     | Error exn ->
+       warn_hook_raised stage exn;
+       Continue
+     | Ok decision ->
+       (match validate_decision ~stage decision with
+        | Ok d -> d
+        | Error msg ->
+          (match on_illegal with
+           | Some cb -> cb ~stage ~decision ~msg
+           | None -> ());
+          Continue))
 ;;
 
 (** Compose a single hook slot. [outer] fires first.
@@ -453,4 +489,45 @@ let compose ~outer ~inner =
   ; on_context_compacted =
       compose_hook outer.on_context_compacted inner.on_context_compacted
   }
+;;
+
+(* ── Hook exception safety regression tests ─────────────────── *)
+
+let%test "invoke: hook returning Continue propagates" =
+  let event = BeforeTurn { turn = 0; messages = [] } in
+  match invoke (Some (fun _ -> Continue)) event with
+  | Continue -> true
+  | _ -> false
+;;
+
+let%test "invoke: None hook returns Continue" =
+  let event = BeforeTurn { turn = 0; messages = [] } in
+  match invoke None event with
+  | Continue -> true
+  | _ -> false
+;;
+
+let%test "invoke: raising hook is caught and returns Continue" =
+  let event = BeforeTurn { turn = 0; messages = [] } in
+  let raising _ = failwith "boom" in
+  match invoke (Some raising) event with
+  | Continue -> true
+  | _ -> false
+;;
+
+let%test "invoke_validated: raising hook is caught and returns Continue" =
+  let event = BeforeTurn { turn = 0; messages = [] } in
+  let raising _ = failwith "kaboom" in
+  match invoke_validated (Some raising) event with
+  | Continue -> true
+  | _ -> false
+;;
+
+let%test "invoke_validated: on_illegal is NOT invoked when hook raises" =
+  let event = BeforeTurn { turn = 0; messages = [] } in
+  let raising _ = failwith "kaboom" in
+  let illegal_called = ref false in
+  let on_illegal ~stage:_ ~decision:_ ~msg:_ = illegal_called := true in
+  let _ = invoke_validated ~on_illegal (Some raising) event in
+  not !illegal_called
 ;;
