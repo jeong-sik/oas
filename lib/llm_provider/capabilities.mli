@@ -11,6 +11,12 @@ type thinking_control_format =
   | Thinking_object (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
+  | Reasoning_effort
+  (** OpenAI-style top-level [reasoning_effort] string field. The set of
+      values this codebase emits is [{"none","low","medium","high"}] —
+      see {!Provider_config.effort_of_thinking_config}. (OpenAI's spec
+      also accepts ["minimal"], but no current OAS request builder emits
+      it.) Ollama's OpenAI-compatible mode uses this shape. *)
 
 type capabilities =
   { (* Numeric limits *)
@@ -56,8 +62,6 @@ type capabilities =
   ; (* Advanced modalities *)
     supports_computer_use : bool
   ; supports_code_execution : bool
-  ; (* Provider identity *)
-    is_ollama : bool
   ; (* Usage reporting *)
     emits_usage_tokens : bool
     (** Whether the provider's standard response carries usage tokens

@@ -32,10 +32,32 @@ type modality =
   | Video
   | Multimodal
 
-type thinking_control_format =
+(** Wire-format for controlling thinking/reasoning on OpenAI-compat backends.
+
+    {b API stability note (pre-1.0).}  This type is part of the Stable
+    surface but is intentionally a transparent equation of
+    {!Llm_provider.Capabilities.thinking_control_format} (which is
+    declared Internal).  Two consequences callers should know about.
+
+    First, adding a constructor (e.g. [Reasoning_effort] in 0.195.0)
+    is source-breaking for downstream exhaustive [match] expressions.
+    Constructors are added here only when a new wire format is required
+    to talk to a real backend — they will not be added for refactoring
+    convenience.
+
+    Second, the shared identity with the Internal type is deliberate:
+    it closes a long-standing source of duplication where the same enum
+    had to be hand-synchronized in two modules.  Treating these as two
+    nominally-distinct types reintroduces that duplication — full
+    decoupling is a stability-RFC concern, tracked separately from this
+    PR.
+
+    @since 0.93.1 *)
+type thinking_control_format = Llm_provider.Capabilities.thinking_control_format =
   | No_thinking_control
   | Thinking_object
   | Chat_template_kwargs
+  | Reasoning_effort (** @since 0.195.0 *)
 
 type capabilities =
   { max_context_tokens : int option
@@ -67,8 +89,6 @@ type capabilities =
   ; supports_seed_with_images : bool
   ; supports_computer_use : bool
   ; supports_code_execution : bool
-  ; (* Provider identity *)
-    is_ollama : bool
   ; (* Usage reporting *)
     emits_usage_tokens : bool
   ; supported_models : string list option

@@ -203,12 +203,13 @@ let parse_thinking_control_format = function
      | "thinking_object" | "thinking-object" -> Ok (Some Capabilities.Thinking_object)
      | "chat_template_kwargs" | "chat-template-kwargs" ->
        Ok (Some Capabilities.Chat_template_kwargs)
+     | "reasoning_effort" | "reasoning-effort" -> Ok (Some Capabilities.Reasoning_effort)
      | other ->
        Error
          (Printf.sprintf
             "unknown thinking_control_format %S (canonical: none, thinking_object, \
-             chat_template_kwargs; dashed and full-word aliases also accepted, e.g. \
-             no_thinking_control, thinking-object)"
+             chat_template_kwargs, reasoning_effort; dashed and full-word aliases also \
+             accepted, e.g. no_thinking_control, thinking-object)"
             other))
 ;;
 
@@ -419,12 +420,6 @@ let parse_capabilities provider_json =
       "supports_code_execution"
       caps
       (fun caps v -> { caps with Capabilities.supports_code_execution = v })
-      cap_json
-    |> fun caps ->
-    override_bool
-      "is_ollama"
-      caps
-      (fun caps v -> { caps with Capabilities.is_ollama = v })
       cap_json
     |> fun caps ->
     override_bool
