@@ -630,7 +630,23 @@ let refresh_and_sync ~sw ~net ~endpoints =
   statuses
 ;;
 
-let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
+let builtin_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
+
+let parse_ports_env s =
+  String.split_on_char ',' s
+  |> List.filter_map (fun raw ->
+    let trimmed = String.trim raw in
+    if trimmed = "" then None else int_of_string_opt trimmed)
+;;
+
+let default_scan_ports =
+  match Cli_common_env.get "OAS_DISCOVERY_PORTS" with
+  | Some s ->
+    (match parse_ports_env s with
+     | [] -> builtin_scan_ports
+     | ps -> ps)
+  | None -> builtin_scan_ports
+;;
 
 let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
   let candidates = List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports in
@@ -1249,6 +1265,22 @@ let%test "max_context_of_status prefers props over capabilities" =
 (* --- default_scan_ports --- *)
 
 let%test "default_scan_ports includes Ollama 11434" = List.mem 11434 default_scan_ports
+
+let%test "parse_ports_env handles comma-separated list" =
+  parse_ports_env "9000,9001,9002" = [ 9000; 9001; 9002 ]
+;;
+
+let%test "parse_ports_env trims whitespace" =
+  parse_ports_env " 9000 , 9001 ,9002 " = [ 9000; 9001; 9002 ]
+;;
+
+let%test "parse_ports_env skips empty tokens" =
+  parse_ports_env "9000,,9001," = [ 9000; 9001 ]
+;;
+
+let%test "parse_ports_env skips non-numeric tokens silently" =
+  parse_ports_env "9000,abc,9001" = [ 9000; 9001 ]
+;;
 
 (* --- find_context_length --- *)
 
