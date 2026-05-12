@@ -22,7 +22,8 @@ let scripted_transport scripted_responses request_count : Llm_transport.t =
           { Llm_transport.response = next; latency_ms = Some 1 }
         | [] -> failwith "scripted transport exhausted")
   ; complete_stream =
-      (fun ?on_telemetry:_ ~on_event:_ _req -> failwith "stream transport not used in this test")
+      (fun ?on_telemetry:_ ~on_event:_ _req ->
+        failwith "stream transport not used in this test")
   }
 ;;
 

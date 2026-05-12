@@ -10,7 +10,6 @@
     @since 0.189.0 *)
 
 type t = { bus : Event_bus.t }
-
 type subscription = { inner : Event_bus.subscription }
 
 let create ?(buffer_size = 256) ?(policy = Event_bus.Drop_oldest) () =
@@ -18,7 +17,6 @@ let create ?(buffer_size = 256) ?(policy = Event_bus.Drop_oldest) () =
 ;;
 
 let of_event_bus bus = { bus }
-;;
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
 

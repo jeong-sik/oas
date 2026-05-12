@@ -77,7 +77,15 @@ let dispatch_sync ~sw ?clock agent (prep : Agent_turn.turn_preparation) =
   | Error err -> Error (sdk_error_of_http_error err)
 ;;
 
-let dispatch_stream ~sw ?clock agent (prep : Agent_turn.turn_preparation) ~on_event ?on_telemetry () =
+let dispatch_stream
+      ~sw
+      ?clock
+      agent
+      (prep : Agent_turn.turn_preparation)
+      ~on_event
+      ?on_telemetry
+      ()
+  =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let* pc =
     Provider.provider_config_of_agent

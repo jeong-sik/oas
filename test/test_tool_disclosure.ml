@@ -53,8 +53,11 @@ let test_minimal_index_preserves_name_and_description () =
     let name = List.assoc "name" fields in
     let desc = List.assoc "description" fields in
     check string "name field" "\"search\"" (Yojson.Safe.to_string name);
-    check string "description field"
-      "\"Description of search\"" (Yojson.Safe.to_string desc)
+    check
+      string
+      "description field"
+      "\"Description of search\""
+      (Yojson.Safe.to_string desc)
   | _ -> fail "expected JSON object"
 ;;
 
@@ -75,8 +78,7 @@ let test_hybrid_empty_full_names_acts_as_minimal () =
     |> Yojson.Safe.to_string
   in
   let minimal_json =
-    Tool.schema_to_json_with_disclosure Tool.Minimal_index tool
-    |> Yojson.Safe.to_string
+    Tool.schema_to_json_with_disclosure Tool.Minimal_index tool |> Yojson.Safe.to_string
   in
   check string "Hybrid [] = Minimal_index" minimal_json hybrid_json
 ;;
@@ -84,9 +86,7 @@ let test_hybrid_empty_full_names_acts_as_minimal () =
 let test_hybrid_all_full_names_acts_as_full () =
   let tool = make_tool "search" in
   let hybrid_json =
-    Tool.schema_to_json_with_disclosure
-      (Tool.Hybrid { full_names = [ "search" ] })
-      tool
+    Tool.schema_to_json_with_disclosure (Tool.Hybrid { full_names = [ "search" ] }) tool
     |> Yojson.Safe.to_string
   in
   let full_json =

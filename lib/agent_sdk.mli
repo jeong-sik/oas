@@ -156,7 +156,6 @@ module Vcs_graph_snapshot = Vcs_graph_snapshot
 
 (** {1 CDAL -- Contract-Driven Agent Loop PoC-1} *)
 
-
 (** {1 Quick Start} *)
 
 (** Create an agent with default config.
