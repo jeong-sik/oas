@@ -59,7 +59,11 @@ val command_in_path : ?path:string -> string -> bool
     non-interactive CLI transports ([claude_code], [gemini_cli],
     [kimi], [kimi_cli], [codex_cli], and compat alias [cc]).
     Availability is determined by API-key env vars for direct providers
-    and PATH discovery for CLI transports. *)
+    and PATH discovery for CLI transports.
+
+    If [OAS_PROVIDER_CATALOG] or {!Provider_catalog.set_global} supplies
+    entries, those entries are overlaid last and may add or replace provider
+    ids without changing SDK code. *)
 val default : unit -> t
 
 (** Best-effort canonical provider name for a concrete provider config.

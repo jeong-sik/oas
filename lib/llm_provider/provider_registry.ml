@@ -54,6 +54,67 @@ let command_in_path ?path name =
     |> List.exists (fun candidate -> is_runnable_path (Filename.concat dir candidate)))
 ;;
 
+let catalog_command_available (entry : Provider_catalog.entry) =
+  match entry.transport, entry.command with
+  | Provider_catalog.Cli, Some command when String.trim command <> "" ->
+    command_in_path command
+  | Provider_catalog.Cli, _ -> false
+  | Provider_catalog.Http, _
+  | Provider_catalog.Managed, _
+  | Provider_catalog.Custom_openai_compat, _ -> true
+;;
+
+let catalog_auth_available (entry : Provider_catalog.entry) =
+  match entry.auth with
+  | Provider_catalog.Api_key_env env | Provider_catalog.Setup_token_env env ->
+    has_api_key env
+  | Provider_catalog.No_auth -> true
+  | Provider_catalog.Cli_cached_login | Provider_catalog.Oauth_cached_login -> true
+  | Provider_catalog.File path -> String.trim path <> "" && Sys.file_exists path
+  | Provider_catalog.Exec command -> String.trim command <> ""
+;;
+
+let catalog_entry_available entry =
+  catalog_command_available entry && catalog_auth_available entry
+;;
+
+let register_catalog_entry t (entry : Provider_catalog.entry) =
+  let max_context =
+    match entry.max_context, entry.capabilities.Capabilities.max_context_tokens with
+    | Some n, _ when n > 0 -> n
+    | _, Some n when n > 0 -> n
+    | _ -> 128_000
+  in
+  let defaults : provider_defaults =
+    { kind = entry.kind
+    ; base_url = entry.base_url
+    ; api_key_env = entry.api_key_env
+    ; request_path = entry.request_path
+    }
+  in
+  let register_name name =
+    let name = String.lowercase_ascii (String.trim name) in
+    if name <> ""
+    then
+      register
+        t
+        { name
+        ; defaults
+        ; max_context
+        ; capabilities = entry.capabilities
+        ; is_available = (fun () -> catalog_entry_available entry)
+        }
+  in
+  register_name entry.id;
+  List.iter register_name entry.aliases
+;;
+
+let overlay_provider_catalog t =
+  match Provider_catalog.global () with
+  | None -> ()
+  | Some entries -> List.iter (register_catalog_entry t) entries
+;;
+
 (** Initial endpoints from LLM_ENDPOINTS env var.
     Falls back to [[Discovery.default_endpoint]] when the variable is
     unset or has no non-empty entries (SSOT: see
@@ -415,6 +476,7 @@ let default () =
     ; capabilities = Capabilities.codex_cli_capabilities
     ; is_available = codex_cli_available
     };
+  overlay_provider_catalog t;
   t
 ;;
 

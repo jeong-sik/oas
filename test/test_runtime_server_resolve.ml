@@ -11,6 +11,14 @@ let with_test_providers_enabled f =
     f
 ;;
 
+let with_provider_catalog json f =
+  match Llm_provider.Provider_catalog.of_json (Yojson.Safe.from_string json) with
+  | Error msg -> Alcotest.fail msg
+  | Ok catalog ->
+    Llm_provider.Provider_catalog.set_global catalog;
+    Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
+;;
+
 let dummy_session : Runtime.session =
   { session_id = "test-sess"
   ; goal = "test"
@@ -216,6 +224,36 @@ let test_resolve_provider_trimmed_lowercased () =
     | _ -> Alcotest.fail "expected mock alias to resolve to None")
 ;;
 
+let test_resolve_provider_catalog_entry () =
+  with_provider_catalog
+    {|{
+      "schema_version": 1,
+      "providers": [
+        {
+          "id": "vllm-local",
+          "aliases": ["Subscriber-Local"],
+          "kind": "openai_compat",
+          "transport": "http",
+          "base_url": "http://127.0.0.1:8000",
+          "request_path": "/v1/chat/completions",
+          "auth": {"type": "none"},
+          "default_model": "local-model",
+          "capabilities_base": "openai_chat"
+        }
+      ]
+    }|}
+    (fun () ->
+       match Runtime_server_resolve.resolve_provider ~provider:"subscriber-local" () with
+       | Ok (Some cfg) ->
+         Alcotest.(check string) "default model" "local-model" cfg.Provider.model_id;
+         (match cfg.Provider.provider with
+          | Provider.OpenAICompat { base_url; path; _ } ->
+            Alcotest.(check string) "base_url" "http://127.0.0.1:8000" base_url;
+            Alcotest.(check string) "path" "/v1/chat/completions" path
+          | _ -> Alcotest.fail "expected OpenAICompat")
+       | _ -> Alcotest.fail "expected catalog provider")
+;;
+
 let test_resolve_execution_mock_provider () =
   with_test_providers_enabled (fun () ->
     let detail = { dummy_spawn with provider = Some "mock" } in
@@ -394,6 +432,10 @@ let () =
             "trimmed and lowercased"
             `Quick
             test_resolve_provider_trimmed_lowercased
+        ; Alcotest.test_case
+            "catalog entry and alias"
+            `Quick
+            test_resolve_provider_catalog_entry
         ] )
     ; ( "resolve_execution"
       , [ Alcotest.test_case

@@ -36,6 +36,11 @@ adapt to any specific coordinator.
    responsibilities. OAS may expose neutral runtime events and protocol fields
    that such systems observe, but it must not own their coordination model.
 
+6. **Provider catalogs stay generic.** `OAS_PROVIDER_CATALOG` entries may
+   describe provider ids, transport, auth mode, endpoint, default model, and
+   capabilities. They must not encode coordinator-owned routing concepts such
+   as keeper, room, tier-group, board, governance queue, or dashboard policy.
+
 ## Module ownership (this repository only)
 
 This table is restricted to OAS-owned modules. Whatever a downstream

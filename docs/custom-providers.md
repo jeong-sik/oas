@@ -3,6 +3,11 @@
 OAS supports runtime provider registration for third-party LLM endpoints
 (vLLM, TGI, custom inference servers) without modifying the SDK source.
 
+For OpenAI-compatible HTTP providers that only need endpoint/auth/capability
+metadata, prefer the provider catalog first:
+[`docs/provider-catalog.md`](provider-catalog.md). Use `Provider.register_provider`
+when the provider needs custom request construction or response parsing code.
+
 ## Quick Start (v0.27.0+)
 
 ```ocaml
