@@ -658,25 +658,38 @@ let test_catalog_lookup_case_insensitive () =
       (Option.is_some (Provider_catalog.lookup catalog "  alsomixed  "))
 ;;
 
+(* Constructs Provider_catalog.t directly (bypassing JSON parse) so that
+   empty/whitespace aliases survive to the registry overlay, where the
+   register_name warn is emitted. JSON parse-time filtering would otherwise
+   drop them before the overlay sees them. *)
 let test_catalog_empty_alias_not_registered () =
-  let json =
-    {|{
-       "schema_version": 1,
-       "providers": [
-         {"id": "host", "kind": "openai_compat",
-          "aliases": ["good-alias", "", "   "],
-          "base_url": "http://host.example",
-          "auth": {"type": "none"}}
-       ]
-     }|}
+  let entry : Provider_catalog.entry =
+    { id = "host"
+    ; aliases = [ "good-alias"; ""; "   " ]
+    ; kind = OpenAI_compat
+    ; transport = Http
+    ; command = None
+    ; base_url = "http://host.example"
+    ; request_path = "/v1/chat/completions"
+    ; api_key_env = ""
+    ; auth = No_auth
+    ; default_model = None
+    ; max_context = None
+    ; capabilities = Capabilities.default_capabilities
+    ; non_interactive = false
+    ; interactive_required = false
+    ; daemon_safe = false
+    ; credential_scope = None
+    }
   in
+  Provider_catalog.set_global [ entry ];
   let warns = ref [] in
   let sink level ~ctx msg =
     match level with
     | Diag.Warn -> warns := (ctx, msg) :: !warns
     | _ -> ()
   in
-  with_provider_catalog json (fun () ->
+  Fun.protect ~finally:Provider_catalog.clear_global (fun () ->
     Diag.with_sink sink (fun () ->
       let reg = Provider_registry.default () in
       check bool "id registered" true (Option.is_some (Provider_registry.find reg "host"));
@@ -690,17 +703,19 @@ let test_catalog_empty_alias_not_registered () =
         "empty alias not registered"
         false
         (Option.is_some (Provider_registry.find reg ""))));
+  let starts_with ~prefix s =
+    let plen = String.length prefix in
+    String.length s >= plen && String.sub s 0 plen = prefix
+  in
   let empty_alias_warns =
     List.filter
       (fun (ctx, msg) ->
-         ctx = "provider_registry"
-         && String.length msg >= 20
-         && String.sub msg 0 20 = "ignoring empty alias")
+         ctx = "provider_registry" && starts_with ~prefix:"ignoring empty alias" msg)
       !warns
   in
   check
     bool
-    "Diag.warn emitted for empty alias from provider_registry ctx"
+    "Diag.warn fired from provider_registry for at least one empty alias"
     true
     (List.length empty_alias_warns >= 1)
 ;;
