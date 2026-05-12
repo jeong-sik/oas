@@ -1,5 +1,7 @@
 (** External provider catalog overlay. *)
 
+let ( let* ) = Result.bind
+
 type transport =
   | Http
   | Cli
@@ -129,17 +131,22 @@ let member_string_list key json =
 ;;
 
 let parse_transport = function
-  | None -> None
+  | None -> Ok None
   | Some raw ->
-    (match String.lowercase_ascii (String.trim raw) with
-     | "http" -> Some Http
-     | "cli" -> Some Cli
-     | "managed" -> Some Managed
+    let trimmed = String.lowercase_ascii (String.trim raw) in
+    (match trimmed with
+     | "" -> Ok None
+     | "http" -> Ok (Some Http)
+     | "cli" -> Ok (Some Cli)
+     | "managed" -> Ok (Some Managed)
      | "custom_openai_compat" | "custom-openai-compat" | "openai_compat" ->
-       Some Custom_openai_compat
+       Ok (Some Custom_openai_compat)
      | other ->
-       Diag.warn "provider_catalog" "unknown transport %S; treating as http" other;
-       Some Http)
+       Error
+         (Printf.sprintf
+            "unknown transport %S (canonical: http, cli, managed, custom_openai_compat; \
+             dashed aliases also accepted)"
+            other))
 ;;
 
 let default_transport_for_kind kind =
@@ -165,37 +172,44 @@ let parse_auth json =
       | None -> member_string_default "key" ~default:"" auth_json
     in
     (match auth_type with
-     | "none" -> No_auth
-     | "api_key_env" | "api-key-env" | "env" -> Api_key_env env
-     | "setup_token_env" | "setup-token-env" -> Setup_token_env env
-     | "cli_cached_login" | "cli-cached-login" -> Cli_cached_login
-     | "oauth_cached_login" | "oauth-cached-login" -> Oauth_cached_login
-     | "file" -> File (member_string_default "path" ~default:"" auth_json)
-     | "exec" -> Exec (member_string_default "command" ~default:"" auth_json)
+     | "none" -> Ok No_auth
+     | "api_key_env" | "api-key-env" | "env" -> Ok (Api_key_env env)
+     | "setup_token_env" | "setup-token-env" -> Ok (Setup_token_env env)
+     | "cli_cached_login" | "cli-cached-login" -> Ok Cli_cached_login
+     | "oauth_cached_login" | "oauth-cached-login" -> Ok Oauth_cached_login
+     | "file" -> Ok (File (member_string_default "path" ~default:"" auth_json))
+     | "exec" -> Ok (Exec (member_string_default "command" ~default:"" auth_json))
      | other ->
-       Diag.warn "provider_catalog" "unknown auth type %S; treating as none" other;
-       No_auth)
+       Error
+         (Printf.sprintf
+            "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
+             cli_cached_login, oauth_cached_login, file, exec; dashed and short aliases \
+             also accepted, e.g. api-key-env, env)"
+            other))
   | _ ->
     (match member_string "api_key_env" json with
-     | Some env when String.trim env <> "" -> Api_key_env env
-     | _ -> No_auth)
+     | Some env when String.trim env <> "" -> Ok (Api_key_env env)
+     | _ -> Ok No_auth)
 ;;
 
 let parse_thinking_control_format = function
-  | None -> None
+  | None -> Ok None
   | Some raw ->
-    (match String.lowercase_ascii (String.trim raw) with
+    let trimmed = String.lowercase_ascii (String.trim raw) in
+    (match trimmed with
+     | "" -> Ok None
      | "none" | "no_thinking_control" | "no-thinking-control" ->
-       Some Capabilities.No_thinking_control
-     | "thinking_object" | "thinking-object" -> Some Capabilities.Thinking_object
+       Ok (Some Capabilities.No_thinking_control)
+     | "thinking_object" | "thinking-object" -> Ok (Some Capabilities.Thinking_object)
      | "chat_template_kwargs" | "chat-template-kwargs" ->
-       Some Capabilities.Chat_template_kwargs
+       Ok (Some Capabilities.Chat_template_kwargs)
      | other ->
-       Diag.warn
-         "provider_catalog"
-         "unknown thinking_control_format %S; inheriting base"
-         other;
-       None)
+       Error
+         (Printf.sprintf
+            "unknown thinking_control_format %S (canonical: none, thinking_object, \
+             chat_template_kwargs; dashed and full-word aliases also accepted, e.g. \
+             no_thinking_control, thinking-object)"
+            other))
 ;;
 
 let member_supported_models json = member_string_list "supported_models" json
@@ -207,16 +221,20 @@ let capability_base json =
     | None -> member_string "base" json
   in
   match label with
+  | None -> Ok Capabilities.default_capabilities
   | Some raw ->
-    (match Capabilities.capabilities_for_provider_label raw with
-     | Some caps -> caps
-     | None ->
-       Diag.warn
-         "provider_catalog"
-         "unknown capabilities_base %S; using default capabilities"
-         raw;
-       Capabilities.default_capabilities)
-  | None -> Capabilities.default_capabilities
+    let trimmed = String.trim raw in
+    if trimmed = ""
+    then Ok Capabilities.default_capabilities
+    else (
+      match Capabilities.capabilities_for_provider_label trimmed with
+      | Some caps -> Ok caps
+      | None ->
+        Error
+          (Printf.sprintf
+             "unknown capabilities_base %S (see \
+              Capabilities.capabilities_for_provider_label for valid presets)"
+             trimmed))
 ;;
 
 let override_bool key caps f json =
@@ -237,7 +255,7 @@ let parse_capabilities provider_json =
     | `Assoc _ as v -> v
     | _ -> provider_json
   in
-  let base = capability_base provider_json in
+  let* base = capability_base provider_json in
   let caps =
     base
     |> fun caps ->
@@ -415,16 +433,19 @@ let parse_capabilities provider_json =
       (fun caps v -> { caps with Capabilities.emits_usage_tokens = v })
       cap_json
   in
-  let caps =
+  let* caps =
     match
       parse_thinking_control_format (member_string "thinking_control_format" cap_json)
     with
-    | Some thinking_control_format -> { caps with Capabilities.thinking_control_format }
-    | None -> caps
+    | Ok None -> Ok caps
+    | Ok (Some thinking_control_format) ->
+      Ok { caps with Capabilities.thinking_control_format }
+    | Error _ as e -> e
   in
-  match member_supported_models cap_json with
-  | Some models -> { caps with Capabilities.supported_models = Some models }
-  | None -> caps
+  Ok
+    (match member_supported_models cap_json with
+     | Some models -> { caps with Capabilities.supported_models = Some models }
+     | None -> caps)
 ;;
 
 let parse_entry json =
@@ -439,16 +460,18 @@ let parse_entry json =
       match Provider_kind.of_string kind_raw with
       | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
       | Some kind ->
-        let auth = parse_auth json in
+        let prefix_id msg = Printf.sprintf "provider %S: %s" id msg in
+        let* auth = Result.map_error prefix_id (parse_auth json) in
         let api_key_env =
           match member_string "api_key_env" json with
           | Some env -> env
           | None -> auth_env auth
         in
+        let* transport_opt =
+          Result.map_error prefix_id (parse_transport (member_string "transport" json))
+        in
         let transport =
-          match parse_transport (member_string "transport" json) with
-          | Some transport -> transport
-          | None -> default_transport_for_kind kind
+          Option.value transport_opt ~default:(default_transport_for_kind kind)
         in
         let interactive_required =
           member_bool_default "interactive_required" ~default:false json
@@ -462,7 +485,7 @@ let parse_entry json =
             ~default:(non_interactive && not interactive_required)
             json
         in
-        let capabilities = parse_capabilities json in
+        let* capabilities = Result.map_error prefix_id (parse_capabilities json) in
         let max_context =
           match member_int "max_context" json with
           | Some _ as v -> v
