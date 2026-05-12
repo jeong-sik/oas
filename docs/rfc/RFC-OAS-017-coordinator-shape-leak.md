@@ -1,6 +1,6 @@
 # RFC-OAS-017: Coordinator-Shape Leak in the Public SDK Surface
 
-| | |
+| Field | Value |
 |---|---|
 | Status | Draft |
 | Author | jeong-sik (with Claude analysis) |
@@ -14,7 +14,7 @@
 `scripts/check-sdk-independence.sh` enforces *vocabulary* independence — no `masc`/`keeper`/`board`/`room` in `lib/`/`bin/`/`README.md` — and currently passes. But the SDK still ships a **coordinator-shaped protocol** under non-coordinator vocabulary, via the public `Agent_sdk` facade:
 
 - `lib/runtime.mli` exposes `participant_state`, `worker_id`, `collaboration_channel = Presence_channel | Activity_channel | System_channel`, and a `Waiting_on_workers` phase.
-- ~13 `.mli` doc comments in `lib/` name "downstream coordinator" as a first-class consumer; two cross-repo PR/RFC numbers (`#13894`, `RFC-OAS-011`) leak into transport `.mli` files.
+- ~13 files in `lib/` (mix of `.mli` and `.ml` — see §1.3) name "downstream coordinator" in doc comments as a first-class consumer; two cross-repo PR/RFC numbers (`#13894`, `RFC-OAS-011`) leak into transport `.mli` files.
 - `lib/collaboration.ml` declares bare types `Claim_registry | Turn_queue | Blackboard` and ships **without** an `.mli` — internals are unredacted.
 
 The net effect: an independent OCaml agent application using `Agent_sdk` inherits a coordination contract it didn't ask for. A second, non-MASC coordinator implementation cannot reuse the SDK without conforming to MASC's participant / channel / worker model.
@@ -162,7 +162,7 @@ Concrete shape of the audit and the rationale annotations is in scope for the im
 
 ## 5. Acceptance criteria
 
-- Phase A complete: `rg '\bMASC\b|\bdownstream coordinator\b' lib/` returns only `examples/`, `docs/`, `CHANGELOG.md` (the gate-excluded directories). `rg '#13894\|#1[0-9]{4}' lib/llm_provider/transport_*.mli` returns nothing — no cross-repo PR numbers in public docstrings.
+- Phase A complete: `rg '\bMASC\b|\bdownstream coordinator\b' lib/` returns only `examples/`, `docs/`, `CHANGELOG.md` (the gate-excluded directories). `rg '#13894|#1[0-9]{4}' lib/llm_provider/transport_*.mli` returns nothing — no cross-repo PR numbers in public docstrings. (Note: ripgrep's default Rust regex engine treats `\|` as a literal pipe; use bare `|` for alternation.)
 - Phase B-1 complete: every `Agent_sdk.*` re-export has a `(** PUBLIC: <rationale> *)` annotation in the `.mli`; the facade-audit script enforces it.
 - Phase B-2/3 complete: an independent OCaml agent app can `open Agent_sdk` without seeing coordinator vocabulary (`Claim_registry`, `Turn_queue`, `Blackboard`, etc.). A consumer building a non-MASC coordinator can implement `Agent_sdk.Coordinator_plugin` without inheriting MASC's lifecycle constructors.
 
@@ -172,7 +172,7 @@ Concrete shape of the audit and the rationale annotations is in scope for the im
 |---|---|
 | Reading `runtime.mli` types as A2A-required when they're actually coordinator-only (or vice versa) | Phase B-1 explicitly forces the rationale to be written down before B-2 narrows anything. If a type can't be defended in its `(** PUBLIC: ... *)` annotation, it's a candidate for redaction. |
 | Phase A wording changes break OCaml doc-search tooling that links to specific `.mli` paragraphs | Unlikely — these are prose changes, not API changes. Keep the section structure of each `.mli` to minimize churn. |
-| `lib/collaboration.ml` types are used externally despite no `.mli` | Phase A-2 first runs `rg 'Collaboration\.(Claim_registry\|Turn_queue\|Blackboard)' . --type ml` outside `lib/collaboration.ml` to confirm zero callers; if there are any, scope the redaction to keep them addressable. |
+| `lib/collaboration.ml` types are used externally despite no `.mli` | Phase A-2 first runs `rg 'Collaboration\.(Claim_registry|Turn_queue|Blackboard)' . --type ml` outside `lib/collaboration.ml` to confirm zero callers; if there are any, scope the redaction to keep them addressable. (ripgrep default regex is Rust-flavored — alternation uses bare `|`; `\|` is a literal pipe.) |
 
 ## 7. Non-goals
 
