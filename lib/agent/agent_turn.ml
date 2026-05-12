@@ -381,10 +381,16 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
     (match u.cost_usd with
      | Some cost -> { base with estimated_cost_usd = base.estimated_cost_usd +. cost }
      | None ->
+       (* Resolve a stable model identifier.  When [provider = None] or
+          [model_id] is blank, the real problem is "provider/model unknown,"
+          not "the model literally named the empty string priced at $0."
+          Use an explicit sentinel so [unpriced_model = Some "<unknown>"]
+          surfaces a readable [CostBudgetUnenforceable] message instead of
+          one quoting an empty string. *)
        let model_id =
          match provider with
-         | Some (cfg : Provider.config) -> cfg.model_id
-         | None -> ""
+         | Some (cfg : Provider.config) when cfg.model_id <> "" -> cfg.model_id
+         | _ -> "<unknown>"
        in
        (* Use [pricing_for_model_opt] so an unknown model does not silently
           collapse to zero_pricing.  When there is no pricing entry, leave

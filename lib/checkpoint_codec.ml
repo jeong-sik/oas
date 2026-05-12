@@ -39,10 +39,15 @@ let usage_of_json json =
        | `Int i -> Float.of_int i
        | _ -> 0.0)
   ; unpriced_model =
-      (* Older checkpoints (pre cost-estimation flag) lack this field; treat
-         them as fully-priced.  This is the safe direction for replay: a
-         resumed session re-runs accumulate_usage and re-detects unpriced
-         models on its own. *)
+      (* Older checkpoints (pre cost-estimation flag) lack this field; we
+         decode them as [None] (fully-priced) on resume.  Caveat: [usage]
+         is restored verbatim from the checkpoint (it is not recomputed
+         from raw turns), so any past turn that ran an unpriced model
+         before this field existed is silently lost on resume, and
+         [Cost_tracker.check_budget] will not be able to return
+         [CostBudgetUnenforceable] for that historical run.  New turns
+         after resume re-detect unpriced models normally via
+         [Agent_turn.accumulate_usage]. *)
       (match json |> member "unpriced_model" with
        | `String s -> Some s
        | _ -> None)
