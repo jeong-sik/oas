@@ -643,7 +643,29 @@ let refresh_and_sync ~sw ~net ~endpoints =
   statuses
 ;;
 
-let default_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
+let builtin_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
+let valid_tcp_port p = p >= 1 && p <= 65535
+
+let parse_ports_env s =
+  String.split_on_char ',' s
+  |> List.fold_left
+       (fun ports raw ->
+          let trimmed = String.trim raw in
+          match int_of_string_opt trimmed with
+          | Some p when valid_tcp_port p && not (List.mem p ports) -> p :: ports
+          | _ -> ports)
+       []
+  |> List.rev
+;;
+
+let default_scan_ports =
+  match Cli_common_env.get "OAS_DISCOVERY_PORTS" with
+  | Some s ->
+    (match parse_ports_env s with
+     | [] -> builtin_scan_ports
+     | ps -> ps)
+  | None -> builtin_scan_ports
+;;
 
 let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
   let candidates = List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports in
@@ -1259,9 +1281,33 @@ let%test "max_context_of_status prefers props over capabilities" =
   max_context_of_status status = Some 65536
 ;;
 
-(* --- default_scan_ports --- *)
+(* --- scan port parsing --- *)
 
-let%test "default_scan_ports includes Ollama 11434" = List.mem 11434 default_scan_ports
+let%test "builtin_scan_ports includes Ollama 11434" = List.mem 11434 builtin_scan_ports
+
+let%test "parse_ports_env handles comma-separated list" =
+  parse_ports_env "9000,9001,9002" = [ 9000; 9001; 9002 ]
+;;
+
+let%test "parse_ports_env trims whitespace" =
+  parse_ports_env " 9000 , 9001 ,9002 " = [ 9000; 9001; 9002 ]
+;;
+
+let%test "parse_ports_env skips empty tokens" =
+  parse_ports_env "9000,,9001," = [ 9000; 9001 ]
+;;
+
+let%test "parse_ports_env skips non-numeric tokens silently" =
+  parse_ports_env "9000,abc,9001" = [ 9000; 9001 ]
+;;
+
+let%test "parse_ports_env skips invalid TCP ports" =
+  parse_ports_env "-1,0,1,65535,65536" = [ 1; 65535 ]
+;;
+
+let%test "parse_ports_env deduplicates while preserving order" =
+  parse_ports_env "9000,9001,9000,9002,9001" = [ 9000; 9001; 9002 ]
+;;
 
 (* --- find_context_length --- *)
 
