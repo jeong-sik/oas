@@ -561,4 +561,3 @@
  (modules test_agent_cancellation_tla_parity)
  (libraries agent_sdk alcotest))
 
-(rule
