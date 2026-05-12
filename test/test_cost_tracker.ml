@@ -5,13 +5,22 @@ open Agent_sdk
 
 (* ── Cost Tracker ──────────────────────────────────── *)
 
-let make_usage ?(cost = 0.0) ?(calls = 0) ?(inp = 0) ?(out = 0) () : Types.usage_stats =
+let make_usage
+      ?(cost = 0.0)
+      ?(calls = 0)
+      ?(inp = 0)
+      ?(out = 0)
+      ?(unpriced_model = None)
+      ()
+  : Types.usage_stats
+  =
   { total_input_tokens = inp
   ; total_output_tokens = out
   ; total_cache_creation_input_tokens = 0
   ; total_cache_read_input_tokens = 0
   ; api_calls = calls
   ; estimated_cost_usd = cost
+  ; unpriced_model
   }
 ;;
 
@@ -68,6 +77,31 @@ let test_check_budget_zero_limit () =
     "zero limit + any cost = exceeded"
     true
     (Option.is_some (Cost_tracker.check_budget config usage))
+;;
+
+(* Regression: unknown model id used to leave estimated_cost_usd at 0
+   so the dollar cap never tripped (silent bypass).  Now accumulate_usage
+   stamps unpriced_model = Some <id>, and check_budget refuses to enforce
+   the cap, returning CostBudgetUnenforceable. *)
+let test_check_budget_unpriced_model_fails_closed () =
+  let config = make_config ~max_cost_usd:1.0 () in
+  let usage = make_usage ~cost:0.0 ~unpriced_model:(Some "mystery-model-7") () in
+  match Cost_tracker.check_budget config usage with
+  | Some (Error.Agent (CostBudgetUnenforceable r)) ->
+    check string "model_id" "mystery-model-7" r.model_id;
+    check (float 0.001) "limit" 1.0 r.limit_usd
+  | Some _ -> fail "expected CostBudgetUnenforceable"
+  | None -> fail "expected unenforceable error (cap is set + model is unpriced)"
+;;
+
+let test_check_budget_unpriced_model_no_cap_returns_none () =
+  let config = make_config () in
+  let usage = make_usage ~cost:0.0 ~unpriced_model:(Some "mystery") () in
+  check
+    bool
+    "no cap configured + unpriced model = None (no enforcement to do)"
+    true
+    (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
 
 (* ── Cost Report ───────────────────────────────────── *)
@@ -211,6 +245,14 @@ let () =
         ; test_case "at limit" `Quick test_check_budget_at_limit
         ; test_case "exceeded" `Quick test_check_budget_exceeded
         ; test_case "zero limit" `Quick test_check_budget_zero_limit
+        ; test_case
+            "unpriced model + cap = unenforceable"
+            `Quick
+            test_check_budget_unpriced_model_fails_closed
+        ; test_case
+            "unpriced model + no cap = None"
+            `Quick
+            test_check_budget_unpriced_model_no_cap_returns_none
         ] )
     ; ( "cost_report"
       , [ test_case "basic report" `Quick test_report_basic

@@ -83,7 +83,14 @@ type agent_config =
 val default_config : agent_config
 
 (** Usage tracking accumulated across provider calls. Per-response usage stays
-    in {!Llm_provider.Types.api_usage}. *)
+    in {!Llm_provider.Types.api_usage}.
+
+    [unpriced_model] is [Some model_id] when at least one accumulated turn
+    ran a model with no entry in {!Llm_provider.Pricing.pricing_for_model_opt},
+    so [estimated_cost_usd] silently under-reports.  Only the first such
+    model_id is recorded.  {!Cost_tracker.check_budget} uses this field to
+    refuse enforcement of [max_cost_usd] rather than let the dollar cap be
+    void. *)
 type usage_stats =
   { total_input_tokens : int
   ; total_output_tokens : int
@@ -91,6 +98,7 @@ type usage_stats =
   ; total_cache_read_input_tokens : int
   ; api_calls : int
   ; estimated_cost_usd : float
+  ; unpriced_model : string option
   }
 [@@deriving show]
 

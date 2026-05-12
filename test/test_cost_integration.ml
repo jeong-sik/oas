@@ -111,6 +111,7 @@ let test_report_zero_division () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 0
     ; estimated_cost_usd = 0.0
+    ; unpriced_model = None
     }
   in
   let r = Cost_tracker.report usage in
@@ -125,6 +126,7 @@ let test_report_format () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 5
     ; estimated_cost_usd = 0.05
+    ; unpriced_model = None
     }
   in
   let r = Cost_tracker.report usage in
@@ -145,6 +147,7 @@ let test_budget_under () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 0
     ; estimated_cost_usd = 0.5
+    ; unpriced_model = None
     }
   in
   Alcotest.(check bool)
@@ -162,6 +165,7 @@ let test_budget_exceeded () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 0
     ; estimated_cost_usd = 1.5
+    ; unpriced_model = None
     }
   in
   match Cost_tracker.check_budget config usage with
@@ -178,6 +182,7 @@ let test_no_budget_unlimited () =
     ; total_cache_read_input_tokens = 0
     ; api_calls = 0
     ; estimated_cost_usd = 999.0
+    ; unpriced_model = None
     }
   in
   Alcotest.(check bool)

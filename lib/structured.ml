@@ -244,10 +244,45 @@ let extract_with_retry
   : ('a retry_result, Error.sdk_error) result
   =
   let base_url = Option.value ~default:Api.default_base_url base_url in
-  let add_retry_usage acc resp_usage =
+  (* Mirror [Agent_turn.accumulate_usage]: when [u.cost_usd = None], use
+     pricing-for-model to compute the cost; if there is no pricing entry,
+     mark [unpriced_model] (with a stable sentinel for blank model_ids) so
+     [Cost_tracker.check_budget] can fail closed on retry-driven cost
+     paths.  Previously this path treated [None] as $0 and never stamped
+     [unpriced_model], so retries with unpriced models silently
+     under-reported cost. *)
+  let add_retry_usage ~provider_cfg acc resp_usage =
     match resp_usage with
     | None -> acc
     | Some u ->
+      let cost_delta, unpriced_model =
+        match u.cost_usd with
+        | Some cost -> cost, acc.unpriced_model
+        | None ->
+          let model_id =
+            let id = provider_cfg.Llm_provider.Provider_config.model_id in
+            if id = "" then "<unknown>" else id
+          in
+          (match Provider.pricing_for_model_opt model_id with
+           | Some pricing ->
+             let cost =
+               Provider.estimate_cost
+                 ~pricing
+                 ~input_tokens:u.input_tokens
+                 ~output_tokens:u.output_tokens
+                 ~cache_creation_input_tokens:u.cache_creation_input_tokens
+                 ~cache_read_input_tokens:u.cache_read_input_tokens
+                 ()
+             in
+             cost, acc.unpriced_model
+           | None ->
+             let unpriced =
+               match acc.unpriced_model with
+               | Some _ as already -> already
+               | None -> Some model_id
+             in
+             0.0, unpriced)
+      in
       { total_input_tokens = acc.total_input_tokens + u.input_tokens
       ; total_output_tokens = acc.total_output_tokens + u.output_tokens
       ; total_cache_creation_input_tokens =
@@ -255,8 +290,8 @@ let extract_with_retry
       ; total_cache_read_input_tokens =
           acc.total_cache_read_input_tokens + u.cache_read_input_tokens
       ; api_calls = acc.api_calls + 1
-      ; estimated_cost_usd =
-          acc.estimated_cost_usd +. Option.value ~default:0.0 u.cost_usd
+      ; estimated_cost_usd = acc.estimated_cost_usd +. cost_delta
+      ; unpriced_model
       }
   in
   let initial_message =
@@ -287,7 +322,7 @@ let extract_with_retry
         ()
       |> Result.map_error sdk_error_of_http_error
     in
-    let total = add_retry_usage acc_usage response.usage in
+    let total = add_retry_usage ~provider_cfg acc_usage response.usage in
     match extract_text_json ~schema response with
     | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
     | Error e ->

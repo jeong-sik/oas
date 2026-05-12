@@ -166,7 +166,15 @@ let default_config =
 ;;
 
 (** Usage tracking accumulated across provider calls. Per-response usage stays
-    in [Llm_provider.Types.api_usage]. *)
+    in [Llm_provider.Types.api_usage].
+
+    [unpriced_model] is [Some model_id] when at least one accumulated turn
+    ran a model with no entry in [Pricing.pricing_for_model_opt], so
+    [estimated_cost_usd] silently under-reports.  Only the first such
+    model_id is recorded; subsequent unpriced models do not overwrite it
+    so the error message stays stable.  [Cost_tracker.check_budget] uses
+    this field to refuse enforcement of [max_cost_usd] rather than let
+    the dollar cap be void. *)
 type usage_stats =
   { total_input_tokens : int
   ; total_output_tokens : int
@@ -174,6 +182,7 @@ type usage_stats =
   ; total_cache_read_input_tokens : int
   ; api_calls : int
   ; estimated_cost_usd : float
+  ; unpriced_model : string option
   }
 [@@deriving show]
 
@@ -184,6 +193,7 @@ let empty_usage =
   ; total_cache_read_input_tokens = 0
   ; api_calls = 0
   ; estimated_cost_usd = 0.0
+  ; unpriced_model = None
   }
 ;;
 
@@ -196,6 +206,7 @@ let add_usage stats (u : api_usage) =
       stats.total_cache_read_input_tokens + u.cache_read_input_tokens
   ; api_calls = stats.api_calls + 1
   ; estimated_cost_usd = stats.estimated_cost_usd
+  ; unpriced_model = stats.unpriced_model
   }
 ;;
 
