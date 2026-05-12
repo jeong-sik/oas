@@ -529,6 +529,71 @@ let test_catalog_rejects_empty_provider_id () =
   | Ok _ -> fail "empty provider id should be rejected"
 ;;
 
+let test_catalog_rejects_unknown_transport () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "x", "kind": "openai_compat", "transport": "ftp"}
+           ]
+         }|})
+  with
+  | Error _ -> ()
+  | Ok _ -> fail "unknown transport should be rejected, not silently coerced"
+;;
+
+let test_catalog_rejects_unknown_auth_type () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "x", "kind": "openai_compat",
+              "auth": {"type": "magick"}}
+           ]
+         }|})
+  with
+  | Error _ -> ()
+  | Ok _ -> fail "unknown auth type should be rejected, not silently coerced to none"
+;;
+
+let test_catalog_rejects_unknown_capabilities_base () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "x", "kind": "openai_compat",
+              "capabilities_base": "nonexistent_preset"}
+           ]
+         }|})
+  with
+  | Error _ -> ()
+  | Ok _ ->
+    fail "unknown capabilities_base should be rejected, not silently coerced to defaults"
+;;
+
+let test_catalog_rejects_unknown_thinking_control_format () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "x", "kind": "openai_compat",
+              "capabilities": {"thinking_control_format": "telepathy"}}
+           ]
+         }|})
+  with
+  | Error _ -> ()
+  | Ok _ ->
+    fail "unknown thinking_control_format should be rejected, not silently coerced"
+;;
+
 let test_catalog_load_file_and_lookup_alias () =
   let path = Filename.temp_file "provider-catalog" ".json" in
   Fun.protect
@@ -833,6 +898,22 @@ let () =
             "rejects empty provider id"
             `Quick
             test_catalog_rejects_empty_provider_id
+        ; test_case
+            "rejects unknown transport"
+            `Quick
+            test_catalog_rejects_unknown_transport
+        ; test_case
+            "rejects unknown auth type"
+            `Quick
+            test_catalog_rejects_unknown_auth_type
+        ; test_case
+            "rejects unknown capabilities_base"
+            `Quick
+            test_catalog_rejects_unknown_capabilities_base
+        ; test_case
+            "rejects unknown thinking_control_format"
+            `Quick
+            test_catalog_rejects_unknown_thinking_control_format
         ; test_case
             "load_file and lookup alias"
             `Quick
