@@ -59,7 +59,7 @@ type config =
         subprocess is aborted via [SIGINT] if no stdout line
         arrives within [s] seconds.  Mirrors the kimi-cli idle
         bound introduced for long-running coordinator turns
-        (boundary-allow: see masc-mcp #13894 for original RFC-0022
+        (see downstream coordinator #13894 for original RFC-0022
         attempt-liveness context); the same field is wired here so
         OAS callers can opt-in.
 

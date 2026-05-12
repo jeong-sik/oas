@@ -10,10 +10,15 @@ let group_into_turns (messages : message list) : message list list =
         let has_tool_result =
           List.exists
             (fun (block : content_block) ->
-              match block with
-              | ToolResult _ -> true
-              | Text _ | Thinking _ | RedactedThinking _ | ToolUse _
-              | Image _ | Document _ | Audio _ -> false)
+               match block with
+               | ToolResult _ -> true
+               | Text _
+               | Thinking _
+               | RedactedThinking _
+               | ToolUse _
+               | Image _
+               | Document _
+               | Audio _ -> false)
             msg.content
         in
         if has_tool_result

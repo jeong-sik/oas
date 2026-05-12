@@ -50,7 +50,7 @@ type config =
     (** When [Some s] and [clock] is [Some _], the [gemini]
         subprocess is aborted via [SIGINT] if no stdout line
         arrives within [s] seconds.  Mirrors the kimi-cli idle
-        bound (boundary-allow: external-coordinator origin masc-mcp #13894,
+        bound (see downstream coordinator #13894,
         RFC-0022 attempt liveness) and oas PRs #1458
         (codex_cli) / #1459 (claude_code) / #1460 (kimi_cli).
 

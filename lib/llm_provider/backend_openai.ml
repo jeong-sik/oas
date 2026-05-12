@@ -926,10 +926,15 @@ let%test "parse_openai_response_result with reasoning_content" =
        future block type can't silently inherit "no thinking". *)
     List.exists
       (fun (block : Types.content_block) ->
-        match block with
-        | Thinking _ -> true
-        | Text _ | RedactedThinking _ | ToolUse _ | ToolResult _
-        | Image _ | Document _ | Audio _ -> false)
+         match block with
+         | Thinking _ -> true
+         | Text _
+         | RedactedThinking _
+         | ToolUse _
+         | ToolResult _
+         | Image _
+         | Document _
+         | Audio _ -> false)
       resp.content
   | Error _ -> false
 ;;
@@ -1349,10 +1354,15 @@ let%test "strip_thinking_blocks removes Thinking from all messages" =
        not
          (List.exists
             (fun (block : Types.content_block) ->
-              match block with
-              | Thinking _ -> true
-              | Text _ | RedactedThinking _ | ToolUse _ | ToolResult _
-              | Image _ | Document _ | Audio _ -> false)
+               match block with
+               | Thinking _ -> true
+               | Text _
+               | RedactedThinking _
+               | ToolUse _
+               | ToolResult _
+               | Image _
+               | Document _
+               | Audio _ -> false)
             msg.content))
     stripped
 ;;

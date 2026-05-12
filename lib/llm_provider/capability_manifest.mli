@@ -100,7 +100,7 @@ val lookup : t -> string -> entry option
 
     Resolution order (highest priority first):
     + 1. Runtime override set by {!set_global} — embedding hosts
-        (e.g. masc-mcp loading its declarative cascade.toml) install
+        (e.g. the embedding host loading its declarative manifest) install
         a programmatic manifest at boot.
     + 2. [OAS_CAPABILITY_MANIFEST] env var pointing at a JSON file
         (loaded lazily on first call when no runtime override is
@@ -150,7 +150,8 @@ val clear_global : unit -> unit
 
     Idempotent — calling twice replaces the override with the latest
     value. Intended for hosts that own the model catalog (e.g.
-    masc-mcp's [cascade.toml]) and want OAS to consume the same  (* boundary-allow *)
+
+    the host's [cascade.toml]) and want OAS to consume the same
     capability data without round-tripping through a JSON file.
 
     @since 0.194.0 *)

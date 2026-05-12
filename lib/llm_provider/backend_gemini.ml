@@ -325,10 +325,15 @@ let parse_response json =
          inference uses the same shape and was missed in those sweeps. *)
       List.exists
         (fun (block : Types.content_block) ->
-          match block with
-          | ToolUse _ -> true
-          | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
-          | Image _ | Document _ | Audio _ -> false)
+           match block with
+           | ToolUse _ -> true
+           | Text _
+           | Thinking _
+           | RedactedThinking _
+           | ToolResult _
+           | Image _
+           | Document _
+           | Audio _ -> false)
         content
     in
     let stop_reason =

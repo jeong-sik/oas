@@ -484,8 +484,7 @@ let%test "set_global / clear_global: runtime override roundtrips" =
   let observed_after_clear =
     match global () with
     | Some entries ->
-      not
-        (List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries)
+      not (List.exists (fun e -> e.id_prefix = "runtime-override-token-9fX") entries)
     | None -> true
   in
   observed_after_set && observed_after_clear

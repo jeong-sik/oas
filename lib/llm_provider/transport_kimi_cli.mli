@@ -56,7 +56,7 @@ type config =
     (** When [Some s] and [clock] is [Some _], the [kimi]
         subprocess is aborted via [SIGINT] if no stdout line
         arrives within [s] seconds.  External-coordinator origin
-        (boundary-allow: masc-mcp #13894, [Kimi_cli_transport_local],
+        (see downstream coordinator #13894, [Kimi_cli_transport_local],
         RFC-0022 attempt liveness) and oas PRs #1458 (codex_cli) /
         #1459 (claude_code).
         Default [None].

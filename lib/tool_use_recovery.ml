@@ -203,10 +203,15 @@ let recover_response ~(valid_tool_names : string list) (response : api_response)
     let has_tool_use =
       List.exists
         (fun (block : Types.content_block) ->
-          match block with
-          | ToolUse _ -> true
-          | Text _ | Thinking _ | RedactedThinking _ | ToolResult _
-          | Image _ | Document _ | Audio _ -> false)
+           match block with
+           | ToolUse _ -> true
+           | Text _
+           | Thinking _
+           | RedactedThinking _
+           | ToolResult _
+           | Image _
+           | Document _
+           | Audio _ -> false)
         response.content
     in
     if has_tool_use
