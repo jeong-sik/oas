@@ -921,10 +921,15 @@ let%test "parse_openai_response_result with reasoning_content" =
   in
   match parse_openai_response_result json_str with
   | Ok resp ->
+    (* N-of-M followup to PR #1525 (backend_gemini.has_tool_use). Same
+       content_block catch-all family — enumerate every variant so a
+       future block type can't silently inherit "no thinking". *)
     List.exists
-      (function
+      (fun (block : Types.content_block) ->
+        match block with
         | Thinking _ -> true
-        | _ -> false)
+        | Text _ | RedactedThinking _ | ToolUse _ | ToolResult _
+        | Image _ | Document _ | Audio _ -> false)
       resp.content
   | Error _ -> false
 ;;
@@ -1343,9 +1348,11 @@ let%test "strip_thinking_blocks removes Thinking from all messages" =
     (fun (msg : message) ->
        not
          (List.exists
-            (function
+            (fun (block : Types.content_block) ->
+              match block with
               | Thinking _ -> true
-              | _ -> false)
+              | Text _ | RedactedThinking _ | ToolUse _ | ToolResult _
+              | Image _ | Document _ | Audio _ -> false)
             msg.content))
     stripped
 ;;
