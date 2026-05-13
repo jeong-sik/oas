@@ -34,6 +34,32 @@ type execution_batch =
   | Sequential_batch of scheduled_tool_use
   | Exclusive_batch of scheduled_tool_use
 
+type tool_index =
+  { by_id : (Tool_id.t, Tool.t) Hashtbl.t
+  ; by_name : (string, Tool.t) Hashtbl.t
+  }
+
+let add_first tbl key value = if not (Hashtbl.mem tbl key) then Hashtbl.add tbl key value
+
+let build_index tools =
+  let capacity = max 16 (List.length tools * 2) in
+  let by_id = Hashtbl.create capacity in
+  let by_name = Hashtbl.create capacity in
+  List.iter
+    (fun (tool : Tool.t) ->
+       let name = tool.schema.name in
+       add_first by_name name tool;
+       add_first by_id (Tool_id.of_string name) tool)
+    tools;
+  { by_id; by_name }
+;;
+
+let find_in_index index name =
+  match Hashtbl.find_opt index.by_name name with
+  | Some _ as found -> found
+  | None -> Hashtbl.find_opt index.by_id (Tool_id.of_string name)
+;;
+
 let concurrency_class_to_string = function
   | Tool.Parallel_read -> "parallel_read"
   | Tool.Sequential_workspace -> "sequential_workspace"
@@ -71,18 +97,14 @@ let concurrency_class_of_tool tool =
   | None -> Tool.Sequential_workspace
 ;;
 
-let find_tool_by_name tools name =
-  List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools
-;;
-
 let recoverable_of_failure_kind = function
   | Some Validation_error | Some Recoverable_tool_error -> true
   | Some Non_retryable_tool_error | None -> false
 ;;
 
-let schedule_tool_use ~tools index (id, name, input) =
+let schedule_tool_use ~tool_index index (id, name, input) =
   let concurrency_class =
-    match find_tool_by_name tools name with
+    match find_in_index tool_index name with
     | Some tool -> concurrency_class_of_tool tool
     | None -> Tool.Sequential_workspace
   in
@@ -158,9 +180,9 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
 
 (** Find and execute a single tool, invoking PostToolUse hook.
     Returns a structured execution result. *)
-let find_and_execute_tool
+let find_and_execute_tool_with_index
       ~context
-      ~tools
+      ~tool_index
       ~(hooks : Hooks.hooks)
       ~event_bus
       ~tracer
@@ -193,7 +215,7 @@ let find_and_execute_tool
       Some ev.meta.run_id
     | None -> None
   in
-  let tool_opt = List.find_opt (fun (tool : Tool.t) -> tool.schema.name = name) tools in
+  let tool_opt = find_in_index tool_index name in
   let result =
     match tool_opt with
     | Some tool ->
@@ -376,9 +398,44 @@ let find_and_execute_tool
   result
 ;;
 
-let execute_scheduled_tool
+let find_and_execute_tool
       ~context
       ~tools
+      ~(hooks : Hooks.hooks)
+      ~event_bus
+      ~tracer
+      ~agent_name
+      ~turn_count
+      ?correlation_id
+      ?run_id
+      ?on_hook_invoked
+      ~schedule
+      name
+      input
+      id
+  =
+  let tool_index = build_index tools in
+  find_and_execute_tool_with_index
+    ~context
+    ~tool_index
+    ~hooks
+    ~event_bus
+    ~tracer
+    ~agent_name
+    ~turn_count
+    ?correlation_id
+    ?run_id
+    ?on_hook_invoked
+    ~schedule
+    name
+    input
+    id
+;;
+
+let execute_scheduled_tool
+      ~context
+      ~tools:_
+      ~tool_index
       ~(hooks : Hooks.hooks)
       ~event_bus
       ?journal
@@ -460,9 +517,9 @@ let execute_scheduled_tool
                   _log
                   "ApprovalRequired but no approval callback — executing"
                   [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
-                find_and_execute_tool
+                find_and_execute_tool_with_index
                   ~context
-                  ~tools
+                  ~tool_index
                   ~hooks
                   ~event_bus
                   ~tracer
@@ -478,9 +535,9 @@ let execute_scheduled_tool
               | Some approve_fn ->
                 (match approve_fn ~tool_name:name ~input with
                  | Hooks.Approve ->
-                   find_and_execute_tool
+                   find_and_execute_tool_with_index
                      ~context
-                     ~tools
+                     ~tool_index
                      ~hooks
                      ~event_bus
                      ~tracer
@@ -502,9 +559,9 @@ let execute_scheduled_tool
                    ; error_class = Some Types.Deterministic
                    }
                  | Hooks.Edit new_input ->
-                   find_and_execute_tool
+                   find_and_execute_tool_with_index
                      ~context
-                     ~tools
+                     ~tool_index
                      ~hooks
                      ~event_bus
                      ~tracer
@@ -518,9 +575,9 @@ let execute_scheduled_tool
                      new_input
                      id))
            | Hooks.Continue ->
-             find_and_execute_tool
+             find_and_execute_tool_with_index
                ~context
-               ~tools
+               ~tool_index
                ~hooks
                ~event_bus
                ~tracer
@@ -534,9 +591,9 @@ let execute_scheduled_tool
                input
                id
            | Hooks.AdjustParams _ ->
-             find_and_execute_tool
+             find_and_execute_tool_with_index
                ~context
-               ~tools
+               ~tool_index
                ~hooks
                ~event_bus
                ~tracer
@@ -550,9 +607,9 @@ let execute_scheduled_tool
                input
                id
            | Hooks.ElicitInput _ | Hooks.Nudge _ ->
-             find_and_execute_tool
+             find_and_execute_tool_with_index
                ~context
-               ~tools
+               ~tool_index
                ~hooks
                ~event_bus
                ~tracer
@@ -626,6 +683,7 @@ let execute_tools
       ?on_hook_invoked
       tool_uses
   =
+  let tool_index = build_index tools in
   let tool_use_blocks =
     List.filter_map
       (fun (block : Types.content_block) ->
@@ -644,11 +702,12 @@ let execute_tools
            None)
       tool_uses
   in
-  let scheduled = List.mapi (schedule_tool_use ~tools) tool_use_blocks in
+  let scheduled = List.mapi (schedule_tool_use ~tool_index) tool_use_blocks in
   let run_one =
     execute_scheduled_tool
       ~context
       ~tools
+      ~tool_index
       ~hooks
       ~event_bus
       ?journal

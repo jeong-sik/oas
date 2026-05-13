@@ -25,6 +25,17 @@ val invoke_hook
 
 (** {1 Single tool execution} *)
 
+type tool_index
+
+(** Build a stable lookup index for the current tool set.
+
+    Exact tool-name lookups preserve first-match list semantics. The typed
+    [Tool_id] key is also populated so normalized built-in/MCP names can share
+    the same dispatch path without each caller scanning the full list. *)
+val build_index : Tool.t list -> tool_index
+
+val find_in_index : tool_index -> string -> Tool.t option
+
 type tool_failure_kind =
   | Validation_error
   | Recoverable_tool_error
