@@ -57,8 +57,8 @@ let default_api_key_env = function
   | Glm -> Some "ZAI_API_KEY"
   | DashScope -> Some "DASHSCOPE_API_KEY"
   | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
-    (* Ollama Cloud uses the same kind; set OLLAMA_API_KEY when using
-       a remote endpoint that requires authentication. *)
+    (* Ollama Cloud uses the same wire kind. The named provider entry
+       prefers OLLAMA_CLOUD_API_KEY and falls back to OLLAMA_API_KEY. *)
     None
 ;;
 

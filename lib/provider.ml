@@ -621,6 +621,40 @@ let default_api_key_env_of_kind (kind : Llm_provider.Provider_config.provider_ki
   | None -> ""
 ;;
 
+let api_key_env_candidates = function
+  | "OLLAMA_CLOUD_API_KEY" -> [ "OLLAMA_CLOUD_API_KEY"; "OLLAMA_API_KEY" ]
+  | env_name -> [ env_name ]
+;;
+
+let api_key_from_env env_name =
+  api_key_env_candidates env_name
+  |> List.find_map (fun name ->
+    match Sys.getenv_opt name with
+    | Some value when String.trim value <> "" -> Some value
+    | _ -> None)
+  |> Option.value ~default:""
+;;
+
+let headers_with_auth_for_kind
+      ~(kind : Llm_provider.Provider_config.provider_kind)
+      ~api_key
+  =
+  let base = [ "Content-Type", "application/json" ] in
+  match String.trim api_key with
+  | "" -> base
+  | key ->
+    (match kind with
+     | Anthropic | Kimi ->
+       [ "x-api-key", key
+       ; "anthropic-version", "2023-06-01"
+       ; "Content-Type", "application/json"
+       ]
+     | Gemini -> base
+     | OpenAI_compat | Ollama | Glm | DashScope ->
+       ("Authorization", "Bearer " ^ key) :: base
+     | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> [])
+;;
+
 (** Convert a [Llm_provider.Provider_config.t] into a
     [Provider.config] (for Agent Builder).  Keeps the conversion
     internal to OAS so consumers don't need their own adapters.
@@ -766,16 +800,16 @@ let provider_config_of_agent
              let api_key =
                if entry.defaults.api_key_env = ""
                then ""
-               else (
-                 match Sys.getenv_opt entry.defaults.api_key_env with
-                 | Some k -> k
-                 | None -> "")
+               else api_key_from_env entry.defaults.api_key_env
+             in
+             let headers =
+               headers_with_auth_for_kind ~kind:entry.defaults.kind ~api_key
              in
              build
                ~kind:entry.defaults.kind
                ~resolved_base_url:entry.defaults.base_url
                ~api_key
-               ~headers:[]
+               ~headers
                ~request_path:entry.defaults.request_path
                ~model_id:p.model_id))
      | Anthropic | Local _ | OpenAICompat _ ->
