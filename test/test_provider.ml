@@ -3,6 +3,19 @@
 
 open Agent_sdk
 
+let with_env name value f =
+  let previous = Sys.getenv_opt name in
+  (match value with
+   | Some v -> Unix.putenv name v
+   | None -> Unix.putenv name "");
+  Fun.protect
+    ~finally:(fun () ->
+      match previous with
+      | Some v -> Unix.putenv name v
+      | None -> Unix.putenv name "")
+    f
+;;
+
 let test_missing_env_var () =
   (* Anthropic provider checks env var; nonexistent key -> Error *)
   let cfg : Provider.config =
@@ -757,6 +770,64 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
+let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
+  with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-provider-test-key") (fun () ->
+    with_env "OLLAMA_API_KEY" (Some "fallback-ollama-api-key") (fun () ->
+      let cfg : Provider.config =
+        { provider = Custom_registered { name = "ollama_cloud" }
+        ; model_id = "glm-5.1:cloud"
+        ; api_key_env = "OLLAMA_CLOUD_API_KEY"
+        }
+      in
+      let state = agent_state_with_params () in
+      match
+        Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+      with
+      | Ok pc ->
+        Alcotest.(check bool)
+          "kind preserves Ollama"
+          true
+          (pc.kind = Llm_provider.Provider_config.Ollama);
+        Alcotest.(check string) "base_url" "https://ollama.com" pc.base_url;
+        Alcotest.(check string) "request_path" "/api/chat" pc.request_path;
+        Alcotest.(check string)
+          "uses cloud-specific key first"
+          "ollama-cloud-provider-test-key"
+          pc.api_key;
+        Alcotest.(check bool)
+          "Authorization header present"
+          true
+          (List.mem ("Authorization", "Bearer ollama-cloud-provider-test-key") pc.headers)
+      | Error e ->
+        Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
+;;
+
+let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback () =
+  with_env "OLLAMA_CLOUD_API_KEY" None (fun () ->
+    with_env "OLLAMA_API_KEY" (Some "ollama-api-fallback-key") (fun () ->
+      let cfg : Provider.config =
+        { provider = Custom_registered { name = "ollama_cloud" }
+        ; model_id = "deepseek-v4-pro:cloud"
+        ; api_key_env = "OLLAMA_CLOUD_API_KEY"
+        }
+      in
+      let state = agent_state_with_params () in
+      match
+        Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+      with
+      | Ok pc ->
+        Alcotest.(check string)
+          "uses OLLAMA_API_KEY fallback"
+          "ollama-api-fallback-key"
+          pc.api_key;
+        Alcotest.(check bool)
+          "Authorization header present"
+          true
+          (List.mem ("Authorization", "Bearer ollama-api-fallback-key") pc.headers)
+      | Error e ->
+        Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
+;;
+
 let test_provider_config_of_agent_custom_registered_unknown_name () =
   let cfg : Provider.config =
     { provider = Custom_registered { name = "nonexistent-provider-xyz" }
@@ -904,6 +975,14 @@ let () =
             "custom registered kimi preserves headers"
             `Quick
             test_provider_config_of_agent_custom_registered_kimi_preserves_headers
+        ; Alcotest.test_case
+            "custom registered ollama_cloud adds auth header"
+            `Quick
+            test_provider_config_of_agent_custom_registered_ollama_cloud_headers
+        ; Alcotest.test_case
+            "custom registered ollama_cloud falls back to OLLAMA_API_KEY"
+            `Quick
+            test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback
         ; Alcotest.test_case
             "custom registered unknown name errors"
             `Quick

@@ -29,7 +29,23 @@ let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 
 (* ── Default registry ─────────────────────────────────── *)
 
-let has_api_key env_name = env_name = "" || Cli_common_env.get env_name <> None
+let api_key_env_candidates = function
+  | "OLLAMA_CLOUD_API_KEY" -> [ "OLLAMA_CLOUD_API_KEY"; "OLLAMA_API_KEY" ]
+  | env_name -> [ env_name ]
+;;
+
+let has_direct_api_key env_name =
+  env_name = ""
+  ||
+  match Cli_common_env.get env_name with
+  | Some value -> String.trim value <> ""
+  | None -> false
+;;
+
+let has_api_key env_name =
+  api_key_env_candidates env_name |> List.exists has_direct_api_key
+;;
+
 let has_any_api_key env_names = List.exists has_api_key env_names
 
 let path_entries ?path () =
@@ -272,6 +288,14 @@ let ollama_defaults =
   }
 ;;
 
+let ollama_cloud_defaults =
+  { kind = Ollama
+  ; base_url = env_or_default "OLLAMA_CLOUD_BASE_URL" "https://ollama.com"
+  ; api_key_env = "OLLAMA_CLOUD_API_KEY"
+  ; request_path = "/api/chat"
+  }
+;;
+
 let openrouter_defaults =
   { kind = OpenAI_compat
   ; base_url = "https://openrouter.ai/api/v1"
@@ -400,6 +424,11 @@ let default () =
     ; capabilities = Capabilities.ollama_capabilities
     ; is_available = (fun () -> true)
     };
+  reg
+    "ollama_cloud"
+    ollama_cloud_defaults
+    ~max_context:262_144
+    Capabilities.ollama_capabilities;
   (* CLI subprocess providers. Exposed under explicit provider labels so
      caller-managed provider/model specs can opt into the non-interactive transports
      without reusing the direct API names. *)
@@ -496,7 +525,13 @@ let provider_name_of_config (config : Provider_config.t) =
   | Gemini_cli -> "gemini_cli"
   | Kimi_cli -> "kimi_cli"
   | Codex_cli -> "codex_cli"
-  | Ollama -> "ollama"
+  | Ollama ->
+    if
+      String.equal
+        (normalize_url config.base_url)
+        (normalize_url ollama_cloud_defaults.base_url)
+    then "ollama_cloud"
+    else "ollama"
   | DashScope -> "dashscope"
   | OpenAI_compat ->
     if Provider_config.is_local config

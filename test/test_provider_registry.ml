@@ -204,12 +204,17 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_18 () =
+let test_default_has_19 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "18 known providers" 18 (List.length all);
+  check int "19 known providers" 19 (List.length all);
   check bool "llama exists" true (Option.is_some (Provider_registry.find reg "llama"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
+  check
+    bool
+    "ollama_cloud exists"
+    true
+    (Option.is_some (Provider_registry.find reg "ollama_cloud"));
   check bool "claude exists" true (Option.is_some (Provider_registry.find reg "claude"));
   check bool "gemini exists" true (Option.is_some (Provider_registry.find reg "gemini"));
   check bool "glm exists" true (Option.is_some (Provider_registry.find reg "glm"));
@@ -276,6 +281,33 @@ let test_default_capabilities () =
     check bool "llama has tools" true e.capabilities.supports_tools;
     check bool "llama has top_k" true e.capabilities.supports_top_k
   | None -> fail "llama should exist"
+;;
+
+let test_default_ollama_cloud_entry () =
+  let reg = Provider_registry.default () in
+  match Provider_registry.find reg "ollama_cloud" with
+  | Some e ->
+    check bool "kind is Ollama" true (e.defaults.kind = Provider_config.Ollama);
+    check string "base_url" "https://ollama.com" e.defaults.base_url;
+    check string "api_key_env" "OLLAMA_CLOUD_API_KEY" e.defaults.api_key_env;
+    check string "request_path" "/api/chat" e.defaults.request_path
+  | None -> fail "ollama_cloud should exist"
+;;
+
+let test_provider_name_of_ollama_cloud_config () =
+  let cfg =
+    Provider_config.make
+      ~kind:Provider_config.Ollama
+      ~model_id:"glm-5.1:cloud"
+      ~base_url:"https://ollama.com"
+      ~request_path:"/api/chat"
+      ()
+  in
+  check
+    string
+    "provider name"
+    "ollama_cloud"
+    (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_default_max_context () =
@@ -990,8 +1022,13 @@ let () =
         ; test_case "requires_any" `Quick test_requires_any
         ] )
     ; ( "default"
-      , [ test_case "has 18 providers" `Quick test_default_has_18
+      , [ test_case "has 19 providers" `Quick test_default_has_19
         ; test_case "correct capabilities" `Quick test_default_capabilities
+        ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
+        ; test_case
+            "provider_name_of_config returns ollama_cloud"
+            `Quick
+            test_provider_name_of_ollama_cloud_config
         ; test_case "max_context values" `Quick test_default_max_context
         ; test_case
             "max_context matches capabilities"
