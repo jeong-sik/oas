@@ -621,6 +621,103 @@ let test_complete_claude_code_without_transport_is_guarded () =
     kinds
 ;;
 
+let usage =
+  Some
+    { input_tokens = 1
+    ; output_tokens = 1
+    ; cache_creation_input_tokens = 0
+    ; cache_read_input_tokens = 0
+    ; cost_usd = None
+    }
+;;
+
+let fake_transport response : Llm_provider.Llm_transport.t =
+  { complete_sync = (fun _request -> { response = Ok response; latency_ms = Some 1 })
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+  }
+;;
+
+let complete_with_captured_diag ~config ~response =
+  let entries = ref [] in
+  let run () =
+    Eio_main.run
+    @@ fun env ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let net = Eio.Stdenv.net env in
+    let transport = fake_transport response in
+    match
+      Llm_provider.Complete.complete
+        ~sw
+        ~net
+        ~config
+        ~messages:[ user_msg "hi" ]
+        ~transport
+        ()
+    with
+    | Ok _ -> ()
+    | Error _ -> Alcotest.fail "fake completion should succeed"
+  in
+  Llm_provider.Diag.with_sink
+    (fun level ~ctx message -> entries := (level, ctx, message) :: !entries)
+    run;
+  List.rev !entries
+;;
+
+let response_with_thinking =
+  { id = "resp-thinking"
+  ; model = "auto"
+  ; stop_reason = EndTurn
+  ; content = [ Thinking { thinking_type = "thinking"; content = "reasoning" } ]
+  ; usage
+  ; telemetry = None
+  }
+;;
+
+let test_provider_default_thinking_drift_is_info () =
+  let config =
+    PC.make ~kind:OpenAI_compat ~model_id:"auto" ~base_url:"https://example.invalid/v1" ()
+  in
+  let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
+  Alcotest.(check bool)
+    "no warn for provider-default thinking observation"
+    false
+    (List.exists (fun (level, _, _) -> level = Llm_provider.Diag.Warn) entries);
+  Alcotest.(check bool)
+    "low-confidence info is recorded"
+    true
+    (List.exists
+       (fun (level, ctx, message) ->
+          level = Llm_provider.Diag.Info
+          && ctx = "complete"
+          && contains_substring ~sub:"capability_observation" message
+          && contains_substring ~sub:"provider_default" message
+          && contains_substring ~sub:"low" message)
+       entries)
+;;
+
+let test_model_capability_thinking_drift_remains_warn () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"glm-4-flash"
+      ~base_url:"https://example.invalid/v1"
+      ()
+  in
+  let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
+  Alcotest.(check bool)
+    "model-specific mismatch remains warn"
+    true
+    (List.exists
+       (fun (level, ctx, message) ->
+          level = Llm_provider.Diag.Warn
+          && ctx = "complete"
+          && contains_substring ~sub:"capability_drift" message
+          && contains_substring ~sub:"model" message
+          && contains_substring ~sub:"high" message)
+       entries)
+;;
+
 let test_complete_rejects_output_schema_for_glm () =
   Eio_main.run
   @@ fun env ->
@@ -916,6 +1013,16 @@ let () =
             "glm output schema rejected before request"
             `Quick
             test_complete_rejects_output_schema_for_glm
+        ] )
+    ; ( "capability_drift"
+      , [ test_case
+            "provider-default thinking observation is info"
+            `Quick
+            test_provider_default_thinking_drift_is_info
+        ; test_case
+            "model-specific thinking drift remains warn"
+            `Quick
+            test_model_capability_thinking_drift_remains_warn
         ] )
     ; ( "cost"
       , [ test_case "annotate response cost" `Quick test_annotate_response_cost

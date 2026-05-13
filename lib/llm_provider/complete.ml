@@ -100,6 +100,130 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
     Delegates to {!Provider_config.reasoning_effort_of_config}. *)
 let reasoning_effort_of_config = Provider_config.reasoning_effort_of_config
 
+type capability_source =
+  | Model_capability
+  | Provider_default_capability
+
+let capability_source_to_string = function
+  | Model_capability -> "model"
+  | Provider_default_capability -> "provider_default"
+;;
+
+let base_capabilities_for_kind = function
+  | Provider_config.Ollama -> Capabilities.ollama_capabilities
+  | DashScope -> Capabilities.dashscope_capabilities
+  | Anthropic -> Capabilities.anthropic_capabilities
+  | Kimi -> Capabilities.kimi_capabilities
+  | Glm -> Capabilities.glm_capabilities
+  | Gemini -> Capabilities.gemini_capabilities
+  | OpenAI_compat -> Capabilities.openai_chat_capabilities
+  | Claude_code -> Capabilities.claude_code_capabilities
+  | Gemini_cli -> Capabilities.gemini_cli_capabilities
+  | Kimi_cli -> Capabilities.kimi_cli_capabilities
+  | Codex_cli -> Capabilities.codex_cli_capabilities
+;;
+
+let resolve_capabilities_for_config (config : Provider_config.t) =
+  match Capabilities.for_model_id config.model_id with
+  | Some caps -> caps, Model_capability
+  | None -> base_capabilities_for_kind config.kind, Provider_default_capability
+;;
+
+let warn_on_drift_observation source = function
+  | Capabilities.Thinking_returned_but_declared_unsupported ->
+    (match source with
+     | Model_capability -> true
+     | Provider_default_capability -> false)
+  | Capabilities.Usage_missing_but_declared
+  | Capabilities.Tools_used_but_declared_unsupported
+  | Capabilities.Stop_tool_use_but_declared_unsupported -> true
+;;
+
+let partition_drift_observations source observations =
+  List.fold_right
+    (fun observation (warn_observations, info_observations) ->
+       if warn_on_drift_observation source observation
+       then observation :: warn_observations, info_observations
+       else warn_observations, observation :: info_observations)
+    observations
+    ([], [])
+;;
+
+let capability_observation_payload
+      ~(event : string)
+      ~(confidence : string)
+      ~(source : capability_source)
+      ~(config : Provider_config.t)
+      observations
+  =
+  `Assoc
+    [ "event", `String event
+    ; "model", `String config.model_id
+    ; "provider", `String (Provider_config.show_provider_kind config.kind)
+    ; "capability_source", `String (capability_source_to_string source)
+    ; "confidence", `String confidence
+    ; ( "observations"
+      , `List
+          (List.map
+             (fun observation ->
+                `String (Capabilities.show_drift_observation observation))
+             observations) )
+    ]
+  |> Yojson.Safe.to_string
+;;
+
+let emit_capability_observations ~config ~source observations =
+  let warn_observations, info_observations =
+    partition_drift_observations source observations
+  in
+  (match warn_observations with
+   | [] -> ()
+   | observations ->
+     Diag.warn
+       "complete"
+       "%s"
+       (capability_observation_payload
+          ~event:"capability_drift"
+          ~confidence:"high"
+          ~source
+          ~config
+          observations));
+  match info_observations with
+  | [] -> ()
+  | observations ->
+    Diag.info
+      "complete"
+      "%s"
+      (capability_observation_payload
+         ~event:"capability_observation"
+         ~confidence:"low"
+         ~source
+         ~config
+         observations)
+;;
+
+let%test "provider-default thinking drift is low-confidence observation" =
+  let warn_observations, info_observations =
+    partition_drift_observations
+      Provider_default_capability
+      [ Capabilities.Thinking_returned_but_declared_unsupported
+      ; Capabilities.Tools_used_but_declared_unsupported
+      ]
+  in
+  warn_observations = [ Capabilities.Tools_used_but_declared_unsupported ]
+  && info_observations = [ Capabilities.Thinking_returned_but_declared_unsupported ]
+;;
+
+let%test "model capability thinking drift remains high-confidence warning" =
+  let warn_observations, info_observations =
+    partition_drift_observations
+      Model_capability
+      [ Capabilities.Thinking_returned_but_declared_unsupported ]
+  in
+  warn_observations = [ Capabilities.Thinking_returned_but_declared_unsupported ]
+  && info_observations = []
+;;
+
 (** Patch {!Types.api_response} telemetry with transport latency and provider
     metadata.
     The JSON parser sets [request_latency_ms = None] because it cannot see the
@@ -116,25 +240,7 @@ let patch_telemetry
   let pk = Some config.kind in
   let re = reasoning_effort_of_config config in
   let model = if String.trim resp.model = "" then config.model_id else resp.model in
-  let base_caps =
-    match config.kind with
-    | Ollama -> Capabilities.ollama_capabilities
-    | DashScope -> Capabilities.dashscope_capabilities
-    | Anthropic -> Capabilities.anthropic_capabilities
-    | Kimi -> Capabilities.kimi_capabilities
-    | Glm -> Capabilities.glm_capabilities
-    | Gemini -> Capabilities.gemini_capabilities
-    | OpenAI_compat -> Capabilities.openai_chat_capabilities
-    | Claude_code -> Capabilities.claude_code_capabilities
-    | Gemini_cli -> Capabilities.gemini_cli_capabilities
-    | Kimi_cli -> Capabilities.kimi_cli_capabilities
-    | Codex_cli -> Capabilities.codex_cli_capabilities
-  in
-  let caps =
-    match Capabilities.for_model_id config.model_id with
-    | Some c -> c
-    | None -> base_caps
-  in
+  let caps, capability_source = resolve_capabilities_for_config config in
   let ctx_window = caps.max_context_tokens in
   let canonical = Some config.model_id in
   let telemetry =
@@ -180,15 +286,7 @@ let patch_telemetry
   (match Capabilities.detect_drift caps patched with
    | [] -> ()
    | observations ->
-     let obs_strings =
-       List.map (fun o -> Capabilities.show_drift_observation o) observations
-     in
-     Diag.warn
-       "complete"
-       {|{"event":"capability_drift","model":"%s","provider":"%s","observations":[%s] }|}
-       config.model_id
-       (Provider_config.show_provider_kind config.kind)
-       (String.concat "," (List.map (fun s -> "\"" ^ s ^ "\"") obs_strings)));
+     emit_capability_observations ~config ~source:capability_source observations);
   patched
 ;;
 
