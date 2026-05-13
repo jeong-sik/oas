@@ -38,6 +38,7 @@
   test_agent_turn
   test_agent_turn_budget_unit
   test_agent_typed
+  test_api_http_client
   test_api_dispatch
   test_append_instruction
   test_approval
@@ -245,6 +246,7 @@
   test_agent_turn
   test_agent_turn_budget_unit
   test_agent_typed
+  test_api_http_client
   test_api_dispatch
   test_append_instruction
   test_approval
