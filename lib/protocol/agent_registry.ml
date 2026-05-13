@@ -84,36 +84,32 @@ let list_by_tool t tool_name =
 (** Fetch agent card from a remote URL via GET <url>/.well-known/agent.json. *)
 let fetch_remote_card ~sw ~net url =
   let card_url = url ^ "/.well-known/agent.json" in
-  let uri = Uri.of_string card_url in
-  let https = Api.make_https () in
-  let client = Cohttp_eio.Client.make ~https net in
-  try
-    let resp, body = Cohttp_eio.Client.get ~sw client uri in
-    match Cohttp.Response.status resp with
-    | `OK ->
-      let body_str =
-        Eio.Buf_read.(
-          of_flow ~max_size:Llm_provider.Api_common.max_response_body body |> take_all)
-      in
-      (try
-         let json = Yojson.Safe.from_string body_str in
-         Agent_card.of_json json
-       with
-       | Yojson.Json_error msg ->
-         Error
-           (Error.Orchestration
-              (DiscoveryFailed { url; detail = "JSON parse error: " ^ msg })))
-    | status ->
-      let code = Cohttp.Code.code_of_status status in
-      Error
-        (Error.Orchestration
-           (DiscoveryFailed { url; detail = Printf.sprintf "HTTP %d" code }))
-  with
-  | Eio.Io _ as exn ->
-    Error (Error.Orchestration (DiscoveryFailed { url; detail = Printexc.to_string exn }))
-  | Unix.Unix_error _ as exn ->
-    Error (Error.Orchestration (DiscoveryFailed { url; detail = Printexc.to_string exn }))
-  | Failure msg -> Error (Error.Orchestration (DiscoveryFailed { url; detail = msg }))
+  let error_detail = function
+    | Llm_provider.Http_client.HttpError { code; body } ->
+      Printf.sprintf "HTTP %d: %s" code body
+    | NetworkError { message; _ } -> message
+    | AcceptRejected { reason } -> "Response rejected: " ^ reason
+    | CliTransportRequired { kind } -> "CLI transport required: " ^ kind
+    | ProviderTerminal { message; _ } -> message
+    | ProviderFailure { kind; message } ->
+      Llm_provider.Http_client.provider_failure_to_string ~kind ~message
+  in
+  match Llm_provider.Http_client.get_sync ~sw ~net ~url:card_url ~headers:[] () with
+  | Ok (200, body_str) ->
+    (try
+       let json = Yojson.Safe.from_string body_str in
+       Agent_card.of_json json
+     with
+     | Yojson.Json_error msg ->
+       Error
+         (Error.Orchestration
+            (DiscoveryFailed { url; detail = "JSON parse error: " ^ msg })))
+  | Ok (code, _) ->
+    Error
+      (Error.Orchestration
+         (DiscoveryFailed { url; detail = Printf.sprintf "HTTP %d" code }))
+  | Error err ->
+    Error (Error.Orchestration (DiscoveryFailed { url; detail = error_detail err }))
 ;;
 
 (** Discover a remote agent by fetching its card and registering it. *)
