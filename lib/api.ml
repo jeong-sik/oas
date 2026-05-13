@@ -5,6 +5,25 @@ open Types
 
 type response_accept = Types.api_response -> (unit, string) result
 
+let retry_error_of_http_error = function
+  | Llm_provider.Http_client.HttpError { code; body } ->
+    Retry.classify_error ~status:code ~body
+  | Llm_provider.Http_client.NetworkError
+      { message; kind = Llm_provider.Http_client.Timeout } -> Retry.Timeout { message }
+  | Llm_provider.Http_client.NetworkError { message; kind } ->
+    Retry.NetworkError { message; kind }
+  | Llm_provider.Http_client.AcceptRejected { reason } ->
+    Retry.InvalidRequest { message = "Response rejected: " ^ reason }
+  | Llm_provider.Http_client.CliTransportRequired { kind } ->
+    Retry.InvalidRequest
+      { message = Printf.sprintf "Provider kind requires CLI transport: %s" kind }
+  | Llm_provider.Http_client.ProviderTerminal { message; _ } ->
+    Retry.InvalidRequest { message }
+  | Llm_provider.Http_client.ProviderFailure { kind; message } ->
+    Retry.InvalidRequest
+      { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message }
+;;
+
 (* Re-export Api_common *)
 let default_base_url = Api_common.default_base_url
 let api_version = Api_common.api_version
@@ -114,7 +133,6 @@ let create_message
   match resolve_result with
   | Error e -> Error e
   | Ok (provider_cfg, base_url, header_list) ->
-    let headers = Http.Header.of_list header_list in
     let model_spec = Provider.model_spec_of_config provider_cfg in
     let kind = model_spec.request_kind in
     let path = model_spec.request_path in
@@ -136,30 +154,22 @@ let create_message
          | Some impl -> impl.build_body ~config ~messages ?tools ()
          | None -> Yojson.Safe.to_string (`Assoc []))
     in
-    let uri = Uri.of_string (base_url ^ path) in
-    let https = make_https () in
-    let client = Cohttp_eio.Client.make ~https net in
+    let url = base_url ^ path in
     let do_http_call () =
-      let resp, body =
-        Cohttp_eio.Client.post
+      match
+        Llm_provider.Http_client.post_sync
+          ?clock
+          ~timeout_s:request_timeout_s
           ~sw
-          client
-          ~headers
-          ~body:(Cohttp_eio.Body.of_string body_str)
-          uri
-      in
-      match Cohttp.Response.status resp with
-      | `OK ->
-        let body_str =
-          Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all)
-        in
-        `Ok body_str
-      | status ->
-        let code = Cohttp.Code.code_of_status status in
-        let body_str =
-          Eio.Buf_read.(of_flow ~max_size:max_response_body body |> take_all)
-        in
-        `HttpError (code, body_str)
+          ~net
+          ~url
+          ~headers:header_list
+          ~body:body_str
+          ()
+      with
+      | Ok (200, body_str) -> `Ok body_str
+      | Ok (code, body_str) -> `HttpError (code, body_str)
+      | Error err -> `TransportError (retry_error_of_http_error err)
     in
     let do_request () =
       let t0 = Unix.gettimeofday () in
@@ -204,6 +214,7 @@ let create_message
                  | Error msg -> Error (Retry.InvalidRequest { message = msg }))))
         | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
+        | `TransportError err -> Error err
       with
       | Eio.Time.Timeout ->
         Error
