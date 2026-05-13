@@ -115,7 +115,14 @@ val sdk_version : string
 (** [auto_context_overflow_retry] controls whether the turn pipeline performs
     its built-in compact-and-retry path after a provider [ContextOverflow].
     It defaults to [true] for standalone agents. Higher-level coordinators
-    that own turn-level retry can pass [false]. *)
+    that own turn-level retry can pass [false].
+
+    [checkpoint_sink] attaches an optional caller-owned turn-boundary
+    checkpoint sink.  The pipeline invokes it after durable in-memory
+    turn mutations that matter for crash recovery, such as assistant
+    collection and tool-result feedback appends.  The sink is passed
+    here rather than through {!options} so callers that construct
+    options records remain source-compatible. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config
@@ -186,6 +193,10 @@ val run_with_handoffs
 
 (** {1 Checkpoint / Resume} *)
 
+(** [resume ... ?checkpoint_sink ()] restores an agent from a checkpoint and
+    optionally attaches the same caller-owned turn-boundary checkpoint sink used
+    by {!create}.  The sink is not stored in {!options}; pass it explicitly when
+    resumed turns should continue emitting crash-recovery checkpoints. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t

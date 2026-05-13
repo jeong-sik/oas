@@ -356,18 +356,27 @@ let stage_collect ?raw_trace_run agent ~original_config response =
       (Hooks.AfterTurn { turn = agent.state.turn_count; response })
   in
   let completed_turn = agent.state.turn_count in
-  let next_state =
+  let assistant_message = make_message ~role:Assistant response.content in
+  let checkpoint_state =
     { agent.state with
-      messages =
-        Util.snoc agent.state.messages (make_message ~role:Assistant response.content)
+      messages = Util.snoc agent.state.messages assistant_message
     ; turn_count = agent.state.turn_count + 1
     ; usage
     }
   in
   let* () =
-    persist_turn_checkpoint_for_state agent After_assistant_collected next_state
+    persist_turn_checkpoint_for_state agent After_assistant_collected checkpoint_state
   in
-  set_state agent next_state;
+  update_state agent (fun state ->
+    { state with
+      messages = Util.snoc state.messages assistant_message
+    ; turn_count = state.turn_count + 1
+    ; usage =
+        Agent_turn.accumulate_usage
+          ~current_usage:state.usage
+          ~provider:agent.options.provider
+          ~response_usage:response.usage
+    });
   (match agent.options.event_bus with
    | Some bus ->
      Event_bus.publish

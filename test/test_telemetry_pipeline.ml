@@ -394,6 +394,69 @@ let test_checkpoint_sink_failure_fails_turn () =
          journal_events)
 ;;
 
+let test_checkpoint_sink_does_not_clobber_intervening_state () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let agent_ref = ref None in
+  let marker_message =
+    { Types.role = Types.System
+    ; content = [ Types.Text "sink-side-effect" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  let checkpoint_sink _snapshot =
+    (match !agent_ref with
+     | Some agent ->
+       Agent.update_state agent (fun state ->
+         { state with messages = state.messages @ [ marker_message ] })
+     | None -> ());
+    Ok ()
+  in
+  let transport = make_sequence_transport [ text_response "ok" ] in
+  let agent =
+    make_checkpoint_agent
+      ~net:env#net
+      ~transport
+      ~checkpoint_sink
+      ~max_turns:1
+      ~tools:[]
+      ()
+  in
+  agent_ref := Some agent;
+  (match Agent.run ~sw agent "capture this turn" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
+  let messages = (Agent.state agent).messages in
+  Alcotest.(check bool)
+    "sink state mutation preserved"
+    true
+    (List.exists
+       (fun (msg : Types.message) ->
+          msg.role = Types.System
+          && List.exists
+               (function
+                 | Types.Text "sink-side-effect" -> true
+                 | _ -> false)
+               msg.content)
+       messages);
+  Alcotest.(check bool)
+    "assistant state mutation preserved"
+    true
+    (List.exists
+       (fun (msg : Types.message) ->
+          msg.role = Types.Assistant
+          && List.exists
+               (function
+                 | Types.Text "ok" -> true
+                 | _ -> false)
+               msg.content)
+       messages)
+;;
+
 let () =
   Alcotest.run
     "Telemetry pipeline integration"
@@ -418,6 +481,10 @@ let () =
             "checkpoint sink failure fails turn"
             `Quick
             test_checkpoint_sink_failure_fails_turn
+        ; Alcotest.test_case
+            "checkpoint sink preserves intervening state"
+            `Quick
+            test_checkpoint_sink_does_not_clobber_intervening_state
         ] )
     ]
 ;;
