@@ -29,13 +29,13 @@ val list_by_tool : t -> string -> (string * agent_entry) list
 
 val fetch_remote_card
   :  sw:Eio.Switch.t
-  -> net:_ Eio.Net.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> string
   -> (Agent_card.agent_card, Error.sdk_error) result
 
 val discover_and_register
   :  sw:Eio.Switch.t
-  -> net:_ Eio.Net.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> t
   -> name:string
   -> url:string

@@ -10,6 +10,81 @@ let make_agent () =
   Agent.create ~net ()
 ;;
 
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port =
+    match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> fail "expected TCP socket"
+  in
+  Unix.close s;
+  port
+;;
+
+let request_path request_line =
+  match String.split_on_char ' ' request_line with
+  | _method_ :: path :: _ -> path
+  | _ -> request_line
+;;
+
+let header_value line =
+  match String.index_opt line ':' with
+  | None -> None
+  | Some idx ->
+    let value_start = idx + 1 in
+    let value_len = String.length line - value_start in
+    Some (String.trim (String.sub line value_start value_len))
+;;
+
+let start_card_server ~sw ~net card =
+  let port = fresh_port () in
+  let seen_path = ref None in
+  let seen_connection = ref None in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:128
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Net.accept_fork
+      ~sw
+      socket
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         let reader = Eio.Buf_read.of_flow flow ~max_size:8192 in
+         let request_line = Eio.Buf_read.line reader in
+         seen_path := Some (request_path request_line);
+         let rec read_headers () =
+           match Eio.Buf_read.line reader with
+           | "" -> ()
+           | line ->
+             if String.starts_with ~prefix:"connection:" (String.lowercase_ascii line)
+             then seen_connection := Option.map String.lowercase_ascii (header_value line);
+             read_headers ()
+           | exception End_of_file -> ()
+         in
+         read_headers ();
+         let body = Agent_card.to_json card |> Yojson.Safe.to_string in
+         let response =
+           Printf.sprintf
+             "HTTP/1.1 200 OK\r\n\
+              Content-Length: %d\r\n\
+              Content-Type: application/json\r\n\
+              Connection: close\r\n\
+              \r\n\
+              %s"
+             (String.length body)
+             body
+         in
+         Eio.Flow.copy_string response flow));
+  Printf.sprintf "http://127.0.0.1:%d" port, seen_path, seen_connection
+;;
+
 (* ── Registration and lookup ────────────────────────────── *)
 
 let test_register_local () =
@@ -212,6 +287,36 @@ let test_fetch_card_unreachable () =
   | Ok _ -> fail "should fail for unreachable"
 ;;
 
+let test_fetch_card_http_client () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let card : Agent_card.agent_card =
+    { name = "remote-agent"
+    ; description = Some "A remote agent"
+    ; protocol_version = "1.0"
+    ; version = "1.0.0"
+    ; url = Some "http://example.com"
+    ; authentication = None
+    ; supported_interfaces = []
+    ; capabilities = [ Tools ]
+    ; tools = []
+    ; skills = []
+    ; supported_providers = []
+    ; metadata = []
+    }
+  in
+  let base_url, seen_path, seen_connection = start_card_server ~sw ~net card in
+  match Agent_registry.fetch_remote_card ~sw ~net base_url with
+  | Error err -> failf "fetch failed: %s" (Error.to_string err)
+  | Ok fetched ->
+    check string "card name" "remote-agent" fetched.name;
+    check (option string) "path" (Some "/.well-known/agent.json") !seen_path;
+    check (option string) "connection close" (Some "close") !seen_connection
+;;
+
 (* ── Overwrite registration ─────────────────────────────── *)
 
 let test_overwrite () =
@@ -264,6 +369,7 @@ let () =
     ; ( "discovery"
       , [ test_case "unreachable" `Quick test_discover_unreachable
         ; test_case "fetch card unreachable" `Quick test_fetch_card_unreachable
+        ; test_case "fetch card via http client" `Quick test_fetch_card_http_client
         ] )
     ]
 ;;
