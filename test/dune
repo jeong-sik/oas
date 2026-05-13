@@ -36,6 +36,7 @@
   test_agent_stream
   test_agent_tool
   test_agent_turn
+  test_agent_tools_index
   test_agent_turn_budget_unit
   test_agent_typed
   test_api_http_client
@@ -244,6 +245,7 @@
   test_agent_stream
   test_agent_tool
   test_agent_turn
+  test_agent_tools_index
   test_agent_turn_budget_unit
   test_agent_typed
   test_api_http_client
