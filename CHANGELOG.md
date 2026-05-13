@@ -17,6 +17,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Features
 
+* **agent:** add turn durability checkpoints ([#1550](https://github.com/jeong-sik/oas/issues/1550)) ([393ff0c](https://github.com/jeong-sik/oas/commit/393ff0c432734c6e2c471fd78b6ebba0040b48aa))
+
+
+### Bug Fixes
+
+* **agent:** gate context overflow auto retry ([#1553](https://github.com/jeong-sik/oas/issues/1553)) ([8ed4183](https://github.com/jeong-sik/oas/commit/8ed4183fb20d97fe7b4dcb704b9a3d29d674ef4c))
+
+## [0.193.9](https://github.com/jeong-sik/oas/compare/v0.193.8...v0.193.9) (2026-05-13)
+
+
+### Features
+
 * **agent:** add generic turn-boundary checkpoint sink for crash recovery
 
 
