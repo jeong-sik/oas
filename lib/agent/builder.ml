@@ -444,7 +444,6 @@ let build b =
     ; on_run_complete = b.on_run_complete
     ; tool_result_relocation = b.tool_result_relocation
     ; journal = b.journal
-    ; checkpoint_sink = b.checkpoint_sink
     ; transport = b.transport
     ; runtime_mcp_policy = b.runtime_mcp_policy
     ; summarizer = b.summarizer
@@ -458,6 +457,7 @@ let build b =
     ?context
     ~options
     ~auto_context_overflow_retry:b.auto_context_overflow_retry
+    ?checkpoint_sink:b.checkpoint_sink
     ()
 ;;
 

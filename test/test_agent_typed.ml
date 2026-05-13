@@ -6,6 +6,24 @@
 open Agent_sdk
 open Alcotest
 
+let text_response text : Types.api_response =
+  { id = "typed-checkpoint-mock"
+  ; model = "mock-model"
+  ; stop_reason = Types.EndTurn
+  ; content = [ Types.Text text ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let make_transport response : Llm_provider.Llm_transport.t =
+  { complete_sync =
+      (fun _req ->
+        { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _req -> Ok response)
+  }
+;;
+
 let test_create () =
   Eio_main.run
   @@ fun env ->
@@ -33,6 +51,39 @@ let test_last_trace_none () =
   @@ fun env ->
   let agent = Agent_typed.create ~net:env#net () in
   check bool "no trace" true (Option.is_none (Agent_typed.last_trace agent))
+;;
+
+let test_checkpoint_sink_forwarded () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let sink_calls = ref [] in
+  let checkpoint_sink (snapshot : Agent.checkpoint_snapshot) =
+    sink_calls := Agent.checkpoint_stage_to_string snapshot.stage :: !sink_calls;
+    Ok ()
+  in
+  let options =
+    { Agent.default_options with
+      transport = Some (make_transport (text_response "ok"))
+    ; provider =
+        Some
+          { provider = Provider.Local { base_url = "http://mock.local" }
+          ; model_id = "mock-model"
+          ; api_key_env = ""
+          }
+    }
+  in
+  let config = { Types.default_config with model = "mock-model"; max_turns = 1 } in
+  let agent = Agent_typed.create ~net:env#net ~config ~options ~checkpoint_sink () in
+  (match Agent_typed.run ~sw agent "hi" with
+   | Ok (_response, _completed) -> ()
+   | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
+  check
+    (list string)
+    "checkpoint stages"
+    [ "after_assistant_collected" ]
+    (List.rev !sink_calls)
 ;;
 
 (** Compile-time type safety test:
@@ -64,6 +115,7 @@ let () =
       , [ test_case "create" `Quick test_create
         ; test_case "inner" `Quick test_inner
         ; test_case "last_trace_none" `Quick test_last_trace_none
+        ; test_case "checkpoint_sink_forwarded" `Quick test_checkpoint_sink_forwarded
         ; test_case "phantom_documented" `Quick test_phantom_type_documented
         ] )
     ]

@@ -109,20 +109,20 @@ let validate_completion_contract agent (response : Types.api_response) =
   | Error reason -> Error (Error.Agent (CompletionContractViolation { contract; reason }))
 ;;
 
-let persist_turn_checkpoint agent stage =
-  match agent.options.checkpoint_sink with
+let persist_turn_checkpoint_for_state agent stage state =
+  match agent.checkpoint_sink with
   | None -> Ok ()
   | Some sink ->
     let checkpoint =
       Agent_checkpoint.build_checkpoint
-        ~state:agent.state
+        ~state
         ~tools:agent.tools
         ~context:agent.context
         ~mcp_clients:agent.options.mcp_clients
         ()
     in
     let timestamp = checkpoint.created_at in
-    let turn = agent.state.turn_count in
+    let turn = state.turn_count in
     let stage_label = checkpoint_stage_to_string stage in
     let snapshot = { stage; turn; checkpoint; timestamp } in
     (match sink snapshot with
@@ -150,6 +150,10 @@ let persist_turn_checkpoint agent stage =
        Error
          (Error.Internal
             (Printf.sprintf "checkpoint sink failed at %s: %s" stage_label detail)))
+;;
+
+let persist_turn_checkpoint agent stage =
+  persist_turn_checkpoint_for_state agent stage agent.state
 ;;
 
 let requested_completion_contract agent =
@@ -351,14 +355,35 @@ let stage_collect ?raw_trace_run agent ~original_config response =
       agent.options.hooks.after_turn
       (Hooks.AfterTurn { turn = agent.state.turn_count; response })
   in
+  let completed_turn = agent.state.turn_count in
+  let assistant_message = make_message ~role:Assistant response.content in
+  let checkpoint_state =
+    { agent.state with
+      messages = Util.snoc agent.state.messages assistant_message
+    ; turn_count = agent.state.turn_count + 1
+    ; usage
+    }
+  in
+  let* () =
+    persist_turn_checkpoint_for_state agent After_assistant_collected checkpoint_state
+  in
+  update_state agent (fun state ->
+    { state with
+      messages = Util.snoc state.messages assistant_message
+    ; turn_count = state.turn_count + 1
+    ; usage =
+        Agent_turn.accumulate_usage
+          ~current_usage:state.usage
+          ~provider:agent.options.provider
+          ~response_usage:response.usage
+    });
   (match agent.options.event_bus with
    | Some bus ->
      Event_bus.publish
        bus
        { meta = event_envelope agent
        ; payload =
-           TurnCompleted
-             { agent_name = agent.state.config.name; turn = agent.state.turn_count }
+           TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
        }
    | None -> ());
   (match agent.options.journal with
@@ -372,13 +397,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
           ; timestamp = Unix.gettimeofday ()
           })
    | None -> ());
-  update_state agent (fun s ->
-    { s with
-      messages = Util.snoc s.messages (make_message ~role:Assistant response.content)
-    ; turn_count = s.turn_count + 1
-    ; usage
-    });
-  persist_turn_checkpoint agent After_assistant_collected
+  Ok ()
 ;;
 
 let handle_missing_required_tool_use

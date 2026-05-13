@@ -74,7 +74,6 @@ type options = Agent_types.options =
   ; on_run_complete : (bool -> unit) option
   ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
   ; journal : Durable_event.journal option
-  ; checkpoint_sink : checkpoint_sink option
   ; transport : Llm_provider.Llm_transport.t option
   ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
   ; summarizer : (Types.message list -> string) option
@@ -116,7 +115,15 @@ val sdk_version : string
 (** [auto_context_overflow_retry] controls whether the turn pipeline performs
     its built-in compact-and-retry path after a provider [ContextOverflow].
     It defaults to [true] for standalone agents. Higher-level coordinators
-    that own turn-level retry can pass [false]. *)
+    that own turn-level retry can pass [false].
+
+    [checkpoint_sink] attaches an optional caller-owned turn-boundary
+    checkpoint sink.  The pipeline builds a post-mutation checkpoint
+    snapshot for crash recovery, invokes the sink before advancing the
+    live agent state and emitting completion/journal transitions, then
+    commits the same turn delta after the sink succeeds.  The sink is
+    passed here rather than through {!options} so callers that construct
+    options records remain source-compatible. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config
@@ -124,6 +131,7 @@ val create
   -> ?context:Context.t
   -> ?options:options
   -> ?auto_context_overflow_retry:bool
+  -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
 
@@ -186,12 +194,17 @@ val run_with_handoffs
 
 (** {1 Checkpoint / Resume} *)
 
+(** [resume ... ?checkpoint_sink ()] restores an agent from a checkpoint and
+    optionally attaches the same caller-owned turn-boundary checkpoint sink used
+    by {!create}.  The sink is not stored in {!options}; pass it explicitly when
+    resumed turns should continue emitting crash-recovery checkpoints. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> ?auto_context_overflow_retry:bool
   -> unit

@@ -28,13 +28,17 @@ type _ t
 
 (** {1 Construction} *)
 
-(** Create a new agent in the [created] state. *)
+(** Create a new agent in the [created] state.
+
+    [?checkpoint_sink] is forwarded to {!Agent.create}; it attaches the
+    caller-owned turn-boundary checkpoint sink used for crash recovery. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:Agent.options
+  -> ?checkpoint_sink:Agent.checkpoint_sink
   -> unit
   -> created t
 

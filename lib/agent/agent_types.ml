@@ -93,7 +93,6 @@ type options =
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
-  ; checkpoint_sink : checkpoint_sink option
   ; transport : Llm_provider.Llm_transport.t option
     (** Optional non-HTTP transport override.  Required for CLI provider
         kinds ([Claude_code], [Codex_cli], [Gemini_cli], [Kimi_cli]) which cannot be
@@ -192,7 +191,6 @@ let default_options =
   ; on_run_complete = None
   ; tool_result_relocation = None
   ; journal = None
-  ; checkpoint_sink = None
   ; transport = None
   ; runtime_mcp_policy = None
   ; summarizer = None
@@ -213,6 +211,7 @@ type t =
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
+  ; checkpoint_sink : checkpoint_sink option
   }
 
 (* Public accessors — .mli exposes Agent.t as abstract *)
@@ -326,6 +325,7 @@ let create
       ?context
       ?(options = default_options)
       ?(auto_context_overflow_retry = true)
+      ?checkpoint_sink
       ()
   =
   let mcp_tools =
@@ -350,6 +350,7 @@ let create
   ; net
   ; context = ctx
   ; options
+  ; checkpoint_sink
   }
 ;;
 
@@ -372,6 +373,7 @@ let clone ?(copy_context = false) agent =
   ; net = agent.net
   ; context = ctx
   ; options = agent.options
+  ; checkpoint_sink = agent.checkpoint_sink
   }
 ;;
 

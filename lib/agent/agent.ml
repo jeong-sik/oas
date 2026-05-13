@@ -470,6 +470,7 @@ let resume
       ?(tools = [])
       ?context
       ?(options = default_options)
+      ?checkpoint_sink
       ?config
       ?(auto_context_overflow_retry = true)
       ()
@@ -493,6 +494,7 @@ let resume
   ; net
   ; context = ctx
   ; options
+  ; checkpoint_sink
   }
 ;;
 
