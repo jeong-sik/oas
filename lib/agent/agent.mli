@@ -118,10 +118,11 @@ val sdk_version : string
     that own turn-level retry can pass [false].
 
     [checkpoint_sink] attaches an optional caller-owned turn-boundary
-    checkpoint sink.  The pipeline invokes it after durable in-memory
-    turn mutations that matter for crash recovery, such as assistant
-    collection and tool-result feedback appends.  The sink is passed
-    here rather than through {!options} so callers that construct
+    checkpoint sink.  The pipeline builds a post-mutation checkpoint
+    snapshot for crash recovery, invokes the sink before advancing the
+    live agent state and emitting completion/journal transitions, then
+    commits the same turn delta after the sink succeeds.  The sink is
+    passed here rather than through {!options} so callers that construct
     options records remain source-compatible. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
