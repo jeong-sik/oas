@@ -234,6 +234,7 @@ type t =
   ; mutable lifecycle : lifecycle_snapshot option
   ; mutable last_tool_calls : tool_call_fingerprint list option
   ; mutable consecutive_idle_turns : int
+  ; auto_context_overflow_retry : bool
   ; tools : Tool_set.t
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
@@ -271,6 +272,7 @@ val create
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?auto_context_overflow_retry:bool
   -> unit
   -> t
 

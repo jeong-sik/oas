@@ -113,12 +113,17 @@ val sdk_version : string
 
 (** {1 Construction} *)
 
+(** [auto_context_overflow_retry] controls whether the turn pipeline performs
+    its built-in compact-and-retry path after a provider [ContextOverflow].
+    It defaults to [true] for standalone agents. Higher-level coordinators
+    that own turn-level retry can pass [false]. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?config:Types.agent_config
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?auto_context_overflow_retry:bool
   -> unit
   -> t
 
@@ -188,6 +193,7 @@ val resume
   -> ?context:Context.t
   -> ?options:options
   -> ?config:Types.agent_config
+  -> ?auto_context_overflow_retry:bool
   -> unit
   -> t
 

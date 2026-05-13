@@ -1075,13 +1075,19 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
       { Types.default_config with
         name = "context-overflow-owner"
       ; max_turns = 3
-      ; auto_context_overflow_retry = false
       }
     in
     let options =
       { Agent.default_options with base_url = url; provider = Some provider; hooks }
     in
-    let agent = Agent.create ~net:env#net ~config ~options () in
+    let agent =
+      Agent.create
+        ~net:env#net
+        ~config
+        ~options
+        ~auto_context_overflow_retry:false
+        ()
+    in
     let history =
       [ { Types.role = User
         ; content = [ Text "summarize the large result" ]

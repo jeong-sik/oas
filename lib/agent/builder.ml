@@ -121,7 +121,7 @@ let create ~net ~model =
   ; context_compact_ratio = None
   ; context_prepare_ratio = None
   ; context_handoff_ratio = None
-  ; auto_context_overflow_retry = default_config.auto_context_overflow_retry
+  ; auto_context_overflow_retry = true
   ; context_injector = None
   ; mcp_clients = []
   ; event_bus = None
@@ -369,7 +369,6 @@ let build b =
     ; context_compact_ratio = b.context_compact_ratio
     ; context_prepare_ratio = b.context_prepare_ratio
     ; context_handoff_ratio = b.context_handoff_ratio
-    ; auto_context_overflow_retry = b.auto_context_overflow_retry
     ; priority = b.priority
     ; yield_on_tool = b.yield_on_tool
     ; exit_condition = b.exit_condition
@@ -452,7 +451,14 @@ let build b =
     ; required_tool_satisfaction = b.required_tool_satisfaction
     }
   in
-  Agent.create ~net:b.net ~config ~tools:(Tool_set.to_list tools) ?context ~options ()
+  Agent.create
+    ~net:b.net
+    ~config
+    ~tools:(Tool_set.to_list tools)
+    ?context
+    ~options
+    ~auto_context_overflow_retry:b.auto_context_overflow_retry
+    ()
 ;;
 
 let build_safe b =
