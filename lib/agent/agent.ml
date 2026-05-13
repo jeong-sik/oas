@@ -471,6 +471,7 @@ let resume
       ?context
       ?(options = default_options)
       ?config
+      ?(auto_context_overflow_retry = true)
       ()
   =
   let { Agent_checkpoint.state; context = ctx } =
@@ -487,6 +488,7 @@ let resume
   ; lifecycle = None
   ; last_tool_calls = None
   ; consecutive_idle_turns = 0
+  ; auto_context_overflow_retry
   ; tools = Tool_set.of_list tools
   ; net
   ; context = ctx

@@ -208,6 +208,7 @@ type t =
   ; mutable lifecycle : lifecycle_snapshot option
   ; mutable last_tool_calls : tool_call_fingerprint list option
   ; mutable consecutive_idle_turns : int
+  ; auto_context_overflow_retry : bool
   ; tools : Tool_set.t
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
@@ -324,6 +325,7 @@ let create
       ?(tools = [])
       ?context
       ?(options = default_options)
+      ?(auto_context_overflow_retry = true)
       ()
   =
   let mcp_tools =
@@ -343,6 +345,7 @@ let create
   ; lifecycle = None
   ; last_tool_calls = None
   ; consecutive_idle_turns = 0
+  ; auto_context_overflow_retry
   ; tools = all_tools
   ; net
   ; context = ctx
@@ -364,6 +367,7 @@ let clone ?(copy_context = false) agent =
   ; lifecycle = agent.lifecycle
   ; last_tool_calls = None
   ; consecutive_idle_turns = 0
+  ; auto_context_overflow_retry = agent.auto_context_overflow_retry
   ; tools = agent.tools
   ; net = agent.net
   ; context = ctx

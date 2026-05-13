@@ -8,6 +8,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Bug Fixes
+
+* **agent:** allow coordinators to own context-overflow compact retry
+
 ## [0.193.9](https://github.com/jeong-sik/oas/compare/v0.193.8...v0.193.9) (2026-05-13)
 
 
