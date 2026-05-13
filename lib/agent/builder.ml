@@ -69,6 +69,7 @@ type t =
   ; on_run_complete : (bool -> unit) option
   ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
   ; journal : Durable_event.journal option
+  ; checkpoint_sink : Agent.checkpoint_sink option
   ; policy_channel : Policy_channel.t option
   ; summarizer : (Types.message list -> string) option
   ; transport : Llm_provider.Llm_transport.t option
@@ -141,6 +142,7 @@ let create ~net ~model =
   ; on_run_complete = None
   ; tool_result_relocation = None
   ; journal = None
+  ; checkpoint_sink = None
   ; policy_channel = None
   ; summarizer = None
   ; transport = None
@@ -153,6 +155,10 @@ let with_tool_result_relocation ~store ~state b =
 ;;
 
 let with_journal journal b = { b with journal = Some journal }
+
+let with_checkpoint_sink checkpoint_sink b =
+  { b with checkpoint_sink = Some checkpoint_sink }
+;;
 
 (** Override the Budget_strategy Emergency-phase summarizer with a
     domain-aware function.  Leave unset to use the OAS built-in
@@ -432,6 +438,7 @@ let build b =
     ; on_run_complete = b.on_run_complete
     ; tool_result_relocation = b.tool_result_relocation
     ; journal = b.journal
+    ; checkpoint_sink = b.checkpoint_sink
     ; transport = b.transport
     ; runtime_mcp_policy = b.runtime_mcp_policy
     ; summarizer = b.summarizer

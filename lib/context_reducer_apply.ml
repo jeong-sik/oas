@@ -79,102 +79,134 @@ let apply_prune_tool_args ~max_arg_len ~keep_recent messages =
     List.concat processed)
 ;;
 
-let apply_repair_dangling_tool_calls messages =
-  let result_ids =
-    List.fold_left
-      (fun acc (msg : message) ->
-         List.fold_left
-           (fun acc block ->
-              match block with
-              | ToolResult { tool_use_id; _ } -> tool_use_id :: acc
-              | _ -> acc)
-           acc
-           msg.content)
-      []
-      messages
+let tool_use_ids (msg : message) =
+  List.filter_map
+    (function
+      | ToolUse { id; _ } -> Some id
+      | Text _
+      | Thinking _
+      | RedactedThinking _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ -> None)
+    msg.content
+;;
+
+let tool_result_ids (msg : message) =
+  List.filter_map
+    (function
+      | ToolResult { tool_use_id; _ } -> Some tool_use_id
+      | Text _
+      | Thinking _
+      | RedactedThinking _
+      | ToolUse _
+      | Image _
+      | Document _
+      | Audio _ -> None)
+    msg.content
+;;
+
+let has_tool_result msg = tool_result_ids msg <> []
+
+let synthetic_tool_result_message id =
+  { role = User
+  ; content =
+      [ ToolResult
+          { tool_use_id = id
+          ; content = "Tool call cancelled before completion."
+          ; is_error = true
+          ; json = None
+          }
+      ]
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let split_tool_result_span messages =
+  let rec loop span = function
+    | msg :: rest when has_tool_result msg -> loop (msg :: span) rest
+    | rest -> List.rev span, rest
   in
+  loop [] messages
+;;
+
+let apply_repair_dangling_tool_calls messages =
   let rec aux acc = function
     | [] -> List.rev acc
     | (msg : message) :: rest ->
-      let orphan_ids =
-        List.filter_map
-          (fun (block : content_block) ->
-             match block with
-             | ToolUse { id; _ } when not (List.mem id result_ids) -> Some id
-             | ToolUse _
-             | Text _
-             | Thinking _
-             | RedactedThinking _
-             | ToolResult _
-             | Image _
-             | Document _
-             | Audio _ -> None)
-          msg.content
-      in
-      if orphan_ids = []
+      let use_ids = if msg.role = Assistant then tool_use_ids msg else [] in
+      if use_ids = []
       then aux (msg :: acc) rest
       else (
-        let repairs =
-          List.map
-            (fun id ->
-               { role = User
-               ; content =
-                   [ ToolResult
-                       { tool_use_id = id
-                       ; content = "Tool call cancelled before completion."
-                       ; is_error = true
-                       ; json = None
-                       }
-                   ]
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               })
-            orphan_ids
-        in
-        aux (List.rev_append repairs (msg :: acc)) rest)
+        let result_span, tail = split_tool_result_span rest in
+        let result_ids = List.concat_map tool_result_ids result_span in
+        let orphan_ids = List.filter (fun id -> not (List.mem id result_ids)) use_ids in
+        let repairs = List.map synthetic_tool_result_message orphan_ids in
+        let segment = (msg :: result_span) @ repairs in
+        aux (List.rev_append segment acc) tail)
   in
   aux [] messages
 ;;
 
 let apply_repair_orphaned_tool_results messages =
-  let use_ids =
-    List.fold_left
-      (fun acc (msg : message) ->
-         List.fold_left
-           (fun acc (block : content_block) ->
-              match block with
-              | ToolUse { id; _ } -> id :: acc
-              | Text _
-              | Thinking _
-              | RedactedThinking _
-              | ToolResult _
-              | Image _
-              | Document _
-              | Audio _ -> acc)
-           acc
-           msg.content)
-      []
-      messages
+  let filter_tool_results allowed seen (msg : message) =
+    let seen_ref = ref seen in
+    let content =
+      List.filter
+        (function
+          | ToolResult { tool_use_id; _ } ->
+            let keep =
+              List.mem tool_use_id allowed && not (List.mem tool_use_id !seen_ref)
+            in
+            if keep then seen_ref := tool_use_id :: !seen_ref;
+            keep
+          | Text _
+          | Thinking _
+          | RedactedThinking _
+          | ToolUse _
+          | Image _
+          | Document _
+          | Audio _ -> true)
+        msg.content
+    in
+    let msg = if content = [] then None else Some { msg with content } in
+    msg, !seen_ref
   in
-  List.filter_map
-    (fun (msg : message) ->
-       let content =
-         List.filter
-           (fun (block : content_block) ->
-              match block with
-              | ToolResult { tool_use_id; _ } -> List.mem tool_use_id use_ids
-              | Text _
-              | Thinking _
-              | RedactedThinking _
-              | ToolUse _
-              | Image _
-              | Document _
-              | Audio _ -> true)
-           msg.content
-       in
-       if content = [] then None else Some { msg with content })
-    messages
+  let filter_result_span allowed span =
+    let filtered, _seen =
+      List.fold_left
+        (fun (acc, seen) msg ->
+           let msg, seen = filter_tool_results allowed seen msg in
+           match msg with
+           | Some msg -> msg :: acc, seen
+           | None -> acc, seen)
+        ([], [])
+        span
+    in
+    List.rev filtered
+  in
+  let rec aux acc = function
+    | [] -> List.rev acc
+    | (msg : message) :: rest ->
+      let use_ids = if msg.role = Assistant then tool_use_ids msg else [] in
+      if use_ids = []
+      then (
+        let msg, _seen = filter_tool_results [] [] msg in
+        let acc =
+          match msg with
+          | Some msg -> msg :: acc
+          | None -> acc
+        in
+        aux acc rest)
+      else (
+        let span, tail = split_tool_result_span rest in
+        let filtered_span = filter_result_span use_ids span in
+        aux (List.rev_append filtered_span (msg :: acc)) tail)
+  in
+  aux [] messages
 ;;
 
 let apply_merge_contiguous messages =

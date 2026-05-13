@@ -1002,6 +1002,75 @@ let test_session_settings_persist_across_resume () =
   Client.disconnect resumed
 ;;
 
+let test_checkpoint_snapshot_failure_does_not_append_event () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  with_temp_dir
+  @@ fun session_root ->
+  let runtime = runtime_path () in
+  let session =
+    match
+      unwrap_response
+        (runtime_query
+           ~sw
+           ~mgr
+           ~runtime_path:runtime
+           ~session_root
+           (Runtime.Start_session
+              { session_id = Some "sess-checkpoint-failure"
+              ; goal = "Checkpoint atomically"
+              ; participants = []
+              ; provider = None
+              ; model = None
+              ; permission_mode = None
+              ; system_prompt = None
+              ; max_turns = None
+              ; workdir = None
+              }))
+    with
+    | Runtime.Session_started_response session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  let store = unwrap (Runtime_store.create ~root:session_root ()) in
+  let snapshots = Runtime_store.snapshots_dir store session.session_id in
+  Unix.rmdir snapshots;
+  let oc = open_out snapshots in
+  output_string oc "not a directory";
+  close_out oc;
+  (match
+     runtime_query
+       ~sw
+       ~mgr
+       ~runtime_path:runtime
+       ~session_root
+       (Runtime.Apply_command
+          { session_id = session.session_id
+          ; command = Runtime.Checkpoint { label = Some "blocked" }
+          })
+   with
+   | Ok response ->
+     Alcotest.failf
+       "expected checkpoint command to fail, got %s"
+       (Runtime.show_response response)
+   | Error _ -> ());
+  let events = unwrap (Runtime_store.read_events store session.session_id ()) in
+  let checkpoint_event_exists =
+    List.exists
+      (fun (event : Runtime.event) ->
+         match event.kind with
+         | Runtime.Checkpoint_saved _ -> true
+         | _ -> false)
+      events
+  in
+  Alcotest.(check bool)
+    "failed snapshot write does not leave checkpoint event"
+    false
+    checkpoint_event_exists
+;;
+
 let () =
   Random.self_init ();
   Alcotest.run
@@ -1027,6 +1096,12 @@ let () =
         ] )
     ; ( "runtime_client"
       , [ Alcotest.test_case "roundtrip" `Quick test_runtime_client_roundtrip ] )
+    ; ( "checkpoint"
+      , [ Alcotest.test_case
+            "snapshot write fails before checkpoint event"
+            `Quick
+            test_checkpoint_snapshot_failure_does_not_append_event
+        ] )
     ; ( "sdk"
       , [ Alcotest.test_case
             "high level query and sessions"

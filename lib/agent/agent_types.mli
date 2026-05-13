@@ -20,6 +20,22 @@ type tiered_memory = Types.tiered_memory =
   ; short_term : string option
   }
 
+type checkpoint_stage =
+  | After_assistant_collected
+  | After_tool_results_appended
+  | After_retry_feedback_appended
+
+val checkpoint_stage_to_string : checkpoint_stage -> string
+
+type checkpoint_snapshot =
+  { stage : checkpoint_stage
+  ; turn : int
+  ; checkpoint : Checkpoint.t
+  ; timestamp : float
+  }
+
+type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -141,6 +157,13 @@ type options =
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
+  ; checkpoint_sink : checkpoint_sink option
+    (** Optional turn-boundary checkpoint sink.  When provided, the
+        pipeline emits a full checkpoint after durable in-memory turn
+        mutations that matter for crash recovery: assistant collection,
+        tool-result feedback append, and required-tool retry feedback
+        append.  The sink is generic and owned by the caller.
+        @since 0.193.9 *)
   ; transport : Llm_provider.Llm_transport.t option
     (** Optional non-HTTP transport override.  Required for CLI provider
         kinds ([Claude_code], [Codex_cli], [Gemini_cli], [Kimi_cli])

@@ -8,6 +8,19 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.9](https://github.com/jeong-sik/oas/compare/v0.193.8...v0.193.9) (2026-05-13)
+
+
+### Features
+
+* **agent:** add generic turn-boundary checkpoint sink for crash recovery
+
+
+### Bug Fixes
+
+* **context:** make tool-use/result repair span-aware for strict providers
+* **runtime:** save checkpoint snapshots before appending Checkpoint_saved events
+
 ## [0.193.8](https://github.com/jeong-sik/oas/compare/v0.193.7...v0.193.8) (2026-05-12)
 
 

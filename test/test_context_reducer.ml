@@ -1225,6 +1225,24 @@ let test_repair_partial_orphan () =
   Alcotest.(check int) "repaired (+1)" 5 (List.length result)
 ;;
 
+let test_repair_late_result_is_not_pairing () =
+  let msgs =
+    [ user_msg "q"
+    ; tool_use_msg "t1" "calc"
+    ; user_msg "interrupting text"
+    ; tool_result_msg "t1" "late result"
+    ; asst_msg "done"
+    ]
+  in
+  let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
+  Alcotest.(check int) "late result does not satisfy adjacency" 6 (List.length result);
+  match List.nth result 2 with
+  | { Types.content = [ Types.ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+    Alcotest.(check string) "synthetic id" "t1" tool_use_id;
+    Alcotest.(check bool) "synthetic error" true is_error
+  | _ -> Alcotest.fail "expected synthetic adjacent tool result"
+;;
+
 (* --- repair_orphaned_tool_results --- *)
 
 let test_orphaned_results_no_orphans () =
@@ -1288,6 +1306,45 @@ let test_orphaned_results_after_compaction () =
   in
   let result = Context_reducer.reduce Context_reducer.repair_orphaned_tool_results msgs in
   Alcotest.(check int) "orphan removed" 3 (List.length result)
+;;
+
+let test_orphaned_results_late_result_removed () =
+  let msgs =
+    [ user_msg "q"
+    ; tool_use_msg "t1" "calc"
+    ; user_msg "interrupting text"
+    ; tool_result_msg "t1" "late result"
+    ; asst_msg "done"
+    ]
+  in
+  let result = Context_reducer.reduce Context_reducer.repair_orphaned_tool_results msgs in
+  Alcotest.(check int) "late result removed" 4 (List.length result);
+  match List.nth result 2 with
+  | { Types.content = [ Types.Text text ]; _ } ->
+    Alcotest.(check string) "text preserved" "interrupting text" text
+  | _ -> Alcotest.fail "expected interrupting text to remain"
+;;
+
+let test_default_tool_contract_repairs_late_result () =
+  let msgs =
+    [ user_msg "q"
+    ; tool_use_msg "t1" "calc"
+    ; user_msg "interrupting text"
+    ; tool_result_msg "t1" "late result"
+    ; asst_msg "done"
+    ]
+  in
+  let result = Context_reducer.reduce Defaults.default_context_reducer msgs in
+  Alcotest.(check int) "synthetic inserted and late result removed" 5 (List.length result);
+  (match List.nth result 2 with
+   | { Types.content = [ Types.ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+     Alcotest.(check string) "synthetic id" "t1" tool_use_id;
+     Alcotest.(check bool) "synthetic error" true is_error
+   | _ -> Alcotest.fail "expected synthetic adjacent tool result");
+  match List.nth result 3 with
+  | { Types.content = [ Types.Text text ]; _ } ->
+    Alcotest.(check string) "intervening text preserved" "interrupting text" text
+  | _ -> Alcotest.fail "expected text after repaired tool span"
 ;;
 
 let () =
@@ -1422,6 +1479,10 @@ let () =
             `Quick
             test_repair_multiple_orphans
         ; Alcotest.test_case "partial orphan repaired" `Quick test_repair_partial_orphan
+        ; Alcotest.test_case
+            "late result does not satisfy adjacency"
+            `Quick
+            test_repair_late_result_is_not_pairing
         ] )
     ; ( "repair_orphaned_tool_results"
       , [ Alcotest.test_case
@@ -1434,6 +1495,14 @@ let () =
             "after compaction"
             `Quick
             test_orphaned_results_after_compaction
+        ; Alcotest.test_case
+            "late result removed"
+            `Quick
+            test_orphaned_results_late_result_removed
+        ; Alcotest.test_case
+            "default repairs late result contract"
+            `Quick
+            test_default_tool_contract_repairs_late_result
         ] )
     ; ( "cap_message_tokens_pair_preserving"
       , [ Alcotest.test_case "tool_use never dropped" `Quick test_cap_preserves_tool_use

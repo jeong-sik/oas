@@ -11,6 +11,26 @@ type tiered_memory = Types.tiered_memory =
   ; short_term : string option
   }
 
+type checkpoint_stage =
+  | After_assistant_collected
+  | After_tool_results_appended
+  | After_retry_feedback_appended
+
+let checkpoint_stage_to_string = function
+  | After_assistant_collected -> "after_assistant_collected"
+  | After_tool_results_appended -> "after_tool_results_appended"
+  | After_retry_feedback_appended -> "after_retry_feedback_appended"
+;;
+
+type checkpoint_snapshot =
+  { stage : checkpoint_stage
+  ; turn : int
+  ; checkpoint : Checkpoint.t
+  ; timestamp : float
+  }
+
+type checkpoint_sink = checkpoint_snapshot -> (unit, string) result
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -73,6 +93,7 @@ type options =
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
+  ; checkpoint_sink : checkpoint_sink option
   ; transport : Llm_provider.Llm_transport.t option
     (** Optional non-HTTP transport override.  Required for CLI provider
         kinds ([Claude_code], [Codex_cli], [Gemini_cli], [Kimi_cli]) which cannot be
@@ -171,6 +192,7 @@ let default_options =
   ; on_run_complete = None
   ; tool_result_relocation = None
   ; journal = None
+  ; checkpoint_sink = None
   ; transport = None
   ; runtime_mcp_policy = None
   ; summarizer = None

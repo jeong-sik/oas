@@ -747,22 +747,24 @@ let apply_command ~sw state store (session : session) command =
     in
     Ok (Command_applied session)
   | Checkpoint detail ->
-    let path =
-      Runtime_store.snapshot_path
-        store
-        session.session_id
-        ~seq:(session.last_seq + 1)
-        ~label:detail.label
-    in
-    let* session, _ =
-      persist_event
-        store
-        state
-        session_id
-        (Checkpoint_saved { label = detail.label; path })
-    in
-    let* _ = Runtime_store.save_snapshot store session ~label:detail.label in
-    Ok (Command_applied session)
+    with_store_lock state (fun () ->
+      let* session = Runtime_store.load_session store session_id in
+      let seq = session.last_seq + 1 in
+      let path =
+        Runtime_store.snapshot_path store session.session_id ~seq ~label:detail.label
+      in
+      let event =
+        { seq
+        ; ts = Unix.gettimeofday ()
+        ; kind = Checkpoint_saved { label = detail.label; path }
+        }
+      in
+      let* projected = Runtime_projection.apply_event session event in
+      let* _path = Runtime_store.save_snapshot store projected ~label:detail.label in
+      let* () = Runtime_store.append_event store session.session_id event in
+      let* () = Runtime_store.save_session store projected in
+      let () = emit_event state session.session_id event in
+      Ok (Command_applied projected))
   | Request_finalize detail -> finalize_session state store session detail.reason
 ;;
 

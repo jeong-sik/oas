@@ -320,6 +320,10 @@ val with_tool_result_relocation
     @since 0.133.0 *)
 val with_journal : Durable_event.journal -> t -> t
 
+(** Attach a caller-owned turn-boundary checkpoint sink.
+    @since 0.193.9 *)
+val with_checkpoint_sink : Agent.checkpoint_sink -> t -> t
+
 (** Override the Budget_strategy Emergency-phase summarizer with a
     domain-aware function.  Routed into [Agent.options.summarizer] and
     forwarded to {!Budget_strategy.reduce_for_budget} when compaction
