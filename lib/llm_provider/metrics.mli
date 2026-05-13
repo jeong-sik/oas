@@ -8,6 +8,17 @@
     @stability Internal
     @since 0.93.1 *)
 
+(** Circuit-breaker state encoded for metrics backends. The integer
+    mapping follows the common gauge convention:
+    [0=closed], [1=open], [2=half-open]. *)
+type circuit_state =
+  | Circuit_closed
+  | Circuit_open
+  | Circuit_half_open
+
+val circuit_state_to_int : circuit_state -> int
+val circuit_state_to_string : circuit_state -> string
+
 (** Metrics callback interface. All callbacks are optional — provide [noop]
     as a default that does nothing.
 
@@ -24,6 +35,18 @@ type t =
   ; on_request_end : model_id:string -> latency_ms:int option -> unit
   ; on_error : model_id:string -> error:string -> unit
   ; on_http_status : provider:string -> model_id:string -> status:int -> unit
+  ; on_circuit_state :
+      provider:string
+      -> model_id:string
+      -> provider_key:string
+      -> state:circuit_state
+      -> unit
+    (** Fired when cascade circuit-breaker state is observed or updated.
+        Backends can export this as a gauge using
+        {!circuit_state_to_int}; [provider_key] keeps same-model,
+        different-endpoint circuits distinguishable.
+
+        @since 0.193.10 *)
   ; on_capability_drop : model_id:string -> field:string -> unit
   ; on_retry : provider:string -> model_id:string -> attempt:int -> unit
     (** Fired when a request is retried due to a retryable error.

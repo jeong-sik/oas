@@ -177,6 +177,36 @@ let provider_health_scores health ~cascade_config ~provider_keys =
     provider_keys
 ;;
 
+let circuit_state_of_info ~cascade_config info =
+  if info.circuit_open
+  then Metrics.Circuit_open
+  else if info.consecutive_failures >= max 1 cascade_config.circuit_threshold
+  then Metrics.Circuit_half_open
+  else Metrics.Circuit_closed
+;;
+
+let emit_circuit_state metrics config ~cascade_config ~health ~provider_key =
+  let info = provider_health_info health ~cascade_config ~provider_key in
+  let state = circuit_state_of_info ~cascade_config info in
+  metrics.Metrics.on_circuit_state
+    ~provider:(Provider_registry.provider_name_of_config config)
+    ~model_id:config.Provider_config.model_id
+    ~provider_key
+    ~state
+;;
+
+let emit_half_open_if_needed metrics config ~cascade_config ~health ~provider_key =
+  let info = provider_health_info health ~cascade_config ~provider_key in
+  match circuit_state_of_info ~cascade_config info with
+  | Metrics.Circuit_half_open ->
+    metrics.Metrics.on_circuit_state
+      ~provider:(Provider_registry.provider_name_of_config config)
+      ~model_id:config.Provider_config.model_id
+      ~provider_key
+      ~state:Metrics.Circuit_half_open
+  | Metrics.Circuit_closed | Metrics.Circuit_open -> ()
+;;
+
 (* --- Error classification --- *)
 
 let is_hard_quota_http_error = function
@@ -204,19 +234,31 @@ let complete_cascade
       ?tools
       ()
   =
+  let metrics_sink =
+    match metrics with
+    | Some m -> m
+    | None -> Metrics.get_global ()
+  in
   let rec loop remaining idx errors skipped =
     match remaining with
     | [] -> All_failed { errors = List.rev errors; skipped = List.rev skipped }
     | config :: rest ->
       let key = provider_key config in
       if is_circuit_open health ~ccfg:cascade_config key
-      then
+      then (
+        emit_circuit_state metrics_sink config ~cascade_config ~health ~provider_key:key;
         loop
           rest
           (idx + 1)
           errors
-          ((config, Circuit_breaker_open { provider = key }) :: skipped)
+          ((config, Circuit_breaker_open { provider = key }) :: skipped))
       else (
+        emit_half_open_if_needed
+          metrics_sink
+          config
+          ~cascade_config
+          ~health
+          ~provider_key:key;
         let attempt () =
           Complete.complete_with_retry
             ~sw
@@ -258,12 +300,14 @@ let complete_cascade
         match result with
         | Ok response ->
           record_success health key;
+          emit_circuit_state metrics_sink config ~cascade_config ~health ~provider_key:key;
           Success
             { response; step_index = idx; model_id = config.Provider_config.model_id }
         | Error (Http_client.ProviderTerminal { kind; message }) ->
           Provider_terminal { config; kind; message }
         | Error err ->
           record_failure health key;
+          emit_circuit_state metrics_sink config ~cascade_config ~health ~provider_key:key;
           if is_hard_quota_http_error err
           then Hard_quota { config; error = err }
           else loop rest (idx + 1) ((config, err) :: errors) skipped)

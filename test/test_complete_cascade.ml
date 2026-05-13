@@ -310,6 +310,14 @@ let test_circuit_open_skips_provider_and_falls_back () =
   Complete_cascade.record_failure health anthropic_key;
   Complete_cascade.record_failure health anthropic_key;
   let seen_models = ref [] in
+  let circuit_states = ref [] in
+  let metrics : Metrics.t =
+    { Metrics.noop with
+      on_circuit_state =
+        (fun ~provider ~model_id ~provider_key ~state ->
+          circuit_states := (provider, model_id, provider_key, state) :: !circuit_states)
+    }
+  in
   let transport : Llm_transport.t =
     { complete_sync =
         (fun (req : Llm_transport.completion_request) ->
@@ -328,6 +336,7 @@ let test_circuit_open_skips_provider_and_falls_back () =
       ~clock
       ~transport
       ~health
+      ~metrics
       ~steps:[ anthropic; moonshot ]
       ~messages:[]
       ()
@@ -341,11 +350,147 @@ let test_circuit_open_skips_provider_and_falls_back () =
       ~provider_key:anthropic_key
   in
   check bool "anthropic circuit remains open" true anthropic_info.circuit_open;
+  check
+    bool
+    "open circuit state metric emitted"
+    true
+    (List.exists
+       (fun (_provider, model_id, provider_key, state) ->
+          String.equal model_id anthropic.model_id
+          && String.equal provider_key anthropic_key
+          && state = Metrics.Circuit_open)
+       !circuit_states);
   match result with
   | Complete_cascade.Success { step_index; model_id; _ } ->
     check int "fallback step index" 1 step_index;
     check string "fallback model" "moonshot-v1" model_id
   | _ -> fail "expected fallback Success"
+;;
+
+let test_circuit_state_metric_on_failure_open () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"llama3"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let key = Complete_cascade.provider_key config in
+  let circuit_states = ref [] in
+  let metrics : Metrics.t =
+    { Metrics.noop with
+      on_circuit_state =
+        (fun ~provider:_ ~model_id:_ ~provider_key ~state ->
+          circuit_states := (provider_key, state) :: !circuit_states)
+    }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ ->
+          { Llm_transport.response =
+              Error
+                (Http_client.NetworkError
+                   { kind = Http_client.Timeout; message = "timeout" })
+          ; latency_ms = None
+          })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _ ->
+          Error
+            (Http_client.NetworkError { kind = Http_client.Timeout; message = "timeout" }))
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~metrics
+      ~cascade_config:{ circuit_threshold = 1; circuit_cooldown_s = 30.0 }
+      ~steps:[ config ]
+      ~messages:[]
+      ()
+  in
+  (match result with
+   | Complete_cascade.All_failed _ -> ()
+   | _ -> fail "expected failed cascade");
+  check
+    bool
+    "failure opens circuit metric"
+    true
+    (List.exists
+       (fun (provider_key, state) ->
+          String.equal provider_key key && state = Metrics.Circuit_open)
+       !circuit_states)
+;;
+
+let test_circuit_state_metric_half_open_then_closed () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let health = Complete_cascade.create_health ~clock () in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"llama3"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let key = Complete_cascade.provider_key config in
+  Complete_cascade.record_failure health key;
+  let circuit_states = ref [] in
+  let metrics : Metrics.t =
+    { Metrics.noop with
+      on_circuit_state =
+        (fun ~provider:_ ~model_id:_ ~provider_key ~state ->
+          circuit_states := (provider_key, state) :: !circuit_states)
+    }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ -> { Llm_transport.response = Ok dummy_response; latency_ms = Some 10 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _ -> Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~metrics
+      ~health
+      ~cascade_config:{ circuit_threshold = 1; circuit_cooldown_s = 0.0 }
+      ~steps:[ config ]
+      ~messages:[]
+      ()
+  in
+  (match result with
+   | Complete_cascade.Success _ -> ()
+   | _ -> fail "expected successful half-open probe");
+  check
+    bool
+    "half-open metric emitted before probe"
+    true
+    (List.exists
+       (fun (provider_key, state) ->
+          String.equal provider_key key && state = Metrics.Circuit_half_open)
+       !circuit_states);
+  check
+    bool
+    "closed metric emitted after success"
+    true
+    (List.exists
+       (fun (provider_key, state) ->
+          String.equal provider_key key && state = Metrics.Circuit_closed)
+       !circuit_states)
 ;;
 
 let test_hard_quota_stops_without_calling_fallback () =
@@ -622,6 +767,10 @@ let suite =
   ; "result_provider_terminal", `Quick, test_result_provider_terminal_variant
   ; "skip_reason", `Quick, test_skip_reason_variant
   ; "circuit_open_fallback", `Quick, test_circuit_open_skips_provider_and_falls_back
+  ; "circuit_state_failure_open", `Quick, test_circuit_state_metric_on_failure_open
+  ; ( "circuit_state_half_open_closed"
+    , `Quick
+    , test_circuit_state_metric_half_open_then_closed )
   ; ( "hard_quota_stops_without_fallback"
     , `Quick
     , test_hard_quota_stops_without_calling_fallback )
