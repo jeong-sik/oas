@@ -6,7 +6,24 @@
     {b Compile-time guarantee}: attempting to pass a non-streaming
     provider as STREAMING_PROVIDER produces a type error. *)
 
+module Http_client = Llm_provider.Http_client
 module Retry = Llm_provider.Retry
+
+let retry_error_of_http_error = function
+  | Http_client.HttpError { code; body } -> Retry.classify_error ~status:code ~body
+  | Http_client.NetworkError { message; kind = Http_client.Timeout } ->
+    Retry.Timeout { message }
+  | Http_client.NetworkError { message; kind } -> Retry.NetworkError { message; kind }
+  | Http_client.AcceptRejected { reason } ->
+    Retry.InvalidRequest { message = "Response rejected: " ^ reason }
+  | Http_client.CliTransportRequired { kind } ->
+    Retry.InvalidRequest
+      { message = Printf.sprintf "Provider kind requires CLI transport: %s" kind }
+  | Http_client.ProviderTerminal { message; _ } -> Retry.InvalidRequest { message }
+  | Http_client.ProviderFailure { kind; message } ->
+    Retry.InvalidRequest
+      { message = Http_client.provider_failure_to_string ~kind ~message }
+;;
 
 (** Synchronous provider: can send a message and get a response. *)
 module type PROVIDER = sig
@@ -76,60 +93,30 @@ let of_config (provider_cfg : Provider.config) : provider_module =
            | Some impl -> impl.build_body ~config ~messages ?tools ()
            | None -> Yojson.Safe.to_string (`Assoc []))
       in
-      let uri = Uri.of_string (base_url ^ path) in
-      let https = Api_common.make_https () in
-      let client = Cohttp_eio.Client.make ~https net in
-      let hdr_list = headers in
-      let hdr = Http.Header.of_list hdr_list in
-      try
-        let resp, body =
-          Cohttp_eio.Client.post
-            ~sw
-            client
-            ~headers:hdr
-            ~body:(Cohttp_eio.Body.of_string body_str)
-            uri
-        in
-        match Cohttp.Response.status resp with
-        | `OK ->
-          let body_str =
-            Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all)
-          in
-          (match kind with
-           | Provider.Anthropic_messages ->
-             Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
-           | Provider.Openai_chat_completions ->
-             (match
-                Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
-              with
-              | Ok resp -> Ok resp
-              | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
-           | Provider.Custom name ->
-             (match Provider.find_provider name with
-              | Some impl -> Ok (impl.parse_response body_str)
-              | None ->
-                (match
-                   Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
-                 with
-                 | Ok resp -> Ok resp
-                 | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
-        | status ->
-          let code = Cohttp.Code.code_of_status status in
-          let body_str =
-            Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body body |> take_all)
-          in
-          Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
-      with
-      | Eio.Io _ as exn ->
-        Error
-          (Error.Api
-             (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
-      | Unix.Unix_error _ as exn ->
-        Error
-          (Error.Api
-             (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown }))
-      | Failure msg ->
-        Error (Error.Api (Retry.NetworkError { message = msg; kind = Unknown }))
+      let url = base_url ^ path in
+      match Http_client.post_sync ~sw ~net ~url ~headers ~body:body_str () with
+      | Ok (200, body_str) ->
+        (match kind with
+         | Provider.Anthropic_messages ->
+           Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
+         | Provider.Openai_chat_completions ->
+           (match
+              Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
+            with
+            | Ok resp -> Ok resp
+            | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
+         | Provider.Custom name ->
+           (match Provider.find_provider name with
+            | Some impl -> Ok (impl.parse_response body_str)
+            | None ->
+              (match
+                 Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
+               with
+               | Ok resp -> Ok resp
+               | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
+      | Ok (code, body_str) ->
+        Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
+      | Error err -> Error (Error.Api (retry_error_of_http_error err))
     ;;
   end
   in
