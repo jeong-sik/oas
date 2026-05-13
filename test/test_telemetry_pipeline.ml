@@ -6,6 +6,21 @@
 
 open Agent_sdk
 
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop index =
+    if sub_len = 0
+    then true
+    else if index + sub_len > text_len
+    then false
+    else if String.sub text index sub_len = sub
+    then true
+    else loop (index + 1)
+  in
+  loop 0
+;;
+
 let make_mock_transport () : Llm_provider.Llm_transport.t =
   let response : Types.api_response =
     { id = "telemetry-pipeline-mock"
@@ -41,6 +56,50 @@ let make_mock_transport () : Llm_provider.Llm_transport.t =
   }
 ;;
 
+let text_response ?(id = "checkpoint-text") text : Types.api_response =
+  { id
+  ; model = "mock-model"
+  ; stop_reason = Types.EndTurn
+  ; content = [ Types.Text text ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let tool_use_response () : Types.api_response =
+  { id = "checkpoint-tool-use"
+  ; model = "mock-model"
+  ; stop_reason = Types.StopToolUse
+  ; content =
+      [ Types.ToolUse
+          { id = "call_1"
+          ; name = "get_time"
+          ; input = `Assoc [ "timezone", `String "UTC" ]
+          }
+      ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let make_sequence_transport responses : Llm_provider.Llm_transport.t =
+  let remaining = ref responses in
+  let next_response () =
+    match !remaining with
+    | response :: rest ->
+      remaining := rest;
+      response
+    | [] -> Alcotest.fail "mock transport exhausted"
+  in
+  { complete_sync =
+      (fun _req ->
+        { Llm_provider.Llm_transport.response = Ok (next_response ())
+        ; latency_ms = Some 0
+        })
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _req -> Ok (next_response ()))
+  }
+;;
+
 let make_agent ~net ~transport () =
   let event_bus = Event_bus.create ~buffer_size:256 () in
   let options =
@@ -64,6 +123,29 @@ let make_agent ~net ~transport () =
   in
   let agent = Agent.create ~net ~config ~options () in
   agent, event_bus
+;;
+
+let make_checkpoint_agent ~net ~transport ~checkpoint_sink ~max_turns ~tools () =
+  let options =
+    { Agent.default_options with
+      transport = Some transport
+    ; checkpoint_sink = Some checkpoint_sink
+    ; provider =
+        Some
+          { provider = Provider.Local { base_url = "http://mock.local" }
+          ; model_id = "mock-model"
+          ; api_key_env = ""
+          }
+    }
+  in
+  let config =
+    { Types.default_config with
+      name = "turn-checkpoint-test"
+    ; model = "mock-model"
+    ; max_turns
+    }
+  in
+  Agent.create ~net ~config ~tools ~options ()
 ;;
 
 let test_run_stream_emits_telemetry_via_pipeline () =
@@ -137,6 +219,146 @@ let test_run_stream_without_event_bus_skips_telemetry () =
     (Atomic.get on_telemetry_received)
 ;;
 
+let test_checkpoint_sink_after_assistant_collect () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let snapshots = ref [] in
+  let checkpoint_sink snapshot =
+    snapshots := snapshot :: !snapshots;
+    Ok ()
+  in
+  let transport = make_sequence_transport [ text_response "ok" ] in
+  let agent =
+    make_checkpoint_agent
+      ~net:env#net
+      ~transport
+      ~checkpoint_sink
+      ~max_turns:1
+      ~tools:[]
+      ()
+  in
+  (match Agent.run ~sw agent "capture this turn" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
+  let snapshots = List.rev !snapshots in
+  Alcotest.(check int) "one checkpoint" 1 (List.length snapshots);
+  match snapshots with
+  | [ snapshot ] ->
+    Alcotest.(check bool) "stage" true (snapshot.stage = Agent.After_assistant_collected);
+    Alcotest.(check int) "turn" 1 snapshot.turn;
+    Alcotest.(check int) "checkpoint turn" 1 snapshot.checkpoint.turn_count;
+    Alcotest.(check bool)
+      "assistant persisted"
+      true
+      (List.exists
+         (fun (msg : Types.message) ->
+            msg.role = Types.Assistant
+            && List.exists
+                 (function
+                   | Types.Text "ok" -> true
+                   | _ -> false)
+                 msg.content)
+         snapshot.checkpoint.messages)
+  | _ -> Alcotest.fail "expected one snapshot"
+;;
+
+let test_checkpoint_sink_after_tool_feedback () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let snapshots = ref [] in
+  let checkpoint_sink snapshot =
+    snapshots := snapshot :: !snapshots;
+    Ok ()
+  in
+  let transport =
+    make_sequence_transport [ tool_use_response (); text_response "tool complete" ]
+  in
+  let time_tool =
+    Tool.create
+      ~name:"get_time"
+      ~description:"Get current time"
+      ~parameters:
+        [ { name = "timezone"
+          ; param_type = Types.String
+          ; description = "tz"
+          ; required = true
+          }
+        ]
+      (fun _input -> Ok { Types.content = "12:00 UTC" })
+  in
+  let agent =
+    make_checkpoint_agent
+      ~net:env#net
+      ~transport
+      ~checkpoint_sink
+      ~max_turns:3
+      ~tools:[ time_tool ]
+      ()
+  in
+  (match Agent.run ~sw agent "what time is it?" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
+  let snapshots = List.rev !snapshots in
+  let stages =
+    List.map (fun (snapshot : Agent.checkpoint_snapshot) -> snapshot.stage) snapshots
+  in
+  let turns =
+    List.map (fun (snapshot : Agent.checkpoint_snapshot) -> snapshot.turn) snapshots
+  in
+  Alcotest.(check int) "three checkpoints" 3 (List.length snapshots);
+  Alcotest.(check bool)
+    "stage sequence"
+    true
+    (stages
+     = [ Agent.After_assistant_collected
+       ; Agent.After_tool_results_appended
+       ; Agent.After_assistant_collected
+       ]);
+  Alcotest.(check (list int)) "turn sequence" [ 1; 1; 2 ] turns;
+  let tool_feedback_snapshot = List.nth snapshots 1 in
+  Alcotest.(check bool)
+    "tool result persisted"
+    true
+    (List.exists
+       (fun (msg : Types.message) ->
+          List.exists
+            (function
+              | Types.ToolResult { tool_use_id = "call_1"; content = "12:00 UTC"; _ } ->
+                true
+              | _ -> false)
+            msg.content)
+       tool_feedback_snapshot.checkpoint.messages)
+;;
+
+let test_checkpoint_sink_failure_fails_turn () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let checkpoint_sink _snapshot = Error "disk full" in
+  let transport = make_sequence_transport [ text_response "ok" ] in
+  let agent =
+    make_checkpoint_agent
+      ~net:env#net
+      ~transport
+      ~checkpoint_sink
+      ~max_turns:1
+      ~tools:[]
+      ()
+  in
+  match Agent.run ~sw agent "capture this turn" with
+  | Ok _ -> Alcotest.fail "expected checkpoint sink failure"
+  | Error err ->
+    Alcotest.(check bool)
+      "error mentions checkpoint sink"
+      true
+      (contains_substring ~sub:"checkpoint sink failed" (Error.to_string err))
+;;
+
 let () =
   Alcotest.run
     "Telemetry pipeline integration"
@@ -149,6 +371,18 @@ let () =
             "run_stream skips telemetry without event_bus"
             `Quick
             test_run_stream_without_event_bus_skips_telemetry
+        ; Alcotest.test_case
+            "checkpoint after assistant collect"
+            `Quick
+            test_checkpoint_sink_after_assistant_collect
+        ; Alcotest.test_case
+            "checkpoint after tool feedback"
+            `Quick
+            test_checkpoint_sink_after_tool_feedback
+        ; Alcotest.test_case
+            "checkpoint sink failure fails turn"
+            `Quick
+            test_checkpoint_sink_failure_fails_turn
         ] )
     ]
 ;;

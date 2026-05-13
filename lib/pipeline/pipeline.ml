@@ -13,6 +13,8 @@ open Types
 open Agent_types
 open Agent_trace
 
+let _log = Log.create ~module_name:"pipeline" ()
+
 (* ── Context compaction watermark ───────────────────── *)
 
 (** Default ratio at which proactive compaction fires (0.9 = 90% of context).
@@ -105,6 +107,49 @@ let validate_completion_contract agent (response : Types.api_response) =
   with
   | Ok () -> Ok ()
   | Error reason -> Error (Error.Agent (CompletionContractViolation { contract; reason }))
+;;
+
+let persist_turn_checkpoint agent stage =
+  match agent.options.checkpoint_sink with
+  | None -> Ok ()
+  | Some sink ->
+    let checkpoint =
+      Agent_checkpoint.build_checkpoint
+        ~state:agent.state
+        ~tools:agent.tools
+        ~context:agent.context
+        ~mcp_clients:agent.options.mcp_clients
+        ()
+    in
+    let timestamp = checkpoint.created_at in
+    let turn = agent.state.turn_count in
+    let stage_label = checkpoint_stage_to_string stage in
+    let snapshot = { stage; turn; checkpoint; timestamp } in
+    (match sink snapshot with
+     | Ok () ->
+       (match agent.options.journal with
+        | Some journal ->
+          Durable_event.append
+            journal
+            (Checkpoint_saved
+               { checkpoint_id = Printf.sprintf "%s-%d" stage_label turn; timestamp })
+        | None -> ());
+       Log.info
+         _log
+         "turn checkpoint persisted"
+         [ S ("stage", stage_label)
+         ; I ("turn", turn)
+         ; I ("messages", List.length checkpoint.messages)
+         ];
+       Ok ()
+     | Error detail ->
+       Log.error
+         _log
+         "turn checkpoint sink failed"
+         [ S ("stage", stage_label); I ("turn", turn); S ("detail", detail) ];
+       Error
+         (Error.Internal
+            (Printf.sprintf "checkpoint sink failed at %s: %s" stage_label detail)))
 ;;
 
 let requested_completion_contract agent =
@@ -333,7 +378,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
     ; turn_count = s.turn_count + 1
     ; usage
     });
-  Ok ()
+  persist_turn_checkpoint agent After_assistant_collected
 ;;
 
 let handle_missing_required_tool_use
@@ -383,6 +428,7 @@ let handle_missing_required_tool_use
             { s with
               messages = Util.snoc s.messages (make_message ~role:User [ Text feedback ])
             });
+          let* () = persist_turn_checkpoint agent After_retry_feedback_appended in
           Ok `Retried
         | Tool_retry_policy.Exhausted { attempts; limit; summary = _ } ->
           Tool_retry_policy.clear_context_retry_count agent.context;
@@ -503,6 +549,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages (make_message ~role:User [ Text msg ]) });
+      let* () = persist_turn_checkpoint agent After_tool_results_appended in
       Ok ToolsExecuted
     | false ->
       let results =
@@ -577,6 +624,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
              ~results
          in
          update_state agent (fun s -> { s with messages = new_messages }));
+      let* () = persist_turn_checkpoint agent After_tool_results_appended in
       (* Anti-repetition hint is now in effective_feedback above.
        Removed duplicate User message injection (Copilot review #3). *)
       ignore idle_handled;

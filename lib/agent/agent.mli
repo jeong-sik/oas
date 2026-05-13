@@ -20,6 +20,22 @@ type tiered_memory = Types.tiered_memory =
   ; short_term : string option
   }
 
+type checkpoint_stage = Agent_types.checkpoint_stage =
+  | After_assistant_collected
+  | After_tool_results_appended
+  | After_retry_feedback_appended
+
+val checkpoint_stage_to_string : checkpoint_stage -> string
+
+type checkpoint_snapshot = Agent_types.checkpoint_snapshot =
+  { stage : checkpoint_stage
+  ; turn : int
+  ; checkpoint : Checkpoint.t
+  ; timestamp : float
+  }
+
+type checkpoint_sink = Agent_types.checkpoint_sink
+
 type options = Agent_types.options =
   { base_url : string
   ; provider : Provider.config option
@@ -58,6 +74,7 @@ type options = Agent_types.options =
   ; on_run_complete : (bool -> unit) option
   ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
   ; journal : Durable_event.journal option
+  ; checkpoint_sink : checkpoint_sink option
   ; transport : Llm_provider.Llm_transport.t option
   ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
   ; summarizer : (Types.message list -> string) option

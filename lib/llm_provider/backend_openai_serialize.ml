@@ -218,45 +218,105 @@ let ollama_messages_of_message ?(model_id = "") msg =
     msg
 ;;
 
-(** Strip ToolResult blocks whose tool_use_id has no matching ToolUse
-    in any Assistant message. Occurs after context compaction drops a
-    ToolUse while the corresponding ToolResult survives.
+(** Strip ToolResult blocks that are outside the immediate result span
+    following their Assistant ToolUse message. Occurs after context
+    compaction drops or reorders a ToolUse while the corresponding
+    ToolResult survives.
 
     OpenAI-compatible APIs reject orphaned tool_call_ids; the Anthropic
     API has its own dangling-tool-call repair, so this is OpenAI-path only.
 
     Pure function — no I/O, no mutation. *)
 let strip_orphaned_tool_results (messages : message list) : message list =
-  let tool_use_ids =
-    let tbl = Hashtbl.create 16 in
-    List.iter
-      (fun (msg : message) ->
-         if msg.role = Assistant
-         then
-           List.iter
-             (function
-               | ToolUse { id; _ } -> Hashtbl.replace tbl id ()
-               | _ -> ())
-             msg.content)
-      messages;
-    tbl
+  let tool_use_ids (msg : message) =
+    List.filter_map
+      (function
+        | ToolUse { id; _ } -> Some id
+        | Text _
+        | Thinking _
+        | RedactedThinking _
+        | ToolResult _
+        | Image _
+        | Document _
+        | Audio _ -> None)
+      msg.content
   in
-  List.map
-    (fun (msg : message) ->
-       match msg.role with
-       | User | Tool ->
-         let filtered =
-           List.filter
-             (function
-               | ToolResult { tool_use_id; _ } -> Hashtbl.mem tool_use_ids tool_use_id
-               | _ -> true)
-             msg.content
-         in
-         if List.length filtered = List.length msg.content
-         then msg
-         else { msg with content = filtered }
-       | _ -> msg)
-    messages
+  let tool_result_ids (msg : message) =
+    List.filter_map
+      (function
+        | ToolResult { tool_use_id; _ } -> Some tool_use_id
+        | Text _
+        | Thinking _
+        | RedactedThinking _
+        | ToolUse _
+        | Image _
+        | Document _
+        | Audio _ -> None)
+      msg.content
+  in
+  let has_tool_result msg = tool_result_ids msg <> [] in
+  let split_tool_result_span messages =
+    let rec loop span = function
+      | msg :: rest when has_tool_result msg -> loop (msg :: span) rest
+      | rest -> List.rev span, rest
+    in
+    loop [] messages
+  in
+  let filter_tool_results allowed seen (msg : message) =
+    let seen_ref = ref seen in
+    let content =
+      List.filter
+        (function
+          | ToolResult { tool_use_id; _ } ->
+            let keep =
+              List.mem tool_use_id allowed && not (List.mem tool_use_id !seen_ref)
+            in
+            if keep then seen_ref := tool_use_id :: !seen_ref;
+            keep
+          | Text _
+          | Thinking _
+          | RedactedThinking _
+          | ToolUse _
+          | Image _
+          | Document _
+          | Audio _ -> true)
+        msg.content
+    in
+    let msg = if content = [] then None else Some { msg with content } in
+    msg, !seen_ref
+  in
+  let filter_result_span allowed span =
+    let filtered, _seen =
+      List.fold_left
+        (fun (acc, seen) msg ->
+           let msg, seen = filter_tool_results allowed seen msg in
+           match msg with
+           | Some msg -> msg :: acc, seen
+           | None -> acc, seen)
+        ([], [])
+        span
+    in
+    List.rev filtered
+  in
+  let rec aux acc = function
+    | [] -> List.rev acc
+    | (msg : message) :: rest ->
+      let use_ids = if msg.role = Assistant then tool_use_ids msg else [] in
+      if use_ids = []
+      then (
+        let msg, _seen = filter_tool_results [] [] msg in
+        let acc =
+          match msg with
+          | Some msg -> msg :: acc
+          | None -> acc
+        in
+        aux acc rest)
+      else (
+        let span, tail = split_tool_result_span rest in
+        let filtered_span = filter_result_span use_ids span in
+        aux (List.rev_append filtered_span (msg :: acc)) tail)
+  in
+  aux [] messages
 ;;
 
 (** Strip Thinking blocks from all messages.
