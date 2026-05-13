@@ -48,6 +48,13 @@ val observe : histogram -> float -> unit
 (** Export all metrics in OTLP JSON format. *)
 val to_otlp_json : t -> Yojson.Safe.t
 
+(** Export all metrics in Prometheus text exposition format.
+
+    OTel-style metric and label names such as [gen_ai.client.token.usage]
+    are normalized to Prometheus identifiers such as
+    [gen_ai_client_token_usage]. *)
+val to_prometheus_text : t -> string
+
 (** {1 Inspection} *)
 
 (** Read current counter value for given labels. *)
