@@ -81,6 +81,58 @@ let test_otlp_json_structure () =
   check int "2 metrics" 2 (List.length metrics)
 ;;
 
+let prometheus_lines text =
+  text |> String.split_on_char '\n' |> List.filter (fun line -> line <> "")
+;;
+
+let check_line label expected text =
+  check bool label true (List.mem expected (prometheus_lines text))
+;;
+
+let test_prometheus_text_counter_normalizes_names_and_labels () =
+  let m = Metrics.create () in
+  let c = Metrics.counter m ~name:"gen_ai.client.token.usage" ~unit_:"token" in
+  Metrics.incr c ~labels:[ "gen_ai.token.type", "input" ] 150;
+  Metrics.incr c ~labels:[ "gen_ai.token.type", "output" ] 42;
+  let text = Metrics.to_prometheus_text m in
+  check_line
+    "counter HELP"
+    "# HELP gen_ai_client_token_usage gen_ai.client.token.usage"
+    text;
+  check_line "counter TYPE" "# TYPE gen_ai_client_token_usage counter" text;
+  check_line
+    "input counter sample"
+    "gen_ai_client_token_usage{gen_ai_token_type=\"input\"} 150"
+    text;
+  check_line
+    "output counter sample"
+    "gen_ai_client_token_usage{gen_ai_token_type=\"output\"} 42"
+    text
+;;
+
+let test_prometheus_text_histogram_exports_buckets_sum_and_count () =
+  let m = Metrics.create () in
+  let h =
+    Metrics.histogram m ~name:"gen_ai.client.operation.duration" ~buckets:[ 1.0; 2.0 ]
+  in
+  Metrics.observe h 1.0;
+  Metrics.observe h 3.0;
+  let text = Metrics.to_prometheus_text m in
+  check_line
+    "histogram HELP"
+    "# HELP gen_ai_client_operation_duration gen_ai.client.operation.duration"
+    text;
+  check_line "histogram TYPE" "# TYPE gen_ai_client_operation_duration histogram" text;
+  check_line "bucket le 1" "gen_ai_client_operation_duration_bucket{le=\"1\"} 1" text;
+  check_line "bucket le 2" "gen_ai_client_operation_duration_bucket{le=\"2\"} 1" text;
+  check_line
+    "bucket le +Inf"
+    "gen_ai_client_operation_duration_bucket{le=\"+Inf\"} 2"
+    text;
+  check_line "histogram sum" "gen_ai_client_operation_duration_sum 4" text;
+  check_line "histogram count" "gen_ai_client_operation_duration_count 2" text
+;;
+
 let () =
   run
     "Metrics"
@@ -96,6 +148,16 @@ let () =
     ; ( "lifecycle"
       , [ test_case "reset clears all" `Quick (with_eio test_reset)
         ; test_case "otlp json structure" `Quick (with_eio test_otlp_json_structure)
+        ] )
+    ; ( "prometheus"
+      , [ test_case
+            "counter text export normalizes names and labels"
+            `Quick
+            (with_eio test_prometheus_text_counter_normalizes_names_and_labels)
+        ; test_case
+            "histogram text export emits buckets sum and count"
+            `Quick
+            (with_eio test_prometheus_text_histogram_exports_buckets_sum_and_count)
         ] )
     ]
 ;;

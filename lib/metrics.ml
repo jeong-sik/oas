@@ -223,3 +223,117 @@ let to_otlp_json t =
             ] )
       ])
 ;;
+
+(* -- Prometheus text export ------------------------------------------ *)
+
+let is_identifier_start = function
+  | 'A' .. 'Z' | 'a' .. 'z' | '_' | ':' -> true
+  | _ -> false
+;;
+
+let is_identifier_char = function
+  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' | ':' -> true
+  | _ -> false
+;;
+
+let prometheus_identifier raw =
+  let buf = Buffer.create (String.length raw + 1) in
+  String.iteri
+    (fun index ch ->
+       let valid = if index = 0 then is_identifier_start ch else is_identifier_char ch in
+       Buffer.add_char buf (if valid then ch else '_'))
+    raw;
+  let rendered = Buffer.contents buf in
+  if String.equal rendered "" then "_" else rendered
+;;
+
+let escape_prometheus_value raw =
+  let buf = Buffer.create (String.length raw) in
+  String.iter
+    (function
+      | '\\' -> Buffer.add_string buf "\\\\"
+      | '"' -> Buffer.add_string buf "\\\""
+      | '\n' -> Buffer.add_string buf "\\n"
+      | ch -> Buffer.add_char buf ch)
+    raw;
+  Buffer.contents buf
+;;
+
+let float_to_prometheus value =
+  match classify_float value with
+  | FP_nan -> "NaN"
+  | FP_infinite -> if value > 0.0 then "+Inf" else "-Inf"
+  | FP_normal | FP_subnormal | FP_zero -> Printf.sprintf "%.17g" value
+;;
+
+let labels_to_prometheus labels =
+  match labels with
+  | [] -> ""
+  | _ ->
+    labels
+    |> List.map (fun (key, value) ->
+      Printf.sprintf
+        "%s=\"%s\""
+        (prometheus_identifier key)
+        (escape_prometheus_value value))
+    |> String.concat ","
+    |> Printf.sprintf "{%s}"
+;;
+
+let add_prometheus_header buf ~name ~kind =
+  let prom_name = prometheus_identifier name in
+  Buffer.add_string buf (Printf.sprintf "# HELP %s %s\n" prom_name name);
+  Buffer.add_string buf (Printf.sprintf "# TYPE %s %s\n" prom_name kind);
+  prom_name
+;;
+
+let counter_to_prometheus buf (c : counter_data) =
+  let prom_name = add_prometheus_header buf ~name:c.c_name ~kind:"counter" in
+  LabelMap.iter
+    (fun labels value ->
+       Buffer.add_string
+         buf
+         (Printf.sprintf "%s%s %d\n" prom_name (labels_to_prometheus labels) value))
+    c.c_values
+;;
+
+let histogram_to_prometheus buf (h : histogram_data) =
+  let prom_name = add_prometheus_header buf ~name:h.h_name ~kind:"histogram" in
+  let sorted_buckets = List.sort Float.compare h.h_buckets in
+  List.iter
+    (fun bound ->
+       let count =
+         List.length (List.filter (fun value -> value <= bound) h.h_observations)
+       in
+       Buffer.add_string
+         buf
+         (Printf.sprintf
+            "%s_bucket%s %d\n"
+            prom_name
+            (labels_to_prometheus [ "le", float_to_prometheus bound ])
+            count))
+    sorted_buckets;
+  Buffer.add_string
+    buf
+    (Printf.sprintf
+       "%s_bucket%s %d\n"
+       prom_name
+       (labels_to_prometheus [ "le", "+Inf" ])
+       h.h_count);
+  Buffer.add_string
+    buf
+    (Printf.sprintf "%s_sum %s\n" prom_name (float_to_prometheus h.h_sum));
+  Buffer.add_string buf (Printf.sprintf "%s_count %d\n" prom_name h.h_count)
+;;
+
+let to_prometheus_text t =
+  with_lock t (fun () ->
+    let buf = Buffer.create 256 in
+    let counters = List.sort (fun a b -> String.compare a.c_name b.c_name) t.counters in
+    let histograms =
+      List.sort (fun a b -> String.compare a.h_name b.h_name) t.histograms
+    in
+    List.iter (counter_to_prometheus buf) counters;
+    List.iter (histogram_to_prometheus buf) histograms;
+    Buffer.contents buf)
+;;
