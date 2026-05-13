@@ -23,6 +23,7 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Bug Fixes
 
 * **agent:** gate context overflow auto retry ([#1553](https://github.com/jeong-sik/oas/issues/1553)) ([8ed4183](https://github.com/jeong-sik/oas/commit/8ed4183fb20d97fe7b4dcb704b9a3d29d674ef4c))
+* **agent:** order checkpoint completion effects ([#1552](https://github.com/jeong-sik/oas/issues/1552)) ([cfbdabd](https://github.com/jeong-sik/oas/commit/cfbdabdf1c40493b36b023a0a97248ff939d571a))
 
 ## [0.193.9](https://github.com/jeong-sik/oas/compare/v0.193.8...v0.193.9) (2026-05-13)
 
