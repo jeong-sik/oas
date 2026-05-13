@@ -157,13 +157,6 @@ type options =
         [Event_bus] publishes, enabling offline replay via
         {!Durable_event.replay_summary}.
         @since 0.133.0 *)
-  ; checkpoint_sink : checkpoint_sink option
-    (** Optional turn-boundary checkpoint sink.  When provided, the
-        pipeline emits a full checkpoint after durable in-memory turn
-        mutations that matter for crash recovery: assistant collection,
-        tool-result feedback append, and required-tool retry feedback
-        append.  The sink is generic and owned by the caller.
-        @since 0.193.9 *)
   ; transport : Llm_provider.Llm_transport.t option
     (** Optional non-HTTP transport override.  Required for CLI provider
         kinds ([Claude_code], [Codex_cli], [Gemini_cli], [Kimi_cli])
@@ -239,6 +232,7 @@ type t =
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
+  ; checkpoint_sink : checkpoint_sink option
   }
 
 (** {1 Defaults} *)
@@ -273,6 +267,7 @@ val create
   -> ?context:Context.t
   -> ?options:options
   -> ?auto_context_overflow_retry:bool
+  -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
 

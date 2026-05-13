@@ -325,7 +325,9 @@ val with_tool_result_relocation
     @since 0.133.0 *)
 val with_journal : Durable_event.journal -> t -> t
 
-(** Attach a caller-owned turn-boundary checkpoint sink.
+(** Attach a caller-owned turn-boundary checkpoint sink. The sink is stored
+    on the built {!Agent.t}, not in {!Agent.options}, so existing callers that
+    construct options records remain source-compatible.
     @since 0.193.9 *)
 val with_checkpoint_sink : Agent.checkpoint_sink -> t -> t
 

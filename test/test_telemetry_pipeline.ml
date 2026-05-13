@@ -125,11 +125,21 @@ let make_agent ~net ~transport () =
   agent, event_bus
 ;;
 
-let make_checkpoint_agent ~net ~transport ~checkpoint_sink ~max_turns ~tools () =
+let make_checkpoint_agent
+      ?event_bus
+      ?journal
+      ~net
+      ~transport
+      ~checkpoint_sink
+      ~max_turns
+      ~tools
+      ()
+  =
   let options =
     { Agent.default_options with
       transport = Some transport
-    ; checkpoint_sink = Some checkpoint_sink
+    ; event_bus
+    ; journal
     ; provider =
         Some
           { provider = Provider.Local { base_url = "http://mock.local" }
@@ -145,7 +155,7 @@ let make_checkpoint_agent ~net ~transport ~checkpoint_sink ~max_turns ~tools () 
     ; max_turns
     }
   in
-  Agent.create ~net ~config ~tools ~options ()
+  Agent.create ~net ~config ~tools ~options ~checkpoint_sink ()
 ;;
 
 let test_run_stream_emits_telemetry_via_pipeline () =
@@ -339,10 +349,15 @@ let test_checkpoint_sink_failure_fails_turn () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
+  let event_bus = Event_bus.create ~buffer_size:32 () in
+  let event_sub = Event_bus.subscribe event_bus in
+  let journal = Durable_event.create () in
   let checkpoint_sink _snapshot = Error "disk full" in
   let transport = make_sequence_transport [ text_response "ok" ] in
   let agent =
     make_checkpoint_agent
+      ~event_bus
+      ~journal
       ~net:env#net
       ~transport
       ~checkpoint_sink
@@ -356,7 +371,27 @@ let test_checkpoint_sink_failure_fails_turn () =
     Alcotest.(check bool)
       "error mentions checkpoint sink"
       true
-      (contains_substring ~sub:"checkpoint sink failed" (Error.to_string err))
+      (contains_substring ~sub:"checkpoint sink failed" (Error.to_string err));
+    let event_payloads =
+      Event_bus.drain event_sub |> List.map (fun event -> event.Event_bus.payload)
+    in
+    Alcotest.(check bool)
+      "no TurnCompleted event after checkpoint failure"
+      false
+      (List.exists
+         (function
+           | Event_bus.TurnCompleted _ -> true
+           | _ -> false)
+         event_payloads);
+    let journal_events = Durable_event.events journal in
+    Alcotest.(check bool)
+      "no turn_complete journal transition after checkpoint failure"
+      false
+      (List.exists
+         (function
+           | Durable_event.State_transition { to_state = "turn_complete"; _ } -> true
+           | _ -> false)
+         journal_events)
 ;;
 
 let () =

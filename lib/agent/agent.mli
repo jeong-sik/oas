@@ -74,7 +74,6 @@ type options = Agent_types.options =
   ; on_run_complete : (bool -> unit) option
   ; tool_result_relocation : (Tool_result_store.t * Content_replacement_state.t) option
   ; journal : Durable_event.journal option
-  ; checkpoint_sink : checkpoint_sink option
   ; transport : Llm_provider.Llm_transport.t option
   ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
   ; summarizer : (Types.message list -> string) option
@@ -124,6 +123,7 @@ val create
   -> ?context:Context.t
   -> ?options:options
   -> ?auto_context_overflow_retry:bool
+  -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
 
@@ -192,6 +192,7 @@ val resume
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
+  -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> ?auto_context_overflow_retry:bool
   -> unit
