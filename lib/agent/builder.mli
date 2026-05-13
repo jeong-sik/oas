@@ -33,6 +33,11 @@ val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
 val with_cache_extended_ttl : bool -> t -> t
 
+(** Configure whether OAS performs an internal compact-and-retry after a
+    provider [ContextOverflow]. Defaults to [true] for standalone agents.
+    Set [false] when a higher-level coordinator owns turn-level retry. *)
+val with_auto_context_overflow_retry : bool -> t -> t
+
 (** Enable or disable yielding when the agent is about to call a tool.
 
     When [true], the agent yields before invoking a tool, triggering

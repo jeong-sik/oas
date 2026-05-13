@@ -222,6 +222,7 @@ let create_agent
     ; context_compact_ratio = default_config.context_compact_ratio
     ; context_prepare_ratio = default_config.context_prepare_ratio
     ; context_handoff_ratio = default_config.context_handoff_ratio
+    ; auto_context_overflow_retry = default_config.auto_context_overflow_retry
     ; priority = default_config.priority
     ; yield_on_tool = default_config.yield_on_tool
     ; exit_condition = default_config.exit_condition

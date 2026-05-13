@@ -995,6 +995,30 @@ let start_error_mock ~sw ~net ~port status =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
+let start_status_mock ~sw ~net ~port (responses : (Cohttp.Code.status_code * string) list)
+  =
+  let idx = Atomic.make 0 in
+  let handler _conn _req body =
+    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let n = List.length responses in
+    let i = Atomic.fetch_and_add idx 1 in
+    let status, body = List.nth responses (if i < n then i else n - 1) in
+    Cohttp_eio.Server.respond_string ~status ~body ()
+  in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  let server = Cohttp_eio.Server.make ~callback:handler () in
+  Eio.Fiber.fork ~sw (fun () ->
+    Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port, idx
+;;
+
 let test_agent_run_http_error () =
   Eio_main.run
   @@ fun env ->
@@ -1009,6 +1033,94 @@ let test_agent_run_http_error () =
       let msg = Error.to_string e in
       check bool "error message" true (String.length msg > 0);
       Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let overflow_body =
+      {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (128)"}}|}
+    in
+    let url, calls =
+      start_status_mock
+        ~sw
+        ~net:env#net
+        ~port:20020
+        [ `Bad_request, overflow_body; `OK, openai_text_response "should not retry" ]
+    in
+    let provider : Provider.config =
+      { provider = Provider.Local { base_url = url }
+      ; model_id = "mock-model"
+      ; api_key_env = ""
+      }
+    in
+    let pre_compact_seen = ref false in
+    let hooks =
+      { Hooks.empty with
+        pre_compact =
+          Some
+            (function
+              | Hooks.PreCompact _ ->
+                pre_compact_seen := true;
+                Hooks.Continue
+              | _ -> Hooks.Continue)
+      }
+    in
+    let config =
+      { Types.default_config with
+        name = "context-overflow-owner"
+      ; max_turns = 3
+      ; auto_context_overflow_retry = false
+      }
+    in
+    let options =
+      { Agent.default_options with base_url = url; provider = Some provider; hooks }
+    in
+    let agent = Agent.create ~net:env#net ~config ~options () in
+    let history =
+      [ { Types.role = User
+        ; content = [ Text "summarize the large result" ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ; { Types.role = Assistant
+        ; content =
+            [ ToolUse
+                { id = "tool_1"; name = "search"; input = `Assoc [ "q", `String "logs" ] }
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ; { Types.role = User
+        ; content =
+            [ ToolResult
+                { tool_use_id = "tool_1"
+                ; content = String.make 2000 'x'
+                ; is_error = false
+                ; json = None
+                }
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ]
+    in
+    Agent.update_state agent (fun state -> { state with messages = history });
+    match Agent.run ~sw agent "continue" with
+    | Ok _ -> fail "expected ContextOverflow"
+    | Error (Error.Api (Retry.ContextOverflow _)) ->
+      check int "no internal retry" 1 (Atomic.get calls);
+      check bool "pre_compact hook not called" false !pre_compact_seen;
+      Eio.Switch.fail sw Exit
+    | Error e -> fail (Error.to_string e)
   with
   | Exit -> ()
 ;;
@@ -1191,6 +1303,10 @@ let () =
       , [ test_case "simple text" `Quick test_agent_run_simple
         ; test_case "max turns" `Quick test_agent_run_max_turns
         ; test_case "http error" `Quick test_agent_run_http_error
+        ; test_case
+            "context overflow auto retry can be disabled"
+            `Quick
+            test_agent_run_context_overflow_auto_retry_can_be_disabled
         ] )
     ; ( "tools"
       , [ test_case "tool use cycle" `Quick test_agent_run_tool_use

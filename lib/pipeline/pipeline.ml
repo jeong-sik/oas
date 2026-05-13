@@ -1063,8 +1063,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
               })
        | None, _ -> ());
       match api_result with
-      | Error (Error.Api (Retry.ContextOverflow { limit; _ })) when compact_attempts < 2
-        ->
+      | Error (Error.Api (Retry.ContextOverflow { limit; _ }))
+        when agent.state.config.auto_context_overflow_retry && compact_attempts < 2 ->
         (match agent.options.event_bus with
          | Some bus ->
            Event_bus.publish

@@ -118,6 +118,10 @@ type agent_config =
     (** Ratio at which to start preparing for compaction. Default 0.6 *)
   ; context_handoff_ratio : float option
     (** Ratio at which to trigger handoff. Default 0.95 *)
+  ; auto_context_overflow_retry : bool
+    (** When true, [Pipeline.run_turn] may compact and retry after a provider
+        [ContextOverflow]. Coordinators that own turn-level retry should set
+        this false so the structured overflow error is returned upstream. *)
   ; priority : Llm_provider.Request_priority.t option
     (** Scheduling priority for LLM requests. @since 0.96.0 *)
   ; yield_on_tool : bool
@@ -157,6 +161,7 @@ let default_config =
   ; context_compact_ratio = None
   ; context_prepare_ratio = None
   ; context_handoff_ratio = None
+  ; auto_context_overflow_retry = true
   ; priority = None
   ; yield_on_tool = false
   ; exit_condition = None

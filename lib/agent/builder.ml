@@ -47,6 +47,7 @@ type t =
   ; context_compact_ratio : float option
   ; context_prepare_ratio : float option
   ; context_handoff_ratio : float option
+  ; auto_context_overflow_retry : bool
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -120,6 +121,7 @@ let create ~net ~model =
   ; context_compact_ratio = None
   ; context_prepare_ratio = None
   ; context_handoff_ratio = None
+  ; auto_context_overflow_retry = default_config.auto_context_overflow_retry
   ; context_injector = None
   ; mcp_clients = []
   ; event_bus = None
@@ -211,6 +213,10 @@ let with_required_tool_satisfaction required_tool_satisfaction b =
 
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
 let with_tiered_memory tiered_memory b = { b with tiered_memory = Some tiered_memory }
+
+let with_auto_context_overflow_retry auto_context_overflow_retry b =
+  { b with auto_context_overflow_retry }
+;;
 
 let with_context_thresholds
       ~compact_ratio
@@ -363,6 +369,7 @@ let build b =
     ; context_compact_ratio = b.context_compact_ratio
     ; context_prepare_ratio = b.context_prepare_ratio
     ; context_handoff_ratio = b.context_handoff_ratio
+    ; auto_context_overflow_retry = b.auto_context_overflow_retry
     ; priority = b.priority
     ; yield_on_tool = b.yield_on_tool
     ; exit_condition = b.exit_condition
