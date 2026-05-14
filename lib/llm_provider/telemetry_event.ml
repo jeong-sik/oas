@@ -84,6 +84,13 @@ type t =
       ; spent_usd : float
       ; limit_usd : float
       }
+  | Context_window_usage of
+      { agent_name : string
+      ; turn : int
+      ; estimated_tokens : int
+      ; limit_tokens : int
+      ; usage_ratio : float
+      }
 [@@deriving yojson, show]
 
 let event_type_name = function
@@ -94,4 +101,5 @@ let event_type_name = function
   | Timeout _ -> "timeout"
   | Prefill_complete _ -> "prefill_complete"
   | Budget_exceeded _ -> "budget_exceeded"
+  | Context_window_usage _ -> "context_window_usage"
 ;;

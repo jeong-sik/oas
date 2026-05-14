@@ -71,6 +71,13 @@ type t =
       ; spent_usd : float
       ; limit_usd : float
       }
+  | Context_window_usage of
+      { agent_name : string
+      ; turn : int
+      ; estimated_tokens : int
+      ; limit_tokens : int
+      ; usage_ratio : float
+      }
 [@@deriving yojson, show]
 
 (** Human-readable event type label for metrics and logging. *)

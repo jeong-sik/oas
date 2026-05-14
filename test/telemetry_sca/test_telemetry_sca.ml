@@ -59,10 +59,12 @@ let test_registry_covers_all_variants () =
   let variants =
     [ "Streaming_first_chunk"
     ; "Streaming_chunk_n"
+    ; "Streaming_summary"
     ; "Thinking_complete"
     ; "Timeout"
     ; "Prefill_complete"
     ; "Budget_exceeded"
+    ; "Context_window_usage"
     ]
   in
   List.iter
@@ -87,11 +89,20 @@ let test_every_signal_has_producer () =
 
 let test_no_orphan_producer_variants () =
   (* Grep for Telemetry_event.(VariantName and ensure each is in the registry. *)
+  let nested_constructors =
+    [ "No_response"
+    ; "Ttft_exceeded"
+    ; "Terminal_done"
+    ; "Terminal_cancelled"
+    ; "Terminal_error"
+    ]
+  in
   let cmd =
     Printf.sprintf
       "grep -ho 'Telemetry_event\\.[A-Z][A-Za-z_]*' %s/lib/llm_provider/complete.ml \
-       %s/lib/llm_provider/streaming.ml %s/lib/agent/agent.ml 2>/dev/null | sed \
-       's/Telemetry_event\\.//' | sort -u"
+       %s/lib/llm_provider/streaming.ml %s/lib/agent/agent.ml \
+       %s/lib/pipeline/pipeline.ml 2>/dev/null | sed 's/Telemetry_event\\.//' | sort -u"
+      repo_root
       repo_root
       repo_root
       repo_root
@@ -108,11 +119,13 @@ let test_no_orphan_producer_variants () =
   let registry_names = all_signals () in
   List.iter
     (fun name ->
-       check
-         bool
-         (Printf.sprintf "producer variant %s is registered" name)
-         true
-         (List.mem name registry_names))
+       if not (List.mem name nested_constructors)
+       then
+         check
+           bool
+           (Printf.sprintf "producer variant %s is registered" name)
+           true
+           (List.mem name registry_names))
     !found
 ;;
 
