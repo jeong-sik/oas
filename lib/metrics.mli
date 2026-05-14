@@ -41,7 +41,7 @@ val histogram : t -> name:string -> buckets:float list -> histogram
 val incr : counter -> ?labels:(string * string) list -> int -> unit
 
 (** Record an observation in a histogram. *)
-val observe : histogram -> float -> unit
+val observe : histogram -> ?labels:(string * string) list -> float -> unit
 
 (** {1 Export} *)
 
@@ -60,8 +60,10 @@ val to_prometheus_text : t -> string
 (** Read current counter value for given labels. *)
 val counter_value : counter -> ?labels:(string * string) list -> unit -> int
 
-(** Number of observations recorded. *)
-val histogram_count : histogram -> int
+(** Number of observations recorded.
+
+    When [labels] is omitted, returns the total across all label series. *)
+val histogram_count : ?labels:(string * string) list -> histogram -> int
 
 (** Clear all recorded data. *)
 val reset : t -> unit

@@ -25,13 +25,20 @@ type counter_data =
 
 (* -- Histogram -------------------------------------------------------- *)
 
+type histogram_series =
+  { hs_observations : float list
+  ; hs_sum : float
+  ; hs_count : int
+  }
+
 type histogram_data =
   { h_name : string
   ; h_buckets : float list
-  ; h_observations : float list
-  ; h_sum : float
-  ; h_count : int
+  ; h_values : histogram_series LabelMap.t
   }
+
+let empty_histogram_series = { hs_observations = []; hs_sum = 0.0; hs_count = 0 }
+let empty_histogram_values () = LabelMap.singleton [] empty_histogram_series
 
 (* -- Metrics instance ------------------------------------------------- *)
 
@@ -103,7 +110,8 @@ let check_no_normalized_collision_unlocked t ~kind ~name =
          existing_kind
          raw)
   in
-  List.iter (fun c -> if collides_with "counter" c.c_name then fail "counter" c.c_name)
+  List.iter
+    (fun c -> if collides_with "counter" c.c_name then fail "counter" c.c_name)
     t.counters;
   List.iter
     (fun h -> if collides_with "histogram" h.h_name then fail "histogram" h.h_name)
@@ -128,12 +136,7 @@ let histogram t ~name ~buckets =
     | None ->
       check_no_normalized_collision_unlocked t ~kind:"histogram" ~name;
       let h =
-        { h_name = name
-        ; h_buckets = buckets
-        ; h_observations = []
-        ; h_sum = 0.0
-        ; h_count = 0
-        }
+        { h_name = name; h_buckets = buckets; h_values = empty_histogram_values () }
       in
       t.histograms <- h :: t.histograms;
       t, name)
@@ -168,26 +171,41 @@ let counter_value (t, name) ?(labels = []) () =
     | None -> 0)
 ;;
 
-let observe (t, name) value =
+let observe (t, name) ?(labels = []) value =
+  let key = label_key_of labels in
   with_lock t (fun () ->
     t.histograms
     <- List.map
          (fun h ->
             if h.h_name = name
-            then
-              { h with
-                h_observations = value :: h.h_observations
-              ; h_sum = h.h_sum +. value
-              ; h_count = h.h_count + 1
-              }
+            then (
+              let series =
+                match LabelMap.find_opt key h.h_values with
+                | Some series -> series
+                | None -> empty_histogram_series
+              in
+              let updated =
+                { hs_observations = value :: series.hs_observations
+                ; hs_sum = series.hs_sum +. value
+                ; hs_count = series.hs_count + 1
+                }
+              in
+              { h with h_values = LabelMap.add key updated h.h_values })
             else h)
          t.histograms)
 ;;
 
-let histogram_count (t, name) =
+let histogram_count ?labels (t, name) =
   with_lock t (fun () ->
     match List.find_opt (fun h -> h.h_name = name) t.histograms with
-    | Some h -> h.h_count
+    | Some h ->
+      (match labels with
+       | Some labels ->
+         let key = label_key_of labels in
+         (match LabelMap.find_opt key h.h_values with
+          | Some series -> series.hs_count
+          | None -> 0)
+       | None -> LabelMap.fold (fun _ series acc -> acc + series.hs_count) h.h_values 0)
     | None -> 0)
 ;;
 
@@ -195,9 +213,7 @@ let reset t =
   with_lock t (fun () ->
     t.counters <- List.map (fun c -> { c with c_values = LabelMap.empty }) t.counters;
     t.histograms
-    <- List.map
-         (fun h -> { h with h_observations = []; h_sum = 0.0; h_count = 0 })
-         t.histograms)
+    <- List.map (fun h -> { h with h_values = empty_histogram_values () }) t.histograms)
 ;;
 
 (* -- OTLP JSON export ------------------------------------------------ *)
@@ -238,24 +254,33 @@ let bucket_counts buckets observations =
   counts @ [ overflow ]
 ;;
 
-let histogram_to_json (h : histogram_data) : Yojson.Safe.t =
-  let bc = bucket_counts h.h_buckets h.h_observations in
-  `Assoc
-    [ "name", `String h.h_name
-    ; ( "histogram"
-      , `Assoc
-          [ ( "dataPoints"
-            , `List
-                [ `Assoc
-                    [ "count", `String (string_of_int h.h_count)
-                    ; "sum", `Float h.h_sum
-                    ; ( "bucketCounts"
-                      , `List (List.map (fun n -> `String (string_of_int n)) bc) )
-                    ; "explicitBounds", `List (List.map (fun b -> `Float b) h.h_buckets)
-                    ]
-                ] )
-          ] )
+let histogram_datapoint_to_json buckets labels series : Yojson.Safe.t =
+  let bc = bucket_counts buckets series.hs_observations in
+  let base =
+    [ "count", `String (string_of_int series.hs_count)
+    ; "sum", `Float series.hs_sum
+    ; "bucketCounts", `List (List.map (fun n -> `String (string_of_int n)) bc)
+    ; "explicitBounds", `List (List.map (fun b -> `Float b) buckets)
     ]
+  in
+  let fields =
+    match labels with
+    | [] -> base
+    | _ -> ("attributes", labels_to_json labels) :: base
+  in
+  `Assoc fields
+;;
+
+let histogram_to_json (h : histogram_data) : Yojson.Safe.t =
+  let data_points =
+    LabelMap.fold
+      (fun labels series acc ->
+         histogram_datapoint_to_json h.h_buckets labels series :: acc)
+      h.h_values
+      []
+  in
+  `Assoc
+    [ "name", `String h.h_name; "histogram", `Assoc [ "dataPoints", `List data_points ] ]
 ;;
 
 let to_otlp_json t =
@@ -346,30 +371,44 @@ let counter_to_prometheus buf (c : counter_data) =
 let histogram_to_prometheus buf (h : histogram_data) =
   let prom_name = add_prometheus_header buf ~name:h.h_name ~kind:"histogram" in
   let sorted_buckets = List.sort_uniq Float.compare h.h_buckets in
-  List.iter
-    (fun bound ->
-       let count =
-         List.length (List.filter (fun value -> value <= bound) h.h_observations)
-       in
+  LabelMap.iter
+    (fun labels series ->
+       List.iter
+         (fun bound ->
+            let count =
+              List.length
+                (List.filter (fun value -> value <= bound) series.hs_observations)
+            in
+            Buffer.add_string
+              buf
+              (Printf.sprintf
+                 "%s_bucket%s %d\n"
+                 prom_name
+                 (labels_to_prometheus (labels @ [ "le", float_to_prometheus bound ]))
+                 count))
+         sorted_buckets;
        Buffer.add_string
          buf
          (Printf.sprintf
             "%s_bucket%s %d\n"
             prom_name
-            (labels_to_prometheus [ "le", float_to_prometheus bound ])
-            count))
-    sorted_buckets;
-  Buffer.add_string
-    buf
-    (Printf.sprintf
-       "%s_bucket%s %d\n"
-       prom_name
-       (labels_to_prometheus [ "le", "+Inf" ])
-       h.h_count);
-  Buffer.add_string
-    buf
-    (Printf.sprintf "%s_sum %s\n" prom_name (float_to_prometheus h.h_sum));
-  Buffer.add_string buf (Printf.sprintf "%s_count %d\n" prom_name h.h_count)
+            (labels_to_prometheus (labels @ [ "le", "+Inf" ]))
+            series.hs_count);
+       Buffer.add_string
+         buf
+         (Printf.sprintf
+            "%s_sum%s %s\n"
+            prom_name
+            (labels_to_prometheus labels)
+            (float_to_prometheus series.hs_sum));
+       Buffer.add_string
+         buf
+         (Printf.sprintf
+            "%s_count%s %d\n"
+            prom_name
+            (labels_to_prometheus labels)
+            series.hs_count))
+    h.h_values
 ;;
 
 let to_prometheus_text t =
