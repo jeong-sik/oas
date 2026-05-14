@@ -5,6 +5,24 @@ type timeout_type =
   | Ttft_exceeded
 [@@deriving yojson, show]
 
+type streaming_kind_breakdown =
+  { thinking : int
+  ; answer : int
+  ; tool_call_start : int
+  ; tool_call_arg_delta : int
+  ; tool_call_complete : int
+  ; substrate : int
+  ; heartbeat : int
+  ; done_ : int
+  }
+[@@deriving yojson, show]
+
+type streaming_terminal =
+  | Terminal_done
+  | Terminal_cancelled
+  | Terminal_error of string
+[@@deriving yojson, show]
+
 type t =
   | Streaming_first_chunk of
       { provider : string
@@ -17,6 +35,18 @@ type t =
       ; model : string
       ; chunk_index : int
       ; inter_chunk_ms : float
+      }
+  | Streaming_summary of
+      { provider : string
+      ; model : string
+      ; chunk_count : int
+      ; kind_breakdown : streaming_kind_breakdown
+      ; ttft_ms : float option
+      ; total_ms : float
+      ; inter_chunk_ms_p50 : float
+      ; inter_chunk_ms_p95 : float
+      ; inter_chunk_ms_max : float
+      ; terminal : streaming_terminal
       }
   | Thinking_complete of
       { provider : string

@@ -193,6 +193,7 @@
   test_streaming_e2e
   test_streaming_keepalive_idle
   test_streaming_openai
+  test_streaming_summary
   test_structured
   test_structured_coverage
   test_structured_deep
@@ -403,6 +404,7 @@
   test_streaming_e2e
   test_streaming_keepalive_idle
   test_streaming_openai
+  test_streaming_summary
   test_structured
   test_structured_coverage
   test_structured_deep
