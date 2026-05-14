@@ -220,6 +220,114 @@ let find label =
     | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
 ;;
 
+let normalize_endpoint_url value =
+  let trimmed = String.trim value in
+  if trimmed = ""
+  then trimmed
+  else (
+    let rec strip_trailing_slash s =
+      let len = String.length s in
+      if len > 1 && s.[len - 1] = '/'
+      then strip_trailing_slash (String.sub s 0 (len - 1))
+      else s
+    in
+    strip_trailing_slash trimmed)
+;;
+
+let config_endpoint_matches ~kind ~base_url ~request_path (cfg : PConfig.t) =
+  kind = cfg.kind
+  && String.equal (normalize_endpoint_url base_url) (normalize_endpoint_url cfg.base_url)
+  && String.equal (String.trim request_path) (String.trim cfg.request_path)
+;;
+
+let catalog_entry_matches_config cfg (entry : PC.entry) =
+  config_endpoint_matches
+    ~kind:entry.kind
+    ~base_url:entry.base_url
+    ~request_path:entry.request_path
+    cfg
+;;
+
+let registry_entry_matches_config cfg (entry : PR.entry) =
+  config_endpoint_matches
+    ~kind:entry.defaults.kind
+    ~base_url:entry.defaults.base_url
+    ~request_path:entry.defaults.request_path
+    cfg
+;;
+
+let catalog_binding_for_provider_config registry cfg =
+  match PC.global () with
+  | None -> None
+  | Some catalog ->
+    catalog
+    |> List.find_opt (catalog_entry_matches_config cfg)
+    |> Option.map (binding_of_catalog_entry registry)
+;;
+
+let registry_binding_for_provider_config registry cfg =
+  registry
+  |> PR.all
+  |> List.find_opt (registry_entry_matches_config cfg)
+  |> Option.map binding_of_registry_entry
+;;
+
+let binding_for_provider_config (cfg : PConfig.t) =
+  let registry = PR.default () in
+  match catalog_binding_for_provider_config registry cfg with
+  | Some binding -> Some binding
+  | None ->
+    (match registry_binding_for_provider_config registry cfg with
+     | Some binding -> Some binding
+     | None -> PR.provider_name_of_config cfg |> find)
+;;
+
+let base_capabilities_of_kind = function
+  | PConfig.Ollama -> Llm_provider.Capabilities.ollama_capabilities
+  | PConfig.Anthropic -> Llm_provider.Capabilities.anthropic_capabilities
+  | PConfig.Kimi -> Llm_provider.Capabilities.kimi_capabilities
+  | PConfig.OpenAI_compat -> Llm_provider.Capabilities.openai_chat_capabilities
+  | PConfig.Gemini -> Llm_provider.Capabilities.gemini_capabilities
+  | PConfig.Glm -> Llm_provider.Capabilities.glm_capabilities
+  | PConfig.DashScope -> Llm_provider.Capabilities.dashscope_capabilities
+  | PConfig.Claude_code -> Llm_provider.Capabilities.claude_code_capabilities
+  | PConfig.Gemini_cli -> Llm_provider.Capabilities.gemini_cli_capabilities
+  | PConfig.Kimi_cli -> Llm_provider.Capabilities.kimi_cli_capabilities
+  | PConfig.Codex_cli -> Llm_provider.Capabilities.codex_cli_capabilities
+;;
+
+let registry_capabilities_for_provider_config (cfg : PConfig.t) =
+  let registry = PR.default () in
+  let catalog_entry =
+    Option.bind (PC.global ()) (List.find_opt (catalog_entry_matches_config cfg))
+  in
+  match catalog_entry with
+  | Some entry -> entry.PC.capabilities
+  | None ->
+    (match PR.all registry |> List.find_opt (registry_entry_matches_config cfg) with
+     | Some entry -> entry.PR.capabilities
+     | None ->
+       let provider_name = PR.provider_name_of_config cfg in
+       (match PR.find registry provider_name with
+        | Some entry -> entry.PR.capabilities
+        | None -> base_capabilities_of_kind cfg.kind))
+;;
+
+let capabilities_for_provider_config (cfg : PConfig.t) =
+  let caps = registry_capabilities_for_provider_config cfg in
+  let caps =
+    if PConfig.is_subprocess_cli cfg.kind
+    then caps
+    else (
+      match Llm_provider.Capabilities.for_model_id cfg.model_id with
+      | Some model_caps -> model_caps
+      | None -> caps)
+  in
+  match cfg.supports_tool_choice_override with
+  | Some supports_tool_choice -> { caps with supports_tool_choice }
+  | None -> caps
+;;
+
 let resolve_model binding ~requested_model =
   match Option.bind requested_model trim_non_empty with
   | Some model -> model
