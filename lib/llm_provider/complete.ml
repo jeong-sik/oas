@@ -395,6 +395,73 @@ let%test "sanitize_url_for_log handles missing path" =
   sanitize_url_for_log "https://api.example.com" = "https://api.example.com"
 ;;
 
+let http_error_diagnostic_body
+      ~provider_name
+      ~(config : Provider_config.t)
+      ~url
+      ~code
+      ~(body : string)
+  =
+  let trimmed = String.trim body in
+  if trimmed <> ""
+  then body
+  else
+    Printf.sprintf
+      "empty HTTP %d response from provider=%s model=%s base_url=%s request_path=%s \
+       url=%s"
+      code
+      provider_name
+      config.model_id
+      (sanitize_url_for_log config.base_url)
+      (sanitize_url_for_log config.request_path)
+      (sanitize_url_for_log url)
+;;
+
+let%test "http_error_diagnostic_body preserves non-empty provider body" =
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.Gemini
+      ~model_id:"gemini-3-flash-preview"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
+      ~api_key:"secret"
+      ~headers:[]
+      ~request_path:"/v1/chat/completions?api_key=secret"
+      ()
+  in
+  http_error_diagnostic_body
+    ~provider_name:"gemini"
+    ~config
+    ~url:
+      "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
+    ~code:404
+    ~body:"model not found"
+  = "model not found"
+;;
+
+let%test "http_error_diagnostic_body enriches empty provider body" =
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.Gemini
+      ~model_id:"gemini-3-flash-preview"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
+      ~api_key:"secret"
+      ~headers:[]
+      ~request_path:"/v1/chat/completions?api_key=secret"
+      ()
+  in
+  http_error_diagnostic_body
+    ~provider_name:"gemini"
+    ~config
+    ~url:
+      "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
+    ~code:404
+    ~body:""
+  = "empty HTTP 404 response from provider=gemini model=gemini-3-flash-preview \
+     base_url=https://generativelanguage.googleapis.com/v1beta/openai \
+     request_path=/v1/chat/completions \
+     url=https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent"
+;;
+
 let header_name_eq left right =
   String.equal (String.lowercase_ascii left) (String.lowercase_ascii right)
 ;;
@@ -685,7 +752,7 @@ let complete_http
                   provider_name
                   config.model_id
                   (sanitize_url_for_log config.base_url)
-                  config.request_path
+                  (sanitize_url_for_log config.request_path)
                   api_key_tag
                   body_len
                   body_balanced
@@ -796,6 +863,9 @@ let complete_http
                     with
                     | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
                     | _ -> ())));
+              let body =
+                http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
+              in
               Error (Http_client.HttpError { code; body }))
         in
         let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in

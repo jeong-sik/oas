@@ -182,6 +182,42 @@ let test_complete_http_error () =
   | Exit -> ()
 ;;
 
+let test_complete_http_empty_error_body_has_context () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net ~status:`Not_found "" in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.Anthropic
+        ~model_id:"test-model"
+        ~base_url:url
+        ~request_path:"/v1/messages?api_key=secret"
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
+    match Complete.complete ~sw ~net:env#net ~config ~messages () with
+    | Ok _ -> fail "expected Error"
+    | Error (Http_client.HttpError { code; body }) ->
+      check int "status 404" 404 code;
+      check
+        string
+        "diagnostic body"
+        (Printf.sprintf
+           "empty HTTP 404 response from provider=claude model=test-model base_url=%s \
+            request_path=/v1/messages url=%s/v1/messages"
+           url
+           url)
+        body;
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected HttpError"
+  with
+  | Exit -> ()
+;;
+
 (* ── complete: OpenAI compat ─────────────────────────── *)
 
 let test_complete_openai_ok () =
@@ -763,6 +799,10 @@ let () =
     [ ( "complete"
       , [ test_case "anthropic ok" `Quick test_complete_anthropic_ok
         ; test_case "http error" `Quick test_complete_http_error
+        ; test_case
+            "empty http error body has context"
+            `Quick
+            test_complete_http_empty_error_body_has_context
         ; test_case "openai ok" `Quick test_complete_openai_ok
         ; test_case
             "openai mlx-vlm telemetry"
