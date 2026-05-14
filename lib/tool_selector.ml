@@ -304,6 +304,8 @@ let auto ~tools =
 
 let default_rerank_fn ~sw ~net ~provider ~k () =
   fun ~context ~candidates ->
+  let candidate_names = Hashtbl.create (List.length candidates) in
+  List.iter (fun (name, _) -> Hashtbl.replace candidate_names name true) candidates;
   let tool_list =
     List.mapi
       (fun i (name, desc) -> Printf.sprintf "%d. %s: %s" (i + 1) name desc)
@@ -365,7 +367,7 @@ let default_rerank_fn ~sw ~net ~provider ~k () =
             | _ -> trimmed)
           else trimmed
         in
-        if List.exists (fun (n, _) -> n = name) candidates then Some name else None))
+        if Hashtbl.mem candidate_names name then Some name else None))
   | Error _ ->
     (* Graceful degradation: return candidates in BM25 order *)
     bm25_fallback ()
