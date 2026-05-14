@@ -20,6 +20,15 @@ let contains text needle =
     loop 0)
 ;;
 
+let with_temp_file f =
+  let path = Filename.temp_file "oas-provider-health-" ".json" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | Sys_error _ | Unix.Unix_error _ -> ())
+    (fun () -> f path)
+;;
+
 let dummy_response =
   Types.
     { id = "test-id"
@@ -240,6 +249,65 @@ let test_provider_health_snapshot_json_roundtrip () =
       "a@https://example.invalid"
       (List.hd parsed).snapshot_provider_key;
     check int "first failures" 2 (List.hd parsed).snapshot_consecutive_failures
+;;
+
+let test_provider_health_snapshot_file_roundtrip_preserves_open_circuit () =
+  with_temp_file (fun path ->
+    let health = Complete_cascade.create_health () in
+    let key = "file-snapshot-model@https://example.invalid" in
+    Complete_cascade.record_failure health key;
+    Complete_cascade.record_failure health key;
+    Complete_cascade.record_failure health key;
+    (match Complete_cascade.save_health_snapshot_json health ~path with
+     | Ok () -> ()
+     | Error err -> fail ("unexpected save error: " ^ err));
+    match Complete_cascade.load_health_snapshot_json ~path () with
+    | Error err -> fail ("unexpected load error: " ^ err)
+    | Ok restored ->
+      let info =
+        Complete_cascade.provider_health_info
+          restored
+          ~cascade_config:Complete_cascade.default_cascade_config
+          ~provider_key:key
+      in
+      check int "loaded failures" 3 info.consecutive_failures;
+      check bool "loaded circuit open" true info.circuit_open;
+      (match info.cooldown_remaining_s with
+       | Some remaining -> check bool "loaded cooldown positive" true (remaining > 0.0)
+       | None -> fail "expected loaded cooldown"))
+;;
+
+let test_provider_health_snapshot_file_rejects_malformed_json () =
+  with_temp_file (fun path ->
+    Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc "{broken");
+    match Complete_cascade.load_health_snapshot_json ~path () with
+    | Ok _ -> fail "expected malformed JSON rejection"
+    | Error err -> check bool "error mentions JSON" true (contains err "JSON error"))
+;;
+
+let test_provider_health_load_or_create_missing_file_starts_empty () =
+  with_temp_file (fun path ->
+    Sys.remove path;
+    match Complete_cascade.load_or_create_health_snapshot_json ~path () with
+    | Error err -> fail ("unexpected load-or-create error: " ^ err)
+    | Ok health ->
+      let key = "missing-file-model@https://example.invalid" in
+      let info =
+        Complete_cascade.provider_health_info
+          health
+          ~cascade_config:Complete_cascade.default_cascade_config
+          ~provider_key:key
+      in
+      check int "missing file starts without failures" 0 info.consecutive_failures;
+      check bool "missing file starts closed" false info.circuit_open)
+;;
+
+let test_provider_health_load_or_create_rejects_malformed_existing_file () =
+  with_temp_file (fun path ->
+    Out_channel.with_open_bin path (fun oc -> Out_channel.output_string oc "{broken");
+    match Complete_cascade.load_or_create_health_snapshot_json ~path () with
+    | Ok _ -> fail "expected malformed existing snapshot rejection"
+    | Error err -> check bool "error mentions JSON" true (contains err "JSON error"))
 ;;
 
 let test_provider_health_snapshot_json_rejects_negative_failures () =
@@ -977,6 +1045,18 @@ let suite =
   ; ( "provider_health_snapshot_json_roundtrip"
     , `Quick
     , test_provider_health_snapshot_json_roundtrip )
+  ; ( "provider_health_snapshot_file_roundtrip"
+    , `Quick
+    , test_provider_health_snapshot_file_roundtrip_preserves_open_circuit )
+  ; ( "provider_health_snapshot_file_rejects_malformed_json"
+    , `Quick
+    , test_provider_health_snapshot_file_rejects_malformed_json )
+  ; ( "provider_health_load_or_create_missing_file"
+    , `Quick
+    , test_provider_health_load_or_create_missing_file_starts_empty )
+  ; ( "provider_health_load_or_create_rejects_malformed"
+    , `Quick
+    , test_provider_health_load_or_create_rejects_malformed_existing_file )
   ; ( "provider_health_snapshot_json_rejects_negative"
     , `Quick
     , test_provider_health_snapshot_json_rejects_negative_failures )
