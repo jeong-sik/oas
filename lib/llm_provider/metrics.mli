@@ -104,6 +104,18 @@ type provider_snapshot =
   ; latency_ms_count : int
   }
 
+(** Convert one provider snapshot to structured JSON.
+
+    @since 0.193.11 *)
+val provider_snapshot_to_yojson : provider_snapshot -> Yojson.Safe.t
+
+(** Convert provider snapshots to a stable JSON payload suitable for
+    durable periodic flushes. The payload includes a [schema_version] field
+    so downstream readers can evolve without guessing the shape.
+
+    @since 0.193.11 *)
+val provider_snapshots_to_yojson : provider_snapshot list -> Yojson.Safe.t
+
 (** Mutable counters for a single aggregation key. *)
 type aggregate_state
 
@@ -136,6 +148,14 @@ module Aggregating : sig
 
   (** Read all accumulated counters as an immutable snapshot list. *)
   val snapshot : t -> provider_snapshot list
+
+  (** Read all accumulated counters and encode them as stable JSON. *)
+  val snapshot_to_yojson : t -> Yojson.Safe.t
+
+  (** Atomically persist the current snapshot as pretty JSON. Creates parent
+      directories before writing with a writer-unique temporary file and
+      rename. *)
+  val save_snapshot_json : t -> path:string -> (unit, string) result
 
   (** Reset all counters to zero. *)
   val reset : t -> unit
