@@ -85,14 +85,24 @@ let tool_use_names (response : api_response) =
     response.content
 ;;
 
-let tool_lookup tools name =
-  List.find_opt (fun (tool : Tool.t) -> String.equal tool.schema.name name) tools
+type tool_lookup_index = (string, Tool.t) Hashtbl.t
+
+let add_first tbl key value = if not (Hashtbl.mem tbl key) then Hashtbl.add tbl key value
+
+let build_tool_lookup_index tools =
+  let index = Hashtbl.create (max 16 (List.length tools * 2)) in
+  List.iter (fun (tool : Tool.t) -> add_first index tool.schema.name tool) tools;
+  index
 ;;
 
+let tool_lookup index name = Hashtbl.find_opt index name
+
 let tool_use_calls ~(tools : Tool.t list) (response : api_response) =
+  let tool_index = build_tool_lookup_index tools in
   List.filter_map
     (function
-      | ToolUse { name; input; _ } -> Some { name; input; tool = tool_lookup tools name }
+      | ToolUse { name; input; _ } ->
+        Some { name; input; tool = tool_lookup tool_index name }
       | _ -> None)
     response.content
 ;;
@@ -284,6 +294,48 @@ let%test "validate_response accepts matching ToolUse for Require_specific_tool" 
     ; telemetry = None
     }
   = Ok ()
+;;
+
+let%test "validate_response preserves first-match tool descriptor semantics" =
+  let descriptor perm =
+    Tool.
+      { kind = None
+      ; mutation_class = None
+      ; concurrency_class = None
+      ; permission = Some perm
+      ; shell = None
+      ; notes = []
+      ; examples = []
+      }
+  in
+  let tool permission content =
+    Tool.create
+      ~descriptor:(descriptor permission)
+      ~name:"status"
+      ~description:content
+      ~parameters:[]
+      (fun _ -> Ok { content })
+  in
+  match
+    validate_response
+      ~tools:[ tool Tool.ReadOnly "read-only first"; tool Tool.Write "write second" ]
+      ~required_tool_satisfaction:effectful_tool_satisfies
+      ~contract:Require_tool_use
+      { id = "r"
+      ; model = "m"
+      ; stop_reason = StopToolUse
+      ; content = [ ToolUse { id = "call-1"; name = "status"; input = `Assoc [] } ]
+      ; usage = None
+      ; telemetry = None
+      }
+  with
+  | Error msg ->
+    (try
+       ignore (Str.search_forward (Str.regexp_string "read-only") msg 0);
+       true
+     with
+     | Not_found -> false)
+  | Ok () -> false
 ;;
 
 let%test "validate_response rejects different ToolUse for Require_specific_tool" =

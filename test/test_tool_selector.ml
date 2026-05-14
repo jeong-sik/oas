@@ -288,6 +288,39 @@ let test_topk_llm_invalid_names_dropped () =
   check int "no tools from invalid rerank" 0 (List.length result)
 ;;
 
+let test_topk_llm_candidates_preserve_first_duplicate_descriptor () =
+  let saw_first_description = ref false in
+  let rerank ~context:_ ~candidates =
+    saw_first_description
+    := List.exists
+         (fun (name, description) ->
+            name = "status" && description = "First status descriptor")
+         candidates;
+    [ "status" ]
+  in
+  let tools =
+    [ make_tool "status" "First status descriptor"
+    ; make_tool "status" "Second status descriptor"
+    ; make_tool "search" "Search status entries"
+    ]
+  in
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (TopK_llm
+           { k = 1
+           ; bm25_prefilter_n = 3
+           ; always_include = []
+           ; confidence_threshold = 0.0
+           ; rerank_fn = rerank
+           })
+      ~context:"status"
+      ~tools
+  in
+  check bool "reranker saw first descriptor" true !saw_first_description;
+  check (list string) "selected status once" [ "status" ] (tool_names result)
+;;
+
 (* ── Categorical stubs ──────────────────────────── *)
 
 let test_categorical_llm_unimplemented_returns_empty () =
@@ -425,6 +458,10 @@ let () =
             test_topk_llm_low_confidence_skips_llm
         ; test_case "empty tools" `Quick test_topk_llm_empty_tools
         ; test_case "invalid names dropped" `Quick test_topk_llm_invalid_names_dropped
+        ; test_case
+            "duplicate candidate descriptor keeps first"
+            `Quick
+            test_topk_llm_candidates_preserve_first_duplicate_descriptor
         ] )
     ; ( "stubs"
       , [ test_case
