@@ -24,7 +24,7 @@ type tier =
   | Procedural
   | Long_term
 
-(** {1 Long-term backend} *)
+(** {1 Memory backends} *)
 
 (** Callback for long-term memory persistence.
 
@@ -37,6 +37,55 @@ type long_term_backend =
   ; remove : key:string -> (unit, string) result
   ; batch_persist : (string * Yojson.Safe.t) list -> (unit, string) result
   ; query : prefix:string -> limit:int -> (string * Yojson.Safe.t) list
+  }
+
+(** Outcome of an interaction. *)
+type outcome = Memory_episodic.outcome =
+  | Success of string
+  | Failure of string
+  | Neutral
+
+(** A single episodic memory record. *)
+type episode = Memory_episodic.episode =
+  { id : string
+  ; timestamp : float
+  ; participants : string list
+  ; action : string
+  ; outcome : outcome
+  ; salience : float (** 0.0-1.0, decays over time *)
+  ; metadata : (string * Yojson.Safe.t) list
+  }
+
+(** A learned procedure. *)
+type procedure = Memory_procedural.procedure =
+  { id : string
+  ; pattern : string (** What triggers this procedure *)
+  ; action : string (** What to do *)
+  ; success_count : int
+  ; failure_count : int
+  ; confidence : float (** success / (success + failure), 0.0-1.0 *)
+  ; last_used : float
+  ; metadata : (string * Yojson.Safe.t) list
+  }
+
+(** Optional persistence backend for episodic memory. The in-memory context
+    remains a hot cache; this backend lets a fresh [Memory.t] recall episodes
+    written by an earlier instance. *)
+type episodic_backend =
+  { persist_episode : episode -> unit
+  ; retrieve_episode : id:string -> episode option
+  ; remove_episode : id:string -> unit
+  ; all_episodes : unit -> episode list
+  }
+
+(** Optional persistence backend for procedural memory. The in-memory context
+    remains a hot cache; this backend lets learned procedures survive fresh
+    [Memory.t] instances. *)
+type procedural_backend =
+  { persist_procedure : procedure -> unit
+  ; retrieve_procedure : id:string -> procedure option
+  ; remove_procedure : id:string -> unit
+  ; all_procedures : unit -> procedure list
   }
 
 (** Wrap legacy callbacks that return [unit] into a {!long_term_backend}
@@ -52,10 +101,22 @@ val legacy_backend
 
 type t
 
-val create : ?ctx:Context.t -> ?long_term:long_term_backend -> unit -> t
+val create
+  :  ?ctx:Context.t
+  -> ?long_term:long_term_backend
+  -> ?episodic:episodic_backend
+  -> ?procedural:procedural_backend
+  -> unit
+  -> t
 
 (** Set or replace the long-term backend. *)
 val set_long_term_backend : t -> long_term_backend -> unit
+
+(** Set or replace the episodic backend. *)
+val set_episodic_backend : t -> episodic_backend -> unit
+
+(** Set or replace the procedural backend. *)
+val set_procedural_backend : t -> procedural_backend -> unit
 
 (** {1 Generic key-value operations (Scratchpad, Working, Long_term)} *)
 
@@ -107,23 +168,6 @@ val context : t -> Context.t
     Use for "what happened" recall — past interactions,
     outcomes, participant involvement. *)
 
-(** Outcome of an interaction. *)
-type outcome =
-  | Success of string
-  | Failure of string
-  | Neutral
-
-(** A single episodic memory record. *)
-type episode =
-  { id : string
-  ; timestamp : float
-  ; participants : string list
-  ; action : string
-  ; outcome : outcome
-  ; salience : float (** 0.0–1.0, decays over time *)
-  ; metadata : (string * Yojson.Safe.t) list
-  }
-
 (** Store an episode.  The episode's [id] is used as the storage key. *)
 val store_episode : t -> episode -> unit
 
@@ -159,18 +203,6 @@ val episode_count : t -> int
     Stores learned action patterns with success/failure tracking.
     Use for "how to do X" recall — reusable strategies,
     tool usage patterns, decision heuristics. *)
-
-(** A learned procedure. *)
-type procedure =
-  { id : string
-  ; pattern : string (** What triggers this procedure *)
-  ; action : string (** What to do *)
-  ; success_count : int
-  ; failure_count : int
-  ; confidence : float (** success / (success + failure), 0.0–1.0 *)
-  ; last_used : float
-  ; metadata : (string * Yojson.Safe.t) list
-  }
 
 (** Store or update a procedure. Uses [id] as storage key. *)
 val store_procedure : t -> procedure -> unit
