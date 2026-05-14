@@ -185,14 +185,24 @@ let circuit_state_of_info ~cascade_config info =
   else Metrics.Circuit_closed
 ;;
 
-let emit_circuit_state metrics config ~cascade_config ~health ~provider_key =
-  let info = provider_health_info health ~cascade_config ~provider_key in
-  let state = circuit_state_of_info ~cascade_config info in
+(* Direct-state emit: lets callers reuse a circuit state they already
+   determined from an earlier [is_circuit_open] / [provider_health_info]
+   read, instead of re-reading [health]. This avoids a TOCTOU window
+   where the cooldown boundary (or another fiber's update) can flip the
+   computed state between the skip decision and the metric emit, which
+   would contradict the operator-visible reason this request skipped. *)
+let emit_circuit_state_with_state metrics config ~provider_key ~state =
   metrics.Metrics.on_circuit_state
     ~provider:(Provider_registry.provider_name_of_config config)
     ~model_id:config.Provider_config.model_id
     ~provider_key
     ~state
+;;
+
+let emit_circuit_state metrics config ~cascade_config ~health ~provider_key =
+  let info = provider_health_info health ~cascade_config ~provider_key in
+  let state = circuit_state_of_info ~cascade_config info in
+  emit_circuit_state_with_state metrics config ~provider_key ~state
 ;;
 
 let emit_half_open_if_needed metrics config ~cascade_config ~health ~provider_key =
@@ -246,7 +256,15 @@ let complete_cascade
       let key = provider_key config in
       if is_circuit_open health ~ccfg:cascade_config key
       then (
-        emit_circuit_state metrics_sink config ~cascade_config ~health ~provider_key:key;
+        (* Already decided the skip is due to an open circuit on this
+           [health] read; emit [Circuit_open] directly so the metric
+           cannot contradict the skip reason if the cooldown boundary
+           flips before a second read. *)
+        emit_circuit_state_with_state
+          metrics_sink
+          config
+          ~provider_key:key
+          ~state:Metrics.Circuit_open;
         loop
           rest
           (idx + 1)
