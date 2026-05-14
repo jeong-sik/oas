@@ -81,6 +81,55 @@ let test_catalog_to_provider_config () =
       (cfg.kind = Llm_provider.Provider_config.OpenAI_compat))
 ;;
 
+let test_binding_for_provider_config_uses_catalog_endpoint () =
+  with_provider_catalog catalog_json (fun () ->
+    let cfg =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~model_id:"local-model"
+        ~base_url:"http://127.0.0.1:8123"
+        ~request_path:"/v1/chat/completions"
+        ()
+    in
+    match Provider_runtime_binding.binding_for_provider_config cfg with
+    | Some binding ->
+      Alcotest.(check string) "catalog binding id" "subscriber-local" binding.id
+    | None -> Alcotest.fail "expected catalog binding for provider config")
+;;
+
+let test_capabilities_for_provider_config_uses_catalog_capabilities () =
+  with_provider_catalog catalog_json (fun () ->
+    let cfg =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~model_id:"unlisted-local-model"
+        ~base_url:"http://127.0.0.1:8123"
+        ~request_path:"/v1/chat/completions"
+        ()
+    in
+    let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+    Alcotest.(check bool) "catalog supports tools" true caps.supports_tools;
+    Alcotest.(check bool)
+      "catalog support tool_choice default"
+      true
+      caps.supports_tool_choice)
+;;
+
+let test_capabilities_for_provider_config_honors_override () =
+  with_provider_catalog catalog_json (fun () ->
+    let cfg =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~model_id:"unlisted-local-model"
+        ~base_url:"http://127.0.0.1:8123"
+        ~request_path:"/v1/chat/completions"
+        ~supports_tool_choice_override:false
+        ()
+    in
+    let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+    Alcotest.(check bool) "override disables tool choice" false caps.supports_tool_choice)
+;;
+
 let test_all_includes_catalog_entry_once () =
   with_provider_catalog catalog_json (fun () ->
     let matches =
@@ -113,6 +162,18 @@ let () =
             `Quick
             test_catalog_alias_default_and_capabilities
         ; Alcotest.test_case "to provider config" `Quick test_catalog_to_provider_config
+        ; Alcotest.test_case
+            "binding for provider config"
+            `Quick
+            test_binding_for_provider_config_uses_catalog_endpoint
+        ; Alcotest.test_case
+            "capabilities for provider config"
+            `Quick
+            test_capabilities_for_provider_config_uses_catalog_capabilities
+        ; Alcotest.test_case
+            "capabilities honor tool_choice override"
+            `Quick
+            test_capabilities_for_provider_config_honors_override
         ; Alcotest.test_case
             "all includes catalog once"
             `Quick

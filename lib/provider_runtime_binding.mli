@@ -53,6 +53,23 @@ val all : unit -> t list
     case-insensitive and whitespace-trimmed. *)
 val find : string -> t option
 
+(** Resolve the runtime binding that owns a concrete provider config.
+
+    Catalog endpoint matches are resolved before registry provider-name
+    fallbacks, so catalog-provided OpenAI-compatible providers remain
+    OAS-owned even when the endpoint is local. *)
+val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
+
+(** Resolve OAS-owned provider capabilities for a concrete provider config.
+
+    Catalog/registry provider capabilities are preferred. Non-CLI providers
+    then honor model-specific capability overrides when available. CLI
+    providers keep the transport-level capability record because their
+    [model_id] is a runtime selection hint rather than an API model id. *)
+val capabilities_for_provider_config
+  :  Llm_provider.Provider_config.t
+  -> Llm_provider.Capabilities.capabilities
+
 (** Resolve the model that should be used for a binding. [requested_model]
     wins when non-empty, followed by the binding catalog default, then OAS
     provider defaults. *)
