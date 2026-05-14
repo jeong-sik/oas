@@ -98,6 +98,7 @@
   test_event_bus
   test_event_envelope
   test_event_forward
+  test_schema_surface_index
   test_fs_result
   test_gemini_edge_cases
   test_guardrail_llm
@@ -309,6 +310,7 @@
   test_event_bus
   test_event_envelope
   test_event_forward
+  test_schema_surface_index
   test_fs_result
   test_gemini_edge_cases
   test_guardrail_llm
