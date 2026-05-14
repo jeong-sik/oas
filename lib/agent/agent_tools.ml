@@ -57,7 +57,17 @@ let build_index tools =
 let find_in_index index name =
   match Hashtbl.find_opt index.by_name name with
   | Some _ as found -> found
-  | None -> Hashtbl.find_opt index.by_id (Tool_id.of_string name)
+  | None ->
+    (* Fallback applies the case-insensitive [Tool_id.of_string] mapping so
+       canonical built-ins and MCP IDs still resolve when the caller emits a
+       case-variant. For user-defined tools, [Tool_id.of_string] lowercases the
+       raw name into [User _], which would let a case-variant call dispatch a
+       *different* user tool (e.g. caller "MyTool" → user "mytool" when only
+       the latter is registered). To preserve approval/audit behavior, gate
+       the fallback so user IDs require an exact [by_name] match. *)
+    (match Tool_id.of_string name with
+     | Tool_id.User _ -> None
+     | id -> Hashtbl.find_opt index.by_id id)
 ;;
 
 let concurrency_class_to_string = function
