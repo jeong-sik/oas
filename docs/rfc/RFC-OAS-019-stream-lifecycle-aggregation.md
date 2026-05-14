@@ -60,7 +60,7 @@ Registered in `lib/telemetry_sca_registry.ml:24` as a known signal. Serialized v
 
 - Touching prometheus or any other in-SDK metric path. If those exist, they remain at chunk granularity for SRE traceability. This RFC scopes the change to `Event_bus` external emission.
 - Adding cost-per-stream estimates to the summary (`cost_usd_estimate`) — defer to a billing-focused RFC after `pricing.ml` externalization (RFC-OAS-018).
-- Rewriting `lib/cascade/`, `lib/keeper/` SDK-internal callers that read `Streaming_chunk_n` for liveness or progress. Internal call sites stay on the typed value path; only `telemetry_bus.publish` of the chunk variant is removed.
+- Rewriting SDK-internal per-chunk typed-value call sites that read `Streaming_chunk_n` for liveness or progress. Internal call sites stay on the typed value path; only `telemetry_bus.publish` of the chunk variant is removed.
 
 ## 4. Design
 
