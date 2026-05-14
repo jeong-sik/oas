@@ -746,6 +746,76 @@ let test_attempt_timeout_disable_via_nonpositive_sentinel () =
   | _ -> fail "expected Success when timeout disabled by sentinel"
 ;;
 
+let test_circuit_open_skip_emits_only_circuit_open_for_skipped_provider () =
+  (* Regression for the TOCTOU window in the open-skip emit: the skip
+     branch must record exactly one [Circuit_open] for the open provider,
+     never [Circuit_half_open] or [Circuit_closed] for that same key. *)
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let health = Complete_cascade.create_health ~clock () in
+  let primary =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-20250514"
+      ~base_url:"https://api.anthropic.com"
+      ()
+  in
+  let fallback =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"moonshot-v1"
+      ~base_url:"https://api.moonshot.cn"
+      ()
+  in
+  let primary_key = Complete_cascade.provider_key primary in
+  Complete_cascade.record_failure health primary_key;
+  Complete_cascade.record_failure health primary_key;
+  Complete_cascade.record_failure health primary_key;
+  let circuit_states = ref [] in
+  let metrics : Metrics.t =
+    { Metrics.noop with
+      on_circuit_state =
+        (fun ~provider:_ ~model_id:_ ~provider_key ~state ->
+          circuit_states := (provider_key, state) :: !circuit_states)
+    }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun (_ : Llm_transport.completion_request) ->
+          { Llm_transport.response = Ok dummy_response; latency_ms = Some 25 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ (_ : Llm_transport.completion_request) ->
+          Ok dummy_response)
+    }
+  in
+  let _ =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~health
+      ~metrics
+      ~steps:[ primary; fallback ]
+      ~messages:[]
+      ()
+  in
+  let states_for_primary =
+    List.filter
+      (fun (provider_key, _) -> String.equal provider_key primary_key)
+      !circuit_states
+    |> List.map snd
+  in
+  check
+    (list (testable Fmt.nop ( = )))
+    "primary key emits exactly one Circuit_open and nothing else"
+    [ Metrics.Circuit_open ]
+    states_for_primary
+;;
+
 (* ── Test suite ───────────────────────────────────────── *)
 
 let suite =
@@ -771,6 +841,9 @@ let suite =
   ; ( "circuit_state_half_open_closed"
     , `Quick
     , test_circuit_state_metric_half_open_then_closed )
+  ; ( "circuit_open_skip_emits_only_circuit_open"
+    , `Quick
+    , test_circuit_open_skip_emits_only_circuit_open_for_skipped_provider )
   ; ( "hard_quota_stops_without_fallback"
     , `Quick
     , test_hard_quota_stops_without_calling_fallback )
