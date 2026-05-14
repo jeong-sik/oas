@@ -55,6 +55,21 @@ type t =
       provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
     (** Fired when a response carries usage tokens.
       @since 0.185.0 *)
+  ; on_streaming_first_chunk :
+      provider:string -> model_id:string -> ttfrc_ms:float -> unit
+    (** Fired when a streaming response emits its first parsed response
+        event.  [ttfrc_ms] is wall-clock time-to-first-response-chunk.
+        @since 0.193.12 *)
+  ; on_streaming_chunk :
+      provider:string
+      -> model_id:string
+      -> chunk_index:int
+      -> inter_chunk_ms:float
+      -> unit
+    (** Fired for each subsequent parsed streaming response event.
+        [inter_chunk_ms] is elapsed wall-clock time since the previous
+        parsed event.  [chunk_index] is the zero-based index reported by
+        the streaming telemetry event.  @since 0.193.12 *)
   }
 
 (** No-op metrics — all callbacks do nothing. *)
@@ -102,6 +117,10 @@ type provider_snapshot =
   ; output_tokens_total : int
   ; latency_ms_sum : int
   ; latency_ms_count : int
+  ; ttfrc_ms_sum : float
+  ; ttfrc_ms_count : int
+  ; inter_chunk_ms_sum : float
+  ; inter_chunk_ms_count : int
   }
 
 (** Convert one provider snapshot to structured JSON.

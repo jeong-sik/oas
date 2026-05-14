@@ -1065,6 +1065,14 @@ let complete_with_retry
 (* Re-export stream accumulator for backward compatibility *)
 include Complete_stream_acc
 
+let record_streaming_metrics (metrics : Metrics.t) = function
+  | Telemetry_event.Streaming_first_chunk { provider; model; ttfrc_ms; _ } ->
+    metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
+  | Telemetry_event.Streaming_chunk_n { provider; model; chunk_index; inter_chunk_ms } ->
+    metrics.on_streaming_chunk ~provider ~model_id:model ~chunk_index ~inter_chunk_ms
+  | _ -> ()
+;;
+
 (* Internal: HTTP-specific streaming implementation. *)
 let complete_stream_http
       ~sw:_
@@ -1073,6 +1081,7 @@ let complete_stream_http
       ?stream_idle_timeout_s
       ?body_timeout_s
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
+      ?(metrics = Metrics.get_global ())
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -1138,6 +1147,7 @@ let complete_stream_http
       let provider = Provider_config.string_of_provider_kind config.kind in
       let model = config.model_id in
       let emit_telemetry evt =
+        record_streaming_metrics metrics evt;
         match on_telemetry with
         | Some f -> f evt
         | None -> ()
@@ -1167,19 +1177,17 @@ let complete_stream_http
       let classify_chunk_kind (evt : Types.sse_event) =
         match evt with
         | Types.MessageStart _ -> `Skip
-        | Types.ContentBlockStart { content_type = "tool_use"; _ } ->
-          `Tool_call_start
+        | Types.ContentBlockStart { content_type = "tool_use"; _ } -> `Tool_call_start
         | Types.ContentBlockStart _ -> `Substrate
         | Types.ContentBlockDelta { delta = TextDelta _; _ } -> `Answer
         | Types.ContentBlockDelta { delta = ThinkingDelta _; _ } -> `Thinking
-        | Types.ContentBlockDelta { delta = InputJsonDelta _; _ } ->
-          `Tool_call_arg_delta
+        | Types.ContentBlockDelta { delta = InputJsonDelta _; _ } -> `Tool_call_arg_delta
         | Types.ContentBlockStop _ -> `Tool_call_complete
         | Types.MessageDelta _ -> `Skip
         | Types.MessageStop -> `Done
         | Types.Ping -> `Heartbeat
-        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _
-          -> `Wire_error
+        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _ ->
+          `Wire_error
       in
       let percentiles () =
         match !inter_chunk_samples with
@@ -1262,8 +1270,7 @@ let complete_stream_http
                      | `Heartbeat -> incr n_heartbeat
                      | `Done -> incr n_done
                      | `Wire_error ->
-                       terminal_state :=
-                         Telemetry_event.Terminal_error "sse_wire_error")
+                       terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
                   events;
                 if events <> []
                 then
@@ -1282,9 +1289,16 @@ let complete_stream_http
                     let inter_chunk_ms = (now -. !last_chunk_t) *. 1000.0 in
                     (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
                        removed. Inter-chunk gaps are accumulated for the
-                       percentile reservoir in [Streaming_summary]. *)
-                    inter_chunk_samples :=
-                      inter_chunk_ms :: !inter_chunk_samples;
+                       percentile reservoir in [Streaming_summary]. Metrics
+                       sinks still receive the raw sample so aggregate backends
+                       can preserve latency counters without re-expanding the
+                       public telemetry stream. *)
+                    metrics.on_streaming_chunk
+                      ~provider
+                      ~model_id:model
+                      ~chunk_index:!chunk_counter
+                      ~inter_chunk_ms;
+                    inter_chunk_samples := inter_chunk_ms :: !inter_chunk_samples;
                     last_chunk_t := now;
                     incr chunk_counter);
                 match tel_opt with
@@ -1374,8 +1388,7 @@ let complete_stream_http
                  (* RFC-OAS-019: timeout path also publishes the summary
                     so operators see the partial stream's distribution. *)
                  publish_summary
-                   ~terminal:
-                     (Telemetry_event.Terminal_error "body_timeout_s_exceeded")
+                   ~terminal:(Telemetry_event.Terminal_error "body_timeout_s_exceeded")
                    ();
                  Error
                    (Printf.sprintf
@@ -1393,9 +1406,7 @@ let complete_stream_http
       | Error _ as e ->
         (* RFC-OAS-019: transport-level error before body_logic ran (or
            before its publish). Idempotent via summary_published. *)
-        publish_summary
-          ~terminal:(Telemetry_event.Terminal_error "transport_error")
-          ();
+        publish_summary ~terminal:(Telemetry_event.Terminal_error "transport_error") ();
         e
       | Ok (Ok resp) ->
         let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
@@ -1473,8 +1484,7 @@ let complete_stream_http
       | Ok (Error msg) ->
         publish_summary
           ~terminal:
-            (Telemetry_event.Terminal_error
-               (Printf.sprintf "sse_stream_error: %s" msg))
+            (Telemetry_event.Terminal_error (Printf.sprintf "sse_stream_error: %s" msg))
           ();
         Error
           (Http_client.NetworkError
@@ -1494,6 +1504,7 @@ let complete_stream
       ?runtime_mcp_policy
       ?(trace_context = [])
       ~(on_event : Types.sse_event -> unit)
+      ?metrics
       ?(priority : Request_priority.t option)
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ()
@@ -1504,11 +1515,24 @@ let complete_stream
     let _priority = priority in
     let request_config = config_with_trace_context config trace_context in
     let t0 = Unix.gettimeofday () in
+    let metrics_opt = metrics in
+    let metrics = Option.value metrics ~default:(Metrics.get_global ()) in
+    let on_telemetry_with_metrics evt =
+      record_streaming_metrics metrics evt;
+      match on_telemetry with
+      | Some f -> f evt
+      | None -> ()
+    in
+    let transport_on_telemetry =
+      match metrics_opt, on_telemetry with
+      | None, None -> None
+      | Some _, _ | None, Some _ -> Some on_telemetry_with_metrics
+    in
     let result =
       match transport with
       | Some t ->
         t.complete_stream
-          ?on_telemetry
+          ?on_telemetry:transport_on_telemetry
           ~on_event
           { Llm_transport.config = request_config; messages; tools; runtime_mcp_policy }
       | None when requires_non_http_transport request_config.kind ->
@@ -1525,6 +1549,7 @@ let complete_stream
           ?stream_idle_timeout_s
           ?body_timeout_s
           ?on_telemetry
+          ~metrics
           ~config:request_config
           ~messages
           ~tools
