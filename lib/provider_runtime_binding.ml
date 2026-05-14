@@ -1,0 +1,246 @@
+(** Read-only runtime provider bindings. *)
+
+module PC = Llm_provider.Provider_catalog
+module PR = Llm_provider.Provider_registry
+module PConfig = Llm_provider.Provider_config
+
+type provider_kind = PConfig.provider_kind
+type capabilities = Provider.capabilities
+
+type transport =
+  | Http
+  | Cli
+  | Managed
+  | Custom_openai_compat
+
+type auth =
+  | No_auth
+  | Api_key_env of string
+  | Cli_cached_login
+  | Oauth_cached_login
+  | Setup_token_env of string
+  | File of string
+  | Exec of string
+
+type t =
+  { id : string
+  ; aliases : string list
+  ; kind : provider_kind
+  ; transport : transport
+  ; command : string option
+  ; base_url : string
+  ; request_path : string
+  ; api_key_env : string
+  ; auth : auth
+  ; default_model : string option
+  ; max_context : int option
+  ; capabilities : capabilities
+  ; available : bool
+  ; non_interactive : bool
+  ; interactive_required : bool
+  ; daemon_safe : bool
+  ; credential_scope : string option
+  }
+
+let normalize value = String.trim value |> String.lowercase_ascii
+
+let trim_non_empty value =
+  let trimmed = String.trim value in
+  if trimmed = "" then None else Some trimmed
+;;
+
+let transport_of_catalog = function
+  | PC.Http -> Http
+  | PC.Cli -> Cli
+  | PC.Managed -> Managed
+  | PC.Custom_openai_compat -> Custom_openai_compat
+;;
+
+let auth_of_catalog = function
+  | PC.No_auth -> No_auth
+  | PC.Api_key_env env -> Api_key_env env
+  | PC.Cli_cached_login -> Cli_cached_login
+  | PC.Oauth_cached_login -> Oauth_cached_login
+  | PC.Setup_token_env env -> Setup_token_env env
+  | PC.File path -> File path
+  | PC.Exec command -> Exec command
+;;
+
+let command_of_kind = function
+  | PConfig.Claude_code -> Some "claude"
+  | PConfig.Gemini_cli -> Some "gemini"
+  | PConfig.Kimi_cli -> Some "kimi"
+  | PConfig.Codex_cli -> Some "codex"
+  | PConfig.Anthropic
+  | PConfig.Kimi
+  | PConfig.OpenAI_compat
+  | PConfig.Ollama
+  | PConfig.Gemini
+  | PConfig.Glm
+  | PConfig.DashScope -> None
+;;
+
+let transport_of_kind kind = if PConfig.is_subprocess_cli kind then Cli else Http
+
+let auth_of_defaults (defaults : PR.provider_defaults) =
+  if PConfig.is_subprocess_cli defaults.kind
+  then Cli_cached_login
+  else (
+    match trim_non_empty defaults.api_key_env with
+    | Some env -> Api_key_env env
+    | None -> No_auth)
+;;
+
+let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
+  : Provider.capabilities
+  =
+  { max_context_tokens = caps.max_context_tokens
+  ; max_output_tokens = caps.max_output_tokens
+  ; supports_tools = caps.supports_tools
+  ; supports_tool_choice = caps.supports_tool_choice
+  ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
+  ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
+  ; supports_runtime_tool_events = caps.supports_runtime_tool_events
+  ; supports_reasoning = caps.supports_reasoning
+  ; supports_extended_thinking = caps.supports_extended_thinking
+  ; supports_reasoning_budget = caps.supports_reasoning_budget
+  ; thinking_control_format = caps.thinking_control_format
+  ; supports_response_format_json = caps.supports_response_format_json
+  ; supports_structured_output = caps.supports_structured_output
+  ; supports_multimodal_inputs = caps.supports_multimodal_inputs
+  ; supports_image_input = caps.supports_image_input
+  ; supports_audio_input = caps.supports_audio_input
+  ; supports_video_input = caps.supports_video_input
+  ; modality_priority = caps.modality_priority
+  ; supports_native_streaming = caps.supports_native_streaming
+  ; supports_system_prompt = caps.supports_system_prompt
+  ; supports_caching = caps.supports_caching
+  ; supports_prompt_caching = caps.supports_prompt_caching
+  ; prompt_cache_alignment = caps.prompt_cache_alignment
+  ; supports_top_k = caps.supports_top_k
+  ; supports_min_p = caps.supports_min_p
+  ; supports_seed = caps.supports_seed
+  ; supports_seed_with_images = caps.supports_seed_with_images
+  ; supports_computer_use = caps.supports_computer_use
+  ; supports_code_execution = caps.supports_code_execution
+  ; emits_usage_tokens = caps.emits_usage_tokens
+  ; supported_models = caps.supported_models
+  }
+;;
+
+let registry_lookup_available registry id =
+  match PR.find registry (normalize id) with
+  | Some entry -> entry.is_available ()
+  | None -> false
+;;
+
+let registry_lookup_max_context registry id fallback =
+  match PR.find registry (normalize id) with
+  | Some entry when entry.max_context > 0 -> Some entry.max_context
+  | _ -> fallback
+;;
+
+let binding_of_catalog_entry registry (entry : PC.entry) =
+  { id = normalize entry.id
+  ; aliases = List.map normalize entry.aliases
+  ; kind = entry.kind
+  ; transport = transport_of_catalog entry.transport
+  ; command = entry.command
+  ; base_url = entry.base_url
+  ; request_path = entry.request_path
+  ; api_key_env = entry.api_key_env
+  ; auth = auth_of_catalog entry.auth
+  ; default_model = entry.default_model
+  ; max_context = registry_lookup_max_context registry entry.id entry.max_context
+  ; capabilities = public_capabilities entry.capabilities
+  ; available = registry_lookup_available registry entry.id
+  ; non_interactive = entry.non_interactive
+  ; interactive_required = entry.interactive_required
+  ; daemon_safe = entry.daemon_safe
+  ; credential_scope = entry.credential_scope
+  }
+;;
+
+let binding_of_registry_entry (entry : PR.entry) =
+  { id = normalize entry.name
+  ; aliases = []
+  ; kind = entry.defaults.kind
+  ; transport = transport_of_kind entry.defaults.kind
+  ; command = command_of_kind entry.defaults.kind
+  ; base_url = entry.defaults.base_url
+  ; request_path = entry.defaults.request_path
+  ; api_key_env = entry.defaults.api_key_env
+  ; auth = auth_of_defaults entry.defaults
+  ; default_model = None
+  ; max_context = (if entry.max_context > 0 then Some entry.max_context else None)
+  ; capabilities = public_capabilities entry.capabilities
+  ; available = entry.is_available ()
+  ; non_interactive = not (PConfig.is_subprocess_cli entry.defaults.kind)
+  ; interactive_required = false
+  ; daemon_safe = not (PConfig.is_subprocess_cli entry.defaults.kind)
+  ; credential_scope = None
+  }
+;;
+
+let catalog_entries () = Option.value (PC.global ()) ~default:[]
+
+let catalog_names entries =
+  entries
+  |> List.concat_map (fun (entry : PC.entry) -> entry.id :: entry.aliases)
+  |> List.map normalize
+;;
+
+let sort_bindings bindings = List.sort (fun a b -> String.compare a.id b.id) bindings
+
+let all () =
+  let registry = PR.default () in
+  let catalog = catalog_entries () in
+  let catalog_name_set = catalog_names catalog in
+  let from_catalog = List.map (binding_of_catalog_entry registry) catalog in
+  let from_registry =
+    PR.all registry
+    |> List.filter (fun (entry : PR.entry) ->
+      not (List.mem (normalize entry.name) catalog_name_set))
+    |> List.map binding_of_registry_entry
+  in
+  sort_bindings (from_catalog @ from_registry)
+;;
+
+let find label =
+  let normalized = normalize label in
+  if normalized = ""
+  then None
+  else (
+    let registry = PR.default () in
+    match PC.global () with
+    | Some catalog ->
+      (match PC.lookup catalog normalized with
+       | Some entry -> Some (binding_of_catalog_entry registry entry)
+       | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
+    | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
+;;
+
+let resolve_model binding ~requested_model =
+  match Option.bind requested_model trim_non_empty with
+  | Some model -> model
+  | None ->
+    (match binding.default_model with
+     | Some model when String.trim model <> "" -> model
+     | _ ->
+       (match binding.kind with
+        | PConfig.Ollama -> "default"
+        | _ -> Model_registry.default_model_id))
+;;
+
+let to_provider_config ?model binding =
+  let model_id = resolve_model binding ~requested_model:model in
+  let request_path = trim_non_empty binding.request_path in
+  let max_context = binding.max_context in
+  PConfig.make
+    ~kind:binding.kind
+    ~model_id
+    ~base_url:binding.base_url
+    ?request_path
+    ?max_context
+    ()
+;;
