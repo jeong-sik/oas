@@ -1,0 +1,28 @@
+# Runtime Output Schema Index
+
+This is the operator-facing map for OAS runtime output surfaces. It answers:
+where is the type or schema truth, who produces it, who consumes it, and which
+test catches obvious path drift.
+
+Machine-readable catalog: `docs/schema-surfaces/runtime-output-surfaces.v1.json`.
+
+## Current Surfaces
+
+| Surface | Output | Schema/type truth | Validation |
+| --- | --- | --- | --- |
+| `oas.event_bus.v1` | In-process agent lifecycle events | `lib/event_bus.mli`, `docs/EVENT-CATALOG.md` | Event bus and envelope tests |
+| `oas.runtime_protocol.v1` | `oas_runtime` NDJSON protocol messages | `lib/runtime.mli` | Runtime protocol roundtrip tests |
+| `oas.runtime_sync_window.v1` | Runtime replay window JSON | `lib/runtime_sync.mli`, `docs/schemas/runtime-sync-window-v1.json` | `Runtime_sync.of_json` and schema version tests |
+| `oas.raw_trace_record.v1` | Raw trace JSONL rows | `lib/raw_trace.mli` | Raw trace roundtrip tests |
+| `oas.structured_schema.v1` | Structured output schema helper | `lib/structured.mli`, `lib/base/types.mli` | Structured schema tests |
+| `oas.cdal_proof_bundle.v1` | CDAL proof bundle JSON | `docs/schemas/cdal-proof-bundle-v1.json` | Catalog path drift test |
+| `oas.collaboration_event.v1` | Downstream collaboration observation JSON | `docs/collaboration-substrate-contract.md`, `docs/schemas/collaboration-event-v1.schema.json` | Catalog path drift test |
+
+## Rules
+
+- OAS-owned runtime semantics live in OCaml `.mli` files first.
+- Cross-repo or downstream payloads use versioned JSON schema under `docs/schemas/`.
+- Downstream product domains should not become native OAS event variants unless
+  the semantic is provider-agnostic and belongs to the single-agent runtime.
+- When a schema source or test file moves, update the machine-readable catalog
+  in the same change.
