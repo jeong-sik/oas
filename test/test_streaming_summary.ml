@@ -81,7 +81,10 @@ let test_terminal_error_roundtrip () =
   let json = T.to_yojson summary_with_error in
   match T.of_yojson json with
   | Ok roundtripped ->
-    Alcotest.(check bool) "terminal-error round-trip" true (roundtripped = summary_with_error)
+    Alcotest.(check bool)
+      "terminal-error round-trip"
+      true
+      (roundtripped = summary_with_error)
   | Error msg -> Alcotest.fail (Printf.sprintf "of_yojson failed: %s" msg)
 ;;
 
@@ -89,7 +92,10 @@ let test_kind_breakdown_roundtrip () =
   let json = T.streaming_kind_breakdown_to_yojson sample_breakdown in
   match T.streaming_kind_breakdown_of_yojson json with
   | Ok roundtripped ->
-    Alcotest.(check bool) "kind_breakdown structural equality" true (roundtripped = sample_breakdown)
+    Alcotest.(check bool)
+      "kind_breakdown structural equality"
+      true
+      (roundtripped = sample_breakdown)
   | Error msg -> Alcotest.fail (Printf.sprintf "kind_breakdown of_yojson failed: %s" msg)
 ;;
 
@@ -105,13 +111,28 @@ let () =
   Alcotest.run
     "RFC-OAS-019 Streaming_summary"
     [ ( "event_type_name"
-      , [ Alcotest.test_case "Streaming_summary maps to streaming_summary" `Quick test_event_type_name
+      , [ Alcotest.test_case
+            "Streaming_summary maps to streaming_summary"
+            `Quick
+            test_event_type_name
         ] )
     ; ( "yojson"
-      , [ Alcotest.test_case "Streaming_summary round-trip (Terminal_done)" `Quick test_yojson_roundtrip_summary
-        ; Alcotest.test_case "Streaming_summary round-trip (Terminal_error)" `Quick test_terminal_error_roundtrip
-        ; Alcotest.test_case "streaming_kind_breakdown round-trip" `Quick test_kind_breakdown_roundtrip
-        ; Alcotest.test_case "streaming_terminal Cancelled round-trip" `Quick test_terminal_cancelled_roundtrip
+      , [ Alcotest.test_case
+            "Streaming_summary round-trip (Terminal_done)"
+            `Quick
+            test_yojson_roundtrip_summary
+        ; Alcotest.test_case
+            "Streaming_summary round-trip (Terminal_error)"
+            `Quick
+            test_terminal_error_roundtrip
+        ; Alcotest.test_case
+            "streaming_kind_breakdown round-trip"
+            `Quick
+            test_kind_breakdown_roundtrip
+        ; Alcotest.test_case
+            "streaming_terminal Cancelled round-trip"
+            `Quick
+            test_terminal_cancelled_roundtrip
         ] )
     ]
 ;;

@@ -24,16 +24,16 @@ let registry : entry list =
   ; { signal = "Streaming_chunk_n"
     ; producer_files = [ "lib/llm_provider/complete.ml" ]
     ; description =
-        "Inter-chunk latency for streaming deltas (deprecated by RFC-OAS-019 \
-         Phase 1; variant retained one release window for downstream consumer \
-         migration, then removed)"
+        "Inter-chunk latency for streaming deltas (deprecated by RFC-OAS-019 Phase 1; \
+         variant retained one release window for downstream consumer migration, then \
+         removed)"
     }
   ; { signal = "Streaming_summary"
     ; producer_files = [ "lib/llm_provider/complete.ml" ]
     ; description =
         "Stream lifecycle summary published once per completion (RFC-OAS-019): \
-         chunk_count, kind_breakdown, TTFT, total_ms, inter_chunk p50/p95/max, \
-         terminal classification"
+         chunk_count, kind_breakdown, TTFT, total_ms, inter_chunk p50/p95/max, terminal \
+         classification"
     }
   ; { signal = "Thinking_complete"
     ; producer_files = [ "lib/llm_provider/streaming.ml" ]
