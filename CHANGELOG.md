@@ -12,6 +12,31 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** allow coordinators to own context-overflow compact retry
 
+## [0.193.11](https://github.com/jeong-sik/oas/compare/v0.193.10...v0.193.11) (2026-05-14)
+
+
+### Features
+
+* **metrics:** emit cascade circuit state ([#1563](https://github.com/jeong-sik/oas/issues/1563)) ([1f69740](https://github.com/jeong-sik/oas/commit/1f69740fb423cc68c04b7d300597a9f164499c84))
+* **telemetry:** RFC-OAS-019 Phase 1 — Streaming_summary at stream finalize ([#1578](https://github.com/jeong-sik/oas/issues/1578)) ([b26fed8](https://github.com/jeong-sik/oas/commit/b26fed80300016d987cbb5d0e9d817df9d02fe95))
+
+
+### Bug Fixes
+
+* **agent_tools:** restrict find_in_index fallback to non-User tool IDs ([#1568](https://github.com/jeong-sik/oas/issues/1568)) ([5e68d21](https://github.com/jeong-sik/oas/commit/5e68d21d4530af6c8991ff769921749f2287d6ab))
+* **metrics:** aggregate streaming latency samples ([#1577](https://github.com/jeong-sik/oas/issues/1577)) ([a33ac78](https://github.com/jeong-sik/oas/commit/a33ac78895a87db2ff824a4d394c3a108d7807ad))
+* **metrics:** deduplicate histogram bucket bounds in prometheus export ([#1564](https://github.com/jeong-sik/oas/issues/1564)) ([b2e8403](https://github.com/jeong-sik/oas/commit/b2e8403897a43660f3ed6ca17529e9c4b7cdebdc))
+* **metrics:** emit Circuit_open directly from open-skip branch ([#1566](https://github.com/jeong-sik/oas/issues/1566)) ([8969475](https://github.com/jeong-sik/oas/commit/8969475eb8323d17400a8ba53632961173d0cad3))
+* **metrics:** persist provider snapshots as json ([#1573](https://github.com/jeong-sik/oas/issues/1573)) ([d5037d2](https://github.com/jeong-sik/oas/commit/d5037d2346e7e13f5488a13495e65722b0a0a268))
+* **metrics:** reject normalized-name collisions at register time ([#1570](https://github.com/jeong-sik/oas/issues/1570)) ([54d4b71](https://github.com/jeong-sik/oas/commit/54d4b71246d382aa8b3561c1a473e8efd9c48d9f))
+* **metrics:** reject open-circuit snapshots without failure timestamp ([#1575](https://github.com/jeong-sik/oas/issues/1575)) ([fedcd13](https://github.com/jeong-sik/oas/commit/fedcd13664e32edd03f47b2763ad131cb7d2184c))
+* **metrics:** support labeled histograms ([#1572](https://github.com/jeong-sik/oas/issues/1572)) ([e9f5ac6](https://github.com/jeong-sik/oas/commit/e9f5ac6dad19d380e5cb068caafe16eed7800ed6))
+* **otel:** propagate trace context to provider calls ([#1576](https://github.com/jeong-sik/oas/issues/1576)) ([4060baa](https://github.com/jeong-sik/oas/commit/4060baac4b8f83468091f66011492c5b4981c7ad))
+* **pipeline:** reject invisible tool choice contracts ([#1579](https://github.com/jeong-sik/oas/issues/1579)) ([b33e626](https://github.com/jeong-sik/oas/commit/b33e6267b49913f7fd1b2c59253403d8bf3b24e5))
+* **provider:** include context for empty HTTP errors ([#1582](https://github.com/jeong-sik/oas/issues/1582)) ([3b49c50](https://github.com/jeong-sik/oas/commit/3b49c5049faee63b045f641bfd4fb0cde0f6ebcd))
+* **provider:** surface OpenAI harness parse errors ([#1581](https://github.com/jeong-sik/oas/issues/1581)) ([42273ee](https://github.com/jeong-sik/oas/commit/42273ee4a4daf9a68aa5f3aa68b2c553be3cd05e))
+* **telemetry:** emit context window usage ([#1583](https://github.com/jeong-sik/oas/issues/1583)) ([070b9d4](https://github.com/jeong-sik/oas/commit/070b9d46d764d45d56b506d7edd51188a529a779))
+
 ## [0.193.10](https://github.com/jeong-sik/oas/compare/v0.193.9...v0.193.10) (2026-05-13)
 
 
