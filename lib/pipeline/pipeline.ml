@@ -174,21 +174,6 @@ let requested_tool_label = function
     "tool_choice_contract"
 ;;
 
-let missing_required_tool_use_reason ~contract response =
-  match contract with
-  | Completion_contract.Require_tool_use | Completion_contract.Require_specific_tool _ ->
-    if
-      has_tool_use response
-      || Completion_contract.stop_reason_is_resumable response.stop_reason
-    then None
-    else (
-      match Completion_contract.validate_response ~contract response with
-      | Ok () -> None
-      | Error reason -> Some reason)
-  | Completion_contract.Allow_text_or_tool | Completion_contract.Require_no_tool_use ->
-    None
-;;
-
 let preview_tool_names names =
   let rec take n xs =
     if n <= 0
@@ -207,6 +192,56 @@ let preview_tool_names names =
       if extra > 0 then Printf.sprintf ", ... (+%d more)" extra else ""
     in
     String.concat ", " shown ^ suffix
+;;
+
+let tool_name_visible visible_tool_names name =
+  List.exists (fun visible -> String.equal visible name) visible_tool_names
+;;
+
+let validate_requested_tool_choice_visibility agent (prep : Agent_turn.turn_preparation) =
+  let resolved = requested_completion_contract agent in
+  let visible_tool_names = prep.visible_tool_names in
+  match resolved.effective with
+  | Completion_contract.Require_tool_use when visible_tool_names = [] ->
+    Error
+      (Error.Agent
+         (CompletionContractViolation
+            { contract = resolved.effective
+            ; reason =
+                "tool_choice requires tool use, but no tools are visible in this turn"
+            }))
+  | Completion_contract.Require_specific_tool name
+    when not (tool_name_visible visible_tool_names name) ->
+    Error
+      (Error.Agent
+         (CompletionContractViolation
+            { contract = resolved.effective
+            ; reason =
+                Printf.sprintf
+                  "tool_choice requested tool '%s', but it is not visible in this turn's \
+                   advertised tool set: [%s]"
+                  name
+                  (preview_tool_names visible_tool_names)
+            }))
+  | Completion_contract.Allow_text_or_tool
+  | Completion_contract.Require_no_tool_use
+  | Completion_contract.Require_tool_use
+  | Completion_contract.Require_specific_tool _ -> Ok ()
+;;
+
+let missing_required_tool_use_reason ~contract response =
+  match contract with
+  | Completion_contract.Require_tool_use | Completion_contract.Require_specific_tool _ ->
+    if
+      has_tool_use response
+      || Completion_contract.stop_reason_is_resumable response.stop_reason
+    then None
+    else (
+      match Completion_contract.validate_response ~contract response with
+      | Ok () -> None
+      | Error reason -> Some reason)
+  | Completion_contract.Allow_text_or_tool | Completion_contract.Require_no_tool_use ->
+    None
 ;;
 
 let missing_tool_feedback_text
@@ -1103,7 +1138,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
           attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1))
       | other -> other
     in
-    let api_result = attempt_route ~prep ~compact_attempts:0 in
+    let api_result =
+      match validate_requested_tool_choice_visibility agent prep with
+      | Ok () -> attempt_route ~prep ~compact_attempts:0
+      | Error _ as err -> err
+    in
     (* Stage 4+5+6: Collect, Execute/Output *)
     (match api_result with
      | Error e ->
@@ -1116,7 +1155,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        Promote recoverable Text blocks to ToolUse before contract
        validation so the pipeline proceeds normally.
        Ref: Samchon harness Layer 1 (dev.to/samchon, Qwen 2025). *)
-       let valid_tool_names = Tool_set.names agent.tools in
+       let valid_tool_names = prep.Agent_turn.visible_tool_names in
        let response = Tool_use_recovery.recover_response ~valid_tool_names raw_response in
        let* missing_tool_action =
          handle_missing_required_tool_use

@@ -486,6 +486,86 @@ let test_agent_run_requires_specific_tool_when_tool_choice_is_tool () =
   | Exit -> ()
 ;;
 
+let test_agent_run_rejects_any_tool_choice_when_no_tools_visible () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20121
+        [ openai_text_response "should not be requested" ]
+    in
+    let agent = make_agent ~net:env#net ~tools:[] ~tool_choice:Types.Any url in
+    match Agent.run ~sw agent "use any available tool" with
+    | Ok _ -> fail "expected no-visible-tools contract failure"
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+      check bool "contract" true (contract = Completion_contract.Require_tool_use);
+      check
+        bool
+        "reason mentions no visible tools"
+        true
+        (contains_substring ~needle:"no tools are visible" reason);
+      Eio.Switch.fail sw Exit
+    | Error e -> fail (Error.to_string e)
+  with
+  | Exit -> ()
+;;
+
+let test_agent_run_rejects_specific_tool_choice_when_tool_hidden () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20122
+        [ openai_tool_use_response "get_time" {|{}|} ]
+    in
+    let time_tool =
+      Tool.create
+        ~name:"get_time"
+        ~description:"Get current time"
+        ~parameters:[]
+        (fun _input -> Ok { Types.content = "12:00 UTC" })
+    in
+    let guardrails =
+      Guardrails.
+        { tool_filter = DenyList [ "get_time" ]; max_tool_calls_per_turn = Some 5 }
+    in
+    let agent =
+      make_agent
+        ~net:env#net
+        ~tools:[ time_tool ]
+        ~guardrails
+        ~tool_choice:(Types.Tool "get_time")
+        url
+    in
+    match Agent.run ~sw agent "what time is it?" with
+    | Ok _ -> fail "expected hidden specific-tool contract failure"
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+      check
+        bool
+        "contract"
+        true
+        (contract = Completion_contract.Require_specific_tool "get_time");
+      check
+        bool
+        "reason mentions visibility"
+        true
+        (contains_substring ~needle:"not visible" reason);
+      Eio.Switch.fail sw Exit
+    | Error e -> fail (Error.to_string e)
+  with
+  | Exit -> ()
+;;
+
 let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
   Eio_main.run
   @@ fun env ->
@@ -1332,6 +1412,14 @@ let () =
             "tool_choice tool requires specific tool"
             `Quick
             test_agent_run_requires_specific_tool_when_tool_choice_is_tool
+        ; test_case
+            "tool_choice any rejects no visible tools"
+            `Quick
+            test_agent_run_rejects_any_tool_choice_when_no_tools_visible
+        ; test_case
+            "tool_choice tool rejects hidden tool"
+            `Quick
+            test_agent_run_rejects_specific_tool_choice_when_tool_hidden
         ; test_case
             "tool_choice none rejects tool use"
             `Quick
