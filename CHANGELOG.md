@@ -12,6 +12,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** allow coordinators to own context-overflow compact retry
 
+## [0.193.12](https://github.com/jeong-sik/oas/compare/v0.193.11...v0.193.12) (2026-05-14)
+
+
+### Features
+
+* **provider:** expose runtime bindings ([#1585](https://github.com/jeong-sik/oas/issues/1585)) ([dbabd5c](https://github.com/jeong-sik/oas/commit/dbabd5ca7daf3ab25a861973ba346faddd442201))
+
+
+### Bug Fixes
+
+* **provider:** persist cascade health snapshots ([#1584](https://github.com/jeong-sik/oas/issues/1584)) ([4277673](https://github.com/jeong-sik/oas/commit/42776731e1ae0b6e505557c6912240f1550a3a3e))
+
 ## [0.193.11](https://github.com/jeong-sik/oas/compare/v0.193.10...v0.193.11) (2026-05-14)
 
 
