@@ -36,6 +36,7 @@ module type TRACER = sig
   val add_attrs : span -> (string * string) list -> unit
   val trace_id : span -> string option
   val span_id : span -> string option
+  val trace_context_headers : unit -> (string * string) list
 end
 
 (** {1 Built-in Tracers} *)
@@ -53,6 +54,10 @@ val null : t
 
 (** Stderr-printing tracer for development. *)
 val fmt : t
+
+(** Return outbound W3C trace context headers for the current active span,
+    or [[]] when the tracer has no active context. *)
+val trace_context_headers : t -> (string * string) list
 
 (** Run [f] within a traced span.  [end_span] is called on both normal
     return and exception, with [ok] set accordingly.  The exception is

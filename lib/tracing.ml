@@ -28,6 +28,7 @@ module type TRACER = sig
   val add_attrs : span -> (string * string) list -> unit
   val trace_id : span -> string option
   val span_id : span -> string option
+  val trace_context_headers : unit -> (string * string) list
 end
 
 module Null_tracer : TRACER with type span = unit = struct
@@ -39,6 +40,7 @@ module Null_tracer : TRACER with type span = unit = struct
   let add_attrs () _attrs = ()
   let trace_id () = None
   let span_id () = None
+  let trace_context_headers () = []
 end
 
 module Fmt_tracer : TRACER = struct
@@ -97,12 +99,18 @@ module Fmt_tracer : TRACER = struct
 
   let trace_id _span = None
   let span_id _span = None
+  let trace_context_headers () = []
 end
 
 type t = (module TRACER)
 
 let null : t = (module Null_tracer)
 let fmt : t = (module Fmt_tracer)
+
+let trace_context_headers (type a) (tracer : t) =
+  let module T = (val tracer : TRACER) in
+  T.trace_context_headers ()
+;;
 
 (** Run [f] within a traced span. [end_span] is called on both normal return
     and exception, with [ok] set accordingly. The exception is re-raised. *)

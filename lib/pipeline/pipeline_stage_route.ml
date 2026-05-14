@@ -38,7 +38,13 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
        Error.Api (Retry.InvalidRequest { message }))
 ;;
 
-let dispatch_sync ~sw ?clock agent (prep : Agent_turn.turn_preparation) =
+let dispatch_sync
+      ~sw
+      ?clock
+      ?(trace_context = [])
+      agent
+      (prep : Agent_turn.turn_preparation)
+  =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let* pc =
     Provider.provider_config_of_agent
@@ -58,6 +64,7 @@ let dispatch_sync ~sw ?clock agent (prep : Agent_turn.turn_preparation) =
         ~messages:prep.Agent_turn.effective_messages
         ~tools
         ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ~trace_context
         ?priority:agent.options.priority
         ()
     | None ->
@@ -69,6 +76,7 @@ let dispatch_sync ~sw ?clock agent (prep : Agent_turn.turn_preparation) =
         ~messages:prep.Agent_turn.effective_messages
         ~tools
         ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ~trace_context
         ?priority:agent.options.priority
         ()
   in
@@ -83,6 +91,7 @@ let dispatch_stream
       agent
       (prep : Agent_turn.turn_preparation)
       ~on_event
+      ?(trace_context = [])
       ?on_telemetry
       ()
   =
@@ -105,6 +114,7 @@ let dispatch_stream
       ~messages:prep.Agent_turn.effective_messages
       ~tools
       ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+      ~trace_context
       ~on_event
       ?on_telemetry
       ?priority:agent.options.priority

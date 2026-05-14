@@ -395,6 +395,30 @@ let%test "sanitize_url_for_log handles missing path" =
   sanitize_url_for_log "https://api.example.com" = "https://api.example.com"
 ;;
 
+let header_name_eq left right =
+  String.equal (String.lowercase_ascii left) (String.lowercase_ascii right)
+;;
+
+let merge_trace_context_headers headers trace_context =
+  match trace_context with
+  | [] -> headers
+  | _ ->
+    let is_trace_header name =
+      List.exists (fun (trace_name, _) -> header_name_eq name trace_name) trace_context
+    in
+    List.filter (fun (name, _) -> not (is_trace_header name)) headers @ trace_context
+;;
+
+let config_with_trace_context config trace_context =
+  match trace_context with
+  | [] -> config
+  | _ ->
+    { config with
+      Provider_config.headers =
+        merge_trace_context_headers config.Provider_config.headers trace_context
+    }
+;;
+
 let complete_http
       ~sw
       ~net
@@ -791,6 +815,7 @@ let complete
       ~(messages : Types.message list)
       ?(tools = [])
       ?runtime_mcp_policy
+      ?(trace_context = [])
       ?(cache : Cache.t option)
       ?(metrics : Metrics.t option)
       ?(priority : Request_priority.t option)
@@ -806,6 +831,7 @@ let complete
       | None -> Metrics.get_global ()
     in
     let model_id = config.model_id in
+    let request_config = config_with_trace_context config trace_context in
     (* Cache lookup *)
     (* Compute fingerprint once; reuse for both lookup and store *)
     let cache_key =
@@ -838,7 +864,12 @@ let complete
        let { Llm_transport.response = result; latency_ms } =
          match transport with
          | Some t ->
-           t.complete_sync { Llm_transport.config; messages; tools; runtime_mcp_policy }
+           t.complete_sync
+             { Llm_transport.config = request_config
+             ; messages
+             ; tools
+             ; runtime_mcp_policy
+             }
          | None when requires_non_http_transport config.kind ->
            (* CLI subprocess providers (claude_code/codex_cli/gemini_cli/kimi_cli)
              register with [base_url = ""] on purpose.  Without a CLI
@@ -859,7 +890,7 @@ let complete
                ~net
                ?clock
                ~on_http_status:m.on_http_status
-               ~config
+               ~config:request_config
                ~messages
                ~tools
                ()
@@ -980,6 +1011,7 @@ let complete_with_retry
       ~(messages : Types.message list)
       ?(tools = [])
       ?runtime_mcp_policy
+      ?trace_context
       ?(retry_config = default_retry_config)
       ?cache
       ?metrics
@@ -1000,6 +1032,7 @@ let complete_with_retry
       ~messages
       ~tools
       ?runtime_mcp_policy
+      ?trace_context
       ?cache
       ~metrics:m
       ?priority
@@ -1338,6 +1371,7 @@ let complete_stream
       ~(messages : Types.message list)
       ?(tools = [])
       ?runtime_mcp_policy
+      ?(trace_context = [])
       ~(on_event : Types.sse_event -> unit)
       ?(priority : Request_priority.t option)
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
@@ -1347,6 +1381,7 @@ let complete_stream
   | Error err -> Error err
   | Ok () ->
     let _priority = priority in
+    let request_config = config_with_trace_context config trace_context in
     let t0 = Unix.gettimeofday () in
     let result =
       match transport with
@@ -1354,8 +1389,8 @@ let complete_stream
         t.complete_stream
           ?on_telemetry
           ~on_event
-          { Llm_transport.config; messages; tools; runtime_mcp_policy }
-      | None when requires_non_http_transport config.kind ->
+          { Llm_transport.config = request_config; messages; tools; runtime_mcp_policy }
+      | None when requires_non_http_transport request_config.kind ->
         (* Same rationale as the sync [complete] guard: CLI kinds have
        [base_url = ""] and must not reach cohttp-eio. *)
         Error
@@ -1369,7 +1404,7 @@ let complete_stream
           ?stream_idle_timeout_s
           ?body_timeout_s
           ?on_telemetry
-          ~config
+          ~config:request_config
           ~messages
           ~tools
           ~on_event

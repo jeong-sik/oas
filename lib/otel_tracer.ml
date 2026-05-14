@@ -266,6 +266,32 @@ let inst_active_count inst =
   inst_with_lock inst @@ fun () -> List.length inst.current_spans
 ;;
 
+let inst_current_span inst =
+  inst_with_lock inst
+  @@ fun () ->
+  match inst.current_spans with
+  | current :: _ -> Some current
+  | [] -> None
+;;
+
+let traceparent_of_span ?(sampled = true) (span : span) =
+  let flags = if sampled then "01" else "00" in
+  Printf.sprintf "00-%s-%s-%s" span.trace_id span.span_id flags
+;;
+
+let trace_context_headers_of_span ?(sampled = true) ?tracestate span =
+  let headers = [ "traceparent", traceparent_of_span ~sampled span ] in
+  match tracestate with
+  | Some state when String.trim state <> "" -> headers @ [ "tracestate", state ]
+  | Some _ | None -> headers
+;;
+
+let inst_trace_context_headers ?sampled ?tracestate inst =
+  match inst_current_span inst with
+  | Some span -> trace_context_headers_of_span ?sampled ?tracestate span
+  | None -> []
+;;
+
 (* -- Instance metric operations --------------------------------------- *)
 
 let inst_record_metric inst ~name ~value ~metric_type =
@@ -467,6 +493,7 @@ let tracer_of_instance inst : Tracing.t =
     let add_attrs = inst_add_attrs inst
     let trace_id s = Some s.trace_id
     let span_id s = Some s.span_id
+    let trace_context_headers () = inst_trace_context_headers inst
   end)
 ;;
 

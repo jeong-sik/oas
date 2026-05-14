@@ -319,7 +319,9 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_sync ~sw ?clock agent prep)
+      (fun tracer ->
+         let trace_context = Tracing.trace_context_headers tracer in
+         dispatch_sync ~sw ?clock ~trace_context agent prep)
   | Stream { on_event; on_telemetry } ->
     Tracing.with_span
       agent.options.tracer
@@ -329,7 +331,9 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_stream ~sw ?clock agent prep ~on_event ?on_telemetry ())
+      (fun tracer ->
+         let trace_context = Tracing.trace_context_headers tracer in
+         dispatch_stream ~sw ?clock ~trace_context agent prep ~on_event ?on_telemetry ())
 ;;
 
 (* ── Stage 4: Collect ────────────────────────────────────── *)

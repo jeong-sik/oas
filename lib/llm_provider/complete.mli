@@ -72,6 +72,7 @@ val complete
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> ?trace_context:(string * string) list
   -> ?cache:Cache.t
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
@@ -106,6 +107,7 @@ val complete_with_retry
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> ?trace_context:(string * string) list
   -> ?retry_config:retry_config
   -> ?cache:Cache.t
   -> ?metrics:Metrics.t
@@ -149,6 +151,7 @@ val complete_stream
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
   -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> ?trace_context:(string * string) list
   -> on_event:(Types.sse_event -> unit)
   -> ?priority:Request_priority.t
   -> ?on_telemetry:(Telemetry_event.t -> unit)
