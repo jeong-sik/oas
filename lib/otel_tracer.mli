@@ -90,6 +90,20 @@ val inst_flush : instance -> span list
 val inst_reset : instance -> unit
 val inst_completed_count : instance -> int
 val inst_active_count : instance -> int
+val inst_current_span : instance -> span option
+val traceparent_of_span : ?sampled:bool -> span -> string
+
+val trace_context_headers_of_span
+  :  ?sampled:bool
+  -> ?tracestate:string
+  -> span
+  -> (string * string) list
+
+val inst_trace_context_headers
+  :  ?sampled:bool
+  -> ?tracestate:string
+  -> instance
+  -> (string * string) list
 
 (** {1 Instance metric operations} *)
 

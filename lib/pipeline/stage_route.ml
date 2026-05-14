@@ -57,7 +57,7 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
     metrics fire and [Llm_transport.t] (set via [agent.options.transport])
     handles CLI providers.  Legacy {!Api.create_message} remains for
     Stream fallback pending PR-O2b. *)
-let dispatch_sync ~sw ?clock agent prep =
+let dispatch_sync ~sw ?clock ?(trace_context = []) agent prep =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let open Result in
   let* pc =
@@ -78,6 +78,7 @@ let dispatch_sync ~sw ?clock agent prep =
         ~messages:prep.effective_messages
         ~tools
         ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ~trace_context
         ?priority:agent.options.priority
         ()
     | None ->
@@ -89,6 +90,7 @@ let dispatch_sync ~sw ?clock agent prep =
         ~messages:prep.effective_messages
         ~tools
         ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ~trace_context
         ?priority:agent.options.priority
         ()
   in
@@ -97,7 +99,8 @@ let dispatch_sync ~sw ?clock agent prep =
   | Error err -> Error (sdk_error_of_http_error err)
 ;;
 
-let dispatch_stream ~sw ?clock agent prep ~on_event ?on_telemetry () =
+let dispatch_stream ~sw ?clock ?(trace_context = []) agent prep ~on_event ?on_telemetry ()
+  =
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
   let open Result in
   let* pc =
@@ -116,6 +119,7 @@ let dispatch_stream ~sw ?clock agent prep ~on_event ?on_telemetry () =
       ~messages:prep.effective_messages
       ~tools
       ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+      ~trace_context
       ~on_event
       ?on_telemetry
       ?priority:agent.options.priority
@@ -137,7 +141,9 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_sync ~sw ?clock agent prep)
+      (fun tracer ->
+         let trace_context = Tracing.trace_context_headers tracer in
+         dispatch_sync ~sw ?clock ~trace_context agent prep)
   | Stream { on_event; on_telemetry } ->
     Tracing.with_span
       agent.options.tracer
@@ -147,5 +153,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; turn = agent.state.turn_count
       ; extra = []
       }
-      (fun _tracer -> dispatch_stream ~sw ?clock agent prep ~on_event ?on_telemetry ())
+      (fun tracer ->
+         let trace_context = Tracing.trace_context_headers tracer in
+         dispatch_stream ~sw ?clock ~trace_context agent prep ~on_event ?on_telemetry ())
 ;;

@@ -41,6 +41,18 @@ let mk_mock_transport (counter : int ref) : Llm_provider.Llm_transport.t =
   }
 ;;
 
+let mk_header_capture_transport headers_ref : Llm_provider.Llm_transport.t =
+  { complete_sync =
+      (fun req ->
+        headers_ref := req.Llm_provider.Llm_transport.config.headers;
+        { response = Ok (mk_mock_response ()); latency_ms = Some 5 })
+  ; complete_stream =
+      (fun ?on_telemetry:_ ~on_event:_ req ->
+        headers_ref := req.Llm_provider.Llm_transport.config.headers;
+        Ok (mk_mock_response ()))
+  }
+;;
+
 let test_sync_dispatches_via_complete_triggers_metrics () =
   Eio_main.run
   @@ fun env ->
@@ -101,6 +113,41 @@ let test_sync_dispatches_via_complete_triggers_metrics () =
   | Error _ -> Alcotest.fail "expected Ok from mock transport"
 ;;
 
+let test_stage_route_passes_trace_context_headers () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let observed_headers = ref [] in
+  let tracer = Otel_tracer.create () in
+  let transport = mk_header_capture_transport observed_headers in
+  let provider =
+    Some
+      { Provider.provider = Provider.Custom_registered { name = "claude_code" }
+      ; model_id = "auto"
+      ; api_key_env = ""
+      }
+  in
+  let options =
+    { Agent_types.default_options with transport = Some transport; tracer; provider }
+  in
+  let agent =
+    Agent.create
+      ~net
+      ~config:{ Types.default_config with name = "trace-context-test"; max_turns = 1 }
+      ~options
+      ()
+  in
+  Eio.Switch.run
+  @@ fun sw ->
+  let result = Agent.run ~sw agent "ping" in
+  match result with
+  | Error err -> Alcotest.failf "expected Ok: %s" (Error.to_string err)
+  | Ok _ ->
+    (match List.assoc_opt "traceparent" !observed_headers with
+     | Some value -> Alcotest.(check int) "traceparent length" 55 (String.length value)
+     | None -> Alcotest.fail "missing traceparent header")
+;;
+
 let test_sdk_error_of_http_error_classifies () =
   (* Pure smoke test for the conversion helper introduced in pipeline.ml *)
   let _ : Error.sdk_error =
@@ -122,6 +169,10 @@ let () =
             "sdk_error_of_http_error compiles"
             `Quick
             test_sdk_error_of_http_error_classifies
+        ; Alcotest.test_case
+            "stage route forwards trace context"
+            `Quick
+            test_stage_route_passes_trace_context_headers
         ] )
     ]
 ;;

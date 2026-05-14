@@ -112,6 +112,7 @@ end = struct
 
   let trace_id _span = None
   let span_id _span = None
+  let trace_context_headers () = [ "traceparent", "00-test-test-01" ]
   let events () = List.rev !log
   let reset () = log := []
 end
@@ -131,6 +132,19 @@ let test_custom_tracer () =
   check string "second is event" "event:custom:hi" (List.nth evts 1);
   check string "third is attr" "attr:custom:a=1" (List.nth evts 2);
   check string "fourth is end" "end:custom:ok=true" (List.nth evts 3)
+;;
+
+let test_trace_context_headers () =
+  check
+    (list (pair string string))
+    "null has no trace headers"
+    []
+    (Tracing.trace_context_headers Tracing.null);
+  check
+    (list (pair string string))
+    "custom headers"
+    [ "traceparent", "00-test-test-01" ]
+    (Tracing.trace_context_headers (module Recording_tracer))
 ;;
 
 let test_span_kind_coverage () =
@@ -184,7 +198,10 @@ let () =
         ; test_case "exception path" `Quick test_with_span_exception
         ; test_case "exception ends span" `Quick test_with_span_exception_ends_span
         ] )
-    ; "custom", [ test_case "recording tracer" `Quick test_custom_tracer ]
+    ; ( "custom"
+      , [ test_case "recording tracer" `Quick test_custom_tracer
+        ; test_case "trace context headers" `Quick test_trace_context_headers
+        ] )
     ; "coverage", [ test_case "all span_kind variants" `Quick test_span_kind_coverage ]
     ]
 ;;

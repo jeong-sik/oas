@@ -555,6 +555,65 @@ let test_otlp_json_without_metrics () =
     (json_assoc_field "resourceMetrics" json = None)
 ;;
 
+(* ── Trace Context Propagation ─────────────────────────────────────── *)
+
+let test_traceparent_of_span () =
+  Otel_tracer.reset ();
+  let span = Otel_tracer.start_span (default_attrs ~name:"propagate" ()) in
+  let expected = Printf.sprintf "00-%s-%s-01" span.trace_id span.span_id in
+  check string "traceparent sampled" expected (Otel_tracer.traceparent_of_span span);
+  let unsampled = Printf.sprintf "00-%s-%s-00" span.trace_id span.span_id in
+  check
+    string
+    "traceparent unsampled"
+    unsampled
+    (Otel_tracer.traceparent_of_span ~sampled:false span);
+  Otel_tracer.end_span span ~ok:true
+;;
+
+let test_trace_context_headers_of_span () =
+  Otel_tracer.reset ();
+  let span = Otel_tracer.start_span (default_attrs ~name:"headers" ()) in
+  let headers =
+    Otel_tracer.trace_context_headers_of_span ~tracestate:"vendor=value" span
+  in
+  check
+    (list (pair string string))
+    "headers"
+    [ "traceparent", Otel_tracer.traceparent_of_span span; "tracestate", "vendor=value" ]
+    headers;
+  Otel_tracer.end_span span ~ok:true
+;;
+
+let test_instance_trace_context_headers () =
+  let inst = Otel_tracer.create_instance () in
+  check
+    (list (pair string string))
+    "empty when no active span"
+    []
+    (Otel_tracer.inst_trace_context_headers inst);
+  let span = Otel_tracer.inst_start_span inst (default_attrs ~name:"active" ()) in
+  check
+    (list (pair string string))
+    "active span header"
+    [ "traceparent", Otel_tracer.traceparent_of_span span ]
+    (Otel_tracer.inst_trace_context_headers inst);
+  Otel_tracer.inst_end_span inst span ~ok:true
+;;
+
+let test_first_class_trace_context_headers () =
+  let tracer = Otel_tracer.create () in
+  Tracing.with_span
+    tracer
+    (default_attrs ~name:"first_class_context" ())
+    (fun active_tracer ->
+       match Tracing.trace_context_headers active_tracer with
+       | [ ("traceparent", value) ] ->
+         check int "traceparent length" 55 (String.length value)
+       | headers ->
+         failf "unexpected headers: %s" (String.concat "," (List.map fst headers)))
+;;
+
 (* ── Entry point ─────────────────────────────────────────────────── *)
 
 let () =
@@ -611,6 +670,21 @@ let () =
             "otlp json omits metrics when empty"
             `Quick
             test_otlp_json_without_metrics
+        ] )
+    ; ( "trace_context"
+      , [ test_case "traceparent of span" `Quick test_traceparent_of_span
+        ; test_case
+            "trace context headers of span"
+            `Quick
+            test_trace_context_headers_of_span
+        ; test_case
+            "instance trace context headers"
+            `Quick
+            (with_eio test_instance_trace_context_headers)
+        ; test_case
+            "first-class trace context headers"
+            `Quick
+            (with_eio test_first_class_trace_context_headers)
         ] )
     ]
 ;;

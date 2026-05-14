@@ -64,6 +64,32 @@ let start_mock_server ~sw ~net ?(status = `OK) ?(delay_sec = 0.0) ?clock respons
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
+let start_header_capture_server ~sw ~net ~seen response_body =
+  let port = fresh_port () in
+  let handler _conn req body =
+    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let headers = Cohttp.Request.headers req in
+    seen
+    := Some
+         ( Cohttp.Header.get headers "traceparent"
+         , Cohttp.Header.get headers "tracestate"
+         , Cohttp.Header.get headers "x-custom" );
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
+  in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  let server = Cohttp_eio.Server.make ~callback:handler () in
+  Eio.Fiber.fork ~sw (fun () ->
+    Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
 (* ── Helper: make Provider_config ────────────────────── *)
 
 let make_config ?(kind = Provider_config.Anthropic) base_url =
@@ -179,6 +205,44 @@ let test_complete_openai_ok () =
       check string "text" "openai reply" text;
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok for openai"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_trace_context_headers () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let seen = ref None in
+    let url =
+      start_header_capture_server ~sw ~net:env#net ~seen (anthropic_response "ok")
+    in
+    let config =
+      { (make_config url) with
+        Provider_config.headers = [ "traceparent", "stale"; "x-custom", "yes" ]
+      }
+    in
+    let trace_context =
+      [ "traceparent", "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
+      ; "tracestate", "vendor=value"
+      ]
+    in
+    (match Complete.complete ~sw ~net:env#net ~config ~messages ~trace_context () with
+     | Ok _ -> ()
+     | Error _ -> fail "expected Ok");
+    match !seen with
+    | Some (traceparent, tracestate, custom) ->
+      check
+        (option string)
+        "traceparent"
+        (Some "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
+        traceparent;
+      check (option string) "tracestate" (Some "vendor=value") tracestate;
+      check (option string) "custom header preserved" (Some "yes") custom;
+      Eio.Switch.fail sw Exit
+    | None -> fail "server did not capture headers"
   with
   | Exit -> ()
 ;;
@@ -655,6 +719,7 @@ let () =
             "openai mlx-vlm telemetry"
             `Quick
             test_complete_openai_mlx_vlm_telemetry
+        ; test_case "trace context headers" `Quick test_complete_trace_context_headers
         ; test_case "non-retryable" `Quick test_complete_non_retryable
         ] )
     ; "cache", [ test_case "store and hit" `Quick test_complete_cache_store_and_hit ]
