@@ -1144,6 +1144,81 @@ let complete_stream_http
       in
       let ollama_usage = ref None in
       let ollama_timings = ref None in
+      (* RFC-OAS-019 — stream-lifetime accumulators for the
+         [Streaming_summary] variant that fires once at finalize.
+         Hoisted out of [body_logic] so exception paths (timeout,
+         transport error, SSE wire error) can publish too.
+         [summary_published] makes publish_summary idempotent across
+         all four paths. *)
+      let first_chunk_seen = ref false in
+      let chunk_counter = ref 0 in
+      let last_chunk_t = ref 0.0 in
+      let n_thinking = ref 0 in
+      let n_answer = ref 0 in
+      let n_tool_call_start = ref 0 in
+      let n_tool_call_arg_delta = ref 0 in
+      let n_tool_call_complete = ref 0 in
+      let n_substrate = ref 0 in
+      let n_heartbeat = ref 0 in
+      let n_done = ref 0 in
+      let inter_chunk_samples = ref [] in
+      let terminal_state = ref Telemetry_event.Terminal_done in
+      let summary_published = ref false in
+      let classify_chunk_kind (evt : Types.sse_event) =
+        match evt with
+        | Types.MessageStart _ -> `Skip
+        | Types.ContentBlockStart { content_type = "tool_use"; _ } ->
+          `Tool_call_start
+        | Types.ContentBlockStart _ -> `Substrate
+        | Types.ContentBlockDelta { delta = TextDelta _; _ } -> `Answer
+        | Types.ContentBlockDelta { delta = ThinkingDelta _; _ } -> `Thinking
+        | Types.ContentBlockDelta { delta = InputJsonDelta _; _ } ->
+          `Tool_call_arg_delta
+        | Types.ContentBlockStop _ -> `Tool_call_complete
+        | Types.MessageDelta _ -> `Skip
+        | Types.MessageStop -> `Done
+        | Types.Ping -> `Heartbeat
+        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _
+          -> `Wire_error
+      in
+      let percentiles () =
+        match !inter_chunk_samples with
+        | [] -> 0.0, 0.0, 0.0
+        | samples ->
+          let sorted = List.sort Float.compare samples in
+          let n = List.length sorted in
+          let nth k = List.nth sorted (max 0 (min (n - 1) k)) in
+          let idx q = int_of_float (Float.of_int n *. q) in
+          nth (idx 0.5), nth (idx 0.95), nth (n - 1)
+      in
+      let publish_summary ~terminal () =
+        if not !summary_published
+        then (
+          summary_published := true;
+          let p50, p95, pmax = percentiles () in
+          emit_telemetry
+            (Telemetry_event.Streaming_summary
+               { provider
+               ; model
+               ; chunk_count = !chunk_counter
+               ; kind_breakdown =
+                   { thinking = !n_thinking
+                   ; answer = !n_answer
+                   ; tool_call_start = !n_tool_call_start
+                   ; tool_call_arg_delta = !n_tool_call_arg_delta
+                   ; tool_call_complete = !n_tool_call_complete
+                   ; substrate = !n_substrate
+                   ; heartbeat = !n_heartbeat
+                   ; done_ = !n_done
+                   }
+               ; ttft_ms = !ttfrc_ref
+               ; total_ms = (Unix.gettimeofday () -. t0) *. 1000.0
+               ; inter_chunk_ms_p50 = p50
+               ; inter_chunk_ms_p95 = p95
+               ; inter_chunk_ms_max = pmax
+               ; terminal
+               }))
+      in
       match
         Http_client.with_post_stream
           ?clock
@@ -1155,9 +1230,9 @@ let complete_stream_http
             let body_logic () =
               let acc = create_stream_acc () in
               let openai_state = ref None in
-              let first_chunk_seen = ref false in
-              let chunk_counter = ref 0 in
-              let last_chunk_t = ref 0.0 in
+              (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
+                 hoisted out of body_logic so publish_summary on
+                 exception paths sees consistent state. *)
               let get_state () =
                 match !openai_state with
                 | Some s -> s
@@ -1170,7 +1245,25 @@ let complete_stream_http
                 List.iter
                   (fun evt ->
                      on_event evt;
-                     accumulate_event acc evt)
+                     accumulate_event acc evt;
+                     (* RFC-OAS-019: classify each delta for the
+                        [Streaming_summary] kind_breakdown that fires at
+                        finalize. Wire errors set terminal_state; per-chunk
+                        emission of [Streaming_chunk_n] is no longer
+                        published — only the lifecycle summary is. *)
+                     match classify_chunk_kind evt with
+                     | `Skip -> ()
+                     | `Thinking -> incr n_thinking
+                     | `Answer -> incr n_answer
+                     | `Tool_call_start -> incr n_tool_call_start
+                     | `Tool_call_arg_delta -> incr n_tool_call_arg_delta
+                     | `Tool_call_complete -> incr n_tool_call_complete
+                     | `Substrate -> incr n_substrate
+                     | `Heartbeat -> incr n_heartbeat
+                     | `Done -> incr n_done
+                     | `Wire_error ->
+                       terminal_state :=
+                         Telemetry_event.Terminal_error "sse_wire_error")
                   events;
                 if events <> []
                 then
@@ -1187,9 +1280,11 @@ let complete_stream_http
                   else (
                     let now = Unix.gettimeofday () in
                     let inter_chunk_ms = (now -. !last_chunk_t) *. 1000.0 in
-                    emit_telemetry
-                      (Telemetry_event.Streaming_chunk_n
-                         { provider; model; chunk_index = !chunk_counter; inter_chunk_ms });
+                    (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
+                       removed. Inter-chunk gaps are accumulated for the
+                       percentile reservoir in [Streaming_summary]. *)
+                    inter_chunk_samples :=
+                      inter_chunk_ms :: !inter_chunk_samples;
                     last_chunk_t := now;
                     incr chunk_counter);
                 match tel_opt with
@@ -1250,7 +1345,13 @@ let complete_stream_http
                      in
                      dispatch events)
                    ());
-              finalize_stream_acc acc
+              let result = finalize_stream_acc acc in
+              (* RFC-OAS-019: emit one [Streaming_summary] at stream
+                 finalize on the normal path. terminal_state defaults to
+                 [Terminal_done]; wire errors during dispatch upgrade it
+                 in place. *)
+              publish_summary ~terminal:!terminal_state ();
+              result
             in
             (* Body-level deadline (since 0.181.0). Wraps the entire
                body callback in [Eio.Time.with_timeout_exn] so a single
@@ -1270,6 +1371,12 @@ let complete_stream_http
                  emit_telemetry
                    (Telemetry_event.Timeout
                       { provider; model; timeout_type = No_response });
+                 (* RFC-OAS-019: timeout path also publishes the summary
+                    so operators see the partial stream's distribution. *)
+                 publish_summary
+                   ~terminal:
+                     (Telemetry_event.Terminal_error "body_timeout_s_exceeded")
+                   ();
                  Error
                    (Printf.sprintf
                       "body_timeout_s deadline exceeded after %.1fs (configured via \
@@ -1283,7 +1390,13 @@ let complete_stream_http
               body_logic ())
           ()
       with
-      | Error _ as e -> e
+      | Error _ as e ->
+        (* RFC-OAS-019: transport-level error before body_logic ran (or
+           before its publish). Idempotent via summary_published. *)
+        publish_summary
+          ~terminal:(Telemetry_event.Terminal_error "transport_error")
+          ();
+        e
       | Ok (Ok resp) ->
         let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
         (* Ollama injection: usage from the done chunk wins over the
@@ -1353,8 +1466,16 @@ let complete_stream_http
          stream_idle_timeout_s docstring contract. The full message
          (including the configured deadline value) is preserved so
          operators can distinguish body vs inter-line timeout. *)
+        publish_summary
+          ~terminal:(Telemetry_event.Terminal_error "body_timeout_s_exceeded")
+          ();
         Error (Http_client.NetworkError { message = msg; kind = Timeout })
       | Ok (Error msg) ->
+        publish_summary
+          ~terminal:
+            (Telemetry_event.Terminal_error
+               (Printf.sprintf "sse_stream_error: %s" msg))
+          ();
         Error
           (Http_client.NetworkError
              { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown }))
