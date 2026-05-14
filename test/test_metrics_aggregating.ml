@@ -142,6 +142,131 @@ let test_aggregating_multiple_providers () =
   check int "three entries" 3 (List.length snap)
 ;;
 
+let test_provider_snapshot_to_yojson () =
+  let snapshot : M.provider_snapshot =
+    { provider = "openai"
+    ; model_id = "gpt-4.1"
+    ; request_total = 3
+    ; error_total = 1
+    ; retry_total = 2
+    ; input_tokens_total = 123
+    ; output_tokens_total = 45
+    ; latency_ms_sum = 900
+    ; latency_ms_count = 3
+    }
+  in
+  let json = M.provider_snapshot_to_yojson snapshot in
+  match json with
+  | `Assoc fields ->
+    check
+      (option string)
+      "provider"
+      (Some "openai")
+      (List.assoc_opt "provider" fields |> Option.map Yojson.Safe.Util.to_string);
+    check
+      (option int)
+      "request_total"
+      (Some 3)
+      (List.assoc_opt "request_total" fields |> Option.map Yojson.Safe.Util.to_int);
+    check
+      (option int)
+      "latency_ms_count"
+      (Some 3)
+      (List.assoc_opt "latency_ms_count" fields |> Option.map Yojson.Safe.Util.to_int)
+  | _ -> fail "expected object"
+;;
+
+let test_provider_snapshots_to_yojson_is_stable () =
+  let snapshots : M.provider_snapshot list =
+    [ { provider = "z-provider"
+      ; model_id = "z-model"
+      ; request_total = 1
+      ; error_total = 0
+      ; retry_total = 0
+      ; input_tokens_total = 0
+      ; output_tokens_total = 0
+      ; latency_ms_sum = 0
+      ; latency_ms_count = 0
+      }
+    ; { provider = "a-provider"
+      ; model_id = "a-model"
+      ; request_total = 2
+      ; error_total = 0
+      ; retry_total = 0
+      ; input_tokens_total = 0
+      ; output_tokens_total = 0
+      ; latency_ms_sum = 0
+      ; latency_ms_count = 0
+      }
+    ]
+  in
+  match M.provider_snapshots_to_yojson snapshots with
+  | `Assoc fields ->
+    check
+      (option int)
+      "schema_version"
+      (Some 1)
+      (List.assoc_opt "schema_version" fields |> Option.map Yojson.Safe.Util.to_int);
+    (match List.assoc_opt "providers" fields with
+     | Some (`List (`Assoc first :: _)) ->
+       check
+         string
+         "first provider"
+         "a-provider"
+         (List.assoc "provider" first |> Yojson.Safe.Util.to_string)
+     | _ -> fail "expected providers list")
+  | _ -> fail "expected object"
+;;
+
+let test_aggregating_save_snapshot_json () =
+  let agg = Agg.create () in
+  let hooks = Agg.to_hooks agg in
+  hooks.on_retry ~provider:"openai" ~model_id:"gpt-4.1" ~attempt:1;
+  hooks.on_token_usage
+    ~provider:"openai"
+    ~model_id:"gpt-4.1"
+    ~input_tokens:10
+    ~output_tokens:4;
+  let dir =
+    Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "oas-metrics-snapshot-%d" (Unix.getpid ()))
+  in
+  let path = Filename.concat dir "provider-snapshot.json" in
+  Fun.protect
+    ~finally:(fun () ->
+      (try Sys.remove path with
+       | Sys_error _ -> ());
+      try Unix.rmdir dir with
+      | Unix.Unix_error _ -> ())
+    (fun () ->
+       match Agg.save_snapshot_json agg ~path with
+       | Error err -> failf "save_snapshot_json failed: %s" err
+       | Ok () ->
+         let json = Yojson.Safe.from_file path in
+         (match json with
+          | `Assoc fields ->
+            (match List.assoc_opt "providers" fields with
+             | Some (`List [ `Assoc provider ]) ->
+               check
+                 string
+                 "provider"
+                 "openai"
+                 (List.assoc "provider" provider |> Yojson.Safe.Util.to_string);
+               check
+                 int
+                 "retry_total"
+                 1
+                 (List.assoc "retry_total" provider |> Yojson.Safe.Util.to_int);
+               check
+                 int
+                 "input_tokens_total"
+                 10
+                 (List.assoc "input_tokens_total" provider |> Yojson.Safe.Util.to_int)
+             | _ -> fail "expected one provider")
+          | _ -> fail "expected object"))
+;;
+
 let test_aggregating_inner_delegation () =
   let inner_request_start_called = ref false in
   let inner : M.t =
@@ -180,6 +305,12 @@ let () =
       , [ test_case "reset clears all" `Quick test_aggregating_reset
         ; test_case "key format" `Quick test_aggregating_key
         ; test_case "multiple providers" `Quick test_aggregating_multiple_providers
+        ; test_case "snapshot to JSON" `Quick test_provider_snapshot_to_yojson
+        ; test_case
+            "snapshot list JSON is stable"
+            `Quick
+            test_provider_snapshots_to_yojson_is_stable
+        ; test_case "save snapshot JSON" `Quick test_aggregating_save_snapshot_json
         ; test_case "inner delegation" `Quick test_aggregating_inner_delegation
         ] )
     ]

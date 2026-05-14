@@ -92,6 +92,102 @@ type provider_snapshot =
   ; latency_ms_count : int
   }
 
+let provider_snapshot_to_yojson (snapshot : provider_snapshot) : Yojson.Safe.t =
+  `Assoc
+    [ "provider", `String snapshot.provider
+    ; "model_id", `String snapshot.model_id
+    ; "request_total", `Int snapshot.request_total
+    ; "error_total", `Int snapshot.error_total
+    ; "retry_total", `Int snapshot.retry_total
+    ; "input_tokens_total", `Int snapshot.input_tokens_total
+    ; "output_tokens_total", `Int snapshot.output_tokens_total
+    ; "latency_ms_sum", `Int snapshot.latency_ms_sum
+    ; "latency_ms_count", `Int snapshot.latency_ms_count
+    ]
+;;
+
+let compare_provider_snapshot left right =
+  match String.compare left.provider right.provider with
+  | 0 -> String.compare left.model_id right.model_id
+  | cmp -> cmp
+;;
+
+let provider_snapshots_to_yojson (snapshots : provider_snapshot list) : Yojson.Safe.t =
+  let snapshots = List.sort compare_provider_snapshot snapshots in
+  `Assoc
+    [ "schema_version", `Int 1
+    ; "providers", `List (List.map provider_snapshot_to_yojson snapshots)
+    ]
+;;
+
+let file_error ~op ~path = function
+  | Sys_error detail -> Error (Printf.sprintf "%s %s: %s" op path detail)
+  | Unix.Unix_error (error, syscall, arg) ->
+    Error
+      (Printf.sprintf "%s %s: %s(%s): %s" op path syscall arg (Unix.error_message error))
+  | exn -> Error (Printf.sprintf "%s %s: %s" op path (Printexc.to_string exn))
+;;
+
+let rec ensure_dir path =
+  if path = "" || path = "." || Sys.file_exists path
+  then Ok ()
+  else (
+    match ensure_dir (Filename.dirname path) with
+    | Error _ as err -> err
+    | Ok () ->
+      (try
+         Sys.mkdir path 0o755;
+         Ok ()
+       with
+       | Sys_error _ when Sys.file_exists path -> Ok ()
+       | exn -> file_error ~op:"mkdir" ~path exn))
+;;
+
+let fsync_best_effort fd =
+  try Unix.fsync fd with
+  | Unix.Unix_error ((EINVAL | EOPNOTSUPP), _, _) -> ()
+;;
+
+let fsync_dir_best_effort dir =
+  try
+    let fd = Unix.openfile dir [ Unix.O_RDONLY ] 0 in
+    Fun.protect
+      ~finally:(fun () ->
+        try Unix.close fd with
+        | Unix.Unix_error _ -> ())
+      (fun () -> fsync_best_effort fd)
+  with
+  | Unix.Unix_error _ -> ()
+;;
+
+let write_file_atomic path content =
+  let dir = Filename.dirname path in
+  match ensure_dir dir with
+  | Error _ as err -> err
+  | Ok () ->
+    (try
+       let base = Filename.basename path in
+       let tmp_path = Filename.temp_file ~temp_dir:dir (base ^ ".") ".tmp" in
+       let clean_tmp () =
+         try Sys.remove tmp_path with
+         | Sys_error _ | Unix.Unix_error _ -> ()
+       in
+       try
+         Out_channel.with_open_bin tmp_path (fun oc ->
+           Out_channel.output_string oc content;
+           Out_channel.flush oc;
+           fsync_best_effort (Unix.descr_of_out_channel oc));
+         Sys.rename tmp_path path;
+         fsync_dir_best_effort dir;
+         Ok ()
+       with
+       | exn ->
+         clean_tmp ();
+         raise exn
+     with
+     | exn -> file_error ~op:"write" ~path exn)
+;;
+
 type aggregate_key = string
 
 type aggregate_state =
@@ -221,6 +317,13 @@ module Aggregating = struct
               :: acc)
            agg.states
            [])
+  ;;
+
+  let snapshot_to_yojson agg = provider_snapshots_to_yojson (snapshot agg)
+
+  let save_snapshot_json agg ~path =
+    let payload = snapshot_to_yojson agg |> Yojson.Safe.pretty_to_string in
+    write_file_atomic path payload
   ;;
 
   let reset (agg : t) =
