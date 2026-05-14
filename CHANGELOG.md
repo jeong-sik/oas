@@ -12,6 +12,23 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** allow coordinators to own context-overflow compact retry
 
+## [0.193.10](https://github.com/jeong-sik/oas/compare/v0.193.9...v0.193.10) (2026-05-13)
+
+
+### Features
+
+* **agent:** index tool dispatch lookups ([#1557](https://github.com/jeong-sik/oas/issues/1557)) ([b7ea8e6](https://github.com/jeong-sik/oas/commit/b7ea8e6b00dd5ad1d3f4bbadeb26a071228c52f5))
+* **metrics:** add Prometheus text export ([#1556](https://github.com/jeong-sik/oas/issues/1556)) ([fc02639](https://github.com/jeong-sik/oas/commit/fc02639b940afe6714f207f08c41dc393e112260))
+
+
+### Bug Fixes
+
+* add ollama cloud direct auth ([#1561](https://github.com/jeong-sik/oas/issues/1561)) ([9f265c1](https://github.com/jeong-sik/oas/commit/9f265c19fa477ab4810bff7ffca6083c652b8a95))
+* **agent:** route registry discovery through http client ([#1560](https://github.com/jeong-sik/oas/issues/1560)) ([c0ada64](https://github.com/jeong-sik/oas/commit/c0ada64d5b89196a06969f292b77268f36e03bab))
+* **api:** route legacy create_message through http client ([#1558](https://github.com/jeong-sik/oas/issues/1558)) ([a20ed9f](https://github.com/jeong-sik/oas/commit/a20ed9f812c30428e5168bc3aade3e1e86eceb92))
+* **llm:** lower confidence for fallback capability drift ([#1555](https://github.com/jeong-sik/oas/issues/1555)) ([26339df](https://github.com/jeong-sik/oas/commit/26339df8cacecb49cb33ddaf0ab88a56f85c9874))
+* **provider:** route provider intf through http client ([#1559](https://github.com/jeong-sik/oas/issues/1559)) ([b249b58](https://github.com/jeong-sik/oas/commit/b249b5887064e8da87b04697521742279103b72f))
+
 ## [0.193.9](https://github.com/jeong-sik/oas/compare/v0.193.8...v0.193.9) (2026-05-13)
 
 
