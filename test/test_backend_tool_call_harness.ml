@@ -5,9 +5,7 @@ let malformed_openai_response = `Assoc [ "choices", `String "not-a-list" ]
 
 let test_openai_parse_error_is_typed () =
   match
-    H.validate_openai_response_result
-      ~declared_tools:[ "read_file" ]
-      malformed_openai_response
+    H.validate_openai_response ~declared_tools:[ "read_file" ] malformed_openai_response
   with
   | Ok _ -> fail "expected typed parse error"
   | Error err ->
@@ -19,13 +17,29 @@ let test_openai_parse_error_is_typed () =
       (String.length err.response_parse_error > 0)
 ;;
 
-let test_openai_parse_error_fails_closed_for_legacy_wrapper () =
-  let result =
-    H.validate_openai_response ~declared_tools:[ "read_file" ] malformed_openai_response
+let test_openai_text_response_is_ok_empty_validation () =
+  let json =
+    `Assoc
+      [ "id", `String "chatcmpl-text"
+      ; "model", `String "gpt-4o"
+      ; ( "choices"
+        , `List
+            [ `Assoc
+                [ ( "message"
+                  , `Assoc
+                      [ "role", `String "assistant"; "content", `String "plain response" ]
+                  )
+                ; "finish_reason", `String "stop"
+                ]
+            ] )
+      ]
   in
-  check bool "stop reason not accepted" false result.stop_reason_correct;
-  check bool "declared tools not accepted" false result.all_tools_declared;
-  check int "no tool calls fabricated" 0 (List.length result.tool_calls_found)
+  match H.validate_openai_response ~declared_tools:[ "read_file" ] json with
+  | Error err -> fail ("unexpected parse error: " ^ err.response_parse_error)
+  | Ok result ->
+    check bool "stop reason accepted" true result.stop_reason_correct;
+    check bool "declared tools accepted" true result.all_tools_declared;
+    check int "no tool calls found" 0 (List.length result.tool_calls_found)
 ;;
 
 let () =
@@ -37,9 +51,9 @@ let () =
             `Quick
             test_openai_parse_error_is_typed
         ; test_case
-            "legacy wrapper fails closed"
+            "valid text response stays Ok with no tool calls"
             `Quick
-            test_openai_parse_error_fails_closed_for_legacy_wrapper
+            test_openai_text_response_is_ok_empty_validation
         ] )
     ]
 ;;

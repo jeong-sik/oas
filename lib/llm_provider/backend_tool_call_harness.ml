@@ -37,14 +37,6 @@ type response_parse_error =
   ; response_parse_error : string
   }
 
-let parse_error_result =
-  { tool_calls_found = []
-  ; stop_reason_correct = false
-  ; all_tools_declared = false
-  ; dropped_content_blocks = 0
-  }
-;;
-
 (* ── Minimal JSON Schema validator ──────────────────── *)
 
 (** Validate a JSON value against a minimal JSON Schema subset.
@@ -322,7 +314,7 @@ let validate_gemini_response ~declared_tools json =
   validate_response ~declared_tools (Backend_gemini.parse_response json)
 ;;
 
-let validate_openai_response_result ~declared_tools json =
+let validate_openai_response ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
   let parsed =
     try Backend_openai_parse.parse_openai_response_result json_str with
@@ -332,12 +324,6 @@ let validate_openai_response_result ~declared_tools json =
   | Ok resp -> Ok (validate_response ~declared_tools resp)
   | Error response_parse_error ->
     Error { response_backend = "openai"; response_parse_error }
-;;
-
-let validate_openai_response ~declared_tools json =
-  match validate_openai_response_result ~declared_tools json with
-  | Ok result -> result
-  | Error _ -> parse_error_result
 ;;
 
 (* ── Inline Tests ─────────────────────────────────────── *)
@@ -467,11 +453,13 @@ let%test "openai tool_calls response validates correctly" =
             ] )
       ]
   in
-  let result = validate_openai_response ~declared_tools:[ "read_file" ] json in
-  result.stop_reason_correct
-  && result.all_tools_declared
-  && List.length result.tool_calls_found = 1
-  && (List.hd result.tool_calls_found).name = "read_file"
+  match validate_openai_response ~declared_tools:[ "read_file" ] json with
+  | Error _ -> false
+  | Ok result ->
+    result.stop_reason_correct
+    && result.all_tools_declared
+    && List.length result.tool_calls_found = 1
+    && (List.hd result.tool_calls_found).name = "read_file"
 ;;
 
 let%test "wrong stop_reason for tool calls fails validation" =

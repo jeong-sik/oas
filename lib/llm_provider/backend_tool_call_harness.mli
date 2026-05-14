@@ -84,9 +84,4 @@ val validate_gemini_response
 val validate_openai_response
   :  declared_tools:string list
   -> Yojson.Safe.t
-  -> validation_result
-
-val validate_openai_response_result
-  :  declared_tools:string list
-  -> Yojson.Safe.t
   -> (validation_result, response_parse_error) result
