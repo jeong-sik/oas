@@ -268,13 +268,6 @@ let circuit_open_and_remaining health ~ccfg entry =
       if remaining > 0.0 then true, Some remaining else false, None)
 ;;
 
-let is_circuit_open health ~ccfg key =
-  with_mutex health (fun () ->
-    match Hashtbl.find_opt health.entries key with
-    | None -> false
-    | Some entry -> fst (circuit_open_and_remaining health ~ccfg entry))
-;;
-
 type provider_health_info =
   { provider_key : string
   ; health_score : float
@@ -331,8 +324,7 @@ let circuit_state_of_info ~cascade_config info =
   else Metrics.Circuit_closed
 ;;
 
-let emit_circuit_state metrics config ~cascade_config ~health ~provider_key =
-  let info = provider_health_info health ~cascade_config ~provider_key in
+let emit_circuit_state_from_info metrics config ~cascade_config ~provider_key info =
   let state = circuit_state_of_info ~cascade_config info in
   metrics.Metrics.on_circuit_state
     ~provider:(Provider_registry.provider_name_of_config config)
@@ -341,8 +333,12 @@ let emit_circuit_state metrics config ~cascade_config ~health ~provider_key =
     ~state
 ;;
 
-let emit_half_open_if_needed metrics config ~cascade_config ~health ~provider_key =
+let emit_circuit_state metrics config ~cascade_config ~health ~provider_key =
   let info = provider_health_info health ~cascade_config ~provider_key in
+  emit_circuit_state_from_info metrics config ~cascade_config ~provider_key info
+;;
+
+let emit_half_open_if_needed_from_info metrics config ~cascade_config ~provider_key info =
   match circuit_state_of_info ~cascade_config info with
   | Metrics.Circuit_half_open ->
     metrics.Metrics.on_circuit_state
@@ -390,21 +386,27 @@ let complete_cascade
     | [] -> All_failed { errors = List.rev errors; skipped = List.rev skipped }
     | config :: rest ->
       let key = provider_key config in
-      if is_circuit_open health ~ccfg:cascade_config key
+      let info = provider_health_info health ~cascade_config ~provider_key:key in
+      if info.circuit_open
       then (
-        emit_circuit_state metrics_sink config ~cascade_config ~health ~provider_key:key;
+        emit_circuit_state_from_info
+          metrics_sink
+          config
+          ~cascade_config
+          ~provider_key:key
+          info;
         loop
           rest
           (idx + 1)
           errors
           ((config, Circuit_breaker_open { provider = key }) :: skipped))
       else (
-        emit_half_open_if_needed
+        emit_half_open_if_needed_from_info
           metrics_sink
           config
           ~cascade_config
-          ~health
-          ~provider_key:key;
+          ~provider_key:key
+          info;
         let attempt () =
           Complete.complete_with_retry
             ~sw
