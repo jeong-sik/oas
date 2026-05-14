@@ -47,6 +47,40 @@ val record_success : provider_health -> string -> unit
     After [circuit_threshold] consecutive failures, the circuit opens. *)
 val record_failure : provider_health -> string -> unit
 
+(** Serializable provider health entry. *)
+type provider_health_snapshot_entry =
+  { snapshot_provider_key : string
+  ; snapshot_consecutive_failures : int
+  ; snapshot_last_failure_time : float option
+  }
+
+(** Serializable provider health state.
+
+    Consumers that run long-lived agents can persist this value outside OAS
+    and restore it after process restart so circuit state is not erased by a
+    supervisor restart. *)
+type provider_health_snapshot = provider_health_snapshot_entry list
+
+(** Export the current provider health table as a stable snapshot. *)
+val snapshot_health : provider_health -> provider_health_snapshot
+
+(** Replace the contents of an existing provider health table from a snapshot. *)
+val replace_health_snapshot : provider_health -> provider_health_snapshot -> unit
+
+(** Create a provider health table from a previously exported snapshot. *)
+val restore_health
+  :  ?clock:_ Eio.Time.clock
+  -> provider_health_snapshot
+  -> provider_health
+
+(** Convert a provider health snapshot to JSON. *)
+val provider_health_snapshot_to_yojson : provider_health_snapshot -> Yojson.Safe.t
+
+(** Parse a provider health snapshot from JSON. *)
+val provider_health_snapshot_of_yojson
+  :  Yojson.Safe.t
+  -> (provider_health_snapshot, string) result
+
 (** Provider health snapshot derived from the circuit-breaker state. *)
 type provider_health_info =
   { provider_key : string
