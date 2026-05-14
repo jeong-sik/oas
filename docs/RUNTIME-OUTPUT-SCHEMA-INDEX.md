@@ -13,7 +13,14 @@ Machine-readable catalog: `docs/schema-surfaces/runtime-output-surfaces.v1.json`
 | `oas.event_bus.v1` | In-process agent lifecycle events | `lib/event_bus.mli`, `docs/EVENT-CATALOG.md` | Event bus and envelope tests |
 | `oas.runtime_protocol.v1` | `oas_runtime` NDJSON protocol messages | `lib/runtime.mli` | Runtime protocol roundtrip tests |
 | `oas.runtime_sync_window.v1` | Runtime replay window JSON | `lib/runtime_sync.mli`, `docs/schemas/runtime-sync-window-v1.json` | `Runtime_sync.of_json` and schema version tests |
+| `oas.runtime_report.v1` | Runtime session report artifact / protocol response | `lib/runtime.mli`, `lib/runtime_projection.mli` | Runtime type and projection tests |
+| `oas.runtime_proof.v1` | Runtime proof artifact / protocol response | `lib/runtime.mli`, `lib/runtime_projection.mli` | Runtime type and proof projection tests |
+| `oas.runtime_telemetry_report.v1` | Runtime telemetry JSON/Markdown artifacts | `lib/runtime_evidence.mli`, `lib/sessions_types.mli` | Runtime session artifact and session type tests |
+| `oas.runtime_evidence_bundle.v1` | Runtime evidence bundle JSON artifact | `lib/runtime_evidence.mli`, `lib/sessions_types.mli` | Runtime session evidence tests |
 | `oas.raw_trace_record.v1` | Raw trace JSONL rows | `lib/raw_trace.mli` | Raw trace roundtrip tests |
+| `oas.raw_trace_manifest.v1` | Raw trace manifest artifact | `lib/runtime_evidence.mli`, `lib/sessions_types.mli` | Runtime session and sessions type tests |
+| `oas.harness_report.v1` | Harness report JSON/Markdown/JUnit artifacts | `lib/harness_report.mli` | Harness runner and CLI report tests |
+| `oas.eval_report.v1` | Evaluation report JSON/text section | `lib/eval_report.mli` | Eval report and CLI baseline tests |
 | `oas.structured_schema.v1` | Structured output schema helper | `lib/structured.mli`, `lib/base/types.mli` | Structured schema tests |
 | `oas.cdal_proof_bundle.v1` | CDAL proof bundle JSON | `docs/schemas/cdal-proof-bundle-v1.json` | Catalog path drift test |
 | `oas.collaboration_event.v1` | Downstream collaboration observation JSON | `docs/collaboration-substrate-contract.md`, `docs/schemas/collaboration-event-v1.schema.json` | Catalog path drift test |

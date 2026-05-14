@@ -257,10 +257,21 @@ different payload shapes. Disambiguate by Custom name prefix:
 **Structured completion/failure metadata**:
 - `Runtime.participant_event` now carries optional `raw_trace_run_id`,
   `stop_reason`, `completion_anomaly`, and `failure_cause`.
-- New sessions artifact `runtime-raw-trace-json` publishes the latest
-  raw-trace run refs, summaries, and validations so external consumers
-  can correlate live runtime events with persisted raw traces without
-  reconstructing the proof bundle first.
+- Runtime finalization persists the operator-facing evidence set:
+  `report.json`, `proof.json`, `runtime-telemetry-json`,
+  `runtime-telemetry`, `runtime-raw-trace-json`, and `runtime-evidence`.
+- `runtime-telemetry-json` carries structured event counts and per-step
+  fields such as provider/model, raw-trace run id, stop reason, dropped
+  output deltas, and persistence-failure phase.
+- `runtime-raw-trace-json` publishes the latest raw-trace run refs,
+  summaries, and validations so external consumers can correlate live
+  runtime events with persisted raw traces without reconstructing the
+  proof bundle first.
+- `runtime-evidence` records present/missing files for the session,
+  events, report, proof, telemetry, and raw-trace manifest artifacts.
+- The complete output surface map is maintained in
+  `docs/RUNTIME-OUTPUT-SCHEMA-INDEX.md` and
+  `docs/schema-surfaces/runtime-output-surfaces.v1.json`.
 
 ### 5.2 Collaboration UI projection
 
