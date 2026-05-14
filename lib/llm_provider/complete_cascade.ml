@@ -273,6 +273,99 @@ let provider_health_snapshot_of_yojson json =
          (Yojson.Safe.to_string other))
 ;;
 
+let snapshot_file_error ~op ~path = function
+  | Sys_error detail -> Error (Printf.sprintf "%s %s: %s" op path detail)
+  | Unix.Unix_error (error, syscall, arg) ->
+    Error
+      (Printf.sprintf "%s %s: %s(%s): %s" op path syscall arg (Unix.error_message error))
+  | Yojson.Json_error detail ->
+    Error (Printf.sprintf "%s %s: JSON error: %s" op path detail)
+  | exn -> Error (Printf.sprintf "%s %s: %s" op path (Printexc.to_string exn))
+;;
+
+let rec ensure_snapshot_dir path =
+  if path = "" || path = "." || Sys.file_exists path
+  then Ok ()
+  else (
+    match ensure_snapshot_dir (Filename.dirname path) with
+    | Error _ as err -> err
+    | Ok () ->
+      (try
+         Sys.mkdir path 0o755;
+         Ok ()
+       with
+       | Sys_error _ when Sys.file_exists path -> Ok ()
+       | exn -> snapshot_file_error ~op:"mkdir" ~path exn))
+;;
+
+let fsync_snapshot_best_effort fd =
+  try Unix.fsync fd with
+  | Unix.Unix_error ((EINVAL | EOPNOTSUPP), _, _) -> ()
+;;
+
+let fsync_snapshot_dir_best_effort dir =
+  try
+    let fd = Unix.openfile dir [ Unix.O_RDONLY ] 0 in
+    Fun.protect
+      ~finally:(fun () ->
+        try Unix.close fd with
+        | Unix.Unix_error _ -> ())
+      (fun () -> fsync_snapshot_best_effort fd)
+  with
+  | Unix.Unix_error _ -> ()
+;;
+
+let write_snapshot_file_atomic path content =
+  let dir = Filename.dirname path in
+  match ensure_snapshot_dir dir with
+  | Error _ as err -> err
+  | Ok () ->
+    (try
+       let base = Filename.basename path in
+       let tmp_path = Filename.temp_file ~temp_dir:dir (base ^ ".") ".tmp" in
+       let clean_tmp () =
+         try Sys.remove tmp_path with
+         | Sys_error _ | Unix.Unix_error _ -> ()
+       in
+       try
+         Out_channel.with_open_bin tmp_path (fun oc ->
+           Out_channel.output_string oc content;
+           Out_channel.flush oc;
+           fsync_snapshot_best_effort (Unix.descr_of_out_channel oc));
+         Sys.rename tmp_path path;
+         fsync_snapshot_dir_best_effort dir;
+         Ok ()
+       with
+       | exn ->
+         clean_tmp ();
+         raise exn
+     with
+     | exn -> snapshot_file_error ~op:"write" ~path exn)
+;;
+
+let save_health_snapshot_json health ~path =
+  snapshot_health health
+  |> provider_health_snapshot_to_yojson
+  |> Yojson.Safe.pretty_to_string
+  |> write_snapshot_file_atomic path
+;;
+
+let load_health_snapshot_json ?clock ~path () =
+  let parse raw =
+    match Yojson.Safe.from_string raw |> provider_health_snapshot_of_yojson with
+    | Ok snapshot -> Ok (restore_health ?clock snapshot)
+    | Error err -> Error (Printf.sprintf "parse %s: %s" path err)
+  in
+  try In_channel.with_open_bin path (fun ic -> In_channel.input_all ic |> parse) with
+  | exn -> snapshot_file_error ~op:"read" ~path exn
+;;
+
+let load_or_create_health_snapshot_json ?clock ~path () =
+  if Sys.file_exists path
+  then load_health_snapshot_json ?clock ~path ()
+  else Ok (create_health ?clock ())
+;;
+
 let circuit_open_and_remaining health ~ccfg entry =
   if entry.consecutive_failures < ccfg.circuit_threshold
   then false, None

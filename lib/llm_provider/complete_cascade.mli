@@ -81,6 +81,29 @@ val provider_health_snapshot_of_yojson
   :  Yojson.Safe.t
   -> (provider_health_snapshot, string) result
 
+(** Atomically persist the current provider health snapshot as pretty JSON.
+    Parent directories are created before writing with a writer-unique
+    temporary file and rename. *)
+val save_health_snapshot_json : provider_health -> path:string -> (unit, string) result
+
+(** Load a provider health tracker from a JSON snapshot file.
+    The file is parsed through {!provider_health_snapshot_of_yojson}; malformed
+    snapshots are returned as [Error] instead of silently resetting health. *)
+val load_health_snapshot_json
+  :  ?clock:_ Eio.Time.clock
+  -> path:string
+  -> unit
+  -> (provider_health, string) result
+
+(** Load a provider health tracker when [path] exists; otherwise create an
+    empty tracker.  Malformed existing snapshots are still [Error] so startup
+    does not silently erase a corrupt circuit-breaker state. *)
+val load_or_create_health_snapshot_json
+  :  ?clock:_ Eio.Time.clock
+  -> path:string
+  -> unit
+  -> (provider_health, string) result
+
 (** Provider health snapshot derived from the circuit-breaker state. *)
 type provider_health_info =
   { provider_key : string
