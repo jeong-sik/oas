@@ -44,6 +44,14 @@ type t =
       provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
     (** Fired when a response carries usage tokens.
       @since 0.185.0 *)
+  ; on_streaming_first_chunk :
+      provider:string -> model_id:string -> ttfrc_ms:float -> unit
+  ; on_streaming_chunk :
+      provider:string
+      -> model_id:string
+      -> chunk_index:int
+      -> inter_chunk_ms:float
+      -> unit
   }
 
 let noop =
@@ -57,6 +65,9 @@ let noop =
   ; on_capability_drop = (fun ~model_id:_ ~field:_ -> ())
   ; on_retry = (fun ~provider:_ ~model_id:_ ~attempt:_ -> ())
   ; on_token_usage = (fun ~provider:_ ~model_id:_ ~input_tokens:_ ~output_tokens:_ -> ())
+  ; on_streaming_first_chunk = (fun ~provider:_ ~model_id:_ ~ttfrc_ms:_ -> ())
+  ; on_streaming_chunk =
+      (fun ~provider:_ ~model_id:_ ~chunk_index:_ ~inter_chunk_ms:_ -> ())
   }
 ;;
 
@@ -90,6 +101,10 @@ type provider_snapshot =
   ; output_tokens_total : int
   ; latency_ms_sum : int
   ; latency_ms_count : int
+  ; ttfrc_ms_sum : float
+  ; ttfrc_ms_count : int
+  ; inter_chunk_ms_sum : float
+  ; inter_chunk_ms_count : int
   }
 
 let provider_snapshot_to_yojson (snapshot : provider_snapshot) : Yojson.Safe.t =
@@ -103,6 +118,10 @@ let provider_snapshot_to_yojson (snapshot : provider_snapshot) : Yojson.Safe.t =
     ; "output_tokens_total", `Int snapshot.output_tokens_total
     ; "latency_ms_sum", `Int snapshot.latency_ms_sum
     ; "latency_ms_count", `Int snapshot.latency_ms_count
+    ; "ttfrc_ms_sum", `Float snapshot.ttfrc_ms_sum
+    ; "ttfrc_ms_count", `Int snapshot.ttfrc_ms_count
+    ; "inter_chunk_ms_sum", `Float snapshot.inter_chunk_ms_sum
+    ; "inter_chunk_ms_count", `Int snapshot.inter_chunk_ms_count
     ]
 ;;
 
@@ -198,6 +217,10 @@ type aggregate_state =
   ; mutable output_tokens_total : int
   ; mutable latency_ms_sum : int
   ; mutable latency_ms_count : int
+  ; mutable ttfrc_ms_sum : float
+  ; mutable ttfrc_ms_count : int
+  ; mutable inter_chunk_ms_sum : float
+  ; mutable inter_chunk_ms_count : int
   }
 
 let empty_state () : aggregate_state =
@@ -208,6 +231,10 @@ let empty_state () : aggregate_state =
   ; output_tokens_total = 0
   ; latency_ms_sum = 0
   ; latency_ms_count = 0
+  ; ttfrc_ms_sum = 0.0
+  ; ttfrc_ms_count = 0
+  ; inter_chunk_ms_sum = 0.0
+  ; inter_chunk_ms_count = 0
   }
 ;;
 
@@ -288,6 +315,18 @@ module Aggregating = struct
           with_state agg (key ~provider ~model_id) (fun s ->
             s.input_tokens_total <- s.input_tokens_total + input_tokens;
             s.output_tokens_total <- s.output_tokens_total + output_tokens))
+    ; on_streaming_first_chunk =
+        (fun ~provider ~model_id ~ttfrc_ms ->
+          agg.hooks.on_streaming_first_chunk ~provider ~model_id ~ttfrc_ms;
+          with_state agg (key ~provider ~model_id) (fun s ->
+            s.ttfrc_ms_sum <- s.ttfrc_ms_sum +. ttfrc_ms;
+            s.ttfrc_ms_count <- s.ttfrc_ms_count + 1))
+    ; on_streaming_chunk =
+        (fun ~provider ~model_id ~chunk_index ~inter_chunk_ms ->
+          agg.hooks.on_streaming_chunk ~provider ~model_id ~chunk_index ~inter_chunk_ms;
+          with_state agg (key ~provider ~model_id) (fun s ->
+            s.inter_chunk_ms_sum <- s.inter_chunk_ms_sum +. inter_chunk_ms;
+            s.inter_chunk_ms_count <- s.inter_chunk_ms_count + 1))
     }
   ;;
 
@@ -313,6 +352,10 @@ module Aggregating = struct
               ; output_tokens_total = s.output_tokens_total
               ; latency_ms_sum = s.latency_ms_sum
               ; latency_ms_count = s.latency_ms_count
+              ; ttfrc_ms_sum = s.ttfrc_ms_sum
+              ; ttfrc_ms_count = s.ttfrc_ms_count
+              ; inter_chunk_ms_sum = s.inter_chunk_ms_sum
+              ; inter_chunk_ms_count = s.inter_chunk_ms_count
               }
               :: acc)
            agg.states

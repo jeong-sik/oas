@@ -114,6 +114,31 @@ let test_aggregating_unknown_latency_does_not_add_sample () =
   check int "latency_ms_count" 0 entry.M.latency_ms_count
 ;;
 
+let test_aggregating_on_streaming_latency () =
+  let agg = Agg.create () in
+  let hooks = Agg.to_hooks agg in
+  hooks.on_streaming_first_chunk ~provider:"anthropic" ~model_id:"claude" ~ttfrc_ms:12.5;
+  hooks.on_streaming_chunk
+    ~provider:"anthropic"
+    ~model_id:"claude"
+    ~chunk_index:1
+    ~inter_chunk_ms:4.25;
+  hooks.on_streaming_chunk
+    ~provider:"anthropic"
+    ~model_id:"claude"
+    ~chunk_index:2
+    ~inter_chunk_ms:5.75;
+  let snap = Agg.snapshot agg in
+  check int "one entry" 1 (List.length snap);
+  let entry = List.hd snap in
+  check string "provider" "anthropic" entry.M.provider;
+  check string "model_id" "claude" entry.M.model_id;
+  check (float 0.001) "ttfrc_ms_sum" 12.5 entry.M.ttfrc_ms_sum;
+  check int "ttfrc_ms_count" 1 entry.M.ttfrc_ms_count;
+  check (float 0.001) "inter_chunk_ms_sum" 10.0 entry.M.inter_chunk_ms_sum;
+  check int "inter_chunk_ms_count" 2 entry.M.inter_chunk_ms_count
+;;
+
 let test_aggregating_reset () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
@@ -153,6 +178,10 @@ let test_provider_snapshot_to_yojson () =
     ; output_tokens_total = 45
     ; latency_ms_sum = 900
     ; latency_ms_count = 3
+    ; ttfrc_ms_sum = 15.5
+    ; ttfrc_ms_count = 1
+    ; inter_chunk_ms_sum = 8.25
+    ; inter_chunk_ms_count = 2
     }
   in
   let json = M.provider_snapshot_to_yojson snapshot in
@@ -172,7 +201,17 @@ let test_provider_snapshot_to_yojson () =
       (option int)
       "latency_ms_count"
       (Some 3)
-      (List.assoc_opt "latency_ms_count" fields |> Option.map Yojson.Safe.Util.to_int)
+      (List.assoc_opt "latency_ms_count" fields |> Option.map Yojson.Safe.Util.to_int);
+    check
+      (option (float 0.001))
+      "ttfrc_ms_sum"
+      (Some 15.5)
+      (List.assoc_opt "ttfrc_ms_sum" fields |> Option.map Yojson.Safe.Util.to_float);
+    check
+      (option int)
+      "inter_chunk_ms_count"
+      (Some 2)
+      (List.assoc_opt "inter_chunk_ms_count" fields |> Option.map Yojson.Safe.Util.to_int)
   | _ -> fail "expected object"
 ;;
 
@@ -187,6 +226,10 @@ let test_provider_snapshots_to_yojson_is_stable () =
       ; output_tokens_total = 0
       ; latency_ms_sum = 0
       ; latency_ms_count = 0
+      ; ttfrc_ms_sum = 0.0
+      ; ttfrc_ms_count = 0
+      ; inter_chunk_ms_sum = 0.0
+      ; inter_chunk_ms_count = 0
       }
     ; { provider = "a-provider"
       ; model_id = "a-model"
@@ -197,6 +240,10 @@ let test_provider_snapshots_to_yojson_is_stable () =
       ; output_tokens_total = 0
       ; latency_ms_sum = 0
       ; latency_ms_count = 0
+      ; ttfrc_ms_sum = 0.0
+      ; ttfrc_ms_count = 0
+      ; inter_chunk_ms_sum = 0.0
+      ; inter_chunk_ms_count = 0
       }
     ]
   in
@@ -300,6 +347,10 @@ let () =
             "unknown request latency is not sampled"
             `Quick
             test_aggregating_unknown_latency_does_not_add_sample
+        ; test_case
+            "streaming latency callbacks"
+            `Quick
+            test_aggregating_on_streaming_latency
         ] )
     ; ( "lifecycle"
       , [ test_case "reset clears all" `Quick test_aggregating_reset

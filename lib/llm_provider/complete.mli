@@ -153,6 +153,7 @@ val complete_stream
   -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
   -> ?trace_context:(string * string) list
   -> on_event:(Types.sse_event -> unit)
+  -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
   -> ?on_telemetry:(Telemetry_event.t -> unit)
   -> unit

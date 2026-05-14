@@ -706,6 +706,55 @@ let test_complete_stream_ok () =
   | Exit -> ()
 ;;
 
+let test_complete_stream_metrics () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed text")
+    in
+    let config = make_config url in
+    let first_chunks = ref [] in
+    let inter_chunks = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_streaming_first_chunk =
+          (fun ~provider ~model_id ~ttfrc_ms ->
+            first_chunks := (provider, model_id, ttfrc_ms) :: !first_chunks)
+      ; on_streaming_chunk =
+          (fun ~provider ~model_id ~chunk_index ~inter_chunk_ms ->
+            inter_chunks
+            := (provider, model_id, chunk_index, inter_chunk_ms) :: !inter_chunks)
+      }
+    in
+    let on_event _evt = () in
+    match
+      Complete.complete_stream ~sw ~net:env#net ~config ~messages ~on_event ~metrics ()
+    with
+    | Ok _ ->
+      check int "first chunk count" 1 (List.length !first_chunks);
+      (match !first_chunks with
+       | [ (provider, model_id, ttfrc_ms) ] ->
+         check string "provider" "anthropic" provider;
+         check string "model_id" "test-model" model_id;
+         check bool "ttfrc non-negative" true (ttfrc_ms >= 0.0)
+       | _ -> fail "expected one first chunk");
+      check bool "inter chunk metrics" true (List.length !inter_chunks > 0);
+      List.iter
+        (fun (provider, model_id, chunk_index, inter_chunk_ms) ->
+           check string "inter provider" "anthropic" provider;
+           check string "inter model_id" "test-model" model_id;
+           check bool "chunk_index non-negative" true (chunk_index >= 0);
+           check bool "inter chunk non-negative" true (inter_chunk_ms >= 0.0))
+        !inter_chunks;
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
 (* ── Runner ──────────────────────────────────────────── *)
 
 let () =
@@ -743,6 +792,9 @@ let () =
             test_metrics_global_used_when_no_per_call_metrics
         ] )
     ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
-    ; "stream", [ test_case "sse ok" `Quick test_complete_stream_ok ]
+    ; ( "stream"
+      , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case "streaming metrics" `Quick test_complete_stream_metrics
+        ] )
     ]
 ;;
