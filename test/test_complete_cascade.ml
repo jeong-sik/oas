@@ -219,8 +219,9 @@ let test_provider_health_snapshot_json_roundtrip () =
       ; snapshot_last_failure_time = Some 42.5
       }
     ; { snapshot_provider_key = "b@https://example.invalid"
-      ; snapshot_consecutive_failures = 1
-        (* Writer invariant: any entry with consecutive_failures > 0
+      ; snapshot_consecutive_failures =
+          1
+          (* Writer invariant: any entry with consecutive_failures > 0
            always carries Some timestamp (record_failure stamps it on
            every failure). The roundtrip must use a well-formed input
            after #1571's parse-boundary tightening. *)
@@ -309,8 +310,7 @@ let test_provider_health_snapshot_json_accepts_zero_failures_without_timestamp (
   in
   match Complete_cascade.provider_health_snapshot_of_yojson json with
   | Ok _ -> ()
-  | Error err ->
-    failf "expected zero-failure null-timestamp entry to parse, got %s" err
+  | Error err -> failf "expected zero-failure null-timestamp entry to parse, got %s" err
 ;;
 
 let test_provider_health_backoff_extends_after_repeated_open_failures () =

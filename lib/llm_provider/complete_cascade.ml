@@ -227,10 +227,9 @@ let provider_health_snapshot_of_yojson json =
                  then
                    Error
                      (Printf.sprintf
-                        "provider %S: consecutive_failures=%d > 0 but \
-                         last_failure_time is missing/null; a snapshot \
-                         without a failure timestamp would stay open with \
-                         no cooldown after restore"
+                        "provider %S: consecutive_failures=%d > 0 but last_failure_time \
+                         is missing/null; a snapshot without a failure timestamp would \
+                         stay open with no cooldown after restore"
                         provider_key
                         consecutive_failures)
                  else
