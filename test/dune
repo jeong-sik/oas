@@ -160,6 +160,7 @@
   test_provider
   test_provider_config
   test_provider_intf
+  test_provider_runtime_binding
   test_provider_registry
   test_raw_trace
   test_raw_trace_deep
@@ -372,6 +373,7 @@
   test_provider
   test_provider_config
   test_provider_intf
+  test_provider_runtime_binding
   test_provider_registry
   test_raw_trace
   test_raw_trace_deep

@@ -21,6 +21,7 @@ module Fs_atomic_eio = Fs_atomic_eio
 module Context = Agent_sdk_base.Context
 module Provider = Provider
 module Provider_intf = Provider_intf
+module Provider_runtime_binding = Provider_runtime_binding
 module Retry = Llm_provider.Retry
 module Error = Agent_sdk_base.Error
 module Error_domain = Error_domain
