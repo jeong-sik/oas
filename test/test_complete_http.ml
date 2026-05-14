@@ -189,7 +189,16 @@ let test_complete_http_empty_error_body_has_context () =
     Eio.Switch.run
     @@ fun sw ->
     let url = start_mock_server ~sw ~net:env#net ~status:`Not_found "" in
-    let config = make_config url in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.Anthropic
+        ~model_id:"test-model"
+        ~base_url:url
+        ~request_path:"/v1/messages?api_key=secret"
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok _ -> fail "expected Error"
     | Error (Http_client.HttpError { code; body }) ->

@@ -413,7 +413,7 @@ let http_error_diagnostic_body
       provider_name
       config.model_id
       (sanitize_url_for_log config.base_url)
-      config.request_path
+      (sanitize_url_for_log config.request_path)
       (sanitize_url_for_log url)
 ;;
 
@@ -425,7 +425,7 @@ let%test "http_error_diagnostic_body preserves non-empty provider body" =
       ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
       ~api_key:"secret"
       ~headers:[]
-      ~request_path:"/v1/chat/completions"
+      ~request_path:"/v1/chat/completions?api_key=secret"
       ()
   in
   http_error_diagnostic_body
@@ -446,7 +446,7 @@ let%test "http_error_diagnostic_body enriches empty provider body" =
       ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
       ~api_key:"secret"
       ~headers:[]
-      ~request_path:"/v1/chat/completions"
+      ~request_path:"/v1/chat/completions?api_key=secret"
       ()
   in
   http_error_diagnostic_body
@@ -752,7 +752,7 @@ let complete_http
                   provider_name
                   config.model_id
                   (sanitize_url_for_log config.base_url)
-                  config.request_path
+                  (sanitize_url_for_log config.request_path)
                   api_key_tag
                   body_len
                   body_balanced
