@@ -133,6 +133,29 @@ let test_prometheus_text_histogram_exports_buckets_sum_and_count () =
   check_line "histogram count" "gen_ai_client_operation_duration_count 2" text
 ;;
 
+let test_prometheus_text_histogram_deduplicates_bucket_bounds () =
+  let m = Metrics.create () in
+  let h = Metrics.histogram m ~name:"dup.bounds" ~buckets:[ 1.0; 1.0; 2.0 ] in
+  Metrics.observe h 0.5;
+  let text = Metrics.to_prometheus_text m in
+  let count_substring text needle =
+    let len = String.length needle in
+    let rec loop start acc =
+      match String.index_from_opt text start needle.[0] with
+      | None -> acc
+      | Some i when i + len <= String.length text && String.sub text i len = needle ->
+        loop (i + len) (acc + 1)
+      | Some i -> loop (i + 1) acc
+    in
+    loop 0 0
+  in
+  check
+    int
+    "duplicate bound emitted exactly once"
+    1
+    (count_substring text "dup_bounds_bucket{le=\"1\"}")
+;;
+
 let () =
   run
     "Metrics"
@@ -158,6 +181,10 @@ let () =
             "histogram text export emits buckets sum and count"
             `Quick
             (with_eio test_prometheus_text_histogram_exports_buckets_sum_and_count)
+        ; test_case
+            "histogram text export deduplicates bucket bounds"
+            `Quick
+            (with_eio test_prometheus_text_histogram_deduplicates_bucket_bounds)
         ] )
     ]
 ;;
