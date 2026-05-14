@@ -156,6 +156,30 @@ let test_prometheus_text_histogram_deduplicates_bucket_bounds () =
     (count_substring text "dup_bounds_bucket{le=\"1\"}")
 ;;
 
+let test_register_rejects_normalized_collision_counter_counter () =
+  let m = Metrics.create () in
+  let _ = Metrics.counter m ~name:"foo.bar" ~unit_:"1" in
+  match Metrics.counter m ~name:"foo_bar" ~unit_:"1" with
+  | exception Invalid_argument _ -> ()
+  | _ -> fail "expected Invalid_argument on counter-counter normalized collision"
+;;
+
+let test_register_rejects_normalized_collision_counter_histogram () =
+  let m = Metrics.create () in
+  let _ = Metrics.counter m ~name:"shared.name" ~unit_:"1" in
+  match Metrics.histogram m ~name:"shared_name" ~buckets:[ 1.0 ] with
+  | exception Invalid_argument _ -> ()
+  | _ -> fail "expected Invalid_argument on counter-histogram normalized collision"
+;;
+
+let test_register_same_name_same_kind_is_idempotent () =
+  let m = Metrics.create () in
+  let _ = Metrics.counter m ~name:"foo.bar" ~unit_:"1" in
+  (* Same name + same kind is the documented "register or retrieve" path. *)
+  let _ = Metrics.counter m ~name:"foo.bar" ~unit_:"1" in
+  ()
+;;
+
 let () =
   run
     "Metrics"
@@ -185,6 +209,20 @@ let () =
             "histogram text export deduplicates bucket bounds"
             `Quick
             (with_eio test_prometheus_text_histogram_deduplicates_bucket_bounds)
+        ] )
+    ; ( "registration"
+      , [ test_case
+            "rejects counter-counter normalized collision"
+            `Quick
+            (with_eio test_register_rejects_normalized_collision_counter_counter)
+        ; test_case
+            "rejects counter-histogram normalized collision"
+            `Quick
+            (with_eio test_register_rejects_normalized_collision_counter_histogram)
+        ; test_case
+            "same name + same kind stays idempotent"
+            `Quick
+            (with_eio test_register_same_name_same_kind_is_idempotent)
         ] )
     ]
 ;;

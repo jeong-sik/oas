@@ -47,11 +47,75 @@ type histogram = t * string
 let create () = { mu = Eio.Mutex.create (); counters = []; histograms = [] }
 let with_lock t f = Eio.Mutex.use_rw ~protect:true t.mu f
 
+(* Prometheus identifier normalization, hoisted above the registration
+   functions so they can detect post-normalization collisions at
+   register time. The text-export call sites below reuse the same
+   helper. *)
+let is_identifier_start = function
+  | 'A' .. 'Z' | 'a' .. 'z' | '_' | ':' -> true
+  | _ -> false
+;;
+
+let is_identifier_char = function
+  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' | ':' -> true
+  | _ -> false
+;;
+
+let prometheus_identifier raw =
+  let buf = Buffer.create (String.length raw + 1) in
+  String.iteri
+    (fun index ch ->
+       let valid = if index = 0 then is_identifier_start ch else is_identifier_char ch in
+       Buffer.add_char buf (if valid then ch else '_'))
+    raw;
+  let rendered = Buffer.contents buf in
+  if String.equal rendered "" then "_" else rendered
+;;
+
+(* [check_no_normalized_collision_unlocked t ~kind ~name] raises
+   [Invalid_argument] if registering [name] would emit a Prometheus
+   metric whose [prometheus_identifier]-normalized name clashes with
+   a *different* registered name in [t] (across counters and
+   histograms). Re-registering the exact same [name] under the same
+   kind is the idempotent path and skips this check; only true
+   collisions (e.g. [foo.bar] vs [foo_bar], or a counter and a
+   histogram that normalize to the same name) are rejected.
+
+   Detecting at register time stops the text-export emit path from
+   producing duplicate # HELP / # TYPE blocks for a single Prometheus
+   metric name — a violation of the text exposition format. Caller
+   must already hold the instance lock. *)
+let check_no_normalized_collision_unlocked t ~kind ~name =
+  let prom_name = prometheus_identifier name in
+  let collides_with existing_kind raw =
+    if String.equal raw name && String.equal existing_kind kind
+    then false (* same name + same kind = idempotent re-register *)
+    else String.equal (prometheus_identifier raw) prom_name
+  in
+  let fail existing_kind raw =
+    invalid_arg
+      (Printf.sprintf
+         "Metrics.%s: name %S normalizes to %S, which collides with the \
+          already-registered %s %S"
+         kind
+         name
+         prom_name
+         existing_kind
+         raw)
+  in
+  List.iter (fun c -> if collides_with "counter" c.c_name then fail "counter" c.c_name)
+    t.counters;
+  List.iter
+    (fun h -> if collides_with "histogram" h.h_name then fail "histogram" h.h_name)
+    t.histograms
+;;
+
 let counter t ~name ~unit_ =
   with_lock t (fun () ->
     match List.find_opt (fun c -> c.c_name = name) t.counters with
     | Some _ -> t, name
     | None ->
+      check_no_normalized_collision_unlocked t ~kind:"counter" ~name;
       let c = { c_name = name; c_unit = unit_; c_values = LabelMap.empty } in
       t.counters <- c :: t.counters;
       t, name)
@@ -62,6 +126,7 @@ let histogram t ~name ~buckets =
     match List.find_opt (fun h -> h.h_name = name) t.histograms with
     | Some _ -> t, name
     | None ->
+      check_no_normalized_collision_unlocked t ~kind:"histogram" ~name;
       let h =
         { h_name = name
         ; h_buckets = buckets
@@ -225,27 +290,8 @@ let to_otlp_json t =
 ;;
 
 (* -- Prometheus text export ------------------------------------------ *)
-
-let is_identifier_start = function
-  | 'A' .. 'Z' | 'a' .. 'z' | '_' | ':' -> true
-  | _ -> false
-;;
-
-let is_identifier_char = function
-  | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' | ':' -> true
-  | _ -> false
-;;
-
-let prometheus_identifier raw =
-  let buf = Buffer.create (String.length raw + 1) in
-  String.iteri
-    (fun index ch ->
-       let valid = if index = 0 then is_identifier_start ch else is_identifier_char ch in
-       Buffer.add_char buf (if valid then ch else '_'))
-    raw;
-  let rendered = Buffer.contents buf in
-  if String.equal rendered "" then "_" else rendered
-;;
+(* [prometheus_identifier] / [is_identifier_*] are defined above so the
+   registration functions can detect post-normalization collisions. *)
 
 let escape_prometheus_value raw =
   let buf = Buffer.create (String.length raw) in
