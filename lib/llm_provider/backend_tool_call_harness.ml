@@ -32,10 +32,15 @@ type validation_result =
   ; dropped_content_blocks : int
   }
 
-let empty_result =
+type response_parse_error =
+  { response_backend : string
+  ; response_parse_error : string
+  }
+
+let parse_error_result =
   { tool_calls_found = []
-  ; stop_reason_correct = true
-  ; all_tools_declared = true
+  ; stop_reason_correct = false
+  ; all_tools_declared = false
   ; dropped_content_blocks = 0
   }
 ;;
@@ -317,11 +322,22 @@ let validate_gemini_response ~declared_tools json =
   validate_response ~declared_tools (Backend_gemini.parse_response json)
 ;;
 
-let validate_openai_response ~declared_tools json =
+let validate_openai_response_result ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
-  match Backend_openai_parse.parse_openai_response_result json_str with
-  | Ok resp -> validate_response ~declared_tools resp
-  | Error _ -> empty_result
+  let parsed =
+    try Backend_openai_parse.parse_openai_response_result json_str with
+    | exn -> Error (Printexc.to_string exn)
+  in
+  match parsed with
+  | Ok resp -> Ok (validate_response ~declared_tools resp)
+  | Error response_parse_error ->
+    Error { response_backend = "openai"; response_parse_error }
+;;
+
+let validate_openai_response ~declared_tools json =
+  match validate_openai_response_result ~declared_tools json with
+  | Ok result -> result
+  | Error _ -> parse_error_result
 ;;
 
 (* ── Inline Tests ─────────────────────────────────────── *)
