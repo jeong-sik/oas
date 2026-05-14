@@ -45,11 +45,31 @@ let merge_names ~always_include ~top_names =
 ;;
 
 (** Filter [tools] to only those whose [schema.name] is in [names].
-    Preserves original order of [tools]. *)
+    Preserves original order of [tools] and keeps the first descriptor for
+    duplicate names, matching the agent execution index. *)
 let filter_by_names names tools =
   let set = Hashtbl.create (List.length names) in
   List.iter (fun n -> Hashtbl.replace set n true) names;
-  List.filter (fun (t : Tool.t) -> Hashtbl.mem set t.schema.name) tools
+  let emitted = Hashtbl.create (List.length names) in
+  List.filter
+    (fun (t : Tool.t) ->
+       let name = t.schema.name in
+       if Hashtbl.mem set name && not (Hashtbl.mem emitted name)
+       then (
+         Hashtbl.replace emitted name true;
+         true)
+       else false)
+    tools
+;;
+
+let build_tool_name_index tools =
+  let index = Hashtbl.create (max 16 (List.length tools * 2)) in
+  List.iter
+    (fun (tool : Tool.t) ->
+       if not (Hashtbl.mem index tool.schema.name)
+       then Hashtbl.add index tool.schema.name tool)
+    tools;
+  index
 ;;
 
 (* ── Strategy implementations ────────────────────────────── *)
@@ -81,11 +101,12 @@ let select_llm_core
   else (
     (* Stage 1: BM25 pre-filter *)
     let bm25_top = List.filteri (fun i _ -> i < bm25_prefilter_n) retrieved in
+    let tool_by_name = build_tool_name_index tools in
     (* Build (name, description) candidates for reranker *)
     let candidates =
       List.filter_map
         (fun (name, _score) ->
-           match List.find_opt (fun (t : Tool.t) -> t.schema.name = name) tools with
+           match Hashtbl.find_opt tool_by_name name with
            | Some t -> Some (name, t.schema.description)
            | None -> None)
         bm25_top
