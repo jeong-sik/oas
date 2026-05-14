@@ -220,7 +220,11 @@ let test_provider_health_snapshot_json_roundtrip () =
       }
     ; { snapshot_provider_key = "b@https://example.invalid"
       ; snapshot_consecutive_failures = 1
-      ; snapshot_last_failure_time = None
+        (* Writer invariant: any entry with consecutive_failures > 0
+           always carries Some timestamp (record_failure stamps it on
+           every failure). The roundtrip must use a well-formed input
+           after #1571's parse-boundary tightening. *)
+      ; snapshot_last_failure_time = Some 7.0
       }
     ]
   in
@@ -250,6 +254,63 @@ let test_provider_health_snapshot_json_rejects_negative_failures () =
   match Complete_cascade.provider_health_snapshot_of_yojson json with
   | Ok _ -> fail "expected negative failure count rejection"
   | Error err -> check bool "error mentions failures" true (contains err "failures")
+;;
+
+let test_provider_health_snapshot_json_rejects_open_without_timestamp () =
+  (* Regression for #1571: writer invariant is "failures > 0 implies
+     Some last_failure_time" (every record_failure stamps the clock).
+     A persisted snapshot that breaks this invariant would, after
+     restore, leave [circuit_open_and_remaining] on the [None] branch
+     — open with no cooldown — permanently disabling the provider. *)
+  let null_field =
+    `List
+      [ `Assoc
+          [ "provider_key", `String "stuck@https://example.invalid"
+          ; "consecutive_failures", `Int 3
+          ; "last_failure_time", `Null
+          ]
+      ]
+  in
+  let missing_field =
+    `List
+      [ `Assoc
+          [ "provider_key", `String "stuck@https://example.invalid"
+          ; "consecutive_failures", `Int 3
+          ]
+      ]
+  in
+  let assert_rejected ~label json =
+    match Complete_cascade.provider_health_snapshot_of_yojson json with
+    | Ok _ ->
+      failf "[%s] expected rejection of failures>0 without last_failure_time" label
+    | Error err ->
+      check
+        bool
+        (label ^ " — error mentions timestamp")
+        true
+        (contains err "last_failure_time")
+  in
+  assert_rejected ~label:"explicit null" null_field;
+  assert_rejected ~label:"missing field" missing_field
+;;
+
+let test_provider_health_snapshot_json_accepts_zero_failures_without_timestamp () =
+  (* Idempotent zero-failure entries (no consecutive failures, never
+     recorded) are still well-formed without a timestamp — only the
+     open-circuit case requires it. *)
+  let json =
+    `List
+      [ `Assoc
+          [ "provider_key", `String "fresh@https://example.invalid"
+          ; "consecutive_failures", `Int 0
+          ; "last_failure_time", `Null
+          ]
+      ]
+  in
+  match Complete_cascade.provider_health_snapshot_of_yojson json with
+  | Ok _ -> ()
+  | Error err ->
+    failf "expected zero-failure null-timestamp entry to parse, got %s" err
 ;;
 
 let test_provider_health_backoff_extends_after_repeated_open_failures () =
@@ -919,6 +980,12 @@ let suite =
   ; ( "provider_health_snapshot_json_rejects_negative"
     , `Quick
     , test_provider_health_snapshot_json_rejects_negative_failures )
+  ; ( "provider_health_snapshot_json_rejects_open_without_timestamp"
+    , `Quick
+    , test_provider_health_snapshot_json_rejects_open_without_timestamp )
+  ; ( "provider_health_snapshot_json_accepts_zero_failures_without_timestamp"
+    , `Quick
+    , test_provider_health_snapshot_json_accepts_zero_failures_without_timestamp )
   ; ( "provider_health_backoff_extends"
     , `Quick
     , test_provider_health_backoff_extends_after_repeated_open_failures )

@@ -211,13 +211,34 @@ let provider_health_snapshot_of_yojson json =
              if consecutive_failures < 0
              then Error "consecutive_failures must be >= 0"
              else (
+               (* Writer invariant ([snapshot_health] + [record_failure]):
+                  any entry with [consecutive_failures > 0] always has
+                  [last_failure_time = Some _], because every failure
+                  recording stamps the clock. A parsed snapshot that
+                  reports [consecutive_failures > 0] without a timestamp
+                  is therefore malformed; honoring it would let
+                  [circuit_open_and_remaining] treat the entry as open
+                  with no cooldown ([None] branch) — permanently
+                  disabling the provider after restore until a manual
+                  state reset. Reject at the parse boundary instead. *)
                match find "last_failure_time" with
                | None | Some `Null ->
-                 Ok
-                   { snapshot_provider_key = provider_key
-                   ; snapshot_consecutive_failures = consecutive_failures
-                   ; snapshot_last_failure_time = None
-                   }
+                 if consecutive_failures > 0
+                 then
+                   Error
+                     (Printf.sprintf
+                        "provider %S: consecutive_failures=%d > 0 but \
+                         last_failure_time is missing/null; a snapshot \
+                         without a failure timestamp would stay open with \
+                         no cooldown after restore"
+                        provider_key
+                        consecutive_failures)
+                 else
+                   Ok
+                     { snapshot_provider_key = provider_key
+                     ; snapshot_consecutive_failures = consecutive_failures
+                     ; snapshot_last_failure_time = None
+                     }
                | Some ts_json ->
                  (match parse_float ts_json with
                   | Error _ as err -> err
