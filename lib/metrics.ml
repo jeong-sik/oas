@@ -299,7 +299,7 @@ let counter_to_prometheus buf (c : counter_data) =
 
 let histogram_to_prometheus buf (h : histogram_data) =
   let prom_name = add_prometheus_header buf ~name:h.h_name ~kind:"histogram" in
-  let sorted_buckets = List.sort Float.compare h.h_buckets in
+  let sorted_buckets = List.sort_uniq Float.compare h.h_buckets in
   List.iter
     (fun bound ->
        let count =
