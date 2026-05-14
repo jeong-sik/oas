@@ -49,6 +49,42 @@ let test_tool_id_normalized_lookup_for_builtin () =
   | Some tool -> check string "normalized lookup" "READ_FILE" tool.schema.name
 ;;
 
+let test_user_tool_case_variant_does_not_fallback () =
+  (* Regression: Tool_id.of_string lowercases unknown names into User _.
+     If find_in_index applied that fallback to user tools, a case-variant
+     call would silently dispatch a different user-defined tool than the
+     model named, breaking approval/audit context. The fallback must only
+     fire for canonical built-ins/MCP IDs. *)
+  let tools = [ make_tool "mytool" ] in
+  let index = Agent_tools.build_index tools in
+  (match Agent_tools.find_in_index index "mytool" with
+   | None -> fail "exact match should still work"
+   | Some _ -> ());
+  check
+    (option string)
+    "case-variant returns None for user tool"
+    None
+    (tool_description (Agent_tools.find_in_index index "MYTOOL"));
+  check
+    (option string)
+    "title-cased variant returns None for user tool"
+    None
+    (tool_description (Agent_tools.find_in_index index "MyTool"))
+;;
+
+let test_user_tool_case_variant_does_not_dispatch_neighbor () =
+  (* Stronger regression: a user tool is registered under its lowercase
+     name. A title-case variant must return None, not silently dispatch
+     the lowercase neighbor (which would alter approval/audit context). *)
+  let tools = [ make_tool ~content:"lowercased" "fetcha" ] in
+  let index = Agent_tools.build_index tools in
+  check
+    (option string)
+    "uppercase variant of unregistered user tool returns None"
+    None
+    (tool_description (Agent_tools.find_in_index index "FetchA"))
+;;
+
 let () =
   run
     "Agent_tools_index"
@@ -65,6 +101,14 @@ let () =
             "tool_id normalized lookup for builtin"
             `Quick
             test_tool_id_normalized_lookup_for_builtin
+        ; test_case
+            "user tool case variant does not fallback"
+            `Quick
+            test_user_tool_case_variant_does_not_fallback
+        ; test_case
+            "user tool case variant does not dispatch lowercase neighbor"
+            `Quick
+            test_user_tool_case_variant_does_not_dispatch_neighbor
         ] )
     ]
 ;;

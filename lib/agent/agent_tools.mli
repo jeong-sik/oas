@@ -34,6 +34,14 @@ type tool_index
     the same dispatch path without each caller scanning the full list. *)
 val build_index : Tool.t list -> tool_index
 
+(** [find_in_index index name] resolves a tool by its registered name. Falls
+    back to [Tool_id.of_string] for canonical built-ins and MCP IDs only;
+    user-defined tools (which [Tool_id.of_string] would map to [User _]) must
+    match by [by_name] exactly to avoid case-variant cross-dispatch.
+
+    Example: with only ["mytool"] registered, [find_in_index idx "MYTOOL"]
+    returns [None] — not the lowercased neighbor — so approval and audit
+    context cannot be applied to a tool the caller didn't actually name. *)
 val find_in_index : tool_index -> string -> Tool.t option
 
 type tool_failure_kind =
