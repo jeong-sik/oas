@@ -110,6 +110,149 @@ let record_failure health key =
     Hashtbl.replace health.entries key entry)
 ;;
 
+type provider_health_snapshot_entry =
+  { snapshot_provider_key : string
+  ; snapshot_consecutive_failures : int
+  ; snapshot_last_failure_time : float option
+  }
+
+type provider_health_snapshot = provider_health_snapshot_entry list
+
+let snapshot_health health =
+  with_mutex health (fun () ->
+    health.entries
+    |> Hashtbl.to_seq
+    |> Seq.filter_map (fun (provider_key, entry) ->
+      if entry.consecutive_failures <= 0
+      then None
+      else
+        Some
+          { snapshot_provider_key = provider_key
+          ; snapshot_consecutive_failures = entry.consecutive_failures
+          ; snapshot_last_failure_time = entry.last_failure_time
+          })
+    |> List.of_seq
+    |> List.sort (fun a b ->
+      String.compare a.snapshot_provider_key b.snapshot_provider_key))
+;;
+
+let replace_health_snapshot health snapshot =
+  with_mutex health (fun () ->
+    Hashtbl.reset health.entries;
+    List.iter
+      (fun entry ->
+         if entry.snapshot_consecutive_failures > 0
+         then
+           Hashtbl.replace
+             health.entries
+             entry.snapshot_provider_key
+             { consecutive_failures = entry.snapshot_consecutive_failures
+             ; last_failure_time = entry.snapshot_last_failure_time
+             })
+      snapshot)
+;;
+
+let restore_health ?clock snapshot =
+  let health = create_health ?clock () in
+  replace_health_snapshot health snapshot;
+  health
+;;
+
+let provider_health_snapshot_to_yojson snapshot =
+  `List
+    (List.map
+       (fun entry ->
+          `Assoc
+            [ "provider_key", `String entry.snapshot_provider_key
+            ; "consecutive_failures", `Int entry.snapshot_consecutive_failures
+            ; ( "last_failure_time"
+              , match entry.snapshot_last_failure_time with
+                | Some ts -> `Float ts
+                | None -> `Null )
+            ])
+       snapshot)
+;;
+
+let provider_health_snapshot_of_yojson json =
+  let parse_float = function
+    | `Float f -> Ok f
+    | `Int i -> Ok (float_of_int i)
+    | `Intlit s ->
+      (try Ok (float_of_string s) with
+       | Failure _ -> Error ("invalid last_failure_time: " ^ s))
+    | other ->
+      Error
+        (Printf.sprintf
+           "last_failure_time must be a number or null, got %s"
+           (Yojson.Safe.to_string other))
+  in
+  let parse_entry = function
+    | `Assoc fields ->
+      let find name = List.assoc_opt name fields in
+      (match find "provider_key", find "consecutive_failures" with
+       | Some (`String provider_key), Some failures_json ->
+         if String.equal provider_key ""
+         then Error "provider_key must not be empty"
+         else (
+           let parse_failures = function
+             | `Int i -> Ok i
+             | `Intlit s ->
+               (try Ok (int_of_string s) with
+                | Failure _ -> Error ("invalid consecutive_failures: " ^ s))
+             | other ->
+               Error
+                 (Printf.sprintf
+                    "consecutive_failures must be an integer, got %s"
+                    (Yojson.Safe.to_string other))
+           in
+           match parse_failures failures_json with
+           | Error _ as err -> err
+           | Ok consecutive_failures ->
+             if consecutive_failures < 0
+             then Error "consecutive_failures must be >= 0"
+             else (
+               match find "last_failure_time" with
+               | None | Some `Null ->
+                 Ok
+                   { snapshot_provider_key = provider_key
+                   ; snapshot_consecutive_failures = consecutive_failures
+                   ; snapshot_last_failure_time = None
+                   }
+               | Some ts_json ->
+                 (match parse_float ts_json with
+                  | Error _ as err -> err
+                  | Ok ts ->
+                    Ok
+                      { snapshot_provider_key = provider_key
+                      ; snapshot_consecutive_failures = consecutive_failures
+                      ; snapshot_last_failure_time = Some ts
+                      })))
+       | _ ->
+         Error
+           "provider health snapshot entry requires provider_key and consecutive_failures")
+    | other ->
+      Error
+        (Printf.sprintf
+           "provider health snapshot entry must be an object, got %s"
+           (Yojson.Safe.to_string other))
+  in
+  match json with
+  | `List entries ->
+    let rec loop acc = function
+      | [] -> Ok (List.rev acc)
+      | entry :: rest ->
+        (match parse_entry entry with
+         | Ok parsed -> loop (parsed :: acc) rest
+         | Error _ as err -> err)
+    in
+    loop [] entries
+  | other ->
+    Error
+      (Printf.sprintf
+         "provider health snapshot must be a list, got %s"
+         (Yojson.Safe.to_string other))
+;;
+
 let circuit_open_and_remaining health ~ccfg entry =
   if entry.consecutive_failures < ccfg.circuit_threshold
   then false, None
@@ -118,7 +261,10 @@ let circuit_open_and_remaining health ~ccfg entry =
     | None -> true, None
     | Some t ->
       let elapsed = health.time_fn () -. t in
-      let remaining = ccfg.circuit_cooldown_s -. elapsed in
+      let extra_failures = entry.consecutive_failures - ccfg.circuit_threshold in
+      let multiplier = 2. ** float_of_int (max 0 (min 6 extra_failures)) in
+      let cooldown_s = Float.min 3600.0 (ccfg.circuit_cooldown_s *. multiplier) in
+      let remaining = cooldown_s -. elapsed in
       if remaining > 0.0 then true, Some remaining else false, None)
 ;;
 

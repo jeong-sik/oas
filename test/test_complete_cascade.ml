@@ -190,6 +190,86 @@ let test_provider_health_eio_mutex_concurrent_recording () =
   check int "all fiber writes recorded" 100 info.consecutive_failures
 ;;
 
+let test_provider_health_snapshot_restore_preserves_open_circuit () =
+  let health = Complete_cascade.create_health () in
+  let key = "snapshot-model@https://example.invalid" in
+  Complete_cascade.record_failure health key;
+  Complete_cascade.record_failure health key;
+  Complete_cascade.record_failure health key;
+  let snapshot = Complete_cascade.snapshot_health health in
+  check int "one snapshot entry" 1 (List.length snapshot);
+  let restored = Complete_cascade.restore_health snapshot in
+  let info =
+    Complete_cascade.provider_health_info
+      restored
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:key
+  in
+  check int "restored failures" 3 info.consecutive_failures;
+  check bool "restored circuit open" true info.circuit_open;
+  match info.cooldown_remaining_s with
+  | Some remaining -> check bool "restored cooldown positive" true (remaining > 0.0)
+  | None -> fail "expected restored cooldown"
+;;
+
+let test_provider_health_snapshot_json_roundtrip () =
+  let snapshot : Complete_cascade.provider_health_snapshot =
+    [ { snapshot_provider_key = "a@https://example.invalid"
+      ; snapshot_consecutive_failures = 2
+      ; snapshot_last_failure_time = Some 42.5
+      }
+    ; { snapshot_provider_key = "b@https://example.invalid"
+      ; snapshot_consecutive_failures = 1
+      ; snapshot_last_failure_time = None
+      }
+    ]
+  in
+  let json = Complete_cascade.provider_health_snapshot_to_yojson snapshot in
+  match Complete_cascade.provider_health_snapshot_of_yojson json with
+  | Error err -> fail ("unexpected parse error: " ^ err)
+  | Ok parsed ->
+    check int "roundtrip length" 2 (List.length parsed);
+    check
+      string
+      "first key"
+      "a@https://example.invalid"
+      (List.hd parsed).snapshot_provider_key;
+    check int "first failures" 2 (List.hd parsed).snapshot_consecutive_failures
+;;
+
+let test_provider_health_snapshot_json_rejects_negative_failures () =
+  let json =
+    `List
+      [ `Assoc
+          [ "provider_key", `String "bad@https://example.invalid"
+          ; "consecutive_failures", `Int (-1)
+          ; "last_failure_time", `Null
+          ]
+      ]
+  in
+  match Complete_cascade.provider_health_snapshot_of_yojson json with
+  | Ok _ -> fail "expected negative failure count rejection"
+  | Error err -> check bool "error mentions failures" true (contains err "failures")
+;;
+
+let test_provider_health_backoff_extends_after_repeated_open_failures () =
+  let health = Complete_cascade.create_health () in
+  let key = "backoff-model@https://example.invalid" in
+  for _ = 1 to 4 do
+    Complete_cascade.record_failure health key
+  done;
+  let info =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:key
+  in
+  match info.cooldown_remaining_s with
+  | Some remaining ->
+    check bool "fourth failure extends beyond base cooldown" true (remaining > 30.0)
+  | None -> fail "expected cooldown"
+;;
+
 (* ── cascade_config defaults ──────────────────────────── *)
 
 let test_default_config () =
@@ -760,6 +840,18 @@ let suite =
   ; ( "provider_health_eio_mutex_concurrent_recording"
     , `Quick
     , test_provider_health_eio_mutex_concurrent_recording )
+  ; ( "provider_health_snapshot_restore"
+    , `Quick
+    , test_provider_health_snapshot_restore_preserves_open_circuit )
+  ; ( "provider_health_snapshot_json_roundtrip"
+    , `Quick
+    , test_provider_health_snapshot_json_roundtrip )
+  ; ( "provider_health_snapshot_json_rejects_negative"
+    , `Quick
+    , test_provider_health_snapshot_json_rejects_negative_failures )
+  ; ( "provider_health_backoff_extends"
+    , `Quick
+    , test_provider_health_backoff_extends_after_repeated_open_failures )
   ; "default_config", `Quick, test_default_config
   ; "result_success", `Quick, test_result_success_variant
   ; "result_all_failed", `Quick, test_result_all_failed_variant

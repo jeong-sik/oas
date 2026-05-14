@@ -32,7 +32,10 @@ type validation_result =
   ; dropped_content_blocks : int
   }
 
-val empty_result : validation_result
+type response_parse_error =
+  { response_backend : string
+  ; response_parse_error : string
+  }
 
 (** {1 Schema extraction} *)
 
@@ -82,3 +85,8 @@ val validate_openai_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> validation_result
+
+val validate_openai_response_result
+  :  declared_tools:string list
+  -> Yojson.Safe.t
+  -> (validation_result, response_parse_error) result
