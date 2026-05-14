@@ -51,6 +51,11 @@ let registry : entry list =
     ; producer_files = [ "lib/agent/agent.ml" ]
     ; description = "Cost budget exceeded during agent run loop"
     }
+  ; { signal = "Context_window_usage"
+    ; producer_files = [ "lib/pipeline/pipeline.ml" ]
+    ; description =
+        "Per-turn context-window usage before proactive compaction or provider dispatch"
+    }
   ]
 ;;
 

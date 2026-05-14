@@ -756,6 +756,26 @@ let proactive_context_window_tokens agent =
   Provider.resolve_max_context_tokens ~fallback:128_000 agent.options.provider
 ;;
 
+let publish_context_window_usage agent ~estimated_tokens ~limit_tokens =
+  match agent.options.event_bus with
+  | None -> ()
+  | Some bus ->
+    let usage_ratio =
+      if limit_tokens <= 0
+      then 0.0
+      else float_of_int estimated_tokens /. float_of_int limit_tokens
+    in
+    Telemetry_bus.publish
+      (Telemetry_bus.of_event_bus bus)
+      (Llm_provider.Telemetry_event.Context_window_usage
+         { agent_name = agent.state.config.name
+         ; turn = agent.state.turn_count
+         ; estimated_tokens
+         ; limit_tokens
+         ; usage_ratio
+         })
+;;
+
 (** Apply proactive compaction when context usage exceeds the configured
     watermark ratio, BEFORE hitting the provider limit.  Uses
     [Budget_strategy.phase_of_usage_ratio] to pick the lightest phase
@@ -985,6 +1005,12 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   stage_input ?raw_trace_run agent;
   (* Stage 2: Parse *)
   let prep, original_config, turn_params = stage_parse ?raw_trace_run agent in
+  let context_window = proactive_context_window_tokens agent in
+  let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
+  publish_context_window_usage
+    agent
+    ~estimated_tokens:est_tokens
+    ~limit_tokens:context_window;
   (* Stage 2.3: Proactive watermark compaction — compact before overflow.
      Runs before async input validation so that validators operate on the
      already-compacted message set.  Re-prepares the turn via
