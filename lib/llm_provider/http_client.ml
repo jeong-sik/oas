@@ -249,7 +249,7 @@ let add_connection_close headers = ("connection", "close") :: headers
     availability can be checked up front and reported as typed errors. *)
 let make_closing_client ~sw ~net ~uri =
   let net = (net :> [ `Generic ] Eio.Net.ty Eio.Resource.t) in
-  let https = Api_common.make_https () in
+  let https = Api_common.make_https_result () in
   let* host =
     match Uri.host uri with
     | Some host when String.trim host <> "" -> Ok host
@@ -290,14 +290,15 @@ let make_closing_client ~sw ~net ~uri =
     match Uri.scheme uri with
     | Some "https" ->
       (match https with
-       | Some wrap -> Ok (Some wrap)
-       | None ->
+       | Ok wrap -> Ok (Some wrap)
+       | Error reason ->
          Error
            (NetworkError
               { message =
                   Printf.sprintf
-                    "HTTPS requested but TLS not available for %s"
+                    "HTTPS requested but TLS not available for %s: %s"
                     (Uri.to_string uri)
+                    (Api_common.https_init_error_to_string reason)
               ; kind = Tls_error
               }))
     | _ -> Ok None

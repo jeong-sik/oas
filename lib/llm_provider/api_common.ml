@@ -195,14 +195,23 @@ let kimi_message_to_json (msg : message) =
 ;;
 
 (** Create HTTPS upgrade function using tls-eio *)
-let make_https () : (Uri.t -> _ -> _) option =
+type https_init_error =
+  | Ca_certs_unavailable of string
+  | Tls_config_unavailable of string
+
+let https_init_error_to_string = function
+  | Ca_certs_unavailable msg -> "CA certificates unavailable: " ^ msg
+  | Tls_config_unavailable msg -> "TLS client configuration unavailable: " ^ msg
+;;
+
+let make_https_result () : (Uri.t -> _ -> _, https_init_error) result =
   match Ca_certs.authenticator () with
-  | Error _ -> None
+  | Error (`Msg msg) -> Error (Ca_certs_unavailable msg)
   | Ok authenticator ->
     (match Tls.Config.client ~authenticator () with
-     | Error _ -> None
+     | Error (`Msg msg) -> Error (Tls_config_unavailable msg)
      | Ok tls_config ->
-       Some
+       Ok
          (fun uri flow ->
            let host =
              match Uri.host uri with
@@ -213,4 +222,10 @@ let make_https () : (Uri.t -> _ -> _) option =
                 | Ok dn -> Some (Domain_name.host_exn dn))
            in
            Tls_eio.client_of_flow tls_config ?host flow))
+;;
+
+let make_https () =
+  match make_https_result () with
+  | Ok wrap -> Some wrap
+  | Error _ -> None
 ;;

@@ -198,17 +198,17 @@ let runtime_mcp_policy_for_prepared_turn
 let%test "runtime MCP policy is narrowed by AllowList guardrails" =
   let policy =
     { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
-      allowed_tool_names = [ "status_tool"; "shell_tool"; "board_tool" ]
+      allowed_tool_names = [ "status_tool"; "shell_tool"; "ledger_tool" ]
     }
   in
   let narrowed =
     narrow_runtime_mcp_policy_for_turn
       { Guardrails.permissive with
-        tool_filter = Guardrails.AllowList [ "status_tool"; "board_tool" ]
+        tool_filter = Guardrails.AllowList [ "status_tool"; "ledger_tool" ]
       }
       policy
   in
-  narrowed.allowed_tool_names = [ "status_tool"; "board_tool" ]
+  narrowed.allowed_tool_names = [ "status_tool"; "ledger_tool" ]
 ;;
 
 let stage_parse ?raw_trace_run agent =
