@@ -12,6 +12,19 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** allow coordinators to own context-overflow compact retry
 
+## [0.193.13](https://github.com/jeong-sik/oas/compare/v0.193.12...v0.193.13) (2026-05-15)
+
+
+### Bug Fixes
+
+* **agent:** index tool lookup paths ([#1592](https://github.com/jeong-sik/oas/issues/1592)) ([31bda07](https://github.com/jeong-sik/oas/commit/31bda07bd54c4e902b35030ec4d71547718bd1ca))
+* **agent:** narrow runtime mcp per turn ([#1596](https://github.com/jeong-sik/oas/issues/1596)) ([36f7b37](https://github.com/jeong-sik/oas/commit/36f7b3779b01c38f3d69e94374c6d0812cb96403))
+* **cascade:** gate provider attempts with throttle ([#1595](https://github.com/jeong-sik/oas/issues/1595)) ([30dcc69](https://github.com/jeong-sik/oas/commit/30dcc690119238418ba54e524b1032705cc01333))
+* **memory:** persist episodic procedural backends ([#1594](https://github.com/jeong-sik/oas/issues/1594)) ([e87b73f](https://github.com/jeong-sik/oas/commit/e87b73fd90e83a79c66cf974e02002ec9a5eb9a2))
+* **paths:** replace assert false with invalid_arg, document MCP env var ([#1597](https://github.com/jeong-sik/oas/issues/1597)) ([9efc99d](https://github.com/jeong-sik/oas/commit/9efc99d9a91ed8b7b9658bcc34beb2cbba5d3db0))
+* **pipeline:** count runtime MCP tools for tool_choice ([#1593](https://github.com/jeong-sik/oas/issues/1593)) ([f488eab](https://github.com/jeong-sik/oas/commit/f488eabf5d756ffb4a258465663aaf74ea295f42))
+* **provider:** resolve runtime binding capabilities by config ([#1589](https://github.com/jeong-sik/oas/issues/1589)) ([da757ff](https://github.com/jeong-sik/oas/commit/da757ffc1ebc7a7c94c25370755b9a683b6ce412))
+
 ## [0.193.12](https://github.com/jeong-sik/oas/compare/v0.193.11...v0.193.12) (2026-05-14)
 
 
