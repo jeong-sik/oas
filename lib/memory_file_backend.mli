@@ -24,6 +24,12 @@ val create : Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
 (** Get the {!Memory.long_term_backend} for use with {!Memory.create}. *)
 val to_backend : t -> Memory.long_term_backend
 
+(** Get the {!Memory.episodic_backend} for use with {!Memory.create}. *)
+val to_episodic_backend : t -> Memory.episodic_backend
+
+(** Get the {!Memory.procedural_backend} for use with {!Memory.create}. *)
+val to_procedural_backend : t -> Memory.procedural_backend
+
 (** Count stored entries. *)
 val entry_count : t -> int
 

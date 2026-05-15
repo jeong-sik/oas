@@ -270,6 +270,65 @@ let test_memory_integration () =
      | _ -> Alcotest.fail "not persisted to disk")
 ;;
 
+let test_memory_episodic_integration () =
+  Eio_main.run
+  @@ fun env ->
+  with_tmp_dir env
+  @@ fun dir ->
+  match Memory_file_backend.create dir with
+  | Error e -> Alcotest.failf "create: %s" (Error.to_string e)
+  | Ok file_store ->
+    let backend = Memory_file_backend.to_episodic_backend file_store in
+    let writer = Memory.create ~episodic:backend () in
+    Memory.store_episode
+      writer
+      { id = "ep1"
+      ; timestamp = 100.0
+      ; participants = [ "keeper" ]
+      ; action = "fixed issue"
+      ; outcome = Success "merged"
+      ; salience = 0.8
+      ; metadata = []
+      };
+    let reader = Memory.create ~episodic:backend () in
+    (match Memory.recall_episode reader "ep1" with
+     | Some ep -> Alcotest.(check string) "action" "fixed issue" ep.action
+     | None -> Alcotest.fail "episode not persisted");
+    Alcotest.(check int) "stored file" 1 (Memory_file_backend.entry_count file_store)
+;;
+
+let test_memory_procedural_integration () =
+  Eio_main.run
+  @@ fun env ->
+  with_tmp_dir env
+  @@ fun dir ->
+  match Memory_file_backend.create dir with
+  | Error e -> Alcotest.failf "create: %s" (Error.to_string e)
+  | Ok file_store ->
+    let backend = Memory_file_backend.to_procedural_backend file_store in
+    let writer = Memory.create ~procedural:backend () in
+    Memory.store_procedure
+      writer
+      { id = "pr1"
+      ; pattern = "deploy"
+      ; action = "rollback"
+      ; success_count = 1
+      ; failure_count = 1
+      ; confidence = 0.5
+      ; last_used = 100.0
+      ; metadata = []
+      };
+    let updater = Memory.create ~procedural:backend () in
+    Memory.record_success updater "pr1";
+    let reader = Memory.create ~procedural:backend () in
+    (match Memory.best_procedure reader ~pattern:"deploy" with
+     | Some proc ->
+       Alcotest.(check int) "success persisted" 2 proc.success_count;
+       Alcotest.(check (float 0.01)) "confidence" 0.667 proc.confidence
+     | None -> Alcotest.fail "procedure not persisted");
+    Alcotest.(check int) "stored file" 1 (Memory_file_backend.entry_count file_store)
+;;
+
 (* ── Suite ───────────────────────────────────────────────────── *)
 
 let () =
@@ -293,6 +352,13 @@ let () =
     ; "clear", [ Alcotest.test_case "clear" `Quick test_clear ]
     ; "keys", [ Alcotest.test_case "sorted" `Quick test_keys_sorted ]
     ; "special", [ Alcotest.test_case "special_chars" `Quick test_special_chars_key ]
-    ; "integration", [ Alcotest.test_case "memory_t" `Quick test_memory_integration ]
+    ; ( "integration"
+      , [ Alcotest.test_case "memory_t" `Quick test_memory_integration
+        ; Alcotest.test_case "episodic_memory_t" `Quick test_memory_episodic_integration
+        ; Alcotest.test_case
+            "procedural_memory_t"
+            `Quick
+            test_memory_procedural_integration
+        ] )
     ]
 ;;

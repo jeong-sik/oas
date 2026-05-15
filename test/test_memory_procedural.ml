@@ -1,5 +1,17 @@
 open Agent_sdk
 
+let make_backend () =
+  let store = Hashtbl.create 4 in
+  let backend : Memory.procedural_backend =
+    { persist_procedure = (fun proc -> Hashtbl.replace store proc.id proc)
+    ; retrieve_procedure = (fun ~id -> Hashtbl.find_opt store id)
+    ; remove_procedure = (fun ~id -> Hashtbl.remove store id)
+    ; all_procedures = (fun () -> Hashtbl.to_seq_values store |> List.of_seq)
+    }
+  in
+  backend
+;;
+
 let () =
   Alcotest.run
     "Memory_Procedural"
@@ -24,6 +36,29 @@ let () =
               Alcotest.(check string) "id" "pr1" found.id;
               Alcotest.(check string) "action" "rollback then retry" found.action;
               Alcotest.(check int) "success" 5 found.success_count)
+        ; Alcotest.test_case "backend survives fresh memory instance" `Quick (fun () ->
+            let backend = make_backend () in
+            let proc : Memory.procedure =
+              { id = "pr-backend"
+              ; pattern = "deploy error"
+              ; action = "rollback then retry"
+              ; success_count = 5
+              ; failure_count = 1
+              ; confidence = 5.0 /. 6.0
+              ; last_used = 1000.0
+              ; metadata = []
+              }
+            in
+            let writer = Memory.create ~procedural:backend () in
+            Memory.store_procedure writer proc;
+            let reader = Memory.create ~procedural:backend () in
+            (match Memory.find_procedure reader ~pattern:"deploy" () with
+             | Some found ->
+               Alcotest.(check string) "backend id" "pr-backend" found.id;
+               Alcotest.(check string) "backend action" "rollback then retry" found.action
+             | None -> Alcotest.fail "procedure missing from backend");
+            let _, _, _, pr_count, _ = Memory.stats reader in
+            Alcotest.(check int) "backend stats" 1 pr_count)
         ] )
     ; ( "matching"
       , [ Alcotest.test_case "pattern substring match" `Quick (fun () ->
@@ -180,6 +215,28 @@ let () =
               Alcotest.(check int) "success_count" 2 proc.success_count;
               Alcotest.(check (float 0.01)) "confidence" 0.667 proc.confidence
             | None -> Alcotest.fail "not found")
+        ; Alcotest.test_case "record_success persists through backend" `Quick (fun () ->
+            let backend = make_backend () in
+            let writer = Memory.create ~procedural:backend () in
+            Memory.store_procedure
+              writer
+              { id = "pr1"
+              ; pattern = "task"
+              ; action = "do it"
+              ; success_count = 1
+              ; failure_count = 1
+              ; confidence = 0.5
+              ; last_used = 100.0
+              ; metadata = []
+              };
+            let updater = Memory.create ~procedural:backend () in
+            Memory.record_success updater "pr1";
+            let reader = Memory.create ~procedural:backend () in
+            match Memory.best_procedure reader ~pattern:"task" with
+            | Some proc ->
+              Alcotest.(check int) "success_count" 2 proc.success_count;
+              Alcotest.(check (float 0.01)) "confidence" 0.667 proc.confidence
+            | None -> Alcotest.fail "not found")
         ; Alcotest.test_case "record_failure updates confidence" `Quick (fun () ->
             let mem = Memory.create () in
             Memory.store_procedure
@@ -242,6 +299,26 @@ let () =
             Alcotest.(check int) "count 1" 1 (Memory.procedure_count mem);
             Memory.forget_procedure mem "pr1";
             Alcotest.(check int) "count 0" 0 (Memory.procedure_count mem))
+        ; Alcotest.test_case "forget removes backend procedure" `Quick (fun () ->
+            let backend = make_backend () in
+            let mem = Memory.create ~procedural:backend () in
+            Memory.store_procedure
+              mem
+              { id = "pr1"
+              ; pattern = "x"
+              ; action = "y"
+              ; success_count = 0
+              ; failure_count = 0
+              ; confidence = 0.0
+              ; last_used = 0.0
+              ; metadata = []
+              };
+            Memory.forget_procedure mem "pr1";
+            let fresh = Memory.create ~procedural:backend () in
+            Alcotest.(check bool)
+              "backend removed"
+              true
+              (Memory.best_procedure fresh ~pattern:"x" = None))
         ] )
     ; ( "stats"
       , [ Alcotest.test_case "procedural count in stats" `Quick (fun () ->

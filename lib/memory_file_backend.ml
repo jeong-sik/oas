@@ -164,6 +164,65 @@ let to_backend t : Memory.long_term_backend =
   }
 ;;
 
+let episodic_prefix = "ep:"
+let procedural_prefix = "pr:"
+let episodic_key id = episodic_prefix ^ id
+let procedural_key id = procedural_prefix ^ id
+
+let warn_callback_error ~op ~key reason =
+  warn_backend_issue ~op ~path:key (Failure reason)
+;;
+
+let to_episodic_backend t : Memory.episodic_backend =
+  { persist_episode =
+      (fun ep ->
+        let key = episodic_key ep.id in
+        match persist t ~key (Memory_episodic.episode_to_json ep) with
+        | Ok () -> ()
+        | Error reason -> warn_callback_error ~op:"persist_episode" ~key reason)
+  ; retrieve_episode =
+      (fun ~id ->
+        match retrieve t ~key:(episodic_key id) with
+        | Some json -> Memory_episodic.episode_of_json json
+        | None -> None)
+  ; remove_episode =
+      (fun ~id ->
+        let key = episodic_key id in
+        match remove t ~key with
+        | Ok () -> ()
+        | Error reason -> warn_callback_error ~op:"remove_episode" ~key reason)
+  ; all_episodes =
+      (fun () ->
+        query t ~prefix:episodic_prefix ~limit:0
+        |> List.filter_map (fun (_, json) -> Memory_episodic.episode_of_json json))
+  }
+;;
+
+let to_procedural_backend t : Memory.procedural_backend =
+  { persist_procedure =
+      (fun proc ->
+        let key = procedural_key proc.id in
+        match persist t ~key (Memory_procedural.procedure_to_json proc) with
+        | Ok () -> ()
+        | Error reason -> warn_callback_error ~op:"persist_procedure" ~key reason)
+  ; retrieve_procedure =
+      (fun ~id ->
+        match retrieve t ~key:(procedural_key id) with
+        | Some json -> Memory_procedural.procedure_of_json json
+        | None -> None)
+  ; remove_procedure =
+      (fun ~id ->
+        let key = procedural_key id in
+        match remove t ~key with
+        | Ok () -> ()
+        | Error reason -> warn_callback_error ~op:"remove_procedure" ~key reason)
+  ; all_procedures =
+      (fun () ->
+        query t ~prefix:procedural_prefix ~limit:0
+        |> List.filter_map (fun (_, json) -> Memory_procedural.procedure_of_json json))
+  }
+;;
+
 (* ── Utility ─────────────────────────────────────────────────── *)
 
 let keys t =
