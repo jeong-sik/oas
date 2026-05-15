@@ -12,6 +12,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** allow coordinators to own context-overflow compact retry
 
+## [0.193.14](https://github.com/jeong-sik/oas/compare/v0.193.13...v0.193.14) (2026-05-15)
+
+
+### Bug Fixes
+
+* **pipeline:** drop unused agent arg from turn_ready_tool_names callers ([#1599](https://github.com/jeong-sik/oas/issues/1599)) ([7489923](https://github.com/jeong-sik/oas/commit/748992379de975e3b7d705bd29dd6815864ea927))
+
+
+### Performance Improvements
+
+* **completion_contract:** build tool-lookup index lazily ([#1600](https://github.com/jeong-sik/oas/issues/1600)) ([e605a13](https://github.com/jeong-sik/oas/commit/e605a133d798a1e1e308727643b59692a5c2bc25))
+
 ## [0.193.13](https://github.com/jeong-sik/oas/compare/v0.193.12...v0.193.13) (2026-05-15)
 
 
