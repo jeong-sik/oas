@@ -19,6 +19,48 @@ let tool_schema name json_schema : Types.tool_schema =
   Tool_middleware.tool_schema_of_json ~name json_schema
 ;;
 
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0
+    then true
+    else if idx + needle_len > haystack_len
+    then false
+    else if String.sub haystack idx needle_len = needle
+    then true
+    else loop (idx + 1)
+  in
+  loop 0
+;;
+
+let shell_descriptor
+      ?(single_command_only = true)
+      ?(shell_metacharacters_allowed = false)
+      ?(chaining_allowed = false)
+      ?(redirection_allowed = false)
+      ?(pipes_allowed = false)
+      ()
+  : Tool.descriptor
+  =
+  { kind = Some "bash"
+  ; mutation_class = None
+  ; concurrency_class = None
+  ; permission = None
+  ; shell =
+      Some
+        { single_command_only
+        ; shell_metacharacters_allowed
+        ; chaining_allowed
+        ; redirection_allowed
+        ; pipes_allowed
+        ; workdir_policy = Some Tool.Recommended
+        }
+  ; notes = []
+  ; examples = []
+  }
+;;
+
 (* ── validate_and_coerce ─────────────────────────────────── *)
 
 let test_pass_no_params () =
@@ -163,6 +205,81 @@ let test_hook_rejection () =
   match hook ~name:"strict" ~args with
   | Tool_middleware.Reject _ -> ()
   | _ -> Alcotest.fail "expected Reject"
+;;
+
+(* ── validate_shell_constraints ──────────────────────────── *)
+
+let test_shell_constraints_pass_plain_command () =
+  let descriptor = shell_descriptor () in
+  match
+    Tool_middleware.validate_shell_constraints
+      ~tool_name:"shell_exec"
+      ~descriptor
+      (`Assoc [ "command", `String "git status --short" ])
+  with
+  | Tool_middleware.Pass -> ()
+  | Tool_middleware.Proceed _ -> Alcotest.fail "shell constraints should not coerce"
+  | Tool_middleware.Reject r -> Alcotest.fail r.message
+;;
+
+let test_shell_constraints_reject_command_substitution () =
+  let descriptor = shell_descriptor () in
+  match
+    Tool_middleware.validate_shell_constraints
+      ~tool_name:"shell_exec"
+      ~descriptor
+      (`Assoc [ "cmd", `String "echo $(date)" ])
+  with
+  | Tool_middleware.Reject r ->
+    Alcotest.(check bool)
+      "mentions command substitution"
+      true
+      (contains_substring ~needle:"command substitution" r.message)
+  | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
+    Alcotest.fail "command substitution must be rejected"
+;;
+
+let test_shell_constraints_reject_pipe_when_disabled () =
+  let descriptor = shell_descriptor ~pipes_allowed:false () in
+  match
+    Tool_middleware.validate_shell_constraints
+      ~tool_name:"shell_exec"
+      ~descriptor
+      (`Assoc [ "command", `String "rg foo | wc -l" ])
+  with
+  | Tool_middleware.Reject r ->
+    Alcotest.(check bool)
+      "mentions pipes"
+      true
+      (contains_substring ~needle:"pipes" r.message)
+  | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
+    Alcotest.fail "pipe must be rejected"
+;;
+
+let test_shell_constraints_allow_fd_redirect_when_enabled () =
+  let descriptor = shell_descriptor ~redirection_allowed:true () in
+  match
+    Tool_middleware.validate_shell_constraints
+      ~tool_name:"shell_exec"
+      ~descriptor
+      (`Assoc [ "command", `String "dune build 2>&1" ])
+  with
+  | Tool_middleware.Pass -> ()
+  | Tool_middleware.Proceed _ -> Alcotest.fail "shell constraints should not coerce"
+  | Tool_middleware.Reject r -> Alcotest.fail r.message
+;;
+
+let test_shell_constraints_no_command_field_passes () =
+  let descriptor = shell_descriptor () in
+  match
+    Tool_middleware.validate_shell_constraints
+      ~tool_name:"shell_exec"
+      ~descriptor
+      (`Assoc [ "path", `String "README.md" ])
+  with
+  | Tool_middleware.Pass -> ()
+  | Tool_middleware.Proceed _ -> Alcotest.fail "shell constraints should not coerce"
+  | Tool_middleware.Reject r -> Alcotest.fail r.message
 ;;
 
 (* ── heal_tool_call ─────────────────────────────────────── *)
@@ -455,6 +572,28 @@ let () =
         ; Alcotest.test_case "valid tool -> Pass" `Quick test_hook_valid_tool
         ; Alcotest.test_case "coercion -> Proceed" `Quick test_hook_coercion
         ; Alcotest.test_case "invalid -> Reject" `Quick test_hook_rejection
+        ] )
+    ; ( "validate_shell_constraints"
+      , [ Alcotest.test_case
+            "plain command passes"
+            `Quick
+            test_shell_constraints_pass_plain_command
+        ; Alcotest.test_case
+            "command substitution rejects"
+            `Quick
+            test_shell_constraints_reject_command_substitution
+        ; Alcotest.test_case
+            "pipe rejects when disabled"
+            `Quick
+            test_shell_constraints_reject_pipe_when_disabled
+        ; Alcotest.test_case
+            "fd redirect allowed when enabled"
+            `Quick
+            test_shell_constraints_allow_fd_redirect_when_enabled
+        ; Alcotest.test_case
+            "missing command-like field passes"
+            `Quick
+            test_shell_constraints_no_command_field_passes
         ] )
     ; ( "heal_tool_call"
       , [ Alcotest.test_case "valid first try" `Quick test_heal_valid_first_try

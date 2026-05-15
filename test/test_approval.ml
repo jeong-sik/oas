@@ -15,6 +15,40 @@ let descriptor_with ?mutation_class concurrency_class =
   }
 ;;
 
+let shell_descriptor () =
+  { Tool.kind = Some "bash"
+  ; mutation_class = Some "workspace_mutating"
+  ; concurrency_class = Some Tool.Sequential_workspace
+  ; permission = Some Tool.Write
+  ; shell =
+      Some
+        { Tool.single_command_only = true
+        ; shell_metacharacters_allowed = false
+        ; chaining_allowed = false
+        ; redirection_allowed = false
+        ; pipes_allowed = false
+        ; workdir_policy = Some Tool.Recommended
+        }
+  ; notes = []
+  ; examples = []
+  }
+;;
+
+let contains_substring ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0
+    then true
+    else if idx + needle_len > haystack_len
+    then false
+    else if String.sub haystack idx needle_len = needle
+    then true
+    else loop (idx + 1)
+  in
+  loop 0
+;;
+
 (** Helper: create a simple tool that echoes its input as JSON string *)
 let make_echo_tool ?descriptor name =
   Tool.create ?descriptor ~name ~description:"echo" ~parameters:[] (fun input ->
@@ -573,6 +607,47 @@ let test_exclusive_batch_kind_metadata () =
     kinds
 ;;
 
+let test_shell_descriptor_constraint_blocks_execution () =
+  let handler_called = ref false in
+  let shell_tool =
+    Tool.create
+      ~descriptor:(shell_descriptor ())
+      ~name:"shell_exec"
+      ~description:"shell"
+      ~parameters:
+        [ { Types.name = "command"
+          ; param_type = Types.String
+          ; description = "command"
+          ; required = true
+          }
+        ]
+      (fun _ ->
+         handler_called := true;
+         Ok { Types.content = "ran" })
+  in
+  let results =
+    run_execute_with_tools
+      ~tools:[ shell_tool ]
+      ~hooks:Hooks.empty
+      [ ToolUse
+          { id = "t1"
+          ; name = "shell_exec"
+          ; input = `Assoc [ "command", `String "echo $(date)" ]
+          }
+      ]
+  in
+  match results with
+  | [ result ] ->
+    check bool "blocked" true result.is_error;
+    check bool "handler not called" false !handler_called;
+    check
+      bool
+      "constraint message"
+      true
+      (contains_substring ~needle:"shell constraint violation" result.content)
+  | _ -> fail "expected exactly one result"
+;;
+
 let () =
   run
     "Approval"
@@ -613,6 +688,12 @@ let () =
             "exclusive batch_kind metadata (#589)"
             `Quick
             test_exclusive_batch_kind_metadata
+        ] )
+    ; ( "shell_constraints"
+      , [ test_case
+            "descriptor shell constraints block execution"
+            `Quick
+            test_shell_descriptor_constraint_blocks_execution
         ] )
     ]
 ;;

@@ -35,6 +35,18 @@ val validate_and_coerce
   -> Yojson.Safe.t
   -> pre_hook_action
 
+(** Validate a tool input against {!Tool.descriptor.shell} when present.
+
+    The command text is read from a string ["command"] field, falling back to
+    ["cmd"]. Tools without shell constraints, or shell-constrained tools with no
+    command-like field, return {!Pass}; schema validation remains responsible
+    for required-field errors. *)
+val validate_shell_constraints
+  :  tool_name:string
+  -> descriptor:Tool.descriptor
+  -> Yojson.Safe.t
+  -> pre_hook_action
+
 (** {1 Schema conversion}
 
     Convert JSON Schema objects to OAS typed parameter lists.
