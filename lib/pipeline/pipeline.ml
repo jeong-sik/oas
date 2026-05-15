@@ -200,7 +200,7 @@ let tool_name_visible visible_tool_names name =
 
 let validate_requested_tool_choice_visibility agent (prep : Agent_turn.turn_preparation) =
   let resolved = requested_completion_contract agent in
-  let visible_tool_names = Pipeline_stage_prepare.turn_ready_tool_names agent prep in
+  let visible_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
   match resolved.effective with
   | Completion_contract.Require_tool_use when visible_tool_names = [] ->
     Error
@@ -1185,7 +1185,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        Promote recoverable Text blocks to ToolUse before contract
        validation so the pipeline proceeds normally.
        Ref: Samchon harness Layer 1 (dev.to/samchon, Qwen 2025). *)
-       let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names agent prep in
+       let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
        let response = Tool_use_recovery.recover_response ~valid_tool_names raw_response in
        let* missing_tool_action =
          handle_missing_required_tool_use
