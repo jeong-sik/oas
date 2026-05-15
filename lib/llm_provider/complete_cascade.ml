@@ -78,6 +78,47 @@ let provider_key (config : Provider_config.t) =
   Printf.sprintf "%s@%s" config.Provider_config.model_id config.Provider_config.base_url
 ;;
 
+let throttle_key (config : Provider_config.t) =
+  let account_key =
+    if String.equal config.Provider_config.api_key ""
+    then "no-key"
+    else Digest.(config.Provider_config.api_key |> string |> to_hex)
+  in
+  Printf.sprintf
+    "%s@%s#%s"
+    (Provider_config.string_of_provider_kind config.kind)
+    config.Provider_config.base_url
+    account_key
+;;
+
+let default_throttles : (string, Provider_throttle.t) Hashtbl.t = Hashtbl.create 16
+
+(* The fallback throttle table is a global pure Hashtbl that tests may touch
+   outside [Eio_main.run]; Stdlib [Mutex] is sufficient here. *)
+let default_throttles_mu = Mutex.create ()
+
+let with_default_throttles_lock f =
+  Mutex.lock default_throttles_mu;
+  match f () with
+  | value ->
+    Mutex.unlock default_throttles_mu;
+    value
+  | exception exn ->
+    Mutex.unlock default_throttles_mu;
+    raise exn
+;;
+
+let default_throttle_resolver config =
+  let key = throttle_key config in
+  with_default_throttles_lock (fun () ->
+    match Hashtbl.find_opt default_throttles key with
+    | Some throttle -> Some throttle
+    | None ->
+      let throttle = Provider_throttle.default_for_kind config.Provider_config.kind in
+      Hashtbl.add default_throttles key throttle;
+      Some throttle)
+;;
+
 let with_mutex health f =
   (* Avoid [use_rw ~protect:true] here: health snapshots are also used by
      pure tests/callers outside an Eio cancellation context.  The protected
@@ -498,6 +539,8 @@ let complete_cascade
       ?attempt_timeout_s
       ?(cascade_config = default_cascade_config)
       ?(health = create_health ~clock ())
+      ?(priority = Request_priority.default)
+      ?(throttle_resolver = default_throttle_resolver)
       ~steps
       ~messages
       ?tools
@@ -545,10 +588,17 @@ let complete_cascade
             ?cache
             ?metrics
             ?retry_config
+            ~priority
             ~config
             ~messages
             ?tools
             ()
+        in
+        let throttled_attempt () =
+          match throttle_resolver config with
+          | None -> attempt ()
+          | Some throttle ->
+            Provider_throttle.with_permit_priority ~priority throttle attempt
         in
         let result =
           (* Sentinel: [Some t] with [t <= 0.0] disables the cascade-level
@@ -563,9 +613,9 @@ let complete_cascade
             | None -> Provider_config.default_attempt_timeout_s config.kind
           in
           match timeout_s with
-          | None -> attempt ()
+          | None -> throttled_attempt ()
           | Some timeout_s ->
-            (try Eio.Time.with_timeout_exn clock timeout_s attempt with
+            (try Eio.Time.with_timeout_exn clock timeout_s throttled_attempt with
              | Eio.Time.Timeout ->
                Error
                  (attempt_timeout_error

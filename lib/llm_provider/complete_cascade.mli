@@ -205,7 +205,14 @@ type cascade_result =
       default is too aggressive.
 
     When [health] is [None], a fresh tracker is created per call.
-    Pass a shared tracker to maintain circuit state across calls. *)
+    Pass a shared tracker to maintain circuit state across calls.
+
+    [?throttle_resolver] maps each provider config to the shared
+    provider-level throttle that gates the attempt. The default resolver
+    creates one fallback throttle per provider kind/base URL/account key, so
+    concurrent cascade calls in this process queue before reaching the backend
+    instead of stampeding a limited-capacity provider. Return [None] from a
+    custom resolver to opt a config out of throttling. *)
 val complete_cascade
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -217,6 +224,8 @@ val complete_cascade
   -> ?attempt_timeout_s:float
   -> ?cascade_config:cascade_config
   -> ?health:provider_health
+  -> ?priority:Request_priority.t
+  -> ?throttle_resolver:(Provider_config.t -> Provider_throttle.t option)
   -> steps:Provider_config.t list
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list

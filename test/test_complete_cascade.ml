@@ -40,6 +40,18 @@ let dummy_response =
     }
 ;;
 
+let update_atomic_max cell candidate =
+  let rec loop () =
+    let current = Atomic.get cell in
+    if candidate <= current
+    then ()
+    else if Atomic.compare_and_set cell current candidate
+    then ()
+    else loop ()
+  in
+  loop ()
+;;
+
 (* ── provider_key ────────────────────────────────────── *)
 
 let test_provider_key () =
@@ -846,6 +858,60 @@ let test_provider_terminal_stops_without_calling_fallback () =
   | _ -> fail "expected Provider_terminal without fallback"
 ;;
 
+let test_provider_throttle_serializes_concurrent_steps () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"llama3"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let throttle = Provider_throttle.create ~max_concurrent:1 ~provider_name:"local" in
+  let active_calls = Atomic.make 0 in
+  let max_active_calls = Atomic.make 0 in
+  let total_calls = Atomic.make 0 in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ ->
+          Atomic.incr total_calls;
+          let active_now = Atomic.fetch_and_add active_calls 1 + 1 in
+          update_atomic_max max_active_calls active_now;
+          Eio.Time.sleep clock 0.05;
+          Atomic.decr active_calls;
+          { Llm_transport.response = Ok dummy_response; latency_ms = Some 50 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _ -> fail "test uses sync completion only")
+    }
+  in
+  let run_one () =
+    match
+      Complete_cascade.complete_cascade
+        ~sw
+        ~net:(Eio.Stdenv.net env)
+        ~clock
+        ~transport
+        ~throttle_resolver:(fun _ -> Some throttle)
+        ~steps:[ config ]
+        ~messages:[]
+        ()
+    with
+    | Complete_cascade.Success _ -> ()
+    | _ -> fail "expected throttled cascade success"
+  in
+  Eio.Fiber.both run_one run_one;
+  check int "both attempts ran" 2 (Atomic.get total_calls);
+  check
+    int
+    "transport concurrency capped by provider throttle"
+    1
+    (Atomic.get max_active_calls)
+;;
+
 let test_attempt_timeout_fast_paths_without_retrying_same_step () =
   Eio_main.run
   @@ fun env ->
@@ -1089,6 +1155,9 @@ let suite =
   ; ( "provider_terminal_stops_without_fallback"
     , `Quick
     , test_provider_terminal_stops_without_calling_fallback )
+  ; ( "provider_throttle_serializes_concurrent_steps"
+    , `Quick
+    , test_provider_throttle_serializes_concurrent_steps )
   ; ( "attempt_timeout_fast_path"
     , `Quick
     , test_attempt_timeout_fast_paths_without_retrying_same_step )
