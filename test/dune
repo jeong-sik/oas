@@ -62,6 +62,7 @@
   test_cli_common_subprocess
   test_clone
   test_complete_ext
+  test_completion_contract_tool_use_calls
   test_conditional_orch
   test_consumer
   test_content_replacement_event_bridge
@@ -275,6 +276,7 @@
   test_cli_common_subprocess
   test_clone
   test_complete_ext
+  test_completion_contract_tool_use_calls
   test_conditional_orch
   test_consumer
   test_content_replacement_event_bridge
