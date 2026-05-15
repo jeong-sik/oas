@@ -26,6 +26,97 @@ let validate_and_coerce ~tool_name ~(schema : Types.tool_schema) args =
       Reject { is_error = true; message })
 ;;
 
+(* -- Descriptor shell constraints --------------------------------------- *)
+
+let contains_substring s needle =
+  let s_len = String.length s in
+  let needle_len = String.length needle in
+  let rec loop i =
+    if needle_len = 0
+    then true
+    else if i + needle_len > s_len
+    then false
+    else if String.sub s i needle_len = needle
+    then true
+    else loop (i + 1)
+  in
+  loop 0
+;;
+
+let extract_shell_command_arg = function
+  | `Assoc fields ->
+    List.find_map
+      (fun name ->
+         match List.assoc_opt name fields with
+         | Some (`String value) -> Some value
+         | _ -> None)
+      [ "command"; "cmd" ]
+  | _ -> None
+;;
+
+let has_dangerous_ampersand cmd =
+  let len = String.length cmd in
+  let rec loop i =
+    if i >= len
+    then false
+    else if cmd.[i] <> '&'
+    then loop (i + 1)
+    else if i > 0 && cmd.[i - 1] = '>'
+    then loop (i + 1)
+    else true
+  in
+  loop 0
+;;
+
+let has_chaining cmd =
+  contains_substring cmd "&&"
+  || contains_substring cmd "||"
+  || String.exists
+       (function
+         | ';' | '\n' | '\r' -> true
+         | _ -> false)
+       cmd
+  || has_dangerous_ampersand cmd
+;;
+
+let has_redirection cmd =
+  String.exists
+    (function
+      | '<' | '>' -> true
+      | _ -> false)
+    cmd
+;;
+
+let has_command_substitution cmd =
+  contains_substring cmd "$("
+  || contains_substring cmd "`"
+  || contains_substring cmd "<("
+  || contains_substring cmd ">("
+;;
+
+let validate_shell_constraints ~tool_name ~(descriptor : Tool.descriptor) args =
+  match descriptor.shell, extract_shell_command_arg args with
+  | None, _ | Some _, None -> Pass
+  | Some shell, Some command ->
+    let command = String.trim command in
+    let reject reason =
+      Reject
+        { is_error = true
+        ; message =
+            Printf.sprintf "Tool '%s' shell constraint violation: %s" tool_name reason
+        }
+    in
+    if (shell.single_command_only || not shell.chaining_allowed) && has_chaining command
+    then reject "command chaining is not allowed"
+    else if (not shell.pipes_allowed) && String.contains command '|'
+    then reject "pipes are not allowed"
+    else if (not shell.redirection_allowed) && has_redirection command
+    then reject "redirection is not allowed"
+    else if (not shell.shell_metacharacters_allowed) && has_command_substitution command
+    then reject "command substitution is not allowed"
+    else Pass
+;;
+
 (* ── Schema conversion ────────────────────────────────────── *)
 
 let tool_schema_of_json ~name ?(description = "") json_schema : Types.tool_schema =
