@@ -26,6 +26,18 @@ val kimi_message_to_json : Types.message -> Yojson.Safe.t
 
 (** {2 TLS} *)
 
+type https_init_error =
+  | Ca_certs_unavailable of string
+  | Tls_config_unavailable of string
+
+val https_init_error_to_string : https_init_error -> string
+
+val make_https_result
+  :  unit
+  -> ( Uri.t -> [> `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t -> Tls_eio.t
+       , https_init_error )
+       result
+
 val make_https
   :  unit
   -> (Uri.t -> [> `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t -> Tls_eio.t)

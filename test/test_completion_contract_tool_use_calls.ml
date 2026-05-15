@@ -45,8 +45,7 @@ let test_single_tool_use_resolves () =
   let tools = [ make_tool "alpha"; make_tool "beta" ] in
   let response =
     make_response
-      ~content:
-        [ Lp.ToolUse { id = "id-1"; name = "beta"; input = `Assoc [] } ]
+      ~content:[ Lp.ToolUse { id = "id-1"; name = "beta"; input = `Assoc [] } ]
   in
   let calls = Completion_contract.tool_use_calls ~tools response in
   match calls with
@@ -63,8 +62,7 @@ let test_unknown_tool_use_yields_none () =
   let tools = [ make_tool "alpha" ] in
   let response =
     make_response
-      ~content:
-        [ Lp.ToolUse { id = "id-1"; name = "missing"; input = `Assoc [] } ]
+      ~content:[ Lp.ToolUse { id = "id-1"; name = "missing"; input = `Assoc [] } ]
   in
   match Completion_contract.tool_use_calls ~tools response with
   | [ call ] ->
@@ -94,8 +92,7 @@ let test_mixed_blocks_only_tool_uses_returned () =
 let test_tool_use_with_empty_tools_still_emits_call () =
   let response =
     make_response
-      ~content:
-        [ Lp.ToolUse { id = "id-1"; name = "anything"; input = `Assoc [] } ]
+      ~content:[ Lp.ToolUse { id = "id-1"; name = "anything"; input = `Assoc [] } ]
   in
   match Completion_contract.tool_use_calls ~tools:[] response with
   | [ call ] ->

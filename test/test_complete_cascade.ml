@@ -858,6 +858,156 @@ let test_provider_terminal_stops_without_calling_fallback () =
   | _ -> fail "expected Provider_terminal without fallback"
 ;;
 
+let test_tls_error_stops_without_calling_fallback () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let primary =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"ollama-cloud"
+      ~base_url:"https://ollama.com/v1"
+      ()
+  in
+  let fallback =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"moonshot-v1"
+      ~base_url:"https://api.moonshot.cn"
+      ()
+  in
+  let health = Complete_cascade.create_health ~clock () in
+  let called_models = ref [] in
+  let tls_error =
+    Http_client.NetworkError
+      { kind = Http_client.Tls_error; message = "invalid certificate chain" }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          let response =
+            if String.equal req.config.model_id primary.model_id
+            then Error tls_error
+            else Ok dummy_response
+          in
+          { Llm_transport.response; latency_ms = Some 25 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          if String.equal req.config.model_id primary.model_id
+          then Error tls_error
+          else Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~health
+      ~steps:[ primary; fallback ]
+      ~messages:[]
+      ()
+  in
+  check (list string) "only primary provider called" [ primary.model_id ] !called_models;
+  let primary_health =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:(Complete_cascade.provider_key primary)
+  in
+  check
+    int
+    "TLS failure counts against provider health"
+    1
+    primary_health.consecutive_failures;
+  match result with
+  | Complete_cascade.All_failed { errors = [ (config, error) ]; skipped = [] } ->
+    check string "failed provider" primary.model_id config.model_id;
+    check bool "preserves TLS error" true (error = tls_error)
+  | _ -> fail "expected TLS All_failed without fallback"
+;;
+
+let test_local_resource_error_stops_without_poisoning_provider_health () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let primary =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"ollama-cloud"
+      ~base_url:"https://ollama.com/v1"
+      ()
+  in
+  let fallback =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"moonshot-v1"
+      ~base_url:"https://api.moonshot.cn"
+      ()
+  in
+  let health = Complete_cascade.create_health ~clock () in
+  let called_models = ref [] in
+  let local_error =
+    Http_client.NetworkError
+      { kind = Http_client.Local_resource_exhaustion
+      ; message = "Too many open files in system"
+      }
+  in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          let response =
+            if String.equal req.config.model_id primary.model_id
+            then Error local_error
+            else Ok dummy_response
+          in
+          { Llm_transport.response; latency_ms = Some 25 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ (req : Llm_transport.completion_request) ->
+          called_models := req.config.model_id :: !called_models;
+          if String.equal req.config.model_id primary.model_id
+          then Error local_error
+          else Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~health
+      ~steps:[ primary; fallback ]
+      ~messages:[]
+      ()
+  in
+  check (list string) "only primary provider called" [ primary.model_id ] !called_models;
+  let primary_health =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:(Complete_cascade.provider_key primary)
+  in
+  check
+    int
+    "local resource exhaustion does not poison provider health"
+    0
+    primary_health.consecutive_failures;
+  match result with
+  | Complete_cascade.All_failed { errors = [ (config, error) ]; skipped = [] } ->
+    check string "failed provider" primary.model_id config.model_id;
+    check bool "preserves local resource error" true (error = local_error)
+  | _ -> fail "expected local resource All_failed without fallback"
+;;
+
 let test_provider_throttle_serializes_concurrent_steps () =
   Eio_main.run
   @@ fun env ->
@@ -1155,6 +1305,12 @@ let suite =
   ; ( "provider_terminal_stops_without_fallback"
     , `Quick
     , test_provider_terminal_stops_without_calling_fallback )
+  ; ( "tls_error_stops_without_fallback"
+    , `Quick
+    , test_tls_error_stops_without_calling_fallback )
+  ; ( "local_resource_error_stops_without_fallback"
+    , `Quick
+    , test_local_resource_error_stops_without_poisoning_provider_health )
   ; ( "provider_throttle_serializes_concurrent_steps"
     , `Quick
     , test_provider_throttle_serializes_concurrent_steps )

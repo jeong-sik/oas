@@ -526,6 +526,17 @@ let is_hard_quota_http_error = function
   | _ -> false
 ;;
 
+let network_error_stops_cascade = function
+  | Http_client.NetworkError
+      { kind = Http_client.Tls_error | Http_client.Local_resource_exhaustion; _ } -> true
+  | _ -> false
+;;
+
+let provider_failure_counts_for_health = function
+  | Http_client.NetworkError { kind = Http_client.Local_resource_exhaustion; _ } -> false
+  | _ -> true
+;;
+
 (* --- Main cascade execution --- *)
 
 let complete_cascade
@@ -633,10 +644,14 @@ let complete_cascade
         | Error (Http_client.ProviderTerminal { kind; message }) ->
           Provider_terminal { config; kind; message }
         | Error err ->
-          record_failure health key;
+          if provider_failure_counts_for_health err then record_failure health key;
           emit_circuit_state metrics_sink config ~cascade_config ~health ~provider_key:key;
           if is_hard_quota_http_error err
           then Hard_quota { config; error = err }
+          else if network_error_stops_cascade err
+          then
+            All_failed
+              { errors = List.rev ((config, err) :: errors); skipped = List.rev skipped }
           else loop rest (idx + 1) ((config, err) :: errors) skipped)
   in
   loop steps 0 [] []

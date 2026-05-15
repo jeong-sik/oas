@@ -61,7 +61,17 @@ let command_candidates ~name =
   if Filename.check_suffix name ".exe" then [ name ] else [ name; name ^ ".exe" ]
 ;;
 
-let is_runnable_path path = Sys.file_exists path && not (Sys.is_directory path)
+let safe_file_exists path =
+  try Sys.file_exists path with
+  | Sys_error _ | Unix.Unix_error _ -> false
+;;
+
+let safe_is_directory path =
+  try Sys.is_directory path with
+  | Sys_error _ | Unix.Unix_error _ -> false
+;;
+
+let is_runnable_path path = safe_file_exists path && not (safe_is_directory path)
 
 let command_in_path ?path name =
   path_entries ?path ()
@@ -86,7 +96,7 @@ let catalog_auth_available (entry : Provider_catalog.entry) =
     has_api_key env
   | Provider_catalog.No_auth -> true
   | Provider_catalog.Cli_cached_login | Provider_catalog.Oauth_cached_login -> true
-  | Provider_catalog.File path -> String.trim path <> "" && Sys.file_exists path
+  | Provider_catalog.File path -> String.trim path <> "" && safe_file_exists path
   | Provider_catalog.Exec command -> String.trim command <> ""
 ;;
 
