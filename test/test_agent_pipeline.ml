@@ -84,6 +84,7 @@ let make_agent
       ?tool_retry_policy
       ?required_tool_satisfaction
       ?tool_choice
+      ?runtime_mcp_policy
       ?(model_id = "mock-model")
       base_url
   =
@@ -107,6 +108,7 @@ let make_agent
          | Some g -> g
          | None -> Guardrails.default)
     ; tool_retry_policy
+    ; runtime_mcp_policy
     ; required_tool_satisfaction =
         Option.value
           required_tool_satisfaction
@@ -509,6 +511,51 @@ let test_agent_run_rejects_any_tool_choice_when_no_tools_visible () =
         "reason mentions no visible tools"
         true
         (contains_substring ~needle:"no tools are visible" reason);
+      Eio.Switch.fail sw Exit
+    | Error e -> fail (Error.to_string e)
+  with
+  | Exit -> ()
+;;
+
+let runtime_mcp_policy allowed_tool_names =
+  { Llm_provider.Llm_transport.empty_runtime_mcp_policy with allowed_tool_names }
+;;
+
+let test_agent_run_accepts_any_tool_choice_when_only_runtime_mcp_tools_visible () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20131
+        [ openai_text_response "should reach provider" ]
+    in
+    let agent =
+      make_agent
+        ~net:env#net
+        ~tools:[]
+        ~tool_choice:Types.Any
+        ~runtime_mcp_policy:(runtime_mcp_policy [ "runtime_shell" ])
+        url
+    in
+    match Agent.run ~sw agent "use any available tool" with
+    | Ok _ -> fail "expected required tool contract failure"
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+      check bool "contract" true (contract = Completion_contract.Require_tool_use);
+      check
+        bool
+        "not rejected by visibility preflight"
+        false
+        (contains_substring ~needle:"no tools are visible" reason);
+      check
+        bool
+        "route contract still enforced"
+        true
+        (contains_substring ~needle:"model returned no ToolUse block" reason);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -1416,6 +1463,10 @@ let () =
             "tool_choice any rejects no visible tools"
             `Quick
             test_agent_run_rejects_any_tool_choice_when_no_tools_visible
+        ; test_case
+            "tool_choice any accepts runtime MCP tools"
+            `Quick
+            test_agent_run_accepts_any_tool_choice_when_only_runtime_mcp_tools_visible
         ; test_case
             "tool_choice tool rejects hidden tool"
             `Quick
