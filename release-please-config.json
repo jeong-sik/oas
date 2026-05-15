@@ -21,7 +21,7 @@
         {
           "type": "generic",
           "path": "agent_sdk.opam",
-          "pattern": "^version: \"(?<version>\\d+\\.\\d+\\.\\d+)\""
+          "pattern": "\nversion: \"(?<version>\\d+\\.\\d+\\.\\d+)\""
         }
       ]
     }
