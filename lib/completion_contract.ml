@@ -98,11 +98,13 @@ let build_tool_lookup_index tools =
 let tool_lookup index name = Hashtbl.find_opt index name
 
 let tool_use_calls ~(tools : Tool.t list) (response : api_response) =
-  let tool_index = build_tool_lookup_index tools in
+  (* Build the lookup index lazily: text-only responses (the common case under
+     a large tool catalog) skip the O(|tools|) hash construction entirely. *)
+  let tool_index = lazy (build_tool_lookup_index tools) in
   List.filter_map
     (function
       | ToolUse { name; input; _ } ->
-        Some { name; input; tool = tool_lookup tool_index name }
+        Some { name; input; tool = tool_lookup (Lazy.force tool_index) name }
       | _ -> None)
     response.content
 ;;
