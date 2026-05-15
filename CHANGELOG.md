@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent:** allow coordinators to own context-overflow compact retry
 
+## [0.193.15](https://github.com/jeong-sik/oas/compare/v0.193.14...v0.193.15) (2026-05-15)
+
+
+### Bug Fixes
+
+* **release:** automate agent_sdk.opam sync inside release-please workflow ([#1604](https://github.com/jeong-sik/oas/issues/1604)) ([4b00bdf](https://github.com/jeong-sik/oas/commit/4b00bdff217e6233ed15bcc722d9aed410c36eba))
+
 ## [0.193.14](https://github.com/jeong-sik/oas/compare/v0.193.13...v0.193.14) (2026-05-15)
 
 
