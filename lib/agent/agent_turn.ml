@@ -77,6 +77,7 @@ type turn_preparation =
   ; effective_messages : message list
   ; effective_guardrails : Guardrails.t
   ; visible_tool_names : string list
+  ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
   }
 
 (* ── Extract last user text from messages (for Tool_selector context) ── *)
@@ -369,7 +370,12 @@ let prepare_turn
   let effective_messages =
     prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_params ()
   in
-  { tools_json; effective_messages; effective_guardrails; visible_tool_names }
+  { tools_json
+  ; effective_messages
+  ; effective_guardrails
+  ; visible_tool_names
+  ; runtime_mcp_policy = None
+  }
 ;;
 
 (* ── Usage accumulation ───────────────────────────────────────── *)

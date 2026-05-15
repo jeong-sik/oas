@@ -63,7 +63,7 @@ let dispatch_sync
         ~config:pc
         ~messages:prep.Agent_turn.effective_messages
         ~tools
-        ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
         ~trace_context
         ?priority:agent.options.priority
         ()
@@ -75,7 +75,7 @@ let dispatch_sync
         ~config:pc
         ~messages:prep.Agent_turn.effective_messages
         ~tools
-        ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
         ~trace_context
         ?priority:agent.options.priority
         ()
@@ -113,7 +113,7 @@ let dispatch_stream
       ~config:pc
       ~messages:prep.Agent_turn.effective_messages
       ~tools
-      ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+      ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
       ~trace_context
       ~on_event
       ?on_telemetry
