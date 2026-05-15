@@ -76,6 +76,16 @@ type turn_preparation =
         order from [Tool_set.to_list].
 
         @since 0.162.0 *)
+  ; runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy option
+    (** Request-scoped runtime MCP policy for this prepared turn.
+
+        This is narrowed by the same effective guardrails that produced
+        [visible_tool_names] before dispatch. A raw agent-level policy must not
+        be used directly after per-turn [tool_filter_override], or CLI runtime
+        MCP tools can remain broader than [TurnReady] and inline tool
+        visibility claim.
+
+        @since 0.194.1 *)
   }
 
 (** Prepare tool schemas, applying operator policy and optional

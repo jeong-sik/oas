@@ -153,9 +153,9 @@ let turn_ready_tool_names_from_policy ?runtime_mcp_policy visible_tool_names =
   dedupe_preserve_order (visible_tool_names @ runtime_tool_names)
 ;;
 
-let turn_ready_tool_names agent (prep : Agent_turn.turn_preparation) =
+let turn_ready_tool_names (prep : Agent_turn.turn_preparation) =
   turn_ready_tool_names_from_policy
-    ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+    ?runtime_mcp_policy:prep.runtime_mcp_policy
     prep.visible_tool_names
 ;;
 
@@ -167,6 +167,48 @@ let%test "turn_ready_tool_names includes runtime MCP policy names" =
   in
   turn_ready_tool_names_from_policy ~runtime_mcp_policy [ "inline_tool" ]
   = [ "inline_tool"; "status_tool"; "shell_tool" ]
+;;
+
+let filter_runtime_tool_names tool_filter names =
+  match tool_filter with
+  | Guardrails.AllowAll -> names
+  | AllowList allowed -> List.filter (fun name -> List.mem name allowed) names
+  | DenyList denied -> List.filter (fun name -> not (List.mem name denied)) names
+  | Custom _ -> []
+;;
+
+let narrow_runtime_mcp_policy_for_turn
+      (guardrails : Guardrails.t)
+      (policy : Llm_provider.Llm_transport.runtime_mcp_policy)
+  =
+  { policy with
+    allowed_tool_names =
+      filter_runtime_tool_names guardrails.tool_filter policy.allowed_tool_names
+  }
+;;
+
+let runtime_mcp_policy_for_prepared_turn
+      runtime_mcp_policy
+      (prep : Agent_turn.turn_preparation)
+  =
+  runtime_mcp_policy
+  |> Option.map (narrow_runtime_mcp_policy_for_turn prep.effective_guardrails)
+;;
+
+let%test "runtime MCP policy is narrowed by AllowList guardrails" =
+  let policy =
+    { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
+      allowed_tool_names = [ "status_tool"; "shell_tool"; "board_tool" ]
+    }
+  in
+  let narrowed =
+    narrow_runtime_mcp_policy_for_turn
+      { Guardrails.permissive with
+        tool_filter = Guardrails.AllowList [ "status_tool"; "board_tool" ]
+      }
+      policy
+  in
+  narrowed.allowed_tool_names = [ "status_tool"; "board_tool" ]
 ;;
 
 let stage_parse ?raw_trace_run agent =
@@ -252,7 +294,11 @@ let stage_parse ?raw_trace_run agent =
        (Turn_started { turn = agent.state.turn_count; timestamp = Unix.gettimeofday () })
    | None -> ());
   let prep = prepare_turn_for_agent agent ~turn_params in
-  let ready_tool_names = turn_ready_tool_names agent prep in
+  let runtime_mcp_policy =
+    runtime_mcp_policy_for_prepared_turn agent.options.runtime_mcp_policy prep
+  in
+  let prep = { prep with runtime_mcp_policy } in
+  let ready_tool_names = turn_ready_tool_names prep in
   (* TurnReady event — emitted after guardrails + operator policy +
      tool_filter_override + tool_selector have produced the final tool
      list the LLM will see this turn. CLI runtime-MCP tools are included

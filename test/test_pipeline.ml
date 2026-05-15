@@ -806,6 +806,70 @@ let test_prepare_turn_tool_filter_override () =
   | None -> Alcotest.fail "expected some tools"
 ;;
 
+let test_stage_parse_narrows_runtime_mcp_policy () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let captured_runtime_mcp_policy = ref None in
+  let transport =
+    { Llm_provider.Llm_transport.complete_sync =
+        (fun req ->
+          captured_runtime_mcp_policy := req.runtime_mcp_policy;
+          { Llm_provider.Llm_transport.response = Ok (Provider_mock.text_response "ok" [])
+          ; latency_ms = Some 0
+          })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ req ->
+          captured_runtime_mcp_policy := req.runtime_mcp_policy;
+          Ok (Provider_mock.text_response "ok" []))
+    }
+  in
+  let runtime_mcp_policy =
+    { Llm_provider.Llm_transport.empty_runtime_mcp_policy with
+      allowed_tool_names = [ "allowed"; "blocked" ]
+    }
+  in
+  let hooks =
+    { Hooks.empty with
+      before_turn_params =
+        Some
+          (fun _ ->
+            Hooks.AdjustParams
+              { Hooks.default_turn_params with
+                tool_filter_override = Some (AllowList [ "allowed" ])
+              })
+    }
+  in
+  let options =
+    { Agent.default_options with
+      hooks
+    ; guardrails = Guardrails.permissive
+    ; runtime_mcp_policy = Some runtime_mcp_policy
+    ; transport = Some transport
+    ; provider = Some (Provider_mock.to_provider_config ())
+    }
+  in
+  let agent =
+    Agent.create
+      ~net
+      ~config:{ Types.default_config with name = "runtime-mcp-filter-test" }
+      ~options
+      ()
+  in
+  (match Agent.run ~sw agent "hello" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err));
+  match !captured_runtime_mcp_policy with
+  | Some policy ->
+    Alcotest.(check (list string))
+      "runtime MCP tools narrowed"
+      [ "allowed" ]
+      policy.allowed_tool_names
+  | None -> Alcotest.fail "expected runtime MCP policy"
+;;
+
 (* ── Error_domain: tag_error ─────────────────────────────── *)
 
 let test_error_domain_of_sdk_error () =
@@ -1013,6 +1077,10 @@ let () =
             "tool filter override"
             `Quick
             test_prepare_turn_tool_filter_override
+        ; Alcotest.test_case
+            "runtime MCP filter override"
+            `Quick
+            test_stage_parse_narrows_runtime_mcp_policy
         ] )
     ; ( "guardrails"
       , [ Alcotest.test_case "allow all" `Quick test_guardrails_allow_all

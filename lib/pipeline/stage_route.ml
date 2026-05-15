@@ -77,7 +77,7 @@ let dispatch_sync ~sw ?clock ?(trace_context = []) agent prep =
         ~config:pc
         ~messages:prep.effective_messages
         ~tools
-        ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ?runtime_mcp_policy:prep.runtime_mcp_policy
         ~trace_context
         ?priority:agent.options.priority
         ()
@@ -89,7 +89,7 @@ let dispatch_sync ~sw ?clock ?(trace_context = []) agent prep =
         ~config:pc
         ~messages:prep.effective_messages
         ~tools
-        ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+        ?runtime_mcp_policy:prep.runtime_mcp_policy
         ~trace_context
         ?priority:agent.options.priority
         ()
@@ -118,7 +118,7 @@ let dispatch_stream ~sw ?clock ?(trace_context = []) agent prep ~on_event ?on_te
       ~config:pc
       ~messages:prep.effective_messages
       ~tools
-      ?runtime_mcp_policy:agent.options.runtime_mcp_policy
+      ?runtime_mcp_policy:prep.runtime_mcp_policy
       ~trace_context
       ~on_event
       ?on_telemetry
