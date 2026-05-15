@@ -820,13 +820,16 @@ let provider_config_of_agent
             match p.provider with
             | Anthropic -> Anthropic
             | Local _ | OpenAICompat _ -> OpenAI_compat
-            | Custom_registered _ -> assert false
+            | Custom_registered _ ->
+              invalid_arg "provider kind: Custom_registered excluded by outer match"
           in
           let sanitized_api_key =
             match p.provider with
             | Local _ -> ""
             | Anthropic | OpenAICompat _ -> api_key
-            | Custom_registered _ -> assert false
+            | Custom_registered _ ->
+              invalid_arg
+                "provider sanitized_api_key: Custom_registered excluded by outer match"
           in
           build
             ~kind
