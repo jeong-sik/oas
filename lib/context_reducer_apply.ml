@@ -109,19 +109,27 @@ let tool_result_ids (msg : message) =
 
 let has_tool_result msg = tool_result_ids msg <> []
 
+type dangling_repair_report = { synthesized_tool_results : int }
+
 let synthetic_tool_result_message id =
   { role = User
   ; content =
       [ ToolResult
           { tool_use_id = id
-          ; content = "Tool call cancelled before completion."
+          ; content =
+              "OAS context reducer synthesized this error result because the original \
+               tool call had no matching ToolResult."
           ; is_error = true
           ; json = None
           }
       ]
   ; name = None
   ; tool_call_id = None
-  ; metadata = []
+  ; metadata =
+      [ "oas.synthetic_tool_result", `Bool true
+      ; "oas.synthetic_reason", `String "dangling_tool_use"
+      ; "oas.tool_use_id", `String id
+      ]
   }
 ;;
 
@@ -133,9 +141,10 @@ let split_tool_result_span messages =
   loop [] messages
 ;;
 
-let apply_repair_dangling_tool_calls messages =
+let apply_repair_dangling_tool_calls_with_report messages =
+  let synthesized_tool_results = ref 0 in
   let rec aux acc = function
-    | [] -> List.rev acc
+    | [] -> List.rev acc, { synthesized_tool_results = !synthesized_tool_results }
     | (msg : message) :: rest ->
       let use_ids = if msg.role = Assistant then tool_use_ids msg else [] in
       if use_ids = []
@@ -144,11 +153,16 @@ let apply_repair_dangling_tool_calls messages =
         let result_span, tail = split_tool_result_span rest in
         let result_ids = List.concat_map tool_result_ids result_span in
         let orphan_ids = List.filter (fun id -> not (List.mem id result_ids)) use_ids in
+        synthesized_tool_results := !synthesized_tool_results + List.length orphan_ids;
         let repairs = List.map synthetic_tool_result_message orphan_ids in
         let segment = (msg :: result_span) @ repairs in
         aux (List.rev_append segment acc) tail)
   in
   aux [] messages
+;;
+
+let apply_repair_dangling_tool_calls messages =
+  fst (apply_repair_dangling_tool_calls_with_report messages)
 ;;
 
 let apply_repair_orphaned_tool_results messages =
@@ -346,11 +360,17 @@ let apply_stub_tool_results ~keep_recent messages =
   then messages
   else (
     let tool_names = Hashtbl.create 32 in
+    let record_tool_name id name =
+      match Hashtbl.find_opt tool_names id with
+      | None -> Hashtbl.add tool_names id name
+      | Some existing when String.equal existing name -> ()
+      | Some _ -> Hashtbl.replace tool_names id "ambiguous_tool_use_id"
+    in
     List.iter
       (fun (msg : message) ->
          List.iter
            (function
-             | ToolUse { id; name; _ } -> Hashtbl.replace tool_names id name
+             | ToolUse { id; name; _ } -> record_tool_name id name
              | _ -> ())
            msg.content)
       messages;
@@ -512,7 +532,18 @@ let apply_summarize_old ~keep_recent ~summarizer messages =
     let old_turns = List.filteri (fun i _ -> i < total - keep_recent) turns in
     let recent_turns = List.filteri (fun i _ -> i >= total - keep_recent) turns in
     let old_messages = List.concat old_turns in
-    let summary_text = summarizer old_messages in
+    let fallback_summary exn =
+      let reason = Printexc.to_string exn in
+      Printf.sprintf
+        "[Summary unavailable: summarizer failed: %s]\n[Preserved %d recent turns]"
+        reason
+        keep_recent
+    in
+    let summary_text =
+      try summarizer old_messages with
+      | Eio.Cancel.Cancelled _ as e -> raise e
+      | exn -> fallback_summary exn
+    in
     let summary_msg =
       { role = User
       ; content = [ Text summary_text ]

@@ -111,6 +111,20 @@ val group_into_turns : message list -> message list list
 (** Reduce messages according to the configured strategy. *)
 val reduce : t -> message list -> message list
 
+type dangling_repair_report =
+  { synthesized_tool_results : int
+    (** Number of explicit synthetic ToolResult messages inserted for
+        assistant ToolUse blocks that had no adjacent result span. *)
+  }
+
+(** Apply the same repair as {!repair_dangling_tool_calls}, returning
+    counters so callers can log or meter synthetic ToolResult insertion.
+    The inserted ToolResult messages carry [metadata] marking them as
+    synthetic. *)
+val repair_dangling_tool_calls_with_report
+  :  message list
+  -> message list * dangling_repair_report
+
 (** {1 Convenience constructors} *)
 
 val keep_last : int -> t
