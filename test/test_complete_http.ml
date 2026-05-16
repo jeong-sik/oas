@@ -28,6 +28,15 @@ let openai_mlx_vlm_response text =
     text
 ;;
 
+let ollama_tool_call_response () =
+  {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+     "message":{"role":"assistant","content":"",
+       "tool_calls":[
+         {"function":{"index":0,"name":"get_temperature","arguments":{"city":"New York"}}},
+         {"function":{"index":1,"name":"get_conditions","arguments":{"city":"London"}}}
+       ]}}|}
+;;
+
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt s Unix.SO_REUSEADDR true;
@@ -427,6 +436,46 @@ let test_complete_metrics () =
   | Exit -> ()
 ;;
 
+let test_complete_tool_call_metrics () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net (ollama_tool_call_response ()) in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.Ollama
+        ~model_id:"qwen3:8b"
+        ~base_url:url
+        ~request_path:"/api/chat"
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
+    let tool_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_tool_calls =
+          (fun ~provider ~model_id ~count ->
+            tool_calls := (provider, model_id, count) :: !tool_calls)
+      }
+    in
+    match Complete.complete ~sw ~net:env#net ~config ~messages ~metrics () with
+    | Ok resp ->
+      check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
+      (match !tool_calls with
+       | [ (provider, model_id, count) ] ->
+         check string "provider" "ollama" provider;
+         check string "model" "qwen3:8b" model_id;
+         check int "tool call count" 2 count
+       | _ -> fail "expected one tool-call metric");
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
 (* ── complete_with_retry: success first try ──────────── *)
 
 let test_retry_first_try () =
@@ -814,6 +863,7 @@ let () =
     ; "cache", [ test_case "store and hit" `Quick test_complete_cache_store_and_hit ]
     ; ( "metrics"
       , [ test_case "callbacks" `Quick test_complete_metrics
+        ; test_case "tool call callback" `Quick test_complete_tool_call_metrics
         ; test_case "error callback" `Quick test_complete_error_metrics
         ; test_case "transport http ok" `Quick test_complete_transport_http_metrics_ok
         ; test_case

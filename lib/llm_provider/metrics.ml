@@ -44,6 +44,7 @@ type t =
       provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
     (** Fired when a response carries usage tokens.
       @since 0.185.0 *)
+  ; on_tool_calls : provider:string -> model_id:string -> count:int -> unit
   ; on_streaming_first_chunk :
       provider:string -> model_id:string -> ttfrc_ms:float -> unit
   ; on_streaming_chunk :
@@ -65,6 +66,7 @@ let noop =
   ; on_capability_drop = (fun ~model_id:_ ~field:_ -> ())
   ; on_retry = (fun ~provider:_ ~model_id:_ ~attempt:_ -> ())
   ; on_token_usage = (fun ~provider:_ ~model_id:_ ~input_tokens:_ ~output_tokens:_ -> ())
+  ; on_tool_calls = (fun ~provider:_ ~model_id:_ ~count:_ -> ())
   ; on_streaming_first_chunk = (fun ~provider:_ ~model_id:_ ~ttfrc_ms:_ -> ())
   ; on_streaming_chunk =
       (fun ~provider:_ ~model_id:_ ~chunk_index:_ ~inter_chunk_ms:_ -> ())
@@ -99,6 +101,7 @@ type provider_snapshot =
   ; retry_total : int
   ; input_tokens_total : int
   ; output_tokens_total : int
+  ; tool_call_total : int
   ; latency_ms_sum : int
   ; latency_ms_count : int
   ; ttfrc_ms_sum : float
@@ -116,6 +119,7 @@ let provider_snapshot_to_yojson (snapshot : provider_snapshot) : Yojson.Safe.t =
     ; "retry_total", `Int snapshot.retry_total
     ; "input_tokens_total", `Int snapshot.input_tokens_total
     ; "output_tokens_total", `Int snapshot.output_tokens_total
+    ; "tool_call_total", `Int snapshot.tool_call_total
     ; "latency_ms_sum", `Int snapshot.latency_ms_sum
     ; "latency_ms_count", `Int snapshot.latency_ms_count
     ; "ttfrc_ms_sum", `Float snapshot.ttfrc_ms_sum
@@ -134,7 +138,7 @@ let compare_provider_snapshot left right =
 let provider_snapshots_to_yojson (snapshots : provider_snapshot list) : Yojson.Safe.t =
   let snapshots = List.sort compare_provider_snapshot snapshots in
   `Assoc
-    [ "schema_version", `Int 1
+    [ "schema_version", `Int 2
     ; "providers", `List (List.map provider_snapshot_to_yojson snapshots)
     ]
 ;;
@@ -215,6 +219,7 @@ type aggregate_state =
   ; mutable retry_total : int
   ; mutable input_tokens_total : int
   ; mutable output_tokens_total : int
+  ; mutable tool_call_total : int
   ; mutable latency_ms_sum : int
   ; mutable latency_ms_count : int
   ; mutable ttfrc_ms_sum : float
@@ -229,6 +234,7 @@ let empty_state () : aggregate_state =
   ; retry_total = 0
   ; input_tokens_total = 0
   ; output_tokens_total = 0
+  ; tool_call_total = 0
   ; latency_ms_sum = 0
   ; latency_ms_count = 0
   ; ttfrc_ms_sum = 0.0
@@ -315,6 +321,13 @@ module Aggregating = struct
           with_state agg (key ~provider ~model_id) (fun s ->
             s.input_tokens_total <- s.input_tokens_total + input_tokens;
             s.output_tokens_total <- s.output_tokens_total + output_tokens))
+    ; on_tool_calls =
+        (fun ~provider ~model_id ~count ->
+          agg.hooks.on_tool_calls ~provider ~model_id ~count;
+          if count > 0
+          then
+            with_state agg (key ~provider ~model_id) (fun s ->
+              s.tool_call_total <- s.tool_call_total + count))
     ; on_streaming_first_chunk =
         (fun ~provider ~model_id ~ttfrc_ms ->
           agg.hooks.on_streaming_first_chunk ~provider ~model_id ~ttfrc_ms;
@@ -350,6 +363,7 @@ module Aggregating = struct
               ; retry_total = s.retry_total
               ; input_tokens_total = s.input_tokens_total
               ; output_tokens_total = s.output_tokens_total
+              ; tool_call_total = s.tool_call_total
               ; latency_ms_sum = s.latency_ms_sum
               ; latency_ms_count = s.latency_ms_count
               ; ttfrc_ms_sum = s.ttfrc_ms_sum

@@ -167,6 +167,7 @@ let ollama_tool_arguments_json (json : Yojson.Safe.t) =
   | `Null -> `Assoc []
   | `String s -> Api_common.json_of_string_or_raw s
   | json -> json
+;;
 
 let parse_ollama_response json_str =
   let open Yojson.Safe.Util in
@@ -187,33 +188,53 @@ let parse_ollama_response json_str =
         let tools =
           match message |> member "tool_calls" with
           | `List calls ->
-            List.filter_map
-              (fun (idx, tc) ->
-                 try
-                   let fn = tc |> member "function" in
-                   let name = fn |> member "name" |> to_string in
-                   let input = ollama_tool_arguments_json (fn |> member "arguments") in
-                   let synthetic_id =
-                     Printf.sprintf
-                       "%s_%d"
-                       (Api_common.synthesize_tool_use_id ~name input)
-                       idx
-                   in
-                   Some
-                     (ToolUse
-                        { id =
-                            tc
-                            |> member "id"
-                            |> to_string_option
-                            |> Option.value ~default:synthetic_id
-                        ; name
-                        ; input
-                        })
-                 with
-                 | Yojson.Safe.Util.Type_error _
-                 | Yojson.Safe.Util.Undefined _
-                 | Yojson.Json_error _ -> None)
-              (List.mapi (fun idx tc -> idx, tc) calls)
+            let parsed_rev, dropped =
+              List.fold_left
+                (fun (acc, dropped) (idx, tc) ->
+                   try
+                     let fn = tc |> member "function" in
+                     let name = fn |> member "name" |> to_string in
+                     let input = ollama_tool_arguments_json (fn |> member "arguments") in
+                     let synthetic_id =
+                       Printf.sprintf
+                         "%s_%d"
+                         (Api_common.synthesize_tool_use_id ~name input)
+                         idx
+                     in
+                     ( ToolUse
+                         { id =
+                             tc
+                             |> member "id"
+                             |> to_string_option
+                             |> Option.value ~default:synthetic_id
+                         ; name
+                         ; input
+                         }
+                       :: acc
+                     , dropped )
+                   with
+                   | Yojson.Safe.Util.Type_error _
+                   | Yojson.Safe.Util.Undefined _
+                   | Yojson.Json_error _ -> acc, dropped + 1)
+                ([], 0)
+                (List.mapi (fun idx tc -> idx, tc) calls)
+            in
+            let parsed = List.rev parsed_rev in
+            if dropped > 0
+            then
+              Diag.warn
+                "backend_ollama"
+                "dropped %d malformed Ollama tool_call item(s) while parsing response \
+                 (parsed=%d)"
+                dropped
+                (List.length parsed);
+            if List.length parsed > 1
+            then
+              Diag.debug
+                "backend_ollama"
+                "parsed %d Ollama tool_calls from one assistant response"
+                (List.length parsed);
+            parsed
           | _ -> []
         in
         let thinking =

@@ -306,6 +306,22 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Codex_cli -> "codex_cli"
 ;;
 
+let tool_use_count (content : Types.content_block list) =
+  List.fold_left
+    (fun acc block ->
+       match block with
+       | Types.ToolUse _ -> acc + 1
+       | _ -> acc)
+    0
+    content
+;;
+
+let emit_tool_call_metrics (metrics : Metrics.t) ~provider ~model_id resp =
+  match tool_use_count resp.Types.content with
+  | 0 -> ()
+  | count -> metrics.on_tool_calls ~provider ~model_id ~count
+;;
+
 (* Delegate to the sum-type-owning module. The name stays local because
    several guard clauses in this file reference it; renaming is a
    separate concern. Replacing the hand-maintained match removes the
@@ -989,6 +1005,11 @@ let complete
           let resp = Pricing.annotate_response_cost resp in
           let resp = patch_telemetry resp ~config latency_ms in
           m.on_request_end ~model_id ~latency_ms;
+          emit_tool_call_metrics
+            m
+            ~provider:(Provider_registry.provider_name_of_config config)
+            ~model_id
+            resp;
           (match resp.usage with
            | Some u ->
              m.on_token_usage
@@ -1633,7 +1654,15 @@ let complete_stream
          let existing_telemetry = resp.telemetry in
          let ttfrc_ms = Option.bind existing_telemetry (fun t -> t.ttfrc_ms) in
          let prefill_ms = Option.bind existing_telemetry (fun t -> t.prefill_ms) in
-         patch_telemetry resp ~config ~ttfrc_ms ~prefill_ms (Some latency_ms))
+         let resp =
+           patch_telemetry resp ~config ~ttfrc_ms ~prefill_ms (Some latency_ms)
+         in
+         emit_tool_call_metrics
+           metrics
+           ~provider:(Provider_registry.provider_name_of_config config)
+           ~model_id:config.model_id
+           resp;
+         resp)
       result
 ;;
 

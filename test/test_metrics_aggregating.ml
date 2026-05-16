@@ -57,6 +57,16 @@ let test_aggregating_on_token_usage () =
   check int "output_tokens_total" 125 entry.M.output_tokens_total
 ;;
 
+let test_aggregating_on_tool_calls () =
+  let agg = Agg.create () in
+  let hooks = Agg.to_hooks agg in
+  hooks.on_tool_calls ~provider:"ollama" ~model_id:"qwen3:8b" ~count:2;
+  hooks.on_tool_calls ~provider:"ollama" ~model_id:"qwen3:8b" ~count:3;
+  let snap = Agg.snapshot agg in
+  let entry = List.hd snap in
+  check int "tool_call_total" 5 entry.M.tool_call_total
+;;
+
 let test_aggregating_on_circuit_state () =
   let observed = ref None in
   let inner : M.t =
@@ -176,6 +186,7 @@ let test_provider_snapshot_to_yojson () =
     ; retry_total = 2
     ; input_tokens_total = 123
     ; output_tokens_total = 45
+    ; tool_call_total = 7
     ; latency_ms_sum = 900
     ; latency_ms_count = 3
     ; ttfrc_ms_sum = 15.5
@@ -197,6 +208,11 @@ let test_provider_snapshot_to_yojson () =
       "request_total"
       (Some 3)
       (List.assoc_opt "request_total" fields |> Option.map Yojson.Safe.Util.to_int);
+    check
+      (option int)
+      "tool_call_total"
+      (Some 7)
+      (List.assoc_opt "tool_call_total" fields |> Option.map Yojson.Safe.Util.to_int);
     check
       (option int)
       "latency_ms_count"
@@ -224,6 +240,7 @@ let test_provider_snapshots_to_yojson_is_stable () =
       ; retry_total = 0
       ; input_tokens_total = 0
       ; output_tokens_total = 0
+      ; tool_call_total = 0
       ; latency_ms_sum = 0
       ; latency_ms_count = 0
       ; ttfrc_ms_sum = 0.0
@@ -238,6 +255,7 @@ let test_provider_snapshots_to_yojson_is_stable () =
       ; retry_total = 0
       ; input_tokens_total = 0
       ; output_tokens_total = 0
+      ; tool_call_total = 0
       ; latency_ms_sum = 0
       ; latency_ms_count = 0
       ; ttfrc_ms_sum = 0.0
@@ -252,7 +270,7 @@ let test_provider_snapshots_to_yojson_is_stable () =
     check
       (option int)
       "schema_version"
-      (Some 1)
+      (Some 2)
       (List.assoc_opt "schema_version" fields |> Option.map Yojson.Safe.Util.to_int);
     (match List.assoc_opt "providers" fields with
      | Some (`List (`Assoc first :: _)) ->
@@ -337,6 +355,7 @@ let () =
       , [ test_case "on_request_start" `Quick test_aggregating_on_request_start
         ; test_case "on_retry" `Quick test_aggregating_on_retry
         ; test_case "on_token_usage" `Quick test_aggregating_on_token_usage
+        ; test_case "on_tool_calls" `Quick test_aggregating_on_tool_calls
         ; test_case "on_circuit_state" `Quick test_aggregating_on_circuit_state
         ; test_case "on_error" `Quick test_aggregating_on_error
         ; test_case
