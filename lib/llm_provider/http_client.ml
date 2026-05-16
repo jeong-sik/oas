@@ -209,6 +209,17 @@ let classify_by_message msg =
   else Unknown
 ;;
 
+let https_init_error_network_kind = function
+  | Api_common.Ca_certs_unavailable msg ->
+    let m = String.lowercase_ascii msg in
+    (match classify_by_message msg with
+     | Local_resource_exhaustion -> Local_resource_exhaustion
+     | _ when has_substr m "empty trust anchors" -> Local_resource_exhaustion
+     | _ when has_substr m "no trust anchors" -> Local_resource_exhaustion
+     | _ -> Tls_error)
+  | Api_common.Tls_config_unavailable _ -> Tls_error
+;;
+
 let catch_network f =
   try f () with
   | End_of_file -> Error (NetworkError { message = "End_of_file"; kind = End_of_file })
@@ -299,7 +310,7 @@ let make_closing_client ~sw ~net ~uri =
                     "HTTPS requested but TLS not available for %s: %s"
                     (Uri.to_string uri)
                     (Api_common.https_init_error_to_string reason)
-              ; kind = Tls_error
+              ; kind = https_init_error_network_kind reason
               }))
     | _ -> Ok None
   in
@@ -802,6 +813,17 @@ let%test "classify_by_message: network unreachable" =
 
 let%test "classify_by_message: host unreachable" =
   classify_by_message "Host is unreachable" = Dns_failure
+;;
+
+let%test "https_init_error_network_kind: empty trust anchors are local" =
+  https_init_error_network_kind
+    (Api_common.Ca_certs_unavailable "ca-certs: empty trust anchors")
+  = Local_resource_exhaustion
+;;
+
+let%test "https_init_error_network_kind: TLS config remains TLS" =
+  https_init_error_network_kind (Api_common.Tls_config_unavailable "unsupported protocol")
+  = Tls_error
 ;;
 
 (* ── read_ndjson idle_timeout tests ──────────────────── *)
