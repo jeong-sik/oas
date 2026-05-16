@@ -1128,10 +1128,8 @@ let test_attempt_timeout_fast_paths_without_retrying_same_step () =
 
 let test_attempt_timeout_disable_via_nonpositive_sentinel () =
   (* `?attempt_timeout_s:(Some 0.0)` (or any negative) opts out of the
-     cascade-level timeout, so a transport that takes longer than the
-     provider's default still runs to completion. Without this escape
-     hatch, callers depending on long-running local models could not
-     opt out individually once provider defaults landed. *)
+     cascade-level timeout, so a transport that takes longer than a
+     caller-supplied attempt budget still runs to completion. *)
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run

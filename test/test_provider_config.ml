@@ -286,6 +286,20 @@ let test_is_local_localhost_query_true () =
   check_bool "localhost query is local" true (Provider_config.is_local cfg)
 ;;
 
+let test_default_attempt_timeout_s () =
+  let check_timeout label expected kind =
+    Alcotest.(check (option (float 0.001)))
+      label
+      expected
+      (Provider_config.default_attempt_timeout_s kind)
+  in
+  check_timeout "ollama has no default hard attempt timeout" None Ollama;
+  check_timeout "claude_code keeps CLI default" (Some 120.0) Claude_code;
+  check_timeout "kimi_cli keeps CLI default" (Some 60.0) Kimi_cli;
+  check_timeout "gemini_cli keeps CLI default" (Some 180.0) Gemini_cli;
+  check_timeout "openai_compat has no default hard attempt timeout" None OpenAI_compat
+;;
+
 (* ── provider_name_of_config ─────────────────────────── *)
 
 let test_provider_name_of_config_glm_general () =
@@ -792,6 +806,10 @@ let () =
             "localhost query true"
             `Quick
             test_is_local_localhost_query_true
+        ; Alcotest.test_case
+            "default attempt timeout hints"
+            `Quick
+            test_default_attempt_timeout_s
         ] )
     ; ( "provider_name"
       , [ Alcotest.test_case "glm general" `Quick test_provider_name_of_config_glm_general

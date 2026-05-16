@@ -8,9 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.193.16](https://github.com/jeong-sik/oas/compare/v0.193.15...v0.193.16) (2026-05-17)
+
+### Features
+
+* **metrics:** emit provider-agnostic tool-call counts for LLM responses
+
 ### Bug Fixes
 
 * **agent:** allow coordinators to own context-overflow compact retry
+* **ollama:** remove the default hard cascade attempt timeout for local Ollama
+* **ollama:** preserve parallel tool-call arguments and warn on malformed calls
 
 ## [0.193.15](https://github.com/jeong-sik/oas/compare/v0.193.14...v0.193.15) (2026-05-15)
 

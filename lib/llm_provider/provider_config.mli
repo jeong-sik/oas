@@ -248,7 +248,9 @@ val clamp_max_turns : provider_kind -> int -> int
 
 (** Provider-specific wall-clock budget hint for one provider attempt.
     This is advisory metadata for cascade/orchestration layers; transports
-    still apply their own lower-level connect/body/idle timeouts. *)
+    still apply their own lower-level connect/body/idle timeouts. Ollama has
+    no default hard attempt timeout because local model load/generation can
+    legitimately exceed fixed cloud-style budgets. *)
 val default_attempt_timeout_s : provider_kind -> float option
 
 (** Map thinking configuration fields to reasoning_effort string.

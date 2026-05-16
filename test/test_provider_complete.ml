@@ -242,6 +242,90 @@ let test_ollama_output_schema () =
   Alcotest.(check bool) "format copied" true (json |> member "format" = schema)
 ;;
 
+let test_ollama_parse_parallel_tool_calls_object_arguments () =
+  let body =
+    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[
+           {"function":{"index":0,"name":"get_temperature","arguments":{"city":"New York"}}},
+           {"function":{"index":1,"name":"get_conditions","arguments":{"city":"London"}}}
+         ]}}|}
+  in
+  match BOL.parse_ollama_response body with
+  | Error msg -> Alcotest.fail msg
+  | Ok resp ->
+    Alcotest.(check bool) "stop tool use" true (resp.stop_reason = StopToolUse);
+    (match resp.content with
+     | [ ToolUse first; ToolUse second ] ->
+       Alcotest.(check string) "first name" "get_temperature" first.name;
+       Alcotest.(check string) "second name" "get_conditions" second.name;
+       Alcotest.(check bool) "distinct synthetic ids" true (first.id <> second.id);
+       Alcotest.(check bool)
+         "first input object"
+         true
+         (first.input = `Assoc [ "city", `String "New York" ]);
+       Alcotest.(check bool)
+         "second input object"
+         true
+         (second.input = `Assoc [ "city", `String "London" ])
+     | _ -> Alcotest.fail "expected two ToolUse blocks")
+;;
+
+let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
+  let body =
+    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[
+           {"id":"call_explicit","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}
+         ]}}|}
+  in
+  match BOL.parse_ollama_response body with
+  | Error msg -> Alcotest.fail msg
+  | Ok resp ->
+    (match resp.content with
+     | [ ToolUse tool_use ] ->
+       Alcotest.(check string) "id" "call_explicit" tool_use.id;
+       Alcotest.(check string) "name" "get_weather" tool_use.name;
+       Alcotest.(check bool)
+         "input"
+         true
+         (tool_use.input = `Assoc [ "city", `String "Seoul" ])
+     | _ -> Alcotest.fail "expected one ToolUse block")
+;;
+
+let test_ollama_parse_warns_on_malformed_tool_call () =
+  let body =
+    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[
+           {"function":{"name":"ok_tool","arguments":{"city":"Seoul"}}},
+           {"function":{"arguments":{"city":"Missing name"}}}
+         ]}}|}
+  in
+  let logs = ref [] in
+  let result =
+    Llm_provider.Diag.with_sink
+      (fun level ~ctx msg -> logs := (level, ctx, msg) :: !logs)
+      (fun () -> BOL.parse_ollama_response body)
+  in
+  (match result with
+   | Error msg -> Alcotest.fail msg
+   | Ok resp ->
+     (match resp.content with
+      | [ ToolUse tool_use ] ->
+        Alcotest.(check string) "surviving tool name" "ok_tool" tool_use.name
+      | _ -> Alcotest.fail "expected one surviving ToolUse block"));
+  let has_warning =
+    List.exists
+      (fun (level, ctx, msg) ->
+         level = Llm_provider.Diag.Warn
+         && ctx = "backend_ollama"
+         && contains_substring ~sub:"dropped 1 malformed Ollama tool_call" msg)
+      !logs
+  in
+  Alcotest.(check bool) "malformed tool call warning" true has_warning
+;;
+
 let test_openai_with_json_schema () =
   let schema =
     `Assoc
@@ -989,6 +1073,18 @@ let () =
         ; test_case "stream flag" `Quick test_openai_stream_flag
         ; test_case "with json schema" `Quick test_openai_with_json_schema
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
+        ; test_case
+            "ollama parse parallel tool calls object args"
+            `Quick
+            test_ollama_parse_parallel_tool_calls_object_arguments
+        ; test_case
+            "ollama parse explicit id string args"
+            `Quick
+            test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments
+        ; test_case
+            "ollama malformed tool call warning"
+            `Quick
+            test_ollama_parse_warns_on_malformed_tool_call
         ; test_case
             "glm preserved reasoning replay"
             `Quick

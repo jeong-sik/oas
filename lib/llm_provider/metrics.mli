@@ -55,6 +55,11 @@ type t =
       provider:string -> model_id:string -> input_tokens:int -> output_tokens:int -> unit
     (** Fired when a response carries usage tokens.
       @since 0.185.0 *)
+  ; on_tool_calls : provider:string -> model_id:string -> count:int -> unit
+    (** Fired when a provider response contains one or more OAS [ToolUse]
+        blocks. The count is provider-agnostic and represents calls emitted
+        by the model, not tool execution success.
+        @since 0.193.16 *)
   ; on_streaming_first_chunk :
       provider:string -> model_id:string -> ttfrc_ms:float -> unit
     (** Fired when a streaming response emits its first parsed response
@@ -115,6 +120,7 @@ type provider_snapshot =
   ; retry_total : int
   ; input_tokens_total : int
   ; output_tokens_total : int
+  ; tool_call_total : int
   ; latency_ms_sum : int
   ; latency_ms_count : int
   ; ttfrc_ms_sum : float
