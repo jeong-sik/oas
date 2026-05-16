@@ -188,11 +188,11 @@ let clamp_max_turns kind requested =
 ;;
 
 let default_attempt_timeout_s = function
-  | Ollama -> Some 300.0
   | Claude_code -> Some 120.0
   | Kimi_cli -> Some 60.0
   | Gemini_cli -> Some 180.0
-  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope | Codex_cli -> None
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope | Codex_cli ->
+    None
 ;;
 
 (** Default reasoning effort level when thinking is enabled but no budget
