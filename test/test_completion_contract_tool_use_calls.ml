@@ -101,6 +101,26 @@ let test_tool_use_with_empty_tools_still_emits_call () =
   | _ -> Alcotest.fail "expected exactly one call"
 ;;
 
+let test_tool_choice_relaxation_does_not_emit_info_log () =
+  let sink, get_records = Log.collector_sink () in
+  let cleanup () =
+    Log.clear_sinks ();
+    Log.set_global_level Log.Info
+  in
+  Log.clear_sinks ();
+  Log.set_global_level Log.Info;
+  Log.add_sink sink;
+  Fun.protect ~finally:cleanup (fun () ->
+    let contract =
+      Completion_contract.of_tool_choice ~supports_tool_choice:false (Some Lp.Any)
+    in
+    Alcotest.(check bool)
+      "contract still relaxes"
+      true
+      (contract = Completion_contract.Allow_text_or_tool);
+    Alcotest.(check int) "no info-level noise" 0 (List.length (get_records ())))
+;;
+
 let () =
   Alcotest.run
     "completion_contract_tool_use_calls"
@@ -129,6 +149,12 @@ let () =
             "ToolUse with empty catalog still emits unresolved call"
             `Quick
             test_tool_use_with_empty_tools_still_emits_call
+        ] )
+    ; ( "log_noise"
+      , [ Alcotest.test_case
+            "tool_choice relaxation is below info level"
+            `Quick
+            test_tool_choice_relaxation_does_not_emit_info_log
         ] )
     ]
 ;;

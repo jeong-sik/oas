@@ -62,7 +62,7 @@ let of_tool_choice ?(supports_tool_choice = true) choice =
   | Allow_text_or_tool -> Allow_text_or_tool
   | contract when supports_tool_choice -> contract
   | contract ->
-    Log.info
+    Log.debug
       _log
       "tool_choice contract relaxed (provider does not support tool_choice)"
       [ Log.S ("requested", to_string contract)
