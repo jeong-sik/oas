@@ -77,6 +77,13 @@ let apply_keep_first_and_last = Context_reducer_turns.apply_keep_first_and_last
 let apply_prune_tool_outputs = Context_reducer_apply.apply_prune_tool_outputs
 let apply_prune_tool_args = Context_reducer_apply.apply_prune_tool_args
 
+type dangling_repair_report = Context_reducer_apply.dangling_repair_report =
+  { synthesized_tool_results : int }
+
+let repair_dangling_tool_calls_with_report =
+  Context_reducer_apply.apply_repair_dangling_tool_calls_with_report
+;;
+
 let apply_repair_dangling_tool_calls =
   Context_reducer_apply.apply_repair_dangling_tool_calls
 ;;

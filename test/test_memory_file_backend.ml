@@ -58,6 +58,36 @@ let test_persist_retrieve () =
     Alcotest.(check int) "1 entry" 1 (Memory_file_backend.entry_count t)
 ;;
 
+let test_retrieve_result_distinguishes_missing_and_corrupt () =
+  Eio_main.run
+  @@ fun env ->
+  with_tmp_dir env
+  @@ fun dir ->
+  match Memory_file_backend.create dir with
+  | Error e -> Alcotest.failf "create: %s" (Error.to_string e)
+  | Ok t ->
+    (match Memory_file_backend.retrieve_result t ~key:"missing" with
+     | Error Memory_file_backend.Missing_key -> ()
+     | Ok json -> Alcotest.failf "expected missing, got %s" (Yojson.Safe.to_string json)
+     | Error err ->
+       Alcotest.failf
+         "expected Missing_key, got %s"
+         (Memory_file_backend.retrieve_error_to_string err));
+    Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / "626164.json") "{bad";
+    (match Memory_file_backend.retrieve_result t ~key:"bad" with
+     | Error (Memory_file_backend.Corrupt_json _) -> ()
+     | Ok json -> Alcotest.failf "expected corrupt, got %s" (Yojson.Safe.to_string json)
+     | Error err ->
+       Alcotest.failf
+         "expected Corrupt_json, got %s"
+         (Memory_file_backend.retrieve_error_to_string err));
+    let backend = Memory_file_backend.to_backend t in
+    Alcotest.(check bool)
+      "legacy backend still maps corrupt to None"
+      true
+      (backend.retrieve ~key:"bad" = None)
+;;
+
 let test_persist_overwrite () =
   Eio_main.run
   @@ fun env ->
@@ -337,6 +367,10 @@ let () =
     [ "create", [ Alcotest.test_case "create" `Quick test_create ]
     ; ( "persist_retrieve"
       , [ Alcotest.test_case "round_trip" `Quick test_persist_retrieve
+        ; Alcotest.test_case
+            "typed retrieve errors"
+            `Quick
+            test_retrieve_result_distinguishes_missing_and_corrupt
         ; Alcotest.test_case "overwrite" `Quick test_persist_overwrite
         ] )
     ; ( "remove"

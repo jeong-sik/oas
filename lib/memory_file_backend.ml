@@ -46,6 +46,17 @@ let hex_decode s =
 let file_path store key = Eio.Path.(store.base_dir / (hex_encode key ^ ".json"))
 let io_error_of_exn = Fs_result.io_error_of_exn
 
+type retrieve_error =
+  | Missing_key
+  | Corrupt_json of string
+  | Backend_error of string
+
+let retrieve_error_to_string = function
+  | Missing_key -> "missing_key"
+  | Corrupt_json reason -> "corrupt_json: " ^ reason
+  | Backend_error reason -> "backend_error: " ^ reason
+;;
+
 (* ── Lifecycle ───────────────────────────────────────────────── *)
 
 let create base_dir =
@@ -67,22 +78,31 @@ let persist t ~key value =
   | Error e -> Error (Printf.sprintf "persist '%s' failed: %s" key (Error.to_string e))
 ;;
 
-let retrieve t ~key =
+let retrieve_result t ~key =
   let path = file_path t key in
   try
     let data = Eio.Path.load path in
-    Some (Yojson.Safe.from_string data)
+    Ok (Yojson.Safe.from_string data)
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
-  | Eio.Io (Eio.Fs.E (Not_found _), _) -> None
-  | Yojson.Json_error _ as exn ->
-    warn_backend_issue ~op:"retrieve_parse" ~path:key exn;
+  | Eio.Io (Eio.Fs.E (Not_found _), _) -> Error Missing_key
+  | Yojson.Json_error reason -> Error (Corrupt_json reason)
+  | Eio.Io _ as exn -> Error (Backend_error (Printexc.to_string exn))
+  | Unix.Unix_error _ as exn -> Error (Backend_error (Printexc.to_string exn))
+;;
+
+let retrieve t ~key =
+  match retrieve_result t ~key with
+  | Ok json -> Some json
+  | Error Missing_key -> None
+  | Error (Corrupt_json _ as err) ->
+    warn_backend_issue
+      ~op:"retrieve_parse"
+      ~path:key
+      (Failure (retrieve_error_to_string err));
     None
-  | Eio.Io _ as exn ->
-    warn_backend_issue ~op:"retrieve" ~path:key exn;
-    None
-  | Unix.Unix_error _ as exn ->
-    warn_backend_issue ~op:"retrieve" ~path:key exn;
+  | Error (Backend_error _ as err) ->
+    warn_backend_issue ~op:"retrieve" ~path:key (Failure (retrieve_error_to_string err));
     None
 ;;
 

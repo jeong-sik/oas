@@ -876,6 +876,30 @@ let test_summarize_old_all_recent () =
   Alcotest.(check int) "no change" 2 (List.length result)
 ;;
 
+let test_summarize_old_catches_callback_failure () =
+  let msgs =
+    [ user_msg "turn1"
+    ; asst_msg "r1"
+    ; user_msg "turn2"
+    ; asst_msg "r2"
+    ; user_msg "turn3"
+    ; asst_msg "r3"
+    ]
+  in
+  let summarizer _ = failwith "summarizer backend unavailable" in
+  let result =
+    Context_reducer.reduce (Context_reducer.summarize_old ~keep_recent:1 ~summarizer) msgs
+  in
+  Alcotest.(check int) "fallback summary + recent turn" 3 (List.length result);
+  match result with
+  | { Types.content = [ Types.Text t ]; _ } :: _ ->
+    Alcotest.(check bool)
+      "fallback states summarizer failed"
+      true
+      (String.starts_with ~prefix:"[Summary unavailable:" t)
+  | _ -> Alcotest.fail "expected fallback summary first"
+;;
+
 (* --- clear_tool_results --- *)
 
 let test_clear_tool_results_clears_old () =
@@ -1181,6 +1205,26 @@ let test_repair_single_orphan () =
   | _ -> Alcotest.fail "expected synthetic tool result"
 ;;
 
+let test_repair_report_counts_synthetic_results () =
+  let msgs = [ user_msg "q"; tool_use_msg "t1" "calc"; asst_msg "continuing" ] in
+  let result, report = Context_reducer.repair_dangling_tool_calls_with_report msgs in
+  Alcotest.(check int) "repaired (+1 msg)" 4 (List.length result);
+  Alcotest.(check int) "one synthetic result" 1 report.synthesized_tool_results;
+  match List.nth result 2 with
+  | { Types.metadata; content = [ Types.ToolResult { content; _ } ]; _ } ->
+    Alcotest.(check (option bool))
+      "synthetic metadata"
+      (Some true)
+      (match List.assoc_opt "oas.synthetic_tool_result" metadata with
+       | Some (`Bool value) -> Some value
+       | _ -> None);
+    Alcotest.(check bool)
+      "content does not claim execution"
+      true
+      (String.starts_with ~prefix:"OAS context reducer synthesized" content)
+  | _ -> Alcotest.fail "expected synthetic tool result"
+;;
+
 let test_repair_multiple_orphans () =
   let msgs =
     [ user_msg "q"
@@ -1241,6 +1285,36 @@ let test_repair_late_result_is_not_pairing () =
     Alcotest.(check string) "synthetic id" "t1" tool_use_id;
     Alcotest.(check bool) "synthetic error" true is_error
   | _ -> Alcotest.fail "expected synthetic adjacent tool result"
+;;
+
+let test_stub_tool_results_marks_conflicting_tool_names_ambiguous () =
+  let long_output = String.make 80 'x' in
+  let msgs =
+    [ user_msg "turn1"
+    ; tool_use_msg "same-id" "read"
+    ; tool_result_msg "same-id" long_output
+    ; tool_use_msg "same-id" "write"
+    ; user_msg "turn2"
+    ; asst_msg "recent"
+    ]
+  in
+  let result =
+    Context_reducer.reduce (Context_reducer.stub_tool_results ~keep_recent:1) msgs
+  in
+  let stub =
+    List.find_map
+      (fun (msg : Types.message) ->
+         List.find_map
+           (function
+             | Types.ToolResult { tool_use_id = "same-id"; content; _ } -> Some content
+             | _ -> None)
+           msg.content)
+      result
+  in
+  Alcotest.(check (option string))
+    "ambiguous duplicate id"
+    (Some "[tool: ambiguous_tool_use_id, 1 lines, ok]")
+    stub
 ;;
 
 (* --- repair_orphaned_tool_results --- *)
@@ -1433,6 +1507,10 @@ let () =
     ; ( "summarize_old"
       , [ Alcotest.test_case "basic summarization" `Quick test_summarize_old_basic
         ; Alcotest.test_case "all recent no-op" `Quick test_summarize_old_all_recent
+        ; Alcotest.test_case
+            "callback failure fallback"
+            `Quick
+            test_summarize_old_catches_callback_failure
         ] )
     ; ( "clear_tool_results"
       , [ Alcotest.test_case
@@ -1475,6 +1553,10 @@ let () =
       , [ Alcotest.test_case "no orphans unchanged" `Quick test_repair_no_orphans
         ; Alcotest.test_case "single orphan repaired" `Quick test_repair_single_orphan
         ; Alcotest.test_case
+            "report counts synthetic results"
+            `Quick
+            test_repair_report_counts_synthetic_results
+        ; Alcotest.test_case
             "multiple orphans repaired"
             `Quick
             test_repair_multiple_orphans
@@ -1483,6 +1565,12 @@ let () =
             "late result does not satisfy adjacency"
             `Quick
             test_repair_late_result_is_not_pairing
+        ] )
+    ; ( "stub_tool_results"
+      , [ Alcotest.test_case
+            "duplicate tool_use id becomes ambiguous"
+            `Quick
+            test_stub_tool_results_marks_conflicting_tool_names_ambiguous
         ] )
     ; ( "repair_orphaned_tool_results"
       , [ Alcotest.test_case

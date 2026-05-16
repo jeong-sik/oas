@@ -17,9 +17,21 @@
 
 type t
 
+type retrieve_error =
+  | Missing_key
+  | Corrupt_json of string
+  | Backend_error of string
+
+val retrieve_error_to_string : retrieve_error -> string
+
 (** Create a file-backed memory store.
     Creates [base_dir] if it does not exist. *)
 val create : Eio.Fs.dir_ty Eio.Path.t -> (t, Error.sdk_error) result
+
+(** Retrieve a stored key with typed failure information. This avoids the
+    legacy [Memory.long_term_backend.retrieve] ambiguity where a missing key,
+    corrupt JSON, and I/O failure all collapse to [None]. *)
+val retrieve_result : t -> key:string -> (Yojson.Safe.t, retrieve_error) result
 
 (** Get the {!Memory.long_term_backend} for use with {!Memory.create}. *)
 val to_backend : t -> Memory.long_term_backend
