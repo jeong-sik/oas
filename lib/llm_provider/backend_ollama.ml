@@ -162,6 +162,12 @@ let build_request
 
 (* ── Response parsing ────────────────────────────────── *)
 
+let ollama_tool_arguments_json (json : Yojson.Safe.t) =
+  match json with
+  | `Null -> `Assoc []
+  | `String s -> Api_common.json_of_string_or_raw s
+  | json -> json
+
 let parse_ollama_response json_str =
   let open Yojson.Safe.Util in
   let json = Yojson.Safe.from_string json_str in
@@ -182,14 +188,16 @@ let parse_ollama_response json_str =
           match message |> member "tool_calls" with
           | `List calls ->
             List.filter_map
-              (fun tc ->
+              (fun (idx, tc) ->
                  try
                    let fn = tc |> member "function" in
-                   let arguments =
-                     fn
-                     |> member "arguments"
-                     |> to_string_option
-                     |> Option.value ~default:"{}"
+                   let name = fn |> member "name" |> to_string in
+                   let input = ollama_tool_arguments_json (fn |> member "arguments") in
+                   let synthetic_id =
+                     Printf.sprintf
+                       "%s_%d"
+                       (Api_common.synthesize_tool_use_id ~name input)
+                       idx
                    in
                    Some
                      (ToolUse
@@ -197,15 +205,15 @@ let parse_ollama_response json_str =
                             tc
                             |> member "id"
                             |> to_string_option
-                            |> Option.value ~default:"ollama-call"
-                        ; name = fn |> member "name" |> to_string
-                        ; input = Api_common.json_of_string_or_raw arguments
+                            |> Option.value ~default:synthetic_id
+                        ; name
+                        ; input
                         })
                  with
                  | Yojson.Safe.Util.Type_error _
                  | Yojson.Safe.Util.Undefined _
                  | Yojson.Json_error _ -> None)
-              calls
+              (List.mapi (fun idx tc -> idx, tc) calls)
           | _ -> []
         in
         let thinking =
