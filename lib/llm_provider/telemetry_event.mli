@@ -42,6 +42,19 @@ type t =
       ; chunk_count : int
       ; kind_breakdown : streaming_kind_breakdown
       ; ttft_ms : float option
+        (** RFC-OAS-020: milliseconds from request submission to the
+            first parsed chunk that carried a non-empty user-visible
+            delta (text, reasoning, or tool-call). Distinct from
+            [ttfrc_ms] on [Streaming_first_chunk] which fires on the
+            first chunk regardless of payload. [None] when the
+            completion never delivered a non-empty delta. *)
+      ; prefill_ms : float option
+        (** RFC-OAS-020: milliseconds from request submission to the
+            first SSE event of any kind. [Some] when the provider
+            exposes a separable prefill marker
+            (e.g. Anthropic [MessageStart] arrives before the first
+            [ContentBlockDelta]); [None] for providers that do not
+            (e.g. OpenAI-compat first chunk is a content delta). *)
       ; total_ms : float
       ; inter_chunk_ms_p50 : float
       ; inter_chunk_ms_p95 : float

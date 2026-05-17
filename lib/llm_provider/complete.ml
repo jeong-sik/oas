@@ -1231,6 +1231,16 @@ let complete_stream_http
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in
+      (* RFC-OAS-020 — TTFT (Time To First Token) capture.
+         [first_token_at_ref] fires on the first chunk that carries a
+         non-empty user-visible delta (text / reasoning / tool-call
+         arg). [first_event_at_ref] fires on the very first SSE
+         event of any kind — used to derive [prefill_ms] when the
+         provider exposes a separable prelude marker
+         (e.g. Anthropic [MessageStart] arrives before the first
+         [ContentBlockDelta]). *)
+      let first_token_at_ref : float option ref = ref None in
+      let first_event_at_ref : float option ref = ref None in
       (* Ollama-specific side channel: prompt_eval_count / eval_count and
      the four duration fields only appear on the [done:true] line, so
      stream_acc (which only sees content/tool deltas) cannot capture
@@ -1295,6 +1305,22 @@ let complete_stream_http
         then (
           summary_published := true;
           let p50, p95, pmax = percentiles () in
+          (* RFC-OAS-020: compute TTFT from first-token capture
+             (was first-chunk = ttfrc). [prefill_ms] is the gap
+             between any first event and the first token; [None]
+             when they coincide (OpenAI-compat: no separable
+             prelude). *)
+          let ttft_ms =
+            match !first_token_at_ref with
+            | Some t -> Some ((t -. t0) *. 1000.0)
+            | None -> None
+          in
+          let prefill_ms =
+            match !first_event_at_ref, !first_token_at_ref with
+            | Some fe, Some ft when ft > fe ->
+              Some ((fe -. t0) *. 1000.0)
+            | _ -> None
+          in
           emit_telemetry
             (Telemetry_event.Streaming_summary
                { provider
@@ -1310,7 +1336,8 @@ let complete_stream_http
                    ; heartbeat = !n_heartbeat
                    ; done_ = !n_done
                    }
-               ; ttft_ms = !ttfrc_ref
+               ; ttft_ms
+               ; prefill_ms
                ; total_ms = (Unix.gettimeofday () -. t0) *. 1000.0
                ; inter_chunk_ms_p50 = p50
                ; inter_chunk_ms_p95 = p95
@@ -1341,6 +1368,17 @@ let complete_stream_http
                   s
               in
               let dispatch (events, tel_opt) =
+                (* RFC-OAS-020: capture first-event + first-token
+                   wall-clock offsets. [first_event_at_ref] fires on
+                   ANY first event (prelude or token);
+                   [first_token_at_ref] fires only when the event would
+                   surface a visible token. The two refs together
+                   distinguish prefill from generation latency. *)
+                if events <> [] && Option.is_none !first_event_at_ref
+                then first_event_at_ref := Some (Unix.gettimeofday ());
+                if Option.is_none !first_token_at_ref
+                   && List.exists Streaming.sse_event_is_first_token_signal events
+                then first_token_at_ref := Some (Unix.gettimeofday ());
                 List.iter
                   (fun evt ->
                      on_event evt;
