@@ -123,6 +123,17 @@ let tool_exception_result ~id ~name exn =
   }
 ;;
 
+let approval_required_without_callback_result ~id ~name =
+  let reason = "approval required but no approval callback is registered" in
+  { tool_use_id = id
+  ; tool_name = name
+  ; content = "Tool rejected: " ^ reason
+  ; is_error = true
+  ; failure_kind = Some Non_retryable_tool_error
+  ; error_class = Some Types.Deterministic
+  }
+;;
+
 let schedule_tool_use ~tool_index index (id, name, input) =
   let concurrency_class =
     match find_in_index tool_index name with
@@ -493,6 +504,7 @@ let execute_scheduled_tool
       ~turn_count
       ~(usage : Types.usage_stats)
       ~approval
+      ~missing_approval_callback_policy
       ?correlation_id
       ?run_id
       ?on_tool_execution_started
@@ -562,25 +574,33 @@ let execute_scheduled_tool
            | Hooks.ApprovalRequired ->
              (match approval with
               | None ->
-                Log.debug
-                  _log
-                  "ApprovalRequired but no approval callback — executing"
-                  [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
-                find_and_execute_tool_with_index
-                  ~context
-                  ~tool_index
-                  ~hooks
-                  ~event_bus
-                  ~tracer
-                  ~agent_name
-                  ~turn_count
-                  ?correlation_id
-                  ?run_id
-                  ?on_hook_invoked
-                  ~schedule
-                  name
-                  input
-                  id
+                (match missing_approval_callback_policy with
+                 | Hooks.Execute_without_callback ->
+                   Log.debug
+                     _log
+                     "ApprovalRequired but no approval callback — executing"
+                     [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
+                   find_and_execute_tool_with_index
+                     ~context
+                     ~tool_index
+                     ~hooks
+                     ~event_bus
+                     ~tracer
+                     ~agent_name
+                     ~turn_count
+                     ?correlation_id
+                     ?run_id
+                     ?on_hook_invoked
+                     ~schedule
+                     name
+                     input
+                     id
+                 | Hooks.Reject_without_callback ->
+                   Log.warn
+                     _log
+                     "ApprovalRequired but no approval callback — rejecting"
+                     [ Log.S ("tool", name); Log.S ("agent", agent_name) ];
+                   approval_required_without_callback_result ~id ~name)
               | Some approve_fn ->
                 (match approve_fn ~tool_name:name ~input with
                  | Hooks.Approve ->
@@ -725,6 +745,7 @@ let execute_tools
       ~turn_count
       ~(usage : Types.usage_stats)
       ~approval
+      ~missing_approval_callback_policy
       ?correlation_id
       ?run_id
       ?on_tool_execution_started
@@ -765,6 +786,7 @@ let execute_tools
       ~turn_count
       ~usage
       ~approval
+      ~missing_approval_callback_policy
       ?correlation_id
       ?run_id
       ?on_tool_execution_started

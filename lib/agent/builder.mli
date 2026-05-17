@@ -90,6 +90,9 @@ val with_slot_id : int -> t -> t
 val with_tracer : Tracing.t -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
+val with_missing_approval_callback_policy :
+  Hooks.missing_approval_callback_policy -> t -> t
+
 val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
 
 val with_required_tool_satisfaction

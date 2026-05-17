@@ -50,6 +50,7 @@ type options = Agent_types.options =
   ; tracer : Tracing.t
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
+  ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
   ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
   ; tiered_memory : tiered_memory option

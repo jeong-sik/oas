@@ -217,6 +217,10 @@ let test_agent_default_options () =
   let opts = Agent.default_options in
   Alcotest.(check bool) "no provider" true (opts.provider = None);
   Alcotest.(check bool) "no approval" true (opts.approval = None);
+  Alcotest.(check bool)
+    "missing approval callback executes by default"
+    true
+    (opts.missing_approval_callback_policy = Hooks.Execute_without_callback);
   Alcotest.(check bool) "no event_bus" true (opts.event_bus = None);
   Alcotest.(check bool) "no skill_registry" true (opts.skill_registry = None);
   Alcotest.(check bool) "no memory" true (opts.memory = None);

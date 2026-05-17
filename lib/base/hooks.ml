@@ -230,6 +230,10 @@ type approval_decision =
   | Reject of string (** Block execution with reason *)
   | Edit of Yojson.Safe.t (** Proceed with modified input *)
 
+type missing_approval_callback_policy =
+  | Execute_without_callback
+  | Reject_without_callback
+
 (** Approval callback: called when a hook returns ApprovalRequired.
     Receives tool name and input, returns approval decision. *)
 type approval_callback = tool_name:string -> input:Yojson.Safe.t -> approval_decision

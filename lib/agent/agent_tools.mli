@@ -97,7 +97,9 @@ val find_and_execute_tool
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
     Supports approval flow: if the hook returns [ApprovalRequired], the
-    [approval] callback is invoked.
+    [approval] callback is invoked. If no callback is registered,
+    [missing_approval_callback_policy] chooses fail-open compatibility or
+    fail-closed rejection.
 
     Parallel batches catch exceptions per fiber to prevent one tool failure
     from canceling siblings (except [Out_of_memory], [Stack_overflow],
@@ -116,6 +118,7 @@ val execute_tools
   -> turn_count:int
   -> usage:Types.usage_stats
   -> approval:Hooks.approval_callback option
+  -> missing_approval_callback_policy:Hooks.missing_approval_callback_policy
   -> ?correlation_id:string
   -> ?run_id:string
   -> ?on_tool_execution_started:

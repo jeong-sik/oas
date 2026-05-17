@@ -155,7 +155,8 @@ type hook_decision =
   | ApprovalRequired
   (** Signals that the tool needs external approval.  If an
           {!approval_callback} is registered the callback is invoked;
-          otherwise the tool is executed and a debug log is emitted. *)
+          otherwise {!missing_approval_callback_policy} decides whether
+          the tool is executed or rejected. *)
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
   | Nudge of string
@@ -166,6 +167,12 @@ type approval_decision =
   | Approve
   | Reject of string
   | Edit of Yojson.Safe.t
+
+(** Behavior when a [PreToolUse] hook returns [ApprovalRequired] but no
+    {!approval_callback} is registered. *)
+type missing_approval_callback_policy =
+  | Execute_without_callback
+  | Reject_without_callback
 
 (** Approval callback: called when a hook returns ApprovalRequired *)
 type approval_callback = tool_name:string -> input:Yojson.Safe.t -> approval_decision

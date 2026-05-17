@@ -55,9 +55,19 @@ let make_echo_tool ?descriptor name =
     Ok { Types.content = Yojson.Safe.to_string input })
 ;;
 
-let execute_with_tools_in_env env ~tools ~hooks ?event_bus ?approval tool_uses =
+let execute_with_tools_in_env
+      env
+      ~tools
+      ~hooks
+      ?event_bus
+      ?approval
+      ?(missing_approval_callback_policy = Hooks.Execute_without_callback)
+      tool_uses
+  =
   let net = Eio.Stdenv.net env in
-  let options = { Agent.default_options with hooks; approval } in
+  let options =
+    { Agent.default_options with hooks; approval; missing_approval_callback_policy }
+  in
   let agent = Agent.create ~net ~tools ~options () in
   let opts = Agent.options agent in
   let event_bus =
@@ -75,21 +85,36 @@ let execute_with_tools_in_env env ~tools ~hooks ?event_bus ?approval tool_uses =
     ~turn_count:(Agent.state agent).turn_count
     ~usage:(Agent.state agent).usage
     ~approval:opts.approval
+    ~missing_approval_callback_policy:opts.missing_approval_callback_policy
     tool_uses
 ;;
 
 (** Helper: create a minimal agent inside Eio with given hooks and approval.
     Returns execute_tools results for the given tool_uses. *)
-let run_execute_with_tools ~tools ~hooks ?approval tool_uses =
+let run_execute_with_tools
+      ~tools
+      ~hooks
+      ?approval
+      ?missing_approval_callback_policy
+      tool_uses
+  =
   Eio_main.run
-  @@ fun env -> execute_with_tools_in_env env ~tools ~hooks ?approval tool_uses
+  @@ fun env ->
+  execute_with_tools_in_env
+    env
+    ~tools
+    ~hooks
+    ?approval
+    ?missing_approval_callback_policy
+    tool_uses
 ;;
 
-let run_execute ~hooks ?approval tool_uses =
+let run_execute ~hooks ?approval ?missing_approval_callback_policy tool_uses =
   run_execute_with_tools
     ~tools:[ make_echo_tool "safe"; make_echo_tool "dangerous" ]
     ~hooks
     ?approval
+    ?missing_approval_callback_policy
     tool_uses
 ;;
 
@@ -108,6 +133,33 @@ let test_approval_required_no_callback () =
     check string "id" "t1" result.tool_use_id;
     check string "content" {|"hello"|} result.content;
     check bool "no error" false result.is_error
+  | _ -> fail "expected exactly one result"
+;;
+
+let test_approval_required_no_callback_fail_closed () =
+  let hooks =
+    { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.ApprovalRequired) }
+  in
+  let results =
+    run_execute
+      ~hooks
+      ~missing_approval_callback_policy:Hooks.Reject_without_callback
+      [ ToolUse { id = "t1"; name = "safe"; input = `String "hello" } ]
+  in
+  match results with
+  | [ result ] ->
+    check string "id" "t1" result.tool_use_id;
+    check string
+      "content"
+      "Tool rejected: approval required but no approval callback is registered"
+      result.content;
+    check bool "is error" true result.is_error;
+    (match result.failure_kind with
+     | Some Agent_tools.Non_retryable_tool_error -> ()
+     | _ -> fail "expected non-retryable tool error");
+    (match result.error_class with
+     | Some Types.Deterministic -> ()
+     | _ -> fail "expected deterministic error class")
   | _ -> fail "expected exactly one result"
 ;;
 
@@ -704,6 +756,10 @@ let () =
     "Approval"
     [ ( "approval_required"
       , [ test_case "no callback = fallthrough" `Quick test_approval_required_no_callback
+        ; test_case
+            "no callback + fail closed = rejected"
+            `Quick
+            test_approval_required_no_callback_fail_closed
         ; test_case "Approve = normal execution" `Quick test_approval_approve
         ; test_case "Reject with reason" `Quick test_approval_reject
         ; test_case "Edit modifies input" `Quick test_approval_edit
