@@ -195,10 +195,6 @@ let inst_end_span inst (s : span) ~ok =
   inst_with_lock inst
   @@ fun () ->
   let target = ref None in
-  Printf.printf
-    "DEBUG: end_span for %s, current_spans size=%d\n%!"
-    s.span_id
-    (List.length inst.current_spans);
   inst.current_spans
   <- List.filter_map
        (fun sp ->
@@ -218,10 +214,6 @@ let inst_add_event inst (s : span) (msg : string) =
   inst_with_lock inst
   @@ fun () ->
   let evt = { event_name = msg; timestamp_ns = now_ns (); attributes = [] } in
-  Printf.printf
-    "DEBUG: add_event for %s, current_spans size=%d\n%!"
-    s.span_id
-    (List.length inst.current_spans);
   inst.current_spans
   <- List.map
        (fun sp ->
@@ -298,12 +290,13 @@ let inst_record_metric inst ~name ~value ~metric_type =
   inst_with_lock inst
   @@ fun () ->
   inst.metrics
-  <- Util.snoc inst.metrics { m_name = name; m_value = value; m_type = metric_type }
+  <- { m_name = name; m_value = value; m_type = metric_type } :: inst.metrics
 ;;
 
 let inst_get_metrics inst =
   inst_with_lock inst
-  @@ fun () -> List.map (fun m -> m.m_name, m.m_value, m.m_type) inst.metrics
+  @@ fun () ->
+  List.map (fun m -> m.m_name, m.m_value, m.m_type) (List.rev inst.metrics)
 ;;
 
 let inst_clear_metrics inst = inst_with_lock inst @@ fun () -> inst.metrics <- []
@@ -421,7 +414,8 @@ let metric_entry_to_json (m : metric_entry) : Yojson.Safe.t =
 
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
   let spans, metrics =
-    inst_with_lock _global (fun () -> List.rev _global.completed_spans, _global.metrics)
+    inst_with_lock _global
+      (fun () -> List.rev _global.completed_spans, List.rev _global.metrics)
   in
   let resource =
     `Assoc [ "attributes", attrs_to_json [ "service.name", cfg.service_name ] ]

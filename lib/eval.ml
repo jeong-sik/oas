@@ -206,10 +206,10 @@ let create_collector ~agent_name ~run_id =
   { agent_name; run_id; metrics = []; harness_verdicts = []; trace_summary = None }
 ;;
 
-let record collector metric = collector.metrics <- collector.metrics @ [ metric ]
+let record collector metric = collector.metrics <- metric :: collector.metrics
 
 let add_verdict collector verdict =
-  collector.harness_verdicts <- collector.harness_verdicts @ [ verdict ]
+  collector.harness_verdicts <- verdict :: collector.harness_verdicts
 ;;
 
 let set_trace_summary collector summary = collector.trace_summary <- Some summary
@@ -218,8 +218,8 @@ let finalize collector =
   { run_id = collector.run_id
   ; agent_name = collector.agent_name
   ; timestamp = Unix.gettimeofday ()
-  ; metrics = collector.metrics
-  ; harness_verdicts = collector.harness_verdicts
+  ; metrics = List.rev collector.metrics
+  ; harness_verdicts = List.rev collector.harness_verdicts
   ; trace_summary = collector.trace_summary
   }
 ;;
