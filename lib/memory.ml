@@ -23,10 +23,20 @@ type tier =
 type long_term_backend =
   { persist : key:string -> Yojson.Safe.t -> (unit, string) result
   ; retrieve : key:string -> Yojson.Safe.t option
+  ; retrieve_result : key:string -> (Yojson.Safe.t, retrieve_error) result
   ; remove : key:string -> (unit, string) result
   ; batch_persist : (string * Yojson.Safe.t) list -> (unit, string) result
   ; query : prefix:string -> limit:int -> (string * Yojson.Safe.t) list
   }
+
+and retrieve_error =
+  | Missing_key
+  | Backend_error of string
+
+let retrieve_error_to_string = function
+  | Missing_key -> "missing_key"
+  | Backend_error reason -> "backend_error: " ^ reason
+;;
 
 let legacy_backend ~persist ~retrieve ~remove =
   { persist =
@@ -34,6 +44,11 @@ let legacy_backend ~persist ~retrieve ~remove =
         persist ~key value;
         Ok ())
   ; retrieve
+  ; retrieve_result =
+      (fun ~key ->
+        match retrieve ~key with
+        | Some value -> Ok value
+        | None -> Error Missing_key)
   ; remove =
       (fun ~key ->
         remove ~key;
@@ -191,6 +206,49 @@ let recall_exact t ~tier key =
         | None -> context_procedure_json t key)
      | None -> context_procedure_json t key)
   | _ -> Context.get_scoped t.ctx (scope_of_tier tier) key
+;;
+
+let recall_exact_result t ~tier key =
+  let missing () = Error Missing_key in
+  let of_option = function
+    | Some value -> Ok value
+    | None -> missing ()
+  in
+  match tier with
+  | Long_term ->
+    (match t.long_term with
+     | Some backend -> backend.retrieve_result ~key
+     | None -> Context.get_scoped t.ctx (scope_of_tier Long_term) key |> of_option)
+  | Episodic ->
+    (match t.episodic with
+     | Some backend ->
+       (match backend.retrieve_episode ~id:key with
+        | Some ep -> Ok (Memory_episodic.episode_to_json ep)
+        | None -> context_episode_json t key |> of_option)
+     | None -> context_episode_json t key |> of_option)
+  | Procedural ->
+    (match t.procedural with
+     | Some backend ->
+       (match backend.retrieve_procedure ~id:key with
+        | Some proc -> Ok (Memory_procedural.procedure_to_json proc)
+        | None -> context_procedure_json t key |> of_option)
+     | None -> context_procedure_json t key |> of_option)
+  | _ -> Context.get_scoped t.ctx (scope_of_tier tier) key |> of_option
+;;
+
+let recall_result t ~tier key =
+  match Context.get_scoped t.ctx (scope_of_tier tier) key with
+  | Some value -> Ok value
+  | None ->
+    (match tier with
+     | Scratchpad ->
+       (match Context.get_scoped t.ctx (scope_of_tier Working) key with
+        | Some value -> Ok value
+        | None -> recall_exact_result t ~tier:Long_term key)
+     | Working -> recall_exact_result t ~tier:Long_term key
+     | Long_term -> recall_exact_result t ~tier:Long_term key
+     | Episodic -> recall_exact_result t ~tier:Episodic key
+     | Procedural -> recall_exact_result t ~tier:Procedural key)
 ;;
 
 let forget t ~tier key =

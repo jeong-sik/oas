@@ -149,6 +149,11 @@ let test_long_term_backend () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; retrieve_result =
+        (fun ~key ->
+          match Hashtbl.find_opt store key with
+          | Some value -> Ok value
+          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;
@@ -194,6 +199,11 @@ let test_long_term_backend_set_after_create () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; retrieve_result =
+        (fun ~key ->
+          match Hashtbl.find_opt store key with
+          | Some value -> Ok value
+          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;
@@ -221,6 +231,11 @@ let test_query_long_term_prefix () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; retrieve_result =
+        (fun ~key ->
+          match Hashtbl.find_opt store key with
+          | Some value -> Ok value
+          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;
