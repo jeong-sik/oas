@@ -36,6 +36,10 @@ val retrieve_result : t -> key:string -> (Yojson.Safe.t, retrieve_error) result
 (** Get the {!Memory.long_term_backend} for use with {!Memory.create}. *)
 val to_backend : t -> Memory.long_term_backend
 
+(** Get the typed long-term retrieval callback for use with
+    {!Memory.create}'s [long_term_retrieve_result] argument. *)
+val to_retrieve_result : t -> Memory.long_term_retrieve_result
+
 (** Get the {!Memory.episodic_backend} for use with {!Memory.create}. *)
 val to_episodic_backend : t -> Memory.episodic_backend
 

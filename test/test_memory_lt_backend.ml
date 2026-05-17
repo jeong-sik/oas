@@ -17,11 +17,6 @@ let make_backend () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
-    ; retrieve_result =
-        (fun ~key ->
-          match Hashtbl.find_opt store key with
-          | Some value -> Ok value
-          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;
@@ -88,7 +83,6 @@ let test_batch_persist_error () =
   let fail_backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Ok ())
     ; retrieve = (fun ~key:_ -> None)
-    ; retrieve_result = (fun ~key:_ -> Error Memory.Missing_key)
     ; remove = (fun ~key:_ -> Ok ())
     ; batch_persist = (fun _pairs -> Error "batch write failed")
     ; query = (fun ~prefix:_ ~limit:_ -> [])
@@ -172,14 +166,18 @@ let test_recall_result_surfaces_backend_error () =
   let backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Ok ())
     ; retrieve = (fun ~key:_ -> None)
-    ; retrieve_result =
-        (fun ~key:_ -> Error (Memory.Backend_error "corrupt_json: invalid"))
     ; remove = (fun ~key:_ -> Ok ())
     ; batch_persist = (fun _ -> Ok ())
     ; query = (fun ~prefix:_ ~limit:_ -> [])
     }
   in
-  let mem = Memory.create ~long_term:backend () in
+  let mem =
+    Memory.create
+      ~long_term:backend
+      ~long_term_retrieve_result:(fun ~key:_ ->
+        Error (Memory.Backend_error "corrupt_json: invalid"))
+      ()
+  in
   match Memory.recall_result mem ~tier:Working "falls-through" with
   | Error (Memory.Backend_error reason) ->
     check string "backend error reason" "corrupt_json: invalid" reason
@@ -193,7 +191,6 @@ let test_persist_error_propagates () =
   let backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Error "write denied")
     ; retrieve = (fun ~key:_ -> None)
-    ; retrieve_result = (fun ~key:_ -> Error Memory.Missing_key)
     ; remove = (fun ~key:_ -> Ok ())
     ; batch_persist = (fun _ -> Ok ())
     ; query = (fun ~prefix:_ ~limit:_ -> [])
@@ -223,7 +220,6 @@ let test_remove_error_propagates () =
   let backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Ok ())
     ; retrieve = (fun ~key:_ -> None)
-    ; retrieve_result = (fun ~key:_ -> Error Memory.Missing_key)
     ; remove = (fun ~key:_ -> Error "delete denied")
     ; batch_persist = (fun _ -> Ok ())
     ; query = (fun ~prefix:_ ~limit:_ -> [])

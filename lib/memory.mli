@@ -37,10 +37,11 @@ type retrieve_error =
 
 val retrieve_error_to_string : retrieve_error -> string
 
+type long_term_retrieve_result = key:string -> (Yojson.Safe.t, retrieve_error) result
+
 type long_term_backend =
   { persist : key:string -> Yojson.Safe.t -> (unit, string) result
   ; retrieve : key:string -> Yojson.Safe.t option
-  ; retrieve_result : key:string -> (Yojson.Safe.t, retrieve_error) result
   ; remove : key:string -> (unit, string) result
   ; batch_persist : (string * Yojson.Safe.t) list -> (unit, string) result
   ; query : prefix:string -> limit:int -> (string * Yojson.Safe.t) list
@@ -111,6 +112,7 @@ type t
 val create
   :  ?ctx:Context.t
   -> ?long_term:long_term_backend
+  -> ?long_term_retrieve_result:long_term_retrieve_result
   -> ?episodic:episodic_backend
   -> ?procedural:procedural_backend
   -> unit
@@ -118,6 +120,16 @@ val create
 
 (** Set or replace the long-term backend. *)
 val set_long_term_backend : t -> long_term_backend -> unit
+
+(** Set or replace the long-term backend with a typed retrieval callback.
+    Existing {!long_term_backend} record literals can keep using
+    {!set_long_term_backend}; this helper preserves typed backend failures for
+    implementations that can distinguish them. *)
+val set_long_term_backend_result
+  :  t
+  -> long_term_backend
+  -> long_term_retrieve_result
+  -> unit
 
 (** Set or replace the episodic backend. *)
 val set_episodic_backend : t -> episodic_backend -> unit
@@ -141,9 +153,9 @@ val recall : t -> tier:tier -> string -> Yojson.Safe.t option
 (** Recall from a specific tier only, no fallback. *)
 val recall_exact : t -> tier:tier -> string -> Yojson.Safe.t option
 
-(** Result-returning form of {!recall}. Long-term backends that implement
-    typed retrieval can distinguish missing keys from corrupt/failed storage
-    without collapsing everything to [None]. *)
+(** Result-returning form of {!recall}. Long-term backends registered with a
+    typed retrieval callback can distinguish missing keys from corrupt/failed
+    storage without collapsing everything to [None]. *)
 val recall_result : t -> tier:tier -> string -> (Yojson.Safe.t, retrieve_error) result
 
 (** Result-returning form of {!recall_exact}. *)

@@ -23,7 +23,6 @@ type tier =
 type long_term_backend =
   { persist : key:string -> Yojson.Safe.t -> (unit, string) result
   ; retrieve : key:string -> Yojson.Safe.t option
-  ; retrieve_result : key:string -> (Yojson.Safe.t, retrieve_error) result
   ; remove : key:string -> (unit, string) result
   ; batch_persist : (string * Yojson.Safe.t) list -> (unit, string) result
   ; query : prefix:string -> limit:int -> (string * Yojson.Safe.t) list
@@ -33,9 +32,17 @@ and retrieve_error =
   | Missing_key
   | Backend_error of string
 
+type long_term_retrieve_result = key:string -> (Yojson.Safe.t, retrieve_error) result
+
 let retrieve_error_to_string = function
   | Missing_key -> "missing_key"
   | Backend_error reason -> "backend_error: " ^ reason
+;;
+
+let default_retrieve_result backend ~key =
+  match backend.retrieve ~key with
+  | Some value -> Ok value
+  | None -> Error Missing_key
 ;;
 
 let legacy_backend ~persist ~retrieve ~remove =
@@ -44,11 +51,6 @@ let legacy_backend ~persist ~retrieve ~remove =
         persist ~key value;
         Ok ())
   ; retrieve
-  ; retrieve_result =
-      (fun ~key ->
-        match retrieve ~key with
-        | Some value -> Ok value
-        | None -> Error Missing_key)
   ; remove =
       (fun ~key ->
         remove ~key;
@@ -103,9 +105,14 @@ type procedural_backend =
 
 type t =
   { ctx : Context.t
-  ; mutable long_term : long_term_backend option
+  ; mutable long_term : long_term_binding option
   ; mutable episodic : episodic_backend option
   ; mutable procedural : procedural_backend option
+  }
+
+and long_term_binding =
+  { backend : long_term_backend
+  ; retrieve_result : long_term_retrieve_result
   }
 
 let scope_of_tier = function
@@ -116,11 +123,37 @@ let scope_of_tier = function
   | Long_term -> Context.Custom "lt"
 ;;
 
-let create ?(ctx = Context.create ()) ?long_term ?episodic ?procedural () =
-  { ctx; long_term; episodic; procedural }
+let bind_long_term ?retrieve_result backend =
+  { backend
+  ; retrieve_result =
+      (match retrieve_result with
+       | Some retrieve_result -> retrieve_result
+       | None -> default_retrieve_result backend)
+  }
 ;;
 
-let set_long_term_backend t backend = t.long_term <- Some backend
+let create
+      ?(ctx = Context.create ())
+      ?long_term
+      ?long_term_retrieve_result
+      ?episodic
+      ?procedural
+      ()
+  =
+  { ctx
+  ; long_term =
+      Option.map (bind_long_term ?retrieve_result:long_term_retrieve_result) long_term
+  ; episodic
+  ; procedural
+  }
+;;
+
+let set_long_term_backend t backend = t.long_term <- Some (bind_long_term backend)
+
+let set_long_term_backend_result t backend retrieve_result =
+  t.long_term <- Some (bind_long_term ~retrieve_result backend)
+;;
+
 let set_episodic_backend t backend = t.episodic <- Some backend
 let set_procedural_backend t backend = t.procedural <- Some backend
 
@@ -129,8 +162,8 @@ let store t ~tier key value =
   | Long_term ->
     Context.set_scoped t.ctx (scope_of_tier Long_term) key value;
     (match t.long_term with
-     | Some backend ->
-       (match backend.persist ~key value with
+     | Some binding ->
+       (match binding.backend.persist ~key value with
         | Ok () -> Ok ()
         | Error reason -> Error reason)
      | None -> Ok ())
@@ -149,15 +182,15 @@ let recall t ~tier key =
         | Some _ as found -> found
         | None ->
           (match t.long_term with
-           | Some backend -> backend.retrieve ~key
+           | Some binding -> binding.backend.retrieve ~key
            | None -> Context.get_scoped t.ctx (scope_of_tier Long_term) key))
      | Working ->
        (match t.long_term with
-        | Some backend -> backend.retrieve ~key
+        | Some binding -> binding.backend.retrieve ~key
         | None -> Context.get_scoped t.ctx (scope_of_tier Long_term) key)
      | Long_term ->
        (match t.long_term with
-        | Some backend -> backend.retrieve ~key
+        | Some binding -> binding.backend.retrieve ~key
         | None -> None)
      | Episodic ->
        (match t.episodic with
@@ -189,7 +222,7 @@ let recall_exact t ~tier key =
   match tier with
   | Long_term ->
     (match t.long_term with
-     | Some backend -> backend.retrieve ~key
+     | Some binding -> binding.backend.retrieve ~key
      | None -> Context.get_scoped t.ctx (scope_of_tier Long_term) key)
   | Episodic ->
     (match t.episodic with
@@ -217,7 +250,7 @@ let recall_exact_result t ~tier key =
   match tier with
   | Long_term ->
     (match t.long_term with
-     | Some backend -> backend.retrieve_result ~key
+     | Some binding -> binding.retrieve_result ~key
      | None -> Context.get_scoped t.ctx (scope_of_tier Long_term) key |> of_option)
   | Episodic ->
     (match t.episodic with
@@ -256,8 +289,8 @@ let forget t ~tier key =
   | Long_term ->
     Context.delete_scoped t.ctx (scope_of_tier Long_term) key;
     (match t.long_term with
-     | Some backend ->
-       (match backend.remove ~key with
+     | Some binding ->
+       (match binding.backend.remove ~key with
         | Ok () -> Ok ()
         | Error reason -> Error reason)
      | None -> Ok ())
@@ -328,7 +361,7 @@ let query t ~tier ~prefix ~limit =
     | Long_term ->
       let backend_entries =
         match t.long_term with
-        | Some backend -> backend.query ~prefix ~limit
+        | Some binding -> binding.backend.query ~prefix ~limit
         | None -> []
       in
       take_unique limit (backend_entries @ query_context t ~tier:Long_term ~prefix)
