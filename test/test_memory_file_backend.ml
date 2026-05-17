@@ -85,7 +85,19 @@ let test_retrieve_result_distinguishes_missing_and_corrupt () =
     Alcotest.(check bool)
       "legacy backend still maps corrupt to None"
       true
-      (backend.retrieve ~key:"bad" = None)
+      (backend.retrieve ~key:"bad" = None);
+    (match Memory_file_backend.to_retrieve_result t ~key:"bad" with
+     | Error (Memory.Backend_error reason) ->
+       Alcotest.(check bool)
+         "memory error preserves corrupt_json"
+         true
+         (String.starts_with ~prefix:"corrupt_json:" reason)
+     | Ok json ->
+       Alcotest.failf "expected memory backend error, got %s" (Yojson.Safe.to_string json)
+     | Error err ->
+       Alcotest.failf
+         "expected Backend_error, got %s"
+         (Memory.retrieve_error_to_string err))
 ;;
 
 let test_persist_overwrite () =
