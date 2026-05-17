@@ -176,8 +176,17 @@ let query t ~prefix ~limit =
 (* ── Backend conversion ──────────────────────────────────────── *)
 
 let to_backend t : Memory.long_term_backend =
+  let retrieve_result_as_memory_error ~key =
+    match retrieve_result t ~key with
+    | Ok value -> Ok value
+    | Error Missing_key -> Error Memory.Missing_key
+    | Error (Corrupt_json reason) ->
+      Error (Memory.Backend_error ("corrupt_json: " ^ reason))
+    | Error (Backend_error reason) -> Error (Memory.Backend_error reason)
+  in
   { persist = persist t
   ; retrieve = retrieve t
+  ; retrieve_result = retrieve_result_as_memory_error
   ; remove = remove t
   ; batch_persist = batch_persist t
   ; query = query t

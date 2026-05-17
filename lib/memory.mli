@@ -31,9 +31,16 @@ type tier =
     [persist] and [remove] return [Ok ()] on success or [Error reason].
     [batch_persist] atomically stores multiple key-value pairs.
     [query] returns entries whose keys start with [prefix], up to [limit]. *)
+type retrieve_error =
+  | Missing_key
+  | Backend_error of string
+
+val retrieve_error_to_string : retrieve_error -> string
+
 type long_term_backend =
   { persist : key:string -> Yojson.Safe.t -> (unit, string) result
   ; retrieve : key:string -> Yojson.Safe.t option
+  ; retrieve_result : key:string -> (Yojson.Safe.t, retrieve_error) result
   ; remove : key:string -> (unit, string) result
   ; batch_persist : (string * Yojson.Safe.t) list -> (unit, string) result
   ; query : prefix:string -> limit:int -> (string * Yojson.Safe.t) list
@@ -133,6 +140,18 @@ val recall : t -> tier:tier -> string -> Yojson.Safe.t option
 
 (** Recall from a specific tier only, no fallback. *)
 val recall_exact : t -> tier:tier -> string -> Yojson.Safe.t option
+
+(** Result-returning form of {!recall}. Long-term backends that implement
+    typed retrieval can distinguish missing keys from corrupt/failed storage
+    without collapsing everything to [None]. *)
+val recall_result : t -> tier:tier -> string -> (Yojson.Safe.t, retrieve_error) result
+
+(** Result-returning form of {!recall_exact}. *)
+val recall_exact_result
+  :  t
+  -> tier:tier
+  -> string
+  -> (Yojson.Safe.t, retrieve_error) result
 
 (** Remove a key from the given tier.
     Returns [Error reason] if the long-term backend remove fails. *)

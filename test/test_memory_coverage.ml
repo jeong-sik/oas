@@ -60,6 +60,11 @@ let test_recall_exact_long_term_with_backend () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; retrieve_result =
+        (fun ~key ->
+          match Hashtbl.find_opt store key with
+          | Some value -> Ok value
+          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;
@@ -96,6 +101,11 @@ let test_scratchpad_recall_chain_with_backend () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; retrieve_result =
+        (fun ~key ->
+          match Hashtbl.find_opt store key with
+          | Some value -> Ok value
+          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;

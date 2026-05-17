@@ -17,6 +17,11 @@ let make_backend () =
           Hashtbl.replace store key value;
           Ok ())
     ; retrieve = (fun ~key -> Hashtbl.find_opt store key)
+    ; retrieve_result =
+        (fun ~key ->
+          match Hashtbl.find_opt store key with
+          | Some value -> Ok value
+          | None -> Error Memory.Missing_key)
     ; remove =
         (fun ~key ->
           Hashtbl.remove store key;
@@ -83,6 +88,7 @@ let test_batch_persist_error () =
   let fail_backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Ok ())
     ; retrieve = (fun ~key:_ -> None)
+    ; retrieve_result = (fun ~key:_ -> Error Memory.Missing_key)
     ; remove = (fun ~key:_ -> Ok ())
     ; batch_persist = (fun _pairs -> Error "batch write failed")
     ; query = (fun ~prefix:_ ~limit:_ -> [])
@@ -146,12 +152,48 @@ let test_query_empty_prefix () =
   check int "all keys" 2 (List.length results)
 ;;
 
+(* ── typed retrieve_result ───────────────────────────── *)
+
+let test_recall_exact_result_success_and_missing () =
+  let store, backend = make_backend () in
+  let mem = Memory.create ~long_term:backend () in
+  Hashtbl.replace store "present" (json_s "value");
+  (match Memory.recall_exact_result mem ~tier:Long_term "present" with
+   | Ok (`String "value") -> ()
+   | Ok other -> fail ("unexpected value: " ^ Yojson.Safe.to_string other)
+   | Error err -> fail ("unexpected error: " ^ Memory.retrieve_error_to_string err));
+  match Memory.recall_exact_result mem ~tier:Long_term "missing" with
+  | Error Memory.Missing_key -> ()
+  | Ok _ -> fail "expected missing key"
+  | Error err -> fail ("unexpected error: " ^ Memory.retrieve_error_to_string err)
+;;
+
+let test_recall_result_surfaces_backend_error () =
+  let backend : Memory.long_term_backend =
+    { persist = (fun ~key:_ _v -> Ok ())
+    ; retrieve = (fun ~key:_ -> None)
+    ; retrieve_result =
+        (fun ~key:_ -> Error (Memory.Backend_error "corrupt_json: invalid"))
+    ; remove = (fun ~key:_ -> Ok ())
+    ; batch_persist = (fun _ -> Ok ())
+    ; query = (fun ~prefix:_ ~limit:_ -> [])
+    }
+  in
+  let mem = Memory.create ~long_term:backend () in
+  match Memory.recall_result mem ~tier:Working "falls-through" with
+  | Error (Memory.Backend_error reason) ->
+    check string "backend error reason" "corrupt_json: invalid" reason
+  | Ok _ -> fail "expected backend error"
+  | Error err -> fail ("unexpected error: " ^ Memory.retrieve_error_to_string err)
+;;
+
 (* ── persist error propagation ───────────────────────── *)
 
 let test_persist_error_propagates () =
   let backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Error "write denied")
     ; retrieve = (fun ~key:_ -> None)
+    ; retrieve_result = (fun ~key:_ -> Error Memory.Missing_key)
     ; remove = (fun ~key:_ -> Ok ())
     ; batch_persist = (fun _ -> Ok ())
     ; query = (fun ~prefix:_ ~limit:_ -> [])
@@ -181,6 +223,7 @@ let test_remove_error_propagates () =
   let backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _v -> Ok ())
     ; retrieve = (fun ~key:_ -> None)
+    ; retrieve_result = (fun ~key:_ -> Error Memory.Missing_key)
     ; remove = (fun ~key:_ -> Error "delete denied")
     ; batch_persist = (fun _ -> Ok ())
     ; query = (fun ~prefix:_ ~limit:_ -> [])
@@ -268,6 +311,13 @@ let () =
         ; test_case "limit" `Quick test_query_limit
         ; test_case "no match" `Quick test_query_no_match
         ; test_case "empty prefix" `Quick test_query_empty_prefix
+        ] )
+    ; ( "retrieve_result"
+      , [ test_case
+            "success and missing"
+            `Quick
+            test_recall_exact_result_success_and_missing
+        ; test_case "backend error" `Quick test_recall_result_surfaces_backend_error
         ] )
     ; ( "error_propagation"
       , [ test_case "persist error" `Quick test_persist_error_propagates
