@@ -840,6 +840,91 @@ let test_complete_stream_metrics () =
   | Exit -> ()
 ;;
 
+(* ── complete: body_timeout_s ─────────────────────────── *)
+
+let test_complete_body_timeout_fires () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    (* Server delays response by 2.0s; caller deadline 0.3s must fire first
+       and produce NetworkError{kind=Timeout} with a body-deadline message. *)
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~delay_sec:2.0
+        (anthropic_response "should not arrive")
+    in
+    let config = make_config url in
+    let t0 = Unix.gettimeofday () in
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~clock:env#clock
+         ~config
+         ~messages
+         ~body_timeout_s:0.3
+         ()
+     with
+     | Ok _ -> fail "expected Error (body_timeout_s should have fired)"
+     | Error (Http_client.NetworkError { kind = Timeout; message }) ->
+       let elapsed = Unix.gettimeofday () -. t0 in
+       check bool "fires under server delay" true (elapsed < 1.5);
+       check
+         bool
+         "message identifies body deadline"
+         true
+         (let prefix = "body_timeout_s deadline exceeded" in
+          String.length message >= String.length prefix
+          && String.equal (String.sub message 0 (String.length prefix)) prefix)
+     | Error _ ->
+       fail "unexpected error variant (expected NetworkError{kind=Timeout})");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_body_timeout_does_not_fire_on_fast_response () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    (* No server delay; generous body_timeout_s must not interfere. *)
+    let url =
+      start_mock_server ~sw ~net:env#net (anthropic_response "fast response")
+    in
+    let config = make_config url in
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~clock:env#clock
+         ~config
+         ~messages
+         ~body_timeout_s:60.0
+         ()
+     with
+     | Ok resp ->
+       let text =
+         List.filter_map
+           (function
+             | Types.Text s -> Some s
+             | _ -> None)
+           resp.content
+         |> String.concat ""
+       in
+       check string "text" "fast response" text
+     | Error _ -> fail "unexpected error on fast path with body_timeout_s set");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 (* ── Runner ──────────────────────────────────────────── *)
 
 let () =
@@ -859,6 +944,14 @@ let () =
             test_complete_openai_mlx_vlm_telemetry
         ; test_case "trace context headers" `Quick test_complete_trace_context_headers
         ; test_case "non-retryable" `Quick test_complete_non_retryable
+        ; test_case
+            "body_timeout_s fires under server delay"
+            `Quick
+            test_complete_body_timeout_fires
+        ; test_case
+            "body_timeout_s no-op on fast response"
+            `Quick
+            test_complete_body_timeout_does_not_fire_on_fast_response
         ] )
     ; "cache", [ test_case "store and hit" `Quick test_complete_cache_store_and_hit ]
     ; ( "metrics"

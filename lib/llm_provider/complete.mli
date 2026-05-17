@@ -76,8 +76,22 @@ val complete
   -> ?cache:Cache.t
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
+  -> ?body_timeout_s:float
   -> unit
   -> (Types.api_response, Http_client.http_error) result
+(** [body_timeout_s] caps the total HTTP round-trip time, in seconds,
+    on the non-streaming [Http_client.post_sync] path inside [complete].
+    Requires [clock]; without one the wrapper is skipped and behaviour
+    matches versions < 0.195.0. On expiry the result is
+    [Error (NetworkError { kind = Timeout; _ })] with a message that
+    identifies the body deadline so cascade/retry treats it as retryable
+    while operators retain attribution.
+
+    Mirror of {!complete_stream}'s [?body_timeout_s], adapted for the
+    sync (non-streaming) path. Distinct from {!complete_stream}'s
+    [stream_idle_timeout_s] (which has no analogue here — there are no
+    intermediate lines to count). Non-HTTP transports (CLI subprocess,
+    custom registered) ignore [body_timeout_s]. @since 0.195.0 *)
 
 (** {1 Retry} *)
 
@@ -112,8 +126,12 @@ val complete_with_retry
   -> ?cache:Cache.t
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
+  -> ?body_timeout_s:float
   -> unit
   -> (Types.api_response, Http_client.http_error) result
+(** [body_timeout_s] is forwarded to each underlying {!complete} call.
+    Each retry attempt gets a fresh deadline; the parameter does not
+    cap the total time across all attempts. @since 0.195.0 *)
 
 (** {1 Stream Accumulator} *)
 

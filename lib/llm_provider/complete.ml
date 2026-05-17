@@ -508,6 +508,7 @@ let complete_http
       ?clock
       ?(on_http_status :
          (provider:string -> model_id:string -> status:int -> unit) option)
+      ?body_timeout_s
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -642,17 +643,50 @@ let complete_http
              body_len
          | _ -> ());
         let t0 = Unix.gettimeofday () in
+        let post_sync_call () =
+          Http_client.post_sync
+            ~sw
+            ~net
+            ?clock
+            ~url
+            ~headers:config.headers
+            ~body:body_str
+            ()
+        in
+        (* Body-level deadline (since 0.195.0): mirror of [complete_stream]'s
+           [body_timeout_s], adapted for the non-streaming path. Wraps the
+           entire [Http_client.post_sync] in [Eio.Time.with_timeout_exn] so a
+           slow provider (no progress on the wire, or progress slower than
+           caller can tolerate) cannot hang indefinitely.
+
+           Distinct from [complete_stream]'s same-named parameter:
+           - complete_stream covers inter-line silence with
+             [stream_idle_timeout_s] plus the body cap; here there are no
+             intermediate lines to count, so [body_timeout_s] is the only
+             deadline available on the non-streaming path.
+           - No silent failure: on expiry we return a structured
+             [NetworkError { kind = Timeout }] whose message identifies the
+             body deadline, so cascade/retry layers treat it as retryable
+             with operator-visible attribution. *)
+        let post_response =
+          match clock, body_timeout_s with
+          | Some clk, Some timeout_s ->
+            (try Eio.Time.with_timeout_exn clk timeout_s post_sync_call with
+             | Eio.Time.Timeout ->
+               Error
+                 (Http_client.NetworkError
+                    { message =
+                        Printf.sprintf
+                          "body_timeout_s deadline exceeded after %.1fs \
+                           (Complete.complete non-streaming path; total HTTP \
+                           round-trip cap, mirrors complete_stream contract)"
+                          timeout_s
+                    ; kind = Timeout
+                    }))
+          | _, _ -> post_sync_call ()
+        in
         let result =
-          match
-            Http_client.post_sync
-              ~sw
-              ~net
-              ?clock
-              ~url
-              ~headers:config.headers
-              ~body:body_str
-              ()
-          with
+          match post_response with
           | Error _ as e -> e
           | Ok (code, body) ->
             (* Emit status counter as soon as we have a raw HTTP code from
@@ -905,6 +939,7 @@ let complete
       ?(cache : Cache.t option)
       ?(metrics : Metrics.t option)
       ?(priority : Request_priority.t option)
+      ?body_timeout_s
       ()
   =
   match validate_all config with
@@ -976,6 +1011,7 @@ let complete
                ~net
                ?clock
                ~on_http_status:m.on_http_status
+               ?body_timeout_s
                ~config:request_config
                ~messages
                ~tools
@@ -1107,6 +1143,7 @@ let complete_with_retry
       ?cache
       ?metrics
       ?priority
+      ?body_timeout_s
       ()
   =
   let m = Option.value metrics ~default:(Metrics.get_global ()) in
@@ -1127,6 +1164,7 @@ let complete_with_retry
       ?cache
       ~metrics:m
       ?priority
+      ?body_timeout_s
       ()
   in
   let rec loop attempt =
