@@ -37,7 +37,11 @@ let create ~max_concurrent ~provider_name =
 ;;
 
 let with_permit_priority ~priority t f =
-  Slot_scheduler.with_permit ~priority t.scheduler f
+  (* RFC-0101 PR-3: compose per-provider permit with process-wide FD
+     throttle hook. Identity default when no embedder registered, so
+     standalone OAS behaviour is unchanged. *)
+  Slot_scheduler.with_permit ~priority t.scheduler (fun () ->
+    Fd_throttle_hook.with_slot f)
 ;;
 
 let with_permit t f = with_permit_priority ~priority:Request_priority.Background t f
