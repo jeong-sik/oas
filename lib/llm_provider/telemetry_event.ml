@@ -55,6 +55,7 @@ type t =
       ; chunk_count : int
       ; kind_breakdown : streaming_kind_breakdown
       ; ttft_ms : float option
+      ; prefill_ms : float option
       ; total_ms : float
       ; inter_chunk_ms_p50 : float
       ; inter_chunk_ms_p95 : float

@@ -12,6 +12,23 @@ open Types
 val parse_sse_event : string option -> string -> sse_event option
 val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
 
+(** {1 First-token classification (RFC-OAS-020)}
+
+    These predicates distinguish *prelude / scheduling* events
+    (which set [prefill_ms] in [Streaming_summary]) from
+    *first-token* events (which set [ttft_ms]). The capture site
+    is [Complete] §publish_summary. *)
+
+val sse_event_is_first_token_signal : sse_event -> bool
+(** [true] when the SSE event represents the first user-visible
+    token delta. That means a [ContentBlockDelta] carrying a
+    non-empty [TextDelta] / [ThinkingDelta] / [InputJsonDelta]
+    payload. Prelude events ([MessageStart], [ContentBlockStart],
+    [Ping]), terminator events ([MessageStop], [MessageDelta] with
+    no usage), and error events return [false].
+
+    @stability Internal *)
+
 (** {1 OpenAI SSE} *)
 
 type openai_tool_call_delta =
@@ -49,6 +66,17 @@ type openai_stream_state =
   }
 
 val parse_openai_sse_chunk : string -> openai_chunk option
+
+val chunk_has_non_empty_delta : openai_chunk -> bool
+(** RFC-OAS-020: [true] when the chunk carries either a non-empty
+    [delta_content] or a non-empty [delta_reasoning] or any
+    [delta_tool_calls] — that is, the consumer would surface a
+    visible token (or tool-call argument) to the application. Used
+    by the TTFT capture point in [Complete] to distinguish prelude
+    chunks (empty role-only deltas, finish-only chunks) from the
+    first real token.
+
+    @stability Internal *)
 
 val create_openai_stream_state
   :  ?provider:string
