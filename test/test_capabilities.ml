@@ -150,6 +150,17 @@ let test_lookup_qwen () =
   | None -> fail "should match qwen3"
 ;;
 
+let test_lookup_qwen_runpod_name () =
+  match Capabilities.for_model_id "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" with
+  | Some c ->
+    check
+      bool
+      "runpod qwen3.6 uses chat_template_kwargs"
+      true
+      (c.thinking_control_format = Capabilities.Chat_template_kwargs)
+  | None -> fail "should match qwen3.6 runpod model id"
+;;
+
 let test_lookup_deepseek_v4_flash () =
   match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
@@ -650,6 +661,7 @@ let () =
         ; test_case "gpt-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
         ; test_case "qwen" `Quick test_lookup_qwen
+        ; test_case "qwen runpod name" `Quick test_lookup_qwen_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
         ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
         ; test_case "grok 2M context" `Quick test_lookup_grok
