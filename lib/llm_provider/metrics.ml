@@ -253,7 +253,7 @@ type hooks = t
 
 module Aggregating = struct
   type t =
-    { mutable hooks : hooks
+    { hooks : hooks
     ; states : (aggregate_key, aggregate_state) Hashtbl.t
     ; mutex : Mutex.t
     }
