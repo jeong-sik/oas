@@ -1314,6 +1314,22 @@ let%test "build_request emits chat_template_kwargs for nemotron (Chat_template_k
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
+let%test "build_request emits chat_template_kwargs for qwen3" =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen3.5-35b-a3b"
+      ~base_url:"http://localhost"
+      ~enable_thinking:true
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let ctk = json |> member "chat_template_kwargs" in
+  ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
+;;
+
 let%test "build_request omits seed when model does not support it" =
   (* glm-5.1 inherits default_capabilities.supports_seed = false.
      The capability gate must exclude the "seed" field from the

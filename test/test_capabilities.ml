@@ -140,6 +140,12 @@ let test_lookup_qwen () =
     check (option int) "context 262K" (Some 262_144) c.max_context_tokens;
     check bool "tools" true c.supports_tools;
     check bool "thinking" true c.supports_extended_thinking;
+    check bool "reasoning budget" true c.supports_reasoning_budget;
+    check
+      bool
+      "chat_template_kwargs thinking control"
+      true
+      (c.thinking_control_format = Capabilities.Chat_template_kwargs);
     check bool "top_k" true c.supports_top_k
   | None -> fail "should match qwen3"
 ;;

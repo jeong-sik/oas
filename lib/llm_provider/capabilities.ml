@@ -443,6 +443,8 @@ let for_model_id_static model_id =
       ; supports_parallel_tool_calls = true
       ; supports_reasoning = true
       ; supports_extended_thinking = true
+      ; supports_reasoning_budget = true
+      ; thinking_control_format = Chat_template_kwargs
       ; supports_native_streaming = true
       ; supports_top_k = true
       ; supports_min_p = true
@@ -1025,6 +1027,18 @@ let%test "for_model_id nemotron-ultra has reasoning" =
 let%test "for_model_id nemotron-vl has image input" =
   match for_model_id "nemotron-vl" with
   | Some c -> c.supports_image_input && c.supports_multimodal_inputs
+  | None -> false
+;;
+
+let%test "for_model_id qwen3 has chat_template_kwargs thinking control" =
+  (* Qwen3.x OpenAI-compatible llama.cpp/llama-server deployments return
+     [reasoning_content] when thinking is enabled through
+     {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
+     format, [supports_extended_thinking = true] never reaches the wire. *)
+  match for_model_id "qwen3.5" with
+  | Some c ->
+    c.supports_reasoning_budget
+    && c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
 
