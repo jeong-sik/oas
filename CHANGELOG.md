@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.194.1](https://github.com/jeong-sik/oas/compare/v0.194.0...v0.194.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* **capabilities:** set Chat_template_kwargs for qwen3 ([#1614](https://github.com/jeong-sik/oas/issues/1614)) ([11181bb](https://github.com/jeong-sik/oas/commit/11181bb28147dc2b0e992885e9fabcba591f8b1c))
+
 ## [0.194.0](https://github.com/jeong-sik/oas/compare/v0.193.16...v0.194.0) (2026-05-16)
 
 
