@@ -118,6 +118,27 @@ let parse_sse_event event_type data_str =
     Some (SSEParseFailed { raw = data_str; reason = "json_error: " ^ msg })
 ;;
 
+(* RFC-OAS-020: TTFT classification — distinguishes Anthropic prelude
+   events ([MessageStart], [ContentBlockStart], [Ping]) from the
+   first user-visible token. Capture point in [Complete] uses this
+   to fill [Streaming_summary.ttft_ms]. *)
+let sse_event_is_first_token_signal (e : sse_event) : bool =
+  let non_empty s = String.length s > 0 in
+  match e with
+  | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = ThinkingDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | MessageStart _
+  | ContentBlockStart _
+  | ContentBlockStop _
+  | MessageDelta _
+  | MessageStop
+  | Ping
+  | SSEError _
+  | SSEParseFailed _
+  | SSEUnknownEventType _ -> false
+;;
+
 (** Emit synthetic SSE events from a complete [api_response].
     Used as fallback for non-Anthropic providers that don't support SSE. *)
 let emit_synthetic_events (response : api_response) on_event =
@@ -180,6 +201,21 @@ type openai_chunk =
   ; finish_reason : string option
   ; chunk_usage : api_usage option
   }
+
+(* RFC-OAS-020: TTFT classification for OpenAI-compat / Gemini /
+   Ollama chunk streams. [true] when this chunk would surface a
+   visible token (or tool-call argument) to the application;
+   [false] for role-prelude chunks, [DONE]-only finalisers, and
+   empty deltas. *)
+let chunk_has_non_empty_delta (c : openai_chunk) : bool =
+  let non_empty_opt = function
+    | Some s -> String.length s > 0
+    | None -> false
+  in
+  non_empty_opt c.delta_content
+  || non_empty_opt c.delta_reasoning
+  || c.delta_tool_calls <> []
+;;
 
 (** Parse a single OpenAI SSE data payload into an {!openai_chunk}.
     Returns [None] for the "[DONE]" sentinel or unparseable data. *)
