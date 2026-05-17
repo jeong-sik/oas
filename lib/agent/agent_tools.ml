@@ -112,6 +112,17 @@ let recoverable_of_failure_kind = function
   | Some Non_retryable_tool_error | None -> false
 ;;
 
+let tool_exception_result ~id ~name exn =
+  let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
+  { tool_use_id = id
+  ; tool_name = name
+  ; content = msg
+  ; is_error = true
+  ; failure_kind = Some Non_retryable_tool_error
+  ; error_class = Some Types.Unknown
+  }
+;;
+
 let schedule_tool_use ~tool_index index (id, name, input) =
   let concurrency_class =
     match find_in_index tool_index name with
@@ -227,181 +238,188 @@ let find_and_execute_tool_with_index
   in
   let tool_opt = find_in_index tool_index name in
   let result =
-    match tool_opt with
-    | Some tool ->
-      let validation_error_result message =
-        { tool_use_id = id
-        ; tool_name = name
-        ; content = message
-        ; is_error = true
-        ; failure_kind = Some Validation_error
-        ; error_class = Some Types.Deterministic
-        }
-      in
-      let emit_post_tool_use_failure ~input message =
+    try
+      match tool_opt with
+      | Some tool ->
+        let validation_error_result message =
+          { tool_use_id = id
+          ; tool_name = name
+          ; content = message
+          ; is_error = true
+          ; failure_kind = Some Validation_error
+          ; error_class = Some Types.Deterministic
+          }
+        in
+        let emit_post_tool_use_failure ~input message =
+          ignore
+            (invoke_hook
+               ?on_hook_invoked
+               ~tracer
+               ~agent_name
+               ~turn_count
+               ~hook_name:"post_tool_use_failure"
+               hooks.post_tool_use_failure
+               (Hooks.PostToolUseFailure
+                  { tool_use_id = id; tool_name = name; input; error = message; schedule })
+             : Hooks.hook_decision)
+        in
+        (* Multi-stage deterministic correction before execution.
+       Correction_pipeline runs 3 stages (type coercion, default injection,
+       format normalization) then validates. If det correction fixes the
+       input, skip the LLM retry path entirely. If still invalid, fall back
+       to Tool_middleware.validate_and_coerce for structured error feedback.
+       Ref: Samchon function calling harness (6.75% → 100%). *)
+        let validated_input =
+          match Correction_pipeline.run ~schema:tool.schema input with
+          | Correction_pipeline.Fixed { corrected; corrections } ->
+            if corrections <> []
+            then
+              Log.info
+                _log
+                "correction_pipeline fixed tool input fields"
+                [ Log.S ("tool", name); Log.I ("fixes", List.length corrections) ];
+            Ok corrected
+          | Correction_pipeline.Still_invalid { errors; attempted } ->
+            (* Det correction insufficient — build structured feedback for the
+           turn-level retry policy (pipeline Stage 5) to relay to the LLM. *)
+            let message =
+              Correction_pipeline.build_nondet_feedback
+                ~tool_name:name
+                ~args:input
+                ~still_invalid:errors
+                ~attempted
+            in
+            emit_post_tool_use_failure ~input message;
+            Error message
+        in
+        (match validated_input with
+         | Error msg -> validation_error_result msg
+         | Ok coerced_input ->
+           let shell_constraint_result =
+             match Tool.descriptor tool with
+             | None -> Tool_middleware.Pass
+             | Some descriptor ->
+               Tool_middleware.validate_shell_constraints
+                 ~tool_name:name
+                 ~descriptor
+                 coerced_input
+           in
+           (match shell_constraint_result with
+            | Tool_middleware.Reject { message; _ } ->
+              emit_post_tool_use_failure ~input:coerced_input message;
+              validation_error_result message
+            | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
+              let t0 = Unix.gettimeofday () in
+              let result = Tool.execute ~context tool coerced_input in
+              let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+              let result_bytes =
+                match result with
+                | Ok { content } -> String.length content
+                | Error { message; _ } -> String.length message
+              in
+              let _post =
+                invoke_hook
+                  ?on_hook_invoked
+                  ~tracer
+                  ~agent_name
+                  ~turn_count
+                  ~hook_name:"post_tool_use"
+                  hooks.post_tool_use
+                  (Hooks.PostToolUse
+                     { tool_use_id = id
+                     ; tool_name = name
+                     ; input = coerced_input
+                     ; output = result
+                     ; result_bytes
+                     ; duration_ms
+                     ; schedule
+                     })
+              in
+              (match result with
+               | Error { message; _ } ->
+                 ignore
+                   (invoke_hook
+                      ?on_hook_invoked
+                      ~tracer
+                      ~agent_name
+                      ~turn_count
+                      ~hook_name:"post_tool_use_failure"
+                      hooks.post_tool_use_failure
+                      (Hooks.PostToolUseFailure
+                         { tool_use_id = id
+                         ; tool_name = name
+                         ; input = coerced_input
+                         ; error = message
+                         ; schedule
+                         })
+                    : Hooks.hook_decision);
+                 (* OnToolError: minimal tool-name/error event for consumers that
+            don't need the PostToolUseFailure context (tool_use_id,
+            schedule). Previously the hook type existed but had no emit
+            site — registering [on_tool_error] was a silent no-op (#1029). *)
+                 ignore
+                   (invoke_hook
+                      ?on_hook_invoked
+                      ~tracer
+                      ~agent_name
+                      ~turn_count
+                      ~hook_name:"on_tool_error"
+                      hooks.on_tool_error
+                      (Hooks.OnToolError { tool_name = name; error = message })
+                    : Hooks.hook_decision)
+               | Ok _ -> ());
+              let content, is_error, failure_kind, error_class =
+                match result with
+                | Ok { content } -> content, false, None, None
+                | Error { message; recoverable; error_class } ->
+                  let failure_kind =
+                    Some
+                      (if recoverable
+                       then Recoverable_tool_error
+                       else Non_retryable_tool_error)
+                  in
+                  message, true, failure_kind, error_class
+              in
+              { tool_use_id = id
+              ; tool_name = name
+              ; content
+              ; is_error
+              ; failure_kind
+              ; error_class
+              }))
+        (* Tool_middleware validation match *)
+      | None ->
+        (* Tool dispatch failure (the LLM asked for a tool that isn't
+         registered). Distinct from OnToolError — that fires when a
+         tool actually ran and returned Error. This is a configuration
+         / routing mistake, so it belongs on the general OnError
+         channel. First production emit site for Hooks.OnError (#1032). *)
         ignore
           (invoke_hook
              ?on_hook_invoked
              ~tracer
              ~agent_name
              ~turn_count
-             ~hook_name:"post_tool_use_failure"
-             hooks.post_tool_use_failure
-             (Hooks.PostToolUseFailure
-                { tool_use_id = id; tool_name = name; input; error = message; schedule })
-           : Hooks.hook_decision)
-      in
-      (* Multi-stage deterministic correction before execution.
-       Correction_pipeline runs 3 stages (type coercion, default injection,
-       format normalization) then validates. If det correction fixes the
-       input, skip the LLM retry path entirely. If still invalid, fall back
-       to Tool_middleware.validate_and_coerce for structured error feedback.
-       Ref: Samchon function calling harness (6.75% → 100%). *)
-      let validated_input =
-        match Correction_pipeline.run ~schema:tool.schema input with
-        | Correction_pipeline.Fixed { corrected; corrections } ->
-          if corrections <> []
-          then
-            Log.info
-              _log
-              "correction_pipeline fixed tool input fields"
-              [ Log.S ("tool", name); Log.I ("fixes", List.length corrections) ];
-          Ok corrected
-        | Correction_pipeline.Still_invalid { errors; attempted } ->
-          (* Det correction insufficient — build structured feedback for the
-           turn-level retry policy (pipeline Stage 5) to relay to the LLM. *)
-          let message =
-            Correction_pipeline.build_nondet_feedback
-              ~tool_name:name
-              ~args:input
-              ~still_invalid:errors
-              ~attempted
-          in
-          emit_post_tool_use_failure ~input message;
-          Error message
-      in
-      (match validated_input with
-       | Error msg -> validation_error_result msg
-       | Ok coerced_input ->
-         let shell_constraint_result =
-           match Tool.descriptor tool with
-           | None -> Tool_middleware.Pass
-           | Some descriptor ->
-             Tool_middleware.validate_shell_constraints
-               ~tool_name:name
-               ~descriptor
-               coerced_input
-         in
-         (match shell_constraint_result with
-          | Tool_middleware.Reject { message; _ } ->
-            emit_post_tool_use_failure ~input:coerced_input message;
-            validation_error_result message
-          | Tool_middleware.Pass | Tool_middleware.Proceed _ ->
-            let t0 = Unix.gettimeofday () in
-            let result = Tool.execute ~context tool coerced_input in
-            let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
-            let result_bytes =
-              match result with
-              | Ok { content } -> String.length content
-              | Error { message; _ } -> String.length message
-            in
-            let _post =
-              invoke_hook
-                ?on_hook_invoked
-                ~tracer
-                ~agent_name
-                ~turn_count
-                ~hook_name:"post_tool_use"
-                hooks.post_tool_use
-                (Hooks.PostToolUse
-                   { tool_use_id = id
-                   ; tool_name = name
-                   ; input = coerced_input
-                   ; output = result
-                   ; result_bytes
-                   ; duration_ms
-                   ; schedule
-                   })
-            in
-            (match result with
-             | Error { message; _ } ->
-               ignore
-                 (invoke_hook
-                    ?on_hook_invoked
-                    ~tracer
-                    ~agent_name
-                    ~turn_count
-                    ~hook_name:"post_tool_use_failure"
-                    hooks.post_tool_use_failure
-                    (Hooks.PostToolUseFailure
-                       { tool_use_id = id
-                       ; tool_name = name
-                       ; input = coerced_input
-                       ; error = message
-                       ; schedule
-                       })
-                  : Hooks.hook_decision);
-               (* OnToolError: minimal tool-name/error event for consumers that
-            don't need the PostToolUseFailure context (tool_use_id,
-            schedule). Previously the hook type existed but had no emit
-            site — registering [on_tool_error] was a silent no-op (#1029). *)
-               ignore
-                 (invoke_hook
-                    ?on_hook_invoked
-                    ~tracer
-                    ~agent_name
-                    ~turn_count
-                    ~hook_name:"on_tool_error"
-                    hooks.on_tool_error
-                    (Hooks.OnToolError { tool_name = name; error = message })
-                  : Hooks.hook_decision)
-             | Ok _ -> ());
-            let content, is_error, failure_kind, error_class =
-              match result with
-              | Ok { content } -> content, false, None, None
-              | Error { message; recoverable; error_class } ->
-                let failure_kind =
-                  Some
-                    (if recoverable
-                     then Recoverable_tool_error
-                     else Non_retryable_tool_error)
-                in
-                message, true, failure_kind, error_class
-            in
-            { tool_use_id = id
-            ; tool_name = name
-            ; content
-            ; is_error
-            ; failure_kind
-            ; error_class
-            }))
-      (* Tool_middleware validation match *)
-    | None ->
-      (* Tool dispatch failure (the LLM asked for a tool that isn't
-         registered). Distinct from OnToolError — that fires when a
-         tool actually ran and returned Error. This is a configuration
-         / routing mistake, so it belongs on the general OnError
-         channel. First production emit site for Hooks.OnError (#1032). *)
-      ignore
-        (invoke_hook
-           ?on_hook_invoked
-           ~tracer
-           ~agent_name
-           ~turn_count
-           ~hook_name:"on_error"
-           hooks.on_error
-           (Hooks.OnError
-              { detail = Printf.sprintf "Tool not found: %s" name
-              ; context = "agent_tools.find_and_execute_tool"
-              })
-         : Hooks.hook_decision);
-      { tool_use_id = id
-      ; tool_name = name
-      ; content = "Tool not found"
-      ; is_error = true
-      ; failure_kind = Some Non_retryable_tool_error
-      ; error_class = Some Types.Deterministic
-      }
+             ~hook_name:"on_error"
+             hooks.on_error
+             (Hooks.OnError
+                { detail = Printf.sprintf "Tool not found: %s" name
+                ; context = "agent_tools.find_and_execute_tool"
+                })
+           : Hooks.hook_decision);
+        { tool_use_id = id
+        ; tool_name = name
+        ; content = "Tool not found"
+        ; is_error = true
+        ; failure_kind = Some Non_retryable_tool_error
+        ; error_class = Some Types.Deterministic
+        }
+    with
+    | Out_of_memory -> raise Out_of_memory
+    | Stack_overflow -> raise Stack_overflow
+    | Sys.Break -> raise Sys.Break
+    | Eio.Cancel.Cancelled _ as ex -> raise ex
+    | exn -> tool_exception_result ~id ~name exn
   in
   (* ToolCompleted event *)
   (match event_bus with

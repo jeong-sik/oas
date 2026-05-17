@@ -55,16 +55,21 @@ let make_echo_tool ?descriptor name =
     Ok { Types.content = Yojson.Safe.to_string input })
 ;;
 
-let execute_with_tools_in_env env ~tools ~hooks ?approval tool_uses =
+let execute_with_tools_in_env env ~tools ~hooks ?event_bus ?approval tool_uses =
   let net = Eio.Stdenv.net env in
   let options = { Agent.default_options with hooks; approval } in
   let agent = Agent.create ~net ~tools ~options () in
   let opts = Agent.options agent in
+  let event_bus =
+    match event_bus with
+    | Some bus -> Some bus
+    | None -> opts.event_bus
+  in
   Agent_tools.execute_tools
     ~context:(Agent.context agent)
     ~tools:(Tool_set.to_list (Agent.tools agent))
     ~hooks:opts.hooks
-    ~event_bus:opts.event_bus
+    ~event_bus
     ~tracer:opts.tracer
     ~agent_name:(Agent.state agent).config.name
     ~turn_count:(Agent.state agent).turn_count
@@ -648,6 +653,52 @@ let test_shell_descriptor_constraint_blocks_execution () =
   | _ -> fail "expected exactly one result"
 ;;
 
+let test_tool_exception_still_publishes_tool_completed () =
+  Eio_main.run
+  @@ fun env ->
+  let event_bus = Event_bus.create () in
+  let subscription = Event_bus.subscribe event_bus in
+  let raising_tool =
+    Tool.create ~name:"boom" ~description:"raises" ~parameters:[] (fun _ ->
+      failwith "kaboom")
+  in
+  let results =
+    execute_with_tools_in_env
+      env
+      ~tools:[ raising_tool ]
+      ~hooks:Hooks.empty
+      ~event_bus
+      [ ToolUse { id = "t1"; name = "boom"; input = `Null } ]
+  in
+  (match results with
+   | [ result ] ->
+     check bool "tool result is error" true result.is_error;
+     check
+       bool
+       "tool result reports exception"
+       true
+       (contains_substring ~needle:"Tool 'boom' raised" result.content)
+   | _ -> fail "expected exactly one result");
+  match
+    List.map
+      (fun (event : Event_bus.event) -> event.payload)
+      (Event_bus.drain subscription)
+  with
+  | [ ToolCalled { tool_name = "boom"; _ }
+    ; ToolCompleted
+        { tool_name = "boom"
+        ; output = Error { message; recoverable = false; error_class = Some Unknown }
+        ; _
+        }
+    ] ->
+    check
+      bool
+      "completion event reports exception"
+      true
+      (contains_substring ~needle:"Tool 'boom' raised" message)
+  | _ -> fail "expected ToolCalled followed by ToolCompleted error"
+;;
+
 let () =
   run
     "Approval"
@@ -694,6 +745,12 @@ let () =
             "descriptor shell constraints block execution"
             `Quick
             test_shell_descriptor_constraint_blocks_execution
+        ] )
+    ; ( "event_bus"
+      , [ test_case
+            "tool exception still publishes ToolCompleted"
+            `Quick
+            test_tool_exception_still_publishes_tool_completed
         ] )
     ]
 ;;
