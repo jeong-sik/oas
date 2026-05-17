@@ -8,6 +8,21 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.194.2](https://github.com/jeong-sik/oas/compare/v0.194.1...v0.194.2) (2026-05-17)
+
+
+### Features
+
+* **bench:** TTFT distribution bench + SLO doc (RFC-OAS-020 PR-1b) ([#1625](https://github.com/jeong-sik/oas/issues/1625)) ([2ef4b25](https://github.com/jeong-sik/oas/commit/2ef4b25eade1d4fd6b6292e99842a97c8a78634b))
+* **complete:** add body_timeout_s to non-streaming complete + complete_with_retry ([#1622](https://github.com/jeong-sik/oas/issues/1622)) ([79262f3](https://github.com/jeong-sik/oas/commit/79262f374d70798cc76dc43f1503c5f329dfe204))
+* **llm_provider:** Fd_throttle_hook injection point (RFC-0101 PR-3) ([#1618](https://github.com/jeong-sik/oas/issues/1618)) ([29cbbc5](https://github.com/jeong-sik/oas/commit/29cbbc5b1d1593ba77e9c9a6cccac716051f88c2))
+* **llm_provider:** typed TTFT capture + prefill_ms field (RFC-OAS-020 PR-1a) ([#1620](https://github.com/jeong-sik/oas/issues/1620)) ([37b4a0c](https://github.com/jeong-sik/oas/commit/37b4a0cd2a0303282579641038858f222a115547))
+
+
+### Bug Fixes
+
+* remove mutable anti-patterns — O(n) append, dead mutable, debug printf ([#1619](https://github.com/jeong-sik/oas/issues/1619)) ([5f8e07b](https://github.com/jeong-sik/oas/commit/5f8e07b777285f59c111b1a866166604d5bc4a1a))
+
 ## [0.194.1](https://github.com/jeong-sik/oas/compare/v0.194.0...v0.194.1) (2026-05-17)
 
 
