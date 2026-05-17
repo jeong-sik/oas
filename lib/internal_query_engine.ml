@@ -15,7 +15,7 @@ open Result_syntax
 
 let append_message state message =
   Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
-    state.buffered_messages <- Util.snoc state.buffered_messages message);
+    state.buffered_messages <- message :: state.buffered_messages);
   Eio.Condition.broadcast state.message_cv
 ;;
 
@@ -77,7 +77,7 @@ let connect ~sw ?clock ~mgr ?(options = Sdk_client_types.default_options) () =
 
 let receive_messages state =
   Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
-    let messages = state.buffered_messages in
+    let messages = List.rev state.buffered_messages in
     state.buffered_messages <- [];
     messages)
 ;;
@@ -91,7 +91,7 @@ let wait_blocking state =
     while state.buffered_messages = [] do
       Eio.Condition.await state.message_cv state.message_mu
     done;
-    let messages = state.buffered_messages in
+    let messages = List.rev state.buffered_messages in
     state.buffered_messages <- [];
     messages)
 ;;
@@ -99,7 +99,7 @@ let wait_blocking state =
 let wait_for_messages ?timeout state =
   let drain_if_any () =
     Eio.Mutex.use_rw ~protect:true state.message_mu (fun () ->
-      let messages = state.buffered_messages in
+      let messages = List.rev state.buffered_messages in
       let had_messages = messages <> [] in
       if had_messages then state.buffered_messages <- [];
       if had_messages then Some messages else None)
