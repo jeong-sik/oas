@@ -246,6 +246,21 @@ let test_with_approval () =
     (Option.is_some (Agent.options agent).approval)
 ;;
 
+let test_with_missing_approval_callback_policy () =
+  with_net
+  @@ fun net ->
+  let agent =
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_missing_approval_callback_policy Hooks.Reject_without_callback
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  Alcotest.(check bool)
+    "missing approval callback policy set"
+    true
+    ((Agent.options agent).missing_approval_callback_policy = Hooks.Reject_without_callback)
+;;
+
 (* --- 12. with_tool_retry_policy --- *)
 
 let test_with_tool_retry_policy () =
@@ -1036,6 +1051,10 @@ let () =
         ; Alcotest.test_case "hooks" `Quick test_with_hooks
         ; Alcotest.test_case "tracer" `Quick test_with_tracer
         ; Alcotest.test_case "approval" `Quick test_with_approval
+        ; Alcotest.test_case
+            "missing approval callback policy"
+            `Quick
+            test_with_missing_approval_callback_policy
         ; Alcotest.test_case "tool retry policy" `Quick test_with_tool_retry_policy
         ; Alcotest.test_case "context_reducer" `Quick test_with_context_reducer
         ; Alcotest.test_case "tiered_memory" `Quick test_with_tiered_memory

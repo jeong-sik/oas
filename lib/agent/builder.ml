@@ -40,6 +40,7 @@ type t =
   ; tracer : Tracing.t
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
+  ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
   ; tool_retry_policy : Tool_retry_policy.t option
   ; required_tool_satisfaction : Completion_contract.required_tool_satisfaction
   ; context_reducer : Context_reducer.t option
@@ -114,6 +115,7 @@ let create ~net ~model =
   ; tracer = Tracing.null
   ; raw_trace = None
   ; approval = None
+  ; missing_approval_callback_policy = Hooks.Execute_without_callback
   ; tool_retry_policy = None
   ; required_tool_satisfaction = Completion_contract.any_tool_call_satisfies
   ; context_reducer = None
@@ -202,6 +204,10 @@ let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_approval approval b = { b with approval = Some approval }
+
+let with_missing_approval_callback_policy missing_approval_callback_policy b =
+  { b with missing_approval_callback_policy }
+;;
 
 let with_tool_retry_policy tool_retry_policy b =
   { b with tool_retry_policy = Some tool_retry_policy }
@@ -422,6 +428,7 @@ let build b =
     ; tracer = b.tracer
     ; raw_trace = b.raw_trace
     ; approval = b.approval
+    ; missing_approval_callback_policy = b.missing_approval_callback_policy
     ; tool_retry_policy = b.tool_retry_policy
     ; context_reducer = b.context_reducer
     ; tiered_memory = b.tiered_memory

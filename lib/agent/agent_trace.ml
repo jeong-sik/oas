@@ -92,6 +92,7 @@ let execute_tools_with_trace agent active_run tool_uses =
     ~turn_count:agent.state.turn_count
     ~usage:agent.state.usage
     ~approval:agent.options.approval
+    ~missing_approval_callback_policy:agent.options.missing_approval_callback_policy
     ?correlation_id
     ?run_id
     ?on_tool_execution_started
