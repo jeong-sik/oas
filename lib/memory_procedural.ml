@@ -70,23 +70,14 @@ let procedure_of_json (json : Yojson.Safe.t) : procedure option =
   | Yojson.Safe.Util.Type_error _ | Not_found -> None
 ;;
 
-(* ── String matching helper ─────────────────────────────── *)
-
-let string_contains ~needle haystack =
-  let nlen = String.length needle in
-  let hlen = String.length haystack in
-  if nlen = 0
-  then true
-  else (
-    let rec loop i =
-      if i + nlen > hlen
-      then false
-      else if String.sub haystack i nlen = needle
-      then true
-      else loop (i + 1)
-    in
-    loop 0)
-;;
+(* String matching helper: reuse the canonical [Util.string_contains]
+   instead of carrying a byte-identical local copy.  [provider.ml]
+   already uses the same `let string_contains = Util.string_contains`
+   pattern, so this aligns with the in-library convention.  Removing
+   the local copy avoids the "Scattered Hardcoded Defaults" antipattern
+   (masc-mcp Doc #4 §AI 코드 생성 안티패턴 #1; same pattern caught in
+   PR #16364 for masc-mcp's keeper_unified_metrics.ml). *)
+let string_contains = Util.string_contains
 
 (* ── Operations ─────────────────────────────────────────── *)
 
