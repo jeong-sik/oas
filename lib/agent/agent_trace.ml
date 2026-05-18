@@ -2,6 +2,8 @@ open Types
 open Agent_types
 open Result_syntax
 
+let _log = Log.create ~module_name:"agent_trace" ()
+
 let record_hook_invocation active_run ~hook_name ~decision ?detail () =
   match active_run with
   | None -> ()
@@ -126,7 +128,10 @@ let invoke_on_run_complete agent ~ok =
   | Some cb ->
     (try cb ok with
      | exn ->
-       Printf.eprintf "[WARN] on_run_complete raised: %s\n%!" (Printexc.to_string exn))
+       Log.warn
+         _log
+         "on_run_complete callback raised"
+         [ Log.S ("error", Printexc.to_string exn) ])
 ;;
 
 let with_raw_trace_run agent user_prompt f =
