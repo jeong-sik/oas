@@ -255,6 +255,48 @@ let test_make_tool_results_with_relocation () =
   rm_rf dir
 ;;
 
+let test_make_tool_results_persist_failure_freezes_kept () =
+  let dir = tmp_dir () in
+  let config : Tool_result_store.config =
+    { storage_dir = dir
+    ; session_id = "s1"
+    ; threshold_chars = 100
+    ; preview_chars = 50
+    ; aggregate_budget = 0
+    }
+  in
+  let store = Tool_result_store.create config |> Result.get_ok in
+  let crs = Content_replacement_state.create () in
+  let original = String.make 200 'x' in
+  let mock_results : Agent_tools.tool_execution_result list =
+    [ { tool_use_id = "..."
+      ; tool_name = "read"
+      ; content = original
+      ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
+      }
+    ]
+  in
+  let blocks = Agent_turn.make_tool_results ~relocation:(store, crs) mock_results in
+  (match blocks with
+   | [ Types.ToolResult { tool_use_id; content; _ } ] ->
+     Alcotest.(check string) "id preserved" "..." tool_use_id;
+     Alcotest.(check string) "content kept" original content
+   | _ -> Alcotest.fail "expected one ToolResult");
+  Alcotest.(check bool)
+    "persist failed"
+    false
+    (Tool_result_store.has store ~tool_use_id:"...");
+  Alcotest.(check bool)
+    "failure frozen as kept"
+    true
+    (Content_replacement_state.is_frozen crs "..."
+     && Content_replacement_state.lookup_replacement crs "..." = None);
+  let _ = Tool_result_store.cleanup store in
+  rm_rf dir
+;;
+
 (* ── 4. Compaction + relocation compose ───────────────── *)
 
 let test_compaction_preserves_relocated_previews () =
@@ -585,6 +627,10 @@ let () =
             "relocation integration"
             `Quick
             test_make_tool_results_with_relocation
+        ; Alcotest.test_case
+            "persist failure freezes kept"
+            `Quick
+            test_make_tool_results_persist_failure_freezes_kept
         ] )
     ; ( "compaction_compose"
       , [ Alcotest.test_case

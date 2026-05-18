@@ -9,6 +9,8 @@
 
 open Types
 
+let _log = Log.create ~module_name:"agent_turn" ()
+
 (* ── Fingerprint-based idle detection ─────────────────────────── *)
 
 type tool_call_fingerprint =
@@ -598,6 +600,27 @@ let update_idle_detection ~idle_state ~tool_uses =
     Pass [~max_result_chars:0] to disable. *)
 let default_max_tool_result_chars = 50_000
 
+let record_replacement_or_ignore crs replacement =
+  try Content_replacement_state.record_replacement crs replacement with
+  | Invalid_argument _ -> ()
+;;
+
+let record_kept_or_ignore crs tool_use_id =
+  try Content_replacement_state.record_kept crs tool_use_id with
+  | Invalid_argument _ -> ()
+;;
+
+let warn_tool_result_persist_failed ~phase ~tool_use_id ~content_chars err =
+  Log.warn
+    _log
+    "tool_result_relocation_persist_failed"
+    [ S ("phase", phase)
+    ; S ("tool_use_id", tool_use_id)
+    ; I ("content_chars", content_chars)
+    ; S ("error", Error.to_string err)
+    ]
+;;
+
 (** Process tool results into ToolResult content blocks.
     All entries are valid ToolUse results — non-ToolUse blocks are filtered
     upstream in {!Agent_tools.execute_tools}.
@@ -680,17 +703,21 @@ let make_tool_results
                    ~content:sanitized
                with
                | Ok preview ->
-                 (try
-                    Content_replacement_state.record_replacement
-                      crs
-                      { tool_use_id = result.tool_use_id
-                      ; preview
-                      ; original_chars = String.length sanitized
-                      }
-                  with
-                  | Invalid_argument _ -> ());
+                 record_replacement_or_ignore
+                   crs
+                   { tool_use_id = result.tool_use_id
+                   ; preview
+                   ; original_chars = String.length sanitized
+                   };
                  preview
-               | Error _ -> sanitized
+               | Error err ->
+                 warn_tool_result_persist_failed
+                   ~phase:"threshold"
+                   ~tool_use_id:result.tool_use_id
+                   ~content_chars:(String.length sanitized)
+                   err;
+                 record_kept_or_ignore crs result.tool_use_id;
+                 sanitized
              in
              result.tool_use_id, content, result.is_error, false)
            else
@@ -752,24 +779,21 @@ let make_tool_results
                  Tool_result_store.persist store ~tool_use_id:tid ~content:original
                with
                | Ok preview ->
-                 (try
-                    Content_replacement_state.record_replacement
-                      crs
-                      { tool_use_id = tid
-                      ; preview
-                      ; original_chars = String.length original
-                      }
-                  with
-                  | Invalid_argument _ -> ());
+                 record_replacement_or_ignore
+                   crs
+                   { tool_use_id = tid; preview; original_chars = String.length original };
                  preview
-               | Error _ ->
-                 (try Content_replacement_state.record_kept crs tid with
-                  | Invalid_argument _ -> ());
+               | Error err ->
+                 warn_tool_result_persist_failed
+                   ~phase:"aggregate"
+                   ~tool_use_id:tid
+                   ~content_chars:(String.length original)
+                   err;
+                 record_kept_or_ignore crs tid;
                  content)
              else (
                (* Under budget — record as kept *)
-               (try Content_replacement_state.record_kept crs tid with
-                | Invalid_argument _ -> ());
+               record_kept_or_ignore crs tid;
                content)
            else content
          in
