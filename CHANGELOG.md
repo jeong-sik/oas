@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.196.1](https://github.com/jeong-sik/oas/compare/v0.196.0...v0.196.1) (2026-05-18)
+
+
+### Features
+
+* preserve provider timeout evidence ([#1632](https://github.com/jeong-sik/oas/issues/1632)) ([5001b3b](https://github.com/jeong-sik/oas/commit/5001b3b866fce8a31dc5e6f78a654d8ae6e560e5))
+
 ## [0.196.0](https://github.com/jeong-sik/oas/compare/v0.195.0...v0.196.0) (2026-05-17)
 
 
