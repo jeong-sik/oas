@@ -9,22 +9,26 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** Model info from /v1/models *)
-type model_info =
+(** Model info from /v1/models — re-exported from {!Discovery_parse}
+    so existing [Discovery.model_info] consumers do not need to switch
+    imports. *)
+type model_info = Discovery_parse.model_info =
   { id : string
   ; owned_by : string
   }
 
-(** Server properties from /props *)
-type server_props =
+(** Server properties from /props — re-exported from
+    {!Discovery_parse}. *)
+type server_props = Discovery_parse.server_props =
   { total_slots : int
   ; ctx_size : int
   ; model : string
   ; supports_tools : bool option
   }
 
-(** Slot utilization from /slots *)
-type slot_status =
+(** Slot utilization from /slots — re-exported from
+    {!Discovery_parse}. *)
+type slot_status = Discovery_parse.slot_status =
   { total : int
   ; busy : int
   ; idle : int
