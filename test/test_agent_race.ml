@@ -17,6 +17,22 @@ let make_agent env =
   Agent.create ~net:(Eio.Stdenv.net env) ~tools ()
 ;;
 
+let with_log_capture f =
+  let sink, get_records = Log.collector_sink () in
+  Log.clear_sinks ();
+  Log.set_global_level Log.Info;
+  Log.add_sink sink;
+  Fun.protect
+    ~finally:(fun () ->
+      Log.clear_sinks ();
+      Log.set_global_level Log.Info)
+    (fun () -> f get_records)
+;;
+
+let has_log_message message records =
+  List.exists (fun (record : Log.record) -> String.equal record.message message) records
+;;
+
 (* ── Test: concurrent set_lifecycle from parallel fibers ── *)
 
 let test_concurrent_set_lifecycle () =
@@ -167,6 +183,22 @@ let test_clone_independent_state () =
   Alcotest.(check int) "clone updated" 99 (Agent.state cloned).turn_count
 ;;
 
+let test_invalid_lifecycle_transition_is_structured_log () =
+  with_log_capture
+  @@ fun get_records ->
+  Eio_main.run
+  @@ fun env ->
+  let agent = make_agent env in
+  Agent.set_lifecycle agent Completed;
+  Agent.set_lifecycle agent Running;
+  let snap = Option.get (Agent.lifecycle agent) in
+  Alcotest.(check bool) "terminal lifecycle preserved" true (snap.status = Completed);
+  Alcotest.(check bool)
+    "invalid lifecycle transition logged"
+    true
+    (has_log_message "invalid lifecycle transition" (get_records ()))
+;;
+
 (* ── Runner ───────────────────────────────────────────────── *)
 
 let () =
@@ -192,6 +224,10 @@ let () =
             `Quick
             test_lifecycle_transition_order
         ; Alcotest.test_case "clone independent state" `Quick test_clone_independent_state
+        ; Alcotest.test_case
+            "invalid lifecycle transition uses structured log"
+            `Quick
+            test_invalid_lifecycle_transition_is_structured_log
         ] )
     ]
 ;;
