@@ -49,10 +49,12 @@ type provider_error =
   | NetworkError of
       { provider : string
       ; kind : Http_client.network_error_kind
+      ; timeout_phase : Http_client.timeout_phase option
       ; detail : string
       }
   | Timeout of
       { provider : string
+      ; timeout_phase : Http_client.timeout_phase option
       ; detail : string
       }
   | InvalidRequest of
@@ -101,6 +103,11 @@ let network_error_kind_to_string = function
   | Http_client.Unknown -> "unknown"
 ;;
 
+let timeout_phase_suffix = function
+  | None -> ""
+  | Some phase -> Printf.sprintf " phase=%s" (Http_client.timeout_phase_to_label phase)
+;;
+
 let retry_after_suffix = function
   | None -> ""
   | Some seconds -> Printf.sprintf " (retry_after: %.3fs)" seconds
@@ -147,11 +154,17 @@ let to_string = function
       r.detail
   | NetworkError r ->
     Printf.sprintf
-      "Provider '%s' network error (%s): %s"
+      "Provider '%s' network error (%s%s): %s"
       r.provider
       (network_error_kind_to_string r.kind)
+      (timeout_phase_suffix r.timeout_phase)
       r.detail
-  | Timeout r -> Printf.sprintf "Provider '%s' timeout: %s" r.provider r.detail
+  | Timeout r ->
+    Printf.sprintf
+      "Provider '%s' timeout%s: %s"
+      r.provider
+      (timeout_phase_suffix r.timeout_phase)
+      r.detail
   | InvalidRequest r ->
     Printf.sprintf "Provider '%s' invalid request: %s" r.provider r.reason
   | NotFound r -> Printf.sprintf "Provider '%s' not found: %s" r.provider r.detail
@@ -185,8 +198,9 @@ let of_retry_api_error ?provider err =
   | Retry.NotFound r -> NotFound { provider; detail = r.message }
   | Retry.ContextOverflow r ->
     InvalidRequest { provider; reason = Retry.error_message (Retry.ContextOverflow r) }
-  | Retry.NetworkError r -> NetworkError { provider; kind = r.kind; detail = r.message }
-  | Retry.Timeout r -> Timeout { provider; detail = r.message }
+  | Retry.NetworkError r ->
+    NetworkError { provider; kind = r.kind; timeout_phase = None; detail = r.message }
+  | Retry.Timeout r -> Timeout { provider; timeout_phase = None; detail = r.message }
 ;;
 
 let capacity_scope_of_http = function
@@ -251,7 +265,10 @@ let of_http_error ?provider = function
   | Http_client.HttpError { code; body } ->
     Retry.classify_error ~status:code ~body |> of_retry_api_error ?provider
   | Http_client.NetworkError { message; kind } ->
-    NetworkError { provider = provider_name provider; kind; detail = message }
+    NetworkError
+      { provider = provider_name provider; kind; timeout_phase = None; detail = message }
+  | Http_client.TimeoutError { message; phase } ->
+    Timeout { provider = provider_name provider; timeout_phase = Some phase; detail = message }
   | Http_client.AcceptRejected { reason } ->
     InvalidRequest
       { provider = provider_name provider; reason = "accept rejected: " ^ reason }
@@ -270,4 +287,24 @@ let of_http_error ?provider = function
     ProviderTerminal { provider = provider_name provider; reason; detail = message }
   | Http_client.ProviderFailure { kind; message } ->
     of_provider_failure ?provider kind message
+;;
+
+let is_retryable = function
+  | RateLimit _ -> true
+  | CapacityExhausted _ -> true
+  | ServerError r -> r.transient
+  | NetworkError { kind = Http_client.Tls_error; _ } -> false
+  | NetworkError { kind = Http_client.Local_resource_exhaustion; _ } -> false
+  | NetworkError _ -> true
+  | Timeout _ -> true
+  | MissingApiKey _
+  | InvalidConfig _
+  | ParseError _
+  | UnknownVariant _
+  | ProviderUnavailable _
+  | HardQuota _
+  | AuthError _
+  | InvalidRequest _
+  | NotFound _
+  | ProviderTerminal _ -> false
 ;;

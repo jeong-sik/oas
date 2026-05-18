@@ -83,9 +83,9 @@ val complete
     on the non-streaming [Http_client.post_sync] path inside [complete].
     Requires [clock]; without one the wrapper is skipped and behaviour
     matches versions < 0.195.0. On expiry the result is
-    [Error (NetworkError { kind = Timeout; _ })] with a message that
-    identifies the body deadline so cascade/retry treats it as retryable
-    while operators retain attribution.
+    [Error (TimeoutError { phase = Non_streaming_body; _ })] with a
+    message that identifies the body deadline so cascade/retry treats it
+    as retryable while operators retain attribution.
 
     Mirror of {!complete_stream}'s [?body_timeout_s], adapted for the
     sync (non-streaming) path. Distinct from {!complete_stream}'s
@@ -155,9 +155,14 @@ include module type of Complete_stream_acc
     (see {!Http_client.read_sse}). The deadline resets after each
     successful line, so this does not cap total stream duration.
     SSE keepalive comments reset the deadline like any other line.
-    A stalled endpoint surfaces as [NetworkError { kind = Timeout; _ }]
-    which cascade/retry layers treat as retryable. Non-HTTP transports
-    (CLI subprocess) ignore [stream_idle_timeout_s]. *)
+    A stalled endpoint surfaces as
+    [TimeoutError { phase = Stream_idle state; _ }], where [state]
+    records whether the stream was waiting for the first event, answer
+    deltas, thinking deltas, tool-call deltas, heartbeat/substrate, or
+    completion. Cascade/retry layers treat this as retryable while
+    downstream policy can distinguish streaming/thinking idleness from
+    total-call deadlines. Non-HTTP transports (CLI subprocess) ignore
+    [stream_idle_timeout_s]. *)
 val complete_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -181,7 +186,7 @@ val complete_stream
     the deadline between successful lines and cannot interrupt a
     single bulk read).  Requires [clock]; without one the wrapper is
     skipped and behaviour matches versions < 0.181.0.  On expiry the
-    result is [Error (NetworkError { kind = Timeout; _ })] with a
+    result is [Error (TimeoutError { phase = Stream_body; _ })] with a
     message that identifies the body deadline (vs inter-line idle), so
     cascade/retry treats it as retryable while operators retain
     attribution.  Non-HTTP transports (CLI subprocess) ignore

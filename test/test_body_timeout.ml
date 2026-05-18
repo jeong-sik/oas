@@ -1,9 +1,7 @@
 (** Unit tests for [body_timeout_s] option (since 0.181.0).
 
-    Validates the field flow plus the message-prefix contract that
-    [Complete.complete_stream_http]'s outer match relies on to promote
-    a body-deadline expiry to [NetworkError {kind = Timeout}] rather
-    than the generic [kind = Unknown] used for SSE parse errors. *)
+    Validates the field flow plus the operator-facing message contract
+    for [TimeoutError { phase = Stream_body; _ }]. *)
 
 open Agent_sdk
 
@@ -37,12 +35,9 @@ let test_options_record_update () =
 
 (* ── Message-prefix contract ────────────────────────────────────────
 
-   [Complete.complete_stream_http]'s outer match recognises the body
-   deadline by string prefix. If the producer-side message ever drifts
-   from this prefix the consumer-side [Ok (Error msg)] handler falls
-   through to [NetworkError {kind = Unknown}] — silently downgrading a
-   retryable [Timeout] to a non-retryable [Unknown]. This test pins
-   the contract so future edits to either side fail loudly. *)
+   The timeout is now typed by [TimeoutError.phase], but the message is
+   still pinned because operators and logs use it to distinguish total
+   body deadlines from inter-line stream idle deadlines. *)
 
 let body_timeout_message timeout_s =
   Printf.sprintf

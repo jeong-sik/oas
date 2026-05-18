@@ -157,6 +157,55 @@ let test_sdk_error_of_http_error_classifies () =
   ()
 ;;
 
+let test_sdk_error_preserves_streaming_timeout_phase () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let timeout_error =
+    Llm_provider.Http_client.TimeoutError
+      { message = "stream stalled"
+      ; phase =
+          Llm_provider.Http_client.Stream_idle Llm_provider.Http_client.Streaming_thinking
+      }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync = (fun _ -> { response = Error timeout_error; latency_ms = None })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _ -> Error timeout_error)
+    }
+  in
+  let provider =
+    Some
+      { Provider.provider = Provider.Custom_registered { name = "claude_code" }
+      ; model_id = "auto"
+      ; api_key_env = ""
+      }
+  in
+  let options = { Agent_types.default_options with transport = Some transport; provider } in
+  let agent =
+    Agent.create
+      ~net
+      ~config:{ Types.default_config with name = "timeout-phase-test"; max_turns = 1 }
+      ~options
+      ()
+  in
+  Eio.Switch.run
+  @@ fun sw ->
+  let err =
+    match Agent.run ~sw agent "ping" with
+    | Error err -> err
+    | Ok _ -> Alcotest.fail "expected provider timeout"
+  in
+  match err with
+  | Error.Provider
+      (Llm_provider.Error.Timeout { timeout_phase = Some phase; detail; _ }) ->
+    Alcotest.(check string)
+      "phase"
+      "stream_idle:streaming_thinking"
+      (Llm_provider.Http_client.timeout_phase_to_label phase);
+    Alcotest.(check string) "detail" "stream stalled" detail
+  | _ -> Alcotest.failf "expected provider timeout, got %s" (Error.to_string err)
+;;
+
 let () =
   Alcotest.run
     "Pipeline Metrics (PR-O2)"
@@ -169,6 +218,10 @@ let () =
             "sdk_error_of_http_error compiles"
             `Quick
             test_sdk_error_of_http_error_classifies
+        ; Alcotest.test_case
+            "sdk_error preserves streaming timeout phase"
+            `Quick
+            test_sdk_error_preserves_streaming_timeout_phase
         ; Alcotest.test_case
             "stage route forwards trace context"
             `Quick

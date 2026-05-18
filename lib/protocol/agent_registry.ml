@@ -88,6 +88,7 @@ let fetch_remote_card ~sw ~net url =
     | Llm_provider.Http_client.HttpError { code; body } ->
       Printf.sprintf "HTTP %d: %s" code body
     | NetworkError { message; _ } -> message
+    | TimeoutError { message; _ } -> message
     | AcceptRejected { reason } -> "Response rejected: " ^ reason
     | CliTransportRequired { kind } -> "CLI transport required: " ^ kind
     | ProviderTerminal { message; _ } -> message

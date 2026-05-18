@@ -14,6 +14,9 @@ module Retry = Llm_provider.Retry
 (** API errors — alias for {!Retry.api_error}. *)
 type api_error = Retry.api_error
 
+(** Provider/runtime errors — alias for {!Llm_provider.Error.provider_error}. *)
+type provider_error = Llm_provider.Error.provider_error
+
 (** Agent runtime errors. *)
 type agent_error =
   | MaxTurnsExceeded of
@@ -131,6 +134,7 @@ type a2a_error =
 (** Top-level SDK error. *)
 type sdk_error =
   | Api of api_error
+  | Provider of provider_error
   | Agent of agent_error
   | Mcp of mcp_error
   | Config of config_error
@@ -234,6 +238,7 @@ let a2a_error_to_string = function
 
 let to_string = function
   | Api err -> Retry.error_message err
+  | Provider err -> Llm_provider.Error.to_string err
   | Agent err -> agent_error_to_string err
   | Mcp err -> mcp_error_to_string err
   | Config err -> config_error_to_string err
@@ -248,6 +253,7 @@ let to_string = function
 
 let is_retryable = function
   | Api err -> Retry.is_retryable err
+  | Provider err -> Llm_provider.Error.is_retryable err
   | Mcp (ServerStartFailed _) -> false
   | Mcp _ -> true
   | Agent _ | Config _ | Serialization _ | Io _ | Orchestration _ | A2a _ | Internal _ ->

@@ -39,8 +39,8 @@ type cascade_result =
       }
 
 let attempt_timeout_error ~attempt_index ~model_id ~provider_key ~timeout_s =
-  Http_client.NetworkError
-    { kind = Http_client.Timeout
+  Http_client.TimeoutError
+    { phase = Http_client.Provider_step
     ; message =
         Printf.sprintf
           "cascade provider attempt timed out phase=provider_step attempt_index=%d \
@@ -529,11 +529,13 @@ let is_hard_quota_http_error = function
 let network_error_stops_cascade = function
   | Http_client.NetworkError
       { kind = Http_client.Tls_error | Http_client.Local_resource_exhaustion; _ } -> true
+  | Http_client.TimeoutError _ -> false
   | _ -> false
 ;;
 
 let provider_failure_counts_for_health = function
   | Http_client.NetworkError { kind = Http_client.Local_resource_exhaustion; _ } -> false
+  | Http_client.TimeoutError _ -> true
   | _ -> true
 ;;
 

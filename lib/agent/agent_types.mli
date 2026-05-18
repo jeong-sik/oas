@@ -51,8 +51,9 @@ type options =
         compatible / Gemini / GLM). The deadline resets after each
         successful line, so this caps inter-chunk silence — not total
         stream duration. A stalled endpoint surfaces as
-        [NetworkError { kind = Timeout; _ }] which the cascade/retry
-        layer treats as retryable. CLI transports honour the parallel
+        [TimeoutError { phase = Stream_idle state; _ }], preserving
+        whether the stream was waiting for answer/thinking/tool-call
+        progress. CLI transports honour the parallel
         [stdout_idle_timeout_s] knob via the transport's own config.
         @since 0.176.0 *)
   ; body_timeout_s : float option
@@ -66,7 +67,7 @@ type options =
         deadline alone. Requires [clock] to be supplied; without a
         clock the wrapper is skipped and behaviour matches earlier
         versions. A timeout surfaces as
-        [NetworkError { kind = Timeout; _ }] which the cascade/retry
+        [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
         layer treats as retryable.
         @since 0.181.0 *)
   ; max_idle_turns : int

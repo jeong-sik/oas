@@ -35,6 +35,25 @@ let test_agent_max_turns () =
   check string "max turns" "Max turns exceeded (turn 10, limit 10)" (Error.to_string err)
 ;;
 
+let test_provider_timeout_phase () =
+  let err =
+    Error.Provider
+      (Llm_provider.Error.Timeout
+         { provider = "openai"
+         ; timeout_phase =
+             Some
+               (Llm_provider.Http_client.Stream_idle
+                  Llm_provider.Http_client.Streaming_thinking)
+         ; detail = "stream stalled"
+         })
+  in
+  check
+    string
+    "provider timeout"
+    "Provider 'openai' timeout phase=stream_idle:streaming_thinking: stream stalled"
+    (Error.to_string err)
+;;
+
 let test_agent_token_budget () =
   let err =
     Error.Agent (TokenBudgetExceeded { kind = "Input"; used = 1500; limit = 1000 })
@@ -184,6 +203,21 @@ let test_retryable_agent () =
   check bool "agent error not retryable" false (Error.is_retryable err)
 ;;
 
+let test_retryable_provider_timeout () =
+  let err =
+    Error.Provider
+      (Llm_provider.Error.Timeout
+         { provider = "openai"
+         ; timeout_phase =
+             Some
+               (Llm_provider.Http_client.Stream_idle
+                  Llm_provider.Http_client.Streaming_answer)
+         ; detail = "stream stalled"
+         })
+  in
+  check bool "provider timeout is retryable" true (Error.is_retryable err)
+;;
+
 let test_retryable_mcp_init () =
   let err = Error.Mcp (InitializeFailed { detail = "" }) in
   check bool "mcp init is retryable" true (Error.is_retryable err)
@@ -224,6 +258,7 @@ let () =
     [ ( "to_string"
       , [ test_case "Api RateLimited" `Quick test_api_rate_limited
         ; test_case "Api AuthError" `Quick test_api_auth_error
+        ; test_case "Provider timeout phase" `Quick test_provider_timeout_phase
         ; test_case "Agent MaxTurnsExceeded" `Quick test_agent_max_turns
         ; test_case "Agent TokenBudgetExceeded" `Quick test_agent_token_budget
         ; test_case
@@ -253,6 +288,7 @@ let () =
       , [ test_case "Api RateLimited" `Quick test_retryable_api_rate_limited
         ; test_case "Api AuthError" `Quick test_retryable_api_auth
         ; test_case "Api ServerError" `Quick test_retryable_api_server_error
+        ; test_case "Provider timeout" `Quick test_retryable_provider_timeout
         ; test_case "Agent" `Quick test_retryable_agent
         ; test_case "Mcp InitializeFailed" `Quick test_retryable_mcp_init
         ; test_case "Mcp ServerStartFailed" `Quick test_retryable_mcp_start

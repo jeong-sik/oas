@@ -21,6 +21,29 @@ type network_error_kind =
   | End_of_file
   | Unknown
 
+type stream_idle_state =
+  | Awaiting_first_event
+  | Awaiting_first_delta
+  | Streaming_answer
+  | Streaming_thinking
+  | Streaming_tool_call
+  | Streaming_heartbeat
+  | Streaming_substrate
+  | Streaming_done
+  | Streaming_unknown
+[@@deriving yojson, show]
+
+type timeout_phase =
+  | Http_operation
+  | Non_streaming_body
+  | Stream_body
+  | Stream_idle of stream_idle_state
+  | Provider_step
+  | Cli_stdout_idle
+  | Caller_budget
+  | Unknown_timeout
+[@@deriving yojson, show]
+
 (* Provider-internal terminal condition reported via structured exit
    (see .mli for the rationale and the @since note).  Adding a new
    variant rather than overloading [NetworkError] keeps cascades from
@@ -63,6 +86,10 @@ type http_error =
   | NetworkError of
       { message : string
       ; kind : network_error_kind
+      }
+  | TimeoutError of
+      { message : string
+      ; phase : timeout_phase
       }
   | AcceptRejected of { reason : string }
   (* Signals that a provider kind requires a non-HTTP transport (e.g. a
@@ -120,6 +147,30 @@ let provider_failure_kind_to_string = function
 let provider_failure_to_string ~kind ~message =
   let name = provider_failure_kind_to_string kind in
   if String.trim message = "" then name else Printf.sprintf "%s: %s" name message
+;;
+
+let stream_idle_state_to_label = function
+  | Awaiting_first_event -> "awaiting_first_event"
+  | Awaiting_first_delta -> "awaiting_first_delta"
+  | Streaming_answer -> "streaming_answer"
+  | Streaming_thinking -> "streaming_thinking"
+  | Streaming_tool_call -> "streaming_tool_call"
+  | Streaming_heartbeat -> "streaming_heartbeat"
+  | Streaming_substrate -> "streaming_substrate"
+  | Streaming_done -> "streaming_done"
+  | Streaming_unknown -> "streaming_unknown"
+;;
+
+let timeout_phase_to_label = function
+  | Http_operation -> "http_operation"
+  | Non_streaming_body -> "non_streaming_body"
+  | Stream_body -> "stream_body"
+  | Stream_idle state ->
+    Printf.sprintf "stream_idle:%s" (stream_idle_state_to_label state)
+  | Provider_step -> "provider_step"
+  | Cli_stdout_idle -> "cli_stdout_idle"
+  | Caller_budget -> "caller_budget"
+  | Unknown_timeout -> "unknown_timeout"
 ;;
 
 (** Default wall-clock timeout applied to synchronous HTTP operations
@@ -225,8 +276,10 @@ let catch_network f =
   | End_of_file -> Error (NetworkError { message = "End_of_file"; kind = End_of_file })
   | Eio.Time.Timeout ->
     Error
-      (NetworkError
-         { message = "HTTP operation exceeded wall-clock timeout"; kind = Timeout })
+      (TimeoutError
+         { message = "HTTP operation exceeded wall-clock timeout"
+         ; phase = Http_operation
+         })
   | Unix.Unix_error (code, _, _) as exn ->
     Error
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
@@ -243,6 +296,7 @@ let catch_network f =
     the bottleneck, not the remote server. *)
 let is_local_resource_exhaustion = function
   | NetworkError { kind = Local_resource_exhaustion; _ } -> true
+  | TimeoutError _ -> false
   | AcceptRejected _ -> false
   | HttpError _ -> false
   | CliTransportRequired _ -> false

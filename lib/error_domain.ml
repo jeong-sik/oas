@@ -79,9 +79,32 @@ let of_api_error (err : Retry.api_error) : provider_error =
   | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
 ;;
 
+let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error =
+  match err with
+  | Llm_provider.Error.RateLimit r -> `Rate_limited r.retry_after
+  | Llm_provider.Error.HardQuota r -> `Rate_limited r.retry_after
+  | Llm_provider.Error.AuthError r -> `Auth_error r.detail
+  | Llm_provider.Error.ServerError r -> `Server_error (r.code, r.detail)
+  | Llm_provider.Error.NetworkError r -> `Network_error r.detail
+  | Llm_provider.Error.Timeout r -> `Provider_timeout r.detail
+  | Llm_provider.Error.CapacityExhausted _ -> `Overloaded
+  | Llm_provider.Error.InvalidRequest r -> `Invalid_request r.reason
+  | Llm_provider.Error.NotFound r -> `Not_found r.detail
+  | Llm_provider.Error.MissingApiKey r ->
+    `Auth_error (Printf.sprintf "missing API key: %s" r.var_name)
+  | Llm_provider.Error.InvalidConfig r -> `Invalid_request r.detail
+  | Llm_provider.Error.ParseError r -> `Invalid_request r.detail
+  | Llm_provider.Error.UnknownVariant r ->
+    `Invalid_request (Printf.sprintf "unknown %s variant: %s" r.type_name r.value)
+  | Llm_provider.Error.ProviderUnavailable r -> `Network_error r.detail
+  | Llm_provider.Error.ProviderTerminal r ->
+    `Invalid_request (Printf.sprintf "%s: %s" r.reason r.detail)
+;;
+
 let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   match err with
   | Error.Api err -> (of_api_error err :> sdk_error_poly)
+  | Error.Provider err -> (of_provider_error err :> sdk_error_poly)
   | Error.Agent (MaxTurnsExceeded r) -> `Max_turns_exceeded (r.turns, r.limit)
   | Error.Agent (TokenBudgetExceeded r) -> `Token_budget_exceeded (r.used, r.limit)
   | Error.Agent (CostBudgetExceeded _) -> `Cost_budget_exceeded

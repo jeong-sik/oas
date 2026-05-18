@@ -132,16 +132,18 @@ val with_max_execution_time : float -> t -> t
     (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
-    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
-    treats as retryable. @since 0.176.0 *)
+    [TimeoutError { phase = Stream_idle state; _ }], preserving whether
+    the stream was waiting for answer/thinking/tool-call progress.
+    @since 0.176.0 *)
 val with_stream_idle_timeout : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
     (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
-    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
-    treats as retryable. @since 0.176.0 *)
+    [TimeoutError { phase = Stream_idle state; _ }], preserving whether
+    the stream was waiting for answer/thinking/tool-call progress.
+    @since 0.176.0 *)
 val with_body_timeout : float -> t -> t
 (** Set the total deadline applied to streaming HTTP body consumption.
     Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
@@ -149,8 +151,8 @@ val with_body_timeout : float -> t -> t
     Catches the case where a single bulk read hangs without producing
     line breaks. Requires a clock to be provided to the underlying
     request; without one the wrapper is skipped. A timeout surfaces as
-    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
-    treats as retryable. @since 0.181.0 *)
+    [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
+    layer treats as retryable. @since 0.181.0 *)
 
 (** Set the total deadline applied to streaming HTTP body consumption.
     Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
@@ -158,8 +160,8 @@ val with_body_timeout : float -> t -> t
     Catches the case where a single bulk read hangs without producing
     line breaks. Requires a clock to be provided to the underlying
     request; without one the wrapper is skipped. A timeout surfaces as
-    [NetworkError { kind = Timeout; _ }] which the cascade/retry layer
-    treats as retryable. @since 0.181.0 *)
+    [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
+    layer treats as retryable. @since 0.181.0 *)
 val with_max_idle_turns : int -> t -> t
 
 val with_idle_final_warning_at : int -> t -> t

@@ -1114,8 +1114,12 @@ let test_attempt_timeout_fast_paths_without_retrying_same_step () =
     (elapsed_s < 1.0);
   match result with
   | Complete_cascade.All_failed
-      { errors = [ (config, Http_client.NetworkError { kind; message }) ]; _ } ->
-    check bool "timeout classified" true (kind = Http_client.Timeout);
+      { errors = [ (config, Http_client.TimeoutError { phase; message }) ]; _ } ->
+    check
+      string
+      "timeout phase"
+      "provider_step"
+      (Http_client.timeout_phase_to_label phase);
     check bool "phase recorded" true (contains message "phase=provider_step");
     check bool "attempt index recorded" true (contains message "attempt_index=0");
     check

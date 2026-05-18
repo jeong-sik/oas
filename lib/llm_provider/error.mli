@@ -49,10 +49,12 @@ type provider_error =
   | NetworkError of
       { provider : string
       ; kind : Http_client.network_error_kind
+      ; timeout_phase : Http_client.timeout_phase option
       ; detail : string
       }
   | Timeout of
       { provider : string
+      ; timeout_phase : Http_client.timeout_phase option
       ; detail : string
       }
   | InvalidRequest of
@@ -77,6 +79,7 @@ and capacity_scope =
   | CapacityUnknown
 
 val to_string : provider_error -> string
+val is_retryable : provider_error -> bool
 val capacity_scope_to_string : capacity_scope -> string
 val of_retry_api_error : ?provider:string -> Retry.api_error -> provider_error
 val of_http_error : ?provider:string -> Http_client.http_error -> provider_error
