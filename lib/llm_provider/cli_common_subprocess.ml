@@ -209,13 +209,13 @@ let run_core
     then (
       let timeout_s = Option.value stdout_idle_timeout_s ~default:0.0 in
       Error
-        (Http_client.NetworkError
+        (Http_client.TimeoutError
            { message =
                Printf.sprintf
                  "%s produced no stdout for %.1fs; SIGINT delivered"
                  name
                  timeout_s
-           ; kind = Timeout
+           ; phase = Http_client.Cli_stdout_idle
            }))
     else (
       match status with
@@ -389,7 +389,7 @@ let%test "run_collect: stdout_idle_timeout fires when subprocess produces nothin
       ~on_stderr_line:(fun _ -> ())
       [ "sleep"; "5" ]
   with
-  | Error (Http_client.NetworkError { kind = Timeout; _ }) -> true
+  | Error (Http_client.TimeoutError { phase = Http_client.Cli_stdout_idle; _ }) -> true
   | _ -> false
 ;;
 

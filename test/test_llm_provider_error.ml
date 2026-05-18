@@ -117,7 +117,11 @@ let test_network_error () =
     "Provider 'local' network error (dns_failure): lookup failed"
     (Error.to_string
        (Error.NetworkError
-          { provider = "local"; kind = Http_client.Dns_failure; detail = "lookup failed" }))
+          { provider = "local"
+          ; kind = Http_client.Dns_failure
+          ; timeout_phase = None
+          ; detail = "lookup failed"
+          }))
 ;;
 
 let test_timeout () =
@@ -126,7 +130,21 @@ let test_timeout () =
     "Timeout format"
     "Provider 'gemini' timeout: request exceeded budget"
     (Error.to_string
-       (Error.Timeout { provider = "gemini"; detail = "request exceeded budget" }))
+       (Error.Timeout
+          { provider = "gemini"; timeout_phase = None; detail = "request exceeded budget" }))
+;;
+
+let test_timeout_phase () =
+  check
+    string
+    "Timeout phase format"
+    "Provider 'openai' timeout phase=stream_idle:streaming_thinking: stalled"
+    (Error.to_string
+       (Error.Timeout
+          { provider = "openai"
+          ; timeout_phase = Some (Http_client.Stream_idle Http_client.Streaming_thinking)
+          ; detail = "stalled"
+          }))
 ;;
 
 let test_invalid_request () =
@@ -274,11 +292,33 @@ let test_http_network_error_mapping () =
       (Http_client.NetworkError { message = "read timed out"; kind = Http_client.Timeout })
   in
   match err with
-  | Error.NetworkError { provider; kind; detail } ->
+  | Error.NetworkError { provider; kind; timeout_phase; detail } ->
     check string "provider" "local" provider;
     check bool "kind" true (kind = Http_client.Timeout);
+    check (option string) "timeout phase" None (Option.map Http_client.timeout_phase_to_label timeout_phase);
     check string "detail" "read timed out" detail
   | _ -> fail "expected NetworkError"
+;;
+
+let test_http_timeout_error_mapping () =
+  let err =
+    Error.of_http_error
+      ~provider:"openai"
+      (Http_client.TimeoutError
+         { message = "stream stalled"
+         ; phase = Http_client.Stream_idle Http_client.Streaming_thinking
+         })
+  in
+  match err with
+  | Error.Timeout { provider; timeout_phase; detail } ->
+    check string "provider" "openai" provider;
+    check
+      (option string)
+      "phase"
+      (Some "stream_idle:streaming_thinking")
+      (Option.map Http_client.timeout_phase_to_label timeout_phase);
+    check string "detail" "stream stalled" detail
+  | _ -> fail "expected Timeout"
 ;;
 
 let test_cli_transport_required_mapping () =
@@ -308,6 +348,7 @@ let () =
         ; test_case "ServerError" `Quick test_server_error
         ; test_case "NetworkError" `Quick test_network_error
         ; test_case "Timeout" `Quick test_timeout
+        ; test_case "Timeout phase" `Quick test_timeout_phase
         ; test_case "InvalidRequest" `Quick test_invalid_request
         ; test_case "NotFound" `Quick test_not_found
         ; test_case "ProviderTerminal" `Quick test_provider_terminal
@@ -323,6 +364,7 @@ let () =
         ; test_case "HTTP server error" `Quick test_http_server_error_mapping
         ; test_case "HTTP terminal" `Quick test_http_terminal_mapping
         ; test_case "HTTP network error" `Quick test_http_network_error_mapping
+        ; test_case "HTTP timeout error" `Quick test_http_timeout_error_mapping
         ; test_case "CLI transport required" `Quick test_cli_transport_required_mapping
         ] )
     ]

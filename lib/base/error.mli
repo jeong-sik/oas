@@ -14,6 +14,9 @@ module Retry = Llm_provider.Retry
 (** API errors — same type as {!Retry.api_error}. *)
 type api_error = Retry.api_error
 
+(** Provider/runtime errors — same type as {!Llm_provider.Error.provider_error}. *)
+type provider_error = Llm_provider.Error.provider_error
+
 type agent_error =
   | MaxTurnsExceeded of
       { turns : int
@@ -129,6 +132,7 @@ type a2a_error =
 
 type sdk_error =
   | Api of api_error
+  | Provider of provider_error
   | Agent of agent_error
   | Mcp of mcp_error
   | Config of config_error

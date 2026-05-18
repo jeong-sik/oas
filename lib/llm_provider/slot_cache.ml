@@ -27,6 +27,13 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
     Error (Printf.sprintf "slot %s rejected: %s" action reason)
   | Error (Http_client.NetworkError { message; _ }) ->
     Error (Printf.sprintf "slot %s network error: %s" action message)
+  | Error (Http_client.TimeoutError { message; phase }) ->
+    Error
+      (Printf.sprintf
+         "slot %s timeout (%s): %s"
+         action
+         (Http_client.timeout_phase_to_label phase)
+         message)
   | Error (Http_client.CliTransportRequired { kind }) ->
     Error (Printf.sprintf "slot %s: CLI transport required for %s" action kind)
   | Error (Http_client.ProviderTerminal { message; _ }) ->

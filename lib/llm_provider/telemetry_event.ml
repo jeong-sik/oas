@@ -8,6 +8,13 @@
 type timeout_type =
   | No_response
   | Ttft_exceeded
+  | Non_streaming_body
+  | Stream_body
+  | Stream_idle of Http_client.stream_idle_state
+  | Provider_step
+  | Cli_stdout_idle
+  | Caller_budget
+  | Unknown_timeout
 [@@deriving yojson, show]
 
 (* RFC-OAS-019 §4.1 — typed kind breakdown for [Streaming_summary].

@@ -14,6 +14,7 @@ let retry_error_of_http_error = function
   | Http_client.NetworkError { message; kind = Http_client.Timeout } ->
     Retry.Timeout { message }
   | Http_client.NetworkError { message; kind } -> Retry.NetworkError { message; kind }
+  | Http_client.TimeoutError { message; _ } -> Retry.Timeout { message }
   | Http_client.AcceptRejected { reason } ->
     Retry.InvalidRequest { message = "Response rejected: " ^ reason }
   | Http_client.CliTransportRequired { kind } ->

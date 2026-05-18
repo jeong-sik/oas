@@ -23,6 +23,41 @@ type network_error_kind =
   | End_of_file (** Peer closed the connection unexpectedly. *)
   | Unknown (** Unclassified network error. *)
 
+(** Last observed streaming state when an inter-line idle deadline fired.
+
+    This is deliberately transport-generic.  Provider-specific parsers
+    translate chunks into OAS SSE events first; the timeout evidence only
+    records the broad activity the stream was in when progress stopped. *)
+type stream_idle_state =
+  | Awaiting_first_event
+  | Awaiting_first_delta
+  | Streaming_answer
+  | Streaming_thinking
+  | Streaming_tool_call
+  | Streaming_heartbeat
+  | Streaming_substrate
+  | Streaming_done
+  | Streaming_unknown
+[@@deriving yojson, show]
+
+(** Typed timeout source.
+
+    [NetworkError { kind = Timeout; _ }] still exists for low-level OS or
+    legacy timeouts.  New call-site-owned deadlines should surface as
+    {!TimeoutError} with one of these phases so downstream policy can
+    distinguish streaming idleness, thinking idleness, total body budget,
+    cascade attempt budget, CLI stdout idleness, and generic caller budgets. *)
+type timeout_phase =
+  | Http_operation
+  | Non_streaming_body
+  | Stream_body
+  | Stream_idle of stream_idle_state
+  | Provider_step
+  | Cli_stdout_idle
+  | Caller_budget
+  | Unknown_timeout
+[@@deriving yojson, show]
+
 (** Provider-internal terminal condition reported via structured exit.
 
     Distinct from {!network_error_kind}: the subprocess/API ran to
@@ -91,6 +126,10 @@ type http_error =
       { message : string
       ; kind : network_error_kind
       }
+  | TimeoutError of
+      { message : string
+      ; phase : timeout_phase
+      }
   | AcceptRejected of { reason : string }
   | CliTransportRequired of { kind : string }
   (** Provider kind requires a non-HTTP transport (CLI subprocess)
@@ -119,6 +158,8 @@ type http_error =
 
 val provider_failure_kind_to_string : provider_failure_kind -> string
 val provider_failure_to_string : kind:provider_failure_kind -> message:string -> string
+val stream_idle_state_to_label : stream_idle_state -> string
+val timeout_phase_to_label : timeout_phase -> string
 
 (** Default wall-clock timeout (seconds) applied to synchronous HTTP
     operations when a clock is supplied.  Streaming variants use this
@@ -130,9 +171,9 @@ val default_http_timeout_s : float
 
     When [clock] is supplied the entire operation (connect + response
     + body read) is bounded by [timeout_s] (default
-    {!default_http_timeout_s}); a timeout surfaces as
-    [NetworkError { kind = Timeout; _ }] which is classified as
-    retryable by {!Retry.is_retryable}. *)
+    {!default_http_timeout_s}); a timeout owned by this wrapper
+    surfaces as [TimeoutError { phase = Http_operation; _ }] which is
+    classified as retryable by {!Retry.is_retryable}. *)
 val get_sync
   :  ?clock:_ Eio.Time.clock
   -> ?timeout_s:float
@@ -147,8 +188,9 @@ val get_sync
     Returns [(status_code, body_string)] on success.
 
     When [clock] is supplied the entire operation is bounded by
-    [timeout_s] (default {!default_http_timeout_s}); a timeout surfaces
-    as [NetworkError { kind = Timeout; _ }]. *)
+    [timeout_s] (default {!default_http_timeout_s}); a timeout owned by
+    this wrapper surfaces as
+    [TimeoutError { phase = Http_operation; _ }]. *)
 val post_sync
   :  ?clock:_ Eio.Time.clock
   -> ?timeout_s:float
@@ -212,9 +254,9 @@ val with_post_stream
     the W3C EventSource spec) are skipped inside the same timeout
     window — they do NOT reset the deadline, so a stream of pure
     keepalives still trips [idle_timeout]. Wrapped by
-    {!with_post_stream} the timeout surfaces as
-    [NetworkError { kind = Timeout; _ }], which
-    {!Retry.is_retryable} treats as retryable. *)
+    {!with_post_stream} the timeout should be caught by the caller and
+    surfaced as [TimeoutError { phase = Stream_idle state; _ }] so
+    downstream policy can see which stream state stalled. *)
 val read_sse
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
@@ -230,10 +272,10 @@ val read_sse
     When both [clock] and [idle_timeout] are supplied, raises
     [Eio.Time.Timeout] if no line arrives within [idle_timeout]
     seconds. The deadline resets after each successful line, so this
-    bounds inter-line idle — not total stream duration. Wrapped by
-    {!with_post_stream} the timeout surfaces as
-    [NetworkError { kind = Timeout; _ }], which {!Retry.is_retryable}
-    treats as retryable. *)
+    bounds inter-line idle — not total stream duration. The raised
+    timeout should be caught by the caller and surfaced as
+    [TimeoutError { phase = Stream_idle state; _ }] so downstream
+    policy can see which stream state stalled. *)
 val read_ndjson
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float

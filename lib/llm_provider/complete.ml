@@ -665,23 +665,23 @@ let complete_http
              intermediate lines to count, so [body_timeout_s] is the only
              deadline available on the non-streaming path.
            - No silent failure: on expiry we return a structured
-             [NetworkError { kind = Timeout }] whose message identifies the
-             body deadline, so cascade/retry layers treat it as retryable
-             with operator-visible attribution. *)
+             [TimeoutError { phase = Non_streaming_body }] whose message
+             identifies the body deadline, so cascade/retry layers treat it
+             as retryable with operator-visible attribution. *)
         let post_response =
           match clock, body_timeout_s with
           | Some clk, Some timeout_s ->
             (try Eio.Time.with_timeout_exn clk timeout_s post_sync_call with
              | Eio.Time.Timeout ->
                Error
-                 (Http_client.NetworkError
+                 (Http_client.TimeoutError
                     { message =
                         Printf.sprintf
                           "body_timeout_s deadline exceeded after %.1fs \
                            (Complete.complete non-streaming path; total HTTP \
                            round-trip cap, mirrors complete_stream contract)"
                           timeout_s
-                    ; kind = Timeout
+                    ; phase = Http_client.Non_streaming_body
                     }))
           | _, _ -> post_sync_call ()
         in
@@ -1068,6 +1068,7 @@ let complete
             | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
             | Http_client.AcceptRejected { reason } -> reason
             | Http_client.NetworkError { message; _ } -> message
+            | Http_client.TimeoutError { message; _ } -> message
             | Http_client.CliTransportRequired { kind } ->
               Printf.sprintf "CLI transport required for %s but none injected" kind
             | Http_client.ProviderTerminal { message; _ } -> message
@@ -1107,6 +1108,7 @@ let classify_retry_error = function
   | Http_client.HttpError { code; body } -> Some (Retry.classify_error ~status:code ~body)
   | Http_client.NetworkError { message; kind; _ } ->
     Some (Retry.NetworkError { message; kind })
+  | Http_client.TimeoutError { message; _ } -> Some (Retry.Timeout { message })
   | Http_client.AcceptRejected _ -> None
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)
@@ -1313,6 +1315,7 @@ let complete_stream_http
       let inter_chunk_samples = ref [] in
       let terminal_state = ref Telemetry_event.Terminal_done in
       let summary_published = ref false in
+      let stream_idle_state = ref Http_client.Awaiting_first_event in
       let classify_chunk_kind (evt : Types.sse_event) =
         match evt with
         | Types.MessageStart _ -> `Skip
@@ -1413,7 +1416,9 @@ let complete_stream_http
                    surface a visible token. The two refs together
                    distinguish prefill from generation latency. *)
                 if events <> [] && Option.is_none !first_event_at_ref
-                then first_event_at_ref := Some (Unix.gettimeofday ());
+                then (
+                  first_event_at_ref := Some (Unix.gettimeofday ());
+                  stream_idle_state := Http_client.Awaiting_first_delta);
                 if Option.is_none !first_token_at_ref
                    && List.exists Streaming.sse_event_is_first_token_signal events
                 then first_token_at_ref := Some (Unix.gettimeofday ());
@@ -1428,15 +1433,32 @@ let complete_stream_http
                         published — only the lifecycle summary is. *)
                      match classify_chunk_kind evt with
                      | `Skip -> ()
-                     | `Thinking -> incr n_thinking
-                     | `Answer -> incr n_answer
-                     | `Tool_call_start -> incr n_tool_call_start
-                     | `Tool_call_arg_delta -> incr n_tool_call_arg_delta
-                     | `Tool_call_complete -> incr n_tool_call_complete
-                     | `Substrate -> incr n_substrate
-                     | `Heartbeat -> incr n_heartbeat
-                     | `Done -> incr n_done
+                     | `Thinking ->
+                       stream_idle_state := Http_client.Streaming_thinking;
+                       incr n_thinking
+                     | `Answer ->
+                       stream_idle_state := Http_client.Streaming_answer;
+                       incr n_answer
+                     | `Tool_call_start ->
+                       stream_idle_state := Http_client.Streaming_tool_call;
+                       incr n_tool_call_start
+                     | `Tool_call_arg_delta ->
+                       stream_idle_state := Http_client.Streaming_tool_call;
+                       incr n_tool_call_arg_delta
+                     | `Tool_call_complete ->
+                       stream_idle_state := Http_client.Streaming_tool_call;
+                       incr n_tool_call_complete
+                     | `Substrate ->
+                       stream_idle_state := Http_client.Streaming_substrate;
+                       incr n_substrate
+                     | `Heartbeat ->
+                       stream_idle_state := Http_client.Streaming_heartbeat;
+                       incr n_heartbeat
+                     | `Done ->
+                       stream_idle_state := Http_client.Streaming_done;
+                       incr n_done
                      | `Wire_error ->
+                       stream_idle_state := Http_client.Streaming_unknown;
                        terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
                   events;
                 if events <> []
@@ -1472,67 +1494,107 @@ let complete_stream_http
                 | Some evt -> emit_telemetry evt
                 | None -> ()
               in
-              (match config.kind with
-               | Provider_config.Ollama ->
-                 Http_client.read_ndjson
-                   ?clock
-                   ?idle_timeout:stream_idle_timeout_s
-                   ~reader
-                   ~on_line:(fun line ->
-                     match Streaming.parse_ollama_ndjson_chunk line with
-                     | None -> ()
-                     | Some chunk ->
-                       (match chunk.oll_timings with
-                        | Some _ as t -> ollama_timings := t
-                        | None -> ());
-                       (match chunk.oll_usage with
-                        | Some _ as u -> ollama_usage := u
-                        | None -> ());
-                       dispatch (Streaming.ollama_chunk_to_events (get_state ()) chunk))
-                   ()
-               | _ ->
-                 Http_client.read_sse
-                   ?clock
-                   ?idle_timeout:stream_idle_timeout_s
-                   ~reader
-                   ~on_data:(fun ~event_type data ->
-                     let events =
-                       match config.kind with
-                       | Provider_config.Anthropic | Provider_config.Kimi ->
-                         (match Streaming.parse_sse_event event_type data with
-                          | Some evt -> [ evt ], None
-                          | None -> [], None)
-                       | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-                         (match Streaming.parse_openai_sse_chunk data with
-                          | Some chunk ->
-                            Streaming.openai_chunk_to_events (get_state ()) chunk
-                          | None -> [], None)
-                       | Provider_config.Gemini ->
-                         (match Streaming.parse_gemini_sse_chunk data with
-                          | Some chunk ->
-                            Streaming.gemini_chunk_to_events (get_state ()) chunk
-                          | None -> [], None)
-                       | Provider_config.Glm ->
-                         (match Backend_glm.parse_stream_chunk data with
-                          | Some chunk ->
-                            Streaming.openai_chunk_to_events (get_state ()) chunk
-                          | None -> [], None)
-                       | Provider_config.Ollama ->
-                         [], None (* unreachable: handled above *)
-                       | Provider_config.Claude_code
-                       | Provider_config.Gemini_cli
-                       | Provider_config.Kimi_cli
-                       | Provider_config.Codex_cli -> [], None
-                     in
-                     dispatch events)
-                   ());
-              let result = finalize_stream_acc acc in
-              (* RFC-OAS-019: emit one [Streaming_summary] at stream
-                 finalize on the normal path. terminal_state defaults to
-                 [Terminal_done]; wire errors during dispatch upgrade it
-                 in place. *)
-              publish_summary ~terminal:!terminal_state ();
-              result
+              let stream_read_result =
+                try
+                  (match config.kind with
+                   | Provider_config.Ollama ->
+                     Http_client.read_ndjson
+                       ?clock
+                       ?idle_timeout:stream_idle_timeout_s
+                       ~reader
+                       ~on_line:(fun line ->
+                         match Streaming.parse_ollama_ndjson_chunk line with
+                         | None -> ()
+                         | Some chunk ->
+                           (match chunk.oll_timings with
+                            | Some _ as t -> ollama_timings := t
+                            | None -> ());
+                           (match chunk.oll_usage with
+                            | Some _ as u -> ollama_usage := u
+                            | None -> ());
+                           dispatch (Streaming.ollama_chunk_to_events (get_state ()) chunk))
+                       ()
+                   | _ ->
+                     Http_client.read_sse
+                       ?clock
+                       ?idle_timeout:stream_idle_timeout_s
+                       ~reader
+                       ~on_data:(fun ~event_type data ->
+                         let events =
+                           match config.kind with
+                           | Provider_config.Anthropic | Provider_config.Kimi ->
+                             (match Streaming.parse_sse_event event_type data with
+                              | Some evt -> [ evt ], None
+                              | None -> [], None)
+                           | Provider_config.OpenAI_compat | Provider_config.DashScope ->
+                             (match Streaming.parse_openai_sse_chunk data with
+                              | Some chunk ->
+                                Streaming.openai_chunk_to_events (get_state ()) chunk
+                              | None -> [], None)
+                           | Provider_config.Gemini ->
+                             (match Streaming.parse_gemini_sse_chunk data with
+                              | Some chunk ->
+                                Streaming.gemini_chunk_to_events (get_state ()) chunk
+                              | None -> [], None)
+                           | Provider_config.Glm ->
+                             (match Backend_glm.parse_stream_chunk data with
+                              | Some chunk ->
+                                Streaming.openai_chunk_to_events (get_state ()) chunk
+                              | None -> [], None)
+                           | Provider_config.Ollama ->
+                             [], None (* unreachable: handled above *)
+                           | Provider_config.Claude_code
+                           | Provider_config.Gemini_cli
+                           | Provider_config.Kimi_cli
+                           | Provider_config.Codex_cli -> [], None
+                         in
+                         dispatch events)
+                       ());
+                  Ok ()
+                with
+                | Eio.Time.Timeout ->
+                  let phase = Http_client.Stream_idle !stream_idle_state in
+                  emit_telemetry
+                    (Telemetry_event.Timeout
+                       { provider
+                       ; model
+                       ; timeout_type = Telemetry_event.Stream_idle !stream_idle_state
+                       });
+                  publish_summary
+                    ~terminal:
+                      (Telemetry_event.Terminal_error
+                         (Printf.sprintf
+                            "stream_idle_timeout_s_exceeded:%s"
+                            (Http_client.stream_idle_state_to_label !stream_idle_state)))
+                    ();
+                  Error
+                    (Http_client.TimeoutError
+                       { message =
+                           Printf.sprintf
+                             "stream_idle_timeout_s deadline exceeded while %s"
+                             (Http_client.stream_idle_state_to_label !stream_idle_state)
+                      ; phase
+                       })
+              in
+              match stream_read_result with
+              | Error _ as err -> err
+              | Ok () ->
+                let result =
+                  match finalize_stream_acc acc with
+                  | Ok _ as ok -> ok
+                  | Error msg ->
+                    Error
+                      (Http_client.NetworkError
+                         { message = Printf.sprintf "SSE stream error: %s" msg
+                         ; kind = Unknown
+                         })
+                in
+                (* RFC-OAS-019: emit one [Streaming_summary] at stream
+                   finalize on the normal path. terminal_state defaults to
+                   [Terminal_done]; wire errors during dispatch upgrade it
+                   in place. *)
+                publish_summary ~terminal:!terminal_state ();
+                result
             in
             (* Body-level deadline (since 0.181.0). Wraps the entire
                body callback in [Eio.Time.with_timeout_exn] so a single
@@ -1543,7 +1605,7 @@ let complete_stream_http
                No silent failure: on expiry we raise an inner [Error]
                whose message carries the configured deadline, and the
                outer match below promotes it to
-               [NetworkError { kind = Timeout }] so the cascade/retry
+               [TimeoutError { phase = Stream_body }] so the cascade/retry
                layer treats it as retryable. *)
             match clock, body_timeout_s with
             | Some clk, Some timeout_s ->
@@ -1551,18 +1613,22 @@ let complete_stream_http
                | Eio.Time.Timeout ->
                  emit_telemetry
                    (Telemetry_event.Timeout
-                      { provider; model; timeout_type = No_response });
+                      { provider; model; timeout_type = Telemetry_event.Stream_body });
                  (* RFC-OAS-019: timeout path also publishes the summary
                     so operators see the partial stream's distribution. *)
                  publish_summary
                    ~terminal:(Telemetry_event.Terminal_error "body_timeout_s_exceeded")
                    ();
                  Error
-                   (Printf.sprintf
-                      "body_timeout_s deadline exceeded after %.1fs (configured via \
-                       Builder.with_body_timeout; total body consumption cap, distinct \
-                       from stream_idle_timeout_s)"
-                      timeout_s))
+                   (Http_client.TimeoutError
+                      { message =
+                          Printf.sprintf
+                            "body_timeout_s deadline exceeded after %.1fs (configured via \
+                             Builder.with_body_timeout; total body consumption cap, \
+                             distinct from stream_idle_timeout_s)"
+                            timeout_s
+                      ; phase = Http_client.Stream_body
+                      }))
             | _, _ ->
               (* Explicit no-deadline path: caller did not provide a
                    clock or did not configure body_timeout_s. Behaviour
@@ -1636,26 +1702,28 @@ let complete_stream_http
              ~ttfrc_ms:!ttfrc_ref
              ~prefill_ms
              (Some latency_ms))
-      | Ok (Error msg)
-        when String.length msg >= 31
-             && String.equal (String.sub msg 0 31) "body_timeout_s deadline exceeded" ->
-        (* Promote body-deadline expiry to a structured Timeout so
-         cascade/retry treats it as retryable, matching the
-         stream_idle_timeout_s docstring contract. The full message
-         (including the configured deadline value) is preserved so
-         operators can distinguish body vs inter-line timeout. *)
+      | Ok (Error (Http_client.TimeoutError _ as err)) ->
         publish_summary
-          ~terminal:(Telemetry_event.Terminal_error "body_timeout_s_exceeded")
+          ~terminal:(Telemetry_event.Terminal_error "timeout_error")
           ();
-        Error (Http_client.NetworkError { message = msg; kind = Timeout })
-      | Ok (Error msg) ->
+        Error err
+      | Ok (Error err) ->
         publish_summary
           ~terminal:
-            (Telemetry_event.Terminal_error (Printf.sprintf "sse_stream_error: %s" msg))
+            (Telemetry_event.Terminal_error
+               (Printf.sprintf
+                  "sse_stream_error: %s"
+                  (match err with
+                   | Http_client.NetworkError { message; _ }
+                   | Http_client.TimeoutError { message; _ } -> message
+                   | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
+                   | Http_client.AcceptRejected { reason } -> reason
+                   | Http_client.CliTransportRequired { kind } ->
+                     Printf.sprintf "CLI transport required for %s" kind
+                   | Http_client.ProviderTerminal { message; _ }
+                   | Http_client.ProviderFailure { message; _ } -> message)))
           ();
-        Error
-          (Http_client.NetworkError
-             { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown }))
+        Error err)
 ;;
 
 let complete_stream

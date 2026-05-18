@@ -12,6 +12,7 @@ let retry_error_of_http_error = function
       { message; kind = Llm_provider.Http_client.Timeout } -> Retry.Timeout { message }
   | Llm_provider.Http_client.NetworkError { message; kind } ->
     Retry.NetworkError { message; kind }
+  | Llm_provider.Http_client.TimeoutError { message; _ } -> Retry.Timeout { message }
   | Llm_provider.Http_client.AcceptRejected { reason } ->
     Retry.InvalidRequest { message = "Response rejected: " ^ reason }
   | Llm_provider.Http_client.CliTransportRequired { kind } ->

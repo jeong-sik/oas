@@ -196,6 +196,7 @@ let judge ~sw ~net ~provider ~config ~context () =
           (if String.length body > 200 then String.sub body 0 200 ^ "..." else body)
       | Http_client.AcceptRejected { reason } -> reason
       | Http_client.NetworkError { message; _ } -> message
+      | Http_client.TimeoutError { message; _ } -> message
       | Http_client.CliTransportRequired { kind } ->
         Printf.sprintf "CLI transport required for %s" kind
       | Http_client.ProviderTerminal { message; _ } -> message

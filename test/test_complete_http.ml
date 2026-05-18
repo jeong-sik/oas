@@ -849,7 +849,7 @@ let test_complete_body_timeout_fires () =
     Eio.Switch.run
     @@ fun sw ->
     (* Server delays response by 2.0s; caller deadline 0.3s must fire first
-       and produce NetworkError{kind=Timeout} with a body-deadline message. *)
+       and produce TimeoutError{phase=Non_streaming_body} with a body-deadline message. *)
     let url =
       start_mock_server
         ~sw
@@ -871,7 +871,7 @@ let test_complete_body_timeout_fires () =
          ()
      with
      | Ok _ -> fail "expected Error (body_timeout_s should have fired)"
-     | Error (Http_client.NetworkError { kind = Timeout; message }) ->
+     | Error (Http_client.TimeoutError { phase = Http_client.Non_streaming_body; message }) ->
        let elapsed = Unix.gettimeofday () -. t0 in
        check bool "fires under server delay" true (elapsed < 1.5);
        check
@@ -882,7 +882,7 @@ let test_complete_body_timeout_fires () =
           String.length message >= String.length prefix
           && String.equal (String.sub message 0 (String.length prefix)) prefix)
      | Error _ ->
-       fail "unexpected error variant (expected NetworkError{kind=Timeout})");
+       fail "unexpected error variant (expected TimeoutError{phase=Non_streaming_body})");
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()

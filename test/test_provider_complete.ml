@@ -687,6 +687,11 @@ let test_complete_claude_code_without_transport_is_guarded () =
             scheme None' regression)"
            expected_name
            message
+       | Error (Llm_provider.Http_client.TimeoutError { message; _ }) ->
+         Alcotest.failf
+           "%s expected CliTransportRequired, got TimeoutError: %s"
+           expected_name
+           message
        | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
          Alcotest.failf
            "%s expected CliTransportRequired, got AcceptRejected: %s"
