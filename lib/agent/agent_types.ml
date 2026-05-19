@@ -1,5 +1,7 @@
 open Types
 
+let _log = Log.create ~module_name:"agent_types" ()
+
 type periodic_callback =
   { interval_sec : float
   ; callback : unit -> unit
@@ -268,8 +270,8 @@ let card t =
     write could interleave, losing an update.
 
     Validates the transition against {!Agent_lifecycle.valid_transitions}.
-    Invalid transitions are rejected: the state is not updated and an
-    error is logged to stderr. *)
+    Invalid transitions are rejected: the state is not updated and a
+    structured error record is logged. *)
 let set_lifecycle
       agent
       ?current_run_id
@@ -290,10 +292,12 @@ let set_lifecycle
       | Some prev ->
         (match Agent_lifecycle.transition ~from:prev.status ~to_:status with
          | Error e ->
-           Printf.eprintf
-             "[ERROR] %s (agent=%s)\n%!"
-             (Agent_lifecycle.transition_error_to_string e)
-             agent.state.config.name;
+           Log.error
+             _log
+             "invalid lifecycle transition"
+             [ Log.S ("agent", agent.state.config.name)
+             ; Log.S ("error", Agent_lifecycle.transition_error_to_string e)
+             ];
            false
          | Ok _ -> true)
       | None -> true

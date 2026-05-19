@@ -35,12 +35,13 @@ let make_transport ~clock ~sleep_s () : Llm_provider.Llm_transport.t =
   }
 ;;
 
-let make_agent ~net ~transport ~callback () =
+let make_agent ?on_run_complete ~net ~transport ?(periodic_callbacks = []) () =
   let options =
     { Agent.default_options with
       provider = Some provider
     ; transport = Some transport
-    ; periodic_callbacks = [ callback ]
+    ; periodic_callbacks
+    ; on_run_complete
     }
   in
   let config =
@@ -51,6 +52,22 @@ let make_agent ~net ~transport ~callback () =
     }
   in
   Agent.create ~net ~config ~options ()
+;;
+
+let with_log_capture f =
+  let sink, get_records = Log.collector_sink () in
+  Log.clear_sinks ();
+  Log.set_global_level Log.Info;
+  Log.add_sink sink;
+  Fun.protect
+    ~finally:(fun () ->
+      Log.clear_sinks ();
+      Log.set_global_level Log.Info)
+    (fun () -> f get_records)
+;;
+
+let has_log_message message records =
+  List.exists (fun (record : Log.record) -> String.equal record.message message) records
 ;;
 
 let check_callback_loop_stopped ~clock calls =
@@ -73,7 +90,9 @@ let test_run_stops_periodic_callbacks_after_success () =
     { interval_sec = 0.005; callback = (fun () -> Atomic.incr calls) }
   in
   let transport = make_transport ~clock ~sleep_s:0.03 () in
-  let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~callback () in
+  let agent =
+    make_agent ~net:(Eio.Stdenv.net env) ~transport ~periodic_callbacks:[ callback ] ()
+  in
   (match Agent.run ~sw ~clock agent "finish" with
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected success: " ^ Error.to_string err));
@@ -91,7 +110,9 @@ let test_run_stops_periodic_callbacks_after_cancellation () =
     { interval_sec = 0.005; callback = (fun () -> Atomic.incr calls) }
   in
   let transport = make_transport ~clock ~sleep_s:1.0 () in
-  let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~callback () in
+  let agent =
+    make_agent ~net:(Eio.Stdenv.net env) ~transport ~periodic_callbacks:[ callback ] ()
+  in
   (try
      ignore
        (Eio.Time.with_timeout_exn clock 0.05 (fun () ->
@@ -113,11 +134,69 @@ let test_run_stream_uses_same_cleanup_scope () =
     { interval_sec = 0.005; callback = (fun () -> Atomic.incr calls) }
   in
   let transport = make_transport ~clock ~sleep_s:0.03 () in
-  let agent = make_agent ~net:(Eio.Stdenv.net env) ~transport ~callback () in
+  let agent =
+    make_agent ~net:(Eio.Stdenv.net env) ~transport ~periodic_callbacks:[ callback ] ()
+  in
   (match Agent.run_stream ~sw ~clock ~on_event:(fun _ -> ()) agent "finish" with
    | Ok _ -> ()
    | Error err -> Alcotest.fail ("expected stream success: " ^ Error.to_string err));
   check_callback_loop_stopped ~clock calls
+;;
+
+let test_on_run_complete_failure_is_structured_log () =
+  with_log_capture
+  @@ fun get_records ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let transport = make_transport ~clock ~sleep_s:0.0 () in
+  let agent =
+    make_agent
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~on_run_complete:(fun _ -> failwith "completion sink failed")
+      ()
+  in
+  (match Agent.run ~sw ~clock agent "finish" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected success: " ^ Error.to_string err));
+  Alcotest.(check bool)
+    "on_run_complete failure logged"
+    true
+    (has_log_message "on_run_complete callback raised" (get_records ()))
+;;
+
+let test_periodic_callback_failure_is_structured_log () =
+  with_log_capture
+  @@ fun get_records ->
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let calls = Atomic.make 0 in
+  let callback : Agent.periodic_callback =
+    { interval_sec = 0.005
+    ; callback =
+        (fun () ->
+          Atomic.incr calls;
+          failwith "periodic sink failed")
+    }
+  in
+  let transport = make_transport ~clock ~sleep_s:0.03 () in
+  let agent =
+    make_agent ~net:(Eio.Stdenv.net env) ~transport ~periodic_callbacks:[ callback ] ()
+  in
+  (match Agent.run ~sw ~clock agent "finish" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected success: " ^ Error.to_string err));
+  Alcotest.(check bool) "callback loop had started" true (Atomic.get calls > 0);
+  Alcotest.(check bool)
+    "periodic callback failure logged"
+    true
+    (has_log_message "periodic callback raised" (get_records ()))
 ;;
 
 let () =
@@ -136,6 +215,14 @@ let () =
             "run_stream uses same cleanup"
             `Quick
             test_run_stream_uses_same_cleanup_scope
+        ; Alcotest.test_case
+            "on_run_complete failure uses structured log"
+            `Quick
+            test_on_run_complete_failure_is_structured_log
+        ; Alcotest.test_case
+            "periodic callback failure uses structured log"
+            `Quick
+            test_periodic_callback_failure_is_structured_log
         ] )
     ]
 ;;

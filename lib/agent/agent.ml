@@ -245,16 +245,20 @@ let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
                    | (Eio.Cancel.Cancelled _ | Out_of_memory | Stack_overflow | Sys.Break)
                      as ex -> raise ex
                    | exn ->
-                     Printf.eprintf
-                       "periodic callback raised: %s\n%!"
-                       (Printexc.to_string exn));
+                     Log.warn
+                       _log
+                       "periodic callback raised"
+                       [ Log.S ("error", Printexc.to_string exn) ]);
                  tick ())
              in
              try tick () with
              | (Eio.Cancel.Cancelled _ | Out_of_memory | Stack_overflow | Sys.Break) as ex
                -> raise ex
              | exn ->
-               Printf.eprintf "periodic tick crashed: %s\n%!" (Printexc.to_string exn));
+               Log.warn
+                 _log
+                 "periodic tick crashed"
+                 [ Log.S ("error", Printexc.to_string exn) ]);
            fun () -> active := false)
         cbs
     in
