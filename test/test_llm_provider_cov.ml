@@ -57,6 +57,23 @@ let system_msg s : Types.message =
   { role = System; content = [ Text s ]; name = None; tool_call_id = None; metadata = [] }
 ;;
 
+let gemini25_flash_model = "gemini-2.5-flash"
+
+let gemini25_url ?api_key ~stream () =
+  let action = if stream then "streamGenerateContent" else "generateContent" in
+  let base =
+    Printf.sprintf
+      "https://gen.googleapis.com/v1beta/models/%s:%s"
+      gemini25_flash_model
+      action
+  in
+  match api_key, stream with
+  | Some key, true -> Printf.sprintf "%s?key=%s&alt=sse" base key
+  | Some key, false -> Printf.sprintf "%s?key=%s" base key
+  | None, true -> base ^ "?alt=sse"
+  | None, false -> base
+;;
+
 let mk_response
       ?(id = "r1")
       ?(model = "m1")
@@ -77,23 +94,20 @@ let test_gemini_url_sync_no_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
       ()
   in
   let url = Complete.gemini_url ~config ~stream:false in
-  Alcotest.(check string)
-    "sync no key"
-    "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
-    url
+  Alcotest.(check string) "sync no key" (gemini25_url ~stream:false ()) url
 ;;
 
 let test_gemini_url_sync_with_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
       ()
@@ -101,7 +115,7 @@ let test_gemini_url_sync_with_key () =
   let url = Complete.gemini_url ~config ~stream:false in
   Alcotest.(check string)
     "sync with key"
-    "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
+    (gemini25_url ~api_key:"mykey" ~stream:false ())
     url
 ;;
 
@@ -109,7 +123,7 @@ let test_gemini_url_stream_with_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
       ()
@@ -117,7 +131,7 @@ let test_gemini_url_stream_with_key () =
   let url = Complete.gemini_url ~config ~stream:true in
   Alcotest.(check string)
     "stream with key"
-    "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
+    (gemini25_url ~api_key:"mykey" ~stream:true ())
     url
 ;;
 
@@ -125,16 +139,13 @@ let test_gemini_url_stream_no_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
       ()
   in
   let url = Complete.gemini_url ~config ~stream:true in
-  Alcotest.(check string)
-    "stream no key"
-    "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
-    url
+  Alcotest.(check string) "stream no key" (gemini25_url ~stream:true ()) url
 ;;
 
 let test_is_retryable_429 () =
@@ -640,7 +651,7 @@ let test_build_request_basic () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~max_tokens:100
       ~temperature:0.5
       ()
@@ -660,7 +671,7 @@ let test_build_request_basic () =
 
 let test_build_request_with_system_prompt () =
   let config =
-    make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" ~system_prompt:"be helpful" ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~system_prompt:"be helpful" ()
   in
   let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] () in
   let json = Yojson.Safe.from_string body_str in
@@ -678,7 +689,7 @@ let test_build_request_with_thinking () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~enable_thinking:true
       ~thinking_budget:5000
       ()
@@ -696,7 +707,7 @@ let test_build_request_with_thinking () =
 
 let test_build_request_with_thinking_default_budget () =
   let config =
-    make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" ~enable_thinking:true ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~enable_thinking:true ()
   in
   let body_str =
     Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] ()
@@ -713,7 +724,7 @@ let test_build_request_with_thinking_default_budget () =
 
 let test_build_request_json_mode () =
   let config =
-    make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" ~response_format_json:true ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~response_format_json:true ()
   in
   let body_str =
     Backend_gemini.build_request ~config ~messages:[ user_msg "json pls" ] ()
@@ -728,7 +739,7 @@ let test_build_request_json_mode () =
 ;;
 
 let test_build_request_with_tools () =
-  let config = make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" () in
+  let config = make_config ~kind:Gemini ~model_id:gemini25_flash_model () in
   let tool_schema =
     `Assoc
       [ "name", `String "get_weather"
@@ -760,7 +771,7 @@ let test_build_request_with_tools () =
 
 let test_build_request_tool_choice_auto () =
   let config =
-    make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" ~tool_choice:Auto ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:Auto ()
   in
   let body_str =
     Backend_gemini.build_request
@@ -777,7 +788,7 @@ let test_build_request_tool_choice_auto () =
 
 let test_build_request_tool_choice_any () =
   let config =
-    make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" ~tool_choice:Any ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:Any ()
   in
   let body_str =
     Backend_gemini.build_request
@@ -794,7 +805,7 @@ let test_build_request_tool_choice_any () =
 
 let test_build_request_tool_choice_none () =
   let config =
-    make_config ~kind:Gemini ~model_id:"gemini-2.5-flash" ~tool_choice:None_ ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:None_ ()
   in
   let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body_str in
@@ -807,7 +818,7 @@ let test_build_request_tool_choice_specific () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~tool_choice:(Tool "get_weather")
       ()
   in
@@ -825,7 +836,7 @@ let test_build_request_top_p_top_k () =
   let config : Provider_config.t =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~model_id:gemini25_flash_model
       ~base_url:""
       ~top_p:0.9
       ~top_k:40
@@ -843,7 +854,8 @@ let test_build_request_top_p_top_k () =
 let test_parse_response_basic () =
   let json =
     Yojson.Safe.from_string
-      {|{
+      (Printf.sprintf
+         {|{
     "candidates": [{
       "content": {
         "parts": [{"text": "Hello world"}],
@@ -855,11 +867,12 @@ let test_parse_response_basic () =
       "promptTokenCount": 10,
       "candidatesTokenCount": 20
     },
-    "modelVersion": "gemini-2.5-flash"
+    "modelVersion": "%s"
   }|}
+         gemini25_flash_model)
   in
   let resp = Backend_gemini.parse_response json in
-  Alcotest.(check string) "model" "gemini-2.5-flash" resp.model;
+  Alcotest.(check string) "model" gemini25_flash_model resp.model;
   (match resp.content with
    | [ Text "Hello world" ] -> ()
    | _ -> Alcotest.fail "expected text block");
@@ -1432,9 +1445,9 @@ let test_for_model_id_gpt4o () =
 ;;
 
 let test_for_model_id_gemini25 () =
-  match Capabilities.for_model_id "gemini-2.5-flash" with
+  match Capabilities.for_model_id gemini25_flash_model with
   | Some c -> Alcotest.(check bool) "code_execution" true c.supports_code_execution
-  | None -> Alcotest.fail "expected Some for gemini-2.5"
+  | None -> Alcotest.fail "expected Some for legacy gemini"
 ;;
 
 let test_for_model_id_gemini3 () =
@@ -1766,7 +1779,7 @@ let () =
         ; Alcotest.test_case "gpt-5" `Quick test_for_model_id_gpt5
         ; Alcotest.test_case "gpt-4.1" `Quick test_for_model_id_gpt41
         ; Alcotest.test_case "gpt-4o" `Quick test_for_model_id_gpt4o
-        ; Alcotest.test_case "gemini-2.5" `Quick test_for_model_id_gemini25
+        ; Alcotest.test_case "gemini legacy" `Quick test_for_model_id_gemini25
         ; Alcotest.test_case "gemini-3" `Quick test_for_model_id_gemini3
         ; Alcotest.test_case "qwen3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
