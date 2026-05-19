@@ -1081,55 +1081,23 @@ let complete
 
 (* ── Retry ───────────────────────────────────────────── *)
 
-type retry_config =
+(* Retry policy classification moved to {!Retry_classify}; re-exports
+   below preserve the public surface that [Complete_cascade] and
+   [test_complete_ext] import as [Complete.retry_config] /
+   [Complete.is_retryable] etc.  Type re-export is non-private so
+   record literals built against [Complete.retry_config] continue to
+   match [Retry_classify.retry_config]. *)
+type retry_config = Retry_classify.retry_config =
   { max_retries : int
   ; initial_delay_sec : float
   ; max_delay_sec : float
   ; backoff_multiplier : float
   }
 
-let default_retry_config =
-  { max_retries = Constants.Retry.max_retries
-  ; initial_delay_sec = Constants.Retry.initial_delay_sec
-  ; max_delay_sec = Constants.Retry.max_delay_sec
-  ; backoff_multiplier = Constants.Retry.backoff_multiplier
-  }
-;;
-
-let shared_retry_config_of_complete (config : retry_config) : Retry.retry_config =
-  { max_retries = config.max_retries
-  ; initial_delay = config.initial_delay_sec
-  ; max_delay = config.max_delay_sec
-  ; backoff_factor = config.backoff_multiplier
-  }
-;;
-
-let classify_retry_error = function
-  | Http_client.HttpError { code; body } -> Some (Retry.classify_error ~status:code ~body)
-  | Http_client.NetworkError { message; kind; _ } ->
-    Some (Retry.NetworkError { message; kind })
-  | Http_client.TimeoutError { message; _ } -> Some (Retry.Timeout { message })
-  | Http_client.AcceptRejected _ -> None
-  (* Wiring bug, not transient — retrying cannot summon a missing
-     transport. *)
-  | Http_client.CliTransportRequired _ -> None
-  (* Provider hit its own terminal condition (e.g. claude_code's
-     internal max_turns).  Retry would re-trigger the same
-     deterministic exit, so signal non-retryable and let the agent
-     runtime checkpoint via [Error.Agent (MaxTurnsExceeded ...)]. *)
-  | Http_client.ProviderTerminal _ -> None
-  (* Provider/runtime failures are semantic cascade inputs, not local
-     retry inputs.  Retrying the same CLI/API lane would hide the typed
-     reason from downstream policy. *)
-  | Http_client.ProviderFailure _ -> None
-;;
-
-let is_retryable = function
-  | err ->
-    (match classify_retry_error err with
-     | Some api_err -> Retry.is_retryable api_err
-     | None -> false)
-;;
+let default_retry_config = Retry_classify.default_retry_config
+let shared_retry_config_of_complete = Retry_classify.shared_retry_config_of_complete
+let classify_retry_error = Retry_classify.classify_retry_error
+let is_retryable = Retry_classify.is_retryable
 
 let complete_with_retry
       ~sw
