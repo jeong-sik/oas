@@ -95,34 +95,12 @@ let endpoints_from_env () =
   if List.mem ollama_endpoint explicit then explicit else explicit @ [ ollama_endpoint ]
 ;;
 
-(* ── HTTP helpers ────────────────────────────────────────── *)
-
-let get_json ~sw ~net url =
-  match Http_client.get_sync ~sw ~net ~url ~headers:[] () with
-  | Ok (code, body) when code >= 200 && code < 300 ->
-    (try Ok (Yojson.Safe.from_string body) with
-     | Yojson.Json_error msg -> Error msg)
-  | Ok (code, _) -> Error (Printf.sprintf "HTTP %d" code)
-  | Error (Http_client.HttpError { code; _ }) -> Error (Printf.sprintf "HTTP %d" code)
-  | Error (Http_client.AcceptRejected { reason }) -> Error reason
-  | Error (Http_client.NetworkError { message; _ }) -> Error message
-  | Error (Http_client.TimeoutError { message; _ }) -> Error message
-  | Error (Http_client.CliTransportRequired { kind }) ->
-    Error (Printf.sprintf "CLI transport required for %s" kind)
-  | Error (Http_client.ProviderTerminal { message; _ }) ->
-    (* Discovery hits HTTP endpoints only; CLI subprocess terminals
-       cannot reach this match.  Surface the message defensively so the
-       exhaustive match stays sound. *)
-    Error message
-  | Error (Http_client.ProviderFailure { kind; message }) ->
-    Error (Http_client.provider_failure_to_string ~kind ~message)
-;;
-
-let get_ok ~sw ~net url =
-  match Http_client.get_sync ~sw ~net ~url ~headers:[] () with
-  | Ok (code, _) when code >= 200 && code < 300 -> true
-  | _ -> false
-;;
+(* HTTP helpers moved to {!Discovery_http} so the exhaustive
+   [Http_client.http_error] pattern match lives in one place.
+   Re-export keeps the in-file probe call sites
+   (lines ~250, 480, 487, 510) unchanged. *)
+let get_json = Discovery_http.get_json
+let get_ok = Discovery_http.get_ok
 
 (* Parsers moved to {!Discovery_parse}; re-export so the in-file
    [probe_endpoint] call sites still type-check unchanged. *)
