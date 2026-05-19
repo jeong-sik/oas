@@ -96,6 +96,23 @@ val codex_cli_capabilities : capabilities
     @since 0.185.0 *)
 val nemotron_capabilities : capabilities
 
+(** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
+    used to live as scattered [String.starts_with] calls. Downstream code
+    should switch on this variant rather than re-compare strings.
+
+    @since 0.196.3 *)
+type gemini_family =
+  | Gemini_3_1 (** [gemini-3.1.*] *)
+  | Gemini_3 (** [gemini-3.*] but not 3.1 *)
+  | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
+  | Gemini_other of string (** Unknown gemini id, or non-gemini id (literal retained). *)
+
+(** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
+    more specific prefix wins. Input is expected lowercased; callers that
+    cannot lowercase first should normalize via [String.lowercase_ascii] at
+    the boundary. *)
+val gemini_family_of_id : string -> gemini_family
+
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)
 val for_model_id : string -> capabilities option

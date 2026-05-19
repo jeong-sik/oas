@@ -134,6 +134,82 @@ let test_lookup_gemini () =
   | None -> fail "should match gemini"
 ;;
 
+(* ── Typed gemini_family classifier (root-fix for #968) ─────── *)
+
+let pp_gemini_family ppf = function
+  | Capabilities.Gemini_3_1 -> Format.fprintf ppf "Gemini_3_1"
+  | Capabilities.Gemini_3 -> Format.fprintf ppf "Gemini_3"
+  | Capabilities.Gemini_2_5 -> Format.fprintf ppf "Gemini_2_5"
+  | Capabilities.Gemini_other s -> Format.fprintf ppf "Gemini_other(%s)" s
+;;
+
+let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
+
+let test_gemini_family_3_1 () =
+  check
+    gemini_family_testable
+    "gemini-3.1-pro-preview classifies as Gemini_3_1"
+    Capabilities.Gemini_3_1
+    (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
+;;
+
+let test_gemini_family_3 () =
+  check
+    gemini_family_testable
+    "gemini-3-flash-preview classifies as Gemini_3 (not 3.1)"
+    Capabilities.Gemini_3
+    (Capabilities.gemini_family_of_id "gemini-3-flash-preview")
+;;
+
+let test_gemini_family_2_5 () =
+  check
+    gemini_family_testable
+    "gemini-2.5-flash classifies as Gemini_2_5"
+    Capabilities.Gemini_2_5
+    (Capabilities.gemini_family_of_id "gemini-2.5-flash")
+;;
+
+let test_gemini_family_other_non_gemini () =
+  check
+    gemini_family_testable
+    "non-gemini id falls into Gemini_other with literal retained"
+    (Capabilities.Gemini_other "claude-opus-4")
+    (Capabilities.gemini_family_of_id "claude-opus-4")
+;;
+
+let test_gemini_family_other_unknown_gemini () =
+  (* A future gemini line not yet classified should land in Gemini_other —
+     not be silently absorbed into an existing arm. *)
+  check
+    gemini_family_testable
+    "gemini-4-foo lands in Gemini_other (no silent fallback)"
+    (Capabilities.Gemini_other "gemini-4-foo")
+    (Capabilities.gemini_family_of_id "gemini-4-foo")
+;;
+
+let test_gemini_family_drives_capabilities () =
+  (* Behavioural cross-check: all three live variants resolve to
+     gemini_capabilities (1M context). This is the property the #968 drift
+     gate was trying to assert via string-grep; now it is enforced by the
+     type system at the dispatch site and by this test. *)
+  let ctx id =
+    match Capabilities.for_model_id id with
+    | Some c -> c.max_context_tokens
+    | None -> None
+  in
+  check
+    (option int)
+    "gemini-3-flash-preview ctx"
+    (Some 1_000_000)
+    (ctx "gemini-3-flash-preview");
+  check
+    (option int)
+    "gemini-3.1-pro-preview ctx"
+    (Some 1_000_000)
+    (ctx "gemini-3.1-pro-preview");
+  check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
+;;
+
 let test_lookup_qwen () =
   match Capabilities.for_model_id "qwen3.5-35b-a3b" with
   | Some c ->
@@ -660,6 +736,21 @@ let () =
         ; test_case "claude sonnet" `Quick test_lookup_claude_sonnet
         ; test_case "gpt-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
+        ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
+        ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
+        ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
+        ; test_case
+            "gemini_family Gemini_other (non-gemini)"
+            `Quick
+            test_gemini_family_other_non_gemini
+        ; test_case
+            "gemini_family Gemini_other (unknown gemini)"
+            `Quick
+            test_gemini_family_other_unknown_gemini
+        ; test_case
+            "gemini_family drives 1M ctx capabilities"
+            `Quick
+            test_gemini_family_drives_capabilities
         ; test_case "qwen" `Quick test_lookup_qwen
         ; test_case "qwen runpod name" `Quick test_lookup_qwen_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
