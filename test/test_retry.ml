@@ -119,6 +119,11 @@ let test_error_message_all_variants () =
     ; Retry.InvalidRequest { message = "wrong" }, "Invalid request: wrong"
     ; Retry.NotFound { message = "no model" }, "Not found: no model"
     ; Retry.NetworkError { message = "dns"; kind = Unknown }, "Network error: dns"
+    ; ( Retry.NetworkError
+          { message = "failed to resolve hostname: api.z.ai"; kind = Dns_failure }
+      , "Network error (dns_failure): failed to resolve hostname: api.z.ai" )
+    ; ( Retry.NetworkError { message = "reset"; kind = Connection_refused }
+      , "Network error (connection_refused): reset" )
     ; Retry.Timeout { message = "10s" }, "Timeout: 10s"
     ]
   in

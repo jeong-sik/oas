@@ -190,6 +190,7 @@ let with_optional_timeout ~clock ~timeout_s f =
 let classify_unix_error = function
   | Unix.ECONNREFUSED -> Connection_refused
   | Unix.ECONNRESET -> Connection_refused
+  | Unix.EPIPE -> End_of_file
   | Unix.ETIMEDOUT -> Timeout
   | Unix.ENETUNREACH -> Dns_failure
   | Unix.EHOSTUNREACH -> Dns_failure
@@ -238,6 +239,8 @@ let classify_by_message msg =
   let m = String.lowercase_ascii msg in
   if has_substr m "connection refused" || has_substr m "connection reset"
   then Connection_refused
+  else if has_substr m "connection closed by peer" || has_substr m "broken pipe"
+  then End_of_file
   else if has_substr m "timed out" || has_substr m "timeout"
   then Timeout
   else if
@@ -712,7 +715,7 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
 
 let%test "catch_network maps Sys_error to NetworkError" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Error (NetworkError { message; kind = Unknown }) ->
+  | Error (NetworkError { message; kind = End_of_file }) ->
     has_substr (String.lowercase_ascii message) "broken pipe"
   | _ -> false
 ;;
@@ -751,8 +754,8 @@ let%test "classify_unix_error: EADDRNOTAVAIL" =
   classify_unix_error Unix.EADDRNOTAVAIL = Local_resource_exhaustion
 ;;
 
-let%test "classify_unix_error: catchall returns Unknown" =
-  classify_unix_error Unix.EPIPE = Unknown
+let%test "classify_unix_error: EPIPE is End_of_file" =
+  classify_unix_error Unix.EPIPE = End_of_file
 ;;
 
 let%test "classify_unix_error: ECONNRESET is Connection_refused" =
@@ -855,7 +858,13 @@ let%test "classify_by_message: resource exhaustion" =
   classify_by_message "Too many open files" = Local_resource_exhaustion
 ;;
 
-let%test "classify_by_message: unknown" = classify_by_message "broken pipe" = Unknown
+let%test "classify_by_message: broken pipe" =
+  classify_by_message "broken pipe" = End_of_file
+;;
+
+let%test "classify_by_message: connection closed by peer" =
+  classify_by_message "connection closed by peer" = End_of_file
+;;
 
 let%test "classify_by_message: connection reset by peer" =
   classify_by_message "Connection reset by peer" = Connection_refused

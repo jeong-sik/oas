@@ -38,6 +38,16 @@ let default_config =
   }
 ;;
 
+let network_error_kind_label = function
+  | Http_client.Connection_refused -> "connection_refused"
+  | Http_client.Dns_failure -> "dns_failure"
+  | Http_client.Tls_error -> "tls_error"
+  | Http_client.Timeout -> "timeout"
+  | Http_client.Local_resource_exhaustion -> "local_resource_exhaustion"
+  | Http_client.End_of_file -> "end_of_file"
+  | Http_client.Unknown -> "unknown"
+;;
+
 let error_message = function
   | RateLimited r -> Printf.sprintf "Rate limited: %s" r.message
   | Overloaded r -> Printf.sprintf "Overloaded: %s" r.message
@@ -52,7 +62,9 @@ let error_message = function
       | None -> ""
     in
     Printf.sprintf "Context overflow%s: %s" limit_str r.message
-  | NetworkError r -> Printf.sprintf "Network error: %s" r.message
+  | NetworkError { message; kind = Unknown } -> Printf.sprintf "Network error: %s" message
+  | NetworkError { message; kind } ->
+    Printf.sprintf "Network error (%s): %s" (network_error_kind_label kind) message
   | Timeout r -> Printf.sprintf "Timeout: %s" r.message
 ;;
 
