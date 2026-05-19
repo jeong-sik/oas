@@ -8,6 +8,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.196.2](https://github.com/jeong-sik/oas/compare/v0.196.1...v0.196.2) (2026-05-19)
+
+
+### Features
+
+* **completion-contract:** add typed violation_detail with satisfying_tools ([#1642](https://github.com/jeong-sik/oas/issues/1642)) ([42c125f](https://github.com/jeong-sik/oas/commit/42c125f6e31c422dcf387a3546a0ffdbcea1bde0))
+
+
+### Bug Fixes
+
+* remove coordinator-specific OAS hardcoding ([#1639](https://github.com/jeong-sik/oas/issues/1639)) ([16f0075](https://github.com/jeong-sik/oas/commit/16f0075f5106c8013fc9305ded2d4a59e1ee1557))
+
 ## [0.196.1](https://github.com/jeong-sik/oas/compare/v0.196.0...v0.196.1) (2026-05-18)
 
 
