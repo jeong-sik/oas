@@ -184,6 +184,7 @@ let test_descriptor_some () =
         ; mutation_class = Some "read_only"
         ; concurrency_class = Some Tool.Parallel_read
         ; permission = Some Tool.ReadOnly
+        ; evidence_role = None
         ; shell = None
         ; notes = []
         ; examples = []

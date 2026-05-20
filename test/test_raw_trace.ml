@@ -154,6 +154,16 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let file_write_tool =
     Tool.create
+      ~descriptor:
+        { Tool.kind = Some "file"
+        ; mutation_class = Some "workspace"
+        ; concurrency_class = Some Tool.Sequential_workspace
+        ; permission = Some Tool.Write
+        ; evidence_role = Some Tool.File_write
+        ; shell = None
+        ; notes = []
+        ; examples = []
+        }
       ~name:"file_write"
       ~description:"Write a file"
       ~parameters:
@@ -176,6 +186,16 @@ let test_agent_run_stream_append_only_raw_trace () =
   in
   let shell_exec_tool =
     Tool.create
+      ~descriptor:
+        { Tool.kind = Some "shell"
+        ; mutation_class = Some "read_only"
+        ; concurrency_class = Some Tool.Parallel_read
+        ; permission = Some Tool.ReadOnly
+        ; evidence_role = Some Tool.Verification
+        ; shell = None
+        ; notes = []
+        ; examples = []
+        }
       ~name:"shell_exec"
       ~description:"Run a verification command"
       ~parameters:
@@ -397,9 +417,9 @@ let test_agent_run_stream_append_only_raw_trace () =
     Alcotest.(check (list (option string)))
       "concurrency classes"
       [ Some "sequential_workspace"
+      ; Some "parallel_read"
       ; Some "sequential_workspace"
-      ; Some "sequential_workspace"
-      ; Some "sequential_workspace"
+      ; Some "parallel_read"
       ]
       (List.map
          (fun (record : Raw_trace.record) -> record.tool_concurrency_class)
@@ -568,6 +588,54 @@ let test_evidence_role_of_string () =
   match Raw_trace.evidence_role_of_string "shell_exec" with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected error for legacy tool name"
+;;
+
+let test_record_evidence_role_does_not_infer_legacy_tool_names () =
+  let record : Raw_trace.record =
+    { trace_version = 1
+    ; worker_run_id = "wr-legacy"
+    ; seq = 1
+    ; ts = 1700000000.0
+    ; agent_name = "test-agent"
+    ; session_id = None
+    ; record_type = Raw_trace.Tool_execution_finished
+    ; prompt = None
+    ; model = None
+    ; tool_choice = None
+    ; enable_thinking = None
+    ; thinking_budget = None
+    ; block_index = None
+    ; block_kind = None
+    ; assistant_block = None
+    ; tool_use_id = Some "tu-legacy"
+    ; tool_name = Some "file_write"
+    ; tool_input = None
+    ; tool_planned_index = None
+    ; tool_batch_index = None
+    ; tool_batch_size = None
+    ; tool_concurrency_class = None
+    ; evidence_role = None
+    ; tool_result = Some "PASS"
+    ; tool_error = Some false
+    ; hook_name = None
+    ; hook_decision = None
+    ; hook_detail = None
+    ; final_text = None
+    ; stop_reason = None
+    ; error = None
+    }
+  in
+  Alcotest.(check (option string))
+    "legacy tool name alone has no evidence role"
+    None
+    (Option.map Raw_trace.evidence_role_to_string (Raw_trace.record_evidence_role record));
+  Alcotest.(check (option string))
+    "explicit role is preserved"
+    (Some "file_write")
+    (Option.map
+       Raw_trace.evidence_role_to_string
+       (Raw_trace.record_evidence_role
+          { record with evidence_role = Some Raw_trace.File_write }))
 ;;
 
 let test_record_to_json_roundtrip () =
@@ -852,6 +920,10 @@ let () =
         ; Alcotest.test_case "record_type_of_string" `Quick test_record_type_of_string
         ; Alcotest.test_case "evidence_role_to_string" `Quick test_evidence_role_to_string
         ; Alcotest.test_case "evidence_role_of_string" `Quick test_evidence_role_of_string
+        ; Alcotest.test_case
+            "no legacy evidence role inference"
+            `Quick
+            test_record_evidence_role_does_not_infer_legacy_tool_names
         ] )
     ; ( "record_json"
       , [ Alcotest.test_case "minimal roundtrip" `Quick test_record_to_json_roundtrip

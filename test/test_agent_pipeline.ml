@@ -131,6 +131,7 @@ let descriptor permission : Tool.descriptor =
   ; mutation_class = None
   ; concurrency_class = None
   ; permission = Some permission
+  ; evidence_role = None
   ; shell = None
   ; notes = []
   ; examples = []

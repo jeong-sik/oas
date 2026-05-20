@@ -26,6 +26,11 @@ type permission =
   | Destructive
 [@@deriving yojson, show]
 
+type evidence_role =
+  | File_write
+  | Verification
+[@@deriving yojson, show]
+
 type shell_constraints =
   { single_command_only : bool
   ; shell_metacharacters_allowed : bool
@@ -41,6 +46,7 @@ type descriptor =
   ; mutation_class : string option
   ; concurrency_class : concurrency_class option
   ; permission : permission option
+  ; evidence_role : evidence_role option
   ; shell : shell_constraints option
   ; notes : string list
   ; examples : string list
@@ -135,6 +141,11 @@ let permission_to_string = function
   | Destructive -> "destructive"
 ;;
 
+let evidence_role_to_string = function
+  | File_write -> "file_write"
+  | Verification -> "verification"
+;;
+
 let workdir_policy_to_json = function
   | Required -> `String "required"
   | Recommended -> `String "recommended"
@@ -177,6 +188,12 @@ let descriptor_to_yojson = function
         , Option.value
             ~default:`Null
             (Option.map permission_to_yojson descriptor.permission) )
+      ; ( "evidence_role"
+        , Option.value
+            ~default:`Null
+            (Option.map
+               (fun role -> `String (evidence_role_to_string role))
+               descriptor.evidence_role) )
       ; "shell", shell_json
       ; "notes", `List (List.map (fun s -> `String s) descriptor.notes)
       ; "examples", `List (List.map (fun s -> `String s) descriptor.examples)

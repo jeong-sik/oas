@@ -47,6 +47,7 @@ let shell_descriptor
   ; mutation_class = None
   ; concurrency_class = None
   ; permission = None
+  ; evidence_role = None
   ; shell =
       Some
         { single_command_only

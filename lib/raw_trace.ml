@@ -218,31 +218,7 @@ let evidence_role_of_json_opt json =
             { type_name = "raw_trace.evidence_role"; value = Yojson.Safe.to_string value }))
 ;;
 
-let successful_tool_finish (record : record) =
-  match record.record_type, record.tool_error with
-  | Tool_execution_finished, Some false -> true
-  | _ -> false
-;;
-
-let result_contains_pass (record : record) =
-  match record.tool_result with
-  | Some result -> Util.string_contains ~needle:"PASS" (String.uppercase_ascii result)
-  | None -> false
-;;
-
-let legacy_evidence_role (record : record) =
-  match record.tool_name with
-  | Some "file_write" -> Some File_write
-  | Some "shell_exec" when successful_tool_finish record && result_contains_pass record ->
-    Some Verification
-  | _ -> None
-;;
-
-let record_evidence_role (record : record) =
-  match record.evidence_role with
-  | Some _ as role -> role
-  | None -> legacy_evidence_role record
-;;
+let record_evidence_role (record : record) = record.evidence_role
 
 let record_to_json (record : record) =
   `Assoc
@@ -429,6 +405,7 @@ let append_record
       ?tool_batch_index
       ?tool_batch_size
       ?tool_concurrency_class
+      ?evidence_role
       ?tool_result
       ?tool_error
       ?hook_name
@@ -464,7 +441,7 @@ let append_record
       ; tool_batch_index
       ; tool_batch_size
       ; tool_concurrency_class
-      ; evidence_role = None
+      ; evidence_role
       ; tool_result
       ; tool_error
       ; hook_name
@@ -475,7 +452,6 @@ let append_record
       ; error
       }
     in
-    let record = { record with evidence_role = record_evidence_role record } in
     let result = append_locked active.sink record in
     (match result with
      | Ok () ->
@@ -571,7 +547,14 @@ let record_tool_execution_started
   |> Result.map (fun _ -> ())
 ;;
 
-let record_tool_execution_finished active ~tool_use_id ~tool_name ~tool_result ~tool_error
+let record_tool_execution_finished
+      active
+      ~tool_use_id
+      ~tool_name
+      ~tool_result
+      ?evidence_role
+      ~tool_error
+      ()
   =
   append_record
     active
@@ -579,6 +562,7 @@ let record_tool_execution_finished active ~tool_use_id ~tool_name ~tool_result ~
     ~tool_use_id
     ~tool_name
     ~tool_result
+    ?evidence_role
     ~tool_error
     ()
   |> Result.map (fun _ -> ())

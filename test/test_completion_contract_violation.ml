@@ -30,6 +30,7 @@ let read_only_tool name =
       ; mutation_class = None
       ; concurrency_class = None
       ; permission = Some ReadOnly
+      ; evidence_role = None
       ; shell = None
       ; notes = []
       ; examples = []

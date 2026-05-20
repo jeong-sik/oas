@@ -9,6 +9,7 @@ let descriptor_with ?mutation_class concurrency_class =
   ; mutation_class
   ; concurrency_class = Some concurrency_class
   ; permission = None
+  ; evidence_role = None
   ; shell = None
   ; notes = []
   ; examples = []
@@ -20,6 +21,7 @@ let shell_descriptor () =
   ; mutation_class = Some "workspace_mutating"
   ; concurrency_class = Some Tool.Sequential_workspace
   ; permission = Some Tool.Write
+  ; evidence_role = None
   ; shell =
       Some
         { Tool.single_command_only = true

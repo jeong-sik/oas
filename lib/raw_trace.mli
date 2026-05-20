@@ -174,7 +174,9 @@ val record_tool_execution_finished
   -> tool_use_id:string
   -> tool_name:string
   -> tool_result:string
+  -> ?evidence_role:evidence_role
   -> tool_error:bool
+  -> unit
   -> (unit, Error.sdk_error) result
 
 val record_hook_invoked
