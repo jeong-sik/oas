@@ -34,6 +34,11 @@ type stream_idle_state =
 [@@deriving yojson, show]
 
 type timeout_phase =
+  | Admission
+  | Queue
+  | First_token
+  | Wall_clock
+  | Capacity_backpressure
   | Http_operation
   | Non_streaming_body
   | Stream_body
@@ -161,7 +166,17 @@ let stream_idle_state_to_label = function
   | Streaming_unknown -> "streaming_unknown"
 ;;
 
+let timeout_phase_of_stream_idle_state = function
+  | Awaiting_first_event | Awaiting_first_delta -> First_token
+  | state -> Stream_idle state
+;;
+
 let timeout_phase_to_label = function
+  | Admission -> "admission"
+  | Queue -> "queue"
+  | First_token -> "first_token"
+  | Wall_clock -> "wall_clock"
+  | Capacity_backpressure -> "capacity_backpressure"
   | Http_operation -> "http_operation"
   | Non_streaming_body -> "non_streaming_body"
   | Stream_body -> "stream_body"

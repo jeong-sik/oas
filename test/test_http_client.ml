@@ -131,6 +131,44 @@ let test_post_stream_invalid_url_returns_network_error () =
   | Ok _ -> Alcotest.fail "expected invalid URL to fail before opening a stream"
 ;;
 
+let test_timeout_phase_policy_labels () =
+  let cases =
+    [ Http_client.Admission, "admission"
+    ; Http_client.Queue, "queue"
+    ; Http_client.First_token, "first_token"
+    ; ( Http_client.Stream_idle Http_client.Streaming_thinking
+      , "stream_idle:streaming_thinking" )
+    ; Http_client.Wall_clock, "wall_clock"
+    ; Http_client.Capacity_backpressure, "capacity_backpressure"
+    ]
+  in
+  List.iter
+    (fun (phase, expected) ->
+       Alcotest.(check string)
+         expected
+         expected
+         (Http_client.timeout_phase_to_label phase))
+    cases
+;;
+
+let test_timeout_phase_of_stream_idle_state () =
+  let cases =
+    [ Http_client.Awaiting_first_event, "first_token"
+    ; Http_client.Awaiting_first_delta, "first_token"
+    ; Http_client.Streaming_thinking, "stream_idle:streaming_thinking"
+    ; Http_client.Streaming_answer, "stream_idle:streaming_answer"
+    ]
+  in
+  List.iter
+    (fun (state, expected) ->
+       let phase = Http_client.timeout_phase_of_stream_idle_state state in
+       Alcotest.(check string)
+         expected
+         expected
+         (Http_client.timeout_phase_to_label phase))
+    cases
+;;
+
 let test_api_common_string_is_blank () =
   Alcotest.(check bool) "empty is blank" true (Api_common.string_is_blank "");
   Alcotest.(check bool) "spaces is blank" true (Api_common.string_is_blank "   ");
@@ -283,6 +321,13 @@ let () =
             "invalid url returns network error"
             `Quick
             test_post_stream_invalid_url_returns_network_error
+        ] )
+    ; ( "timeout_phase"
+      , [ Alcotest.test_case "policy labels" `Quick test_timeout_phase_policy_labels
+        ; Alcotest.test_case
+            "stream idle pre-token maps to first_token"
+            `Quick
+            test_timeout_phase_of_stream_idle_state
         ] )
     ; ( "api_common"
       , [ Alcotest.test_case "string_is_blank" `Quick test_api_common_string_is_blank

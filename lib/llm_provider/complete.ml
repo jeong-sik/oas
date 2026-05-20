@@ -1522,7 +1522,9 @@ let complete_stream_http
                   Ok ()
                 with
                 | Eio.Time.Timeout ->
-                  let phase = Http_client.Stream_idle !stream_idle_state in
+                  let phase =
+                    Http_client.timeout_phase_of_stream_idle_state !stream_idle_state
+                  in
                   emit_telemetry
                     (Telemetry_event.Timeout
                        { provider

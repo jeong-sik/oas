@@ -1062,6 +1062,74 @@ let test_provider_throttle_serializes_concurrent_steps () =
     (Atomic.get max_active_calls)
 ;;
 
+let test_admission_queue_timeout_fails_before_provider_attempt () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let config =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"queued"
+      ~base_url:"http://localhost:11434"
+      ()
+  in
+  let throttle = Provider_throttle.create ~max_concurrent:1 ~provider_name:"local" in
+  let holder_ready, resolve_holder_ready = Eio.Promise.create () in
+  Eio.Fiber.fork ~sw (fun () ->
+    Provider_throttle.with_permit_priority
+      ~priority:Request_priority.Background
+      throttle
+      (fun () ->
+         Eio.Promise.resolve resolve_holder_ready ();
+         Eio.Time.sleep clock 0.1));
+  Eio.Promise.await holder_ready;
+  let health = Complete_cascade.create_health ~clock () in
+  let calls = Atomic.make 0 in
+  let transport : Llm_transport.t =
+    { complete_sync =
+        (fun _ ->
+          Atomic.incr calls;
+          { Llm_transport.response = Ok dummy_response; latency_ms = Some 0 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _ ->
+          Atomic.incr calls;
+          Ok dummy_response)
+    }
+  in
+  let result =
+    Complete_cascade.complete_cascade
+      ~sw
+      ~net:(Eio.Stdenv.net env)
+      ~clock
+      ~transport
+      ~health
+      ~attempt_timeout_s:1.0
+      ~admission_queue_timeout_s:0.01
+      ~throttle_resolver:(fun _ -> Some throttle)
+      ~steps:[ config ]
+      ~messages:[]
+      ()
+  in
+  check int "transport not called before admission" 0 (Atomic.get calls);
+  let info =
+    Complete_cascade.provider_health_info
+      health
+      ~cascade_config:Complete_cascade.default_cascade_config
+      ~provider_key:(Complete_cascade.provider_key config)
+  in
+  check int "admission queue does not poison health" 0 info.consecutive_failures;
+  match result with
+  | Complete_cascade.All_failed
+      { errors = [ (_, Http_client.TimeoutError { phase; message }) ]; skipped = [] } ->
+    check string "phase" "queue" (Http_client.timeout_phase_to_label phase);
+    check bool "phase recorded" true (contains message "phase=queue");
+    check bool "attempt index recorded" true (contains message "attempt_index=0");
+    check bool "queue length recorded" true (contains message "throttle_queue_length=")
+  | _ -> fail "expected admission queue timeout before provider attempt"
+;;
+
 let test_attempt_timeout_fast_paths_without_retrying_same_step () =
   Eio_main.run
   @@ fun env ->
@@ -1316,6 +1384,9 @@ let suite =
   ; ( "provider_throttle_serializes_concurrent_steps"
     , `Quick
     , test_provider_throttle_serializes_concurrent_steps )
+  ; ( "admission_queue_timeout_before_provider_attempt"
+    , `Quick
+    , test_admission_queue_timeout_fails_before_provider_attempt )
   ; ( "attempt_timeout_fast_path"
     , `Quick
     , test_attempt_timeout_fast_paths_without_retrying_same_step )
