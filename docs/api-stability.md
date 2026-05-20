@@ -22,7 +22,7 @@ Each `.mli` file carries a `@stability` annotation in its top-level doc comment.
 ### Evolving
 
 - Modules under active development with external consumers.
-- New features (autonomy, CDAL, harness) that have not yet settled.
+- New features (runtime evidence, structured output, harness) that have not yet settled.
 - Runtime orchestration helpers whose API is still being refined.
 
 ### Internal

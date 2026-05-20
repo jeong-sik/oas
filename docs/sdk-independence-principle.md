@@ -9,10 +9,11 @@ downstream coordinator. The dependency direction is strictly:
 MCP Protocol SDK  <--  OAS (Agent SDK)  <--  External coordinator
 ```
 
-OAS provides generic agent primitives (execution modes, risk contracts, proof
-bundles, intent classification). Coordinators consume these primitives and add
-their own orchestration semantics. OAS is not allowed to name, depend on, or
-adapt to any specific coordinator.
+OAS provides generic single-agent primitives: context, hooks, tool/runtime
+abstractions, provider-neutral runtime events, and intent classification.
+Coordinators consume these primitives and add their own orchestration
+semantics. OAS is not allowed to name, depend on, or adapt to any specific
+coordinator.
 
 ## What this means in practice
 
@@ -49,13 +50,20 @@ coordinator wraps these in is intentionally outside this document.
 | Module | Owner |
 |--------|-------|
 | `Context_intent` | OAS |
-| `Risk_contract`, `Cdal_proof` | OAS |
-| `Execution_mode`, `Risk_class` | OAS |
-| `Mode_enforcer`, `Proof_capture` | OAS |
+| `Contract`, `Completion_contract` | OAS |
+| `Policy`, `Guardrails`, `Guardrail_*` | OAS |
+| `Runtime`, `Runtime_evidence` | OAS |
+| `Raw_trace`, `Sessions` | OAS |
 
 If a coordinator builds its own contract module (for example a CDAL contract
 or a CDAL judge), that module belongs to the coordinator's repository, not
 to OAS, and is not tracked here.
+
+CDAL/proof OCaml modules such as `Risk_contract`, `Cdal_proof`,
+`Execution_mode`, `Risk_class`, `Mode_enforcer`, and `Proof_capture` are not
+OAS-owned surfaces after the 0.193.0 migration. Versioned JSON schemas under
+`docs/schemas/` may remain as cross-repo interoperability contracts, but they
+do not imply an `Agent_sdk` OCaml module.
 
 ## Enforcement
 
@@ -72,3 +80,6 @@ to OAS, and is not tracked here.
   "route", "transfer", "actor".
 - 2026-04-17: Tightened. Owner/consumers table no longer names downstream
   coordinators; OAS docs do not depend on any specific consumer.
+- 2026-05-21: Removed stale CDAL module ownership after the 0.193.0 migration;
+  proof artifacts are schema-level interoperability contracts, not OAS OCaml
+  modules.
