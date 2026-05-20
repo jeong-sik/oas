@@ -18,6 +18,56 @@ let successful_finished_evidence role (record : Raw_trace.record) =
   && record_has_evidence_role role record
 ;;
 
+let evidence_role_summaries records =
+  let table : (Raw_trace.evidence_role, Raw_trace.evidence_role_summary) Hashtbl.t =
+    Hashtbl.create 4
+  in
+  List.iter
+    (fun (record : Raw_trace.record) ->
+       match Raw_trace.record_evidence_role record with
+       | None -> ()
+       | Some evidence_role ->
+         let successful =
+           record.record_type = Raw_trace.Tool_execution_finished
+           && record.tool_error = Some false
+         in
+         let current =
+           match Hashtbl.find_opt table evidence_role with
+           | Some summary -> summary
+           | None ->
+             { Raw_trace.evidence_role
+             ; record_count = 0
+             ; successful_finished_count = 0
+             ; last_success_seq = None
+             }
+         in
+         let last_success_seq =
+           if successful
+           then
+             Some
+               (max
+                  (Option.value ~default:record.seq current.last_success_seq)
+                  record.seq)
+           else current.last_success_seq
+         in
+         Hashtbl.replace
+           table
+           evidence_role
+           { current with
+             record_count = current.record_count + 1
+           ; successful_finished_count =
+               (current.successful_finished_count + if successful then 1 else 0)
+           ; last_success_seq
+           })
+    records;
+  Hashtbl.to_seq_values table
+  |> List.of_seq
+  |> List.sort (fun (a : Raw_trace.evidence_role_summary) b ->
+    String.compare
+      (Raw_trace.evidence_role_to_string a.evidence_role)
+      (Raw_trace.evidence_role_to_string b.evidence_role))
+;;
+
 (* ── Run discovery ──────────────────────────────────────────── *)
 
 let run_refs_of_records ~path records : Raw_trace.run_ref list =
@@ -252,6 +302,7 @@ let validate_run run_ref =
   let has_file_write =
     List.exists (record_has_evidence_role Raw_trace.File_write) records
   in
+  let evidence_roles = evidence_role_summaries records in
   let last_file_write_seq =
     records
     |> List.fold_left
@@ -317,6 +368,16 @@ let validate_run run_ref =
     ; Printf.sprintf "stop_reason=%s" (Option.value summary.stop_reason ~default:"")
     ; Printf.sprintf "error=%s" (Option.value summary.error ~default:"")
     ; Printf.sprintf "paired_tool_result_count=%d" paired_tool_result_count
+    ; Printf.sprintf
+        "evidence_roles=%s"
+        (evidence_roles
+         |> List.map (fun (summary : Raw_trace.evidence_role_summary) ->
+           Printf.sprintf
+             "%s:%d:%d"
+             (Raw_trace.evidence_role_to_string summary.evidence_role)
+             summary.record_count
+             summary.successful_finished_count)
+         |> String.concat ",")
     ; Printf.sprintf "has_file_write=%b" has_file_write
     ; Printf.sprintf
         "verification_pass_after_file_write=%b"
