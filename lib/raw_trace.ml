@@ -10,6 +10,11 @@ type record_type =
   | Run_finished
 [@@deriving yojson, show]
 
+type evidence_role =
+  | File_write
+  | Verification
+[@@deriving yojson, show]
+
 type run_ref =
   { worker_run_id : string
   ; path : string
@@ -93,6 +98,7 @@ type record =
   ; tool_batch_index : int option
   ; tool_batch_size : int option
   ; tool_concurrency_class : string option
+  ; evidence_role : evidence_role option [@default None]
   ; tool_result : string option
   ; tool_error : bool option
   ; hook_name : string option
@@ -161,6 +167,20 @@ let record_type_of_string = function
          (UnknownVariant { type_name = "raw_trace.record_type"; value = other }))
 ;;
 
+let evidence_role_to_string = function
+  | File_write -> "file_write"
+  | Verification -> "verification"
+;;
+
+let evidence_role_of_string = function
+  | "file_write" -> Ok File_write
+  | "verification" -> Ok Verification
+  | other ->
+    Error
+      (Error.Serialization
+         (UnknownVariant { type_name = "raw_trace.evidence_role"; value = other }))
+;;
+
 let option_assoc name value =
   match value with
   | Some json -> [ name, json ]
@@ -173,12 +193,55 @@ let option_bool name value = option_assoc name (Option.map (fun v -> `Bool v) va
 let option_json name value = option_assoc name value
 let tool_choice_to_json_opt value = Option.map Types.tool_choice_to_json value
 
+let evidence_role_to_json_opt value =
+  Option.map (fun role -> `String (evidence_role_to_string role)) value
+;;
+
 let tool_choice_of_json_opt json =
   match Yojson.Safe.Util.member "tool_choice" json with
   | `Null -> Ok None
   | value ->
     let* tool_choice = Types.tool_choice_of_json value in
     Ok (Some (Types.tool_choice_to_json tool_choice))
+;;
+
+let evidence_role_of_json_opt json =
+  match Yojson.Safe.Util.member "evidence_role" json with
+  | `Null -> Ok None
+  | `String value ->
+    let* role = evidence_role_of_string value in
+    Ok (Some role)
+  | (`Assoc _ | `List _ | `Bool _ | `Int _ | `Intlit _ | `Float _) as value ->
+    Error
+      (Error.Serialization
+         (UnknownVariant
+            { type_name = "raw_trace.evidence_role"; value = Yojson.Safe.to_string value }))
+;;
+
+let successful_tool_finish (record : record) =
+  match record.record_type, record.tool_error with
+  | Tool_execution_finished, Some false -> true
+  | _ -> false
+;;
+
+let result_contains_pass (record : record) =
+  match record.tool_result with
+  | Some result -> Util.string_contains ~needle:"PASS" (String.uppercase_ascii result)
+  | None -> false
+;;
+
+let legacy_evidence_role (record : record) =
+  match record.tool_name with
+  | Some "file_write" -> Some File_write
+  | Some "shell_exec" when successful_tool_finish record && result_contains_pass record ->
+    Some Verification
+  | _ -> None
+;;
+
+let record_evidence_role (record : record) =
+  match record.evidence_role with
+  | Some _ as role -> role
+  | None -> legacy_evidence_role record
 ;;
 
 let record_to_json (record : record) =
@@ -209,6 +272,7 @@ let record_to_json (record : record) =
      @ option_int "tool_batch_index" record.tool_batch_index
      @ option_int "tool_batch_size" record.tool_batch_size
      @ option_string "tool_concurrency_class" record.tool_concurrency_class
+     @ option_json "evidence_role" (evidence_role_to_json_opt record.evidence_role)
      @ option_string "tool_result" record.tool_result
      @ option_bool "tool_error" record.tool_error
      @ option_string "hook_name" record.hook_name
@@ -223,6 +287,7 @@ let record_of_json json =
   let open Yojson.Safe.Util in
   let* record_type = json |> member "record_type" |> to_string |> record_type_of_string in
   let* tool_choice = tool_choice_of_json_opt json in
+  let* evidence_role = evidence_role_of_json_opt json in
   Ok
     { trace_version = json |> member "trace_version" |> to_int
     ; worker_run_id = json |> member "worker_run_id" |> to_string
@@ -252,6 +317,7 @@ let record_of_json json =
     ; tool_batch_index = json |> member "tool_batch_index" |> to_int_option
     ; tool_batch_size = json |> member "tool_batch_size" |> to_int_option
     ; tool_concurrency_class = json |> member "tool_concurrency_class" |> to_string_option
+    ; evidence_role
     ; tool_result = json |> member "tool_result" |> to_string_option
     ; tool_error = json |> member "tool_error" |> to_bool_option
     ; hook_name = json |> member "hook_name" |> to_string_option
@@ -398,6 +464,7 @@ let append_record
       ; tool_batch_index
       ; tool_batch_size
       ; tool_concurrency_class
+      ; evidence_role = None
       ; tool_result
       ; tool_error
       ; hook_name
@@ -408,6 +475,7 @@ let append_record
       ; error
       }
     in
+    let record = { record with evidence_role = record_evidence_role record } in
     let result = append_locked active.sink record in
     (match result with
      | Ok () ->

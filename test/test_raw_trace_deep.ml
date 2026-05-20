@@ -125,6 +125,7 @@ let mk_record
       ?(tool_batch_index = None)
       ?(tool_batch_size = None)
       ?(tool_concurrency_class = None)
+      ?(evidence_role = None)
       ?(hook_name = None)
       ?(hook_decision = None)
       ?(hook_detail = None)
@@ -159,6 +160,7 @@ let mk_record
   ; tool_batch_index
   ; tool_batch_size
   ; tool_concurrency_class
+  ; evidence_role
   ; tool_result
   ; tool_error
   ; hook_name
@@ -302,6 +304,7 @@ let test_record_to_json_all_none_optionals () =
     ; tool_batch_index = None
     ; tool_batch_size = None
     ; tool_concurrency_class = None
+    ; evidence_role = None
     ; tool_result = None
     ; tool_error = None
     ; hook_name = None
@@ -430,6 +433,7 @@ let test_record_json_all_fields_populated () =
     ; tool_batch_index = Some 2
     ; tool_batch_size = Some 1
     ; tool_concurrency_class = Some "sequential_workspace"
+    ; evidence_role = Some Raw_trace.Verification
     ; tool_result = Some "result text"
     ; tool_error = Some true
     ; hook_name = Some "validator"
@@ -618,6 +622,80 @@ let test_validate_run_pass () =
     Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
 ;;
 
+let test_validate_run_uses_explicit_evidence_roles () =
+  let dir = tmpdir () in
+  let path = Filename.concat dir "validate_roles.jsonl" in
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; mk_record
+        ~seq:2
+        ~record_type:Raw_trace.Tool_execution_started
+        ~prompt:None
+        ~tool_use_id:(Some "tu-write")
+        ~tool_name:(Some "custom_write")
+        ~tool_input:(Some `Null)
+        ~evidence_role:(Some Raw_trace.File_write)
+        ()
+    ; mk_record
+        ~seq:3
+        ~record_type:Raw_trace.Tool_execution_finished
+        ~prompt:None
+        ~tool_use_id:(Some "tu-write")
+        ~tool_name:(Some "custom_write")
+        ~tool_result:(Some "wrote artifact")
+        ~tool_error:(Some false)
+        ~evidence_role:(Some Raw_trace.File_write)
+        ()
+    ; mk_record
+        ~seq:4
+        ~record_type:Raw_trace.Tool_execution_started
+        ~prompt:None
+        ~tool_use_id:(Some "tu-verify")
+        ~tool_name:(Some "custom_verify")
+        ~tool_input:(Some `Null)
+        ~evidence_role:(Some Raw_trace.Verification)
+        ()
+    ; mk_record
+        ~seq:5
+        ~record_type:Raw_trace.Tool_execution_finished
+        ~prompt:None
+        ~tool_use_id:(Some "tu-verify")
+        ~tool_name:(Some "custom_verify")
+        ~tool_result:(Some "ok")
+        ~tool_error:(Some false)
+        ~evidence_role:(Some Raw_trace.Verification)
+        ()
+    ; mk_record
+        ~seq:6
+        ~record_type:Raw_trace.Run_finished
+        ~prompt:None
+        ~final_text:(Some "OK")
+        ~stop_reason:(Some "end_turn")
+        ()
+    ]
+  in
+  write_jsonl path records;
+  let run_ref : Raw_trace.run_ref =
+    { worker_run_id = "wr-test-0001"
+    ; path
+    ; start_seq = 1
+    ; end_seq = 6
+    ; agent_name = "test_agent"
+    ; session_id = Some "s-test-001"
+    }
+  in
+  match Raw_trace_query.validate_run run_ref with
+  | Ok validation ->
+    Alcotest.(check bool) "ok" true validation.ok;
+    Alcotest.(check bool) "has file write role" true validation.has_file_write;
+    Alcotest.(check bool)
+      "verification role after write"
+      true
+      validation.verification_pass_after_file_write
+  | Error err ->
+    Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
+;;
+
 let test_validate_run_no_finished () =
   let dir = tmpdir () in
   let path = Filename.concat dir "validate_nofin.jsonl" in
@@ -797,6 +875,10 @@ let () =
     ; "summarize_run", [ Alcotest.test_case "full trace" `Quick test_summarize_run ]
     ; ( "validate_run"
       , [ Alcotest.test_case "passing" `Quick test_validate_run_pass
+        ; Alcotest.test_case
+            "explicit evidence roles"
+            `Quick
+            test_validate_run_uses_explicit_evidence_roles
         ; Alcotest.test_case "no run_finished" `Quick test_validate_run_no_finished
         ; Alcotest.test_case
             "unmatched tool pairs"

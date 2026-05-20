@@ -26,6 +26,7 @@ let mk_record ~seq ~ts ~record_type ?prompt ?final_text ?error () : Raw_trace.re
   ; tool_batch_index = None
   ; tool_batch_size = None
   ; tool_concurrency_class = None
+  ; evidence_role = None
   ; tool_result = None
   ; tool_error = None
   ; hook_name = None
