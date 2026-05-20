@@ -206,7 +206,10 @@ For the full 186-file classification, see `docs/api-stability.md`.
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Runtime`, `Memory`, `Policy`, `Proof_store`, `Cdal_proof`
+`Streaming`, `Structured`, `Orchestrator`, `Runtime`, `Memory`, `Policy`
+
+CDAL proof artifacts are no longer exposed as public OCaml modules from OAS.
+Use the versioned JSON schema catalog for downstream proof-bundle artifacts.
 
 **Internal** -- implementation details with no compatibility promise:
 
