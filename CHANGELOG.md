@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.196.4](https://github.com/jeong-sik/oas/compare/v0.196.3...v0.196.4) (2026-05-20)
+
+
+### Bug Fixes
+
+* **ci:** repair post-merge OAS main checks ([#1648](https://github.com/jeong-sik/oas/issues/1648)) ([39c1e76](https://github.com/jeong-sik/oas/commit/39c1e76ad851fef3f263781cbb19cef2e9cef839))
+
 ## [0.196.3](https://github.com/jeong-sik/oas/compare/v0.196.2...v0.196.3) (2026-05-20)
 
 
