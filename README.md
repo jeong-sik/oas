@@ -188,9 +188,7 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Contract` | Runtime contracts: instruction layers, triggers, tool grants |
 | `Memory` | 5-tier memory: Scratchpad, Working, Episodic, Procedural, Long_term |
 | `Memory_access` | Deny-by-default agent-scoped memory permissions |
-| `Verified_output` | Phantom-typed compile-time output verification |
 | `Policy` | Priority-ordered rule evaluation at decision points |
-| `Audit` | Immutable log of policy decisions and agent actions |
 | `Durable` | Typed step chains with execution journal for crash recovery |
 | `Plan` | Goal decomposition with dependency DAG and re-planning |
 
@@ -198,7 +196,7 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 
 Not all modules are equally stable. Use this to gauge risk when depending on a module.
 Every `.mli` now carries an explicit `@stability` tag and `@since` marker.
-For the full 186-file classification, see `docs/api-stability.md`.
+For the current classification policy, see `docs/api-stability.md`.
 
 **Stable** -- safe to depend on, breaking changes only on minor version bumps:
 

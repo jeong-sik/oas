@@ -182,8 +182,6 @@ module Checkpoint_validation = Checkpoint_validation
 module Judge = Judge
 module Vcs_graph_snapshot = Vcs_graph_snapshot
 
-(* CDAL — Contract-Driven Agent Loop PoC-1 *)
-
 (** Quick start: create an agent with default config *)
 let create_agent
       ~net
