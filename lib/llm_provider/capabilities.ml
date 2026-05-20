@@ -286,6 +286,43 @@ let glm_capabilities =
   }
 ;;
 
+(** Typed Gemini model family (root-fix for #968 string-classifier drift gate).
+
+    Centralizes the [String.starts_with ~prefix:"gemini-..."] dispatch into a
+    single classifier with an exhaustive variant. Downstream code switches on
+    the variant instead of comparing strings, so a new family member is a
+    compile-time obligation rather than a runtime string-match miss.
+
+    The internal use of [starts_with] inside [gemini_family_of_id] is
+    intentional and bounded: prefix matching is the only signal Google's model
+    IDs offer. Concentrating it here keeps the rest of the codebase typed.
+
+    @since 0.196.3 *)
+type gemini_family =
+  | Gemini_3_1 (** [gemini-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
+  | Gemini_3 (** [gemini-3.*] but not 3.1 — flash-preview and siblings *)
+  | Gemini_2_5 (** [gemini-2.5.*] — legacy line, kept until removal PR *)
+  | Gemini_other of string
+      (** Unknown gemini id or non-gemini id. Retains the literal so the
+          caller can log / fall through without losing data. *)
+
+(** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
+    is checked before [gemini-3] so the more specific prefix wins.
+    Input is expected lowercased (callers pass the already-normalized id). *)
+let gemini_family_of_id (id : string) : gemini_family =
+  let starts_with prefix =
+    String.length id >= String.length prefix
+    && String.sub id 0 (String.length prefix) = prefix
+  in
+  if starts_with "gemini-3.1"
+  then Gemini_3_1
+  else if starts_with "gemini-3"
+  then Gemini_3
+  else if starts_with "gemini-2.5"
+  then Gemini_2_5
+  else Gemini_other id
+;;
+
 let gemini_capabilities =
   { default_capabilities with
     max_context_tokens = Some 1_000_000
@@ -429,7 +466,12 @@ let for_model_id_static model_id =
         max_context_tokens = Some 128_000
       ; max_output_tokens = Some 16_384
       }
-  else if starts_with "gemini-3" || starts_with "gemini-2.5"
+  else if
+    (* Typed dispatch (root-fix for #968): the classifier owns the prefix
+       comparison so downstream code matches on the variant, not on strings. *)
+    match gemini_family_of_id m with
+    | Gemini_3 | Gemini_3_1 | Gemini_2_5 -> true
+    | Gemini_other _ -> false
   then Some gemini_capabilities
   else if starts_with "kimi-for-coding"
   then Some kimi_capabilities
