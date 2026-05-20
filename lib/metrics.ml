@@ -118,6 +118,33 @@ let check_no_normalized_collision_unlocked t ~kind ~name =
     t.histograms
 ;;
 
+(* [check_no_duplicate_buckets_unlocked ~name ~buckets] raises
+   [Invalid_argument] if [buckets] contains the same bound twice. A
+   duplicate bound would cause the Prometheus text exposition path to
+   emit the same [..._bucket{le="..."}] line twice for the same series,
+   triggering duplicate-sample errors at scrape time.
+
+   Detecting at register time mirrors [check_no_normalized_collision_unlocked]:
+   the bug is in the caller's metric definition, not in any runtime
+   observation, so we surface it as a programmer error at startup
+   instead of silently deduping on every emit (PR #1564 workaround). *)
+let check_no_duplicate_buckets_unlocked ~name ~buckets =
+  let sorted = List.sort Float.compare buckets in
+  let rec find_dup = function
+    | a :: (b :: _ as rest) ->
+      if Float.equal a b
+      then
+        invalid_arg
+          (Printf.sprintf
+             "Metrics.histogram: name %S has duplicate bucket bound %g"
+             name
+             a)
+      else find_dup rest
+    | _ -> ()
+  in
+  find_dup sorted
+;;
+
 let counter t ~name ~unit_ =
   with_lock t (fun () ->
     match List.find_opt (fun c -> c.c_name = name) t.counters with
@@ -135,6 +162,7 @@ let histogram t ~name ~buckets =
     | Some _ -> t, name
     | None ->
       check_no_normalized_collision_unlocked t ~kind:"histogram" ~name;
+      check_no_duplicate_buckets_unlocked ~name ~buckets;
       let h =
         { h_name = name; h_buckets = buckets; h_values = empty_histogram_values () }
       in
@@ -370,7 +398,11 @@ let counter_to_prometheus buf (c : counter_data) =
 
 let histogram_to_prometheus buf (h : histogram_data) =
   let prom_name = add_prometheus_header buf ~name:h.h_name ~kind:"histogram" in
-  let sorted_buckets = List.sort_uniq Float.compare h.h_buckets in
+  (* Bucket-bound uniqueness is enforced at registration via
+     [check_no_duplicate_buckets_unlocked] (root fix for the emit-time
+     [List.sort_uniq] workaround in PR #1564). Plain sort is enough
+     here; duplicates would have failed registration. *)
+  let sorted_buckets = List.sort Float.compare h.h_buckets in
   LabelMap.iter
     (fun labels series ->
        List.iter

@@ -168,27 +168,15 @@ let test_prometheus_text_histogram_exports_buckets_sum_and_count () =
   check_line "histogram count" "gen_ai_client_operation_duration_count 2" text
 ;;
 
-let test_prometheus_text_histogram_deduplicates_bucket_bounds () =
+let test_register_rejects_duplicate_bucket_bounds () =
+  (* Root fix for PR #1564: duplicate bucket bounds are now rejected at
+     register time (mirroring PR #1570's normalized-name collision
+     check). The emit path used to silently dedupe via
+     [List.sort_uniq]; that was a telemetry-as-fix workaround. *)
   let m = Metrics.create () in
-  let h = Metrics.histogram m ~name:"dup.bounds" ~buckets:[ 1.0; 1.0; 2.0 ] in
-  Metrics.observe h 0.5;
-  let text = Metrics.to_prometheus_text m in
-  let count_substring text needle =
-    let len = String.length needle in
-    let rec loop start acc =
-      match String.index_from_opt text start needle.[0] with
-      | None -> acc
-      | Some i when i + len <= String.length text && String.sub text i len = needle ->
-        loop (i + len) (acc + 1)
-      | Some i -> loop (i + 1) acc
-    in
-    loop 0 0
-  in
-  check
-    int
-    "duplicate bound emitted exactly once"
-    1
-    (count_substring text "dup_bounds_bucket{le=\"1\"}")
+  match Metrics.histogram m ~name:"dup.bounds" ~buckets:[ 1.0; 1.0; 2.0 ] with
+  | exception Invalid_argument _ -> ()
+  | _ -> fail "expected Invalid_argument on duplicate bucket bounds"
 ;;
 
 let test_prometheus_text_histogram_exports_zero_series_on_create_and_reset () =
@@ -370,10 +358,6 @@ let () =
             `Quick
             (with_eio test_prometheus_text_histogram_exports_buckets_sum_and_count)
         ; test_case
-            "histogram text export deduplicates bucket bounds"
-            `Quick
-            (with_eio test_prometheus_text_histogram_deduplicates_bucket_bounds)
-        ; test_case
             "histogram text export preserves zero series"
             `Quick
             (with_eio
@@ -404,6 +388,10 @@ let () =
             "same name + same kind stays idempotent"
             `Quick
             (with_eio test_register_same_name_same_kind_is_idempotent)
+        ; test_case
+            "rejects duplicate histogram bucket bounds"
+            `Quick
+            (with_eio test_register_rejects_duplicate_bucket_bounds)
         ] )
     ]
 ;;
