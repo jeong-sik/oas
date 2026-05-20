@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.196.3](https://github.com/jeong-sik/oas/compare/v0.196.2...v0.196.3) (2026-05-20)
+
+
+### Bug Fixes
+
+* **metrics:** reject duplicate histogram buckets at register time ([#1643](https://github.com/jeong-sik/oas/issues/1643)) ([2db3378](https://github.com/jeong-sik/oas/commit/2db337807cc71e7bed79accb6d69e82f38029057))
+
 ## [0.196.2](https://github.com/jeong-sik/oas/compare/v0.196.1...v0.196.2) (2026-05-19)
 
 
