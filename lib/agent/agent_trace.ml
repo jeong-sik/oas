@@ -17,6 +17,21 @@ let record_hook_invocation active_run ~hook_name ~decision ?detail () =
          ())
 ;;
 
+let raw_trace_evidence_role_of_tool_role = function
+  | Tool.File_write -> Raw_trace.File_write
+  | Tool.Verification -> Raw_trace.Verification
+;;
+
+let tool_evidence_role tools tool_name =
+  tools
+  |> List.find_map (fun (tool : Tool.t) ->
+    if String.equal tool.schema.name tool_name
+    then
+      Option.bind (Tool.descriptor tool) (fun descriptor -> descriptor.Tool.evidence_role)
+      |> Option.map raw_trace_evidence_role_of_tool_role
+    else None)
+;;
+
 let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
   Tracing.with_span
     agent.options.tracer
@@ -35,6 +50,7 @@ let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
 let execute_tools_with_trace agent active_run tool_uses =
   let correlation_id = Option.bind agent.options.raw_trace Raw_trace.session_id in
   let run_id = Option.map Raw_trace.active_run_id active_run in
+  let tools = Tool_set.to_list agent.tools in
   let on_tool_execution_started =
     match active_run with
     | None -> None
@@ -78,14 +94,16 @@ let execute_tools_with_trace agent active_run tool_uses =
                ~tool_use_id
                ~tool_name
                ~tool_result:content
-               ~tool_error:is_error))
+               ?evidence_role:(tool_evidence_role tools tool_name)
+               ~tool_error:is_error
+               ()))
   in
   let on_hook_invoked ~hook_name ~decision ~detail =
     record_hook_invocation active_run ~hook_name ~decision ?detail ()
   in
   Agent_tools.execute_tools
     ~context:agent.context
-    ~tools:(Tool_set.to_list agent.tools)
+    ~tools
     ~hooks:agent.options.hooks
     ~event_bus:agent.options.event_bus
     ?journal:agent.options.journal

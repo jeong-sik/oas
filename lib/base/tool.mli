@@ -27,6 +27,11 @@ type permission =
   | Destructive (** External effects or irreversible operations. *)
 [@@deriving yojson, show]
 
+type evidence_role =
+  | File_write
+  | Verification
+[@@deriving yojson, show]
+
 type shell_constraints =
   { single_command_only : bool
   ; shell_metacharacters_allowed : bool
@@ -46,6 +51,10 @@ type descriptor =
           Approval hooks can use this to skip confirmation for [ReadOnly]
           tools or require explicit approval for [Destructive] ones.
           [None] means unclassified (legacy tools). *)
+  ; evidence_role : evidence_role option
+    (** Optional proof role emitted into raw traces when this tool completes.
+          This is declarative tool metadata, not inferred from the tool name
+          or textual result. *)
   ; shell : shell_constraints option
   ; notes : string list
   ; examples : string list
@@ -104,8 +113,10 @@ val permission_to_string : permission -> string
       [\[@@deriving show\]] produces module-qualified CamelCase and is intended
       for diagnostics only.
       @since 0.120.0 *)
-val validate_descriptor : descriptor -> (unit, string) result
+val evidence_role_to_string : evidence_role -> string
+(** Stable snake_case string for raw-trace proof roles. *)
 
+val validate_descriptor : descriptor -> (unit, string) result
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
 val schema_to_json : t -> Yojson.Safe.t
 

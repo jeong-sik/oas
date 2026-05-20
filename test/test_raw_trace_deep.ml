@@ -696,6 +696,76 @@ let test_validate_run_uses_explicit_evidence_roles () =
     Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
 ;;
 
+let test_validate_run_ignores_legacy_tool_names_without_roles () =
+  let dir = tmpdir () in
+  let path = Filename.concat dir "validate_no_legacy_roles.jsonl" in
+  let records =
+    [ mk_record ~seq:1 ~record_type:Raw_trace.Run_started ~prompt:(Some "go") ()
+    ; mk_record
+        ~seq:2
+        ~record_type:Raw_trace.Tool_execution_started
+        ~prompt:None
+        ~tool_use_id:(Some "tu-write")
+        ~tool_name:(Some "file_write")
+        ~tool_input:(Some `Null)
+        ()
+    ; mk_record
+        ~seq:3
+        ~record_type:Raw_trace.Tool_execution_finished
+        ~prompt:None
+        ~tool_use_id:(Some "tu-write")
+        ~tool_name:(Some "file_write")
+        ~tool_result:(Some "wrote")
+        ~tool_error:(Some false)
+        ()
+    ; mk_record
+        ~seq:4
+        ~record_type:Raw_trace.Tool_execution_started
+        ~prompt:None
+        ~tool_use_id:(Some "tu-verify")
+        ~tool_name:(Some "shell_exec")
+        ~tool_input:(Some `Null)
+        ()
+    ; mk_record
+        ~seq:5
+        ~record_type:Raw_trace.Tool_execution_finished
+        ~prompt:None
+        ~tool_use_id:(Some "tu-verify")
+        ~tool_name:(Some "shell_exec")
+        ~tool_result:(Some "PASS")
+        ~tool_error:(Some false)
+        ()
+    ; mk_record
+        ~seq:6
+        ~record_type:Raw_trace.Run_finished
+        ~prompt:None
+        ~final_text:(Some "OK")
+        ~stop_reason:(Some "end_turn")
+        ()
+    ]
+  in
+  write_jsonl path records;
+  let run_ref : Raw_trace.run_ref =
+    { worker_run_id = "wr-test-0001"
+    ; path
+    ; start_seq = 1
+    ; end_seq = 6
+    ; agent_name = "test_agent"
+    ; session_id = Some "s-test-001"
+    }
+  in
+  match Raw_trace_query.validate_run run_ref with
+  | Ok validation ->
+    Alcotest.(check bool) "ok" true validation.ok;
+    Alcotest.(check bool) "legacy file_write ignored" false validation.has_file_write;
+    Alcotest.(check bool)
+      "legacy shell PASS ignored"
+      false
+      validation.verification_pass_after_file_write
+  | Error err ->
+    Alcotest.fail (Printf.sprintf "validate_run failed: %s" (Error.to_string err))
+;;
+
 let test_validate_run_no_finished () =
   let dir = tmpdir () in
   let path = Filename.concat dir "validate_nofin.jsonl" in
@@ -879,6 +949,10 @@ let () =
             "explicit evidence roles"
             `Quick
             test_validate_run_uses_explicit_evidence_roles
+        ; Alcotest.test_case
+            "legacy tool names are ignored"
+            `Quick
+            test_validate_run_ignores_legacy_tool_names_without_roles
         ; Alcotest.test_case "no run_finished" `Quick test_validate_run_no_finished
         ; Alcotest.test_case
             "unmatched tool pairs"

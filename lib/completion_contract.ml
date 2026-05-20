@@ -416,6 +416,7 @@ let%test "validate_response preserves first-match tool descriptor semantics" =
       ; mutation_class = None
       ; concurrency_class = None
       ; permission = Some perm
+      ; evidence_role = None
       ; shell = None
       ; notes = []
       ; examples = []

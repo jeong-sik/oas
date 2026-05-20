@@ -154,6 +154,7 @@ let test_descriptor_preserved_and_not_in_schema () =
         ; mutation_class = None
         ; concurrency_class = Some Tool.Exclusive_external
         ; permission = Some Tool.Destructive
+        ; evidence_role = None
         ; shell =
             Some
               { Tool.single_command_only = true
@@ -278,6 +279,7 @@ let test_create_rejects_inconsistent_descriptor () =
               ; mutation_class = Some "read_only"
               ; concurrency_class = Some Tool.Sequential_workspace
               ; permission = None
+              ; evidence_role = None
               ; shell = None
               ; notes = []
               ; examples = []
