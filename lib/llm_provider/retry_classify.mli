@@ -18,15 +18,14 @@ type retry_config =
   ; backoff_multiplier : float
   }
 
-val default_retry_config : retry_config
 (** Pulled from [Constants.Retry] so tuning lives in one place. *)
+val default_retry_config : retry_config
 
-val shared_retry_config_of_complete : retry_config -> Retry.retry_config
 (** Adapter into the shared [Retry] module's config shape.  Used by
     the orchestrator (still in [Complete.complete_with_retry]) and by
     any caller that wants to feed [Retry.is_retryable] through. *)
+val shared_retry_config_of_complete : retry_config -> Retry.retry_config
 
-val classify_retry_error : Http_client.http_error -> Retry.api_error option
 (** Translates an [Http_client.http_error] into a [Retry.api_error]
     where retryability is meaningful.
 
@@ -40,8 +39,9 @@ val classify_retry_error : Http_client.http_error -> Retry.api_error option
     - [ProviderFailure] — provider/runtime failures are semantic
       cascade inputs, not local retry inputs; retrying the same
       lane would hide the typed reason from downstream policy. *)
+val classify_retry_error : Http_client.http_error -> Retry.api_error option
 
-val is_retryable : Http_client.http_error -> bool
 (** Convenience wrapper: [true] iff [classify_retry_error] yields a
     retryable [Retry.api_error].  Used by [Complete_cascade] and
     direct callers that just need a yes/no signal. *)
+val is_retryable : Http_client.http_error -> bool

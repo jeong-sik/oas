@@ -19,7 +19,6 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
     *first-token* events (which set [ttft_ms]). The capture site
     is [Complete] §publish_summary. *)
 
-val sse_event_is_first_token_signal : sse_event -> bool
 (** [true] when the SSE event represents the first user-visible
     token delta. That means a [ContentBlockDelta] carrying a
     non-empty [TextDelta] / [ThinkingDelta] / [InputJsonDelta]
@@ -28,6 +27,7 @@ val sse_event_is_first_token_signal : sse_event -> bool
     no usage), and error events return [false].
 
     @stability Internal *)
+val sse_event_is_first_token_signal : sse_event -> bool
 
 (** {1 OpenAI SSE} *)
 
@@ -67,7 +67,6 @@ type openai_stream_state =
 
 val parse_openai_sse_chunk : string -> openai_chunk option
 
-val chunk_has_non_empty_delta : openai_chunk -> bool
 (** RFC-OAS-020: [true] when the chunk carries either a non-empty
     [delta_content] or a non-empty [delta_reasoning] or any
     [delta_tool_calls] — that is, the consumer would surface a
@@ -77,6 +76,7 @@ val chunk_has_non_empty_delta : openai_chunk -> bool
     first real token.
 
     @stability Internal *)
+val chunk_has_non_empty_delta : openai_chunk -> bool
 
 val create_openai_stream_state
   :  ?provider:string

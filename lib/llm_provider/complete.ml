@@ -678,8 +678,8 @@ let complete_http
                     { message =
                         Printf.sprintf
                           "body_timeout_s deadline exceeded after %.1fs \
-                           (Complete.complete non-streaming path; total HTTP \
-                           round-trip cap, mirrors complete_stream contract)"
+                           (Complete.complete non-streaming path; total HTTP round-trip \
+                           cap, mirrors complete_stream contract)"
                           timeout_s
                     ; phase = Http_client.Non_streaming_body
                     }))
@@ -1326,8 +1326,7 @@ let complete_stream_http
           in
           let prefill_ms =
             match !first_event_at_ref, !first_token_at_ref with
-            | Some fe, Some ft when ft > fe ->
-              Some ((fe -. t0) *. 1000.0)
+            | Some fe, Some ft when ft > fe -> Some ((fe -. t0) *. 1000.0)
             | _ -> None
           in
           emit_telemetry
@@ -1387,8 +1386,9 @@ let complete_stream_http
                 then (
                   first_event_at_ref := Some (Unix.gettimeofday ());
                   stream_idle_state := Http_client.Awaiting_first_delta);
-                if Option.is_none !first_token_at_ref
-                   && List.exists Streaming.sse_event_is_first_token_signal events
+                if
+                  Option.is_none !first_token_at_ref
+                  && List.exists Streaming.sse_event_is_first_token_signal events
                 then first_token_at_ref := Some (Unix.gettimeofday ());
                 List.iter
                   (fun evt ->
@@ -1480,7 +1480,8 @@ let complete_stream_http
                            (match chunk.oll_usage with
                             | Some _ as u -> ollama_usage := u
                             | None -> ());
-                           dispatch (Streaming.ollama_chunk_to_events (get_state ()) chunk))
+                           dispatch
+                             (Streaming.ollama_chunk_to_events (get_state ()) chunk))
                        ()
                    | _ ->
                      Http_client.read_sse
@@ -1541,7 +1542,7 @@ let complete_stream_http
                            Printf.sprintf
                              "stream_idle_timeout_s deadline exceeded while %s"
                              (Http_client.stream_idle_state_to_label !stream_idle_state)
-                      ; phase
+                       ; phase
                        })
               in
               match stream_read_result with
@@ -1591,8 +1592,8 @@ let complete_stream_http
                    (Http_client.TimeoutError
                       { message =
                           Printf.sprintf
-                            "body_timeout_s deadline exceeded after %.1fs (configured via \
-                             Builder.with_body_timeout; total body consumption cap, \
+                            "body_timeout_s deadline exceeded after %.1fs (configured \
+                             via Builder.with_body_timeout; total body consumption cap, \
                              distinct from stream_idle_timeout_s)"
                             timeout_s
                       ; phase = Http_client.Stream_body
@@ -1671,9 +1672,7 @@ let complete_stream_http
              ~prefill_ms
              (Some latency_ms))
       | Ok (Error (Http_client.TimeoutError _ as err)) ->
-        publish_summary
-          ~terminal:(Telemetry_event.Terminal_error "timeout_error")
-          ();
+        publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();
         Error err
       | Ok (Error err) ->
         publish_summary

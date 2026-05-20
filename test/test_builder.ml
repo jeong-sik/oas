@@ -258,7 +258,8 @@ let test_with_missing_approval_callback_policy () =
   Alcotest.(check bool)
     "missing approval callback policy set"
     true
-    ((Agent.options agent).missing_approval_callback_policy = Hooks.Reject_without_callback)
+    ((Agent.options agent).missing_approval_callback_policy
+     = Hooks.Reject_without_callback)
 ;;
 
 (* --- 12. with_tool_retry_policy --- *)

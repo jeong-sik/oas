@@ -114,8 +114,9 @@ let test_terminal_cancelled_roundtrip () =
 module Streaming = Llm_provider.Streaming
 module Types = Llm_provider.Types
 
-let make_openai_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = []) () :
-    Streaming.openai_chunk =
+let make_openai_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = []) ()
+  : Streaming.openai_chunk
+  =
   { chunk_id = "c1"
   ; chunk_model = "m"
   ; delta_content
@@ -128,19 +129,25 @@ let make_openai_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = []) (
 
 let test_chunk_has_non_empty_delta_content () =
   let c = make_openai_chunk ~delta_content:"hello" () in
-  Alcotest.(check bool) "non-empty content is a token signal" true
+  Alcotest.(check bool)
+    "non-empty content is a token signal"
+    true
     (Streaming.chunk_has_non_empty_delta c)
 ;;
 
 let test_chunk_empty_delta_is_not_token () =
   let c = make_openai_chunk ~delta_content:"" () in
-  Alcotest.(check bool) "empty string content is not a token" false
+  Alcotest.(check bool)
+    "empty string content is not a token"
+    false
     (Streaming.chunk_has_non_empty_delta c)
 ;;
 
 let test_chunk_only_reasoning_is_token () =
   let c = make_openai_chunk ~delta_reasoning:"thinking..." () in
-  Alcotest.(check bool) "reasoning-only chunk is a token" true
+  Alcotest.(check bool)
+    "reasoning-only chunk is a token"
+    true
     (Streaming.chunk_has_non_empty_delta c)
 ;;
 
@@ -153,41 +160,48 @@ let test_chunk_tool_call_is_token () =
     }
   in
   let c = make_openai_chunk ~delta_tool_calls:[ tc ] () in
-  Alcotest.(check bool) "tool_call delta is a token" true
+  Alcotest.(check bool)
+    "tool_call delta is a token"
+    true
     (Streaming.chunk_has_non_empty_delta c)
 ;;
 
 let test_chunk_finish_only_is_not_token () =
   let c = make_openai_chunk () in
-  Alcotest.(check bool) "finish-only / empty chunk is not a token" false
+  Alcotest.(check bool)
+    "finish-only / empty chunk is not a token"
+    false
     (Streaming.chunk_has_non_empty_delta c)
 ;;
 
 let test_sse_event_message_start_is_not_token () =
-  let e = Types.MessageStart { id = "x" ; model = "m" ; usage = None } in
-  Alcotest.(check bool) "MessageStart is prelude, not token" false
+  let e = Types.MessageStart { id = "x"; model = "m"; usage = None } in
+  Alcotest.(check bool)
+    "MessageStart is prelude, not token"
+    false
     (Streaming.sse_event_is_first_token_signal e)
 ;;
 
 let test_sse_event_text_delta_is_token () =
-  let e =
-    Types.ContentBlockDelta
-      { index = 0 ; delta = Types.TextDelta "hello" }
-  in
-  Alcotest.(check bool) "TextDelta with content is a token" true
+  let e = Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "hello" } in
+  Alcotest.(check bool)
+    "TextDelta with content is a token"
+    true
     (Streaming.sse_event_is_first_token_signal e)
 ;;
 
 let test_sse_event_empty_text_delta_is_not_token () =
-  let e =
-    Types.ContentBlockDelta { index = 0 ; delta = Types.TextDelta "" }
-  in
-  Alcotest.(check bool) "empty TextDelta is not a token" false
+  let e = Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "" } in
+  Alcotest.(check bool)
+    "empty TextDelta is not a token"
+    false
     (Streaming.sse_event_is_first_token_signal e)
 ;;
 
 let test_sse_event_ping_is_not_token () =
-  Alcotest.(check bool) "Ping is not a token" false
+  Alcotest.(check bool)
+    "Ping is not a token"
+    false
     (Streaming.sse_event_is_first_token_signal Types.Ping)
 ;;
 

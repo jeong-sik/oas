@@ -71,6 +71,7 @@ let test_streaming_summary () =
           ; done_ = 1
           }
       ; ttft_ms = Some 12.5
+      ; prefill_ms = None
       ; total_ms = 120.0
       ; inter_chunk_ms_p50 = 20.0
       ; inter_chunk_ms_p95 = 40.0
@@ -211,6 +212,7 @@ let test_event_type_name () =
               ; done_ = 0
               }
           ; ttft_ms = None
+          ; prefill_ms = None
           ; total_ms = 0.0
           ; inter_chunk_ms_p50 = 0.0
           ; inter_chunk_ms_p95 = 0.0

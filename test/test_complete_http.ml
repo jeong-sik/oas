@@ -871,7 +871,8 @@ let test_complete_body_timeout_fires () =
          ()
      with
      | Ok _ -> fail "expected Error (body_timeout_s should have fired)"
-     | Error (Http_client.TimeoutError { phase = Http_client.Non_streaming_body; message }) ->
+     | Error
+         (Http_client.TimeoutError { phase = Http_client.Non_streaming_body; message }) ->
        let elapsed = Unix.gettimeofday () -. t0 in
        check bool "fires under server delay" true (elapsed < 1.5);
        check
@@ -895,9 +896,7 @@ let test_complete_body_timeout_does_not_fire_on_fast_response () =
     Eio.Switch.run
     @@ fun sw ->
     (* No server delay; generous body_timeout_s must not interfere. *)
-    let url =
-      start_mock_server ~sw ~net:env#net (anthropic_response "fast response")
-    in
+    let url = start_mock_server ~sw ~net:env#net (anthropic_response "fast response") in
     let config = make_config url in
     (match
        Complete.complete

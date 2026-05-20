@@ -180,7 +180,9 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
       ; api_key_env = ""
       }
   in
-  let options = { Agent_types.default_options with transport = Some transport; provider } in
+  let options =
+    { Agent_types.default_options with transport = Some transport; provider }
+  in
   let agent =
     Agent.create
       ~net
@@ -196,8 +198,8 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
     | Ok _ -> Alcotest.fail "expected provider timeout"
   in
   match err with
-  | Error.Provider
-      (Llm_provider.Error.Timeout { timeout_phase = Some phase; detail; _ }) ->
+  | Error.Provider (Llm_provider.Error.Timeout { timeout_phase = Some phase; detail; _ })
+    ->
     Alcotest.(check string)
       "phase"
       "stream_idle:streaming_thinking"

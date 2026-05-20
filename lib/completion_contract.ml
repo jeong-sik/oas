@@ -27,7 +27,7 @@ type required_tool_satisfaction = tool_call -> (unit, string) result
 type violation_detail =
   { called_tools : string list
   ; satisfying_tools : string list
-  ; rejection_reasons : (string * string) list  (** [(tool_name, reason)] *)
+  ; rejection_reasons : (string * string) list (** [(tool_name, reason)] *)
   }
 [@@deriving show]
 
@@ -45,19 +45,19 @@ let violation_detail_to_string (detail : violation_detail) : string =
         " (%s)"
         (String.concat
            "; "
-           (List.map
-              (fun (name, reason) -> Printf.sprintf "%s: %s" name reason)
-              reasons))
+           (List.map (fun (name, reason) -> Printf.sprintf "%s: %s" name reason) reasons))
   in
   let suggestion =
     match detail.satisfying_tools with
-    | [] -> "\nNo currently visible tool can satisfy this contract -- emit a blocker instead."
+    | [] ->
+      "\nNo currently visible tool can satisfy this contract -- emit a blocker instead."
     | tools ->
       Printf.sprintf
         "\nSatisfying tools for this contract: [%s]"
         (String.concat ", " tools)
   in
   called ^ rejections ^ suggestion
+;;
 
 let any_tool_call_satisfies (_call : tool_call) = Ok ()
 
@@ -161,9 +161,7 @@ let format_suggestion ?(satisfying_tools = []) () =
   match satisfying_tools with
   | [] -> ""
   | tools ->
-    Printf.sprintf
-      "\nSatisfying tools for this contract: [%s]"
-      (String.concat ", " tools)
+    Printf.sprintf "\nSatisfying tools for this contract: [%s]" (String.concat ", " tools)
 ;;
 
 let unsatisfied_calls_message calls errors =
@@ -217,14 +215,14 @@ let validate_response
         (unsatisfied_calls_message
            calls
            (satisfaction_errors ~required_tool_satisfaction calls)
-        ^ suggestion)
+         ^ suggestion)
     else if stop_reason_is_resumable response.stop_reason
     then Ok ()
     else
       Error
         ("required tool contract unsatisfied: tool_choice requested tool use, but the \
           model returned no ToolUse block"
-        ^ suggestion)
+         ^ suggestion)
   | Require_specific_tool name ->
     let calls = tool_use_calls ~tools response in
     (match calls with
@@ -235,7 +233,7 @@ let validate_response
             "required tool contract unsatisfied: tool_choice requested tool '%s', but \
              the model returned no ToolUse block"
             name
-         ^ suggestion)
+          ^ suggestion)
      | calls ->
        let matching = List.filter (fun call -> String.equal call.name name) calls in
        if matching <> [] && any_satisfying_call ~required_tool_satisfaction matching
@@ -250,7 +248,7 @@ let validate_response
               (String.concat
                  "; "
                  (satisfaction_errors ~required_tool_satisfaction matching))
-           ^ suggestion)
+            ^ suggestion)
        else (
          let tool_names = List.map (fun call -> call.name) calls in
          Error
@@ -259,7 +257,7 @@ let validate_response
                the model called [%s]"
               name
               (String.concat ", " tool_names)
-           ^ suggestion)))
+            ^ suggestion)))
   | Require_no_tool_use ->
     (match tool_use_names response with
      | [] -> Ok ()
@@ -297,7 +295,7 @@ let violation_detail_of_response
     if calls <> [] && any_satisfying_call ~required_tool_satisfaction calls
     then Ok ()
     else if calls <> []
-    then
+    then (
       let reasons =
         List.filter_map
           (fun call ->
@@ -306,7 +304,7 @@ let violation_detail_of_response
              | Error reason -> Some (call.name, reason))
           calls
       in
-      make_detail ~rejection_reasons:reasons (List.map (fun c -> c.name) calls)
+      make_detail ~rejection_reasons:reasons (List.map (fun c -> c.name) calls))
     else if stop_reason_is_resumable response.stop_reason
     then Ok ()
     else make_detail []
@@ -320,7 +318,7 @@ let violation_detail_of_response
        if matching <> [] && any_satisfying_call ~required_tool_satisfaction matching
        then Ok ()
        else if matching <> []
-       then
+       then (
          let reasons =
            List.filter_map
              (fun call ->
@@ -329,13 +327,12 @@ let violation_detail_of_response
                 | Error reason -> Some (call.name, reason))
              matching
          in
-         make_detail ~rejection_reasons:reasons [ name ]
+         make_detail ~rejection_reasons:reasons [ name ])
        else make_detail (List.map (fun c -> c.name) calls))
   | Require_no_tool_use ->
     (match tool_use_names response with
      | [] -> Ok ()
-     | tool_names ->
-       make_detail tool_names)
+     | tool_names -> make_detail tool_names)
 ;;
 
 let accept_on_exhaustion ~(contract : t) =
@@ -647,5 +644,3 @@ let%test "stop_reason_is_resumable classification" =
   && (not (stop_reason_is_resumable (Unknown "refusal")))
   && not (stop_reason_is_resumable (Unknown "anything-else"))
 ;;
-
-
