@@ -6,6 +6,18 @@
 
 open Result_syntax
 
+let record_has_evidence_role role (record : Raw_trace.record) =
+  match Raw_trace.record_evidence_role record with
+  | Some actual -> actual = role
+  | None -> false
+;;
+
+let successful_finished_evidence role (record : Raw_trace.record) =
+  record.record_type = Raw_trace.Tool_execution_finished
+  && record.tool_error = Some false
+  && record_has_evidence_role role record
+;;
+
 (* ── Run discovery ──────────────────────────────────────────── *)
 
 let run_refs_of_records ~path records : Raw_trace.run_ref list =
@@ -237,15 +249,16 @@ let validate_run run_ref =
     List.for_all (fun (check : Raw_trace.validation_check) -> check.passed) checks
   in
   let* summary = summarize_run run_ref in
-  let has_file_write = List.exists (( = ) "file_write") summary.tool_names in
+  let has_file_write =
+    List.exists (record_has_evidence_role Raw_trace.File_write) records
+  in
   let last_file_write_seq =
     records
     |> List.fold_left
          (fun acc (record : Raw_trace.record) ->
-            match record.record_type, record.tool_name, record.tool_error with
-            | Tool_execution_finished, Some "file_write", Some false ->
-              Some (max (Option.value ~default:record.seq acc) record.seq)
-            | _ -> acc)
+            if successful_finished_evidence Raw_trace.File_write record
+            then Some (max (Option.value ~default:record.seq acc) record.seq)
+            else acc)
          None
   in
   let verification_pass_after_file_write =
@@ -254,14 +267,7 @@ let validate_run run_ref =
     | Some seq ->
       List.exists
         (fun (record : Raw_trace.record) ->
-           record.seq > seq
-           &&
-           match
-             record.record_type, record.tool_name, record.tool_result, record.tool_error
-           with
-           | Tool_execution_finished, Some "shell_exec", Some result, Some false ->
-             Util.string_contains ~needle:"PASS" (String.uppercase_ascii result)
-           | _ -> false)
+           record.seq > seq && successful_finished_evidence Raw_trace.Verification record)
         records
   in
   let failure_reason =

@@ -46,6 +46,7 @@ let make_record
   ; tool_batch_index = None
   ; tool_batch_size = None
   ; tool_concurrency_class = None
+  ; evidence_role = None
   ; tool_result
   ; tool_error
   ; hook_name = None

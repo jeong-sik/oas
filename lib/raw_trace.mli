@@ -12,6 +12,11 @@ type record_type =
   | Run_finished
 [@@deriving yojson, show]
 
+type evidence_role =
+  | File_write
+  | Verification
+[@@deriving yojson, show]
+
 type run_ref =
   { worker_run_id : string
   ; path : string
@@ -95,6 +100,7 @@ type record =
   ; tool_batch_index : int option
   ; tool_batch_size : int option
   ; tool_concurrency_class : string option
+  ; evidence_role : evidence_role option [@default None]
   ; tool_result : string option
   ; tool_error : bool option
   ; hook_name : string option
@@ -114,6 +120,9 @@ exception Trace_error of Error.sdk_error
 val safe_name : string -> string
 val record_type_to_string : record_type -> string
 val record_type_of_string : string -> (record_type, Error.sdk_error) result
+val evidence_role_to_string : evidence_role -> string
+val evidence_role_of_string : string -> (evidence_role, Error.sdk_error) result
+val record_evidence_role : record -> evidence_role option
 val record_of_json : Yojson.Safe.t -> (record, Error.sdk_error) result
 val trace_version : int
 val create : ?session_id:string -> path:string -> unit -> (t, Error.sdk_error) result

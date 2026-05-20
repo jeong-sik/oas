@@ -472,6 +472,19 @@ let test_agent_run_stream_append_only_raw_trace () =
       "verification pass after file_write"
       true
       run1_validation.verification_pass_after_file_write;
+    let evidence_roles =
+      run1_records
+      |> List.filter_map Raw_trace.record_evidence_role
+      |> List.map Raw_trace.evidence_role_to_string
+    in
+    Alcotest.(check bool)
+      "records mark file write evidence"
+      true
+      (List.mem "file_write" evidence_roles);
+    Alcotest.(check bool)
+      "records mark verification evidence"
+      true
+      (List.mem "verification" evidence_roles);
     let output_path = Filename.concat root "output.txt" in
     Alcotest.(check string)
       "output file content"
@@ -530,6 +543,33 @@ let test_record_type_of_string () =
   | Ok _ -> Alcotest.fail "expected error for bogus"
 ;;
 
+let test_evidence_role_to_string () =
+  let cases =
+    [ Raw_trace.File_write, "file_write"; Raw_trace.Verification, "verification" ]
+  in
+  List.iter
+    (fun (role, expected) ->
+       Alcotest.(check string) expected expected (Raw_trace.evidence_role_to_string role))
+    cases
+;;
+
+let test_evidence_role_of_string () =
+  let cases = [ "file_write"; "verification" ] in
+  List.iter
+    (fun s ->
+       match Raw_trace.evidence_role_of_string s with
+       | Ok role ->
+         Alcotest.(check string)
+           ("roundtrip " ^ s)
+           s
+           (Raw_trace.evidence_role_to_string role)
+       | Error e -> Alcotest.fail (Error.to_string e))
+    cases;
+  match Raw_trace.evidence_role_of_string "shell_exec" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected error for legacy tool name"
+;;
+
 let test_record_to_json_roundtrip () =
   let record : Raw_trace.record =
     { trace_version = 1
@@ -554,6 +594,7 @@ let test_record_to_json_roundtrip () =
     ; tool_batch_index = None
     ; tool_batch_size = None
     ; tool_concurrency_class = None
+    ; evidence_role = None
     ; tool_result = None
     ; tool_error = None
     ; hook_name = None
@@ -579,7 +620,11 @@ let test_record_to_json_roundtrip () =
        | Some value -> Yojson.Safe.to_string value
        | None -> "");
     Alcotest.(check (option bool)) "enable_thinking" (Some false) decoded.enable_thinking;
-    Alcotest.(check (option int)) "thinking_budget" (Some 2048) decoded.thinking_budget
+    Alcotest.(check (option int)) "thinking_budget" (Some 2048) decoded.thinking_budget;
+    Alcotest.(check (option string))
+      "missing evidence_role stays None"
+      None
+      (Option.map Raw_trace.evidence_role_to_string decoded.evidence_role)
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -621,12 +666,13 @@ let test_record_to_json_full () =
     ; block_kind = Some "tool_use"
     ; assistant_block = Some (`String "block-data")
     ; tool_use_id = Some "tu-1"
-    ; tool_name = Some "read_file"
+    ; tool_name = Some "file_write"
     ; tool_input = Some (`Assoc [ "path", `String "/tmp/x" ])
     ; tool_planned_index = Some 0
     ; tool_batch_index = Some 1
     ; tool_batch_size = Some 1
     ; tool_concurrency_class = Some "sequential_workspace"
+    ; evidence_role = Some Raw_trace.File_write
     ; tool_result = Some "file content"
     ; tool_error = Some false
     ; hook_name = Some "pre_tool"
@@ -640,7 +686,11 @@ let test_record_to_json_full () =
   let json = Raw_trace.record_to_json record in
   match Raw_trace.record_of_json json with
   | Ok decoded ->
-    Alcotest.(check (option string)) "tool_name" (Some "read_file") decoded.tool_name;
+    Alcotest.(check (option string)) "tool_name" (Some "file_write") decoded.tool_name;
+    Alcotest.(check (option string))
+      "evidence_role"
+      (Some "file_write")
+      (Option.map Raw_trace.evidence_role_to_string decoded.evidence_role);
     Alcotest.(check (option int)) "block_index" (Some 2) decoded.block_index;
     Alcotest.(check (option int)) "planned_index" (Some 0) decoded.tool_planned_index;
     Alcotest.(check (option bool)) "tool_error" (Some false) decoded.tool_error;
@@ -800,6 +850,8 @@ let () =
       , [ Alcotest.test_case "safe_name" `Quick test_safe_name
         ; Alcotest.test_case "record_type_to_string" `Quick test_record_type_to_string
         ; Alcotest.test_case "record_type_of_string" `Quick test_record_type_of_string
+        ; Alcotest.test_case "evidence_role_to_string" `Quick test_evidence_role_to_string
+        ; Alcotest.test_case "evidence_role_of_string" `Quick test_evidence_role_of_string
         ] )
     ; ( "record_json"
       , [ Alcotest.test_case "minimal roundtrip" `Quick test_record_to_json_roundtrip
