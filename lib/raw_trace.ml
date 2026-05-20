@@ -60,6 +60,14 @@ type validation_check =
   }
 [@@deriving yojson, show]
 
+type evidence_role_summary =
+  { evidence_role : evidence_role
+  ; record_count : int
+  ; successful_finished_count : int
+  ; last_success_seq : int option
+  }
+[@@deriving yojson, show]
+
 type run_validation =
   { run_ref : run_ref
   ; ok : bool

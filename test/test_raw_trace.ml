@@ -492,6 +492,19 @@ let test_agent_run_stream_append_only_raw_trace () =
       "verification pass after file_write"
       true
       run1_validation.verification_pass_after_file_write;
+    let role_counts =
+      Raw_trace_query.evidence_role_summaries run1_records
+      |> List.map (fun (summary : Raw_trace.evidence_role_summary) ->
+        Raw_trace.evidence_role_to_string summary.evidence_role, summary.record_count)
+    in
+    Alcotest.(check (option int))
+      "generic file_write role count"
+      (Some 1)
+      (List.assoc_opt "file_write" role_counts);
+    Alcotest.(check (option int))
+      "generic verification role count"
+      (Some 2)
+      (List.assoc_opt "verification" role_counts);
     let evidence_roles =
       run1_records
       |> List.filter_map Raw_trace.record_evidence_role
