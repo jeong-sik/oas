@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.196.5](https://github.com/jeong-sik/oas/compare/v0.196.4...v0.196.5) (2026-05-20)
+
+
+### Bug Fixes
+
+* **raw-trace:** require explicit evidence roles ([#1650](https://github.com/jeong-sik/oas/issues/1650)) ([0f4ff62](https://github.com/jeong-sik/oas/commit/0f4ff62afe0ef23895c02ecbf1cbf882709439e3))
+
 ## [0.196.4](https://github.com/jeong-sik/oas/compare/v0.196.3...v0.196.4) (2026-05-20)
 
 
