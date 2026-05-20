@@ -149,7 +149,8 @@ let test_approval_required_no_callback_fail_closed () =
   match results with
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
-    check string
+    check
+      string
       "content"
       "Tool rejected: approval required but no approval callback is registered"
       result.content;

@@ -34,19 +34,19 @@ type slot_status =
   ; idle : int
   }
 
-val parse_models : Yojson.Safe.t -> model_info list
 (** OpenAI-compatible [/v1/models] response → list of [{ id; owned_by }].
     Returns the empty list on missing/non-list [data], or when no item
     has a string [id].  [owned_by] defaults to ["unknown"] when absent. *)
+val parse_models : Yojson.Safe.t -> model_info list
 
-val parse_props : Yojson.Safe.t -> server_props option
 (** llama-server [/props] response → typed {!server_props}.  Requires a
     numeric [total_slots]; falls back to [0] for missing [n_ctx] and
     to [""] for missing [model].  Returns [None] when [total_slots] is
     missing or non-numeric. *)
+val parse_props : Yojson.Safe.t -> server_props option
 
-val parse_slots : Yojson.Safe.t -> slot_status option
 (** llama-server [/slots] response → typed {!slot_status}.  Counts a
     slot as busy when [is_processing] is [true] OR when [state] is a
     non-zero integer.  Returns [None] when the input is not a non-empty
     list. *)
+val parse_slots : Yojson.Safe.t -> slot_status option

@@ -303,7 +303,7 @@ type gemini_family =
   | Gemini_3 (** [gemini-3.*] but not 3.1 — flash-preview and siblings *)
   | Gemini_2_5 (** [gemini-2.5.*] — legacy line, kept until removal PR *)
   | Gemini_other of string
-      (** Unknown gemini id or non-gemini id. Retains the literal so the
+  (** Unknown gemini id or non-gemini id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
 (** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
@@ -1079,8 +1079,7 @@ let%test "for_model_id qwen3 has chat_template_kwargs thinking control" =
      format, [supports_extended_thinking = true] never reaches the wire. *)
   match for_model_id "qwen3.5" with
   | Some c ->
-    c.supports_reasoning_budget
-    && c.thinking_control_format = Chat_template_kwargs
+    c.supports_reasoning_budget && c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
 

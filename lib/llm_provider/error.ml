@@ -268,7 +268,8 @@ let of_http_error ?provider = function
     NetworkError
       { provider = provider_name provider; kind; timeout_phase = None; detail = message }
   | Http_client.TimeoutError { message; phase } ->
-    Timeout { provider = provider_name provider; timeout_phase = Some phase; detail = message }
+    Timeout
+      { provider = provider_name provider; timeout_phase = Some phase; detail = message }
   | Http_client.AcceptRejected { reason } ->
     InvalidRequest
       { provider = provider_name provider; reason = "accept rejected: " ^ reason }

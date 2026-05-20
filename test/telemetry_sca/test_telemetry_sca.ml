@@ -92,6 +92,13 @@ let test_no_orphan_producer_variants () =
   let nested_constructors =
     [ "No_response"
     ; "Ttft_exceeded"
+    ; "Non_streaming_body"
+    ; "Stream_body"
+    ; "Stream_idle"
+    ; "Provider_step"
+    ; "Cli_stdout_idle"
+    ; "Caller_budget"
+    ; "Unknown_timeout"
     ; "Terminal_done"
     ; "Terminal_cancelled"
     ; "Terminal_error"

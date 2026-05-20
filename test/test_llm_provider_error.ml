@@ -131,7 +131,10 @@ let test_timeout () =
     "Provider 'gemini' timeout: request exceeded budget"
     (Error.to_string
        (Error.Timeout
-          { provider = "gemini"; timeout_phase = None; detail = "request exceeded budget" }))
+          { provider = "gemini"
+          ; timeout_phase = None
+          ; detail = "request exceeded budget"
+          }))
 ;;
 
 let test_timeout_phase () =
@@ -295,7 +298,11 @@ let test_http_network_error_mapping () =
   | Error.NetworkError { provider; kind; timeout_phase; detail } ->
     check string "provider" "local" provider;
     check bool "kind" true (kind = Http_client.Timeout);
-    check (option string) "timeout phase" None (Option.map Http_client.timeout_phase_to_label timeout_phase);
+    check
+      (option string)
+      "timeout phase"
+      None
+      (Option.map Http_client.timeout_phase_to_label timeout_phase);
     check string "detail" "read timed out" detail
   | _ -> fail "expected NetworkError"
 ;;

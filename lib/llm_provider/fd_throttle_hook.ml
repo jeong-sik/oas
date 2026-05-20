@@ -5,10 +5,7 @@
    call — no branch on Some/None per invocation. *)
 
 let identity_wrapper : (unit -> unit) -> unit = fun thunk -> thunk ()
-
-let _handler : ((unit -> unit) -> unit) Atomic.t =
-  Atomic.make identity_wrapper
-
+let _handler : ((unit -> unit) -> unit) Atomic.t = Atomic.make identity_wrapper
 let _installed : bool Atomic.t = Atomic.make false
 
 let with_slot (type a) (f : unit -> a) : a =
@@ -19,23 +16,26 @@ let with_slot (type a) (f : unit -> a) : a =
      propagate through the wrapper (wrappers are expected to be
      transparent on exception, like [Fun.protect] or [Eio.Switch]). *)
   let result : a option ref = ref None in
-  wrapper (fun () -> result := Some (f ())) ;
+  wrapper (fun () -> result := Some (f ()));
   match !result with
   | Some v -> v
   | None ->
-      (* A non-conformant wrapper that swallowed its thunk. Treat as
+    (* A non-conformant wrapper that swallowed its thunk. Treat as
          programmer error — the contract is "must call thunk exactly
          once". *)
-      failwith
-        "Fd_throttle_hook: installed handler did not invoke its \
-         thunk; wrapper contract violated"
+    failwith
+      "Fd_throttle_hook: installed handler did not invoke its thunk; wrapper contract \
+       violated"
+;;
 
 let set_handler h =
-  Atomic.set _handler h ;
+  Atomic.set _handler h;
   Atomic.set _installed true
+;;
 
 let reset_handler () =
-  Atomic.set _handler identity_wrapper ;
+  Atomic.set _handler identity_wrapper;
   Atomic.set _installed false
+;;
 
 let is_installed () = Atomic.get _installed

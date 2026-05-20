@@ -289,14 +289,12 @@ let inst_trace_context_headers ?sampled ?tracestate inst =
 let inst_record_metric inst ~name ~value ~metric_type =
   inst_with_lock inst
   @@ fun () ->
-  inst.metrics
-  <- { m_name = name; m_value = value; m_type = metric_type } :: inst.metrics
+  inst.metrics <- { m_name = name; m_value = value; m_type = metric_type } :: inst.metrics
 ;;
 
 let inst_get_metrics inst =
   inst_with_lock inst
-  @@ fun () ->
-  List.map (fun m -> m.m_name, m.m_value, m.m_type) (List.rev inst.metrics)
+  @@ fun () -> List.map (fun m -> m.m_name, m.m_value, m.m_type) (List.rev inst.metrics)
 ;;
 
 let inst_clear_metrics inst = inst_with_lock inst @@ fun () -> inst.metrics <- []
@@ -414,8 +412,8 @@ let metric_entry_to_json (m : metric_entry) : Yojson.Safe.t =
 
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
   let spans, metrics =
-    inst_with_lock _global
-      (fun () -> List.rev _global.completed_spans, List.rev _global.metrics)
+    inst_with_lock _global (fun () ->
+      List.rev _global.completed_spans, List.rev _global.metrics)
   in
   let resource =
     `Assoc [ "attributes", attrs_to_json [ "service.name", cfg.service_name ] ]

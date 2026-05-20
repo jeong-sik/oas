@@ -35,12 +35,7 @@ let read_only_tool name =
       ; examples = []
       }
   in
-  Tool.create
-    ~descriptor
-    ~name
-    ~description:("desc:" ^ name)
-    ~parameters:[]
-    noop_handler
+  Tool.create ~descriptor ~name ~description:("desc:" ^ name) ~parameters:[] noop_handler
 ;;
 
 (* --- violation_detail_to_string --- *)
@@ -50,7 +45,7 @@ let test_to_string_with_satisfying_tools () =
     Completion_contract.
       { called_tools = [ "search" ]
       ; satisfying_tools = [ "keeper_bash"; "keeper_write" ]
-      ; rejection_reasons = [ ("search", "read-only and cannot satisfy") ]
+      ; rejection_reasons = [ "search", "read-only and cannot satisfy" ]
       }
   in
   let s = Completion_contract.violation_detail_to_string detail in
@@ -75,16 +70,16 @@ let test_to_string_with_satisfying_tools () =
 let test_to_string_without_satisfying_tools () =
   let detail =
     Completion_contract.
-      { called_tools = [ "search" ]
-      ; satisfying_tools = []
-      ; rejection_reasons = []
-      }
+      { called_tools = [ "search" ]; satisfying_tools = []; rejection_reasons = [] }
   in
   let s = Completion_contract.violation_detail_to_string detail in
   let has_blocker =
     try
       ignore
-        (Str.search_forward (Str.regexp_string "No currently visible tool can satisfy") s 0);
+        (Str.search_forward
+           (Str.regexp_string "No currently visible tool can satisfy")
+           s
+           0);
       true
     with
     | Not_found -> false
@@ -126,7 +121,10 @@ let test_satisfying_tools_appended_to_error () =
     let has_suggestion =
       try
         ignore
-          (Str.search_forward (Str.regexp_string "Satisfying tools for this contract:") msg 0);
+          (Str.search_forward
+             (Str.regexp_string "Satisfying tools for this contract:")
+             msg
+             0);
         true
       with
       | Not_found -> false
@@ -158,7 +156,10 @@ let test_satisfying_tools_appended_for_specific_tool () =
     let has_suggestion =
       try
         ignore
-          (Str.search_forward (Str.regexp_string "Satisfying tools for this contract:") msg 0);
+          (Str.search_forward
+             (Str.regexp_string "Satisfying tools for this contract:")
+             msg
+             0);
         true
       with
       | Not_found -> false
@@ -180,7 +181,10 @@ let test_detail_on_failure_no_calls () =
   | Error detail ->
     Alcotest.(check int) "called_tools empty" 0 (List.length detail.called_tools);
     Alcotest.(check int) "satisfying_tools has 1" 1 (List.length detail.satisfying_tools);
-    Alcotest.(check int) "rejection_reasons empty" 0 (List.length detail.rejection_reasons)
+    Alcotest.(check int)
+      "rejection_reasons empty"
+      0
+      (List.length detail.rejection_reasons)
   | Ok () -> Alcotest.fail "expected Error"
 ;;
 
@@ -240,7 +244,10 @@ let test_detail_specific_tool_no_calls () =
   with
   | Error detail ->
     Alcotest.(check int) "called_tools empty" 0 (List.length detail.called_tools);
-    Alcotest.(check int) "satisfying has calculator" 1 (List.length detail.satisfying_tools)
+    Alcotest.(check int)
+      "satisfying has calculator"
+      1
+      (List.length detail.satisfying_tools)
   | Ok () -> Alcotest.fail "expected Error"
 ;;
 

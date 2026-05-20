@@ -12,11 +12,6 @@
     (lines 254, 481, 488, 510, +1).  Neither helper was previously
     exposed in [discovery.mli], so external surface is unaffected. *)
 
-val get_json
-  :  sw:Eio.Switch.t
-  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> string
-  -> (Yojson.Safe.t, string) result
 (** GET [url] and decode the body as JSON.  Returns [Error msg] for
     non-2xx responses, transport errors, parser errors, and the
     closed-sum [Http_client.http_error] variants ([AcceptRejected],
@@ -24,12 +19,17 @@ val get_json
     [ProviderTerminal], [ProviderFailure]).  [ProviderTerminal] is
     surfaced defensively — discovery hits HTTP endpoints only, so
     CLI-subprocess terminals cannot reach this match. *)
+val get_json
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> string
+  -> (Yojson.Safe.t, string) result
 
+(** GET [url] and return [true] iff the response status is 2xx.
+    Discards body and error context — used for liveness probes only
+    (e.g. [/health], [/]). *)
 val get_ok
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> string
   -> bool
-(** GET [url] and return [true] iff the response status is 2xx.
-    Discards body and error context — used for liveness probes only
-    (e.g. [/health], [/]). *)

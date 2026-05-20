@@ -75,8 +75,7 @@ let procedure_of_json (json : Yojson.Safe.t) : procedure option =
    already uses the same `let string_contains = Util.string_contains`
    pattern, so this aligns with the in-library convention.  Removing
    the local copy avoids the "Scattered Hardcoded Defaults" antipattern
-   (masc-mcp Doc #4 §AI 코드 생성 안티패턴 #1; same pattern caught in
-   PR #16364 for masc-mcp's keeper_unified_metrics.ml). *)
+   recorded in the downstream coordinator docs for the same helper shape. *)
 let string_contains = Util.string_contains
 
 (* ── Operations ─────────────────────────────────────────── *)
