@@ -51,8 +51,9 @@ type agent_error =
         with no pricing entry, so the cap cannot be enforced. *)
   | `Idle_detected of int (** consecutive_idle_turns *)
   | `Tool_retry_exhausted of int * int * string (** attempts, limit, detail *)
-  | `Completion_contract_violation of Completion_contract_id.t * string
-    (** contract, reason *)
+  | `Completion_contract_violation of
+      Completion_contract_id.t * string * Completion_contract_violation_detail.t option
+    (** contract, reason, violation detail *)
   | `Guardrail_violation of string * string (** validator, reason *)
   | `Tripwire_violation of string * string (** tripwire, reason *)
   | `Unrecognized_stop_reason of string

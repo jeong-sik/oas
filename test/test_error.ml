@@ -78,7 +78,10 @@ let test_agent_completion_contract_violation () =
   let err =
     Error.Agent
       (CompletionContractViolation
-         { contract = Completion_contract.Require_tool_use; reason = "no ToolUse block" })
+         { contract = Completion_contract.Require_tool_use
+         ; reason = "no ToolUse block"
+         ; violation_detail = None
+         })
   in
   check
     string

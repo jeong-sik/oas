@@ -241,13 +241,20 @@ let test_agent_run_requires_tool_use_when_tool_choice_is_any () =
     let agent = make_agent ~net:env#net ~tools:[ time_tool ] ~tool_choice:Types.Any url in
     match Agent.run ~sw agent "what time is it?" with
     | Ok _ -> fail "expected required tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error
+        (Error.Agent
+           (Error.CompletionContractViolation { contract; reason; violation_detail })) ->
       check bool "contract" true (contract = Completion_contract.Require_tool_use);
       check
         bool
         "reason mentions tool contract"
         true
         (contains_substring ~needle:"required tool contract unsatisfied" reason);
+      (match violation_detail with
+       | Some detail ->
+         check (list string) "called tools" [] detail.called_tools;
+         check (list string) "satisfying tools" [] detail.satisfying_tools
+       | None -> fail "expected typed violation detail");
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -368,7 +375,7 @@ let test_agent_run_missing_required_tool_use_retry_exhausted () =
     in
     match Agent.run ~sw agent "what time is it?" with
     | Ok _ -> fail "expected missing required tool retry exhaustion"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check bool "contract" true (contract = Completion_contract.Require_tool_use);
       check
         bool
@@ -467,7 +474,7 @@ let test_agent_run_requires_specific_tool_when_tool_choice_is_tool () =
     in
     match Agent.run ~sw agent "what time is it?" with
     | Ok _ -> fail "expected specific-tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check
         bool
         "contract"
@@ -505,7 +512,7 @@ let test_agent_run_rejects_any_tool_choice_when_no_tools_visible () =
     let agent = make_agent ~net:env#net ~tools:[] ~tool_choice:Types.Any url in
     match Agent.run ~sw agent "use any available tool" with
     | Ok _ -> fail "expected no-visible-tools contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check bool "contract" true (contract = Completion_contract.Require_tool_use);
       check
         bool
@@ -545,7 +552,7 @@ let test_agent_run_accepts_any_tool_choice_when_only_runtime_mcp_tools_visible (
     in
     match Agent.run ~sw agent "use any available tool" with
     | Ok _ -> fail "expected required tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check bool "contract" true (contract = Completion_contract.Require_tool_use);
       check
         bool
@@ -597,7 +604,7 @@ let test_agent_run_rejects_specific_tool_choice_when_tool_hidden () =
     in
     match Agent.run ~sw agent "what time is it?" with
     | Ok _ -> fail "expected hidden specific-tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check
         bool
         "contract"
@@ -639,7 +646,7 @@ let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
     in
     match Agent.run ~sw agent "do not use tools" with
     | Ok _ -> fail "expected no-tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check bool "contract" true (contract = Completion_contract.Require_no_tool_use);
       check
         bool
@@ -683,7 +690,7 @@ let test_agent_run_strict_required_tool_rejects_read_only_tool () =
     in
     match Agent.run ~sw agent "must use a productive tool" with
     | Ok _ -> fail "expected read-only tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check bool "contract" true (contract = Completion_contract.Require_tool_use);
       check
         bool
@@ -757,7 +764,7 @@ let test_agent_run_strict_specific_tool_rejects_read_only_match () =
     in
     match Agent.run ~sw agent "must use status" with
     | Ok _ -> fail "expected read-only specific-tool contract failure"
-    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason })) ->
+    | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check
         bool
         "contract"

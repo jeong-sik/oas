@@ -99,14 +99,16 @@ let validate_completion_contract agent (response : Types.api_response) =
     else resolved.effective
   in
   match
-    Completion_contract.validate_response
+    Completion_contract.validate_response_with_detail
       ~tools:(Tool_set.to_list agent.tools)
       ~required_tool_satisfaction:agent.options.required_tool_satisfaction
       ~contract
       response
   with
   | Ok () -> Ok ()
-  | Error reason -> Error (Error.Agent (CompletionContractViolation { contract; reason }))
+  | Error (reason, violation_detail) ->
+    Error
+      (Error.Agent (CompletionContractViolation { contract; reason; violation_detail }))
 ;;
 
 let persist_turn_checkpoint_for_state agent stage state =
@@ -209,6 +211,7 @@ let validate_requested_tool_choice_visibility agent (prep : Agent_turn.turn_prep
             { contract = resolved.effective
             ; reason =
                 "tool_choice requires tool use, but no tools are visible in this turn"
+            ; violation_detail = None
             }))
   | Completion_contract.Require_specific_tool name
     when not (tool_name_visible visible_tool_names name) ->
@@ -222,6 +225,7 @@ let validate_requested_tool_choice_visibility agent (prep : Agent_turn.turn_prep
                    advertised tool set: [%s]"
                   name
                   (preview_tool_names visible_tool_names)
+            ; violation_detail = None
             }))
   | Completion_contract.Allow_text_or_tool
   | Completion_contract.Require_no_tool_use
@@ -502,6 +506,18 @@ let handle_missing_required_tool_use
                         reason
                         attempts
                         limit
+                  ; violation_detail =
+                      (match
+                         Completion_contract.violation_detail_of_response
+                           ~tools:(Tool_set.to_list agent.tools)
+                           ~required_tool_satisfaction:
+                             agent.options.required_tool_satisfaction
+                           ~satisfying_tools:valid_tool_names
+                           ~contract:retry_contract
+                           response
+                       with
+                       | Ok () -> None
+                       | Error detail -> Some detail)
                   }))))
 ;;
 

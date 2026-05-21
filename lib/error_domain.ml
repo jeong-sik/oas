@@ -26,7 +26,8 @@ type agent_error =
   | `Cost_budget_unenforceable of string * float
   | `Idle_detected of int
   | `Tool_retry_exhausted of int * int * string
-  | `Completion_contract_violation of Completion_contract_id.t * string
+  | `Completion_contract_violation of
+      Completion_contract_id.t * string * Completion_contract_violation_detail.t option
   | `Guardrail_violation of string * string
   | `Tripwire_violation of string * string
   | `Unrecognized_stop_reason of string
@@ -114,7 +115,7 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (ToolRetryExhausted r) ->
     `Tool_retry_exhausted (r.attempts, r.limit, r.detail)
   | Error.Agent (CompletionContractViolation r) ->
-    `Completion_contract_violation (r.contract, r.reason)
+    `Completion_contract_violation (r.contract, r.reason, r.violation_detail)
   | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
   | Error.Agent (TripwireViolation r) -> `Tripwire_violation (r.tripwire, r.reason)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
@@ -168,8 +169,8 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   | `Idle_detected n -> Error.Agent (IdleDetected { consecutive_idle_turns = n })
   | `Tool_retry_exhausted (attempts, limit, detail) ->
     Error.Agent (ToolRetryExhausted { attempts; limit; detail })
-  | `Completion_contract_violation (contract, reason) ->
-    Error.Agent (CompletionContractViolation { contract; reason })
+  | `Completion_contract_violation (contract, reason, violation_detail) ->
+    Error.Agent (CompletionContractViolation { contract; reason; violation_detail })
   | `Guardrail_violation (validator, reason) ->
     Error.Agent (GuardrailViolation { validator; reason })
   | `Tripwire_violation (tripwire, reason) ->
