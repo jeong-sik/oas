@@ -689,7 +689,7 @@ let test_validate_run_uses_explicit_evidence_roles () =
     Alcotest.(check bool) "ok" true validation.ok;
     Alcotest.(check bool) "has file write role" true validation.has_file_write;
     let role_success_counts =
-      Raw_trace_query.evidence_role_summaries records
+      validation.evidence_roles
       |> List.map (fun (summary : Raw_trace.evidence_role_summary) ->
         ( Raw_trace.evidence_role_to_string summary.evidence_role
         , summary.successful_finished_count ))

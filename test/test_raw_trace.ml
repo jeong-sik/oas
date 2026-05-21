@@ -863,6 +863,13 @@ let test_run_validation_yojson () =
     ; checks = [ { name = "tool_pairs"; passed = true } ]
     ; evidence = [ "evidence1" ]
     ; paired_tool_result_count = 2
+    ; evidence_roles =
+        [ { evidence_role = Raw_trace.File_write
+          ; record_count = 2
+          ; successful_finished_count = 1
+          ; last_success_seq = Some 2
+          }
+        ]
     ; has_file_write = false
     ; verification_pass_after_file_write = false
     ; final_text = Some "ok"
@@ -872,13 +879,27 @@ let test_run_validation_yojson () =
     }
   in
   let json = Raw_trace.run_validation_to_yojson validation in
-  match Raw_trace.run_validation_of_yojson json with
+  (match Raw_trace.run_validation_of_yojson json with
+   | Ok decoded ->
+     Alcotest.(check string)
+       "roundtrip"
+       (Raw_trace.show_run_validation validation)
+       (Raw_trace.show_run_validation decoded)
+   | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg));
+  let legacy_json =
+    match json with
+    | `Assoc fields ->
+      `Assoc
+        (List.filter (fun (name, _) -> not (String.equal name "evidence_roles")) fields)
+    | other -> other
+  in
+  match Raw_trace.run_validation_of_yojson legacy_json with
   | Ok decoded ->
-    Alcotest.(check string)
-      "roundtrip"
-      (Raw_trace.show_run_validation validation)
-      (Raw_trace.show_run_validation decoded)
-  | Error msg -> Alcotest.fail ("run_validation_of_yojson: " ^ msg)
+    Alcotest.(check int)
+      "legacy evidence roles default"
+      0
+      (List.length decoded.evidence_roles)
+  | Error msg -> Alcotest.fail ("legacy run_validation_of_yojson: " ^ msg)
 ;;
 
 let test_tool_result_assistant_block_summary () =

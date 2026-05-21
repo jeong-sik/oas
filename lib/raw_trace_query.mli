@@ -36,5 +36,6 @@ val summarize_run : Raw_trace.run_ref -> (Raw_trace.run_summary, Error.sdk_error
 
 (** Run structural validation checks on a single run.
     Checks sequence monotonicity, run start/finish presence,
-    tool execution pairing, and optional verification pass. *)
+    tool execution pairing, typed evidence-role summaries, and optional
+    verification pass. *)
 val validate_run : Raw_trace.run_ref -> (Raw_trace.run_validation, Error.sdk_error) result

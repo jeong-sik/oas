@@ -8,6 +8,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Features
+
+* **raw-trace:** include typed evidence role summaries in validation results
+
 ## [0.196.7](https://github.com/jeong-sik/oas/compare/v0.196.6...v0.196.7) (2026-05-21)
 
 
