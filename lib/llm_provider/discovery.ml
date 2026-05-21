@@ -147,12 +147,12 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
     various model families (Qwen, Llama, Mistral, etc.). *)
 let template_has_tool_support (template : string) : bool =
   let has_tool_keyword =
-    Retry.contains_substring_ci ~haystack:template ~needle:"tools"
-    || Retry.contains_substring_ci ~haystack:template ~needle:"Tool"
+    Retry.contains_case_insensitive ~haystack:template ~needle:"tools"
+    || Retry.contains_case_insensitive ~haystack:template ~needle:"Tool"
   in
   let has_tool_call_token =
     List.exists
-      (fun needle -> Retry.contains_substring_ci ~haystack:template ~needle)
+      (fun needle -> Retry.contains_case_insensitive ~haystack:template ~needle)
       [ "<|tool_call|>"
       ; "<|tool_calls|>"
       ; ".tool_call"
@@ -307,7 +307,7 @@ let infer_capabilities ~uses_reasoning_effort models props =
         let needs_extended =
           List.exists
             (fun (m : model_info) ->
-               Retry.contains_substring_ci ~haystack:m.id ~needle:"qwen")
+               Retry.contains_case_insensitive ~haystack:m.id ~needle:"qwen")
             models
         in
         if needs_extended
@@ -970,26 +970,26 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
   | None -> false
 ;;
 
-(* --- contains_substring_ci (via Retry SSOT) --- *)
+(* --- contains_case_insensitive (via Retry SSOT) --- *)
 
-let%test "contains_substring_ci case insensitive match" =
-  Retry.contains_substring_ci ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
+let%test "contains_case_insensitive case insensitive match" =
+  Retry.contains_case_insensitive ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
 ;;
 
-let%test "contains_substring_ci no match" =
-  Retry.contains_substring_ci ~haystack:"llama" ~needle:"qwen" = false
+let%test "contains_case_insensitive no match" =
+  Retry.contains_case_insensitive ~haystack:"llama" ~needle:"qwen" = false
 ;;
 
-let%test "contains_substring_ci needle longer than haystack" =
-  Retry.contains_substring_ci ~haystack:"ab" ~needle:"abcdef" = false
+let%test "contains_case_insensitive needle longer than haystack" =
+  Retry.contains_case_insensitive ~haystack:"ab" ~needle:"abcdef" = false
 ;;
 
-let%test "contains_substring_ci empty needle" =
-  Retry.contains_substring_ci ~haystack:"anything" ~needle:"" = true
+let%test "contains_case_insensitive empty needle" =
+  Retry.contains_case_insensitive ~haystack:"anything" ~needle:"" = true
 ;;
 
-let%test "contains_substring_ci exact match" =
-  Retry.contains_substring_ci ~haystack:"QWEN" ~needle:"qwen" = true
+let%test "contains_case_insensitive exact match" =
+  Retry.contains_case_insensitive ~haystack:"QWEN" ~needle:"qwen" = true
 ;;
 
 (* --- infer_capabilities --- *)

@@ -91,28 +91,14 @@ let safe_prefix (body : string) ~(max_len : int) : string =
   else String.sub body 0 max_len
 ;;
 
-let contains_substring_ci ~(haystack : string) ~(needle : string) : bool =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let h_len = String.length h in
-  let n_len = String.length n in
-  let rec matches_at start offset =
-    if offset = n_len
-    then true
-    else if h.[start + offset] <> n.[offset]
-    then false
-    else matches_at start (offset + 1)
-  in
-  let rec loop start =
-    if n_len = 0
-    then true
-    else if start + n_len > h_len
-    then false
-    else if matches_at start 0
-    then true
-    else loop (start + 1)
-  in
-  loop 0
+let contains_case_insensitive ~(haystack : string) ~(needle : string) : bool =
+  let haystack = String.lowercase_ascii haystack in
+  let needle = String.lowercase_ascii needle in
+  try
+    let (_ : int) = Str.search_forward (Str.regexp_string needle) haystack 0 in
+    true
+  with
+  | Not_found -> false
 ;;
 
 (** Substrings indicating the InvalidRequest stems from malformed JSON in the
@@ -172,7 +158,7 @@ let hard_quota_indicators =
 
 let is_hard_quota_message (message : string) : bool =
   List.exists
-    (fun needle -> contains_substring_ci ~haystack:message ~needle)
+    (fun needle -> contains_case_insensitive ~haystack:message ~needle)
     hard_quota_indicators
 ;;
 
@@ -194,7 +180,7 @@ let is_retryable = function
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists
-      (fun needle -> contains_substring_ci ~haystack:message ~needle)
+      (fun needle -> contains_case_insensitive ~haystack:message ~needle)
       malformed_json_indicators
   | AuthError _ | ContextOverflow _ | NotFound _ -> false
 ;;
@@ -236,7 +222,7 @@ let extract_error_message (body : string) : string =
 let is_context_overflow_message (body : string) : bool =
   let message = extract_error_message body in
   List.exists
-    (fun needle -> contains_substring_ci ~haystack:message ~needle)
+    (fun needle -> contains_case_insensitive ~haystack:message ~needle)
     [ "available context size ("
     ; "context window"
     ; "context length exceeded"
@@ -284,7 +270,7 @@ let parse_context_overflow_limit (body : string) : int option =
   (* Pattern 1: "available context size (N)" *)
   let anchor1 = "available context size (" in
   let r1 =
-    match contains_substring_ci ~haystack:msg ~needle:anchor1 with
+    match contains_case_insensitive ~haystack:msg ~needle:anchor1 with
     | false -> None
     | true ->
       (* Find the anchor position *)
