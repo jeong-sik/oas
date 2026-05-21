@@ -78,7 +78,7 @@ let body_looks_like_json (body : string) : bool =
       match body.[idx] with
       | ' ' | '\n' | '\r' | '\t' -> loop (idx + 1)
       | '{' | '[' -> true
-      | _ -> false)
+      | _non_json_start -> false)
   in
   loop 0
 ;;
@@ -176,7 +176,11 @@ let is_retryable = function
     (match kind with
      | Http_client.Tls_error -> false
      | Http_client.Local_resource_exhaustion -> false
-     | _ -> true)
+     | Http_client.Connection_refused
+     | Http_client.Dns_failure
+     | Http_client.Timeout
+     | Http_client.End_of_file
+     | Http_client.Unknown -> true)
   | InvalidRequest { message } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
     List.exists
@@ -187,7 +191,14 @@ let is_retryable = function
 
 let is_hard_quota = function
   | RateLimited { message; _ } -> is_hard_quota_message message
-  | _ -> false
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
 ;;
 
 (** Extract a human-readable error message from a provider error body.
@@ -211,8 +222,10 @@ let extract_error_message (body : string) : string =
       | `Assoc _ as err ->
         (match err |> member "message" with
          | `String s -> s
-         | _ -> safe_prefix body ~max_len:overflow_message_scan_limit)
-      | _ -> safe_prefix body ~max_len:overflow_message_scan_limit
+         | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+           safe_prefix body ~max_len:overflow_message_scan_limit)
+      | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+        safe_prefix body ~max_len:overflow_message_scan_limit
     with
     | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _
       -> safe_prefix body ~max_len:overflow_message_scan_limit)
@@ -241,7 +254,7 @@ let int_run_from (text : string) start : (int * int) option =
     else (
       match text.[i] with
       | '0' .. '9' -> consume (i + 1)
-      | _ -> i)
+      | _non_digit -> i)
   in
   let stop = consume start in
   if stop = start
@@ -260,7 +273,7 @@ let skip_ws text i =
     else (
       match text.[j] with
       | ' ' | '\n' | '\r' | '\t' -> loop (j + 1)
-      | _ -> j)
+      | _non_ws -> j)
   in
   loop i
 ;;
@@ -344,7 +357,9 @@ let classify_error ~status ~body : api_error =
   | 404 -> NotFound { message }
   | 529 -> Overloaded { message }
   | s when s >= 500 -> ServerError { status = s; message }
-  | _ -> InvalidRequest { message }
+  | unhandled_status ->
+    let (_ : int) = unhandled_status in
+    InvalidRequest { message }
 ;;
 
 (** Calculate delay for attempt n with jitter.
@@ -375,7 +390,15 @@ let with_retry_map_error
     let delay =
       match err with
       | RateLimited { retry_after = Some ra; _ } -> ra
-      | _ -> calculate_delay config attempt
+      | RateLimited { retry_after = None; _ }
+      | Overloaded _
+      | ServerError _
+      | AuthError _
+      | InvalidRequest _
+      | NotFound _
+      | ContextOverflow _
+      | NetworkError _
+      | Timeout _ -> calculate_delay config attempt
     in
     Eio.Time.sleep clock delay
   in
@@ -477,7 +500,14 @@ let%test "is_retryable: flat Ollama error string (regression for #6474)" =
   let body = {|{"error":"Value looks like object, but can't find closing '}' symbol"}|} in
   match classify_error ~status:400 ~body with
   | InvalidRequest _ as err -> is_retryable err
-  | _ -> false
+  | RateLimited _
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
 ;;
 
 let%test "parse_context_overflow_limit: non-overflow returns None" =
@@ -494,14 +524,30 @@ let%test "classify_error returns ContextOverflow for overflow body" =
   in
   match classify_error ~status:400 ~body with
   | ContextOverflow { limit = Some 8192; _ } -> true
-  | _ -> false
+  | ContextOverflow { limit = None; _ }
+  | ContextOverflow { limit = Some _; _ }
+  | RateLimited _
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | InvalidRequest _
+  | NotFound _
+  | NetworkError _
+  | Timeout _ -> false
 ;;
 
 let%test "classify_error returns InvalidRequest for non-overflow 400" =
   let body = {|{"error":{"message":"bad tool schema"}}|} in
   match classify_error ~status:400 ~body with
   | InvalidRequest _ -> true
-  | _ -> false
+  | RateLimited _
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
 ;;
 
 let%test "ContextOverflow is not retryable" =
@@ -729,7 +775,15 @@ let%test "classify_error 429 hard-quota clears retry_after" =
   in
   match classify_error ~status:429 ~body with
   | RateLimited { retry_after = None; _ } -> true
-  | _ -> false
+  | RateLimited { retry_after = Some _; _ }
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
 ;;
 
 let%test "classify_error 429 transient preserves retry_after" =
@@ -738,5 +792,13 @@ let%test "classify_error 429 transient preserves retry_after" =
   in
   match classify_error ~status:429 ~body with
   | RateLimited { retry_after = Some ra; _ } -> Float.equal ra 3.0
-  | _ -> false
+  | RateLimited { retry_after = None; _ }
+  | Overloaded _
+  | ServerError _
+  | AuthError _
+  | InvalidRequest _
+  | NotFound _
+  | ContextOverflow _
+  | NetworkError _
+  | Timeout _ -> false
 ;;
