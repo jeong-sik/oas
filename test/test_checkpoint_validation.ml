@@ -96,17 +96,6 @@ let test_overlap_ratio_disjoint () =
   Alcotest.(check bool) "disjoint = 0.0" true (r < 0.01)
 ;;
 
-let test_contains_ci () =
-  Alcotest.(check bool)
-    "found"
-    true
-    (Checkpoint_validation.contains_substring_ci ~haystack:"Hello World" ~needle:"hello");
-  Alcotest.(check bool)
-    "not found"
-    false
-    (Checkpoint_validation.contains_substring_ci ~haystack:"Hello" ~needle:"xyz")
-;;
-
 let () =
   Alcotest.run
     "Checkpoint Validation"
@@ -125,7 +114,6 @@ let () =
     ; ( "text_utils"
       , [ Alcotest.test_case "overlap identical" `Quick test_overlap_ratio_identical
         ; Alcotest.test_case "overlap disjoint" `Quick test_overlap_ratio_disjoint
-        ; Alcotest.test_case "contains_ci" `Quick test_contains_ci
         ] )
     ]
 ;;

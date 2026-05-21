@@ -6,8 +6,6 @@
 
 (* ── Text utilities ────────────────────────────────────────────── *)
 
-let contains_substring_ci = Util.contains_substring_ci
-
 let normalize_for_overlap s =
   let b = Buffer.create (String.length s) in
   String.iter
@@ -77,7 +75,7 @@ let validate_dna dna =
   else (
     let has_marker =
       List.exists
-        (fun needle -> contains_substring_ci ~haystack:dna ~needle)
+        (fun needle -> Util.contains_substring_ci ~haystack:dna ~needle)
         [ "goal"; "task"; "objective"; "context" ]
     in
     if not has_marker
@@ -100,9 +98,9 @@ let validate_dna dna =
       else (
         let has_structure =
           String.contains dna '\n'
-          || contains_substring_ci ~haystack:dna ~needle:"- "
-          || contains_substring_ci ~haystack:dna ~needle:": "
-          || contains_substring_ci ~haystack:dna ~needle:"* "
+          || Util.contains_substring_ci ~haystack:dna ~needle:"- "
+          || Util.contains_substring_ci ~haystack:dna ~needle:": "
+          || Util.contains_substring_ci ~haystack:dna ~needle:"* "
         in
         if not has_structure
         then Error "DNA lacks structure (expected: newlines, bullets, colons, or dashes)"
@@ -127,7 +125,7 @@ let continuity_check ~full_context ~compressed_context =
       (fun (acc, pass_n) (name, hint) ->
          let overlap = token_overlap_ratio ~source:hint ~target:compressed_context in
          let retained =
-           contains_substring_ci ~haystack:compressed_context ~needle:hint
+           Util.contains_substring_ci ~haystack:compressed_context ~needle:hint
            || overlap >= 0.6
          in
          let detail =
