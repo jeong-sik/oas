@@ -29,7 +29,7 @@ let metric_value_of_yojson = function
   | `Float f -> Ok (Float_val f)
   | `Bool b -> Ok (Bool_val b)
   | `String s -> Ok (String_val s)
-  | _ -> Error "expected int, float, bool, or string"
+  | `Assoc _ | `List _ | `Null | `Intlit _ -> Error "expected int, float, bool, or string"
 ;;
 
 let show_metric_value = function
@@ -46,6 +46,17 @@ let metric_value_to_float = function
   | Float_val f -> Some f
   | Bool_val b -> Some (if b then 1.0 else 0.0)
   | String_val _ -> None
+;;
+
+let tags_of_json = function
+  | `Assoc kvs -> List.map (fun (k, v) -> k, Yojson.Safe.Util.to_string v) kvs
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> []
+;;
+
+let numeric_threshold_violated ~compare value threshold =
+  match metric_value_to_float value, metric_value_to_float threshold with
+  | Some v, Some limit -> compare v limit
+  | None, _ | _, None -> false
 ;;
 
 (* ── Metric ───────────────────────────────────────────────────── *)
@@ -81,11 +92,7 @@ let metric_of_yojson json =
     | Error e -> Error e
     | Ok value ->
       let unit_ = json |> member "unit" |> to_string_option in
-      let tags =
-        match json |> member "tags" with
-        | `Assoc kvs -> List.map (fun (k, v) -> k, to_string v) kvs
-        | _ -> []
-      in
+      let tags = json |> member "tags" |> tags_of_json in
       Ok { name; value; unit_; tags }
   with
   | Type_error (msg, _) -> Error msg
@@ -231,6 +238,8 @@ type change_direction =
   | Improvement
   | Unchanged
 
+let no_numeric_delta _baseline _candidate = Unchanged, None
+
 type metric_delta =
   { metric_name : string
   ; baseline_value : metric_value
@@ -273,7 +282,7 @@ let compute_delta
       if cv > bv then Regression else if cv < bv then Improvement else Unchanged
     in
     direction, None
-  | _ -> Unchanged, None
+  | None, _ | _, None -> no_numeric_delta baseline_val candidate_val
 ;;
 
 let compute_delta_for_goal
@@ -306,10 +315,11 @@ let compute_delta_for_goal
          match pct with
          | Some v when v > threshold_pct -> Regression
          | None when diff > 0.0 -> Regression
-         | _ -> Unchanged
+         | Some _ | None -> Unchanged
        in
        direction, pct
-     | _ -> if baseline_val = candidate_val then Unchanged, None else Regression, None)
+     | None, _ | _, None ->
+       if baseline_val = candidate_val then Unchanged, None else Regression, None)
 ;;
 
 let compare_with specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
@@ -382,18 +392,12 @@ let check_thresholds (rm : run_metrics) (thresholds : threshold list) : Harness.
            let violates_max =
              match th.max_value with
              | None -> false
-             | Some max_v ->
-               (match metric_value_to_float m.value, metric_value_to_float max_v with
-                | Some v, Some max -> v > max
-                | _ -> false)
+             | Some max_v -> numeric_threshold_violated ~compare:( > ) m.value max_v
            in
            let violates_min =
              match th.min_value with
              | None -> false
-             | Some min_v ->
-               (match metric_value_to_float m.value, metric_value_to_float min_v with
-                | Some v, Some min -> v < min
-                | _ -> false)
+             | Some min_v -> numeric_threshold_violated ~compare:( < ) m.value min_v
            in
            if violates_max
            then
