@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.196.7](https://github.com/jeong-sik/oas/compare/v0.196.6...v0.196.7) (2026-05-21)
+
+
+### Features
+
+* **timeout:** add provider timeout policy phases ([#1656](https://github.com/jeong-sik/oas/issues/1656)) ([540cb45](https://github.com/jeong-sik/oas/commit/540cb45918330e7ae274d2b919ef3c510425260d))
+
 ## [0.196.6](https://github.com/jeong-sik/oas/compare/v0.196.5...v0.196.6) (2026-05-20)
 
 
