@@ -40,7 +40,9 @@ let hex_decode s =
       done;
       Some (Buffer.contents buf)
     with
-    | _ -> None)
+    | decode_error ->
+      let _decode_error = decode_error in
+      None)
 ;;
 
 let file_path store key = Eio.Path.(store.base_dir / (hex_encode key ^ ".json"))
@@ -153,7 +155,8 @@ let query t ~prefix ~limit =
           (match retrieve t ~key with
            | Some value -> Some (key, value)
            | None -> None)
-        | _ -> None)
+        | None -> None
+        | Some _non_matching_key -> None)
       else None)
     |> List.sort (fun (a, _) (b, _) -> String.compare a b)
     |> fun lst ->
