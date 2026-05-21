@@ -33,7 +33,8 @@ let list_sub lst start len =
 let common_prefix_len left right =
   let rec loop n = function
     | x :: xs, y :: ys when x = y -> loop (n + 1) (xs, ys)
-    | _ -> n
+    | [], _ | _, [] -> n
+    | _ :: _, _ :: _ -> n
   in
   loop 0 (left, right)
 ;;
