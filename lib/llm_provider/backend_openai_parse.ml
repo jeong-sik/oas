@@ -13,6 +13,36 @@ let first_some a b =
   | None -> b
 ;;
 
+let json_float_number = function
+  | `Float f -> Some f
+  | `Int i -> Some (float_of_int i)
+  | `Assoc _ | `List _ | `String _ | `Intlit _ | `Bool _ | `Null -> None
+;;
+
+let non_blank_json_string = function
+  | `String s when not (Api_common.string_is_blank s) -> Some s
+  | `String _ | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    None
+;;
+
+let text_of_openai_content_block = function
+  | `String s -> Some s
+  | `Assoc fields ->
+    (match List.assoc_opt "text" fields with
+     | Some (`String s) -> Some s
+     | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
+       -> None)
+  | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let text_content_of_openai_content = function
+  | `String s -> s
+  | `Null -> ""
+  | `List blocks ->
+    blocks |> List.filter_map text_of_openai_content_block |> String.concat ""
+  | `Assoc _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> ""
+;;
+
 let member_int_fallback json field_names =
   let open Yojson.Safe.Util in
   let rec loop = function
@@ -30,12 +60,7 @@ let member_float_fallback json field_names =
   let rec loop = function
     | [] -> None
     | key :: rest ->
-      let value =
-        match json |> member key with
-        | `Float f -> Some f
-        | `Int i -> Some (float_of_int i)
-        | _ -> None
-      in
+      let value = json_float_number (json |> member key) in
       (match value with
        | Some _ -> value
        | None -> loop rest)
@@ -46,7 +71,7 @@ let member_float_fallback json field_names =
 let derive_ms token_count tok_per_sec =
   match token_count, tok_per_sec with
   | Some n, Some v when v > 0.0 -> Some (float_of_int n /. v *. 1000.0)
-  | _ -> None
+  | Some _, Some _ | Some _, None | None, Some _ | None, None -> None
 ;;
 
 let strip_json_markdown_fences text =
@@ -55,12 +80,18 @@ let strip_json_markdown_fences text =
   then trimmed
   else (
     match String.split_on_char '\n' trimmed with
-    | first :: rest when String.length first >= 3 ->
-      (match List.rev rest with
-       | last :: middle_rev when String.trim last = "```" ->
-         String.concat "\n" (List.rev middle_rev) |> String.trim
-       | _ -> trimmed)
-    | _ -> trimmed)
+    | [] -> trimmed
+    | first :: rest ->
+      if String.length first < 3
+      then trimmed
+      else (
+        match List.rev rest with
+        | [] -> trimmed
+        | last :: middle_rev when String.trim last = "```" ->
+          String.concat "\n" (List.rev middle_rev) |> String.trim
+        | last :: _middle_rev ->
+          let (_ : string) = last in
+          trimmed))
 ;;
 
 let usage_of_openai_json json =
@@ -165,19 +196,18 @@ let telemetry_of_openai_json json =
     | Some _ -> from_details, false
     | None ->
       let msg =
-        try json |> member "choices" |> index 0 |> member "message" with
-        | _ -> `Null
+        match json |> member "choices" with
+        | `List (choice :: _) -> choice |> member "message"
+        | `List []
+        | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> `Null
       in
       let reasoning_text =
         if msg = `Null
         then None
         else (
-          match msg |> member "reasoning_content" with
-          | `String s when not (Api_common.string_is_blank s) -> Some s
-          | _ ->
-            (match msg |> member "reasoning" with
-             | `String s when not (Api_common.string_is_blank s) -> Some s
-             | _ -> None))
+          match non_blank_json_string (msg |> member "reasoning_content") with
+          | Some _ as text -> text
+          | None -> non_blank_json_string (msg |> member "reasoning"))
       in
       (match reasoning_text with
        | Some s ->
@@ -214,6 +244,7 @@ let parse_openai_response_result json_str =
   let json =
     match raw_json with
     | `List (first :: _) -> first
+    | `List [] -> raw_json
     | other -> other
   in
   match json |> member "error" with
@@ -223,22 +254,7 @@ let parse_openai_response_result json_str =
     let finish_reason =
       choice |> member "finish_reason" |> to_string_option |> Option.value ~default:"stop"
     in
-    let text_content =
-      match msg |> member "content" with
-      | `String s -> s
-      | `Null -> ""
-      | `List blocks ->
-        blocks
-        |> List.filter_map (function
-          | `String s -> Some s
-          | `Assoc fields ->
-            (match List.assoc_opt "text" fields with
-             | Some (`String s) -> Some s
-             | _ -> None)
-          | _ -> None)
-        |> String.concat ""
-      | _ -> ""
-    in
+    let text_content = text_content_of_openai_content (msg |> member "content") in
     let text_content =
       let stripped = strip_json_markdown_fences text_content in
       if stripped = text_content
@@ -274,18 +290,15 @@ let parse_openai_response_result json_str =
              | Yojson.Safe.Util.Undefined _
              | Yojson.Json_error _ -> None)
           calls
-      | _ -> []
+      | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
     in
     let thinking_blocks =
       (* Ollama uses "reasoning" field; OpenAI/DeepSeek use "reasoning_content".
            Check both, preferring reasoning_content. *)
       let reasoning_text =
-        match msg |> member "reasoning_content" with
-        | `String s when not (Api_common.string_is_blank s) -> Some s
-        | _ ->
-          (match msg |> member "reasoning" with
-           | `String s when not (Api_common.string_is_blank s) -> Some s
-           | _ -> None)
+        match non_blank_json_string (msg |> member "reasoning_content") with
+        | Some _ as text -> text
+        | None -> non_blank_json_string (msg |> member "reasoning")
       in
       match reasoning_text with
       | Some s -> [ Thinking { thinking_type = "reasoning"; content = s } ]
@@ -356,7 +369,9 @@ let%test "telemetry_of_openai_json synthesizes timings from mlx_vlm usage" =
     && Option.value ~default:0.0 t.prompt_ms > 500.0
     && Option.value ~default:0.0 t.predicted_ms > 60.0
     && peak = 52.66
-  | _ -> false
+  | Some { timings = None; _ }
+  | Some { timings = Some _; peak_memory_gb = None; _ }
+  | None -> false
 ;;
 
 let%test "telemetry_of_openai_json keeps timings none without timing signals" =
@@ -365,5 +380,7 @@ let%test "telemetry_of_openai_json keeps timings none without timing signals" =
   in
   match telemetry_of_openai_json json with
   | Some { timings = None; peak_memory_gb = None; _ } -> true
-  | _ -> false
+  | Some { timings = Some _; _ }
+  | Some { timings = None; peak_memory_gb = Some _; _ }
+  | None -> false
 ;;
