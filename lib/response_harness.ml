@@ -276,7 +276,7 @@ let%test "extract_score_from_text: clamps to range" =
 
 let%test "extract_score_from_text: tracks telemetry" =
   reset_telemetry ();
-  ignore (extract_score_from_text "0.5");
+  let (_ : float option) = extract_score_from_text "0.5" in
   let t = snapshot () in
   t.parse_success = 1 && t.text_extraction = 1
 ;;

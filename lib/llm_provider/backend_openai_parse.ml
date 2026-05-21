@@ -245,7 +245,7 @@ let parse_openai_response_result json_str =
       then text_content
       else (
         try
-          ignore (Yojson.Safe.from_string stripped);
+          let (_ : Yojson.Safe.t) = Yojson.Safe.from_string stripped in
           stripped
         with
         | Yojson.Json_error _ -> text_content)

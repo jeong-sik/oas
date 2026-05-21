@@ -192,7 +192,7 @@ let%test "create with valid max_slots" =
 
 let%test "create rejects zero" =
   try
-    ignore (create ~max_slots:0);
+    let (_ : t) = create ~max_slots:0 in
     false
   with
   | Invalid_argument _ -> true
@@ -200,7 +200,7 @@ let%test "create rejects zero" =
 
 let%test "create rejects negative" =
   try
-    ignore (create ~max_slots:(-1));
+    let (_ : t) = create ~max_slots:(-1) in
     false
   with
   | Invalid_argument _ -> true

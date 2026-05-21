@@ -144,7 +144,7 @@ let%test "create with valid max_concurrent" =
 
 let%test "create rejects zero" =
   try
-    ignore (create ~max_concurrent:0 ~provider_name:"test");
+    let (_ : t) = create ~max_concurrent:0 ~provider_name:"test" in
     false
   with
   | Invalid_argument _ -> true
@@ -152,7 +152,7 @@ let%test "create rejects zero" =
 
 let%test "create rejects negative" =
   try
-    ignore (create ~max_concurrent:(-1) ~provider_name:"test");
+    let (_ : t) = create ~max_concurrent:(-1) ~provider_name:"test" in
     false
   with
   | Invalid_argument _ -> true

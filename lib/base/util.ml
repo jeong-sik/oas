@@ -75,7 +75,7 @@ let contains_substring_ci ~haystack ~needle =
 
 let regex_match re str =
   try
-    ignore (Str.search_forward re str 0);
+    let (_ : int) = Str.search_forward re str 0 in
     true
   with
   | Not_found -> false

@@ -477,7 +477,7 @@ let%test "validate_response preserves first-match tool descriptor semantics" =
   with
   | Error msg ->
     (try
-       ignore (Str.search_forward (Str.regexp_string "read-only") msg 0);
+       let (_ : int) = Str.search_forward (Str.regexp_string "read-only") msg 0 in
        true
      with
      | Not_found -> false)
