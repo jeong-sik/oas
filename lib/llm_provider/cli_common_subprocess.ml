@@ -5,14 +5,9 @@ type collect_result =
   ; recovered_exit_code : int option
   }
 
-let starts_with s prefix =
-  let lp = String.length prefix in
-  String.length s >= lp && String.sub s 0 lp = prefix
-;;
-
 let build_env ~cwd ~extra_env ?(scrub_env = []) () =
   let drop_scrubbed kv =
-    not (List.exists (fun k -> starts_with kv (k ^ "=")) scrub_env)
+    not (List.exists (fun k -> String.starts_with ~prefix:(k ^ "=") kv) scrub_env)
   in
   let base = Unix.environment () |> Array.to_list |> List.filter drop_scrubbed in
   let extras = List.map (fun (k, v) -> Printf.sprintf "%s=%s" k v) extra_env in
