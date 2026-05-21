@@ -65,8 +65,6 @@ let tool_contract_of_json json =
   }
 ;;
 
-let contains_substring ~sub text = Util.string_contains ~needle:sub text
-
 let telemetry_of_json json =
   let open Yojson.Safe.Util in
   let event_counts : telemetry_event_count list =
@@ -114,7 +112,7 @@ let infer_event_name_from_kind kind =
     ]
   in
   known
-  |> List.find_opt (fun (needle, _) -> contains_substring ~sub:needle kind)
+  |> List.find_opt (fun (needle, _) -> Util.string_contains ~needle kind)
   |> Option.map snd
   |> Option.value ~default:(String.lowercase_ascii kind)
 ;;
