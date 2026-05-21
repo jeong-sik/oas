@@ -110,7 +110,7 @@ let extract_last_user_text (messages : message list) : string =
         in
         match texts with
         | [] -> find_last rest
-        | _ -> String.concat " " texts)
+        | _ :: _ -> String.concat " " texts)
       else find_last rest
   in
   find_last (List.rev messages)
@@ -210,7 +210,7 @@ let render_tiered_memory_message = function
     in
     (match sections with
      | [] -> None
-     | _ ->
+     | _ :: _ ->
        Some
          { role = User
          ; content = [ Text (String.concat "\n\n" sections) ]
@@ -398,7 +398,7 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
        let model_id =
          match provider with
          | Some (cfg : Provider.config) when cfg.model_id <> "" -> cfg.model_id
-         | _ -> "<unknown>"
+         | Some _ | None -> "<unknown>"
        in
        (* Use [pricing_for_model_opt] so an unknown model does not silently
           collapse to zero_pricing.  When there is no pricing entry, leave
@@ -453,7 +453,13 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
                            { message = content; recoverable = true; error_class = None }
                          : tool_result)
                     else Some (Ok { content } : tool_result)
-                  | _ -> None)
+                  | Text _
+                  | Thinking _
+                  | RedactedThinking _
+                  | ToolUse _
+                  | Image _
+                  | Document _
+                  | Audio _ -> None)
                 msg.content
             in
             if results <> [] then results else find_last rest)
@@ -477,7 +483,12 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
     in
     (match decision with
      | Hooks.AdjustParams params -> params
-     | _ -> Hooks.default_turn_params)
+     | Hooks.Continue
+     | Hooks.Skip
+     | Hooks.Override _
+     | Hooks.ApprovalRequired
+     | Hooks.ElicitInput _
+     | Hooks.Nudge _ -> Hooks.default_turn_params)
 ;;
 
 (* ── Context injection after tool execution ───────────────────── *)
@@ -485,7 +496,7 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
 let filter_valid_messages ~messages extra_messages =
   match messages with
   | [] -> extra_messages
-  | _ ->
+  | _ :: _ ->
     let last_role = (List.nth messages (List.length messages - 1)).role in
     let rec filter_valid prev_role = function
       | [] -> []
@@ -538,7 +549,13 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
               _log
               "context_injector raised"
               [ S ("tool", name); S ("error", Printexc.to_string exn) ])
-       | _ -> ())
+       | Text _
+       | Thinking _
+       | RedactedThinking _
+       | ToolResult _
+       | Image _
+       | Document _
+       | Audio _ -> ())
     tool_uses
     results;
   !current_messages
@@ -553,7 +570,7 @@ let check_token_budget config usage =
       Some
         (Error.Agent
            (TokenBudgetExceeded { kind = "Input"; used = usage.total_input_tokens; limit }))
-    | _ -> None
+    | Some _ | None -> None
   in
   let exceeded_total =
     match config.max_total_tokens with
@@ -563,7 +580,7 @@ let check_token_budget config usage =
       then
         Some (Error.Agent (TokenBudgetExceeded { kind = "Total"; used = total; limit }))
       else None
-    | _ -> None
+    | None -> None
   in
   match exceeded_input with
   | Some _ as err -> err
@@ -824,28 +841,42 @@ let mock_result ?(is_error = false) ~id content : Agent_tools.tool_execution_res
   }
 ;;
 
+let single_tool_result = function
+  | [ ToolResult { tool_use_id; content; is_error; json = _ } ] ->
+    Some (tool_use_id, content, is_error)
+  | []
+  | [ Text _ ]
+  | [ Thinking _ ]
+  | [ RedactedThinking _ ]
+  | [ ToolUse _ ]
+  | [ Image _ ]
+  | [ Document _ ]
+  | [ Audio _ ]
+  | _ :: _ :: _ -> None
+;;
+
 let%test "make_tool_results: small result passes through unchanged" =
   let results = [ mock_result ~id:"t1" "hello world" ] in
-  match make_tool_results results with
-  | [ ToolResult { content; _ } ] -> content = "hello world"
-  | _ -> false
+  match single_tool_result (make_tool_results results) with
+  | Some (_, content, _) -> content = "hello world"
+  | None -> false
 ;;
 
 let%test "make_tool_results: large result is truncated at default cap" =
   let big = String.make 60_000 'x' in
   let results = [ mock_result ~id:"t1" big ] in
-  match make_tool_results results with
-  | [ ToolResult { content; _ } ] ->
+  match single_tool_result (make_tool_results results) with
+  | Some (_, content, _) ->
     String.length content > default_max_tool_result_chars
     && String.length content < 60_000 + 100
-  | _ -> false
+  | None -> false
 ;;
 
 let%test "make_tool_results: truncation marker present" =
   let big = String.make 60_000 'x' in
   let results = [ mock_result ~id:"t1" big ] in
-  match make_tool_results results with
-  | [ ToolResult { content; _ } ] ->
+  match single_tool_result (make_tool_results results) with
+  | Some (_, content, _) ->
     let needle = "[output truncated:" in
     let nlen = String.length needle in
     let slen = String.length content in
@@ -854,28 +885,27 @@ let%test "make_tool_results: truncation marker present" =
       if (not !found) && String.sub content i nlen = needle then found := true
     done;
     !found
-  | _ -> false
+  | None -> false
 ;;
 
 let%test "make_tool_results: custom cap respected" =
   let results = [ mock_result ~id:"t1" (String.make 500 'y') ] in
-  match make_tool_results ~max_result_chars:100 results with
-  | [ ToolResult { content; _ } ] ->
-    String.length content > 100 && String.length content < 200
-  | _ -> false
+  match single_tool_result (make_tool_results ~max_result_chars:100 results) with
+  | Some (_, content, _) -> String.length content > 100 && String.length content < 200
+  | None -> false
 ;;
 
 let%test "make_tool_results: cap=0 disables truncation" =
   let big = String.make 100_000 'z' in
   let results = [ mock_result ~id:"t1" big ] in
-  match make_tool_results ~max_result_chars:0 results with
-  | [ ToolResult { content; _ } ] -> String.length content = 100_000
-  | _ -> false
+  match single_tool_result (make_tool_results ~max_result_chars:0 results) with
+  | Some (_, content, _) -> String.length content = 100_000
+  | None -> false
 ;;
 
 let%test "make_tool_results: tool_use_id and is_error preserved" =
   let results = [ mock_result ~id:"err1" ~is_error:true (String.make 60_000 'e') ] in
-  match make_tool_results results with
-  | [ ToolResult { tool_use_id; is_error; _ } ] -> tool_use_id = "err1" && is_error = true
-  | _ -> false
+  match single_tool_result (make_tool_results results) with
+  | Some (tool_use_id, _, is_error) -> tool_use_id = "err1" && is_error = true
+  | None -> false
 ;;
