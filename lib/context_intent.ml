@@ -64,12 +64,8 @@ let depth_for_intent = function
 
 let clamp_unit value = if value < 0.0 then 0.0 else if value > 1.0 then 1.0 else value
 
-let starts_with_any ~prefixes text =
-  List.exists
-    (fun prefix ->
-       let lp = String.length prefix in
-       String.length text >= lp && String.sub text 0 lp = prefix)
-    prefixes
+let has_any_prefix ~prefixes text =
+  List.exists (fun prefix -> String.starts_with ~prefix text) prefixes
 ;;
 
 let matched_keywords keywords text =
@@ -92,7 +88,7 @@ let heuristic_classify query =
   let short = len > 0 && len <= 48 in
   let asks_question =
     Util.string_contains ~needle:"?" lowered
-    || starts_with_any
+    || has_any_prefix
          ~prefixes:
            [ "what"
            ; "why"
@@ -111,7 +107,7 @@ let heuristic_classify query =
          lowered
   in
   let starts_with_action =
-    starts_with_any
+    has_any_prefix
       ~prefixes:
         [ "fix"
         ; "add"
@@ -229,7 +225,7 @@ let heuristic_classify query =
       0.0
       +.
       if
-        starts_with_any
+        has_any_prefix
           ~prefixes:[ "what"; "why"; "how"; "when"; "where"; "which"; "who" ]
           lowered
       then 0.15
@@ -239,7 +235,7 @@ let heuristic_classify query =
     (float_of_int (List.length coordination_hits) *. 0.50)
     +.
     if
-      starts_with_any
+      has_any_prefix
         ~prefixes:[ "assign"; "route"; "transfer"; "coordinate"; "sync"; "reserve" ]
         lowered
     then 0.20
