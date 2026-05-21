@@ -65,7 +65,8 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1215"
   | "1231"
   | "1261" -> Glm_invalid_request, false
-  | _ ->
+  | unknown_code ->
+    let (_ : string) = unknown_code in
     if
       Retry.contains_case_insensitive ~haystack:message ~needle:"usage limit"
       || Retry.contains_case_insensitive ~haystack:message ~needle:"quota"
@@ -117,7 +118,7 @@ let build_request
       else fields
     in
     Yojson.Safe.to_string (`Assoc fields)
-  | _ -> base_body
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> base_body
 ;;
 
 (* ── Response parsing ────────────────────────────── *)
@@ -136,7 +137,7 @@ let check_glm_error body : glm_error option =
         match err |> member "code" with
         | `String s -> s
         | `Int n -> string_of_int n
-        | _ -> "unknown"
+        | `Assoc _ | `List _ | `Intlit _ | `Float _ | `Bool _ | `Null -> "unknown"
       in
       let message =
         err
@@ -165,8 +166,9 @@ let extract_reasoning_content (resp : api_response) body : api_response =
        | Some r when String.trim r <> "" ->
          let thinking_block = Thinking { thinking_type = "thinking"; content = r } in
          { resp with content = thinking_block :: resp.content }
-       | _ -> resp)
-    | _ -> resp
+       | Some _ | None -> resp)
+    | `List [] | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+      resp
   with
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> resp
 ;;
@@ -370,7 +372,7 @@ let%test "extract_reasoning_content prepends thinking block" =
   let result = extract_reasoning_content resp body in
   match result.content with
   | [ Thinking { content = "step by step"; _ }; Text "answer" ] -> true
-  | _ -> false
+  | [] | [ _ ] | [ _; _ ] | _ :: _ :: _ -> false
 ;;
 
 let%test "extract_reasoning_content skips empty reasoning" =
