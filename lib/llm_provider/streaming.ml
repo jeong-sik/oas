@@ -64,7 +64,9 @@ let parse_sse_event event_type data_str =
         | "thinking_delta" -> ThinkingDelta (delta_json |> member "thinking" |> to_string)
         | "input_json_delta" ->
           InputJsonDelta (delta_json |> member "partial_json" |> to_string)
-        | _ -> TextDelta ""
+        | unknown_delta_type ->
+          let (_ : string) = unknown_delta_type in
+          TextDelta ""
       in
       Some (ContentBlockDelta { index; delta })
     | "content_block_stop" ->
@@ -166,7 +168,7 @@ let emit_synthetic_events (response : api_response) on_event =
           on_event
             (ContentBlockDelta
                { index; delta = InputJsonDelta (Yojson.Safe.to_string input) })
-        | _ -> ());
+        | Image _ | Document _ | Audio _ | RedactedThinking _ | ToolResult _ -> ());
        on_event (ContentBlockStop { index }))
     response.content;
   on_event
@@ -251,7 +253,7 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
                with
                | Yojson.Safe.Util.Type_error _ | Not_found -> None)
             calls
-        | _ -> []
+        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
       in
       let finish_reason = choice |> member "finish_reason" |> to_string_option in
       let chunk_usage =
@@ -367,7 +369,10 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
            close — no telemetry to emit. Enumerated explicitly so a new
            [thinking_state] variant cannot silently inherit the no-op. *)
         ())
-   | _ -> ());
+   | Some empty_reasoning ->
+     let (_ : string) = empty_reasoning in
+     ()
+   | None -> ());
   (* Text content delta *)
   (match chunk.delta_content with
    | Some text when text <> "" ->
@@ -384,7 +389,10 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
        state.text_block_started <- true;
        state.next_block_index <- state.next_block_index + 1);
      emit (ContentBlockDelta { index = state.text_block_index; delta = TextDelta text })
-   | _ -> ());
+   | Some empty_text ->
+     let (_ : string) = empty_text in
+     ()
+   | None -> ());
   (* Tool call deltas *)
   List.iter
     (fun (tc : openai_tool_call_delta) ->
@@ -407,7 +415,10 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
        match tc.tc_arguments with
        | Some args when args <> "" ->
          emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
-       | _ -> ())
+       | Some empty_args ->
+         let (_ : string) = empty_args in
+         ()
+       | None -> ())
     chunk.delta_tool_calls;
   (* Finish reason -> MessageDelta *)
   (match chunk.finish_reason with
@@ -445,12 +456,14 @@ let parse_gemini_sse_chunk data_str : gemini_chunk option =
     let candidate =
       match json |> member "candidates" with
       | `List (c :: _) -> c
-      | _ -> `Assoc []
+      | `List [] -> `Assoc []
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ ->
+        `Assoc []
     in
     let gem_parts =
       match candidate |> member "content" |> member "parts" with
       | `List ps -> ps
-      | _ -> []
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
     in
     let gem_finish_reason = candidate |> member "finishReason" |> to_string_option in
     let gem_usage =
@@ -489,7 +502,10 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
          &&
          match part |> member "text" |> to_string_option with
          | Some text when text <> "" -> true
-         | _ -> false)
+         | Some empty_text ->
+           let (_ : string) = empty_text in
+           false
+         | None -> false)
       chunk.gem_parts
   in
   (match state.thinking_state, has_thought_part with
@@ -502,10 +518,30 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
      := Some
           (Telemetry_event.Thinking_complete
              { provider = state.provider; model = state.model; thinking_duration_ms })
-   | _ -> ());
+   | Not_thinking, false | Thinking_done, false | Thinking_started _, true -> ());
   List.iter
     (fun part ->
        let is_thought = Cli_common_json.member_bool "thought" part in
+       let emit_function_call_delta () =
+         match part |> member "functionCall" with
+         | `Assoc _ as fc ->
+           let name = Cli_common_json.member_str "name" fc in
+           let args = fc |> member "args" in
+           let id = Api_common.synthesize_tool_use_id ~name args in
+           let idx = state.next_block_index in
+           emit
+             (ContentBlockStart
+                { index = idx
+                ; content_type = "tool_use"
+                ; tool_id = Some id
+                ; tool_name = Some name
+                });
+           state.next_block_index <- state.next_block_index + 1;
+           emit
+             (ContentBlockDelta
+                { index = idx; delta = InputJsonDelta (Yojson.Safe.to_string args) })
+         | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> ()
+       in
        match part |> member "text" |> to_string_option with
        | Some text when text <> "" ->
          if is_thought
@@ -540,25 +576,10 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
              state.next_block_index <- state.next_block_index + 1);
            emit
              (ContentBlockDelta { index = state.text_block_index; delta = TextDelta text }))
-       | _ ->
-         (match part |> member "functionCall" with
-          | `Assoc _ as fc ->
-            let name = Cli_common_json.member_str "name" fc in
-            let args = fc |> member "args" in
-            let id = Api_common.synthesize_tool_use_id ~name args in
-            let idx = state.next_block_index in
-            emit
-              (ContentBlockStart
-                 { index = idx
-                 ; content_type = "tool_use"
-                 ; tool_id = Some id
-                 ; tool_name = Some name
-                 });
-            state.next_block_index <- state.next_block_index + 1;
-            emit
-              (ContentBlockDelta
-                 { index = idx; delta = InputJsonDelta (Yojson.Safe.to_string args) })
-          | _ -> ()))
+       | Some empty_text ->
+         let (_ : string) = empty_text in
+         emit_function_call_delta ()
+       | None -> emit_function_call_delta ())
     chunk.gem_parts;
   (* Finish reason *)
   (match chunk.gem_finish_reason with
@@ -616,7 +637,7 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
         (match s with
          | Some "" -> None
          | other -> other)
-      | _ -> None
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
     in
     let oll_delta_thinking =
       match message with
@@ -625,7 +646,7 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
         (match s with
          | Some "" -> None
          | other -> other)
-      | _ -> None
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
     in
     let oll_tool_calls =
       match message with
@@ -646,8 +667,8 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
                 in
                 { oll_tc_index = idx; oll_tc_id; oll_tc_name; oll_tc_arguments })
              items
-         | _ -> [])
-      | _ -> []
+         | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> [])
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> []
     in
     (* Token-count usage. Ollama only emits these on the done chunk. *)
     let oll_usage =
@@ -655,7 +676,7 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
       let output = json |> member "eval_count" |> to_int_option in
       match input, output with
       | None, None -> None
-      | _ ->
+      | Some _, None | None, Some _ | Some _, Some _ ->
         Some
           { input_tokens = Option.value ~default:0 input
           ; output_tokens = Option.value ~default:0 output
@@ -688,7 +709,7 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
           match n_opt, ns_opt with
           | Some n, Some ns when ns > 0 ->
             Some (float_of_int n /. (float_of_int ns /. 1e9))
-          | _ -> None
+          | Some _, Some _ | Some _, None | None, Some _ | None, None -> None
         in
         Some
           { prompt_n
@@ -728,7 +749,7 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
    | Some text when text <> "" ->
      (match state.thinking_state with
       | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
-      | _ -> ());
+      | Thinking_started _ | Thinking_done -> ());
      if not state.thinking_block_started
      then (
        state.thinking_block_index <- state.next_block_index;
@@ -744,7 +765,8 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
      emit
        (ContentBlockDelta
           { index = state.thinking_block_index; delta = ThinkingDelta text })
-   | _ ->
+   | Some empty_thinking ->
+     let (_ : string) = empty_thinking in
      (match state.thinking_state with
       | Thinking_started t0 ->
         let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
@@ -753,7 +775,17 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
         := Some
              (Telemetry_event.Thinking_complete
                 { provider = state.provider; model = state.model; thinking_duration_ms })
-      | _ -> ()));
+      | Not_thinking | Thinking_done -> ())
+   | None ->
+     (match state.thinking_state with
+      | Thinking_started t0 ->
+        let thinking_duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+        state.thinking_state <- Thinking_done;
+        telemetry_event
+        := Some
+             (Telemetry_event.Thinking_complete
+                { provider = state.provider; model = state.model; thinking_duration_ms })
+      | Not_thinking | Thinking_done -> ()));
   (* Text content delta *)
   (match chunk.oll_delta_content with
    | Some text when text <> "" ->
@@ -770,7 +802,10 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
        state.text_block_started <- true;
        state.next_block_index <- state.next_block_index + 1);
      emit (ContentBlockDelta { index = state.text_block_index; delta = TextDelta text })
-   | _ -> ());
+   | Some empty_text ->
+     let (_ : string) = empty_text in
+     ()
+   | None -> ());
   (* Tool calls. Ollama typically emits these complete in the done
      chunk rather than incrementally. We still keyed-cache by the
      per-tool index so a server that DID stream them incrementally
@@ -796,7 +831,10 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
        match tc.oll_tc_arguments with
        | Some args when args <> "" ->
          emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
-       | _ -> ())
+       | Some empty_args ->
+         let (_ : string) = empty_args in
+         ()
+       | None -> ())
     chunk.oll_tool_calls;
   (* Terminal chunk: emit MessageDelta with stop_reason + usage. *)
   if chunk.oll_is_done
@@ -896,7 +934,9 @@ let%test "parse_ollama_ndjson_chunk: tool_calls fully formed in done line" =
            let json = Yojson.Safe.from_string args in
            json |> Yojson.Safe.Util.member "x" |> Yojson.Safe.Util.to_int = 1
          | None -> false)
-     | _ -> false)
+     | unexpected_tool_calls ->
+       let (_ : ollama_tool_call_delta list) = unexpected_tool_calls in
+       false)
 ;;
 
 let%test "parse_ollama_ndjson_chunk: malformed json → None" =
@@ -923,7 +963,9 @@ let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
   | [ ContentBlockStart { index = 0; content_type = "text"; _ }
     ; ContentBlockDelta { index = 0; delta = TextDelta "hello" }
     ] -> true
-  | _ -> false
+  | unexpected_events ->
+    let (_ : sse_event list) = unexpected_events in
+    false
 ;;
 
 let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
@@ -944,7 +986,9 @@ let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
   (* Second chunk: only Delta, no new Start *)
   match events with
   | [ ContentBlockDelta { index = 0; delta = TextDelta "llo" } ] -> true
-  | _ -> false
+  | unexpected_events ->
+    let (_ : sse_event list) = unexpected_events in
+    false
 ;;
 
 let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
@@ -971,7 +1015,9 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
   match events with
   | [ MessageDelta { stop_reason = Some EndTurn; usage = Some u } ] ->
     u.input_tokens = 10 && u.output_tokens = 20
-  | _ -> false
+  | unexpected_events ->
+    let (_ : sse_event list) = unexpected_events in
+    false
 ;;
 
 let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
@@ -1000,7 +1046,9 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
     ; ContentBlockDelta { index = 0; delta = InputJsonDelta args }
     ; MessageDelta { stop_reason = Some StopToolUse; _ }
     ] -> args = {|{"q":"hello"}|}
-  | _ -> false
+  | unexpected_events ->
+    let (_ : sse_event list) = unexpected_events in
+    false
 ;;
 
 let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
@@ -1021,7 +1069,9 @@ let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "considering" }
     ] -> true
-  | _ -> false
+  | unexpected_events ->
+    let (_ : sse_event list) = unexpected_events in
+    false
 ;;
 
 (* parse_sse_event regression: the previous implementation returned [None]
@@ -1038,14 +1088,18 @@ let%test "parse_sse_event: unknown event type yields SSEUnknownEventType" =
   match parse_sse_event None raw with
   | Some (SSEUnknownEventType { event_type; raw = r }) ->
     event_type = "future_event_v3" && r = raw
-  | _ -> false
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
 ;;
 
 let%test "parse_sse_event: malformed JSON yields SSEParseFailed" =
   let raw = "{not valid json" in
   match parse_sse_event None raw with
   | Some (SSEParseFailed { raw = r; reason }) -> r = raw && String.length reason > 0
-  | _ -> false
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
 ;;
 
 let%test
@@ -1060,7 +1114,9 @@ let%test
   match parse_sse_event None raw with
   | Some (SSEUnknownEventType { event_type = ""; _ }) -> true
   | Some (SSEParseFailed _) -> true
-  | _ -> false
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
 ;;
 
 let%test "parse_sse_event: known event still parses normally" =
@@ -1068,5 +1124,7 @@ let%test "parse_sse_event: known event still parses normally" =
   let raw = "{\"type\":\"message_stop\"}" in
   match parse_sse_event None raw with
   | Some MessageStop -> true
-  | _ -> false
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
 ;;
