@@ -21,7 +21,13 @@ let tool_calls_to_openai_json blocks =
                   ; "arguments", `String (Yojson.Safe.to_string input)
                   ] )
             ])
-    | _ -> None)
+    | Text _
+    | Thinking _
+    | RedactedThinking _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> None)
 ;;
 
 (** Ollama variant: arguments as raw JSON object, not string.
@@ -37,7 +43,13 @@ let tool_calls_to_ollama_json blocks =
             ; "type", `String "function"
             ; "function", `Assoc [ "name", `String name; "arguments", input ]
             ])
-    | _ -> None)
+    | Text _
+    | Thinking _
+    | RedactedThinking _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> None)
 ;;
 
 let openai_content_parts_of_blocks blocks =
@@ -122,7 +134,7 @@ let messages_of_message_with
       List.exists
         (function
           | Image _ | Document _ | Audio _ -> true
-          | _ -> false)
+          | Text _ | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> false)
         msg.content
     in
     let user_msgs =
@@ -144,7 +156,13 @@ let messages_of_message_with
                 ; "tool_call_id", `String tool_use_id
                 ; "content", `String (Utf8_sanitize.sanitize content)
                 ])
-        | _ -> None)
+        | Text _
+        | Thinking _
+        | RedactedThinking _
+        | ToolUse _
+        | Image _
+        | Document _
+        | Audio _ -> None)
     in
     user_msgs @ tool_msgs
   | Assistant ->
@@ -186,7 +204,13 @@ let messages_of_message_with
               ; "tool_call_id", `String tool_use_id
               ; "content", `String (Utf8_sanitize.sanitize content)
               ])
-      | _ -> None)
+      | Text _
+      | Thinking _
+      | RedactedThinking _
+      | ToolUse _
+      | Image _
+      | Document _
+      | Audio _ -> None)
     |> (function
      | [] ->
        let text = Api_common.text_blocks_to_string msg.content in
@@ -332,7 +356,13 @@ let strip_thinking_blocks (messages : message list) : message list =
          List.filter
            (function
              | Thinking _ -> false
-             | _ -> true)
+             | Text _
+             | RedactedThinking _
+             | ToolUse _
+             | ToolResult _
+             | Image _
+             | Document _
+             | Audio _ -> true)
            msg.content
        in
        if List.length filtered = List.length msg.content
@@ -358,7 +388,8 @@ let legacy_parameters_to_json_schema params =
            let name =
              match List.assoc_opt "name" fields with
              | Some (`String s) -> s
-             | _ -> ""
+             | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+             | None -> ""
            in
            if name = ""
            then props_acc, req_acc
@@ -366,15 +397,27 @@ let legacy_parameters_to_json_schema params =
              let description =
                match List.assoc_opt "description" fields with
                | Some (`String s) -> s
-               | _ -> ""
+               | Some
+                   (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+               | None -> ""
              in
              let type_name =
                match List.assoc_opt "param_type" fields with
                | Some (`String s) -> s
-               | _ ->
+               | Some
+                   (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+               | None ->
                  (match List.assoc_opt "type" fields with
                   | Some (`String s) -> s
-                  | _ -> "string")
+                  | Some
+                      ( `Assoc _
+                      | `List _
+                      | `Int _
+                      | `Intlit _
+                      | `Float _
+                      | `Bool _
+                      | `Null )
+                  | None -> "string")
              in
              let prop =
                `Assoc [ "type", `String type_name; "description", `String description ]
@@ -382,10 +425,15 @@ let legacy_parameters_to_json_schema params =
              let req_acc =
                match List.assoc_opt "required" fields with
                | Some (`Bool true) -> `String name :: req_acc
-               | _ -> req_acc
+               | Some
+                   ( `Assoc _ | `List _ | `String _ | `Int _ | `Intlit _ | `Float _
+                   | `Bool false
+                   | `Null )
+               | None -> req_acc
              in
              (name, prop) :: props_acc, req_acc)
-         | _ -> props_acc, req_acc)
+         | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+           props_acc, req_acc)
       ([], [])
       params
   in
@@ -401,12 +449,14 @@ let build_openai_tool_json = function
     let name =
       match List.assoc_opt "name" fields with
       | Some (`String s) -> s
-      | _ -> "tool"
+      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
+        -> "tool"
     in
     let description =
       match List.assoc_opt "description" fields with
       | Some (`String s) -> s
-      | _ -> ""
+      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
+        -> ""
     in
     let parameters =
       match List.assoc_opt "input_schema" fields with
