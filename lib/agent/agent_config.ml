@@ -73,6 +73,21 @@ type agent_file_config =
 
 (* ── JSON parsing ────────────────────────────────────────── *)
 
+let list_or_empty = function
+  | `List values -> values
+  | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `Null | `String _ -> []
+;;
+
+let assoc_or_empty = function
+  | `Assoc pairs -> pairs
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> []
+;;
+
+let string_option = function
+  | `String value -> Some value
+  | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null -> None
+;;
+
 let parse_param json =
   let open Yojson.Safe.Util in
   try
@@ -97,11 +112,7 @@ let parse_tool json =
   try
     let name = json |> member "name" |> to_string in
     let description = Util.json_member_str "description" json in
-    let params_json =
-      match json |> member "parameters" with
-      | `List ps -> ps
-      | _ -> []
-    in
+    let params_json = json |> member "parameters" |> list_or_empty in
     let params_result =
       List.fold_left
         (fun acc j ->
@@ -129,33 +140,25 @@ let parse_mcp json =
       (* HTTP MCP: { "url": "...", "name": "...", "headers": {...} } *)
       let name = json |> member "name" |> to_string_option |> Option.value ~default:url in
       let headers =
-        match json |> member "headers" with
-        | `Assoc pairs ->
-          List.filter_map
-            (fun (k, v) ->
-               match v with
-               | `String s -> Some (k, s)
-               | _ -> None)
-            pairs
-        | _ -> []
+        json
+        |> member "headers"
+        |> assoc_or_empty
+        |> List.filter_map (fun (k, v) ->
+          match string_option v with
+          | Some s -> Some (k, s)
+          | None -> None)
       in
       Ok (Http_mcp { url; headers; name })
     | None ->
       (* Stdio MCP: { "command": "...", "args": [...], ... } *)
       let command = json |> member "command" |> to_string in
       let args =
-        match json |> member "args" with
-        | `List items -> List.filter_map to_string_option items
-        | _ -> []
+        json |> member "args" |> list_or_empty |> List.filter_map string_option
       in
       let name =
         json |> member "name" |> to_string_option |> Option.value ~default:command
       in
-      let env =
-        match json |> member "env" with
-        | `List items -> List.filter_map to_string_option items
-        | _ -> []
-      in
+      let env = json |> member "env" |> list_or_empty |> List.filter_map string_option in
       Ok (Stdio_mcp { command; args; name; env })
   with
   | Type_error (msg, _) ->
@@ -181,11 +184,7 @@ let of_json json =
     let thinking_budget = json |> member "thinking_budget" |> to_int_option in
     let provider = json |> member "provider" |> to_string_option in
     let base_url = json |> member "base_url" |> to_string_option in
-    let tools_json =
-      match json |> member "tools" with
-      | `List ts -> ts
-      | _ -> []
-    in
+    let tools_json = json |> member "tools" |> list_or_empty in
     let tools_result =
       List.fold_left
         (fun acc j ->
@@ -199,11 +198,7 @@ let of_json json =
         tools_json
     in
     let* tools = tools_result in
-    let mcp_json =
-      match json |> member "mcp_servers" with
-      | `List ms -> ms
-      | _ -> []
-    in
+    let mcp_json = json |> member "mcp_servers" |> list_or_empty in
     let mcp_result =
       List.fold_left
         (fun acc j ->
