@@ -74,6 +74,7 @@ type run_validation =
   ; checks : validation_check list
   ; evidence : string list
   ; paired_tool_result_count : int
+  ; evidence_roles : evidence_role_summary list [@default []]
   ; has_file_write : bool
   ; verification_pass_after_file_write : bool
   ; final_text : string option

@@ -390,6 +390,7 @@ let validate_run run_ref =
     ; checks
     ; evidence
     ; paired_tool_result_count
+    ; evidence_roles
     ; has_file_write
     ; verification_pass_after_file_write
     ; final_text = summary.final_text

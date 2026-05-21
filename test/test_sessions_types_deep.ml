@@ -187,6 +187,13 @@ let mk_run_validation ?(ok = true) ?(failure_reason = None) () : Raw_trace.run_v
       ]
   ; evidence = [ "record_count=25"; "tool_exec_started=5" ]
   ; paired_tool_result_count = 5
+  ; evidence_roles =
+      [ { evidence_role = Raw_trace.File_write
+        ; record_count = 2
+        ; successful_finished_count = 1
+        ; last_success_seq = Some 14
+        }
+      ]
   ; has_file_write = true
   ; verification_pass_after_file_write = true
   ; final_text = Some "All done."
@@ -223,6 +230,7 @@ let test_raw_trace_validation_empty_checks () =
     ; checks = []
     ; evidence = []
     ; paired_tool_result_count = 0
+    ; evidence_roles = []
     ; has_file_write = false
     ; verification_pass_after_file_write = false
     ; final_text = None
