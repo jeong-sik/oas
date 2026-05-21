@@ -30,7 +30,9 @@ let mime_type_of_kind kind =
   | "html" -> "text/html"
   | "csv" -> "text/csv"
   | "text" | "txt" | "" -> "text/plain"
-  | _ -> "application/octet-stream"
+  | unknown_kind ->
+    let _unknown_kind = unknown_kind in
+    "application/octet-stream"
 ;;
 
 let artifact_counter = Atomic.make 0
