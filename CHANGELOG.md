@@ -12,6 +12,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.8](https://github.com/jeong-sik/oas/compare/v0.196.7...v0.196.8) (2026-05-21)
+
+
+### Features
+
+* **error:** carry completion contract violation detail ([#1660](https://github.com/jeong-sik/oas/issues/1660)) ([609600d](https://github.com/jeong-sik/oas/commit/609600d896af320868b9578d278e5752f8f28075))
+* **raw-trace:** expose validation evidence roles ([#1658](https://github.com/jeong-sik/oas/issues/1658)) ([6d79276](https://github.com/jeong-sik/oas/commit/6d79276611261d0c64a8beebdf2e673e38cba74e))
+
 ## [0.196.7](https://github.com/jeong-sik/oas/compare/v0.196.6...v0.196.7) (2026-05-21)
 
 
