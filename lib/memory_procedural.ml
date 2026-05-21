@@ -54,7 +54,7 @@ let procedure_of_json (json : Yojson.Safe.t) : procedure option =
     let metadata =
       match json |> member "metadata" with
       | `Assoc pairs -> pairs
-      | _ -> []
+      | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> []
     in
     Some
       { id
