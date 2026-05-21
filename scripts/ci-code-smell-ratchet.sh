@@ -47,17 +47,17 @@ measure_godfile() {
 }
 
 measure_catch_all() {
-  rg -c "^\s*\| _ ->" lib/ --type ml 2>/dev/null \
+  (rg -c "^\s*\| _ ->" lib/ --type ml 2>/dev/null || true) \
     | awk -F: '{s+=$NF}END{print s+0}'
 }
 
 measure_duplicate_helpers() {
-  rg -c "^let (contains_substring|starts_with|first_token_basename|last_pipeline_segment)" lib/ --type ml 2>/dev/null \
+  (rg -c "^let (contains_substring|starts_with|first_token_basename|last_pipeline_segment)" lib/ --type ml 2>/dev/null || true) \
     | awk -F: '{s+=$NF}END{print s+0}'
 }
 
 measure_ignore_calls() {
-  rg -c "^\s*ignore \(" lib/ --type ml 2>/dev/null \
+  (rg -c "^\s*ignore \(" lib/ --type ml 2>/dev/null || true) \
     | awk -F: '{s+=$NF}END{print s+0}'
 }
 

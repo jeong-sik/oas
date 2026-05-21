@@ -212,7 +212,9 @@ let%test "record_failure stores a procedure and an episode" =
 let%test "record_failure increments existing procedure failure count" =
   let mem = Memory.create () in
   let proc_id = record_failure mem base_failure_record in
-  ignore (record_failure mem { base_failure_record with summary = "Try smaller diff" });
+  let (_ : string) =
+    record_failure mem { base_failure_record with summary = "Try smaller diff" }
+  in
   match Memory.find_procedure mem ~pattern:"improve metric" () with
   | Some proc -> proc.id = proc_id && proc.failure_count = 2
   | None -> false
@@ -220,7 +222,7 @@ let%test "record_failure increments existing procedure failure count" =
 
 let%test "retrieve_lessons returns recent failures" =
   let mem = Memory.create () in
-  ignore (record_failure mem base_failure_record);
+  let (_ : string) = record_failure mem base_failure_record in
   match retrieve_lessons mem ~pattern:"metric" () with
   | [ { procedure; recent_failures } ] ->
     procedure.pattern = "improve metric" && List.length recent_failures = 1
@@ -231,7 +233,7 @@ let%test "render_prompt_context empty" = render_prompt_context [] = None
 
 let%test "render_prompt_context contains pattern and action" =
   let mem = Memory.create () in
-  ignore (record_failure mem base_failure_record);
+  let (_ : string) = record_failure mem base_failure_record in
   match render_prompt_context (retrieve_lessons mem ~pattern:"metric" ()) with
   | Some text ->
     Util.contains_substring_ci ~haystack:text ~needle:"improve metric"

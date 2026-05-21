@@ -268,9 +268,11 @@ let deliver_to_file t path payloads =
       (List.map (fun p -> Yojson.Safe.to_string (payload_to_json p) ^ "\n") payloads)
   in
   match Fs_result.append_file path content with
-  | Ok () -> ignore (Atomic.fetch_and_add t.delivered_count n)
+  | Ok () ->
+    let (_ : int) = Atomic.fetch_and_add t.delivered_count n in
+    ()
   | Error err ->
-    ignore (Atomic.fetch_and_add t.failed_count n);
+    let (_ : int) = Atomic.fetch_and_add t.failed_count n in
     Log.warn
       t.log
       "file delivery failed"

@@ -979,7 +979,9 @@ let%test "runtime_mcp_overrides redirects Bearer to env var indirection" =
          (List.exists
             (fun s ->
                try
-                 ignore (Str.search_forward (Str.regexp_string "secret-token") s 0);
+                 let (_ : int) =
+                   Str.search_forward (Str.regexp_string "secret-token") s 0
+                 in
                  true
                with
                | Not_found -> false)
@@ -996,8 +998,9 @@ let%test "runtime_mcp_overrides keeps non-Bearer auth header verbatim" =
           (List.exists
              (fun s ->
                 try
-                  ignore
-                    (Str.search_forward (Str.regexp_string "bearer_token_env_var") s 0);
+                  let (_ : int) =
+                    Str.search_forward (Str.regexp_string "bearer_token_env_var") s 0
+                  in
                   true
                 with
                 | Not_found -> false)
@@ -1005,7 +1008,9 @@ let%test "runtime_mcp_overrides keeps non-Bearer auth header verbatim" =
     && List.exists
          (fun s ->
             try
-              ignore (Str.search_forward (Str.regexp_string "Authorization=\"Basic") s 0);
+              let (_ : int) =
+                Str.search_forward (Str.regexp_string "Authorization=\"Basic") s 0
+              in
               true
             with
             | Not_found -> false)
@@ -1135,7 +1140,7 @@ let%test "events_of_line mcp_tool_call completion emits tool_result block" =
   let completed =
     {|{"type":"item.completed","item":{"id":"call_1","type":"mcp_tool_call","server":"example","tool":"example_status","result":{"content":[{"type":"text","text":"ok"}],"isError":false}}}|}
   in
-  ignore (events_of_line_with_state state started);
+  let (_ : Types.sse_event list) = events_of_line_with_state state started in
   match events_of_line_with_state state completed with
   | [ Types.ContentBlockStop _
     ; Types.ContentBlockStart { content_type = "tool_result"; _ }
