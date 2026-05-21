@@ -46,6 +46,7 @@ type agent_error =
   | CompletionContractViolation of
       { contract : Completion_contract_id.t
       ; reason : string
+      ; violation_detail : Completion_contract_violation_detail.t option
       }
   | GuardrailViolation of
       { validator : string

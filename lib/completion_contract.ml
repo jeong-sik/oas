@@ -24,7 +24,7 @@ type tool_call =
 
 type required_tool_satisfaction = tool_call -> (unit, string) result
 
-type violation_detail =
+type violation_detail = Completion_contract_violation_detail.t =
   { called_tools : string list
   ; satisfying_tools : string list
   ; rejection_reasons : (string * string) list (** [(tool_name, reason)] *)
@@ -333,6 +333,38 @@ let violation_detail_of_response
     (match tool_use_names response with
      | [] -> Ok ()
      | tool_names -> make_detail tool_names)
+;;
+
+let validate_response_with_detail
+      ?(tools = [])
+      ?(required_tool_satisfaction = any_tool_call_satisfies)
+      ?(satisfying_tools = [])
+      ~(contract : t)
+      (response : api_response)
+  =
+  match
+    validate_response
+      ~tools
+      ~required_tool_satisfaction
+      ~satisfying_tools
+      ~contract
+      response
+  with
+  | Ok () -> Ok ()
+  | Error reason ->
+    let violation_detail =
+      match
+        violation_detail_of_response
+          ~tools
+          ~required_tool_satisfaction
+          ~satisfying_tools
+          ~contract
+          response
+      with
+      | Ok () -> None
+      | Error detail -> Some detail
+    in
+    Error (reason, violation_detail)
 ;;
 
 let accept_on_exhaustion ~(contract : t) =

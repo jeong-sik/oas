@@ -139,7 +139,7 @@ let test_to_string_each_variant () =
     ; `Token_budget_exceeded (5000, 4000)
     ; `Idle_detected 5
     ; `Completion_contract_violation
-        (Completion_contract.Require_tool_use, "no ToolUse block")
+        (Completion_contract.Require_tool_use, "no ToolUse block", None)
     ; `Unrecognized_stop_reason "weird"
     ; `Missing_env_var "SECRET"
     ; `Unsupported_provider "unknown_llm"
@@ -184,7 +184,7 @@ let test_all_variants_convert () =
     ; `Token_budget_exceeded (100, 50)
     ; `Idle_detected 3
     ; `Completion_contract_violation
-        (Completion_contract.Require_tool_use, "no ToolUse block")
+        (Completion_contract.Require_tool_use, "no ToolUse block", None)
     ; `Unrecognized_stop_reason "x"
     ; `Missing_env_var "X"
     ; `Unsupported_provider "x"
@@ -352,19 +352,39 @@ let test_roundtrip_agent_completion_contract_violation () =
   let orig =
     Error.Agent
       (CompletionContractViolation
-         { contract = Completion_contract.Require_tool_use; reason = "no ToolUse block" })
+         { contract = Completion_contract.Require_tool_use
+         ; reason = "no ToolUse block"
+         ; violation_detail =
+             Some
+               { Agent_sdk.Completion_contract_violation_detail.called_tools =
+                   [ "read_status" ]
+               ; satisfying_tools = [ "write_note" ]
+               ; rejection_reasons = [ "read_status", "read-only" ]
+               }
+         })
   in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
    | `Completion_contract_violation
-       (Completion_contract.Require_tool_use, "no ToolUse block") -> ()
+       ( Completion_contract.Require_tool_use
+       , "no ToolUse block"
+       , Some { called_tools = [ "read_status" ]; satisfying_tools = [ "write_note" ]; _ }
+       ) -> ()
    | _ -> Alcotest.fail "expected Completion_contract_violation");
   let back = Error_domain.to_sdk_error poly in
   match back with
   | Error.Agent
       (CompletionContractViolation
-         { contract = Completion_contract.Require_tool_use; reason = "no ToolUse block" })
-    -> ()
+         { contract = Completion_contract.Require_tool_use
+         ; reason = "no ToolUse block"
+         ; violation_detail =
+             Some
+               { Agent_sdk.Completion_contract_violation_detail.called_tools =
+                   [ "read_status" ]
+               ; satisfying_tools = [ "write_note" ]
+               ; rejection_reasons = [ ("read_status", "read-only") ]
+               }
+         }) -> ()
   | _ -> Alcotest.fail "roundtrip mismatch for CompletionContractViolation"
 ;;
 

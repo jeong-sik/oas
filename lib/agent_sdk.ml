@@ -53,6 +53,10 @@ module Retry = Llm_provider.Retry
 module Error = Agent_sdk_base.Error
 module Error_domain = Error_domain
 module Completion_contract_id = Agent_sdk_base.Completion_contract_id
+
+module Completion_contract_violation_detail =
+  Agent_sdk_base.Completion_contract_violation_detail
+
 module Completion_contract = Completion_contract
 module Hooks = Agent_sdk_base.Hooks
 module Tracing = Tracing
