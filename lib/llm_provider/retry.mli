@@ -67,9 +67,9 @@ val parse_context_overflow_limit : string -> int option
 (** Alias for {!parse_context_overflow_limit}.  Preferred name for SSOT consumers. *)
 val extract_context_limit : string -> int option
 
-(** Case-insensitive substring search. SSOT for cross-module use.
-    @since 0.185.0 *)
-val contains_substring_ci : haystack:string -> needle:string -> bool
+(** Case-insensitive substring search for provider error classifiers.
+    @since 0.197.0 *)
+val contains_case_insensitive : haystack:string -> needle:string -> bool
 
 val classify_error : status:int -> body:string -> api_error
 

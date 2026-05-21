@@ -67,11 +67,11 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1261" -> Glm_invalid_request, false
   | _ ->
     if
-      Retry.contains_substring_ci ~haystack:message ~needle:"usage limit"
-      || Retry.contains_substring_ci ~haystack:message ~needle:"quota"
-      || Retry.contains_substring_ci ~haystack:message ~needle:"exceeded"
+      Retry.contains_case_insensitive ~haystack:message ~needle:"usage limit"
+      || Retry.contains_case_insensitive ~haystack:message ~needle:"quota"
+      || Retry.contains_case_insensitive ~haystack:message ~needle:"exceeded"
     then Glm_quota_exceeded, false
-    else if Retry.contains_substring_ci ~haystack:message ~needle:"rate limit"
+    else if Retry.contains_case_insensitive ~haystack:message ~needle:"rate limit"
     then Glm_rate_limited, true
     else Glm_invalid_request, false
 ;;
