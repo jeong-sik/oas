@@ -188,8 +188,9 @@ type cascade_result =
        without falling through or poisoning provider health
     6. On other error, record failure and try next step
 
-    [?attempt_timeout_s] caps one provider step, including its internal
-    retry loop. Timeout errors include the cascade phase, provider
+    [?attempt_timeout_s] caps one admitted provider step, including its internal
+    retry loop but not an explicitly separated admission queue wait. Timeout
+    errors include the cascade phase, provider
     attempt index, model id, and provider key in
     [TimeoutError { phase = Provider_step; _ }] so downstream receipts
     can distinguish a provider-step timeout from a caller-side budget gate:
@@ -202,6 +203,17 @@ type cascade_result =
     - [Some t] with [t <= 0.0]: disable the cascade-level timeout for
       this call. Use this to opt out for long-running local models
       when the caller supplied a tighter attempt budget.
+
+    [?admission_queue_timeout_s] separates provider-throttle admission from the
+    provider body/attempt budget:
+    - omitted (no argument): preserve legacy throttle behavior and queue inside
+      the provider step.
+    - [Some t] with [t > 0.0]: wait up to [t] seconds for the provider throttle
+      permit before starting the provider attempt; timeout surfaces as
+      [TimeoutError { phase = Queue; _ }].
+    - [Some t] with [t <= 0.0]: perform a non-blocking admission check; if no
+      permit is immediately available, surface
+      [TimeoutError { phase = Capacity_backpressure; _ }].
 
     When [health] is [None], a fresh tracker is created per call.
     Pass a shared tracker to maintain circuit state across calls.
@@ -221,6 +233,7 @@ val complete_cascade
   -> ?metrics:Metrics.t
   -> ?retry_config:Complete.retry_config
   -> ?attempt_timeout_s:float
+  -> ?admission_queue_timeout_s:float
   -> ?cascade_config:cascade_config
   -> ?health:provider_health
   -> ?priority:Request_priority.t

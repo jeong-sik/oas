@@ -45,9 +45,25 @@ type stream_idle_state =
     [NetworkError { kind = Timeout; _ }] still exists for low-level OS or
     legacy timeouts.  New call-site-owned deadlines should surface as
     {!TimeoutError} with one of these phases so downstream policy can
-    distinguish streaming idleness, thinking idleness, total body budget,
-    cascade attempt budget, CLI stdout idleness, and generic caller budgets. *)
+    distinguish admission checks, scheduler queueing, first-token wait,
+    streaming idleness, whole-call wall clocks, capacity backpressure,
+    transport/body deadlines, cascade attempt budgets, CLI stdout idleness,
+    and generic caller budgets. *)
 type timeout_phase =
+  | Admission
+  (** Pre-flight provider/capability/admission checks before a request is
+      allowed to spend body budget. *)
+  | Queue
+  (** Waiting for an internal scheduler, slot, or provider queue before the
+      request starts producing provider output. *)
+  | First_token
+  (** Request was accepted and submitted, but no first user-visible token or
+      delta arrived before the deadline. *)
+  | Wall_clock
+  (** Whole operation wall-clock deadline, independent of streaming progress. *)
+  | Capacity_backpressure
+  (** Provider or local capacity pressure rejected or delayed the request
+      before normal request execution. *)
   | Http_operation
   | Non_streaming_body
   | Stream_body
@@ -159,6 +175,7 @@ type http_error =
 val provider_failure_kind_to_string : provider_failure_kind -> string
 val provider_failure_to_string : kind:provider_failure_kind -> message:string -> string
 val stream_idle_state_to_label : stream_idle_state -> string
+val timeout_phase_of_stream_idle_state : stream_idle_state -> timeout_phase
 val timeout_phase_to_label : timeout_phase -> string
 
 (** Default wall-clock timeout (seconds) applied to synchronous HTTP

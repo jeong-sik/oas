@@ -52,6 +52,34 @@ let attempt_timeout_error ~attempt_index ~model_id ~provider_key ~timeout_s =
     }
 ;;
 
+let admission_timeout_error
+      ~phase
+      ~attempt_index
+      ~model_id
+      ~provider_key
+      ~timeout_s
+      ~(snapshot : Slot_scheduler.snapshot)
+  =
+  let phase_label = Http_client.timeout_phase_to_label phase in
+  Http_client.TimeoutError
+    { phase
+    ; message =
+        Printf.sprintf
+          "cascade provider admission timed out phase=%s attempt_index=%d model=%s \
+           provider_key=%s admission_timeout_s=%gs throttle_active=%d \
+           throttle_available=%d throttle_queue_length=%d throttle_max=%d"
+          phase_label
+          attempt_index
+          model_id
+          provider_key
+          timeout_s
+          snapshot.active
+          snapshot.available
+          snapshot.queue_length
+          snapshot.max_slots
+    }
+;;
+
 (* --- Per-provider health tracking (Eio.Mutex-guarded) --- *)
 
 type provider_entry =
@@ -535,6 +563,8 @@ let network_error_stops_cascade = function
 
 let provider_failure_counts_for_health = function
   | Http_client.NetworkError { kind = Http_client.Local_resource_exhaustion; _ } -> false
+  | Http_client.TimeoutError
+      { phase = Http_client.Queue | Http_client.Capacity_backpressure; _ } -> false
   | Http_client.TimeoutError _ -> true
   | _ -> true
 ;;
@@ -550,6 +580,7 @@ let complete_cascade
       ?metrics
       ?retry_config
       ?attempt_timeout_s
+      ?admission_queue_timeout_s
       ?(cascade_config = default_cascade_config)
       ?(health = create_health ~clock ())
       ?(priority = Request_priority.default)
@@ -592,7 +623,7 @@ let complete_cascade
           ~cascade_config
           ~health
           ~provider_key:key;
-        let attempt () =
+        let provider_attempt () =
           Complete.complete_with_retry
             ~sw
             ~net
@@ -607,18 +638,7 @@ let complete_cascade
             ?tools
             ()
         in
-        let throttled_attempt () =
-          match throttle_resolver config with
-          | None -> attempt ()
-          | Some throttle ->
-            Provider_throttle.with_permit_priority ~priority throttle attempt
-        in
-        let result =
-          (* Sentinel: [Some t] with [t <= 0.0] disables the cascade-level
-             timeout for this call, even when the provider default would
-             otherwise apply. Required so callers can opt out for
-             long-running local models without losing the per-kind default
-             for everyone else. *)
+        let run_provider_step () =
           let timeout_s =
             match attempt_timeout_s with
             | Some t when t <= 0.0 -> None
@@ -626,9 +646,9 @@ let complete_cascade
             | None -> Provider_config.default_attempt_timeout_s config.kind
           in
           match timeout_s with
-          | None -> throttled_attempt ()
+          | None -> provider_attempt ()
           | Some timeout_s ->
-            (try Eio.Time.with_timeout_exn clock timeout_s throttled_attempt with
+            (try Eio.Time.with_timeout_exn clock timeout_s provider_attempt with
              | Eio.Time.Timeout ->
                Error
                  (attempt_timeout_error
@@ -636,6 +656,75 @@ let complete_cascade
                     ~model_id:config.model_id
                     ~provider_key:key
                     ~timeout_s))
+        in
+        let run_with_admitted_permit throttle =
+          match admission_queue_timeout_s with
+          | None ->
+            let throttled_attempt () =
+              Provider_throttle.with_permit_priority ~priority throttle provider_attempt
+            in
+            (* Legacy mode: provider-step timeout still wraps throttle queueing. *)
+            let timeout_s =
+              match attempt_timeout_s with
+              | Some t when t <= 0.0 -> None
+              | Some t -> Some t
+              | None -> Provider_config.default_attempt_timeout_s config.kind
+            in
+            (match timeout_s with
+             | None -> throttled_attempt ()
+             | Some timeout_s ->
+               (try Eio.Time.with_timeout_exn clock timeout_s throttled_attempt with
+                | Eio.Time.Timeout ->
+                  Error
+                    (attempt_timeout_error
+                       ~attempt_index:idx
+                       ~model_id:config.model_id
+                       ~provider_key:key
+                       ~timeout_s)))
+          | Some timeout_s when timeout_s <= 0.0 ->
+            (match
+               Provider_throttle.try_permit ~priority throttle (fun () ->
+                 Fd_throttle_hook.with_slot run_provider_step)
+             with
+             | Some result -> result
+             | None ->
+               Error
+                 (admission_timeout_error
+                    ~phase:Http_client.Capacity_backpressure
+                    ~attempt_index:idx
+                    ~model_id:config.model_id
+                    ~provider_key:key
+                    ~timeout_s
+                    ~snapshot:(Provider_throttle.snapshot throttle)))
+          | Some timeout_s ->
+            let permit =
+              try
+                Ok
+                  (Eio.Time.with_timeout_exn clock timeout_s (fun () ->
+                     Provider_throttle.acquire_permit ~priority throttle))
+              with
+              | Eio.Time.Timeout ->
+                Error
+                  (admission_timeout_error
+                     ~phase:Http_client.Queue
+                     ~attempt_index:idx
+                     ~model_id:config.model_id
+                     ~provider_key:key
+                     ~timeout_s
+                     ~snapshot:(Provider_throttle.snapshot throttle))
+            in
+            (match permit with
+             | Error err -> Error err
+             | Ok permit ->
+               Eio.Switch.run (fun permit_sw ->
+                 Eio.Switch.on_release permit_sw (fun () ->
+                   Provider_throttle.release_permit throttle permit);
+                 Fd_throttle_hook.with_slot run_provider_step))
+        in
+        let result =
+          match throttle_resolver config with
+          | None -> run_provider_step ()
+          | Some throttle -> run_with_admitted_permit throttle
         in
         match result with
         | Ok response ->
