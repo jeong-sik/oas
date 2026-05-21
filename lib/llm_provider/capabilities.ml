@@ -306,19 +306,21 @@ type gemini_family =
   (** Unknown gemini id or non-gemini id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
+let strip_suffix ~suffix value =
+  if String.ends_with ~suffix value
+  then String.sub value 0 (String.length value - String.length suffix)
+  else value
+;;
+
 (** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
     is checked before [gemini-3] so the more specific prefix wins.
     Input is expected lowercased (callers pass the already-normalized id). *)
 let gemini_family_of_id (id : string) : gemini_family =
-  let starts_with prefix =
-    String.length id >= String.length prefix
-    && String.sub id 0 (String.length prefix) = prefix
-  in
-  if starts_with "gemini-3.1"
+  if String.starts_with ~prefix:"gemini-3.1" id
   then Gemini_3_1
-  else if starts_with "gemini-3"
+  else if String.starts_with ~prefix:"gemini-3" id
   then Gemini_3
-  else if starts_with "gemini-2.5"
+  else if String.starts_with ~prefix:"gemini-2.5" id
   then Gemini_2_5
   else Gemini_other id
 ;;
@@ -414,69 +416,185 @@ let codex_cli_capabilities =
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
+type static_model_route =
+  | Claude_opus_4
+  | Claude_sonnet_4
+  | Claude_haiku_4
+  | Gpt_5
+  | Gpt_4_1
+  | Gpt_4o
+  | Gemini of gemini_family
+  | Kimi_for_coding
+  | Kimi_k2
+  | Qwen3
+  | Llama_4
+  | Deepseek_v4_flash
+  | Deepseek_v4_pro
+  | Mistral_large
+  | Mistral_small
+  | Command
+  | Grok
+  | Nemotron of { has_vision : bool }
+  | Gemma_4 of { has_large_audio : bool }
+  | Glm_flash_air
+  | Glm_5_turbo
+  | Glm_5v_turbo
+  | Glm_ocr
+  | Glm_4_vision_reasoning
+  | Glm_5_code
+  | Glm_full_text
+  | Glm_4_flash
+  | Glm_4v
+  | Glm_4
+
+let normalize_static_model_id model_id =
+  model_id |> String.trim |> String.lowercase_ascii |> strip_suffix ~suffix:":cloud"
+;;
+
+let gemma_4_has_large_audio model_id =
+  let base =
+    if String.starts_with ~prefix:"google/" model_id
+    then String.sub model_id 7 (String.length model_id - 7)
+    else model_id
+  in
+  let size =
+    if String.starts_with ~prefix:"gemma-4-" base
+    then Some (String.sub base 8 (String.length base - 8))
+    else None
+  in
+  match size with
+  | Some size_token ->
+    List.exists (fun prefix -> String.starts_with ~prefix size_token) [ "27b"; "31b" ]
+  | None -> false
+;;
+
+let static_model_route_of_id model_id =
+  let m = normalize_static_model_id model_id in
+  if String.starts_with ~prefix:"claude-opus-4" m
+  then Some Claude_opus_4
+  else if String.starts_with ~prefix:"claude-sonnet-4" m
+  then Some Claude_sonnet_4
+  else if String.starts_with ~prefix:"claude-haiku-4" m
+  then Some Claude_haiku_4
+  else if String.starts_with ~prefix:"gpt-5" m
+  then Some Gpt_5
+  else if String.starts_with ~prefix:"gpt-4.1" m
+  then Some Gpt_4_1
+  else if String.starts_with ~prefix:"gpt-4o" m
+  then Some Gpt_4o
+  else (
+    match gemini_family_of_id m with
+    | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
+    | Gemini_other _ ->
+      if String.starts_with ~prefix:"kimi-for-coding" m
+      then Some Kimi_for_coding
+      else if String.starts_with ~prefix:"kimi-k2" m
+      then Some Kimi_k2
+      else if String.starts_with ~prefix:"qwen3" m
+      then Some Qwen3
+      else if
+        String.starts_with ~prefix:"llama-4" m || String.starts_with ~prefix:"llama4" m
+      then Some Llama_4
+      else if String.starts_with ~prefix:"deepseek-v4-flash" m
+      then Some Deepseek_v4_flash
+      else if String.starts_with ~prefix:"deepseek-v4-pro" m
+      then Some Deepseek_v4_pro
+      else if String.starts_with ~prefix:"mistral-large" m
+      then Some Mistral_large
+      else if String.starts_with ~prefix:"mistral-small" m
+      then Some Mistral_small
+      else if String.starts_with ~prefix:"command" m
+      then Some Command
+      else if String.starts_with ~prefix:"grok" m
+      then Some Grok
+      else if
+        String.starts_with ~prefix:"nvidia/nemotron" m
+        || String.starts_with ~prefix:"nemotron" m
+      then
+        Some
+          (Nemotron
+             { has_vision =
+                 String.starts_with ~prefix:"nvidia/nemotron-vl" m
+                 || String.starts_with ~prefix:"nemotron-vl" m
+             })
+      else if
+        String.starts_with ~prefix:"gemma-4" m
+        || String.starts_with ~prefix:"google/gemma-4" m
+      then Some (Gemma_4 { has_large_audio = gemma_4_has_large_audio m })
+      else if
+        String.starts_with ~prefix:"glm-4.7-flash" m
+        || String.starts_with ~prefix:"glm-4.5-flash" m
+        || String.starts_with ~prefix:"glm-4.5-air" m
+      then Some Glm_flash_air
+      else if String.starts_with ~prefix:"glm-5-turbo" m
+      then Some Glm_5_turbo
+      else if String.starts_with ~prefix:"glm-5v-turbo" m
+      then Some Glm_5v_turbo
+      else if String.starts_with ~prefix:"glm-ocr" m
+      then Some Glm_ocr
+      else if
+        String.starts_with ~prefix:"glm-4.6v" m || String.starts_with ~prefix:"glm-4.5v" m
+      then Some Glm_4_vision_reasoning
+      else if String.starts_with ~prefix:"glm-5-code" m
+      then Some Glm_5_code
+      else if
+        String.starts_with ~prefix:"glm-4.5" m
+        || String.starts_with ~prefix:"glm-4.6" m
+        || String.starts_with ~prefix:"glm-4.7" m
+        || String.starts_with ~prefix:"glm-5" m
+      then Some Glm_full_text
+      else if String.starts_with ~prefix:"glm-4-flash" m
+      then Some Glm_4_flash
+      else if String.starts_with ~prefix:"glm-4v" m
+      then Some Glm_4v
+      else if String.starts_with ~prefix:"glm-4" m
+      then Some Glm_4
+      else None)
+;;
+
 (** Lookup capabilities by model_id prefix using the built-in static table.
     Returns None if no specific override is known. *)
-let for_model_id_static model_id =
-  (* Normalize: lowercase, strip quantization suffixes *)
-  let m = String.lowercase_ascii model_id in
-  let starts_with prefix =
-    String.length m >= String.length prefix
-    && String.sub m 0 (String.length prefix) = prefix
-  in
-  if starts_with "claude-opus-4"
-  then
+let capabilities_of_static_model_route = function
+  | Claude_opus_4 ->
     Some
       { anthropic_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 128_000
       }
-  else if starts_with "claude-sonnet-4"
-  then
+  | Claude_sonnet_4 ->
     Some
       { anthropic_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 64_000
       }
-  else if starts_with "claude-haiku-4"
-  then
+  | Claude_haiku_4 ->
     Some
       { anthropic_capabilities with
         max_context_tokens = Some 200_000
       ; max_output_tokens = Some 8_192
       }
-  else if starts_with "gpt-5"
-  then
+  | Gpt_5 ->
     Some
       { openai_chat_extended_capabilities with
         max_context_tokens = Some 1_050_000
       ; max_output_tokens = Some 128_000
       ; supports_computer_use = true
       }
-  else if starts_with "gpt-4.1"
-  then
+  | Gpt_4_1 ->
     Some
       { openai_chat_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 32_000
       }
-  else if starts_with "gpt-4o"
-  then
+  | Gpt_4o ->
     Some
       { openai_chat_capabilities with
         max_context_tokens = Some 128_000
       ; max_output_tokens = Some 16_384
       }
-  else if
-    (* Typed dispatch (root-fix for #968): the classifier owns the prefix
-       comparison so downstream code matches on the variant, not on strings. *)
-    match gemini_family_of_id m with
-    | Gemini_3 | Gemini_3_1 | Gemini_2_5 -> true
-    | Gemini_other _ -> false
-  then Some gemini_capabilities
-  else if starts_with "kimi-for-coding"
-  then Some kimi_capabilities
-  else if starts_with "qwen3"
-  then
+  | Gemini _ -> Some gemini_capabilities
+  | Kimi_for_coding | Kimi_k2 -> Some kimi_capabilities
+  | Qwen3 ->
     Some
       { default_capabilities with
         max_context_tokens = Some 262_144
@@ -491,8 +609,7 @@ let for_model_id_static model_id =
       ; supports_top_k = true
       ; supports_min_p = true
       }
-  else if starts_with "llama-4" || starts_with "llama4"
-  then
+  | Llama_4 ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -501,8 +618,7 @@ let for_model_id_static model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  else if starts_with "deepseek-v4-flash"
-  then
+  | Deepseek_v4_flash ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -519,8 +635,7 @@ let for_model_id_static model_id =
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  else if starts_with "deepseek-v4-pro"
-  then
+  | Deepseek_v4_pro ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -537,8 +652,7 @@ let for_model_id_static model_id =
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  else if starts_with "mistral-large"
-  then
+  | Mistral_large ->
     Some
       { default_capabilities with
         max_context_tokens = Some 260_000
@@ -553,8 +667,7 @@ let for_model_id_static model_id =
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  else if starts_with "mistral-small"
-  then
+  | Mistral_small ->
     Some
       { default_capabilities with
         max_context_tokens = Some 256_000
@@ -570,8 +683,7 @@ let for_model_id_static model_id =
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  else if starts_with "command"
-  then
+  | Command ->
     Some
       { default_capabilities with
         max_context_tokens = Some 256_000
@@ -582,8 +694,7 @@ let for_model_id_static model_id =
       ; supports_structured_output = true
       ; supports_native_streaming = true
       }
-  else if starts_with "grok"
-  then
+  | Grok ->
     Some
       { default_capabilities with
         max_context_tokens = Some 2_000_000
@@ -600,9 +711,7 @@ let for_model_id_static model_id =
     (* NVIDIA Nemotron: Llama-based, NIM OpenAI-compat API.
        Base text models (nemotron-ultra, nemotron-core) get reasoning
        but no vision. VL suffix gets image input. *)
-  else if starts_with "nvidia/nemotron" || starts_with "nemotron"
-  then (
-    let has_vision = starts_with "nvidia/nemotron-vl" || starts_with "nemotron-vl" in
+  | Nemotron { has_vision } ->
     Some
       { nemotron_capabilities with
         max_context_tokens = Some 131_072
@@ -612,30 +721,8 @@ let for_model_id_static model_id =
       }
     (* Gemma 4: Google open-weight multimodal.
        4 sizes (1B/4B/12B/27B-31B). All support function calling,
-       image input, streaming. 27B+ supports audio. 256K context. *))
-  else if starts_with "gemma-4" || starts_with "google/gemma-4"
-  then (
-    let is_large =
-      let m = String.lowercase_ascii model_id in
-      (* Strip optional "google/" prefix, then "gemma-4-".  The next
-         token is the size: "27b", "31b", "1b", "4b", "12b", etc. *)
-      let base =
-        if String.length m > 7 && String.sub m 0 7 = "google/"
-        then String.sub m 7 (String.length m - 7)
-        else m
-      in
-      match
-        if String.length base >= 8 && String.sub base 0 8 = "gemma-4-"
-        then Some (String.sub base 8 (String.length base - 8))
-        else None
-      with
-      | Some size_token ->
-        List.exists
-          (fun prefix ->
-             String.length size_token >= 3 && String.sub size_token 0 3 = prefix)
-          [ "27b"; "31b" ]
-      | None -> false
-    in
+       image input, streaming. 27B+ supports audio. 256K context. *)
+  | Gemma_4 { has_large_audio } ->
     Some
       { default_capabilities with
         max_context_tokens = Some 262_144
@@ -645,7 +732,7 @@ let for_model_id_static model_id =
       ; supports_structured_output = true
       ; supports_multimodal_inputs = true
       ; supports_image_input = true
-      ; supports_audio_input = is_large
+      ; supports_audio_input = has_large_audio
       ; supports_native_streaming = true
       ; supports_seed = true
       ; modality_priority =
@@ -654,12 +741,8 @@ let for_model_id_static model_id =
            optimal multimodal performance. *)
       }
     (* GLM flash/air variants: faster, no reasoning, smaller output.
-     Must precede the broad glm-4.5/4.6/4.7/5 match below. *))
-  else if
-    starts_with "glm-4.7-flash"
-    || starts_with "glm-4.5-flash"
-    || starts_with "glm-4.5-air"
-  then
+     Must precede the broad glm-4.5/4.6/4.7/5 match below. *)
+  | Glm_flash_air ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -670,8 +753,7 @@ let for_model_id_static model_id =
       ; supports_native_streaming = true
       }
     (* GLM 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
-  else if starts_with "glm-5-turbo"
-  then
+  | Glm_5_turbo ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -682,8 +764,7 @@ let for_model_id_static model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       }
-  else if starts_with "glm-5v-turbo"
-  then
+  | Glm_5v_turbo ->
     Some
       { default_capabilities with
         max_context_tokens = Some 200_000
@@ -697,8 +778,7 @@ let for_model_id_static model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  else if starts_with "glm-ocr"
-  then
+  | Glm_ocr ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -707,8 +787,7 @@ let for_model_id_static model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  else if starts_with "glm-4.6v" || starts_with "glm-4.5v"
-  then
+  | Glm_4_vision_reasoning ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -723,8 +802,7 @@ let for_model_id_static model_id =
       }
     (* GLM-5-Code: coding-specific variant with 128K context (not 200K).
        Z.AI docs: GLM-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
-  else if starts_with "glm-5-code"
-  then
+  | Glm_5_code ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -737,12 +815,7 @@ let for_model_id_static model_id =
       ; supports_native_streaming = true
       }
     (* GLM full text models: reasoning, large context/output, but no vision. *)
-  else if
-    starts_with "glm-4.5"
-    || starts_with "glm-4.6"
-    || starts_with "glm-4.7"
-    || starts_with "glm-5"
-  then
+  | Glm_full_text ->
     Some
       { default_capabilities with
         max_context_tokens = Some 200_000
@@ -754,8 +827,7 @@ let for_model_id_static model_id =
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       }
-  else if starts_with "glm-4-flash"
-  then
+  | Glm_4_flash ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -763,8 +835,7 @@ let for_model_id_static model_id =
       ; supports_tools = true
       ; supports_native_streaming = true
       }
-  else if starts_with "glm-4v"
-  then
+  | Glm_4v ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -774,8 +845,7 @@ let for_model_id_static model_id =
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  else if starts_with "glm-4"
-  then
+  | Glm_4 ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
@@ -784,7 +854,12 @@ let for_model_id_static model_id =
       ; supports_tool_choice = false
       ; supports_native_streaming = true
       }
-  else None
+;;
+
+let for_model_id_static model_id =
+  match static_model_route_of_id model_id with
+  | Some route -> capabilities_of_static_model_route route
+  | None -> None
 ;;
 
 (** Lookup capabilities by provider label string.

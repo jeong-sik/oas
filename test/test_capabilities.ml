@@ -145,6 +145,42 @@ let pp_gemini_family ppf = function
 
 let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
 
+let pp_static_model_route ppf = function
+  | Capabilities.Claude_opus_4 -> Format.fprintf ppf "Claude_opus_4"
+  | Capabilities.Claude_sonnet_4 -> Format.fprintf ppf "Claude_sonnet_4"
+  | Capabilities.Claude_haiku_4 -> Format.fprintf ppf "Claude_haiku_4"
+  | Capabilities.Gpt_5 -> Format.fprintf ppf "Gpt_5"
+  | Capabilities.Gpt_4_1 -> Format.fprintf ppf "Gpt_4_1"
+  | Capabilities.Gpt_4o -> Format.fprintf ppf "Gpt_4o"
+  | Capabilities.Gemini family -> Format.fprintf ppf "Gemini(%a)" pp_gemini_family family
+  | Capabilities.Kimi_for_coding -> Format.fprintf ppf "Kimi_for_coding"
+  | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
+  | Capabilities.Qwen3 -> Format.fprintf ppf "Qwen3"
+  | Capabilities.Llama_4 -> Format.fprintf ppf "Llama_4"
+  | Capabilities.Deepseek_v4_flash -> Format.fprintf ppf "Deepseek_v4_flash"
+  | Capabilities.Deepseek_v4_pro -> Format.fprintf ppf "Deepseek_v4_pro"
+  | Capabilities.Mistral_large -> Format.fprintf ppf "Mistral_large"
+  | Capabilities.Mistral_small -> Format.fprintf ppf "Mistral_small"
+  | Capabilities.Command -> Format.fprintf ppf "Command"
+  | Capabilities.Grok -> Format.fprintf ppf "Grok"
+  | Capabilities.Nemotron { has_vision } ->
+    Format.fprintf ppf "Nemotron(has_vision=%b)" has_vision
+  | Capabilities.Gemma_4 { has_large_audio } ->
+    Format.fprintf ppf "Gemma_4(has_large_audio=%b)" has_large_audio
+  | Capabilities.Glm_flash_air -> Format.fprintf ppf "Glm_flash_air"
+  | Capabilities.Glm_5_turbo -> Format.fprintf ppf "Glm_5_turbo"
+  | Capabilities.Glm_5v_turbo -> Format.fprintf ppf "Glm_5v_turbo"
+  | Capabilities.Glm_ocr -> Format.fprintf ppf "Glm_ocr"
+  | Capabilities.Glm_4_vision_reasoning -> Format.fprintf ppf "Glm_4_vision_reasoning"
+  | Capabilities.Glm_5_code -> Format.fprintf ppf "Glm_5_code"
+  | Capabilities.Glm_full_text -> Format.fprintf ppf "Glm_full_text"
+  | Capabilities.Glm_4_flash -> Format.fprintf ppf "Glm_4_flash"
+  | Capabilities.Glm_4v -> Format.fprintf ppf "Glm_4v"
+  | Capabilities.Glm_4 -> Format.fprintf ppf "Glm_4"
+;;
+
+let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
+
 let test_gemini_family_3_1 () =
   check
     gemini_family_testable
@@ -208,6 +244,35 @@ let test_gemini_family_drives_capabilities () =
     (Some 1_000_000)
     (ctx "gemini-3.1-pro-preview");
   check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
+;;
+
+let test_static_model_route_normalizes_cloud_suffix () =
+  check
+    (option static_model_route_testable)
+    "kimi-k2 cloud route"
+    (Some Capabilities.Kimi_k2)
+    (Capabilities.static_model_route_of_id " kimi-k2.6:cloud ");
+  check
+    (option static_model_route_testable)
+    "deepseek cloud route"
+    (Some Capabilities.Deepseek_v4_pro)
+    (Capabilities.static_model_route_of_id "deepseek-v4-pro:cloud");
+  check
+    (option static_model_route_testable)
+    "glm cloud route"
+    (Some Capabilities.Glm_full_text)
+    (Capabilities.static_model_route_of_id "glm-5.1:cloud")
+;;
+
+let test_lookup_kimi_k2_cloud () =
+  match Capabilities.for_model_id "kimi-k2.6:cloud" with
+  | Some c ->
+    check (option int) "context 262K" (Some 262_144) c.max_context_tokens;
+    check (option int) "output 32K" (Some 32_768) c.max_output_tokens;
+    check bool "tools" true c.supports_tools;
+    check bool "reasoning" true c.supports_reasoning;
+    check bool "code execution" true c.supports_code_execution
+  | None -> fail "should match kimi-k2 cloud route"
 ;;
 
 let test_lookup_qwen () =
@@ -751,6 +816,11 @@ let () =
             "gemini_family drives 1M ctx capabilities"
             `Quick
             test_gemini_family_drives_capabilities
+        ; test_case
+            "static route normalizes cloud suffix"
+            `Quick
+            test_static_model_route_normalizes_cloud_suffix
+        ; test_case "kimi-k2 cloud" `Quick test_lookup_kimi_k2_cloud
         ; test_case "qwen" `Quick test_lookup_qwen
         ; test_case "qwen runpod name" `Quick test_lookup_qwen_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash

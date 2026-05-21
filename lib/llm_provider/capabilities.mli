@@ -113,6 +113,48 @@ type gemini_family =
     the boundary. *)
 val gemini_family_of_id : string -> gemini_family
 
+(** Typed route selected by the built-in static capability table.
+
+    This is the closed-sum replacement for the former monolithic
+    [for_model_id_static] string ladder. Prefix/string normalization stays
+    inside {!static_model_route_of_id}; capability construction switches on this
+    variant so adding or removing a model family is an exhaustive code change. *)
+type static_model_route =
+  | Claude_opus_4
+  | Claude_sonnet_4
+  | Claude_haiku_4
+  | Gpt_5
+  | Gpt_4_1
+  | Gpt_4o
+  | Gemini of gemini_family
+  | Kimi_for_coding
+  | Kimi_k2
+  | Qwen3
+  | Llama_4
+  | Deepseek_v4_flash
+  | Deepseek_v4_pro
+  | Mistral_large
+  | Mistral_small
+  | Command
+  | Grok
+  | Nemotron of { has_vision : bool }
+  | Gemma_4 of { has_large_audio : bool }
+  | Glm_flash_air
+  | Glm_5_turbo
+  | Glm_5v_turbo
+  | Glm_ocr
+  | Glm_4_vision_reasoning
+  | Glm_5_code
+  | Glm_full_text
+  | Glm_4_flash
+  | Glm_4v
+  | Glm_4
+
+(** Resolve a raw model id to the static capability-table route.
+    Input is case-insensitive and trims the Ollama Cloud [":cloud"] suffix
+    before family classification. *)
+val static_model_route_of_id : string -> static_model_route option
+
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)
 val for_model_id : string -> capabilities option
