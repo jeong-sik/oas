@@ -39,6 +39,60 @@ type response_parse_error =
 
 (* ── Minimal JSON Schema validator ──────────────────── *)
 
+let json_type_name = function
+  | `Assoc _ -> "object"
+  | `List _ -> "array"
+  | `String _ -> "string"
+  | `Int _ | `Intlit _ | `Float _ -> "number"
+  | `Bool _ -> "boolean"
+  | `Null -> "null"
+;;
+
+let json_schema_type_name = function
+  | `String s -> Some s
+  | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let json_string = function
+  | `String s -> Some s
+  | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let json_matches_schema_type expected value =
+  match expected, value with
+  | "object", `Assoc _ -> true
+  | "array", `List _ -> true
+  | "string", `String _ -> true
+  | "number", (`Int _ | `Intlit _ | `Float _) -> true
+  | "integer", (`Int _ | `Intlit _) -> true
+  | "boolean", `Bool _ -> true
+  | "object", (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+  | "array", (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+  | "string", (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+  | "number", (`Assoc _ | `List _ | `String _ | `Bool _ | `Null)
+  | "integer", (`Assoc _ | `List _ | `String _ | `Float _ | `Bool _ | `Null)
+  | "boolean", (`Assoc _ | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Null) ->
+    false
+  | unsupported_type, _ -> unsupported_type <> ""
+;;
+
+let schema_if_present = function
+  | `Null -> None
+  | schema -> Some schema
+;;
+
+let tool_call_check_of_content = function
+  | ToolUse { name; input = _; _ } ->
+    Some { name; arguments_valid = true; violations = [] }
+  | Text _
+  | Thinking _
+  | RedactedThinking _
+  | ToolResult _
+  | Image _
+  | Document _
+  | Audio _ -> None
+;;
+
 (** Validate a JSON value against a minimal JSON Schema subset.
     Supports: type, required, properties, enum, items (arrays).
     Returns a list of violations with paths relative to the root. *)
@@ -53,41 +107,10 @@ let rec validate_against_schema
   let add p expected actual =
     violations := { path = p; expected; actual } :: !violations
   in
-  let type_name = function
-    | `Assoc _ -> "object"
-    | `List _ -> "array"
-    | `String _ -> "string"
-    | `Int _ | `Intlit _ | `Float _ -> "number"
-    | `Bool _ -> "boolean"
-    | `Null -> "null"
-  in
-  (* Check "type" constraint *)
-  (match schema |> member "type" with
-   | `String "object" ->
-     (match value with
-      | `Assoc _ -> ()
-      | _ -> add json_path "object" (type_name value))
-   | `String "array" ->
-     (match value with
-      | `List _ -> ()
-      | _ -> add json_path "array" (type_name value))
-   | `String "string" ->
-     (match value with
-      | `String _ -> ()
-      | _ -> add json_path "string" (type_name value))
-   | `String "number" ->
-     (match value with
-      | `Int _ | `Intlit _ | `Float _ -> ()
-      | _ -> add json_path "number" (type_name value))
-   | `String "integer" ->
-     (match value with
-      | `Int _ | `Intlit _ -> ()
-      | _ -> add json_path "integer" (type_name value))
-   | `String "boolean" ->
-     (match value with
-      | `Bool _ -> ()
-      | _ -> add json_path "boolean" (type_name value))
-   | _ -> ());
+  (match json_schema_type_name (schema |> member "type") with
+   | Some expected when not (json_matches_schema_type expected value) ->
+     add json_path expected (json_type_name value)
+   | Some _ | None -> ());
   (* Check "required" fields *)
   (match schema |> member "required", value with
    | `List required_fields, `Assoc fields ->
@@ -95,12 +118,9 @@ let rec validate_against_schema
        (fun field_name ->
           if not (List.mem_assoc field_name fields)
           then add (json_path ^ "." ^ field_name) "required" "missing")
-       (List.filter_map
-          (function
-            | `String s -> Some s
-            | _ -> None)
-          required_fields)
-   | _ -> ());
+       (List.filter_map json_string required_fields)
+   | (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null), `Assoc _
+   | _, (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) -> ());
   (* Check "properties" recursively *)
   (match schema |> member "properties", value with
    | `Assoc props_schema, `Assoc fields ->
@@ -116,7 +136,8 @@ let rec validate_against_schema
                    field_value
           | None -> ())
        fields
-   | _ -> ());
+   | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null), `Assoc _
+   | _, (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) -> ());
   (* Check "enum" constraint *)
   (match schema |> member "enum" with
    | `List allowed ->
@@ -130,7 +151,7 @@ let rec validate_against_schema
          json_path
          (Printf.sprintf "one of [%s]" (String.concat "," allowed_set))
          value_str
-   | _ -> ());
+   | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> ());
   (* Check "items" for arrays *)
   (match schema |> member "items", value with
    | item_schema, `List items ->
@@ -143,27 +164,59 @@ let rec validate_against_schema
                  item_schema
                  item)
        items
-   | _ -> ());
+   | _, (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) -> ());
   !violations
+;;
+
+let schema_tool_call_check schema_lookup = function
+  | ToolUse { name; input; _ } ->
+    let violations =
+      match Hashtbl.find_opt schema_lookup name with
+      | Some schema -> validate_against_schema schema input
+      | None -> []
+    in
+    Some { name; arguments_valid = violations = []; violations }
+  | Text _
+  | Thinking _
+  | RedactedThinking _
+  | ToolResult _
+  | Image _
+  | Document _
+  | Audio _ -> None
+;;
+
+let stop_reason_matches_tool_calls ~has_tool_calls = function
+  | StopToolUse -> has_tool_calls
+  | EndTurn | MaxTokens | StopSequence -> not has_tool_calls
+  | Unknown _ -> false
+;;
+
+let is_dropped_content_block = function
+  | Text s when String.trim s = "" -> true
+  | Text _
+  | Thinking _
+  | RedactedThinking _
+  | ToolUse _
+  | ToolResult _
+  | Image _
+  | Document _
+  | Audio _ -> false
 ;;
 
 (** Extract parameter schema from a tool definition JSON.
     Handles both "input_schema" (Anthropic) and "parameters" (OpenAI). *)
 let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
   let open Yojson.Safe.Util in
-  match tool_def |> member "input_schema" with
-  | schema when schema <> `Null -> Some schema
-  | _ ->
-    (match tool_def |> member "parameters" with
-     | schema when schema <> `Null -> Some schema
-     | _ ->
+  match schema_if_present (tool_def |> member "input_schema") with
+  | Some schema -> Some schema
+  | None ->
+    (match schema_if_present (tool_def |> member "parameters") with
+     | Some schema -> Some schema
+     | None ->
        (* OpenAI wraps in "function" *)
        (match tool_def |> member "function" with
-        | `Assoc func ->
-          (match `Assoc func |> member "parameters" with
-           | schema when schema <> `Null -> Some schema
-           | _ -> None)
-        | _ -> None))
+        | `Assoc func -> schema_if_present (`Assoc func |> member "parameters")
+        | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None))
 ;;
 
 (** Build a name→schema map from a list of tool definition JSONs. *)
@@ -172,12 +225,12 @@ let build_schema_map (tools : Yojson.Safe.t list) : (string * Yojson.Safe.t) lis
   List.filter_map
     (fun tool ->
        let name =
-         match tool |> member "name" with
-         | `String s -> s
-         | _ ->
-           (match tool |> member "function" |> member "name" with
-            | `String s -> s
-            | _ -> "")
+         match json_string (tool |> member "name") with
+         | Some s -> s
+         | None ->
+           Option.value
+             ~default:""
+             (json_string (tool |> member "function" |> member "name"))
        in
        if name = ""
        then None
@@ -198,32 +251,17 @@ let build_schema_map (tools : Yojson.Safe.t list) : (string * Yojson.Safe.t) lis
 
     For schema-aware validation, use {!validate_response_with_schemas}. *)
 let validate_response ~declared_tools (resp : api_response) : validation_result =
-  let tool_calls =
-    List.filter_map
-      (function
-        | ToolUse { name; input = _; _ } ->
-          Some { name; arguments_valid = true; violations = [] }
-        | _ -> None)
-      resp.content
-  in
+  let tool_calls = List.filter_map tool_call_check_of_content resp.content in
   let has_tool_calls = tool_calls <> [] in
   let stop_reason_correct =
-    match has_tool_calls, resp.stop_reason with
-    | true, StopToolUse -> true
-    | false, (EndTurn | MaxTokens | StopSequence) -> true
-    | _ -> false
+    stop_reason_matches_tool_calls ~has_tool_calls resp.stop_reason
   in
   let declared_set = List.sort_uniq String.compare declared_tools in
   let all_tools_declared =
     List.for_all (fun (tc : tool_call_check) -> List.mem tc.name declared_set) tool_calls
   in
   let dropped_content_blocks =
-    List.length
-      (List.filter
-         (function
-           | Text s when String.trim s = "" -> true
-           | _ -> false)
-         resp.content)
+    List.length (List.filter is_dropped_content_block resp.content)
   in
   { tool_calls_found = tool_calls
   ; stop_reason_correct
@@ -249,37 +287,17 @@ let validate_response_with_schemas ~declared_tools ~tool_schemas (resp : api_res
     List.iter (fun (name, schema) -> Hashtbl.replace tbl name schema) tool_schemas;
     tbl
   in
-  let tool_calls =
-    List.filter_map
-      (function
-        | ToolUse { name; input; _ } ->
-          let violations =
-            match Hashtbl.find_opt schema_lookup name with
-            | Some schema -> validate_against_schema schema input
-            | None -> []
-          in
-          Some { name; arguments_valid = violations = []; violations }
-        | _ -> None)
-      resp.content
-  in
+  let tool_calls = List.filter_map (schema_tool_call_check schema_lookup) resp.content in
   let has_tool_calls = tool_calls <> [] in
   let stop_reason_correct =
-    match has_tool_calls, resp.stop_reason with
-    | true, StopToolUse -> true
-    | false, (EndTurn | MaxTokens | StopSequence) -> true
-    | _ -> false
+    stop_reason_matches_tool_calls ~has_tool_calls resp.stop_reason
   in
   let declared_set = List.sort_uniq String.compare declared_tools in
   let all_tools_declared =
     List.for_all (fun (tc : tool_call_check) -> List.mem tc.name declared_set) tool_calls
   in
   let dropped_content_blocks =
-    List.length
-      (List.filter
-         (function
-           | Text s when String.trim s = "" -> true
-           | _ -> false)
-         resp.content)
+    List.length (List.filter is_dropped_content_block resp.content)
   in
   { tool_calls_found = tool_calls
   ; stop_reason_correct
