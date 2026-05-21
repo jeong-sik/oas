@@ -15,7 +15,8 @@ let first_some = Util.first_some
 let primary_alias aliases =
   match aliases with
   | alias :: _ when String.trim alias <> "" -> Some alias
-  | _ -> None
+  | [] -> None
+  | _blank_alias :: _ -> None
 ;;
 
 let latest_named_artifact artifacts name =
@@ -237,7 +238,7 @@ let get_hook_summary ?session_root ~session_id () =
                  match record.record_type, record.hook_name, record.hook_decision with
                  | Raw_trace.Hook_invoked, Some hook_name, Some decision ->
                    update_summary hook_name decision record.hook_detail record.ts
-                 | _ -> ())
+                 | _record_type, _hook_name, _hook_decision -> ())
               records;
             Ok ())
          (Ok ())
