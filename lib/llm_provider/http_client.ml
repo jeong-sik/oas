@@ -211,7 +211,9 @@ let classify_unix_error = function
   | Unix.EHOSTUNREACH -> Dns_failure
   | Unix.EMFILE | Unix.ENFILE | Unix.ENOBUFS -> Local_resource_exhaustion
   | Unix.EADDRNOTAVAIL -> Local_resource_exhaustion
-  | _ -> Unknown
+  | unclassified_unix_error ->
+    let (_ : Unix.error) = unclassified_unix_error in
+    Unknown
 ;;
 
 let parse_uri url =
@@ -283,9 +285,10 @@ let https_init_error_network_kind = function
     let m = String.lowercase_ascii msg in
     (match classify_by_message msg with
      | Local_resource_exhaustion -> Local_resource_exhaustion
-     | _ when has_substr m "empty trust anchors" -> Local_resource_exhaustion
-     | _ when has_substr m "no trust anchors" -> Local_resource_exhaustion
-     | _ -> Tls_error)
+     | Connection_refused | Dns_failure | Tls_error | Timeout | End_of_file | Unknown ->
+       if has_substr m "empty trust anchors" || has_substr m "no trust anchors"
+       then Local_resource_exhaustion
+       else Tls_error)
   | Api_common.Tls_config_unavailable _ -> Tls_error
 ;;
 
@@ -336,7 +339,7 @@ let make_closing_client ~sw ~net ~uri =
   let* host =
     match Uri.host uri with
     | Some host when String.trim host <> "" -> Ok host
-    | _ ->
+    | Some _ | None ->
       Error
         (NetworkError
            { message = Printf.sprintf "invalid URL %S: missing host" (Uri.to_string uri)
@@ -384,7 +387,7 @@ let make_closing_client ~sw ~net ~uri =
                     (Api_common.https_init_error_to_string reason)
               ; kind = https_init_error_network_kind reason
               }))
-    | _ -> Ok None
+    | Some "http" | Some _ | None -> Ok None
   in
   match addr, tls_wrap with
   | (Error _ as e), _ -> e
@@ -449,6 +452,33 @@ let make_closing_client ~sw ~net ~uri =
     Ok client
 ;;
 
+let drain_response_body resp_body =
+  let buf = Cstruct.create 4096 in
+  let rec drain () =
+    let _ = Eio.Flow.single_read resp_body buf in
+    drain ()
+  in
+  try drain () with
+  | End_of_file -> ()
+  | Eio.Time.Timeout -> ()
+  | Unix.Unix_error (code, _, _) ->
+    (match classify_unix_error code with
+     | Connection_refused
+     | Dns_failure
+     | Tls_error
+     | Timeout
+     | Local_resource_exhaustion
+     | End_of_file
+     | Unknown -> ())
+  | Eio.Io _ -> ()
+  | Sys_error _ -> ()
+  | Failure _ -> ()
+  | Invalid_argument _ -> ()
+  | drain_failure ->
+    let (_ : exn) = drain_failure in
+    ()
+;;
+
 let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw:_ ~net ~url ~headers () =
   catch_network (fun () ->
     Eio.Switch.run
@@ -465,17 +495,7 @@ let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw:_ ~net ~url ~heade
             of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
         with
         | exn ->
-          let _ =
-            try
-              let buf = Cstruct.create 4096 in
-              let rec drain () =
-                let _ = Eio.Flow.single_read resp_body buf in
-                drain ()
-              in
-              drain ()
-            with
-            | _ -> ()
-          in
+          drain_response_body resp_body;
           raise exn
       in
       Ok (code, body_str)))
@@ -520,17 +540,7 @@ let post_sync
             of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
         with
         | exn ->
-          let _ =
-            try
-              let buf = Cstruct.create 4096 in
-              let rec drain () =
-                let _ = Eio.Flow.single_read resp_body buf in
-                drain ()
-              in
-              drain ()
-            with
-            | _ -> ()
-          in
+          drain_response_body resp_body;
           raise exn
       in
       Ok (code, body_str)))
@@ -576,17 +586,7 @@ let post_stream
             of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
         with
         | exn ->
-          let _ =
-            try
-              let buf = Cstruct.create 4096 in
-              let rec drain () =
-                let _ = Eio.Flow.single_read resp_body buf in
-                drain ()
-              in
-              drain ()
-            with
-            | _ -> ()
-          in
+          drain_response_body resp_body;
           raise exn
       in
       Error (HttpError { code; body = body_str }))
@@ -637,17 +637,7 @@ let with_post_stream
             of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
         with
         | exn ->
-          let _ =
-            try
-              let buf = Cstruct.create 4096 in
-              let rec drain () =
-                let _ = Eio.Flow.single_read resp_body buf in
-                drain ()
-              in
-              drain ()
-            with
-            | _ -> ()
-          in
+          drain_response_body resp_body;
           raise exn
       in
       Error (HttpError { code; body = body_str }))
@@ -667,7 +657,7 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
     in
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
-    | _ -> inner ()
+    | Some _, None | None, Some _ | None, None -> inner ()
   in
   let current_event_type = ref None in
   let rec loop () =
@@ -699,7 +689,7 @@ let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
   let read_line () =
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
-    | _ -> Eio.Buf_read.line reader
+    | Some _, None | None, Some _ | None, None -> Eio.Buf_read.line reader
   in
   let rec loop () =
     match read_line () with
@@ -725,14 +715,30 @@ let inject_stream_param body_str =
 let%test "catch_network maps End_of_file to NetworkError with kind" =
   match catch_network (fun () -> raise End_of_file) with
   | Error (NetworkError { message; kind = End_of_file }) -> message = "End_of_file"
-  | _ -> false
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | CliTransportRequired _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
 ;;
 
 let%test "catch_network maps Sys_error to NetworkError" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
   | Error (NetworkError { message; kind = End_of_file }) ->
     has_substr (String.lowercase_ascii message) "broken pipe"
-  | _ -> false
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | CliTransportRequired _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
 ;;
 
 let%test "catch_network classifies Unix ECONNREFUSED" =
@@ -740,7 +746,15 @@ let%test "catch_network classifies Unix ECONNREFUSED" =
     catch_network (fun () -> raise (Unix.Unix_error (Unix.ECONNREFUSED, "connect", "")))
   with
   | Error (NetworkError { kind = Connection_refused; _ }) -> true
-  | _ -> false
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | CliTransportRequired _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
 ;;
 
 let%test "catch_network classifies Unix ETIMEDOUT" =
@@ -748,7 +762,15 @@ let%test "catch_network classifies Unix ETIMEDOUT" =
     catch_network (fun () -> raise (Unix.Unix_error (Unix.ETIMEDOUT, "connect", "")))
   with
   | Error (NetworkError { kind = Timeout; _ }) -> true
-  | _ -> false
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | CliTransportRequired _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
 ;;
 
 (* ── classify_unix_error direct tests ──────────────── *)
