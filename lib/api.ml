@@ -279,16 +279,21 @@ let%test "string_is_blank true for empty" = string_is_blank "" = true
 let%test "string_is_blank true for spaces" = string_is_blank "   " = true
 let%test "string_is_blank false for content" = string_is_blank "hello" = false
 
+let json_shape_mismatch = function
+  | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    false
+;;
+
 let%test "json_of_string_or_raw valid json" =
   match json_of_string_or_raw "{\"key\":\"val\"}" with
   | `Assoc [ ("key", `String "val") ] -> true
-  | _ -> false
+  | other -> json_shape_mismatch other
 ;;
 
 let%test "json_of_string_or_raw invalid json returns raw assoc" =
   match json_of_string_or_raw "not json" with
   | `Assoc [ ("raw", `String "not json") ] -> true
-  | _ -> false
+  | other -> json_shape_mismatch other
 ;;
 
 let%test "content_block_to_json text block" =
@@ -302,7 +307,16 @@ let%test "content_block_of_json text block" =
   let json = `Assoc [ "type", `String "text"; "text", `String "hi" ] in
   match content_block_of_json json with
   | Some (Types.Text "hi") -> true
-  | _ -> false
+  | None
+  | Some
+      ( Types.Text _
+      | Types.Thinking _
+      | Types.RedactedThinking _
+      | Types.Image _
+      | Types.Document _
+      | Types.Audio _
+      | Types.ToolUse _
+      | Types.ToolResult _ ) -> false
 ;;
 
 let%test "message_to_json user message" =
@@ -335,25 +349,25 @@ let%test "string_is_blank single char" = string_is_blank "x" = false
 let%test "json_of_string_or_raw empty string" =
   match json_of_string_or_raw "" with
   | `Assoc [ ("raw", `String "") ] -> true
-  | _ -> false
+  | other -> json_shape_mismatch other
 ;;
 
 let%test "json_of_string_or_raw integer string" =
   match json_of_string_or_raw "42" with
   | `Int 42 -> true
-  | _ -> false
+  | other -> json_shape_mismatch other
 ;;
 
 let%test "json_of_string_or_raw array" =
   match json_of_string_or_raw "[1,2,3]" with
   | `List _ -> true
-  | _ -> false
+  | other -> json_shape_mismatch other
 ;;
 
 let%test "json_of_string_or_raw null" =
   match json_of_string_or_raw "null" with
   | `Null -> true
-  | _ -> false
+  | other -> json_shape_mismatch other
 ;;
 
 let%test "content_block_to_json tool_use block" =
@@ -374,7 +388,16 @@ let%test "content_block_of_json tool_use block" =
   in
   match content_block_of_json json with
   | Some (Types.ToolUse { id = "t1"; name = "fn"; _ }) -> true
-  | _ -> false
+  | None
+  | Some
+      ( Types.Text _
+      | Types.Thinking _
+      | Types.RedactedThinking _
+      | Types.Image _
+      | Types.Document _
+      | Types.Audio _
+      | Types.ToolUse _
+      | Types.ToolResult _ ) -> false
 ;;
 
 let%test "content_block_of_json tool_result" =
@@ -387,7 +410,16 @@ let%test "content_block_of_json tool_result" =
   in
   match content_block_of_json json with
   | Some (Types.ToolResult { tool_use_id = "t1"; content = "ok"; _ }) -> true
-  | _ -> false
+  | None
+  | Some
+      ( Types.Text _
+      | Types.Thinking _
+      | Types.RedactedThinking _
+      | Types.Image _
+      | Types.Document _
+      | Types.Audio _
+      | Types.ToolUse _
+      | Types.ToolResult _ ) -> false
 ;;
 
 let%test "content_block_of_json unknown type" =
