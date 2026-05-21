@@ -47,14 +47,11 @@ type model_spec =
   ; capabilities : capabilities
   }
 
-let string_contains = Util.string_contains
-let contains_substring_ci = Util.contains_substring_ci
-
 (** Check if a model needs extended OpenAI capabilities
     (reasoning, top_k, min_p). Currently triggers on qwen family models. *)
 let needs_extended_capabilities model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
-  string_contains ~needle:"qwen" normalized
+  Util.string_contains ~needle:"qwen" normalized
 ;;
 
 let default_openai_compat_capabilities model_id =
@@ -102,7 +99,7 @@ let modality_of_capabilities (caps : capabilities) =
 ;;
 
 let task_of_model_id model_id =
-  let has needle = contains_substring_ci ~haystack:model_id ~needle in
+  let has needle = Util.contains_substring_ci ~haystack:model_id ~needle in
   if has "whisper" || has "transcribe" || has "transcription" || has "stt"
   then Some "transcription"
   else if has "tts" || has "text-to-speech" || has "voice"
@@ -516,41 +513,41 @@ let pricing_for_model_opt model_id =
   let openai_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
-    if string_contains ~needle:"opus-4-6" normalized
+    if Util.string_contains ~needle:"opus-4-6" normalized
     then Some ((15.0, 75.0), anthropic_cache)
-    else if string_contains ~needle:"opus-4-5" normalized
+    else if Util.string_contains ~needle:"opus-4-5" normalized
     then Some ((15.0, 75.0), anthropic_cache)
-    else if string_contains ~needle:"sonnet-4-6" normalized
+    else if Util.string_contains ~needle:"sonnet-4-6" normalized
     then Some ((3.0, 15.0), anthropic_cache)
-    else if string_contains ~needle:"sonnet-4" normalized
+    else if Util.string_contains ~needle:"sonnet-4" normalized
     then Some ((3.0, 15.0), anthropic_cache)
-    else if string_contains ~needle:"haiku-4-5" normalized
+    else if Util.string_contains ~needle:"haiku-4-5" normalized
     then Some ((0.8, 4.0), anthropic_cache)
-    else if string_contains ~needle:"claude-3-7-sonnet" normalized
+    else if Util.string_contains ~needle:"claude-3-7-sonnet" normalized
     then
       Some ((3.0, 15.0), anthropic_cache)
       (* OpenAI API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Codex-Spark is intentionally not covered here:
        its Codex rate card labels it research preview with non-final rates. *)
-    else if string_contains ~needle:"gpt-5.3-codex-spark" normalized
+    else if Util.string_contains ~needle:"gpt-5.3-codex-spark" normalized
     then None
-    else if string_contains ~needle:"gpt-5.5" normalized
+    else if Util.string_contains ~needle:"gpt-5.5" normalized
     then Some ((5.0, 30.0), openai_cached_input)
-    else if string_contains ~needle:"gpt-5.4-mini" normalized
+    else if Util.string_contains ~needle:"gpt-5.4-mini" normalized
     then Some ((0.75, 4.5), openai_cached_input)
-    else if string_contains ~needle:"gpt-5.4" normalized
+    else if Util.string_contains ~needle:"gpt-5.4" normalized
     then Some ((2.5, 15.0), openai_cached_input)
-    else if string_contains ~needle:"gpt-5.3-codex" normalized
+    else if Util.string_contains ~needle:"gpt-5.3-codex" normalized
     then Some ((1.75, 14.0), openai_cached_input)
-    else if string_contains ~needle:"gpt-5.2" normalized
+    else if Util.string_contains ~needle:"gpt-5.2" normalized
     then Some ((1.75, 14.0), openai_cached_input)
-    else if string_contains ~needle:"gpt-4o-mini" normalized
+    else if Util.string_contains ~needle:"gpt-4o-mini" normalized
     then Some ((0.15, 0.6), no_cache)
-    else if string_contains ~needle:"gpt-4o" normalized
+    else if Util.string_contains ~needle:"gpt-4o" normalized
     then Some ((2.5, 10.0), no_cache)
-    else if string_contains ~needle:"gpt-4.1" normalized
+    else if Util.string_contains ~needle:"gpt-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
-    else if string_contains ~needle:"o3-mini" normalized
+    else if Util.string_contains ~needle:"o3-mini" normalized
     then Some ((1.1, 4.4), no_cache)
     else None
   in
