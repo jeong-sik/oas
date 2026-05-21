@@ -33,9 +33,6 @@ val continuity_check : full_context:string -> compressed_context:string -> Yojso
 
 (** {1 Text utilities} *)
 
-(** Case-insensitive substring search. *)
-val contains_substring_ci : haystack:string -> needle:string -> bool
-
 (** Token overlap ratio between two text strings (0.0-1.0).
     Normalizes both strings, tokenizes (min 3 chars), and counts matches. *)
 val token_overlap_ratio : source:string -> target:string -> float
