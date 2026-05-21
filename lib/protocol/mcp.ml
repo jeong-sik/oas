@@ -84,7 +84,8 @@ let text_of_tool_result (r : Sdk_types.tool_result) =
     (fun (c : Sdk_types.tool_content) ->
        match c with
        | TextContent { text; _ } -> Some text
-       | _ -> None)
+       | ImageContent _ | AudioContent _ | ResourceContent _ | ResourceLinkContent _ ->
+         None)
     r.content
   |> String.concat "\n"
   |> truncate_output
@@ -145,12 +146,14 @@ let mcp_tool_of_json = function
          ; description =
              (match List.assoc_opt "description" fields with
               | Some (`String s) -> s
-              | _ -> "")
+              | Some (`Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null)
+              | None -> "")
          ; input_schema
          }
-     | _ -> None)
+     | Some (`Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null) | None
+       -> None)
     (* skip tools without a valid name *)
-  | _ -> None
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> None
 ;;
 
 let initialize t =
