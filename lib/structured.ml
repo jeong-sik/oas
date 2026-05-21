@@ -30,6 +30,17 @@ let schema_to_json_schema (s : _ schema) : Yojson.Safe.t =
   Types.params_to_input_schema s.params
 ;;
 
+let text_block = function
+  | Text s -> Some s
+  | Thinking _
+  | RedactedThinking _
+  | Image _
+  | Document _
+  | Audio _
+  | ToolUse _
+  | ToolResult _ -> None
+;;
+
 (** Extract a tool_use input JSON from an API response's content blocks.
     Returns the first ToolUse matching the schema name, or an error. *)
 let extract_tool_input ~(schema : _ schema) (content : content_block list) =
@@ -37,7 +48,14 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
     List.find_map
       (function
         | ToolUse { name; input; _ } when name = schema.name -> Some input
-        | _ -> None)
+        | Text _
+        | Thinking _
+        | RedactedThinking _
+        | Image _
+        | Document _
+        | Audio _
+        | ToolUse _
+        | ToolResult _ -> None)
       content
   in
   match found with
@@ -149,13 +167,7 @@ let schema_extractor (schema : 'a schema) : 'a extractor =
    free-form responses themselves. *)
 let json_extractor (parse : Yojson.Safe.t -> 'a) : 'a extractor =
   fun resp ->
-  let texts =
-    List.filter_map
-      (function
-        | Text s -> Some s
-        | _ -> None)
-      resp.content
-  in
+  let texts = List.filter_map text_block resp.content in
   match texts with
   | [] -> Error "no text content in response"
   | text :: _ ->
@@ -168,13 +180,7 @@ let json_extractor (parse : Yojson.Safe.t -> 'a) : 'a extractor =
 (** Extract a value from the first text block using a string parser. *)
 let text_extractor (parse : string -> 'a option) : 'a extractor =
   fun resp ->
-  let texts =
-    List.filter_map
-      (function
-        | Text s -> Some s
-        | _ -> None)
-      resp.content
-  in
+  let texts = List.filter_map text_block resp.content in
   match texts with
   | [] -> Error "no text content in response"
   | text :: _ ->
