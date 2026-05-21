@@ -328,14 +328,9 @@ let emit_blocks ~on_event ~start_index blocks =
 
 (* ── Error classification ────────────────────────────── *)
 
-let starts_with s prefix =
-  let lp = String.length prefix in
-  String.length s >= lp && String.sub s 0 lp = prefix
-;;
-
 let exit_code_of_message message =
   let prefix = "kimi exited with code " in
-  if not (starts_with message prefix)
+  if not (String.starts_with ~prefix message)
   then None
   else (
     match String.index_from_opt message (String.length prefix) ':' with
