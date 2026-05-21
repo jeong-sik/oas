@@ -173,7 +173,7 @@ let snapshot_path store session_id ~seq ~label =
              | '/' | ' ' -> '_'
              | c -> c)
            value)
-    | _ -> Printf.sprintf "%04d.json" seq
+    | Some _ | None -> Printf.sprintf "%04d.json" seq
   in
   Filename.concat (snapshots_dir store session_id) base
 ;;
@@ -199,12 +199,15 @@ let save_artifact_text store session_id ~name ~kind ~content =
         name
   in
   let extension =
-    match String.lowercase_ascii kind with
-    | "markdown" | "md" -> "md"
-    | "json" -> "json"
-    | "text" | "txt" -> "txt"
-    | other when other <> "" -> other
-    | _ -> "txt"
+    let normalized = String.lowercase_ascii kind in
+    if normalized = ""
+    then "txt"
+    else (
+      match normalized with
+      | "markdown" | "md" -> "md"
+      | "json" -> "json"
+      | "text" | "txt" -> "txt"
+      | other -> other)
   in
   let path =
     Filename.concat
