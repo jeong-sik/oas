@@ -17,25 +17,37 @@ let case_failure ?detail ?response_text ?metrics ?raw_trace_path (case_ : Harnes
   }
 ;;
 
+let response_text_block = function
+  | Types.Text text -> Some text
+  | Types.Thinking _
+  | Types.RedactedThinking _
+  | Types.ToolUse _
+  | Types.ToolResult _
+  | Types.Image _
+  | Types.Document _
+  | Types.Audio _ -> None
+;;
+
+let trajectory_response_content = function
+  | Trajectory.Respond { content; _ } -> Some content
+  | Trajectory.Think _ | Trajectory.Act _ | Trajectory.Observe _ -> None
+;;
+
+let trajectory_tool_name = function
+  | Trajectory.Act { tool_call; _ } -> Some tool_call.tool_name
+  | Trajectory.Think _ | Trajectory.Observe _ | Trajectory.Respond _ -> None
+;;
+
 let response_text_of_result = function
   | Ok (response : Types.api_response) ->
-    response.content
-    |> List.filter_map (function
-      | Types.Text text -> Some text
-      | _ -> None)
-    |> String.concat "\n"
+    response.content |> List.filter_map response_text_block |> String.concat "\n"
   | Error _ -> ""
 ;;
 
 let final_response_of_trajectory (trajectory : Trajectory.trajectory) =
   trajectory.steps
   |> List.rev
-  |> List.find_opt (function
-    | Trajectory.Respond _ -> true
-    | _ -> false)
-  |> Option.map (function
-    | Trajectory.Respond { content; _ } -> content
-    | _ -> "")
+  |> List.find_map trajectory_response_content
   |> Option.value ~default:""
 ;;
 
@@ -53,12 +65,7 @@ let trajectory_of_trace_ref = function
 ;;
 
 let observation_of_trajectory (trajectory : Trajectory.trajectory) =
-  let tools_called =
-    trajectory.steps
-    |> List.filter_map (function
-      | Trajectory.Act { tool_call; _ } -> Some tool_call.tool_name
-      | _ -> None)
-  in
+  let tools_called = trajectory.steps |> List.filter_map trajectory_tool_name in
   let _, _, _, respond_count = Trajectory.count_steps trajectory in
   { Harness.Behavioral.tools_called
   ; turn_count = max 1 respond_count
@@ -86,10 +93,7 @@ let response_of_trajectory (trajectory : Trajectory.trajectory) =
 let tool_sequence ?trajectory (obs : Harness.Behavioral.observation) =
   match trajectory with
   | Some (trajectory : Trajectory.trajectory) ->
-    trajectory.steps
-    |> List.filter_map (function
-      | Trajectory.Act { tool_call; _ } -> Some tool_call.tool_name
-      | _ -> None)
+    trajectory.steps |> List.filter_map trajectory_tool_name
   | None -> obs.tools_called
 ;;
 
@@ -242,11 +246,11 @@ let metric_verdict
            ; Printf.sprintf "bound=%.4f" bound
            ]
            ~detail:(if passed then None else Some "metric threshold not met")
-       | _ ->
+       | None, _ | _, None ->
          let passed =
            match assertion.goal with
            | Eval.Exact -> metric.value = assertion.target
-           | _ -> false
+           | Eval.Higher | Eval.Lower -> false
          in
          mk_verdict
            passed
@@ -343,7 +347,7 @@ let grade_case
   let status, detail =
     match case_.assertions with
     | [] -> Harness_report.Skip, Some "case had no assertions"
-    | _ ->
+    | _ :: _ ->
       if List.for_all (fun (verdict : Harness.verdict) -> verdict.passed) verdicts
       then Harness_report.Pass, None
       else (
