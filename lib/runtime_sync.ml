@@ -188,7 +188,8 @@ let string_list_field name fields =
             let* rev = acc in
             match item with
             | `String value -> Ok (value :: rev)
-            | _ -> Error (Printf.sprintf "field %s must contain only strings" name))
+            | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null ->
+              Error (Printf.sprintf "field %s must contain only strings" name))
          (Ok [])
     |> Result.map List.rev
   | Ok _ -> Error (Printf.sprintf "field %s must be a list" name)
@@ -225,7 +226,8 @@ let event_record_of_yojson = function
     (match Runtime.event_of_yojson event_json with
      | Ok event -> Ok { envelope; event }
      | Error detail -> Error detail)
-  | _ -> Error "runtime sync event record must be a JSON object"
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error "runtime sync event record must be a JSON object"
 ;;
 
 let event_record_list_field name fields =
@@ -348,7 +350,8 @@ let window_of_yojson = function
       in
       let* () = validate_window window in
       Ok window
-  | _ -> Error "runtime sync window must be a JSON object"
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error "runtime sync window must be a JSON object"
 ;;
 
 let to_json = window_to_yojson

@@ -147,5 +147,6 @@ let of_json = function
       ; caused_by
       ; source_clock
       }
-  | _ -> Error "event envelope must be a JSON object"
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error "event envelope must be a JSON object"
 ;;
