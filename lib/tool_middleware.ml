@@ -28,21 +28,6 @@ let validate_and_coerce ~tool_name ~(schema : Types.tool_schema) args =
 
 (* -- Descriptor shell constraints --------------------------------------- *)
 
-let contains_substring s needle =
-  let s_len = String.length s in
-  let needle_len = String.length needle in
-  let rec loop i =
-    if needle_len = 0
-    then true
-    else if i + needle_len > s_len
-    then false
-    else if String.sub s i needle_len = needle
-    then true
-    else loop (i + 1)
-  in
-  loop 0
-;;
-
 let extract_shell_command_arg = function
   | `Assoc fields ->
     List.find_map
@@ -69,8 +54,8 @@ let has_dangerous_ampersand cmd =
 ;;
 
 let has_chaining cmd =
-  contains_substring cmd "&&"
-  || contains_substring cmd "||"
+  Util.string_contains ~needle:"&&" cmd
+  || Util.string_contains ~needle:"||" cmd
   || String.exists
        (function
          | ';' | '\n' | '\r' -> true
@@ -88,10 +73,10 @@ let has_redirection cmd =
 ;;
 
 let has_command_substitution cmd =
-  contains_substring cmd "$("
-  || contains_substring cmd "`"
-  || contains_substring cmd "<("
-  || contains_substring cmd ">("
+  Util.string_contains ~needle:"$(" cmd
+  || Util.string_contains ~needle:"`" cmd
+  || Util.string_contains ~needle:"<(" cmd
+  || Util.string_contains ~needle:">(" cmd
 ;;
 
 let validate_shell_constraints ~tool_name ~(descriptor : Tool.descriptor) args =
