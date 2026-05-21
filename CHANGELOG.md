@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.9](https://github.com/jeong-sik/oas/compare/v0.196.8...v0.196.9) (2026-05-21)
+
+
+### Bug Fixes
+
+* **sessions:** drop stale parser helper signature ([#1670](https://github.com/jeong-sik/oas/issues/1670)) ([c701d0f](https://github.com/jeong-sik/oas/commit/c701d0f2de0ae01e91b83bea1e1f6491d4877603))
+
 ## [0.196.8](https://github.com/jeong-sik/oas/compare/v0.196.7...v0.196.8) (2026-05-21)
 
 
