@@ -29,8 +29,5 @@ val raw_trace_manifest_of_json
   :  Yojson.Safe.t
   -> (Sessions_types.raw_trace_manifest, string) result
 
-(** {1 Helpers} *)
-
-val contains_substring : sub:string -> string -> bool
 val workdir_policy_of_string : string -> Tool.workdir_policy option
 val infer_event_name_from_kind : string -> string
