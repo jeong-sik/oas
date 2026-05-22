@@ -109,7 +109,7 @@ let effective_prompt ~prompt ~system_prompt =
 let selected_model ~(config : config) ~(req_config : Provider_config.t) =
   match String.trim req_config.model_id |> String.lowercase_ascii with
   | "" | "auto" -> config.model
-  | _ -> Some req_config.model_id
+  | _requested_model -> Some req_config.model_id
 ;;
 
 let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt ~system_prompt
@@ -161,7 +161,8 @@ let parse_usage json =
     | Type_error _ -> `Null
   in
   match models_field with
-  | `Assoc entries when entries <> [] ->
+  | `Assoc [] -> None
+  | `Assoc entries ->
     let input = ref 0 in
     let output = ref 0 in
     let cached = ref 0 in
@@ -172,7 +173,7 @@ let parse_usage json =
            input := !input + Cli_common_json.member_int "input" t;
            output := !output + Cli_common_json.member_int "candidates" t;
            cached := !cached + Cli_common_json.member_int "cached" t
-         | _ -> ())
+         | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> ())
       entries;
     Some
       { Types.input_tokens = !input
@@ -181,7 +182,7 @@ let parse_usage json =
       ; cache_read_input_tokens = !cached
       ; cost_usd = None
       }
-  | _ -> None
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
 ;;
 
 (** Parse the Gemini CLI [--output-format json] result into an
@@ -311,7 +312,7 @@ let rule_after line =
       else (
         match line.[i] with
         | '0' .. '9' -> scan_digits (i + 1)
-        | _ -> i)
+        | _non_digit -> i)
     in
     let stop = scan_digits start in
     if stop = start
@@ -331,7 +332,7 @@ let retry_after_seconds_of_retry_delay_ms line =
         match line.[i] with
         | ' ' | '\t' | ':' | '=' -> skip_sep (i + 1)
         | '0' .. '9' | '.' -> Some i
-        | _ -> None)
+        | _non_number -> None)
     in
     let rec scan_number i =
       if i >= String.length line
@@ -339,7 +340,7 @@ let retry_after_seconds_of_retry_delay_ms line =
       else (
         match line.[i] with
         | '0' .. '9' | '.' -> scan_number (i + 1)
-        | _ -> i)
+        | _non_number -> i)
     in
     (match skip_sep start with
      | None -> None
@@ -397,7 +398,7 @@ let classify_cli_error = function
                 "gemini_cli reported terminal quota exhaustion; rejecting without \
                  same-lane retry so the cascade can move on."
             })
-     | _ -> err)
+     | Some _ | None -> err)
   | other -> other
 ;;
 
@@ -743,7 +744,7 @@ let%test "classify_cli_error reclassifies gemini startup crash as AcceptRejected
   match classify_cli_error err with
   | Error (Http_client.AcceptRejected { reason }) ->
     substring_found reason "startup crash"
-  | _ -> false
+  | _unexpected_result -> false
 ;;
 
 let%test "classify_cli_error keeps unrelated network failures retryable" =
@@ -755,7 +756,7 @@ let%test "classify_cli_error keeps unrelated network failures retryable" =
   match classify_cli_error err with
   | Error (Http_client.NetworkError { message; _ }) ->
     substring_found message "connection refused"
-  | _ -> false
+  | _unexpected_result -> false
 ;;
 
 let%test "classify_cli_error reclassifies wrapped terminal quota as hard quota" =
@@ -774,7 +775,7 @@ let%test "classify_cli_error reclassifies wrapped terminal quota as hard quota" 
       (Http_client.ProviderFailure
          { kind = Http_client.Hard_quota { retry_after = Some retry_after }; _ }) ->
     retry_after > 7603.0 && retry_after < 7604.0
-  | _ -> false
+  | _unexpected_result -> false
 ;;
 
 let%test "provider_failure_of_stderr_line detects model capacity" =
@@ -787,7 +788,7 @@ let%test "provider_failure_of_stderr_line detects model capacity" =
       (Http_client.Capacity_exhausted
          { scope = Http_client.Failure_scope_model; model = Some "gemini-2.5-pro"; _ }) ->
     true
-  | _ -> false
+  | _unexpected_failure -> false
 ;;
 
 let%test "provider_failure_of_stderr_line detects terminal quota hard quota" =
@@ -797,7 +798,7 @@ let%test "provider_failure_of_stderr_line detects terminal quota hard quota" =
   with
   | Some (Http_client.Hard_quota { retry_after = Some retry_after }) ->
     retry_after > 7603.0 && retry_after < 7604.0
-  | _ -> false
+  | _unexpected_failure -> false
 ;;
 
 let%test "provider_failure_of_stderr_line extracts invalid policy tool" =
@@ -807,7 +808,7 @@ let%test "provider_failure_of_stderr_line extracts invalid policy tool" =
   with
   | Some (Http_client.Cli_policy_invalid { tool_name = Some "glm"; rule = Some 248 }) ->
     true
-  | _ -> false
+  | _unexpected_failure -> false
 ;;
 
 (* ── env-driven extra args ──────────────────────────── *)
@@ -818,17 +819,14 @@ let with_env k v f =
   Fun.protect
     ~finally:(fun () ->
       match prev with
-      | None ->
-        (try Unix.putenv k "" with
-         | _ -> ())
+      | None -> Unix.putenv k ""
       | Some old -> Unix.putenv k old)
     f
 ;;
 
 let with_unset k f =
   let prev = Sys.getenv_opt k in
-  (try Unix.putenv k "" with
-   | _ -> ());
+  Unix.putenv k "";
   Fun.protect
     ~finally:(fun () ->
       match prev with
@@ -959,7 +957,7 @@ let%test_unit "complete_sync rejects request-scoped runtime MCP policy" =
              })
     ; latency_ms = None
     } -> assert (String.equal message runtime_mcp_policy_error_message)
-  | _ -> assert false
+  | _unexpected_response -> assert false
 ;;
 
 let%test_unit "complete_stream rejects request-scoped runtime MCP policy" =
@@ -976,5 +974,5 @@ let%test_unit "complete_stream rejects request-scoped runtime MCP policy" =
                { capability = Some "request_scoped_runtime_mcp" }
          ; message
          }) -> assert (String.equal message runtime_mcp_policy_error_message)
-  | _ -> assert false
+  | _unexpected_result -> assert false
 ;;
