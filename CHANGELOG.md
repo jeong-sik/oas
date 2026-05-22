@@ -12,6 +12,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.10](https://github.com/jeong-sik/oas/compare/v0.196.9...v0.196.10) (2026-05-22)
+
+### Bug Fixes
+
+* **provider:** spell out provider completion fallbacks ([#1702](https://github.com/jeong-sik/oas/issues/1702)) ([6bc1993](https://github.com/jeong-sik/oas/commit/6bc19932df8521edcc20d70cad8d539f6f6aa19d))
+
 ## [0.196.9](https://github.com/jeong-sik/oas/compare/v0.196.8...v0.196.9) (2026-05-21)
 
 
