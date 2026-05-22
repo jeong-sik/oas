@@ -118,7 +118,7 @@ let build_request
       else fields
     in
     Yojson.Safe.to_string (`Assoc fields)
-  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> base_body
+  | _ -> base_body
 ;;
 
 (* ── Response parsing ────────────────────────────── *)
@@ -137,7 +137,7 @@ let check_glm_error body : glm_error option =
         match err |> member "code" with
         | `String s -> s
         | `Int n -> string_of_int n
-        | `Assoc _ | `List _ | `Intlit _ | `Float _ | `Bool _ | `Null -> "unknown"
+        | _ -> "unknown"
       in
       let message =
         err
@@ -167,8 +167,7 @@ let extract_reasoning_content (resp : api_response) body : api_response =
          let thinking_block = Thinking { thinking_type = "thinking"; content = r } in
          { resp with content = thinking_block :: resp.content }
        | Some _ | None -> resp)
-    | `List [] | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-      resp
+    | _ -> resp
   with
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> resp
 ;;

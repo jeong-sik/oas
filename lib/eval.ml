@@ -29,7 +29,7 @@ let metric_value_of_yojson = function
   | `Float f -> Ok (Float_val f)
   | `Bool b -> Ok (Bool_val b)
   | `String s -> Ok (String_val s)
-  | `Assoc _ | `List _ | `Null | `Intlit _ -> Error "expected int, float, bool, or string"
+  | _ -> Error "expected int, float, bool, or string"
 ;;
 
 let show_metric_value = function
@@ -50,7 +50,7 @@ let metric_value_to_float = function
 
 let tags_of_json = function
   | `Assoc kvs -> List.map (fun (k, v) -> k, Yojson.Safe.Util.to_string v) kvs
-  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> []
+  | _ -> []
 ;;
 
 let numeric_threshold_violated ~compare value threshold =

@@ -75,17 +75,17 @@ type agent_file_config =
 
 let list_or_empty = function
   | `List values -> values
-  | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `Null | `String _ -> []
+  | _ -> []
 ;;
 
 let assoc_or_empty = function
   | `Assoc pairs -> pairs
-  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> []
+  | _ -> []
 ;;
 
 let string_option = function
   | `String value -> Some value
-  | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null -> None
+  | _ -> None
 ;;
 
 let parse_param json =

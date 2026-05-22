@@ -146,14 +146,12 @@ let mcp_tool_of_json = function
          ; description =
              (match List.assoc_opt "description" fields with
               | Some (`String s) -> s
-              | Some (`Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null)
-              | None -> "")
+              | Some _ | None -> "")
          ; input_schema
          }
-     | Some (`Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null) | None
-       -> None)
+     | Some _ | None -> None)
     (* skip tools without a valid name *)
-  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> None
+  | _ -> None
 ;;
 
 let initialize t =

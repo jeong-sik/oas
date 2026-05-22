@@ -388,8 +388,7 @@ let legacy_parameters_to_json_schema params =
            let name =
              match List.assoc_opt "name" fields with
              | Some (`String s) -> s
-             | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-             | None -> ""
+             | Some _ | None -> ""
            in
            if name = ""
            then props_acc, req_acc
@@ -397,27 +396,15 @@ let legacy_parameters_to_json_schema params =
              let description =
                match List.assoc_opt "description" fields with
                | Some (`String s) -> s
-               | Some
-                   (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-               | None -> ""
+               | Some _ | None -> ""
              in
              let type_name =
                match List.assoc_opt "param_type" fields with
                | Some (`String s) -> s
-               | Some
-                   (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-               | None ->
+               | Some _ | None ->
                  (match List.assoc_opt "type" fields with
                   | Some (`String s) -> s
-                  | Some
-                      ( `Assoc _
-                      | `List _
-                      | `Int _
-                      | `Intlit _
-                      | `Float _
-                      | `Bool _
-                      | `Null )
-                  | None -> "string")
+                  | Some _ | None -> "string")
              in
              let prop =
                `Assoc [ "type", `String type_name; "description", `String description ]
@@ -425,15 +412,10 @@ let legacy_parameters_to_json_schema params =
              let req_acc =
                match List.assoc_opt "required" fields with
                | Some (`Bool true) -> `String name :: req_acc
-               | Some
-                   ( `Assoc _ | `List _ | `String _ | `Int _ | `Intlit _ | `Float _
-                   | `Bool false
-                   | `Null )
-               | None -> req_acc
+               | Some _ | None -> req_acc
              in
              (name, prop) :: props_acc, req_acc)
-         | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-           props_acc, req_acc)
+         | _ -> props_acc, req_acc)
       ([], [])
       params
   in
@@ -449,14 +431,12 @@ let build_openai_tool_json = function
     let name =
       match List.assoc_opt "name" fields with
       | Some (`String s) -> s
-      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
-        -> "tool"
+      | Some _ | None -> "tool"
     in
     let description =
       match List.assoc_opt "description" fields with
       | Some (`String s) -> s
-      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
-        -> ""
+      | Some _ | None -> ""
     in
     let parameters =
       match List.assoc_opt "input_schema" fields with
