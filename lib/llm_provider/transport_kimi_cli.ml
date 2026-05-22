@@ -81,7 +81,9 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
   let override =
     match String.trim req_config.model_id |> String.lowercase_ascii with
     | "" | "auto" -> config.model
-    | _ -> Some (String.trim req_config.model_id)
+    | requested_model ->
+      let (_ : string) = requested_model in
+      Some (String.trim req_config.model_id)
   in
   (match override, Capabilities.kimi_cli_capabilities.supported_models with
    | Some m, Some supported ->
@@ -92,7 +94,7 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
           %s"
          m
          (String.concat ", " supported)
-   | _ -> ());
+   | Some _, None | None, Some _ | None, None -> ());
   override
 ;;
 
@@ -107,10 +109,10 @@ let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
    | None -> ());
   (match config.cwd with
    | Some dir when String.trim dir <> "" -> add [ "--work-dir"; dir ]
-   | _ -> ());
+   | Some _ | None -> ());
   (match config.config_file with
    | Some path when String.trim path <> "" -> add [ "--config-file"; path ]
-   | _ -> ());
+   | Some _ | None -> ());
   List.iter (fun path -> add [ "--mcp-config-file"; path ]) config.mcp_config_files;
   List.iter (fun json -> add [ "--mcp-config"; json ]) config.mcp_config_json;
   (match req_config.enable_thinking with
@@ -119,7 +121,7 @@ let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
    | None -> ());
   (match config.session_id with
    | Some id when String.trim id <> "" -> add [ "--session"; id ]
-   | _ -> ());
+   | Some _ | None -> ());
   !args
 ;;
 
@@ -180,14 +182,14 @@ let blocks_of_output_line line =
       let tool_uses =
         match json |> member "tool_calls" with
         | `List calls -> List.filter_map tool_use_of_json calls
-        | _ -> []
+        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
       in
       content @ tool_uses
     | Some "tool" ->
       (match tool_result_of_json json with
        | Some block -> [ block ]
        | None -> [])
-    | _ -> []
+    | Some _ | None -> []
   with
   | Yojson.Json_error _ | Type_error _ -> []
 ;;
@@ -199,10 +201,10 @@ let response_id_of_lines lines =
       let json = parse_json_line line in
       match json |> member "id" |> to_string_option with
       | Some id when String.trim id <> "" -> Some id
-      | _ ->
+      | Some _ | None ->
         (match json |> member "session_id" |> to_string_option with
          | Some id when String.trim id <> "" -> Some id
-         | _ -> None)
+         | Some _ | None -> None)
     with
     | Yojson.Json_error _ | Type_error _ -> None
   in
@@ -216,7 +218,7 @@ let response_model_of_lines ~model_id lines =
       let json = parse_json_line line in
       match json |> member "model" |> to_string_option with
       | Some m when String.trim m <> "" -> Some m
-      | _ -> None
+      | Some _ | None -> None
     with
     | Yojson.Json_error _ | Type_error _ -> None
   in
@@ -235,7 +237,7 @@ let parse_usage json =
       ; cache_read_input_tokens = Cli_common_json.member_int "cache_read_input_tokens" u
       ; cost_usd = None
       }
-  | _ -> None
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
 ;;
 
 let usage_of_lines lines =
@@ -262,7 +264,13 @@ let parse_jsonl_result ~model_id ~prompt lines =
       List.filter_map
         (function
           | Types.Text t -> Some t
-          | _ -> None)
+          | Types.Thinking _
+          | Types.ToolUse _
+          | Types.ToolResult _
+          | Types.RedactedThinking _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> None)
         content
       |> String.concat ""
     in
@@ -355,7 +363,7 @@ let classify_cli_error = function
                 ^ "than a transient transport failure. "
                 ^ message
             })
-     | _ -> err)
+     | Some _ | None -> err)
   | other -> other
 ;;
 
@@ -398,7 +406,7 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
       | Some _
         when !previous_msg_count > 0 && List.length all_messages > !previous_msg_count ->
         true
-      | _ -> false
+      | Some _ | None -> false
     in
     let messages_to_send =
       if resume_existing_session
@@ -634,7 +642,9 @@ let%test "parse_jsonl_result restores tool trace" =
        ; Types.ToolResult { tool_use_id = "tc_1"; content = "README.md"; _ }
        ; Types.Text "Done"
        ] -> input = `Assoc [ "command", `String "ls" ]
-     | _ -> false)
+     | unexpected_content ->
+       let (_ : Types.content_block list) = unexpected_content in
+       false)
   | Error _ -> false
 ;;
 
@@ -649,7 +659,9 @@ let%test "parse_jsonl_result sanitizes broken utf8 output lines" =
   let lines = [ "{\"role\":\"assistant\",\"content\":\"hello\x80\"}" ] in
   match parse_jsonl_result ~model_id:"kimi-for-coding" ~prompt:"" lines with
   | Ok { content = [ Types.Text text ]; _ } -> text = "hello\xEF\xBF\xBD"
-  | _ -> false
+  | unexpected_result ->
+    let (_ : (Types.api_response, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "classify_cli_error exit 1 becomes AcceptRejected" =
@@ -660,7 +672,9 @@ let%test "classify_cli_error exit 1 becomes AcceptRejected" =
             { message = "kimi exited with code 1: auth failed"; kind = Unknown }))
   with
   | Error (Http_client.AcceptRejected { reason }) -> String.length reason > 0
-  | _ -> false
+  | unexpected_result ->
+    let (_ : ('a, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "parse_usage extracts input and output tokens" =
