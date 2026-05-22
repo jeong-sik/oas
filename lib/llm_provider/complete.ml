@@ -78,7 +78,17 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
     match config.kind with
     | Provider_config.OpenAI_compat when not (openai_compat_should_default_min_p config)
       -> None
-    | _ -> defaults.default_min_p
+    | Anthropic
+    | Kimi
+    | OpenAI_compat
+    | Ollama
+    | Gemini
+    | Glm
+    | DashScope
+    | Claude_code
+    | Gemini_cli
+    | Kimi_cli
+    | Codex_cli -> defaults.default_min_p
   in
   { config with
     min_p =
@@ -311,7 +321,13 @@ let tool_use_count (content : Types.content_block list) =
     (fun acc block ->
        match block with
        | Types.ToolUse _ -> acc + 1
-       | _ -> acc)
+       | Text _
+       | Thinking _
+       | RedactedThinking _
+       | ToolResult _
+       | Image _
+       | Document _
+       | Audio _ -> acc)
     0
     content
 ;;
@@ -485,7 +501,7 @@ let header_name_eq left right =
 let merge_trace_context_headers headers trace_context =
   match trace_context with
   | [] -> headers
-  | _ ->
+  | _ :: _ ->
     let is_trace_header name =
       List.exists (fun (trace_name, _) -> header_name_eq name trace_name) trace_context
     in
@@ -495,7 +511,7 @@ let merge_trace_context_headers headers trace_context =
 let config_with_trace_context config trace_context =
   match trace_context with
   | [] -> config
-  | _ ->
+  | _ :: _ ->
     { config with
       Provider_config.headers =
         merge_trace_context_headers config.Provider_config.headers trace_context
@@ -557,7 +573,16 @@ let complete_http
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:false
-        | _ -> config.base_url ^ config.request_path
+        | Anthropic
+        | Kimi
+        | OpenAI_compat
+        | Ollama
+        | Glm
+        | DashScope
+        | Claude_code
+        | Gemini_cli
+        | Kimi_cli
+        | Codex_cli -> config.base_url ^ config.request_path
       in
       (* Pre-flight body validation: detect truncated JSON before sending.
      Yojson.Safe.to_string should always produce balanced JSON, but if it
@@ -641,7 +666,7 @@ let complete_http
              config.model_id
              url
              body_len
-         | _ -> ());
+         | _other_debug_mode -> ());
         let t0 = Unix.gettimeofday () in
         let post_sync_call () =
           Http_client.post_sync
@@ -773,7 +798,7 @@ let complete_http
                     let _ = Yojson.Safe.from_string body_str in
                     true
                   with
-                  | _ -> false
+                  | _json_parse_error -> false
                 in
                 (* Mask api_key to a short fingerprint so log lines distinguish
                same-provider calls that use different keys (e.g.
@@ -857,7 +882,7 @@ let complete_http
                 let dump_enabled =
                   match Sys.getenv_opt "OAS_DEBUG_BODY_DUMP" with
                   | Some v when String.trim v <> "" && String.trim v <> "0" -> true
-                  | _ -> false
+                  | Some _ | None -> false
                 in
                 if dump_enabled && ((not parse_ok) || server_parse_complaint || server_5xx)
                 then (
@@ -868,7 +893,7 @@ let complete_http
                       (fun c ->
                          match c with
                          | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' -> c
-                         | _ -> '_')
+                         | _unsafe_model_char -> '_')
                       config.model_id
                   in
                   let dir =
@@ -912,7 +937,7 @@ let complete_http
                         body_len
                     with
                     | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
-                    | _ -> ())));
+                    | _dump_error -> ())));
               let body =
                 http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
               in
@@ -1150,7 +1175,15 @@ let complete_with_retry
            let delay =
              match api_err with
              | Retry.RateLimited { retry_after = Some ra; _ } -> ra
-             | _ -> Retry.calculate_delay rc attempt
+             | Retry.RateLimited { retry_after = None; _ }
+             | Retry.Overloaded _
+             | Retry.ServerError _
+             | Retry.AuthError _
+             | Retry.InvalidRequest _
+             | Retry.NotFound _
+             | Retry.ContextOverflow _
+             | Retry.NetworkError _
+             | Retry.Timeout _ -> Retry.calculate_delay rc attempt
            in
            Eio.Time.sleep clock delay;
            loop (attempt + 1))
@@ -1169,7 +1202,12 @@ let record_streaming_metrics (metrics : Metrics.t) = function
     metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
   | Telemetry_event.Streaming_chunk_n { provider; model; chunk_index; inter_chunk_ms } ->
     metrics.on_streaming_chunk ~provider ~model_id:model ~chunk_index ~inter_chunk_ms
-  | _ -> ()
+  | Streaming_summary _
+  | Thinking_complete _
+  | Timeout _
+  | Prefill_complete _
+  | Budget_exceeded _
+  | Context_window_usage _ -> ()
 ;;
 
 (* Internal: HTTP-specific streaming implementation. *)
@@ -1230,12 +1268,30 @@ let complete_stream_http
       let url =
         match config.kind with
         | Provider_config.Gemini -> gemini_url ~config ~stream:true
-        | _ -> config.base_url ^ config.request_path
+        | Anthropic
+        | Kimi
+        | OpenAI_compat
+        | Ollama
+        | Glm
+        | DashScope
+        | Claude_code
+        | Gemini_cli
+        | Kimi_cli
+        | Codex_cli -> config.base_url ^ config.request_path
       in
       let body_with_stream =
         match config.kind with
         | Provider_config.Gemini -> body_str
-        | _ -> Http_client.inject_stream_param body_str
+        | Anthropic
+        | Kimi
+        | OpenAI_compat
+        | Ollama
+        | Glm
+        | DashScope
+        | Claude_code
+        | Gemini_cli
+        | Kimi_cli
+        | Codex_cli -> Http_client.inject_stream_param body_str
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in
@@ -1327,7 +1383,7 @@ let complete_stream_http
           let prefill_ms =
             match !first_event_at_ref, !first_token_at_ref with
             | Some fe, Some ft when ft > fe -> Some ((fe -. t0) *. 1000.0)
-            | _ -> None
+            | None, _ | Some _, None | Some _, Some _ -> None
           in
           emit_telemetry
             (Telemetry_event.Streaming_summary
@@ -1483,7 +1539,7 @@ let complete_stream_http
                            dispatch
                              (Streaming.ollama_chunk_to_events (get_state ()) chunk))
                        ()
-                   | _ ->
+                   | _non_ollama_kind ->
                      Http_client.read_sse
                        ?clock
                        ?idle_timeout:stream_idle_timeout_s
@@ -1647,7 +1703,16 @@ let complete_stream_http
                   }
             in
             { resp with usage; telemetry }
-          | _ -> resp
+          | Anthropic
+          | Kimi
+          | OpenAI_compat
+          | Gemini
+          | Glm
+          | DashScope
+          | Claude_code
+          | Gemini_cli
+          | Kimi_cli
+          | Codex_cli -> resp
         in
         (match !ollama_timings with
          | Some
@@ -1659,12 +1724,12 @@ let complete_stream_http
            let cache_hit =
              match cache_n with
              | Some n when n > 0 -> true
-             | _ -> false
+             | Some _ | None -> false
            in
            emit_telemetry
              (Telemetry_event.Prefill_complete
                 { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
-         | _ -> ());
+         | Some _ | None -> ());
         let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
         Ok
           (patch_telemetry
