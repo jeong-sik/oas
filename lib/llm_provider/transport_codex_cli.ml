@@ -155,10 +155,11 @@ let text_of_mcp_result_json json =
       |> List.filter_map (fun block ->
         match block |> member "type" |> to_string_option with
         | Some "text" -> block |> member "text" |> to_string_option
-        | _ -> None)
+        | Some _ | None -> None)
     in
     if texts <> [] then String.concat "\n" texts else Yojson.Safe.to_string json
-  | _ -> Yojson.Safe.to_string json
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ ->
+    Yojson.Safe.to_string json
 ;;
 
 let is_error_mcp_result_json json =
@@ -208,7 +209,7 @@ let content_blocks_of_jsonl lines =
                | None -> [ Types.ToolUse { id; name; input } ]
              in
              blocks := List.rev_append tool_blocks !blocks)
-         | _ -> ()
+         | _other_envelope_type -> ()
        with
        | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ())
     lines;
@@ -313,7 +314,7 @@ let legacy_env_extra_args () =
 let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
   match String.trim req_config.model_id |> String.lowercase_ascii with
   | "" | "auto" -> config.model
-  | _ -> Some (String.trim req_config.model_id)
+  | _requested_model -> Some (String.trim req_config.model_id)
 ;;
 
 (* Returns [Ok (overrides, env_pairs)].  [env_pairs] are name=value pairs that
@@ -336,7 +337,7 @@ let runtime_mcp_overrides (policy : Llm_transport.runtime_mcp_policy)
           (match extract_bearer_token value with
            | Some token -> Some (bearer_env_var_name name, token)
            | None -> None)
-        | _ -> None
+        | [] | _ :: _ :: _ -> None
       in
       let url_override = Printf.sprintf "mcp_servers.%s.url=%s" name (toml_string url) in
       let bearer_overrides, headers_to_emit, env_pairs' =
@@ -485,7 +486,7 @@ let parse_usage json =
       ; cache_read_input_tokens = Cli_common_json.member_int "cached_input_tokens" u
       ; cost_usd = None
       }
-  | _ -> None
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
 ;;
 
 (** Parse a single envelope into zero or more OAS sse_events.
@@ -564,7 +565,7 @@ let events_of_line_with_state (state : stream_state) line =
       [ Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
       ; Types.MessageStop
       ]
-    | _ -> []
+    | _other_envelope_type -> []
   with
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
 ;;
@@ -589,11 +590,11 @@ let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
            let item = Yojson.Safe.Util.member "item" json in
            (match Cli_common_json.member_str "type" item with
             | "command_execution" -> incr provider_internal_action_count
-            | _ -> ())
+            | _other_item_type -> ())
          | "turn.completed" ->
            let _raw_usage = parse_usage json in
            ()
-         | _ -> ()
+         | _other_envelope_type -> ()
        with
        | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> ())
     lines;
@@ -602,7 +603,13 @@ let parse_jsonl_result ?(model_id = "codex") ?(prompt = "") lines =
     List.filter_map
       (function
         | Types.Text t -> Some t
-        | _ -> None)
+        | Types.Thinking _
+        | Types.RedactedThinking _
+        | Types.ToolUse _
+        | Types.ToolResult _
+        | Types.Image _
+        | Types.Document _
+        | Types.Audio _ -> None)
       content
     |> String.concat ""
   in
@@ -1110,7 +1117,7 @@ let%test "events_of_line thread.started → MessageStart" =
   let line = {|{"type":"thread.started","thread_id":"abc"}|} in
   match events_of_line_with_state state line with
   | [ Types.MessageStart { id = "abc"; model = "codex"; _ } ] -> true
-  | _ -> false
+  | _unexpected_events -> false
 ;;
 
 let%test "events_of_line agent_message → 3 block events" =
@@ -1121,7 +1128,7 @@ let%test "events_of_line agent_message → 3 block events" =
   match events_of_line_with_state state line with
   | [ Types.ContentBlockStart _; Types.ContentBlockDelta _; Types.ContentBlockStop _ ] ->
     true
-  | _ -> false
+  | _unexpected_events -> false
 ;;
 
 let%test "events_of_line command_execution → no events" =
@@ -1147,7 +1154,7 @@ let%test "events_of_line mcp_tool_call completion emits tool_result block" =
     ; Types.ContentBlockDelta { delta = Types.TextDelta "ok"; _ }
     ; Types.ContentBlockStop _
     ] -> true
-  | _ -> false
+  | _unexpected_events -> false
 ;;
 
 let%test "events_of_line turn.completed → MessageDelta+Stop" =
@@ -1159,7 +1166,7 @@ let%test "events_of_line turn.completed → MessageDelta+Stop" =
   | [ Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
     ; Types.MessageStop
     ] -> true
-  | _ -> false
+  | _unexpected_events -> false
 ;;
 
 let%test "events_of_line invalid json → []" =
@@ -1175,17 +1182,14 @@ let with_env k v f =
   Fun.protect
     ~finally:(fun () ->
       match prev with
-      | None ->
-        (try Unix.putenv k "" with
-         | _ -> ())
+      | None -> Unix.putenv k ""
       | Some old -> Unix.putenv k old)
     f
 ;;
 
 let with_unset k f =
   let prev = Sys.getenv_opt k in
-  (try Unix.putenv k "" with
-   | _ -> ());
+  Unix.putenv k "";
   Fun.protect
     ~finally:(fun () ->
       match prev with
@@ -1337,7 +1341,7 @@ let%test "parse_jsonl_result includes mcp tool call blocks" =
        ; Types.ToolResult { tool_use_id = "call_1"; content = "ok"; _ }
        ; Types.Text "done"
        ] -> true
-     | _ -> false)
+     | _unexpected_content -> false)
   | Error _ -> false
 ;;
 
