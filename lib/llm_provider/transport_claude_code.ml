@@ -210,7 +210,9 @@ let build_args
   let model =
     match String.trim req_config.model_id |> String.lowercase_ascii with
     | "" | "auto" -> config.model
-    | _ -> Some req_config.model_id
+    | requested_model ->
+      let (_ : string) = requested_model in
+      Some req_config.model_id
   in
   (match model with
    | Some m -> add [ "--model"; m ]
@@ -295,7 +297,7 @@ let parse_usage json =
         usage.input_tokens
         claude_code_max_single_response_input_tokens;
       None)
-  | _ -> None
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
 ;;
 
 let parse_stop_reason s = Types.stop_reason_of_string s
@@ -330,10 +332,13 @@ let parse_json_result ~prompt json_str =
              ; message =
                  Printf.sprintf "claude_code internal max_turns reached at %d turns" turns
              })
-      | _ ->
+      | unknown_error_subtype ->
         Error
           (Http_client.NetworkError
-             { message = Printf.sprintf "Claude Code error: %s" msg; kind = Unknown }))
+             { message =
+                 Printf.sprintf "Claude Code error (%s): %s" unknown_error_subtype msg
+             ; kind = Unknown
+             }))
     else (
       let result_text = Cli_common_json.member_str "result" json in
       let model = Cli_common_json.member_str "model" json in
@@ -400,7 +405,10 @@ let events_of_line line =
                | "tool_use" ->
                  let input_str = block |> member "input" |> Yojson.Safe.to_string in
                  Types.InputJsonDelta input_str
-               | _ -> Types.TextDelta text
+               | "text" -> Types.TextDelta text
+               | unknown_content_type ->
+                 let (_ : string) = unknown_content_type in
+                 Types.TextDelta text
              in
              [ Types.ContentBlockStart { index = idx; content_type; tool_id; tool_name }
              ; Types.ContentBlockDelta { index = idx; delta }
@@ -415,7 +423,9 @@ let events_of_line line =
       in
       block_events @ [ Types.MessageDelta { stop_reason; usage } ]
     | "result" -> [ Types.MessageStop ]
-    | _ -> [] (* skip rate_limit_event etc. *)
+    | skipped_event_type ->
+      let (_ : string) = skipped_event_type in
+      [] (* skip rate_limit_event etc. *)
   with
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> []
 ;;
@@ -447,10 +457,13 @@ let blocks_of_assistant_message msg =
         let input =
           match block |> member "input" with
           | `Null -> `Assoc []
-          | j -> j
+          | (`Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _) as
+            j -> j
         in
         Some (Types.ToolUse { id; name; input })
-      | _ -> None)
+      | unknown_block_type ->
+        let (_ : string) = unknown_block_type in
+        None)
   with
   | Type_error _ -> []
 ;;
@@ -533,10 +546,13 @@ let parse_stream_result lines =
                       "claude_code internal max_turns reached at %d turns"
                       turns
                 })
-         | _ ->
+         | unknown_error_subtype ->
            Error
              (Http_client.NetworkError
-                { message = Printf.sprintf "Claude Code error: %s" msg; kind = Unknown }))
+                { message =
+                    Printf.sprintf "Claude Code error (%s): %s" unknown_error_subtype msg
+                ; kind = Unknown
+                }))
        else (
          let model = Cli_common_json.member_str "model" rjson in
          let session_id = Cli_common_json.member_str "session_id" rjson in
@@ -810,7 +826,9 @@ let%test "parse_json_result error" =
   in
   match parse_json_result ~prompt:"" json with
   | Error (Http_client.NetworkError { message; _ }) -> String.length message > 0
-  | _ -> false
+  | unexpected_result ->
+    let (_ : (Types.api_response, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "parse_json_result error_max_turns becomes ProviderTerminal Max_turns" =
@@ -824,7 +842,9 @@ let%test "parse_json_result error_max_turns becomes ProviderTerminal Max_turns" 
   match parse_json_result ~prompt:"" json with
   | Error (Http_client.ProviderTerminal { kind = Max_turns r; _ }) ->
     r.turns = 31 && r.limit = 31
-  | _ -> false
+  | unexpected_result ->
+    let (_ : (Types.api_response, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "parse_json_result unknown error subtype stays NetworkError" =
@@ -837,7 +857,9 @@ let%test "parse_json_result unknown error subtype stays NetworkError" =
   in
   match parse_json_result ~prompt:"" json with
   | Error (Http_client.NetworkError _) -> true
-  | _ -> false
+  | unexpected_result ->
+    let (_ : (Types.api_response, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "parse_json_result invalid json" =
@@ -852,7 +874,9 @@ let%test "events_of_line system init" =
   in
   match events_of_line line with
   | [ Types.MessageStart { model = "claude-sonnet-4"; _ } ] -> true
-  | _ -> false
+  | unexpected_events ->
+    let (_ : Types.sse_event list) = unexpected_events in
+    false
 ;;
 
 let%test "events_of_line assistant with text" =
@@ -869,7 +893,9 @@ let%test "events_of_line result" =
   in
   match events_of_line line with
   | [ Types.MessageStop ] -> true
-  | _ -> false
+  | unexpected_events ->
+    let (_ : Types.sse_event list) = unexpected_events in
+    false
 ;;
 
 let%test "events_of_line unknown type" =
@@ -978,7 +1004,9 @@ let%test "parse_stream_result fallback to assistant" =
   | Ok resp ->
     (match resp.content with
      | [ Types.Text "fallback" ] -> true
-     | _ -> false)
+     | unexpected_content ->
+       let (_ : Types.content_block list) = unexpected_content in
+       false)
   | Error _ -> false
 ;;
 
@@ -1000,7 +1028,9 @@ let%test "parse_stream_result error_max_turns becomes ProviderTerminal Max_turns
   match parse_stream_result lines with
   | Error (Http_client.ProviderTerminal { kind = Max_turns r; _ }) ->
     r.turns = 31 && r.limit = 31
-  | _ -> false
+  | unexpected_result ->
+    let (_ : (Types.api_response, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "parse_stream_result unknown error subtype stays NetworkError" =
@@ -1010,7 +1040,9 @@ let%test "parse_stream_result unknown error subtype stays NetworkError" =
   in
   match parse_stream_result lines with
   | Error (Http_client.NetworkError _) -> true
-  | _ -> false
+  | unexpected_result ->
+    let (_ : (Types.api_response, Http_client.http_error) result) = unexpected_result in
+    false
 ;;
 
 let%test "parse_stream_result restores tool_use blocks" =
@@ -1027,7 +1059,9 @@ let%test "parse_stream_result restores tool_use blocks" =
       (match resp.content with
       | [ Types.Text "using a tool"; Types.ToolUse { id = "tu_1"; name = "calc"; _ } ] ->
         true
-      | _ -> false)
+      | unexpected_content ->
+        let (_ : Types.content_block list) = unexpected_content in
+        false)
   | Error _ -> false
 ;;
 
@@ -1041,7 +1075,9 @@ let%test "parse_stream_result aggregates across multiple assistant lines" =
   | Ok resp ->
     (match resp.content with
      | [ Types.Text "first"; Types.ToolUse { name = "search"; _ } ] -> true
-     | _ -> false)
+     | unexpected_content ->
+       let (_ : Types.content_block list) = unexpected_content in
+       false)
   | Error _ -> false
 ;;
 
@@ -1055,7 +1091,9 @@ let%test "parse_stream_result preserves thinking blocks" =
   | Ok resp ->
     (match resp.content with
      | [ Types.Thinking { content = "let me think"; _ }; Types.Text "done" ] -> true
-     | _ -> false)
+     | unexpected_content ->
+       let (_ : Types.content_block list) = unexpected_content in
+       false)
   | Error _ -> false
 ;;
 
@@ -1071,17 +1109,14 @@ let with_env k v f =
   Fun.protect
     ~finally:(fun () ->
       match prev with
-      | None ->
-        (try Unix.putenv k "" with
-         | _ -> ())
+      | None -> Unix.putenv k ""
       | Some old -> Unix.putenv k old)
     f
 ;;
 
 let with_unset k f =
   let prev = Sys.getenv_opt k in
-  (try Unix.putenv k "" with
-   | _ -> ());
+  Unix.putenv k "";
   Fun.protect
     ~finally:(fun () ->
       match prev with
@@ -1183,7 +1218,9 @@ let%test "subprocess_session_isolation_env injects fresh CODEX_COMPANION_SESSION
     let prefix = "oas-claude-" in
     String.length v >= String.length prefix
     && String.sub v 0 (String.length prefix) = prefix
-  | _ -> false
+  | unexpected_env ->
+    let (_ : (string * string) list) = unexpected_env in
+    false
 ;;
 
 let%test "subprocess_session_isolation_env yields a new id per call" =
@@ -1191,7 +1228,9 @@ let%test "subprocess_session_isolation_env yields a new id per call" =
   let b = subprocess_session_isolation_env () in
   let v_of = function
     | [ (_, v) ] -> v
-    | _ -> ""
+    | unexpected_env ->
+      let (_ : (string * string) list) = unexpected_env in
+      ""
   in
   v_of a <> "" && v_of a <> v_of b
 ;;
@@ -1242,7 +1281,9 @@ let%test "build_args omits positional prompt when routing via stdin" =
   &&
   match args with
   | "-p" :: "--output-format" :: _ -> true
-  | _ -> false
+  | unexpected_args ->
+    let (_ : string list) = unexpected_args in
+    false
 ;;
 
 let%test "build_args keeps positional prompt when small" =
@@ -1259,7 +1300,9 @@ let%test "build_args keeps positional prompt when small" =
   &&
   match args with
   | "-p" :: "hello" :: _ -> true
-  | _ -> false
+  | unexpected_args ->
+    let (_ : string list) = unexpected_args in
+    false
 ;;
 
 let%test "runtime MCP policy overrides legacy tool and MCP config wiring" =
