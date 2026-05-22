@@ -284,11 +284,27 @@ let find_and_execute_tool_with_index
           match Correction_pipeline.run ~schema:tool.schema input with
           | Correction_pipeline.Fixed { corrected; corrections } ->
             if corrections <> []
-            then
+            then (
+              let field_names =
+                corrections
+                |> List.map (fun (c : Correction_pipeline.correction) -> c.field)
+                |> List.sort_uniq String.compare
+                |> String.concat ","
+              in
+              let stage_names =
+                corrections
+                |> List.map (fun (c : Correction_pipeline.correction) -> c.stage)
+                |> List.sort_uniq String.compare
+                |> String.concat ","
+              in
               Log.info
                 _log
                 "correction_pipeline fixed tool input fields"
-                [ Log.S ("tool", name); Log.I ("fixes", List.length corrections) ];
+                [ Log.S ("tool", name)
+                ; Log.I ("fixes", List.length corrections)
+                ; Log.S ("fields", field_names)
+                ; Log.S ("stages", stage_names)
+                ]);
             Ok corrected
           | Correction_pipeline.Still_invalid { errors; attempted } ->
             (* Det correction insufficient — build structured feedback for the
