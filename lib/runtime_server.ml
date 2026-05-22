@@ -20,7 +20,13 @@ let extract_text (resp : Types.api_response) =
   resp.content
   |> List.filter_map (function
     | Types.Text s -> Some s
-    | _ -> None)
+    | Types.Thinking _
+    | Types.RedactedThinking _
+    | Types.ToolUse _
+    | Types.ToolResult _
+    | Types.Image _
+    | Types.Document _
+    | Types.Audio _ -> None)
   |> String.concat "\n"
 ;;
 
@@ -347,7 +353,7 @@ let run_participant
         ; stop_reason = Some "EndTurn"
         ; completion_anomaly = completion_anomaly ()
         })
-  | _ ->
+  | _selected_provider ->
     Eio.Switch.run
     @@ fun sw ->
     (match Runtime_store.load_session store session_id with
@@ -361,11 +367,11 @@ let run_participant
              (match detail.model with
               | Some value when String.trim value <> "" ->
                 Model_registry.resolve_model_id value
-              | _ -> Types.default_config.model)
+              | _missing_model_override -> Types.default_config.model)
          ; system_prompt =
              (match detail.system_prompt with
               | Some prompt when String.trim prompt <> "" -> Some prompt
-              | _ -> session.system_prompt)
+              | _missing_system_prompt_override -> session.system_prompt)
          ; max_turns = Option.value detail.max_turns ~default:session.max_turns
          }
        in
@@ -379,7 +385,7 @@ let run_participant
        let on_event = function
          | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
            emit_delta_text text
-         | _ -> ()
+         | _other_event -> ()
        in
        (match Agent.run_stream ~sw ~on_event agent detail.prompt with
         | Ok response ->
@@ -856,8 +862,8 @@ let serve_stdio ~sw ~net () =
            (Response_message { request_id = payload.request_id; response });
          (match response with
           | Shutdown_ack -> ()
-          | _ -> loop ())
-       | Ok _ -> loop ()
+          | _continue_response -> loop ())
+       | Ok _non_request_message -> loop ()
        | Error _ ->
          (match request_of_string raw with
           | Error detail ->
@@ -877,7 +883,7 @@ let serve_stdio ~sw ~net () =
               (Response_message { request_id = "legacy"; response });
             (match response with
              | Shutdown_ack -> ()
-             | _ -> loop ())))
+             | _continue_response -> loop ())))
   in
   loop ()
 ;;
@@ -931,7 +937,7 @@ let%test "request roundtrip: Shutdown" =
   let json_str = request_to_string Shutdown in
   match request_of_string json_str with
   | Ok Shutdown -> true
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Initialize" =
@@ -950,7 +956,7 @@ let%test "request roundtrip: Initialize" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Initialize r) -> r.session_root = Some "/tmp" && r.provider = Some "mock"
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Start_session" =
@@ -970,7 +976,7 @@ let%test "request roundtrip: Start_session" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Start_session r) -> r.goal = "test goal" && r.participants = [ "alice"; "bob" ]
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Status" =
@@ -978,7 +984,7 @@ let%test "request roundtrip: Status" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Status { session_id }) -> session_id = "s123"
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Events" =
@@ -986,7 +992,7 @@ let%test "request roundtrip: Events" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Events { session_id; after_seq }) -> session_id = "s123" && after_seq = Some 5
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Finalize" =
@@ -994,7 +1000,7 @@ let%test "request roundtrip: Finalize" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Finalize { session_id; reason }) -> session_id = "s123" && reason = Some "done"
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Report" =
@@ -1002,7 +1008,7 @@ let%test "request roundtrip: Report" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Report { session_id }) -> session_id = "s123"
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Prove" =
@@ -1010,7 +1016,7 @@ let%test "request roundtrip: Prove" =
   let json_str = request_to_string req in
   match request_of_string json_str with
   | Ok (Prove { session_id }) -> session_id = "s123"
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 let%test "request roundtrip: Apply_command with Record_turn" =
@@ -1024,7 +1030,7 @@ let%test "request roundtrip: Apply_command with Record_turn" =
   match request_of_string json_str with
   | Ok (Apply_command { session_id; command = Record_turn { actor; message } }) ->
     session_id = "s123" && actor = Some "alice" && message = "hello"
-  | _ -> false
+  | _unexpected_request -> false
 ;;
 
 (* --- response serialization roundtrip --- *)
@@ -1033,14 +1039,14 @@ let%test "response roundtrip: Shutdown_ack" =
   let json_str = response_to_string Shutdown_ack in
   match response_of_string json_str with
   | Ok Shutdown_ack -> true
-  | _ -> false
+  | _unexpected_response -> false
 ;;
 
 let%test "response roundtrip: Error_response" =
   let json_str = response_to_string (Error_response "something failed") in
   match response_of_string json_str with
   | Ok (Error_response msg) -> msg = "something failed"
-  | _ -> false
+  | _unexpected_response -> false
 ;;
 
 let%test "response roundtrip: Initialized" =
@@ -1059,7 +1065,7 @@ let%test "response roundtrip: Initialized" =
     r.sdk_name = "agent_sdk"
     && r.protocol_version = "oas-runtime-0.1"
     && List.length r.capabilities = 2
-  | _ -> false
+  | _unexpected_response -> false
 ;;
 
 (* --- protocol_message serialization --- *)
@@ -1069,7 +1075,7 @@ let%test "protocol_message roundtrip: Request_message" =
   let json_str = protocol_message_to_string msg in
   match protocol_message_of_string json_str with
   | Ok (Request_message { request_id; request = Shutdown }) -> request_id = "req-1"
-  | _ -> false
+  | _unexpected_message -> false
 ;;
 
 let%test "protocol_message roundtrip: Response_message" =
@@ -1077,7 +1083,7 @@ let%test "protocol_message roundtrip: Response_message" =
   let json_str = protocol_message_to_string msg in
   match protocol_message_of_string json_str with
   | Ok (Response_message { request_id; response = Shutdown_ack }) -> request_id = "req-2"
-  | _ -> false
+  | _unexpected_message -> false
 ;;
 
 let%test "protocol_message roundtrip: Event_message" =
@@ -1094,7 +1100,7 @@ let%test "protocol_message roundtrip: Event_message" =
   let json_str = protocol_message_to_string msg in
   match protocol_message_of_string json_str with
   | Ok (Event_message { session_id = Some "s1"; event }) -> event.seq = 1
-  | _ -> false
+  | _unexpected_message -> false
 ;;
 
 let%test "protocol_message roundtrip: Control_request_message" =
@@ -1107,7 +1113,7 @@ let%test "protocol_message roundtrip: Control_request_message" =
   let json_str = protocol_message_to_string msg in
   match protocol_message_of_string json_str with
   | Ok (Control_request_message { control_id; _ }) -> control_id = "ctrl-000001"
-  | _ -> false
+  | _unexpected_message -> false
 ;;
 
 let%test "protocol_message roundtrip: Control_response_message" =
@@ -1121,7 +1127,7 @@ let%test "protocol_message roundtrip: Control_response_message" =
   match protocol_message_of_string json_str with
   | Ok (Control_response_message { control_id; response = Permission_response r }) ->
     control_id = "ctrl-000002" && r.allow = true
-  | _ -> false
+  | _unexpected_message -> false
 ;;
 
 let%test "protocol_message roundtrip: System_message" =
@@ -1129,7 +1135,7 @@ let%test "protocol_message roundtrip: System_message" =
   let json_str = protocol_message_to_string msg in
   match protocol_message_of_string json_str with
   | Ok (System_message { level; message }) -> level = "info" && message = "hello"
-  | _ -> false
+  | _unexpected_message -> false
 ;;
 
 (* --- request_of_string error handling --- *)
@@ -1165,7 +1171,7 @@ let%test "event roundtrip: Turn_recorded" =
     &&
       (match e.kind with
       | Turn_recorded { actor = Some "alice"; message = "hi" } -> true
-      | _ -> false)
+      | _unexpected_event_kind -> false)
   | Error _ -> false
 ;;
 
@@ -1189,7 +1195,7 @@ let%test "event roundtrip: Artifact_attached" =
   | Ok e ->
     (match e.kind with
      | Artifact_attached { artifact_id = "art-1"; size_bytes = 1234; _ } -> true
-     | _ -> false)
+     | _unexpected_event_kind -> false)
   | Error _ -> false
 ;;
 
@@ -1205,7 +1211,7 @@ let%test "event roundtrip: Checkpoint_saved" =
   | Ok e ->
     (match e.kind with
      | Checkpoint_saved { label = Some "mid"; _ } -> true
-     | _ -> false)
+     | _unexpected_event_kind -> false)
   | Error _ -> false
 ;;
 
@@ -1218,7 +1224,7 @@ let%test "event roundtrip: Session_completed" =
   | Ok e ->
     (match e.kind with
      | Session_completed { outcome = Some "success" } -> true
-     | _ -> false)
+     | _unexpected_event_kind -> false)
   | Error _ -> false
 ;;
 
@@ -1231,6 +1237,6 @@ let%test "event roundtrip: Session_failed" =
   | Ok e ->
     (match e.kind with
      | Session_failed { outcome = Some "timeout" } -> true
-     | _ -> false)
+     | _unexpected_event_kind -> false)
   | Error _ -> false
 ;;
