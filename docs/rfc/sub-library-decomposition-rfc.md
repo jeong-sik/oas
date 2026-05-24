@@ -85,7 +85,7 @@ agent_sdk.runtime   (depends on types, sessions, evidence)
     ↑
 agent_sdk.sessions  (depends on types, runtime — bidirectional via shared types)
     ↑
-agent_sdk           (core: orchestrator, context, api, provider, error, etc.)
+agent_sdk           (core: context, api, provider, error, etc.)
 ```
 
 ## Verification

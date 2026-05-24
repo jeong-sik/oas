@@ -65,7 +65,6 @@
   test_complete_ext
   test_completion_contract_tool_use_calls
   test_completion_contract_violation
-  test_conditional_orch
   test_consumer
   test_content_replacement_event_bridge
   test_context
@@ -148,9 +147,6 @@
   test_multivendor_events
   test_multivendor_live
   test_operator_policy
-  test_orchestrator
-  test_orchestrator_coverage
-  test_orchestrator_steps
   test_otel
   test_otel_export
   test_otel_tracer
@@ -288,7 +284,6 @@
   test_complete_ext
   test_completion_contract_tool_use_calls
   test_completion_contract_violation
-  test_conditional_orch
   test_consumer
   test_content_replacement_event_bridge
   test_context
@@ -371,9 +366,6 @@
   test_multivendor_events
   test_multivendor_live
   test_operator_policy
-  test_orchestrator
-  test_orchestrator_coverage
-  test_orchestrator_steps
   test_otel
   test_otel_export
   test_otel_tracer

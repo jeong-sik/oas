@@ -58,7 +58,7 @@ type payload =
       ; elapsed : float
       }
   (** Explicit failure variant companion to [AgentCompleted].
-          Emitted when an orchestrator task ends with [Error _].
+          Reserved for task-level producers that end with [Error _].
           Subscribers that only care about failures can filter on this
           variant directly instead of matching [AgentCompleted] with a
           [Result.is_error] check.

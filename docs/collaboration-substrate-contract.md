@@ -146,8 +146,8 @@ Downstream systems own the actual counters and policy:
 
 Track 8 performance runners remain downstream-owned. k6, Locust,
 crdt-benchmarks, Lighthouse, and browser RUM should emit observations using
-stable metric names from `Agent_sdk.Collaboration`. OAS exposes only the budget
-vocabulary and pass/fail evaluation helpers.
+the stable metric labels below. OAS does not expose an in-code
+`Agent_sdk.Collaboration` module; collaboration metrics remain downstream-owned.
 
 | Metric label | Budget | Tool hint |
 |--------------|--------|-----------|

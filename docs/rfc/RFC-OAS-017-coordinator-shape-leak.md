@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft |
+| Status | Partially implemented |
 | Author | jeong-sik (with Claude analysis) |
 | Created | 2026-05-12 |
 | Target | `agent_sdk` (oas) |
@@ -11,17 +11,19 @@
 
 ## 0. Summary
 
-`scripts/check-sdk-independence.sh` enforces *vocabulary* independence — no `masc`/`keeper`/`board`/`room` in `lib/`/`bin/`/`README.md` — and currently passes. But the SDK still ships a **coordinator-shaped protocol** under non-coordinator vocabulary, via the public `Agent_sdk` facade:
+`scripts/check-sdk-independence.sh` enforces *vocabulary* independence — no `masc`/`keeper`/`board`/`room` in `lib/`/`bin`/`README.md` — and currently passes. This RFC originally identified coordinator-shaped protocol leaks under non-coordinator vocabulary, via the public `Agent_sdk` facade:
 
 - `lib/runtime.mli` exposes `participant_state`, `worker_id`, `collaboration_channel = Presence_channel | Activity_channel | System_channel`, and a `Waiting_on_workers` phase.
 - ~13 files in `lib/` (mix of `.mli` and `.ml` — see §1.3) name "downstream coordinator" in doc comments as a first-class consumer; two cross-repo PR/RFC numbers (`#13894`, `RFC-OAS-011`) leak into transport `.mli` files.
-- `lib/collaboration.ml` declares bare types `Claim_registry | Turn_queue | Blackboard` and ships **without** an `.mli` — internals are unredacted.
+- `lib/collaboration.ml` declared bare types `Claim_registry | Turn_queue | Blackboard` and shipped **without** an `.mli` — removed in the legacy purge follow-up.
 
 The net effect: an independent OCaml agent application using `Agent_sdk` inherits a coordination contract it didn't ask for. A second, non-MASC coordinator implementation cannot reuse the SDK without conforming to MASC's participant / channel / worker model.
 
 This RFC enumerates the leak, classifies each leak as **structural** (load-bearing for the SDK's design) or **historical** (cruft from when OAS was a MASC subpackage), and proposes a two-track fix: (A) demote historical leaks via wording changes + `.mli` redactions; (B) push the structural coordinator types out of the public facade behind an opt-in `Agent_sdk.Coordinator_plugin` interface that hosts implement to bridge MASC (or anything else) to OAS.
 
-This RFC writes **no code**. Phases B-1..B-3 each become their own implementation PR.
+This RFC is now partially implemented: the historical `lib/collaboration.ml`
+surface has been removed. Remaining structural runtime-surface narrowing still
+needs separate implementation work.
 
 ## 1. Verified inventory (`origin/main` at `8d8402f6`)
 
@@ -115,7 +117,7 @@ For each leak, the question is: **does the SDK design require this type/concept 
 | Type | Issue | Action |
 |---|---|---|
 | `lib/runtime.mli` `participant_state`, `collaboration_channel`, `worker_id`, `Waiting_on_workers` | A2A doesn't need "Claim_registry"/"Turn_queue" vocabulary; the participant/channel set was modeled to match MASC's lifecycle. | Move coordinator-specific *constructors* out of the public surface; keep A2A-required ones (`Live`, `Done`, `Failed_participant`) and rename ambiguous ones (`Detached` → `Disconnected`?). Open a follow-up RFC for the exact split. |
-| `lib/collaboration.ml` `Claim_registry`, `Turn_queue`, `Blackboard` (no `.mli`) | These are MASC-domain coordinator components. The fact that `.mli` is missing means *everything* in this module is public by accident. | Add `lib/collaboration.mli` redacting all coordinator-specific types; if A2A doesn't need them, hide entirely (`include_subdirs no` from public + drop from `agent_sdk.ml` re-exports). |
+| `lib/collaboration.ml` `Claim_registry`, `Turn_queue`, `Blackboard` (no `.mli`) | These were coordinator components with an accidental unredacted surface. | Completed: remove the module because A2A does not need it. |
 
 ### 2.3 Historical (pure cruft) — delete or reword
 
@@ -146,7 +148,7 @@ Concrete shape of the audit and the rationale annotations is in scope for the im
 ### Phase A — historical cruft (low-risk, small PRs)
 
 - **A-1**: reword the 13 docstrings/comments listed in §2.3. Drop cross-repo PR numbers from public `.mli` files. Single PR, no code change. ETA: 1 PR-day.
-- **A-2**: add `lib/collaboration.mli` redacting coordinator-specific types (`Claim_registry`, `Turn_queue`, `Blackboard`) — make them private to the implementation or remove them entirely if A2A doesn't need them. ETA: 1 PR-day after grepping callers.
+- **A-2**: completed by removing `lib/collaboration.ml`; A2A does not need the coordinator-specific `Claim_registry`, `Turn_queue`, or `Blackboard` vocabulary.
 
 ### Phase B — structural narrowing (RFC-sized each)
 
