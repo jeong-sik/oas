@@ -183,6 +183,12 @@ val run_turn_stream
   -> t
   -> ([ `Complete of Types.api_response | `ToolsExecuted ], Error.sdk_error) result
 
+(** Append an elicitation response to the agent conversation so callers that
+    received {!Error.InputRequired} can resume with {!run_turn_stream} or an
+    equivalent turn driver. [Declined] and [Timeout] preserve the legacy
+    callback behavior and do not append a synthetic user message. *)
+val provide_input : t -> Error.input_required -> Hooks.elicitation_response -> unit
+
 (** {1 Handoff} *)
 
 val run_with_handoffs
