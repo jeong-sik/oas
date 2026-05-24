@@ -831,8 +831,7 @@ let%test "build_args includes --json flag" =
   let args, env =
     build_args ~config:default_config ~req_config:(agent_code_req ()) ~prompt:"hello" ()
   in
-  args
-  = [ "agent_code"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hello" ]
+  args = [ "codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hello" ]
   && env = []
 ;;
 
@@ -865,7 +864,7 @@ let%test "build_args ignores extra parity fields" =
     }
   in
   let args, _ = build_args ~config ~req_config:(agent_code_req ()) ~prompt:"hi" () in
-  args = [ "agent_code"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi" ]
+  args = [ "codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi" ]
 ;;
 
 let%test "build_args with requested model" =
@@ -877,7 +876,7 @@ let%test "build_args with requested model" =
       ()
   in
   args
-  = [ "agent_code"
+  = [ "codex"
     ; "exec"
     ; "--json"
     ; "--ephemeral"
@@ -893,7 +892,7 @@ let%test "build_args with config default model for auto request" =
   let config = { default_config with model = Some "model-d-5.2-agent_code" } in
   let args, _ = build_args ~config ~req_config:(agent_code_req ()) ~prompt:"hi" () in
   args
-  = [ "agent_code"
+  = [ "codex"
     ; "exec"
     ; "--json"
     ; "--ephemeral"
@@ -1215,14 +1214,7 @@ let%test "default: argv disables MCP even with no env" =
               ()
           in
           args
-          = [ "agent_code"
-            ; "exec"
-            ; "--json"
-            ; "--ephemeral"
-            ; "-c"
-            ; "mcp_servers={}"
-            ; "hi"
-            ]))))
+          = [ "codex"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi" ]))))
 ;;
 
 let%test "env: OAS_CLI_TOOL_A_CONFIG emits -c pairs before prompt" =
