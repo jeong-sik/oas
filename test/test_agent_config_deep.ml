@@ -440,7 +440,9 @@ let test_resolve_provider_d_compat_ssot () =
      Provider_kind.to_string Provider_d_compat. Before the parser dispatch,
      it fell through to the registry fallback and ended up with
      api_key_env = "provider_d_compat" — a meaningless value. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d_compat" None in
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d_compat" None
+  in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
     Alcotest.(check string)

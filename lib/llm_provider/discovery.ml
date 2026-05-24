@@ -1237,7 +1237,9 @@ let%test "find_context_length with general.context_length" =
 let%test "find_context_length with model-specific prefix" =
   let mi =
     `Assoc
-      [ "provider_h_3_5.embedding_length", `Int 3584; "provider_h_3_5.context_length", `Int 262144 ]
+      [ "provider_h_3_5.embedding_length", `Int 3584
+      ; "provider_h_3_5.context_length", `Int 262144
+      ]
   in
   find_context_length mi = 262144
 ;;
@@ -1249,14 +1251,20 @@ let%test "find_context_length prefers context_length over general" =
 
 let%test "find_context_length prefers general.context_length over model-specific" =
   let mi =
-    `Assoc [ "provider_h_3_5.context_length", `Int 262144; "general.context_length", `Int 8192 ]
+    `Assoc
+      [ "provider_h_3_5.context_length", `Int 262144
+      ; "general.context_length", `Int 8192
+      ]
   in
   find_context_length mi = 8192
 ;;
 
 let%test "find_context_length takes max of model-specific keys" =
   let mi =
-    `Assoc [ "provider_n.context_length", `Int 8192; "provider_h_3_5.context_length", `Int 262144 ]
+    `Assoc
+      [ "provider_n.context_length", `Int 8192
+      ; "provider_h_3_5.context_length", `Int 262144
+      ]
   in
   find_context_length mi = 262144
 ;;

@@ -1,23 +1,23 @@
 (** Subprocess CLI transport demo.
 
     Shows how to wire up the four non-interactive CLI transports
-    ([Transport_claude_code], [Transport_gemini_cli],
-    [Transport_kimi_cli], [Transport_codex_cli]), invoke a single
+    ([Transport_cli_tool_d], [Transport_cli_tool_b],
+    [Transport_cli_tool_c], [Transport_cli_tool_a]), invoke a single
     completion through both [complete_sync] and [complete_stream], and
     observe the new [cancel] / [on_stderr_line] knobs added in
     v0.148.0+.
 
     Prerequisites:
-    - At least one of [claude] / [gemini] / [kimi] / [codex] in [PATH]
+    - At least one configured CLI tool binary in [PATH]
     - For real runs the CLI must be already authenticated (this demo
       makes a tiny "say hi" call that consumes a few tokens)
 
     Usage:
       dune exec examples/cli_transports_demo.exe                # auto-pick
-      OAS_CLI_DEMO=claude dune exec examples/cli_transports_demo.exe
-      OAS_CLI_DEMO=gemini dune exec examples/cli_transports_demo.exe
-      OAS_CLI_DEMO=kimi   dune exec examples/cli_transports_demo.exe
-      OAS_CLI_DEMO=codex  dune exec examples/cli_transports_demo.exe
+      OAS_CLI_DEMO=cli_tool_d dune exec examples/cli_transports_demo.exe
+      OAS_CLI_DEMO=cli_tool_b dune exec examples/cli_transports_demo.exe
+      OAS_CLI_DEMO=cli_tool_c dune exec examples/cli_transports_demo.exe
+      OAS_CLI_DEMO=cli_tool_a dune exec examples/cli_transports_demo.exe
 *)
 
 open Llm_provider
@@ -56,53 +56,51 @@ let on_event = function
 (** Pick a transport based on [OAS_CLI_DEMO] or first binary in PATH. *)
 let pick_transport ~sw ~mgr =
   let env = Sys.getenv_opt "OAS_CLI_DEMO" in
-  let in_path bin =
-    let path =
-      try Sys.getenv "PATH" with
-      | Not_found -> ""
-    in
+  let in_path command =
+    let binary = Filename.basename command in
+    let path = Option.value (Sys.getenv_opt "PATH") ~default:"" in
     String.split_on_char ':' path
-    |> List.exists (fun dir -> Sys.file_exists (Filename.concat dir bin))
+    |> List.exists (fun dir -> Sys.file_exists (Filename.concat dir binary))
   in
-  let claude () =
-    let on_stderr_line line = Eio.traceln "[claude stderr] %s" line in
+  let cli_tool_d () =
+    let on_stderr_line line = Eio.traceln "[cli_tool_d stderr] %s" line in
     ignore on_stderr_line;
     (* default already routes to traceln *)
-    ( Transport_claude_code.create ~sw ~mgr ~config:Transport_claude_code.default_config
-    , "claude"
-    , Provider_config.Claude_code )
+    ( Transport_cli_tool_d.create ~sw ~mgr ~config:Transport_cli_tool_d.default_config
+    , "cli_tool_d"
+    , Provider_config.Cli_tool_d )
   in
-  let gemini () =
-    ( Transport_gemini_cli.create ~sw ~mgr ~config:Transport_gemini_cli.default_config
-    , "gemini"
-    , Provider_config.Gemini_cli )
+  let cli_tool_b () =
+    ( Transport_cli_tool_b.create ~sw ~mgr ~config:Transport_cli_tool_b.default_config
+    , "cli_tool_b"
+    , Provider_config.Cli_tool_b )
   in
-  let kimi () =
-    ( Transport_kimi_cli.create ~sw ~mgr ~config:Transport_kimi_cli.default_config
-    , "kimi"
-    , Provider_config.Kimi_cli )
+  let cli_tool_c () =
+    ( Transport_cli_tool_c.create ~sw ~mgr ~config:Transport_cli_tool_c.default_config
+    , "cli_tool_c"
+    , Provider_config.Cli_tool_c )
   in
-  let codex () =
-    ( Transport_codex_cli.create ~sw ~mgr ~config:Transport_codex_cli.default_config
-    , "codex"
-    , Provider_config.Codex_cli )
+  let cli_tool_a () =
+    ( Transport_cli_tool_a.create ~sw ~mgr ~config:Transport_cli_tool_a.default_config
+    , "cli_tool_a"
+    , Provider_config.Cli_tool_a )
   in
   match env with
-  | Some "claude" -> claude ()
-  | Some "gemini" -> gemini ()
-  | Some "kimi" -> kimi ()
-  | Some "codex" -> codex ()
+  | Some "cli_tool_d" -> cli_tool_d ()
+  | Some "cli_tool_b" -> cli_tool_b ()
+  | Some "cli_tool_c" -> cli_tool_c ()
+  | Some "cli_tool_a" -> cli_tool_a ()
   | _ ->
-    if in_path "claude"
-    then claude ()
-    else if in_path "gemini"
-    then gemini ()
-    else if in_path "kimi"
-    then kimi ()
-    else if in_path "codex"
-    then codex ()
+    if in_path Transport_cli_tool_d.default_config.agent_llm_a_path
+    then cli_tool_d ()
+    else if in_path Transport_cli_tool_b.default_config.provider_f_path
+    then cli_tool_b ()
+    else if in_path Transport_cli_tool_c.default_config.provider_c_path
+    then cli_tool_c ()
+    else if in_path Transport_cli_tool_a.default_config.agent_code_path
+    then cli_tool_a ()
     else (
-      prerr_endline "No claude/gemini/kimi/codex binary in PATH; nothing to demo.";
+      prerr_endline "No configured CLI tool binary found in PATH; nothing to demo.";
       exit 0)
 ;;
 
