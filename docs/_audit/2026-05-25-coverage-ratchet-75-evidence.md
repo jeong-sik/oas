@@ -84,3 +84,35 @@ streaming edge-case tests, so the CI coverage floor can move from 73% to 75%.
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused pure-module coverage; project-wide CI coverage
   remains governed by the `75` floor above until the next clean full run.
+
+## Stage D harness and CLI transport follow-up
+
+- Evidence: local focused coverage run on PR #1759 after extending
+  `test/test_harness_runner.ml` and adding subprocess-backed
+  `test/test_transport_cli_tool_b_coverage.ml` /
+  `test/test_transport_cli_tool_c_coverage.ml`.
+- Command:
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes BISECT_FILE=/tmp/oas_stage_d_cli_harness_coverage/bisect scripts/dune-local.sh build --instrument-with bisect_ppx test/test_harness_runner.exe test/test_transport_cli_tool_b_coverage.exe test/test_transport_cli_tool_c_coverage.exe`
+- Test binaries:
+  `./_build/default/test/test_harness_runner.exe`,
+  `./_build/default/test/test_transport_cli_tool_b_coverage.exe`,
+  `./_build/default/test/test_transport_cli_tool_c_coverage.exe`
+- Summary command:
+  `opam exec -- bisect-ppx-report summary --per-file --coverage-path=/tmp/oas_stage_d_cli_harness_coverage`
+- Focused per-file results:
+  - `lib/harness_runner.ml`: `77.13%` (`172/223`)
+  - `lib/llm_provider/transport_cli_tool_b.ml`: `52.16%` (`133/255`)
+  - `lib/llm_provider/transport_cli_tool_c.ml`: `63.10%` (`183/290`)
+  - `lib/llm_provider/cli_common_subprocess.ml`: `47.43%` (`83/175`)
+  - `lib/llm_provider/cli_common_synthetic_events.ml`: `55.00%` (`11/20`)
+- Behaviors added:
+  - harness response/trace/metric pass and fail grading, skipped cases, trace
+    path validation, and execute-case failure shaping.
+  - `cli_tool_b` Provider_f JSON parsing, synthetic stream replay,
+    request-scoped MCP rejection, and terminal quota stderr classification.
+  - `cli_tool_c` JSONL text/tool/tool-result restoration, stream event
+    emission, subprocess-error surfacing, no-output parse failure, stdin prompt
+    routing, and session delta reuse.
+- Timestamp: 2026-05-25 KST
+  Confidence: High for focused behavior coverage; project-wide CI coverage
+  remains governed by the `75` floor above until the next clean full run.
