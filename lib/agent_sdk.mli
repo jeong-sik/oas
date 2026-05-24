@@ -136,6 +136,7 @@ module Eval_report = Eval_report
 module Eval_stats = Eval_stats
 module Defaults = Defaults
 module Runtime_store = Runtime_store
+module Runtime_evidence = Runtime_evidence
 module Runtime_server_types = Runtime_server_types
 module Runtime_server_resolve = Runtime_server_resolve
 module Runtime_health = Runtime_health
