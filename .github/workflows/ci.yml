@@ -162,7 +162,12 @@ jobs:
           # 76.02% (22598/29728) after provider dispatch, provider_d codec,
           # and streaming edge coverage. Raise the floor to
           # floor(76.02 - 1) = 75 per #1175 ratchet policy.
-          THRESHOLD=75
+          #
+          # 2026-05-25: local clean full coverage on PR #1759 measured
+          # 77.72% (23104/29728) after Stage D client/pipeline/pure module,
+          # harness, and CLI transport coverage. Raise the floor to
+          # floor(77.72 - 1) = 76 per #1175 ratchet policy.
+          THRESHOLD=76
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1

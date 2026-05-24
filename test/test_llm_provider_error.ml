@@ -336,6 +336,208 @@ let test_cli_transport_required_mapping () =
   | _ -> fail "expected InvalidConfig"
 ;;
 
+let test_retry_remaining_variants_mapping () =
+  let cases =
+    [ ( Error.of_retry_api_error
+          ~provider:"provider_d"
+          (Retry.AuthError { message = "bad key" })
+      , "auth" )
+    ; ( Error.of_retry_api_error
+          ~provider:"provider_d"
+          (Retry.InvalidRequest { message = "bad payload" })
+      , "invalid" )
+    ; ( Error.of_retry_api_error
+          ~provider:"provider_d"
+          (Retry.NotFound { message = "missing model" })
+      , "not_found" )
+    ; ( Error.of_retry_api_error
+          ~provider:"provider_d"
+          (Retry.ContextOverflow { message = "too long"; limit = Some 123 })
+      , "context" )
+    ; ( Error.of_retry_api_error
+          ~provider:"provider_d"
+          (Retry.NetworkError { message = "tls"; kind = Http_client.Tls_error })
+      , "network" )
+    ; ( Error.of_retry_api_error
+          ~provider:"provider_d"
+          (Retry.Timeout { message = "slow" })
+      , "timeout" )
+    ]
+  in
+  List.iter
+    (fun (err, expected) ->
+       match expected, err with
+       | "auth", Error.AuthError { detail; _ } ->
+         check string "auth detail" "bad key" detail
+       | "invalid", Error.InvalidRequest { reason; _ } ->
+         check string "invalid reason" "bad payload" reason
+       | "not_found", Error.NotFound { detail; _ } ->
+         check string "not found detail" "missing model" detail
+       | "context", Error.InvalidRequest { reason; _ } ->
+         check bool "context reason" true (String.length reason > 0)
+       | "network", Error.NetworkError { kind = Http_client.Tls_error; detail; _ } ->
+         check string "network detail" "tls" detail
+       | "timeout", Error.Timeout { detail; _ } ->
+         check string "timeout detail" "slow" detail
+       | _ -> fail ("unexpected mapping for " ^ expected))
+    cases
+;;
+
+let test_provider_failure_remaining_variants_mapping () =
+  let provider_failure ?provider kind message =
+    Error.of_http_error ?provider (Http_client.ProviderFailure { kind; message })
+  in
+  let hard_quota =
+    provider_failure
+      ~provider:"provider_f"
+      (Http_client.Hard_quota { retry_after = Some 4.0 })
+      "billing"
+  in
+  (match hard_quota with
+   | Error.HardQuota { provider; retry_after; detail } ->
+     check string "hard quota provider" "provider_f" provider;
+     check (option (float 0.001)) "hard quota retry after" (Some 4.0) retry_after;
+     check string "hard quota detail" "billing" detail
+   | _ -> fail "expected HardQuota");
+  let capacity_unknown_provider =
+    provider_failure
+      ~provider:""
+      (Http_client.Capacity_exhausted
+         { scope = Http_client.Failure_scope_account; retry_after = None; model = None })
+      "account queue"
+  in
+  (match capacity_unknown_provider with
+   | Error.CapacityExhausted { scope; affected; detail; _ } ->
+     check bool "account scope" true (scope = Error.CapacityAccount);
+     check (list string) "unknown provider has no affected list" [] affected;
+     check string "capacity detail" "account queue" detail
+   | _ -> fail "expected account CapacityExhausted");
+  let mismatch =
+    provider_failure
+      ~provider:"provider_c"
+      (Http_client.Capability_mismatch { capability = None })
+      "tool stream disabled"
+  in
+  (match mismatch with
+   | Error.InvalidRequest { reason; _ } ->
+     check
+       bool
+       "default capability reason"
+       true
+       (Agent_sdk.Util.string_contains ~needle:"missing provider capability" reason)
+   | _ -> fail "expected InvalidRequest capability mismatch");
+  let policy =
+    provider_failure
+      ~provider:"cli_tool_d"
+      (Http_client.Cli_policy_invalid { tool_name = Some "Read"; rule = Some 3 })
+      "blocked"
+  in
+  (match policy with
+   | Error.InvalidRequest { reason; _ } ->
+     check
+       bool
+       "policy reason"
+       true
+       (Agent_sdk.Util.string_contains ~needle:"rule 3" reason)
+   | _ -> fail "expected InvalidRequest policy rejection");
+  let startup =
+    provider_failure
+      ~provider:"cli_tool_a"
+      (Http_client.Cli_startup_failed { reason = "not executable" })
+      "permission denied"
+  in
+  (match startup with
+   | Error.ProviderUnavailable { detail; _ } ->
+     check string "startup detail" "not executable: permission denied" detail
+   | _ -> fail "expected ProviderUnavailable startup failure");
+  let parse =
+    provider_failure (Http_client.Provider_parse_error { parser = None }) "bad JSON"
+  in
+  (match parse with
+   | Error.ParseError { detail } ->
+     check string "parser default" "unknown_parser: bad JSON" detail
+   | _ -> fail "expected ParseError");
+  let unknown =
+    provider_failure
+      ~provider:"provider_x"
+      (Http_client.Unknown_provider_failure { reason = Some "exit_status" })
+      "exited 2"
+  in
+  match unknown with
+  | Error.ProviderUnavailable { detail; _ } ->
+    check string "unknown detail" "exit_status: exited 2" detail
+  | _ -> fail "expected ProviderUnavailable unknown failure"
+;;
+
+let test_http_boundary_remaining_variants_mapping () =
+  let accept =
+    Error.of_http_error
+      ~provider:"provider_a"
+      (Http_client.AcceptRejected { reason = "unsupported media type" })
+  in
+  (match accept with
+   | Error.InvalidRequest { reason; _ } ->
+     check string "accept rejection" "accept rejected: unsupported media type" reason
+   | _ -> fail "expected accept InvalidRequest");
+  let terminal_other =
+    Error.of_http_error
+      ~provider:"cli_tool_a"
+      (Http_client.ProviderTerminal
+         { kind = Http_client.Other "cancelled"; message = "operator cancelled" })
+  in
+  match terminal_other with
+  | Error.ProviderTerminal { reason; detail; _ } ->
+    check string "terminal reason" "cancelled" reason;
+    check string "terminal detail" "operator cancelled" detail
+  | _ -> fail "expected ProviderTerminal Other"
+;;
+
+let test_is_retryable_matrix () =
+  let retryable err = check bool (Error.to_string err) true (Error.is_retryable err) in
+  let not_retryable err =
+    check bool (Error.to_string err) false (Error.is_retryable err)
+  in
+  retryable (Error.RateLimit { provider = "p"; retry_after = None; detail = "burst" });
+  retryable
+    (Error.CapacityExhausted
+       { scope = Error.CapacityProvider
+       ; affected = [ "p" ]
+       ; retry_after = None
+       ; detail = "busy"
+       });
+  retryable
+    (Error.ServerError { provider = "p"; code = 503; transient = true; detail = "down" });
+  not_retryable
+    (Error.ServerError { provider = "p"; code = 500; transient = false; detail = "fatal" });
+  retryable
+    (Error.NetworkError
+       { provider = "p"
+       ; kind = Http_client.Connection_refused
+       ; timeout_phase = None
+       ; detail = "refused"
+       });
+  not_retryable
+    (Error.NetworkError
+       { provider = "p"
+       ; kind = Http_client.Tls_error
+       ; timeout_phase = None
+       ; detail = "tls"
+       });
+  not_retryable
+    (Error.NetworkError
+       { provider = "p"
+       ; kind = Http_client.Local_resource_exhaustion
+       ; timeout_phase = None
+       ; detail = "fd"
+       });
+  retryable (Error.Timeout { provider = "p"; timeout_phase = None; detail = "slow" });
+  not_retryable
+    (Error.HardQuota { provider = "p"; retry_after = None; detail = "billing" });
+  not_retryable (Error.ProviderUnavailable { provider = "p"; detail = "missing" });
+  not_retryable (Error.AuthError { provider = "p"; detail = "bad key" });
+  not_retryable (Error.NotFound { provider = "p"; detail = "model" })
+;;
+
 let () =
   run
     "llm_provider_error"
@@ -370,6 +572,19 @@ let () =
         ; test_case "HTTP network error" `Quick test_http_network_error_mapping
         ; test_case "HTTP timeout error" `Quick test_http_timeout_error_mapping
         ; test_case "CLI transport required" `Quick test_cli_transport_required_mapping
+        ; test_case
+            "Retry remaining variants"
+            `Quick
+            test_retry_remaining_variants_mapping
+        ; test_case
+            "Provider failure remaining variants"
+            `Quick
+            test_provider_failure_remaining_variants_mapping
+        ; test_case
+            "HTTP boundary remaining variants"
+            `Quick
+            test_http_boundary_remaining_variants_mapping
+        ; test_case "is_retryable matrix" `Quick test_is_retryable_matrix
         ] )
     ]
 ;;
