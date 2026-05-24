@@ -67,9 +67,9 @@ let test_cache_system_prompt () =
   check "cachedContent absent (not implemented)" (cached = `Null)
 ;;
 
-(* ── 3. Vertex AI auth: URL without ?key= when api_key empty ── *)
+(* ── 3. Provider_f cloud auth: URL without ?key= when api_key empty ── *)
 let test_vertex_ai_url () =
-  Printf.printf "=== Vertex AI URL (no api_key) ===\n";
+  Printf.printf "=== Provider_f cloud URL (no api_key) ===\n";
   let config =
     Provider_config.make
       ~kind:Provider_f

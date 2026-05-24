@@ -145,7 +145,7 @@ let test_classify_hybrid_requires_explicit_fallback () =
           ; path = "/v1/chat/completions"
           ; static_token = None
           }
-    ; model_id = "gpt-4.1"
+    ; model_id = "model-d-4.1"
     ; api_key_env = ""
     }
   in

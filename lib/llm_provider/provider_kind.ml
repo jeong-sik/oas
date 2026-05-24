@@ -78,7 +78,7 @@ let of_string raw =
   | "provider_a" | "agent_llm_a" -> Some Provider_a
   | "provider_c" -> Some Provider_c
   | "provider_d_compat" | "provider_d" -> Some Provider_d_compat
-  | "ollama" | "llama" | "ollama_cloud" -> Some Ollama
+  | "ollama" | "provider_n" | "ollama_cloud" -> Some Ollama
   | "provider_f" -> Some Provider_f
   | "provider_k" -> Some Provider_k
   | "provider_h" -> Some Provider_h

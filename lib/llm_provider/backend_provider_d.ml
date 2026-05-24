@@ -309,7 +309,7 @@ let%test "parse_provider_d_response_result basic text response" =
     Yojson.Safe.to_string
       (`Assoc
           [ "id", `String "chatcmpl-1"
-          ; "model", `String "gpt-4"
+          ; "model", `String "model-d-4"
           ; ( "choices"
             , `List
                 [ `Assoc
@@ -321,7 +321,7 @@ let%test "parse_provider_d_response_result basic text response" =
   in
   match parse_provider_d_response_result json_str with
   | Ok resp ->
-    resp.id = "chatcmpl-1" && resp.model = "gpt-4" && resp.stop_reason = EndTurn
+    resp.id = "chatcmpl-1" && resp.model = "model-d-4" && resp.stop_reason = EndTurn
   | Error _ -> false
 ;;
 
@@ -330,7 +330,7 @@ let%test "parse_provider_d_response_result tool calls" =
     Yojson.Safe.to_string
       (`Assoc
           [ "id", `String "cmpl-2"
-          ; "model", `String "gpt-4"
+          ; "model", `String "model-d-4"
           ; ( "choices"
             , `List
                 [ `Assoc
@@ -1259,7 +1259,7 @@ let%test "build_request emits reasoning_effort for Provider_d reasoning models" 
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"gpt-5.1"
+      ~model_id:"model-d-5.1"
       ~base_url:"https://api.provider_d.com/v1"
       ~enable_thinking:true
       ~thinking_budget:2048
@@ -1315,7 +1315,7 @@ let%test "build_request omits thinking params for No_thinking_control" =
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"llama-3.3-70b"
+      ~model_id:"model-n-3.3-70b"
       ~base_url:"http://localhost"
       ~enable_thinking:true
       ()
@@ -1323,7 +1323,7 @@ let%test "build_request omits thinking params for No_thinking_control" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  (* llama-3.3-70b resolves to default_capabilities (No_thinking_control),
+  (* model-n-3.3-70b resolves to default_capabilities (No_thinking_control),
      so neither thinking nor chat_template_kwargs should appear *)
   json |> member "thinking" = `Null && json |> member "chat_template_kwargs" = `Null
 ;;

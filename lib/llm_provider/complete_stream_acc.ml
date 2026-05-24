@@ -182,8 +182,8 @@ let%test "accumulate_event MessageStart sets id and model" =
   let acc = create_stream_acc () in
   accumulate_event
     acc
-    (Types.MessageStart { id = "msg-1"; model = "gpt-4"; usage = None });
-  !(acc.id) = "msg-1" && !(acc.model) = "gpt-4"
+    (Types.MessageStart { id = "msg-1"; model = "model-d-4"; usage = None });
+  !(acc.id) = "msg-1" && !(acc.model) = "model-d-4"
 ;;
 
 let%test "accumulate_event MessageStart with usage" =

@@ -131,7 +131,7 @@ let test_json_roundtrip_rich_skill () =
     "---\n\
      name: complex\n\
      description: Complex skill\n\
-     model: gpt-4\n\
+     model: model-d-4\n\
      argument-hint: <file>\n\
      allowed-tools: Read, Write\n\
      supporting-files: utils.py\n\
@@ -149,7 +149,7 @@ let test_json_roundtrip_rich_skill () =
      | Some s ->
        Alcotest.(check string) "name" "complex" s.name;
        Alcotest.(check (option string)) "desc" (Some "Complex skill") s.description;
-       Alcotest.(check (option string)) "model" (Some "gpt-4") s.model;
+       Alcotest.(check (option string)) "model" (Some "model-d-4") s.model;
        Alcotest.(check (option string)) "hint" (Some "<file>") s.argument_hint;
        Alcotest.(check (list string)) "tools" [ "Read"; "Write" ] s.allowed_tools;
        Alcotest.(check (list string)) "files" [ "utils.py" ] s.supporting_files

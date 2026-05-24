@@ -111,7 +111,7 @@ let parse_slots = Discovery_parse.parse_slots
 (* ── Ollama fallback ────────────────────────────────────── *)
 
 (** Search for context_length in an Ollama model_info JSON object.
-    Ollama uses model-specific key prefixes (e.g. "qwen3_5.context_length")
+    Ollama uses model-specific key prefixes (e.g. "provider_h_3_5.context_length")
     rather than the generic "general.context_length".  Apply deterministic
     precedence when multiple keys are present: prefer "context_length",
     then "general.context_length", then take the maximum value across any
@@ -848,7 +848,7 @@ let%test "parse_models valid" =
       [ ( "data"
         , `List
             [ `Assoc [ "id", `String "provider_h-3.5-35b"; "owned_by", `String "local" ]
-            ; `Assoc [ "id", `String "llama-4-scout"; "owned_by", `String "meta" ]
+            ; `Assoc [ "id", `String "model-n-4-scout"; "owned_by", `String "provider_n" ]
             ] )
       ]
   in
@@ -978,7 +978,7 @@ let%test "contains_case_insensitive case insensitive match" =
 ;;
 
 let%test "contains_case_insensitive no match" =
-  Retry.contains_case_insensitive ~haystack:"llama" ~needle:"provider_h" = false
+  Retry.contains_case_insensitive ~haystack:"provider_n" ~needle:"provider_h" = false
 ;;
 
 let%test "contains_case_insensitive needle longer than haystack" =
@@ -1237,7 +1237,7 @@ let%test "find_context_length with general.context_length" =
 let%test "find_context_length with model-specific prefix" =
   let mi =
     `Assoc
-      [ "qwen3_5.embedding_length", `Int 3584; "qwen3_5.context_length", `Int 262144 ]
+      [ "provider_h_3_5.embedding_length", `Int 3584; "provider_h_3_5.context_length", `Int 262144 ]
   in
   find_context_length mi = 262144
 ;;
@@ -1249,25 +1249,25 @@ let%test "find_context_length prefers context_length over general" =
 
 let%test "find_context_length prefers general.context_length over model-specific" =
   let mi =
-    `Assoc [ "qwen3_5.context_length", `Int 262144; "general.context_length", `Int 8192 ]
+    `Assoc [ "provider_h_3_5.context_length", `Int 262144; "general.context_length", `Int 8192 ]
   in
   find_context_length mi = 8192
 ;;
 
 let%test "find_context_length takes max of model-specific keys" =
   let mi =
-    `Assoc [ "llama.context_length", `Int 8192; "qwen3_5.context_length", `Int 262144 ]
+    `Assoc [ "provider_n.context_length", `Int 8192; "provider_h_3_5.context_length", `Int 262144 ]
   in
   find_context_length mi = 262144
 ;;
 
 let%test "find_context_length with float value" =
-  let mi = `Assoc [ "llama.context_length", `Float 131072.0 ] in
+  let mi = `Assoc [ "provider_n.context_length", `Float 131072.0 ] in
   find_context_length mi = 131072
 ;;
 
 let%test "find_context_length returns 0 when no matching key" =
-  let mi = `Assoc [ "qwen3_5.embedding_length", `Int 3584 ] in
+  let mi = `Assoc [ "provider_h_3_5.embedding_length", `Int 3584 ] in
   find_context_length mi = 0
 ;;
 

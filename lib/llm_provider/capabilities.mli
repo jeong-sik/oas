@@ -130,22 +130,22 @@ type static_model_route =
   | Agent_llm_a_opus_4
   | Agent_llm_a_sonnet_4
   | Agent_llm_a_haiku_4
-  | Gpt_5
-  | Gpt_4_1
-  | Gpt_4o
+  | Provider_d_5
+  | Provider_d_4_1
+  | Provider_d_4o
   | Provider_f of provider_f_family
   | Provider_c_for_coding
   | Provider_c_k2
   | Provider_h_3
-  | Llama_4
+  | Provider_n_4
   | Provider_g_v4_flash
   | Provider_g_v4_pro
   | Provider_j_large
   | Provider_j_small
-  | Command
-  | Grok
+  | Provider_m_command
+  | Provider_e_grok
   | Provider_l of { has_vision : bool }
-  | Gemma_4 of { has_large_audio : bool }
+  | Provider_f_gemma_4 of { has_large_audio : bool }
   | Glm_flash_air
   | Glm_5_turbo
   | Glm_5v_turbo

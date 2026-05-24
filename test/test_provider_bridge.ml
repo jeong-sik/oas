@@ -24,7 +24,7 @@ let test_provider_a_bridge () =
 ;;
 
 let test_provider_d_compat_bridge () =
-  let legacy = Agent_sdk.Provider.openrouter () in
+  let legacy = Agent_sdk.Provider.provider_o_router () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
   | Error _ -> Alcotest.(check pass) "missing key = expected in test" () ()
   | Ok cfg -> Alcotest.(check string) "path" "/chat/completions" cfg.request_path

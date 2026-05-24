@@ -175,7 +175,7 @@ let throttle_key_for_chat ~base_url ~model_id =
 let%test "is_glm_model_id accepts provider_k prefixes only" =
   is_glm_model_id "provider_k-5"
   && is_glm_model_id "provider_k"
-  && not (is_glm_model_id "gpt-5")
+  && not (is_glm_model_id "model-d-5")
 ;;
 
 let%test "base_url classifiers distinguish general coding and provider_a" =

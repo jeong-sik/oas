@@ -366,7 +366,7 @@ let test_build_provider_d_body_with_provider_m_sampling () =
 
 let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat () =
   let provider_config =
-    Provider.openrouter ~model_id:"provider_a/agent_llm_a-sonnet-4-6" ()
+    Provider.provider_o_router ~model_id:"provider_a/agent_llm_a-sonnet-4-6" ()
   in
   let state =
     { Types.config =

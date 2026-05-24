@@ -195,7 +195,7 @@ let test_pricing_known_models () =
   check (float 0.01) "mini input" 0.15 p_mini.input_per_million;
   let p_local = Provider.pricing_for_model "provider_h-3.5-35b" in
   check (float 0.01) "local free" 0.0 p_local.input_per_million;
-  let p_llama = Provider.pricing_for_model "llama-3.1-70b" in
+  let p_llama = Provider.pricing_for_model "model-n-3.1-70b" in
   check (float 0.01) "llama free" 0.0 p_llama.input_per_million
 ;;
 

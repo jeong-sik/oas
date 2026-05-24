@@ -247,7 +247,7 @@ let load path =
     through {!Llm_provider.Provider_kind.of_string}, which accepts the
     canonical wire forms (["provider_a"], ["provider_d_compat"], …) plus the
     documented aliases (["agent_llm_a"] -> Provider_a,
-    ["provider_d"] -> Provider_d_compat, ["llama"] -> Ollama), case-insensitively
+    ["provider_d"] -> Provider_d_compat, ["provider_n"] -> Ollama), case-insensitively
     with leading/trailing whitespace trimmed.
 
     ["local"] remains a first-class routing shorthand (not a Provider_kind

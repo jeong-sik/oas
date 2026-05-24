@@ -152,7 +152,7 @@ val local_llm : unit -> config
 val provider_a_sonnet : unit -> config
 val provider_a_haiku : unit -> config
 val provider_a_opus : unit -> config
-val openrouter : ?model_id:string -> unit -> config
+val provider_o_router : ?model_id:string -> unit -> config
 
 (** {2 Pricing: per-model cost estimation} *)
 

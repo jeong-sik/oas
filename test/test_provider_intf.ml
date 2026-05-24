@@ -15,7 +15,7 @@ let test_of_config_provider_a () =
 ;;
 
 let test_of_config_provider_d () =
-  let config = Provider.openrouter ~model_id:"gpt-4" () in
+  let config = Provider.provider_o_router ~model_id:"model-d-4" () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   ignore (module P : Provider_intf.PROVIDER)
 ;;

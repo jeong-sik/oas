@@ -154,9 +154,9 @@ let test_serialization_json_parse () =
 
 let test_serialization_unknown_variant () =
   let err =
-    Error.Serialization (UnknownVariant { type_name = "model"; value = "gpt-99" })
+    Error.Serialization (UnknownVariant { type_name = "model"; value = "model-d-99" })
   in
-  check string "unknown variant" "Unknown model variant: gpt-99" (Error.to_string err)
+  check string "unknown variant" "Unknown model variant: model-d-99" (Error.to_string err)
 ;;
 
 let test_io_file_op () =

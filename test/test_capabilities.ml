@@ -123,13 +123,13 @@ let test_lookup_agent_llm_a_sonnet () =
 ;;
 
 let test_lookup_gpt5 () =
-  match Capabilities.for_model_id "gpt-5.4" with
+  match Capabilities.for_model_id "model-d-5.4" with
   | Some c ->
     check (option int) "context 1.05M" (Some 1_050_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "structured output" true c.supports_structured_output;
     check bool "computer use" true c.supports_computer_use
-  | None -> fail "should match gpt-5"
+  | None -> fail "should match model-d-5"
 ;;
 
 let test_lookup_provider_f () =
@@ -157,25 +157,25 @@ let pp_static_model_route ppf = function
   | Capabilities.Agent_llm_a_opus_4 -> Format.fprintf ppf "Agent_llm_a_opus_4"
   | Capabilities.Agent_llm_a_sonnet_4 -> Format.fprintf ppf "Agent_llm_a_sonnet_4"
   | Capabilities.Agent_llm_a_haiku_4 -> Format.fprintf ppf "Agent_llm_a_haiku_4"
-  | Capabilities.Gpt_5 -> Format.fprintf ppf "Gpt_5"
-  | Capabilities.Gpt_4_1 -> Format.fprintf ppf "Gpt_4_1"
-  | Capabilities.Gpt_4o -> Format.fprintf ppf "Gpt_4o"
+  | Capabilities.Provider_d_5 -> Format.fprintf ppf "Provider_d_5"
+  | Capabilities.Provider_d_4_1 -> Format.fprintf ppf "Provider_d_4_1"
+  | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
   | Capabilities.Provider_f family ->
     Format.fprintf ppf "Provider_f(%a)" pp_provider_f_family family
   | Capabilities.Provider_c_for_coding -> Format.fprintf ppf "Provider_c_for_coding"
   | Capabilities.Provider_c_k2 -> Format.fprintf ppf "Provider_c_k2"
   | Capabilities.Provider_h_3 -> Format.fprintf ppf "Provider_h_3"
-  | Capabilities.Llama_4 -> Format.fprintf ppf "Llama_4"
+  | Capabilities.Provider_n_4 -> Format.fprintf ppf "Provider_n_4"
   | Capabilities.Provider_g_v4_flash -> Format.fprintf ppf "Provider_g_v4_flash"
   | Capabilities.Provider_g_v4_pro -> Format.fprintf ppf "Provider_g_v4_pro"
   | Capabilities.Provider_j_large -> Format.fprintf ppf "Provider_j_large"
   | Capabilities.Provider_j_small -> Format.fprintf ppf "Provider_j_small"
-  | Capabilities.Command -> Format.fprintf ppf "Command"
-  | Capabilities.Grok -> Format.fprintf ppf "Grok"
+  | Capabilities.Provider_m_command -> Format.fprintf ppf "Provider_m_command"
+  | Capabilities.Provider_e_grok -> Format.fprintf ppf "Provider_e_grok"
   | Capabilities.Provider_l { has_vision } ->
     Format.fprintf ppf "Provider_l(has_vision=%b)" has_vision
-  | Capabilities.Gemma_4 { has_large_audio } ->
-    Format.fprintf ppf "Gemma_4(has_large_audio=%b)" has_large_audio
+  | Capabilities.Provider_f_gemma_4 { has_large_audio } ->
+    Format.fprintf ppf "Provider_f_gemma_4(has_large_audio=%b)" has_large_audio
   | Capabilities.Glm_flash_air -> Format.fprintf ppf "Glm_flash_air"
   | Capabilities.Glm_5_turbo -> Format.fprintf ppf "Glm_5_turbo"
   | Capabilities.Glm_5v_turbo -> Format.fprintf ppf "Glm_5v_turbo"
@@ -853,7 +853,7 @@ let () =
     ; ( "model_lookup"
       , [ test_case "agent_llm_a opus" `Quick test_lookup_agent_llm_a_opus
         ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
-        ; test_case "gpt-5" `Quick test_lookup_gpt5
+        ; test_case "model-d-5" `Quick test_lookup_gpt5
         ; test_case "provider_f" `Quick test_lookup_provider_f
         ; test_case "provider_f_family Provider_f_3_1" `Quick test_provider_f_family_3_1
         ; test_case "provider_f_family Provider_f_3" `Quick test_provider_f_family_3

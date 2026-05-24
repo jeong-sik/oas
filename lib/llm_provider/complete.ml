@@ -12,7 +12,7 @@
 (** Construct the URL for a Provider_f API call.
     Sync: [base_url/models/model_id:generateContent?key=api_key]
     Stream: [base_url/models/model_id:streamGenerateContent?key=api_key&alt=sse]
-    When api_key is empty (Vertex AI), the [?key=] param is omitted. *)
+    When api_key is empty (Provider_f cloud), the [?key=] param is omitted. *)
 let provider_f_url ~(config : Provider_config.t) ~stream =
   let method_name = if stream then "streamGenerateContent" else "generateContent" in
   let base =
@@ -2288,7 +2288,7 @@ let%test "patch_telemetry creates telemetry when None" =
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"gpt-4"
+      ~model_id:"model-d-4"
       ~base_url:"https://api.provider_d.com"
       ()
   in
@@ -2306,7 +2306,7 @@ let%test "patch_telemetry creates telemetry when None" =
   | Some t ->
     t.request_latency_ms = Some 100
     && t.provider_kind = Some Provider_config.Provider_d_compat
-    && t.canonical_model_id = Some "gpt-4"
+    && t.canonical_model_id = Some "model-d-4"
     && t.effective_context_window = Some 128_000
     && t.reasoning_effort = None
     && t.provider_internal_action_count = None
@@ -2397,7 +2397,7 @@ let%test "patch_telemetry fills blank response model" =
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"gpt-5.4-mini"
+      ~model_id:"model-d-5.4-mini"
       ~base_url:"https://api.provider_d.com"
       ()
   in
@@ -2411,7 +2411,7 @@ let%test "patch_telemetry fills blank response model" =
     }
   in
   let patched = patch_telemetry resp ~config (Some 100) in
-  patched.model = "gpt-5.4-mini"
+  patched.model = "model-d-5.4-mini"
 ;;
 
 let%test "reasoning_effort_of_config Ollama default is none" =

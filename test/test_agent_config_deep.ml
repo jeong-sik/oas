@@ -44,7 +44,7 @@ let test_of_json_full () =
     Yojson.Safe.from_string
       {|{
     "name": "my-agent",
-    "model": "gpt-4",
+    "model": "model-d-4",
     "system_prompt": "Be concise.",
     "max_tokens": 2048,
     "max_turns": 5,
@@ -58,7 +58,7 @@ let test_of_json_full () =
   | Error e -> Alcotest.fail ("full: " ^ Error.to_string e)
   | Ok cfg ->
     Alcotest.(check string) "name" "my-agent" cfg.name;
-    Alcotest.(check string) "model" "gpt-4" cfg.model;
+    Alcotest.(check string) "model" "model-d-4" cfg.model;
     Alcotest.(check (option string))
       "system_prompt"
       (Some "Be concise.")
@@ -332,7 +332,7 @@ let test_resolve_provider_a () =
 ;;
 
 let test_resolve_provider_d () =
-  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "provider_d" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d" None in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
     Alcotest.(check string) "base_url" "https://api.provider_d.com" base_url;
@@ -343,7 +343,7 @@ let test_resolve_provider_d () =
 let test_resolve_provider_d_custom_url () =
   let cfg =
     Agent_config.resolve_provider
-      ~model_id:"gpt-4"
+      ~model_id:"model-d-4"
       "provider_d"
       (Some "http://custom:4000")
   in
@@ -440,7 +440,7 @@ let test_resolve_provider_d_compat_ssot () =
      Provider_kind.to_string Provider_d_compat. Before the parser dispatch,
      it fell through to the registry fallback and ended up with
      api_key_env = "provider_d_compat" — a meaningless value. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "provider_d_compat" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d_compat" None in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
     Alcotest.(check string)

@@ -208,7 +208,7 @@ let test_default_has_19 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
   check int "19 known providers" 19 (List.length all);
-  check bool "llama exists" true (Option.is_some (Provider_registry.find reg "llama"));
+  check bool "llama exists" true (Option.is_some (Provider_registry.find reg "provider_n"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
   check
     bool
@@ -242,9 +242,9 @@ let test_default_has_19 () =
     (Option.is_some (Provider_registry.find reg "provider_c"));
   check
     bool
-    "openrouter exists"
+    "provider_o_router exists"
     true
-    (Option.is_some (Provider_registry.find reg "openrouter"));
+    (Option.is_some (Provider_registry.find reg "provider_o_router"));
   check
     bool
     "provider_i exists"
@@ -296,7 +296,7 @@ let test_default_capabilities () =
      check bool "agent_llm_a has tools" true e.capabilities.supports_tools;
      check bool "agent_llm_a has reasoning" true e.capabilities.supports_reasoning
    | None -> fail "agent_llm_a should exist");
-  match Provider_registry.find reg "llama" with
+  match Provider_registry.find reg "provider_n" with
   | Some e ->
     check bool "llama has tools" true e.capabilities.supports_tools;
     check bool "llama has top_k" true e.capabilities.supports_top_k
@@ -332,7 +332,7 @@ let test_provider_name_of_ollama_cloud_config () =
 
 let test_default_max_context () =
   let reg = Provider_registry.default () in
-  (match Provider_registry.find reg "llama" with
+  (match Provider_registry.find reg "provider_n" with
    | Some e -> check int "llama 128K" 128_000 e.max_context
    | None -> fail "llama should exist");
   (match Provider_registry.find reg "agent_llm_a" with
@@ -542,10 +542,10 @@ let test_catalog_overlay_replaces_seed_provider () =
       "schema_version": 1,
       "providers": [
         {
-          "id": "openrouter",
+          "id": "provider_o_router",
           "kind": "provider_d_compat",
           "transport": "http",
-          "base_url": "https://example.test/openrouter",
+          "base_url": "https://example.test/provider_o_router",
           "request_path": "/chat/completions",
           "auth": {"type": "api_key_env", "env": "OPENROUTER_API_KEY"},
           "capabilities_base": "provider_d_chat"
@@ -554,10 +554,10 @@ let test_catalog_overlay_replaces_seed_provider () =
     }|}
     (fun () ->
        let reg = Provider_registry.default () in
-       match Provider_registry.find reg "openrouter" with
+       match Provider_registry.find reg "provider_o_router" with
        | Some e ->
-         check string "catalog wins" "https://example.test/openrouter" e.defaults.base_url
-       | None -> fail "openrouter should still exist")
+         check string "catalog wins" "https://example.test/provider_o_router" e.defaults.base_url
+       | None -> fail "provider_o_router should still exist")
 ;;
 
 let test_catalog_overlay_normalizes_provider_id () =
@@ -985,7 +985,7 @@ let test_requires_any () =
 
 (** Minimal [Provider_config.t] construction for a given kind, using a
     localhost base URL so [is_local = true] for [Provider_d_compat] (resolves
-    to the registry's "llama" entry) and a plain (non-coding) URL for
+    to the registry's "provider_n" entry) and a plain (non-coding) URL for
     [Provider_k] (resolves to "provider_k"). *)
 let mk_config_for_kind kind =
   let base_url =
@@ -1001,7 +1001,7 @@ let mk_config_for_kind kind =
     (masc canonical_name: "agent_llm_a-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
     returned by [Provider_registry.provider_name_of_config] ("agent_llm_a",
-    "provider_c", "llama", "ollama", "cli_tool_d", "cli_tool_b", ...). For
+    "provider_c", "provider_n", "ollama", "cli_tool_d", "cli_tool_b", ...). For
     direct-API kinds the lookup silently fell back to
     [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
     to match direct-API entries ("agent_llm_a" → Provider_a, "provider_f" → Provider_f,

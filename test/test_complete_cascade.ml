@@ -428,12 +428,12 @@ let test_default_config () =
 let test_result_success_variant () =
   let result =
     Complete_cascade.Success
-      { response = dummy_response; step_index = 0; model_id = "gpt-4" }
+      { response = dummy_response; step_index = 0; model_id = "model-d-4" }
   in
   match result with
   | Complete_cascade.Success { step_index; model_id; _ } ->
     check int "step_index" 0 step_index;
-    check string "model_id" "gpt-4" model_id
+    check string "model_id" "model-d-4" model_id
   | _ -> fail "expected Success"
 ;;
 

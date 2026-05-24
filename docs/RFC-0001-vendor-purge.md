@@ -59,6 +59,53 @@ OAS has one external consumer (masc-mcp), under the same operator's control. For
 
 These were missed by the initial `\bqwen\b` perl regex pass because `qwen` followed by a digit (`qwen3`) has no word boundary — `\b` requires word-to-non-word transition, and `3` is `\w`. Explicit substring patterns close the gap.
 
+### Vendor letter assignment (extended in §3-promotion sweep)
+
+| Letter | Vendor | Category |
+|--------|--------|----------|
+| `a` | Anthropic | LLM provider |
+| `b` | Moonshot | LLM provider |
+| `c` | Kimi | LLM provider |
+| `d` | OpenAI | LLM provider |
+| `e` | xAI | LLM provider |
+| `f` | Google (Gemini + Gemma + Vertex) | LLM provider |
+| `g` | DeepSeek | LLM provider |
+| `h` | Qwen / DashScope | LLM provider |
+| `i` | Groq | Inference |
+| `j` | Mistral | LLM provider |
+| `k` | Glm (Zhipu AI) | LLM provider |
+| `l` | Nemotron | LLM provider |
+| `m` | **Cohere** (new) | LLM provider |
+| `n` | **Meta** (new) | Open-weight provider (Llama family) |
+| `o` | **OpenRouter** (new) | Aggregator (identifier only — URL preserved) |
+
+### Constructor renames (§3-promotion follow-up)
+
+| Original | New |
+|----------|-----|
+| `Gpt_5`, `Gpt_4_1`, `Gpt_4o` | `Provider_d_5`, `Provider_d_4_1`, `Provider_d_4o` |
+| `Llama_4` | `Provider_n_4` |
+| `Gemma_4 of { has_large_audio : bool }` | `Provider_f_gemma_4 of { has_large_audio : bool }` |
+| `Grok` | `Provider_e_grok` |
+| `Command` | `Provider_m_command` |
+| `Llama_server` (future-variant comment) | `Provider_n_server` |
+
+### Model id strings (§3-promotion follow-up)
+
+| Family | Original | New |
+|--------|----------|-----|
+| GPT (OpenAI) | `gpt-4`, `gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, `gpt-5`, `gpt-5.1`, `gpt-5.2`, `gpt-5.3-agent_code{,-spark}`, `gpt-5.4{,-mini}`, `gpt-5.5`, `gpt-image` | `model-d-*` |
+| Llama (Meta) | `llama-3.1-70b`, `llama-3.3-70b`, `llama-4-scout`, `llama-4-maverick`, `llama-70b`, `llama.context_length`, `"llama"`, `"ollama/llama3"`, `"ollama/llama"` | `model-n-*` / `provider_n*` |
+| Gemma (Google) | `gemma-*`, `"gemma"`, `gemma_4_has_large_audio` | `model-f-gemma-*`, `"provider_f_gemma"`, `provider_f_gemma_4_has_large_audio` |
+| Grok (xAI) | `grok-*`, `"grok"`, `~prefix:"grok"` | `model-e-grok-*`, `"provider_e_grok"`, `~prefix:"model-e-grok"` |
+| Qwen underscore (boundary miss) | `qwen3_5` | `provider_h_3_5` |
+| Meta as owned_by | `"owned_by":"meta"`, `"owned_by", \`String "meta"` | `"owned_by":"provider_n"`, `"owned_by", \`String "provider_n"` |
+
+### Aggregator / Cloud identifiers
+
+- `openrouter` / `OpenRouter` (OCaml identifier) → `provider_o_router` / `Provider_o_router`
+- `Vertex AI` (comment) → `Provider_f cloud`
+
 ### File renames
 
 17 modules renamed via `git mv`:
@@ -112,15 +159,14 @@ Module references updated repo-wide; `test/dune` test list updated.
 | `~name:"claude"`, `~name:"codex"`, `~name:"gemini"`, `~name:"kimi"` (log labels in subprocess transport) | Same as binary path — operator-facing label that matches the actual binary. |
 | `CODEX_COMPANION_SESSION_ID` env var (scrubbed) | External Codex CLI's own env var, scrubbed by transport before subprocess exec. Not OAS-defined. |
 | `Ollama` variant (provider_kind) | LLM serving framework, not vendor — same rationale as masc-mcp RFC-0168~0173. |
-| `Llama_4` variant (static_model_route) + `llama-3.1-70b` / `llama-3.3-70b` / `llama-4-maverick` / `llama3` model id strings | Meta-released open-weight model family. Sweep mapping has no `llama` entry — preserved as community model name (not company brand). |
-| `Gemma_4` variant (static_model_route) | Google open-weight model family. Sweep mapping has no `gemma` entry — preserved as community model name. |
-| `Grok` variant (static_model_route) + `"grok"` prefix strings | xAI's product brand. Sweep mapping has no `grok` entry (only `groq → provider_i` for the Groq inference company). Preserved. |
-| `Command` variant (static_model_route) | Cohere product. Sweep mapping has no `cohere` / `command` entry. Preserved as single token. |
-| `Gpt_5`, `Gpt_4_1`, `Gpt_4o` variants (static_model_route) | OpenAI model identifiers at constructor level. Sweep maps `openai → provider_d` for strings/types but not `Gpt_*` constructors. Preserved as the constructor surface is internal-only; downstream string-form `gpt-4o`/`gpt-4o-mini` already mapped via model-id table to `model-d`/`model-d-mini`. |
 | `llama-server`, `llama.cpp` references | External LLM serving infrastructure (Meta's `llama.cpp` project + its bundled `llama-server` binary). Operator-installed software, same boundary as `claude`/`codex` binaries. |
+| `https://openrouter.ai/api/v1` URL | Real external OpenRouter service endpoint. Changing this string breaks live HTTP requests to the aggregator — same boundary as runtime binary paths. The OCaml identifier `openrouter` was renamed to `provider_o_router`; the URL string itself stays. |
+| `https://generativelanguage.googleapis.com` URL | Real external Google AI endpoint. Same rationale as above. |
+| `"Command"` text in test fixtures (`description = "Command"`, `goal = "Command test"`) | Generic English, not vendor reference. |
+| `"Command-line interface"` prose in `bin/oas_cli.ml` | Standard CLI term. |
 | Comment references to original vendor names | None — all rewritten. |
 
-These 4 binary path + 12 spawn-name occurrences are the technical boundary: the SDK calls external OS binaries that must be installed by name on the operator's system. The variant-level preservations (Llama_4, Gemma_4, Grok, Command, Gpt_*) reflect the explicit decision encoded in the sweep mapping table: open-weight community models and a few brand-tokens without a sweep entry remain as-is. Adding them would require operator-side downstream label changes without producing additional vendor-decoupling benefit.
+These 4 binary path + 12 spawn-name occurrences plus the external HTTP endpoint URLs are the technical boundary: the SDK has to name the actual binaries and services it talks to. Everything else — including open-weight model families (Llama, Gemma) and aggregator identifiers (`openrouter`) — was promoted from §3 to §2 in the §3-promotion follow-up sweep, per user direction "전부 폭파 — aggregator 포함".
 
 ## 4. Verification
 

@@ -382,7 +382,7 @@ let default () =
       }
   in
   reg
-    "llama"
+    "provider_n"
     llama_defaults
     ~max_context:128_000
     Capabilities.provider_d_chat_extended_capabilities;
@@ -414,7 +414,7 @@ let default () =
     ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
     };
   reg
-    "openrouter"
+    "provider_o_router"
     openrouter_defaults
     ~max_context:128_000
     Capabilities.provider_d_chat_extended_capabilities;
@@ -570,7 +570,7 @@ let provider_name_of_config (config : Provider_config.t) =
   | Provider_h -> "provider_h"
   | Provider_d_compat ->
     if Provider_config.is_local config
-    then "llama"
+    then "provider_n"
     else (
       let request_path = String.trim config.request_path in
       let base_url = normalize_url config.base_url in

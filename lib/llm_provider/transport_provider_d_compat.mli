@@ -1,7 +1,7 @@
 (** Provider_d Chat Completions HTTP transport.
 
     Implements {!Llm_transport.t} for any Provider_d-compatible API endpoint:
-    llama-server, Provider_k, OpenRouter, vLLM, Ollama, LiteLLM, etc.
+    llama-server, Provider_k, Provider_o_router, vLLM, Ollama, LiteLLM, etc.
 
     Thin wrapper around the HTTP completion pipeline in {!Complete}.
     Callers get a simplified config instead of constructing
@@ -22,7 +22,7 @@ type config =
   ; max_tokens : int (** Maximum tokens in the response. Default [4096]. *)
   ; extra_headers : (string * string) list
     (** Additional HTTP headers (e.g. [("HTTP-Referer", "...")]
-        for OpenRouter). Default empty. *)
+        for Provider_o_router). Default empty. *)
   }
 
 (** Default config for local llama-server on port 8085. *)

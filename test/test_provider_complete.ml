@@ -160,7 +160,7 @@ let test_provider_d_basic_body () =
   let config =
     PC.make
       ~kind:Provider_d_compat
-      ~model_id:"gpt-4"
+      ~model_id:"model-d-4"
       ~base_url:"https://api.provider_d.com/v1"
       ~max_tokens:2048
       ()
@@ -169,7 +169,7 @@ let test_provider_d_basic_body () =
   let body = BO.build_request ~config ~messages:msgs () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  Alcotest.(check string) "model" "gpt-4" (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "model-d-4" (json |> member "model" |> to_string);
   Alcotest.(check int) "max_tokens" 2048 (json |> member "max_tokens" |> to_int);
   let msgs_json = json |> member "messages" |> to_list in
   Alcotest.(check int) "1 message" 1 (List.length msgs_json)
@@ -179,7 +179,7 @@ let test_provider_d_with_system () =
   let config =
     PC.make
       ~kind:Provider_d_compat
-      ~model_id:"gpt-4"
+      ~model_id:"model-d-4"
       ~base_url:""
       ~system_prompt:"Be helpful."
       ()
@@ -198,7 +198,7 @@ let test_provider_d_with_system () =
 ;;
 
 let test_provider_d_with_tools () =
-  let config = PC.make ~kind:Provider_d_compat ~model_id:"gpt-4" ~base_url:"" () in
+  let config = PC.make ~kind:Provider_d_compat ~model_id:"model-d-4" ~base_url:"" () in
   let tool =
     `Assoc
       [ "name", `String "calc"
@@ -869,7 +869,7 @@ let test_annotate_response_cost () =
 let test_annotate_response_cost_gpt55 () =
   let response : api_response =
     { id = "resp-gpt55"
-    ; model = "gpt-5.5"
+    ; model = "model-d-5.5"
     ; stop_reason = EndTurn
     ; content = [ Text "ok" ]
     ; usage =
@@ -885,8 +885,8 @@ let test_annotate_response_cost_gpt55 () =
   in
   match Llm_provider.Pricing.annotate_response_cost response with
   | { usage = Some { cost_usd = Some cost; _ }; _ } ->
-    Alcotest.(check (float 0.001)) "gpt-5.5 cost" 35.0 cost
-  | _ -> Alcotest.fail "expected gpt-5.5 annotated response cost"
+    Alcotest.(check (float 0.001)) "model-d-5.5 cost" 35.0 cost
+  | _ -> Alcotest.fail "expected model-d-5.5 annotated response cost"
 ;;
 
 (* ── Stream accumulator ──────────────────────────────── *)
@@ -936,7 +936,7 @@ let test_stream_acc_text () =
 
 let test_stream_acc_tool_use () =
   let events =
-    [ MessageStart { id = "msg_456"; model = "gpt-4"; usage = None }
+    [ MessageStart { id = "msg_456"; model = "model-d-4"; usage = None }
     ; ContentBlockStart
         { index = 0
         ; content_type = "tool_use"
@@ -1138,7 +1138,7 @@ let () =
     ; ( "cost"
       , [ test_case "annotate response cost" `Quick test_annotate_response_cost
         ; test_case
-            "annotate gpt-5.5 response cost"
+            "annotate model-d-5.5 response cost"
             `Quick
             test_annotate_response_cost_gpt55
         ] )
