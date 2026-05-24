@@ -114,12 +114,12 @@ let static_pricing_opt_normalized normalized =
     then Some ((1.75, 14.0), provider_d_cached_input)
     else if string_contains ~needle:"model-d-5.2" normalized
     then Some ((1.75, 14.0), provider_d_cached_input)
+    else if string_contains ~needle:"model-d-4.1" normalized
+    then Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"model-d-mini" normalized
     then Some ((0.15, 0.6), no_cache)
     else if string_contains ~needle:"model-d" normalized
     then Some ((2.5, 10.0), no_cache)
-    else if string_contains ~needle:"model-d-4.1" normalized
-    then Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"o3-mini" normalized
     then
       Some ((1.1, 4.4), no_cache)

@@ -990,7 +990,7 @@ let%test "contains_case_insensitive empty needle" =
 ;;
 
 let%test "contains_case_insensitive exact match" =
-  Retry.contains_case_insensitive ~haystack:"QWEN" ~needle:"provider_h" = true
+  Retry.contains_case_insensitive ~haystack:"PROVIDER_H" ~needle:"provider_h" = true
 ;;
 
 (* --- infer_capabilities --- *)

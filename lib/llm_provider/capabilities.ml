@@ -462,14 +462,20 @@ let normalize_static_model_id model_id =
 ;;
 
 let provider_f_gemma_4_has_large_audio model_id =
+  let prefix = "model-f-gemma-4-" in
   let base =
     if String.starts_with ~prefix:"google/" model_id
     then String.sub model_id 7 (String.length model_id - 7)
     else model_id
   in
   let size =
-    if String.starts_with ~prefix:"model-f-gemma-4-" base
-    then Some (String.sub base 8 (String.length base - 8))
+    if String.starts_with ~prefix base
+    then
+      Some
+        (String.sub
+           base
+           (String.length prefix)
+           (String.length base - String.length prefix))
     else None
   in
   match size with
@@ -1119,8 +1125,8 @@ let%test "capabilities_for_provider_label: cli_tool_c" =
   | None -> false
 ;;
 
-let%test "capabilities_for_provider_label: KIMI_CLI (case insensitive)" =
-  Option.is_some (capabilities_for_provider_label "KIMI_CLI")
+let%test "capabilities_for_provider_label: CLI_TOOL_C (case insensitive)" =
+  Option.is_some (capabilities_for_provider_label "CLI_TOOL_C")
 ;;
 
 let%test "capabilities_for_provider_label: trims whitespace" =

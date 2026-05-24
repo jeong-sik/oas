@@ -553,7 +553,7 @@ let%test "build_args basic" =
     build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:"hi"
   in
   args
-  = [ "provider_c"
+  = [ "kimi"
     ; "--print"
     ; "--output-format"
     ; "stream-json"
