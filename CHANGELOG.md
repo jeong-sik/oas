@@ -13,6 +13,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **agent_tool:** add typed child-agent invocation wrapper for agent-as-tool parity
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.198.3](https://github.com/jeong-sik/oas/compare/v0.198.2...v0.198.3) (2026-05-24)
+
+
+### Features
+
+* **runtime:** correlate output deltas with raw trace runs ([#1748](https://github.com/jeong-sik/oas/issues/1748)) ([b16fecc](https://github.com/jeong-sik/oas/commit/b16feccff374a84621ecd969e5e9026c64f6ec0f))
+
 ## [0.198.2](https://github.com/jeong-sik/oas/compare/v0.198.1...v0.198.2) (2026-05-24)
 
 
