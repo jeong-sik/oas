@@ -11,7 +11,7 @@
 
 (** Create an initial session from a start request.
     Sets phase to [Bootstrapping], turn count to 0, and
-    initialises participants as [Planned]. *)
+    initialises participants as [Planned] with no pending input. *)
 val initial_session : Runtime.start_request -> Runtime.session
 
 (** Apply a single event to a session, evolving its state.

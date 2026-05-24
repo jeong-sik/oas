@@ -147,6 +147,8 @@ let participant_and_detail_of_event = function
   | Session_started _ -> None, Some "session_started"
   | Session_settings_updated _ -> None, Some "session_settings_updated"
   | Turn_recorded detail -> detail.actor, Some detail.message
+  | Input_required detail -> detail.participant_name, Some detail.question
+  | Input_provided detail -> detail.participant_name, Some detail.request_id
   | Agent_spawn_requested detail -> Some detail.participant_name, Some detail.prompt
   | Agent_became_live detail -> Some detail.participant_name, detail.summary
   | Agent_output_delta detail -> Some detail.participant_name, Some detail.delta
@@ -182,6 +184,8 @@ let event_name_of_kind = function
   | Session_started _ -> "session_started"
   | Session_settings_updated _ -> "session_settings_updated"
   | Turn_recorded _ -> "turn_recorded"
+  | Input_required _ -> "input_required"
+  | Input_provided _ -> "input_provided"
   | Agent_spawn_requested _ -> "agent_spawn_requested"
   | Agent_became_live _ -> "agent_became_live"
   | Agent_output_delta _ -> "agent_output_delta"
@@ -200,6 +204,10 @@ let structured_fields_of_event = function
     None, None, None, detail.model, None, None, None, None, None, None, None
   | Turn_recorded detail ->
     detail.actor, None, None, None, None, None, None, None, None, None, None
+  | Input_required detail ->
+    detail.participant_name, None, None, None, None, None, None, None, None, None, None
+  | Input_provided detail ->
+    detail.participant_name, None, None, None, None, None, None, None, None, None, None
   | Agent_spawn_requested detail ->
     ( None
     , detail.role

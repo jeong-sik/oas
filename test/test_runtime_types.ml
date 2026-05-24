@@ -30,6 +30,7 @@ let test_phase () =
     Runtime.
       [ Bootstrapping
       ; Running
+      ; Input_required
       ; Waiting_on_workers
       ; Finalizing
       ; Completed
@@ -207,6 +208,7 @@ let test_session () =
           }
         ]
     ; artifacts = []
+    ; pending_input = None
     ; turn_count = 0
     ; last_seq = 0
     ; outcome = None
@@ -381,8 +383,20 @@ let test_attach_artifact_request () =
 ;;
 
 let test_command () =
+  let input_request : Runtime.input_request =
+    { request_id = "input-1"
+    ; participant_name = Some "sub"
+    ; question = "Confirm?"
+    ; schema = None
+    ; timeout_s = Some 10.0
+    ; created_at = 1.7e9
+    }
+  in
   let variants =
     [ Runtime.Record_turn { actor = Some "user"; message = "hello" }
+    ; Runtime.Request_input input_request
+    ; Runtime.Provide_input
+        { request_id = "input-1"; response = Runtime.Input_answer (`String "yes") }
     ; Runtime.Spawn_agent
         { participant_name = "sub"
         ; role = None
@@ -410,9 +424,24 @@ let test_command () =
 ;;
 
 let test_event_kind () =
+  let input_request : Runtime.input_request =
+    { request_id = "input-1"
+    ; participant_name = Some "sub"
+    ; question = "Confirm?"
+    ; schema = None
+    ; timeout_s = Some 10.0
+    ; created_at = 1.7e9
+    }
+  in
   let events =
     [ Runtime.Session_started { goal = "test"; participants = [ "a1" ] }
     ; Runtime.Turn_recorded { actor = Some "user"; message = "hi" }
+    ; Runtime.Input_required input_request
+    ; Runtime.Input_provided
+        { request_id = "input-1"
+        ; participant_name = Some "sub"
+        ; response = Runtime.Input_answer (`String "yes")
+        }
     ; Runtime.Agent_spawn_requested
         { participant_name = "sub"
         ; role = None

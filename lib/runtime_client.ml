@@ -81,6 +81,15 @@ let apply_command ?control_handler ?event_handler client ~session_id command =
             (Runtime.show_response other)))
 ;;
 
+let provide_input ?control_handler ?event_handler client ~session_id ~request_id response =
+  apply_command
+    ?control_handler
+    ?event_handler
+    client
+    ~session_id
+    (Runtime.Provide_input { request_id; response })
+;;
+
 let status client ~session_id =
   let* response = request client (Runtime.Status { session_id }) in
   match response with

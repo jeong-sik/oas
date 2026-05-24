@@ -137,6 +137,7 @@ let test_session_info_all_phases () =
   let phases =
     [ Runtime.Bootstrapping
     ; Running
+    ; Input_required
     ; Waiting_on_workers
     ; Finalizing
     ; Completed

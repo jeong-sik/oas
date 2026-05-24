@@ -237,6 +237,8 @@ on **two channels simultaneously**:
 | `Session_started` | `runtime.session_started` |
 | `Session_settings_updated` | `runtime.session_settings_updated` |
 | `Turn_recorded` | `runtime.turn_recorded` |
+| `Input_required` | `runtime.input_required` |
+| `Input_provided` | `runtime.input_provided` |
 | `Agent_spawn_requested` | `runtime.agent_spawn_requested` |
 | `Agent_became_live` | `runtime.agent_became_live` |
 | `Agent_output_delta` | `runtime.agent_output_delta` |
@@ -257,6 +259,10 @@ different payload shapes. Disambiguate by Custom name prefix:
 **Structured completion/failure metadata**:
 - `Runtime.participant_event` now carries optional `raw_trace_run_id`,
   `stop_reason`, `completion_anomaly`, and `failure_cause`.
+- `Runtime.session.pending_input` carries the resumable `input_request`
+  while phase is `Input_required`; `Provide_input` emits
+  `Input_provided`, clears the payload, and returns the session to
+  `Running`.
 - Runtime finalization persists the operator-facing evidence set:
   `report.json`, `proof.json`, `runtime-telemetry-json`,
   `runtime-telemetry`, `runtime-raw-trace-json`, and `runtime-evidence`.

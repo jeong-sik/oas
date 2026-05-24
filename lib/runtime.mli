@@ -13,6 +13,7 @@
 type phase =
   | Bootstrapping
   | Running
+  | Input_required
   | Waiting_on_workers
   | Finalizing
   | Completed
@@ -158,6 +159,22 @@ type artifact =
   }
 [@@deriving yojson, show]
 
+type input_request =
+  { request_id : string
+  ; participant_name : string option
+  ; question : string
+  ; schema : Yojson.Safe.t option
+  ; timeout_s : float option
+  ; created_at : float
+  }
+[@@deriving yojson, show]
+
+type input_response =
+  | Input_answer of Yojson.Safe.t
+  | Input_declined
+  | Input_timeout
+[@@deriving yojson, show]
+
 (** Runtime session — wire protocol record. *)
 type session =
   { session_id : string
@@ -176,6 +193,7 @@ type session =
   ; planned_participants : string list
   ; participants : participant list
   ; artifacts : artifact list
+  ; pending_input : input_request option [@default None]
   ; turn_count : int
   ; last_seq : int
   ; outcome : string option
@@ -256,6 +274,12 @@ type record_turn_request =
   }
 [@@deriving yojson, show]
 
+type provide_input_request =
+  { request_id : string
+  ; response : input_response
+  }
+[@@deriving yojson, show]
+
 type spawn_agent_request =
   { participant_name : string
   ; role : string option
@@ -279,6 +303,8 @@ type finalize_request = { reason : string option } [@@deriving yojson, show]
 
 type command =
   | Record_turn of record_turn_request
+  | Request_input of input_request
+  | Provide_input of provide_input_request
   | Spawn_agent of spawn_agent_request
   | Update_session_settings of update_settings_request
   | Attach_artifact of attach_artifact_request
@@ -297,6 +323,13 @@ type start_event =
 type turn_event =
   { actor : string option
   ; message : string
+  }
+[@@deriving yojson, show]
+
+type input_provided_event =
+  { request_id : string
+  ; participant_name : string option
+  ; response : input_response
   }
 [@@deriving yojson, show]
 
@@ -362,6 +395,8 @@ type event_kind =
   | Session_started of start_event
   | Session_settings_updated of update_settings_request
   | Turn_recorded of turn_event
+  | Input_required of input_request
+  | Input_provided of input_provided_event
   | Agent_spawn_requested of spawn_event
   | Agent_became_live of participant_event
   | Agent_output_delta of output_delta_event

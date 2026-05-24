@@ -270,6 +270,7 @@ let ensure_session state ~prompt =
        start_new ()
      | Runtime.Bootstrapping
      | Runtime.Running
+     | Runtime.Input_required
      | Runtime.Waiting_on_workers
      | Runtime.Finalizing -> Ok session)
 ;;
