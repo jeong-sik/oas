@@ -1,4 +1,5 @@
 open Agent_sdk
+module Procedural = Agent_sdk__Memory_procedural
 
 let make_backend () =
   let store = Hashtbl.create 4 in
@@ -10,6 +11,19 @@ let make_backend () =
     }
   in
   backend
+;;
+
+let procedure ?(metadata = []) ?(success_count = 2) ?(failure_count = 1) id =
+  let confidence = Procedural.compute_confidence ~success_count ~failure_count in
+  { Procedural.id
+  ; pattern = "deploy " ^ id
+  ; action = "run " ^ id
+  ; success_count
+  ; failure_count
+  ; confidence
+  ; last_used = 100.0
+  ; metadata
+  }
 ;;
 
 let () =
@@ -336,6 +350,95 @@ let () =
               };
             let _, _, _, pr, _ = Memory.stats mem in
             Alcotest.(check int) "procedural count" 1 pr)
+        ] )
+    ; ( "low_level"
+      , [ Alcotest.test_case "confidence zero and ratio" `Quick (fun () ->
+            Alcotest.(check (float 0.0001))
+              "empty confidence"
+              0.0
+              (Procedural.compute_confidence ~success_count:0 ~failure_count:0);
+            Alcotest.(check (float 0.0001))
+              "ratio confidence"
+              0.75
+              (Procedural.compute_confidence ~success_count:3 ~failure_count:1))
+        ; Alcotest.test_case "json round trip preserves metadata" `Quick (fun () ->
+            let proc =
+              procedure
+                "pr-json"
+                ~metadata:[ "team", `String "release"; "attempts", `Int 2 ]
+            in
+            match Procedural.procedure_of_json (Procedural.procedure_to_json proc) with
+            | Some parsed ->
+              Alcotest.(check string) "id" proc.id parsed.id;
+              Alcotest.(check int) "metadata count" 2 (List.length parsed.metadata)
+            | None -> Alcotest.fail "expected procedure json to parse")
+        ; Alcotest.test_case
+            "json rejects missing required fields and ignores bad metadata"
+            `Quick
+            (fun () ->
+               let invalid = `Assoc [ "id", `String "missing-fields" ] in
+               Alcotest.(check bool)
+                 "missing fields rejected"
+                 true
+                 (Option.is_none (Procedural.procedure_of_json invalid));
+               let with_bad_metadata =
+                 `Assoc
+                   [ "id", `String "pr-bad-meta"
+                   ; "pattern", `String "deploy"
+                   ; "action", `String "retry"
+                   ; "success_count", `Int 1
+                   ; "failure_count", `Int 0
+                   ; "confidence", `Float 1.0
+                   ; "last_used", `Float 10.0
+                   ; "metadata", `String "not-object"
+                   ]
+               in
+               match Procedural.procedure_of_json with_bad_metadata with
+               | Some parsed ->
+                 Alcotest.(check int)
+                   "bad metadata normalized"
+                   0
+                   (List.length parsed.metadata)
+               | None -> Alcotest.fail "expected bad metadata to normalize")
+        ; Alcotest.test_case
+            "context operations sort, update, and forget"
+            `Quick
+            (fun () ->
+               let ctx = Context.create () in
+               Procedural.store ctx (procedure "low" ~success_count:1 ~failure_count:3);
+               Procedural.store ctx (procedure "high" ~success_count:4 ~failure_count:0);
+               let matches = Procedural.matching ctx ~pattern:"deploy" () in
+               (match matches with
+                | high :: low :: _ ->
+                  Alcotest.(check string) "highest confidence first" "high" high.id;
+                  Alcotest.(check string) "lower confidence second" "low" low.id
+                | _ -> Alcotest.fail "expected two sorted procedures");
+               Procedural.record_failure ctx "high";
+               (match Procedural.find ctx ~pattern:"high" () with
+                | Some high ->
+                  Alcotest.(check int) "failure incremented" 1 high.failure_count;
+                  Alcotest.(check (float 0.0001)) "confidence updated" 0.8 high.confidence
+                | None -> Alcotest.fail "updated procedure missing");
+               Procedural.record_success ctx "missing";
+               Context.set_scoped ctx (Context.Custom "pr") "corrupt" (`String "bad");
+               Procedural.record_success ctx "corrupt";
+               Procedural.forget ctx "low";
+               Procedural.forget ctx "corrupt";
+               Alcotest.(check int) "one valid remains" 1 (Procedural.count ctx))
+        ; Alcotest.test_case "find touch persists last_used" `Quick (fun () ->
+            let ctx = Context.create () in
+            Procedural.store ctx (procedure "touch" ~success_count:1 ~failure_count:0);
+            match Procedural.find ctx ~pattern:"touch" ~touch:true () with
+            | Some touched ->
+              Alcotest.(check bool) "touched" true (touched.last_used > 100.0);
+              (match Procedural.best ctx ~pattern:"touch" with
+               | Some persisted ->
+                 Alcotest.(check (float 0.001))
+                   "persisted touch"
+                   touched.last_used
+                   persisted.last_used
+               | None -> Alcotest.fail "persisted touch missing")
+            | None -> Alcotest.fail "touch procedure missing")
         ] )
     ]
 ;;

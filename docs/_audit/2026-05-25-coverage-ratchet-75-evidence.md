@@ -64,3 +64,23 @@ streaming edge-case tests, so the CI coverage floor can move from 73% to 75%.
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused slice coverage; project-wide CI coverage remains
   governed by the `75` floor above.
+
+## Stage D pure-module follow-up
+
+- Evidence: local focused coverage run on PR #1759 after extending
+  `test/test_tool_schema_gen.ml` and `test/test_memory_procedural.ml`.
+- Command:
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes BISECT_FILE=/tmp/oas_stage_d_pure_coverage/bisect scripts/dune-local.sh build --instrument-with bisect_ppx test/test_tool_schema_gen.exe test/test_memory_procedural.exe`
+- Test binaries:
+  `./_build/default/test/test_tool_schema_gen.exe`,
+  `./_build/default/test/test_memory_procedural.exe`
+- Summary command:
+  `opam exec -- bisect-ppx-report summary --per-file --coverage-path=/tmp/oas_stage_d_pure_coverage`
+- Focused per-file results:
+  - `lib/tool_schema_gen.ml`: `82.22%` (`74/90`)
+  - `lib/memory_procedural.ml`: `83.78%` (`62/74`)
+  - `lib/memory.ml`: `23.48%` (`85/362`)
+  - `lib/tool_input_validation.ml`: `20.37%` (`22/108`)
+- Timestamp: 2026-05-25 KST
+  Confidence: High for focused pure-module coverage; project-wide CI coverage
+  remains governed by the `75` floor above until the next clean full run.
