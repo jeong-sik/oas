@@ -228,9 +228,10 @@ let build_schema_map (tools : Yojson.Safe.t list) : (string * Yojson.Safe.t) lis
          match json_string (tool |> member "name") with
          | Some s -> s
          | None ->
-           Option.value
-             ~default:""
-             (json_string (tool |> member "function" |> member "name"))
+           (match tool |> member "function" with
+            | `Assoc func ->
+              Option.value ~default:"" (json_string (`Assoc func |> member "name"))
+            | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> "")
        in
        if name = ""
        then None

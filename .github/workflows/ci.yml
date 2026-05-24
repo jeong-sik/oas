@@ -167,7 +167,12 @@ jobs:
           # 77.72% (23104/29728) after Stage D client/pipeline/pure module,
           # harness, and CLI transport coverage. Raise the floor to
           # floor(77.72 - 1) = 76 per #1175 ratchet policy.
-          THRESHOLD=76
+          #
+          # 2026-05-25: local clean full coverage on PR #1759 measured
+          # 78.13% (23241/29748) after Stage D provider_k, tool-call
+          # harness, and provider catalog coverage. Raise the floor to
+          # floor(78.13 - 1) = 77 per #1175 ratchet policy.
+          THRESHOLD=77
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1

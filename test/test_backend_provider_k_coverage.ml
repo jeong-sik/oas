@@ -1,0 +1,266 @@
+open Alcotest
+module K = Llm_provider.Backend_provider_k
+module PC = Llm_provider.Provider_config
+module T = Llm_provider.Types
+
+let member key json = Yojson.Safe.Util.member key json
+let to_bool json = Yojson.Safe.Util.to_bool json
+let to_string json = Yojson.Safe.Util.to_string json
+
+let provider_k_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
+  PC.make
+    ~kind:PC.Provider_k
+    ~model_id:"provider_k-5.1"
+    ~base_url:"https://api.z.ai/api/paas/v4"
+    ?enable_thinking
+    ?clear_thinking
+    ~tool_stream
+    ()
+;;
+
+let check_class label expected actual = check bool label true (actual = expected)
+
+let check_classification label code message expected retryable =
+  let actual, retry = K.classify_provider_k_error ~code ~message in
+  check_class (label ^ " class") expected actual;
+  check bool (label ^ " retryable") retryable retry
+;;
+
+let response_json ?(reasoning = Some "step by step") ?(content = "answer") () =
+  let message_fields =
+    [ "role", `String "assistant"; "content", `String content ]
+    @
+    match reasoning with
+    | Some r -> [ "reasoning_content", `String r ]
+    | None -> []
+  in
+  Yojson.Safe.to_string
+    (`Assoc
+        [ "id", `String "chatcmpl-provider-k"
+        ; "model", `String "provider_k-5.1"
+        ; ( "choices"
+          , `List
+              [ `Assoc
+                  [ "finish_reason", `String "stop"; "message", `Assoc message_fields ]
+              ] )
+        ; ( "usage"
+          , `Assoc
+              [ "prompt_tokens", `Int 7
+              ; "completion_tokens", `Int 3
+              ; "total_tokens", `Int 10
+              ] )
+        ])
+;;
+
+let test_classification_matrix () =
+  check_classification "auth" "1001" "bad api key" K.Provider_k_auth_error false;
+  check_classification "rate" "1305" "service overloaded" K.Provider_k_rate_limited true;
+  check_classification "quota" "1308" "quota exhausted" K.Provider_k_quota_exceeded false;
+  check_classification "server" "1234" "backend timeout" K.Provider_k_server_error true;
+  check_classification "invalid" "1210" "bad parameter" K.Provider_k_invalid_request false;
+  check_classification
+    "message quota fallback"
+    "unknown"
+    "usage limit exceeded"
+    K.Provider_k_quota_exceeded
+    false;
+  check_classification
+    "message rate fallback"
+    "unknown"
+    "rate limit hit"
+    K.Provider_k_rate_limited
+    true;
+  check_classification
+    "unknown fallback"
+    "9999"
+    "unclassified"
+    K.Provider_k_invalid_request
+    false
+;;
+
+let test_http_status_mapping () =
+  check
+    int
+    "quota"
+    429
+    (K.http_code_of_provider_k_error_class K.Provider_k_quota_exceeded);
+  check int "rate" 429 (K.http_code_of_provider_k_error_class K.Provider_k_rate_limited);
+  check int "auth" 401 (K.http_code_of_provider_k_error_class K.Provider_k_auth_error);
+  check int "server" 500 (K.http_code_of_provider_k_error_class K.Provider_k_server_error);
+  check
+    int
+    "invalid"
+    400
+    (K.http_code_of_provider_k_error_class K.Provider_k_invalid_request)
+;;
+
+let test_build_request_thinking_modes_and_tool_stream () =
+  let messages = [ T.user_msg "calculate" ] in
+  let enabled =
+    K.build_request
+      ~stream:true
+      ~config:
+        (provider_k_config
+           ~enable_thinking:true
+           ~clear_thinking:false
+           ~tool_stream:true
+           ())
+      ~messages
+      ~tools:[ `Assoc [ "name", `String "calc" ] ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  check
+    string
+    "thinking enabled"
+    "enabled"
+    (enabled |> member "thinking" |> member "type" |> to_string);
+  check
+    bool
+    "clear thinking false"
+    false
+    (enabled |> member "thinking" |> member "clear_thinking" |> to_bool);
+  check bool "tool stream true" true (enabled |> member "tool_stream" |> to_bool);
+  let disabled =
+    K.build_request
+      ~config:(provider_k_config ~enable_thinking:false ~tool_stream:true ())
+      ~messages
+      ()
+    |> Yojson.Safe.from_string
+  in
+  check
+    string
+    "thinking disabled"
+    "disabled"
+    (disabled |> member "thinking" |> member "type" |> to_string);
+  check
+    bool
+    "tool stream gated by stream flag"
+    true
+    (disabled |> member "tool_stream" = `Null);
+  let passthrough =
+    K.build_request ~config:(provider_k_config ()) ~messages () |> Yojson.Safe.from_string
+  in
+  check bool "thinking omitted" true (passthrough |> member "thinking" = `Null)
+;;
+
+let test_parse_response_extracts_reasoning_and_usage () =
+  let resp = K.parse_response (response_json ()) in
+  check string "id" "chatcmpl-provider-k" resp.id;
+  check string "model" "provider_k-5.1" resp.model;
+  (match resp.content with
+   | [ T.Thinking { content = "step by step"; _ }; T.Text "answer" ] -> ()
+   | _ -> fail "expected reasoning block followed by answer text");
+  match resp.usage with
+  | Some usage ->
+    check int "input tokens" 7 usage.input_tokens;
+    check int "output tokens" 3 usage.output_tokens
+  | None -> fail "expected usage"
+;;
+
+let test_parse_response_classifies_provider_k_errors () =
+  let cases =
+    [ ( {|{"error":{"code":"1305","message":"service overloaded"}}|}
+      , "1305"
+      , K.Provider_k_rate_limited
+      , true )
+    ; ( {|{"error":{"code":1234,"message":"server unavailable"}}|}
+      , "1234"
+      , K.Provider_k_server_error
+      , true )
+    ; ( {|{"error":{"code":{"nested":true},"message":"quota exceeded"}}|}
+      , "unknown"
+      , K.Provider_k_quota_exceeded
+      , false )
+    ; {|{"error":{"code":1200}}|}, "1200", K.Provider_k_invalid_request, false
+    ]
+  in
+  List.iter
+    (fun (body, code, expected_class, expected_retryable) ->
+       match K.parse_response body with
+       | exception K.Provider_k_api_error err ->
+         check string "error code" code err.code;
+         check_class "error class" expected_class err.error_class;
+         check bool "retryable" expected_retryable err.is_retryable
+       | _ -> fail "expected Provider_k_api_error")
+    cases
+;;
+
+let test_parse_response_wraps_provider_d_parse_errors () =
+  match K.parse_response {|{"choices":"not-a-list"}|} with
+  | exception K.Provider_k_api_error err ->
+    check string "parse code" "parse" err.code;
+    check_class "parse class" K.Provider_k_invalid_request err.error_class;
+    check bool "parse is not retryable" false err.is_retryable;
+    check bool "parse message surfaced" true (String.length err.message > 0)
+  | _ -> fail "expected Provider_k_api_error"
+;;
+
+let test_extract_reasoning_handles_empty_and_malformed_bodies () =
+  let resp =
+    { T.id = "resp"
+    ; model = "provider_k-5.1"
+    ; stop_reason = T.EndTurn
+    ; content = [ T.Text "answer" ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let unchanged label body =
+    match (K.extract_reasoning_content resp body).content with
+    | [ T.Text "answer" ] -> ()
+    | _ -> fail (label ^ ": expected unchanged response")
+  in
+  unchanged "blank reasoning" (response_json ~reasoning:(Some "   ") ());
+  unchanged "no choices" {|{"choices":[]}|};
+  unchanged "malformed json" {|not json|}
+;;
+
+let test_parse_stream_chunk_delegates_reasoning_delta () =
+  let data =
+    {|{"id":"chunk-1","model":"provider_k-5.1","choices":[{"delta":{"reasoning_content":"thinking","content":"token"},"index":0}]}|}
+  in
+  match K.parse_stream_chunk data with
+  | Some chunk ->
+    check (option string) "content" (Some "token") chunk.delta_content;
+    check (option string) "reasoning" (Some "thinking") chunk.delta_reasoning
+  | None -> fail "expected stream chunk"
+;;
+
+let () =
+  run
+    "backend_provider_k_coverage"
+    [ ( "classification"
+      , [ test_case "error classification matrix" `Quick test_classification_matrix
+        ; test_case "http status mapping" `Quick test_http_status_mapping
+        ] )
+    ; ( "request"
+      , [ test_case
+            "thinking modes and tool_stream"
+            `Quick
+            test_build_request_thinking_modes_and_tool_stream
+        ] )
+    ; ( "response"
+      , [ test_case
+            "reasoning content and usage"
+            `Quick
+            test_parse_response_extracts_reasoning_and_usage
+        ; test_case
+            "provider_k error classes"
+            `Quick
+            test_parse_response_classifies_provider_k_errors
+        ; test_case
+            "provider_d parse errors"
+            `Quick
+            test_parse_response_wraps_provider_d_parse_errors
+        ; test_case
+            "empty and malformed reasoning bodies"
+            `Quick
+            test_extract_reasoning_handles_empty_and_malformed_bodies
+        ; test_case
+            "stream reasoning delta"
+            `Quick
+            test_parse_stream_chunk_delegates_reasoning_delta
+        ] )
+    ]
+;;

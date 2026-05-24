@@ -164,8 +164,11 @@ let extract_reasoning_content (resp : api_response) body : api_response =
       let reasoning = msg |> member "reasoning_content" |> to_string_option in
       (match reasoning with
        | Some r when String.trim r <> "" ->
-         let thinking_block = Thinking { thinking_type = "thinking"; content = r } in
-         { resp with content = thinking_block :: resp.content }
+         (match resp.content with
+          | Thinking { content; _ } :: _ when String.equal content r -> resp
+          | _ ->
+            let thinking_block = Thinking { thinking_type = "thinking"; content = r } in
+            { resp with content = thinking_block :: resp.content })
        | Some _ | None -> resp)
     | `List [] | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
       resp
@@ -173,20 +176,27 @@ let extract_reasoning_content (resp : api_response) body : api_response =
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> resp
 ;;
 
+let provider_k_parse_error message =
+  Provider_k_api_error
+    { code = "parse"
+    ; message
+    ; error_class = Provider_k_invalid_request
+    ; is_retryable = false
+    }
+;;
+
 let parse_response body =
   match check_glm_error body with
   | Some err -> raise (Provider_k_api_error err)
   | None ->
-    (match Backend_provider_d_parse.parse_provider_d_response_result body with
-     | Error msg ->
-       raise
-         (Provider_k_api_error
-            { code = "parse"
-            ; message = msg
-            ; error_class = Provider_k_invalid_request
-            ; is_retryable = false
-            })
-     | Ok resp -> extract_reasoning_content resp body)
+    (try
+       match Backend_provider_d_parse.parse_provider_d_response_result body with
+       | Error msg -> raise (provider_k_parse_error msg)
+       | Ok resp -> extract_reasoning_content resp body
+     with
+     | Yojson.Json_error msg -> raise (provider_k_parse_error msg)
+     | Yojson.Safe.Util.Type_error (msg, _) -> raise (provider_k_parse_error msg)
+     | Yojson.Safe.Util.Undefined (msg, _) -> raise (provider_k_parse_error msg))
 ;;
 
 (* ── Streaming ───────────────────────────────────── *)

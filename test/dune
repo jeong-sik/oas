@@ -48,6 +48,7 @@
   test_async_agent
   test_atomic_write_race
   test_backend_provider_d_codec
+  test_backend_provider_k_coverage
   test_backend_tool_call_harness
   test_backend_provider_f
   test_body_timeout
@@ -161,6 +162,7 @@
   test_policy_channel
   test_progressive_tools
   test_provider
+  test_provider_catalog_coverage
   test_provider_config
   test_provider_intf
   test_provider_runtime_binding
@@ -275,6 +277,7 @@
   test_async_agent
   test_atomic_write_race
   test_backend_provider_d_codec
+  test_backend_provider_k_coverage
   test_backend_tool_call_harness
   test_backend_provider_f
   test_body_timeout
@@ -388,6 +391,7 @@
   test_policy_channel
   test_progressive_tools
   test_provider
+  test_provider_catalog_coverage
   test_provider_config
   test_provider_intf
   test_provider_runtime_binding

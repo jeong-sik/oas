@@ -1,21 +1,21 @@
 # Coverage ratchet evidence - 2026-05-25
 
 Scope: #1175 Stage C/D continuation. PR #1759 raises measured project coverage
-above 77% with behavior-backed provider dispatch, provider_d codec, streaming,
-pure-module, harness, and CLI transport tests, so the CI coverage floor can
-move from 73% to 76%.
+above 78% with behavior-backed provider dispatch, provider_d codec, streaming,
+pure-module, harness, CLI transport, provider_k, and provider catalog tests, so
+the CI coverage floor can move from 73% to 77%.
 
 ## Measurement
 
 - Evidence: local clean full coverage run on PR #1759 after the Stage D
-  client/pipeline/pure-module/harness/CLI transport follow-ups.
+  provider contract and catalog follow-ups.
 - Command:
-  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes EIO_BACKEND=posix BISECT_FILE=/tmp/oas_stage_d_full_after_ad_error_validation_coverage/bisect scripts/dune-local.sh runtest --force --instrument-with bisect_ppx`
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes EIO_BACKEND=posix BISECT_FILE=/tmp/oas_stage_d_full_after_provider_k_harness_catalog_coverage/bisect scripts/dune-local.sh runtest --force --instrument-with bisect_ppx`
 - Summary command:
-  `opam exec -- bisect-ppx-report summary --coverage-path=/tmp/oas_stage_d_full_after_ad_error_validation_coverage`
-- Measured coverage: `77.72%` (`23104/29728`)
-- Earlier Stage C clean measurement before the Stage D follow-ups:
-  `76.02%` (`22598/29728`)
+  `opam exec -- bisect-ppx-report summary --coverage-path=/tmp/oas_stage_d_full_after_provider_k_harness_catalog_coverage`
+- Measured coverage: `78.13%` (`23241/29748`)
+- Earlier clean measurements before the provider contract/catalog follow-up:
+  `77.72%` (`23104/29728`) and `76.02%` (`22598/29728`)
 - Timestamp: 2026-05-25 KST
 - Confidence: High for local measurement; GitHub full CI remains the final
   merge gate after the draft PR is marked ready.
@@ -24,15 +24,16 @@ move from 73% to 76%.
 
 - Base threshold before this PR: `73`
 - Intermediate threshold after the Stage C slice: `75`
-- New threshold after the Stage D follow-ups: `76`
-- Formula: `floor(77.72 - 1) = 76`
+- Intermediate threshold after earlier Stage D follow-ups: `76`
+- New threshold after the provider contract/catalog follow-up: `77`
+- Formula: `floor(78.13 - 1) = 77`
 - Reason: preserve one percentage point of CI/runtime headroom while enforcing
   the measured recovery toward the 80% terminal goal.
 
 ## #1175 record
 
 - Stage C target (`60 -> 75`): floor reaches 75.
-- Stage D target (`75 -> 80`): in progress; floor now reaches 76 and still
+- Stage D target (`75 -> 80`): in progress; floor now reaches 77 and still
   needs further measured slices before 80.
 - Top 0% files removed in this PR: none; this slice targets low/mid coverage
   provider and streaming surfaces rather than zero-coverage files.
@@ -59,6 +60,15 @@ move from 73% to 76%.
     mapping variants and retryability matrix.
   - `test/test_tool_input_validation.ml`: scalar coercion edges, optional null,
     non-object input, JSON actual descriptions, and inline formatting fallback.
+  - `test/test_backend_provider_k_coverage.ml`: provider_k error
+    classification, status mapping, request modes, response parsing, duplicate
+    reasoning guard, parse-error normalization, and stream reasoning deltas.
+  - `test/test_backend_tool_call_harness.ml`: scalar actual-type schema
+    validation, invalid schema map entry filtering, and provider convenience
+    validators.
+  - `test/test_provider_catalog_coverage.ml`: catalog entry parsing,
+    auth/transport/thinking aliases, capability overrides, malformed entry
+    errors, load-file behavior, and global override lifecycle.
 
 ## Stage D focused follow-up
 
@@ -78,7 +88,7 @@ move from 73% to 76%.
   - `lib/provider_intf.ml`: `53.70%` (`29/54`)
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused slice coverage; project-wide CI coverage is now
-  governed by the latest `76` floor above.
+  governed by the latest `77` floor above.
 
 ## Stage D pure-module follow-up
 
@@ -98,7 +108,7 @@ move from 73% to 76%.
   - `lib/tool_input_validation.ml`: `20.37%` (`22/108`)
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused pure-module coverage; project-wide CI coverage
-  is now governed by the latest `76` floor above.
+  is now governed by the latest `77` floor above.
 
 ## Stage D harness and CLI transport follow-up
 
@@ -130,7 +140,7 @@ move from 73% to 76%.
     routing, and session delta reuse.
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused behavior coverage; project-wide CI coverage is
-  now governed by the latest `76` floor above.
+  now governed by the latest `77` floor above.
 
 ## Stage D CLI A/D and validation follow-up
 
@@ -169,4 +179,39 @@ move from 73% to 76%.
     descriptions, optional null, non-object input, and inline path fallback.
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused behavior coverage; project-wide CI coverage is
-  now governed by the latest `76` floor above.
+  now governed by the latest `77` floor above.
+
+## Stage D provider contract and catalog follow-up
+
+- Evidence: local focused coverage run on PR #1759 after adding
+  `test/test_backend_provider_k_coverage.ml`,
+  `test/test_provider_catalog_coverage.ml`, and extending
+  `test/test_backend_tool_call_harness.ml`.
+- Command:
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes BISECT_FILE=/tmp/oas_stage_d_provider_contract_catalog_coverage/bisect scripts/dune-local.sh build --instrument-with bisect_ppx test/test_backend_provider_k_coverage.exe test/test_backend_tool_call_harness.exe test/test_provider_catalog_coverage.exe`
+- Test binaries:
+  `BISECT_FILE=/tmp/oas_stage_d_provider_contract_catalog_coverage/bisect ./_build/default/test/test_backend_provider_k_coverage.exe`,
+  `BISECT_FILE=/tmp/oas_stage_d_provider_contract_catalog_coverage/bisect ./_build/default/test/test_backend_tool_call_harness.exe`,
+  `BISECT_FILE=/tmp/oas_stage_d_provider_contract_catalog_coverage/bisect ./_build/default/test/test_provider_catalog_coverage.exe`
+- Summary command:
+  `opam exec -- bisect-ppx-report summary --per-file --coverage-path=/tmp/oas_stage_d_provider_contract_catalog_coverage`
+- Focused per-file results:
+  - `lib/llm_provider/backend_provider_k.ml`: `51.97%` (`66/127`)
+  - `lib/llm_provider/backend_tool_call_harness.ml`: `59.09%`
+    (`182/308`)
+  - `lib/llm_provider/provider_catalog.ml`: `86.09%` (`291/338`)
+- Full clean coverage after this follow-up:
+  `78.13%` (`23241/29748`) from
+  `/tmp/oas_stage_d_full_after_provider_k_harness_catalog_coverage`.
+- Behaviors added:
+  - provider_k retry/error classification, HTTP status mapping, thinking and
+    tool-stream request modes, usage/reasoning parsing, duplicate reasoning
+    suppression, parse-error wrapping, and stream reasoning chunks.
+  - tool-call harness scalar actual-type reporting, missing/invalid schema-map
+    filtering, feedback formatting, and provider convenience validators.
+  - provider catalog auth/transport/thinking aliases, capability override
+    matrix, malformed entry handling, file load failures, and global override
+    lifecycle.
+- Timestamp: 2026-05-25 KST
+  Confidence: High for focused behavior coverage; project-wide CI coverage is
+  now governed by the latest `77` floor above.
