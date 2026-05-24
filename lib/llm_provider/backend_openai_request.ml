@@ -87,6 +87,24 @@ let response_format_of_config (config : Provider_config.t) =
   | None -> None
 ;;
 
+let capabilities_of_config (config : Provider_config.t) =
+  match Capabilities.for_model_id config.model_id with
+  | Some caps -> caps
+  | None ->
+    (match config.kind with
+     | Provider_config.Ollama -> Capabilities.ollama_capabilities
+     | Provider_config.Kimi -> Capabilities.kimi_capabilities
+     | Provider_config.DashScope -> Capabilities.dashscope_capabilities
+     | Provider_config.Glm -> Capabilities.glm_capabilities
+     | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
+     | Provider_config.Gemini -> Capabilities.gemini_capabilities
+     | Provider_config.Claude_code -> Capabilities.claude_code_capabilities
+     | Provider_config.Gemini_cli -> Capabilities.gemini_cli_capabilities
+     | Provider_config.Kimi_cli -> Capabilities.kimi_cli_capabilities
+     | Provider_config.Codex_cli -> Capabilities.codex_cli_capabilities
+     | Provider_config.OpenAI_compat -> Capabilities.default_capabilities)
+;;
+
 (** Build OpenAI Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
@@ -126,14 +144,10 @@ let build_request
   (* Look up per-model capabilities once - drives:
      (1) the [max_tokens] clamp below (avoid server 400 on over-cap),
      (2) the [top_k] / [min_p] sampling-field gates further down.
-     If no capability record exists for the model, fall back to
-     [default_capabilities] (conservative: drop non-standard params,
-     pass through standard ones). *)
-  let caps =
-    match Capabilities.for_model_id config.model_id with
-    | Some c -> c
-    | None -> Capabilities.default_capabilities
-  in
+     If no model-specific record exists, fall back to the provider-kind
+     preset, then to conservative defaults for unknown OpenAI-compatible
+     configs. *)
+  let caps = capabilities_of_config config in
   (* Resolve [max_tokens] from three layers:
      1. Caller override ([config.max_tokens = Some n]) - explicit request
      2. Model capability ([caps.max_output_tokens]) - provider's ceiling
@@ -209,6 +223,10 @@ let build_request
            :: ("thinking", `Assoc [ "type", `String "enabled" ])
            :: body)
          else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
+       | Thinking_object_only ->
+         ( "thinking"
+         , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
+         :: body
        | Chat_template_kwargs ->
          ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ]) :: body
        | Reasoning_effort ->
@@ -218,6 +236,11 @@ let build_request
              ~thinking_budget:config.thinking_budget
          in
          ("reasoning_effort", `String effort) :: body
+       | Enable_thinking ->
+         let body = ("enable_thinking", `Bool enabled) :: body in
+         (match enabled, config.thinking_budget with
+          | true, Some budget -> ("thinking_budget", `Int budget) :: body
+          | _ -> body)
        | No_thinking_control -> body)
     | None ->
       (match caps.thinking_control_format with

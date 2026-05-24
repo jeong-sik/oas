@@ -23,6 +23,10 @@ let check_contains label s sub =
   then Alcotest.failf "%s: expected %S to contain %S" label s sub
 ;;
 
+let check_thinking_control label expected actual =
+  check bool label true (actual = expected)
+;;
+
 let with_temp_manifest contents f =
   let path = Filename.temp_file "oas-capability-manifest" ".json" in
   let oc = open_out path in
@@ -91,6 +95,10 @@ let test_openai_capabilities () =
 let test_openai_extended () =
   let c = Capabilities.openai_chat_extended_capabilities in
   check bool "has reasoning" true c.supports_reasoning;
+  check_thinking_control
+    "uses reasoning_effort"
+    Capabilities.Reasoning_effort
+    c.thinking_control_format;
   check bool "has top_k" true c.supports_top_k;
   check bool "has min_p" true c.supports_min_p
 ;;
@@ -271,6 +279,10 @@ let test_lookup_kimi_k2_cloud () =
     check (option int) "output 32K" (Some 32_768) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
+    check_thinking_control
+      "thinking object only"
+      Capabilities.Thinking_object_only
+      c.thinking_control_format;
     check bool "code execution" true c.supports_code_execution
   | None -> fail "should match kimi-k2 cloud route"
 ;;
@@ -681,7 +693,36 @@ let test_dashscope_capabilities () =
   check bool "has json mode" true c.supports_response_format_json;
   check bool "has tools" true c.supports_tools;
   check bool "has tool_choice" true c.supports_tool_choice;
+  check bool "has reasoning" true c.supports_reasoning;
+  check_thinking_control
+    "enable_thinking control"
+    Capabilities.Enable_thinking
+    c.thinking_control_format;
   check bool "has min_p" true c.supports_min_p
+;;
+
+let test_openai_compat_reasoning_records_have_explicit_control () =
+  let cases =
+    [ "openai_chat_extended", Some Capabilities.openai_chat_extended_capabilities
+    ; "kimi", Some Capabilities.kimi_capabilities
+    ; "dashscope", Some Capabilities.dashscope_capabilities
+    ; "qwen3.5", Capabilities.for_model_id "qwen3.5-35b-a3b"
+    ; "deepseek-v4-flash", Capabilities.for_model_id "deepseek-v4-flash"
+    ; "nemotron-ultra", Capabilities.for_model_id "nemotron-ultra-253b"
+    ]
+  in
+  List.iter
+    (fun (label, caps) ->
+       match caps with
+       | None -> fail (Printf.sprintf "%s should resolve capabilities" label)
+       | Some (c : Capabilities.capabilities) ->
+         check bool (label ^ " supports reasoning") true c.supports_reasoning;
+         check
+           bool
+           (label ^ " has explicit thinking control")
+           true
+           (c.thinking_control_format <> Capabilities.No_thinking_control))
+    cases
 ;;
 
 (* ── Prefix ordering invariant (M01) ────────────────────── *)
@@ -795,6 +836,10 @@ let () =
         ; test_case "openai" `Quick test_openai_capabilities
         ; test_case "openai extended" `Quick test_openai_extended
         ; test_case "dashscope" `Quick test_dashscope_capabilities
+        ; test_case
+            "openai compat reasoning records have explicit control"
+            `Quick
+            test_openai_compat_reasoning_records_have_explicit_control
         ] )
     ; ( "model_lookup"
       , [ test_case "claude opus" `Quick test_lookup_claude_opus

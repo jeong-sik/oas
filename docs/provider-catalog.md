@@ -203,6 +203,15 @@ Model-specific facts should still live in `OAS_CAPABILITY_MANIFEST`. Provider
 catalog capabilities should describe runtime/provider defaults and transport
 constraints.
 
+Accepted `thinking_control_format` values are:
+
+- `none`
+- `thinking_object` (top-level `thinking` object plus `reasoning_effort`)
+- `thinking_object_only` (top-level `thinking` object only)
+- `chat_template_kwargs`
+- `reasoning_effort`
+- `enable_thinking` (top-level `enable_thinking` plus optional `thinking_budget`)
+
 ## External Design References
 
 The catalog shape follows a common pattern in current agent tools:
