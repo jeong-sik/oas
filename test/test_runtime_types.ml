@@ -461,7 +461,8 @@ let test_event_kind () =
         ; completion_anomaly = None
         ; failure_cause = None
         }
-    ; Runtime.Agent_output_delta { participant_name = "sub"; delta = "..." }
+    ; Runtime.Agent_output_delta
+        { participant_name = "sub"; delta = "..."; raw_trace_run_id = Some "wr-1" }
     ; Runtime.Artifact_attached
         { artifact_id = "a1"
         ; name = "r.json"
@@ -484,6 +485,14 @@ let test_event_kind () =
          ~name:"event_kind"
          ek)
     events
+;;
+
+let test_output_delta_legacy_json_defaults_raw_trace_run_id () =
+  let json = `Assoc [ "participant_name", `String "sub"; "delta", `String "legacy" ] in
+  match Runtime.output_delta_event_of_yojson json with
+  | Ok detail ->
+    Alcotest.(check (option string)) "raw trace default" None detail.raw_trace_run_id
+  | Error msg -> Alcotest.failf "output_delta_event parse failed: %s" msg
 ;;
 
 let test_event () =
@@ -552,6 +561,10 @@ let () =
     ; "command", [ Alcotest.test_case "variants" `Quick test_command ]
     ; ( "events"
       , [ Alcotest.test_case "event_kind all" `Quick test_event_kind
+        ; Alcotest.test_case
+            "output delta legacy json"
+            `Quick
+            test_output_delta_legacy_json_defaults_raw_trace_run_id
         ; Alcotest.test_case "event" `Quick test_event
         ] )
     ]

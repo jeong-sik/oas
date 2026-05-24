@@ -370,6 +370,7 @@ type participant_event =
 type output_delta_event =
   { participant_name : string
   ; delta : string
+  ; raw_trace_run_id : string option [@default None]
   }
 [@@deriving yojson, show]
 

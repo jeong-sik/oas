@@ -232,8 +232,8 @@ let structured_fields_of_event = function
     , None
     , None
     , None )
-  | Agent_output_delta _ ->
-    None, None, None, None, None, None, None, None, None, None, None
+  | Agent_output_delta detail ->
+    None, None, None, None, detail.raw_trace_run_id, None, None, None, None, None, None
   | Agent_completed detail ->
     ( None
     , None

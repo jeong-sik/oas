@@ -71,6 +71,33 @@ let test_event_bus_run_id_ignores_blank_raw_trace_run_id () =
     (Runtime_server_types.event_bus_run_id_of_event event)
 ;;
 
+let test_event_bus_run_id_uses_output_delta_raw_trace_run_id () =
+  let event =
+    runtime_event
+      (Runtime.Agent_output_delta
+         { participant_name = "worker-1"
+         ; delta = "delta"
+         ; raw_trace_run_id = Some "raw-run-delta"
+         })
+  in
+  Alcotest.(check (option string))
+    "run_id"
+    (Some "raw-run-delta")
+    (Runtime_server_types.event_bus_run_id_of_event event)
+;;
+
+let test_event_bus_run_id_ignores_blank_output_delta_raw_trace_run_id () =
+  let event =
+    runtime_event
+      (Runtime.Agent_output_delta
+         { participant_name = "worker-1"; delta = "delta"; raw_trace_run_id = Some "  " })
+  in
+  Alcotest.(check (option string))
+    "run_id"
+    None
+    (Runtime_server_types.event_bus_run_id_of_event event)
+;;
+
 let test_event_bus_run_id_omits_session_events () =
   let event =
     runtime_event (Runtime.Session_started { goal = "test"; participants = [] })
@@ -117,7 +144,8 @@ let test_custom_name_of_kind_all_variants () =
           }
       , "runtime.agent_spawn_requested" )
     ; Runtime.Agent_became_live participant, "runtime.agent_became_live"
-    ; ( Runtime.Agent_output_delta { participant_name = "worker-1"; delta = "delta" }
+    ; ( Runtime.Agent_output_delta
+          { participant_name = "worker-1"; delta = "delta"; raw_trace_run_id = None }
       , "runtime.agent_output_delta" )
     ; Runtime.Agent_completed participant, "runtime.agent_completed"
     ; Runtime.Agent_failed participant, "runtime.agent_failed"
@@ -180,6 +208,14 @@ let () =
             "ignores blank raw trace run id"
             `Quick
             test_event_bus_run_id_ignores_blank_raw_trace_run_id
+        ; Alcotest.test_case
+            "uses output delta raw trace run id"
+            `Quick
+            test_event_bus_run_id_uses_output_delta_raw_trace_run_id
+        ; Alcotest.test_case
+            "ignores blank output delta raw trace run id"
+            `Quick
+            test_event_bus_run_id_ignores_blank_output_delta_raw_trace_run_id
         ; Alcotest.test_case
             "omits session events"
             `Quick

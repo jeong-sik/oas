@@ -58,21 +58,23 @@ let custom_name_of_kind = function
 ;;
 
 let event_bus_run_id_of_event (event : event) =
-  let participant_run_id (participant : participant_event) =
-    match participant.raw_trace_run_id with
+  let clean_run_id = function
     | Some run_id when String.trim run_id <> "" -> Some run_id
     | _ -> None
+  in
+  let participant_run_id (participant : participant_event) =
+    clean_run_id participant.raw_trace_run_id
   in
   match event.kind with
   | Agent_became_live participant | Agent_completed participant | Agent_failed participant
     -> participant_run_id participant
+  | Agent_output_delta detail -> clean_run_id detail.raw_trace_run_id
   | Session_started _
   | Session_settings_updated _
   | Turn_recorded _
   | Input_required _
   | Input_provided _
   | Agent_spawn_requested _
-  | Agent_output_delta _
   | Artifact_attached _
   | Checkpoint_saved _
   | Finalize_requested _
