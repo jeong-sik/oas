@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.197.0](https://github.com/jeong-sik/oas/compare/v0.196.17...v0.197.0) (2026-05-24)
+
+
+### Breaking Changes
+
+* **sdk:** restore `0.197.0` as the supported compatibility floor for the provider-neutral vendor purge. `v0.196.17` was generated after the purge with a stale release-please manifest and should not be used as the downstream minimum for the breaking SDK surface ([#1727](https://github.com/jeong-sik/oas/issues/1727), [#1729](https://github.com/jeong-sik/oas/issues/1729), [#1731](https://github.com/jeong-sik/oas/issues/1731), [#1737](https://github.com/jeong-sik/oas/issues/1737), [#1739](https://github.com/jeong-sik/oas/issues/1739))
+
 ## [0.196.17](https://github.com/jeong-sik/oas/compare/v0.196.16...v0.196.17) (2026-05-24)
 
 
