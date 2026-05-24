@@ -13,6 +13,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **agent_tool:** add typed child-agent invocation wrapper for agent-as-tool parity
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.198.2](https://github.com/jeong-sik/oas/compare/v0.198.1...v0.198.2) (2026-05-24)
+
+
+### Features
+
+* **runtime:** restore paused agent input ([#1746](https://github.com/jeong-sik/oas/issues/1746)) ([0550489](https://github.com/jeong-sik/oas/commit/055048954d75481221bea1eb78c0b526f311e97d))
+
 ## [0.198.1](https://github.com/jeong-sik/oas/compare/v0.198.0...v0.198.1) (2026-05-24)
 
 
