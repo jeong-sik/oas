@@ -2,35 +2,35 @@
     @since 0.46.0 *)
 
 (** Re-exported from {!Provider_kind} so existing callers
-    ([Provider_config.Anthropic], [Provider_config.string_of_provider_kind],
+    ([Provider_config.Provider_a], [Provider_config.string_of_provider_kind],
     …) keep working. The underlying type now lives in {!Provider_kind} so it
     can be shared with {!Types} without creating a module dependency cycle. *)
 type provider_kind = Provider_kind.t =
-  | Anthropic
-  | Kimi
-  | OpenAI_compat
+  | Provider_a
+  | Provider_c
+  | Provider_d_compat
   | Ollama
-  | Gemini
-  | Glm
-  | DashScope
-  | Claude_code
-  | Gemini_cli
-  | Kimi_cli
-  | Codex_cli
+  | Provider_f
+  | Provider_k
+  | Provider_h
+  | Cli_tool_d
+  | Cli_tool_b
+  | Cli_tool_c
+  | Cli_tool_a
 
 (** Default [request_path] for a given provider kind. Centralised so that
     [make] and any caller building a record literal stay aligned with the
-    same wire-format defaults. CLI variants and Gemini return [""] because
+    same wire-format defaults. CLI variants and Provider_f return [""] because
     they don't dispatch over an HTTP path. *)
 let request_path_default_for_kind = function
-  | Anthropic -> "/v1/messages"
-  | Kimi -> "/v1/messages"
-  | OpenAI_compat -> "/v1/chat/completions"
+  | Provider_a -> "/v1/messages"
+  | Provider_c -> "/v1/messages"
+  | Provider_d_compat -> "/v1/chat/completions"
   | Ollama -> "/api/chat"
-  | Gemini -> ""
-  | Glm -> "/chat/completions"
-  | DashScope -> "/chat/completions"
-  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> ""
+  | Provider_f -> ""
+  | Provider_k -> "/chat/completions"
+  | Provider_h -> "/chat/completions"
+  | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a -> ""
 ;;
 
 (** [output_schema] derived from [response_format] when no explicit
@@ -168,17 +168,17 @@ let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
 let max_turns_hard_cap = function
-  | Claude_code -> Some 30
-  | Anthropic
-  | Kimi
-  | OpenAI_compat
+  | Cli_tool_d -> Some 30
+  | Provider_a
+  | Provider_c
+  | Provider_d_compat
   | Ollama
-  | Gemini
-  | Glm
-  | DashScope
-  | Gemini_cli
-  | Kimi_cli
-  | Codex_cli -> None
+  | Provider_f
+  | Provider_k
+  | Provider_h
+  | Cli_tool_b
+  | Cli_tool_c
+  | Cli_tool_a -> None
 ;;
 
 let clamp_max_turns kind requested =
@@ -188,10 +188,10 @@ let clamp_max_turns kind requested =
 ;;
 
 let default_attempt_timeout_s = function
-  | Claude_code -> Some 120.0
-  | Kimi_cli -> Some 60.0
-  | Gemini_cli -> Some 180.0
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope | Codex_cli ->
+  | Cli_tool_d -> Some 120.0
+  | Cli_tool_c -> Some 60.0
+  | Cli_tool_b -> Some 180.0
+  | Provider_a | Provider_c | Provider_d_compat | Ollama | Provider_f | Provider_k | Provider_h | Cli_tool_a ->
     None
 ;;
 
@@ -217,7 +217,7 @@ let default_reasoning_effort () =
     When [thinking_budget] is [None] and thinking is enabled, the default
     effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
     (fallback: "medium").
-    Shared by Ollama backends and api_openai request building.
+    Shared by Ollama backends and api_provider_d request building.
     @since 0.114.0 *)
 let effort_of_thinking_config
       ~(enable_thinking : bool option)
@@ -297,9 +297,9 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
   if trimmed = "" then default_name else trimmed
 ;;
 
-let openai_host_supports_output_schema base_url =
+let provider_d_host_supports_output_schema base_url =
   match Uri.of_string base_url |> Uri.host with
-  | Some host -> String.lowercase_ascii host = "api.openai.com"
+  | Some host -> String.lowercase_ascii host = "api.provider_d.com"
   | None -> false
 ;;
 
@@ -307,7 +307,7 @@ let openai_host_supports_output_schema base_url =
     Callers can build a [Provider_config.t] directly with [response_format =
     JsonSchema _] and [output_schema = None]; gating only on [output_schema]
     would let that path skip provider/host validation and still emit
-    [response_format.type=json_schema] in [backend_openai]. *)
+    [response_format.type=json_schema] in [backend_provider_d]. *)
 let structured_schema_requested (config : t) : bool =
   match config.output_schema, config.response_format with
   | Some _, _ -> true
@@ -320,14 +320,14 @@ let validate_output_schema_request (config : t) =
   | false -> Ok ()
   | true ->
     (match config.kind with
-     | Gemini | Anthropic | Ollama | DashScope -> Ok ()
-     | Glm ->
+     | Provider_f | Provider_a | Ollama | Provider_h -> Ok ()
+     | Provider_k ->
        Error
-         "GLM supports JSON mode (json_object) only; native json_schema output is not \
+         "Provider_k supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
-     | Kimi ->
-       Error "Kimi direct API native json_schema output is not verified yet in OAS"
-     | OpenAI_compat ->
+     | Provider_c ->
+       Error "Provider_c direct API native json_schema output is not verified yet in OAS"
+     | Provider_d_compat ->
        let caps =
          match Capabilities.for_model_id config.model_id with
          | Some c -> c
@@ -339,14 +339,14 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "model %s does not advertise native structured output"
               config.model_id)
-       else if openai_host_supports_output_schema config.base_url
+       else if provider_d_host_supports_output_schema config.base_url
        then Ok ()
        else
          Error
            (Printf.sprintf
-              "native structured output is only wired for official OpenAI hosts, got %s"
+              "native structured output is only wired for official Provider_d hosts, got %s"
               config.base_url)
-     | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
+     | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a ->
        Error
          (Printf.sprintf
             "%s does not expose provider-native structured output in OAS"
@@ -354,15 +354,15 @@ let validate_output_schema_request (config : t) =
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess
-    transports are not set.  CLI transports (Codex_cli, Kimi_cli,
-    Gemini_cli, Claude_code) run external binaries and cannot relay
+    transports are not set.  CLI transports (Cli_tool_a, Cli_tool_c,
+    Cli_tool_b, Cli_tool_d) run external binaries and cannot relay
     fine-grained sampling parameters like [min_p] or [top_k].
     Detecting these at validation time avoids silent downgrading at the
     transport layer ([warn_unsupported_once]).
     @since 0.185.0 *)
 let validate_cli_sampling_params (config : t) =
   match config.kind with
-  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
+  | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a ->
     let unsupported =
       List.filter_map
         (fun (label, present) -> if present then Some label else None)
@@ -377,7 +377,7 @@ let validate_cli_sampling_params (config : t) =
              CLI subprocess transport"
             (string_of_provider_kind config.kind)
             (String.concat ", " fields)))
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> Ok ()
+  | Provider_a | Provider_c | Provider_d_compat | Ollama | Provider_f | Provider_k | Provider_h -> Ok ()
 ;;
 
 let has_host_prefix ~url ~prefix =
@@ -403,35 +403,35 @@ let is_local (config : t) =
 
 [@@@coverage off]
 
-let%test "validate_cli_sampling_params: Codex_cli with min_p → Error" =
-  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~min_p:0.05 () in
+let%test "validate_cli_sampling_params: Cli_tool_a with min_p → Error" =
+  let config = make ~kind:Cli_tool_a ~model_id:"test" ~base_url:"" ~min_p:0.05 () in
   match validate_cli_sampling_params config with
   | Error msg ->
     String.contains msg 'm' && String.contains msg 'i' && String.contains msg 'n'
   | Ok () -> false
 ;;
 
-let%test "validate_cli_sampling_params: Codex_cli with top_k → Error" =
-  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" ~top_k:40 () in
+let%test "validate_cli_sampling_params: Cli_tool_a with top_k → Error" =
+  let config = make ~kind:Cli_tool_a ~model_id:"test" ~base_url:"" ~top_k:40 () in
   match validate_cli_sampling_params config with
   | Error msg ->
     String.contains msg 't' && String.contains msg 'o' && String.contains msg 'p'
   | Ok () -> false
 ;;
 
-let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
+let%test "validate_cli_sampling_params: Provider_a with min_p → Ok" =
   let config =
     make
-      ~kind:Anthropic
-      ~model_id:"claude-4"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-4"
+      ~base_url:"https://api.provider_a.com"
       ~min_p:0.05
       ()
   in
   validate_cli_sampling_params config = Ok ()
 ;;
 
-let%test "validate_cli_sampling_params: Codex_cli clean → Ok" =
-  let config = make ~kind:Codex_cli ~model_id:"test" ~base_url:"" () in
+let%test "validate_cli_sampling_params: Cli_tool_a clean → Ok" =
+  let config = make ~kind:Cli_tool_a ~model_id:"test" ~base_url:"" () in
   validate_cli_sampling_params config = Ok ()
 ;;

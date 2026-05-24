@@ -56,8 +56,8 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 val command_in_path : ?path:string -> string -> bool
 
 (** Default registry pre-populated with known direct providers plus
-    non-interactive CLI transports ([claude_code], [gemini_cli],
-    [kimi], [kimi_cli], [codex_cli], and compat alias [cc]).
+    non-interactive CLI transports ([cli_tool_d], [cli_tool_b],
+    [provider_c], [cli_tool_c], [cli_tool_a], and compat alias [cc]).
     Availability is determined by API-key env vars for direct providers
     and PATH discovery for CLI transports.
 
@@ -69,7 +69,7 @@ val default : unit -> t
 (** Best-effort canonical provider name for a concrete provider config.
     Unlike [Provider_config.string_of_provider_kind], this keeps
     registry-level distinctions that share a wire kind but differ by
-    endpoint (for example [glm] vs [glm-coding], or [openai] vs
+    endpoint (for example [provider_k] vs [provider_k-coding], or [provider_d] vs
     [openrouter]). Falls back to a stable kind-derived label when the
     config does not match a known registry entry exactly. *)
 val provider_name_of_config : Provider_config.t -> string

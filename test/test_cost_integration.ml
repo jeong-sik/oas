@@ -3,7 +3,7 @@
     Uses mock HTTP server to verify cost accumulates across turns
     and budget limits are enforced by Agent.run.
 
-    Pattern: test_integration.ml (Anthropic Messages API mock) *)
+    Pattern: test_integration.ml (Provider_a Messages API mock) *)
 
 open Agent_sdk
 open Types
@@ -194,8 +194,8 @@ let test_no_budget_unlimited () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
+  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Cost_Integration"

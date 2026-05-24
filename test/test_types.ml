@@ -52,16 +52,16 @@ let test_empty_stop_reason () =
 let test_model_to_string () =
   Alcotest.(check string)
     "opus 4.6"
-    "claude-opus-4-6-20250514"
-    (Types.model_to_string "claude-opus-4-6");
+    "agent_llm_a-opus-4-6-20250514"
+    (Types.model_to_string "agent_llm_a-opus-4-6");
   Alcotest.(check string)
     "sonnet 4.6"
-    "claude-sonnet-4-6-20250514"
-    (Types.model_to_string "claude-sonnet-4-6");
+    "agent_llm_a-sonnet-4-6-20250514"
+    (Types.model_to_string "agent_llm_a-sonnet-4-6");
   Alcotest.(check string)
     "haiku 4.5"
-    "claude-haiku-4-5-20251001"
-    (Types.model_to_string "claude-haiku-4-5");
+    "agent_llm_a-haiku-4-5-20251001"
+    (Types.model_to_string "agent_llm_a-haiku-4-5");
   Alcotest.(check string) "custom" "my-model" (Types.model_to_string "my-model")
 ;;
 
@@ -174,12 +174,12 @@ let test_default_config () =
 
 let test_model_yojson_roundtrip () =
   let variants =
-    [ "claude-opus-4-6"
-    ; "claude-sonnet-4-6"
-    ; "claude-opus-4-5"
-    ; "claude-sonnet-4"
-    ; "claude-haiku-4-5"
-    ; "claude-3-7-sonnet"
+    [ "agent_llm_a-opus-4-6"
+    ; "agent_llm_a-sonnet-4-6"
+    ; "agent_llm_a-opus-4-5"
+    ; "agent_llm_a-sonnet-4"
+    ; "agent_llm_a-haiku-4-5"
+    ; "agent_llm_a-3-7-sonnet"
     ; "my-model"
     ]
   in

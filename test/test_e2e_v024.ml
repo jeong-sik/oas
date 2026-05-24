@@ -23,7 +23,7 @@ let provider : Provider.config =
 let base_url = "http://127.0.0.1:8085"
 let local_model = provider.model_id
 
-let qwen_config ?(system_prompt = None) ?(max_tokens = Some 200) ?(max_turns = 5) name =
+let provider_m_config ?(system_prompt = None) ?(max_tokens = Some 200) ?(max_turns = 5) name =
   { default_config with
     name
   ; model = local_model
@@ -88,7 +88,7 @@ let test_multi_turn_tool_loop () =
          Ok { Types.content = "42" })
   in
   let config =
-    qwen_config
+    provider_m_config
       "multi-turn-agent"
       ~system_prompt:
         (Some "You are a math assistant. Use the calculator tool to compute.")
@@ -127,7 +127,7 @@ let test_idle_detection () =
          Ok { Types.content = "status: all systems nominal" })
   in
   let config =
-    qwen_config
+    provider_m_config
       "idle-agent"
       ~system_prompt:
         (Some
@@ -198,7 +198,7 @@ let test_context_compaction () =
       ]
   in
   let config =
-    qwen_config
+    provider_m_config
       "compact-agent"
       ~system_prompt:(Some "You are a log analyzer. Use read_log to check files.")
       ~max_turns:4
@@ -265,7 +265,7 @@ let test_context_injection () =
     | Error _ -> None
   in
   let config =
-    qwen_config
+    provider_m_config
       "inject-agent"
       ~system_prompt:(Some "You are a file assistant. Use read_file to read files.")
       ~max_turns:4

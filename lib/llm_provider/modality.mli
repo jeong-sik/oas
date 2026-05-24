@@ -8,7 +8,7 @@
       place image and/or audio content before the text in your prompt.
     v}
 
-    Other models (Anthropic, OpenAI, GLM) are not sensitive to this
+    Other models (Provider_a, Provider_d, Provider_k) are not sensitive to this
     ordering, so the default is to preserve caller-supplied block order.
 
     @since 0.193.0 *)

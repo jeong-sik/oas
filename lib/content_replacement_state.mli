@@ -1,6 +1,6 @@
 (** Content replacement state for prompt-cache-preserving tool result relocation.
 
-    Implements the "decision freezing" pattern from Claude Code's
+    Implements the "decision freezing" pattern from Agent_llm_a Code's
     [ContentReplacementState]:
 
     - Once a tool_use_id enters [seen_ids], its replacement decision
@@ -13,7 +13,7 @@
     it will always return [true] regardless of subsequent operations.
 
     This preserves prompt cache prefixes across turns for all providers
-    (Anthropic, OpenAI, Ollama 0.5+).
+    (Provider_a, Provider_d, Ollama 0.5+).
 
     @stability Evolving
     @since 0.128.0 *)

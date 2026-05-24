@@ -58,7 +58,7 @@ let color_schema : string Structured.schema =
 
 let make_tool_response ~tool_id ~tool_name ~input_json =
   { id = "msg_test"
-  ; model = "claude-sonnet-4"
+  ; model = "agent_llm_a-sonnet-4"
   ; stop_reason = StopToolUse
   ; content = [ ToolUse { id = tool_id; name = tool_name; input = input_json } ]
   ; usage =
@@ -103,7 +103,7 @@ let test_synthetic_events_for_tool_use () =
   (match List.nth events 0 with
    | MessageStart { id; model; _ } ->
      Alcotest.(check string) "id" "msg_test" id;
-     Alcotest.(check string) "model" "claude-sonnet-4" model
+     Alcotest.(check string) "model" "agent_llm_a-sonnet-4" model
    | _ -> Alcotest.fail "expected MessageStart");
   (match List.nth events 1 with
    | ContentBlockStart { index; content_type; tool_id; tool_name } ->
@@ -134,7 +134,7 @@ let test_on_event_callback_fires () =
   let input_json = `Assoc [ "name", `String "Eve"; "age", `Int 30 ] in
   let response =
     { id = "msg_2"
-    ; model = "claude-sonnet-4"
+    ; model = "agent_llm_a-sonnet-4"
     ; stop_reason = StopToolUse
     ; content =
         [ Text "thinking..."

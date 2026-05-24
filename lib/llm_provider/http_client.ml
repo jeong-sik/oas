@@ -99,7 +99,7 @@ type http_error =
   | AcceptRejected of { reason : string }
   (* Signals that a provider kind requires a non-HTTP transport (e.g. a
      CLI subprocess transport for
-     [Claude_code]/[Codex_cli]/[Gemini_cli]/[Kimi_cli])
+     [Cli_tool_d]/[Cli_tool_a]/[Cli_tool_b]/[Cli_tool_c])
      but the caller did not wire one.  Distinct from [NetworkError] so
      cascades can skip the candidate without counting it as a flaky
      network failure, and so callers see a clear "configuration/wiring
@@ -403,7 +403,7 @@ let make_closing_client ~sw ~net ~uri =
          We also store the TLS-wrapped resource (not the raw socket) so
          [Eio.Resource.close] triggers TLS close_notify before the TCP
          layer closes.  Raw-socket close without TLS shutdown causes the
-         peer (e.g. GLM / Cloudflare-fronted endpoints) to interpret the
+         peer (e.g. Provider_k / Cloudflare-fronted endpoints) to interpret the
          half-close as "keep waiting" and hold the connection in
          CLOSE_WAIT indefinitely. *)
     let tracked_transports

@@ -2,15 +2,15 @@ open Alcotest
 module H = Llm_provider.Backend_tool_call_harness
 module T = Llm_provider.Types
 
-let malformed_openai_response = `Assoc [ "choices", `String "not-a-list" ]
+let malformed_provider_d_response = `Assoc [ "choices", `String "not-a-list" ]
 
-let test_openai_parse_error_is_typed () =
+let test_provider_d_parse_error_is_typed () =
   match
-    H.validate_openai_response ~declared_tools:[ "read_file" ] malformed_openai_response
+    H.validate_provider_d_response ~declared_tools:[ "read_file" ] malformed_provider_d_response
   with
   | Ok _ -> fail "expected typed parse error"
   | Error err ->
-    check string "backend" "openai" err.response_backend;
+    check string "backend" "provider_d" err.response_backend;
     check
       bool
       "parse error detail is surfaced"
@@ -18,11 +18,11 @@ let test_openai_parse_error_is_typed () =
       (String.length err.response_parse_error > 0)
 ;;
 
-let test_openai_text_response_is_ok_empty_validation () =
+let test_provider_d_text_response_is_ok_empty_validation () =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-text"
-      ; "model", `String "gpt-4o"
+      ; "model", `String "model-d"
       ; ( "choices"
         , `List
             [ `Assoc
@@ -35,7 +35,7 @@ let test_openai_text_response_is_ok_empty_validation () =
             ] )
       ]
   in
-  match H.validate_openai_response ~declared_tools:[ "read_file" ] json with
+  match H.validate_provider_d_response ~declared_tools:[ "read_file" ] json with
   | Error err -> fail ("unexpected parse error: " ^ err.response_parse_error)
   | Ok result ->
     check bool "stop reason accepted" true result.stop_reason_correct;
@@ -103,11 +103,11 @@ let test_schema_validation_reports_nested_violations () =
 ;;
 
 let test_build_schema_map_accepts_provider_shapes () =
-  let anthropic_tool =
+  let provider_a_tool =
     `Assoc
       [ "name", `String "search"; "input_schema", `Assoc [ "type", `String "object" ] ]
   in
-  let openai_tool =
+  let provider_d_tool =
     `Assoc
       [ ( "function"
         , `Assoc
@@ -117,7 +117,7 @@ let test_build_schema_map_accepts_provider_shapes () =
       ]
   in
   let ignored = `Assoc [ "name", `String "noop"; "input_schema", `Null ] in
-  let schemas = H.build_schema_map [ anthropic_tool; openai_tool; ignored ] in
+  let schemas = H.build_schema_map [ provider_a_tool; provider_d_tool; ignored ] in
   check (list string) "names" [ "search"; "write_file" ] (List.map fst schemas)
 ;;
 
@@ -145,15 +145,15 @@ let test_validate_response_flags_unknown_tool_and_stop_reason () =
 let () =
   run
     "backend_tool_call_harness"
-    [ ( "openai_parse_errors"
+    [ ( "provider_d_parse_errors"
       , [ test_case
             "typed result surfaces parse error"
             `Quick
-            test_openai_parse_error_is_typed
+            test_provider_d_parse_error_is_typed
         ; test_case
             "valid text response stays Ok with no tool calls"
             `Quick
-            test_openai_text_response_is_ok_empty_validation
+            test_provider_d_text_response_is_ok_empty_validation
         ] )
     ; ( "schema_validation"
       , [ test_case

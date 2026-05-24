@@ -9,11 +9,11 @@
 
 (* ── Internal: timed HTTP completion ──────────────────── *)
 
-(** Construct the URL for a Gemini API call.
+(** Construct the URL for a Provider_f API call.
     Sync: [base_url/models/model_id:generateContent?key=api_key]
     Stream: [base_url/models/model_id:streamGenerateContent?key=api_key&alt=sse]
     When api_key is empty (Vertex AI), the [?key=] param is omitted. *)
-let gemini_url ~(config : Provider_config.t) ~stream =
+let provider_f_url ~(config : Provider_config.t) ~stream =
   let method_name = if stream then "streamGenerateContent" else "generateContent" in
   let base =
     Printf.sprintf "%s/models/%s:%s" config.base_url config.model_id method_name
@@ -29,7 +29,7 @@ let gemini_url ~(config : Provider_config.t) ~stream =
 
 (** Provider-aware sampling parameter defaults.
     Local providers get min_p=0.05 (2026 llama.cpp standard).
-    Anthropic gets no top_p (incompatible with temperature).
+    Provider_a gets no top_p (incompatible with temperature).
     Explicit agent_config values always take priority (overlay pattern). *)
 type sampling_defaults =
   { default_min_p : float option
@@ -40,31 +40,31 @@ type sampling_defaults =
 (* Shared by every kind that does not inject a sampling floor. Ollama
    also lands here because the backend applies its own per-model
    defaults in [Backend_ollama]; pre-filling a top-level value here
-   would shadow that. Only OpenAI_compat carries the non-empty
-   [openai_compat_min_p] floor. *)
+   would shadow that. Only Provider_d_compat carries the non-empty
+   [provider_d_compat_min_p] floor. *)
 let no_sampling_defaults : sampling_defaults =
   { default_min_p = None; default_top_p = None; default_top_k = None }
 ;;
 
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
-  | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-    { default_min_p = Some Constants.Sampling.openai_compat_min_p
+  | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
+    { default_min_p = Some Constants.Sampling.provider_d_compat_min_p
     ; default_top_p = None
     ; default_top_k = None
     }
   | Provider_config.Ollama
-  | Provider_config.Anthropic
-  | Provider_config.Kimi
-  | Provider_config.Gemini
-  | Provider_config.Glm
-  | Provider_config.Claude_code
-  | Provider_config.Gemini_cli
-  | Provider_config.Kimi_cli
-  | Provider_config.Codex_cli -> no_sampling_defaults
+  | Provider_config.Provider_a
+  | Provider_config.Provider_c
+  | Provider_config.Provider_f
+  | Provider_config.Provider_k
+  | Provider_config.Cli_tool_d
+  | Provider_config.Cli_tool_b
+  | Provider_config.Cli_tool_c
+  | Provider_config.Cli_tool_a -> no_sampling_defaults
 ;;
 
-let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
+let provider_d_compat_should_default_min_p (config : Provider_config.t) : bool =
   match Capabilities.for_model_id config.model_id with
   | Some caps -> caps.supports_min_p
   | None -> Provider_config.is_local config
@@ -76,19 +76,19 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   let defaults = provider_sampling_defaults config.kind in
   let default_min_p =
     match config.kind with
-    | Provider_config.OpenAI_compat when not (openai_compat_should_default_min_p config)
+    | Provider_config.Provider_d_compat when not (provider_d_compat_should_default_min_p config)
       -> None
-    | Anthropic
-    | Kimi
-    | OpenAI_compat
+    | Provider_a
+    | Provider_c
+    | Provider_d_compat
     | Ollama
-    | Gemini
-    | Glm
-    | DashScope
-    | Claude_code
-    | Gemini_cli
-    | Kimi_cli
-    | Codex_cli -> defaults.default_min_p
+    | Provider_f
+    | Provider_k
+    | Provider_h
+    | Cli_tool_d
+    | Cli_tool_b
+    | Cli_tool_c
+    | Cli_tool_a -> defaults.default_min_p
   in
   { config with
     min_p =
@@ -121,16 +121,16 @@ let capability_source_to_string = function
 
 let base_capabilities_for_kind = function
   | Provider_config.Ollama -> Capabilities.ollama_capabilities
-  | DashScope -> Capabilities.dashscope_capabilities
-  | Anthropic -> Capabilities.anthropic_capabilities
-  | Kimi -> Capabilities.kimi_capabilities
-  | Glm -> Capabilities.glm_capabilities
-  | Gemini -> Capabilities.gemini_capabilities
-  | OpenAI_compat -> Capabilities.openai_chat_capabilities
-  | Claude_code -> Capabilities.claude_code_capabilities
-  | Gemini_cli -> Capabilities.gemini_cli_capabilities
-  | Kimi_cli -> Capabilities.kimi_cli_capabilities
-  | Codex_cli -> Capabilities.codex_cli_capabilities
+  | Provider_h -> Capabilities.provider_h_capabilities
+  | Provider_a -> Capabilities.provider_a_capabilities
+  | Provider_c -> Capabilities.provider_c_capabilities
+  | Provider_k -> Capabilities.provider_k_capabilities
+  | Provider_f -> Capabilities.provider_f_capabilities
+  | Provider_d_compat -> Capabilities.provider_d_chat_capabilities
+  | Cli_tool_d -> Capabilities.agent_llm_a_code_capabilities
+  | Cli_tool_b -> Capabilities.provider_f_cli_capabilities
+  | Cli_tool_c -> Capabilities.provider_c_cli_capabilities
+  | Cli_tool_a -> Capabilities.agent_code_cli_capabilities
 ;;
 
 let resolve_capabilities_for_config (config : Provider_config.t) =
@@ -304,16 +304,16 @@ let patch_telemetry
     Kept in sync with the log tag used by the [WARN Complete] line. *)
 let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Ollama -> "ollama"
-  | DashScope -> "dashscope"
-  | Anthropic -> "anthropic"
-  | Kimi -> "kimi"
-  | OpenAI_compat -> "openai"
-  | Gemini -> "gemini"
-  | Glm -> "glm"
-  | Claude_code -> "claude_code"
-  | Gemini_cli -> "gemini_cli"
-  | Kimi_cli -> "kimi_cli"
-  | Codex_cli -> "codex_cli"
+  | Provider_h -> "provider_h"
+  | Provider_a -> "provider_a"
+  | Provider_c -> "provider_c"
+  | Provider_d_compat -> "provider_d"
+  | Provider_f -> "provider_f"
+  | Provider_k -> "provider_k"
+  | Cli_tool_d -> "cli_tool_d"
+  | Cli_tool_b -> "cli_tool_b"
+  | Cli_tool_c -> "cli_tool_c"
+  | Cli_tool_a -> "cli_tool_a"
 ;;
 
 let tool_use_count (content : Types.content_block list) =
@@ -452,19 +452,19 @@ let http_error_diagnostic_body
 let%test "http_error_diagnostic_body preserves non-empty provider body" =
   let config =
     Provider_config.make
-      ~kind:Provider_config.Gemini
-      ~model_id:"gemini-3-flash-preview"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
+      ~kind:Provider_config.Provider_f
+      ~model_id:"provider_f-3-flash-preview"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
       ~api_key:"secret"
       ~headers:[]
       ~request_path:"/v1/chat/completions?api_key=secret"
       ()
   in
   http_error_diagnostic_body
-    ~provider_name:"gemini"
+    ~provider_name:"provider_f"
     ~config
     ~url:
-      "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
+      "https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent?key=secret"
     ~code:404
     ~body:"model not found"
   = "model not found"
@@ -473,25 +473,25 @@ let%test "http_error_diagnostic_body preserves non-empty provider body" =
 let%test "http_error_diagnostic_body enriches empty provider body" =
   let config =
     Provider_config.make
-      ~kind:Provider_config.Gemini
-      ~model_id:"gemini-3-flash-preview"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
+      ~kind:Provider_config.Provider_f
+      ~model_id:"provider_f-3-flash-preview"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
       ~api_key:"secret"
       ~headers:[]
       ~request_path:"/v1/chat/completions?api_key=secret"
       ()
   in
   http_error_diagnostic_body
-    ~provider_name:"gemini"
+    ~provider_name:"provider_f"
     ~config
     ~url:
-      "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
+      "https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent?key=secret"
     ~code:404
     ~body:""
-  = "empty HTTP 404 response from provider=gemini model=gemini-3-flash-preview \
-     base_url=https://generativelanguage.googleapis.com/v1beta/openai \
+  = "empty HTTP 404 response from provider=provider_f model=provider_f-3-flash-preview \
+     base_url=https://generativelanguage.googleapis.com/v1beta/provider_d \
      request_path=/v1/chat/completions \
-     url=https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent"
+     url=https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent"
 ;;
 
 let header_name_eq left right =
@@ -554,35 +554,35 @@ let complete_http
       let config = apply_sampling_defaults config in
       let body_str =
         match config.kind with
-        | Provider_config.Anthropic ->
-          Backend_anthropic.build_request ~config ~messages ~tools ()
-        | Provider_config.Kimi ->
-          Backend_anthropic.build_request ~config ~messages ~tools ()
+        | Provider_config.Provider_a ->
+          Backend_provider_a.build_request ~config ~messages ~tools ()
+        | Provider_config.Provider_c ->
+          Backend_provider_a.build_request ~config ~messages ~tools ()
         | Provider_config.Ollama ->
           Backend_ollama.build_request ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-          Backend_openai.build_request ~config ~messages ~tools ()
-        | Provider_config.Gemini ->
-          Backend_gemini.build_request ~config ~messages ~tools ()
-        | Provider_config.Glm -> Backend_glm.build_request ~config ~messages ~tools ()
-        | Provider_config.Claude_code
-        | Provider_config.Gemini_cli
-        | Provider_config.Kimi_cli
-        | Provider_config.Codex_cli -> "" (* guarded above *)
+        | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
+          Backend_provider_d.build_request ~config ~messages ~tools ()
+        | Provider_config.Provider_f ->
+          Backend_provider_f.build_request ~config ~messages ~tools ()
+        | Provider_config.Provider_k -> Backend_provider_k.build_request ~config ~messages ~tools ()
+        | Provider_config.Cli_tool_d
+        | Provider_config.Cli_tool_b
+        | Provider_config.Cli_tool_c
+        | Provider_config.Cli_tool_a -> "" (* guarded above *)
       in
       let url =
         match config.kind with
-        | Provider_config.Gemini -> gemini_url ~config ~stream:false
-        | Anthropic
-        | Kimi
-        | OpenAI_compat
+        | Provider_config.Provider_f -> provider_f_url ~config ~stream:false
+        | Provider_a
+        | Provider_c
+        | Provider_d_compat
         | Ollama
-        | Glm
-        | DashScope
-        | Claude_code
-        | Gemini_cli
-        | Kimi_cli
-        | Codex_cli -> config.base_url ^ config.request_path
+        | Provider_k
+        | Provider_h
+        | Cli_tool_d
+        | Cli_tool_b
+        | Cli_tool_c
+        | Cli_tool_a -> config.base_url ^ config.request_path
       in
       (* Pre-flight body validation: detect truncated JSON before sending.
      Yojson.Safe.to_string should always produce balanced JSON, but if it
@@ -724,25 +724,25 @@ let complete_http
             then (
               try
                 match config.kind with
-                | Provider_config.Anthropic ->
-                  Ok (Backend_anthropic.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Kimi ->
-                  Ok (Backend_anthropic.parse_response (Yojson.Safe.from_string body))
+                | Provider_config.Provider_a ->
+                  Ok (Backend_provider_a.parse_response (Yojson.Safe.from_string body))
+                | Provider_config.Provider_c ->
+                  Ok (Backend_provider_a.parse_response (Yojson.Safe.from_string body))
                 | Provider_config.Ollama ->
                   (match Backend_ollama.parse_ollama_response body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
-                | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-                  (match Backend_openai_parse.parse_openai_response_result body with
+                | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
+                  (match Backend_provider_d_parse.parse_provider_d_response_result body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
-                | Provider_config.Gemini ->
-                  Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Glm -> Ok (Backend_glm.parse_response body)
-                | Provider_config.Claude_code
-                | Provider_config.Gemini_cli
-                | Provider_config.Kimi_cli
-                | Provider_config.Codex_cli ->
+                | Provider_config.Provider_f ->
+                  Ok (Backend_provider_f.parse_response (Yojson.Safe.from_string body))
+                | Provider_config.Provider_k -> Ok (Backend_provider_k.parse_response body)
+                | Provider_config.Cli_tool_d
+                | Provider_config.Cli_tool_b
+                | Provider_config.Cli_tool_c
+                | Provider_config.Cli_tool_a ->
                   Error
                     (Http_client.NetworkError
                        { message = "Unreachable code"; kind = Unknown })
@@ -760,18 +760,18 @@ let complete_http
                 Error
                   (Http_client.HttpError
                      { code = 400; body = "JSON undefined field error: " ^ msg })
-              | Backend_gemini.Gemini_api_error msg ->
-                Diag.error "complete" "Gemini API error: %s" msg;
+              | Backend_provider_f.Gemini_api_error msg ->
+                Diag.error "complete" "Provider_f API error: %s" msg;
                 Error
-                  (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
-              | Backend_glm.Glm_api_error err ->
+                  (Http_client.HttpError { code = 400; body = "Provider_f API error: " ^ msg })
+              | Backend_provider_k.Glm_api_error err ->
                 let semantic_code =
-                  Backend_glm.http_code_of_glm_error_class err.error_class
+                  Backend_provider_k.http_code_of_glm_error_class err.error_class
                 in
-                let body = Printf.sprintf "GLM error %s: %s" err.code err.message in
+                let body = Printf.sprintf "Provider_k error %s: %s" err.code err.message in
                 Diag.error
                   "complete"
-                  "GLM API error (code=%s class=%d): %s"
+                  "Provider_k API error (code=%s class=%d): %s"
                   err.code
                   semantic_code
                   err.message;
@@ -802,7 +802,7 @@ let complete_http
                 in
                 (* Mask api_key to a short fingerprint so log lines distinguish
                same-provider calls that use different keys (e.g.
-               ZAI_API_KEY vs ZAI_API_KEY_SB for glm vs glm-coding).
+               ZAI_API_KEY vs ZAI_API_KEY_SB for provider_k vs provider_k-coding).
                Empty key renders as "-"; short keys render as "<len:N>"
                since they cannot be safely sampled. *)
                 let api_key_tag =
@@ -1017,7 +1017,7 @@ let complete
              ; runtime_mcp_policy
              }
          | None when requires_non_http_transport config.kind ->
-           (* CLI subprocess providers (claude_code/codex_cli/gemini_cli/kimi_cli)
+           (* CLI subprocess providers (cli_tool_d/cli_tool_a/cli_tool_b/cli_tool_c)
              register with [base_url = ""] on purpose.  Without a CLI
              transport wired by the caller, falling through to
              [complete_http] would let cohttp-eio raise
@@ -1242,56 +1242,56 @@ let complete_stream_http
       let config = apply_sampling_defaults config in
       let body_str =
         match config.kind with
-        | Provider_config.Anthropic ->
-          Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Kimi ->
-          Backend_anthropic.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.Provider_a ->
+          Backend_provider_a.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.Provider_c ->
+          Backend_provider_a.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Ollama ->
-          (* Native /api/chat + NDJSON. The Backend_openai detour was a
+          (* Native /api/chat + NDJSON. The Backend_provider_d detour was a
            deferred work-around (#849) that dropped Ollama's
            prompt_eval_count / eval_count / *_duration fields and
            silently disabled prompt_tok_s / decode_tok_s telemetry
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
           Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-          Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Gemini ->
-          Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Glm ->
-          Backend_glm.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Claude_code
-        | Provider_config.Gemini_cli
-        | Provider_config.Kimi_cli
-        | Provider_config.Codex_cli -> ""
+        | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
+          Backend_provider_d.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.Provider_f ->
+          Backend_provider_f.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.Provider_k ->
+          Backend_provider_k.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.Cli_tool_d
+        | Provider_config.Cli_tool_b
+        | Provider_config.Cli_tool_c
+        | Provider_config.Cli_tool_a -> ""
       in
       let url =
         match config.kind with
-        | Provider_config.Gemini -> gemini_url ~config ~stream:true
-        | Anthropic
-        | Kimi
-        | OpenAI_compat
+        | Provider_config.Provider_f -> provider_f_url ~config ~stream:true
+        | Provider_a
+        | Provider_c
+        | Provider_d_compat
         | Ollama
-        | Glm
-        | DashScope
-        | Claude_code
-        | Gemini_cli
-        | Kimi_cli
-        | Codex_cli -> config.base_url ^ config.request_path
+        | Provider_k
+        | Provider_h
+        | Cli_tool_d
+        | Cli_tool_b
+        | Cli_tool_c
+        | Cli_tool_a -> config.base_url ^ config.request_path
       in
       let body_with_stream =
         match config.kind with
-        | Provider_config.Gemini -> body_str
-        | Anthropic
-        | Kimi
-        | OpenAI_compat
+        | Provider_config.Provider_f -> body_str
+        | Provider_a
+        | Provider_c
+        | Provider_d_compat
         | Ollama
-        | Glm
-        | DashScope
-        | Claude_code
-        | Gemini_cli
-        | Kimi_cli
-        | Codex_cli -> Http_client.inject_stream_param body_str
+        | Provider_k
+        | Provider_h
+        | Cli_tool_d
+        | Cli_tool_b
+        | Cli_tool_c
+        | Cli_tool_a -> Http_client.inject_stream_param body_str
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in
@@ -1301,7 +1301,7 @@ let complete_stream_http
          arg). [first_event_at_ref] fires on the very first SSE
          event of any kind — used to derive [prefill_ms] when the
          provider exposes a separable prelude marker
-         (e.g. Anthropic [MessageStart] arrives before the first
+         (e.g. Provider_a [MessageStart] arrives before the first
          [ContentBlockDelta]). *)
       let first_token_at_ref : float option ref = ref None in
       let first_event_at_ref : float option ref = ref None in
@@ -1373,7 +1373,7 @@ let complete_stream_http
           (* RFC-OAS-020: compute TTFT from first-token capture
              (was first-chunk = ttfrc). [prefill_ms] is the gap
              between any first event and the first token; [None]
-             when they coincide (OpenAI-compat: no separable
+             when they coincide (Provider_d-compat: no separable
              prelude). *)
           let ttft_ms =
             match !first_token_at_ref with
@@ -1419,16 +1419,16 @@ let complete_stream_http
           ~f:(fun reader ->
             let body_logic () =
               let acc = create_stream_acc () in
-              let openai_state = ref None in
+              let provider_d_state = ref None in
               (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
                  hoisted out of body_logic so publish_summary on
                  exception paths sees consistent state. *)
               let get_state () =
-                match !openai_state with
+                match !provider_d_state with
                 | Some s -> s
                 | None ->
-                  let s = Streaming.create_openai_stream_state ~provider ~model () in
-                  openai_state := Some s;
+                  let s = Streaming.create_provider_d_stream_state ~provider ~model () in
+                  provider_d_state := Some s;
                   s
               in
               let dispatch (events, tel_opt) =
@@ -1547,31 +1547,31 @@ let complete_stream_http
                        ~on_data:(fun ~event_type data ->
                          let events =
                            match config.kind with
-                           | Provider_config.Anthropic | Provider_config.Kimi ->
+                           | Provider_config.Provider_a | Provider_config.Provider_c ->
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
-                           | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-                             (match Streaming.parse_openai_sse_chunk data with
+                           | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
+                             (match Streaming.parse_provider_d_sse_chunk data with
                               | Some chunk ->
-                                Streaming.openai_chunk_to_events (get_state ()) chunk
+                                Streaming.provider_d_chunk_to_events (get_state ()) chunk
                               | None -> [], None)
-                           | Provider_config.Gemini ->
-                             (match Streaming.parse_gemini_sse_chunk data with
+                           | Provider_config.Provider_f ->
+                             (match Streaming.parse_provider_f_sse_chunk data with
                               | Some chunk ->
-                                Streaming.gemini_chunk_to_events (get_state ()) chunk
+                                Streaming.provider_f_chunk_to_events (get_state ()) chunk
                               | None -> [], None)
-                           | Provider_config.Glm ->
-                             (match Backend_glm.parse_stream_chunk data with
+                           | Provider_config.Provider_k ->
+                             (match Backend_provider_k.parse_stream_chunk data with
                               | Some chunk ->
-                                Streaming.openai_chunk_to_events (get_state ()) chunk
+                                Streaming.provider_d_chunk_to_events (get_state ()) chunk
                               | None -> [], None)
                            | Provider_config.Ollama ->
                              [], None (* unreachable: handled above *)
-                           | Provider_config.Claude_code
-                           | Provider_config.Gemini_cli
-                           | Provider_config.Kimi_cli
-                           | Provider_config.Codex_cli -> [], None
+                           | Provider_config.Cli_tool_d
+                           | Provider_config.Cli_tool_b
+                           | Provider_config.Cli_tool_c
+                           | Provider_config.Cli_tool_a -> [], None
                          in
                          dispatch events)
                        ());
@@ -1703,16 +1703,16 @@ let complete_stream_http
                   }
             in
             { resp with usage; telemetry }
-          | Anthropic
-          | Kimi
-          | OpenAI_compat
-          | Gemini
-          | Glm
-          | DashScope
-          | Claude_code
-          | Gemini_cli
-          | Kimi_cli
-          | Codex_cli -> resp
+          | Provider_a
+          | Provider_c
+          | Provider_d_compat
+          | Provider_f
+          | Provider_k
+          | Provider_h
+          | Cli_tool_d
+          | Cli_tool_b
+          | Cli_tool_c
+          | Cli_tool_a -> resp
         in
         (match !ollama_timings with
          | Some
@@ -1942,7 +1942,7 @@ let%test "is_retryable provider capacity failure is false" =
               Http_client.Capacity_exhausted
                 { scope = Http_client.Failure_scope_model
                 ; retry_after = None
-                ; model = Some "gemini-2.5-pro"
+                ; model = Some "provider_f-2.5-pro"
                 }
           ; message = "capacity exhausted"
           }))
@@ -1964,12 +1964,12 @@ let%test "default_retry_config values" =
   && default_retry_config.backoff_multiplier = 2.0
 ;;
 
-(* --- gemini_url tests --- *)
+(* --- provider_f_url tests --- *)
 
-let%test "gemini_url sync no api_key" =
+let%test "provider_f_url sync no api_key" =
   let config : Provider_config.t =
-    { kind = Provider_config.Gemini
-    ; model_id = "gemini-2.5-flash"
+    { kind = Provider_config.Provider_f
+    ; model_id = "provider_f-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = ""
     ; request_path = ""
@@ -1997,14 +1997,14 @@ let%test "gemini_url sync no api_key" =
     ; seed = None
     }
   in
-  let url = gemini_url ~config ~stream:false in
-  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+  let url = provider_f_url ~config ~stream:false in
+  url = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:generateContent"
 ;;
 
-let%test "gemini_url sync with api_key" =
+let%test "provider_f_url sync with api_key" =
   let config : Provider_config.t =
-    { kind = Gemini
-    ; model_id = "gemini-2.5-flash"
+    { kind = Provider_f
+    ; model_id = "provider_f-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = "mykey"
     ; request_path = ""
@@ -2032,15 +2032,15 @@ let%test "gemini_url sync with api_key" =
     ; seed = None
     }
   in
-  let url = gemini_url ~config ~stream:false in
+  let url = provider_f_url ~config ~stream:false in
   url
-  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
+  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:generateContent?key=mykey"
 ;;
 
-let%test "gemini_url stream with api_key" =
+let%test "provider_f_url stream with api_key" =
   let config : Provider_config.t =
-    { kind = Gemini
-    ; model_id = "gemini-2.5-flash"
+    { kind = Provider_f
+    ; model_id = "provider_f-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = "mykey"
     ; request_path = ""
@@ -2068,15 +2068,15 @@ let%test "gemini_url stream with api_key" =
     ; seed = None
     }
   in
-  let url = gemini_url ~config ~stream:true in
+  let url = provider_f_url ~config ~stream:true in
   url
-  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
+  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
 ;;
 
-let%test "gemini_url stream no api_key" =
+let%test "provider_f_url stream no api_key" =
   let config : Provider_config.t =
-    { kind = Gemini
-    ; model_id = "gemini-2.5-flash"
+    { kind = Provider_f
+    ; model_id = "provider_f-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = ""
     ; request_path = ""
@@ -2104,9 +2104,9 @@ let%test "gemini_url stream no api_key" =
     ; seed = None
     }
   in
-  let url = gemini_url ~config ~stream:true in
+  let url = provider_f_url ~config ~stream:true in
   url
-  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
+  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:streamGenerateContent?alt=sse"
 ;;
 
 let%test "is_retryable 200 not retryable" =
@@ -2119,30 +2119,30 @@ let%test "is_retryable 403 not retryable" =
 
 (* --- provider_sampling_defaults tests --- *)
 
-let%test "provider_sampling_defaults OpenAI_compat has min_p 0.05" =
-  let d = provider_sampling_defaults Provider_config.OpenAI_compat in
+let%test "provider_sampling_defaults Provider_d_compat has min_p 0.05" =
+  let d = provider_sampling_defaults Provider_config.Provider_d_compat in
   d.default_min_p = Some 0.05
 ;;
 
-let%test "provider_sampling_defaults Anthropic has no min_p" =
-  let d = provider_sampling_defaults Provider_config.Anthropic in
+let%test "provider_sampling_defaults Provider_a has no min_p" =
+  let d = provider_sampling_defaults Provider_config.Provider_a in
   d.default_min_p = None
 ;;
 
-let%test "provider_sampling_defaults Gemini has no min_p" =
-  let d = provider_sampling_defaults Provider_config.Gemini in
+let%test "provider_sampling_defaults Provider_f has no min_p" =
+  let d = provider_sampling_defaults Provider_config.Provider_f in
   d.default_min_p = None
 ;;
 
-let%test "provider_sampling_defaults Claude_code has no min_p" =
-  let d = provider_sampling_defaults Provider_config.Claude_code in
+let%test "provider_sampling_defaults Cli_tool_d has no min_p" =
+  let d = provider_sampling_defaults Provider_config.Cli_tool_d in
   d.default_min_p = None
 ;;
 
-let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
+let%test "apply_sampling_defaults fills min_p for Provider_d_compat" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"test"
       ~base_url:"http://localhost"
       ()
@@ -2151,22 +2151,22 @@ let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
   applied.min_p = Some 0.05
 ;;
 
-let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p" =
+let%test "apply_sampling_defaults Provider_d_compat Provider_f model does not set min_p" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gemini-2.5-flash"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
+      ~kind:Provider_d_compat
+      ~model_id:"provider_f-2.5-flash"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
       ()
   in
   let applied = apply_sampling_defaults config in
   applied.min_p = None
 ;;
 
-let%test "apply_sampling_defaults OpenAI_compat qwen model keeps min_p default" =
+let%test "apply_sampling_defaults Provider_d_compat provider_h model keeps min_p default" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"qwen3.5-35b"
       ~base_url:"https://api.example.com/v1"
       ()
@@ -2178,7 +2178,7 @@ let%test "apply_sampling_defaults OpenAI_compat qwen model keeps min_p default" 
 let%test "apply_sampling_defaults preserves explicit min_p override" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"test"
       ~base_url:"http://localhost"
       ~min_p:0.1
@@ -2188,12 +2188,12 @@ let%test "apply_sampling_defaults preserves explicit min_p override" =
   applied.min_p = Some 0.1
 ;;
 
-let%test "apply_sampling_defaults Anthropic does not set min_p" =
+let%test "apply_sampling_defaults Provider_a does not set min_p" =
   let config =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
   let applied = apply_sampling_defaults config in
@@ -2203,7 +2203,7 @@ let%test "apply_sampling_defaults Anthropic does not set min_p" =
 let%test "apply_sampling_defaults preserves all explicit values" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"test"
       ~base_url:"http://localhost"
       ~min_p:0.2
@@ -2215,12 +2215,12 @@ let%test "apply_sampling_defaults preserves all explicit values" =
   applied.min_p = Some 0.2 && applied.top_p = Some 0.9 && applied.top_k = Some 40
 ;;
 
-let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
+let%test "apply_sampling_defaults Provider_a preserves explicit top_p" =
   let config =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a"
+      ~base_url:"https://api.provider_a.com"
       ~top_p:0.95
       ()
   in
@@ -2279,9 +2279,9 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
 let%test "patch_telemetry creates telemetry when None" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"gpt-4"
-      ~base_url:"https://api.openai.com"
+      ~base_url:"https://api.provider_d.com"
       ()
   in
   let resp =
@@ -2297,7 +2297,7 @@ let%test "patch_telemetry creates telemetry when None" =
   match patched.telemetry with
   | Some t ->
     t.request_latency_ms = Some 100
-    && t.provider_kind = Some Provider_config.OpenAI_compat
+    && t.provider_kind = Some Provider_config.Provider_d_compat
     && t.canonical_model_id = Some "gpt-4"
     && t.effective_context_window = Some 128_000
     && t.reasoning_effort = None
@@ -2388,9 +2388,9 @@ let%test "patch_telemetry overrides ttfrc_ms/prefill_ms when passed as Some" =
 let%test "patch_telemetry fills blank response model" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"gpt-5.4-mini"
-      ~base_url:"https://api.openai.com"
+      ~base_url:"https://api.provider_d.com"
       ()
   in
   let resp =
@@ -2442,9 +2442,9 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=16384 is high" 
 let%test "reasoning_effort_of_config non-Ollama is None" =
   let config =
     Provider_config.make
-      ~kind:Anthropic
+      ~kind:Provider_a
       ~model_id:"m"
-      ~base_url:"https://api.anthropic.com"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
   reasoning_effort_of_config config = None

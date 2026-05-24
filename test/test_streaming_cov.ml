@@ -42,9 +42,9 @@ let test_accumulate_message_start () =
   in
   Streaming.accumulate_event
     acc
-    (Types.MessageStart { id = "msg_1"; model = "claude-3"; usage = Some usage });
+    (Types.MessageStart { id = "msg_1"; model = "agent_llm_a-3"; usage = Some usage });
   Alcotest.(check string) "id" "msg_1" !(acc.msg_id);
-  Alcotest.(check string) "model" "claude-3" !(acc.msg_model);
+  Alcotest.(check string) "model" "agent_llm_a-3" !(acc.msg_model);
   Alcotest.(check int) "input tokens" 10 !(acc.input_tokens);
   Alcotest.(check int) "cache creation" 2 !(acc.cache_creation);
   Alcotest.(check int) "cache read" 3 !(acc.cache_read)

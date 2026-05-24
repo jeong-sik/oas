@@ -5,7 +5,7 @@
 
 type provider =
   | Local of { base_url : string }
-  | Anthropic
+  | Provider_a
   | OpenAICompat of
       { base_url : string
       ; auth_header : string option
@@ -21,7 +21,7 @@ type config =
   }
 
 type request_kind =
-  | Anthropic_messages
+  | Provider_a_messages
   | Openai_chat_completions
   | Custom of string
 
@@ -32,7 +32,7 @@ type modality =
   | Video
   | Multimodal
 
-(** Wire-format for controlling thinking/reasoning on OpenAI-compat backends.
+(** Wire-format for controlling thinking/reasoning on Provider_d-compat backends.
 
     {b API stability note (pre-1.0).}  This type is part of the Stable
     surface but is intentionally a transparent equation of
@@ -149,9 +149,9 @@ val resolve : config -> (string * string * (string * string) list, Error.sdk_err
 (** Pre-built provider configs *)
 val local_llm : unit -> config
 
-val anthropic_sonnet : unit -> config
-val anthropic_haiku : unit -> config
-val anthropic_opus : unit -> config
+val provider_a_sonnet : unit -> config
+val provider_a_haiku : unit -> config
+val provider_a_opus : unit -> config
 val openrouter : ?model_id:string -> unit -> config
 
 (** {2 Pricing: per-model cost estimation} *)
@@ -222,11 +222,11 @@ val config_of_provider_config : Llm_provider.Provider_config.t -> config
     agent state and optional {!config}.  Sampling params, tool_choice,
     thinking controls come from [state.config]; provider kind,
     headers, request_path, and api_key come from [provider_opt]
-    (or the [ANTHROPIC_API_KEY] fallback when [None]).
+    (or the [PROVIDER_A_API_KEY] fallback when [None]).
 
-    [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
+    [OpenAICompat] provider collapses to [Provider_d_compat] kind: the
     legacy {!config} variant does not distinguish arbitrary
-    OpenAI-compatible endpoints from named providers carrying their own
+    Provider_d-compatible endpoints from named providers carrying their own
     kind.  Callers needing kind + arbitrary URL should construct
     {!Llm_provider.Provider_config.t} via
     {!Llm_provider.Provider_config.make} directly.

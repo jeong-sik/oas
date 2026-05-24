@@ -345,16 +345,16 @@ let test_with_retry_max_retries_exhausted () =
 let test_provider_constructors () =
   let p = Provider.local_llm () in
   check string "local_llm" "default" p.model_id;
-  let p = Provider.anthropic_sonnet () in
-  check string "anthropic_sonnet" "claude-sonnet-4-6" p.model_id;
-  let p = Provider.anthropic_haiku () in
-  check string "anthropic_haiku" "claude-haiku-4-5-20251001" p.model_id;
-  let p = Provider.anthropic_opus () in
-  check string "anthropic_opus" "claude-opus-4-6" p.model_id;
+  let p = Provider.provider_a_sonnet () in
+  check string "provider_a_sonnet" "agent_llm_a-sonnet-4-6" p.model_id;
+  let p = Provider.provider_a_haiku () in
+  check string "provider_a_haiku" "agent_llm_a-haiku-4-5-20251001" p.model_id;
+  let p = Provider.provider_a_opus () in
+  check string "provider_a_opus" "agent_llm_a-opus-4-6" p.model_id;
   let p = Provider.openrouter () in
-  check string "openrouter default" "anthropic/claude-sonnet-4-6" p.model_id;
-  let p = Provider.openrouter ~model_id:"google/gemini-2.5-pro" () in
-  check string "openrouter override" "google/gemini-2.5-pro" p.model_id
+  check string "openrouter default" "provider_a/agent_llm_a-sonnet-4-6" p.model_id;
+  let p = Provider.openrouter ~model_id:"google/provider_f-2.5-pro" () in
+  check string "openrouter override" "google/provider_f-2.5-pro" p.model_id
 ;;
 
 let () =

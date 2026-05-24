@@ -56,23 +56,23 @@ let test_histogram_with_labels () =
   in
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "openai"; "gen_ai.request.model", "gpt-5" ]
+    ~labels:[ "gen_ai.system", "provider_d"; "gen_ai.request.model", "gpt-5" ]
     0.3;
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "openai"; "gen_ai.request.model", "gpt-5" ]
+    ~labels:[ "gen_ai.system", "provider_d"; "gen_ai.request.model", "gpt-5" ]
     0.9;
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "anthropic"; "gen_ai.request.model", "claude" ]
+    ~labels:[ "gen_ai.system", "provider_a"; "gen_ai.request.model", "agent_llm_a" ]
     2.5;
   check int "total count" 3 (Metrics.histogram_count h);
   check
     int
-    "openai count"
+    "provider_d count"
     2
     (Metrics.histogram_count
-       ~labels:[ "gen_ai.request.model", "gpt-5"; "gen_ai.system", "openai" ]
+       ~labels:[ "gen_ai.request.model", "gpt-5"; "gen_ai.system", "provider_d" ]
        h);
   check
     int
@@ -222,34 +222,34 @@ let test_register_same_name_same_kind_is_idempotent () =
 let test_prometheus_text_histogram_exports_labeled_series () =
   let m = Metrics.create () in
   let h = Metrics.histogram m ~name:"gen_ai.client.ttfrc" ~buckets:[ 1.0; 2.0 ] in
-  let labels = [ "gen_ai.system", "openai"; "gen_ai.request.model", "gpt-5" ] in
+  let labels = [ "gen_ai.system", "provider_d"; "gen_ai.request.model", "gpt-5" ] in
   Metrics.observe h ~labels 0.5;
   Metrics.observe h ~labels 3.0;
   let text = Metrics.to_prometheus_text m in
   check_line
     "labeled bucket"
-    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\",le=\"1\"} \
+    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\",le=\"1\"} \
      1"
     text;
   check_line
     "labeled +Inf bucket"
-    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\",le=\"+Inf\"} \
+    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\",le=\"+Inf\"} \
      2"
     text;
   check_line
     "labeled sum"
-    "gen_ai_client_ttfrc_sum{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\"} 3.5"
+    "gen_ai_client_ttfrc_sum{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\"} 3.5"
     text;
   check_line
     "labeled count"
-    "gen_ai_client_ttfrc_count{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\"} 2"
+    "gen_ai_client_ttfrc_count{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\"} 2"
     text
 ;;
 
 let test_otlp_json_histogram_exports_labeled_datapoints () =
   let m = Metrics.create () in
   let h = Metrics.histogram m ~name:"gen_ai.client.ttfrc" ~buckets:[ 1.0; 2.0 ] in
-  Metrics.observe h ~labels:[ "gen_ai.system", "openai" ] 0.5;
+  Metrics.observe h ~labels:[ "gen_ai.system", "provider_d" ] 0.5;
   let json = Metrics.to_otlp_json m in
   let open Yojson.Safe.Util in
   let metrics =
@@ -286,7 +286,7 @@ let test_otlp_json_histogram_exports_labeled_datapoints () =
   check
     string
     "attribute value"
-    "openai"
+    "provider_d"
     (List.hd attrs |> member "value" |> member "stringValue" |> to_string)
 ;;
 

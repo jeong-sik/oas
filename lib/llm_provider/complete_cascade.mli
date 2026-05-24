@@ -196,7 +196,7 @@ type cascade_result =
     can distinguish a provider-step timeout from a caller-side budget gate:
     - omitted (no argument): provider-specific defaults from
       {!Provider_config.default_attempt_timeout_s} apply when present
-      (Claude_code, Kimi_cli, and Gemini_cli have positive defaults;
+      (Cli_tool_d, Cli_tool_c, and Cli_tool_b have positive defaults;
       Ollama and other HTTP/API providers have none).
     - [Some t] with [t > 0.0]: use [t] seconds for this call, regardless
       of the provider default.

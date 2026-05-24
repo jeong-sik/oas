@@ -1,6 +1,6 @@
 (** Tests for Completion_contract.tool_use_calls — lazy tool-index behavior.
 
-    Regression coverage for the Codex P1 finding on PR #1592: the tool-name
+    Regression coverage for the Agent_code P1 finding on PR #1592: the tool-name
     lookup index must only be constructed when at least one [ToolUse] block
     is present in the response content. Text-only responses must skip the
     O(|tools|) hash build entirely. *)

@@ -3,7 +3,7 @@
     Uses a mock HTTP server (Cohttp_eio) to exercise the full agent loop
     without any real LLM. Each test gets a unique port to avoid bind conflicts.
 
-    Pattern: test_integration.ml (Anthropic Messages API mock) *)
+    Pattern: test_integration.ml (Provider_a Messages API mock) *)
 
 open Agent_sdk
 open Types
@@ -465,8 +465,8 @@ let test_context_injector_adds_data () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
+  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Hooks_Integration"

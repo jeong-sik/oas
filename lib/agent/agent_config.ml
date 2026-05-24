@@ -7,7 +7,7 @@
     {[
       {
         "name": "my-agent",
-        "model": "claude-sonnet-4-6",
+        "model": "agent_llm_a-sonnet-4-6",
         "system_prompt": "You are helpful.",
         "max_tokens": 4096,
         "max_turns": 10,
@@ -26,8 +26,8 @@
       }
     ]}
 
-    Provider values: "local" (llama-server), "anthropic", "openai",
-    or any string (treated as OpenAI-compatible with api_key_env = that string).
+    Provider values: "local" (llama-server), "provider_a", "provider_d",
+    or any string (treated as Provider_d-compatible with api_key_env = that string).
 *)
 
 open Result_syntax
@@ -175,7 +175,7 @@ let of_json json =
       json
       |> member "model"
       |> to_string_option
-      |> Option.value ~default:"claude-sonnet-4-6"
+      |> Option.value ~default:"agent_llm_a-sonnet-4-6"
     in
     let system_prompt = json |> member "system_prompt" |> to_string_option in
     let max_tokens = json |> member "max_tokens" |> to_int_option in
@@ -245,16 +245,16 @@ let load path =
 
     Canonical provider kinds ({!Llm_provider.Provider_kind.t}) are dispatched
     through {!Llm_provider.Provider_kind.of_string}, which accepts the
-    canonical wire forms (["anthropic"], ["openai_compat"], …) plus the
-    documented aliases (["claude"] -> Anthropic,
-    ["openai"] -> OpenAI_compat, ["llama"] -> Ollama), case-insensitively
+    canonical wire forms (["provider_a"], ["provider_d_compat"], …) plus the
+    documented aliases (["agent_llm_a"] -> Provider_a,
+    ["provider_d"] -> Provider_d_compat, ["llama"] -> Ollama), case-insensitively
     with leading/trailing whitespace trimmed.
 
     ["local"] remains a first-class routing shorthand (not a Provider_kind
     variant) and is matched explicitly before the parser so that
     ["LOCAL"] / [" local "] also reach the Local branch.
 
-    Any kind the parser recognises beyond Anthropic / OpenAI_compat — or
+    Any kind the parser recognises beyond Provider_a / Provider_d_compat — or
     anything it does not recognise at all — falls through to the registry
     lookup path, preserving the legacy [Custom_registered] behaviour that
     downstream tests and configs depend on. *)
@@ -270,13 +270,13 @@ let resolve_provider ~model_id provider_str base_url =
     { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
   else (
     match Llm_provider.Provider_kind.of_string provider_str with
-    | Some Anthropic ->
-      { Provider.provider = Anthropic; model_id; api_key_env = "ANTHROPIC_API_KEY" }
-    | Some OpenAI_compat ->
+    | Some Provider_a ->
+      { Provider.provider = Provider_a; model_id; api_key_env = "PROVIDER_A_API_KEY" }
+    | Some Provider_d_compat ->
       let url =
         match base_url with
         | Some u -> u
-        | None -> "https://api.openai.com"
+        | None -> "https://api.provider_d.com"
       in
       { Provider.provider =
           OpenAICompat
@@ -286,25 +286,25 @@ let resolve_provider ~model_id provider_str base_url =
             ; static_token = None
             }
       ; model_id
-      ; api_key_env = "OPENAI_API_KEY"
+      ; api_key_env = "PROVIDER_D_API_KEY"
       }
     | Some
-        ( Kimi
+        ( Provider_c
         | Ollama
-        | Gemini
-        | Glm
-        | DashScope
-        | Claude_code
-        | Gemini_cli
-        | Kimi_cli
-        | Codex_cli )
+        | Provider_f
+        | Provider_k
+        | Provider_h
+        | Cli_tool_d
+        | Cli_tool_b
+        | Cli_tool_c
+        | Cli_tool_a )
     | None ->
       let registry = Llm_provider.Provider_registry.default () in
       (match Llm_provider.Provider_registry.find registry provider_str with
        | Some entry ->
          (match base_url with
           | None ->
-            (* Preserve registry-declared kind (Gemini/Glm/Ollama/etc.)
+            (* Preserve registry-declared kind (Provider_f/Provider_k/Ollama/etc.)
                     via Custom_registered. Downstream (provider_config_of_agent,
                     request_path, Capabilities, resolve) dispatches through
                     Provider_registry by name, retaining entry.defaults.kind. *)
@@ -315,7 +315,7 @@ let resolve_provider ~model_id provider_str base_url =
           | Some url ->
             (* Explicit base_url override: legacy Provider.config variant
                     cannot carry kind + arbitrary URL simultaneously, so kind
-                    flattens to OpenAI_compat. For kind-preserving override,
+                    flattens to Provider_d_compat. For kind-preserving override,
                     construct Llm_provider.Provider_config.t directly via
                     Provider_config.make. *)
             { Provider.provider =

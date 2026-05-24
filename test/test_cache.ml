@@ -55,7 +55,7 @@ let test_parse_usage_with_cache_tokens () =
   let json_str =
     {|{
     "id": "msg_cache",
-    "model": "claude-sonnet-4-20250514",
+    "model": "agent_llm_a-sonnet-4-20250514",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "Hello"}],
     "usage": {
@@ -81,7 +81,7 @@ let test_parse_usage_without_cache_tokens () =
   let json_str =
     {|{
     "id": "msg_nocache",
-    "model": "claude-sonnet-4-20250514",
+    "model": "agent_llm_a-sonnet-4-20250514",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "Hi"}],
     "usage": {
@@ -131,14 +131,14 @@ let test_add_usage_cache_accumulation () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* OpenAI: cache token parsing from prompt_tokens_details               *)
+(* Provider_d: cache token parsing from prompt_tokens_details               *)
 (* ------------------------------------------------------------------ *)
 
-let test_openai_usage_with_cached_tokens () =
+let test_provider_d_usage_with_cached_tokens () =
   let json_str =
     {|{
     "id": "chatcmpl-abc",
-    "model": "gpt-4o",
+    "model": "model-d",
     "choices": [{
       "index": 0,
       "message": {"role": "assistant", "content": "Hello"},
@@ -154,7 +154,7 @@ let test_openai_usage_with_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_openai_response_result json_str with
+    match Agent_sdk.Api.parse_provider_d_response_result json_str with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -167,11 +167,11 @@ let test_openai_usage_with_cached_tokens () =
   | None -> Alcotest.fail "expected usage"
 ;;
 
-let test_openai_usage_without_cached_tokens () =
+let test_provider_d_usage_without_cached_tokens () =
   let json_str =
     {|{
     "id": "chatcmpl-def",
-    "model": "gpt-4o",
+    "model": "model-d",
     "choices": [{
       "index": 0,
       "message": {"role": "assistant", "content": "Hi"},
@@ -184,7 +184,7 @@ let test_openai_usage_without_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_openai_response_result json_str with
+    match Agent_sdk.Api.parse_provider_d_response_result json_str with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -272,12 +272,12 @@ let () =
     ; ( "add_usage"
       , [ test_case "cache token accumulation" `Quick test_add_usage_cache_accumulation ]
       )
-    ; ( "openai_cache"
-      , [ test_case "usage with cached_tokens" `Quick test_openai_usage_with_cached_tokens
+    ; ( "provider_d_cache"
+      , [ test_case "usage with cached_tokens" `Quick test_provider_d_usage_with_cached_tokens
         ; test_case
             "usage without cached_tokens"
             `Quick
-            test_openai_usage_without_cached_tokens
+            test_provider_d_usage_without_cached_tokens
         ] )
     ; ( "streaming_delta_cache"
       , [ test_case

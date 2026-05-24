@@ -31,8 +31,8 @@ let test_options_custom () =
   let o : Transport.options =
     { runtime_path = Some "/usr/local/bin/oas_runtime"
     ; session_root = Some "/tmp/sessions"
-    ; provider = Some "anthropic"
-    ; model = Some "claude-3-5-sonnet"
+    ; provider = Some "provider_a"
+    ; model = Some "agent_llm_a-3-5-sonnet"
     ; permission_mode = Some "auto"
     ; include_partial_messages = true
     ; setting_sources = [ "env"; "config.json" ]
@@ -52,7 +52,7 @@ let test_options_partial () =
   let o : Transport.options =
     { runtime_path = None
     ; session_root = None
-    ; provider = Some "openai"
+    ; provider = Some "provider_d"
     ; model = None
     ; permission_mode = None
     ; include_partial_messages = false
@@ -61,7 +61,7 @@ let test_options_partial () =
     ; cwd = Some "/home/user"
     }
   in
-  Alcotest.(check (option string)) "provider" (Some "openai") o.provider;
+  Alcotest.(check (option string)) "provider" (Some "provider_d") o.provider;
   Alcotest.(check (option string)) "cwd" (Some "/home/user") o.cwd
 ;;
 
@@ -75,8 +75,8 @@ let test_protocol_message_round_trip_request () =
       ; request =
           Runtime.Initialize
             { session_root = None
-            ; provider = Some "anthropic"
-            ; model = Some "claude-3-5-sonnet"
+            ; provider = Some "provider_a"
+            ; model = Some "agent_llm_a-3-5-sonnet"
             ; permission_mode = None
             ; include_partial_messages = false
             ; setting_sources = []
@@ -167,8 +167,8 @@ let test_request_round_trip_start_session () =
       { session_id = Some "sess-new"
       ; goal = "deploy v2"
       ; participants = [ "agent-a"; "agent-b" ]
-      ; provider = Some "anthropic"
-      ; model = Some "claude-3-5-sonnet"
+      ; provider = Some "provider_a"
+      ; model = Some "agent_llm_a-3-5-sonnet"
       ; permission_mode = None
       ; system_prompt = Some "You are a deployment agent."
       ; max_turns = Some 10

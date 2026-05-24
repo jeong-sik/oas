@@ -132,7 +132,7 @@ val with_event_bus : Event_bus.t -> t -> t
 val with_max_execution_time : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
+    (Ollama NDJSON, Provider_a / Provider_d / Provider_f / Provider_k SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], preserving whether
@@ -141,7 +141,7 @@ val with_max_execution_time : float -> t -> t
 val with_stream_idle_timeout : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Anthropic / OpenAI / Gemini / GLM SSE). Resets after
+    (Ollama NDJSON, Provider_a / Provider_d / Provider_f / Provider_k SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], preserving whether
@@ -182,10 +182,10 @@ val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 val with_base_url : string -> t -> t
 
 (** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.
-    Required for CLI provider kinds ([Claude_code], [Codex_cli],
-    [Gemini_cli], [Kimi_cli]) which are reached via subprocess rather
+    Required for CLI provider kinds ([Cli_tool_d], [Cli_tool_a],
+    [Cli_tool_b], [Cli_tool_c]) which are reached via subprocess rather
     than HTTP.
-    For HTTP kinds (Anthropic/Gemini/Glm/Ollama/OpenAI_compat) the
+    For HTTP kinds (Provider_a/Provider_f/Provider_k/Ollama/Provider_d_compat) the
     transport is unused and can be left unset.
 
     The transport must outlive the agent's [run] call.
@@ -194,7 +194,7 @@ val with_transport : Llm_provider.Llm_transport.t -> t -> t
 
 (** Inject a request-scoped runtime MCP policy for CLI transports.
     This is orthogonal to inline [Tool.t] schemas: transports such as
-    Claude Code and Codex CLI can expose MCP tools directly from the
+    Agent_llm_a Code and Agent_code CLI can expose MCP tools directly from the
     subprocess runtime.
     @since 0.164.0 *)
 val with_runtime_mcp_policy : Llm_provider.Llm_transport.runtime_mcp_policy -> t -> t

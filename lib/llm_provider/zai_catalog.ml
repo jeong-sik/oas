@@ -6,11 +6,11 @@ type api_mode =
 
 let general_base_url = "https://api.z.ai/api/paas/v4"
 let coding_base_url = "https://api.z.ai/api/coding/paas/v4"
-let anthropic_base_url = "https://api.z.ai/api/anthropic"
+let provider_a_base_url = "https://api.z.ai/api/provider_a"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
-  m = "glm" || (String.length m > 4 && String.sub m 0 4 = "glm-")
+  m = "provider_k" || (String.length m > 4 && String.sub m 0 4 = "provider_k-")
 ;;
 
 let has_prefix value prefix =
@@ -56,11 +56,11 @@ let is_coding_base_url base_url =
     "/api/coding/paas/"
 ;;
 
-let is_anthropic_base_url base_url =
+let is_provider_a_base_url base_url =
   zai_path_prefix_matches
-    (configured_base_urls [ anthropic_base_url ] None)
+    (configured_base_urls [ provider_a_base_url ] None)
     base_url
-    "/api/anthropic"
+    "/api/provider_a"
 ;;
 
 let is_zai_base_url base_url =
@@ -69,11 +69,11 @@ let is_zai_base_url base_url =
     base_url
     "/api/paas/"
   || is_coding_base_url base_url
-  || is_anthropic_base_url base_url
+  || is_provider_a_base_url base_url
 ;;
 
 let mode_of_base_url base_url =
-  if is_coding_base_url base_url || is_anthropic_base_url base_url
+  if is_coding_base_url base_url || is_provider_a_base_url base_url
   then Coding_plan
   else General_api
 ;;
@@ -83,34 +83,34 @@ let split_csv = Cli_common_env.split_on_char_trim ','
 let glm_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with
   | Some models -> models
-  | None -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
+  | None -> [ "provider_k-5.1"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.7-flashx" ]
 ;;
 
 let glm_coding_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
   | Some models -> models
-  | None -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
+  | None -> [ "provider_k-5.1"; "provider_k-5"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.5-air" ]
 ;;
 
 let resolve_glm_alias ~default_model model_id =
   match String.lowercase_ascii model_id with
   | "auto" -> default_model
-  | "flash" -> "glm-4.7-flashx"
-  | "turbo" -> "glm-5-turbo"
-  | "vision" | "v" -> "glm-4.6v"
-  | "vision-flash" | "vf" -> "glm-4.6v-flashx"
-  | "air" -> "glm-4.5-air"
-  | "ocr" -> "glm-ocr"
+  | "flash" -> "provider_k-4.7-flashx"
+  | "turbo" -> "provider_k-5-turbo"
+  | "vision" | "v" -> "provider_k-4.6v"
+  | "vision-flash" | "vf" -> "provider_k-4.6v-flashx"
+  | "air" -> "provider_k-4.5-air"
+  | "ocr" -> "provider_k-ocr"
   | _ -> model_id
 ;;
 
 let resolve_glm_coding_alias ~default_model model_id =
   match String.lowercase_ascii model_id with
   | "auto" -> default_model
-  | "flash" -> "glm-4.7-flashx"
-  | "turbo" -> "glm-5-turbo"
-  | "vision" | "v" -> "glm-4.6v"
-  | "air" -> "glm-4.5-air"
+  | "flash" -> "provider_k-4.7-flashx"
+  | "turbo" -> "provider_k-5-turbo"
+  | "vision" | "v" -> "provider_k-4.6v"
+  | "air" -> "provider_k-4.5-air"
   | _ -> model_id
 ;;
 
@@ -120,36 +120,36 @@ let general_concurrency_for_model model_id =
     String.length m >= String.length prefix
     && String.sub m 0 (String.length prefix) = prefix
   in
-  if starts_with "glm-4-plus"
+  if starts_with "provider_k-4-plus"
   then 20
-  else if starts_with "glm-4-32b-0414-128k"
+  else if starts_with "provider_k-4-32b-0414-128k"
   then 15
-  else if starts_with "glm-4.5" && not (starts_with "glm-4.5-flash")
+  else if starts_with "provider_k-4.5" && not (starts_with "provider_k-4.5-flash")
   then 10
-  else if starts_with "glm-4.6v"
+  else if starts_with "provider_k-4.6v"
   then
-    if starts_with "glm-4.6v-flashx"
+    if starts_with "provider_k-4.6v-flashx"
     then 3
-    else if starts_with "glm-4.6v-flash"
+    else if starts_with "provider_k-4.6v-flash"
     then 1
     else 10
-  else if starts_with "glm-4.6"
+  else if starts_with "provider_k-4.6"
   then 3
-  else if starts_with "glm-4.7-flashx"
+  else if starts_with "provider_k-4.7-flashx"
   then 3
-  else if starts_with "glm-4.7-flash"
+  else if starts_with "provider_k-4.7-flash"
   then 1
-  else if starts_with "glm-4.7"
+  else if starts_with "provider_k-4.7"
   then 2
-  else if starts_with "glm-5v-turbo"
+  else if starts_with "provider_k-5v-turbo"
   then 1
-  else if starts_with "glm-5.1"
+  else if starts_with "provider_k-5.1"
   then 1
-  else if starts_with "glm-5-turbo"
+  else if starts_with "provider_k-5-turbo"
   then 1
-  else if starts_with "glm-5"
+  else if starts_with "provider_k-5"
   then 2
-  else if starts_with "glm-ocr"
+  else if starts_with "provider_k-ocr"
   then 2
   else 1
 ;;
@@ -165,48 +165,48 @@ let throttle_key_for_chat ~base_url ~model_id =
 
 [@@@coverage off]
 
-let%test "is_glm_model_id accepts glm prefixes only" =
-  is_glm_model_id "glm-5" && is_glm_model_id "glm" && not (is_glm_model_id "gpt-5")
+let%test "is_glm_model_id accepts provider_k prefixes only" =
+  is_glm_model_id "provider_k-5" && is_glm_model_id "provider_k" && not (is_glm_model_id "gpt-5")
 ;;
 
-let%test "base_url classifiers distinguish general coding and anthropic" =
+let%test "base_url classifiers distinguish general coding and provider_a" =
   is_zai_base_url general_base_url
   && is_zai_base_url coding_base_url
-  && is_zai_base_url anthropic_base_url
+  && is_zai_base_url provider_a_base_url
   && is_coding_base_url coding_base_url
   && (not (is_coding_base_url general_base_url))
-  && is_anthropic_base_url anthropic_base_url
-  && not (is_anthropic_base_url general_base_url)
+  && is_provider_a_base_url provider_a_base_url
+  && not (is_provider_a_base_url general_base_url)
 ;;
 
-let%test "mode_of_base_url maps coding and anthropic to coding plan" =
+let%test "mode_of_base_url maps coding and provider_a to coding plan" =
   mode_of_base_url general_base_url = General_api
   && mode_of_base_url coding_base_url = Coding_plan
-  && mode_of_base_url anthropic_base_url = Coding_plan
+  && mode_of_base_url provider_a_base_url = Coding_plan
 ;;
 
 let%test "resolve_glm_alias covers common aliases" =
-  resolve_glm_alias ~default_model:"glm-5.1" "auto" = "glm-5.1"
-  && resolve_glm_alias ~default_model:"glm-5.1" "flash" = "glm-4.7-flashx"
-  && resolve_glm_alias ~default_model:"glm-5.1" "vf" = "glm-4.6v-flashx"
-  && resolve_glm_alias ~default_model:"glm-5.1" "air" = "glm-4.5-air"
-  && resolve_glm_alias ~default_model:"glm-5.1" "glm-5-turbo" = "glm-5-turbo"
+  resolve_glm_alias ~default_model:"provider_k-5.1" "auto" = "provider_k-5.1"
+  && resolve_glm_alias ~default_model:"provider_k-5.1" "flash" = "provider_k-4.7-flashx"
+  && resolve_glm_alias ~default_model:"provider_k-5.1" "vf" = "provider_k-4.6v-flashx"
+  && resolve_glm_alias ~default_model:"provider_k-5.1" "air" = "provider_k-4.5-air"
+  && resolve_glm_alias ~default_model:"provider_k-5.1" "provider_k-5-turbo" = "provider_k-5-turbo"
 ;;
 
-let%test "general_concurrency_for_model hits key glm families" =
-  general_concurrency_for_model "glm-4.5" = 10
-  && general_concurrency_for_model "glm-4.5-flash" = 1
-  && general_concurrency_for_model "glm-4.6v-flashx" = 3
-  && general_concurrency_for_model "glm-4.7" = 2
-  && general_concurrency_for_model "glm-5v-turbo" = 1
-  && general_concurrency_for_model "glm-ocr" = 2
+let%test "general_concurrency_for_model hits key provider_k families" =
+  general_concurrency_for_model "provider_k-4.5" = 10
+  && general_concurrency_for_model "provider_k-4.5-flash" = 1
+  && general_concurrency_for_model "provider_k-4.6v-flashx" = 3
+  && general_concurrency_for_model "provider_k-4.7" = 2
+  && general_concurrency_for_model "provider_k-5v-turbo" = 1
+  && general_concurrency_for_model "provider_k-ocr" = 2
   && general_concurrency_for_model "unknown-model" = 1
 ;;
 
 let%test "throttle_key_for_chat separates coding and general plans" =
-  throttle_key_for_chat ~base_url:general_base_url ~model_id:" GLM-5 "
-  = "zai/general/chat/glm-5"
-  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"glm-5" = "zai/coding/chat"
+  throttle_key_for_chat ~base_url:general_base_url ~model_id:" Provider_k-5 "
+  = "zai/general/chat/provider_k-5"
+  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"provider_k-5" = "zai/coding/chat"
 ;;
 
 let%test "is_zai_base_url rejects untrusted host lookalikes" =

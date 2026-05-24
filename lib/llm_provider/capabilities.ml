@@ -7,7 +7,7 @@
     @since 0.42.0
     @since 0.72.0 — added numeric limits, parallel tool calls, thinking split *)
 
-(** Wire-format for controlling thinking/reasoning on OpenAI-compat backends.
+(** Wire-format for controlling thinking/reasoning on Provider_d-compat backends.
     Different model families use different JSON shapes to enable/disable
     thinking, so the runtime must know which format to emit.
 
@@ -15,19 +15,19 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object
-  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
+  (** Provider_g-style: top-level [thinking] object plus [reasoning_effort]. *)
   | Thinking_object_only
-  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
+  (** Provider_c K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** OpenAI-style top-level [reasoning_effort] string field. The set of
+  (** Provider_d-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (OpenAI's spec
+      see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
       also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's OpenAI-compatible mode uses this shape. *)
+      it.) Ollama's Provider_d-compatible mode uses this shape. *)
   | Enable_thinking
-  (** DashScope-style top-level [enable_thinking] bool plus optional
+  (** Provider_h-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
 
 type capabilities =
@@ -45,10 +45,10 @@ type capabilities =
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
   ; thinking_control_format : thinking_control_format
-    (** Wire-format for thinking control on OpenAI-compat backends.
+    (** Wire-format for thinking control on Provider_d-compat backends.
         Determines which JSON shape the backend emits for enable_thinking.
         Only meaningful when [supports_reasoning] or [supports_extended_thinking]
-        is true and the request goes through backend_openai.
+        is true and the request goes through backend_provider_d.
         @since 0.184.0 *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
@@ -76,7 +76,7 @@ type capabilities =
     (** Whether the provider respects [seed] deterministically when
       image inputs are present.  Local providers (Ollama, llama-server)
       achieve near-perfect determinism on identical hardware; cloud
-      providers (OpenAI, Gemini) do not guarantee deterministic output
+      providers (Provider_d, Provider_f) do not guarantee deterministic output
       when images are in the prompt. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
@@ -84,10 +84,10 @@ type capabilities =
   ; (* ── Usage reporting ─────────────────────────────────── *)
     emits_usage_tokens : bool
     (** True when the provider's standard response carries
-      [input_tokens]/[output_tokens] (direct APIs like Anthropic,
-      OpenAI, Gemini, Kimi-API, GLM, Ollama). False for CLI-class
-      wrappers that strip usage before returning (codex_cli,
-      gemini_cli, kimi_cli).
+      [input_tokens]/[output_tokens] (direct APIs like Provider_a,
+      Provider_d, Provider_f, Provider_c-API, Provider_k, Ollama). False for CLI-class
+      wrappers that strip usage before returning (cli_tool_a,
+      cli_tool_b, cli_tool_c).
 
       Consumers use this to decide whether a text-only turn with no
       usage should be treated as a structurally unreported one
@@ -132,7 +132,7 @@ let default_capabilities =
   }
 ;;
 
-let anthropic_capabilities =
+let provider_a_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000
   ; (* default; opus/sonnet 4.6 = 1M *)
@@ -152,21 +152,21 @@ let anthropic_capabilities =
   ; supports_prompt_caching = true
   ; prompt_cache_alignment = Some 1024
   ; supports_computer_use = true
-  ; (* Anthropic Messages API documents [top_k] as a valid sampling
+  ; (* Provider_a Messages API documents [top_k] as a valid sampling
      parameter ("Only sample from the top K options for each
-     subsequent token", docs.anthropic.com/en/api/messages body
-     params). [backend_anthropic.build_request] already serializes
+     subsequent token", docs.provider_a.com/en/api/messages body
+     params). [backend_provider_a.build_request] already serializes
      [config.top_k] unconditionally when [Some]; the capability record
-     must match so cross-layer consumers (the #831 Api_openai gate,
-     the #830 Backend_openai gate, and the capability_filter passes)
-     do not silently drop top_k when the caller routes an Anthropic
+     must match so cross-layer consumers (the #831 Api_provider_d gate,
+     the #830 Backend_provider_d gate, and the capability_filter passes)
+     do not silently drop top_k when the caller routes an Provider_a
      config through a capability-checking path. [supports_min_p]
-     remains [false] — Anthropic does not accept min_p. *)
+     remains [false] — Provider_a does not accept min_p. *)
     supports_top_k = true
   }
 ;;
 
-let kimi_capabilities =
+let provider_c_capabilities =
   { default_capabilities with
     max_context_tokens = Some 262_144
   ; max_output_tokens = Some 32_768
@@ -179,7 +179,7 @@ let kimi_capabilities =
   }
 ;;
 
-let openai_chat_capabilities =
+let provider_d_chat_capabilities =
   { default_capabilities with
     max_context_tokens = Some 128_000
   ; max_output_tokens = Some 16_384
@@ -197,8 +197,8 @@ let openai_chat_capabilities =
   }
 ;;
 
-let openai_chat_extended_capabilities =
-  { openai_chat_capabilities with
+let provider_d_chat_extended_capabilities =
+  { provider_d_chat_capabilities with
     supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_reasoning_budget = true
@@ -208,7 +208,7 @@ let openai_chat_extended_capabilities =
   }
 ;;
 
-(* Ollama OpenAI-compat endpoint behavior on tool_choice is model-dependent
+(* Ollama Provider_d-compat endpoint behavior on tool_choice is model-dependent
    (docs.ollama.com/capabilities/tool-calling: the parameter is silently
    ignored for some models). Some Qwen3.5 deployments w/ native Jinja
    chat template do honor tool_choice:required in practice.
@@ -229,13 +229,13 @@ let openai_chat_extended_capabilities =
    chat template) owns that policy. This is stricter than LiteLLM's
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
-   the Claude Agent SDK sidesteps by being single-provider. *)
-(* NVIDIA NIM Nemotron: Llama-based OpenAI-compatible endpoint.
+   the Agent_llm_a Agent SDK sidesteps by being single-provider. *)
+(* NVIDIA NIM Provider_l: Llama-based Provider_d-compatible endpoint.
    Thinking uses chat_template_kwargs (same wire format as Ollama's
    llama-server backend). VL variants add image input.
-   Ref: build.nvidia.com/nvidia docs, Nemotron model cards. *)
-let nemotron_capabilities =
-  { openai_chat_extended_capabilities with
+   Ref: build.nvidia.com/nvidia docs, Provider_l model cards. *)
+let provider_l_capabilities =
+  { provider_d_chat_extended_capabilities with
     supports_tool_choice = true
   ; supports_reasoning = true
   ; thinking_control_format = Chat_template_kwargs
@@ -243,7 +243,7 @@ let nemotron_capabilities =
 ;;
 
 let ollama_capabilities =
-  { openai_chat_extended_capabilities with
+  { provider_d_chat_extended_capabilities with
     supports_tool_choice = false
   ; supports_seed = true
   ; supports_seed_with_images = true
@@ -251,30 +251,30 @@ let ollama_capabilities =
   }
 ;;
 
-let dashscope_capabilities =
-  { openai_chat_extended_capabilities with
+let provider_h_capabilities =
+  { provider_d_chat_extended_capabilities with
     supports_tool_choice = true
   ; supports_min_p = true
   ; thinking_control_format = Enable_thinking
   }
 ;;
 
-let glm_capabilities =
+let provider_k_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000
-  ; (* GLM-5.1 API enforces max_tokens <= 40960 at request time; keeping a
+  ; (* Provider_k-5.1 API enforces max_tokens <= 40960 at request time; keeping a
      higher value here causes server-side rejection with
      "Invalid request: `max_tokens` must be less than or equal to `40960`".
      Empirical upper bound observed on 2026-04-12 during automated
-     turns against glm-coding:glm-5.1 and glm:glm-5.1. *)
+     turns against provider_k-coding:provider_k-5.1 and provider_k:provider_k-5.1. *)
     max_output_tokens = Some 40_960
   ; supports_tools = true
   ; (* Z.AI's function-calling docs currently document [tool_choice]
      as default [auto] and "only supports auto". OAS therefore treats
-     GLM as "tools supported, forced tool_choice unsupported":
+     Provider_k as "tools supported, forced tool_choice unsupported":
      callers may still send tools and OAS may coerce an explicit
      tool_choice request to [auto], but the completion contract must
-     stay relaxed so direct GLM text replies do not count as contract
+     stay relaxed so direct Provider_k text replies do not count as contract
      violations. Ref checked 2026-04-21:
      https://docs.z.ai/guides/capabilities/function-calling *)
     supports_tool_choice = false
@@ -284,10 +284,10 @@ let glm_capabilities =
   ; (* Z.AI's current official docs describe JSON mode via
      response_format={"type":"json_object"} plus prompt/schema-in-text
      guidance, but do not document a native JSON-schema request field
-     equivalent to OpenAI's json_schema response_format. OAS therefore
-     treats GLM as JSON-mode-only: supports_response_format_json=true
+     equivalent to Provider_d's json_schema response_format. OAS therefore
+     treats Provider_k as JSON-mode-only: supports_response_format_json=true
      but supports_structured_output=false. validate_output_schema_request
-     rejects output_schema for GLM configs to prevent silent pass-through
+     rejects output_schema for Provider_k configs to prevent silent pass-through
      of schemas the provider will not enforce.
      Ref: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21. *)
     supports_structured_output = false
@@ -295,24 +295,24 @@ let glm_capabilities =
   }
 ;;
 
-(** Typed Gemini model family (root-fix for #968 string-classifier drift gate).
+(** Typed Provider_f model family (root-fix for #968 string-classifier drift gate).
 
-    Centralizes the [String.starts_with ~prefix:"gemini-..."] dispatch into a
+    Centralizes the [String.starts_with ~prefix:"provider_f-..."] dispatch into a
     single classifier with an exhaustive variant. Downstream code switches on
     the variant instead of comparing strings, so a new family member is a
     compile-time obligation rather than a runtime string-match miss.
 
-    The internal use of [starts_with] inside [gemini_family_of_id] is
+    The internal use of [starts_with] inside [provider_f_family_of_id] is
     intentional and bounded: prefix matching is the only signal Google's model
     IDs offer. Concentrating it here keeps the rest of the codebase typed.
 
     @since 0.196.3 *)
-type gemini_family =
-  | Gemini_3_1 (** [gemini-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
-  | Gemini_3 (** [gemini-3.*] but not 3.1 — flash-preview and siblings *)
-  | Gemini_2_5 (** [gemini-2.5.*] — legacy line, kept until removal PR *)
-  | Gemini_other of string
-  (** Unknown gemini id or non-gemini id. Retains the literal so the
+type provider_f_family =
+  | Provider_f_3_1 (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
+  | Provider_f_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
+  | Provider_f_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
+  | Provider_f_other of string
+  (** Unknown provider_f id or non-provider_f id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
 let strip_suffix ~suffix value =
@@ -321,20 +321,20 @@ let strip_suffix ~suffix value =
   else value
 ;;
 
-(** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
-    is checked before [gemini-3] so the more specific prefix wins.
+(** Classify a model id into a [provider_f_family]. Order matters: [provider_f-3.1]
+    is checked before [provider_f-3] so the more specific prefix wins.
     Input is expected lowercased (callers pass the already-normalized id). *)
-let gemini_family_of_id (id : string) : gemini_family =
-  if String.starts_with ~prefix:"gemini-3.1" id
-  then Gemini_3_1
-  else if String.starts_with ~prefix:"gemini-3" id
-  then Gemini_3
-  else if String.starts_with ~prefix:"gemini-2.5" id
-  then Gemini_2_5
-  else Gemini_other id
+let provider_f_family_of_id (id : string) : provider_f_family =
+  if String.starts_with ~prefix:"provider_f-3.1" id
+  then Provider_f_3_1
+  else if String.starts_with ~prefix:"provider_f-3" id
+  then Provider_f_3
+  else if String.starts_with ~prefix:"provider_f-2.5" id
+  then Provider_f_2_5
+  else Provider_f_other id
 ;;
 
-let gemini_capabilities =
+let provider_f_capabilities =
   { default_capabilities with
     max_context_tokens = Some 1_000_000
   ; max_output_tokens = Some 65_000
@@ -355,23 +355,23 @@ let gemini_capabilities =
   ; supports_prompt_caching = false
   ; prompt_cache_alignment = None
   ; supports_code_execution = true
-  ; (* Google Gemini's generateContent API documents [topK] as part of
+  ; (* Google Provider_f's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
-     [backend_gemini.build_request] serializer already emits it at
-     lib/llm_provider/backend_gemini.ml:162-164, so the capability
-     record must match. Same discrepancy story as anthropic_capabilities
-     (#832) — OpenAI-compat consumers that route a Gemini config
+     [backend_provider_f.build_request] serializer already emits it at
+     lib/llm_provider/backend_provider_f.ml:162-164, so the capability
+     record must match. Same discrepancy story as provider_a_capabilities
+     (#832) — Provider_d-compat consumers that route a Provider_f config
      through a capability-checking path were silently dropping top_k.
-     [supports_min_p] stays false; Gemini's generationConfig has no
+     [supports_min_p] stays false; Provider_f's generationConfig has no
      min_p field. *)
     supports_top_k = true
   }
 ;;
 
-let claude_code_capabilities =
-  { anthropic_capabilities with
+let agent_llm_a_code_capabilities =
+  { provider_a_capabilities with
     max_context_tokens = Some 1_000_000
-  ; (* 1M context via Claude Code *)
+  ; (* 1M context via Agent_llm_a Code *)
     max_output_tokens = Some 64_000
   ; supports_structured_output = false
   ; supports_computer_use = true
@@ -381,7 +381,7 @@ let claude_code_capabilities =
   }
 ;;
 
-let gemini_cli_capabilities =
+let provider_f_cli_capabilities =
   { default_capabilities with
     max_context_tokens = Some 1_000_000
   ; max_output_tokens = Some 65_000
@@ -395,7 +395,7 @@ let gemini_cli_capabilities =
   }
 ;;
 
-let kimi_cli_capabilities =
+let provider_c_cli_capabilities =
   { default_capabilities with
     max_context_tokens = Some 262_144
   ; max_output_tokens = Some 32_768
@@ -405,11 +405,11 @@ let kimi_cli_capabilities =
   ; supports_system_prompt = true
   ; supports_code_execution = true
   ; emits_usage_tokens = false (* CLI wrapper strips usage *)
-  ; supported_models = Some [ "kimi-for-coding" ]
+  ; supported_models = Some [ "provider_c-for-coding" ]
   }
 ;;
 
-let codex_cli_capabilities =
+let agent_code_cli_capabilities =
   { default_capabilities with
     max_context_tokens = Some 1_050_000
   ; max_output_tokens = Some 32_000
@@ -426,24 +426,24 @@ let codex_cli_capabilities =
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
 type static_model_route =
-  | Claude_opus_4
-  | Claude_sonnet_4
-  | Claude_haiku_4
+  | Agent_llm_a_opus_4
+  | Agent_llm_a_sonnet_4
+  | Agent_llm_a_haiku_4
   | Gpt_5
   | Gpt_4_1
   | Gpt_4o
-  | Gemini of gemini_family
-  | Kimi_for_coding
-  | Kimi_k2
+  | Provider_f of provider_f_family
+  | Provider_c_for_coding
+  | Provider_c_k2
   | Qwen3
   | Llama_4
-  | Deepseek_v4_flash
-  | Deepseek_v4_pro
+  | Provider_g_v4_flash
+  | Provider_g_v4_pro
   | Mistral_large
   | Mistral_small
   | Command
   | Grok
-  | Nemotron of { has_vision : bool }
+  | Provider_l of { has_vision : bool }
   | Gemma_4 of { has_large_audio : bool }
   | Glm_flash_air
   | Glm_5_turbo
@@ -479,84 +479,84 @@ let gemma_4_has_large_audio model_id =
 
 let static_model_route_of_id model_id =
   let m = normalize_static_model_id model_id in
-  if String.starts_with ~prefix:"claude-opus-4" m
-  then Some Claude_opus_4
-  else if String.starts_with ~prefix:"claude-sonnet-4" m
-  then Some Claude_sonnet_4
-  else if String.starts_with ~prefix:"claude-haiku-4" m
-  then Some Claude_haiku_4
+  if String.starts_with ~prefix:"agent_llm_a-opus-4" m
+  then Some Agent_llm_a_opus_4
+  else if String.starts_with ~prefix:"agent_llm_a-sonnet-4" m
+  then Some Agent_llm_a_sonnet_4
+  else if String.starts_with ~prefix:"agent_llm_a-haiku-4" m
+  then Some Agent_llm_a_haiku_4
   else if String.starts_with ~prefix:"gpt-5" m
   then Some Gpt_5
   else if String.starts_with ~prefix:"gpt-4.1" m
   then Some Gpt_4_1
-  else if String.starts_with ~prefix:"gpt-4o" m
+  else if String.starts_with ~prefix:"model-d" m
   then Some Gpt_4o
   else (
-    match gemini_family_of_id m with
-    | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
-    | Gemini_other _ ->
-      if String.starts_with ~prefix:"kimi-for-coding" m
-      then Some Kimi_for_coding
-      else if String.starts_with ~prefix:"kimi-k2" m
-      then Some Kimi_k2
+    match provider_f_family_of_id m with
+    | (Provider_f_3 | Provider_f_3_1 | Provider_f_2_5) as family -> Some (Provider_f family)
+    | Provider_f_other _ ->
+      if String.starts_with ~prefix:"provider_c-for-coding" m
+      then Some Provider_c_for_coding
+      else if String.starts_with ~prefix:"provider_c-k2" m
+      then Some Provider_c_k2
       else if String.starts_with ~prefix:"qwen3" m
       then Some Qwen3
       else if
         String.starts_with ~prefix:"llama-4" m || String.starts_with ~prefix:"llama4" m
       then Some Llama_4
-      else if String.starts_with ~prefix:"deepseek-v4-flash" m
-      then Some Deepseek_v4_flash
-      else if String.starts_with ~prefix:"deepseek-v4-pro" m
-      then Some Deepseek_v4_pro
-      else if String.starts_with ~prefix:"mistral-large" m
+      else if String.starts_with ~prefix:"provider_g-v4-flash" m
+      then Some Provider_g_v4_flash
+      else if String.starts_with ~prefix:"provider_g-v4-pro" m
+      then Some Provider_g_v4_pro
+      else if String.starts_with ~prefix:"provider_j-large" m
       then Some Mistral_large
-      else if String.starts_with ~prefix:"mistral-small" m
+      else if String.starts_with ~prefix:"provider_j-small" m
       then Some Mistral_small
       else if String.starts_with ~prefix:"command" m
       then Some Command
       else if String.starts_with ~prefix:"grok" m
       then Some Grok
       else if
-        String.starts_with ~prefix:"nvidia/nemotron" m
-        || String.starts_with ~prefix:"nemotron" m
+        String.starts_with ~prefix:"nvidia/provider_l" m
+        || String.starts_with ~prefix:"provider_l" m
       then
         Some
-          (Nemotron
+          (Provider_l
              { has_vision =
-                 String.starts_with ~prefix:"nvidia/nemotron-vl" m
-                 || String.starts_with ~prefix:"nemotron-vl" m
+                 String.starts_with ~prefix:"nvidia/provider_l-vl" m
+                 || String.starts_with ~prefix:"provider_l-vl" m
              })
       else if
         String.starts_with ~prefix:"gemma-4" m
         || String.starts_with ~prefix:"google/gemma-4" m
       then Some (Gemma_4 { has_large_audio = gemma_4_has_large_audio m })
       else if
-        String.starts_with ~prefix:"glm-4.7-flash" m
-        || String.starts_with ~prefix:"glm-4.5-flash" m
-        || String.starts_with ~prefix:"glm-4.5-air" m
+        String.starts_with ~prefix:"provider_k-4.7-flash" m
+        || String.starts_with ~prefix:"provider_k-4.5-flash" m
+        || String.starts_with ~prefix:"provider_k-4.5-air" m
       then Some Glm_flash_air
-      else if String.starts_with ~prefix:"glm-5-turbo" m
+      else if String.starts_with ~prefix:"provider_k-5-turbo" m
       then Some Glm_5_turbo
-      else if String.starts_with ~prefix:"glm-5v-turbo" m
+      else if String.starts_with ~prefix:"provider_k-5v-turbo" m
       then Some Glm_5v_turbo
-      else if String.starts_with ~prefix:"glm-ocr" m
+      else if String.starts_with ~prefix:"provider_k-ocr" m
       then Some Glm_ocr
       else if
-        String.starts_with ~prefix:"glm-4.6v" m || String.starts_with ~prefix:"glm-4.5v" m
+        String.starts_with ~prefix:"provider_k-4.6v" m || String.starts_with ~prefix:"provider_k-4.5v" m
       then Some Glm_4_vision_reasoning
-      else if String.starts_with ~prefix:"glm-5-code" m
+      else if String.starts_with ~prefix:"provider_k-5-code" m
       then Some Glm_5_code
       else if
-        String.starts_with ~prefix:"glm-4.5" m
-        || String.starts_with ~prefix:"glm-4.6" m
-        || String.starts_with ~prefix:"glm-4.7" m
-        || String.starts_with ~prefix:"glm-5" m
+        String.starts_with ~prefix:"provider_k-4.5" m
+        || String.starts_with ~prefix:"provider_k-4.6" m
+        || String.starts_with ~prefix:"provider_k-4.7" m
+        || String.starts_with ~prefix:"provider_k-5" m
       then Some Glm_full_text
-      else if String.starts_with ~prefix:"glm-4-flash" m
+      else if String.starts_with ~prefix:"provider_k-4-flash" m
       then Some Glm_4_flash
-      else if String.starts_with ~prefix:"glm-4v" m
+      else if String.starts_with ~prefix:"provider_k-4v" m
       then Some Glm_4v
-      else if String.starts_with ~prefix:"glm-4" m
+      else if String.starts_with ~prefix:"provider_k-4" m
       then Some Glm_4
       else None)
 ;;
@@ -564,45 +564,45 @@ let static_model_route_of_id model_id =
 (** Lookup capabilities by model_id prefix using the built-in static table.
     Returns None if no specific override is known. *)
 let capabilities_of_static_model_route = function
-  | Claude_opus_4 ->
+  | Agent_llm_a_opus_4 ->
     Some
-      { anthropic_capabilities with
+      { provider_a_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 128_000
       }
-  | Claude_sonnet_4 ->
+  | Agent_llm_a_sonnet_4 ->
     Some
-      { anthropic_capabilities with
+      { provider_a_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 64_000
       }
-  | Claude_haiku_4 ->
+  | Agent_llm_a_haiku_4 ->
     Some
-      { anthropic_capabilities with
+      { provider_a_capabilities with
         max_context_tokens = Some 200_000
       ; max_output_tokens = Some 8_192
       }
   | Gpt_5 ->
     Some
-      { openai_chat_extended_capabilities with
+      { provider_d_chat_extended_capabilities with
         max_context_tokens = Some 1_050_000
       ; max_output_tokens = Some 128_000
       ; supports_computer_use = true
       }
   | Gpt_4_1 ->
     Some
-      { openai_chat_capabilities with
+      { provider_d_chat_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 32_000
       }
   | Gpt_4o ->
     Some
-      { openai_chat_capabilities with
+      { provider_d_chat_capabilities with
         max_context_tokens = Some 128_000
       ; max_output_tokens = Some 16_384
       }
-  | Gemini _ -> Some gemini_capabilities
-  | Kimi_for_coding | Kimi_k2 -> Some kimi_capabilities
+  | Provider_f _ -> Some provider_f_capabilities
+  | Provider_c_for_coding | Provider_c_k2 -> Some provider_c_capabilities
   | Qwen3 ->
     Some
       { default_capabilities with
@@ -627,7 +627,7 @@ let capabilities_of_static_model_route = function
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  | Deepseek_v4_flash ->
+  | Provider_g_v4_flash ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -644,7 +644,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  | Deepseek_v4_pro ->
+  | Provider_g_v4_pro ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -717,12 +717,12 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-    (* NVIDIA Nemotron: Llama-based, NIM OpenAI-compat API.
-       Base text models (nemotron-ultra, nemotron-core) get reasoning
+    (* NVIDIA Provider_l: Llama-based, NIM Provider_d-compat API.
+       Base text models (provider_l-ultra, provider_l-core) get reasoning
        but no vision. VL suffix gets image input. *)
-  | Nemotron { has_vision } ->
+  | Provider_l { has_vision } ->
     Some
-      { nemotron_capabilities with
+      { provider_l_capabilities with
         max_context_tokens = Some 131_072
       ; max_output_tokens = Some 16_384
       ; supports_multimodal_inputs = has_vision
@@ -749,8 +749,8 @@ let capabilities_of_static_model_route = function
           (* Gemma 4 best practices: place image/audio before text for
            optimal multimodal performance. *)
       }
-    (* GLM flash/air variants: faster, no reasoning, smaller output.
-     Must precede the broad glm-4.5/4.6/4.7/5 match below. *)
+    (* Provider_k flash/air variants: faster, no reasoning, smaller output.
+     Must precede the broad provider_k-4.5/4.6/4.7/5 match below. *)
   | Glm_flash_air ->
     Some
       { default_capabilities with
@@ -761,7 +761,7 @@ let capabilities_of_static_model_route = function
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       }
-    (* GLM 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
+    (* Provider_k 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
   | Glm_5_turbo ->
     Some
       { default_capabilities with
@@ -809,8 +809,8 @@ let capabilities_of_static_model_route = function
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-    (* GLM-5-Code: coding-specific variant with 128K context (not 200K).
-       Z.AI docs: GLM-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
+    (* Provider_k-5-Code: coding-specific variant with 128K context (not 200K).
+       Z.AI docs: Provider_k-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
   | Glm_5_code ->
     Some
       { default_capabilities with
@@ -823,7 +823,7 @@ let capabilities_of_static_model_route = function
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       }
-    (* GLM full text models: reasoning, large context/output, but no vision. *)
+    (* Provider_k full text models: reasoning, large context/output, but no vision. *)
   | Glm_full_text ->
     Some
       { default_capabilities with
@@ -878,19 +878,19 @@ let for_model_id_static model_id =
     having default capabilities. *)
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
-  | "anthropic" -> Some anthropic_capabilities
-  | "openai" | "openai_chat" -> Some openai_chat_capabilities
-  | "openai_chat_extended" -> Some openai_chat_extended_capabilities
-  | "gemini" -> Some gemini_capabilities
+  | "provider_a" -> Some provider_a_capabilities
+  | "provider_d" | "provider_d_chat" -> Some provider_d_chat_capabilities
+  | "provider_d_chat_extended" -> Some provider_d_chat_extended_capabilities
+  | "provider_f" -> Some provider_f_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
-  | "glm" | "glm-coding" -> Some glm_capabilities
-  | "dashscope" | "qwen" -> Some dashscope_capabilities
-  | "nemotron" -> Some nemotron_capabilities
-  | "kimi" -> Some kimi_capabilities
-  | "claude_code" -> Some claude_code_capabilities
-  | "gemini_cli" -> Some gemini_cli_capabilities
-  | "kimi_cli" -> Some kimi_cli_capabilities
-  | "codex_cli" -> Some codex_cli_capabilities
+  | "provider_k" | "provider_k-coding" -> Some provider_k_capabilities
+  | "provider_h" -> Some provider_h_capabilities
+  | "provider_l" -> Some provider_l_capabilities
+  | "provider_c" -> Some provider_c_capabilities
+  | "cli_tool_d" -> Some agent_llm_a_code_capabilities
+  | "cli_tool_b" -> Some provider_f_cli_capabilities
+  | "cli_tool_c" -> Some provider_c_cli_capabilities
+  | "cli_tool_a" -> Some agent_code_cli_capabilities
   | _ -> None
 ;;
 
@@ -988,78 +988,78 @@ let for_model_id model_id =
 
 [@@@coverage off]
 
-let%test "for_model_id glm-4.5 has reasoning" =
-  match for_model_id "glm-4.5" with
+let%test "for_model_id provider_k-4.5 has reasoning" =
+  match for_model_id "provider_k-4.5" with
   | Some c -> c.supports_reasoning && c.max_context_tokens = Some 200_000
   | None -> false
 ;;
 
-let%test "for_model_id glm-4 no reasoning" =
-  match for_model_id "glm-4-chat" with
+let%test "for_model_id provider_k-4 no reasoning" =
+  match for_model_id "provider_k-4-chat" with
   | Some c -> (not c.supports_reasoning) && c.max_context_tokens = Some 128_000
   | None -> false
 ;;
 
-let%test "for_model_id glm-4v has vision" =
-  match for_model_id "glm-4v-flash" with
+let%test "for_model_id provider_k-4v has vision" =
+  match for_model_id "provider_k-4v-flash" with
   | Some c -> c.supports_image_input && c.supports_multimodal_inputs
   | None -> false
 ;;
 
-let%test "for_model_id glm-4-flash basic" =
-  match for_model_id "glm-4-flash" with
+let%test "for_model_id provider_k-4-flash basic" =
+  match for_model_id "provider_k-4-flash" with
   | Some c -> c.supports_tools && c.max_output_tokens = Some 4_096
   | None -> false
 ;;
 
-let%test "for_model_id glm-5 is text only" =
-  match for_model_id "glm-5" with
+let%test "for_model_id provider_k-5 is text only" =
+  match for_model_id "provider_k-5" with
   | Some c -> c.supports_reasoning && not c.supports_image_input
   | None -> false
 ;;
 
-let%test "for_model_id glm-5v has vision" =
-  match for_model_id "glm-5v-turbo" with
+let%test "for_model_id provider_k-5v has vision" =
+  match for_model_id "provider_k-5v-turbo" with
   | Some c -> c.supports_reasoning && c.supports_image_input
   | None -> false
 ;;
 
-let%test "for_model_id glm-4.6v stays vision-capable" =
-  match for_model_id "glm-4.6v" with
+let%test "for_model_id provider_k-4.6v stays vision-capable" =
+  match for_model_id "provider_k-4.6v" with
   | Some c ->
     c.supports_reasoning && c.supports_image_input && c.max_output_tokens = Some 32_768
   | None -> false
 ;;
 
-let%test "for_model_id glm-4.5v stays vision-capable" =
-  match for_model_id "glm-4.5v" with
+let%test "for_model_id provider_k-4.5v stays vision-capable" =
+  match for_model_id "provider_k-4.5v" with
   | Some c ->
     c.supports_reasoning && c.supports_image_input && c.max_output_tokens = Some 32_768
   | None -> false
 ;;
 
-let%test "for_model_id glm-4.7-flashx is flash (no reasoning, 16K output)" =
-  match for_model_id "glm-4.7-flashx" with
+let%test "for_model_id provider_k-4.7-flashx is flash (no reasoning, 16K output)" =
+  match for_model_id "provider_k-4.7-flashx" with
   | Some c ->
     (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 && c.supports_tools
   | None -> false
 ;;
 
-let%test "for_model_id glm-4.7-flash is flash (not broad glm-4.7)" =
-  match for_model_id "glm-4.7-flash" with
+let%test "for_model_id provider_k-4.7-flash is flash (not broad provider_k-4.7)" =
+  match for_model_id "provider_k-4.7-flash" with
   | Some c -> (not c.supports_reasoning) && c.max_output_tokens = Some 16_384
   | None -> false
 ;;
 
-let%test "for_model_id glm-4.5-flash is flash (not broad glm-4.5)" =
-  match for_model_id "glm-4.5-flash" with
+let%test "for_model_id provider_k-4.5-flash is flash (not broad provider_k-4.5)" =
+  match for_model_id "provider_k-4.5-flash" with
   | Some c ->
     (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 && c.supports_tools
   | None -> false
 ;;
 
-let%test "for_model_id glm-5-turbo has reasoning but not extended thinking" =
-  match for_model_id "glm-5-turbo" with
+let%test "for_model_id provider_k-5-turbo has reasoning but not extended thinking" =
+  match for_model_id "provider_k-5-turbo" with
   | Some c ->
     c.supports_reasoning
     && (not c.supports_extended_thinking)
@@ -1067,8 +1067,8 @@ let%test "for_model_id glm-5-turbo has reasoning but not extended thinking" =
   | None -> false
 ;;
 
-let%test "for_model_id glm-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id "glm-5.1" with
+let%test "for_model_id provider_k-5.1 full model (reasoning + extended thinking)" =
+  match for_model_id "provider_k-5.1" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1080,32 +1080,32 @@ let%test "for_model_id glm-5.1 full model (reasoning + extended thinking)" =
 
 let%test "emits_usage_tokens: default is true" = default_capabilities.emits_usage_tokens
 
-let%test "emits_usage_tokens: anthropic reports usage" =
-  anthropic_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: provider_a reports usage" =
+  provider_a_capabilities.emits_usage_tokens
 ;;
 
 let%test "emits_usage_tokens: ollama reports usage" =
   ollama_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: claude_code reports usage" =
-  claude_code_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: cli_tool_d reports usage" =
+  agent_llm_a_code_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: gemini_cli strips usage" =
-  not gemini_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: cli_tool_b strips usage" =
+  not provider_f_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: kimi_cli strips usage" =
-  not kimi_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: cli_tool_c strips usage" =
+  not provider_c_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: codex_cli strips usage" =
-  not codex_cli_capabilities.emits_usage_tokens
+let%test "emits_usage_tokens: cli_tool_a strips usage" =
+  not agent_code_cli_capabilities.emits_usage_tokens
 ;;
 
-let%test "capabilities_for_provider_label: kimi_cli" =
-  match capabilities_for_provider_label "kimi_cli" with
+let%test "capabilities_for_provider_label: cli_tool_c" =
+  match capabilities_for_provider_label "cli_tool_c" with
   | Some c -> not c.emits_usage_tokens
   | None -> false
 ;;
@@ -1115,49 +1115,49 @@ let%test "capabilities_for_provider_label: KIMI_CLI (case insensitive)" =
 ;;
 
 let%test "capabilities_for_provider_label: trims whitespace" =
-  Option.is_some (capabilities_for_provider_label "  codex_cli  ")
+  Option.is_some (capabilities_for_provider_label "  cli_tool_a  ")
 ;;
 
-let%test "capabilities_for_provider_label: anthropic" =
-  match capabilities_for_provider_label "anthropic" with
+let%test "capabilities_for_provider_label: provider_a" =
+  match capabilities_for_provider_label "provider_a" with
   | Some c -> c.emits_usage_tokens && c.supports_caching
   | None -> false
 ;;
 
-let%test "capabilities_for_provider_label: openai alias" =
-  Option.is_some (capabilities_for_provider_label "openai")
-  && Option.is_some (capabilities_for_provider_label "openai_chat")
+let%test "capabilities_for_provider_label: provider_d alias" =
+  Option.is_some (capabilities_for_provider_label "provider_d")
+  && Option.is_some (capabilities_for_provider_label "provider_d_chat")
 ;;
 
-let%test "capabilities_for_provider_label: glm alias" =
-  Option.is_some (capabilities_for_provider_label "glm")
-  && Option.is_some (capabilities_for_provider_label "glm-coding")
+let%test "capabilities_for_provider_label: provider_k alias" =
+  Option.is_some (capabilities_for_provider_label "provider_k")
+  && Option.is_some (capabilities_for_provider_label "provider_k-coding")
 ;;
 
 let%test "capabilities_for_provider_label: unknown returns None" =
   Option.is_none (capabilities_for_provider_label "not_a_real_provider_xyz")
 ;;
 
-(* --- Nemotron / Gemma 4 --- *)
+(* --- Provider_l / Gemma 4 --- *)
 
-let%test "nemotron_capabilities has chat_template_kwargs thinking" =
-  nemotron_capabilities.thinking_control_format = Chat_template_kwargs
+let%test "provider_l_capabilities has chat_template_kwargs thinking" =
+  provider_l_capabilities.thinking_control_format = Chat_template_kwargs
 ;;
 
-let%test "for_model_id nemotron-ultra has reasoning" =
-  match for_model_id "nemotron-ultra-253b" with
+let%test "for_model_id provider_l-ultra has reasoning" =
+  match for_model_id "provider_l-ultra-253b" with
   | Some c -> c.supports_reasoning && c.supports_tool_choice
   | None -> false
 ;;
 
-let%test "for_model_id nemotron-vl has image input" =
-  match for_model_id "nemotron-vl" with
+let%test "for_model_id provider_l-vl has image input" =
+  match for_model_id "provider_l-vl" with
   | Some c -> c.supports_image_input && c.supports_multimodal_inputs
   | None -> false
 ;;
 
 let%test "for_model_id qwen3 has chat_template_kwargs thinking control" =
-  (* Qwen3.x OpenAI-compatible llama.cpp/llama-server deployments return
+  (* Qwen3.x Provider_d-compatible llama.cpp/llama-server deployments return
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
      format, [supports_extended_thinking = true] never reaches the wire. *)
@@ -1167,8 +1167,8 @@ let%test "for_model_id qwen3 has chat_template_kwargs thinking control" =
   | None -> false
 ;;
 
-let%test "for_model_id nvidia/nemotron-core resolves" =
-  match for_model_id "nvidia/nemotron-core" with
+let%test "for_model_id nvidia/provider_l-core resolves" =
+  match for_model_id "nvidia/provider_l-core" with
   | Some c -> c.supports_reasoning
   | None -> false
 ;;
@@ -1207,8 +1207,8 @@ let%test "for_model_id gemma-4-31b IS large" =
   | None -> false
 ;;
 
-let%test "capabilities_for_provider_label: nemotron" =
-  match capabilities_for_provider_label "nemotron" with
+let%test "capabilities_for_provider_label: provider_l" =
+  match capabilities_for_provider_label "provider_l" with
   | Some c -> c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
@@ -1227,36 +1227,36 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
   in
   List.for_all
     (fun (m, e) -> check m e)
-    [ ( "glm-4.7-flash-turbo"
+    [ ( "provider_k-4.7-flash-turbo"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
-    ; ( "glm-4.5-flash-test"
+    ; ( "provider_k-4.5-flash-test"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
-    ; ( "glm-5-turbo-latest"
+    ; ( "provider_k-5-turbo-latest"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_extended_thinking )
-    ; ("glm-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
-    ; ( "glm-4.7-flash-test"
+    ; ("provider_k-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
+    ; ( "provider_k-4.7-flash-test"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
-    ; ( "glm-4-flash-mini"
+    ; ( "provider_k-4-flash-mini"
       , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
-    ; ("glm-4v-plus", fun c -> c.supports_image_input)
-    ; ( "glm-4.5-air-test"
+    ; ("provider_k-4v-plus", fun c -> c.supports_image_input)
+    ; ( "provider_k-4.5-air-test"
       , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
-    ; ( "glm-5v-turbo-latest"
+    ; ( "provider_k-5v-turbo-latest"
       , fun c ->
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 128_000 )
-    ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
-    ; ("claude-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
+    ; ("provider_k-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
+    ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
     ; ("gpt-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
-    ; ("deepseek-v4-flash-test", fun c -> c.thinking_control_format = Thinking_object)
-    ; ( "nemotron-ultra-253b"
+    ; ("provider_g-v4-flash-test", fun c -> c.thinking_control_format = Thinking_object)
+    ; ( "provider_l-ultra-253b"
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
-    ; ( "nvidia/nemotron-ultra-253b"
+    ; ( "nvidia/provider_l-ultra-253b"
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
-    ; ("nemotron-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
+    ; ("provider_l-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
     ; ( "gemma-4-27b-it"
       , fun c ->
           c.supports_tools
@@ -1335,13 +1335,13 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.thinking_control_format = cb.thinking_control_format
     | _ -> false
   in
-  let alias_pairs = [ "openai", "openai_chat"; "glm", "glm-coding" ] in
+  let alias_pairs = [ "provider_d", "provider_d_chat"; "provider_k", "provider_k-coding" ] in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
-  && Option.is_some (resolve "anthropic")
-  && Option.is_some (resolve "gemini")
+  && Option.is_some (resolve "provider_a")
+  && Option.is_some (resolve "provider_f")
   && Option.is_some (resolve "ollama")
-  && Option.is_some (resolve "kimi")
-  && Option.is_some (resolve "nemotron")
+  && Option.is_some (resolve "provider_c")
+  && Option.is_some (resolve "provider_l")
 ;;
 
 (* Every declared label is reachable — no dead branches in the match.
@@ -1349,20 +1349,20 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
    binding, this test will fail. *)
 let%test "capabilities_for_provider_label: all declared labels resolve" =
   let labels =
-    [ "anthropic"
-    ; "openai"
-    ; "openai_chat"
-    ; "openai_chat_extended"
-    ; "gemini"
+    [ "provider_a"
+    ; "provider_d"
+    ; "provider_d_chat"
+    ; "provider_d_chat_extended"
+    ; "provider_f"
     ; "ollama"
-    ; "glm"
-    ; "glm-coding"
-    ; "nemotron"
-    ; "kimi"
-    ; "claude_code"
-    ; "gemini_cli"
-    ; "kimi_cli"
-    ; "codex_cli"
+    ; "provider_k"
+    ; "provider_k-coding"
+    ; "provider_l"
+    ; "provider_c"
+    ; "cli_tool_d"
+    ; "cli_tool_b"
+    ; "cli_tool_c"
+    ; "cli_tool_a"
     ]
   in
   List.for_all (fun l -> Option.is_some (capabilities_for_provider_label l)) labels
@@ -1374,15 +1374,15 @@ let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
   let non_aliased =
-    [ "anthropic"
-    ; "gemini"
+    [ "provider_a"
+    ; "provider_f"
     ; "ollama"
-    ; "kimi"
-    ; "claude_code"
-    ; "gemini_cli"
-    ; "kimi_cli"
-    ; "codex_cli"
-    ; "nemotron"
+    ; "provider_c"
+    ; "cli_tool_d"
+    ; "cli_tool_b"
+    ; "cli_tool_c"
+    ; "cli_tool_a"
+    ; "provider_l"
     ]
   in
   let fingerprints =

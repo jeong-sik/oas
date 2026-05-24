@@ -78,12 +78,12 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       let path = spec.request_path in
       let body_str =
         match kind with
-        | Provider.Anthropic_messages ->
+        | Provider.Provider_a_messages ->
           Yojson.Safe.to_string
             (`Assoc
-                (Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream:false ()))
+                (Api_provider_a.build_body_assoc ~config ~messages ?tools ~stream:false ()))
         | Provider.Openai_chat_completions ->
-          Api_openai.build_openai_body
+          Api_provider_d.build_provider_d_body
             ~provider_config:provider_cfg
             ~config
             ~messages
@@ -98,11 +98,11 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       match Http_client.post_sync ~sw ~net ~url ~headers ~body:body_str () with
       | Ok (200, body_str) ->
         (match kind with
-         | Provider.Anthropic_messages ->
-           Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
+         | Provider.Provider_a_messages ->
+           Ok (Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
          | Provider.Openai_chat_completions ->
            (match
-              Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
+              Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str
             with
             | Ok resp -> Ok resp
             | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
@@ -111,7 +111,7 @@ let of_config (provider_cfg : Provider.config) : provider_module =
             | Some impl -> Ok (impl.parse_response body_str)
             | None ->
               (match
-                 Llm_provider.Backend_openai_parse.parse_openai_response_result body_str
+                 Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str
                with
                | Ok resp -> Ok resp
                | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
@@ -131,7 +131,7 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
 ;;
 
 (** Resolve to a streaming provider if supported.
-    Returns [Some] for Anthropic and OpenAI-compatible providers. *)
+    Returns [Some] for Provider_a and Provider_d-compatible providers. *)
 let of_config_streaming (provider_cfg : Provider.config)
   : streaming_provider_module option
   =
@@ -168,11 +168,11 @@ let of_config_streaming (provider_cfg : Provider.config)
 [@@@coverage off]
 (* === Inline tests === *)
 
-let%test "supports_streaming Anthropic" =
+let%test "supports_streaming Provider_a" =
   let cfg : Provider.config =
-    { provider = Provider.Anthropic
-    ; model_id = "claude-3-5-sonnet-20241022"
-    ; api_key_env = "ANTHROPIC_API_KEY"
+    { provider = Provider.Provider_a
+    ; model_id = "agent_llm_a-3-5-sonnet-20241022"
+    ; api_key_env = "PROVIDER_A_API_KEY"
     }
   in
   supports_streaming cfg = true
@@ -191,15 +191,15 @@ let%test "supports_streaming OpenAICompat" =
     ; api_key_env = ""
     }
   in
-  (* OpenAI-compat providers support streaming *)
+  (* Provider_d-compat providers support streaming *)
   supports_streaming cfg
 ;;
 
 let%test "of_config returns a provider_module" =
   let cfg : Provider.config =
-    { provider = Provider.Anthropic
-    ; model_id = "claude-3-5-sonnet-20241022"
-    ; api_key_env = "ANTHROPIC_API_KEY"
+    { provider = Provider.Provider_a
+    ; model_id = "agent_llm_a-3-5-sonnet-20241022"
+    ; api_key_env = "PROVIDER_A_API_KEY"
     }
   in
   let _m = of_config cfg in
@@ -207,11 +207,11 @@ let%test "of_config returns a provider_module" =
   true
 ;;
 
-let%test "of_config_streaming Anthropic returns Some" =
+let%test "of_config_streaming Provider_a returns Some" =
   let cfg : Provider.config =
-    { provider = Provider.Anthropic
-    ; model_id = "claude-3-5-sonnet-20241022"
-    ; api_key_env = "ANTHROPIC_API_KEY"
+    { provider = Provider.Provider_a
+    ; model_id = "agent_llm_a-3-5-sonnet-20241022"
+    ; api_key_env = "PROVIDER_A_API_KEY"
     }
   in
   match of_config_streaming cfg with

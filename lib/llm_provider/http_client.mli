@@ -91,7 +91,7 @@ type provider_terminal_kind =
       }
   (** Provider's internal turn budget exhausted.  Maps to
           {!Error.MaxTurnsExceeded} at the agent runtime layer.  For
-          claude_code 0.x the [limit] equals the CLI default
+          cli_tool_d 0.x the [limit] equals the CLI default
           [--max-turns] (currently 31) when the caller does not
           override it. *)
   | Other of string

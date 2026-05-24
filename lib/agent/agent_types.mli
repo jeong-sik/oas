@@ -47,8 +47,8 @@ type options =
         Threaded through {!Pipeline.stage_route} into
         {!Llm_provider.Complete.complete_stream}, which forwards it to
         {!Llm_provider.Http_client.read_ndjson} (Ollama native NDJSON)
-        and {!Llm_provider.Http_client.read_sse} (Anthropic / OpenAI-
-        compatible / Gemini / GLM). The deadline resets after each
+        and {!Llm_provider.Http_client.read_sse} (Provider_a / Provider_d-
+        compatible / Provider_f / Provider_k). The deadline resets after each
         successful line, so this caps inter-chunk silence — not total
         stream duration. A stalled endpoint surfaces as
         [TimeoutError { phase = Stream_idle state; _ }], preserving
@@ -139,7 +139,7 @@ type options =
         @since 0.102.0 *)
   ; slot_id : int option
     (** Pin LLM requests to a specific llama-server slot for KV cache reuse.
-        When [Some n], adds ["id_slot": n] to OpenAI-compat request body.
+        When [Some n], adds ["id_slot": n] to Provider_d-compat request body.
         @since 0.109.0 *)
   ; on_run_complete : (bool -> unit) option
     (** Optional callback invoked when a run finishes.  Receives [true]
@@ -161,7 +161,7 @@ type options =
         @since 0.133.0 *)
   ; transport : Llm_provider.Llm_transport.t option
     (** Optional non-HTTP transport override.  Required for CLI provider
-        kinds ([Claude_code], [Codex_cli], [Gemini_cli], [Kimi_cli])
+        kinds ([Cli_tool_d], [Cli_tool_a], [Cli_tool_b], [Cli_tool_c])
         which cannot be reached over HTTP.  When [Some t], {!Pipeline.stage_route}
         dispatches via {!Llm_provider.Complete.complete} with this
         transport; when [None], the HTTP path is used.

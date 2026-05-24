@@ -41,9 +41,9 @@ let json_get key json =
   | _ -> None
 ;;
 
-(* ── Anthropic body shape ────────────────────────────────────── *)
+(* ── Provider_a body shape ────────────────────────────────────── *)
 
-let test_anthropic_body_shape () =
+let test_provider_a_body_shape () =
   let assoc =
     Api.build_body_assoc ~config:base_state ~messages:base_state.messages ~stream:false ()
   in
@@ -58,7 +58,7 @@ let test_anthropic_body_shape () =
   | _ -> fail "stream should be false"
 ;;
 
-let test_anthropic_body_stream () =
+let test_provider_a_body_stream () =
   let assoc =
     Api.build_body_assoc ~config:base_state ~messages:base_state.messages ~stream:true ()
   in
@@ -69,14 +69,14 @@ let test_anthropic_body_stream () =
   | _ -> fail "stream should be true"
 ;;
 
-let test_anthropic_parse_response () =
+let test_provider_a_parse_response () =
   let mock_json =
     Yojson.Safe.from_string
       {|{
     "id": "msg_test",
     "type": "message",
     "role": "assistant",
-    "model": "claude-sonnet-4-6",
+    "model": "agent_llm_a-sonnet-4-6",
     "content": [{"type": "text", "text": "Hello back"}],
     "stop_reason": "end_turn",
     "usage": {"input_tokens": 10, "output_tokens": 5,
@@ -86,7 +86,7 @@ let test_anthropic_parse_response () =
   in
   let resp = Api.parse_response mock_json in
   check string "id" "msg_test" resp.id;
-  check string "model" "claude-sonnet-4-6" resp.model;
+  check string "model" "agent_llm_a-sonnet-4-6" resp.model;
   (match resp.stop_reason with
    | Types.EndTurn -> ()
    | _ -> fail "expected EndTurn");
@@ -95,9 +95,9 @@ let test_anthropic_parse_response () =
   | _ -> fail "expected single text block"
 ;;
 
-(* ── OpenAI body shape ───────────────────────────────────────── *)
+(* ── Provider_d body shape ───────────────────────────────────────── *)
 
-let test_openai_body_shape () =
+let test_provider_d_body_shape () =
   let provider_config : Provider.config =
     { provider =
         OpenAICompat
@@ -106,12 +106,12 @@ let test_openai_body_shape () =
           ; path = "/v1/chat/completions"
           ; static_token = None
           }
-    ; model_id = "gpt-4o"
+    ; model_id = "model-d"
     ; api_key_env = "TEST_KEY"
     }
   in
   let body_str =
-    Api.build_openai_body
+    Api.build_provider_d_body
       ~provider_config
       ~config:base_state
       ~messages:base_state.messages
@@ -120,23 +120,23 @@ let test_openai_body_shape () =
   let json = Yojson.Safe.from_string body_str in
   check bool "has model" true (json_has_key "model" json);
   check bool "has messages" true (json_has_key "messages" json);
-  (* build_openai_body uses config.model, not provider_config.model_id *)
+  (* build_provider_d_body uses config.model, not provider_config.model_id *)
   match json_get "model" json with
   | Some (`String "test-model") -> ()
   | _ -> fail "model should come from config"
 ;;
 
-let test_openai_parse_response () =
+let test_provider_d_parse_response () =
   let mock_body =
     {|{
     "id": "chatcmpl-test",
     "object": "chat.completion",
-    "model": "gpt-4o",
+    "model": "model-d",
     "choices": [{
       "index": 0,
       "message": {
         "role": "assistant",
-        "content": "OpenAI response"
+        "content": "Provider_d response"
       },
       "finish_reason": "stop"
     }],
@@ -145,16 +145,16 @@ let test_openai_parse_response () =
   }|}
   in
   let resp =
-    match Api.parse_openai_response_result mock_body with
+    match Api.parse_provider_d_response_result mock_body with
     | Ok r -> r
     | Error msg -> failwith msg
   in
-  check string "model" "gpt-4o" resp.model;
+  check string "model" "model-d" resp.model;
   (match resp.stop_reason with
    | Types.EndTurn -> ()
    | _ -> fail "expected EndTurn from stop");
   match resp.content with
-  | [ Types.Text "OpenAI response" ] -> ()
+  | [ Types.Text "Provider_d response" ] -> ()
   | _ -> fail "expected single text block"
 ;;
 
@@ -167,15 +167,15 @@ let test_request_kind_routing () =
       msg
       expected
       (match Provider.request_kind provider with
-       | Provider.Anthropic_messages -> "anthropic"
-       | Provider.Openai_chat_completions -> "openai"
+       | Provider.Provider_a_messages -> "provider_a"
+       | Provider.Openai_chat_completions -> "provider_d"
        | Provider.Custom name -> "custom:" ^ name)
   in
-  check_kind "local" "openai" (Provider.Local { base_url = "http://x" });
-  check_kind "anthropic" "anthropic" Provider.Anthropic;
+  check_kind "local" "provider_d" (Provider.Local { base_url = "http://x" });
+  check_kind "provider_a" "provider_a" Provider.Provider_a;
   check_kind
-    "openai"
-    "openai"
+    "provider_d"
+    "provider_d"
     (Provider.OpenAICompat
        { base_url = "http://x"
        ; auth_header = None
@@ -187,11 +187,11 @@ let test_request_kind_routing () =
 (* ── Pricing ─────────────────────────────────────────────────── *)
 
 let test_pricing_known_models () =
-  let p_opus = Provider.pricing_for_model "claude-opus-4-6" in
+  let p_opus = Provider.pricing_for_model "agent_llm_a-opus-4-6" in
   check (float 0.01) "opus input" 15.0 p_opus.input_per_million;
-  let p_gpt4o = Provider.pricing_for_model "gpt-4o" in
+  let p_gpt4o = Provider.pricing_for_model "model-d" in
   check (float 0.01) "gpt4o input" 2.5 p_gpt4o.input_per_million;
-  let p_mini = Provider.pricing_for_model "gpt-4o-mini" in
+  let p_mini = Provider.pricing_for_model "model-d-mini" in
   check (float 0.01) "mini input" 0.15 p_mini.input_per_million;
   let p_local = Provider.pricing_for_model "qwen3.5-35b" in
   check (float 0.01) "local free" 0.0 p_local.input_per_million;
@@ -215,12 +215,12 @@ let test_pricing_cost_estimation () =
 
 (* ── Adversarial: malformed usage JSON ────────────────────────── *)
 
-let test_anthropic_missing_usage () =
+let test_provider_a_missing_usage () =
   let json =
     Yojson.Safe.from_string
       {|{
     "id": "msg_001",
-    "model": "claude-sonnet-4-6",
+    "model": "agent_llm_a-sonnet-4-6",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "hello"}],
     "usage": null
@@ -232,12 +232,12 @@ let test_anthropic_missing_usage () =
   | Some _ -> fail "expected None usage"
 ;;
 
-let test_anthropic_empty_content () =
+let test_provider_a_empty_content () =
   let json =
     Yojson.Safe.from_string
       {|{
     "id": "msg_002",
-    "model": "claude-sonnet-4-6",
+    "model": "agent_llm_a-sonnet-4-6",
     "stop_reason": "end_turn",
     "content": [],
     "usage": {"input_tokens": 10, "output_tokens": 5,
@@ -249,12 +249,12 @@ let test_anthropic_empty_content () =
   check int "empty content" 0 (List.length resp.content)
 ;;
 
-let test_anthropic_cache_usage_parsing () =
+let test_provider_a_cache_usage_parsing () =
   let json =
     Yojson.Safe.from_string
       {|{
     "id": "msg_003",
-    "model": "claude-sonnet-4-6",
+    "model": "agent_llm_a-sonnet-4-6",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "cached"}],
     "usage": {
@@ -278,7 +278,7 @@ let test_anthropic_cache_usage_parsing () =
 (* ── Cache-aware cost estimation ─────────────────────────────── *)
 
 let test_cache_cost_calculation () =
-  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let pricing = Provider.pricing_for_model "agent_llm_a-sonnet-4-6" in
   (* Sonnet: 3.0/M input, 15.0/M output, cache_write=1.25x, cache_read=0.1x *)
   let cost =
     Provider.estimate_cost
@@ -297,7 +297,7 @@ let test_cache_cost_calculation () =
 ;;
 
 let test_cache_cost_no_cache_tokens () =
-  let pricing = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let pricing = Provider.pricing_for_model "agent_llm_a-sonnet-4-6" in
   let cost_with =
     Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 ()
   in
@@ -313,9 +313,9 @@ let test_cache_cost_no_cache_tokens () =
   check (float 0.0001) "zero cache same as default" cost_with cost_explicit
 ;;
 
-let test_cache_multipliers_for_non_anthropic () =
-  let pricing = Provider.pricing_for_model "gpt-4o" in
-  (* OpenAI: no cache pricing, multipliers are 1.0 *)
+let test_cache_multipliers_for_non_provider_a () =
+  let pricing = Provider.pricing_for_model "model-d" in
+  (* Provider_d: no cache pricing, multipliers are 1.0 *)
   check (float 0.001) "no cache write discount" 1.0 pricing.cache_write_multiplier;
   check (float 0.001) "no cache read discount" 1.0 pricing.cache_read_multiplier
 ;;
@@ -325,14 +325,14 @@ let test_cache_multipliers_for_non_anthropic () =
 let () =
   run
     "api_dispatch"
-    [ ( "anthropic"
-      , [ test_case "body shape" `Quick test_anthropic_body_shape
-        ; test_case "body stream" `Quick test_anthropic_body_stream
-        ; test_case "parse response" `Quick test_anthropic_parse_response
+    [ ( "provider_a"
+      , [ test_case "body shape" `Quick test_provider_a_body_shape
+        ; test_case "body stream" `Quick test_provider_a_body_stream
+        ; test_case "parse response" `Quick test_provider_a_parse_response
         ] )
-    ; ( "openai"
-      , [ test_case "body shape" `Quick test_openai_body_shape
-        ; test_case "parse response" `Quick test_openai_parse_response
+    ; ( "provider_d"
+      , [ test_case "body shape" `Quick test_provider_d_body_shape
+        ; test_case "parse response" `Quick test_provider_d_parse_response
         ] )
     ; "routing", [ test_case "request_kind" `Quick test_request_kind_routing ]
     ; ( "pricing"
@@ -341,14 +341,14 @@ let () =
         ; test_case "cache cost calculation" `Quick test_cache_cost_calculation
         ; test_case "cache cost zero default" `Quick test_cache_cost_no_cache_tokens
         ; test_case
-            "non-anthropic cache multipliers"
+            "non-provider_a cache multipliers"
             `Quick
-            test_cache_multipliers_for_non_anthropic
+            test_cache_multipliers_for_non_provider_a
         ] )
     ; ( "adversarial"
-      , [ test_case "missing usage" `Quick test_anthropic_missing_usage
-        ; test_case "empty content" `Quick test_anthropic_empty_content
-        ; test_case "cache usage parsing" `Quick test_anthropic_cache_usage_parsing
+      , [ test_case "missing usage" `Quick test_provider_a_missing_usage
+        ; test_case "empty content" `Quick test_provider_a_empty_content
+        ; test_case "cache usage parsing" `Quick test_provider_a_cache_usage_parsing
         ] )
     ]
 ;;

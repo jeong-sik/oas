@@ -35,11 +35,11 @@ let test_accumulate_message_start () =
   let acc = Streaming.create_stream_acc () in
   let evt =
     MessageStart
-      { id = "msg_123"; model = "claude-sonnet-4"; usage = Some (make_usage 100 0) }
+      { id = "msg_123"; model = "agent_llm_a-sonnet-4"; usage = Some (make_usage 100 0) }
   in
   Streaming.accumulate_event acc evt;
   Alcotest.(check string) "id set" "msg_123" !(acc.msg_id);
-  Alcotest.(check string) "model set" "claude-sonnet-4" !(acc.msg_model);
+  Alcotest.(check string) "model set" "agent_llm_a-sonnet-4" !(acc.msg_model);
   Alcotest.(check int) "input_tokens" 100 !(acc.input_tokens)
 ;;
 

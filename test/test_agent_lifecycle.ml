@@ -9,7 +9,7 @@ let test_build_snapshot_fresh () =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
       ~provider:None
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       Agent_lifecycle.Running
   in
   Alcotest.(check string) "agent_name" "test-agent" snap.agent_name;
@@ -24,7 +24,7 @@ let test_build_snapshot_merge_previous () =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
       ~provider:None
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       ~accepted_at:100.0
       ~started_at:101.0
       Agent_lifecycle.Running
@@ -33,7 +33,7 @@ let test_build_snapshot_merge_previous () =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
       ~provider:None
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       ~previous:prev
       ~finished_at:200.0
       Agent_lifecycle.Completed
@@ -54,7 +54,7 @@ let test_build_snapshot_last_error () =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
       ~provider:None
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       ~last_error:"previous error"
       Agent_lifecycle.Failed
   in
@@ -62,7 +62,7 @@ let test_build_snapshot_last_error () =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
       ~provider:None
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       ~previous:prev
       Agent_lifecycle.Running
   in
@@ -74,22 +74,22 @@ let test_build_snapshot_last_error () =
 
 let test_build_snapshot_with_provider () =
   let provider : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-6"; api_key_env = "TEST" }
+    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-6"; api_key_env = "TEST" }
   in
   let snap =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
       ~provider:(Some provider)
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       Agent_lifecycle.Accepted
   in
   Alcotest.(check (option string))
     "requested_provider"
-    (Some "anthropic")
+    (Some "provider_a")
     snap.requested_provider;
   Alcotest.(check (option string))
     "resolved_model"
-    (Some "claude-sonnet-4-6")
+    (Some "agent_llm_a-sonnet-4-6")
     snap.resolved_model
 ;;
 
@@ -115,17 +115,17 @@ let test_runtime_name_local () =
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
-let test_runtime_name_anthropic () =
+let test_runtime_name_provider_a () =
   let cfg : Provider.config =
-    { provider = Anthropic; model_id = "test"; api_key_env = "DUMMY" }
+    { provider = Provider_a; model_id = "test"; api_key_env = "DUMMY" }
   in
   Alcotest.(check (option string))
-    "anthropic"
-    (Some "anthropic")
+    "provider_a"
+    (Some "provider_a")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
-let test_runtime_name_openai_compat () =
+let test_runtime_name_provider_d_compat () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -139,8 +139,8 @@ let test_runtime_name_openai_compat () =
     }
   in
   Alcotest.(check (option string))
-    "openai-compat"
-    (Some "openai-compat")
+    "provider_d-compat"
+    (Some "provider_d-compat")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
@@ -358,7 +358,7 @@ let test_lifecycle_snapshot_roundtrip () =
     Agent_lifecycle.build_snapshot
       ~agent_name:"roundtrip-test"
       ~provider:None
-      ~model:"claude-sonnet-4-6"
+      ~model:"agent_llm_a-sonnet-4-6"
       ~accepted_at:100.0
       ~started_at:101.0
       ~finished_at:200.0
@@ -395,8 +395,8 @@ let () =
     ; ( "provider_runtime_name"
       , [ Alcotest.test_case "None" `Quick test_runtime_name_none
         ; Alcotest.test_case "Local" `Quick test_runtime_name_local
-        ; Alcotest.test_case "Anthropic" `Quick test_runtime_name_anthropic
-        ; Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_openai_compat
+        ; Alcotest.test_case "Provider_a" `Quick test_runtime_name_provider_a
+        ; Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_provider_d_compat
         ; Alcotest.test_case "Custom_registered" `Quick test_runtime_name_custom
         ] )
     ; ( "hook_decision"

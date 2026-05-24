@@ -661,7 +661,7 @@ let test_record_to_json_roundtrip () =
     ; session_id = Some "sess-1"
     ; record_type = Raw_trace.Run_started
     ; prompt = Some "hello"
-    ; model = Some "glm-5.1"
+    ; model = Some "provider_k-5.1"
     ; tool_choice = Some (Types.tool_choice_to_json Types.Any)
     ; enable_thinking = Some false
     ; thinking_budget = Some 2048
@@ -693,7 +693,7 @@ let test_record_to_json_roundtrip () =
     Alcotest.(check int) "seq" 1 decoded.seq;
     Alcotest.(check (option string)) "session_id" (Some "sess-1") decoded.session_id;
     Alcotest.(check (option string)) "prompt" (Some "hello") decoded.prompt;
-    Alcotest.(check (option string)) "model" (Some "glm-5.1") decoded.model;
+    Alcotest.(check (option string)) "model" (Some "provider_k-5.1") decoded.model;
     Alcotest.(check string)
       "tool_choice"
       (Yojson.Safe.to_string (Types.tool_choice_to_json Types.Any))
@@ -818,7 +818,7 @@ let test_run_summary_yojson () =
     ; hook_invoked_count = 0
     ; hook_names = []
     ; tool_names = [ "read"; "write" ]
-    ; model = Some "glm-5.1"
+    ; model = Some "provider_k-5.1"
     ; tool_choice = Some (Types.tool_choice_to_json Types.Any)
     ; enable_thinking = Some true
     ; thinking_budget = Some 4096

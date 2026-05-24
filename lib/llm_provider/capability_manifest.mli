@@ -12,7 +12,7 @@
         "models": [
           {
             "id_prefix": "my-local-llama",
-            "base": "openai_chat",
+            "base": "provider_d_chat",
             "max_context_tokens": 131072,
             "supports_tools": true,
             "supports_reasoning": false
@@ -38,7 +38,7 @@
     [id_prefix] is matched as a case-insensitive prefix against the
     model ID being looked up.  [base] names a provider preset from
     {!Capabilities.capabilities_for_provider_label} (e.g.
-    ["openai_chat"], ["anthropic"]); when absent or unrecognised the
+    ["provider_d_chat"], ["provider_a"]); when absent or unrecognised the
     built-in [default_capabilities] is used.
 
     All other fields are optional overrides: a [None] value means
@@ -46,7 +46,7 @@
 type entry =
   { id_prefix : string
   ; base_label : string option
-    (** Provider preset label, e.g. ["openai_chat"] or ["anthropic"]. *)
+    (** Provider preset label, e.g. ["provider_d_chat"] or ["provider_a"]. *)
   ; max_context_tokens : int option (** [None] = inherit from base. *)
   ; max_output_tokens : int option (** [None] = inherit from base. *)
   ; supports_tools : bool option

@@ -1,7 +1,7 @@
 (** Replay a completed [api_response] as a sequence of SSE events.
 
     Used by CLI transports whose underlying binary does not support
-    native streaming (Gemini CLI, Codex CLI) so consumers receive the
+    native streaming (Provider_f CLI, Agent_code CLI) so consumers receive the
     same event shape as a truly streamed response. *)
 
 (** Emit [MessageStart] → per-block [ContentBlockStart]/[ContentBlockDelta]/

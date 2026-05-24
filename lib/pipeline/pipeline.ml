@@ -707,7 +707,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
        Without this, agent.state.messages grows unbounded across turns —
        context_reducer only trims before API calls, not in the stored state.
 
-       Two-step pruning (Claude Code Tier 1 pattern):
+       Two-step pruning (Agent_llm_a Code Tier 1 pattern):
        1. Stub old tool results: keep 2 most recent in full, replace older
           with short stubs. Tool results are the largest allocation source.
        2. Hard message cap: keep last 100 messages. Prevents unbounded growth
@@ -1196,11 +1196,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        Error e
      | Ok raw_response ->
        (* Stage 3.4: Lenient tool-use recovery.
-       Some providers (GLM, smaller Ollama models) return tool-call
+       Some providers (Provider_k, smaller Ollama models) return tool-call
        intent as text content instead of a ToolUse content block.
        Promote recoverable Text blocks to ToolUse before contract
        validation so the pipeline proceeds normally.
-       Ref: Samchon harness Layer 1 (dev.to/samchon, Qwen 2025). *)
+       Ref: Samchon harness Layer 1 (dev.to/samchon, Provider_h 2025). *)
        let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
        let response = Tool_use_recovery.recover_response ~valid_tool_names raw_response in
        let* missing_tool_action =

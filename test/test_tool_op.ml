@@ -293,7 +293,7 @@ let test_yojson_malformed_seq () =
   | Ok _ -> fail "expected error for malformed seq"
 ;;
 
-(* ── additional edge cases (GLM review) ──────────────────── *)
+(* ── additional edge cases (Provider_k review) ──────────────────── *)
 
 let test_replace_with_empty_eq_clear_all () =
   let a = Tool_op.apply (Replace_with []) [ "a"; "b"; "c" ] in

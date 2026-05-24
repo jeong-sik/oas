@@ -14,7 +14,7 @@
 
     Composition note: this is orthogonal to {!Provider_throttle}.
     Provider_throttle bounds *per-provider* concurrency (e.g. 16 slots
-    on Anthropic). This hook bounds *process-wide* concurrency across
+    on Provider_a). This hook bounds *process-wide* concurrency across
     all providers — both apply to a single call. *)
 
 (** [with_slot f] runs [f ()] under the currently-installed handler.

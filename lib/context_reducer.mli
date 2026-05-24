@@ -134,7 +134,7 @@ val prune_tool_args : max_arg_len:int -> ?keep_recent:int -> unit -> t
 val repair_dangling_tool_calls : t
 
 (** Remove ToolResult blocks whose tool_use_id has no matching ToolUse.
-    OpenAI-compatible APIs (GLM, Groq, etc.) reject orphaned ToolResults.
+    Provider_d-compatible APIs (Provider_k, Provider_i, etc.) reject orphaned ToolResults.
     Complement of [repair_dangling_tool_calls].
     @since 0.99.2 *)
 val repair_orphaned_tool_results : t

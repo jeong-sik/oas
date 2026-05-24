@@ -5,7 +5,7 @@ open Agent_sdk
 let make_checkpoint
       ?(session_id = "sess-original")
       ?(agent_name = "test-agent")
-      ?(model = "claude-sonnet-4-6")
+      ?(model = "agent_llm_a-sonnet-4-6")
       ?(system_prompt = Some "You are helpful.")
       ?(messages = [])
       ?(usage = Types.empty_usage)
@@ -227,9 +227,9 @@ let test_resume_restores_turn_count () =
 let test_resume_restores_model () =
   with_net
   @@ fun net ->
-  let cp = make_checkpoint ~model:"claude-opus-4-6" () in
+  let cp = make_checkpoint ~model:"agent_llm_a-opus-4-6" () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  Alcotest.(check string) "model" "claude-opus-4-6" (Agent.state agent).config.model
+  Alcotest.(check string) "model" "agent_llm_a-opus-4-6" (Agent.state agent).config.model
 ;;
 
 let test_resume_restores_agent_name () =
@@ -369,7 +369,7 @@ let test_checkpoint_resume_roundtrip () =
     make_checkpoint
       ~session_id:"rt-sess"
       ~agent_name:"rt-agent"
-      ~model:"claude-haiku-4-5"
+      ~model:"agent_llm_a-haiku-4-5"
       ~system_prompt:(Some "Be brief.")
       ~messages:sample_messages
       ~usage:sample_usage

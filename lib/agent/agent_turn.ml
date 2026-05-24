@@ -330,7 +330,7 @@ let prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_par
        byte-identical across turns — critical for local LLM KV-cache
        reuse.  The dynamic context (timestamps, tool counts) changes
        every turn; placing it at the tail keeps the stable history
-       prefix cacheable.  Anthropic API handles caching server-side
+       prefix cacheable.  Provider_a API handles caching server-side
        regardless of position, but Ollama/llama.cpp prefix-match. *)
     let system_msg =
       { role = User
@@ -610,7 +610,7 @@ let update_idle_detection ~idle_state ~tool_uses =
 ;;
 
 (** Default per-tool-result character cap.
-    Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
+    Aligned with Agent_llm_a Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
     Results exceeding this are truncated with a marker at creation time,
     before entering the conversation.  The downstream
     [Context_reducer.prune_tool_outputs] further reduces during turns.

@@ -35,7 +35,7 @@ let test_turn_started_projection () =
 let test_llm_request_projection () =
   let evt =
     Durable_event.Llm_request
-      { turn = 1; model = "qwen"; input_tokens = 500; timestamp = ts }
+      { turn = 1; model = "provider_h"; input_tokens = 500; timestamp = ts }
   in
   check string "name" "durable.llm_request" (projection_name evt);
   match projection_payload evt with
@@ -50,7 +50,7 @@ let test_llm_request_projection () =
     check
       string
       "model"
-      "qwen"
+      "provider_h"
       (match List.assoc_opt "model" fields with
        | Some (`String s) -> s
        | _ -> "")

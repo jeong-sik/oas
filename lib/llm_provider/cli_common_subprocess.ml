@@ -52,7 +52,7 @@ let last_nonempty_line text =
     writes [s], and closes the writer so the child sees EOF.  Used by
     transports to bypass the argv/envp [ARG_MAX] ceiling (macOS
     ~1 MiB) for large prompts; see
-    {!Transport_claude_code.subprocess_session_isolation_env} and PR fixing OAS
+    {!Transport_cli_tool_d.subprocess_session_isolation_env} and PR fixing OAS
     #1082 for the original symptom.  When [None] the child's stdin
     follows Eio's default (inherits parent). *)
 let run_core
@@ -223,7 +223,7 @@ let run_core
           }
       | `Exited code ->
         (* Some CLI transports complete the LLM response on stdout but exit
-         nonzero on post-response bookkeeping (e.g. codex-cli 0.125.0+
+         nonzero on post-response bookkeeping (e.g. agent_code-cli 0.125.0+
          races [record_rollout_items] against process exit and emits
          [thread <UUID> not found] on stderr with [exit code 1] even
          though the JSONL stream on stdout is structurally complete).
@@ -404,7 +404,7 @@ let%test "run_collect: stdout_recovery rescues nonzero exit when predicate match
       ~cwd:None
       ~extra_env:[]
       ~stdout_recovery:(fun s ->
-        (* Predicate accepts any stdout — emulates the codex case where
+        (* Predicate accepts any stdout — emulates the agent_code case where
            a structurally complete stream was already captured. *)
         String.length s > 0)
       ~on_stderr_line:(fun _ -> ())

@@ -182,9 +182,9 @@ let unsatisfied_calls_message calls errors =
 (* A response whose stop_reason signals the model was cut off mid-turn rather
    than cleanly deciding not to call a tool. Surfacing a
    [CompletionContractViolation] in that case is misleading — the caller can
-   continue the turn (or raise max_tokens) instead. Observed on Anthropic
+   continue the turn (or raise max_tokens) instead. Observed on Provider_a
    Haiku 4.5 where extended thinking consumes the 8192 output budget before
-   a ToolUse block emits: Anthropic returns [pause_turn] which currently
+   a ToolUse block emits: Provider_a returns [pause_turn] which currently
    parses to [Unknown "pause_turn"] since it is not yet a first-class
    [stop_reason] variant. *)
 let stop_reason_is_resumable (sr : stop_reason) : bool =
@@ -576,7 +576,7 @@ let%test "Require_tool_use accepts no-ToolUse response when stop_reason is MaxTo
   validate_response
     ~contract:Require_tool_use
     { id = "r"
-    ; model = "claude-haiku-4-5-20251001"
+    ; model = "agent_llm_a-haiku-4-5-20251001"
     ; stop_reason = MaxTokens
     ; content = [ Text "partial thinking output" ]
     ; usage = None
@@ -591,7 +591,7 @@ let%test
   validate_response
     ~contract:Require_tool_use
     { id = "r"
-    ; model = "claude-haiku-4-5-20251001"
+    ; model = "agent_llm_a-haiku-4-5-20251001"
     ; stop_reason = Unknown "pause_turn"
     ; content = [ Text "thinking..." ]
     ; usage = None

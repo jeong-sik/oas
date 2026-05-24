@@ -4,7 +4,7 @@
     in agent state. This avoids sending the entire conversation on every
     request, cutting input tokens without losing debuggability.
 
-    Critical constraint: Anthropic API requires that every ToolUse block has
+    Critical constraint: Provider_a API requires that every ToolUse block has
     a matching ToolResult in the subsequent User message. All strategies
     respect turn boundaries so ToolUse/ToolResult pairs are never split.
 

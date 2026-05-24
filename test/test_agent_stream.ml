@@ -337,12 +337,12 @@ let test_roundtrip_mixed_block_count () =
 ;;
 
 let test_roundtrip_message_start_fields () =
-  let response = make_response ~id:"msg-xyz" ~model:"claude-test" [ Types.Text "x" ] in
+  let response = make_response ~id:"msg-xyz" ~model:"agent_llm_a-test" [ Types.Text "x" ] in
   let events = collect_events response in
   match List.nth events 0 with
   | Types.MessageStart { id; model; _ } ->
     Alcotest.(check string) "id preserved" "msg-xyz" id;
-    Alcotest.(check string) "model preserved" "claude-test" model
+    Alcotest.(check string) "model preserved" "agent_llm_a-test" model
   | _ -> Alcotest.fail "expected MessageStart"
 ;;
 

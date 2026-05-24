@@ -3,18 +3,18 @@
     @stability Internal
 
     Protocol-string dispatch over the 4 CLI transport modules:
-    - ["anthropic-cli"] → [Transport_claude_code]
-    - ["codex-cli"]     → [Transport_codex_cli]
-    - ["google-cli"]    → [Transport_gemini_cli]
-    - ["kimi-cli"]      → [Transport_kimi_cli]
+    - ["provider_a-cli"] → [Transport_cli_tool_d]
+    - ["agent_code-cli"]     → [Transport_cli_tool_a]
+    - ["google-cli"]    → [Transport_cli_tool_b]
+    - ["provider_c-cli"]      → [Transport_cli_tool_c]
 
     Each protocol maps to an existing transport module's [create] function.
     Fields in [cli_config] not consumed by a given protocol are ignored;
-    some underlying transports (e.g. codex-cli, gemini-cli) emit one-shot
+    some underlying transports (e.g. agent_code-cli, provider_f-cli) emit one-shot
     runtime warnings when they observe parity fields they cannot honor,
     so "ignored" here means "no effect on the request" rather than silent.
 
-    HTTP-only transports ([transport_openai_compat]) are NOT part of this
+    HTTP-only transports ([transport_provider_d_compat]) are NOT part of this
     factory — they are constructed directly from HTTP parameters. *)
 
 (** Superset config for all CLI transports.
@@ -28,9 +28,9 @@ type cli_config =
   { command : string
   ; model : string option
   ; cwd : string option
-  ; (* MCP config — shared by claude, codex, gemini (single file path) *)
+  ; (* MCP config — shared by agent_llm_a, agent_code, provider_f (single file path) *)
     mcp_config : string option
-  ; (* MCP config — kimi-specific (lists of file paths / JSON strings) *)
+  ; (* MCP config — provider_c-specific (lists of file paths / JSON strings) *)
     mcp_config_files : string list
   ; mcp_config_json : string list
   ; (* Tool config *)
@@ -38,12 +38,12 @@ type cli_config =
   ; max_turns : int option
   ; permission_mode : string option
   ; (* Protocol-specific flags. [None] = use the transport's native default. *)
-    tool_use_via_stream_json : bool option (** [anthropic-cli] only *)
-  ; forward_tool_results : bool option (** [anthropic-cli], [kimi-cli] *)
+    tool_use_via_stream_json : bool option (** [provider_a-cli] only *)
+  ; forward_tool_results : bool option (** [provider_a-cli], [provider_c-cli] *)
   ; yolo : bool option (** [google-cli] only *)
-  ; config_file : string option (** [kimi-cli] only *)
-  ; extra_env : (string * string) list (** [kimi-cli] only *)
-  ; session_id : string option (** [kimi-cli] only *)
+  ; config_file : string option (** [provider_c-cli] only *)
+  ; extra_env : (string * string) list (** [provider_c-cli] only *)
+  ; session_id : string option (** [provider_c-cli] only *)
   ; (* Infrastructure *)
     cancel : unit Eio.Promise.t option
   ; clock : float Eio.Time.clock_ty Eio.Resource.t option

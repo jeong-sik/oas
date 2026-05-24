@@ -6,7 +6,7 @@ type transport =
   | Http
   | Cli
   | Managed
-  | Custom_openai_compat
+  | Custom_provider_d_compat
 [@@deriving show]
 
 type auth_mode =
@@ -139,12 +139,12 @@ let parse_transport = function
      | "http" -> Ok (Some Http)
      | "cli" -> Ok (Some Cli)
      | "managed" -> Ok (Some Managed)
-     | "custom_openai_compat" | "custom-openai-compat" | "openai_compat" ->
-       Ok (Some Custom_openai_compat)
+     | "custom_provider_d_compat" | "custom-openai-compat" | "provider_d_compat" ->
+       Ok (Some Custom_provider_d_compat)
      | other ->
        Error
          (Printf.sprintf
-            "unknown transport %S (canonical: http, cli, managed, custom_openai_compat; \
+            "unknown transport %S (canonical: http, cli, managed, custom_provider_d_compat; \
              dashed aliases also accepted)"
             other))
 ;;
@@ -457,7 +457,7 @@ let parse_entry json =
     if id = ""
     then Error "provider entry has empty \"id\" field"
     else (
-      let kind_raw = member_string_default "kind" ~default:"openai_compat" json in
+      let kind_raw = member_string_default "kind" ~default:"provider_d_compat" json in
       match Provider_kind.of_string kind_raw with
       | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
       | Some kind ->

@@ -241,7 +241,7 @@ let test_agent_completed_payload () =
          ; result =
              Ok
                { Types.id = "msg_1"
-               ; model = "claude-sonnet-4-20250514"
+               ; model = "agent_llm_a-sonnet-4-20250514"
                ; content = [ Text "done" ]
                ; stop_reason = EndTurn
                ; usage = None
@@ -352,7 +352,7 @@ let test_inference_telemetry_payload () =
 ;;
 
 let test_inference_telemetry_partial_fields () =
-  (* OpenAI-compat backends typically only report token counts; absent
+  (* Provider_d-compat backends typically only report token counts; absent
      timing fields must serialize as JSON null, not be omitted or default
      to 0. Subscribers distinguish "absent" from "zero". *)
   let evt =
@@ -360,7 +360,7 @@ let test_inference_telemetry_partial_fields () =
       (Event_bus.InferenceTelemetry
          { agent_name = "a"
          ; turn = 1
-         ; provider = "openai_compat"
+         ; provider = "provider_d_compat"
          ; model = "gpt-x"
          ; prompt_tokens = Some 50
          ; completion_tokens = Some 10

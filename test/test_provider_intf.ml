@@ -5,8 +5,8 @@ open Agent_sdk.Types
 
 (* ── Module type satisfaction ────────────────────────────── *)
 
-let test_of_config_anthropic () =
-  let config = Provider.anthropic_sonnet () in
+let test_of_config_provider_a () =
+  let config = Provider.provider_a_sonnet () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   (* Module was constructed — type check passed at compile time.
      We can't call create_message without a real network, but the
@@ -14,7 +14,7 @@ let test_of_config_anthropic () =
   ignore (module P : Provider_intf.PROVIDER)
 ;;
 
-let test_of_config_openai () =
+let test_of_config_provider_d () =
   let config = Provider.openrouter ~model_id:"gpt-4" () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   ignore (module P : Provider_intf.PROVIDER)
@@ -22,24 +22,24 @@ let test_of_config_openai () =
 
 (* ── supports_streaming ──────────────────────────────────── *)
 
-let test_anthropic_supports_streaming () =
-  let config = Provider.anthropic_sonnet () in
-  Alcotest.(check bool) "anthropic streams" true (Provider_intf.supports_streaming config)
+let test_provider_a_supports_streaming () =
+  let config = Provider.provider_a_sonnet () in
+  Alcotest.(check bool) "provider_a streams" true (Provider_intf.supports_streaming config)
 ;;
 
 (* ── of_config_streaming ─────────────────────────────────── *)
 
 let test_streaming_provider_some () =
-  let config = Provider.anthropic_sonnet () in
+  let config = Provider.provider_a_sonnet () in
   match Provider_intf.of_config_streaming config with
   | Some (module SP : Provider_intf.STREAMING_PROVIDER) ->
     ignore (module SP : Provider_intf.STREAMING_PROVIDER)
-  | None -> Alcotest.fail "expected Some for anthropic"
+  | None -> Alcotest.fail "expected Some for provider_a"
 ;;
 
 (* ── HTTP dispatch ───────────────────────────────────────── *)
 
-let openai_response =
+let provider_d_response =
   {|{"id":"chatcmpl-provider-intf","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}|}
 ;;
 
@@ -77,7 +77,7 @@ let test_provider_dispatch_uses_http_client () =
     seen_content_length := Cohttp.Header.get headers "content-length";
     seen_path := Some (Uri.path (Cohttp.Request.uri req));
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:openai_response ()
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:provider_d_response ()
   in
   with_mock_server ~port:18342 handler (fun ~sw ~net ~base_url ->
     let provider : Provider.config =
@@ -126,16 +126,16 @@ let () =
     "Provider_intf"
     [ ( "of_config"
       , [ Alcotest.test_case
-            "anthropic satisfies PROVIDER"
+            "provider_a satisfies PROVIDER"
             `Quick
-            test_of_config_anthropic
-        ; Alcotest.test_case "openai satisfies PROVIDER" `Quick test_of_config_openai
+            test_of_config_provider_a
+        ; Alcotest.test_case "provider_d satisfies PROVIDER" `Quick test_of_config_provider_d
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case
-            "anthropic supports streaming"
+            "provider_a supports streaming"
             `Quick
-            test_anthropic_supports_streaming
+            test_provider_a_supports_streaming
         ; Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_some
         ] )
     ; ( "http_dispatch"

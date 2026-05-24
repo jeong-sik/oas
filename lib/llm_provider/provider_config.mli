@@ -13,19 +13,19 @@
     Re-exported from {!Provider_kind} — the underlying type now lives there so
     it can be shared with {!Types} without creating a dependency cycle. *)
 type provider_kind = Provider_kind.t =
-  | Anthropic
-  | Kimi (** Kimi Code direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
-  | OpenAI_compat
+  | Provider_a
+  | Provider_c (** Provider_c Code direct API: Provider_a-compatible [/v1/messages]. @since 0.169.0 *)
+  | Provider_d_compat
   | Ollama
-  (** Ollama: OpenAI compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
-  | Gemini
-  | Glm
-  (** ZhipuAI GLM native: OpenAI wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
-  | DashScope
-  | Claude_code (** Subprocess transport via [claude -p]. @since 0.78.0 *)
-  | Gemini_cli (** Subprocess transport via [gemini -p]. @since 0.133.0 *)
-  | Kimi_cli (** Subprocess transport via [kimi --print]. @since 0.169.0 *)
-  | Codex_cli (** Subprocess transport via [codex exec]. @since 0.133.0 *)
+  (** Ollama: Provider_d compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
+  | Provider_f
+  | Provider_k
+  (** ZhipuAI Provider_k native: Provider_d wire format + JWT auth + Provider_k error parsing. @since 0.83.0 *)
+  | Provider_h
+  | Cli_tool_d (** Subprocess transport via [agent_llm_a -p]. @since 0.78.0 *)
+  | Cli_tool_b (** Subprocess transport via [provider_f -p]. @since 0.133.0 *)
+  | Cli_tool_c (** Subprocess transport via [provider_c --print]. @since 0.169.0 *)
+  | Cli_tool_a (** Subprocess transport via [agent_code exec]. @since 0.133.0 *)
 
 (** Default HTTP request path for a given provider kind, returning
     [""] for CLI subprocess kinds that do not dispatch over a path.
@@ -106,15 +106,15 @@ type t =
       [None] = SDK has no opinion (the default for non-CLI providers
       and CLI providers that do not expose rotation visibility).
 
-      Originally surfaced for [Codex_cli], whose vendor binary cycles
-      through 5 candidate models per [codex exec] invocation and
+      Originally surfaced for [Cli_tool_a], whose vendor binary cycles
+      through 5 candidate models per [agent_code exec] invocation and
       returns only the final attempt's outcome. Without this hint a
       single CLI call appears as one provider attempt to the
       downstream cascade observer, even though it can take ~180s
       worst-case (5 model retries with internal backoff). Consumers
       that want to render the rotation in cascade traces or apply
       a per-attempt timeout budget can read this hint instead of
-      hard-coding a Codex-specific constant.
+      hard-coding a Agent_code-specific constant.
 
       The SDK does not enforce or schedule the rotation; it remains
       the CLI binary's responsibility. This field is purely
@@ -137,7 +137,7 @@ type t =
       {!Capabilities.t.supports_seed} is [true]. [None] = use the
       [OAS_DEFAULT_SEED] env var, then fallback to
       {!Constants.Deterministic.default_seed} (42).
-      Anthropic (Claude) does not support seed — the field is silently
+      Provider_a (Agent_llm_a) does not support seed — the field is silently
       ignored for that provider.
       @since 0.185.0 *)
   }
@@ -177,7 +177,7 @@ val make
   -> t
 
 (** Lowercase string representation of the wire-format kind.
-    Returns the variant name in lowercase (e.g. [Anthropic] -> ["anthropic"]).
+    Returns the variant name in lowercase (e.g. [Provider_a] -> ["provider_a"]).
     Exhaustive match: adding a new variant triggers a compile error.
     @since 0.100.0 *)
 val string_of_provider_kind : provider_kind -> string
@@ -190,14 +190,14 @@ val all_provider_kinds : provider_kind list
 (** Conventional API key env var name per kind. Re-export of
     {!Provider_kind.default_api_key_env}. Returns [None] for kinds
     that do not have a universally-agreed env var (local / transport-
-    mediated / OpenAI-compatible spaces where the env name is
+    mediated / Provider_d-compatible spaces where the env name is
     consumer-specified).
     @since 0.166.0 *)
 val default_api_key_env : provider_kind -> string option
 
 (** Re-export of {!Provider_kind.is_subprocess_cli}. [true] for the
-    four CLI-subprocess kinds (Claude_code, Gemini_cli, Kimi_cli,
-    Codex_cli); [false] for direct-HTTP kinds.
+    four CLI-subprocess kinds (Cli_tool_d, Cli_tool_b, Cli_tool_c,
+    Cli_tool_a); [false] for direct-HTTP kinds.
     @since 0.170.0 *)
 val is_subprocess_cli : provider_kind -> bool
 
@@ -205,15 +205,15 @@ val is_subprocess_cli : provider_kind -> bool
 
     Accepts every lowercase form produced by {!string_of_provider_kind} plus
     the documented legacy aliases used by cascade configs and callers:
-    - [claude]  -> [Anthropic]
-    - [openai]  -> [OpenAI_compat]
+    - [agent_llm_a]  -> [Provider_a]
+    - [provider_d]  -> [Provider_d_compat]
     - [llama]   -> [Ollama]
 
     The match is case-insensitive; leading and trailing whitespace is
     trimmed. Returns [None] for any other input so callers fail fast
     rather than silently falling back to a default provider.
 
-    Use this instead of scattered ad-hoc [match s with "claude" -> ...]
+    Use this instead of scattered ad-hoc [match s with "agent_llm_a" -> ...]
     ladders to keep all string-to-kind drift in one place.
     @since 0.165.0 *)
 val provider_kind_of_string : string -> provider_kind option
@@ -221,9 +221,9 @@ val provider_kind_of_string : string -> provider_kind option
 (** {1 Serializers}
 
     Hand-written to emit the wire-format produced by
-    {!string_of_provider_kind} (for example ["anthropic"]) rather than the
+    {!string_of_provider_kind} (for example ["provider_a"]) rather than the
     capitalised constructor name that [\[@@deriving yojson\]] would default
-    to (["Anthropic"]).
+    to (["Provider_a"]).
 
     Records that embed [provider_kind] (for example
     [Types.inference_telemetry]) can therefore add it to a derived-yojson
@@ -267,7 +267,7 @@ val effort_of_thinking_config
 val reasoning_effort_of_config : t -> string option
 
 (** Derive a provider-safe schema name for native structured-output APIs
-    that require one (for example OpenAI's [json_schema.name]). *)
+    that require one (for example Provider_d's [json_schema.name]). *)
 val structured_output_name_of_schema : Yojson.Safe.t -> string
 
 (** Validate whether [output_schema] can be sent natively for this config.
@@ -277,14 +277,14 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [OpenAI_compat] is accepted only for official OpenAI hosts with a
+    - [Provider_d_compat] is accepted only for official Provider_d hosts with a
       model capability record that reports [supports_structured_output].
-    - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
-      DashScope (Qwen) exposes [response_format.json_schema] on its
-      OpenAI-compatible endpoint; the field is forwarded by
-      [backend_openai.ml] without additional host validation.
-    - [Kimi] is rejected until native json_schema support is verified.
-    - [Glm] is rejected: Z.AI's current official docs document JSON mode
+    - [Provider_f], [Provider_a], [Ollama], and [Provider_h] are accepted.
+      Provider_h (Provider_h) exposes [response_format.json_schema] on its
+      Provider_d-compatible endpoint; the field is forwarded by
+      [backend_provider_d.ml] without additional host validation.
+    - [Provider_c] is rejected until native json_schema support is verified.
+    - [Provider_k] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.
     - CLI kinds are rejected.
 

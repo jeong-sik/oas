@@ -477,7 +477,7 @@ let test_heal_max_retries_zero () =
 
 (* ── strip_orphaned_tool_results ──────────────────────────── *)
 
-module Serialize = Llm_provider.Backend_openai_serialize
+module Serialize = Llm_provider.Backend_provider_d_serialize
 
 let mk_msg role content : Types.message =
   { role; content; name = None; tool_call_id = None; metadata = [] }

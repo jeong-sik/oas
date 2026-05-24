@@ -1,6 +1,6 @@
 (** SSE streaming client for multi-provider LLM APIs.
 
-    Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
+    Supports Provider_a (native SSE) and Provider_d-compatible (SSE).
     Pure SSE event parsing and synthetic emission are delegated to
     {!Llm_provider.Streaming}. The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling. *)
@@ -196,7 +196,7 @@ let map_http_error = function
 ;;
 
 (** Streaming variant of create_message.
-    Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
+    Supports Provider_a (native SSE) and Provider_d-compatible (SSE).
     Custom providers fall back to sync + synthetic events.
 
     Does not accept retry_config: SSE streams deliver partial results
@@ -220,26 +220,26 @@ let create_message_stream
        | Ok (url, key, _headers) -> Ok (p, url, key)
        | Error e -> Error e)
     | None ->
-      (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
+      (match Sys.getenv_opt "PROVIDER_A_API_KEY" with
        | Some key ->
          let fallback_provider : Provider.config =
-           { provider = Provider.Anthropic
+           { provider = Provider.Provider_a
            ; model_id = model_to_string config.config.model
-           ; api_key_env = "ANTHROPIC_API_KEY"
+           ; api_key_env = "PROVIDER_A_API_KEY"
            }
          in
          Ok (fallback_provider, base_url, key)
-       | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
+       | None -> Error (Error.Config (MissingEnvVar { var_name = "PROVIDER_A_API_KEY" })))
   in
   match resolve_result with
   | Error e -> Error e
   | Ok (provider_cfg, base_url, api_key) ->
     (match Provider.request_kind provider_cfg.provider with
-     | Provider.Anthropic_messages ->
+     | Provider.Provider_a_messages ->
        let headers =
          [ "Content-Type", "application/json"
          ; "x-api-key", api_key
-         ; "anthropic-version", Api.api_version
+         ; "provider_a-version", Api.api_version
          ]
        in
        let body_assoc = Api.build_body_assoc ~config ~messages ?tools ~stream:true () in
@@ -276,7 +276,7 @@ let create_message_stream
                (Retry.NetworkError
                   { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
      | Provider.Openai_chat_completions ->
-       (* OpenAI-compatible SSE streaming. *)
+       (* Provider_d-compatible SSE streaming. *)
        let headers =
          match Provider.resolve provider_cfg with
          | Ok (_, _, h) -> h
@@ -284,7 +284,7 @@ let create_message_stream
        in
        let stream_path = Provider.request_path provider_cfg.provider in
        let body =
-         Api_openai.build_openai_body
+         Api_provider_d.build_provider_d_body
            ~provider_config:provider_cfg
            ~config
            ~messages
@@ -301,7 +301,7 @@ let create_message_stream
             ~body
             ~f:(fun reader ->
               let acc = create_stream_acc () in
-              let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
+              let oai_state = Llm_provider.Streaming.create_provider_d_stream_state () in
               let msg_started = ref false in
               Llm_provider.Http_client.read_sse
                 ~reader
@@ -309,7 +309,7 @@ let create_message_stream
                   if data = "[DONE]"
                   then ()
                   else (
-                    match Llm_provider.Streaming.parse_openai_sse_chunk data with
+                    match Llm_provider.Streaming.parse_provider_d_sse_chunk data with
                     | None -> ()
                     | Some chunk ->
                       if not !msg_started
@@ -325,7 +325,7 @@ let create_message_stream
                         on_event evt;
                         accumulate_event acc evt);
                       let evs, _tel =
-                        Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                        Llm_provider.Streaming.provider_d_chunk_to_events oai_state chunk
                       in
                       List.iter
                         (fun evt ->

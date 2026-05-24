@@ -50,7 +50,7 @@ let test_find_object_none () =
 
 (* ── extract_name_and_input ──────────────────────────────── *)
 
-let test_extract_anthropic_style () =
+let test_extract_provider_a_style () =
   let json =
     `Assoc [ "name", `String "mock_tool_post"; "input", `Assoc [ "title", `String "hi" ] ]
   in
@@ -70,7 +70,7 @@ let test_extract_anthropic_style () =
   | None -> fail "expected extraction"
 ;;
 
-let test_extract_openai_arguments_object () =
+let test_extract_provider_d_arguments_object () =
   let json = `Assoc [ "name", `String "tool"; "arguments", `Assoc [ "x", `Int 1 ] ] in
   match TUR.extract_name_and_input json with
   | Some (name, _) -> check string "name" "tool" name
@@ -78,7 +78,7 @@ let test_extract_openai_arguments_object () =
 ;;
 
 let test_extract_double_stringified () =
-  (* OpenAI-style: arguments value is a JSON-encoded string *)
+  (* Provider_d-style: arguments value is a JSON-encoded string *)
   let json = `Assoc [ "name", `String "tool"; "arguments", `String "{\"x\":42}" ] in
   match TUR.extract_name_and_input json with
   | Some (_, input) ->
@@ -174,8 +174,8 @@ let () =
         ; test_case "none" `Quick test_find_object_none
         ] )
     ; ( "extract_name_and_input"
-      , [ test_case "anthropic style" `Quick test_extract_anthropic_style
-        ; test_case "openai arguments object" `Quick test_extract_openai_arguments_object
+      , [ test_case "provider_a style" `Quick test_extract_provider_a_style
+        ; test_case "provider_d arguments object" `Quick test_extract_provider_d_arguments_object
         ; test_case "double stringified" `Quick test_extract_double_stringified
         ; test_case "tool_calls wrapper" `Quick test_extract_tool_calls_wrapper
         ; test_case "no shape" `Quick test_extract_none

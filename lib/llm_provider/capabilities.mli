@@ -9,19 +9,19 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object
-  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
+  (** Provider_g-style: top-level [thinking] object plus [reasoning_effort]. *)
   | Thinking_object_only
-  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
+  (** Provider_c K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** OpenAI-style top-level [reasoning_effort] string field. The set of
+  (** Provider_d-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (OpenAI's spec
+      see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
       also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's OpenAI-compatible mode uses this shape. *)
+      it.) Ollama's Provider_d-compatible mode uses this shape. *)
   | Enable_thinking
-  (** DashScope-style top-level [enable_thinking] bool plus optional
+  (** Provider_h-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
 
 type capabilities =
@@ -63,7 +63,7 @@ type capabilities =
   ; supports_seed_with_images : bool
     (** Whether seed determinism is maintained when image inputs are present.
       Local providers (Ollama) achieve near-perfect reproducibility; cloud
-      providers (OpenAI, Gemini) do not guarantee it.
+      providers (Provider_d, Provider_f) do not guarantee it.
       @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
@@ -71,8 +71,8 @@ type capabilities =
   ; (* Usage reporting *)
     emits_usage_tokens : bool
     (** Whether the provider's standard response carries usage tokens
-      (input_tokens/output_tokens). CLI-class wrappers (codex_cli,
-      gemini_cli, kimi_cli) strip usage before returning, so
+      (input_tokens/output_tokens). CLI-class wrappers (cli_tool_a,
+      cli_tool_b, cli_tool_c) strip usage before returning, so
       downstream metrics coverage gating must treat text-only turns
       against them as structurally unreported rather than a gap.
 
@@ -80,44 +80,44 @@ type capabilities =
   ; (* Model limitations *)
     supported_models : string list option
     (** Explicit list of supported models if the provider is restricted
-        to a specific set (e.g. Kimi CLI to "kimi-for-coding").
+        to a specific set (e.g. Provider_c CLI to "provider_c-for-coding").
         [None] means no strict client-side restriction. *)
   }
 
 val default_capabilities : capabilities
-val anthropic_capabilities : capabilities
-val kimi_capabilities : capabilities
-val openai_chat_capabilities : capabilities
-val openai_chat_extended_capabilities : capabilities
-val gemini_capabilities : capabilities
+val provider_a_capabilities : capabilities
+val provider_c_capabilities : capabilities
+val provider_d_chat_capabilities : capabilities
+val provider_d_chat_extended_capabilities : capabilities
+val provider_f_capabilities : capabilities
 val ollama_capabilities : capabilities
-val dashscope_capabilities : capabilities
-val glm_capabilities : capabilities
-val claude_code_capabilities : capabilities
-val gemini_cli_capabilities : capabilities
-val kimi_cli_capabilities : capabilities
-val codex_cli_capabilities : capabilities
+val provider_h_capabilities : capabilities
+val provider_k_capabilities : capabilities
+val agent_llm_a_code_capabilities : capabilities
+val provider_f_cli_capabilities : capabilities
+val provider_c_cli_capabilities : capabilities
+val agent_code_cli_capabilities : capabilities
 
-(** NVIDIA NIM Nemotron capabilities: Llama-based, chat_template_kwargs thinking.
+(** NVIDIA NIM Provider_l capabilities: Llama-based, chat_template_kwargs thinking.
     @since 0.185.0 *)
-val nemotron_capabilities : capabilities
+val provider_l_capabilities : capabilities
 
-(** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
+(** Typed Provider_f model family. SSOT for the [provider_f-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code
     should switch on this variant rather than re-compare strings.
 
     @since 0.196.3 *)
-type gemini_family =
-  | Gemini_3_1 (** [gemini-3.1.*] *)
-  | Gemini_3 (** [gemini-3.*] but not 3.1 *)
-  | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
-  | Gemini_other of string (** Unknown gemini id, or non-gemini id (literal retained). *)
+type provider_f_family =
+  | Provider_f_3_1 (** [provider_f-3.1.*] *)
+  | Provider_f_3 (** [provider_f-3.*] but not 3.1 *)
+  | Provider_f_2_5 (** [provider_f-2.5.*] (legacy line) *)
+  | Provider_f_other of string (** Unknown provider_f id, or non-provider_f id (literal retained). *)
 
-(** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
+(** Classify a model id into a [provider_f_family]. Order: [3.1] before [3] so the
     more specific prefix wins. Input is expected lowercased; callers that
     cannot lowercase first should normalize via [String.lowercase_ascii] at
     the boundary. *)
-val gemini_family_of_id : string -> gemini_family
+val provider_f_family_of_id : string -> provider_f_family
 
 (** Typed route selected by the built-in static capability table.
 
@@ -126,24 +126,24 @@ val gemini_family_of_id : string -> gemini_family
     inside {!static_model_route_of_id}; capability construction switches on this
     variant so adding or removing a model family is an exhaustive code change. *)
 type static_model_route =
-  | Claude_opus_4
-  | Claude_sonnet_4
-  | Claude_haiku_4
+  | Agent_llm_a_opus_4
+  | Agent_llm_a_sonnet_4
+  | Agent_llm_a_haiku_4
   | Gpt_5
   | Gpt_4_1
   | Gpt_4o
-  | Gemini of gemini_family
-  | Kimi_for_coding
-  | Kimi_k2
+  | Provider_f of provider_f_family
+  | Provider_c_for_coding
+  | Provider_c_k2
   | Qwen3
   | Llama_4
-  | Deepseek_v4_flash
-  | Deepseek_v4_pro
+  | Provider_g_v4_flash
+  | Provider_g_v4_pro
   | Mistral_large
   | Mistral_small
   | Command
   | Grok
-  | Nemotron of { has_vision : bool }
+  | Provider_l of { has_vision : bool }
   | Gemma_4 of { has_large_audio : bool }
   | Glm_flash_air
   | Glm_5_turbo
@@ -168,9 +168,9 @@ val for_model_id : string -> capabilities option
 (** Lookup capabilities for a provider label string.
 
     Recognized labels (case-insensitive, whitespace trimmed):
-    [anthropic], [openai] / [openai_chat], [openai_chat_extended],
-    [gemini], [ollama], [glm] / [glm-coding], [kimi], [nemotron],
-    [claude_code], [gemini_cli], [kimi_cli], [codex_cli].
+    [provider_a], [provider_d] / [provider_d_chat], [provider_d_chat_extended],
+    [provider_f], [ollama], [provider_k] / [provider_k-coding], [provider_c], [provider_l],
+    [cli_tool_d], [cli_tool_b], [cli_tool_c], [cli_tool_a].
 
     Returns [None] for labels outside this set. Intended for adapter
     layers that track provider kind as a string (e.g. config loaders,

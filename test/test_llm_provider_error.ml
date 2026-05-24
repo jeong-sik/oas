@@ -13,8 +13,8 @@ let test_missing_api_key () =
   check
     string
     "MissingApiKey format"
-    "Missing API key env var: OPENAI_API_KEY"
-    (Error.to_string (Error.MissingApiKey { var_name = "OPENAI_API_KEY" }))
+    "Missing API key env var: PROVIDER_D_API_KEY"
+    (Error.to_string (Error.MissingApiKey { var_name = "PROVIDER_D_API_KEY" }))
 ;;
 
 let test_invalid_config () =
@@ -47,20 +47,20 @@ let test_provider_unavailable () =
   check
     string
     "ProviderUnavailable format"
-    "Provider 'anthropic' unavailable: HTTP 503 retry-after exhausted"
+    "Provider 'provider_a' unavailable: HTTP 503 retry-after exhausted"
     (Error.to_string
        (Error.ProviderUnavailable
-          { provider = "anthropic"; detail = "HTTP 503 retry-after exhausted" }))
+          { provider = "provider_a"; detail = "HTTP 503 retry-after exhausted" }))
 ;;
 
 let test_rate_limit () =
   check
     string
     "RateLimit format"
-    "Provider 'anthropic' rate limited: quota window exhausted (retry_after: 1.250s)"
+    "Provider 'provider_a' rate limited: quota window exhausted (retry_after: 1.250s)"
     (Error.to_string
        (Error.RateLimit
-          { provider = "anthropic"
+          { provider = "provider_a"
           ; retry_after = Some 1.25
           ; detail = "quota window exhausted"
           }))
@@ -80,12 +80,12 @@ let test_capacity_exhausted () =
   check
     string
     "CapacityExhausted format"
-    "Provider capacity exhausted (model): model queue saturated affected=[gemini-3-pro] \
+    "Provider capacity exhausted (model): model queue saturated affected=[provider_f-3-pro] \
      (retry_after: 7.000s)"
     (Error.to_string
        (Error.CapacityExhausted
           { scope = Error.CapacityModel
-          ; affected = [ "gemini-3-pro" ]
+          ; affected = [ "provider_f-3-pro" ]
           ; retry_after = Some 7.0
           ; detail = "model queue saturated"
           }))
@@ -95,19 +95,19 @@ let test_auth_error () =
   check
     string
     "AuthError format"
-    "Provider 'openai' auth error: invalid API key"
+    "Provider 'provider_d' auth error: invalid API key"
     (Error.to_string
-       (Error.AuthError { provider = "openai"; detail = "invalid API key" }))
+       (Error.AuthError { provider = "provider_d"; detail = "invalid API key" }))
 ;;
 
 let test_server_error () =
   check
     string
     "ServerError format"
-    "Provider 'openai' server error 503 (transient=true): down"
+    "Provider 'provider_d' server error 503 (transient=true): down"
     (Error.to_string
        (Error.ServerError
-          { provider = "openai"; code = 503; transient = true; detail = "down" }))
+          { provider = "provider_d"; code = 503; transient = true; detail = "down" }))
 ;;
 
 let test_network_error () =
@@ -128,10 +128,10 @@ let test_timeout () =
   check
     string
     "Timeout format"
-    "Provider 'gemini' timeout: request exceeded budget"
+    "Provider 'provider_f' timeout: request exceeded budget"
     (Error.to_string
        (Error.Timeout
-          { provider = "gemini"
+          { provider = "provider_f"
           ; timeout_phase = None
           ; detail = "request exceeded budget"
           }))
@@ -141,10 +141,10 @@ let test_timeout_phase () =
   check
     string
     "Timeout phase format"
-    "Provider 'openai' timeout phase=stream_idle:streaming_thinking: stalled"
+    "Provider 'provider_d' timeout phase=stream_idle:streaming_thinking: stalled"
     (Error.to_string
        (Error.Timeout
-          { provider = "openai"
+          { provider = "provider_d"
           ; timeout_phase = Some (Http_client.Stream_idle Http_client.Streaming_thinking)
           ; detail = "stalled"
           }))
@@ -154,28 +154,28 @@ let test_invalid_request () =
   check
     string
     "InvalidRequest format"
-    "Provider 'anthropic' invalid request: context too long"
+    "Provider 'provider_a' invalid request: context too long"
     (Error.to_string
-       (Error.InvalidRequest { provider = "anthropic"; reason = "context too long" }))
+       (Error.InvalidRequest { provider = "provider_a"; reason = "context too long" }))
 ;;
 
 let test_not_found () =
   check
     string
     "NotFound format"
-    "Provider 'gemini' not found: model not available"
+    "Provider 'provider_f' not found: model not available"
     (Error.to_string
-       (Error.NotFound { provider = "gemini"; detail = "model not available" }))
+       (Error.NotFound { provider = "provider_f"; detail = "model not available" }))
 ;;
 
 let test_provider_terminal () =
   check
     string
     "ProviderTerminal format"
-    "Provider 'claude_code' terminal max_turns:31/31: turn cap hit"
+    "Provider 'cli_tool_d' terminal max_turns:31/31: turn cap hit"
     (Error.to_string
        (Error.ProviderTerminal
-          { provider = "claude_code"
+          { provider = "cli_tool_d"
           ; reason = "max_turns:31/31"
           ; detail = "turn cap hit"
           }))
@@ -184,12 +184,12 @@ let test_provider_terminal () =
 let test_retry_rate_limit_mapping () =
   let err =
     Error.of_retry_api_error
-      ~provider:"anthropic"
+      ~provider:"provider_a"
       (Retry.RateLimited { retry_after = Some 2.5; message = "try later" })
   in
   match err with
   | Error.RateLimit { provider; retry_after; detail } ->
-    check string "provider" "anthropic" provider;
+    check string "provider" "provider_a" provider;
     check (option (float 0.001)) "retry_after" (Some 2.5) retry_after;
     check string "detail" "try later" detail
   | _ -> fail "expected RateLimit"
@@ -236,13 +236,13 @@ let test_retry_overloaded_unknown_provider_mapping () =
 let test_http_capacity_failure_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"gemini"
+      ~provider:"provider_f"
       (Http_client.ProviderFailure
          { kind =
              Http_client.Capacity_exhausted
                { scope = Http_client.Failure_scope_model
                ; retry_after = Some 7.0
-               ; model = Some "gemini-3-pro"
+               ; model = Some "provider_f-3-pro"
                }
          ; message = "model queue saturated"
          })
@@ -250,7 +250,7 @@ let test_http_capacity_failure_mapping () =
   match err with
   | Error.CapacityExhausted { scope; affected; retry_after; detail } ->
     check bool "scope" true (scope = Error.CapacityModel);
-    check (list string) "affected" [ "gemini-3-pro" ] affected;
+    check (list string) "affected" [ "provider_f-3-pro" ] affected;
     check (option (float 0.001)) "retry_after" (Some 7.0) retry_after;
     check string "detail" "model queue saturated" detail
   | _ -> fail "expected CapacityExhausted"
@@ -259,12 +259,12 @@ let test_http_capacity_failure_mapping () =
 let test_http_server_error_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"openai"
+      ~provider:"provider_d"
       (Http_client.HttpError { code = 503; body = "down" })
   in
   match err with
   | Error.ServerError { provider; code; transient; detail } ->
-    check string "provider" "openai" provider;
+    check string "provider" "provider_d" provider;
     check int "code" 503 code;
     check bool "transient" true transient;
     check string "detail" "down" detail
@@ -274,7 +274,7 @@ let test_http_server_error_mapping () =
 let test_http_terminal_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"claude_code"
+      ~provider:"cli_tool_d"
       (Http_client.ProviderTerminal
          { kind = Http_client.Max_turns { turns = 31; limit = 31 }
          ; message = "turn cap hit"
@@ -282,7 +282,7 @@ let test_http_terminal_mapping () =
   in
   match err with
   | Error.ProviderTerminal { provider; reason; detail } ->
-    check string "provider" "claude_code" provider;
+    check string "provider" "cli_tool_d" provider;
     check string "reason" "max_turns:31/31" reason;
     check string "detail" "turn cap hit" detail
   | _ -> fail "expected ProviderTerminal"
@@ -310,7 +310,7 @@ let test_http_network_error_mapping () =
 let test_http_timeout_error_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"openai"
+      ~provider:"provider_d"
       (Http_client.TimeoutError
          { message = "stream stalled"
          ; phase = Http_client.Stream_idle Http_client.Streaming_thinking
@@ -318,7 +318,7 @@ let test_http_timeout_error_mapping () =
   in
   match err with
   | Error.Timeout { provider; timeout_phase; detail } ->
-    check string "provider" "openai" provider;
+    check string "provider" "provider_d" provider;
     check
       (option string)
       "phase"
@@ -330,12 +330,12 @@ let test_http_timeout_error_mapping () =
 
 let test_cli_transport_required_mapping () =
   let err =
-    Error.of_http_error (Http_client.CliTransportRequired { kind = "codex_cli" })
+    Error.of_http_error (Http_client.CliTransportRequired { kind = "cli_tool_a" })
   in
   match err with
   | Error.InvalidConfig { field; detail } ->
     check string "field" "transport" field;
-    check string "detail" "CLI transport required for codex_cli" detail
+    check string "detail" "CLI transport required for cli_tool_a" detail
   | _ -> fail "expected InvalidConfig"
 ;;
 

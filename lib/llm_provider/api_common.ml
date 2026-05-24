@@ -5,7 +5,7 @@
 
 open Types
 
-let default_base_url = "https://api.anthropic.com"
+let default_base_url = "https://api.provider_a.com"
 let api_version = "2023-06-01"
 
 (** Maximum HTTP response body size (10 MB).
@@ -25,7 +25,7 @@ let max_stdio_buffer = 16 * 1024 * 1024
 let default_request_timeout_s = 60.0
 
 (** Synthesize a deterministic tool_use_id from function name and args.
-    Gemini API does not return tool IDs; we generate stable ones via MD5. *)
+    Provider_f API does not return tool IDs; we generate stable ones via MD5. *)
 let synthesize_tool_use_id ~name args =
   Printf.sprintf "call_%s_%s" name Digest.(to_hex (string (Yojson.Safe.to_string args)))
 ;;
@@ -177,7 +177,7 @@ let message_to_json (msg : message) =
     ]
 ;;
 
-let kimi_message_to_json (msg : message) =
+let provider_c_message_to_json (msg : message) =
   let role_str =
     match msg.role with
     | User | System | Tool -> "user"

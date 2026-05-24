@@ -7,7 +7,7 @@ open Llm_provider
 
 (* ── Mock server ─────────────────────────────────────── *)
 
-let anthropic_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_turn") text =
+let provider_a_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_turn") text =
   Printf.sprintf
     {|{"id":"%s","type":"message","role":"assistant","model":"%s","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
     id
@@ -16,13 +16,13 @@ let anthropic_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_tu
     stop_reason
 ;;
 
-let openai_response text =
+let provider_d_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 ;;
 
-let openai_mlx_vlm_response text =
+let provider_d_mlx_vlm_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-mlx-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"input_tokens":11,"output_tokens":5,"prompt_tps":21.55,"generation_tps":81.56},"peak_memory":52.66}|}
     text
@@ -101,7 +101,7 @@ let start_header_capture_server ~sw ~net ~seen response_body =
 
 (* ── Helper: make Provider_config ────────────────────── *)
 
-let make_config ?(kind = Provider_config.Anthropic) base_url =
+let make_config ?(kind = Provider_config.Provider_a) base_url =
   Provider_config.make
     ~kind
     ~model_id:"test-model"
@@ -112,9 +112,9 @@ let make_config ?(kind = Provider_config.Anthropic) base_url =
     ()
 ;;
 
-let make_openai_config base_url =
+let make_provider_d_config base_url =
   Provider_config.make
-    ~kind:Provider_config.OpenAI_compat
+    ~kind:Provider_config.Provider_d_compat
     ~model_id:"gpt-4"
     ~base_url
     ~request_path:"/v1/chat/completions"
@@ -143,13 +143,13 @@ let make_transport response : Llm_transport.t =
 
 (* ── complete: success ───────────────────────────────── *)
 
-let test_complete_anthropic_ok () =
+let test_complete_provider_a_ok () =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "mock response") in
+    let url = start_mock_server ~sw ~net:env#net (provider_a_response "mock response") in
     let config = make_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->
@@ -200,7 +200,7 @@ let test_complete_http_empty_error_body_has_context () =
     let url = start_mock_server ~sw ~net:env#net ~status:`Not_found "" in
     let config =
       Provider_config.make
-        ~kind:Provider_config.Anthropic
+        ~kind:Provider_config.Provider_a
         ~model_id:"test-model"
         ~base_url:url
         ~request_path:"/v1/messages?api_key=secret"
@@ -216,7 +216,7 @@ let test_complete_http_empty_error_body_has_context () =
         string
         "diagnostic body"
         (Printf.sprintf
-           "empty HTTP 404 response from provider=claude model=test-model base_url=%s \
+           "empty HTTP 404 response from provider=agent_llm_a model=test-model base_url=%s \
             request_path=/v1/messages url=%s/v1/messages"
            url
            url)
@@ -227,16 +227,16 @@ let test_complete_http_empty_error_body_has_context () =
   | Exit -> ()
 ;;
 
-(* ── complete: OpenAI compat ─────────────────────────── *)
+(* ── complete: Provider_d compat ─────────────────────────── *)
 
-let test_complete_openai_ok () =
+let test_complete_provider_d_ok () =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (openai_response "openai reply") in
-    let config = make_openai_config url in
+    let url = start_mock_server ~sw ~net:env#net (provider_d_response "provider_d reply") in
+    let config = make_provider_d_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->
       let text =
@@ -247,9 +247,9 @@ let test_complete_openai_ok () =
           resp.content
         |> String.concat ""
       in
-      check string "text" "openai reply" text;
+      check string "text" "provider_d reply" text;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok for openai"
+    | Error _ -> fail "expected Ok for provider_d"
   with
   | Exit -> ()
 ;;
@@ -262,7 +262,7 @@ let test_complete_trace_context_headers () =
     @@ fun sw ->
     let seen = ref None in
     let url =
-      start_header_capture_server ~sw ~net:env#net ~seen (anthropic_response "ok")
+      start_header_capture_server ~sw ~net:env#net ~seen (provider_a_response "ok")
     in
     let config =
       { (make_config url) with
@@ -292,7 +292,7 @@ let test_complete_trace_context_headers () =
   | Exit -> ()
 ;;
 
-let test_complete_openai_mlx_vlm_telemetry () =
+let test_complete_provider_d_mlx_vlm_telemetry () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -305,9 +305,9 @@ let test_complete_openai_mlx_vlm_telemetry () =
         ~net:env#net
         ~delay_sec:0.02
         ~clock
-        (openai_mlx_vlm_response "mlx reply")
+        (provider_d_mlx_vlm_response "mlx reply")
     in
-    let config = make_openai_config url in
+    let config = make_provider_d_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->
       let text =
@@ -348,7 +348,7 @@ let test_complete_openai_mlx_vlm_telemetry () =
           | None -> fail "expected timings")
        | None -> fail "expected telemetry");
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok for mlx-vlm openai compat"
+    | Error _ -> fail "expected Ok for mlx-vlm provider_d compat"
   with
   | Exit -> ()
 ;;
@@ -361,7 +361,7 @@ let test_complete_cache_store_and_hit () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "cached") in
+    let url = start_mock_server ~sw ~net:env#net (provider_a_response "cached") in
     let config = make_config url in
     let store : (string, Yojson.Safe.t) Hashtbl.t = Hashtbl.create 4 in
     let cache : Cache.t =
@@ -399,7 +399,7 @@ let test_complete_metrics () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "metrics test") in
+    let url = start_mock_server ~sw ~net:env#net (provider_a_response "metrics test") in
     let config = make_config url in
     let hit_count = ref 0 in
     let miss_count = ref 0 in
@@ -485,7 +485,7 @@ let test_retry_first_try () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "first try ok") in
+    let url = start_mock_server ~sw ~net:env#net (provider_a_response "first try ok") in
     let config = make_config url in
     match Complete.complete_with_retry ~sw ~net:env#net ~clock ~config ~messages () with
     | Ok resp ->
@@ -569,7 +569,7 @@ let test_complete_transport_http_metrics_ok () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let config = make_openai_config "http://unused.test" in
+    let config = make_provider_d_config "http://unused.test" in
     let status_calls = ref [] in
     let metrics : Metrics.t =
       { Metrics.noop with
@@ -582,7 +582,7 @@ let test_complete_transport_http_metrics_ok () =
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
       (match !status_calls with
-       | [ ("openai", "gpt-4", 200) ] -> Eio.Switch.fail sw Exit
+       | [ ("provider_d", "gpt-4", 200) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, code) ] -> fail (Printf.sprintf "expected 200, got %d" code)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected Ok"
@@ -596,7 +596,7 @@ let test_complete_transport_http_metrics_error () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let config = make_openai_config "http://unused.test" in
+    let config = make_provider_d_config "http://unused.test" in
     let status_calls = ref [] in
     let metrics : Metrics.t =
       { Metrics.noop with
@@ -613,7 +613,7 @@ let test_complete_transport_http_metrics_error () =
     | Error (Http_client.HttpError { code; _ }) ->
       check int "status 429" 429 code;
       (match !status_calls with
-       | [ ("openai", "gpt-4", 429) ] -> Eio.Switch.fail sw Exit
+       | [ ("provider_d", "gpt-4", 429) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, seen) ] -> fail (Printf.sprintf "expected 429, got %d" seen)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected HttpError"
@@ -629,8 +629,8 @@ let test_complete_transport_cli_does_not_emit_status () =
     @@ fun sw ->
     let config =
       Provider_config.make
-        ~kind:Provider_config.Codex_cli
-        ~model_id:"codex-mini"
+        ~kind:Provider_config.Cli_tool_a
+        ~model_id:"agent_code-mini"
         ~base_url:""
         ()
     in
@@ -680,7 +680,7 @@ let test_metrics_global_set_and_get () =
        Metrics.set_global custom;
        let g = Metrics.get_global () in
        g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:429;
-       g.on_http_status ~provider:"glm" ~model_id:"m" ~status:429;
+       g.on_http_status ~provider:"provider_k" ~model_id:"m" ~status:429;
        check int "global metric fired twice" 2 !hits)
 ;;
 
@@ -691,7 +691,7 @@ let test_metrics_global_used_when_no_per_call_metrics () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_mock_server ~sw ~net:env#net (anthropic_response "global metrics test")
+      start_mock_server ~sw ~net:env#net (provider_a_response "global metrics test")
     in
     let config = make_config url in
     let status_calls = ref [] in
@@ -719,7 +719,7 @@ let test_metrics_global_used_when_no_per_call_metrics () =
 
 (* ── complete_stream: SSE ─────────────────────────────── *)
 
-let anthropic_sse_response text =
+let provider_a_sse_response text =
   Printf.sprintf
     "event: message_start\n\
      data: \
@@ -768,7 +768,7 @@ let test_complete_stream_ok () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed text")
+      start_sse_server ~sw ~net:env#net (provider_a_sse_response "streamed text")
     in
     let config = make_config url in
     let events = ref [] in
@@ -798,7 +798,7 @@ let test_complete_stream_metrics () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed text")
+      start_sse_server ~sw ~net:env#net (provider_a_sse_response "streamed text")
     in
     let config = make_config url in
     let first_chunks = ref [] in
@@ -822,14 +822,14 @@ let test_complete_stream_metrics () =
       check int "first chunk count" 1 (List.length !first_chunks);
       (match !first_chunks with
        | [ (provider, model_id, ttfrc_ms) ] ->
-         check string "provider" "anthropic" provider;
+         check string "provider" "provider_a" provider;
          check string "model_id" "test-model" model_id;
          check bool "ttfrc non-negative" true (ttfrc_ms >= 0.0)
        | _ -> fail "expected one first chunk");
       check bool "inter chunk metrics" true (List.length !inter_chunks > 0);
       List.iter
         (fun (provider, model_id, chunk_index, inter_chunk_ms) ->
-           check string "inter provider" "anthropic" provider;
+           check string "inter provider" "provider_a" provider;
            check string "inter model_id" "test-model" model_id;
            check bool "chunk_index non-negative" true (chunk_index >= 0);
            check bool "inter chunk non-negative" true (inter_chunk_ms >= 0.0))
@@ -856,7 +856,7 @@ let test_complete_body_timeout_fires () =
         ~net:env#net
         ~clock:env#clock
         ~delay_sec:2.0
-        (anthropic_response "should not arrive")
+        (provider_a_response "should not arrive")
     in
     let config = make_config url in
     let t0 = Unix.gettimeofday () in
@@ -896,7 +896,7 @@ let test_complete_body_timeout_does_not_fire_on_fast_response () =
     Eio.Switch.run
     @@ fun sw ->
     (* No server delay; generous body_timeout_s must not interfere. *)
-    let url = start_mock_server ~sw ~net:env#net (anthropic_response "fast response") in
+    let url = start_mock_server ~sw ~net:env#net (provider_a_response "fast response") in
     let config = make_config url in
     (match
        Complete.complete
@@ -930,17 +930,17 @@ let () =
   run
     "complete_http"
     [ ( "complete"
-      , [ test_case "anthropic ok" `Quick test_complete_anthropic_ok
+      , [ test_case "provider_a ok" `Quick test_complete_provider_a_ok
         ; test_case "http error" `Quick test_complete_http_error
         ; test_case
             "empty http error body has context"
             `Quick
             test_complete_http_empty_error_body_has_context
-        ; test_case "openai ok" `Quick test_complete_openai_ok
+        ; test_case "provider_d ok" `Quick test_complete_provider_d_ok
         ; test_case
-            "openai mlx-vlm telemetry"
+            "provider_d mlx-vlm telemetry"
             `Quick
-            test_complete_openai_mlx_vlm_telemetry
+            test_complete_provider_d_mlx_vlm_telemetry
         ; test_case "trace context headers" `Quick test_complete_trace_context_headers
         ; test_case "non-retryable" `Quick test_complete_non_retryable
         ; test_case

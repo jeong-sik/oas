@@ -257,8 +257,8 @@ let%test "of_string_user_lowercases" = equal (of_string "MyTool") (User "mytool"
 
 let%test "of_string_mcp_parses" =
   equal
-    (of_string "mcp__claude__read_file")
-    (Mcp { server = "claude"; tool = "read_file" })
+    (of_string "mcp__agent_llm_a__read_file")
+    (Mcp { server = "agent_llm_a"; tool = "read_file" })
 ;;
 
 let%test "of_string_mcp_lowercases" =

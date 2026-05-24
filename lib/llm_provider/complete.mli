@@ -12,11 +12,11 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** {1 Gemini URL Construction} *)
+(** {1 Provider_f URL Construction} *)
 
-(** Construct Gemini API URL with model_id in path and optional key param.
+(** Construct Provider_f API URL with model_id in path and optional key param.
     Exposed for testing. *)
-val gemini_url : config:Provider_config.t -> stream:bool -> string
+val provider_f_url : config:Provider_config.t -> stream:bool -> string
 
 (** {1 Provider Sampling Defaults} *)
 
@@ -28,13 +28,13 @@ type sampling_defaults =
   }
 
 (** Get default sampling parameters for a provider kind.
-    Local (OpenAI_compat) providers get min_p=0.05.
-    Anthropic/Gemini get no defaults (all None). *)
+    Local (Provider_d_compat) providers get min_p=0.05.
+    Provider_a/Provider_f get no defaults (all None). *)
 val provider_sampling_defaults : Provider_config.provider_kind -> sampling_defaults
 
 (** Apply provider defaults to a config, preserving explicit values.
     Only fills in [None] fields; explicit values are never overwritten.
-    For [OpenAI_compat], [min_p] is auto-filled only when the target
+    For [Provider_d_compat], [min_p] is auto-filled only when the target
     model (or an unknown localhost endpoint) supports it. *)
 val apply_sampling_defaults : Provider_config.t -> Provider_config.t
 
@@ -145,13 +145,13 @@ include module type of Complete_stream_acc
     Each SSE event is passed to [on_event] as it arrives.
     Returns the final assembled {!Types.api_response} after the stream ends.
 
-    Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
+    Supports both Provider_a native SSE and Provider_d-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
 
     [clock] and [stream_idle_timeout_s] together bound inter-line idle
     on every HTTP streaming path: Ollama native NDJSON
     (see {!Http_client.read_ndjson}) and the SSE format used by
-    Anthropic, OpenAI-compatible, Gemini, and GLM
+    Provider_a, Provider_d-compatible, Provider_f, and Provider_k
     (see {!Http_client.read_sse}). The deadline resets after each
     successful line, so this does not cap total stream duration.
     SSE keepalive comments reset the deadline like any other line.

@@ -2,7 +2,7 @@
 
 type provider =
   | Local of { base_url : string }
-  | Anthropic
+  | Provider_a
   | OpenAICompat of
       { base_url : string
       ; auth_header : string option
@@ -18,7 +18,7 @@ type config =
   }
 
 type request_kind =
-  | Anthropic_messages
+  | Provider_a_messages
   | Openai_chat_completions
   | Custom of string
 
@@ -47,17 +47,17 @@ type model_spec =
   ; capabilities : capabilities
   }
 
-(** Check if a model needs extended OpenAI capabilities
-    (reasoning, top_k, min_p). Currently triggers on qwen family models. *)
+(** Check if a model needs extended Provider_d capabilities
+    (reasoning, top_k, min_p). Currently triggers on provider_h family models. *)
 let needs_extended_capabilities model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
-  Util.string_contains ~needle:"qwen" normalized
+  Util.string_contains ~needle:"provider_h" normalized
 ;;
 
-let default_openai_compat_capabilities model_id =
+let default_provider_d_compat_capabilities model_id =
   if needs_extended_capabilities model_id
-  then openai_chat_extended_capabilities
-  else openai_chat_capabilities
+  then provider_d_chat_extended_capabilities
+  else provider_d_chat_capabilities
 ;;
 
 let uses_native_glm_capabilities ~base_url ~model_id =
@@ -67,8 +67,8 @@ let uses_native_glm_capabilities ~base_url ~model_id =
 
 let provider_name = function
   | Local _ -> "local"
-  | Anthropic -> "anthropic"
-  | OpenAICompat _ -> "openai_compat"
+  | Provider_a -> "provider_a"
+  | OpenAICompat _ -> "provider_d_compat"
   | Custom_registered { name } -> "custom:" ^ name
 ;;
 
@@ -109,7 +109,7 @@ let task_of_model_id model_id =
     || has "image-gen"
     || has "gpt-image"
     || has "cogview"
-    || has "glm-image"
+    || has "provider_k-image"
     || has "seedream"
     || has "flux"
   then Some "image_generation"
@@ -193,60 +193,60 @@ let first_present_env env_names =
   loop env_names
 ;;
 
-let kimi_direct_base_url () =
-  match Util.get "KIMI_BASE_URL" with
+let provider_c_direct_base_url () =
+  match Util.get "PROVIDER_C_BASE_URL" with
   | Some url -> url
-  | None -> "https://api.kimi.com/coding"
+  | None -> "https://api.provider_c.com/coding"
 ;;
 
-let kimi_direct_request_path = "/v1/messages"
+let provider_c_direct_request_path = "/v1/messages"
 
-let kimi_direct_headers key =
+let provider_c_direct_headers key =
   [ "Content-Type", "application/json"
   ; "x-api-key", key
-  ; "anthropic-version", "2023-06-01"
+  ; "provider_a-version", "2023-06-01"
   ]
 ;;
 
-let kimi_provider_impl : provider_impl =
-  { name = "kimi"
-  ; request_kind = Anthropic_messages
-  ; request_path = kimi_direct_request_path
-  ; capabilities = Llm_provider.Capabilities.kimi_capabilities
+let provider_c_provider_impl : provider_impl =
+  { name = "provider_c"
+  ; request_kind = Provider_a_messages
+  ; request_path = provider_c_direct_request_path
+  ; capabilities = Llm_provider.Capabilities.provider_c_capabilities
   ; build_body =
       (fun ~config ~messages ?tools () ->
         Yojson.Safe.to_string
           (`Assoc
-              (Api_anthropic.build_body_assoc
+              (Api_provider_a.build_body_assoc
                  ~config
                  ~messages
-                 ~message_to_json:Llm_provider.Api_common.kimi_message_to_json
+                 ~message_to_json:Llm_provider.Api_common.provider_c_message_to_json
                  ?tools
                  ~stream:false
                  ())))
   ; parse_response =
-      (fun body_str -> Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
+      (fun body_str -> Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
   ; resolve =
       (fun cfg ->
         let env_names =
           if String.trim cfg.api_key_env <> ""
-          then [ cfg.api_key_env; "KIMI_API_KEY" ]
-          else [ "KIMI_API_KEY" ]
+          then [ cfg.api_key_env; "PROVIDER_C_API_KEY" ]
+          else [ "PROVIDER_C_API_KEY" ]
         in
         match first_present_env env_names with
         | Some (_env_name, key) ->
-          Ok (kimi_direct_base_url (), key, kimi_direct_headers key)
+          Ok (provider_c_direct_base_url (), key, provider_c_direct_headers key)
         | None ->
           let var_name =
             match env_names with
             | preferred :: _ -> preferred
-            | [] -> "KIMI_API_KEY"
+            | [] -> "PROVIDER_C_API_KEY"
           in
           Error (Error.Config (MissingEnvVar { var_name })))
   }
 ;;
 
-let builtin_provider_impls = [ kimi_provider_impl ]
+let builtin_provider_impls = [ provider_c_provider_impl ]
 
 let find_provider name =
   match find_builtin_provider name builtin_provider_impls with
@@ -267,33 +267,33 @@ let registered_providers () =
 
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
-  | Anthropic ->
-    (* Base [anthropic_capabilities] is a conservative 200K record;
-         the per-model overrides (claude-opus-4, claude-sonnet-4, etc.)
+  | Provider_a ->
+    (* Base [provider_a_capabilities] is a conservative 200K record;
+         the per-model overrides (agent_llm_a-opus-4, agent_llm_a-sonnet-4, etc.)
          live in [Llm_provider.Capabilities.for_model_id] and carry the
          real 1M windows and output-token ceilings. The [Local] and
          [OpenAICompat] branches already consult that table; the
-         Anthropic branch must too, otherwise every Sonnet/Opus 4 agent
+         Provider_a branch must too, otherwise every Sonnet/Opus 4 agent
          resolves to the wrong window and proactive compaction fires at
          ~150K instead of ~750K. *)
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
-     | None -> anthropic_capabilities)
+     | None -> provider_a_capabilities)
   | Local _ ->
-    (* Local (llama-server) uses OpenAI-compatible API.
-         Resolve capabilities by model_id, fall back to openai_chat. *)
+    (* Local (llama-server) uses Provider_d-compatible API.
+         Resolve capabilities by model_id, fall back to provider_d_chat. *)
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
-     | None -> openai_chat_capabilities)
+     | None -> provider_d_chat_capabilities)
   | OpenAICompat { base_url; _ } ->
     if
       Llm_provider.Zai_catalog.is_glm_model_id model_id
       && not (uses_native_glm_capabilities ~base_url ~model_id)
-    then default_openai_compat_capabilities model_id
+    then default_provider_d_compat_capabilities model_id
     else (
       match Llm_provider.Capabilities.for_model_id model_id with
       | Some caps -> caps
-      | None -> default_openai_compat_capabilities model_id)
+      | None -> default_provider_d_compat_capabilities model_id)
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.capabilities
@@ -301,7 +301,7 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
 ;;
 
 let request_kind = function
-  | Anthropic -> Anthropic_messages
+  | Provider_a -> Provider_a_messages
   | Local _ | OpenAICompat _ -> Openai_chat_completions
   | Custom_registered { name } ->
     (match find_provider name with
@@ -310,7 +310,7 @@ let request_kind = function
 ;;
 
 let request_path = function
-  | Anthropic -> "/v1/messages"
+  | Provider_a -> "/v1/messages"
   | Local { base_url = _ } -> "/v1/chat/completions"
   | OpenAICompat { path; _ } -> path
   | Custom_registered { name } ->
@@ -403,14 +403,14 @@ let model_spec_of_config (cfg : config) =
 let resolve (cfg : config) =
   match cfg.provider with
   | Local { base_url } -> Ok (base_url, "dummy", [ "Content-Type", "application/json" ])
-  | Anthropic ->
+  | Provider_a ->
     (match Sys.getenv_opt cfg.api_key_env with
      | Some key ->
        Ok
-         ( "https://api.anthropic.com"
+         ( "https://api.provider_a.com"
          , key
          , [ "x-api-key", key
-           ; "anthropic-version", "2023-06-01"
+           ; "provider_a-version", "2023-06-01"
            ; "Content-Type", "application/json"
            ] )
      | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))
@@ -453,28 +453,28 @@ let local_llm () =
   }
 ;;
 
-let anthropic_sonnet () =
-  { provider = Anthropic
-  ; model_id = "claude-sonnet-4-6"
-  ; api_key_env = "ANTHROPIC_API_KEY"
+let provider_a_sonnet () =
+  { provider = Provider_a
+  ; model_id = "agent_llm_a-sonnet-4-6"
+  ; api_key_env = "PROVIDER_A_API_KEY"
   }
 ;;
 
-let anthropic_haiku () =
-  { provider = Anthropic
-  ; model_id = "claude-haiku-4-5-20251001"
-  ; api_key_env = "ANTHROPIC_API_KEY"
+let provider_a_haiku () =
+  { provider = Provider_a
+  ; model_id = "agent_llm_a-haiku-4-5-20251001"
+  ; api_key_env = "PROVIDER_A_API_KEY"
   }
 ;;
 
-let anthropic_opus () =
-  { provider = Anthropic
-  ; model_id = "claude-opus-4-6"
-  ; api_key_env = "ANTHROPIC_API_KEY"
+let provider_a_opus () =
+  { provider = Provider_a
+  ; model_id = "agent_llm_a-opus-4-6"
+  ; api_key_env = "PROVIDER_A_API_KEY"
   }
 ;;
 
-let openrouter ?(model_id = "anthropic/claude-sonnet-4-6") () =
+let openrouter ?(model_id = "provider_a/agent_llm_a-sonnet-4-6") () =
   { provider =
       OpenAICompat
         { base_url = "https://openrouter.ai/api/v1"
@@ -506,44 +506,44 @@ let zero_pricing =
 
 let pricing_for_model_opt model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
-  (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-     Newer OpenAI text models expose cached input at 0.1x input.
+  (* Provider_a cache pricing: write = 1.25x input, read = 0.1x input.
+     Newer Provider_d text models expose cached input at 0.1x input.
      Local/free models keep no-op cache multipliers. *)
-  let anthropic_cache = 1.25, 0.1 in
-  let openai_cached_input = 1.0, 0.1 in
+  let provider_a_cache = 1.25, 0.1 in
+  let provider_d_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
     if Util.string_contains ~needle:"opus-4-6" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
+    then Some ((15.0, 75.0), provider_a_cache)
     else if Util.string_contains ~needle:"opus-4-5" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
+    then Some ((15.0, 75.0), provider_a_cache)
     else if Util.string_contains ~needle:"sonnet-4-6" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
+    then Some ((3.0, 15.0), provider_a_cache)
     else if Util.string_contains ~needle:"sonnet-4" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
+    then Some ((3.0, 15.0), provider_a_cache)
     else if Util.string_contains ~needle:"haiku-4-5" normalized
-    then Some ((0.8, 4.0), anthropic_cache)
-    else if Util.string_contains ~needle:"claude-3-7-sonnet" normalized
+    then Some ((0.8, 4.0), provider_a_cache)
+    else if Util.string_contains ~needle:"agent_llm_a-3-7-sonnet" normalized
     then
-      Some ((3.0, 15.0), anthropic_cache)
-      (* OpenAI API text-token pricing, confirmed from official model docs
-       2026-04-25. GPT-5.3-Codex-Spark is intentionally not covered here:
-       its Codex rate card labels it research preview with non-final rates. *)
-    else if Util.string_contains ~needle:"gpt-5.3-codex-spark" normalized
+      Some ((3.0, 15.0), provider_a_cache)
+      (* Provider_d API text-token pricing, confirmed from official model docs
+       2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
+       its Agent_code rate card labels it research preview with non-final rates. *)
+    else if Util.string_contains ~needle:"gpt-5.3-agent_code-spark" normalized
     then None
     else if Util.string_contains ~needle:"gpt-5.5" normalized
-    then Some ((5.0, 30.0), openai_cached_input)
+    then Some ((5.0, 30.0), provider_d_cached_input)
     else if Util.string_contains ~needle:"gpt-5.4-mini" normalized
-    then Some ((0.75, 4.5), openai_cached_input)
+    then Some ((0.75, 4.5), provider_d_cached_input)
     else if Util.string_contains ~needle:"gpt-5.4" normalized
-    then Some ((2.5, 15.0), openai_cached_input)
-    else if Util.string_contains ~needle:"gpt-5.3-codex" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
+    then Some ((2.5, 15.0), provider_d_cached_input)
+    else if Util.string_contains ~needle:"gpt-5.3-agent_code" normalized
+    then Some ((1.75, 14.0), provider_d_cached_input)
     else if Util.string_contains ~needle:"gpt-5.2" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
-    else if Util.string_contains ~needle:"gpt-4o-mini" normalized
+    then Some ((1.75, 14.0), provider_d_cached_input)
+    else if Util.string_contains ~needle:"model-d-mini" normalized
     then Some ((0.15, 0.6), no_cache)
-    else if Util.string_contains ~needle:"gpt-4o" normalized
+    else if Util.string_contains ~needle:"model-d" normalized
     then Some ((2.5, 10.0), no_cache)
     else if Util.string_contains ~needle:"gpt-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
@@ -641,15 +641,15 @@ let headers_with_auth_for_kind
   | "" -> base
   | key ->
     (match kind with
-     | Anthropic | Kimi ->
+     | Provider_a | Provider_c ->
        [ "x-api-key", key
-       ; "anthropic-version", "2023-06-01"
+       ; "provider_a-version", "2023-06-01"
        ; "Content-Type", "application/json"
        ]
-     | Gemini -> base
-     | OpenAI_compat | Ollama | Glm | DashScope ->
+     | Provider_f -> base
+     | Provider_d_compat | Ollama | Provider_k | Provider_h ->
        ("Authorization", "Bearer " ^ key) :: base
-     | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> [])
+     | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a -> [])
 ;;
 
 (** Convert a [Llm_provider.Provider_config.t] into a
@@ -657,7 +657,7 @@ let headers_with_auth_for_kind
     internal to OAS so consumers don't need their own adapters.
 
     When [api_key] is empty, falls back to the well-known env var
-    name for the provider kind (e.g. [ANTHROPIC_API_KEY]). *)
+    name for the provider kind (e.g. [PROVIDER_A_API_KEY]). *)
 let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   (* When pc.api_key is non-empty it is the *resolved* API key value
      (not an env var name).  Pass it via static_token + auth_header
@@ -670,24 +670,24 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   let static_token = if has_key then Some pc.api_key else None in
   let provider =
     match pc.kind with
-    | Anthropic -> Anthropic
-    | Kimi -> Custom_registered { name = "kimi" }
-    | Gemini ->
+    | Provider_a -> Provider_a
+    | Provider_c -> Custom_registered { name = "provider_c" }
+    | Provider_f ->
       OpenAICompat
         { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
-    | Glm ->
+    | Provider_k ->
       OpenAICompat
         { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
-    | OpenAI_compat | Ollama | DashScope ->
+    | Provider_d_compat | Ollama | Provider_h ->
       if Llm_provider.Provider_config.is_local pc
       then Local { base_url = pc.base_url }
       else
         OpenAICompat
           { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
-    | Claude_code ->
+    | Cli_tool_d ->
       OpenAICompat
         { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
-    | Gemini_cli | Kimi_cli | Codex_cli ->
+    | Cli_tool_b | Cli_tool_c | Cli_tool_a ->
       OpenAICompat
         { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }
   in
@@ -703,19 +703,19 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
     Sampling params, tool_choice, thinking controls are pulled from
     [state.config].  Provider kind, model_id, headers, request_path,
     and api_key are resolved from [provider_opt] + env vars.  When
-    [provider_opt] is [None], falls back to Anthropic using
-    [ANTHROPIC_API_KEY] (matching {!create_message}'s existing default).
+    [provider_opt] is [None], falls back to Provider_a using
+    [PROVIDER_A_API_KEY] (matching {!create_message}'s existing default).
 
-    [OpenAICompat] provider collapses to [OpenAI_compat] kind — the
+    [OpenAICompat] provider collapses to [Provider_d_compat] kind — the
     legacy {!config} variant does not distinguish arbitrary
-    OpenAI-compatible endpoints from named providers carrying their
+    Provider_d-compatible endpoints from named providers carrying their
     own kind.  Callers that require kind + arbitrary URL should
     construct {!Llm_provider.Provider_config.t} directly via
     {!Llm_provider.Provider_config.make}.
 
     [Custom_registered {name}] preserves the registry-declared
     {!Llm_provider.Provider_config.provider_kind}
-    (Gemini/Glm/Ollama/Claude_code/etc.) by looking [name] up in
+    (Provider_f/Provider_k/Ollama/Cli_tool_d/etc.) by looking [name] up in
     {!Llm_provider.Provider_registry.default} and using
     [entry.defaults.kind] and [entry.defaults.request_path].
     Returns [Error InvalidConfig] when [name] is not registered.
@@ -757,8 +757,8 @@ let provider_config_of_agent
     (match p.provider with
      | Custom_registered { name } ->
        (* Preserve the registry-declared provider_kind
-              (Gemini/Glm/Ollama/Claude_code/etc.) instead of flattening
-              to OpenAI_compat.
+              (Provider_f/Provider_k/Ollama/Cli_tool_d/etc.) instead of flattening
+              to Provider_d_compat.
 
               Source of truth is {!Llm_provider.Provider_registry.default},
               which carries [entry.defaults.{kind, base_url, api_key_env,
@@ -809,21 +809,21 @@ let provider_config_of_agent
                ~headers
                ~request_path:entry.defaults.request_path
                ~model_id:p.model_id))
-     | Anthropic | Local _ | OpenAICompat _ ->
+     | Provider_a | Local _ | OpenAICompat _ ->
        (match resolve p with
         | Error e -> Error e
         | Ok (url, api_key, headers) ->
           let kind : Llm_provider.Provider_config.provider_kind =
             match p.provider with
-            | Anthropic -> Anthropic
-            | Local _ | OpenAICompat _ -> OpenAI_compat
+            | Provider_a -> Provider_a
+            | Local _ | OpenAICompat _ -> Provider_d_compat
             | Custom_registered _ ->
               invalid_arg "provider kind: Custom_registered excluded by outer match"
           in
           let sanitized_api_key =
             match p.provider with
             | Local _ -> ""
-            | Anthropic | OpenAICompat _ -> api_key
+            | Provider_a | OpenAICompat _ -> api_key
             | Custom_registered _ ->
               invalid_arg
                 "provider sanitized_api_key: Custom_registered excluded by outer match"
@@ -837,19 +837,19 @@ let provider_config_of_agent
             ~model_id:p.model_id))
   | None ->
     let fallback_provider : config =
-      { provider = Anthropic
+      { provider = Provider_a
       ; model_id = Types.model_to_string cfg.model
-      ; api_key_env = "ANTHROPIC_API_KEY"
+      ; api_key_env = "PROVIDER_A_API_KEY"
       }
     in
     (match resolve fallback_provider with
      | Error e -> Error e
      | Ok (_resolved_url, api_key, headers) ->
        build
-         ~kind:Anthropic
+         ~kind:Provider_a
          ~resolved_base_url:base_url
          ~api_key
          ~headers
-         ~request_path:(request_path Anthropic)
+         ~request_path:(request_path Provider_a)
          ~model_id:(Types.model_to_string cfg.model))
 ;;

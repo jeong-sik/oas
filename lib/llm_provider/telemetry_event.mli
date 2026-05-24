@@ -59,9 +59,9 @@ type t =
         (** RFC-OAS-020: milliseconds from request submission to the
             first SSE event of any kind. [Some] when the provider
             exposes a separable prefill marker
-            (e.g. Anthropic [MessageStart] arrives before the first
+            (e.g. Provider_a [MessageStart] arrives before the first
             [ContentBlockDelta]); [None] for providers that do not
-            (e.g. OpenAI-compat first chunk is a content delta). *)
+            (e.g. Provider_d-compat first chunk is a content delta). *)
       ; total_ms : float
       ; inter_chunk_ms_p50 : float
       ; inter_chunk_ms_p95 : float

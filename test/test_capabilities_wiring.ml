@@ -34,20 +34,20 @@ let test_discovery_infers_from_model_name () =
 
 let test_filter_parallel_tools () =
   let yes =
-    { Capabilities.anthropic_capabilities with supports_parallel_tool_calls = true }
+    { Capabilities.provider_a_capabilities with supports_parallel_tool_calls = true }
   in
   let no =
     { Capabilities.default_capabilities with supports_parallel_tool_calls = false }
   in
-  check bool "anthropic has parallel" true (Capability_filter.requires_parallel_tools yes);
+  check bool "provider_a has parallel" true (Capability_filter.requires_parallel_tools yes);
   check bool "default lacks parallel" false (Capability_filter.requires_parallel_tools no)
 ;;
 
 let test_filter_thinking () =
-  let claude = Capabilities.anthropic_capabilities in
-  let basic = Capabilities.openai_chat_capabilities in
-  check bool "claude has thinking" true (Capability_filter.requires_thinking claude);
-  check bool "basic openai no thinking" false (Capability_filter.requires_thinking basic)
+  let agent_llm_a = Capabilities.provider_a_capabilities in
+  let basic = Capabilities.provider_d_chat_capabilities in
+  check bool "agent_llm_a has thinking" true (Capability_filter.requires_thinking agent_llm_a);
+  check bool "basic provider_d no thinking" false (Capability_filter.requires_thinking basic)
 ;;
 
 let test_filter_fits_context () =
@@ -70,7 +70,7 @@ let test_filter_fits_output () =
 ;;
 
 let test_filter_combined () =
-  let caps = Capabilities.anthropic_capabilities in
+  let caps = Capabilities.provider_a_capabilities in
   let need_all =
     Capability_filter.requires_all
       [ Capability_filter.requires_tools
@@ -78,12 +78,12 @@ let test_filter_combined () =
       ; Capability_filter.requires_vision
       ]
   in
-  check bool "claude meets all" true (need_all caps);
+  check bool "agent_llm_a meets all" true (need_all caps);
   let need_audio =
     Capability_filter.requires_all
       [ Capability_filter.requires_tools; (fun c -> c.supports_audio_input) ]
   in
-  check bool "claude lacks audio" false (need_audio caps)
+  check bool "agent_llm_a lacks audio" false (need_audio caps)
 ;;
 
 (* ── Context reducer: from_capabilities ──────────────── *)
