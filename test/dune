@@ -61,6 +61,7 @@
   test_checkpoint_store
   test_checkpoint_validation
   test_cli_common_subprocess
+  test_client_wrapper_coverage
   test_code_snippet_eval
   test_clone
   test_complete_ext
@@ -152,6 +153,7 @@
   test_otel_export
   test_otel_tracer
   test_pipeline
+  test_pipeline_common_coverage
   test_pipeline_deep
   test_pipeline_metrics
   test_plan
@@ -282,6 +284,7 @@
   test_checkpoint_store
   test_checkpoint_validation
   test_cli_common_subprocess
+  test_client_wrapper_coverage
   test_code_snippet_eval
   test_clone
   test_complete_ext
@@ -373,6 +376,7 @@
   test_otel_export
   test_otel_tracer
   test_pipeline
+  test_pipeline_common_coverage
   test_pipeline_deep
   test_pipeline_metrics
   test_plan

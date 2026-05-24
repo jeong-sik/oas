@@ -27,7 +27,8 @@ streaming edge-case tests, so the CI coverage floor can move from 73% to 75%.
 ## #1175 record
 
 - Stage C target (`60 -> 75`): floor now reaches 75.
-- Stage D target (`75 -> 80`): still open.
+- Stage D target (`75 -> 80`): still open, with the first low-coverage
+  follow-up slice landed in this PR.
 - Top 0% files removed in this PR: none; this slice targets low/mid coverage
   provider and streaming surfaces rather than zero-coverage files.
 - Tests added in this PR:
@@ -38,3 +39,28 @@ streaming edge-case tests, so the CI coverage floor can move from 73% to 75%.
     edge branches.
   - `test/test_streaming_edge_cases.ml`: provider_a SSE, provider_d,
     provider_f, Ollama NDJSON, and synthetic-event edge branches.
+  - `test/test_client_wrapper_coverage.ml`: public client wrapper show/default
+    aliases.
+  - `test/test_pipeline_common_coverage.ml`: pipeline strategy/outcome,
+    completion-contract validation, event envelopes, and tiered-memory token
+    counting.
+
+## Stage D focused follow-up
+
+- Evidence: local focused coverage run on PR #1759 after adding the client and
+  pipeline-common tests.
+- Command:
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes BISECT_FILE=/tmp/oas_stage_d_focus_coverage/bisect scripts/dune-local.sh build --instrument-with bisect_ppx test/test_client_wrapper_coverage.exe test/test_pipeline_common_coverage.exe test/test_provider_intf.exe`
+- Test binaries:
+  `./_build/default/test/test_client_wrapper_coverage.exe`,
+  `./_build/default/test/test_pipeline_common_coverage.exe`,
+  `./_build/default/test/test_provider_intf.exe`
+- Summary command:
+  `opam exec -- bisect-ppx-report summary --per-file --coverage-path=/tmp/oas_stage_d_focus_coverage`
+- Focused per-file results:
+  - `lib/client.ml`: `74.47%` (`35/47`)
+  - `lib/pipeline/pipeline_common.ml`: `100.00%` (`24/24`)
+  - `lib/provider_intf.ml`: `53.70%` (`29/54`)
+- Timestamp: 2026-05-25 KST
+  Confidence: High for focused slice coverage; project-wide CI coverage remains
+  governed by the `75` floor above.
