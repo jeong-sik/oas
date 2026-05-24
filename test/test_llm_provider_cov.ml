@@ -722,6 +722,193 @@ let test_build_request_with_thinking_default_budget () =
     (tc |> member "thinkingBudget" |> to_int)
 ;;
 
+let with_env name value f =
+  let saved = Sys.getenv_opt name in
+  (match value with
+   | Some v -> Unix.putenv name v
+   | None -> Unix.putenv name "");
+  Fun.protect
+    ~finally:(fun () ->
+      match saved with
+      | Some v -> Unix.putenv name v
+      | None -> Unix.putenv name "")
+    f
+;;
+
+let test_constants_http_code_sets () =
+  Alcotest.(check (list int))
+    "retryable"
+    [ 429; 500; 502; 503; 529 ]
+    Constants.Http.retryable_codes;
+  Alcotest.(check (list int))
+    "cascadable"
+    [ 401; 403; 429; 498; 500; 502; 503; 529 ]
+    Constants.Http.cascadable_codes
+;;
+
+let test_constants_inference_profiles () =
+  let check_profile label expected_temp expected_max profile =
+    Alcotest.(check (float 0.001))
+      (label ^ " temp")
+      expected_temp
+      profile.Constants.Inference_profile.temperature;
+    Alcotest.(check int) (label ^ " max") expected_max profile.max_tokens;
+    Alcotest.(check (option (float 0.001))) (label ^ " top_p") None profile.top_p;
+    Alcotest.(check (option int)) (label ^ " top_k") None profile.top_k;
+    Alcotest.(check (option (float 0.001))) (label ^ " min_p") None profile.min_p
+  in
+  check_profile "cascade" 0.3 500 Constants.Inference_profile.cascade_default;
+  check_profile "agent" 0.7 16_384 Constants.Inference_profile.agent_default;
+  check_profile "low_variance" 0.1 2048 Constants.Inference_profile.low_variance;
+  check_profile "worker" 0.2 16_384 Constants.Inference_profile.worker_default;
+  check_profile "deterministic" 0.0 4096 Constants.Inference_profile.deterministic;
+  Alcotest.(check (float 0.001))
+    "legacy temperature"
+    Constants.Inference_profile.cascade_default.temperature
+    Constants.Inference.default_temperature;
+  Alcotest.(check int)
+    "legacy max tokens"
+    Constants.Inference_profile.cascade_default.max_tokens
+    Constants.Inference.default_max_tokens
+;;
+
+let test_constants_retry_cache_sampling_and_endpoints () =
+  Alcotest.(check int) "cache ttl" 300 Constants.Cache.default_ttl_sec;
+  Alcotest.(check int) "retry max" 3 Constants.Retry.max_retries;
+  Alcotest.(check (float 0.001)) "retry initial" 1.0 Constants.Retry.initial_delay_sec;
+  Alcotest.(check (float 0.001)) "retry max delay" 30.0 Constants.Retry.max_delay_sec;
+  Alcotest.(check int) "structured max" 3 Constants.Structured_retry.max_retries;
+  Alcotest.(check (float 0.001))
+    "structured max delay"
+    60.0
+    Constants.Structured_retry.max_delay;
+  Alcotest.(check (float 0.001)) "min_p" 0.05 Constants.Sampling.openai_compat_min_p;
+  Alcotest.(check int) "truncate" 200 Constants.Truncation.max_error_body_length;
+  Alcotest.(check int) "llama port" 8085 Constants.Endpoints.default_llama_port;
+  Alcotest.(check string)
+    "default url"
+    "http://127.0.0.1:8085"
+    Constants.Endpoints.default_url;
+  Alcotest.(check string)
+    "localhost url"
+    "http://localhost:8085"
+    Constants.Endpoints.default_url_localhost;
+  Alcotest.(check int) "chars per token" 4 Constants.Token_estimation.chars_per_token
+;;
+
+let test_constants_env_helpers () =
+  with_env "OAS_DEFAULT_SEED" (Some "123") (fun () ->
+    Alcotest.(check (option int))
+      "seed valid"
+      (Some 123)
+      (Constants.Deterministic.seed_of_env ()));
+  with_env "OAS_DEFAULT_SEED" (Some "not-an-int") (fun () ->
+    Alcotest.(check (option int))
+      "seed invalid"
+      None
+      (Constants.Deterministic.seed_of_env ()));
+  with_env "OAS_THINKING_BUDGET_DEFAULT" (Some "4096") (fun () ->
+    Alcotest.(check (option int))
+      "env budget valid"
+      (Some 4096)
+      (Constants.Thinking.env_budget "OAS_THINKING_BUDGET_DEFAULT"));
+  with_env "OAS_THINKING_BUDGET_DEFAULT" (Some "0") (fun () ->
+    Alcotest.(check (option int))
+      "env budget zero invalid"
+      None
+      (Constants.Thinking.env_budget "OAS_THINKING_BUDGET_DEFAULT"));
+  with_env "OAS_ANTHROPIC_THINKING_BUDGET" (Some "2048") (fun () ->
+    Alcotest.(check int)
+      "anthropic override"
+      2048
+      (Constants.Thinking.anthropic_budget ()));
+  with_env "OAS_GEMINI_THINKING_BUDGET" (Some "3072") (fun () ->
+    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()));
+  Alcotest.(check int)
+    "anthropic cache min chars"
+    3500
+    Constants.Anthropic.default_prompt_cache_min_chars;
+  Alcotest.(check int)
+    "anthropic cache min tools"
+    3
+    Constants.Anthropic.prompt_cache_min_tools
+;;
+
+let test_slot_cache_helpers () =
+  let dir =
+    Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "oas-slot-cache-%d" (Unix.getpid ()))
+  in
+  if Sys.file_exists dir then Unix.rmdir dir;
+  Unix.mkdir dir 0o755;
+  Fun.protect
+    ~finally:(fun () -> if Sys.file_exists dir then Unix.rmdir dir)
+    (fun () ->
+       let filename = Slot_cache.cache_filename ~session_id:"session-1" ~slot_id:7 in
+       Alcotest.(check string) "filename" "slot-session-1-7.bin" filename;
+       let path = Filename.concat dir filename in
+       let oc = open_out path in
+       output_string oc "cache";
+       close_out oc;
+       Alcotest.(check bool) "file exists" true (Sys.file_exists path);
+       Slot_cache.cleanup_file ~filename ~save_dir:dir;
+       Alcotest.(check bool) "file removed" false (Sys.file_exists path);
+       Slot_cache.cleanup_file ~filename:"missing.bin" ~save_dir:dir)
+;;
+
+let test_llm_transport_runtime_mcp_policy_json () =
+  let stdio =
+    Llm_transport.Stdio_server
+      { name = "local"
+      ; command = "python"
+      ; args = [ "-m"; "server" ]
+      ; env = [ "TOKEN", "redacted" ]
+      }
+  in
+  let http =
+    Llm_transport.Http_server
+      { name = "remote"
+      ; url = "http://127.0.0.1:8931/mcp"
+      ; headers = [ "Authorization", "Bearer token" ]
+      }
+  in
+  Alcotest.(check string)
+    "stdio name"
+    "local"
+    (Llm_transport.runtime_mcp_server_name stdio);
+  Alcotest.(check string)
+    "http name"
+    "remote"
+    (Llm_transport.runtime_mcp_server_name http);
+  let policy =
+    { Llm_transport.servers = [ stdio; http ]
+    ; allowed_server_names = [ "local"; "remote" ]
+    ; allowed_tool_names = [ "read"; "write" ]
+    ; permission_mode = Some "ask"
+    ; approval_mode = Some "manual"
+    ; strict = false
+    ; disable_builtin_tools = true
+    }
+  in
+  let json = Llm_transport.runtime_mcp_policy_to_yojson policy in
+  let open Yojson.Safe.Util in
+  Alcotest.(check int)
+    "server count"
+    2
+    (json |> member "servers" |> to_list |> List.length);
+  Alcotest.(check string)
+    "permission"
+    "ask"
+    (json |> member "permission_mode" |> to_string);
+  Alcotest.(check string) "approval" "manual" (json |> member "approval_mode" |> to_string);
+  Alcotest.(check bool) "strict" false (json |> member "strict" |> to_bool);
+  Alcotest.(check bool)
+    "disable builtins"
+    true
+    (json |> member "disable_builtin_tools" |> to_bool)
+;;
+
 let test_build_request_json_mode () =
   let config =
     make_config ~kind:Gemini ~model_id:gemini25_flash_model ~response_format_json:true ()
@@ -1703,6 +1890,22 @@ let () =
             `Quick
             test_build_request_tool_choice_specific
         ; Alcotest.test_case "top_p top_k" `Quick test_build_request_top_p_top_k
+        ] )
+    ; ( "constants"
+      , [ Alcotest.test_case "http code sets" `Quick test_constants_http_code_sets
+        ; Alcotest.test_case "inference profiles" `Quick test_constants_inference_profiles
+        ; Alcotest.test_case
+            "retry cache sampling endpoints"
+            `Quick
+            test_constants_retry_cache_sampling_and_endpoints
+        ; Alcotest.test_case "env helpers" `Quick test_constants_env_helpers
+        ] )
+    ; "slot_cache", [ Alcotest.test_case "file helpers" `Quick test_slot_cache_helpers ]
+    ; ( "llm_transport"
+      , [ Alcotest.test_case
+            "runtime mcp policy json"
+            `Quick
+            test_llm_transport_runtime_mcp_policy_json
         ] )
     ; ( "backend_gemini.parse_response"
       , [ Alcotest.test_case "basic" `Quick test_parse_response_basic
