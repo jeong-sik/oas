@@ -17,6 +17,15 @@ type api_error = Retry.api_error
 (** Provider/runtime errors — alias for {!Llm_provider.Error.provider_error}. *)
 type provider_error = Llm_provider.Error.provider_error
 
+type input_required =
+  { request_id : string
+  ; participant_name : string option
+  ; question : string
+  ; schema : Yojson.Safe.t option
+  ; timeout_s : float option
+  ; created_at : float
+  }
+
 (** Agent runtime errors. *)
 type agent_error =
   | MaxTurnsExceeded of
@@ -56,6 +65,7 @@ type agent_error =
       { tripwire : string
       ; reason : string
       }
+  | InputRequired of input_required
   | ExitConditionMet of { turn : int }
 
 (** MCP client errors. *)
@@ -184,6 +194,14 @@ let agent_error_to_string = function
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->
     Printf.sprintf "Tripwire violation [%s]: %s" r.tripwire r.reason
+  | InputRequired r ->
+    Printf.sprintf
+      "Input required%s: %s (request %s)"
+      (match r.participant_name with
+       | Some participant -> Printf.sprintf " for %s" participant
+       | None -> "")
+      r.question
+      r.request_id
   | ExitConditionMet r -> Printf.sprintf "Exit condition met at turn %d" r.turn
 ;;
 

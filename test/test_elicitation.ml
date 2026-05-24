@@ -146,6 +146,58 @@ let test_agent_options_elicitation_default () =
   Alcotest.(check bool) "default none" true (Option.is_none opts.elicitation)
 ;;
 
+let test_agent_elicit_input_without_callback_pauses () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "env", `Assoc [ "type", `String "string" ] ]
+      ]
+  in
+  let request : Hooks.elicitation_request =
+    { question = "Which environment?"; schema = Some schema; timeout_s = Some 20.0 }
+  in
+  let before_turn = function
+    | Hooks.BeforeTurn _ -> Hooks.ElicitInput request
+    | _ -> Hooks.Continue
+  in
+  let options =
+    { Agent.default_options with
+      base_url = "http://unused"
+    ; hooks = { Hooks.empty with before_turn = Some before_turn }
+    }
+  in
+  let config = { Types.default_config with name = "human-reviewer" } in
+  let agent = Agent.create ~net:env#net ~config ~options () in
+  match Agent.run ~sw agent "deploy" with
+  | Error (Error.Agent (Error.InputRequired input)) ->
+    (match input.participant_name with
+     | Some participant ->
+       Alcotest.(check string) "participant" "human-reviewer" participant
+     | None -> Alcotest.fail "expected participant");
+    Alcotest.(check string) "question" "Which environment?" input.question;
+    Alcotest.(check bool) "schema preserved" true (Option.is_some input.schema);
+    Alcotest.(check bool) "timeout preserved" true (input.timeout_s = Some 20.0);
+    Alcotest.(check bool) "request_id non-empty" true (String.length input.request_id > 0);
+    let state_after_pause = Agent.state agent in
+    Alcotest.(check int) "prompt retained" 1 (List.length state_after_pause.messages);
+    Agent.provide_input agent input (Hooks.Answer (`Assoc [ "env", `String "prod" ]));
+    let state_after_input = Agent.state agent in
+    Alcotest.(check int) "input appended" 2 (List.length state_after_input.messages);
+    (match List.rev state_after_input.messages with
+     | { Types.role = Types.User; content = [ Types.Text text ]; _ } :: _ ->
+       Alcotest.(check string)
+         "input message"
+         "[User input] Which environment?: {\"env\":\"prod\"}"
+         text
+     | _ -> Alcotest.fail "expected user input message")
+  | Error err -> Alcotest.failf "expected InputRequired, got %s" (Error.to_string err)
+  | Ok _ -> Alcotest.fail "expected InputRequired"
+;;
+
 let () =
   let open Alcotest in
   run
@@ -171,5 +223,11 @@ let () =
         ] )
     ; ( "agent_options"
       , [ test_case "default none" `Quick test_agent_options_elicitation_default ] )
+    ; ( "agent_pause"
+      , [ test_case
+            "ElicitInput without callback returns InputRequired"
+            `Quick
+            test_agent_elicit_input_without_callback_pauses
+        ] )
     ]
 ;;

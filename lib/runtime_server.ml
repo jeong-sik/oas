@@ -37,6 +37,10 @@ type participant_run_success =
   ; completion_anomaly : Runtime.completion_anomaly option
   }
 
+type participant_run_result =
+  | Participant_completed of participant_run_success
+  | Participant_input_required of Runtime.input_request
+
 type participant_run_failure =
   { error : Error.sdk_error
   ; raw_trace_run_id : string option
@@ -348,11 +352,12 @@ let run_participant
           ; Log.I ("dropped_output_deltas", !delta_error_count)
           ];
       Ok
-        { summary = full
-        ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
-        ; stop_reason = Some "EndTurn"
-        ; completion_anomaly = completion_anomaly ()
-        })
+        (Participant_completed
+           { summary = full
+           ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
+           ; stop_reason = Some "EndTurn"
+           ; completion_anomaly = completion_anomaly ()
+           }))
   | _selected_provider ->
     Eio.Switch.run
     @@ fun sw ->
@@ -399,11 +404,16 @@ let run_participant
               ; Log.I ("dropped_output_deltas", !delta_error_count)
               ];
           Ok
-            { summary = extract_text response
-            ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
-            ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-            ; completion_anomaly = completion_anomaly ()
-            }
+            (Participant_completed
+               { summary = extract_text response
+               ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
+               ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+               ; completion_anomaly = completion_anomaly ()
+               })
+        | Error (Error.Agent (Error.InputRequired request)) ->
+          Ok
+            (Participant_input_required
+               (Agent_elicitation.runtime_input_request_of_input_required request))
         | Error err ->
           Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }))
 ;;
@@ -690,7 +700,7 @@ let apply_command ~sw state store (session : session) command =
                  ()
              | Ok _ ->
                (match run_participant store state session_id resolution detail with
-                | Ok outcome ->
+                | Ok (Participant_completed outcome) ->
                   (match
                      persist_event
                        store
@@ -732,6 +742,34 @@ let apply_command ~sw state store (session : session) command =
                        ?raw_trace_run_id:outcome.raw_trace_run_id
                        ~failure_cause:
                          (Persistence_failure { phase = "agent_completed"; detail })
+                       ())
+                | Ok (Participant_input_required request) ->
+                  (match
+                     persist_event store state session_id (Input_required request)
+                   with
+                   | Ok _ -> ()
+                   | Error err ->
+                     let detail =
+                       Printf.sprintf
+                         "participant requested input but input_required event could not \
+                          be persisted: %s"
+                         (Error.to_string err)
+                     in
+                     log_participant_persist_failure
+                       ~session_id
+                       ~participant_name
+                       ~phase:"input_required"
+                       err;
+                     persist_participant_failure
+                       store
+                       state
+                       ~session_id
+                       ~participant_name
+                       ~provider:resolution.resolved_provider
+                       ~model:resolution.resolved_model
+                       ~detail
+                       ~failure_cause:
+                         (Persistence_failure { phase = "input_required"; detail })
                        ())
                 | Error failure ->
                   persist_participant_failure

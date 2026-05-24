@@ -1018,7 +1018,7 @@ let tag_error stage result =
 
 let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 1: Input *)
-  stage_input ?raw_trace_run agent;
+  let* () = stage_input ?raw_trace_run agent |> tag_error "input" in
   (* Stage 2: Parse *)
   let prep, original_config, turn_params = stage_parse ?raw_trace_run agent in
   let context_window = proactive_context_window_tokens agent in

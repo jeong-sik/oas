@@ -55,6 +55,10 @@ let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
   run_turn_core ~sw ?clock ~api_strategy:Sync ?raw_trace_run agent
 ;;
 
+let provide_input agent request response =
+  Agent_elicitation.apply_response agent request response
+;;
+
 let check_token_budget = Agent_turn.check_token_budget
 
 (* ── Shared loop guard (max_turns + idle + budget) ─────────── *)

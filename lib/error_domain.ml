@@ -30,6 +30,7 @@ type agent_error =
       Completion_contract_id.t * string * Completion_contract_violation_detail.t option
   | `Guardrail_violation of string * string
   | `Tripwire_violation of string * string
+  | `Input_required of string * string
   | `Unrecognized_stop_reason of string
   | `Exit_condition_met of int
   ]
@@ -118,6 +119,7 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
     `Completion_contract_violation (r.contract, r.reason, r.violation_detail)
   | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
   | Error.Agent (TripwireViolation r) -> `Tripwire_violation (r.tripwire, r.reason)
+  | Error.Agent (InputRequired r) -> `Input_required (r.request_id, r.question)
   | Error.Agent (UnrecognizedStopReason r) -> `Unrecognized_stop_reason r.reason
   | Error.Agent (ExitConditionMet r) -> `Exit_condition_met r.turn
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
@@ -175,6 +177,16 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
     Error.Agent (GuardrailViolation { validator; reason })
   | `Tripwire_violation (tripwire, reason) ->
     Error.Agent (TripwireViolation { tripwire; reason })
+  | `Input_required (request_id, question) ->
+    Error.Agent
+      (InputRequired
+         { request_id
+         ; participant_name = None
+         ; question
+         ; schema = None
+         ; timeout_s = None
+         ; created_at = Unix.gettimeofday ()
+         })
   | `Unrecognized_stop_reason reason -> Error.Agent (UnrecognizedStopReason { reason })
   | `Exit_condition_met turn -> Error.Agent (ExitConditionMet { turn })
   | `Missing_env_var var -> Error.Config (MissingEnvVar { var_name = var })

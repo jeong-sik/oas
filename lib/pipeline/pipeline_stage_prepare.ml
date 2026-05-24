@@ -35,25 +35,20 @@ let stage_input ?raw_trace_run agent =
                   ; response
                   }))
         | None -> ());
-       (match response with
-        | Hooks.Answer json ->
-          let text =
-            Printf.sprintf "[User input] %s: %s" req.question (Yojson.Safe.to_string json)
-          in
-          update_state agent (fun s ->
-            { s with
-              messages =
-                Util.snoc
-                  s.messages
-                  { role = User
-                  ; content = [ Text text ]
-                  ; name = None
-                  ; tool_call_id = None
-                  ; metadata = []
-                  }
-            })
-        | Hooks.Declined | Hooks.Timeout -> ())
-     | None -> ())
+       (match Agent_elicitation.message_of_response ~question:req.question response with
+        | Some message ->
+          update_state agent (fun s -> { s with messages = Util.snoc s.messages message })
+        | None -> ());
+       Ok ()
+     | None ->
+       let input_required =
+         Agent_elicitation.input_required_of_request
+           ~agent_name:agent.state.config.name
+           ~turn:agent.state.turn_count
+           ~created_at:ts
+           req
+       in
+       Error (Error.Agent (InputRequired input_required)))
   | Hooks.Nudge nudge_msg ->
     (* Keep BeforeTurn nudge behavior identical to the inlined pipeline path:
          append it as a User message so it is seen in this same turn. *)
@@ -68,8 +63,9 @@ let stage_input ?raw_trace_run agent =
             ; tool_call_id = None
             ; metadata = []
             }
-      })
-  | _ -> ()
+      });
+    Ok ()
+  | _ -> Ok ()
 ;;
 
 let last_tool_results_from messages =
