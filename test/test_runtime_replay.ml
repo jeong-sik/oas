@@ -49,6 +49,59 @@ let mk_event seq message : Runtime.event =
   }
 ;;
 
+let mk_checkpoint_event seq ?label path : Runtime.event =
+  { seq; ts = float_of_int seq; kind = Runtime.Checkpoint_saved { label; path } }
+;;
+
+let mk_message text : Types.message =
+  { role = Types.User
+  ; content = [ Types.Text text ]
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let mk_checkpoint ?(messages = []) ?(created_at = 1.0) ?(turn_count = 0) session_id
+  : Checkpoint.t
+  =
+  { version = Checkpoint.checkpoint_version
+  ; session_id
+  ; agent_name = "runtime-replay-agent"
+  ; model = "agent_llm_a-sonnet-4-6"
+  ; system_prompt = Some "replay"
+  ; messages
+  ; usage = Types.empty_usage
+  ; turn_count
+  ; created_at
+  ; tools = []
+  ; tool_choice = None
+  ; disable_parallel_tool_use = false
+  ; temperature = None
+  ; top_p = None
+  ; top_k = None
+  ; min_p = None
+  ; enable_thinking = None
+  ; response_format = Types.Off
+  ; thinking_budget = None
+  ; cache_system_prompt = false
+  ; max_input_tokens = None
+  ; max_total_tokens = None
+  ; context = Context.create ()
+  ; mcp_sessions = []
+  ; working_context = None
+  }
+;;
+
+let save_checkpoint_file root name checkpoint =
+  let path = Filename.concat root name in
+  let oc = open_out path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc (Checkpoint.to_string checkpoint));
+  path
+;;
+
 let save_artifact store session_id ~artifact_id ~name content =
   let path =
     Runtime_store.save_artifact_text store session_id ~name ~kind:"json" ~content
@@ -144,6 +197,117 @@ let test_sync_windows_json_reports_selector_failures_and_dedupes_runs () =
       (json |> member "failures" |> to_list |> List.hd |> member "session_id" |> to_string))
 ;;
 
+let test_checkpoint_delta_projection_from_selected_runs () =
+  with_temp_dir (fun root ->
+    let store = Runtime_store.create ~root () |> expect_ok "create store" in
+    let base =
+      mk_checkpoint
+        ~created_at:10.0
+        ~turn_count:1
+        ~messages:[ mk_message "base" ]
+        "checkpoint-run"
+    in
+    let target =
+      mk_checkpoint
+        ~created_at:20.0
+        ~turn_count:2
+        ~messages:[ mk_message "base"; mk_message "target" ]
+        "checkpoint-run"
+    in
+    let base_path = save_checkpoint_file root "base-checkpoint.json" base in
+    let target_path = save_checkpoint_file root "target-checkpoint.json" target in
+    save_run
+      store
+      "run-a"
+      ~updated_at:10.0
+      [ mk_checkpoint_event 1 ~label:"base" base_path ];
+    save_run
+      store
+      "run-b"
+      ~updated_at:20.0
+      [ mk_checkpoint_event 1 ~label:"target" target_path ];
+    let projection =
+      Runtime_replay.checkpoint_delta_projection_from_store
+        store
+        [ Runtime_store.Last_n_runs 2 ]
+      |> expect_ok "checkpoint projection"
+    in
+    check int "entries" 2 (List.length projection.entries);
+    check int "failures" 0 (List.length projection.failures);
+    match projection.entries with
+    | [ Runtime_replay.Full_checkpoint { checkpoint; checkpoint_ref = base_ref }
+      ; Runtime_replay.Delta_checkpoint
+          { base = delta_base; target = delta_target; delta }
+      ] ->
+      check string "base path" base_path base_ref.path;
+      check string "delta base path" base_path delta_base.path;
+      check string "delta target path" target_path delta_target.path;
+      let rebuilt = Checkpoint.apply_delta checkpoint delta |> expect_ok "apply delta" in
+      check
+        string
+        "rebuilt target"
+        (Yojson.Safe.to_string (Checkpoint.to_json target))
+        (Yojson.Safe.to_string (Checkpoint.to_json rebuilt))
+    | _ -> fail "expected full checkpoint followed by delta checkpoint")
+;;
+
+let test_checkpoint_delta_projection_reports_corrupt_checkpoint () =
+  with_temp_dir (fun root ->
+    let store = Runtime_store.create ~root () |> expect_ok "create store" in
+    let checkpoint = mk_checkpoint ~messages:[ mk_message "valid" ] "checkpoint-run" in
+    let valid_path = save_checkpoint_file root "valid-checkpoint.json" checkpoint in
+    let corrupt_path = Filename.concat root "corrupt-checkpoint.json" in
+    let oc = open_out corrupt_path in
+    Fun.protect
+      ~finally:(fun () -> close_out_noerr oc)
+      (fun () -> output_string oc "not checkpoint json");
+    save_run
+      store
+      "run-a"
+      ~updated_at:10.0
+      [ mk_checkpoint_event 1 valid_path; mk_checkpoint_event 2 corrupt_path ];
+    let projection =
+      Runtime_replay.checkpoint_delta_projection_from_store
+        store
+        [ Runtime_store.Session "run-a" ]
+      |> expect_ok "checkpoint projection"
+    in
+    check int "valid entry" 1 (List.length projection.entries);
+    check int "one failure" 1 (List.length projection.failures);
+    match projection.failures with
+    | [ failure ] -> check string "corrupt path" corrupt_path failure.path
+    | _ -> fail "expected one corrupt checkpoint failure")
+;;
+
+let test_checkpoint_delta_projection_dedupes_overlapping_checkpoint_paths () =
+  with_temp_dir (fun root ->
+    let store = Runtime_store.create ~root () |> expect_ok "create store" in
+    let checkpoint = mk_checkpoint ~messages:[ mk_message "same" ] "checkpoint-run" in
+    let path = save_checkpoint_file root "same-checkpoint.json" checkpoint in
+    save_run
+      store
+      "run-a"
+      ~updated_at:10.0
+      [ mk_checkpoint_event 1 path; mk_checkpoint_event 2 path ];
+    let json =
+      Runtime_replay.checkpoint_delta_projection_json_from_store
+        store
+        [ Runtime_store.Last_n_runs 1; Runtime_store.Session "run-a" ]
+      |> expect_ok "checkpoint projection json"
+    in
+    let open Yojson.Safe.Util in
+    check
+      int
+      "one projected checkpoint"
+      1
+      (json |> member "entries" |> to_list |> List.length);
+    check
+      string
+      "projection kind"
+      "checkpoint_delta_v1"
+      (json |> member "projection" |> to_string))
+;;
+
 let () =
   Alcotest.run
     "runtime_replay"
@@ -156,6 +320,20 @@ let () =
             "json reports failures and dedupes runs"
             `Quick
             test_sync_windows_json_reports_selector_failures_and_dedupes_runs
+        ] )
+    ; ( "checkpoint_delta_projection"
+      , [ test_case
+            "selected checkpoints project full plus delta"
+            `Quick
+            test_checkpoint_delta_projection_from_selected_runs
+        ; test_case
+            "corrupt checkpoint is a partial failure"
+            `Quick
+            test_checkpoint_delta_projection_reports_corrupt_checkpoint
+        ; test_case
+            "overlapping checkpoint paths are deduped"
+            `Quick
+            test_checkpoint_delta_projection_dedupes_overlapping_checkpoint_paths
         ] )
     ]
 ;;
