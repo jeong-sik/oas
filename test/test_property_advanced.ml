@@ -254,12 +254,13 @@ let test_local_provider_resolve_always_succeeds =
 let test_capabilities_provider_m_reasoning =
   QCheck.Test.make
     ~count:50
-    ~name:"Provider_h models get reasoning capability"
+    ~name:"Provider_h_3 models get reasoning capability"
     (QCheck.make
+       ~print:(fun s -> s)
        (QCheck.Gen.oneof
           [ QCheck.Gen.return "provider_h-3.5-35b"
-          ; QCheck.Gen.return "Qwen2.5-72B"
-          ; QCheck.Gen.return "provider_h-turbo"
+          ; QCheck.Gen.return "provider_h_3.6:27b-coding-nvfp4"
+          ; QCheck.Gen.return "Provider_h_3.6-35B-A3B-UD-Q4_K_XL.gguf"
           ]))
     (fun model_id ->
        let caps =
