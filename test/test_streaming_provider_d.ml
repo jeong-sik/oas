@@ -7,12 +7,12 @@ module S = Llm_provider.Streaming
 
 let test_parse_text_chunk () =
   let data =
-    {|{"id":"chatcmpl-abc","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|}
+    {|{"id":"chatcmpl-abc","object":"chat.completion.chunk","model":"model-d-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|}
   in
   match S.parse_provider_d_sse_chunk data with
   | Some chunk ->
     Alcotest.(check string) "id" "chatcmpl-abc" chunk.chunk_id;
-    Alcotest.(check string) "model" "gpt-4" chunk.chunk_model;
+    Alcotest.(check string) "model" "model-d-4" chunk.chunk_model;
     Alcotest.(check (option string)) "content" (Some "Hello") chunk.delta_content;
     Alcotest.(check (option string)) "finish" None chunk.finish_reason;
     Alcotest.(check int) "no tool_calls" 0 (List.length chunk.delta_tool_calls)

@@ -167,7 +167,7 @@ let test_model_spec_local_llm_capabilities () =
 ;;
 
 let test_model_spec_openrouter_capabilities () =
-  let cfg = Provider.openrouter ~model_id:"provider_a/agent_llm_a-sonnet-4-6" () in
+  let cfg = Provider.provider_o_router ~model_id:"provider_a/agent_llm_a-sonnet-4-6" () in
   let spec = Provider.model_spec_of_config cfg in
   let contract = Provider.inference_contract_of_config cfg in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
@@ -398,7 +398,7 @@ let test_pricing_sonnet () =
 ;;
 
 let test_pricing_gpt55 () =
-  let p = Provider.pricing_for_model "gpt-5.5" in
+  let p = Provider.pricing_for_model "model-d-5.5" in
   Alcotest.(check (float 0.001)) "input/M" 5.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 30.0 p.output_per_million;
   Alcotest.(check (float 0.001)) "cache_write" 1.0 p.cache_write_multiplier;
@@ -878,7 +878,7 @@ let () =
             `Quick
             test_model_spec_local_llm_capabilities
         ; Alcotest.test_case
-            "openrouter model spec capabilities"
+            "provider_o_router model spec capabilities"
             `Quick
             test_model_spec_openrouter_capabilities
         ; Alcotest.test_case
@@ -924,7 +924,7 @@ let () =
         ] )
     ; ( "pricing"
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet
-        ; Alcotest.test_case "gpt-5.5 pricing" `Quick test_pricing_gpt55
+        ; Alcotest.test_case "model-d-5.5 pricing" `Quick test_pricing_gpt55
         ; Alcotest.test_case "local free" `Quick test_pricing_local
         ; Alcotest.test_case "unknown model" `Quick test_pricing_unknown
         ; Alcotest.test_case "estimate cost" `Quick test_estimate_cost

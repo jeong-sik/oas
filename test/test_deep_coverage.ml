@@ -1157,12 +1157,12 @@ let test_transport_options_partial () =
   let opts : Transport.options =
     { Transport.default_options with
       provider = Some "provider_d"
-    ; model = Some "gpt-4"
+    ; model = Some "model-d-4"
     ; include_partial_messages = true
     }
   in
   check (option string) "provider" (Some "provider_d") opts.provider;
-  check (option string) "model" (Some "gpt-4") opts.model;
+  check (option string) "model" (Some "model-d-4") opts.model;
   check bool "partial" true opts.include_partial_messages;
   check (option string) "runtime_path still None" None opts.runtime_path;
   check (list string) "setting_sources still empty" [] opts.setting_sources

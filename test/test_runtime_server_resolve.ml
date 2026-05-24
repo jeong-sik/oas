@@ -176,7 +176,7 @@ let test_resolve_provider_opus () =
 ;;
 
 let test_resolve_provider_openrouter () =
-  match Runtime_server_resolve.resolve_provider ~provider:"openrouter" () with
+  match Runtime_server_resolve.resolve_provider ~provider:"provider_o_router" () with
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.OpenAICompat _ -> ()
@@ -406,7 +406,7 @@ let () =
         ; Alcotest.test_case "haiku returns Provider_a" `Quick test_resolve_provider_haiku
         ; Alcotest.test_case "opus returns Provider_a" `Quick test_resolve_provider_opus
         ; Alcotest.test_case
-            "openrouter returns OpenAICompat"
+            "provider_o_router returns OpenAICompat"
             `Quick
             test_resolve_provider_openrouter
         ; Alcotest.test_case

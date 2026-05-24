@@ -872,7 +872,7 @@ let%test "build_args with requested model" =
   let args, _ =
     build_args
       ~config:default_config
-      ~req_config:(agent_code_req ~model_id:"gpt-5.4" ())
+      ~req_config:(agent_code_req ~model_id:"model-d-5.4" ())
       ~prompt:"hi"
       ()
   in
@@ -884,13 +884,13 @@ let%test "build_args with requested model" =
     ; "-c"
     ; "mcp_servers={}"
     ; "--model"
-    ; "gpt-5.4"
+    ; "model-d-5.4"
     ; "hi"
     ]
 ;;
 
 let%test "build_args with config default model for auto request" =
-  let config = { default_config with model = Some "gpt-5.2-agent_code" } in
+  let config = { default_config with model = Some "model-d-5.2-agent_code" } in
   let args, _ = build_args ~config ~req_config:(agent_code_req ()) ~prompt:"hi" () in
   args
   = [ "agent_code"
@@ -900,7 +900,7 @@ let%test "build_args with config default model for auto request" =
     ; "-c"
     ; "mcp_servers={}"
     ; "--model"
-    ; "gpt-5.2-agent_code"
+    ; "model-d-5.2-agent_code"
     ; "hi"
     ]
 ;;
@@ -1091,8 +1091,8 @@ let%test "parse_jsonl_result preserves requested model_id" =
     ; {|{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}|}
     ]
   in
-  match parse_jsonl_result ~model_id:"gpt-5.4" ~prompt:"" lines with
-  | Ok resp -> resp.model = "gpt-5.4"
+  match parse_jsonl_result ~model_id:"model-d-5.4" ~prompt:"" lines with
+  | Ok resp -> resp.model = "model-d-5.4"
   | Error _ -> false
 ;;
 

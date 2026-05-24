@@ -102,23 +102,23 @@ let static_pricing_opt_normalized normalized =
       (* Provider_d API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
        its Agent_code rate card labels it research preview with non-final rates. *)
-    else if string_contains ~needle:"gpt-5.3-agent_code-spark" normalized
+    else if string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
     then None
-    else if string_contains ~needle:"gpt-5.5" normalized
+    else if string_contains ~needle:"model-d-5.5" normalized
     then Some ((5.0, 30.0), provider_d_cached_input)
-    else if string_contains ~needle:"gpt-5.4-mini" normalized
+    else if string_contains ~needle:"model-d-5.4-mini" normalized
     then Some ((0.75, 4.5), provider_d_cached_input)
-    else if string_contains ~needle:"gpt-5.4" normalized
+    else if string_contains ~needle:"model-d-5.4" normalized
     then Some ((2.5, 15.0), provider_d_cached_input)
-    else if string_contains ~needle:"gpt-5.3-agent_code" normalized
+    else if string_contains ~needle:"model-d-5.3-agent_code" normalized
     then Some ((1.75, 14.0), provider_d_cached_input)
-    else if string_contains ~needle:"gpt-5.2" normalized
+    else if string_contains ~needle:"model-d-5.2" normalized
     then Some ((1.75, 14.0), provider_d_cached_input)
     else if string_contains ~needle:"model-d-mini" normalized
     then Some ((0.15, 0.6), no_cache)
     else if string_contains ~needle:"model-d" normalized
     then Some ((2.5, 10.0), no_cache)
-    else if string_contains ~needle:"gpt-4.1" normalized
+    else if string_contains ~needle:"model-d-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"o3-mini" normalized
     then
@@ -198,7 +198,7 @@ let static_pricing_opt_normalized normalized =
     else if
       string_contains ~needle:"ollama" normalized
       || string_contains ~needle:"provider_h" normalized
-      || string_contains ~needle:"llama" normalized
+      || string_contains ~needle:"provider_n" normalized
     then Some ((0.0, 0.0), no_cache)
     else None
   in
@@ -536,45 +536,45 @@ let%test "pricing model-d-mini" =
   && close_enough p.cache_read_multiplier 1.0
 ;;
 
-let%test "pricing gpt-5.5" =
-  let p = pricing_for_model "gpt-5.5" in
+let%test "pricing model-d-5.5" =
+  let p = pricing_for_model "model-d-5.5" in
   close_enough p.input_per_million 5.0
   && close_enough p.output_per_million 30.0
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.4-mini" =
-  let p = pricing_for_model "gpt-5.4-mini" in
+let%test "pricing model-d-5.4-mini" =
+  let p = pricing_for_model "model-d-5.4-mini" in
   close_enough p.input_per_million 0.75
   && close_enough p.output_per_million 4.5
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.4" =
-  let p = pricing_for_model "gpt-5.4" in
+let%test "pricing model-d-5.4" =
+  let p = pricing_for_model "model-d-5.4" in
   close_enough p.input_per_million 2.5
   && close_enough p.output_per_million 15.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.3-agent_code" =
-  let p = pricing_for_model "gpt-5.3-agent_code" in
+let%test "pricing model-d-5.3-agent_code" =
+  let p = pricing_for_model "model-d-5.3-agent_code" in
   close_enough p.input_per_million 1.75
   && close_enough p.output_per_million 14.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.2" =
-  let p = pricing_for_model "gpt-5.2" in
+let%test "pricing model-d-5.2" =
+  let p = pricing_for_model "model-d-5.2" in
   close_enough p.input_per_million 1.75
   && close_enough p.output_per_million 14.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.3-agent_code-spark remains unknown" =
-  pricing_for_model_opt "gpt-5.3-agent_code-spark" = None
+let%test "pricing model-d-5.3-agent_code-spark remains unknown" =
+  pricing_for_model_opt "model-d-5.3-agent_code-spark" = None
 ;;
 
 let%test "pricing model-d (not mini)" =
@@ -582,8 +582,8 @@ let%test "pricing model-d (not mini)" =
   close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
 ;;
 
-let%test "pricing gpt-4.1" =
-  let p = pricing_for_model "gpt-4.1-turbo" in
+let%test "pricing model-d-4.1" =
+  let p = pricing_for_model "model-d-4.1-turbo" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 8.0
 ;;
 
@@ -718,7 +718,7 @@ let%test "pricing_for_model_opt returns Some for provider_f-3-flash-preview" =
 (* --- pricing_for_model: local/free models --- *)
 
 let%test "pricing ollama is free" =
-  let p = pricing_for_model "ollama/llama3" in
+  let p = pricing_for_model "ollama/model-n-3" in
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
@@ -728,7 +728,7 @@ let%test "pricing provider_h is free" =
 ;;
 
 let%test "pricing llama is free" =
-  let p = pricing_for_model "llama-3.1-70b" in
+  let p = pricing_for_model "model-n-3.1-70b" in
   close_enough p.input_per_million 0.0
 ;;
 
@@ -746,7 +746,7 @@ let%test "pricing_for_model_opt: known cloud model returns Some" =
 ;;
 
 let%test "pricing_for_model_opt: known local model returns Some with zero pricing" =
-  match pricing_for_model_opt "ollama/llama3" with
+  match pricing_for_model_opt "ollama/model-n-3" with
   | Some p -> close_enough p.input_per_million 0.0
   | None -> false
 ;;

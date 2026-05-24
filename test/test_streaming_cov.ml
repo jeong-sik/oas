@@ -54,7 +54,7 @@ let test_accumulate_message_start_no_usage () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event
     acc
-    (Types.MessageStart { id = "msg_2"; model = "gpt-4"; usage = None });
+    (Types.MessageStart { id = "msg_2"; model = "model-d-4"; usage = None });
   Alcotest.(check string) "id" "msg_2" !(acc.msg_id);
   Alcotest.(check int) "input still 0" 0 !(acc.input_tokens)
 ;;

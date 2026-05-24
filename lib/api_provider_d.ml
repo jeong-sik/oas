@@ -39,8 +39,8 @@ let is_zai_provider_config (cfg : Provider.config) =
      [cfg.provider]) so the compiler flags any new constructor here.
      ZAI detection depends on a [base_url] field; [Provider_a] and
      [Custom_registered] don't carry one so they are non-ZAI today,
-     but a future base_url-carrying variant (e.g. [Llama_server],
-     [OpenRouter]) would silently inherit "non-ZAI" under the previous
+     but a future base_url-carrying variant (e.g. [Provider_n_server],
+     [Provider_o_router]) would silently inherit "non-ZAI" under the previous
      [_ -> false] catch-all even if its URL was a ZAI endpoint. *)
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->

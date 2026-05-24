@@ -70,7 +70,7 @@ val default : unit -> t
     Unlike [Provider_config.string_of_provider_kind], this keeps
     registry-level distinctions that share a wire kind but differ by
     endpoint (for example [provider_k] vs [provider_k-coding], or [provider_d] vs
-    [openrouter]). Falls back to a stable kind-derived label when the
+    [provider_o_router]). Falls back to a stable kind-derived label when the
     config does not match a known registry entry exactly. *)
 val provider_name_of_config : Provider_config.t -> string
 

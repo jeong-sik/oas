@@ -343,7 +343,7 @@ let test_provider_name_of_config_local_provider_d_compat () =
   in
   check_string
     "local provider_d compat resolves to llama"
-    "llama"
+    "provider_n"
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
@@ -356,7 +356,7 @@ let test_provider_name_of_config_openrouter () =
       ~request_path:"/chat/completions"
       ()
   in
-  check_string "openrouter" "openrouter" (Provider_registry.provider_name_of_config cfg)
+  check_string "provider_o_router" "provider_o_router" (Provider_registry.provider_name_of_config cfg)
 ;;
 
 (* ── provider_kind_of_string ─────────────────────────── *)
@@ -389,7 +389,7 @@ let test_kind_roundtrip () =
 let test_kind_aliases () =
   check_parse "agent_llm_a -> Provider_a" "agent_llm_a" Provider_a;
   check_parse "provider_d -> Provider_d_compat" "provider_d" Provider_d_compat;
-  check_parse "llama -> Ollama" "llama" Ollama
+  check_parse "llama -> Ollama" "provider_n" Ollama
 ;;
 
 let test_kind_case_insensitive () =
@@ -415,9 +415,9 @@ let test_kind_unknown_returns_none () =
     true
     (Option.is_none (Provider_config.provider_kind_of_string "anthrpic"));
   check_bool
-    "bare openrouter"
+    "bare provider_o_router"
     true
-    (Option.is_none (Provider_config.provider_kind_of_string "openrouter"));
+    (Option.is_none (Provider_config.provider_kind_of_string "provider_o_router"));
   check_bool
     "json-ish"
     true
@@ -478,7 +478,7 @@ let test_of_yojson_accepts_aliases () =
            expected_wire
            (Provider_config.string_of_provider_kind k)
        | Error msg -> Alcotest.failf "of_yojson alias %S failed: %s" input msg)
-    [ "agent_llm_a", "provider_a"; "provider_d", "provider_d_compat"; "llama", "ollama" ]
+    [ "agent_llm_a", "provider_a"; "provider_d", "provider_d_compat"; "provider_n", "ollama" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -833,7 +833,7 @@ let () =
             "local provider_d compat"
             `Quick
             test_provider_name_of_config_local_provider_d_compat
-        ; Alcotest.test_case "openrouter" `Quick test_provider_name_of_config_openrouter
+        ; Alcotest.test_case "provider_o_router" `Quick test_provider_name_of_config_openrouter
         ] )
     ; ( "kind_of_string"
       , [ Alcotest.test_case "roundtrip all variants" `Quick test_kind_roundtrip

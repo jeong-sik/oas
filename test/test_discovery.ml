@@ -39,7 +39,7 @@ let test_parse_models_json () =
       {|{
     "data": [
       {"id": "provider_h-3.5-35b", "owned_by": "llama-server"},
-      {"id": "llama-3.1-8b", "owned_by": "llama-server"}
+      {"id": "model-n-3.1-8b", "owned_by": "llama-server"}
     ]
   }|}
   in

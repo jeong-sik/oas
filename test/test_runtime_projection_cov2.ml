@@ -399,7 +399,7 @@ let test_apply_agent_spawn () =
          ; role = Some "reviewer"
          ; prompt = "review"
          ; provider = Some "provider_d"
-         ; model = Some "gpt-4"
+         ; model = Some "model-d-4"
          ; permission_mode = None
          })
   in

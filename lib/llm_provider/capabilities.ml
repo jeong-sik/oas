@@ -430,22 +430,22 @@ type static_model_route =
   | Agent_llm_a_opus_4
   | Agent_llm_a_sonnet_4
   | Agent_llm_a_haiku_4
-  | Gpt_5
-  | Gpt_4_1
-  | Gpt_4o
+  | Provider_d_5
+  | Provider_d_4_1
+  | Provider_d_4o
   | Provider_f of provider_f_family
   | Provider_c_for_coding
   | Provider_c_k2
   | Provider_h_3
-  | Llama_4
+  | Provider_n_4
   | Provider_g_v4_flash
   | Provider_g_v4_pro
   | Provider_j_large
   | Provider_j_small
-  | Command
-  | Grok
+  | Provider_m_command
+  | Provider_e_grok
   | Provider_l of { has_vision : bool }
-  | Gemma_4 of { has_large_audio : bool }
+  | Provider_f_gemma_4 of { has_large_audio : bool }
   | Glm_flash_air
   | Glm_5_turbo
   | Glm_5v_turbo
@@ -461,14 +461,14 @@ let normalize_static_model_id model_id =
   model_id |> String.trim |> String.lowercase_ascii |> strip_suffix ~suffix:":cloud"
 ;;
 
-let gemma_4_has_large_audio model_id =
+let provider_f_gemma_4_has_large_audio model_id =
   let base =
     if String.starts_with ~prefix:"google/" model_id
     then String.sub model_id 7 (String.length model_id - 7)
     else model_id
   in
   let size =
-    if String.starts_with ~prefix:"gemma-4-" base
+    if String.starts_with ~prefix:"model-f-gemma-4-" base
     then Some (String.sub base 8 (String.length base - 8))
     else None
   in
@@ -486,12 +486,12 @@ let static_model_route_of_id model_id =
   then Some Agent_llm_a_sonnet_4
   else if String.starts_with ~prefix:"agent_llm_a-haiku-4" m
   then Some Agent_llm_a_haiku_4
-  else if String.starts_with ~prefix:"gpt-5" m
-  then Some Gpt_5
-  else if String.starts_with ~prefix:"gpt-4.1" m
-  then Some Gpt_4_1
+  else if String.starts_with ~prefix:"model-d-5" m
+  then Some Provider_d_5
+  else if String.starts_with ~prefix:"model-d-4.1" m
+  then Some Provider_d_4_1
   else if String.starts_with ~prefix:"model-d" m
-  then Some Gpt_4o
+  then Some Provider_d_4o
   else (
     match provider_f_family_of_id m with
     | (Provider_f_3 | Provider_f_3_1 | Provider_f_2_5) as family ->
@@ -506,8 +506,8 @@ let static_model_route_of_id model_id =
         || String.starts_with ~prefix:"provider_h_3" m
       then Some Provider_h_3
       else if
-        String.starts_with ~prefix:"llama-4" m || String.starts_with ~prefix:"llama4" m
-      then Some Llama_4
+        String.starts_with ~prefix:"model-n-4" m || String.starts_with ~prefix:"llama4" m
+      then Some Provider_n_4
       else if String.starts_with ~prefix:"provider_g-v4-flash" m
       then Some Provider_g_v4_flash
       else if String.starts_with ~prefix:"provider_g-v4-pro" m
@@ -517,10 +517,10 @@ let static_model_route_of_id model_id =
       else if String.starts_with ~prefix:"provider_j-small" m
       then Some Provider_j_small
       else if String.starts_with ~prefix:"command" m
-      then Some Command
+      then Some Provider_m_command
       else if
-        String.starts_with ~prefix:"grok" m || String.starts_with ~prefix:"model-e" m
-      then Some Grok
+        String.starts_with ~prefix:"provider_e_grok" m || String.starts_with ~prefix:"model-e" m
+      then Some Provider_e_grok
       else if
         String.starts_with ~prefix:"nvidia/provider_l" m
         || String.starts_with ~prefix:"provider_l" m
@@ -532,9 +532,9 @@ let static_model_route_of_id model_id =
                  || String.starts_with ~prefix:"provider_l-vl" m
              })
       else if
-        String.starts_with ~prefix:"gemma-4" m
-        || String.starts_with ~prefix:"google/gemma-4" m
-      then Some (Gemma_4 { has_large_audio = gemma_4_has_large_audio m })
+        String.starts_with ~prefix:"model-f-gemma-4" m
+        || String.starts_with ~prefix:"google/model-f-gemma-4" m
+      then Some (Provider_f_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
       else if
         String.starts_with ~prefix:"provider_k-4.7-flash" m
         || String.starts_with ~prefix:"provider_k-4.5-flash" m
@@ -588,20 +588,20 @@ let capabilities_of_static_model_route = function
         max_context_tokens = Some 200_000
       ; max_output_tokens = Some 8_192
       }
-  | Gpt_5 ->
+  | Provider_d_5 ->
     Some
       { provider_d_chat_extended_capabilities with
         max_context_tokens = Some 1_050_000
       ; max_output_tokens = Some 128_000
       ; supports_computer_use = true
       }
-  | Gpt_4_1 ->
+  | Provider_d_4_1 ->
     Some
       { provider_d_chat_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 32_000
       }
-  | Gpt_4o ->
+  | Provider_d_4o ->
     Some
       { provider_d_chat_capabilities with
         max_context_tokens = Some 128_000
@@ -624,7 +624,7 @@ let capabilities_of_static_model_route = function
       ; supports_top_k = true
       ; supports_min_p = true
       }
-  | Llama_4 ->
+  | Provider_n_4 ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -698,7 +698,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  | Command ->
+  | Provider_m_command ->
     Some
       { default_capabilities with
         max_context_tokens = Some 256_000
@@ -709,7 +709,7 @@ let capabilities_of_static_model_route = function
       ; supports_structured_output = true
       ; supports_native_streaming = true
       }
-  | Grok ->
+  | Provider_e_grok ->
     Some
       { default_capabilities with
         max_context_tokens = Some 2_000_000
@@ -737,7 +737,7 @@ let capabilities_of_static_model_route = function
     (* Gemma 4: Google open-weight multimodal.
        4 sizes (1B/4B/12B/27B-31B). All support function calling,
        image input, streaming. 27B+ supports audio. 256K context. *)
-  | Gemma_4 { has_large_audio } ->
+  | Provider_f_gemma_4 { has_large_audio } ->
     Some
       { default_capabilities with
         max_context_tokens = Some 262_144
@@ -1179,8 +1179,8 @@ let%test "for_model_id nvidia/provider_l-core resolves" =
   | None -> false
 ;;
 
-let%test "for_model_id gemma-4-27b has tools + seed" =
-  match for_model_id "gemma-4-27b-it" with
+let%test "for_model_id model-f-gemma-4-27b has tools + seed" =
+  match for_model_id "model-f-gemma-4-27b-it" with
   | Some c ->
     c.supports_tools
     && c.supports_seed
@@ -1189,26 +1189,26 @@ let%test "for_model_id gemma-4-27b has tools + seed" =
   | None -> false
 ;;
 
-let%test "for_model_id gemma-4-1b-it has tools, no audio" =
-  match for_model_id "gemma-4-1b-it" with
+let%test "for_model_id model-f-gemma-4-1b-it has tools, no audio" =
+  match for_model_id "model-f-gemma-4-1b-it" with
   | Some c -> c.supports_tools && c.supports_image_input && not c.supports_audio_input
   | None -> false
 ;;
 
-let%test "for_model_id google/gemma-4-1b-it is NOT large" =
-  match for_model_id "google/gemma-4-1b-it" with
+let%test "for_model_id google/model-f-gemma-4-1b-it is NOT large" =
+  match for_model_id "google/model-f-gemma-4-1b-it" with
   | Some c -> not c.supports_audio_input
   | None -> false
 ;;
 
-let%test "for_model_id google/gemma-4-27b-it IS large" =
-  match for_model_id "google/gemma-4-27b-it" with
+let%test "for_model_id google/model-f-gemma-4-27b-it IS large" =
+  match for_model_id "google/model-f-gemma-4-27b-it" with
   | Some c -> c.supports_audio_input
   | None -> false
 ;;
 
-let%test "for_model_id gemma-4-31b IS large" =
-  match for_model_id "gemma-4-31b-it" with
+let%test "for_model_id model-f-gemma-4-31b IS large" =
+  match for_model_id "model-f-gemma-4-31b-it" with
   | Some c -> c.supports_audio_input
   | None -> false
 ;;
@@ -1254,7 +1254,7 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
           && c.max_output_tokens = Some 128_000 )
     ; ("provider_k-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
-    ; ("gpt-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
+    ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
     ; ("provider_g-v4-flash-test", fun c -> c.thinking_control_format = Thinking_object)
     ; ( "provider_l-ultra-253b"
       , fun c ->
@@ -1263,13 +1263,13 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
     ; ("provider_l-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
-    ; ( "gemma-4-27b-it"
+    ; ( "model-f-gemma-4-27b-it"
       , fun c ->
           c.supports_tools
           && c.supports_image_input
           && c.supports_seed
           && c.max_context_tokens = Some 262_144 )
-    ; ("google/gemma-4-27b-it", fun c -> c.supports_tools && c.supports_image_input)
+    ; ("google/model-f-gemma-4-27b-it", fun c -> c.supports_tools && c.supports_image_input)
     ]
 ;;
 

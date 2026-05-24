@@ -351,10 +351,10 @@ let test_provider_constructors () =
   check string "provider_a_haiku" "agent_llm_a-haiku-4-5-20251001" p.model_id;
   let p = Provider.provider_a_opus () in
   check string "provider_a_opus" "agent_llm_a-opus-4-6" p.model_id;
-  let p = Provider.openrouter () in
-  check string "openrouter default" "provider_a/agent_llm_a-sonnet-4-6" p.model_id;
-  let p = Provider.openrouter ~model_id:"google/provider_f-2.5-pro" () in
-  check string "openrouter override" "google/provider_f-2.5-pro" p.model_id
+  let p = Provider.provider_o_router () in
+  check string "provider_o_router default" "provider_a/agent_llm_a-sonnet-4-6" p.model_id;
+  let p = Provider.provider_o_router ~model_id:"google/provider_f-2.5-pro" () in
+  check string "provider_o_router override" "google/provider_f-2.5-pro" p.model_id
 ;;
 
 let () =

@@ -19,13 +19,13 @@ let provider_a_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_t
 
 let provider_d_response text =
   Printf.sprintf
-    {|{"id":"chatcmpl-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
+    {|{"id":"chatcmpl-1","object":"chat.completion","model":"model-d-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 ;;
 
 let provider_d_mlx_vlm_response text =
   Printf.sprintf
-    {|{"id":"chatcmpl-mlx-1","object":"chat.completion","model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"input_tokens":11,"output_tokens":5,"prompt_tps":21.55,"generation_tps":81.56},"peak_memory":52.66}|}
+    {|{"id":"chatcmpl-mlx-1","object":"chat.completion","model":"model-d-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"input_tokens":11,"output_tokens":5,"prompt_tps":21.55,"generation_tps":81.56},"peak_memory":52.66}|}
     text
 ;;
 
@@ -116,7 +116,7 @@ let make_config ?(kind = Provider_config.Provider_a) base_url =
 let make_provider_d_config base_url =
   Provider_config.make
     ~kind:Provider_config.Provider_d_compat
-    ~model_id:"gpt-4"
+    ~model_id:"model-d-4"
     ~base_url
     ~request_path:"/v1/chat/completions"
     ~temperature:0.0
@@ -334,7 +334,7 @@ let test_complete_provider_d_mlx_vlm_telemetry () =
            "latency patched"
            true
            (Option.value ~default:0 t.request_latency_ms > 0);
-         check (option string) "canonical model id" (Some "gpt-4") t.canonical_model_id;
+         check (option string) "canonical model id" (Some "model-d-4") t.canonical_model_id;
          check (option (float 0.001)) "peak memory" (Some 52.66) t.peak_memory_gb;
          (match t.timings with
           | Some timings ->
@@ -585,7 +585,7 @@ let test_complete_transport_http_metrics_ok () =
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
       (match !status_calls with
-       | [ ("provider_d", "gpt-4", 200) ] -> Eio.Switch.fail sw Exit
+       | [ ("provider_d", "model-d-4", 200) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, code) ] -> fail (Printf.sprintf "expected 200, got %d" code)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected Ok"
@@ -616,7 +616,7 @@ let test_complete_transport_http_metrics_error () =
     | Error (Http_client.HttpError { code; _ }) ->
       check int "status 429" 429 code;
       (match !status_calls with
-       | [ ("provider_d", "gpt-4", 429) ] -> Eio.Switch.fail sw Exit
+       | [ ("provider_d", "model-d-4", 429) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, seen) ] -> fail (Printf.sprintf "expected 429, got %d" seen)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected HttpError"

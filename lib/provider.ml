@@ -107,7 +107,7 @@ let task_of_model_id model_id =
   else if
     has "imagegen"
     || has "image-gen"
-    || has "gpt-image"
+    || has "model-d-image"
     || has "cogview"
     || has "provider_k-image"
     || has "seedream"
@@ -474,7 +474,7 @@ let provider_a_opus () =
   }
 ;;
 
-let openrouter ?(model_id = "provider_a/agent_llm_a-sonnet-4-6") () =
+let provider_o_router ?(model_id = "provider_a/agent_llm_a-sonnet-4-6") () =
   { provider =
       OpenAICompat
         { base_url = "https://openrouter.ai/api/v1"
@@ -529,23 +529,23 @@ let pricing_for_model_opt model_id =
       (* Provider_d API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
        its Agent_code rate card labels it research preview with non-final rates. *)
-    else if Util.string_contains ~needle:"gpt-5.3-agent_code-spark" normalized
+    else if Util.string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
     then None
-    else if Util.string_contains ~needle:"gpt-5.5" normalized
+    else if Util.string_contains ~needle:"model-d-5.5" normalized
     then Some ((5.0, 30.0), provider_d_cached_input)
-    else if Util.string_contains ~needle:"gpt-5.4-mini" normalized
+    else if Util.string_contains ~needle:"model-d-5.4-mini" normalized
     then Some ((0.75, 4.5), provider_d_cached_input)
-    else if Util.string_contains ~needle:"gpt-5.4" normalized
+    else if Util.string_contains ~needle:"model-d-5.4" normalized
     then Some ((2.5, 15.0), provider_d_cached_input)
-    else if Util.string_contains ~needle:"gpt-5.3-agent_code" normalized
+    else if Util.string_contains ~needle:"model-d-5.3-agent_code" normalized
     then Some ((1.75, 14.0), provider_d_cached_input)
-    else if Util.string_contains ~needle:"gpt-5.2" normalized
+    else if Util.string_contains ~needle:"model-d-5.2" normalized
     then Some ((1.75, 14.0), provider_d_cached_input)
     else if Util.string_contains ~needle:"model-d-mini" normalized
     then Some ((0.15, 0.6), no_cache)
     else if Util.string_contains ~needle:"model-d" normalized
     then Some ((2.5, 10.0), no_cache)
-    else if Util.string_contains ~needle:"gpt-4.1" normalized
+    else if Util.string_contains ~needle:"model-d-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
     else if Util.string_contains ~needle:"o3-mini" normalized
     then Some ((1.1, 4.4), no_cache)

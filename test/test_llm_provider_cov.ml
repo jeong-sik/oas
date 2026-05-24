@@ -1636,18 +1636,18 @@ let test_for_model_id_agent_llm_a_haiku_4 () =
 ;;
 
 let test_for_model_id_gpt5 () =
-  match Capabilities.for_model_id "gpt-5-latest" with
+  match Capabilities.for_model_id "model-d-5-latest" with
   | Some c ->
     Alcotest.(check bool) "computer_use" true c.supports_computer_use;
     Alcotest.(check (option int)) "1050K context" (Some 1_050_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for gpt-5"
+  | None -> Alcotest.fail "expected Some for model-d-5"
 ;;
 
 let test_for_model_id_gpt41 () =
-  match Capabilities.for_model_id "gpt-4.1-mini" with
+  match Capabilities.for_model_id "model-d-4.1-mini" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for gpt-4.1"
+  | None -> Alcotest.fail "expected Some for model-d-4.1"
 ;;
 
 let test_for_model_id_gpt4o () =
@@ -1680,11 +1680,11 @@ let test_for_model_id_qwen3 () =
 ;;
 
 let test_for_model_id_llama4 () =
-  match Capabilities.for_model_id "llama-4-scout" with
+  match Capabilities.for_model_id "model-n-4-scout" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check bool) "multimodal" true c.supports_multimodal_inputs
-  | None -> Alcotest.fail "expected Some for llama-4"
+  | None -> Alcotest.fail "expected Some for model-n-4"
 ;;
 
 let test_for_model_id_llama4_alt () =
@@ -2016,13 +2016,13 @@ let () =
             "agent_llm_a-haiku-4"
             `Quick
             test_for_model_id_agent_llm_a_haiku_4
-        ; Alcotest.test_case "gpt-5" `Quick test_for_model_id_gpt5
-        ; Alcotest.test_case "gpt-4.1" `Quick test_for_model_id_gpt41
+        ; Alcotest.test_case "model-d-5" `Quick test_for_model_id_gpt5
+        ; Alcotest.test_case "model-d-4.1" `Quick test_for_model_id_gpt41
         ; Alcotest.test_case "model-d" `Quick test_for_model_id_gpt4o
         ; Alcotest.test_case "provider_f legacy" `Quick test_for_model_id_provider_f25
         ; Alcotest.test_case "provider_f-3" `Quick test_for_model_id_gemini3
         ; Alcotest.test_case "provider_h-3" `Quick test_for_model_id_qwen3
-        ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
+        ; Alcotest.test_case "model-n-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
         ; Alcotest.test_case
             "provider_g-v4-flash"
@@ -2035,7 +2035,7 @@ let () =
         ; Alcotest.test_case "provider_j-large" `Quick test_for_model_id_provider_j_large
         ; Alcotest.test_case "provider_j-small" `Quick test_for_model_id_provider_j_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command
-        ; Alcotest.test_case "grok" `Quick test_for_model_id_grok
+        ; Alcotest.test_case "provider_e_grok" `Quick test_for_model_id_grok
         ; Alcotest.test_case "provider_k" `Quick test_for_model_id_glm
         ; Alcotest.test_case "unknown" `Quick test_for_model_id_unknown
         ; Alcotest.test_case "case insensitive" `Quick test_for_model_id_case_insensitive

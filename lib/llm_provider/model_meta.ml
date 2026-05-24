@@ -100,8 +100,8 @@ let%test "agent_llm_a-sonnet-4-6 has 1M context" =
   m.context_window = 1_000_000
 ;;
 
-let%test "gpt-4.1 is cloud" =
-  let m = for_model_id "gpt-4.1" in
+let%test "model-d-4.1 is cloud" =
+  let m = for_model_id "model-d-4.1" in
   (not m.is_local) && m.context_window = 1_000_000
 ;;
 
@@ -132,8 +132,8 @@ let%test "provider_g-v4-flash can be marked local explicitly" =
   m.is_local && m.context_window = 1_000_000
 ;;
 
-let%test "llama-4-maverick can be marked local explicitly" =
-  let m = for_model_id ~locality:`Local "llama-4-maverick" in
+let%test "model-n-4-maverick can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "model-n-4-maverick" in
   m.is_local
 ;;
 

@@ -149,9 +149,9 @@ let () =
             (* Empty name falls through to default *)
             check string "body" "body" skill.body)
         ; test_case "model field" `Quick (fun () ->
-            let md = "---\nmodel: gpt-4\n---\nbody" in
+            let md = "---\nmodel: model-d-4\n---\nbody" in
             let skill = Skill.of_markdown md in
-            check (option string) "model" (Some "gpt-4") skill.model)
+            check (option string) "model" (Some "model-d-4") skill.model)
         ; test_case "argument_hint with dash" `Quick (fun () ->
             let md = "---\nargument-hint: <PR number>\n---\nbody" in
             let skill = Skill.of_markdown md in

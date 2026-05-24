@@ -55,7 +55,7 @@ let resolve_glm_coding_model_id model_id =
     for "auto"; cloud providers fall back to environment-variable defaults.
 
     Parse, don't validate: callers hand in the concrete variant so dead
-    branches ([provider_d], [openrouter] in the pre-typed version) cannot exist. *)
+    branches ([provider_d], [provider_o_router] in the pre-typed version) cannot exist. *)
 let resolve_auto_model_id
       ~base_url
       (kind : Llm_provider.Provider_config.provider_kind)

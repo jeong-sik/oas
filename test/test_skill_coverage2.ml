@@ -402,7 +402,7 @@ let test_skill_of_json_all_optional_present () =
       ; "body", `String "body"
       ; "description", `String "desc"
       ; "path", `String "/p"
-      ; "model", `String "gpt"
+      ; "model", `String "model-d"
       ; "argument_hint", `String "hint"
       ; "allowed_tools", `List [ `String "bash" ]
       ; "supporting_files", `List [ `String "f.sh" ]
@@ -412,7 +412,7 @@ let test_skill_of_json_all_optional_present () =
   | Ok skill ->
     Alcotest.(check (option string)) "desc" (Some "desc") skill.description;
     Alcotest.(check (option string)) "path" (Some "/p") skill.path;
-    Alcotest.(check (option string)) "model" (Some "gpt") skill.model;
+    Alcotest.(check (option string)) "model" (Some "model-d") skill.model;
     Alcotest.(check (option string)) "hint" (Some "hint") skill.argument_hint;
     Alcotest.(check (list string)) "tools" [ "bash" ] skill.allowed_tools;
     Alcotest.(check (list string)) "files" [ "f.sh" ] skill.supporting_files
@@ -454,7 +454,7 @@ let test_skill_to_json_full_fields () =
     ; scope = Some (Custom "team")
     ; allowed_tools = [ "bash"; "read" ]
     ; argument_hint = Some "<arg>"
-    ; model = Some "gpt-4"
+    ; model = Some "model-d-4"
     ; supporting_files = [ "h.sh" ]
     ; metadata = []
     }
@@ -465,7 +465,7 @@ let test_skill_to_json_full_fields () =
   Alcotest.(check string) "desc" "desc" (json |> member "description" |> to_string);
   Alcotest.(check string) "body" "body" (json |> member "body" |> to_string);
   Alcotest.(check string) "path" "/p" (json |> member "path" |> to_string);
-  Alcotest.(check string) "model" "gpt-4" (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "model-d-4" (json |> member "model" |> to_string);
   Alcotest.(check string) "hint" "<arg>" (json |> member "argument_hint" |> to_string);
   let tools = json |> member "allowed_tools" |> to_list in
   Alcotest.(check int) "2 tools" 2 (List.length tools);
