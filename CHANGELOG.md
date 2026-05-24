@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.16](https://github.com/jeong-sik/oas/compare/v0.196.15...v0.196.16) (2026-05-24)
+
+
+### Features
+
+* **runtime:** resume paused input agents ([#1724](https://github.com/jeong-sik/oas/issues/1724)) ([59a49d5](https://github.com/jeong-sik/oas/commit/59a49d5413a3ae9cb7ec708971f53e12dfe1cec0))
+
 ## [0.196.15](https://github.com/jeong-sik/oas/compare/v0.196.14...v0.196.15) (2026-05-24)
 
 
