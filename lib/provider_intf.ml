@@ -26,6 +26,11 @@ let retry_error_of_http_error = function
       { message = Http_client.provider_failure_to_string ~kind ~message }
 ;;
 
+let parse_provider_d_response_result body_str =
+  try Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str with
+  | Yojson.Json_error msg | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
+;;
+
 (** Synchronous provider: can send a message and get a response. *)
 module type PROVIDER = sig
   type t
@@ -106,20 +111,14 @@ let of_config (provider_cfg : Provider.config) : provider_module =
          | Provider.Provider_a_messages ->
            Ok (Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
          | Provider.Openai_chat_completions ->
-           (match
-              Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result
-                body_str
-            with
+           (match parse_provider_d_response_result body_str with
             | Ok resp -> Ok resp
             | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
          | Provider.Custom name ->
            (match Provider.find_provider name with
             | Some impl -> Ok (impl.parse_response body_str)
             | None ->
-              (match
-                 Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result
-                   body_str
-               with
+              (match parse_provider_d_response_result body_str with
                | Ok resp -> Ok resp
                | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
       | Ok (code, body_str) ->
