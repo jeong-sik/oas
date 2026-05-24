@@ -49,6 +49,17 @@ type judge_config =
 (** Default configuration: temperature 0.2, max_tokens 2048. *)
 val default_config : unit -> judge_config
 
+(** Apply judge-specific overrides to a provider config.
+
+    When [config.output_schema] is set, the returned provider config carries
+    both [response_format = JsonSchema schema] and [output_schema = Some schema]
+    so downstream provider adapters see one consistent structured-output
+    contract. *)
+val provider_config_for_judge
+  :  provider:Llm_provider.Provider_config.t
+  -> config:judge_config
+  -> Llm_provider.Provider_config.t
+
 (** Derive risk level from a 0.0-1.0 score.
     - [< 0.3] = Low
     - [< 0.6] = Medium
