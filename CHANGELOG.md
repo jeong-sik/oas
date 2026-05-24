@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.15](https://github.com/jeong-sik/oas/compare/v0.196.14...v0.196.15) (2026-05-24)
+
+
+### Features
+
+* **agent:** pause on async elicitation ([#1722](https://github.com/jeong-sik/oas/issues/1722)) ([b40e955](https://github.com/jeong-sik/oas/commit/b40e9557ad3f404c692159d3fd018da368f9c63e))
+
 ## [0.196.14](https://github.com/jeong-sik/oas/compare/v0.196.13...v0.196.14) (2026-05-24)
 
 
