@@ -7,7 +7,8 @@ open Llm_provider
 
 (* ── Mock server ─────────────────────────────────────── *)
 
-let provider_a_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_turn") text =
+let provider_a_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_turn") text
+  =
   Printf.sprintf
     {|{"id":"%s","type":"message","role":"assistant","model":"%s","content":[{"type":"text","text":"%s"}],"stop_reason":"%s","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}|}
     id
@@ -216,8 +217,8 @@ let test_complete_http_empty_error_body_has_context () =
         string
         "diagnostic body"
         (Printf.sprintf
-           "empty HTTP 404 response from provider=agent_llm_a model=test-model base_url=%s \
-            request_path=/v1/messages url=%s/v1/messages"
+           "empty HTTP 404 response from provider=agent_llm_a model=test-model \
+            base_url=%s request_path=/v1/messages url=%s/v1/messages"
            url
            url)
         body;
@@ -235,7 +236,9 @@ let test_complete_provider_d_ok () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_mock_server ~sw ~net:env#net (provider_d_response "provider_d reply") in
+    let url =
+      start_mock_server ~sw ~net:env#net (provider_d_response "provider_d reply")
+    in
     let config = make_provider_d_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->

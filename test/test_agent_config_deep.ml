@@ -321,7 +321,9 @@ let test_resolve_local_custom_url () =
 ;;
 
 let test_resolve_provider_a () =
-  let cfg = Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "provider_a" None in
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "provider_a" None
+  in
   match cfg.provider with
   | Provider.Provider_a ->
     Alcotest.(check string) "model_id" "agent_llm_a-sonnet" cfg.model_id;
@@ -340,7 +342,10 @@ let test_resolve_provider_d () =
 
 let test_resolve_provider_d_custom_url () =
   let cfg =
-    Agent_config.resolve_provider ~model_id:"gpt-4" "provider_d" (Some "http://custom:4000")
+    Agent_config.resolve_provider
+      ~model_id:"gpt-4"
+      "provider_d"
+      (Some "http://custom:4000")
   in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
@@ -371,12 +376,20 @@ let test_resolve_provider_i () =
      so that downstream can look up the registry-declared kind.
      entry.defaults (url, path, api_key_env) are carried via the
      registry, not embedded in the Provider.config variant. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"provider_h/provider_h_3-32b" "provider_i" None in
+  let cfg =
+    Agent_config.resolve_provider
+      ~model_id:"provider_h/provider_h_3-32b"
+      "provider_i"
+      None
+  in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "provider_i name" "provider_i" name;
     Alcotest.(check string) "provider_i api_key_env" "GROQ_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "provider_i model_id" "provider_h/provider_h_3-32b" cfg.model_id
+    Alcotest.(check string)
+      "provider_i model_id"
+      "provider_h/provider_h_3-32b"
+      cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for provider_i (registered)"
 ;;
 
@@ -409,7 +422,9 @@ let test_resolve_provider_f_preserves_kind () =
      preserves entry.defaults.kind. Previously resolve_provider
      returned OpenAICompat, flattening kind to Provider_d_compat and
      producing 404 against the Provider_f endpoint. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"provider_f-2.5-flash" "provider_f" None in
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"provider_f-2.5-flash" "provider_f" None
+  in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "provider_f name" "provider_f" name;
@@ -444,7 +459,9 @@ let test_resolve_provider_a_case_insensitive () =
      both land on the Provider_a branch, not the registry fallback. *)
   List.iter
     (fun input ->
-       let cfg = Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" input None in
+       let cfg =
+         Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" input None
+       in
        match cfg.provider with
        | Provider.Provider_a ->
          Alcotest.(check string)
@@ -460,7 +477,9 @@ let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
      to this fix it fell to the registry fallback (Provider_registry
      has no "agent_llm_a" entry) and ended up as OpenAICompat with
      api_key_env = "agent_llm_a" — broken. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "agent_llm_a" None in
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "agent_llm_a" None
+  in
   match cfg.provider with
   | Provider.Provider_a ->
     Alcotest.(check string)

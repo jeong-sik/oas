@@ -37,7 +37,10 @@ exception Provider_k_api_error of provider_k_error
 
 (** Classify a Provider_k error code + message into a semantic class.
     Code-based classification takes priority; message keywords are fallback. *)
-val classify_provider_k_error : code:string -> message:string -> provider_k_error_class * bool
+val classify_provider_k_error
+  :  code:string
+  -> message:string
+  -> provider_k_error_class * bool
 
 (** Map a Provider_k error class to the equivalent HTTP status code.
     Used by complete.ml to normalize provider-specific codes

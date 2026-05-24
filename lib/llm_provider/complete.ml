@@ -76,8 +76,8 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   let defaults = provider_sampling_defaults config.kind in
   let default_min_p =
     match config.kind with
-    | Provider_config.Provider_d_compat when not (provider_d_compat_should_default_min_p config)
-      -> None
+    | Provider_config.Provider_d_compat
+      when not (provider_d_compat_should_default_min_p config) -> None
     | Provider_a
     | Provider_c
     | Provider_d_compat
@@ -564,7 +564,8 @@ let complete_http
           Backend_provider_d.build_request ~config ~messages ~tools ()
         | Provider_config.Provider_f ->
           Backend_provider_f.build_request ~config ~messages ~tools ()
-        | Provider_config.Provider_k -> Backend_provider_k.build_request ~config ~messages ~tools ()
+        | Provider_config.Provider_k ->
+          Backend_provider_k.build_request ~config ~messages ~tools ()
         | Provider_config.Cli_tool_d
         | Provider_config.Cli_tool_b
         | Provider_config.Cli_tool_c
@@ -733,12 +734,15 @@ let complete_http
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
                 | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
-                  (match Backend_provider_d_parse.parse_provider_d_response_result body with
+                  (match
+                     Backend_provider_d_parse.parse_provider_d_response_result body
+                   with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
                 | Provider_config.Provider_f ->
                   Ok (Backend_provider_f.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Provider_k -> Ok (Backend_provider_k.parse_response body)
+                | Provider_config.Provider_k ->
+                  Ok (Backend_provider_k.parse_response body)
                 | Provider_config.Cli_tool_d
                 | Provider_config.Cli_tool_b
                 | Provider_config.Cli_tool_c
@@ -763,12 +767,15 @@ let complete_http
               | Backend_provider_f.Gemini_api_error msg ->
                 Diag.error "complete" "Provider_f API error: %s" msg;
                 Error
-                  (Http_client.HttpError { code = 400; body = "Provider_f API error: " ^ msg })
+                  (Http_client.HttpError
+                     { code = 400; body = "Provider_f API error: " ^ msg })
               | Backend_provider_k.Provider_k_api_error err ->
                 let semantic_code =
                   Backend_provider_k.http_code_of_provider_k_error_class err.error_class
                 in
-                let body = Printf.sprintf "Provider_k error %s: %s" err.code err.message in
+                let body =
+                  Printf.sprintf "Provider_k error %s: %s" err.code err.message
+                in
                 Diag.error
                   "complete"
                   "Provider_k API error (code=%s class=%d): %s"
@@ -1551,7 +1558,8 @@ let complete_stream_http
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
-                           | Provider_config.Provider_d_compat | Provider_config.Provider_h ->
+                           | Provider_config.Provider_d_compat
+                           | Provider_config.Provider_h ->
                              (match Streaming.parse_provider_d_sse_chunk data with
                               | Some chunk ->
                                 Streaming.provider_d_chunk_to_events (get_state ()) chunk

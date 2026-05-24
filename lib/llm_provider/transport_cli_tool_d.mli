@@ -12,7 +12,8 @@
 
 (** Configuration for the Agent_llm_a Code subprocess. *)
 type config =
-  { agent_llm_a_path : string (** Path to the [agent_llm_a] executable. Default ["agent_llm_a"]. *)
+  { agent_llm_a_path : string
+    (** Path to the [agent_llm_a] executable. Default ["agent_llm_a"]. *)
   ; model : string option (** [--model] override. [None] uses the user's default. *)
   ; max_turns : int option
     (** [--max-turns] limit. [None] uses the default (single turn). *)

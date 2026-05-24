@@ -36,7 +36,7 @@ let test_registered_protocols_sorted () =
   check
     (list string)
     "sorted"
-    [ "provider_a-cli"; "agent_code-cli"; "google-cli"; "provider_c-cli" ]
+    [ "agent_code-cli"; "google-cli"; "provider_a-cli"; "provider_c-cli" ]
     protocols
 ;;
 
@@ -184,7 +184,11 @@ let test_create_rejects_empty_command () =
   with_eio
   @@ fun ~sw ~mgr ->
   expect_failure_contains "empty command" "requires a non-empty command" (fun () ->
-    create ~protocol:"agent_code-cli" ~config:{ dispatch_config with command = "   " } ~sw ~mgr)
+    create
+      ~protocol:"agent_code-cli"
+      ~config:{ dispatch_config with command = "   " }
+      ~sw
+      ~mgr)
 ;;
 
 let test_create_dispatches_all_protocols () =

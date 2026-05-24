@@ -6,7 +6,9 @@ let malformed_provider_d_response = `Assoc [ "choices", `String "not-a-list" ]
 
 let test_provider_d_parse_error_is_typed () =
   match
-    H.validate_provider_d_response ~declared_tools:[ "read_file" ] malformed_provider_d_response
+    H.validate_provider_d_response
+      ~declared_tools:[ "read_file" ]
+      malformed_provider_d_response
   with
   | Ok _ -> fail "expected typed parse error"
   | Error err ->

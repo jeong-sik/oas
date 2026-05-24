@@ -297,7 +297,10 @@ let test_default_attempt_timeout_s () =
   check_timeout "cli_tool_d keeps CLI default" (Some 120.0) Cli_tool_d;
   check_timeout "cli_tool_c keeps CLI default" (Some 60.0) Cli_tool_c;
   check_timeout "cli_tool_b keeps CLI default" (Some 180.0) Cli_tool_b;
-  check_timeout "provider_d_compat has no default hard attempt timeout" None Provider_d_compat
+  check_timeout
+    "provider_d_compat has no default hard attempt timeout"
+    None
+    Provider_d_compat
 ;;
 
 (* ── provider_name_of_config ─────────────────────────── *)
@@ -310,7 +313,10 @@ let test_provider_name_of_config_glm_general () =
       ~base_url:Zai_catalog.general_base_url
       ()
   in
-  check_string "provider_k general" "provider_k" (Provider_registry.provider_name_of_config cfg)
+  check_string
+    "provider_k general"
+    "provider_k"
+    (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_glm_coding () =
@@ -321,7 +327,10 @@ let test_provider_name_of_config_glm_coding () =
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
-  check_string "provider_k coding" "provider_k-coding" (Provider_registry.provider_name_of_config cfg)
+  check_string
+    "provider_k coding"
+    "provider_k-coding"
+    (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_local_provider_d_compat () =
@@ -812,8 +821,14 @@ let () =
             test_default_attempt_timeout_s
         ] )
     ; ( "provider_name"
-      , [ Alcotest.test_case "provider_k general" `Quick test_provider_name_of_config_glm_general
-        ; Alcotest.test_case "provider_k coding" `Quick test_provider_name_of_config_glm_coding
+      , [ Alcotest.test_case
+            "provider_k general"
+            `Quick
+            test_provider_name_of_config_glm_general
+        ; Alcotest.test_case
+            "provider_k coding"
+            `Quick
+            test_provider_name_of_config_glm_coding
         ; Alcotest.test_case
             "local provider_d compat"
             `Quick

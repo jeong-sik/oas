@@ -215,21 +215,41 @@ let test_default_has_19 () =
     "ollama_cloud exists"
     true
     (Option.is_some (Provider_registry.find reg "ollama_cloud"));
-  check bool "agent_llm_a exists" true (Option.is_some (Provider_registry.find reg "agent_llm_a"));
-  check bool "provider_f exists" true (Option.is_some (Provider_registry.find reg "provider_f"));
-  check bool "provider_k exists" true (Option.is_some (Provider_registry.find reg "provider_k"));
+  check
+    bool
+    "agent_llm_a exists"
+    true
+    (Option.is_some (Provider_registry.find reg "agent_llm_a"));
+  check
+    bool
+    "provider_f exists"
+    true
+    (Option.is_some (Provider_registry.find reg "provider_f"));
+  check
+    bool
+    "provider_k exists"
+    true
+    (Option.is_some (Provider_registry.find reg "provider_k"));
   check
     bool
     "provider_k-coding exists"
     true
     (Option.is_some (Provider_registry.find reg "provider_k-coding"));
-  check bool "provider_c exists" true (Option.is_some (Provider_registry.find reg "provider_c"));
+  check
+    bool
+    "provider_c exists"
+    true
+    (Option.is_some (Provider_registry.find reg "provider_c"));
   check
     bool
     "openrouter exists"
     true
     (Option.is_some (Provider_registry.find reg "openrouter"));
-  check bool "provider_i exists" true (Option.is_some (Provider_registry.find reg "provider_i"));
+  check
+    bool
+    "provider_i exists"
+    true
+    (Option.is_some (Provider_registry.find reg "provider_i"));
   check
     bool
     "provider_g exists"
@@ -376,12 +396,24 @@ let test_default_zai_base_urls () =
    | None -> fail "provider_k should exist");
   (match Provider_registry.find reg "provider_k-coding" with
    | Some e ->
-     check string "provider_k-coding base_url" Zai_catalog.coding_base_url e.defaults.base_url;
-     check string "provider_k-coding api_key_env" "ZAI_CODING_API_KEY" e.defaults.api_key_env
+     check
+       string
+       "provider_k-coding base_url"
+       Zai_catalog.coding_base_url
+       e.defaults.base_url;
+     check
+       string
+       "provider_k-coding api_key_env"
+       "ZAI_CODING_API_KEY"
+       e.defaults.api_key_env
    | None -> fail "provider_k-coding should exist");
   match Provider_registry.find reg "provider_c" with
   | Some e ->
-    check string "provider_c base_url" "https://api.provider_c.com/coding" e.defaults.base_url;
+    check
+      string
+      "provider_c base_url"
+      "https://api.provider_c.com/coding"
+      e.defaults.base_url;
     check string "provider_c request_path" "/v1/messages" e.defaults.request_path
   | None -> fail "provider_c should exist"
 ;;

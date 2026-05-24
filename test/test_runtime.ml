@@ -1134,7 +1134,10 @@ let test_session_settings_persist_across_resume () =
     "protocol unchanged"
     Runtime.protocol_version
     info.protocol_version;
-  Alcotest.(check (option string)) "model persisted" (Some "provider_h-3.5-coder") session.model;
+  Alcotest.(check (option string))
+    "model persisted"
+    (Some "provider_h-3.5-coder")
+    session.model;
   Alcotest.(check (option string))
     "permission mode persisted"
     (Some "bypass_permissions")

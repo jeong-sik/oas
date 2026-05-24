@@ -56,7 +56,10 @@ let default_config =
    and [create]'s match all flow from this list. Adding a new CLI
    protocol means adding here AND wiring a [create] arm; the build
    surfaces the second because [unknown] catch-all is fatal. *)
-let supported_protocols = [ "provider_a-cli"; "agent_code-cli"; "google-cli"; "provider_c-cli" ]
+let supported_protocols =
+  [ "provider_a-cli"; "agent_code-cli"; "google-cli"; "provider_c-cli" ]
+;;
+
 let registered_protocols () = List.sort String.compare supported_protocols
 let is_known_protocol protocol = List.mem protocol supported_protocols
 

@@ -214,7 +214,11 @@ let test_basic_text () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21001 [ provider_d_text_response "hello coverage" ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21001
+        [ provider_d_text_response "hello coverage" ]
     in
     let agent = make_agent ~net:env#net url in
     match Agent.run ~sw agent "hi" with
@@ -698,7 +702,9 @@ let test_context_tool () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use "ctx_tool" {|{"key":"val"}|}; provider_d_text_response "ctx done" ]
+      [ provider_d_tool_use "ctx_tool" {|{"key":"val"}|}
+      ; provider_d_text_response "ctx done"
+      ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21020 responses in
     let tool =

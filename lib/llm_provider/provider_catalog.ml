@@ -144,8 +144,8 @@ let parse_transport = function
      | other ->
        Error
          (Printf.sprintf
-            "unknown transport %S (canonical: http, cli, managed, custom_provider_d_compat; \
-             dashed aliases also accepted)"
+            "unknown transport %S (canonical: http, cli, managed, \
+             custom_provider_d_compat; dashed aliases also accepted)"
             other))
 ;;
 

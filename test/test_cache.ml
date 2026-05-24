@@ -273,7 +273,10 @@ let () =
       , [ test_case "cache token accumulation" `Quick test_add_usage_cache_accumulation ]
       )
     ; ( "provider_d_cache"
-      , [ test_case "usage with cached_tokens" `Quick test_provider_d_usage_with_cached_tokens
+      , [ test_case
+            "usage with cached_tokens"
+            `Quick
+            test_provider_d_usage_with_cached_tokens
         ; test_case
             "usage without cached_tokens"
             `Quick

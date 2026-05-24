@@ -10,7 +10,8 @@
 
 (** Configuration for the Provider_c CLI subprocess. *)
 type config =
-  { provider_c_path : string (** Path to the [provider_c] executable. Default ["provider_c"]. *)
+  { provider_c_path : string
+    (** Path to the [provider_c] executable. Default ["provider_c"]. *)
   ; model : string option
     (** [--model] override. [None] uses the CLI-configured default.
         Default is [Some "provider_c-for-coding"] so the coding plan model is

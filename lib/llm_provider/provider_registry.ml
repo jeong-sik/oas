@@ -386,16 +386,30 @@ let default () =
     llama_defaults
     ~max_context:128_000
     Capabilities.provider_d_chat_extended_capabilities;
-  reg "agent_llm_a" agent_llm_a_defaults ~max_context:200_000 Capabilities.provider_a_capabilities;
-  reg "provider_f" provider_f_defaults ~max_context:1_000_000 Capabilities.provider_f_capabilities;
+  reg
+    "agent_llm_a"
+    agent_llm_a_defaults
+    ~max_context:200_000
+    Capabilities.provider_a_capabilities;
+  reg
+    "provider_f"
+    provider_f_defaults
+    ~max_context:1_000_000
+    Capabilities.provider_f_capabilities;
   reg "provider_k" glm_defaults ~max_context:200_000 Capabilities.provider_k_capabilities;
-  reg "provider_k-coding" glm_coding_defaults ~max_context:128_000 Capabilities.provider_k_capabilities;
+  reg
+    "provider_k-coding"
+    glm_coding_defaults
+    ~max_context:128_000
+    Capabilities.provider_k_capabilities;
   register
     t
     { name = "provider_c"
     ; defaults = provider_c_defaults
     ; max_context =
-        max_context_from_capabilities ~default:262_144 Capabilities.provider_c_capabilities
+        max_context_from_capabilities
+          ~default:262_144
+          Capabilities.provider_c_capabilities
     ; capabilities = Capabilities.provider_c_capabilities
     ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
     };
@@ -404,7 +418,11 @@ let default () =
     openrouter_defaults
     ~max_context:128_000
     Capabilities.provider_d_chat_extended_capabilities;
-  reg "provider_i" provider_i_defaults ~max_context:131_072 Capabilities.provider_d_chat_capabilities;
+  reg
+    "provider_i"
+    provider_i_defaults
+    ~max_context:131_072
+    Capabilities.provider_d_chat_capabilities;
   (* Provider_g v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
     "provider_g"
@@ -508,7 +526,9 @@ let default () =
     { name = "cli_tool_c"
     ; defaults = provider_c_cli_defaults
     ; max_context =
-        max_context_from_capabilities ~default:262_144 Capabilities.provider_c_cli_capabilities
+        max_context_from_capabilities
+          ~default:262_144
+          Capabilities.provider_c_cli_capabilities
     ; capabilities = Capabilities.provider_c_cli_capabilities
     ; is_available = provider_c_cli_available
     };
@@ -517,7 +537,9 @@ let default () =
     { name = "cli_tool_a"
     ; defaults = agent_code_cli_defaults
     ; max_context =
-        max_context_from_capabilities ~default:128_000 Capabilities.agent_code_cli_capabilities
+        max_context_from_capabilities
+          ~default:128_000
+          Capabilities.agent_code_cli_capabilities
     ; capabilities = Capabilities.agent_code_cli_capabilities
     ; is_available = agent_code_cli_available
     };
@@ -530,7 +552,10 @@ let provider_name_of_config (config : Provider_config.t) =
   | Provider_a -> "agent_llm_a"
   | Provider_c -> "provider_c"
   | Provider_f -> "provider_f"
-  | Provider_k -> if Zai_catalog.is_coding_base_url config.base_url then "provider_k-coding" else "provider_k"
+  | Provider_k ->
+    if Zai_catalog.is_coding_base_url config.base_url
+    then "provider_k-coding"
+    else "provider_k"
   | Cli_tool_d -> "cli_tool_d"
   | Cli_tool_b -> "cli_tool_b"
   | Cli_tool_c -> "cli_tool_c"

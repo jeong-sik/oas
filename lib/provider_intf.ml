@@ -81,7 +81,12 @@ let of_config (provider_cfg : Provider.config) : provider_module =
         | Provider.Provider_a_messages ->
           Yojson.Safe.to_string
             (`Assoc
-                (Api_provider_a.build_body_assoc ~config ~messages ?tools ~stream:false ()))
+                (Api_provider_a.build_body_assoc
+                   ~config
+                   ~messages
+                   ?tools
+                   ~stream:false
+                   ()))
         | Provider.Openai_chat_completions ->
           Api_provider_d.build_provider_d_body
             ~provider_config:provider_cfg
@@ -102,7 +107,8 @@ let of_config (provider_cfg : Provider.config) : provider_module =
            Ok (Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
          | Provider.Openai_chat_completions ->
            (match
-              Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str
+              Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result
+                body_str
             with
             | Ok resp -> Ok resp
             | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
@@ -111,7 +117,8 @@ let of_config (provider_cfg : Provider.config) : provider_module =
             | Some impl -> Ok (impl.parse_response body_str)
             | None ->
               (match
-                 Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str
+                 Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result
+                   body_str
                with
                | Ok resp -> Ok resp
                | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))

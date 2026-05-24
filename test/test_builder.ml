@@ -40,7 +40,9 @@ let test_create_sets_model () =
   with_net
   @@ fun net ->
   let agent =
-    Builder.create ~net ~model:"agent_llm_a-haiku-4-5" |> Builder.build_safe |> Result.get_ok
+    Builder.create ~net ~model:"agent_llm_a-haiku-4-5"
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   check_model "model" "agent_llm_a-haiku-4-5-20251001" (Agent.state agent).config.model
 ;;
@@ -962,7 +964,9 @@ let test_defaults_match_agent_create () =
   with_net
   @@ fun net ->
   let builder_agent =
-    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6" |> Builder.build_safe |> Result.get_ok
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let direct_agent = Agent.create ~net () in
   let bc = (Agent.state builder_agent).config in
@@ -1021,7 +1025,9 @@ let test_build_minimal_required_only () =
   with_net
   @@ fun net ->
   let agent =
-    Builder.create ~net ~model:"agent_llm_a-3-7-sonnet" |> Builder.build_safe |> Result.get_ok
+    Builder.create ~net ~model:"agent_llm_a-3-7-sonnet"
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   check_model "model" "agent_llm_a-3-7-sonnet-20250219" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;

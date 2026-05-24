@@ -84,7 +84,8 @@ let test_aggregating_on_circuit_state () =
     ~provider_key:"gpt-4@https://api.provider_d.com"
     ~state:M.Circuit_open;
   (match !observed with
-   | Some ("provider_d", "gpt-4", "gpt-4@https://api.provider_d.com", M.Circuit_open) -> ()
+   | Some ("provider_d", "gpt-4", "gpt-4@https://api.provider_d.com", M.Circuit_open) ->
+     ()
    | Some _ -> fail "unexpected circuit state callback"
    | None -> fail "missing circuit state callback");
   check int "state value" 1 (M.circuit_state_to_int M.Circuit_open);
@@ -127,7 +128,10 @@ let test_aggregating_unknown_latency_does_not_add_sample () =
 let test_aggregating_on_streaming_latency () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_streaming_first_chunk ~provider:"provider_a" ~model_id:"agent_llm_a" ~ttfrc_ms:12.5;
+  hooks.on_streaming_first_chunk
+    ~provider:"provider_a"
+    ~model_id:"agent_llm_a"
+    ~ttfrc_ms:12.5;
   hooks.on_streaming_chunk
     ~provider:"provider_a"
     ~model_id:"agent_llm_a"

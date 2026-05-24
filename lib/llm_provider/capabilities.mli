@@ -111,7 +111,8 @@ type provider_f_family =
   | Provider_f_3_1 (** [provider_f-3.1.*] *)
   | Provider_f_3 (** [provider_f-3.*] but not 3.1 *)
   | Provider_f_2_5 (** [provider_f-2.5.*] (legacy line) *)
-  | Provider_f_other of string (** Unknown provider_f id, or non-provider_f id (literal retained). *)
+  | Provider_f_other of string
+  (** Unknown provider_f id, or non-provider_f id (literal retained). *)
 
 (** Classify a model id into a [provider_f_family]. Order: [3.1] before [3] so the
     more specific prefix wins. Input is expected lowercased; callers that

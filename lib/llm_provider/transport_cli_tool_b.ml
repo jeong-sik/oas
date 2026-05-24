@@ -475,7 +475,10 @@ let warn_unsupported_once (config : config) warned =
   else (
     warned := true;
     let warn field =
-      Diag.warn "transport_provider_f_cli" "%s is not supported by cli_tool_b, ignoring" field
+      Diag.warn
+        "transport_provider_f_cli"
+        "%s is not supported by cli_tool_b, ignoring"
+        field
     in
     if Option.is_some config.mcp_config then warn "mcp_config";
     if config.allowed_tools <> [] then warn "allowed_tools";
@@ -650,8 +653,7 @@ let%test "build_args omits auto model override" =
   let args =
     build_args
       ~config:default_config
-      ~req_config:
-        (Provider_config.make ~kind:Cli_tool_d ~model_id:"auto" ~base_url:"" ())
+      ~req_config:(Provider_config.make ~kind:Cli_tool_d ~model_id:"auto" ~base_url:"" ())
       ~prompt:"hello"
       ~system_prompt:None
   in
@@ -786,8 +788,8 @@ let%test "provider_failure_of_stderr_line detects model capacity" =
   with
   | Some
       (Http_client.Capacity_exhausted
-         { scope = Http_client.Failure_scope_model; model = Some "provider_f-2.5-pro"; _ }) ->
-    true
+         { scope = Http_client.Failure_scope_model; model = Some "provider_f-2.5-pro"; _ })
+    -> true
   | _unexpected_failure -> false
 ;;
 
@@ -806,8 +808,9 @@ let%test "provider_failure_of_stderr_line extracts invalid policy tool" =
     provider_failure_of_stderr_line
       {|Rule #248: Unrecognized tool name "provider_k". Did you mean one of: "glob"?|}
   with
-  | Some (Http_client.Cli_policy_invalid { tool_name = Some "provider_k"; rule = Some 248 }) ->
-    true
+  | Some
+      (Http_client.Cli_policy_invalid { tool_name = Some "provider_k"; rule = Some 248 })
+    -> true
   | _unexpected_failure -> false
 ;;
 

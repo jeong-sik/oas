@@ -100,7 +100,9 @@ let%test "default_config api_key empty" = default_config.api_key = ""
 
 let%test "merge_config uses transport base_url when req empty" =
   let transport_cfg = { default_config with base_url = "http://myserver:9000" } in
-  let req_cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"" ~base_url:"" () in
+  let req_cfg =
+    Provider_config.make ~kind:Provider_d_compat ~model_id:"" ~base_url:"" ()
+  in
   let merged = merge_config ~transport_cfg req_cfg in
   merged.base_url = "http://myserver:9000"
 ;;
@@ -120,7 +122,9 @@ let%test "merge_config preserves req base_url when present" =
 
 let%test "merge_config uses transport model_id when req empty" =
   let transport_cfg = { default_config with model_id = "provider_h-3.5-35b" } in
-  let req_cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"" ~base_url:"" () in
+  let req_cfg =
+    Provider_config.make ~kind:Provider_d_compat ~model_id:"" ~base_url:"" ()
+  in
   let merged = merge_config ~transport_cfg req_cfg in
   merged.model_id = "provider_h-3.5-35b"
 ;;
@@ -136,14 +140,18 @@ let%test "merge_config preserves req model_id when present" =
 
 let%test "merge_config uses transport api_key when req empty" =
   let transport_cfg = { default_config with api_key = "sk-test123" } in
-  let req_cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  let req_cfg =
+    Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" ()
+  in
   let merged = merge_config ~transport_cfg req_cfg in
   merged.api_key = "sk-test123"
 ;;
 
 let%test "merge_config preserves req request_path (make fills default)" =
   let transport_cfg = { default_config with request_path = "/api/v2/chat" } in
-  let req_cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  let req_cfg =
+    Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" ()
+  in
   let merged = merge_config ~transport_cfg req_cfg in
   (* Provider_config.make fills request_path = "/v1/chat/completions" for Provider_d_compat *)
   merged.request_path = "/v1/chat/completions"
@@ -188,7 +196,9 @@ let%test "merge_config appends extra_headers to explicit req headers" =
 
 let%test "merge_config appends extra_headers to default req headers" =
   let transport_cfg = { default_config with extra_headers = [ "X-Custom", "value" ] } in
-  let req_cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  let req_cfg =
+    Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" ()
+  in
   let merged = merge_config ~transport_cfg req_cfg in
   (* Provider_config.make defaults headers to [("Content-Type", "application/json")] *)
   List.length merged.headers = 2
@@ -198,7 +208,9 @@ let%test "merge_config appends extra_headers to default req headers" =
 
 let%test "merge_config no extra_headers preserves req headers" =
   let transport_cfg = { default_config with extra_headers = [] } in
-  let req_cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  let req_cfg =
+    Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" ()
+  in
   let merged = merge_config ~transport_cfg req_cfg in
   merged.headers = [ "Content-Type", "application/json" ]
 ;;
@@ -206,7 +218,12 @@ let%test "merge_config no extra_headers preserves req headers" =
 let%test "merge_config uses transport max_tokens when req zero" =
   let transport_cfg = { default_config with max_tokens = 8192 } in
   let req_cfg =
-    Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" ~max_tokens:0 ()
+    Provider_config.make
+      ~kind:Provider_d_compat
+      ~model_id:"m"
+      ~base_url:""
+      ~max_tokens:0
+      ()
   in
   let merged = merge_config ~transport_cfg req_cfg in
   merged.max_tokens = Some 8192

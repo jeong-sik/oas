@@ -1296,7 +1296,11 @@ let test_agent_run_tiered_memory_triggers_proactive_compaction () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20011 [ provider_d_text_response "compacted" ]
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20011
+        [ provider_d_text_response "compacted" ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }

@@ -90,8 +90,8 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
      if not (List.mem (String.lowercase_ascii m) supported)
      then
        Eio.traceln
-         "[warn] [cli_tool_c] Unsupported model %s requested. Provider_c CLI officially supports \
-          %s"
+         "[warn] [cli_tool_c] Unsupported model %s requested. Provider_c CLI officially \
+          supports %s"
          m
          (String.concat ", " supported)
    | Some _, None | None, Some _ | None, None -> ());
@@ -101,7 +101,9 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
 let build_args ~(config : config) ~(req_config : Provider_config.t) ~prompt =
   let prompt = sanitize_for_provider_c prompt in
   let prompt_via_stdin = prompt_needs_stdin prompt in
-  let args = ref [ config.provider_c_path; "--print"; "--output-format"; "stream-json" ] in
+  let args =
+    ref [ config.provider_c_path; "--print"; "--output-format"; "stream-json" ]
+  in
   let add a = args := !args @ a in
   if not prompt_via_stdin then add [ "-p"; prompt ];
   (match cli_model_override ~config ~req_config with
@@ -485,7 +487,8 @@ let create ~sw ~(mgr : _ Eio.Process.mgr) ~(config : config) : Llm_transport.t =
           then (
             started := true;
             on_event
-              (Types.MessageStart { id = "provider_c-print"; model = model_id; usage = None }))
+              (Types.MessageStart
+                 { id = "provider_c-print"; model = model_id; usage = None }))
         in
         let on_line line =
           if String.trim line <> ""
@@ -546,7 +549,9 @@ let%test "default_config uses provider_c-for-coding" =
 ;;
 
 let%test "build_args basic" =
-  let args = build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:"hi" in
+  let args =
+    build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:"hi"
+  in
   args
   = [ "provider_c"
     ; "--print"
@@ -597,19 +602,25 @@ let%test "build_args uses request model over default" =
 
 let%test "build_args routes threshold prompt via stdin" =
   let big = String.make (1 * 1024 * 1024) 'x' in
-  let args = build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:big in
+  let args =
+    build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:big
+  in
   (not (List.mem big args)) && not (List.mem "-p" args)
 ;;
 
 let%test "build_args routes large prompt via stdin" =
   let big = String.make (70 * 1024) 'x' in
-  let args = build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:big in
+  let args =
+    build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:big
+  in
   (not (List.mem big args)) && not (List.mem "-p" args)
 ;;
 
 let%test "build_args sanitizes broken utf8 prompt before argv" =
   let bad = "prefix\x80suffix" in
-  let args = build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:bad in
+  let args =
+    build_args ~config:default_config ~req_config:(provider_c_req ()) ~prompt:bad
+  in
   (not (List.mem bad args)) && not (List.mem "-p" args)
 ;;
 

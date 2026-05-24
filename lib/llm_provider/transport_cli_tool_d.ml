@@ -53,9 +53,7 @@ let default_config =
 ;;
 
 let effective_max_turns config =
-  Option.map
-    (Provider_config.clamp_max_turns Provider_config.Cli_tool_d)
-    config.max_turns
+  Option.map (Provider_config.clamp_max_turns Provider_config.Cli_tool_d) config.max_turns
 ;;
 
 (* Prompt shaping, JSON helpers, and subprocess orchestration live in the
@@ -336,7 +334,10 @@ let parse_json_result ~prompt json_str =
         Error
           (Http_client.NetworkError
              { message =
-                 Printf.sprintf "Agent_llm_a Code error (%s): %s" unknown_error_subtype msg
+                 Printf.sprintf
+                   "Agent_llm_a Code error (%s): %s"
+                   unknown_error_subtype
+                   msg
              ; kind = Unknown
              }))
     else (
@@ -550,7 +551,10 @@ let parse_stream_result lines =
            Error
              (Http_client.NetworkError
                 { message =
-                    Printf.sprintf "Agent_llm_a Code error (%s): %s" unknown_error_subtype msg
+                    Printf.sprintf
+                      "Agent_llm_a Code error (%s): %s"
+                      unknown_error_subtype
+                      msg
                 ; kind = Unknown
                 }))
        else (
@@ -653,7 +657,8 @@ let subprocess_session_isolation_counter = Atomic.make 0
 let subprocess_session_isolation_env () =
   let n = Atomic.fetch_and_add subprocess_session_isolation_counter 1 in
   [ ( "CODEX_COMPANION_SESSION_ID"
-    , Printf.sprintf "oas-agent_llm_a-%d-%d-%f" (Unix.getpid ()) n (Unix.gettimeofday ()) )
+    , Printf.sprintf "oas-agent_llm_a-%d-%d-%f" (Unix.getpid ()) n (Unix.gettimeofday ())
+    )
   ]
 ;;
 
@@ -923,7 +928,11 @@ let%test "build_args with model" =
     build_args
       ~config:default_config
       ~req_config:
-        (Provider_config.make ~kind:Provider_a ~model_id:"agent_llm_a-sonnet-4" ~base_url:"" ())
+        (Provider_config.make
+           ~kind:Provider_a
+           ~model_id:"agent_llm_a-sonnet-4"
+           ~base_url:""
+           ())
       ~prompt:"hello"
       ~stream:true
       ~system_prompt:(Some "be helpful")
@@ -940,8 +949,7 @@ let%test "build_args omits auto model override" =
   let args =
     build_args
       ~config:default_config
-      ~req_config:
-        (Provider_config.make ~kind:Cli_tool_d ~model_id:"auto" ~base_url:"" ())
+      ~req_config:(Provider_config.make ~kind:Cli_tool_d ~model_id:"auto" ~base_url:"" ())
       ~prompt:"hello"
       ~stream:false
       ~system_prompt:None
@@ -955,8 +963,7 @@ let%test "build_args clamps agent_llm_a max_turns to provider hard cap" =
   let args =
     build_args
       ~config
-      ~req_config:
-        (Provider_config.make ~kind:Cli_tool_d ~model_id:"auto" ~base_url:"" ())
+      ~req_config:(Provider_config.make ~kind:Cli_tool_d ~model_id:"auto" ~base_url:"" ())
       ~prompt:"hello"
       ~stream:false
       ~system_prompt:None

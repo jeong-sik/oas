@@ -69,7 +69,10 @@ let test_provider_a_provider () =
   let env_var = "AGENT_SDK_TEST_PROVIDER_A_KEY_x9y8z7" in
   Unix.putenv env_var "sk-ant-test-key";
   let cfg : Provider.config =
-    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-20250514"; api_key_env = env_var }
+    { provider = Provider_a
+    ; model_id = "agent_llm_a-sonnet-4-20250514"
+    ; api_key_env = env_var
+    }
   in
   match Provider.resolve cfg with
   | Ok (base_url, api_key, _headers) ->
@@ -306,8 +309,8 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
     Alcotest.(check string) "field" "modality" field;
     Alcotest.(check string)
       "detail"
-      "Model 'provider_h-3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support modality \
-       'image'"
+      "Model 'provider_h-3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support \
+       modality 'image'"
       detail
   | Error e ->
     Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
@@ -500,7 +503,8 @@ let test_config_of_provider_config_provider_c_uses_custom_provider () =
   | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
     Alcotest.(check string) "provider name" "provider_c" name;
     Alcotest.(check string) "api_key_env" "PROVIDER_C_API_KEY" api_key_env
-  | _ -> Alcotest.fail "expected provider_c config to round-trip through Custom_registered"
+  | _ ->
+    Alcotest.fail "expected provider_c config to round-trip through Custom_registered"
 ;;
 
 let test_provider_d_compat_static_token () =
@@ -566,7 +570,10 @@ let test_provider_config_of_agent_provider_a () =
   let env_var = "AGENT_SDK_TEST_ADAPTER_KEY_anth" in
   Unix.putenv env_var "sk-ant-adapter-test";
   let cfg : Provider.config =
-    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-20250514"; api_key_env = env_var }
+    { provider = Provider_a
+    ; model_id = "agent_llm_a-sonnet-4-20250514"
+    ; api_key_env = env_var
+    }
   in
   let state = agent_state_with_params () in
   match

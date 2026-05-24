@@ -185,7 +185,11 @@ let test_provider_health_scores_list () =
       ~provider_keys:[ provider_a_key; provider_b_key ]
   in
   check int "score count" 2 (List.length scores);
-  check (float 0.001) "provider_a degraded" (2.0 /. 3.0) (List.assoc provider_a_key scores);
+  check
+    (float 0.001)
+    "provider_a degraded"
+    (2.0 /. 3.0)
+    (List.assoc provider_a_key scores);
   check (float 0.001) "provider_b optimistic" 1.0 (List.assoc provider_b_key scores)
 ;;
 

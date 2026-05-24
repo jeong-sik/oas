@@ -973,7 +973,8 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
 (* --- contains_case_insensitive (via Retry SSOT) --- *)
 
 let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"Provider_h_3.5-35B" ~needle:"provider_h" = true
+  Retry.contains_case_insensitive ~haystack:"Provider_h_3.5-35B" ~needle:"provider_h"
+  = true
 ;;
 
 let%test "contains_case_insensitive no match" =
@@ -1582,7 +1583,8 @@ let%test "first_discovered_model_id_for_url prevents cross-provider" =
          ; per_slot_ctx = None
          };
        (* ollama endpoint must NOT return the llama-server model *)
-       first_discovered_model_id_for_url "http://127.0.0.1:8085" = Some "provider_h-3.5-9b-local"
+       first_discovered_model_id_for_url "http://127.0.0.1:8085"
+       = Some "provider_h-3.5-9b-local"
        && first_discovered_model_id_for_url "http://127.0.0.1:11434"
           = Some "provider_h-3.5:9b-nvfp4")
 ;;

@@ -23,7 +23,12 @@ let provider : Provider.config =
 let base_url = "http://127.0.0.1:8085"
 let local_model = provider.model_id
 
-let provider_m_config ?(system_prompt = None) ?(max_tokens = Some 200) ?(max_turns = 5) name =
+let provider_m_config
+      ?(system_prompt = None)
+      ?(max_tokens = Some 200)
+      ?(max_turns = 5)
+      name
+  =
   { default_config with
     name
   ; model = local_model

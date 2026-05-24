@@ -191,8 +191,14 @@ let default_attempt_timeout_s = function
   | Cli_tool_d -> Some 120.0
   | Cli_tool_c -> Some 60.0
   | Cli_tool_b -> Some 180.0
-  | Provider_a | Provider_c | Provider_d_compat | Ollama | Provider_f | Provider_k | Provider_h | Cli_tool_a ->
-    None
+  | Provider_a
+  | Provider_c
+  | Provider_d_compat
+  | Ollama
+  | Provider_f
+  | Provider_k
+  | Provider_h
+  | Cli_tool_a -> None
 ;;
 
 (** Default reasoning effort level when thinking is enabled but no budget
@@ -323,8 +329,8 @@ let validate_output_schema_request (config : t) =
      | Provider_f | Provider_a | Ollama | Provider_h -> Ok ()
      | Provider_k ->
        Error
-         "Provider_k supports JSON mode (json_object) only; native json_schema output is not \
-          documented in the current Z.AI API"
+         "Provider_k supports JSON mode (json_object) only; native json_schema output is \
+          not documented in the current Z.AI API"
      | Provider_c ->
        Error "Provider_c direct API native json_schema output is not verified yet in OAS"
      | Provider_d_compat ->
@@ -344,7 +350,8 @@ let validate_output_schema_request (config : t) =
        else
          Error
            (Printf.sprintf
-              "native structured output is only wired for official Provider_d hosts, got %s"
+              "native structured output is only wired for official Provider_d hosts, got \
+               %s"
               config.base_url)
      | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a ->
        Error
@@ -377,7 +384,13 @@ let validate_cli_sampling_params (config : t) =
              CLI subprocess transport"
             (string_of_provider_kind config.kind)
             (String.concat ", " fields)))
-  | Provider_a | Provider_c | Provider_d_compat | Ollama | Provider_f | Provider_k | Provider_h -> Ok ()
+  | Provider_a
+  | Provider_c
+  | Provider_d_compat
+  | Ollama
+  | Provider_f
+  | Provider_k
+  | Provider_h -> Ok ()
 ;;
 
 let has_host_prefix ~url ~prefix =

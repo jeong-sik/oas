@@ -337,7 +337,9 @@ let test_roundtrip_mixed_block_count () =
 ;;
 
 let test_roundtrip_message_start_fields () =
-  let response = make_response ~id:"msg-xyz" ~model:"agent_llm_a-test" [ Types.Text "x" ] in
+  let response =
+    make_response ~id:"msg-xyz" ~model:"agent_llm_a-test" [ Types.Text "x" ]
+  in
   let events = collect_events response in
   match List.nth events 0 with
   | Types.MessageStart { id; model; _ } ->

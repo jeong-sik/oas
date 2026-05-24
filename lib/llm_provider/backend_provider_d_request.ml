@@ -37,7 +37,8 @@ let warn_capability_drop ~model_id ~field =
 let effective_tool_choice (config : Provider_config.t) =
   match config.tool_choice with
   | Some None_ -> None
-  | Some choice -> Some (Backend_provider_d_serialize.tool_choice_to_provider_d_json choice)
+  | Some choice ->
+    Some (Backend_provider_d_serialize.tool_choice_to_provider_d_json choice)
   | None -> None
 ;;
 
@@ -121,7 +122,8 @@ let build_request
   let provider_messages =
     let message_serializer =
       match config.kind with
-      | Provider_config.Provider_k -> Backend_provider_d_serialize.provider_k_messages_of_message
+      | Provider_config.Provider_k ->
+        Backend_provider_d_serialize.provider_k_messages_of_message
       | Provider_config.Provider_a
       | Provider_config.Provider_c
       | Provider_config.Provider_d_compat
@@ -131,7 +133,8 @@ let build_request
       | Provider_config.Cli_tool_d
       | Provider_config.Cli_tool_b
       | Provider_config.Cli_tool_c
-      | Provider_config.Cli_tool_a -> Backend_provider_d_serialize.provider_d_messages_of_message
+      | Provider_config.Cli_tool_a ->
+        Backend_provider_d_serialize.provider_d_messages_of_message
     in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -280,7 +283,8 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      ("tools", `List (List.map Backend_provider_d_serialize.build_provider_d_tool_json ts))
+      ( "tools"
+      , `List (List.map Backend_provider_d_serialize.build_provider_d_tool_json ts) )
       :: body
   in
   let body =

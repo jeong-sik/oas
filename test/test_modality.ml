@@ -84,7 +84,8 @@ let test_non_gemma_inherits_preserve () =
   | Some c ->
     (match c.modality_priority with
      | Modality.Preserve_input_order -> ()
-     | Modality.Visual_first -> Alcotest.fail "agent_llm_a should not opt into Visual_first")
+     | Modality.Visual_first ->
+       Alcotest.fail "agent_llm_a should not opt into Visual_first")
 ;;
 
 let () =

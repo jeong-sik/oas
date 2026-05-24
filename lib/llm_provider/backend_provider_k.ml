@@ -327,34 +327,42 @@ let%test "classify quota exceeded from message" =
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
-  classify_provider_k_error ~code:"1113" ~message:"whatever" = (Provider_k_quota_exceeded, false)
+  classify_provider_k_error ~code:"1113" ~message:"whatever"
+  = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
-  classify_provider_k_error ~code:"1001" ~message:"whatever" = (Provider_k_auth_error, false)
+  classify_provider_k_error ~code:"1001" ~message:"whatever"
+  = (Provider_k_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
-  classify_provider_k_error ~code:"1304" ~message:"whatever" = (Provider_k_quota_exceeded, false)
+  classify_provider_k_error ~code:"1304" ~message:"whatever"
+  = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
-  classify_provider_k_error ~code:"1308" ~message:"whatever" = (Provider_k_quota_exceeded, false)
+  classify_provider_k_error ~code:"1308" ~message:"whatever"
+  = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
-  classify_provider_k_error ~code:"1305" ~message:"whatever" = (Provider_k_rate_limited, true)
+  classify_provider_k_error ~code:"1305" ~message:"whatever"
+  = (Provider_k_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
-  classify_provider_k_error ~code:"1301" ~message:"whatever" = (Provider_k_invalid_request, false)
+  classify_provider_k_error ~code:"1301" ~message:"whatever"
+  = (Provider_k_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =
   http_code_of_provider_k_error_class Provider_k_quota_exceeded = 429
 ;;
 
-let%test "http_code auth maps to 401" = http_code_of_provider_k_error_class Provider_k_auth_error = 401
+let%test "http_code auth maps to 401" =
+  http_code_of_provider_k_error_class Provider_k_auth_error = 401
+;;
 
 let%test "extract_reasoning_content prepends thinking block" =
   let resp =
