@@ -37,14 +37,24 @@ type participant_run_success =
   ; completion_anomaly : Runtime.completion_anomaly option
   }
 
-type participant_run_result =
-  | Participant_completed of participant_run_success
-  | Participant_input_required of Runtime.input_request
-
 type participant_run_failure =
   { error : Error.sdk_error
   ; raw_trace_run_id : string option
   }
+
+type paused_participant =
+  { detail : Runtime.spawn_agent_request
+  ; resolution : execution_resolution
+  ; agent : Agent.t
+  ; input_required : Error.input_required
+  ; trace_sink : Raw_trace.t option
+  ; delta_warn_logged : bool ref
+  ; delta_error_count : int ref
+  }
+
+type participant_run_result =
+  | Participant_completed of participant_run_success
+  | Participant_input_required of Runtime.input_request * paused_participant
 
 let latest_raw_trace_run_id = function
   | Some sink ->
@@ -52,6 +62,26 @@ let latest_raw_trace_run_id = function
       (fun (run : Raw_trace.run_ref) -> run.worker_run_id)
       (Raw_trace.last_run sink)
   | None -> None
+;;
+
+let paused_inputs_mu = Eio.Mutex.create ()
+let paused_inputs : (string, paused_participant) Hashtbl.t = Hashtbl.create 16
+let paused_input_key session_id request_id = session_id ^ "\000" ^ request_id
+
+let store_paused_input session_id (paused : paused_participant) =
+  Eio.Mutex.use_rw ~protect:true paused_inputs_mu (fun () ->
+    Hashtbl.replace
+      paused_inputs
+      (paused_input_key session_id paused.input_required.request_id)
+      paused)
+;;
+
+let take_paused_input session_id request_id =
+  Eio.Mutex.use_rw ~protect:true paused_inputs_mu (fun () ->
+    let key = paused_input_key session_id request_id in
+    let paused = Hashtbl.find_opt paused_inputs key in
+    Hashtbl.remove paused_inputs key;
+    paused)
 ;;
 
 let make_event (session : session) kind =
@@ -246,6 +276,37 @@ let emit_output_delta store state session_id participant_name delta =
     Ok ()
 ;;
 
+let emit_delta_text_with_refs
+      store
+      state
+      session_id
+      participant_name
+      ~delta_warn_logged
+      ~delta_error_count
+      text
+  =
+  match emit_output_delta store state session_id participant_name text with
+  | Ok () -> ()
+  | Error e ->
+    incr delta_error_count;
+    if not !delta_warn_logged
+    then (
+      delta_warn_logged := true;
+      Log.warn
+        _wlog
+        "output delta emission failed"
+        [ Log.S ("session_id", session_id)
+        ; Log.S ("participant", participant_name)
+        ; Log.S ("error", Error.to_string e)
+        ])
+;;
+
+let completion_anomaly_of_delta_errors delta_error_count =
+  if !delta_error_count > 0
+  then Some (Runtime.Dropped_output_deltas { count = !delta_error_count })
+  else None
+;;
+
 let run_participant
       store
       state
@@ -256,20 +317,14 @@ let run_participant
   let delta_warn_logged = ref false in
   let delta_error_count = ref 0 in
   let emit_delta_text text =
-    match emit_output_delta store state session_id detail.participant_name text with
-    | Ok () -> ()
-    | Error e ->
-      incr delta_error_count;
-      if not !delta_warn_logged
-      then (
-        delta_warn_logged := true;
-        Log.warn
-          _wlog
-          "output delta emission failed"
-          [ Log.S ("session_id", session_id)
-          ; Log.S ("participant", detail.participant_name)
-          ; Log.S ("error", Error.to_string e)
-          ])
+    emit_delta_text_with_refs
+      store
+      state
+      session_id
+      detail.participant_name
+      ~delta_warn_logged
+      ~delta_error_count
+      text
   in
   let trace_sink =
     match
@@ -291,11 +346,7 @@ let run_participant
         ];
       None
   in
-  let completion_anomaly () =
-    if !delta_error_count > 0
-    then Some (Runtime.Dropped_output_deltas { count = !delta_error_count })
-    else None
-  in
+  let completion_anomaly () = completion_anomaly_of_delta_errors delta_error_count in
   match resolution.selected_provider with
   | "mock" | "echo" ->
     if not (Defaults.allow_test_providers ())
@@ -413,7 +464,15 @@ let run_participant
         | Error (Error.Agent (Error.InputRequired request)) ->
           Ok
             (Participant_input_required
-               (Agent_elicitation.runtime_input_request_of_input_required request))
+               ( Agent_elicitation.runtime_input_request_of_input_required request
+               , { detail
+                 ; resolution
+                 ; agent
+                 ; input_required = request
+                 ; trace_sink
+                 ; delta_warn_logged
+                 ; delta_error_count
+                 } ))
         | Error err ->
           Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }))
 ;;
@@ -473,6 +532,185 @@ let persist_participant_failure
       err
 ;;
 
+let persist_participant_completion
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~(resolution : execution_resolution)
+      (outcome : participant_run_success)
+  =
+  match
+    persist_event
+      store
+      state
+      session_id
+      (Agent_completed
+         { participant_name
+         ; summary = Some outcome.summary
+         ; provider = resolution.resolved_provider
+         ; model = resolution.resolved_model
+         ; error = None
+         ; raw_trace_run_id = outcome.raw_trace_run_id
+         ; stop_reason = outcome.stop_reason
+         ; completion_anomaly = outcome.completion_anomaly
+         ; failure_cause = None
+         })
+  with
+  | Ok _ -> ()
+  | Error err ->
+    let detail =
+      Printf.sprintf
+        "participant completed but completion event could not be persisted: %s"
+        (Error.to_string err)
+    in
+    log_participant_persist_failure
+      ~session_id
+      ~participant_name
+      ~phase:"agent_completed"
+      err;
+    persist_participant_failure
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~provider:resolution.resolved_provider
+      ~model:resolution.resolved_model
+      ~detail
+      ?raw_trace_run_id:outcome.raw_trace_run_id
+      ~failure_cause:(Persistence_failure { phase = "agent_completed"; detail })
+      ()
+;;
+
+let persist_participant_input_required
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~(resolution : execution_resolution)
+      request
+      paused
+  =
+  store_paused_input session_id paused;
+  match persist_event store state session_id (Input_required request) with
+  | Ok _ -> ()
+  | Error err ->
+    ignore (take_paused_input session_id request.request_id);
+    let detail =
+      Printf.sprintf
+        "participant requested input but input_required event could not be persisted: %s"
+        (Error.to_string err)
+    in
+    log_participant_persist_failure
+      ~session_id
+      ~participant_name
+      ~phase:"input_required"
+      err;
+    persist_participant_failure
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~provider:resolution.resolved_provider
+      ~model:resolution.resolved_model
+      ~detail
+      ~failure_cause:(Persistence_failure { phase = "input_required"; detail })
+      ()
+;;
+
+let run_paused_participant_to_completion store state session_id paused runtime_response =
+  let participant_name = paused.detail.participant_name in
+  Eio.Switch.run
+  @@ fun sw ->
+  Agent.provide_input
+    paused.agent
+    paused.input_required
+    (Agent_elicitation.runtime_response_to_hooks runtime_response);
+  let emit_delta_text text =
+    emit_delta_text_with_refs
+      store
+      state
+      session_id
+      participant_name
+      ~delta_warn_logged:paused.delta_warn_logged
+      ~delta_error_count:paused.delta_error_count
+      text
+  in
+  let on_event = function
+    | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } -> emit_delta_text text
+    | _other_event -> ()
+  in
+  let rec loop () =
+    let agent_state = Agent.state paused.agent in
+    if agent_state.turn_count >= agent_state.config.max_turns
+    then
+      Error
+        { error =
+            Error.Agent
+              (Error.MaxTurnsExceeded
+                 { turns = agent_state.turn_count; limit = agent_state.config.max_turns })
+        ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+        }
+    else (
+      match Agent.run_turn_stream ~sw ~on_event paused.agent with
+      | Ok (`Complete response) ->
+        Ok
+          (Participant_completed
+             { summary = extract_text response
+             ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+             ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+             ; completion_anomaly =
+                 completion_anomaly_of_delta_errors paused.delta_error_count
+             })
+      | Ok `ToolsExecuted -> loop ()
+      | Error (Error.Agent (Error.InputRequired request)) ->
+        Ok
+          (Participant_input_required
+             ( Agent_elicitation.runtime_input_request_of_input_required request
+             , { paused with input_required = request } ))
+      | Error err ->
+        Error
+          { error = err; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink })
+  in
+  loop ()
+;;
+
+let resume_paused_participant store state session_id paused runtime_response =
+  let participant_name = paused.detail.participant_name in
+  match
+    run_paused_participant_to_completion store state session_id paused runtime_response
+  with
+  | Ok (Participant_completed outcome) ->
+    persist_participant_completion
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~resolution:paused.resolution
+      outcome
+  | Ok (Participant_input_required (request, paused)) ->
+    persist_participant_input_required
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~resolution:paused.resolution
+      request
+      paused
+  | Error failure ->
+    persist_participant_failure
+      store
+      state
+      ~session_id
+      ~participant_name
+      ~provider:paused.resolution.resolved_provider
+      ~model:paused.resolution.resolved_model
+      ~detail:(Error.to_string failure.error)
+      ?raw_trace_run_id:failure.raw_trace_run_id
+      ~failure_cause:(Execution_error (Error.to_string failure.error))
+      ()
+;;
+
 let start_session state (request : start_request) =
   let* store = store_of_state state in
   let session = Runtime_projection.initial_session request in
@@ -492,6 +730,9 @@ let start_session state (request : start_request) =
 
 let finalize_session state store (session : session) reason =
   let session_id = session.session_id in
+  (match session.pending_input with
+   | Some pending -> ignore (take_paused_input session_id pending.request_id)
+   | None -> ());
   let* session, _ =
     match session.phase with
     | Finalizing -> Ok (session, make_event session (Finalize_requested { reason }))
@@ -533,35 +774,45 @@ let apply_command ~sw state store (session : session) command =
       let* session, _ = persist_event store state session_id (Input_required detail) in
       Ok (Command_applied session)
   | Provide_input detail ->
-    with_store_lock state (fun () ->
-      let* session = Runtime_store.load_session store session_id in
-      match session.pending_input with
-      | None ->
-        Error
-          (Error.Internal
-             (Printf.sprintf
-                "cannot provide input %s: no pending input request"
-                detail.request_id))
-      | Some pending when not (String.equal pending.request_id detail.request_id) ->
-        Error
-          (Error.Internal
-             (Printf.sprintf
-                "cannot provide input %s: pending request is %s"
-                detail.request_id
-                pending.request_id))
-      | Some pending ->
-        let* session, _ =
-          persist_event_locked
-            store
-            state
-            session
-            (Input_provided
-               { request_id = detail.request_id
-               ; participant_name = pending.participant_name
-               ; response = detail.response
-               })
-        in
-        Ok (Command_applied session))
+    let paused_to_resume = ref None in
+    let applied =
+      with_store_lock state (fun () ->
+        let* session = Runtime_store.load_session store session_id in
+        match session.pending_input with
+        | None ->
+          Error
+            (Error.Internal
+               (Printf.sprintf
+                  "cannot provide input %s: no pending input request"
+                  detail.request_id))
+        | Some pending when not (String.equal pending.request_id detail.request_id) ->
+          Error
+            (Error.Internal
+               (Printf.sprintf
+                  "cannot provide input %s: pending request is %s"
+                  detail.request_id
+                  pending.request_id))
+        | Some pending ->
+          let* session, _ =
+            persist_event_locked
+              store
+              state
+              session
+              (Input_provided
+                 { request_id = detail.request_id
+                 ; participant_name = pending.participant_name
+                 ; response = detail.response
+                 })
+          in
+          paused_to_resume := take_paused_input session_id detail.request_id;
+          Ok (Command_applied session))
+    in
+    (match applied, !paused_to_resume with
+     | Ok _, Some paused ->
+       Eio.Fiber.fork ~sw (fun () ->
+         resume_paused_participant store state session_id paused detail.response)
+     | _ -> ());
+    applied
   | Update_session_settings detail ->
     let* session, _ =
       persist_event store state session_id (Session_settings_updated detail)
@@ -701,76 +952,22 @@ let apply_command ~sw state store (session : session) command =
              | Ok _ ->
                (match run_participant store state session_id resolution detail with
                 | Ok (Participant_completed outcome) ->
-                  (match
-                     persist_event
-                       store
-                       state
-                       session_id
-                       (Agent_completed
-                          { participant_name
-                          ; summary = Some outcome.summary
-                          ; provider = resolution.resolved_provider
-                          ; model = resolution.resolved_model
-                          ; error = None
-                          ; raw_trace_run_id = outcome.raw_trace_run_id
-                          ; stop_reason = outcome.stop_reason
-                          ; completion_anomaly = outcome.completion_anomaly
-                          ; failure_cause = None
-                          })
-                   with
-                   | Ok _ -> ()
-                   | Error err ->
-                     let detail =
-                       Printf.sprintf
-                         "participant completed but completion event could not be \
-                          persisted: %s"
-                         (Error.to_string err)
-                     in
-                     log_participant_persist_failure
-                       ~session_id
-                       ~participant_name
-                       ~phase:"agent_completed"
-                       err;
-                     persist_participant_failure
-                       store
-                       state
-                       ~session_id
-                       ~participant_name
-                       ~provider:resolution.resolved_provider
-                       ~model:resolution.resolved_model
-                       ~detail
-                       ?raw_trace_run_id:outcome.raw_trace_run_id
-                       ~failure_cause:
-                         (Persistence_failure { phase = "agent_completed"; detail })
-                       ())
-                | Ok (Participant_input_required request) ->
-                  (match
-                     persist_event store state session_id (Input_required request)
-                   with
-                   | Ok _ -> ()
-                   | Error err ->
-                     let detail =
-                       Printf.sprintf
-                         "participant requested input but input_required event could not \
-                          be persisted: %s"
-                         (Error.to_string err)
-                     in
-                     log_participant_persist_failure
-                       ~session_id
-                       ~participant_name
-                       ~phase:"input_required"
-                       err;
-                     persist_participant_failure
-                       store
-                       state
-                       ~session_id
-                       ~participant_name
-                       ~provider:resolution.resolved_provider
-                       ~model:resolution.resolved_model
-                       ~detail
-                       ~failure_cause:
-                         (Persistence_failure { phase = "input_required"; detail })
-                       ())
+                  persist_participant_completion
+                    store
+                    state
+                    ~session_id
+                    ~participant_name
+                    ~resolution
+                    outcome
+                | Ok (Participant_input_required (request, paused)) ->
+                  persist_participant_input_required
+                    store
+                    state
+                    ~session_id
+                    ~participant_name
+                    ~resolution
+                    request
+                    paused
                 | Error failure ->
                   persist_participant_failure
                     store
