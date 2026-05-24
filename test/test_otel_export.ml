@@ -27,6 +27,68 @@ let make_instance ?(service_name = "test-service") () =
   Otel_tracer.create_instance ~config:{ Otel_tracer.service_name; endpoint = None } ()
 ;;
 
+let record_span ?(name = "exported_span") ?(turn = 1) instance =
+  let attrs : Tracing.span_attrs =
+    { name
+    ; agent_name = "otel-export-test"
+    ; turn
+    ; kind = Tracing.Agent_run
+    ; extra = [ "test.case", name ]
+    }
+  in
+  let span = Otel_tracer.inst_start_span instance attrs in
+  Otel_tracer.inst_end_span instance span ~ok:true
+;;
+
+let with_mock_collector ~port handler f =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let socket =
+      Eio.Net.listen
+        env#net
+        ~sw
+        ~backlog:128
+        ~reuse_addr:true
+        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+    in
+    let server = Cohttp_eio.Server.make ~callback:handler () in
+    Eio.Fiber.fork ~sw (fun () ->
+      Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+    let endpoint = Printf.sprintf "http://127.0.0.1:%d/v1/traces" port in
+    f ~sw ~clock:env#clock ~net:env#net ~endpoint;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let read_request_body body =
+  Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all)
+;;
+
+let body_has_service_name expected body =
+  let open Yojson.Safe.Util in
+  let attrs =
+    body
+    |> Yojson.Safe.from_string
+    |> member "resourceSpans"
+    |> to_list
+    |> List.hd
+    |> member "resource"
+    |> member "attributes"
+    |> to_list
+  in
+  List.exists
+    (fun attr ->
+       String.equal (attr |> member "key" |> to_string) "service.name"
+       && String.equal
+            (attr |> member "value" |> member "stringValue" |> to_string)
+            expected)
+    attrs
+;;
+
 (* ── Config tests ────────────────────────────────────────────── *)
 
 let test_default_config () =
@@ -159,6 +221,124 @@ let test_flush_empty_instance () =
   | _ -> Alcotest.fail "expected Exported for empty flush"
 ;;
 
+let test_flush_to_collector_exports_batches () =
+  let request_count = ref 0 in
+  let request_paths = ref [] in
+  let bodies = ref [] in
+  let handler _conn req body =
+    incr request_count;
+    request_paths := Uri.path (Cohttp.Request.uri req) :: !request_paths;
+    bodies := read_request_body body :: !bodies;
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"{}" ()
+  in
+  with_mock_collector ~port:18352 handler (fun ~sw ~clock ~net ~endpoint ->
+    let instance = make_instance ~service_name:"otel-export-success" () in
+    record_span ~name:"span-a" ~turn:1 instance;
+    record_span ~name:"span-b" ~turn:2 instance;
+    record_span ~name:"span-c" ~turn:3 instance;
+    let config =
+      { (default_export_config ~endpoint) with
+        max_batch_size = 2
+      ; max_retries = 0
+      ; timeout_sec = 2.0
+      }
+    in
+    match flush_to_collector ~sw ~clock ~net ~config instance with
+    | Exported { span_count } ->
+      Alcotest.(check int) "exported spans" 3 span_count;
+      Alcotest.(check int) "two batches posted" 2 !request_count;
+      Alcotest.(check int) "spans drained" 0 (Otel_tracer.inst_completed_count instance);
+      Alcotest.(check (list string))
+        "paths"
+        [ "/v1/traces"; "/v1/traces" ]
+        (List.rev !request_paths);
+      Alcotest.(check bool)
+        "body carries service"
+        true
+        (List.exists (body_has_service_name "otel-export-success") !bodies)
+    | Partial_failure _ -> Alcotest.fail "expected full export, got partial failure"
+    | Failed { reason } -> Alcotest.failf "expected full export, got failure: %s" reason)
+;;
+
+let test_flush_to_collector_reports_partial_failure () =
+  let request_count = ref 0 in
+  let handler _conn _req body =
+    ignore (read_request_body body : string);
+    incr request_count;
+    if !request_count = 1
+    then Cohttp_eio.Server.respond_string ~status:`OK ~body:"{}" ()
+    else Cohttp_eio.Server.respond_string ~status:`Internal_server_error ~body:"boom" ()
+  in
+  with_mock_collector ~port:18353 handler (fun ~sw ~clock ~net ~endpoint ->
+    let instance = make_instance ~service_name:"otel-export-partial" () in
+    record_span ~name:"span-a" ~turn:1 instance;
+    record_span ~name:"span-b" ~turn:2 instance;
+    record_span ~name:"span-c" ~turn:3 instance;
+    let config =
+      { (default_export_config ~endpoint) with
+        max_batch_size = 2
+      ; max_retries = 0
+      ; timeout_sec = 2.0
+      }
+    in
+    match flush_to_collector ~sw ~clock ~net ~config instance with
+    | Partial_failure { exported; dropped; reason } ->
+      Alcotest.(check int) "exported first batch" 2 exported;
+      Alcotest.(check int) "dropped failed batch" 1 dropped;
+      Alcotest.(check string) "reason" "HTTP 500" reason
+    | Exported _ -> Alcotest.fail "expected partial failure"
+    | Failed { reason } -> Alcotest.failf "expected partial failure, got %s" reason)
+;;
+
+let test_flush_to_collector_reports_total_failure () =
+  let handler _conn _req body =
+    ignore (read_request_body body : string);
+    Cohttp_eio.Server.respond_string ~status:`Service_unavailable ~body:"nope" ()
+  in
+  with_mock_collector ~port:18354 handler (fun ~sw ~clock ~net ~endpoint ->
+    let instance = make_instance ~service_name:"otel-export-fail" () in
+    record_span ~name:"span-a" ~turn:1 instance;
+    record_span ~name:"span-b" ~turn:2 instance;
+    let config =
+      { (default_export_config ~endpoint) with
+        max_batch_size = 10
+      ; max_retries = 0
+      ; timeout_sec = 2.0
+      }
+    in
+    match flush_to_collector ~sw ~clock ~net ~config instance with
+    | Failed { reason } -> Alcotest.(check string) "reason" "HTTP 503" reason
+    | Exported _ -> Alcotest.fail "expected total failure"
+    | Partial_failure _ -> Alcotest.fail "expected total failure, got partial")
+;;
+
+let test_force_flush_updates_total_exported () =
+  let handler _conn _req body =
+    ignore (read_request_body body : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"{}" ()
+  in
+  with_mock_collector ~port:18355 handler (fun ~sw ~clock ~net ~endpoint ->
+    let instance = make_instance ~service_name:"otel-export-force" () in
+    record_span ~name:"span-a" ~turn:1 instance;
+    record_span ~name:"span-b" ~turn:2 instance;
+    let config =
+      { (default_export_config ~endpoint) with
+        flush_interval_sec = 60.0
+      ; max_batch_size = 10
+      ; max_retries = 0
+      ; timeout_sec = 2.0
+      }
+    in
+    let exporter = start_daemon ~sw ~clock ~net ~config instance in
+    Alcotest.(check int) "initial total" 0 (total_exported exporter);
+    match force_flush ~sw ~clock ~net exporter with
+    | Exported { span_count } ->
+      Alcotest.(check int) "force span count" 2 span_count;
+      Alcotest.(check int) "total exported" 2 (total_exported exporter)
+    | Partial_failure _ -> Alcotest.fail "expected force flush success"
+    | Failed { reason } -> Alcotest.failf "expected force flush success: %s" reason)
+;;
+
 (* ── Export result type tests ────────────────────────────────── *)
 
 let test_export_result_variants () =
@@ -249,7 +429,25 @@ let () =
         ; Alcotest.test_case "exact_split" `Quick test_split_batches_exact
         ; Alcotest.test_case "empty" `Quick test_split_batches_empty
         ] )
-    ; "flush", [ Alcotest.test_case "empty_instance" `Quick test_flush_empty_instance ]
+    ; ( "flush"
+      , [ Alcotest.test_case "empty_instance" `Quick test_flush_empty_instance
+        ; Alcotest.test_case
+            "exports batches"
+            `Quick
+            test_flush_to_collector_exports_batches
+        ; Alcotest.test_case
+            "partial failure"
+            `Quick
+            test_flush_to_collector_reports_partial_failure
+        ; Alcotest.test_case
+            "total failure"
+            `Quick
+            test_flush_to_collector_reports_total_failure
+        ; Alcotest.test_case
+            "force flush total"
+            `Quick
+            test_force_flush_updates_total_exported
+        ] )
     ; "result_types", [ Alcotest.test_case "variants" `Quick test_export_result_variants ]
     ; ( "instance"
       , [ Alcotest.test_case "flush_clears" `Quick test_instance_flush_clears_spans
