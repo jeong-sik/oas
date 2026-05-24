@@ -33,6 +33,12 @@ jobs:
           OAS_DRAFT_GUARD_BYPASS_LABELS: ${{ vars.OAS_DRAFT_GUARD_BYPASS_LABELS }}
           OAS_DRAFT_GUARD_HARD_STOP_LABELS: ${{ vars.OAS_DRAFT_GUARD_HARD_STOP_LABELS }}
         with:
+          # `GITHUB_TOKEN` can read/write pull requests but may still be
+          # forbidden from GraphQL draft-conversion mutations in some
+          # integration contexts.  Repos that want self-repair can provide a
+          # fine-scoped token; otherwise the script falls back to the default
+          # token and records any mutation denial as an explicit guard failure.
+          github-token: ${{ secrets.OAS_DRAFT_GUARD_TOKEN || github.token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
@@ -102,32 +108,57 @@ jobs:
             const hardStops = labels.filter((label) => hardStopLabels.includes(label));
             const hasHardStop = hardStops.length > 0;
             const actions = [];
+            const repairFailures = [];
             let violation = false;
 
+            const summarizeGraphqlError = (error) => {
+              if (Array.isArray(error?.errors) && error.errors.length > 0) {
+                return error.errors.map((entry) => entry.message || String(entry)).join("; ");
+              }
+              return error?.message || String(error);
+            };
+
+            const runRepairMutation = async ({ action, failureAction, mutation, variables }) => {
+              try {
+                await github.graphql(mutation, variables);
+                actions.push(action);
+                return true;
+              } catch (error) {
+                const summary = summarizeGraphqlError(error);
+                const failure = `${failureAction}: ${summary}`;
+                core.warning(failure);
+                actions.push(failureAction);
+                repairFailures.push(failure);
+                return false;
+              }
+            };
+
             if (live.autoMergeRequest && (hasHardStop || !hasBypass)) {
-              await github.graphql(
-                `mutation($pullRequestId: ID!) {
+              violation = true;
+              await runRepairMutation({
+                action: "disabled auto-merge",
+                failureAction: "failed to disable auto-merge",
+                mutation: `mutation($pullRequestId: ID!) {
                   disablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId }) {
                     pullRequest { number }
                   }
                 }`,
-                { pullRequestId: live.id }
-              );
-              actions.push("disabled auto-merge");
-              violation = true;
+                variables: { pullRequestId: live.id }
+              });
             }
 
             if (!live.isDraft && (hasHardStop || !hasBypass)) {
-              await github.graphql(
-                `mutation($pullRequestId: ID!) {
+              violation = true;
+              await runRepairMutation({
+                action: "converted PR back to draft",
+                failureAction: "failed to convert PR back to draft",
+                mutation: `mutation($pullRequestId: ID!) {
                   convertPullRequestToDraft(input: { pullRequestId: $pullRequestId }) {
                     pullRequest { number }
                   }
                 }`,
-                { pullRequestId: live.id }
-              );
-              actions.push("converted PR back to draft");
-              violation = true;
+                variables: { pullRequestId: live.id }
+              });
             }
 
             if (actions.length === 0) {
@@ -145,6 +176,7 @@ jobs:
               "Draft PR guard repaired unsafe merge state.",
               "",
               `Actions: ${actions.join(", ")}.`,
+              repairFailures.length > 0 ? `Repair failures: ${repairFailures.join("; ")}.` : "",
               `Bypass labels: ${bypassLabels.join(", ") || "<none>"}.`,
               hasHardStop ? `Hard-stop labels present: ${hardStops.join(", ")}.` : "",
               "",
@@ -177,5 +209,9 @@ jobs:
             }
 
             if (violation) {
-              core.setFailed("Draft/auto-merge guard repaired unsafe PR state.");
+              core.setFailed(
+                repairFailures.length > 0
+                  ? "Draft/auto-merge guard could not fully repair unsafe PR state."
+                  : "Draft/auto-merge guard repaired unsafe PR state."
+              );
             }
