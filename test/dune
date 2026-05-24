@@ -83,6 +83,7 @@
   test_defaults_unit
   test_disclosure_resolver
   test_discovery
+  test_discovery_http
   test_durable
   test_durable_event
   test_e2e_v024
@@ -170,9 +171,11 @@
   test_reflexion
   test_relay_delivery
   test_request_priority
+  test_response_harness
   test_retry
   test_runtime
   test_runtime_evidence
+  test_runtime_health
   test_runtime_replay
   test_runtime_projection_cov2
   test_runtime_server_resolve
@@ -192,6 +195,7 @@
   test_skill_coverage2
   test_skill_discovery
   test_skill_registry
+  test_slot_cache_http
   test_slot_scheduler_event_bridge
   test_sse_parser
   test_stream_accumulator
@@ -301,6 +305,7 @@
   test_defaults_unit
   test_disclosure_resolver
   test_discovery
+  test_discovery_http
   test_durable
   test_durable_event
   test_e2e_v024
@@ -388,9 +393,11 @@
   test_reflexion
   test_relay_delivery
   test_request_priority
+  test_response_harness
   test_retry
   test_runtime
   test_runtime_evidence
+  test_runtime_health
   test_runtime_replay
   test_runtime_projection_cov2
   test_runtime_server_resolve
@@ -410,6 +417,7 @@
   test_skill_coverage2
   test_skill_discovery
   test_skill_registry
+  test_slot_cache_http
   test_slot_scheduler_event_bridge
   test_sse_parser
   test_stream_accumulator

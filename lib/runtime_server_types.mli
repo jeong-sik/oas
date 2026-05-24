@@ -18,5 +18,6 @@ val store_of_state : state -> (Runtime_store.t, Error.sdk_error) result
 val session_root_request_path : string option -> string option
 val write_protocol_message : state -> Runtime.protocol_message -> unit
 val next_control_id : state -> string
+val custom_name_of_kind : Runtime.event_kind -> string
 val event_bus_run_id_of_event : Runtime.event -> string option
 val emit_event : state -> string -> Runtime.event -> unit

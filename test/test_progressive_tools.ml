@@ -97,6 +97,133 @@ let test_gav_boundary_turns () =
   check_int "turn 6: all" 3 (List.length t6)
 ;;
 
+(* ── Retrieval_based ─────────────────────────────────── *)
+
+let retrieval_index () =
+  Tool_index.build
+    [ { name = "read_file"
+      ; description = "Read project files from disk"
+      ; group = Some "fs"
+      ; aliases = [ "open"; "inspect" ]
+      }
+    ; { name = "write_file"
+      ; description = "Write project files to disk"
+      ; group = Some "fs"
+      ; aliases = [ "save" ]
+      }
+    ; { name = "search_code"
+      ; description = "Search source code by text"
+      ; group = None
+      ; aliases = [ "grep"; "ripgrep" ]
+      }
+    ]
+;;
+
+let test_retrieval_without_context_uses_fallback () =
+  let strategy =
+    Progressive_tools.Retrieval_based
+      { index = retrieval_index ()
+      ; confidence_threshold = 0.01
+      ; fallback_tools = [ "read_file"; "search_code" ]
+      ; always_include = [ "help" ]
+      }
+  in
+  Alcotest.(check (list string))
+    "always + fallback"
+    [ "help"; "read_file"; "search_code" ]
+    (Progressive_tools.tools_for_turn strategy 1 ())
+;;
+
+let test_retrieval_confident_dedupes_always_and_group_tools () =
+  let strategy =
+    Progressive_tools.Retrieval_based
+      { index = retrieval_index ()
+      ; confidence_threshold = 0.01
+      ; fallback_tools = [ "fallback" ]
+      ; always_include = [ "read_file"; "help" ]
+      }
+  in
+  let tools =
+    Progressive_tools.tools_for_turn strategy 1 ~context:"inspect file contents" ()
+  in
+  check_bool "read present" true (List.mem "read_file" tools);
+  check_bool "group peer included" true (List.mem "write_file" tools);
+  check_bool "always included" true (List.mem "help" tools);
+  check_int
+    "deduped read_file"
+    1
+    (List.length (List.filter (String.equal "read_file") tools))
+;;
+
+let test_retrieval_below_threshold_uses_fallback () =
+  let strategy =
+    Progressive_tools.Retrieval_based
+      { index = retrieval_index ()
+      ; confidence_threshold = 10_000.0
+      ; fallback_tools = [ "safe_tool" ]
+      ; always_include = [ "help" ]
+      }
+  in
+  Alcotest.(check (list string))
+    "fallback"
+    [ "help"; "safe_tool" ]
+    (Progressive_tools.tools_for_turn strategy 3 ~context:"read project file" ())
+;;
+
+let test_retrieval_hook_extracts_last_user_message () =
+  let strategy =
+    Progressive_tools.Retrieval_based
+      { index = retrieval_index ()
+      ; confidence_threshold = 0.01
+      ; fallback_tools = [ "fallback" ]
+      ; always_include = [ "help" ]
+      }
+  in
+  let messages : Types.message list =
+    [ { role = Types.User
+      ; content =
+          [ Types.Text "first"
+          ; Types.Image { media_type = "image/png"; data = ""; source_type = "base64" }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; { role = Types.Assistant
+      ; content = [ Types.Text "assistant" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; { role = Types.User
+      ; content = [ Types.Text "search"; Types.Text "source code" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let hook = Progressive_tools.as_hook strategy in
+  let event =
+    Hooks.BeforeTurnParams
+      { turn = 1
+      ; max_turns = 5
+      ; messages
+      ; last_tool_results = []
+      ; current_params = Hooks.default_turn_params
+      ; reasoning = Hooks.empty_reasoning_summary
+      }
+  in
+  match hook event with
+  | Hooks.AdjustParams params ->
+    (match params.tool_filter_override with
+     | Some (Guardrails.AllowList tools) ->
+       check_bool "retrieved search_code" true (List.mem "search_code" tools);
+       check_bool "always included" true (List.mem "help" tools)
+     | _ -> Alcotest.fail "expected AllowList")
+  | _ -> Alcotest.fail "expected AdjustParams"
+;;
+
 (* ── as_hook ──────────────────────────────────────────── *)
 
 let test_as_hook_returns_adjust_params () =
@@ -258,6 +385,24 @@ let () =
         ; Alcotest.test_case "act phase" `Quick test_gav_act_phase
         ; Alcotest.test_case "verify phase" `Quick test_gav_verify_phase
         ; Alcotest.test_case "boundary turns" `Quick test_gav_boundary_turns
+        ] )
+    ; ( "retrieval_based"
+      , [ Alcotest.test_case
+            "without context uses fallback"
+            `Quick
+            test_retrieval_without_context_uses_fallback
+        ; Alcotest.test_case
+            "confident retrieval dedupes"
+            `Quick
+            test_retrieval_confident_dedupes_always_and_group_tools
+        ; Alcotest.test_case
+            "below threshold uses fallback"
+            `Quick
+            test_retrieval_below_threshold_uses_fallback
+        ; Alcotest.test_case
+            "hook extracts last user context"
+            `Quick
+            test_retrieval_hook_extracts_last_user_message
         ] )
     ; ( "as_hook"
       , [ Alcotest.test_case

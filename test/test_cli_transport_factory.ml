@@ -126,6 +126,75 @@ let test_transport_native_defaults () =
   check bool "gemini yolo default true" true Transport_gemini_cli.default_config.yolo
 ;;
 
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop idx =
+    if idx + sub_len > text_len
+    then false
+    else if String.sub text idx sub_len = sub
+    then true
+    else loop (idx + 1)
+  in
+  sub_len = 0 || loop 0
+;;
+
+let expect_failure_contains label needle f =
+  match f () with
+  | exception Failure msg -> check bool label true (contains_substring ~sub:needle msg)
+  | exception exn ->
+    fail (Printf.sprintf "%s: unexpected %s" label (Printexc.to_string exn))
+  | _ -> fail (label ^ ": expected Failure")
+;;
+
+let with_eio f =
+  Eio_main.run
+  @@ fun env -> Eio.Switch.run @@ fun sw -> f ~sw ~mgr:(Eio.Stdenv.process_mgr env)
+;;
+
+let dispatch_config =
+  { default_config with
+    command = "/bin/echo"
+  ; model = Some "mock-model"
+  ; cwd = Some "/tmp"
+  ; mcp_config = Some "/tmp/mcp.json"
+  ; mcp_config_files = [ "/tmp/kimi-a.json"; "/tmp/kimi-b.json" ]
+  ; mcp_config_json = [ {|{"mcpServers":{}}|} ]
+  ; allowed_tools = [ "Read"; "Write" ]
+  ; max_turns = Some 2
+  ; permission_mode = Some "acceptEdits"
+  ; tool_use_via_stream_json = Some false
+  ; forward_tool_results = Some true
+  ; yolo = Some false
+  ; config_file = Some "/tmp/kimi.toml"
+  ; extra_env = [ "OAS_TEST", "1" ]
+  ; session_id = Some "session-1"
+  ; stdout_idle_timeout_s = Some 0.5
+  }
+;;
+
+let test_create_rejects_unknown_protocol () =
+  with_eio
+  @@ fun ~sw ~mgr ->
+  expect_failure_contains "unknown protocol" "unknown CLI protocol" (fun () ->
+    create ~protocol:"openai-http" ~config:dispatch_config ~sw ~mgr)
+;;
+
+let test_create_rejects_empty_command () =
+  with_eio
+  @@ fun ~sw ~mgr ->
+  expect_failure_contains "empty command" "requires a non-empty command" (fun () ->
+    create ~protocol:"codex-cli" ~config:{ dispatch_config with command = "   " } ~sw ~mgr)
+;;
+
+let test_create_dispatches_all_protocols () =
+  with_eio
+  @@ fun ~sw ~mgr ->
+  List.iter
+    (fun protocol -> ignore (create ~protocol ~config:dispatch_config ~sw ~mgr))
+    (registered_protocols ())
+;;
+
 (* --- Test suite --- *)
 
 let () =
@@ -149,5 +218,10 @@ let () =
         ] )
     ; ( "transport_defaults"
       , [ test_case "native default pins" `Quick test_transport_native_defaults ] )
+    ; ( "create"
+      , [ test_case "rejects unknown protocol" `Quick test_create_rejects_unknown_protocol
+        ; test_case "rejects empty command" `Quick test_create_rejects_empty_command
+        ; test_case "dispatches all protocols" `Quick test_create_dispatches_all_protocols
+        ] )
     ]
 ;;

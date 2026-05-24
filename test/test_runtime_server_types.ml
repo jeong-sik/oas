@@ -81,6 +81,86 @@ let test_event_bus_run_id_omits_session_events () =
     (Runtime_server_types.event_bus_run_id_of_event event)
 ;;
 
+let input_request : Runtime.input_request =
+  { request_id = "input-1"
+  ; participant_name = Some "worker-1"
+  ; question = "Continue?"
+  ; schema = None
+  ; timeout_s = None
+  ; created_at = 1.0
+  }
+;;
+
+let test_custom_name_of_kind_all_variants () =
+  let participant = participant_event () in
+  let cases =
+    [ ( Runtime.Session_started { goal = "g"; participants = [ "p" ] }
+      , "runtime.session_started" )
+    ; ( Runtime.Session_settings_updated { model = Some "m"; permission_mode = None }
+      , "runtime.session_settings_updated" )
+    ; ( Runtime.Turn_recorded { actor = Some "user"; message = "hello" }
+      , "runtime.turn_recorded" )
+    ; Runtime.Input_required input_request, "runtime.input_required"
+    ; ( Runtime.Input_provided
+          { request_id = "input-1"
+          ; participant_name = Some "worker-1"
+          ; response = Runtime.Input_answer (`String "yes")
+          }
+      , "runtime.input_provided" )
+    ; ( Runtime.Agent_spawn_requested
+          { participant_name = "worker-1"
+          ; role = Some "reviewer"
+          ; prompt = "review"
+          ; provider = Some "mock"
+          ; model = Some "mock-model"
+          ; permission_mode = Some "ask"
+          }
+      , "runtime.agent_spawn_requested" )
+    ; Runtime.Agent_became_live participant, "runtime.agent_became_live"
+    ; ( Runtime.Agent_output_delta { participant_name = "worker-1"; delta = "delta" }
+      , "runtime.agent_output_delta" )
+    ; Runtime.Agent_completed participant, "runtime.agent_completed"
+    ; Runtime.Agent_failed participant, "runtime.agent_failed"
+    ; ( Runtime.Artifact_attached
+          { artifact_id = "artifact-1"
+          ; name = "report"
+          ; kind = "text"
+          ; mime_type = "text/plain"
+          ; path = "/tmp/report.txt"
+          ; size_bytes = 12
+          }
+      , "runtime.artifact_attached" )
+    ; ( Runtime.Checkpoint_saved { label = Some "cp"; path = "/tmp/cp" }
+      , "runtime.checkpoint_saved" )
+    ; Runtime.Finalize_requested { reason = Some "done" }, "runtime.finalize_requested"
+    ; Runtime.Session_completed { outcome = Some "ok" }, "runtime.session_completed"
+    ; Runtime.Session_failed { outcome = Some "failed" }, "runtime.session_failed"
+    ]
+  in
+  List.iter
+    (fun (kind, expected) ->
+       Alcotest.(check string)
+         expected
+         expected
+         (Runtime_server_types.custom_name_of_kind kind))
+    cases
+;;
+
+let test_session_root_request_path_trims_blank_values () =
+  Alcotest.(check (option string))
+    "blank"
+    None
+    (Runtime_server_types.session_root_request_path (Some "   "));
+  Alcotest.(check (option string))
+    "trimmed"
+    (Some "/tmp/oas")
+    (Runtime_server_types.session_root_request_path (Some "  /tmp/oas  "));
+  Alcotest.(check (option string))
+    "none"
+    None
+    (Runtime_server_types.session_root_request_path None)
+;;
+
 let () =
   Alcotest.run
     "Runtime_server_types"
@@ -104,6 +184,18 @@ let () =
             "omits session events"
             `Quick
             test_event_bus_run_id_omits_session_events
+        ] )
+    ; ( "event names"
+      , [ Alcotest.test_case
+            "custom names cover all event kinds"
+            `Quick
+            test_custom_name_of_kind_all_variants
+        ] )
+    ; ( "session root"
+      , [ Alcotest.test_case
+            "trims request path"
+            `Quick
+            test_session_root_request_path_trims_blank_values
         ] )
     ]
 ;;
