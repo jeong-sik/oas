@@ -9,6 +9,51 @@
 (** Store handle wrapping a root directory. *)
 type t = { root : string }
 
+(** One loadable runtime run from the store. [path] points at the canonical
+    [session.json]. Run ordering is deterministic: ascending
+    [session.updated_at], then ascending [session.session_id]. *)
+type run_record =
+  { session : Runtime.session
+  ; path : string
+  }
+
+(** Non-fatal run/window read failure. Listing APIs keep loading other runs
+    and report corrupted or incomplete directories here. *)
+type run_load_failure =
+  { session_id : string
+  ; path : string
+  ; detail : string
+  }
+
+type run_listing =
+  { runs : run_record list
+  ; failures : run_load_failure list
+  }
+
+(** Runtime replay window selector.
+
+    [Last_n_runs n] selects the newest [n] valid runs by the stable ordering,
+    then returns them in chronological order. [Rolling_seconds s] uses the
+    newest valid run's [updated_at] as the anchor and selects runs with
+    [updated_at >= anchor - s]. This makes replay deterministic and avoids
+    wall-clock-dependent tests. *)
+type run_window =
+  | Last_n_runs of int
+  | Session of string
+  | Rolling_seconds of float
+
+type run_event_record =
+  { event_id : string
+  ; session_id : string
+  ; event : Runtime.event
+  }
+
+type run_window_events =
+  { runs : run_record list
+  ; events : run_event_record list
+  ; failures : run_load_failure list
+  }
+
 (** {1 Store creation} *)
 
 val default_root : unit -> string
@@ -39,6 +84,13 @@ val load_text : string -> (string, Error.sdk_error) result
 
 val save_session : t -> Runtime.session -> (unit, Error.sdk_error) result
 val load_session : t -> string -> (Runtime.session, Error.sdk_error) result
+val list_runs : t -> (run_listing, Error.sdk_error) result
+val select_run_windows : t -> run_window list -> (run_listing, Error.sdk_error) result
+
+val read_window_events
+  :  t
+  -> run_window list
+  -> (run_window_events, Error.sdk_error) result
 
 (** {1 Event I/O} *)
 
