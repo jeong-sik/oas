@@ -371,17 +371,45 @@ let test_default_zai_base_urls () =
   let reg = Provider_registry.default () in
   (match Provider_registry.find reg "glm" with
    | Some e ->
-     check string "glm base_url" Zai_catalog.general_base_url e.defaults.base_url
+     check string "glm base_url" Zai_catalog.general_base_url e.defaults.base_url;
+     check string "glm api_key_env" "ZAI_API_KEY" e.defaults.api_key_env
    | None -> fail "glm should exist");
   (match Provider_registry.find reg "glm-coding" with
    | Some e ->
-     check string "glm-coding base_url" Zai_catalog.coding_base_url e.defaults.base_url
+     check string "glm-coding base_url" Zai_catalog.coding_base_url e.defaults.base_url;
+     check string "glm-coding api_key_env" "ZAI_CODING_API_KEY" e.defaults.api_key_env
    | None -> fail "glm-coding should exist");
   match Provider_registry.find reg "kimi" with
   | Some e ->
     check string "kimi base_url" "https://api.kimi.com/coding" e.defaults.base_url;
     check string "kimi request_path" "/v1/messages" e.defaults.request_path
   | None -> fail "kimi should exist"
+;;
+
+let test_glm_coding_api_key_env_isolated () =
+  let prev_general = Sys.getenv_opt "ZAI_API_KEY" in
+  let prev_coding = Sys.getenv_opt "ZAI_CODING_API_KEY" in
+  let restore key = function
+    | Some v -> Unix.putenv key v
+    | None -> Unix.putenv key ""
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      restore "ZAI_API_KEY" prev_general;
+      restore "ZAI_CODING_API_KEY" prev_coding)
+    (fun () ->
+       Unix.putenv "ZAI_API_KEY" "general-key";
+       Unix.putenv "ZAI_CODING_API_KEY" "";
+       let general_only = Provider_registry.default () in
+       (match Provider_registry.find general_only "glm-coding" with
+        | Some e ->
+          check bool "general key does not enable coding lane" false (e.is_available ())
+        | None -> fail "glm-coding should exist");
+       Unix.putenv "ZAI_CODING_API_KEY" "coding-key";
+       let coding = Provider_registry.default () in
+       match Provider_registry.find coding "glm-coding" with
+       | Some e -> check bool "coding key enables coding lane" true (e.is_available ())
+       | None -> fail "glm-coding should exist")
 ;;
 
 let test_blank_zai_base_urls_fall_back () =
@@ -624,6 +652,39 @@ let test_catalog_rejects_unknown_thinking_control_format () =
   | Error _ -> ()
   | Ok _ ->
     fail "unknown thinking_control_format should be rejected, not silently coerced"
+;;
+
+let test_catalog_accepts_explicit_thinking_control_formats () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "kimi-k2", "kind": "openai_compat",
+              "capabilities": {"thinking_control_format": "thinking_object_only"}},
+             {"id": "dashscope", "kind": "openai_compat",
+              "capabilities": {"thinking_control_format": "enable_thinking"}},
+             {"id": "openai-reasoning", "kind": "openai_compat",
+              "capabilities": {"thinking_control_format": "reasoning_effort"}}
+           ]
+         }|})
+  with
+  | Error msg -> fail msg
+  | Ok catalog ->
+    let check_format id expected =
+      match Provider_catalog.lookup catalog id with
+      | Some entry ->
+        check
+          bool
+          (id ^ " thinking_control_format")
+          true
+          (entry.capabilities.thinking_control_format = expected)
+      | None -> fail (id ^ " should exist")
+    in
+    check_format "kimi-k2" Capabilities.Thinking_object_only;
+    check_format "dashscope" Capabilities.Enable_thinking;
+    check_format "openai-reasoning" Capabilities.Reasoning_effort
 ;;
 
 let test_catalog_lookup_first_match_wins () =
@@ -1036,6 +1097,10 @@ let () =
             test_default_max_context_matches_capabilities
         ; test_case "zai base urls" `Quick test_default_zai_base_urls
         ; test_case
+            "glm coding api key env isolated"
+            `Quick
+            test_glm_coding_api_key_env_isolated
+        ; test_case
             "blank zai base urls fall back"
             `Quick
             test_blank_zai_base_urls_fall_back
@@ -1077,6 +1142,10 @@ let () =
             "rejects unknown thinking_control_format"
             `Quick
             test_catalog_rejects_unknown_thinking_control_format
+        ; test_case
+            "accepts explicit thinking_control_format values"
+            `Quick
+            test_catalog_accepts_explicit_thinking_control_formats
         ; test_case
             "lookup first-match-wins on duplicate id"
             `Quick

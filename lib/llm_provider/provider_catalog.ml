@@ -201,15 +201,21 @@ let parse_thinking_control_format = function
      | "none" | "no_thinking_control" | "no-thinking-control" ->
        Ok (Some Capabilities.No_thinking_control)
      | "thinking_object" | "thinking-object" -> Ok (Some Capabilities.Thinking_object)
+     | "thinking_object_only"
+     | "thinking-object-only"
+     | "thinking_object_plain"
+     | "thinking-object-plain" -> Ok (Some Capabilities.Thinking_object_only)
      | "chat_template_kwargs" | "chat-template-kwargs" ->
        Ok (Some Capabilities.Chat_template_kwargs)
      | "reasoning_effort" | "reasoning-effort" -> Ok (Some Capabilities.Reasoning_effort)
+     | "enable_thinking" | "enable-thinking" -> Ok (Some Capabilities.Enable_thinking)
      | other ->
        Error
          (Printf.sprintf
             "unknown thinking_control_format %S (canonical: none, thinking_object, \
-             chat_template_kwargs, reasoning_effort; dashed and full-word aliases also \
-             accepted, e.g. no_thinking_control, thinking-object)"
+             thinking_object_only, chat_template_kwargs, reasoning_effort, \
+             enable_thinking; dashed and full-word aliases also accepted, e.g. \
+             no_thinking_control, thinking-object)"
             other))
 ;;
 

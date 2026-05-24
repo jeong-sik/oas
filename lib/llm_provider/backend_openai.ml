@@ -1232,17 +1232,63 @@ let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
   json |> member "thinking" |> member "type" |> to_string = "disabled"
 ;;
 
-let%test "build_request emits chat_template_kwargs for Chat_template_kwargs capability" =
-  (* ollama_capabilities inherits Chat_template_kwargs from the new field.
-     Using a model_id that is NOT in for_model_id → defaults to
-     default_capabilities where thinking_control_format = No_thinking_control,
-     so the test must use a model that resolves to ollama_capabilities.
-     We override via supports_tool_choice_override path is not available
-     for thinking, so instead we test with a model_id that exercises
-     the Chat_template_kwargs branch through Ollama routing.
-     However, build_request resolves caps via Capabilities.for_model_id,
-     which does not match generic "llama-*" names. The correct test
-     verifies that No_thinking_control models do NOT emit thinking params. *)
+let%test "build_request emits reasoning_effort for OpenAI reasoning models" =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.1"
+      ~base_url:"https://api.openai.com/v1"
+      ~enable_thinking:true
+      ~thinking_budget:2048
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "reasoning_effort" |> to_string = "low"
+  && json |> member "thinking" = `Null
+  && json |> member "enable_thinking" = `Null
+;;
+
+let%test "build_request emits thinking object only for Kimi K2.5" =
+  let config =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"kimi-k2.5"
+      ~base_url:"https://api.moonshot.ai/v1"
+      ~enable_thinking:false
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "thinking" |> member "type" |> to_string = "disabled"
+  && json |> member "reasoning_effort" = `Null
+  && json |> member "chat_template_kwargs" = `Null
+;;
+
+let%test "build_request emits enable_thinking for DashScope provider kind" =
+  let config =
+    Provider_config.make
+      ~kind:DashScope
+      ~model_id:"qwen-plus"
+      ~base_url:"https://dashscope.aliyuncs.com/compatible-mode/v1"
+      ~enable_thinking:true
+      ~thinking_budget:50
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "enable_thinking" |> to_bool = true
+  && json |> member "thinking_budget" |> to_int = 50
+  && json |> member "chat_template_kwargs" = `Null
+;;
+
+let%test "build_request omits thinking params for No_thinking_control" =
+  (* Generic unknown OpenAI-compatible model ids fall back to
+     No_thinking_control and must not emit any provider-specific thinking
+     parameter. *)
   let config =
     Provider_config.make
       ~kind:OpenAI_compat

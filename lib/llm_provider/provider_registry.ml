@@ -277,7 +277,7 @@ let glm_defaults =
 let glm_coding_defaults =
   { kind = Glm
   ; base_url = env_or_default "ZAI_CODING_BASE_URL" Zai_catalog.coding_base_url
-  ; api_key_env = "ZAI_API_KEY"
+  ; api_key_env = "ZAI_CODING_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;

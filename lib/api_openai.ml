@@ -133,16 +133,39 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
              ~thinking_budget:config.config.thinking_budget
          in
          ("reasoning_effort", `String effort) :: body_assoc
-       | _ when is_glm_request ?provider_config config ->
+       | Llm_provider.Capabilities.Thinking_object ->
+         let effort =
+           Llm_provider.Provider_config.effort_of_thinking_config
+             ~enable_thinking:(Some enabled)
+             ~thinking_budget:config.config.thinking_budget
+         in
+         if enabled
+         then
+           ("reasoning_effort", `String effort)
+           :: ("thinking", `Assoc [ "type", `String "enabled" ])
+           :: body_assoc
+         else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body_assoc
+       | Llm_provider.Capabilities.Thinking_object_only ->
+         ( "thinking"
+         , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
+         :: body_assoc
+       | Llm_provider.Capabilities.Enable_thinking ->
+         let body_assoc = ("enable_thinking", `Bool enabled) :: body_assoc in
+         (match enabled, config.config.thinking_budget with
+          | true, Some budget -> ("thinking_budget", `Int budget) :: body_assoc
+          | _ -> body_assoc)
+       | Llm_provider.Capabilities.No_thinking_control
+         when is_glm_request ?provider_config config ->
          let thinking =
            if enabled
            then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
            else `Assoc [ "type", `String "disabled" ]
          in
          ("thinking", thinking) :: body_assoc
-       | _ ->
+       | Llm_provider.Capabilities.Chat_template_kwargs ->
          ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
-         :: body_assoc)
+         :: body_assoc
+       | Llm_provider.Capabilities.No_thinking_control -> body_assoc)
     | None
       when capabilities.thinking_control_format
            = Llm_provider.Capabilities.Reasoning_effort ->

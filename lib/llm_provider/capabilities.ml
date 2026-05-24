@@ -14,7 +14,10 @@
     @since 0.184.0 *)
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
-  | Thinking_object (** DeepSeek-style: {"thinking":{"type":"enabled"}} *)
+  | Thinking_object
+  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
+  | Thinking_object_only
+  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
@@ -23,6 +26,9 @@ type thinking_control_format =
       see {!Provider_config.effort_of_thinking_config}. (OpenAI's spec
       also accepts ["minimal"], but no current OAS request builder emits
       it.) Ollama's OpenAI-compatible mode uses this shape. *)
+  | Enable_thinking
+  (** DashScope-style top-level [enable_thinking] bool plus optional
+      [thinking_budget]. *)
 
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
@@ -167,6 +173,7 @@ let kimi_capabilities =
   ; supports_tools = true
   ; supports_tool_choice = true
   ; supports_reasoning = true
+  ; thinking_control_format = Thinking_object_only
   ; supports_system_prompt = true
   ; supports_code_execution = true
   }
@@ -195,6 +202,7 @@ let openai_chat_extended_capabilities =
     supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_reasoning_budget = true
+  ; thinking_control_format = Reasoning_effort
   ; supports_top_k = true
   ; supports_min_p = true
   }
@@ -247,6 +255,7 @@ let dashscope_capabilities =
   { openai_chat_extended_capabilities with
     supports_tool_choice = true
   ; supports_min_p = true
+  ; thinking_control_format = Enable_thinking
   }
 ;;
 

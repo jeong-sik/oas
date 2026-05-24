@@ -56,8 +56,10 @@ type modality =
 type thinking_control_format = Llm_provider.Capabilities.thinking_control_format =
   | No_thinking_control
   | Thinking_object
+  | Thinking_object_only (** @since 0.196.11 *)
   | Chat_template_kwargs
   | Reasoning_effort (** @since 0.195.0 *)
+  | Enable_thinking (** @since 0.196.11 *)
 
 type capabilities =
   { max_context_tokens : int option
