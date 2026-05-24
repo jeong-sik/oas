@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-05-14",
+  "updated_at": "2026-05-25",
   "description": "Operator-facing index of OAS runtime output and schema surfaces.",
   "surfaces": [
     {
@@ -36,14 +36,14 @@
       "kind": "json_schema",
       "owner": "OAS",
       "producer": "Runtime_sync",
-      "consumer": ["offline/runtime sync clients", "downstream replay tooling"],
+      "consumer": ["offline/runtime sync clients", "downstream replay tooling", "external resume/A2A adapters"],
       "wire_or_artifact": "Runtime sync window JSON",
       "schema_source": ["lib/runtime_sync.mli", "docs/schemas/runtime-sync-window-v1.json"],
       "validator": "Runtime_sync.of_json plus schema_version gate",
       "tests": ["test/test_runtime_sync.ml"],
       "stability": "evolving",
       "version_field": "schema_version",
-      "notes": "Replay window over Runtime.event rows and Event_envelope metadata."
+      "notes": "Replay window over Runtime.event rows and Event_envelope metadata, including the Runtime input pause/resume fixture used by external resume/A2A adapters."
     },
     {
       "id": "oas.runtime_report.v1",

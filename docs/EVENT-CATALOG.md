@@ -23,12 +23,14 @@ of external relevance.
 | 3 | **Durable journal** | `Durable_event` | In-memory append-only + JSONL | Crash recovery + event-sourced replay |
 | 4 | **Runtime protocol** | `Runtime` + `Runtime_server_*` | stdout JSON-RPC-ish protocol | `oas_runtime` subprocess consumers |
 | 5 | **LLM wire stream** | `Types.sse_event` | Provider-specific SSE → normalized | Internal (streaming accumulation) |
-| 6 | **A2A task stream** | `A2a_server.task_event` | HTTP SSE | External A2A clients |
+| 6 | **Runtime resume replay** | `Runtime_sync.window` | JSON replay window | External resume/A2A adapters |
 
 Surfaces 3 and 4 **bridge into** Surface 1 via `Journal_bridge` and
-`Runtime_server_types.emit_event` respectively (see §7).
+`Runtime_server_types.emit_event` respectively (see §4.2 and §5.1).
 
-Surfaces 5 and 6 are independent and do not flow to Event_bus.
+Surface 5 is independent and does not flow to Event_bus. Surface 6 replays
+Surface 4 events for cursor-based resume; it does not publish additional
+Event_bus payloads.
 
 ---
 
@@ -349,17 +351,28 @@ around that) become observable.
 
 ---
 
-## 7. Surface 6: A2A task stream
+## 7. Surface 6: Runtime resume replay
 
-**Header**: `lib/protocol/a2a_server.ml`. Stability: Evolving.
+**Header**: `lib/runtime_sync.mli`; event truth:
+`lib/runtime.mli`. Stability: Evolving.
 
-HTTP SSE stream emitted by the A2A protocol server for external A2A
-clients. **Independent of Event_bus.**
+Current OAS core does not expose a `lib/protocol/a2a_server.ml` HTTP task
+stream. External A2A or resume-capable adapters should bridge protocol
+messages onto Runtime commands and consume `Runtime_sync.window` for replay.
 
-| Variant | Purpose |
-|---------|---------|
-| `TaskStateChanged` | Task transitioned to an intermediate state |
-| `TaskCompleted` | Task reached a terminal state |
+| Runtime surface | Adapter purpose |
+|-----------------|-----------------|
+| `Runtime.Request_input` / `Runtime.Input_required` | Pause a runtime session with a durable `pending_input` payload |
+| `Runtime.Provide_input` / `Runtime.Input_provided` | Resume the matching input request and clear `pending_input` |
+| `Runtime_sync.window` | Return cursor-based replay rows for events after `after_seq` |
+
+**Contract**:
+- The replay stream is keyed by `stream_id`; adapters may use their own
+  external task/message identifier as long as cursors remain stream-local.
+- Resume fixtures must assert both pause and resume events:
+  `Input_required` followed by matching `Input_provided`.
+- This surface derives from Runtime events. It does not reintroduce the legacy
+  `TaskStateChanged` / `TaskCompleted` task stream.
 
 ---
 

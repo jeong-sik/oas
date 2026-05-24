@@ -12,7 +12,7 @@ Machine-readable catalog: `docs/schema-surfaces/runtime-output-surfaces.v1.json`
 | --- | --- | --- | --- |
 | `oas.event_bus.v1` | In-process agent lifecycle events | `lib/event_bus.mli`, `docs/EVENT-CATALOG.md` | Event bus and envelope tests |
 | `oas.runtime_protocol.v1` | `oas_runtime` NDJSON protocol messages | `lib/runtime.mli` | Runtime protocol roundtrip tests |
-| `oas.runtime_sync_window.v1` | Runtime replay window JSON | `lib/runtime_sync.mli`, `docs/schemas/runtime-sync-window-v1.json` | `Runtime_sync.of_json` and schema version tests |
+| `oas.runtime_sync_window.v1` | Runtime replay window JSON for offline and external resume adapters | `lib/runtime_sync.mli`, `docs/schemas/runtime-sync-window-v1.json` | `Runtime_sync.of_json`, schema version, and input pause/resume fixture tests |
 | `oas.runtime_report.v1` | Runtime session report artifact / protocol response | `lib/runtime.mli`, `lib/runtime_projection.mli` | Runtime type and projection tests |
 | `oas.runtime_proof.v1` | Runtime proof artifact / protocol response | `lib/runtime.mli`, `lib/runtime_projection.mli` | Runtime type and proof projection tests |
 | `oas.runtime_telemetry_report.v1` | Runtime telemetry JSON/Markdown artifacts | `lib/runtime_evidence.mli`, `lib/sessions_types.mli` | Runtime session artifact and session type tests |
