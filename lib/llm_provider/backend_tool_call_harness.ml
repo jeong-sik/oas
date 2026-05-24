@@ -204,7 +204,7 @@ let is_dropped_content_block = function
 ;;
 
 (** Extract parameter schema from a tool definition JSON.
-    Handles both "input_schema" (Anthropic) and "parameters" (OpenAI). *)
+    Handles both "input_schema" (Provider_a) and "parameters" (Provider_d). *)
 let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
   let open Yojson.Safe.Util in
   match schema_if_present (tool_def |> member "input_schema") with
@@ -213,7 +213,7 @@ let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
     (match schema_if_present (tool_def |> member "parameters") with
      | Some schema -> Some schema
      | None ->
-       (* OpenAI wraps in "function" *)
+       (* Provider_d wraps in "function" *)
        (match tool_def |> member "function" with
         | `Assoc func -> schema_if_present (`Assoc func |> member "parameters")
         | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None))
@@ -324,33 +324,33 @@ let format_violations_feedback (tc : tool_call_check) : string =
     (String.concat "\n" violation_lines)
 ;;
 
-let validate_anthropic_response ~declared_tools json =
-  validate_response ~declared_tools (Backend_anthropic.parse_response json)
+let validate_provider_a_response ~declared_tools json =
+  validate_response ~declared_tools (Backend_provider_a.parse_response json)
 ;;
 
-let validate_gemini_response ~declared_tools json =
-  validate_response ~declared_tools (Backend_gemini.parse_response json)
+let validate_provider_f_response ~declared_tools json =
+  validate_response ~declared_tools (Backend_provider_f.parse_response json)
 ;;
 
-let validate_openai_response ~declared_tools json =
+let validate_provider_d_response ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
   let parsed =
-    try Backend_openai_parse.parse_openai_response_result json_str with
+    try Backend_provider_d_parse.parse_provider_d_response_result json_str with
     | exn -> Error (Printexc.to_string exn)
   in
   match parsed with
   | Ok resp -> Ok (validate_response ~declared_tools resp)
   | Error response_parse_error ->
-    Error { response_backend = "openai"; response_parse_error }
+    Error { response_backend = "provider_d"; response_parse_error }
 ;;
 
 (* ── Inline Tests ─────────────────────────────────────── *)
 
-let%test "anthropic tool_use response validates correctly" =
+let%test "provider_a tool_use response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "msg_123"
-      ; "model", `String "claude-4-sonnet"
+      ; "model", `String "agent_llm_a-4-sonnet"
       ; "stop_reason", `String "tool_use"
       ; ( "content"
         , `List
@@ -370,18 +370,18 @@ let%test "anthropic tool_use response validates correctly" =
             ] )
       ]
   in
-  let result = validate_anthropic_response ~declared_tools:[ "get_weather" ] json in
+  let result = validate_provider_a_response ~declared_tools:[ "get_weather" ] json in
   result.stop_reason_correct
   && result.all_tools_declared
   && List.length result.tool_calls_found = 1
   && (List.hd result.tool_calls_found).name = "get_weather"
 ;;
 
-let%test "anthropic undeclared tool fails validation" =
+let%test "provider_a undeclared tool fails validation" =
   let json =
     `Assoc
       [ "id", `String "msg_456"
-      ; "model", `String "claude-4-sonnet"
+      ; "model", `String "agent_llm_a-4-sonnet"
       ; "stop_reason", `String "tool_use"
       ; ( "content"
         , `List
@@ -401,11 +401,11 @@ let%test "anthropic undeclared tool fails validation" =
             ] )
       ]
   in
-  let result = validate_anthropic_response ~declared_tools:[ "get_weather" ] json in
+  let result = validate_provider_a_response ~declared_tools:[ "get_weather" ] json in
   result.stop_reason_correct && not result.all_tools_declared
 ;;
 
-let%test "gemini functionCall response validates correctly" =
+let%test "provider_f functionCall response validates correctly" =
   let json =
     `Assoc
       [ ( "candidates"
@@ -429,17 +429,17 @@ let%test "gemini functionCall response validates correctly" =
             ] )
       ]
   in
-  let result = validate_gemini_response ~declared_tools:[ "search" ] json in
+  let result = validate_provider_f_response ~declared_tools:[ "search" ] json in
   result.stop_reason_correct
   && result.all_tools_declared
   && List.length result.tool_calls_found = 1
 ;;
 
-let%test "openai tool_calls response validates correctly" =
+let%test "provider_d tool_calls response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-123"
-      ; "model", `String "gpt-4o"
+      ; "model", `String "model-d"
       ; ( "choices"
         , `List
             [ `Assoc
@@ -471,7 +471,7 @@ let%test "openai tool_calls response validates correctly" =
             ] )
       ]
   in
-  match validate_openai_response ~declared_tools:[ "read_file" ] json with
+  match validate_provider_d_response ~declared_tools:[ "read_file" ] json with
   | Error _ -> false
   | Ok result ->
     result.stop_reason_correct
@@ -484,7 +484,7 @@ let%test "wrong stop_reason for tool calls fails validation" =
   let json =
     `Assoc
       [ "id", `String "msg_bad"
-      ; "model", `String "claude-4-sonnet"
+      ; "model", `String "agent_llm_a-4-sonnet"
       ; "stop_reason", `String "end_turn"
       ; ( "content"
         , `List
@@ -504,7 +504,7 @@ let%test "wrong stop_reason for tool calls fails validation" =
             ] )
       ]
   in
-  let result = validate_anthropic_response ~declared_tools:[ "test" ] json in
+  let result = validate_provider_a_response ~declared_tools:[ "test" ] json in
   not result.stop_reason_correct
 ;;
 
@@ -512,7 +512,7 @@ let%test "text-only response passes validation" =
   let json =
     `Assoc
       [ "id", `String "msg_text"
-      ; "model", `String "claude-4-sonnet"
+      ; "model", `String "agent_llm_a-4-sonnet"
       ; "stop_reason", `String "end_turn"
       ; "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ]
       ; ( "usage"
@@ -524,6 +524,6 @@ let%test "text-only response passes validation" =
             ] )
       ]
   in
-  let result = validate_anthropic_response ~declared_tools:[] json in
+  let result = validate_provider_a_response ~declared_tools:[] json in
   result.stop_reason_correct && result.all_tools_declared && result.tool_calls_found = []
 ;;

@@ -3,8 +3,8 @@ open Agent_sdk
 let () = Unix.putenv "OAS_ALLOW_TEST_PROVIDERS" "1"
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key"
+  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
+  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key"
 ;;
 
 open Alcotest
@@ -53,7 +53,7 @@ let response_usage ?(prompt_tokens = 10) ?(completion_tokens = 5) () =
     ]
 ;;
 
-let openai_text_response
+let provider_d_text_response
       ?(id = "chatcmpl-1")
       ?(model = "mock")
       ?(finish_reason = "stop")
@@ -79,7 +79,7 @@ let openai_text_response
         ])
 ;;
 
-let anthropic_text_response
+let provider_a_text_response
       ?(id = "msg-1")
       ?(model = "mock")
       ?(stop_reason = "end_turn")
@@ -105,7 +105,7 @@ let anthropic_text_response
         ])
 ;;
 
-let openai_tool_use_response
+let provider_d_tool_use_response
       ?(id = "chatcmpl-tool")
       ?(model = "mock")
       ?(tool_id = "call_1")
@@ -149,7 +149,7 @@ let openai_tool_use_response
         ])
 ;;
 
-let openai_sse_tool_use_body
+let provider_d_sse_tool_use_body
       ?(tool_id = "call_stream")
       ?(tool_name = "extract_person")
       tool_input
@@ -242,7 +242,7 @@ let openai_sse_tool_use_body
     ]
 ;;
 
-let anthropic_sse_text_body
+let provider_a_sse_text_body
       ?(id = "msg-stream")
       ?(model = "mock")
       ?(input_tokens = 12)
@@ -398,7 +398,7 @@ let test_structured_extract_success () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = anthropic_text_response {|{"name":"Alice","age":30}|} in
+    let body = provider_a_text_response {|{"name":"Alice","age":30}|} in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21301 [ body ] in
     match
       Structured.extract
@@ -424,7 +424,7 @@ let test_structured_extract_requires_tool_use () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = anthropic_text_response "not structured" in
+    let body = provider_a_text_response "not structured" in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21302 [ body ] in
     match
       Structured.extract
@@ -449,11 +449,11 @@ let test_structured_extract_with_retry_success () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ anthropic_text_response
+      [ provider_a_text_response
           ~input_tokens:7
           ~output_tokens:3
           {|{"name":"Bob","age":"oops"}|}
-      ; anthropic_text_response
+      ; provider_a_text_response
           ~input_tokens:11
           ~output_tokens:5
           {|{"name":"Bob","age":41}|}
@@ -493,7 +493,7 @@ let test_structured_extract_with_retry_exhausted () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = anthropic_text_response {|{"name":"Eve","age":"bad"}|} in
+    let body = provider_a_text_response {|{"name":"Eve","age":"bad"}|} in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21304 [ body ] in
     let callback_count = ref 0 in
     match
@@ -522,7 +522,7 @@ let test_structured_run_structured_success () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = openai_text_response {|{"answer":42}|} in
+    let body = provider_d_text_response {|{"answer":42}|} in
     let url = start_sequence_mock ~sw ~net:env#net ~port:21305 [ body ] in
     let agent = make_agent ~net:env#net url in
     let extract =
@@ -544,7 +544,7 @@ let test_structured_extract_stream_success () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let body = anthropic_sse_text_body {|{"name":"Dana","age":27}|} in
+    let body = provider_a_sse_text_body {|{"name":"Dana","age":27}|} in
     let url = start_sse_mock ~sw ~net:env#net ~port:21306 body in
     let events = ref 0 in
     match

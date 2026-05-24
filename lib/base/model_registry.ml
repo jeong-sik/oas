@@ -9,17 +9,17 @@
 let default_model_id =
   match Sys.getenv_opt "OAS_DEFAULT_MODEL" with
   | Some v -> v
-  | None -> "claude-sonnet-4-6-20250514"
+  | None -> "agent_llm_a-sonnet-4-6-20250514"
 ;;
 
 (** Resolve a model alias or short name to its full API model ID.
     Unknown strings pass through unchanged — this allows custom models. *)
 let resolve_model_id = function
-  | "claude-opus-4-6" | "opus" -> "claude-opus-4-6-20250514"
-  | "claude-sonnet-4-6" | "sonnet" -> "claude-sonnet-4-6-20250514"
-  | "claude-opus-4-5" -> "claude-opus-4-5-20251101"
-  | "claude-sonnet-4" -> "claude-sonnet-4-20250514"
-  | "claude-haiku-4-5" | "haiku" -> "claude-haiku-4-5-20251001"
-  | "claude-3-7-sonnet" -> "claude-3-7-sonnet-20250219"
+  | "agent_llm_a-opus-4-6" | "opus" -> "agent_llm_a-opus-4-6-20250514"
+  | "agent_llm_a-sonnet-4-6" | "sonnet" -> "agent_llm_a-sonnet-4-6-20250514"
+  | "agent_llm_a-opus-4-5" -> "agent_llm_a-opus-4-5-20251101"
+  | "agent_llm_a-sonnet-4" -> "agent_llm_a-sonnet-4-20250514"
+  | "agent_llm_a-haiku-4-5" | "haiku" -> "agent_llm_a-haiku-4-5-20251001"
+  | "agent_llm_a-3-7-sonnet" -> "agent_llm_a-3-7-sonnet-20250219"
   | other -> other
 ;;

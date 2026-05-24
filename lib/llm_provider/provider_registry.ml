@@ -87,7 +87,7 @@ let catalog_command_available (entry : Provider_catalog.entry) =
   | Provider_catalog.Cli, _ -> false
   | Provider_catalog.Http, _
   | Provider_catalog.Managed, _
-  | Provider_catalog.Custom_openai_compat, _ -> true
+  | Provider_catalog.Custom_provider_d_compat, _ -> true
 ;;
 
 let catalog_auth_available (entry : Provider_catalog.entry) =
@@ -236,17 +236,17 @@ let discovered_endpoint_max_context (url : string) =
 ;;
 
 let llama_defaults =
-  { kind = OpenAI_compat
+  { kind = Provider_d_compat
   ; base_url = List.hd llama_all_endpoints
   ; api_key_env = ""
   ; request_path = "/v1/chat/completions"
   }
 ;;
 
-let claude_defaults =
-  { kind = Anthropic
-  ; base_url = "https://api.anthropic.com"
-  ; api_key_env = "ANTHROPIC_API_KEY"
+let agent_llm_a_defaults =
+  { kind = Provider_a
+  ; base_url = "https://api.provider_a.com"
+  ; api_key_env = "PROVIDER_A_API_KEY"
   ; request_path = "/v1/messages"
   }
 ;;
@@ -257,17 +257,17 @@ let env_or_default env_name default_url =
   | None -> default_url
 ;;
 
-let gemini_defaults =
-  { kind = Gemini
+let provider_f_defaults =
+  { kind = Provider_f
   ; base_url =
       env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
-  ; api_key_env = "GEMINI_API_KEY"
+  ; api_key_env = "PROVIDER_F_API_KEY"
   ; request_path = ""
   }
 ;;
 
 let glm_defaults =
-  { kind = Glm
+  { kind = Provider_k
   ; base_url = env_or_default "ZAI_BASE_URL" Zai_catalog.general_base_url
   ; api_key_env = "ZAI_API_KEY"
   ; request_path = "/chat/completions"
@@ -275,17 +275,17 @@ let glm_defaults =
 ;;
 
 let glm_coding_defaults =
-  { kind = Glm
+  { kind = Provider_k
   ; base_url = env_or_default "ZAI_CODING_BASE_URL" Zai_catalog.coding_base_url
   ; api_key_env = "ZAI_CODING_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let kimi_defaults =
-  { kind = Kimi
-  ; base_url = env_or_default "KIMI_BASE_URL" "https://api.kimi.com/coding"
-  ; api_key_env = "KIMI_API_KEY"
+let provider_c_defaults =
+  { kind = Provider_c
+  ; base_url = env_or_default "PROVIDER_C_BASE_URL" "https://api.provider_c.com/coding"
+  ; api_key_env = "PROVIDER_C_API_KEY"
   ; request_path = "/v1/messages"
   }
 ;;
@@ -307,42 +307,42 @@ let ollama_cloud_defaults =
 ;;
 
 let openrouter_defaults =
-  { kind = OpenAI_compat
+  { kind = Provider_d_compat
   ; base_url = "https://openrouter.ai/api/v1"
   ; api_key_env = "OPENROUTER_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let groq_defaults =
-  { kind = OpenAI_compat
-  ; base_url = env_or_default "GROQ_BASE_URL" "https://api.groq.com/openai/v1"
+let provider_i_defaults =
+  { kind = Provider_d_compat
+  ; base_url = env_or_default "GROQ_BASE_URL" "https://api.provider_i.com/provider_d/v1"
   ; api_key_env = "GROQ_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let deepseek_defaults =
-  { kind = OpenAI_compat
-  ; base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.deepseek.com"
-  ; api_key_env = "DEEPSEEK_API_KEY"
+let provider_g_defaults =
+  { kind = Provider_d_compat
+  ; base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.provider_g.com"
+  ; api_key_env = "PROVIDER_G_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
-let dashscope_defaults =
-  { kind = DashScope
+let provider_h_defaults =
+  { kind = Provider_h
   ; base_url =
       env_or_default
         "DASHSCOPE_BASE_URL"
-        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-  ; api_key_env = "DASHSCOPE_API_KEY"
+        "https://provider_h-intl.aliyuncs.com/compatible-mode/v1"
+  ; api_key_env = "PROVIDER_H_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
 
 let siliconflow_defaults =
-  { kind = OpenAI_compat
+  { kind = Provider_d_compat
   ; base_url = env_or_default "SILICONFLOW_BASE_URL" "https://api.siliconflow.cn/v1"
   ; api_key_env = "SILICONFLOW_API_KEY"
   ; request_path = "/chat/completions"
@@ -385,47 +385,47 @@ let default () =
     "llama"
     llama_defaults
     ~max_context:128_000
-    Capabilities.openai_chat_extended_capabilities;
-  reg "claude" claude_defaults ~max_context:200_000 Capabilities.anthropic_capabilities;
-  reg "gemini" gemini_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
-  reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
-  reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
+    Capabilities.provider_d_chat_extended_capabilities;
+  reg "agent_llm_a" agent_llm_a_defaults ~max_context:200_000 Capabilities.provider_a_capabilities;
+  reg "provider_f" provider_f_defaults ~max_context:1_000_000 Capabilities.provider_f_capabilities;
+  reg "provider_k" glm_defaults ~max_context:200_000 Capabilities.provider_k_capabilities;
+  reg "provider_k-coding" glm_coding_defaults ~max_context:128_000 Capabilities.provider_k_capabilities;
   register
     t
-    { name = "kimi"
-    ; defaults = kimi_defaults
+    { name = "provider_c"
+    ; defaults = provider_c_defaults
     ; max_context =
-        max_context_from_capabilities ~default:262_144 Capabilities.kimi_capabilities
-    ; capabilities = Capabilities.kimi_capabilities
-    ; is_available = (fun () -> has_any_api_key [ "KIMI_API_KEY" ])
+        max_context_from_capabilities ~default:262_144 Capabilities.provider_c_capabilities
+    ; capabilities = Capabilities.provider_c_capabilities
+    ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
     };
   reg
     "openrouter"
     openrouter_defaults
     ~max_context:128_000
-    Capabilities.openai_chat_extended_capabilities;
-  reg "groq" groq_defaults ~max_context:131_072 Capabilities.openai_chat_capabilities;
-  (* DeepSeek v4 series (flash / pro). 1M context, reasoning, tools. *)
+    Capabilities.provider_d_chat_extended_capabilities;
+  reg "provider_i" provider_i_defaults ~max_context:131_072 Capabilities.provider_d_chat_capabilities;
+  (* Provider_g v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
-    "deepseek"
-    deepseek_defaults
+    "provider_g"
+    provider_g_defaults
     ~max_context:1_000_000
-    Capabilities.openai_chat_capabilities;
+    Capabilities.provider_d_chat_capabilities;
   reg
-    "dashscope"
-    dashscope_defaults
+    "provider_h"
+    provider_h_defaults
     ~max_context:131_072
-    Capabilities.dashscope_capabilities;
+    Capabilities.provider_h_capabilities;
   reg
     "alibaba"
-    dashscope_defaults
+    provider_h_defaults
     ~max_context:131_072
-    Capabilities.dashscope_capabilities;
+    Capabilities.provider_h_capabilities;
   reg
     "siliconflow"
     siliconflow_defaults
     ~max_context:128_000
-    Capabilities.openai_chat_capabilities;
+    Capabilities.provider_d_chat_capabilities;
   register
     t
     { name = "ollama"
@@ -442,84 +442,84 @@ let default () =
   (* CLI subprocess providers. Exposed under explicit provider labels so
      caller-managed provider/model specs can opt into the non-interactive transports
      without reusing the direct API names. *)
-  let claude_code_defaults =
-    { kind = Claude_code; base_url = ""; api_key_env = ""; request_path = "" }
+  let agent_llm_a_code_defaults =
+    { kind = Cli_tool_d; base_url = ""; api_key_env = ""; request_path = "" }
   in
-  let claude_code_available =
-    let cached = command_in_path "claude" in
+  let agent_llm_a_code_available =
+    let cached = command_in_path "agent_llm_a" in
     fun () -> cached
   in
-  let gemini_cli_defaults =
-    { kind = Gemini_cli; base_url = ""; api_key_env = ""; request_path = "" }
+  let provider_f_cli_defaults =
+    { kind = Cli_tool_b; base_url = ""; api_key_env = ""; request_path = "" }
   in
-  let gemini_cli_available =
-    let cached = command_in_path "gemini" in
+  let provider_f_cli_available =
+    let cached = command_in_path "provider_f" in
     fun () -> cached
   in
-  let kimi_cli_defaults =
-    { kind = Kimi_cli; base_url = ""; api_key_env = ""; request_path = "" }
+  let provider_c_cli_defaults =
+    { kind = Cli_tool_c; base_url = ""; api_key_env = ""; request_path = "" }
   in
-  let kimi_cli_available =
-    let cached = command_in_path "kimi" in
+  let provider_c_cli_available =
+    let cached = command_in_path "provider_c" in
     fun () -> cached
   in
-  let codex_cli_defaults =
-    { kind = Codex_cli; base_url = ""; api_key_env = ""; request_path = "" }
+  let agent_code_cli_defaults =
+    { kind = Cli_tool_a; base_url = ""; api_key_env = ""; request_path = "" }
   in
-  let codex_cli_available =
-    let cached = command_in_path "codex" in
+  let agent_code_cli_available =
+    let cached = command_in_path "agent_code" in
     fun () -> cached
   in
   register
     t
-    { name = "claude_code"
-    ; defaults = claude_code_defaults
+    { name = "cli_tool_d"
+    ; defaults = agent_llm_a_code_defaults
     ; max_context =
         max_context_from_capabilities
           ~default:200_000
-          Capabilities.claude_code_capabilities
-    ; capabilities = Capabilities.claude_code_capabilities
-    ; is_available = claude_code_available
+          Capabilities.agent_llm_a_code_capabilities
+    ; capabilities = Capabilities.agent_llm_a_code_capabilities
+    ; is_available = agent_llm_a_code_available
     };
   register
     t
     { name = "cc"
-    ; defaults = claude_code_defaults
+    ; defaults = agent_llm_a_code_defaults
     ; max_context =
         max_context_from_capabilities
           ~default:200_000
-          Capabilities.claude_code_capabilities
-    ; capabilities = Capabilities.claude_code_capabilities
-    ; is_available = claude_code_available
+          Capabilities.agent_llm_a_code_capabilities
+    ; capabilities = Capabilities.agent_llm_a_code_capabilities
+    ; is_available = agent_llm_a_code_available
     };
   register
     t
-    { name = "gemini_cli"
-    ; defaults = gemini_cli_defaults
+    { name = "cli_tool_b"
+    ; defaults = provider_f_cli_defaults
     ; max_context =
         max_context_from_capabilities
           ~default:1_000_000
-          Capabilities.gemini_cli_capabilities
-    ; capabilities = Capabilities.gemini_cli_capabilities
-    ; is_available = gemini_cli_available
+          Capabilities.provider_f_cli_capabilities
+    ; capabilities = Capabilities.provider_f_cli_capabilities
+    ; is_available = provider_f_cli_available
     };
   register
     t
-    { name = "kimi_cli"
-    ; defaults = kimi_cli_defaults
+    { name = "cli_tool_c"
+    ; defaults = provider_c_cli_defaults
     ; max_context =
-        max_context_from_capabilities ~default:262_144 Capabilities.kimi_cli_capabilities
-    ; capabilities = Capabilities.kimi_cli_capabilities
-    ; is_available = kimi_cli_available
+        max_context_from_capabilities ~default:262_144 Capabilities.provider_c_cli_capabilities
+    ; capabilities = Capabilities.provider_c_cli_capabilities
+    ; is_available = provider_c_cli_available
     };
   register
     t
-    { name = "codex_cli"
-    ; defaults = codex_cli_defaults
+    { name = "cli_tool_a"
+    ; defaults = agent_code_cli_defaults
     ; max_context =
-        max_context_from_capabilities ~default:128_000 Capabilities.codex_cli_capabilities
-    ; capabilities = Capabilities.codex_cli_capabilities
-    ; is_available = codex_cli_available
+        max_context_from_capabilities ~default:128_000 Capabilities.agent_code_cli_capabilities
+    ; capabilities = Capabilities.agent_code_cli_capabilities
+    ; is_available = agent_code_cli_available
     };
   overlay_provider_catalog t;
   t
@@ -527,14 +527,14 @@ let default () =
 
 let provider_name_of_config (config : Provider_config.t) =
   match config.kind with
-  | Anthropic -> "claude"
-  | Kimi -> "kimi"
-  | Gemini -> "gemini"
-  | Glm -> if Zai_catalog.is_coding_base_url config.base_url then "glm-coding" else "glm"
-  | Claude_code -> "claude_code"
-  | Gemini_cli -> "gemini_cli"
-  | Kimi_cli -> "kimi_cli"
-  | Codex_cli -> "codex_cli"
+  | Provider_a -> "agent_llm_a"
+  | Provider_c -> "provider_c"
+  | Provider_f -> "provider_f"
+  | Provider_k -> if Zai_catalog.is_coding_base_url config.base_url then "provider_k-coding" else "provider_k"
+  | Cli_tool_d -> "cli_tool_d"
+  | Cli_tool_b -> "cli_tool_b"
+  | Cli_tool_c -> "cli_tool_c"
+  | Cli_tool_a -> "cli_tool_a"
   | Ollama ->
     if
       String.equal
@@ -542,8 +542,8 @@ let provider_name_of_config (config : Provider_config.t) =
         (normalize_url ollama_cloud_defaults.base_url)
     then "ollama_cloud"
     else "ollama"
-  | DashScope -> "dashscope"
-  | OpenAI_compat ->
+  | Provider_h -> "provider_h"
+  | Provider_d_compat ->
     if Provider_config.is_local config
     then "llama"
     else (
@@ -558,5 +558,5 @@ let provider_name_of_config (config : Provider_config.t) =
           && String.equal (String.trim entry.defaults.request_path) request_path)
       with
       | Some entry -> entry.name
-      | None -> "openai")
+      | None -> "provider_d")
 ;;

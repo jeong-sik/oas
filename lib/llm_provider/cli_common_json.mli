@@ -1,8 +1,8 @@
 (** Thin wrappers over [Yojson.Safe.Util] that return safe defaults
     instead of raising on missing or mistyped fields.
 
-    Shared across non-interactive CLI transports (Claude Code, Gemini CLI,
-    Codex CLI) so that loosely-typed CLI output is parsed consistently. *)
+    Shared across non-interactive CLI transports (Agent_llm_a Code, Provider_f CLI,
+    Agent_code CLI) so that loosely-typed CLI output is parsed consistently. *)
 
 (** [member_str key json] returns the string at [key], or [""] when the
     field is missing or not a string. *)

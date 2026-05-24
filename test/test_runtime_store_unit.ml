@@ -124,7 +124,7 @@ let mk_session ?(session_id = "test-sess") ?(updated_at = 1001.0) () : Runtime.s
   ; phase = Running
   ; created_at = 1000.0
   ; updated_at
-  ; provider = Some "anthropic"
+  ; provider = Some "provider_a"
   ; model = Some "test-model"
   ; system_prompt = None
   ; max_turns = 10

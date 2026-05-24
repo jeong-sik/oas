@@ -17,9 +17,9 @@ let with_env name value f =
 ;;
 
 let test_missing_env_var () =
-  (* Anthropic provider checks env var; nonexistent key -> Error *)
+  (* Provider_a provider checks env var; nonexistent key -> Error *)
   let cfg : Provider.config =
-    { provider = Anthropic
+    { provider = Provider_a
     ; model_id = "test-model"
     ; api_key_env = "AGENT_SDK_TEST_NONEXISTENT_KEY_39f7b2"
     }
@@ -36,15 +36,15 @@ let test_missing_env_var () =
 ;;
 
 let test_present_env_var () =
-  (* Anthropic provider resolves env var to api_key *)
+  (* Provider_a provider resolves env var to api_key *)
   let env_var = "AGENT_SDK_TEST_KEY_PRESENT_a1b2c3" in
   Unix.putenv env_var "test-api-key-value";
   let cfg : Provider.config =
-    { provider = Anthropic; model_id = "test-model"; api_key_env = env_var }
+    { provider = Provider_a; model_id = "test-model"; api_key_env = env_var }
   in
   match Provider.resolve cfg with
   | Ok (base_url, api_key, _headers) ->
-    Alcotest.(check string) "base_url" "https://api.anthropic.com" base_url;
+    Alcotest.(check string) "base_url" "https://api.provider_a.com" base_url;
     Alcotest.(check string) "api_key" "test-api-key-value" api_key
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
@@ -65,21 +65,21 @@ let test_local_skips_env_var () =
     Alcotest.fail (Printf.sprintf "Local should always succeed: %s" (Error.to_string e))
 ;;
 
-let test_anthropic_provider () =
-  let env_var = "AGENT_SDK_TEST_ANTHROPIC_KEY_x9y8z7" in
+let test_provider_a_provider () =
+  let env_var = "AGENT_SDK_TEST_PROVIDER_A_KEY_x9y8z7" in
   Unix.putenv env_var "sk-ant-test-key";
   let cfg : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-20250514"; api_key_env = env_var }
+    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-20250514"; api_key_env = env_var }
   in
   match Provider.resolve cfg with
   | Ok (base_url, api_key, _headers) ->
-    Alcotest.(check string) "anthropic base_url" "https://api.anthropic.com" base_url;
+    Alcotest.(check string) "provider_a base_url" "https://api.provider_a.com" base_url;
     Alcotest.(check string) "api_key" "sk-ant-test-key" api_key
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
 ;;
 
-let test_openai_compat_resolve_success () =
+let test_provider_d_compat_resolve_success () =
   let env_var = "AGENT_SDK_TEST_OPENROUTER_KEY_q1w2e3" in
   Unix.putenv env_var "or-test-key";
   let cfg : Provider.config =
@@ -90,7 +90,7 @@ let test_openai_compat_resolve_success () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "anthropic/claude-sonnet-4-6"
+    ; model_id = "provider_a/agent_llm_a-sonnet-4-6"
     ; api_key_env = env_var
     }
   in
@@ -103,7 +103,7 @@ let test_openai_compat_resolve_success () =
   | Error e -> Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 ;;
 
-let test_openai_compat_resolve_missing_key () =
+let test_provider_d_compat_resolve_missing_key () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -127,18 +127,18 @@ let test_openai_compat_resolve_missing_key () =
   | Ok _ -> Alcotest.fail "should fail when env var missing"
 ;;
 
-let test_anthropic_headers () =
+let test_provider_a_headers () =
   let env_var = "AGENT_SDK_TEST_HDR_KEY_h3h3" in
   Unix.putenv env_var "sk-ant-hdr-test";
   let cfg : Provider.config =
-    { provider = Anthropic; model_id = "test"; api_key_env = env_var }
+    { provider = Provider_a; model_id = "test"; api_key_env = env_var }
   in
   match Provider.resolve cfg with
   | Ok (_, _, headers) ->
     let xkey = List.assoc "x-api-key" headers in
     Alcotest.(check string) "x-api-key header" "sk-ant-hdr-test" xkey;
-    let version = List.assoc "anthropic-version" headers in
-    Alcotest.(check string) "anthropic-version" "2023-06-01" version;
+    let version = List.assoc "provider_a-version" headers in
+    Alcotest.(check string) "provider_a-version" "2023-06-01" version;
     let ct = List.assoc "Content-Type" headers in
     Alcotest.(check string) "content-type" "application/json" ct
   | Error e -> Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
@@ -158,13 +158,13 @@ let test_model_spec_local_llm_capabilities () =
     "Openai_chat_completions"
     (match spec.request_kind with
      | Provider.Openai_chat_completions -> "Openai_chat_completions"
-     | Provider.Anthropic_messages -> "Anthropic_messages"
+     | Provider.Provider_a_messages -> "Provider_a_messages"
      | Provider.Custom n -> "Custom:" ^ n);
   Alcotest.(check bool) "supports tools" true spec.capabilities.supports_tools
 ;;
 
 let test_model_spec_openrouter_capabilities () =
-  let cfg = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" () in
+  let cfg = Provider.openrouter ~model_id:"provider_a/agent_llm_a-sonnet-4-6" () in
   let spec = Provider.model_spec_of_config cfg in
   let contract = Provider.inference_contract_of_config cfg in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
@@ -182,8 +182,8 @@ let test_model_spec_openrouter_capabilities () =
     spec.capabilities.supports_response_format_json
 ;;
 
-let test_inference_contract_anthropic_multimodal () =
-  let contract = Provider.inference_contract_of_config (Provider.anthropic_sonnet ()) in
+let test_inference_contract_provider_a_multimodal () =
+  let contract = Provider.inference_contract_of_config (Provider.provider_a_sonnet ()) in
   Alcotest.(check string)
     "modality"
     "multimodal"
@@ -194,13 +194,13 @@ let test_inference_contract_task_transcription () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "https://api.openai.com/v1"
+          { base_url = "https://api.provider_d.com/v1"
           ; auth_header = Some "Authorization"
           ; path = "/audio/transcriptions"
           ; static_token = None
           }
     ; model_id = "whisper-1"
-    ; api_key_env = "OPENAI_API_KEY"
+    ; api_key_env = "PROVIDER_D_API_KEY"
     }
   in
   let contract = Provider.inference_contract_of_config cfg in
@@ -216,7 +216,7 @@ let test_inference_contract_task_image_generation () =
           ; path = "/images/generations"
           ; static_token = None
           }
-    ; model_id = "glm-image"
+    ; model_id = "provider_k-image"
     ; api_key_env = ""
     }
   in
@@ -250,7 +250,7 @@ let test_zai_glm5v_capabilities_include_image_input () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "glm-5v-turbo"
+    ; model_id = "provider_k-5v-turbo"
     ; api_key_env = ""
     }
   in
@@ -262,7 +262,7 @@ let test_zai_glm5v_capabilities_include_image_input () =
     capabilities.supports_multimodal_inputs
 ;;
 
-let test_non_zai_glm_capabilities_stay_openai_compat () =
+let test_non_zai_glm_capabilities_stay_provider_d_compat () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -271,7 +271,7 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "glm-5"
+    ; model_id = "provider_k-5"
     ; api_key_env = ""
     }
   in
@@ -314,7 +314,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
   | Ok () -> Alcotest.fail "expected unsupported modality validation to fail"
 ;;
 
-let test_extended_openai_capabilities () =
+let test_extended_provider_d_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -331,16 +331,16 @@ let test_extended_openai_capabilities () =
   Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
 ;;
 
-let test_anthropic_capabilities_consults_for_model_id () =
-  (* Regression for #824: the Anthropic branch of capabilities_for_model
-     was returning the base anthropic_capabilities (200K window)
+let test_provider_a_capabilities_consults_for_model_id () =
+  (* Regression for #824: the Provider_a branch of capabilities_for_model
+     was returning the base provider_a_capabilities (200K window)
      regardless of model_id, bypassing the per-model overrides in
      Llm_provider.Capabilities.for_model_id. Opus 4 / Sonnet 4 advertise
      a 1M window in that table; this test pins that the config path
      now picks them up. *)
-  let opus = Provider.anthropic_opus () in
-  let sonnet = Provider.anthropic_sonnet () in
-  let haiku = Provider.anthropic_haiku () in
+  let opus = Provider.provider_a_opus () in
+  let sonnet = Provider.provider_a_sonnet () in
+  let haiku = Provider.provider_a_haiku () in
   let opus_caps = Provider.capabilities_for_config opus in
   let sonnet_caps = Provider.capabilities_for_config sonnet in
   let haiku_caps = Provider.capabilities_for_config haiku in
@@ -367,19 +367,19 @@ let test_anthropic_capabilities_consults_for_model_id () =
     haiku_caps.max_context_tokens
 ;;
 
-let test_anthropic_capabilities_unknown_model_id_falls_back () =
-  (* Unknown Anthropic model_ids still fall back to the conservative
-     base anthropic_capabilities rather than failing hard. *)
+let test_provider_a_capabilities_unknown_model_id_falls_back () =
+  (* Unknown Provider_a model_ids still fall back to the conservative
+     base provider_a_capabilities rather than failing hard. *)
   let cfg : Provider.config =
-    { provider = Anthropic
-    ; model_id = "claude-nonexistent-future-model"
-    ; api_key_env = "ANTHROPIC_API_KEY"
+    { provider = Provider_a
+    ; model_id = "agent_llm_a-nonexistent-future-model"
+    ; api_key_env = "PROVIDER_A_API_KEY"
     }
   in
   let caps = Provider.capabilities_for_config cfg in
-  (* Base anthropic_capabilities has max_context_tokens = Some 200_000 *)
+  (* Base provider_a_capabilities has max_context_tokens = Some 200_000 *)
   Alcotest.(check (option int))
-    "unknown anthropic model falls back to base 200K"
+    "unknown provider_a model falls back to base 200K"
     (Some 200_000)
     caps.max_context_tokens
 ;;
@@ -387,7 +387,7 @@ let test_anthropic_capabilities_unknown_model_id_falls_back () =
 (* ── Phase 6: pricing, ollama, static_token ─────────────────────── *)
 
 let test_pricing_sonnet () =
-  let p = Provider.pricing_for_model "claude-sonnet-4-6-20250514" in
+  let p = Provider.pricing_for_model "agent_llm_a-sonnet-4-6-20250514" in
   Alcotest.(check (float 0.001)) "input/M" 3.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "output/M" 15.0 p.output_per_million;
   Alcotest.(check (float 0.001)) "cache_write" 1.25 p.cache_write_multiplier;
@@ -418,7 +418,7 @@ let test_pricing_unknown () =
 ;;
 
 let test_estimate_cost () =
-  let p = Provider.pricing_for_model "claude-sonnet-4-6" in
+  let p = Provider.pricing_for_model "agent_llm_a-sonnet-4-6" in
   let cost =
     Provider.estimate_cost
       ~pricing:p
@@ -434,7 +434,7 @@ let test_estimate_cost () =
 let test_config_of_provider_config_localhost_boundary () =
   let cfg =
     Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~kind:Llm_provider.Provider_config.Provider_d_compat
       ~model_id:"test-model"
       ~base_url:"http://localhostevil.com:8080"
       ()
@@ -463,7 +463,7 @@ let test_config_of_provider_config_local_ollama_delegates_to_ssot () =
 let test_config_of_provider_config_uppercase_localhost_delegates_to_ssot () =
   let cfg =
     Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~kind:Llm_provider.Provider_config.Provider_d_compat
       ~model_id:"test-model"
       ~base_url:"  HTTP://LOCALHOST:11434/v1  "
       ()
@@ -477,7 +477,7 @@ let test_config_of_provider_config_uppercase_localhost_delegates_to_ssot () =
 let test_config_of_provider_config_localhost_query_delegates_to_ssot () =
   let cfg =
     Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~kind:Llm_provider.Provider_config.Provider_d_compat
       ~model_id:"test-model"
       ~base_url:"http://localhost?foo=bar"
       ()
@@ -488,22 +488,22 @@ let test_config_of_provider_config_localhost_query_delegates_to_ssot () =
   | _ -> Alcotest.fail "expected localhost query config to resolve as local"
 ;;
 
-let test_config_of_provider_config_kimi_uses_custom_provider () =
+let test_config_of_provider_config_provider_c_uses_custom_provider () =
   let cfg =
     Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.Kimi
-      ~model_id:"kimi-for-coding"
-      ~base_url:"https://api.kimi.com/coding"
+      ~kind:Llm_provider.Provider_config.Provider_c
+      ~model_id:"provider_c-for-coding"
+      ~base_url:"https://api.provider_c.com/coding"
       ()
   in
   match Provider.config_of_provider_config cfg with
   | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
-    Alcotest.(check string) "provider name" "kimi" name;
-    Alcotest.(check string) "api_key_env" "KIMI_API_KEY" api_key_env
-  | _ -> Alcotest.fail "expected kimi config to round-trip through Custom_registered"
+    Alcotest.(check string) "provider name" "provider_c" name;
+    Alcotest.(check string) "api_key_env" "PROVIDER_C_API_KEY" api_key_env
+  | _ -> Alcotest.fail "expected provider_c config to round-trip through Custom_registered"
 ;;
 
-let test_openai_compat_static_token () =
+let test_provider_d_compat_static_token () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -524,7 +524,7 @@ let test_openai_compat_static_token () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-let test_openai_compat_no_auth () =
+let test_provider_d_compat_no_auth () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -547,7 +547,7 @@ let test_openai_compat_no_auth () =
 let agent_state_with_params () : Types.agent_state =
   let cfg =
     { Types.default_config with
-      model = "claude-test"
+      model = "agent_llm_a-test"
     ; max_tokens = Some 4096
     ; temperature = Some 0.7
     ; top_p = Some 0.9
@@ -562,25 +562,25 @@ let agent_state_with_params () : Types.agent_state =
   { config = cfg; usage = Types.empty_usage; turn_count = 0; messages = [] }
 ;;
 
-let test_provider_config_of_agent_anthropic () =
+let test_provider_config_of_agent_provider_a () =
   let env_var = "AGENT_SDK_TEST_ADAPTER_KEY_anth" in
   Unix.putenv env_var "sk-ant-adapter-test";
   let cfg : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-20250514"; api_key_env = env_var }
+    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-20250514"; api_key_env = env_var }
   in
   let state = agent_state_with_params () in
   match
     Provider.provider_config_of_agent
       ~state
-      ~base_url:"https://api.anthropic.com"
+      ~base_url:"https://api.provider_a.com"
       (Some cfg)
   with
   | Ok pc ->
     Alcotest.(check string)
       "kind"
-      "anthropic"
+      "provider_a"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
-    Alcotest.(check string) "model_id" "claude-sonnet-4-20250514" pc.model_id;
+    Alcotest.(check string) "model_id" "agent_llm_a-sonnet-4-20250514" pc.model_id;
     Alcotest.(check string) "api_key" "sk-ant-adapter-test" pc.api_key;
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
     Alcotest.(check bool)
@@ -588,9 +588,9 @@ let test_provider_config_of_agent_anthropic () =
       true
       (List.mem ("x-api-key", "sk-ant-adapter-test") pc.headers);
     Alcotest.(check bool)
-      "anthropic-version header present"
+      "provider_a-version header present"
       true
-      (List.mem ("anthropic-version", "2023-06-01") pc.headers);
+      (List.mem ("provider_a-version", "2023-06-01") pc.headers);
     Alcotest.(check (option int)) "max_tokens" (Some 4096) pc.max_tokens;
     Alcotest.(check (option (float 0.001))) "temperature" (Some 0.7) pc.temperature;
     Alcotest.(check (option (float 0.001))) "top_p" (Some 0.9) pc.top_p;
@@ -603,19 +603,19 @@ let test_provider_config_of_agent_anthropic () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-let test_provider_config_of_agent_openai_compat_collapses () =
-  (* OpenAICompat collapses to OpenAI_compat (lossy — documented limitation) *)
+let test_provider_config_of_agent_provider_d_compat_collapses () =
+  (* OpenAICompat collapses to Provider_d_compat (lossy — documented limitation) *)
   let env_var = "AGENT_SDK_TEST_ADAPTER_KEY_oai" in
   Unix.putenv env_var "sk-oai-adapter-test";
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+          { base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d"
           ; auth_header = Some "Authorization"
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "gemini-2.5-flash"
+    ; model_id = "provider_f-2.5-flash"
     ; api_key_env = env_var
     }
   in
@@ -625,26 +625,26 @@ let test_provider_config_of_agent_openai_compat_collapses () =
   with
   | Ok pc ->
     Alcotest.(check string)
-      "kind collapses to openai_compat"
-      "openai_compat"
+      "kind collapses to provider_d_compat"
+      "provider_d_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string)
       "base_url from resolve"
-      "https://generativelanguage.googleapis.com/v1beta/openai"
+      "https://generativelanguage.googleapis.com/v1beta/provider_d"
       pc.base_url;
     Alcotest.(check string) "request_path preserved" "/chat/completions" pc.request_path;
     Alcotest.(check bool)
       "authorization header preserved"
       true
       (List.mem ("Authorization", "Bearer sk-oai-adapter-test") pc.headers);
-    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
+    Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
 let test_provider_config_of_agent_missing_env () =
   let cfg : Provider.config =
-    { provider = Anthropic
-    ; model_id = "claude-test"
+    { provider = Provider_a
+    ; model_id = "agent_llm_a-test"
     ; api_key_env = "AGENT_SDK_TEST_ADAPTER_NONEXISTENT_zzz"
     }
   in
@@ -652,7 +652,7 @@ let test_provider_config_of_agent_missing_env () =
   match
     Provider.provider_config_of_agent
       ~state
-      ~base_url:"https://api.anthropic.com"
+      ~base_url:"https://api.provider_a.com"
       (Some cfg)
   with
   | Error (Error.Config (MissingEnvVar { var_name })) ->
@@ -665,21 +665,21 @@ let test_provider_config_of_agent_missing_env () =
 ;;
 
 let test_provider_config_of_agent_none_fallback () =
-  (* None provider with ANTHROPIC_API_KEY present = Anthropic default *)
-  Unix.putenv "ANTHROPIC_API_KEY" "sk-ant-default-fallback";
+  (* None provider with PROVIDER_A_API_KEY present = Provider_a default *)
+  Unix.putenv "PROVIDER_A_API_KEY" "sk-ant-default-fallback";
   let state = agent_state_with_params () in
   match
-    Provider.provider_config_of_agent ~state ~base_url:"https://api.anthropic.com" None
+    Provider.provider_config_of_agent ~state ~base_url:"https://api.provider_a.com" None
   with
   | Ok pc ->
     Alcotest.(check string)
-      "defaults to anthropic"
-      "anthropic"
+      "defaults to provider_a"
+      "provider_a"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "uses fallback key" "sk-ant-default-fallback" pc.api_key;
     Alcotest.(check string)
       "preserves caller base_url"
-      "https://api.anthropic.com"
+      "https://api.provider_a.com"
       pc.base_url;
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
     Alcotest.(check bool)
@@ -703,7 +703,7 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
   | Ok pc ->
     Alcotest.(check string)
       "kind"
-      "openai_compat"
+      "provider_d_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "request_path" "/v1/chat/completions" pc.request_path;
     Alcotest.(check string) "local strips dummy api_key" "" pc.api_key;
@@ -716,36 +716,36 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
 
 let test_provider_config_of_agent_custom_registered_preserves_kind () =
   (* Regression for #1003: Custom_registered must preserve the
-     registry-declared provider_kind (e.g. Gemini) rather than
-     flattening to OpenAI_compat, which would route Gemini requests
-     through the OpenAI wire format and produce 404 against the
-     Gemini base URL. *)
+     registry-declared provider_kind (e.g. Provider_f) rather than
+     flattening to Provider_d_compat, which would route Provider_f requests
+     through the Provider_d wire format and produce 404 against the
+     Provider_f base URL. *)
   let cfg : Provider.config =
-    { provider = Custom_registered { name = "gemini" }
-    ; model_id = "gemini-2.5-flash"
-    ; api_key_env = "GEMINI_API_KEY"
+    { provider = Custom_registered { name = "provider_f" }
+    ; model_id = "provider_f-2.5-flash"
+    ; api_key_env = "PROVIDER_F_API_KEY"
     }
   in
   let state = agent_state_with_params () in
-  Unix.putenv "GEMINI_API_KEY" "fake-gemini-key";
+  Unix.putenv "PROVIDER_F_API_KEY" "fake-provider_f-key";
   match
     Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
   with
   | Ok pc ->
     Alcotest.(check bool)
-      "kind preserves Gemini"
+      "kind preserves Provider_f"
       true
-      (pc.kind = Llm_provider.Provider_config.Gemini);
-    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
+      (pc.kind = Llm_provider.Provider_config.Provider_f);
+    Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
-let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
+let test_provider_config_of_agent_custom_registered_provider_c_preserves_headers () =
   let env_var = "KIMI_PROVIDER_TEST_KEY" in
-  Unix.putenv env_var "kimi-provider-test-key";
+  Unix.putenv env_var "provider_c-provider-test-key";
   let cfg : Provider.config =
-    { provider = Custom_registered { name = "kimi" }
-    ; model_id = "kimi-for-coding"
+    { provider = Custom_registered { name = "provider_c" }
+    ; model_id = "provider_c-for-coding"
     ; api_key_env = env_var
     }
   in
@@ -755,18 +755,18 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   with
   | Ok pc ->
     Alcotest.(check bool)
-      "kind preserves Kimi"
+      "kind preserves Provider_c"
       true
-      (pc.kind = Llm_provider.Provider_config.Kimi);
+      (pc.kind = Llm_provider.Provider_config.Provider_c);
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
     Alcotest.(check bool)
       "x-api-key header present"
       true
-      (List.mem ("x-api-key", "kimi-provider-test-key") pc.headers);
+      (List.mem ("x-api-key", "provider_c-provider-test-key") pc.headers);
     Alcotest.(check bool)
-      "anthropic-version header present"
+      "provider_a-version header present"
       true
-      (List.mem ("anthropic-version", "2023-06-01") pc.headers)
+      (List.mem ("provider_a-version", "2023-06-01") pc.headers)
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
@@ -775,7 +775,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
     with_env "OLLAMA_API_KEY" (Some "fallback-ollama-api-key") (fun () ->
       let cfg : Provider.config =
         { provider = Custom_registered { name = "ollama_cloud" }
-        ; model_id = "glm-5.1:cloud"
+        ; model_id = "provider_k-5.1:cloud"
         ; api_key_env = "OLLAMA_CLOUD_API_KEY"
         }
       in
@@ -807,7 +807,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
     with_env "OLLAMA_API_KEY" (Some "ollama-api-fallback-key") (fun () ->
       let cfg : Provider.config =
         { provider = Custom_registered { name = "ollama_cloud" }
-        ; model_id = "deepseek-v4-pro:cloud"
+        ; model_id = "provider_g-v4-pro:cloud"
         ; api_key_env = "OLLAMA_CLOUD_API_KEY"
         }
       in
@@ -856,16 +856,16 @@ let () =
       , [ Alcotest.test_case "missing env var returns Error" `Quick test_missing_env_var
         ; Alcotest.test_case "present env var returns Ok" `Quick test_present_env_var
         ; Alcotest.test_case "local skips env var" `Quick test_local_skips_env_var
-        ; Alcotest.test_case "anthropic provider" `Quick test_anthropic_provider
+        ; Alcotest.test_case "provider_a provider" `Quick test_provider_a_provider
         ; Alcotest.test_case
-            "openai compat success"
+            "provider_d compat success"
             `Quick
-            test_openai_compat_resolve_success
+            test_provider_d_compat_resolve_success
         ; Alcotest.test_case
-            "openai compat missing key"
+            "provider_d compat missing key"
             `Quick
-            test_openai_compat_resolve_missing_key
-        ; Alcotest.test_case "anthropic headers" `Quick test_anthropic_headers
+            test_provider_d_compat_resolve_missing_key
+        ; Alcotest.test_case "provider_a headers" `Quick test_provider_a_headers
         ; Alcotest.test_case
             "local llm model spec capabilities"
             `Quick
@@ -875,9 +875,9 @@ let () =
             `Quick
             test_model_spec_openrouter_capabilities
         ; Alcotest.test_case
-            "inference contract anthropic multimodal"
+            "inference contract provider_a multimodal"
             `Quick
-            test_inference_contract_anthropic_multimodal
+            test_inference_contract_provider_a_multimodal
         ; Alcotest.test_case
             "task inference transcription"
             `Quick
@@ -891,29 +891,29 @@ let () =
             `Quick
             test_inference_contract_task_video_generation
         ; Alcotest.test_case
-            "zai glm-5v image capabilities"
+            "zai provider_k-5v image capabilities"
             `Quick
             test_zai_glm5v_capabilities_include_image_input
         ; Alcotest.test_case
-            "non-zai glm stays openai compat"
+            "non-zai provider_k stays provider_d compat"
             `Quick
-            test_non_zai_glm_capabilities_stay_openai_compat
+            test_non_zai_glm_capabilities_stay_provider_d_compat
         ; Alcotest.test_case
             "invalid modality gets actionable error"
             `Quick
             test_validate_inference_contract_rejects_unsupported_modality
         ; Alcotest.test_case
-            "extended openai capabilities"
+            "extended provider_d capabilities"
             `Quick
-            test_extended_openai_capabilities
+            test_extended_provider_d_capabilities
         ; Alcotest.test_case
-            "anthropic consults for_model_id (#824)"
+            "provider_a consults for_model_id (#824)"
             `Quick
-            test_anthropic_capabilities_consults_for_model_id
+            test_provider_a_capabilities_consults_for_model_id
         ; Alcotest.test_case
-            "anthropic unknown model falls back to base"
+            "provider_a unknown model falls back to base"
             `Quick
-            test_anthropic_capabilities_unknown_model_id_falls_back
+            test_provider_a_capabilities_unknown_model_id_falls_back
         ] )
     ; ( "pricing"
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet
@@ -938,29 +938,29 @@ let () =
             `Quick
             test_config_of_provider_config_localhost_query_delegates_to_ssot
         ; Alcotest.test_case
-            "provider_config kimi custom"
+            "provider_config provider_c custom"
             `Quick
-            test_config_of_provider_config_kimi_uses_custom_provider
+            test_config_of_provider_config_provider_c_uses_custom_provider
         ] )
-    ; ( "openai_compat"
-      , [ Alcotest.test_case "static token" `Quick test_openai_compat_static_token
-        ; Alcotest.test_case "no auth" `Quick test_openai_compat_no_auth
+    ; ( "provider_d_compat"
+      , [ Alcotest.test_case "static token" `Quick test_provider_d_compat_static_token
+        ; Alcotest.test_case "no auth" `Quick test_provider_d_compat_no_auth
         ] )
     ; ( "provider_config_of_agent"
       , [ Alcotest.test_case
-            "anthropic maps fields"
+            "provider_a maps fields"
             `Quick
-            test_provider_config_of_agent_anthropic
+            test_provider_config_of_agent_provider_a
         ; Alcotest.test_case
-            "openai_compat kind collapses"
+            "provider_d_compat kind collapses"
             `Quick
-            test_provider_config_of_agent_openai_compat_collapses
+            test_provider_config_of_agent_provider_d_compat_collapses
         ; Alcotest.test_case
             "missing env propagates"
             `Quick
             test_provider_config_of_agent_missing_env
         ; Alcotest.test_case
-            "none falls back to ANTHROPIC_API_KEY"
+            "none falls back to PROVIDER_A_API_KEY"
             `Quick
             test_provider_config_of_agent_none_fallback
         ; Alcotest.test_case
@@ -972,9 +972,9 @@ let () =
             `Quick
             test_provider_config_of_agent_custom_registered_preserves_kind
         ; Alcotest.test_case
-            "custom registered kimi preserves headers"
+            "custom registered provider_c preserves headers"
             `Quick
-            test_provider_config_of_agent_custom_registered_kimi_preserves_headers
+            test_provider_config_of_agent_custom_registered_provider_c_preserves_headers
         ; Alcotest.test_case
             "custom registered ollama_cloud adds auth header"
             `Quick

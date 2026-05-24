@@ -293,7 +293,7 @@ let init_cmd name =
     Printf.sprintf
       {|{
   "name": "%s",
-  "model": "claude-sonnet-4-6",
+  "model": "agent_llm_a-sonnet-4-6",
   "system_prompt": "You are a helpful assistant.",
   "max_tokens": 4096,
   "max_turns": 10,

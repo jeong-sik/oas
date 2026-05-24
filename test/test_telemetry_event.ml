@@ -25,11 +25,11 @@ let check_float msg expected actual = check (float 0.001) msg expected actual
 let test_streaming_first_chunk () =
   let ev =
     Telemetry_event.Streaming_first_chunk
-      { provider = "openai"; model = "gpt-4"; ttfrc_ms = 123.456; requested_at = 1000.0 }
+      { provider = "provider_d"; model = "gpt-4"; ttfrc_ms = 123.456; requested_at = 1000.0 }
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_first_chunk r ->
-    check string "provider" "openai" r.provider;
+    check string "provider" "provider_d" r.provider;
     check string "model" "gpt-4" r.model;
     check_float "ttfrc_ms" 123.456 r.ttfrc_ms;
     check_float "requested_at" 1000.0 r.requested_at
@@ -39,16 +39,16 @@ let test_streaming_first_chunk () =
 let test_streaming_chunk_n () =
   let ev =
     Telemetry_event.Streaming_chunk_n
-      { provider = "anthropic"
-      ; model = "claude-3"
+      { provider = "provider_a"
+      ; model = "agent_llm_a-3"
       ; chunk_index = 5
       ; inter_chunk_ms = 42.0
       }
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_chunk_n r ->
-    check string "provider" "anthropic" r.provider;
-    check string "model" "claude-3" r.model;
+    check string "provider" "provider_a" r.provider;
+    check string "model" "agent_llm_a-3" r.model;
     check int "chunk_index" 5 r.chunk_index;
     check_float "inter_chunk_ms" 42.0 r.inter_chunk_ms
   | _ -> fail "variant mismatch"
@@ -57,7 +57,7 @@ let test_streaming_chunk_n () =
 let test_streaming_summary () =
   let ev =
     Telemetry_event.Streaming_summary
-      { provider = "openai"
+      { provider = "provider_d"
       ; model = "gpt-4"
       ; chunk_count = 3
       ; kind_breakdown =
@@ -81,7 +81,7 @@ let test_streaming_summary () =
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_summary r ->
-    check string "provider" "openai" r.provider;
+    check string "provider" "provider_d" r.provider;
     check string "model" "gpt-4" r.model;
     check int "chunk_count" 3 r.chunk_count;
     check int "thinking chunks" 1 r.kind_breakdown.thinking;
@@ -97,7 +97,7 @@ let test_streaming_summary () =
 let test_thinking_complete () =
   let ev =
     Telemetry_event.Thinking_complete
-      { provider = "openai"; model = "o3"; thinking_duration_ms = 888.8 }
+      { provider = "provider_d"; model = "o3"; thinking_duration_ms = 888.8 }
   in
   match roundtrip ev with
   | Telemetry_event.Thinking_complete r ->
@@ -108,11 +108,11 @@ let test_thinking_complete () =
 let test_timeout_no_response () =
   let ev =
     Telemetry_event.Timeout
-      { provider = "gemini"; model = "flash"; timeout_type = Telemetry_event.No_response }
+      { provider = "provider_f"; model = "flash"; timeout_type = Telemetry_event.No_response }
   in
   match roundtrip ev with
   | Telemetry_event.Timeout r ->
-    check string "provider" "gemini" r.provider;
+    check string "provider" "provider_f" r.provider;
     (match r.timeout_type with
      | Telemetry_event.No_response -> ()
      | _ -> fail "timeout_type mismatch")
@@ -139,7 +139,7 @@ let test_prefill_complete () =
   let ev =
     Telemetry_event.Prefill_complete
       { provider = "ollama"
-      ; model = "qwen"
+      ; model = "provider_h"
       ; prompt_eval_tokens = 1024
       ; prompt_eval_ms = 55.5
       ; cache_hit = true

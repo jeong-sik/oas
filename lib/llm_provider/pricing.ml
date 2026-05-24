@@ -66,84 +66,84 @@ let string_contains ~needle haystack =
 
 (* Internal: static pricing table lookup on a pre-normalised model ID.
    Called by [pricing_for_model_opt] when no dynamic override matches.
-   Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-   Newer OpenAI text models expose cached input at 0.1x input.
+   Provider_a cache pricing: write = 1.25x input, read = 0.1x input.
+   Newer Provider_d text models expose cached input at 0.1x input.
    Local/free models keep no-op cache multipliers. *)
 let static_pricing_opt_normalized normalized =
-  let anthropic_cache = 1.25, 0.1 in
-  let openai_cached_input = 1.0, 0.1 in
+  let provider_a_cache = 1.25, 0.1 in
+  let provider_d_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
     if string_contains ~needle:"opus-4-6" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
+    then Some ((15.0, 75.0), provider_a_cache)
     else if string_contains ~needle:"opus-4-5" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
+    then Some ((15.0, 75.0), provider_a_cache)
     else if string_contains ~needle:"sonnet-4-6" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
+    then Some ((3.0, 15.0), provider_a_cache)
     else if string_contains ~needle:"sonnet-4" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
+    then Some ((3.0, 15.0), provider_a_cache)
     else if string_contains ~needle:"haiku-4-5" normalized
-    then Some ((0.8, 4.0), anthropic_cache)
-    else if string_contains ~needle:"claude-3-7-sonnet" normalized
+    then Some ((0.8, 4.0), provider_a_cache)
+    else if string_contains ~needle:"agent_llm_a-3-7-sonnet" normalized
     then
-      Some ((3.0, 15.0), anthropic_cache)
-      (* claude_code provider alias fallback. The Claude Code transport
-       surfaces telemetry.model_used as the alias (e.g. "claude_code:auto",
+      Some ((3.0, 15.0), provider_a_cache)
+      (* cli_tool_d provider alias fallback. The Agent_llm_a Code transport
+       surfaces telemetry.model_used as the alias (e.g. "cli_tool_d:auto",
        "cc:default") instead of the canonical model id returned by the
-       Anthropic response, so substring matches against opus/sonnet/haiku
+       Provider_a response, so substring matches against opus/sonnet/haiku
        above never fire. Estimate at sonnet-4-6 rates as the modal
-       Anthropic backend; per-call accuracy is a follow-up that should
+       Provider_a backend; per-call accuracy is a follow-up that should
        resolve the canonical id from the API response. *)
     else if
-      string_contains ~needle:"claude_code" normalized
+      string_contains ~needle:"cli_tool_d" normalized
       || string_contains ~needle:"cc:" normalized
     then
-      Some ((3.0, 15.0), anthropic_cache)
-      (* OpenAI API text-token pricing, confirmed from official model docs
-       2026-04-25. GPT-5.3-Codex-Spark is intentionally not covered here:
-       its Codex rate card labels it research preview with non-final rates. *)
-    else if string_contains ~needle:"gpt-5.3-codex-spark" normalized
+      Some ((3.0, 15.0), provider_a_cache)
+      (* Provider_d API text-token pricing, confirmed from official model docs
+       2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
+       its Agent_code rate card labels it research preview with non-final rates. *)
+    else if string_contains ~needle:"gpt-5.3-agent_code-spark" normalized
     then None
     else if string_contains ~needle:"gpt-5.5" normalized
-    then Some ((5.0, 30.0), openai_cached_input)
+    then Some ((5.0, 30.0), provider_d_cached_input)
     else if string_contains ~needle:"gpt-5.4-mini" normalized
-    then Some ((0.75, 4.5), openai_cached_input)
+    then Some ((0.75, 4.5), provider_d_cached_input)
     else if string_contains ~needle:"gpt-5.4" normalized
-    then Some ((2.5, 15.0), openai_cached_input)
-    else if string_contains ~needle:"gpt-5.3-codex" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
+    then Some ((2.5, 15.0), provider_d_cached_input)
+    else if string_contains ~needle:"gpt-5.3-agent_code" normalized
+    then Some ((1.75, 14.0), provider_d_cached_input)
     else if string_contains ~needle:"gpt-5.2" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
-    else if string_contains ~needle:"gpt-4o-mini" normalized
+    then Some ((1.75, 14.0), provider_d_cached_input)
+    else if string_contains ~needle:"model-d-mini" normalized
     then Some ((0.15, 0.6), no_cache)
-    else if string_contains ~needle:"gpt-4o" normalized
+    else if string_contains ~needle:"model-d" normalized
     then Some ((2.5, 10.0), no_cache)
     else if string_contains ~needle:"gpt-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"o3-mini" normalized
     then
       Some ((1.1, 4.4), no_cache)
-      (* DeepSeek v4. Source: api-docs.deepseek.com, confirmed 2026-04-29.
+      (* Provider_g v4. Source: api-docs.provider_g.com, confirmed 2026-04-29.
        Promotional 75%% discount until 2026-05-31.
        Cache read rate: flash $0.0028/M (2%% of input), pro $0.003625/M.
        Cache write is billed at standard input rate (no surcharge). *)
-    else if string_contains ~needle:"deepseek-v4-pro" normalized
+    else if string_contains ~needle:"provider_g-v4-pro" normalized
     then Some ((0.435, 0.87), (1.0, 0.008333333333333333))
-    else if string_contains ~needle:"deepseek-v4-flash" normalized
+    else if string_contains ~needle:"provider_g-v4-flash" normalized
     then
       Some ((0.14, 0.28), (1.0, 0.02))
-      (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
+      (* Provider_f 3-계 preview. Source: ai.google.dev/provider_f-api/docs/pricing,
        confirmed 2026-04-16. Google also exposes context caching with a
        per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the
        pricing record cannot represent time-based storage, so we keep
        cache multipliers at no_cache and rely on provider-reported
        cost_usd for exact billing. Estimates here are an upper bound on
        input/output token cost only. *)
-    else if string_contains ~needle:"gemini-3-flash-preview" normalized
+    else if string_contains ~needle:"provider_f-3-flash-preview" normalized
     then Some ((0.50, 3.0), no_cache)
     else if
-      string_contains ~needle:"gemini-3.1-pro-preview" normalized
-      || string_contains ~needle:"gemini-3.1-pro" normalized
+      string_contains ~needle:"provider_f-3.1-pro-preview" normalized
+      || string_contains ~needle:"provider_f-3.1-pro" normalized
     then
       (* Standard tier (input <= 200k tokens). Above 200k Google charges
          2x ($4 input / $18 output). The pricing record has no context
@@ -151,53 +151,53 @@ let static_pricing_opt_normalized normalized =
          by 2x. Follow-up: extend the record with tiered pricing. *)
       Some ((2.0, 12.0), no_cache)
     else if
-      string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
-      || string_contains ~needle:"gemini-3.1-flash-lite" normalized
+      string_contains ~needle:"provider_f-3.1-flash-lite-preview" normalized
+      || string_contains ~needle:"provider_f-3.1-flash-lite" normalized
     then
       Some ((0.25, 1.5), no_cache)
-      (* GLM (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
+      (* Provider_k (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
          2026-05-01. Cache write at standard input rate (no surcharge).
          Cache read multiplier = cached_input_price / input_price.
-         Free models: glm-4.7-flash, glm-4.5-flash.
+         Free models: provider_k-4.7-flash, provider_k-4.5-flash.
          Ordering: more-specific needles before less-specific (substring
-         match) — glm-5.1 before glm-5, glm-4.7-flashx before glm-4.7. *)
-    else if string_contains ~needle:"glm-5.1" normalized
+         match) — provider_k-5.1 before provider_k-5, provider_k-4.7-flashx before provider_k-4.7. *)
+    else if string_contains ~needle:"provider_k-5.1" normalized
     then Some ((1.4, 4.4), (1.0, 0.18571428571428572))
-    else if string_contains ~needle:"glm-5-turbo" normalized
+    else if string_contains ~needle:"provider_k-5-turbo" normalized
     then Some ((1.2, 4.0), (1.0, 0.2))
-    else if string_contains ~needle:"glm-4.7-flashx" normalized
+    else if string_contains ~needle:"provider_k-4.7-flashx" normalized
     then Some ((0.07, 0.4), (1.0, 0.14285714285714285))
-    else if string_contains ~needle:"glm-4.7-flash" normalized
+    else if string_contains ~needle:"provider_k-4.7-flash" normalized
     then Some ((0.0, 0.0), no_cache)
-    else if string_contains ~needle:"glm-4.5-x" normalized
+    else if string_contains ~needle:"provider_k-4.5-x" normalized
     then Some ((2.2, 8.9), (1.0, 0.20454545454545455))
-    else if string_contains ~needle:"glm-4.5-airx" normalized
+    else if string_contains ~needle:"provider_k-4.5-airx" normalized
     then Some ((1.1, 4.5), (1.0, 0.2))
-    else if string_contains ~needle:"glm-4.5-air" normalized
+    else if string_contains ~needle:"provider_k-4.5-air" normalized
     then Some ((0.2, 1.1), (1.0, 0.15))
-    else if string_contains ~needle:"glm-4.5-flash" normalized
+    else if string_contains ~needle:"provider_k-4.5-flash" normalized
     then Some ((0.0, 0.0), no_cache)
-    else if string_contains ~needle:"glm-5" normalized
+    else if string_contains ~needle:"provider_k-5" normalized
     then Some ((1.0, 3.2), (1.0, 0.2))
-    else if string_contains ~needle:"glm-4.6" normalized
+    else if string_contains ~needle:"provider_k-4.6" normalized
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if string_contains ~needle:"glm-4.7" normalized
+    else if string_contains ~needle:"provider_k-4.7" normalized
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if string_contains ~needle:"glm-4.5" normalized
+    else if string_contains ~needle:"provider_k-4.5" normalized
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
     else if
       normalized = "auto"
-      || normalized = "gemini"
-      || normalized = "kimi"
-      || normalized = "codex"
-      || normalized = "claude_code"
-      || normalized = "gemini_cli"
-      || normalized = "kimi_cli"
-      || normalized = "codex_cli"
+      || normalized = "provider_f"
+      || normalized = "provider_c"
+      || normalized = "agent_code"
+      || normalized = "cli_tool_d"
+      || normalized = "cli_tool_b"
+      || normalized = "cli_tool_c"
+      || normalized = "cli_tool_a"
     then Some ((0.0, 0.0), no_cache)
     else if
       string_contains ~needle:"ollama" normalized
-      || string_contains ~needle:"qwen" normalized
+      || string_contains ~needle:"provider_h" normalized
       || string_contains ~needle:"llama" normalized
     then Some ((0.0, 0.0), no_cache)
     else None
@@ -486,10 +486,10 @@ let%test "string_contains: needle longer than haystack" =
 
 let%test "string_contains: case sensitive" = not (string_contains ~needle:"HELLO" "hello")
 
-(* --- pricing_for_model: Anthropic models --- *)
+(* --- pricing_for_model: Provider_a models --- *)
 
 let%test "pricing opus-4-6" =
-  let p = pricing_for_model "claude-opus-4-6-20250514" in
+  let p = pricing_for_model "agent_llm_a-opus-4-6-20250514" in
   close_enough p.input_per_million 15.0
   && close_enough p.output_per_million 75.0
   && close_enough p.cache_write_multiplier 1.25
@@ -497,12 +497,12 @@ let%test "pricing opus-4-6" =
 ;;
 
 let%test "pricing opus-4-5" =
-  let p = pricing_for_model "claude-opus-4-5-20251101" in
+  let p = pricing_for_model "agent_llm_a-opus-4-5-20251101" in
   close_enough p.input_per_million 15.0 && close_enough p.output_per_million 75.0
 ;;
 
 let%test "pricing sonnet-4-6" =
-  let p = pricing_for_model "claude-sonnet-4-6-20250514" in
+  let p = pricing_for_model "agent_llm_a-sonnet-4-6-20250514" in
   close_enough p.input_per_million 3.0
   && close_enough p.output_per_million 15.0
   && close_enough p.cache_write_multiplier 1.25
@@ -510,26 +510,26 @@ let%test "pricing sonnet-4-6" =
 ;;
 
 let%test "pricing sonnet-4 (non-4-6)" =
-  let p = pricing_for_model "claude-sonnet-4-20250514" in
+  let p = pricing_for_model "agent_llm_a-sonnet-4-20250514" in
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
 let%test "pricing haiku-4-5" =
-  let p = pricing_for_model "claude-haiku-4-5-20251001" in
+  let p = pricing_for_model "agent_llm_a-haiku-4-5-20251001" in
   close_enough p.input_per_million 0.8 && close_enough p.output_per_million 4.0
 ;;
 
-let%test "pricing claude-3-7-sonnet" =
-  let p = pricing_for_model "claude-3-7-sonnet-20250219" in
+let%test "pricing agent_llm_a-3-7-sonnet" =
+  let p = pricing_for_model "agent_llm_a-3-7-sonnet-20250219" in
   close_enough p.input_per_million 3.0
   && close_enough p.output_per_million 15.0
   && close_enough p.cache_write_multiplier 1.25
 ;;
 
-(* --- pricing_for_model: OpenAI models --- *)
+(* --- pricing_for_model: Provider_d models --- *)
 
-let%test "pricing gpt-4o-mini" =
-  let p = pricing_for_model "gpt-4o-mini" in
+let%test "pricing model-d-mini" =
+  let p = pricing_for_model "model-d-mini" in
   close_enough p.input_per_million 0.15
   && close_enough p.output_per_million 0.6
   && close_enough p.cache_write_multiplier 1.0
@@ -559,8 +559,8 @@ let%test "pricing gpt-5.4" =
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.3-codex" =
-  let p = pricing_for_model "gpt-5.3-codex" in
+let%test "pricing gpt-5.3-agent_code" =
+  let p = pricing_for_model "gpt-5.3-agent_code" in
   close_enough p.input_per_million 1.75
   && close_enough p.output_per_million 14.0
   && close_enough p.cache_read_multiplier 0.1
@@ -573,12 +573,12 @@ let%test "pricing gpt-5.2" =
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing gpt-5.3-codex-spark remains unknown" =
-  pricing_for_model_opt "gpt-5.3-codex-spark" = None
+let%test "pricing gpt-5.3-agent_code-spark remains unknown" =
+  pricing_for_model_opt "gpt-5.3-agent_code-spark" = None
 ;;
 
-let%test "pricing gpt-4o (not mini)" =
-  let p = pricing_for_model "gpt-4o" in
+let%test "pricing model-d (not mini)" =
+  let p = pricing_for_model "model-d" in
   close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
 ;;
 
@@ -592,115 +592,115 @@ let%test "pricing o3-mini" =
   close_enough p.input_per_million 1.1 && close_enough p.output_per_million 4.4
 ;;
 
-(* --- pricing_for_model: Gemini 3-계 preview (2026-04-16) --- *)
+(* --- pricing_for_model: Provider_f 3-계 preview (2026-04-16) --- *)
 
-let%test "pricing gemini-3-flash-preview" =
-  let p = pricing_for_model "gemini-3-flash-preview" in
+let%test "pricing provider_f-3-flash-preview" =
+  let p = pricing_for_model "provider_f-3-flash-preview" in
   close_enough p.input_per_million 0.50 && close_enough p.output_per_million 3.0
 ;;
 
-let%test "pricing gemini-3.1-pro-preview" =
-  let p = pricing_for_model "gemini-3.1-pro-preview" in
+let%test "pricing provider_f-3.1-pro-preview" =
+  let p = pricing_for_model "provider_f-3.1-pro-preview" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
-let%test "pricing gemini-3.1-pro (bare id)" =
-  let p = pricing_for_model "gemini-3.1-pro" in
+let%test "pricing provider_f-3.1-pro (bare id)" =
+  let p = pricing_for_model "provider_f-3.1-pro" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
-let%test "pricing gemini-3.1-flash-lite-preview" =
-  let p = pricing_for_model "gemini-3.1-flash-lite-preview" in
+let%test "pricing provider_f-3.1-flash-lite-preview" =
+  let p = pricing_for_model "provider_f-3.1-flash-lite-preview" in
   close_enough p.input_per_million 0.25 && close_enough p.output_per_million 1.5
 ;;
 
-(* --- pricing_for_model: GLM (Z.ai) --- *)
+(* --- pricing_for_model: Provider_k (Z.ai) --- *)
 
-let%test "pricing glm-5.1" =
-  let p = pricing_for_model "glm-5.1" in
+let%test "pricing provider_k-5.1" =
+  let p = pricing_for_model "provider_k-5.1" in
   close_enough p.input_per_million 1.4
   && close_enough p.output_per_million 4.4
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier (0.26 /. 1.4)
 ;;
 
-let%test "pricing glm-5-turbo" =
-  let p = pricing_for_model "glm-5-turbo" in
+let%test "pricing provider_k-5-turbo" =
+  let p = pricing_for_model "provider_k-5-turbo" in
   close_enough p.input_per_million 1.2
   && close_enough p.output_per_million 4.0
   && close_enough p.cache_read_multiplier 0.2
 ;;
 
-let%test "pricing glm-5 (generic)" =
-  let p = pricing_for_model "glm-5" in
+let%test "pricing provider_k-5 (generic)" =
+  let p = pricing_for_model "provider_k-5" in
   close_enough p.input_per_million 1.0 && close_enough p.output_per_million 3.2
 ;;
 
-let%test "pricing glm-4.7-flashx (paid)" =
-  let p = pricing_for_model "glm-4.7-flashx" in
+let%test "pricing provider_k-4.7-flashx (paid)" =
+  let p = pricing_for_model "provider_k-4.7-flashx" in
   close_enough p.input_per_million 0.07 && close_enough p.output_per_million 0.4
 ;;
 
-let%test "pricing glm-4.7-flash (free)" =
-  let p = pricing_for_model "glm-4.7-flash" in
+let%test "pricing provider_k-4.7-flash (free)" =
+  let p = pricing_for_model "provider_k-4.7-flash" in
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
-let%test "pricing glm-4.5-x" =
-  let p = pricing_for_model "glm-4.5-x" in
+let%test "pricing provider_k-4.5-x" =
+  let p = pricing_for_model "provider_k-4.5-x" in
   close_enough p.input_per_million 2.2 && close_enough p.output_per_million 8.9
 ;;
 
-let%test "pricing glm-4.5-airx" =
-  let p = pricing_for_model "glm-4.5-airx" in
+let%test "pricing provider_k-4.5-airx" =
+  let p = pricing_for_model "provider_k-4.5-airx" in
   close_enough p.input_per_million 1.1 && close_enough p.output_per_million 4.5
 ;;
 
-let%test "pricing glm-4.5-air" =
-  let p = pricing_for_model "glm-4.5-air" in
+let%test "pricing provider_k-4.5-air" =
+  let p = pricing_for_model "provider_k-4.5-air" in
   close_enough p.input_per_million 0.2 && close_enough p.output_per_million 1.1
 ;;
 
-let%test "pricing glm-4.5-flash (free)" =
-  let p = pricing_for_model "glm-4.5-flash" in
+let%test "pricing provider_k-4.5-flash (free)" =
+  let p = pricing_for_model "provider_k-4.5-flash" in
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
-let%test "pricing glm-4.7 (generic)" =
-  let p = pricing_for_model "glm-4.7" in
+let%test "pricing provider_k-4.7 (generic)" =
+  let p = pricing_for_model "provider_k-4.7" in
   close_enough p.input_per_million 0.6 && close_enough p.output_per_million 2.2
 ;;
 
-let%test "pricing glm-4.5 (generic)" =
-  let p = pricing_for_model "glm-4.5" in
+let%test "pricing provider_k-4.5 (generic)" =
+  let p = pricing_for_model "provider_k-4.5" in
   close_enough p.input_per_million 0.6 && close_enough p.output_per_million 2.2
 ;;
 
-let%test "pricing glm-coding-plan:glm-5-turbo (prefixed variant)" =
-  let p = pricing_for_model "glm-coding-plan:glm-5-turbo" in
+let%test "pricing provider_k-coding-plan:provider_k-5-turbo (prefixed variant)" =
+  let p = pricing_for_model "provider_k-coding-plan:provider_k-5-turbo" in
   close_enough p.input_per_million 1.2 && close_enough p.output_per_million 4.0
 ;;
 
-let%test "pricing glm-coding-plan:glm-5.1 (prefixed variant)" =
-  let p = pricing_for_model "glm-coding-plan:glm-5.1" in
+let%test "pricing provider_k-coding-plan:provider_k-5.1 (prefixed variant)" =
+  let p = pricing_for_model "provider_k-coding-plan:provider_k-5.1" in
   close_enough p.input_per_million 1.4 && close_enough p.output_per_million 4.4
 ;;
 
-let%test "pricing_for_model_opt: glm unknown returns None" =
-  match pricing_for_model_opt "glm-future-99" with
+let%test "pricing_for_model_opt: provider_k unknown returns None" =
+  match pricing_for_model_opt "provider_k-future-99" with
   | None -> true
   | Some _ -> false
 ;;
 
-(* --- pricing_for_model: claude_code alias fallback --- *)
+(* --- pricing_for_model: cli_tool_d alias fallback --- *)
 
-let%test "pricing claude_code:auto falls back to sonnet-4-6 rates" =
-  let p = pricing_for_model "claude_code:auto" in
+let%test "pricing cli_tool_d:auto falls back to sonnet-4-6 rates" =
+  let p = pricing_for_model "cli_tool_d:auto" in
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
-let%test "pricing claude_code (bare alias)" =
-  let p = pricing_for_model "claude_code" in
+let%test "pricing cli_tool_d (bare alias)" =
+  let p = pricing_for_model "cli_tool_d" in
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
@@ -709,8 +709,8 @@ let%test "pricing cc: short alias falls back to sonnet-4-6 rates" =
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
-let%test "pricing_for_model_opt returns Some for gemini-3-flash-preview" =
-  match pricing_for_model_opt "gemini-3-flash-preview" with
+let%test "pricing_for_model_opt returns Some for provider_f-3-flash-preview" =
+  match pricing_for_model_opt "provider_f-3-flash-preview" with
   | Some p -> p.input_per_million > 0.0
   | None -> false
 ;;
@@ -722,7 +722,7 @@ let%test "pricing ollama is free" =
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
-let%test "pricing qwen is free" =
+let%test "pricing provider_h is free" =
   let p = pricing_for_model "qwen3.5-35b" in
   close_enough p.input_per_million 0.0
 ;;
@@ -740,7 +740,7 @@ let%test "pricing_for_model: unknown model falls back to zero" =
 (* --- pricing_for_model_opt: distinguishes unknown from free --- *)
 
 let%test "pricing_for_model_opt: known cloud model returns Some" =
-  match pricing_for_model_opt "claude-opus-4-6" with
+  match pricing_for_model_opt "agent_llm_a-opus-4-6" with
   | Some p -> p.input_per_million > 0.0
   | None -> false
 ;;
@@ -751,7 +751,7 @@ let%test "pricing_for_model_opt: known local model returns Some with zero pricin
   | None -> false
 ;;
 
-let%test "pricing_for_model_opt: qwen returns Some" =
+let%test "pricing_for_model_opt: provider_h returns Some" =
   match pricing_for_model_opt "qwen3.5-35b" with
   | Some _ -> true
   | None -> false
@@ -772,43 +772,43 @@ let%test "pricing_for_model_opt: cloud-style unknown returns None" =
 (* --- pricing_for_model: case insensitivity --- *)
 
 let%test "pricing case insensitive" =
-  let p = pricing_for_model "Claude-Opus-4-6" in
+  let p = pricing_for_model "Agent_llm_a-Opus-4-6" in
   close_enough p.input_per_million 15.0
 ;;
 
 let%test "pricing whitespace trimmed" =
-  let p = pricing_for_model "  claude-sonnet-4-6  " in
+  let p = pricing_for_model "  agent_llm_a-sonnet-4-6  " in
   close_enough p.input_per_million 3.0
 ;;
 
 (* --- estimate_cost --- *)
 
 let%test "estimate_cost: zero tokens is zero" =
-  let p = pricing_for_model "claude-opus-4-6" in
+  let p = pricing_for_model "agent_llm_a-opus-4-6" in
   close_enough (estimate_cost ~pricing:p ~input_tokens:0 ~output_tokens:0 ()) 0.0
 ;;
 
 let%test "estimate_cost: 1M input tokens opus" =
-  let p = pricing_for_model "claude-opus-4-6" in
+  let p = pricing_for_model "agent_llm_a-opus-4-6" in
   let cost = estimate_cost ~pricing:p ~input_tokens:1_000_000 ~output_tokens:0 () in
   close_enough cost 15.0
 ;;
 
 let%test "estimate_cost: 1M output tokens opus" =
-  let p = pricing_for_model "claude-opus-4-6" in
+  let p = pricing_for_model "agent_llm_a-opus-4-6" in
   let cost = estimate_cost ~pricing:p ~input_tokens:0 ~output_tokens:1_000_000 () in
   close_enough cost 75.0
 ;;
 
 let%test "estimate_cost: mixed input and output" =
-  let p = pricing_for_model "claude-sonnet-4-6" in
+  let p = pricing_for_model "agent_llm_a-sonnet-4-6" in
   let cost = estimate_cost ~pricing:p ~input_tokens:1000 ~output_tokens:500 () in
   (* 1000 * 3.0/1M + 500 * 15.0/1M = 0.003 + 0.0075 = 0.0105 *)
   close_enough cost 0.0105
 ;;
 
 let%test "estimate_cost: with cache write tokens" =
-  let p = pricing_for_model "claude-opus-4-6" in
+  let p = pricing_for_model "agent_llm_a-opus-4-6" in
   (* 1000 input, 500 cache write, 0 cache read, 0 output *)
   (* regular_input = 1000 - 500 - 0 = 500 *)
   (* input_cost = 500 * 15/1M = 0.0075 *)
@@ -825,7 +825,7 @@ let%test "estimate_cost: with cache write tokens" =
 ;;
 
 let%test "estimate_cost: with cache read tokens" =
-  let p = pricing_for_model "claude-opus-4-6" in
+  let p = pricing_for_model "agent_llm_a-opus-4-6" in
   (* 1000 input, 0 cache write, 200 cache read, 0 output *)
   (* regular_input = 1000 - 0 - 200 = 800 *)
   (* input_cost = 800 * 15/1M = 0.012 *)
@@ -842,7 +842,7 @@ let%test "estimate_cost: with cache read tokens" =
 ;;
 
 let%test "estimate_cost: regular_input clamped to zero when cache exceeds total" =
-  let p = pricing_for_model "claude-sonnet-4-6" in
+  let p = pricing_for_model "agent_llm_a-sonnet-4-6" in
   (* input_tokens=100 but cache_creation=200: regular = max 0 (100-200) = 0 *)
   let cost =
     estimate_cost
@@ -879,7 +879,7 @@ let%test "annotate_usage_cost fills missing cost for known model" =
     ; cost_usd = None
     }
   in
-  match annotate_usage_cost ~model_id:"claude-sonnet-4-6" usage with
+  match annotate_usage_cost ~model_id:"agent_llm_a-sonnet-4-6" usage with
   | { cost_usd = Some cost; _ } -> cost > 0.0
   | _ -> false
 ;;
@@ -915,7 +915,7 @@ let%test "annotate_usage_cost fills zero cost for known free model" =
 let%test "annotate_response_cost preserves measured cost" =
   let response : Types.api_response =
     { id = "resp-1"
-    ; model = "claude-sonnet-4-6"
+    ; model = "agent_llm_a-sonnet-4-6"
     ; stop_reason = Types.EndTurn
     ; content = [ Types.Text "ok" ]
     ; usage =
@@ -957,7 +957,7 @@ let%test "install_pricing_overrides: override takes priority over static table" 
 
 let%test "clear_pricing_overrides: restores static table" =
   let entry =
-    { pattern = "claude-opus-4-6"
+    { pattern = "agent_llm_a-opus-4-6"
     ; input_per_million = 999.0
     ; output_per_million = 999.0
     ; cache_write_multiplier = 1.0
@@ -967,7 +967,7 @@ let%test "clear_pricing_overrides: restores static table" =
   install_pricing_overrides [ entry ];
   clear_pricing_overrides ();
   let result =
-    match pricing_for_model_opt "claude-opus-4-6" with
+    match pricing_for_model_opt "agent_llm_a-opus-4-6" with
     | Some p -> close_enough p.input_per_million 15.0
     | None -> false
   in
@@ -976,7 +976,7 @@ let%test "clear_pricing_overrides: restores static table" =
 
 let%test "install_pricing_overrides: overrides shadow static table entry" =
   let entry =
-    { pattern = "claude-opus-4-6"
+    { pattern = "agent_llm_a-opus-4-6"
     ; input_per_million = 20.0
     ; output_per_million = 100.0
     ; cache_write_multiplier = 1.3
@@ -985,7 +985,7 @@ let%test "install_pricing_overrides: overrides shadow static table entry" =
   in
   install_pricing_overrides [ entry ];
   let result =
-    match pricing_for_model_opt "claude-opus-4-6" with
+    match pricing_for_model_opt "agent_llm_a-opus-4-6" with
     | Some p ->
       close_enough p.input_per_million 20.0 && close_enough p.output_per_million 100.0
     | None -> false
@@ -1005,7 +1005,7 @@ let%test "install_pricing_overrides: unknown model still falls through to static
   in
   install_pricing_overrides [ entry ];
   let result =
-    match pricing_for_model_opt "claude-opus-4-6" with
+    match pricing_for_model_opt "agent_llm_a-opus-4-6" with
     | Some p -> close_enough p.input_per_million 15.0
     | None -> false
   in

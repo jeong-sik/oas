@@ -15,16 +15,16 @@ open Cli_transport_factory
 (* --- is_known_protocol --- *)
 
 let test_known_protocols () =
-  check bool "anthropic-cli" true (is_known_protocol "anthropic-cli");
-  check bool "codex-cli" true (is_known_protocol "codex-cli");
+  check bool "provider_a-cli" true (is_known_protocol "provider_a-cli");
+  check bool "agent_code-cli" true (is_known_protocol "agent_code-cli");
   check bool "google-cli" true (is_known_protocol "google-cli");
-  check bool "kimi-cli" true (is_known_protocol "kimi-cli")
+  check bool "provider_c-cli" true (is_known_protocol "provider_c-cli")
 ;;
 
 let test_unknown_protocol () =
-  check bool "openai-http" false (is_known_protocol "openai-http");
+  check bool "provider_d-http" false (is_known_protocol "provider_d-http");
   check bool "ollama-http" false (is_known_protocol "ollama-http");
-  check bool "anthropic-http" false (is_known_protocol "anthropic-http");
+  check bool "provider_a-http" false (is_known_protocol "provider_a-http");
   check bool "bogus" false (is_known_protocol "bogus");
   check bool "empty" false (is_known_protocol "")
 ;;
@@ -36,7 +36,7 @@ let test_registered_protocols_sorted () =
   check
     (list string)
     "sorted"
-    [ "anthropic-cli"; "codex-cli"; "google-cli"; "kimi-cli" ]
+    [ "provider_a-cli"; "agent_code-cli"; "google-cli"; "provider_c-cli" ]
     protocols
 ;;
 
@@ -59,7 +59,7 @@ let test_registry_consistency () =
          ("documented ⇒ registered: " ^ p)
          true
          (List.mem p (registered_protocols ())))
-    [ "anthropic-cli"; "codex-cli"; "google-cli"; "kimi-cli" ]
+    [ "provider_a-cli"; "agent_code-cli"; "google-cli"; "provider_c-cli" ]
 ;;
 
 (* --- default_config --- *)
@@ -110,20 +110,20 @@ let test_default_config_list_fields () =
 let test_transport_native_defaults () =
   check
     bool
-    "claude tool_use_via_stream_json default true"
+    "agent_llm_a tool_use_via_stream_json default true"
     true
-    Transport_claude_code.default_config.tool_use_via_stream_json;
+    Transport_cli_tool_d.default_config.tool_use_via_stream_json;
   check
     bool
-    "claude forward_tool_results default false"
+    "agent_llm_a forward_tool_results default false"
     false
-    Transport_claude_code.default_config.forward_tool_results;
+    Transport_cli_tool_d.default_config.forward_tool_results;
   check
     bool
-    "kimi forward_tool_results default true"
+    "provider_c forward_tool_results default true"
     true
-    Transport_kimi_cli.default_config.forward_tool_results;
-  check bool "gemini yolo default true" true Transport_gemini_cli.default_config.yolo
+    Transport_cli_tool_c.default_config.forward_tool_results;
+  check bool "provider_f yolo default true" true Transport_cli_tool_b.default_config.yolo
 ;;
 
 let contains_substring ~sub text =
@@ -158,7 +158,7 @@ let dispatch_config =
   ; model = Some "mock-model"
   ; cwd = Some "/tmp"
   ; mcp_config = Some "/tmp/mcp.json"
-  ; mcp_config_files = [ "/tmp/kimi-a.json"; "/tmp/kimi-b.json" ]
+  ; mcp_config_files = [ "/tmp/provider_c-a.json"; "/tmp/provider_c-b.json" ]
   ; mcp_config_json = [ {|{"mcpServers":{}}|} ]
   ; allowed_tools = [ "Read"; "Write" ]
   ; max_turns = Some 2
@@ -166,7 +166,7 @@ let dispatch_config =
   ; tool_use_via_stream_json = Some false
   ; forward_tool_results = Some true
   ; yolo = Some false
-  ; config_file = Some "/tmp/kimi.toml"
+  ; config_file = Some "/tmp/provider_c.toml"
   ; extra_env = [ "OAS_TEST", "1" ]
   ; session_id = Some "session-1"
   ; stdout_idle_timeout_s = Some 0.5
@@ -177,14 +177,14 @@ let test_create_rejects_unknown_protocol () =
   with_eio
   @@ fun ~sw ~mgr ->
   expect_failure_contains "unknown protocol" "unknown CLI protocol" (fun () ->
-    create ~protocol:"openai-http" ~config:dispatch_config ~sw ~mgr)
+    create ~protocol:"provider_d-http" ~config:dispatch_config ~sw ~mgr)
 ;;
 
 let test_create_rejects_empty_command () =
   with_eio
   @@ fun ~sw ~mgr ->
   expect_failure_contains "empty command" "requires a non-empty command" (fun () ->
-    create ~protocol:"codex-cli" ~config:{ dispatch_config with command = "   " } ~sw ~mgr)
+    create ~protocol:"agent_code-cli" ~config:{ dispatch_config with command = "   " } ~sw ~mgr)
 ;;
 
 let test_create_dispatches_all_protocols () =

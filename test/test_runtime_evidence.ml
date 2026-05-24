@@ -10,8 +10,8 @@ let mk_session ?(artifacts = []) () : Runtime.session =
   ; phase = Runtime.Running
   ; created_at = 1.0
   ; updated_at = 2.0
-  ; provider = Some "anthropic"
-  ; model = Some "claude"
+  ; provider = Some "provider_a"
+  ; model = Some "agent_llm_a"
   ; system_prompt = None
   ; max_turns = 10
   ; workdir = Some "/tmp/work"
@@ -63,7 +63,7 @@ let all_event_kinds () =
     }
   in
   [ Session_started { goal = "collect telemetry"; participants = [ "alice" ] }
-  ; Session_settings_updated { model = Some "claude-opus"; permission_mode = Some "safe" }
+  ; Session_settings_updated { model = Some "agent_llm_a-opus"; permission_mode = Some "safe" }
   ; Turn_recorded { actor = Some "user"; message = "start" }
   ; Input_required input_request
   ; Input_provided
@@ -75,15 +75,15 @@ let all_event_kinds () =
       { participant_name = "alice"
       ; role = Some "worker"
       ; prompt = "do work"
-      ; provider = Some "anthropic"
-      ; model = Some "claude"
+      ; provider = Some "provider_a"
+      ; model = Some "agent_llm_a"
       ; permission_mode = Some "safe"
       }
   ; Agent_became_live
       (participant_event
          ~summary:"ready"
-         ~provider:"anthropic"
-         ~model:"claude"
+         ~provider:"provider_a"
+         ~model:"agent_llm_a"
          ~raw_trace_run_id:"raw-1"
          ~stop_reason:"end_turn"
          "alice")
@@ -94,8 +94,8 @@ let all_event_kinds () =
            (Runtime_evidence.append_dropped_output_deltas_summary
               ~summary:"done"
               ~dropped_output_deltas:2)
-         ~provider:"anthropic"
-         ~model:"claude"
+         ~provider:"provider_a"
+         ~model:"agent_llm_a"
          ~raw_trace_run_id:"raw-2"
          ~stop_reason:"stop"
          "alice")
@@ -270,7 +270,7 @@ let test_sessions_store_decodes_runtime_artifacts () =
   "step_count":1,
   "event_counts":{"Agent_completed":1},
   "event_name_counts":[{"event_name":"agent_completed","count":1}],
-  "steps":[{"seq":1,"ts":10.1,"kind":"Agent_completed","participant":"alice","detail":"done","actor":"agent","role":"worker","provider":"openai","model":"gpt","raw_trace_run_id":"run-1","stop_reason":"stop","artifact_id":"art-telemetry","artifact_name":"runtime-telemetry-json","artifact_kind":"json","checkpoint_label":"cp","outcome":"ok","dropped_output_deltas":2,"persistence_failure_phase":"append_event"}]
+  "steps":[{"seq":1,"ts":10.1,"kind":"Agent_completed","participant":"alice","detail":"done","actor":"agent","role":"worker","provider":"provider_d","model":"gpt","raw_trace_run_id":"run-1","stop_reason":"stop","artifact_id":"art-telemetry","artifact_name":"runtime-telemetry-json","artifact_kind":"json","checkpoint_label":"cp","outcome":"ok","dropped_output_deltas":2,"persistence_failure_phase":"append_event"}]
 }|}
        in
        let evidence_json =
@@ -357,7 +357,7 @@ let test_sessions_store_decodes_runtime_artifacts () =
          "agent_completed"
          (List.hd structured.event_counts).event_name;
        let step = List.hd structured.steps in
-       check (option string) "step provider" (Some "openai") step.provider;
+       check (option string) "step provider" (Some "provider_d") step.provider;
        check (option int) "dropped deltas" (Some 2) step.dropped_output_deltas;
        let evidence =
          Sessions_store.get_evidence ~session_root:root ~session_id () |> Result.get_ok

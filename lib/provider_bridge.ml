@@ -15,13 +15,13 @@ let is_glm_model_or_alias model_id =
   | _ -> false
 ;;
 
-let is_kimi_coding_base_url base_url =
+let is_provider_c_coding_base_url base_url =
   match Uri.of_string base_url with
   | exception _ -> false
   | uri ->
     let host_matches =
       match Uri.host uri with
-      | Some host -> String.lowercase_ascii host = "api.kimi.com"
+      | Some host -> String.lowercase_ascii host = "api.provider_c.com"
       | None -> false
     in
     let path = Uri.path uri |> String.lowercase_ascii in
@@ -38,13 +38,13 @@ let is_kimi_coding_base_url base_url =
     for "auto"; cloud providers use environment-variable defaults. *)
 let resolve_glm_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_alias
-    ~default_model:(Util.env_or "glm-5.1" "ZAI_DEFAULT_MODEL")
+    ~default_model:(Util.env_or "provider_k-5.1" "ZAI_DEFAULT_MODEL")
     model_id
 ;;
 
 let resolve_glm_coding_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_coding_alias
-    ~default_model:(Util.env_or "glm-5.1" "ZAI_CODING_DEFAULT_MODEL")
+    ~default_model:(Util.env_or "provider_k-5.1" "ZAI_CODING_DEFAULT_MODEL")
     model_id
 ;;
 
@@ -55,7 +55,7 @@ let resolve_glm_coding_model_id model_id =
     for "auto"; cloud providers fall back to environment-variable defaults.
 
     Parse, don't validate: callers hand in the concrete variant so dead
-    branches ([openai], [openrouter] in the pre-typed version) cannot exist. *)
+    branches ([provider_d], [openrouter] in the pre-typed version) cannot exist. *)
 let resolve_auto_model_id
       ~base_url
       (kind : Llm_provider.Provider_config.provider_kind)
@@ -63,33 +63,33 @@ let resolve_auto_model_id
   =
   let open Llm_provider.Provider_config in
   match kind with
-  | Ollama | OpenAI_compat | DashScope ->
-    (* Local llama-server and OpenAI-compatible endpoints share the
+  | Ollama | Provider_d_compat | Provider_h ->
+    (* Local llama-server and Provider_d-compatible endpoints share the
          "auto" -> discovery -> OLLAMA_DEFAULT_MODEL fallback. Cloud-only
-         OpenAI-compatible backends still traverse this branch. *)
+         Provider_d-compatible backends still traverse this branch. *)
     if model_id = "auto"
     then (
       match Llm_provider.Discovery.first_discovered_model_id () with
       | Some id -> id
       | None -> Util.env_or model_id "OLLAMA_DEFAULT_MODEL")
     else model_id
-  | Glm ->
+  | Provider_k ->
     if Llm_provider.Zai_catalog.is_coding_base_url base_url
     then resolve_glm_coding_model_id model_id
     else resolve_glm_model_id model_id
-  | Gemini ->
+  | Provider_f ->
     if model_id = "auto"
-    then Util.env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
+    then Util.env_or "provider_f-2.5-flash" "PROVIDER_F_DEFAULT_MODEL"
     else model_id
-  | Kimi ->
+  | Provider_c ->
     if model_id = "auto"
-    then Util.env_or "kimi-for-coding" "KIMI_DEFAULT_MODEL"
+    then Util.env_or "provider_c-for-coding" "PROVIDER_C_DEFAULT_MODEL"
     else model_id
-  | Anthropic | Claude_code ->
+  | Provider_a | Cli_tool_d ->
     if model_id = "auto"
-    then Util.env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
+    then Util.env_or "agent_llm_a-sonnet-4-6-20250514" "PROVIDER_A_DEFAULT_MODEL"
     else model_id
-  | Gemini_cli | Kimi_cli | Codex_cli -> model_id
+  | Cli_tool_b | Cli_tool_c | Cli_tool_a -> model_id
 ;;
 
 let to_provider_config (legacy : Provider.config)
@@ -99,24 +99,24 @@ let to_provider_config (legacy : Provider.config)
   | Error e -> Error e
   | Ok (base_url, api_key, headers) ->
     let m_lower = String.lowercase_ascii legacy.model_id in
-    let is_gemini_model =
-      String.length m_lower >= 6 && String.sub m_lower 0 6 = "gemini"
+    let is_provider_f_model =
+      String.length m_lower >= 6 && String.sub m_lower 0 6 = "provider_f"
     in
     let is_glm_model = is_glm_model_or_alias m_lower in
     let is_zai_provider = Llm_provider.Zai_catalog.is_zai_base_url base_url in
-    let is_kimi_provider = is_kimi_coding_base_url base_url in
+    let is_provider_c_provider = is_provider_c_coding_base_url base_url in
     let kind =
       match Provider.request_kind legacy.provider with
-      | Provider.Anthropic_messages ->
-        if is_kimi_provider
-        then Llm_provider.Provider_config.Kimi
-        else Llm_provider.Provider_config.Anthropic
+      | Provider.Provider_a_messages ->
+        if is_provider_c_provider
+        then Llm_provider.Provider_config.Provider_c
+        else Llm_provider.Provider_config.Provider_a
       | Provider.Openai_chat_completions | Provider.Custom _ ->
-        if is_gemini_model
-        then Llm_provider.Provider_config.Gemini
+        if is_provider_f_model
+        then Llm_provider.Provider_config.Provider_f
         else if is_zai_provider && is_glm_model
-        then Llm_provider.Provider_config.Glm
-        else Llm_provider.Provider_config.OpenAI_compat
+        then Llm_provider.Provider_config.Provider_k
+        else Llm_provider.Provider_config.Provider_d_compat
     in
     let request_path = Provider.request_path legacy.provider in
     let resolved_model_id = resolve_auto_model_id ~base_url kind legacy.model_id in

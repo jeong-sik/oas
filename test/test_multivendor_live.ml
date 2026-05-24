@@ -3,10 +3,10 @@
     Runs the golden Event_bus lifecycle transcript against whatever
     providers are reachable in the current environment:
 
-    - Anthropic      if [ANTHROPIC_API_KEY] is set
-    - OpenAI         if [OPENAI_API_KEY] is set
-    - Gemini         if [GEMINI_API_KEY] is set
-    - OpenAI-compat  for every healthy endpoint in [LLM_ENDPOINTS]
+    - Provider_a      if [PROVIDER_A_API_KEY] is set
+    - Provider_d         if [PROVIDER_D_API_KEY] is set
+    - Provider_f         if [PROVIDER_F_API_KEY] is set
+    - Provider_d-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
     Each provider case is [Quick] but skips gracefully (logs +
@@ -147,43 +147,43 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
       (List.mem "agent.failed" names)
 ;;
 
-(* ── Anthropic ────────────────────────────────────────────────── *)
+(* ── Provider_a ────────────────────────────────────────────────── *)
 
-let test_anthropic () =
-  match Sys.getenv_opt "ANTHROPIC_API_KEY" with
+let test_provider_a () =
+  match Sys.getenv_opt "PROVIDER_A_API_KEY" with
   | None | Some "" | Some "test-mock-key" ->
-    skip_note "anthropic" "ANTHROPIC_API_KEY not set"
+    skip_note "provider_a" "PROVIDER_A_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
     let provider : Provider.config =
-      { provider = Provider.Anthropic
-      ; model_id = "claude-haiku-4-5"
-      ; api_key_env = "ANTHROPIC_API_KEY"
+      { provider = Provider.Provider_a
+      ; model_id = "agent_llm_a-haiku-4-5"
+      ; api_key_env = "PROVIDER_A_API_KEY"
       }
     in
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"anthropic"
+      ~provider_label:"provider_a"
       ~provider
-      ~base_url:"https://api.anthropic.com"
-      ~model:"claude-haiku-4-5"
+      ~base_url:"https://api.provider_a.com"
+      ~model:"agent_llm_a-haiku-4-5"
 ;;
 
-(* ── OpenAI (via OpenAICompat) ────────────────────────────────── *)
+(* ── Provider_d (via OpenAICompat) ────────────────────────────────── *)
 
-let test_openai () =
-  match Sys.getenv_opt "OPENAI_API_KEY" with
-  | None | Some "" -> skip_note "openai" "OPENAI_API_KEY not set"
+let test_provider_d () =
+  match Sys.getenv_opt "PROVIDER_D_API_KEY" with
+  | None | Some "" -> skip_note "provider_d" "PROVIDER_D_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    let base_url = "https://api.openai.com" in
+    let base_url = "https://api.provider_d.com" in
     let provider : Provider.config =
       { provider =
           Provider.OpenAICompat
@@ -192,31 +192,31 @@ let test_openai () =
             ; path = "/v1/chat/completions"
             ; static_token = None
             }
-      ; model_id = "gpt-4o-mini"
-      ; api_key_env = "OPENAI_API_KEY"
+      ; model_id = "model-d-mini"
+      ; api_key_env = "PROVIDER_D_API_KEY"
       }
     in
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"openai"
+      ~provider_label:"provider_d"
       ~provider
       ~base_url
-      ~model:"gpt-4o-mini"
+      ~model:"model-d-mini"
 ;;
 
-(* ── Gemini (via OpenAI-compat endpoint) ──────────────────────── *)
+(* ── Provider_f (via Provider_d-compat endpoint) ──────────────────────── *)
 
-let test_gemini () =
-  match Sys.getenv_opt "GEMINI_API_KEY" with
-  | None | Some "" -> skip_note "gemini" "GEMINI_API_KEY not set"
+let test_provider_f () =
+  match Sys.getenv_opt "PROVIDER_F_API_KEY" with
+  | None | Some "" -> skip_note "provider_f" "PROVIDER_F_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    (* Google's OpenAI-compatible endpoint for Gemini. *)
-    let base_url = "https://generativelanguage.googleapis.com/v1beta/openai" in
+    (* Google's Provider_d-compatible endpoint for Provider_f. *)
+    let base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d" in
     let provider : Provider.config =
       { provider =
           Provider.OpenAICompat
@@ -225,20 +225,20 @@ let test_gemini () =
             ; path = "/chat/completions"
             ; static_token = None
             }
-      ; model_id = "gemini-2.0-flash"
-      ; api_key_env = "GEMINI_API_KEY"
+      ; model_id = "provider_f-2.0-flash"
+      ; api_key_env = "PROVIDER_F_API_KEY"
       }
     in
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"gemini"
+      ~provider_label:"provider_f"
       ~provider
       ~base_url
-      ~model:"gemini-2.0-flash"
+      ~model:"provider_f-2.0-flash"
 ;;
 
-(* ── Local OpenAI-compatible (llama-server, Ollama, vLLM, ...) ─ *)
+(* ── Local Provider_d-compatible (llama-server, Ollama, vLLM, ...) ─ *)
 
 let test_local_compat () =
   Eio_main.run
@@ -253,7 +253,7 @@ let test_local_compat () =
   if healthy = []
   then
     skip_note
-      "local-openai-compat"
+      "local-provider_d-compat"
       (Printf.sprintf "no healthy endpoint in [%s]" (String.concat ", " endpoints))
   else
     List.iter
@@ -285,17 +285,17 @@ let () =
      [use_default ()] is a no-op if already initialized. *)
   Mirage_crypto_rng_unix.use_default ();
   (* Mock key for providers that read env defensively even when unused. *)
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
+  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
   Printf.printf "\n=== Multi-vendor live smoke test ===\n";
   Printf.printf "  Each case runs if its prerequisite is present; otherwise skips.\n\n";
   run
     "Multivendor_live"
     [ ( "golden_transcript"
-      , [ test_case "anthropic" `Quick test_anthropic
-        ; test_case "openai" `Quick test_openai
-        ; test_case "gemini" `Quick test_gemini
-        ; test_case "local openai-compat" `Quick test_local_compat
+      , [ test_case "provider_a" `Quick test_provider_a
+        ; test_case "provider_d" `Quick test_provider_d
+        ; test_case "provider_f" `Quick test_provider_f
+        ; test_case "local provider_d-compat" `Quick test_local_compat
         ] )
     ]
 ;;

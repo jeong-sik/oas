@@ -230,7 +230,7 @@ let test_card_no_config () =
 let test_card_with_config () =
   let config_path = Printf.sprintf "/tmp/oas_test_card_%d.json" (Unix.getpid ()) in
   Out_channel.with_open_text config_path (fun oc ->
-    output_string oc {|{"name":"card-test","model":"claude-sonnet-4-6"}|});
+    output_string oc {|{"name":"card-test","model":"agent_llm_a-sonnet-4-6"}|});
   let cmd = Printf.sprintf "%s card --config %s 2>&1" cli_exe config_path in
   let ic = Unix.open_process_in cmd in
   let output = In_channel.input_all ic in
@@ -411,7 +411,7 @@ let test_eval_run_empty_dataset () =
     (fun () ->
        Out_channel.with_open_text dataset_path (fun _ -> ());
        Out_channel.with_open_text config_path (fun oc ->
-         output_string oc {|{"name":"eval-test","model":"claude-sonnet-4-6"}|});
+         output_string oc {|{"name":"eval-test","model":"agent_llm_a-sonnet-4-6"}|});
        let cmd =
          Printf.sprintf
            "%s eval run --config %s --dataset %s --out %s"

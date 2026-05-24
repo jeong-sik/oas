@@ -121,18 +121,18 @@ let malformed_json_indicators =
     [.error.code] are NOT in scope here — do not add bare numeric codes.
 
     Provider coverage (examples seen in the wild):
-    - z.ai / GLM: "Insufficient balance or no resource package. Please
+    - z.ai / Provider_k: "Insufficient balance or no resource package. Please
       recharge."
-    - Anthropic: "You have insufficient credits"; "billing_hard_limit"
-    - OpenAI: "You exceeded your current quota, please check your plan
+    - Provider_a: "You have insufficient credits"; "billing_hard_limit"
+    - Provider_d: "You exceeded your current quota, please check your plan
       and billing details"
     - Provider account-limit variants: "Your account has exceeded the
       API usage limit"
-    - Google / Gemini: "Resource exhausted"
-    - Mistral: "insufficient_quota"
+    - Google / Provider_f: "Resource exhausted"
+    - Provider_j: "insufficient_quota"
     - Together.ai: "insufficient_funds"
     - z.ai CJK: "余额不足" / "额度不足"
-    - z.ai / GLM admin disable: "Your usage allocation has been disabled
+    - z.ai / Provider_k admin disable: "Your usage allocation has been disabled
       by your admin"
     - Generic: "account suspended", "account has been disabled" *)
 let hard_quota_indicators =
@@ -204,9 +204,9 @@ let is_hard_quota = function
 (** Extract a human-readable error message from a provider error body.
 
     Supports three common shapes:
-    - OpenAI/Anthropic style: [{"error": {"message": "...", ...}}]
+    - Provider_d/Provider_a style: [{"error": {"message": "...", ...}}]
     - Ollama/llama.cpp style: [{"error": "..."}] (error is a flat string)
-    - ZAI/GLM style with nested code: [{"error": {"code": "1113", "message": "..."}}]
+    - ZAI/Provider_k style with nested code: [{"error": {"code": "1113", "message": "..."}}]
 
     Falls back to [safe_prefix body] when parsing fails or the shape
     does not match — this preserves the raw body for diagnosis while
@@ -470,7 +470,7 @@ let%test "parse_context_overflow_limit: budget exceeded format" =
   parse_context_overflow_limit "input token budget exceeded: 15000 / 8192" = Some 8192
 ;;
 
-let%test "extract_error_message: nested error.message (OpenAI shape)" =
+let%test "extract_error_message: nested error.message (Provider_d shape)" =
   extract_error_message {|{"error":{"message":"invalid tool schema","code":400}}|}
   = "invalid tool schema"
 ;;
@@ -481,7 +481,7 @@ let%test "extract_error_message: flat error string (Ollama/llama.cpp shape)" =
   = "Value looks like object, but can't find closing '}' symbol"
 ;;
 
-let%test "extract_error_message: ZAI GLM quota shape with string code" =
+let%test "extract_error_message: ZAI Provider_k quota shape with string code" =
   extract_error_message
     {|{"error":{"code":"1113","message":"Insufficient balance or no resource package. Please recharge."}}|}
   = "Insufficient balance or no resource package. Please recharge."
@@ -610,7 +610,7 @@ let%test "RateLimited transient 429 is retryable" =
 
 (* Provider-specific hard-quota messages: all non-retryable. *)
 
-let%test "RateLimited glm insufficient balance (z.ai) is NOT retryable" =
+let%test "RateLimited provider_k insufficient balance (z.ai) is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -619,7 +619,7 @@ let%test "RateLimited glm insufficient balance (z.ai) is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited anthropic insufficient credit is NOT retryable" =
+let%test "RateLimited provider_a insufficient credit is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -628,7 +628,7 @@ let%test "RateLimited anthropic insufficient credit is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited anthropic billing_hard_limit is NOT retryable" =
+let%test "RateLimited provider_a billing_hard_limit is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -637,7 +637,7 @@ let%test "RateLimited anthropic billing_hard_limit is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited openai exceeded quota is NOT retryable" =
+let%test "RateLimited provider_d exceeded quota is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -648,7 +648,7 @@ let%test "RateLimited openai exceeded quota is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited gemini resource exhausted is NOT retryable" =
+let%test "RateLimited provider_f resource exhausted is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -657,7 +657,7 @@ let%test "RateLimited gemini resource exhausted is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited gemini resource_exhausted snake_case is NOT retryable" =
+let%test "RateLimited provider_f resource_exhausted snake_case is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -666,7 +666,7 @@ let%test "RateLimited gemini resource_exhausted snake_case is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited mistral insufficient_quota is NOT retryable" =
+let%test "RateLimited provider_j insufficient_quota is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -700,7 +700,7 @@ let%test "RateLimited mixed-case hard quota is NOT retryable" =
           { retry_after = None; message = "INSUFFICIENT BALANCE — please top up" }))
 ;;
 
-(* False-positive defense: GLM review flagged these as risky earlier
+(* False-positive defense: Provider_k review flagged these as risky earlier
    versions of the indicator list.  The current list is strict enough
    that benign messages stay retryable. *)
 

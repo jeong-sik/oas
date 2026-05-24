@@ -27,7 +27,7 @@ let test_of_json_minimal () =
   | Error e -> Alcotest.fail ("minimal: " ^ Error.to_string e)
   | Ok cfg ->
     Alcotest.(check string) "default name" "agent" cfg.name;
-    Alcotest.(check string) "default model" "claude-sonnet-4-6" cfg.model;
+    Alcotest.(check string) "default model" "agent_llm_a-sonnet-4-6" cfg.model;
     Alcotest.(check (option string)) "no system_prompt" None cfg.system_prompt;
     Alcotest.(check (option int)) "no max_tokens" None cfg.max_tokens;
     Alcotest.(check (option int)) "no max_turns" None cfg.max_turns;
@@ -320,27 +320,27 @@ let test_resolve_local_custom_url () =
   | _ -> Alcotest.fail "expected Local"
 ;;
 
-let test_resolve_anthropic () =
-  let cfg = Agent_config.resolve_provider ~model_id:"claude-sonnet" "anthropic" None in
+let test_resolve_provider_a () =
+  let cfg = Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "provider_a" None in
   match cfg.provider with
-  | Provider.Anthropic ->
-    Alcotest.(check string) "model_id" "claude-sonnet" cfg.model_id;
-    Alcotest.(check string) "api_key_env" "ANTHROPIC_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected Anthropic"
+  | Provider.Provider_a ->
+    Alcotest.(check string) "model_id" "agent_llm_a-sonnet" cfg.model_id;
+    Alcotest.(check string) "api_key_env" "PROVIDER_A_API_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected Provider_a"
 ;;
 
-let test_resolve_openai () =
-  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "openai" None in
+let test_resolve_provider_d () =
+  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "provider_d" None in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
-    Alcotest.(check string) "base_url" "https://api.openai.com" base_url;
-    Alcotest.(check string) "api_key_env" "OPENAI_API_KEY" cfg.api_key_env
+    Alcotest.(check string) "base_url" "https://api.provider_d.com" base_url;
+    Alcotest.(check string) "api_key_env" "PROVIDER_D_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
 
-let test_resolve_openai_custom_url () =
+let test_resolve_provider_d_custom_url () =
   let cfg =
-    Agent_config.resolve_provider ~model_id:"gpt-4" "openai" (Some "http://custom:4000")
+    Agent_config.resolve_provider ~model_id:"gpt-4" "provider_d" (Some "http://custom:4000")
   in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
@@ -366,108 +366,108 @@ let test_resolve_other_custom_url () =
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
 
-let test_resolve_groq () =
+let test_resolve_provider_i () =
   (* With base_url=None, resolve_provider now returns Custom_registered
      so that downstream can look up the registry-declared kind.
      entry.defaults (url, path, api_key_env) are carried via the
      registry, not embedded in the Provider.config variant. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"qwen/qwen3-32b" "groq" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"provider_h/qwen3-32b" "provider_i" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "groq name" "groq" name;
-    Alcotest.(check string) "groq api_key_env" "GROQ_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "groq model_id" "qwen/qwen3-32b" cfg.model_id
-  | _ -> Alcotest.fail "expected Custom_registered for groq (registered)"
+    Alcotest.(check string) "provider_i name" "provider_i" name;
+    Alcotest.(check string) "provider_i api_key_env" "GROQ_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "provider_i model_id" "provider_h/qwen3-32b" cfg.model_id
+  | _ -> Alcotest.fail "expected Custom_registered for provider_i (registered)"
 ;;
 
-let test_resolve_groq_custom_url () =
+let test_resolve_provider_i_custom_url () =
   let cfg =
     Agent_config.resolve_provider
-      ~model_id:"qwen/qwen3-32b"
-      "groq"
+      ~model_id:"provider_h/qwen3-32b"
+      "provider_i"
       (Some "http://proxy:8080")
   in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
     Alcotest.(check string) "overridden url" "http://proxy:8080" base_url
-  | _ -> Alcotest.fail "expected OpenAICompat for groq custom url"
+  | _ -> Alcotest.fail "expected OpenAICompat for provider_i custom url"
 ;;
 
-let test_resolve_deepseek () =
+let test_resolve_provider_g () =
   (* base_url=None: Custom_registered preserves kind lookup via registry. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"deepseek-chat" "deepseek" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"provider_g-chat" "provider_g" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "deepseek name" "deepseek" name;
-    Alcotest.(check string) "deepseek api_key_env" "DEEPSEEK_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected Custom_registered for deepseek (registered)"
+    Alcotest.(check string) "provider_g name" "provider_g" name;
+    Alcotest.(check string) "provider_g api_key_env" "PROVIDER_G_API_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected Custom_registered for provider_g (registered)"
 ;;
 
-let test_resolve_gemini_preserves_kind () =
-  (* Regression for #1003: registered providers with non-OpenAI kind
-     (e.g. Gemini) must route through Custom_registered so downstream
+let test_resolve_provider_f_preserves_kind () =
+  (* Regression for #1003: registered providers with non-Provider_d kind
+     (e.g. Provider_f) must route through Custom_registered so downstream
      preserves entry.defaults.kind. Previously resolve_provider
-     returned OpenAICompat, flattening kind to OpenAI_compat and
-     producing 404 against the Gemini endpoint. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "gemini" None in
+     returned OpenAICompat, flattening kind to Provider_d_compat and
+     producing 404 against the Provider_f endpoint. *)
+  let cfg = Agent_config.resolve_provider ~model_id:"provider_f-2.5-flash" "provider_f" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "gemini name" "gemini" name;
-    Alcotest.(check string) "gemini api_key_env" "GEMINI_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "gemini model_id" "gemini-2.5-flash" cfg.model_id
-  | _ -> Alcotest.fail "expected Custom_registered for gemini (registered)"
+    Alcotest.(check string) "provider_f name" "provider_f" name;
+    Alcotest.(check string) "provider_f api_key_env" "PROVIDER_F_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "provider_f model_id" "provider_f-2.5-flash" cfg.model_id
+  | _ -> Alcotest.fail "expected Custom_registered for provider_f (registered)"
 ;;
 
 (* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
 
-let test_resolve_openai_compat_ssot () =
-  (* "openai_compat" is the canonical string emitted by
-     Provider_kind.to_string OpenAI_compat. Before the parser dispatch,
+let test_resolve_provider_d_compat_ssot () =
+  (* "provider_d_compat" is the canonical string emitted by
+     Provider_kind.to_string Provider_d_compat. Before the parser dispatch,
      it fell through to the registry fallback and ended up with
-     api_key_env = "openai_compat" — a meaningless value. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "openai_compat" None in
+     api_key_env = "provider_d_compat" — a meaningless value. *)
+  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "provider_d_compat" None in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
     Alcotest.(check string)
-      "canonical form reaches openai branch"
-      "https://api.openai.com"
+      "canonical form reaches provider_d branch"
+      "https://api.provider_d.com"
       base_url;
     Alcotest.(check string)
-      "api_key_env is OPENAI_API_KEY"
-      "OPENAI_API_KEY"
+      "api_key_env is PROVIDER_D_API_KEY"
+      "PROVIDER_D_API_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected OpenAICompat for openai_compat"
+  | _ -> Alcotest.fail "expected OpenAICompat for provider_d_compat"
 ;;
 
-let test_resolve_anthropic_case_insensitive () =
-  (* The parser trims and lowercases; ["Anthropic"] and [" ANTHROPIC "]
-     both land on the Anthropic branch, not the registry fallback. *)
+let test_resolve_provider_a_case_insensitive () =
+  (* The parser trims and lowercases; ["Provider_a"] and [" PROVIDER_A "]
+     both land on the Provider_a branch, not the registry fallback. *)
   List.iter
     (fun input ->
-       let cfg = Agent_config.resolve_provider ~model_id:"claude-sonnet" input None in
+       let cfg = Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" input None in
        match cfg.provider with
-       | Provider.Anthropic ->
+       | Provider.Provider_a ->
          Alcotest.(check string)
            (Printf.sprintf "api_key_env for %S" input)
-           "ANTHROPIC_API_KEY"
+           "PROVIDER_A_API_KEY"
            cfg.api_key_env
-       | _ -> Alcotest.failf "expected Anthropic for %S" input)
-    [ "Anthropic"; " ANTHROPIC "; "anthropic" ]
+       | _ -> Alcotest.failf "expected Provider_a for %S" input)
+    [ "Provider_a"; " PROVIDER_A "; "provider_a" ]
 ;;
 
-let test_resolve_claude_alias_routes_to_anthropic () =
-  (* ["claude"] is a documented Provider_kind alias for Anthropic. Prior
+let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
+  (* ["agent_llm_a"] is a documented Provider_kind alias for Provider_a. Prior
      to this fix it fell to the registry fallback (Provider_registry
-     has no "claude" entry) and ended up as OpenAICompat with
-     api_key_env = "claude" — broken. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"claude-sonnet" "claude" None in
+     has no "agent_llm_a" entry) and ended up as OpenAICompat with
+     api_key_env = "agent_llm_a" — broken. *)
+  let cfg = Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "agent_llm_a" None in
   match cfg.provider with
-  | Provider.Anthropic ->
+  | Provider.Provider_a ->
     Alcotest.(check string)
-      "api_key_env routed to Anthropic"
-      "ANTHROPIC_API_KEY"
+      "api_key_env routed to Provider_a"
+      "PROVIDER_A_API_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected Anthropic for claude alias"
+  | _ -> Alcotest.fail "expected Provider_a for agent_llm_a alias"
 ;;
 
 let test_resolve_unknown_still_goes_to_registry_fallback () =
@@ -572,20 +572,20 @@ let () =
     ; ( "resolve_provider"
       , [ tc "local" test_resolve_local
         ; tc "local custom url" test_resolve_local_custom_url
-        ; tc "anthropic" test_resolve_anthropic
-        ; tc "openai" test_resolve_openai
-        ; tc "openai custom url" test_resolve_openai_custom_url
+        ; tc "provider_a" test_resolve_provider_a
+        ; tc "provider_d" test_resolve_provider_d
+        ; tc "provider_d custom url" test_resolve_provider_d_custom_url
         ; tc "other" test_resolve_other
         ; tc "other custom url" test_resolve_other_custom_url
-        ; tc "groq" test_resolve_groq
-        ; tc "groq custom url" test_resolve_groq_custom_url
-        ; tc "deepseek" test_resolve_deepseek
-        ; tc "gemini preserves kind (#1003)" test_resolve_gemini_preserves_kind
-        ; tc "openai_compat SSOT string" test_resolve_openai_compat_ssot
-        ; tc "anthropic case-insensitive" test_resolve_anthropic_case_insensitive
+        ; tc "provider_i" test_resolve_provider_i
+        ; tc "provider_i custom url" test_resolve_provider_i_custom_url
+        ; tc "provider_g" test_resolve_provider_g
+        ; tc "provider_f preserves kind (#1003)" test_resolve_provider_f_preserves_kind
+        ; tc "provider_d_compat SSOT string" test_resolve_provider_d_compat_ssot
+        ; tc "provider_a case-insensitive" test_resolve_provider_a_case_insensitive
         ; tc
-            "claude alias routes to Anthropic"
-            test_resolve_claude_alias_routes_to_anthropic
+            "agent_llm_a alias routes to Provider_a"
+            test_resolve_agent_llm_a_alias_routes_to_provider_a
         ; tc
             "unknown still goes to registry fallback"
             test_resolve_unknown_still_goes_to_registry_fallback

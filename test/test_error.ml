@@ -39,7 +39,7 @@ let test_provider_timeout_phase () =
   let err =
     Error.Provider
       (Llm_provider.Error.Timeout
-         { provider = "openai"
+         { provider = "provider_d"
          ; timeout_phase =
              Some
                (Llm_provider.Http_client.Stream_idle
@@ -50,7 +50,7 @@ let test_provider_timeout_phase () =
   check
     string
     "provider timeout"
-    "Provider 'openai' timeout phase=stream_idle:streaming_thinking: stream stalled"
+    "Provider 'provider_d' timeout phase=stream_idle:streaming_thinking: stream stalled"
     (Error.to_string err)
 ;;
 
@@ -123,8 +123,8 @@ let test_mcp_tool_call () =
 ;;
 
 let test_config_missing_env () =
-  let err = Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" }) in
-  check string "missing env" "Missing env var: ANTHROPIC_API_KEY" (Error.to_string err)
+  let err = Error.Config (MissingEnvVar { var_name = "PROVIDER_A_API_KEY" }) in
+  check string "missing env" "Missing env var: PROVIDER_A_API_KEY" (Error.to_string err)
 ;;
 
 let test_config_unsupported_provider () =
@@ -210,7 +210,7 @@ let test_retryable_provider_timeout () =
   let err =
     Error.Provider
       (Llm_provider.Error.Timeout
-         { provider = "openai"
+         { provider = "provider_d"
          ; timeout_phase =
              Some
                (Llm_provider.Http_client.Stream_idle

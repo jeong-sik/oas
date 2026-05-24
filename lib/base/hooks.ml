@@ -1,5 +1,5 @@
 (** Lifecycle hooks for agent execution.
-    Inspired by Anthropic SDK PreToolUse/PostToolUse/Stop
+    Inspired by Provider_a SDK PreToolUse/PostToolUse/Stop
     and Google ADK ToolContext patterns.
 
     All hook types use exhaustive variants for compile-time safety. *)
@@ -194,7 +194,7 @@ type hook_event =
       }
 
 (** Elicitation: structured request for user input during agent execution.
-    Inspired by Claude SDK MCP Elicitation pattern. *)
+    Inspired by Agent_llm_a SDK MCP Elicitation pattern. *)
 type elicitation_request =
   { question : string
   ; schema : Yojson.Safe.t option (** JSON Schema for expected answer *)

@@ -1,7 +1,7 @@
 (** Multi-vendor Event_bus taxonomy invariants.
 
-    Every provider OAS supports — Anthropic, OpenAI (+ compatibles),
-    Gemini, GLM, OpenRouter, llama.cpp, Ollama, vLLM, LM Studio, etc. —
+    Every provider OAS supports — Provider_a, Provider_d (+ compatibles),
+    Provider_f, Provider_k, OpenRouter, llama.cpp, Ollama, vLLM, LM Studio, etc. —
     produces the same native Event_bus payload variants when running
     through OAS.  This test encodes the taxonomy invariants so any
     refactor that changes the public surface breaks the build here
@@ -156,7 +156,7 @@ let test_event_type_name_mapping () =
     ; (* Custom names pass through verbatim — no "custom." prefix. *)
       Custom ("runtime.session_started", `Null), "runtime.session_started"
     ; Custom ("durable.tool_called", `Null), "durable.tool_called"
-    ; Custom ("provider.anthropic.cache_hit", `Null), "provider.anthropic.cache_hit"
+    ; Custom ("provider.provider_a.cache_hit", `Null), "provider.provider_a.cache_hit"
     ; Custom ("myext.foo", `Null), "myext.foo"
     ]
   in
@@ -267,7 +267,7 @@ let test_reserved_namespace_grammar () =
   let ok_names =
     [ "runtime.session_started"
     ; "durable.tool_called"
-    ; "provider.anthropic.cache_hit"
+    ; "provider.provider_a.cache_hit"
     ; "provider.ollama.slot_busy"
     ; "oas.future"
     ; "myext.subsystem.event"

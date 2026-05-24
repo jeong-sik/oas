@@ -1,5 +1,5 @@
 (** Sub-agent delegation and handoff.
-    Inspired by Anthropic SDK's AgentDefinition + Task tool
+    Inspired by Provider_a SDK's AgentDefinition + Task tool
     and Google ADK's Root/Sub-agent pattern.
 
     To avoid circular dependency with Agent, handoff defines types and

@@ -11,7 +11,7 @@ let check_bool = Alcotest.(check bool)
 let test_make_defaults () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"test"
       ~base_url:"http://localhost:8080"
       ()
@@ -38,45 +38,45 @@ let test_make_defaults () =
 
 (* ── make: request_path per kind ──────────────────────── *)
 
-let test_request_path_anthropic () =
-  let cfg = Provider_config.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
-  check_string "anthropic path" "/v1/messages" cfg.request_path
+let test_request_path_provider_a () =
+  let cfg = Provider_config.make ~kind:Provider_a ~model_id:"m" ~base_url:"" () in
+  check_string "provider_a path" "/v1/messages" cfg.request_path
 ;;
 
-let test_request_path_kimi () =
-  let cfg = Provider_config.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  check_string "kimi path" "/v1/messages" cfg.request_path
+let test_request_path_provider_c () =
+  let cfg = Provider_config.make ~kind:Provider_c ~model_id:"m" ~base_url:"" () in
+  check_string "provider_c path" "/v1/messages" cfg.request_path
 ;;
 
-let test_request_path_openai () =
-  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
-  check_string "openai path" "/v1/chat/completions" cfg.request_path
+let test_request_path_provider_d () =
+  let cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  check_string "provider_d path" "/v1/chat/completions" cfg.request_path
 ;;
 
-let test_request_path_gemini () =
-  let cfg = Provider_config.make ~kind:Gemini ~model_id:"m" ~base_url:"" () in
-  check_string "gemini path" "" cfg.request_path
+let test_request_path_provider_f () =
+  let cfg = Provider_config.make ~kind:Provider_f ~model_id:"m" ~base_url:"" () in
+  check_string "provider_f path" "" cfg.request_path
 ;;
 
 let test_request_path_glm () =
-  let cfg = Provider_config.make ~kind:Glm ~model_id:"m" ~base_url:"" () in
-  check_string "glm path" "/chat/completions" cfg.request_path
+  let cfg = Provider_config.make ~kind:Provider_k ~model_id:"m" ~base_url:"" () in
+  check_string "provider_k path" "/chat/completions" cfg.request_path
 ;;
 
-let test_request_path_claude_code () =
-  let cfg = Provider_config.make ~kind:Claude_code ~model_id:"m" ~base_url:"" () in
-  check_string "claude_code path" "" cfg.request_path
+let test_request_path_agent_llm_a_code () =
+  let cfg = Provider_config.make ~kind:Cli_tool_d ~model_id:"m" ~base_url:"" () in
+  check_string "cli_tool_d path" "" cfg.request_path
 ;;
 
-let test_request_path_kimi_cli () =
-  let cfg = Provider_config.make ~kind:Kimi_cli ~model_id:"m" ~base_url:"" () in
-  check_string "kimi_cli path" "" cfg.request_path
+let test_request_path_provider_c_cli () =
+  let cfg = Provider_config.make ~kind:Cli_tool_c ~model_id:"m" ~base_url:"" () in
+  check_string "cli_tool_c path" "" cfg.request_path
 ;;
 
 let test_request_path_override () =
   let cfg =
     Provider_config.make
-      ~kind:Anthropic
+      ~kind:Provider_a
       ~model_id:"m"
       ~base_url:""
       ~request_path:"/custom/path"
@@ -90,9 +90,9 @@ let test_request_path_override () =
 let test_make_with_all_options () =
   let cfg =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-opus"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-opus"
+      ~base_url:"https://api.provider_a.com"
       ~api_key:"sk-test"
       ~headers:[ "X-Custom", "val" ]
       ~max_tokens:2048
@@ -132,26 +132,26 @@ let test_make_with_all_options () =
   check_bool "cache prompt" true cfg.cache_system_prompt
 ;;
 
-let test_validate_output_schema_openai_official () =
+let test_validate_output_schema_provider_d_official () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o"
-      ~base_url:"https://api.openai.com/v1"
+      ~kind:Provider_d_compat
+      ~model_id:"model-d"
+      ~base_url:"https://api.provider_d.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "official openai accepted"
+    "official provider_d accepted"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_openai_compat_rejected () =
+let test_validate_output_schema_provider_d_compat_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o"
+      ~kind:Provider_d_compat
+      ~model_id:"model-d"
       ~base_url:"https://openrouter.ai/api/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
@@ -165,44 +165,44 @@ let test_validate_output_schema_openai_compat_rejected () =
 let test_validate_output_schema_glm_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:Glm
-      ~model_id:"glm-5"
+      ~kind:Provider_k
+      ~model_id:"provider_k-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "glm rejected"
+    "provider_k rejected"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_dashscope_accepted () =
+let test_validate_output_schema_provider_h_accepted () =
   let cfg =
     Provider_config.make
-      ~kind:DashScope
-      ~model_id:"qwen-max"
-      ~base_url:"https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      ~kind:Provider_h
+      ~model_id:"provider_h-max"
+      ~base_url:"https://provider_h-intl.aliyuncs.com/compatible-mode/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "dashscope accepted"
+    "provider_h accepted"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_kimi_rejected () =
+let test_validate_output_schema_provider_c_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"kimi-for-coding"
-      ~base_url:"https://api.kimi.com/coding"
+      ~kind:Provider_c
+      ~model_id:"provider_c-for-coding"
+      ~base_url:"https://api.provider_c.com/coding"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "kimi rejected"
+    "provider_c rejected"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -210,7 +210,7 @@ let test_validate_output_schema_kimi_rejected () =
 (* ── make: headers default ────────────────────────────── *)
 
 let test_default_headers () =
-  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
   check_int "1 default header" 1 (List.length cfg.headers);
   let k, v = List.hd cfg.headers in
   check_string "Content-Type key" "Content-Type" k;
@@ -220,7 +220,7 @@ let test_default_headers () =
 let test_custom_headers () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"m"
       ~base_url:""
       ~headers:[ "Auth", "Bearer x"; "X-Custom", "val" ]
@@ -234,7 +234,7 @@ let test_custom_headers () =
 let test_is_local_loopback_ip () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"m"
       ~base_url:"http://127.0.0.1:8085"
       ()
@@ -245,7 +245,7 @@ let test_is_local_loopback_ip () =
 let test_is_local_localhost () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"m"
       ~base_url:"http://localhost/v1"
       ()
@@ -256,7 +256,7 @@ let test_is_local_localhost () =
 let test_is_local_remote_false () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"m"
       ~base_url:"https://api.example.com"
       ()
@@ -267,7 +267,7 @@ let test_is_local_remote_false () =
 let test_is_local_host_boundary_false () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"m"
       ~base_url:"http://localhostevil.com"
       ()
@@ -278,7 +278,7 @@ let test_is_local_host_boundary_false () =
 let test_is_local_localhost_query_true () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"m"
       ~base_url:"http://localhost?foo=bar"
       ()
@@ -294,10 +294,10 @@ let test_default_attempt_timeout_s () =
       (Provider_config.default_attempt_timeout_s kind)
   in
   check_timeout "ollama has no default hard attempt timeout" None Ollama;
-  check_timeout "claude_code keeps CLI default" (Some 120.0) Claude_code;
-  check_timeout "kimi_cli keeps CLI default" (Some 60.0) Kimi_cli;
-  check_timeout "gemini_cli keeps CLI default" (Some 180.0) Gemini_cli;
-  check_timeout "openai_compat has no default hard attempt timeout" None OpenAI_compat
+  check_timeout "cli_tool_d keeps CLI default" (Some 120.0) Cli_tool_d;
+  check_timeout "cli_tool_c keeps CLI default" (Some 60.0) Cli_tool_c;
+  check_timeout "cli_tool_b keeps CLI default" (Some 180.0) Cli_tool_b;
+  check_timeout "provider_d_compat has no default hard attempt timeout" None Provider_d_compat
 ;;
 
 (* ── provider_name_of_config ─────────────────────────── *)
@@ -305,35 +305,35 @@ let test_default_attempt_timeout_s () =
 let test_provider_name_of_config_glm_general () =
   let cfg =
     Provider_config.make
-      ~kind:Glm
-      ~model_id:"glm-5.1"
+      ~kind:Provider_k
+      ~model_id:"provider_k-5.1"
       ~base_url:Zai_catalog.general_base_url
       ()
   in
-  check_string "glm general" "glm" (Provider_registry.provider_name_of_config cfg)
+  check_string "provider_k general" "provider_k" (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_glm_coding () =
   let cfg =
     Provider_config.make
-      ~kind:Glm
-      ~model_id:"glm-5.1"
+      ~kind:Provider_k
+      ~model_id:"provider_k-5.1"
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
-  check_string "glm coding" "glm-coding" (Provider_registry.provider_name_of_config cfg)
+  check_string "provider_k coding" "provider_k-coding" (Provider_registry.provider_name_of_config cfg)
 ;;
 
-let test_provider_name_of_config_local_openai_compat () =
+let test_provider_name_of_config_local_provider_d_compat () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"local-model"
       ~base_url:"http://127.0.0.1:8085"
       ()
   in
   check_string
-    "local openai compat resolves to llama"
+    "local provider_d compat resolves to llama"
     "llama"
     (Provider_registry.provider_name_of_config cfg)
 ;;
@@ -341,8 +341,8 @@ let test_provider_name_of_config_local_openai_compat () =
 let test_provider_name_of_config_openrouter () =
   let cfg =
     Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"openai/gpt-oss-20b"
+      ~kind:Provider_d_compat
+      ~model_id:"provider_d/gpt-oss-20b"
       ~base_url:"https://openrouter.ai/api/v1"
       ~request_path:"/chat/completions"
       ()
@@ -378,22 +378,22 @@ let test_kind_roundtrip () =
 ;;
 
 let test_kind_aliases () =
-  check_parse "claude -> Anthropic" "claude" Anthropic;
-  check_parse "openai -> OpenAI_compat" "openai" OpenAI_compat;
+  check_parse "agent_llm_a -> Provider_a" "agent_llm_a" Provider_a;
+  check_parse "provider_d -> Provider_d_compat" "provider_d" Provider_d_compat;
   check_parse "llama -> Ollama" "llama" Ollama
 ;;
 
 let test_kind_case_insensitive () =
-  check_parse "ANTHROPIC" "ANTHROPIC" Anthropic;
-  check_parse "Claude" "Claude" Anthropic;
-  check_parse "GLM" "GLM" Glm;
-  check_parse "Gemini_CLI" "Gemini_CLI" Gemini_cli
+  check_parse "PROVIDER_A" "PROVIDER_A" Provider_a;
+  check_parse "Agent_llm_a" "Agent_llm_a" Provider_a;
+  check_parse "Provider_k" "Provider_k" Provider_k;
+  check_parse "Gemini_CLI" "Gemini_CLI" Cli_tool_b
 ;;
 
 let test_kind_whitespace () =
-  check_parse "leading ws" "  claude" Anthropic;
+  check_parse "leading ws" "  agent_llm_a" Provider_a;
   check_parse "trailing ws" "ollama  " Ollama;
-  check_parse "both ws" "\topenai\n" OpenAI_compat
+  check_parse "both ws" "\topenai\n" Provider_d_compat
 ;;
 
 let test_kind_unknown_returns_none () =
@@ -412,7 +412,7 @@ let test_kind_unknown_returns_none () =
   check_bool
     "json-ish"
     true
-    (Option.is_none (Provider_config.provider_kind_of_string "\"claude\""))
+    (Option.is_none (Provider_config.provider_kind_of_string "\"agent_llm_a\""))
 ;;
 
 (* ── provider_kind serializers ───────────────────────── *)
@@ -430,9 +430,9 @@ let test_show_matches_string_of () =
 let test_pp_uses_lowercase () =
   let buf = Buffer.create 32 in
   let fmt = Format.formatter_of_buffer buf in
-  Provider_config.pp_provider_kind fmt Anthropic;
+  Provider_config.pp_provider_kind fmt Provider_a;
   Format.pp_print_flush fmt ();
-  check_string "pp Anthropic" "anthropic" (Buffer.contents buf)
+  check_string "pp Provider_a" "provider_a" (Buffer.contents buf)
 ;;
 
 let test_to_yojson_roundtrip () =
@@ -469,7 +469,7 @@ let test_of_yojson_accepts_aliases () =
            expected_wire
            (Provider_config.string_of_provider_kind k)
        | Error msg -> Alcotest.failf "of_yojson alias %S failed: %s" input msg)
-    [ "claude", "anthropic"; "openai", "openai_compat"; "llama", "ollama" ]
+    [ "agent_llm_a", "provider_a"; "provider_d", "provider_d_compat"; "llama", "ollama" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -481,7 +481,7 @@ let test_of_yojson_rejects_unknown_string () =
 
 let test_of_yojson_rejects_non_string () =
   let cases : (string * Yojson.Safe.t) list =
-    [ "null", `Null; "int", `Int 1; "assoc", `Assoc [ "kind", `String "anthropic" ] ]
+    [ "null", `Null; "int", `Int 1; "assoc", `Assoc [ "kind", `String "provider_a" ] ]
   in
   List.iter
     (fun (label, json) ->
@@ -530,14 +530,14 @@ let contains_substring ~sub text =
 
 let test_wire_kind_lowercase () =
   let cases =
-    [ Provider_config.Anthropic, "\"provider_kind\":\"anthropic\""
-    ; Provider_config.OpenAI_compat, "\"provider_kind\":\"openai_compat\""
+    [ Provider_config.Provider_a, "\"provider_kind\":\"provider_a\""
+    ; Provider_config.Provider_d_compat, "\"provider_kind\":\"provider_d_compat\""
     ; Provider_config.Ollama, "\"provider_kind\":\"ollama\""
-    ; Provider_config.Gemini, "\"provider_kind\":\"gemini\""
-    ; Provider_config.Glm, "\"provider_kind\":\"glm\""
-    ; Provider_config.Claude_code, "\"provider_kind\":\"claude_code\""
-    ; Provider_config.Gemini_cli, "\"provider_kind\":\"gemini_cli\""
-    ; Provider_config.Codex_cli, "\"provider_kind\":\"codex_cli\""
+    ; Provider_config.Provider_f, "\"provider_kind\":\"provider_f\""
+    ; Provider_config.Provider_k, "\"provider_kind\":\"provider_k\""
+    ; Provider_config.Cli_tool_d, "\"provider_kind\":\"cli_tool_d\""
+    ; Provider_config.Cli_tool_b, "\"provider_kind\":\"cli_tool_b\""
+    ; Provider_config.Cli_tool_a, "\"provider_kind\":\"cli_tool_a\""
     ]
   in
   List.iter
@@ -557,14 +557,14 @@ let test_wire_kind_lowercase () =
 let test_wire_kind_none_roundtrip () =
   let t = telemetry_with_kind None in
   let encoded = Yojson.Safe.to_string (Types.inference_telemetry_to_yojson t) in
-  (* None should not produce "anthropic" / "ollama" / any kind string. *)
+  (* None should not produce "provider_a" / "ollama" / any kind string. *)
   List.iter
     (fun s ->
        Alcotest.(check bool)
          (Printf.sprintf "None telemetry must not contain %S" s)
          false
          (contains_substring ~sub:s encoded))
-    [ "\"anthropic\""; "\"ollama\""; "\"openai_compat\"" ]
+    [ "\"provider_a\""; "\"ollama\""; "\"provider_d_compat\"" ]
 ;;
 
 let test_wire_unknown_latency_is_null () =
@@ -622,17 +622,17 @@ let test_all_is_exhaustive () =
   List.iter
     (fun k ->
        match (k : Provider_config.provider_kind) with
-       | Anthropic
-       | Kimi
-       | OpenAI_compat
+       | Provider_a
+       | Provider_c
+       | Provider_d_compat
        | Ollama
-       | Gemini
-       | DashScope
-       | Glm
-       | Claude_code
-       | Gemini_cli
-       | Kimi_cli
-       | Codex_cli -> ())
+       | Provider_f
+       | Provider_h
+       | Provider_k
+       | Cli_tool_d
+       | Cli_tool_b
+       | Cli_tool_c
+       | Cli_tool_a -> ())
     xs
 ;;
 
@@ -656,21 +656,21 @@ let test_all_drives_parse_roundtrip () =
 
 let test_default_api_key_env_known () =
   Alcotest.(check (option string))
-    "anthropic"
-    (Some "ANTHROPIC_API_KEY")
-    (Provider_config.default_api_key_env Anthropic);
+    "provider_a"
+    (Some "PROVIDER_A_API_KEY")
+    (Provider_config.default_api_key_env Provider_a);
   Alcotest.(check (option string))
-    "gemini"
-    (Some "GEMINI_API_KEY")
-    (Provider_config.default_api_key_env Gemini);
+    "provider_f"
+    (Some "PROVIDER_F_API_KEY")
+    (Provider_config.default_api_key_env Provider_f);
   Alcotest.(check (option string))
-    "glm"
+    "provider_k"
     (Some "ZAI_API_KEY")
-    (Provider_config.default_api_key_env Glm);
+    (Provider_config.default_api_key_env Provider_k);
   Alcotest.(check (option string))
-    "kimi"
-    (Some "KIMI_API_KEY")
-    (Provider_config.default_api_key_env Kimi)
+    "provider_c"
+    (Some "PROVIDER_C_API_KEY")
+    (Provider_config.default_api_key_env Provider_c)
 ;;
 
 let test_is_subprocess_cli () =
@@ -680,10 +680,10 @@ let test_is_subprocess_cli () =
          ("subprocess: " ^ label)
          true
          (Provider_config.is_subprocess_cli k))
-    [ "claude_code", Provider_config.Claude_code
-    ; "gemini_cli", Provider_config.Gemini_cli
-    ; "kimi_cli", Provider_config.Kimi_cli
-    ; "codex_cli", Provider_config.Codex_cli
+    [ "cli_tool_d", Provider_config.Cli_tool_d
+    ; "cli_tool_b", Provider_config.Cli_tool_b
+    ; "cli_tool_c", Provider_config.Cli_tool_c
+    ; "cli_tool_a", Provider_config.Cli_tool_a
     ];
   List.iter
     (fun (label, k) ->
@@ -691,12 +691,12 @@ let test_is_subprocess_cli () =
          ("http: " ^ label)
          false
          (Provider_config.is_subprocess_cli k))
-    [ "anthropic", Provider_config.Anthropic
-    ; "kimi", Provider_config.Kimi
-    ; "openai_compat", Provider_config.OpenAI_compat
+    [ "provider_a", Provider_config.Provider_a
+    ; "provider_c", Provider_config.Provider_c
+    ; "provider_d_compat", Provider_config.Provider_d_compat
     ; "ollama", Provider_config.Ollama
-    ; "gemini", Provider_config.Gemini
-    ; "glm", Provider_config.Glm
+    ; "provider_f", Provider_config.Provider_f
+    ; "provider_k", Provider_config.Provider_k
     ]
 ;;
 
@@ -716,17 +716,17 @@ let test_subprocess_partitions_all () =
 ;;
 
 let test_default_api_key_env_none_for_others () =
-  (* Local / transport-mediated / OpenAI-compatible share: OAS does not
+  (* Local / transport-mediated / Provider_d-compatible share: OAS does not
      dictate a single env var; callers supply their own. *)
   List.iter
     (fun (label, k) ->
        Alcotest.(check (option string)) label None (Provider_config.default_api_key_env k))
-    [ "openai_compat", Provider_config.OpenAI_compat
+    [ "provider_d_compat", Provider_config.Provider_d_compat
     ; "ollama", Provider_config.Ollama
-    ; "claude_code", Provider_config.Claude_code
-    ; "gemini_cli", Provider_config.Gemini_cli
-    ; "kimi_cli", Provider_config.Kimi_cli
-    ; "codex_cli", Provider_config.Codex_cli
+    ; "cli_tool_d", Provider_config.Cli_tool_d
+    ; "cli_tool_b", Provider_config.Cli_tool_b
+    ; "cli_tool_c", Provider_config.Cli_tool_c
+    ; "cli_tool_a", Provider_config.Cli_tool_a
     ]
 ;;
 
@@ -759,13 +759,13 @@ let () =
         ; Alcotest.test_case "default headers" `Quick test_default_headers
         ] )
     ; ( "request_path"
-      , [ Alcotest.test_case "anthropic" `Quick test_request_path_anthropic
-        ; Alcotest.test_case "kimi" `Quick test_request_path_kimi
-        ; Alcotest.test_case "openai" `Quick test_request_path_openai
-        ; Alcotest.test_case "gemini" `Quick test_request_path_gemini
-        ; Alcotest.test_case "glm" `Quick test_request_path_glm
-        ; Alcotest.test_case "claude_code" `Quick test_request_path_claude_code
-        ; Alcotest.test_case "kimi_cli" `Quick test_request_path_kimi_cli
+      , [ Alcotest.test_case "provider_a" `Quick test_request_path_provider_a
+        ; Alcotest.test_case "provider_c" `Quick test_request_path_provider_c
+        ; Alcotest.test_case "provider_d" `Quick test_request_path_provider_d
+        ; Alcotest.test_case "provider_f" `Quick test_request_path_provider_f
+        ; Alcotest.test_case "provider_k" `Quick test_request_path_glm
+        ; Alcotest.test_case "cli_tool_d" `Quick test_request_path_agent_llm_a_code
+        ; Alcotest.test_case "cli_tool_c" `Quick test_request_path_provider_c_cli
         ; Alcotest.test_case "override" `Quick test_request_path_override
         ] )
     ; ( "explicit_values"
@@ -774,25 +774,25 @@ let () =
         ] )
     ; ( "output_schema"
       , [ Alcotest.test_case
-            "official openai"
+            "official provider_d"
             `Quick
-            test_validate_output_schema_openai_official
+            test_validate_output_schema_provider_d_official
         ; Alcotest.test_case
             "generic compat rejected"
             `Quick
-            test_validate_output_schema_openai_compat_rejected
+            test_validate_output_schema_provider_d_compat_rejected
         ; Alcotest.test_case
-            "glm rejected"
+            "provider_k rejected"
             `Quick
             test_validate_output_schema_glm_rejected
         ; Alcotest.test_case
-            "kimi rejected"
+            "provider_c rejected"
             `Quick
-            test_validate_output_schema_kimi_rejected
+            test_validate_output_schema_provider_c_rejected
         ; Alcotest.test_case
-            "dashscope accepted"
+            "provider_h accepted"
             `Quick
-            test_validate_output_schema_dashscope_accepted
+            test_validate_output_schema_provider_h_accepted
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip
@@ -812,12 +812,12 @@ let () =
             test_default_attempt_timeout_s
         ] )
     ; ( "provider_name"
-      , [ Alcotest.test_case "glm general" `Quick test_provider_name_of_config_glm_general
-        ; Alcotest.test_case "glm coding" `Quick test_provider_name_of_config_glm_coding
+      , [ Alcotest.test_case "provider_k general" `Quick test_provider_name_of_config_glm_general
+        ; Alcotest.test_case "provider_k coding" `Quick test_provider_name_of_config_glm_coding
         ; Alcotest.test_case
-            "local openai compat"
+            "local provider_d compat"
             `Quick
-            test_provider_name_of_config_local_openai_compat
+            test_provider_name_of_config_local_provider_d_compat
         ; Alcotest.test_case "openrouter" `Quick test_provider_name_of_config_openrouter
         ] )
     ; ( "kind_of_string"

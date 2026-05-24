@@ -144,7 +144,7 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
 
 (** Detect tool-calling support from a chat template string.
     Checks for tool-related keywords and special tokens used by
-    various model families (Qwen, Llama, Mistral, etc.). *)
+    various model families (Provider_h, Llama, Provider_j, etc.). *)
 let template_has_tool_support (template : string) : bool =
   let has_tool_keyword =
     Retry.contains_case_insensitive ~haystack:template ~needle:"tools"
@@ -271,7 +271,7 @@ let apply_reasoning_effort_overlay (caps : Capabilities.capabilities)
 (** Infer capabilities from model info and server props.
     Priority: model-specific lookup > generic inference > default.
     When [uses_reasoning_effort] is [true] the endpoint speaks the
-    OpenAI-compatible reasoning_effort wire format (currently mapped from
+    Provider_d-compatible reasoning_effort wire format (currently mapped from
     Ollama-endpoint detection at the caller, but the function takes the
     behavior class — not the vendor — as input), so
     {!apply_reasoning_effort_overlay} is layered on top of the
@@ -307,12 +307,12 @@ let infer_capabilities ~uses_reasoning_effort models props =
         let needs_extended =
           List.exists
             (fun (m : model_info) ->
-               Retry.contains_case_insensitive ~haystack:m.id ~needle:"qwen")
+               Retry.contains_case_insensitive ~haystack:m.id ~needle:"provider_h")
             models
         in
         if needs_extended
-        then Capabilities.openai_chat_extended_capabilities
-        else Capabilities.openai_chat_capabilities)
+        then Capabilities.provider_d_chat_extended_capabilities
+        else Capabilities.provider_d_chat_capabilities)
   in
   (* 3. Merge ctx_size from /props into capabilities *)
   match props with
@@ -784,7 +784,7 @@ let%test "url_is_ollama rejects unrelated port" =
   not (url_is_ollama "http://127.0.0.1:8086")
 ;;
 
-(* Codex review #793: confirm false-positive substring matches no longer fire. *)
+(* Agent_code review #793: confirm false-positive substring matches no longer fire. *)
 let%test "url_is_ollama rejects :11434 in userinfo" =
   not (url_is_ollama "http://user:11434@example.com/v1")
 ;;
@@ -797,7 +797,7 @@ let%test "url_is_ollama rejects :11434 in query" =
   not (url_is_ollama "http://example.com:8080/?next=:11434")
 ;;
 
-(* Codex review: cover the bare ":11434 in query" case with no other port. *)
+(* Agent_code review: cover the bare ":11434 in query" case with no other port. *)
 let%test "url_is_ollama rejects :11434 in query (no other port)" =
   not (url_is_ollama "http://example.com/?next=:11434")
 ;;
@@ -973,11 +973,11 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
 (* --- contains_case_insensitive (via Retry SSOT) --- *)
 
 let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"Qwen3.5-35B" ~needle:"qwen" = true
+  Retry.contains_case_insensitive ~haystack:"Qwen3.5-35B" ~needle:"provider_h" = true
 ;;
 
 let%test "contains_case_insensitive no match" =
-  Retry.contains_case_insensitive ~haystack:"llama" ~needle:"qwen" = false
+  Retry.contains_case_insensitive ~haystack:"llama" ~needle:"provider_h" = false
 ;;
 
 let%test "contains_case_insensitive needle longer than haystack" =
@@ -989,12 +989,12 @@ let%test "contains_case_insensitive empty needle" =
 ;;
 
 let%test "contains_case_insensitive exact match" =
-  Retry.contains_case_insensitive ~haystack:"QWEN" ~needle:"qwen" = true
+  Retry.contains_case_insensitive ~haystack:"QWEN" ~needle:"provider_h" = true
 ;;
 
 (* --- infer_capabilities --- *)
 
-let%test "infer_capabilities qwen model gets extended" =
+let%test "infer_capabilities provider_h model gets extended" =
   let models = [ { id = "Qwen3.5-35B-A3B"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_reasoning = true
@@ -1002,14 +1002,14 @@ let%test "infer_capabilities qwen model gets extended" =
   && caps.supports_min_p = true
 ;;
 
-let%test "infer_capabilities unknown model gets basic openai" =
+let%test "infer_capabilities unknown model gets basic provider_d" =
   let models = [ { id = "my-custom-model"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_tools = true && caps.supports_reasoning = false
 ;;
 
 let%test "infer_capabilities known model lookup has priority" =
-  let models = [ { id = "claude-opus-4-20260320"; owned_by = "anthropic" } ] in
+  let models = [ { id = "agent_llm_a-opus-4-20260320"; owned_by = "provider_a" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_caching = true && caps.supports_computer_use = true
 ;;
@@ -1040,7 +1040,7 @@ let%test "model_info_to_json" =
 let%test "server_props_to_json" =
   let json =
     server_props_to_json
-      { total_slots = 4; ctx_size = 8192; model = "qwen"; supports_tools = None }
+      { total_slots = 4; ctx_size = 8192; model = "provider_h"; supports_tools = None }
   in
   let open Yojson.Safe.Util in
   json |> member "total_slots" |> to_int = 4 && json |> member "ctx_size" |> to_int = 8192
@@ -1293,7 +1293,7 @@ let%test "infer_capabilities uses ollama context when props present" =
   caps.max_context_tokens = Some 8192
 ;;
 
-let%test "infer_capabilities defaults to 262K when no props for qwen" =
+let%test "infer_capabilities defaults to 262K when no props for provider_h" =
   let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:true models None in
   caps.max_context_tokens = Some 262_144

@@ -30,8 +30,8 @@ let provider_runtime_name selected (cfg : Provider.config option) =
   | Some cfg ->
     (match cfg.provider with
      | Provider.Local _ -> "local"
-     | Provider.Anthropic -> "anthropic"
-     | Provider.OpenAICompat _ -> "openai-compat"
+     | Provider.Provider_a -> "provider_a"
+     | Provider.OpenAICompat _ -> "provider_d-compat"
      | Provider.Custom_registered { name } -> "custom:" ^ name)
 ;;
 
@@ -54,12 +54,12 @@ let provider_config_of_registry_entry
       (entry : Llm_provider.Provider_registry.entry)
   =
   match entry.defaults.kind with
-  | Llm_provider.Provider_config.Anthropic ->
-    { Provider.provider = Provider.Anthropic
+  | Llm_provider.Provider_config.Provider_a ->
+    { Provider.provider = Provider.Provider_a
     ; model_id
     ; api_key_env = entry.defaults.api_key_env
     }
-  | Llm_provider.Provider_config.OpenAI_compat ->
+  | Llm_provider.Provider_config.Provider_d_compat ->
     { Provider.provider =
         Provider.OpenAICompat
           { base_url = entry.defaults.base_url
@@ -108,18 +108,18 @@ let resolve_from_registry registry ~provider_name ?model () =
     let resolved_model = Model_registry.resolve_model_id provider_name in
     if not (String.equal resolved_model provider_name)
     then (
-      match Llm_provider.Provider_registry.find registry "claude" with
+      match Llm_provider.Provider_registry.find registry "agent_llm_a" with
       | Some entry ->
         Ok
           (Some
              (provider_config_of_registry_entry
-                ~provider_name:"claude"
+                ~provider_name:"agent_llm_a"
                 ~model_id:resolved_model
                 entry))
       | None ->
         unsupported_provider
-          "provider alias resolved to an Anthropic model but provider catalog has no \
-           \"claude\" entry")
+          "provider alias resolved to an Provider_a model but provider catalog has no \
+           \"agent_llm_a\" entry")
     else
       unsupported_provider
         (Printf.sprintf

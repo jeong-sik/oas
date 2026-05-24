@@ -29,7 +29,7 @@ let scripted_transport scripted_responses request_count : Llm_transport.t =
 
 let make_config base_url =
   Provider_config.make
-    ~kind:Provider_config.Anthropic
+    ~kind:Provider_config.Provider_a
     ~model_id:"test-model"
     ~base_url
     ~request_path:"/v1/messages"

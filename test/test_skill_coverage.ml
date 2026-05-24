@@ -106,7 +106,7 @@ let test_parse_frontmatter_full () =
 name: my-skill
 description: A test skill
 allowed-tools: [tool1, tool2]
-model: claude-3
+model: agent_llm_a-3
 ---
 Body content here.|}
   in
@@ -122,7 +122,7 @@ Body content here.|}
     (Skill.frontmatter_value fm "description");
   Alcotest.(check (option string))
     "model"
-    (Some "claude-3")
+    (Some "agent_llm_a-3")
     (Skill.frontmatter_value fm "model")
 ;;
 
@@ -212,7 +212,7 @@ description: A skill description
 scope: project
 allowed-tools: [bash, read]
 argument-hint: <file_path>
-model: claude-3
+model: agent_llm_a-3
 supporting-files: [helpers.sh]
 ---
 Do the thing with $ARGUMENTS|}
@@ -226,7 +226,7 @@ Do the thing with $ARGUMENTS|}
    | _ -> Alcotest.fail "expected Project scope");
   Alcotest.(check (list string)) "tools" [ "bash"; "read" ] skill.allowed_tools;
   Alcotest.(check (option string)) "hint" (Some "<file_path>") skill.argument_hint;
-  Alcotest.(check (option string)) "model" (Some "claude-3") skill.model;
+  Alcotest.(check (option string)) "model" (Some "agent_llm_a-3") skill.model;
   Alcotest.(check (list string)) "supporting" [ "helpers.sh" ] skill.supporting_files
 ;;
 

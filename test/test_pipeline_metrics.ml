@@ -81,7 +81,7 @@ let test_sync_dispatches_via_complete_triggers_metrics () =
   @@ fun sw ->
   let pc =
     Llm_provider.Provider_config.make
-      ~kind:Claude_code
+      ~kind:Cli_tool_d
       ~model_id:"auto"
       ~base_url:""
       ~api_key:""
@@ -122,7 +122,7 @@ let test_stage_route_passes_trace_context_headers () =
   let transport = mk_header_capture_transport observed_headers in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "claude_code" }
+      { Provider.provider = Provider.Custom_registered { name = "cli_tool_d" }
       ; model_id = "auto"
       ; api_key_env = ""
       }
@@ -175,7 +175,7 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
   in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "claude_code" }
+      { Provider.provider = Provider.Custom_registered { name = "cli_tool_d" }
       ; model_id = "auto"
       ; api_key_env = ""
       }

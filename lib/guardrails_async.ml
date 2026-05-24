@@ -55,7 +55,7 @@ let exception_reason ~validator_name = function
 (* Per-validator deadline. When supplied the validator is wrapped in
    [Eio.Time.with_timeout_exn], so a stuck validator turns into
    [Fail "validator timed out"] instead of blocking sibling fibers and
-   the rest of the turn pipeline. The audit (Kimi 1-3) flagged the
+   the rest of the turn pipeline. The audit (Provider_c 1-3) flagged the
    unguarded [Eio.Fiber.all] as a Silent Failure path: one validator
    hanging would block the entire turn. Default is [None] for backward
    compatibility — call sites opt in by passing [~deadline]. *)

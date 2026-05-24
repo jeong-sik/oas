@@ -2,7 +2,7 @@
 open Agent_sdk
 
 let () =
-  Printf.printf "Testing LLM call via anthropic-proxy...\n%!";
+  Printf.printf "Testing LLM call via provider_a-proxy...\n%!";
   Eio_main.run
   @@ fun env ->
   let net = Eio.Stdenv.net env in

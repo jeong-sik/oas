@@ -423,7 +423,7 @@ let test_accumulate_usage_with_response () =
     }
   in
   let provider_cfg : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-6"; api_key_env = "TEST" }
+    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-6"; api_key_env = "TEST" }
   in
   let result =
     Agent_turn.accumulate_usage
@@ -480,7 +480,7 @@ let test_accumulate_usage_prefers_response_cost () =
     }
   in
   let provider_cfg : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-6"; api_key_env = "TEST" }
+    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-6"; api_key_env = "TEST" }
   in
   let result =
     Agent_turn.accumulate_usage

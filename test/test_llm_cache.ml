@@ -8,7 +8,7 @@ open Llm_provider.Types
 (* ── Helpers ─────────────────────────────────────────────── *)
 
 let make_config ?(model_id = "test-model") () =
-  PC.make ~kind:Anthropic ~model_id ~base_url:"http://localhost" ()
+  PC.make ~kind:Provider_a ~model_id ~base_url:"http://localhost" ()
 ;;
 
 let simple_response ?(id = "resp-1") ?(model = "test-model") content =
@@ -206,7 +206,7 @@ let test_roundtrip_with_usage () =
 let test_roundtrip_with_usage_cost () =
   let resp =
     { id = "resp-cost"
-    ; model = "claude-sonnet-4-6"
+    ; model = "agent_llm_a-sonnet-4-6"
     ; stop_reason = EndTurn
     ; content = [ Text "hi" ]
     ; usage =

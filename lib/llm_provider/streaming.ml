@@ -120,7 +120,7 @@ let parse_sse_event event_type data_str =
     Some (SSEParseFailed { raw = data_str; reason = "json_error: " ^ msg })
 ;;
 
-(* RFC-OAS-020: TTFT classification — distinguishes Anthropic prelude
+(* RFC-OAS-020: TTFT classification — distinguishes Provider_a prelude
    events ([MessageStart], [ContentBlockStart], [Ping]) from the
    first user-visible token. Capture point in [Complete] uses this
    to fill [Streaming_summary.ttft_ms]. *)
@@ -142,7 +142,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
 ;;
 
 (** Emit synthetic SSE events from a complete [api_response].
-    Used as fallback for non-Anthropic providers that don't support SSE. *)
+    Used as fallback for non-Provider_a providers that don't support SSE. *)
 let emit_synthetic_events (response : api_response) on_event =
   on_event
     (MessageStart { id = response.id; model = response.model; usage = response.usage });
@@ -176,40 +176,40 @@ let emit_synthetic_events (response : api_response) on_event =
   on_event MessageStop
 ;;
 
-(** {1 OpenAI-compatible SSE Streaming}
+(** {1 Provider_d-compatible SSE Streaming}
 
-    OpenAI Chat Completions streaming uses SSE with flat deltas:
+    Provider_d Chat Completions streaming uses SSE with flat deltas:
     - Text content arrives as [delta.content] strings
     - Tool calls arrive as [delta.tool_calls] with incremental arguments
     - [finish_reason] signals end of a choice
-    - No explicit content_block_start/stop events (unlike Anthropic)
+    - No explicit content_block_start/stop events (unlike Provider_a)
 
-    We parse each SSE chunk into {!openai_chunk}, then convert to
-    {!sse_event} list using a stateful adapter ({!openai_stream_state}). *)
+    We parse each SSE chunk into {!provider_d_chunk}, then convert to
+    {!sse_event} list using a stateful adapter ({!provider_d_stream_state}). *)
 
-type openai_tool_call_delta =
+type provider_d_tool_call_delta =
   { tc_index : int
   ; tc_id : string option
   ; tc_name : string option
   ; tc_arguments : string option
   }
 
-type openai_chunk =
+type provider_d_chunk =
   { chunk_id : string
   ; chunk_model : string
   ; delta_content : string option
   ; delta_reasoning : string option
-  ; delta_tool_calls : openai_tool_call_delta list
+  ; delta_tool_calls : provider_d_tool_call_delta list
   ; finish_reason : string option
   ; chunk_usage : api_usage option
   }
 
-(* RFC-OAS-020: TTFT classification for OpenAI-compat / Gemini /
+(* RFC-OAS-020: TTFT classification for Provider_d-compat / Provider_f /
    Ollama chunk streams. [true] when this chunk would surface a
    visible token (or tool-call argument) to the application;
    [false] for role-prelude chunks, [DONE]-only finalisers, and
    empty deltas. *)
-let chunk_has_non_empty_delta (c : openai_chunk) : bool =
+let chunk_has_non_empty_delta (c : provider_d_chunk) : bool =
   let non_empty_opt = function
     | Some s -> String.length s > 0
     | None -> false
@@ -219,9 +219,9 @@ let chunk_has_non_empty_delta (c : openai_chunk) : bool =
   || c.delta_tool_calls <> []
 ;;
 
-(** Parse a single OpenAI SSE data payload into an {!openai_chunk}.
+(** Parse a single Provider_d SSE data payload into an {!provider_d_chunk}.
     Returns [None] for the "[DONE]" sentinel or unparseable data. *)
-let parse_openai_sse_chunk data_str : openai_chunk option =
+let parse_provider_d_sse_chunk data_str : provider_d_chunk option =
   if data_str = "[DONE]"
   then None
   else
@@ -289,13 +289,13 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
     | Invalid_argument _ -> None
 ;;
 
-(** Mutable state for converting OpenAI flat deltas to block-based events. *)
+(** Mutable state for converting Provider_d flat deltas to block-based events. *)
 type thinking_state =
   | Not_thinking
   | Thinking_started of float
   | Thinking_done
 
-type openai_stream_state =
+type provider_d_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
@@ -307,7 +307,7 @@ type openai_stream_state =
   ; model : string
   }
 
-let create_openai_stream_state ?(provider = "") ?(model = "") () =
+let create_provider_d_stream_state ?(provider = "") ?(model = "") () =
   { thinking_block_started = false
   ; thinking_block_index = -1
   ; text_block_started = false
@@ -320,10 +320,10 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
   }
 ;;
 
-(** Convert a parsed {!openai_chunk} into {!sse_event} list.
+(** Convert a parsed {!provider_d_chunk} into {!sse_event} list.
     Synthesizes [ContentBlockStart] events on first occurrence of
     text content or each new tool_call index. *)
-let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
+let provider_d_chunk_to_events (state : provider_d_stream_state) (chunk : provider_d_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
@@ -395,7 +395,7 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
    | None -> ());
   (* Tool call deltas *)
   List.iter
-    (fun (tc : openai_tool_call_delta) ->
+    (fun (tc : provider_d_tool_call_delta) ->
        let block_idx =
          match Hashtbl.find_opt state.tool_block_indices tc.tc_index with
          | Some idx -> idx
@@ -435,20 +435,20 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
   List.rev !events, !telemetry_event
 ;;
 
-(** {1 Gemini SSE Streaming}
+(** {1 Provider_f SSE Streaming}
 
-    Gemini [streamGenerateContent?alt=sse] emits SSE data lines with
+    Provider_f [streamGenerateContent?alt=sse] emits SSE data lines with
     JSON payloads: [{candidates: [{content: {parts: [...]}}]}].
     Each chunk may contain text, thought, or functionCall parts. *)
 
-type gemini_chunk =
+type provider_f_chunk =
   { gem_model : string
   ; gem_parts : Yojson.Safe.t list
   ; gem_finish_reason : string option
   ; gem_usage : api_usage option
   }
 
-let parse_gemini_sse_chunk data_str : gemini_chunk option =
+let parse_provider_f_sse_chunk data_str : provider_f_chunk option =
   let open Yojson.Safe.Util in
   try
     let json = Yojson.Safe.from_string data_str in
@@ -488,7 +488,7 @@ let parse_gemini_sse_chunk data_str : gemini_chunk option =
   | Invalid_argument _ -> None
 ;;
 
-let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
+let provider_f_chunk_to_events (state : provider_d_stream_state) (chunk : provider_f_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let open Yojson.Safe.Util in
@@ -601,7 +601,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
     line. Non-final lines carry a [message.content] delta; the final
     line has [done:true] together with [done_reason] and the four
     timing fields ([prompt_eval_count] / [prompt_eval_duration] /
-    [eval_count] / [eval_duration]) that the OpenAI compat path on
+    [eval_count] / [eval_duration]) that the Provider_d compat path on
     [/v1/chat/completions] strips out. *)
 
 type ollama_tool_call_delta =
@@ -737,8 +737,8 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
 ;;
 
 (** Convert a parsed {!ollama_chunk} into {!sse_event} list.
-    Reuses {!openai_stream_state} for block index tracking. *)
-let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
+    Reuses {!provider_d_stream_state} for block index tracking. *)
+let ollama_chunk_to_events (state : provider_d_stream_state) (chunk : ollama_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
@@ -946,7 +946,7 @@ let%test "parse_ollama_ndjson_chunk: malformed json → None" =
 (* ── ollama_chunk_to_events tests ─────────────────────────── *)
 
 let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
-  let state = create_openai_stream_state () in
+  let state = create_provider_d_stream_state () in
   let chunk =
     { oll_model = "qwen3:8b"
     ; oll_delta_content = Some "hello"
@@ -969,7 +969,7 @@ let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
 ;;
 
 let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
-  let state = create_openai_stream_state () in
+  let state = create_provider_d_stream_state () in
   let mk text =
     { oll_model = "qwen3:8b"
     ; oll_delta_content = Some text
@@ -992,7 +992,7 @@ let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
 ;;
 
 let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
-  let state = create_openai_stream_state () in
+  let state = create_provider_d_stream_state () in
   let chunk =
     { oll_model = "qwen3:8b"
     ; oll_delta_content = None
@@ -1021,7 +1021,7 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
 ;;
 
 let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
-  let state = create_openai_stream_state () in
+  let state = create_provider_d_stream_state () in
   let chunk =
     { oll_model = "qwen3:8b"
     ; oll_delta_content = None
@@ -1052,7 +1052,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
 ;;
 
 let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
-  let state = create_openai_stream_state () in
+  let state = create_provider_d_stream_state () in
   let chunk =
     { oll_model = "qwen3:8b"
     ; oll_delta_content = None

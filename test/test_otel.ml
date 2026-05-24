@@ -130,11 +130,11 @@ let test_gen_ai_operation_name () =
 let test_extra_attrs_included () =
   let s =
     Otel_tracer.start_span
-      (default_attrs ~extra:[ "model", "claude-4"; "region", "us" ] ())
+      (default_attrs ~extra:[ "model", "agent_llm_a-4"; "region", "us" ] ())
   in
   Otel_tracer.end_span s ~ok:true;
   let has_model =
-    List.exists (fun (k, v) -> k = "model" && v = "claude-4") s.attributes
+    List.exists (fun (k, v) -> k = "model" && v = "agent_llm_a-4") s.attributes
   in
   let has_region = List.exists (fun (k, v) -> k = "region" && v = "us") s.attributes in
   check bool "model attr present" true has_model;

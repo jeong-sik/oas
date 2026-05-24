@@ -1,6 +1,6 @@
-(** Anthropic Agent SDK for OCaml
+(** Provider_a Agent SDK for OCaml
 
-    A type-safe, Eio-based implementation of the Anthropic Agent SDK.
+    A type-safe, Eio-based implementation of the Provider_a Agent SDK.
 
     This is the top-level module that re-exports all sub-modules
     in dependency-safe order.

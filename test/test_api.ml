@@ -103,7 +103,7 @@ let test_unknown_type_returns_none () =
   | Some _ -> fail "expected None for unknown type"
 ;;
 
-let test_kimi_message_to_json_tool_result_uses_text_blocks () =
+let test_provider_c_message_to_json_tool_result_uses_text_blocks () =
   let msg =
     { Types.role = Tool
     ; content =
@@ -119,7 +119,7 @@ let test_kimi_message_to_json_tool_result_uses_text_blocks () =
     ; metadata = []
     }
   in
-  let json = Llm_provider.Api_common.kimi_message_to_json msg in
+  let json = Llm_provider.Api_common.provider_c_message_to_json msg in
   let open Yojson.Safe.Util in
   let block = json |> member "content" |> index 0 in
   let nested = block |> member "content" |> to_list in
@@ -159,7 +159,7 @@ let test_build_body_basic () =
   check
     string
     "model present"
-    "claude-sonnet-4-6-20250514"
+    "agent_llm_a-sonnet-4-6-20250514"
     (json |> member "model" |> to_string);
   check bool "stream false" false (json |> member "stream" |> to_bool);
   check string "system prompt" "You are helpful." (json |> member "system" |> to_string)
@@ -168,7 +168,7 @@ let test_build_body_basic () =
 let test_build_body_with_thinking_budget () =
   (* Thinking is gated on [enable_thinking = Some true]; a budget
      without enable_thinking must NOT emit a thinking block.
-     Matches backend_anthropic.build_request semantics. *)
+     Matches backend_provider_a.build_request semantics. *)
   let config = make_state ~enable_thinking:true ~thinking_budget:1024 () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
@@ -181,7 +181,7 @@ let test_build_body_with_thinking_budget () =
 let test_build_body_with_enable_thinking_default_budget () =
   (* enable_thinking = true without an explicit budget should still
      emit a thinking block, using the 10_000-token default budget
-     that matches backend_anthropic. Regression for the old gate
+     that matches backend_provider_a. Regression for the old gate
      that required thinking_budget = Some _ to activate. *)
   let config = make_state ~enable_thinking:true () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
@@ -242,7 +242,7 @@ let test_build_body_with_tools () =
   check int "1 tool" 1 (List.length tools)
 ;;
 
-let test_build_openai_body_with_json_schema () =
+let test_build_provider_d_body_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -252,7 +252,7 @@ let test_build_openai_body_with_json_schema () =
   let state =
     { Types.config =
         { Types.default_config with
-          model = "gpt-4o-mini"
+          model = "model-d-mini"
         ; response_format = Types.JsonSchema schema
         }
     ; messages = []
@@ -261,7 +261,7 @@ let test_build_openai_body_with_json_schema () =
     }
   in
   let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_provider_d_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   let response_format = json |> member "response_format" in
@@ -286,10 +286,10 @@ let test_build_openai_body_with_json_schema () =
      |> to_string)
 ;;
 
-let test_build_body_sampling_params_anthropic () =
-  (* Regression: the Anthropic agent_sdk request path previously omitted
-     temperature/top_p/top_k entirely, silently defaulting every Claude
-     agent to Anthropic's server-side temperature = 1.0 + top_p = 1. *)
+let test_build_body_sampling_params_provider_a () =
+  (* Regression: the Provider_a agent_sdk request path previously omitted
+     temperature/top_p/top_k entirely, silently defaulting every Agent_llm_a
+     agent to Provider_a's server-side temperature = 1.0 + top_p = 1. *)
   let state =
     { Types.config =
         { Types.default_config with
@@ -311,8 +311,8 @@ let test_build_body_sampling_params_anthropic () =
 ;;
 
 let test_build_body_sampling_params_omitted_when_none () =
-  (* When the caller does not set a sampling param, the Anthropic body
-     must not carry the key at all — relying on Anthropic's server-side
+  (* When the caller does not set a sampling param, the Provider_a body
+     must not carry the key at all — relying on Provider_a's server-side
      defaults rather than encoding some OAS-layer default. *)
   let state = make_state () in
   let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in
@@ -326,7 +326,7 @@ let test_build_body_sampling_params_omitted_when_none () =
   check bool "no min_p key" false (List.exists (fun (k, _) -> k = "min_p") assoc)
 ;;
 
-let test_build_openai_body_with_qwen_sampling () =
+let test_build_provider_d_body_with_provider_m_sampling () =
   let state =
     { Types.config =
         { Types.default_config with
@@ -343,7 +343,7 @@ let test_build_openai_body_with_qwen_sampling () =
     }
   in
   let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_provider_d_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   check
@@ -364,8 +364,8 @@ let test_build_openai_body_with_qwen_sampling () =
     (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
 ;;
 
-let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
-  let provider_config = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" () in
+let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat () =
+  let provider_config = Provider.openrouter ~model_id:"provider_a/agent_llm_a-sonnet-4-6" () in
   let state =
     { Types.config =
         { Types.default_config with
@@ -390,7 +390,7 @@ let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
       ]
   in
   let json =
-    Api.build_openai_body
+    Api.build_provider_d_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -421,7 +421,7 @@ let test_build_openai_body_omits_qwen_only_fields_for_generic_compat () =
   check bool "tools preserved" true (List.mem_assoc "tools" assoc)
 ;;
 
-let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
+let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -430,7 +430,7 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "glm-5"
+    ; model_id = "provider_k-5"
     ; api_key_env = ""
     }
   in
@@ -454,7 +454,7 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
       ]
   in
   let json =
-    Api.build_openai_body
+    Api.build_provider_d_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -470,10 +470,10 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
     "clear_thinking default true"
     true
     (thinking |> member "clear_thinking" |> to_bool);
-  check string "glm tool choice coerced" "auto" (json |> member "tool_choice" |> to_string)
+  check string "provider_k tool choice coerced" "auto" (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_openai_body_glm_preserves_reasoning_content () =
+let test_build_provider_d_body_glm_preserves_reasoning_content () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -482,7 +482,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "glm-5"
+    ; model_id = "provider_k-5"
     ; api_key_env = ""
     }
   in
@@ -515,7 +515,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     }
   in
   let json =
-    Api.build_openai_body ~provider_config ~config:state ~messages ()
+    Api.build_provider_d_body ~provider_config ~config:state ~messages ()
     |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
@@ -529,7 +529,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
   check string "tool choice still auto" "auto" (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
+let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -538,7 +538,7 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "glm-5"
+    ; model_id = "provider_k-5"
     ; api_key_env = ""
     }
   in
@@ -562,7 +562,7 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
       ]
   in
   let json =
-    Api.build_openai_body
+    Api.build_provider_d_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -572,18 +572,18 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   in
   let open Yojson.Safe.Util in
   let assoc = to_assoc json in
-  check bool "thinking omitted for non-zai glm" false (List.mem_assoc "thinking" assoc);
+  check bool "thinking omitted for non-zai provider_k" false (List.mem_assoc "thinking" assoc);
   check
     bool
-    "chat_template_kwargs omitted for non-zai glm"
+    "chat_template_kwargs omitted for non-zai provider_k"
     false
     (List.mem_assoc "chat_template_kwargs" assoc);
   match json |> member "tool_choice" with
   | `Assoc _ -> ()
-  | _ -> fail "non-zai glm tool_choice should preserve named function form"
+  | _ -> fail "non-zai provider_k tool_choice should preserve named function form"
 ;;
 
-let test_build_openai_body_glm_tool_choice_none_omits_tools () =
+let test_build_provider_d_body_glm_tool_choice_none_omits_tools () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -592,7 +592,7 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "glm-5"
+    ; model_id = "provider_k-5"
     ; api_key_env = ""
     }
   in
@@ -615,7 +615,7 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
       ]
   in
   let json =
-    Api.build_openai_body
+    Api.build_provider_d_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -625,8 +625,8 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   in
   let open Yojson.Safe.Util in
   let assoc = to_assoc json in
-  check bool "tool_choice omitted for glm none" false (List.mem_assoc "tool_choice" assoc);
-  check bool "tools omitted for glm none" false (List.mem_assoc "tools" assoc)
+  check bool "tool_choice omitted for provider_k none" false (List.mem_assoc "tool_choice" assoc);
+  check bool "tools omitted for provider_k none" false (List.mem_assoc "tools" assoc)
 ;;
 
 (* ------------------------------------------------------------------ *)
@@ -638,7 +638,7 @@ let test_parse_response_complete () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_test",
-    "model": "claude-sonnet-4-6-20250514",
+    "model": "agent_llm_a-sonnet-4-6-20250514",
     "stop_reason": "end_turn",
     "content": [
       {"type": "text", "text": "Hello there."},
@@ -649,7 +649,7 @@ let test_parse_response_complete () =
   in
   let resp = Api.parse_response json in
   check string "id" "msg_test" resp.id;
-  check string "model" "claude-sonnet-4-6-20250514" resp.model;
+  check string "model" "agent_llm_a-sonnet-4-6-20250514" resp.model;
   check int "content count" 2 (List.length resp.content);
   (match resp.stop_reason with
    | Types.EndTurn -> ()
@@ -664,7 +664,7 @@ let test_parse_response_tool_use () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_tu",
-    "model": "claude-sonnet-4-6-20250514",
+    "model": "agent_llm_a-sonnet-4-6-20250514",
     "stop_reason": "tool_use",
     "content": [
       {"type": "tool_use", "id": "tu_1", "name": "calc", "input": {"x": 1}}
@@ -688,7 +688,7 @@ let test_parse_response_unknown_stop () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_unk",
-    "model": "claude-sonnet-4-6-20250514",
+    "model": "agent_llm_a-sonnet-4-6-20250514",
     "stop_reason": "new_future_reason",
     "content": [],
     "usage": null
@@ -700,11 +700,11 @@ let test_parse_response_unknown_stop () =
   | sr -> fail (Printf.sprintf "expected Unknown, got %s" (Types.show_stop_reason sr))
 ;;
 
-let test_parse_openai_response_strips_fenced_json () =
+let test_parse_provider_d_response_strips_fenced_json () =
   let json_str =
     {|{
     "id": "chatcmpl_test",
-    "model": "qwen",
+    "model": "provider_h",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -715,7 +715,7 @@ let test_parse_openai_response_strips_fenced_json () =
     }]
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
@@ -727,7 +727,7 @@ let test_parse_openai_response_strips_fenced_json () =
      | _ -> Alcotest.fail "expected stripped text block")
 ;;
 
-let test_parse_openai_response_reasoning_content () =
+let test_parse_provider_d_response_reasoning_content () =
   let json_str =
     {|{
     "id": "chatcmpl_think",
@@ -744,7 +744,7 @@ let test_parse_openai_response_reasoning_content () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
@@ -760,7 +760,7 @@ let test_parse_openai_response_reasoning_content () =
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
 
-let test_parse_openai_response_reasoning_with_tools () =
+let test_parse_provider_d_response_reasoning_with_tools () =
   let json_str =
     {|{
     "id": "chatcmpl_think_tool",
@@ -781,7 +781,7 @@ let test_parse_openai_response_reasoning_with_tools () =
     }]
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
@@ -797,7 +797,7 @@ let test_parse_openai_response_reasoning_with_tools () =
          (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
 ;;
 
-let test_parse_openai_response_blank_reasoning () =
+let test_parse_provider_d_response_blank_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_blank",
@@ -813,7 +813,7 @@ let test_parse_openai_response_blank_reasoning () =
     }]
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
@@ -822,7 +822,7 @@ let test_parse_openai_response_blank_reasoning () =
      | _ -> Alcotest.fail "expected [Text] only, blank reasoning should be filtered")
 ;;
 
-let test_parse_openai_response_no_reasoning () =
+let test_parse_provider_d_response_no_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_no_think",
@@ -837,7 +837,7 @@ let test_parse_openai_response_no_reasoning () =
     }]
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "1 content block" 1 (List.length resp.content);
@@ -846,7 +846,7 @@ let test_parse_openai_response_no_reasoning () =
      | _ -> Alcotest.fail "expected [Text]")
 ;;
 
-let test_parse_openai_response_ollama_reasoning () =
+let test_parse_provider_d_response_ollama_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_ollama",
@@ -863,7 +863,7 @@ let test_parse_openai_response_ollama_reasoning () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks (thinking + text)" 2 (List.length resp.content);
@@ -886,7 +886,7 @@ let test_parse_openai_response_ollama_reasoning () =
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
 
-let test_parse_openai_response_reasoning_content_preferred () =
+let test_parse_provider_d_response_reasoning_content_preferred () =
   let json_str =
     {|{
     "id": "chatcmpl_both",
@@ -904,7 +904,7 @@ let test_parse_openai_response_reasoning_content_preferred () =
     "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}
   }|}
   in
-  match Api.parse_openai_response_result json_str with
+  match Api.parse_provider_d_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
@@ -1076,7 +1076,7 @@ let test_parse_response_with_cache_tokens () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_cache",
-    "model": "claude-sonnet-4-6-20250514",
+    "model": "agent_llm_a-sonnet-4-6-20250514",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "cached"}],
     "usage": {
@@ -1103,12 +1103,12 @@ let test_parse_response_with_cache_tokens () =
 
 let test_parse_sse_message_start () =
   let data =
-    {|{"message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":10}}}|}
+    {|{"message":{"id":"msg_1","model":"agent_llm_a-sonnet-4-6","usage":{"input_tokens":10}}}|}
   in
   match Streaming.parse_sse_event (Some "message_start") data with
   | Some (Types.MessageStart { id; model; usage }) ->
     check string "id" "msg_1" id;
-    check string "model" "claude-sonnet-4-6" model;
+    check string "model" "agent_llm_a-sonnet-4-6" model;
     (match usage with
      | Some u -> check int "input" 10 u.Types.input_tokens
      | None -> fail "expected usage")
@@ -1225,10 +1225,10 @@ let test_message_to_json_assistant () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* openai_messages_of_message: multimodal user content                  *)
+(* provider_d_messages_of_message: multimodal user content                  *)
 (* ------------------------------------------------------------------ *)
 
-let test_openai_messages_text_only () =
+let test_provider_d_messages_text_only () =
   let msg =
     { Types.role = Types.User
     ; content = [ Types.Text "hello" ]
@@ -1237,7 +1237,7 @@ let test_openai_messages_text_only () =
     ; metadata = []
     }
   in
-  let msgs = Api.openai_messages_of_message msg in
+  let msgs = Api.provider_d_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
   let content = List.hd msgs |> member "content" in
@@ -1245,7 +1245,7 @@ let test_openai_messages_text_only () =
   check string "plain string" "hello" (to_string content)
 ;;
 
-let test_openai_messages_with_image () =
+let test_provider_d_messages_with_image () =
   let msg =
     { Types.role = Types.User
     ; content =
@@ -1258,7 +1258,7 @@ let test_openai_messages_with_image () =
     ; metadata = []
     }
   in
-  let msgs = Api.openai_messages_of_message msg in
+  let msgs = Api.provider_d_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
   let content = List.hd msgs |> member "content" |> to_list in
@@ -1270,32 +1270,32 @@ let test_openai_messages_with_image () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* F1: OpenAI API error → Openai_api_error exception                    *)
+(* F1: Provider_d API error → Openai_api_error exception                    *)
 (* ------------------------------------------------------------------ *)
 
-let test_openai_api_error_returns_error () =
+let test_provider_d_api_error_returns_error () =
   let error_json =
     {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|}
   in
-  match Api.parse_openai_response_result error_json with
+  match Api.parse_provider_d_response_result error_json with
   | Error msg -> check string "error message" "Invalid API key" msg
   | Ok _ -> Alcotest.fail "expected Error on API error"
 ;;
 
-let test_openai_api_error_unknown_message () =
+let test_provider_d_api_error_unknown_message () =
   let error_json = {|{"error":{}}|} in
-  match Api.parse_openai_response_result error_json with
+  match Api.parse_provider_d_response_result error_json with
   | Error msg -> check string "unknown error" "Unknown API error" msg
   | Ok _ -> Alcotest.fail "expected Error on empty error"
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* F2: OpenAI error returns structured Error, not exception              *)
+(* F2: Provider_d error returns structured Error, not exception              *)
 (* ------------------------------------------------------------------ *)
 
-let test_openai_error_returns_result () =
+let test_provider_d_error_returns_result () =
   let error_json = {|{"error":{"message":"bad request"}}|} in
-  match Api.parse_openai_response_result error_json with
+  match Api.parse_provider_d_response_result error_json with
   | Error msg -> check string "error msg" "bad request" msg
   | Ok _ -> Alcotest.fail "expected Error result"
 ;;
@@ -1388,36 +1388,36 @@ let () =
         ; test_case "without thinking" `Quick test_build_body_without_thinking
         ; test_case "with tool_choice" `Quick test_build_body_with_tool_choice
         ; test_case "with tools" `Quick test_build_body_with_tools
-        ; test_case "openai json schema" `Quick test_build_openai_body_with_json_schema
+        ; test_case "provider_d json schema" `Quick test_build_provider_d_body_with_json_schema
         ; test_case
-            "anthropic sampling params serialized"
+            "provider_a sampling params serialized"
             `Quick
-            test_build_body_sampling_params_anthropic
+            test_build_body_sampling_params_provider_a
         ; test_case
-            "anthropic sampling params omitted when None"
+            "provider_a sampling params omitted when None"
             `Quick
             test_build_body_sampling_params_omitted_when_none
-        ; test_case "with qwen sampling" `Quick test_build_openai_body_with_qwen_sampling
+        ; test_case "with provider_h sampling" `Quick test_build_provider_d_body_with_provider_m_sampling
         ; test_case
-            "generic compat omits qwen-only fields"
+            "generic compat omits provider_h-only fields"
             `Quick
-            test_build_openai_body_omits_qwen_only_fields_for_generic_compat
+            test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat
         ; test_case
-            "glm thinking + auto tool choice"
+            "provider_k thinking + auto tool choice"
             `Quick
-            test_build_openai_body_uses_glm_thinking_and_auto_tool_choice
+            test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice
         ; test_case
-            "glm preserved reasoning replay"
+            "provider_k preserved reasoning replay"
             `Quick
-            test_build_openai_body_glm_preserves_reasoning_content
+            test_build_provider_d_body_glm_preserves_reasoning_content
         ; test_case
-            "non-zai glm avoids glm path"
+            "non-zai provider_k avoids provider_k path"
             `Quick
-            test_build_openai_body_does_not_treat_non_zai_glm_as_glm
+            test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm
         ; test_case
-            "glm none tool_choice omits tools"
+            "provider_k none tool_choice omits tools"
             `Quick
-            test_build_openai_body_glm_tool_choice_none_omits_tools
+            test_build_provider_d_body_glm_tool_choice_none_omits_tools
         ; test_case "with cache_system_prompt" `Quick test_build_body_with_cache
         ; test_case
             "tools cache_control with flag"
@@ -1436,40 +1436,40 @@ let () =
         ; test_case
             "strip fenced json"
             `Quick
-            test_parse_openai_response_strips_fenced_json
+            test_parse_provider_d_response_strips_fenced_json
         ; test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens
         ; test_case
             "reasoning_content"
             `Quick
-            test_parse_openai_response_reasoning_content
+            test_parse_provider_d_response_reasoning_content
         ; test_case
             "reasoning_content with tools"
             `Quick
-            test_parse_openai_response_reasoning_with_tools
+            test_parse_provider_d_response_reasoning_with_tools
         ; test_case
             "blank reasoning_content"
             `Quick
-            test_parse_openai_response_blank_reasoning
-        ; test_case "no reasoning_content" `Quick test_parse_openai_response_no_reasoning
+            test_parse_provider_d_response_blank_reasoning
+        ; test_case "no reasoning_content" `Quick test_parse_provider_d_response_no_reasoning
         ; test_case
             "ollama reasoning field"
             `Quick
-            test_parse_openai_response_ollama_reasoning
+            test_parse_provider_d_response_ollama_reasoning
         ; test_case
             "reasoning_content preferred over reasoning"
             `Quick
-            test_parse_openai_response_reasoning_content_preferred
+            test_parse_provider_d_response_reasoning_content_preferred
         ] )
     ; ( "error_handling"
       , [ test_case
-            "openai api error returns Error"
+            "provider_d api error returns Error"
             `Quick
-            test_openai_api_error_returns_error
+            test_provider_d_api_error_returns_error
         ; test_case
-            "openai api error unknown message"
+            "provider_d api error unknown message"
             `Quick
-            test_openai_api_error_unknown_message
-        ; test_case "openai error returns result" `Quick test_openai_error_returns_result
+            test_provider_d_api_error_unknown_message
+        ; test_case "provider_d error returns result" `Quick test_provider_d_error_returns_result
         ] )
     ; ( "parse_sse_event"
       , [ test_case "message_start" `Quick test_parse_sse_message_start
@@ -1498,9 +1498,9 @@ let () =
         ; test_case "ignores metadata" `Quick test_message_to_json_ignores_metadata
         ; test_case "assistant mixed content" `Quick test_message_to_json_assistant
         ] )
-    ; ( "openai_messages"
-      , [ test_case "text only user" `Quick test_openai_messages_text_only
-        ; test_case "user with image" `Quick test_openai_messages_with_image
+    ; ( "provider_d_messages"
+      , [ test_case "text only user" `Quick test_provider_d_messages_text_only
+        ; test_case "user with image" `Quick test_provider_d_messages_with_image
         ] )
     ; ( "api_common_helpers"
       , [ test_case "text_blocks_to_string" `Quick test_text_blocks_to_string
@@ -1511,9 +1511,9 @@ let () =
             `Quick
             test_json_of_string_or_raw_invalid
         ; test_case
-            "kimi tool_result uses text blocks"
+            "provider_c tool_result uses text blocks"
             `Quick
-            test_kimi_message_to_json_tool_result_uses_text_blocks
+            test_provider_c_message_to_json_tool_result_uses_text_blocks
         ; test_case "disable_parallel_tool_use" `Quick test_build_body_disable_parallel
         ] )
     ]

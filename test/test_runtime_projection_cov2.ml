@@ -21,7 +21,7 @@ let mk_start_request ?(goal = "test") ?(participants = []) () : Runtime.start_re
   { session_id = None
   ; goal
   ; participants
-  ; provider = Some "anthropic"
+  ; provider = Some "provider_a"
   ; model = Some "sonnet-4-6"
   ; permission_mode = None
   ; system_prompt = Some "sys prompt"
@@ -51,7 +51,7 @@ let mk_session
   ; phase
   ; created_at = 100.0
   ; updated_at = 200.0
-  ; provider = Some "anthropic"
+  ; provider = Some "provider_a"
   ; model = Some "sonnet-4-6"
   ; system_prompt = Some "sys"
   ; max_turns = 10
@@ -102,7 +102,7 @@ let test_initial_session_basic () =
   Alcotest.(check int) "2 participants" 2 (List.length session.participants);
   Alcotest.(check bool) "phase Bootstrapping" true (session.phase = Runtime.Bootstrapping);
   Alcotest.(check int) "max_turns" 5 session.max_turns;
-  Alcotest.(check (option string)) "provider" (Some "anthropic") session.provider;
+  Alcotest.(check (option string)) "provider" (Some "provider_a") session.provider;
   Alcotest.(check int) "turn_count 0" 0 session.turn_count;
   Alcotest.(check int) "last_seq 0" 0 session.last_seq
 ;;
@@ -398,7 +398,7 @@ let test_apply_agent_spawn () =
          { participant_name = "bob"
          ; role = Some "reviewer"
          ; prompt = "review"
-         ; provider = Some "openai"
+         ; provider = Some "provider_d"
          ; model = Some "gpt-4"
          ; permission_mode = None
          })
@@ -410,7 +410,7 @@ let test_apply_agent_spawn () =
     in
     Alcotest.(check bool) "state Starting" true (bob.state = Starting);
     Alcotest.(check (option string)) "role" (Some "reviewer") bob.role;
-    Alcotest.(check (option string)) "req_provider" (Some "openai") bob.requested_provider
+    Alcotest.(check (option string)) "req_provider" (Some "provider_d") bob.requested_provider
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -424,7 +424,7 @@ let test_apply_agent_became_live () =
       (Agent_became_live
          { participant_name = "alice"
          ; summary = Some "ready"
-         ; provider = Some "anthropic"
+         ; provider = Some "provider_a"
          ; model = Some "haiku"
          ; error = None
          ; raw_trace_run_id = None
@@ -790,7 +790,7 @@ let test_apply_event_sequence () =
         (Agent_became_live
            { participant_name = "alice"
            ; summary = None
-           ; provider = Some "anthropic"
+           ; provider = Some "provider_a"
            ; model = Some "sonnet"
            ; error = None
            ; raw_trace_run_id = None

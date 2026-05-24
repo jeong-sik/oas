@@ -1,11 +1,11 @@
 (** Tests for Llm_provider.Complete — request JSON verification. *)
 
 module PC = Llm_provider.Provider_config
-module BA = Llm_provider.Backend_anthropic
-module BO = Llm_provider.Backend_openai
-module BGlm = Llm_provider.Backend_glm
+module BA = Llm_provider.Backend_provider_a
+module BO = Llm_provider.Backend_provider_d
+module BGlm = Llm_provider.Backend_provider_k
 module BOL = Llm_provider.Backend_ollama
-module BGemini = Llm_provider.Backend_gemini
+module BGemini = Llm_provider.Backend_provider_f
 open Llm_provider.Types
 
 let contains_substring ~sub text =
@@ -21,14 +21,14 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
-(* ── Anthropic build_request ─────────────────────────── *)
+(* ── Provider_a build_request ─────────────────────────── *)
 
-let test_anthropic_basic_body () =
+let test_provider_a_basic_body () =
   let config =
     PC.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-6"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~base_url:"https://api.provider_a.com"
       ~max_tokens:1024
       ()
   in
@@ -36,18 +36,18 @@ let test_anthropic_basic_body () =
   let body = BA.build_request ~config ~messages:msgs () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  Alcotest.(check string) "model" "claude-sonnet-4-6" (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "agent_llm_a-sonnet-4-6" (json |> member "model" |> to_string);
   Alcotest.(check int) "max_tokens" 1024 (json |> member "max_tokens" |> to_int);
   Alcotest.(check bool) "stream false" false (json |> member "stream" |> to_bool);
   let msgs_json = json |> member "messages" |> to_list in
   Alcotest.(check int) "1 message" 1 (List.length msgs_json)
 ;;
 
-let test_anthropic_with_system () =
+let test_provider_a_with_system () =
   let config =
     PC.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-6"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-6"
       ~base_url:""
       ~system_prompt:"You are helpful."
       ()
@@ -61,11 +61,11 @@ let test_anthropic_with_system () =
     (json |> member "system" |> to_string)
 ;;
 
-let test_anthropic_with_thinking () =
+let test_provider_a_with_thinking () =
   let config =
     PC.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-6"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:true
       ~thinking_budget:5000
@@ -82,15 +82,15 @@ let test_anthropic_with_thinking () =
   Alcotest.(check int) "budget" 5000 (thinking |> member "budget_tokens" |> to_int)
 ;;
 
-let test_anthropic_stream_flag () =
-  let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
+let test_provider_a_stream_flag () =
+  let config = PC.make ~kind:Provider_a ~model_id:"m" ~base_url:"" () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "stream" true (json |> member "stream" |> to_bool)
 ;;
 
-let test_anthropic_output_schema () =
+let test_provider_a_output_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -100,8 +100,8 @@ let test_anthropic_output_schema () =
   in
   let config =
     PC.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-6"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-6"
       ~base_url:""
       ~output_schema:schema
       ()
@@ -119,12 +119,12 @@ let test_anthropic_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
-let test_anthropic_parse_response_initializes_telemetry () =
+let test_provider_a_parse_response_initializes_telemetry () =
   let json =
     Yojson.Safe.from_string
       {|{
     "id": "msg_test",
-    "model": "claude-sonnet-4-6-20250514",
+    "model": "agent_llm_a-sonnet-4-6-20250514",
     "stop_reason": "end_turn",
     "content": [
       {"type": "text", "text": "Hello there."}
@@ -151,14 +151,14 @@ let test_anthropic_parse_response_initializes_telemetry () =
   | None -> Alcotest.fail "expected telemetry placeholder"
 ;;
 
-(* ── OpenAI build_request ────────────────────────────── *)
+(* ── Provider_d build_request ────────────────────────────── *)
 
-let test_openai_basic_body () =
+let test_provider_d_basic_body () =
   let config =
     PC.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"gpt-4"
-      ~base_url:"https://api.openai.com/v1"
+      ~base_url:"https://api.provider_d.com/v1"
       ~max_tokens:2048
       ()
   in
@@ -172,10 +172,10 @@ let test_openai_basic_body () =
   Alcotest.(check int) "1 message" 1 (List.length msgs_json)
 ;;
 
-let test_openai_with_system () =
+let test_provider_d_with_system () =
   let config =
     PC.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"gpt-4"
       ~base_url:""
       ~system_prompt:"Be helpful."
@@ -194,8 +194,8 @@ let test_openai_with_system () =
     (first |> member "content" |> to_string)
 ;;
 
-let test_openai_with_tools () =
-  let config = PC.make ~kind:OpenAI_compat ~model_id:"gpt-4" ~base_url:"" () in
+let test_provider_d_with_tools () =
+  let config = PC.make ~kind:Provider_d_compat ~model_id:"gpt-4" ~base_url:"" () in
   let tool =
     `Assoc
       [ "name", `String "calc"
@@ -212,8 +212,8 @@ let test_openai_with_tools () =
   Alcotest.(check int) "1 tool" 1 (List.length tools)
 ;;
 
-let test_openai_stream_flag () =
-  let config = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
+let test_provider_d_stream_flag () =
+  let config = PC.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
   let body = BO.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -326,7 +326,7 @@ let test_ollama_parse_warns_on_malformed_tool_call () =
   Alcotest.(check bool) "malformed tool call warning" true has_warning
 ;;
 
-let test_openai_with_json_schema () =
+let test_provider_d_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -335,9 +335,9 @@ let test_openai_with_json_schema () =
   in
   let config =
     PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"gpt-4o-mini"
-      ~base_url:"https://api.openai.com/v1"
+      ~kind:Provider_d_compat
+      ~model_id:"model-d-mini"
+      ~base_url:"https://api.provider_d.com/v1"
       ~response_format:(JsonSchema schema)
       ()
   in
@@ -363,7 +363,7 @@ let test_openai_with_json_schema () =
      |> to_string)
 ;;
 
-let test_gemini_with_json_schema () =
+let test_provider_f_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -373,8 +373,8 @@ let test_gemini_with_json_schema () =
   in
   let config =
     PC.make
-      ~kind:Gemini
-      ~model_id:"gemini-2.5-flash"
+      ~kind:Provider_f
+      ~model_id:"provider_f-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~api_key:"test-key"
       ~response_format:(JsonSchema schema)
@@ -403,12 +403,12 @@ let test_gemini_with_json_schema () =
      |> to_string)
 ;;
 
-let test_kimi_direct_with_tools_and_thinking () =
+let test_provider_c_direct_with_tools_and_thinking () =
   let config =
     PC.make
-      ~kind:Kimi
-      ~model_id:"kimi-for-coding"
-      ~base_url:"https://api.kimi.com/coding"
+      ~kind:Provider_c
+      ~model_id:"provider_c-for-coding"
+      ~base_url:"https://api.provider_c.com/coding"
       ~enable_thinking:true
       ()
   in
@@ -426,7 +426,7 @@ let test_kimi_direct_with_tools_and_thinking () =
   let open Yojson.Safe.Util in
   let tools = json |> member "tools" |> to_list in
   let thinking = json |> member "thinking" in
-  Alcotest.(check string) "model" "kimi-for-coding" (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "provider_c-for-coding" (json |> member "model" |> to_string);
   Alcotest.(check int) "tool count" 1 (List.length tools);
   Alcotest.(check string)
     "thinking type"
@@ -434,12 +434,12 @@ let test_kimi_direct_with_tools_and_thinking () =
     (thinking |> member "type" |> to_string)
 ;;
 
-let test_kimi_direct_tool_result_uses_text_blocks () =
+let test_provider_c_direct_tool_result_uses_text_blocks () =
   let config =
     PC.make
-      ~kind:Kimi
-      ~model_id:"kimi-for-coding"
-      ~base_url:"https://api.kimi.com/coding"
+      ~kind:Provider_c
+      ~model_id:"provider_c-for-coding"
+      ~base_url:"https://api.provider_c.com/coding"
       ()
   in
   let messages =
@@ -504,8 +504,8 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
 let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
   let config =
     PC.make
-      ~kind:Glm
-      ~model_id:"glm-5.1"
+      ~kind:Provider_k
+      ~model_id:"provider_k-5.1"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~enable_thinking:true
       ~clear_thinking:false
@@ -548,7 +548,7 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
   let open Yojson.Safe.Util in
   let assistant = json |> member "messages" |> index 0 in
   Alcotest.(check bool)
-    "glm unsupported tool_choice dropped"
+    "provider_k unsupported tool_choice dropped"
     true
     (match json with
      | `Assoc fields -> not (List.mem_assoc "tool_choice" fields)
@@ -574,17 +574,17 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
 (* ── Provider_config.make ────────────────────────────── *)
 
 let test_config_default_paths () =
-  let anth = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "anthropic path" "/v1/messages" anth.request_path;
-  let kimi = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "kimi path" "/v1/messages" kimi.request_path;
-  let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "openai path" "/v1/chat/completions" oai.request_path
+  let anth = PC.make ~kind:Provider_a ~model_id:"m" ~base_url:"" () in
+  Alcotest.(check string) "provider_a path" "/v1/messages" anth.request_path;
+  let provider_c = PC.make ~kind:Provider_c ~model_id:"m" ~base_url:"" () in
+  Alcotest.(check string) "provider_c path" "/v1/messages" provider_c.request_path;
+  let oai = PC.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  Alcotest.(check string) "provider_d path" "/v1/chat/completions" oai.request_path
 ;;
 
 let test_config_custom_path () =
   let cfg =
-    PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" ~request_path:"/custom" ()
+    PC.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" ~request_path:"/custom" ()
   in
   Alcotest.(check string) "custom path" "/custom" cfg.request_path
 ;;
@@ -637,27 +637,27 @@ let test_is_retryable () =
   Alcotest.(check bool)
     "CliTransportRequired not retryable"
     false
-    (Complete.is_retryable (Http_client.CliTransportRequired { kind = "claude_code" }))
+    (Complete.is_retryable (Http_client.CliTransportRequired { kind = "cli_tool_d" }))
 ;;
 
-let test_complete_claude_code_without_transport_is_guarded () =
+let test_complete_agent_llm_a_code_without_transport_is_guarded () =
   (* Regression: [Complete.complete] used to forward CLI-kind configs
      (base_url = "") to cohttp-eio, which crashed with
      [Fmt.failwith "Unknown scheme None"].  The guard now returns a
      typed [CliTransportRequired] so cascades and callers can
      distinguish a wiring bug from a transient network failure.
 
-     Covers the full matrix (Claude_code, Gemini_cli, Kimi_cli, Codex_cli). *)
+     Covers the full matrix (Cli_tool_d, Cli_tool_b, Cli_tool_c, Cli_tool_a). *)
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
   let kinds =
-    [ PC.Claude_code, "claude_code"
-    ; PC.Gemini_cli, "gemini_cli"
-    ; PC.Kimi_cli, "kimi_cli"
-    ; PC.Codex_cli, "codex_cli"
+    [ PC.Cli_tool_d, "cli_tool_d"
+    ; PC.Cli_tool_b, "cli_tool_b"
+    ; PC.Cli_tool_c, "cli_tool_c"
+    ; PC.Cli_tool_a, "cli_tool_a"
     ]
   in
   List.iter
@@ -765,7 +765,7 @@ let response_with_thinking =
 
 let test_provider_default_thinking_drift_is_info () =
   let config =
-    PC.make ~kind:OpenAI_compat ~model_id:"auto" ~base_url:"https://example.invalid/v1" ()
+    PC.make ~kind:Provider_d_compat ~model_id:"auto" ~base_url:"https://example.invalid/v1" ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
   Alcotest.(check bool)
@@ -788,8 +788,8 @@ let test_provider_default_thinking_drift_is_info () =
 let test_model_capability_thinking_drift_remains_warn () =
   let config =
     PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"glm-4-flash"
+      ~kind:Provider_d_compat
+      ~model_id:"provider_k-4-flash"
       ~base_url:"https://example.invalid/v1"
       ()
   in
@@ -815,8 +815,8 @@ let test_complete_rejects_output_schema_for_glm () =
   let net = Eio.Stdenv.net env in
   let config =
     PC.make
-      ~kind:Glm
-      ~model_id:"glm-5"
+      ~kind:Provider_k
+      ~model_id:"provider_k-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
@@ -826,17 +826,17 @@ let test_complete_rejects_output_schema_for_glm () =
   with
   | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
     Alcotest.(check bool)
-      "mentions glm json mode"
+      "mentions provider_k json mode"
       true
       (contains_substring ~sub:"json mode" (String.lowercase_ascii reason))
-  | Ok _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
-  | Error _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
+  | Ok _ -> Alcotest.fail "expected AcceptRejected for provider_k output_schema"
+  | Error _ -> Alcotest.fail "expected AcceptRejected for provider_k output_schema"
 ;;
 
 let test_annotate_response_cost () =
   let response : api_response =
     { id = "resp-1"
-    ; model = "claude-sonnet-4-6"
+    ; model = "agent_llm_a-sonnet-4-6"
     ; stop_reason = EndTurn
     ; content = [ Text "ok" ]
     ; usage =
@@ -882,11 +882,11 @@ let test_annotate_response_cost_gpt55 () =
 (* ── Stream accumulator ──────────────────────────────── *)
 
 let test_stream_acc_text () =
-  (* Simulate a minimal Anthropic SSE event sequence *)
+  (* Simulate a minimal Provider_a SSE event sequence *)
   let events =
     [ MessageStart
         { id = "msg_123"
-        ; model = "claude-sonnet-4-6"
+        ; model = "agent_llm_a-sonnet-4-6"
         ; usage =
             Some
               { input_tokens = 10
@@ -955,8 +955,8 @@ let long_prompt =
 let test_cache_system_prompt () =
   let config =
     PC.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-6"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-6"
       ~base_url:""
       ~system_prompt:long_prompt
       ~cache_system_prompt:true
@@ -979,7 +979,7 @@ let test_cache_system_prompt () =
 let test_cache_short_prompt_skips () =
   let config =
     PC.make
-      ~kind:Anthropic
+      ~kind:Provider_a
       ~model_id:"m"
       ~base_url:""
       ~system_prompt:"Short."
@@ -998,7 +998,7 @@ let test_cache_short_prompt_skips () =
 let test_cache_no_system_no_cache () =
   let config =
     PC.make
-      ~kind:Anthropic
+      ~kind:Provider_a
       ~model_id:"m"
       ~base_url:""
       ~system_prompt:"Hello."
@@ -1017,7 +1017,7 @@ let test_cache_no_system_no_cache () =
 
 let test_cache_tools () =
   let config =
-    PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" ~cache_system_prompt:true ()
+    PC.make ~kind:Provider_a ~model_id:"m" ~base_url:"" ~cache_system_prompt:true ()
   in
   let tool1 = `Assoc [ "name", `String "a"; "description", `String "tool a" ] in
   let tool2 = `Assoc [ "name", `String "b"; "description", `String "tool b" ] in
@@ -1044,7 +1044,7 @@ let test_cache_tools () =
 ;;
 
 let test_cache_default_false () =
-  let cfg = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
+  let cfg = PC.make ~kind:Provider_a ~model_id:"m" ~base_url:"" () in
   Alcotest.(check bool) "default cache off" false cfg.cache_system_prompt
 ;;
 
@@ -1052,31 +1052,31 @@ let () =
   let open Alcotest in
   run
     "provider_complete"
-    [ ( "anthropic_build_request"
-      , [ test_case "basic body" `Quick test_anthropic_basic_body
-        ; test_case "with system" `Quick test_anthropic_with_system
-        ; test_case "with thinking" `Quick test_anthropic_with_thinking
-        ; test_case "with output schema" `Quick test_anthropic_output_schema
-        ; test_case "stream flag" `Quick test_anthropic_stream_flag
+    [ ( "provider_a_build_request"
+      , [ test_case "basic body" `Quick test_provider_a_basic_body
+        ; test_case "with system" `Quick test_provider_a_with_system
+        ; test_case "with thinking" `Quick test_provider_a_with_thinking
+        ; test_case "with output schema" `Quick test_provider_a_output_schema
+        ; test_case "stream flag" `Quick test_provider_a_stream_flag
         ; test_case
             "parse response initializes telemetry"
             `Quick
-            test_anthropic_parse_response_initializes_telemetry
+            test_provider_a_parse_response_initializes_telemetry
         ] )
-    ; ( "openai_build_request"
-      , [ test_case "basic body" `Quick test_openai_basic_body
-        ; test_case "with system" `Quick test_openai_with_system
-        ; test_case "with tools" `Quick test_openai_with_tools
+    ; ( "provider_d_build_request"
+      , [ test_case "basic body" `Quick test_provider_d_basic_body
+        ; test_case "with system" `Quick test_provider_d_with_system
+        ; test_case "with tools" `Quick test_provider_d_with_tools
         ; test_case
-            "kimi direct tools + thinking"
+            "provider_c direct tools + thinking"
             `Quick
-            test_kimi_direct_with_tools_and_thinking
+            test_provider_c_direct_with_tools_and_thinking
         ; test_case
-            "kimi direct tool_result uses text blocks"
+            "provider_c direct tool_result uses text blocks"
             `Quick
-            test_kimi_direct_tool_result_uses_text_blocks
-        ; test_case "stream flag" `Quick test_openai_stream_flag
-        ; test_case "with json schema" `Quick test_openai_with_json_schema
+            test_provider_c_direct_tool_result_uses_text_blocks
+        ; test_case "stream flag" `Quick test_provider_d_stream_flag
+        ; test_case "with json schema" `Quick test_provider_d_with_json_schema
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
         ; test_case
             "ollama parse parallel tool calls object args"
@@ -1091,12 +1091,12 @@ let () =
             `Quick
             test_ollama_parse_warns_on_malformed_tool_call
         ; test_case
-            "glm preserved reasoning replay"
+            "provider_k preserved reasoning replay"
             `Quick
             test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice
         ] )
-    ; ( "gemini_build_request"
-      , [ test_case "with json schema" `Quick test_gemini_with_json_schema ] )
+    ; ( "provider_f_build_request"
+      , [ test_case "with json schema" `Quick test_provider_f_with_json_schema ] )
     ; ( "provider_config"
       , [ test_case "default paths" `Quick test_config_default_paths
         ; test_case "custom path" `Quick test_config_custom_path
@@ -1109,9 +1109,9 @@ let () =
       , [ test_case
             "complete refuses HTTP fallback for CLI kinds"
             `Quick
-            test_complete_claude_code_without_transport_is_guarded
+            test_complete_agent_llm_a_code_without_transport_is_guarded
         ; test_case
-            "glm output schema rejected before request"
+            "provider_k output schema rejected before request"
             `Quick
             test_complete_rejects_output_schema_for_glm
         ] )

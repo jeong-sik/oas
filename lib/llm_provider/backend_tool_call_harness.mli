@@ -40,8 +40,8 @@ type response_parse_error =
 (** {1 Schema extraction} *)
 
 (** Extract parameter schema from a tool definition JSON.
-    Handles "input_schema" (Anthropic), "parameters" (OpenAI),
-    and "function.parameters" (OpenAI nested). *)
+    Handles "input_schema" (Provider_a), "parameters" (Provider_d),
+    and "function.parameters" (Provider_d nested). *)
 val extract_tool_schema : Yojson.Safe.t -> Yojson.Safe.t option
 
 (** Build a name→schema map from a list of tool definition JSONs. *)
@@ -71,17 +71,17 @@ val format_violations_feedback : tool_call_check -> string
 
 (** {1 Per-backend convenience} *)
 
-val validate_anthropic_response
+val validate_provider_a_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> validation_result
 
-val validate_gemini_response
+val validate_provider_f_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> validation_result
 
-val validate_openai_response
+val validate_provider_d_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> (validation_result, response_parse_error) result

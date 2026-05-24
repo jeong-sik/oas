@@ -3,83 +3,83 @@
     [Provider_config <-> Types] dependency cycle.
 
     [Provider_config] re-exports this type and its helpers so existing
-    callers that refer to [Llm_provider.Provider_config.Anthropic] /
+    callers that refer to [Llm_provider.Provider_config.Provider_a] /
     [Provider_config.string_of_provider_kind] keep working unchanged.
 
     @since 0.165.0 *)
 
 type t =
-  | Anthropic
-  | Kimi
-  | OpenAI_compat
+  | Provider_a
+  | Provider_c
+  | Provider_d_compat
   | Ollama
-  | Gemini
-  | Glm
-  | DashScope
-  | Claude_code
-  | Gemini_cli
-  | Kimi_cli
-  | Codex_cli
+  | Provider_f
+  | Provider_k
+  | Provider_h
+  | Cli_tool_d
+  | Cli_tool_b
+  | Cli_tool_c
+  | Cli_tool_a
 
 let to_string = function
-  | Anthropic -> "anthropic"
-  | Kimi -> "kimi"
-  | OpenAI_compat -> "openai_compat"
+  | Provider_a -> "provider_a"
+  | Provider_c -> "provider_c"
+  | Provider_d_compat -> "provider_d_compat"
   | Ollama -> "ollama"
-  | Gemini -> "gemini"
-  | Glm -> "glm"
-  | DashScope -> "dashscope"
-  | Claude_code -> "claude_code"
-  | Gemini_cli -> "gemini_cli"
-  | Kimi_cli -> "kimi_cli"
-  | Codex_cli -> "codex_cli"
+  | Provider_f -> "provider_f"
+  | Provider_k -> "provider_k"
+  | Provider_h -> "provider_h"
+  | Cli_tool_d -> "cli_tool_d"
+  | Cli_tool_b -> "cli_tool_b"
+  | Cli_tool_c -> "cli_tool_c"
+  | Cli_tool_a -> "cli_tool_a"
 ;;
 
 let all : t list =
-  [ Anthropic
-  ; Kimi
-  ; OpenAI_compat
+  [ Provider_a
+  ; Provider_c
+  ; Provider_d_compat
   ; Ollama
-  ; Gemini
-  ; Glm
-  ; DashScope
-  ; Claude_code
-  ; Gemini_cli
-  ; Kimi_cli
-  ; Codex_cli
+  ; Provider_f
+  ; Provider_k
+  ; Provider_h
+  ; Cli_tool_d
+  ; Cli_tool_b
+  ; Cli_tool_c
+  ; Cli_tool_a
   ]
 ;;
 
 let default_api_key_env = function
-  | Anthropic -> Some "ANTHROPIC_API_KEY"
-  | Kimi -> Some "KIMI_API_KEY"
-  | Gemini -> Some "GEMINI_API_KEY"
-  | Glm -> Some "ZAI_API_KEY"
-  | DashScope -> Some "DASHSCOPE_API_KEY"
-  | OpenAI_compat | Ollama | Claude_code | Gemini_cli | Kimi_cli | Codex_cli ->
+  | Provider_a -> Some "PROVIDER_A_API_KEY"
+  | Provider_c -> Some "PROVIDER_C_API_KEY"
+  | Provider_f -> Some "PROVIDER_F_API_KEY"
+  | Provider_k -> Some "ZAI_API_KEY"
+  | Provider_h -> Some "PROVIDER_H_API_KEY"
+  | Provider_d_compat | Ollama | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a ->
     (* Ollama Cloud uses the same wire kind. The named provider entry
        prefers OLLAMA_CLOUD_API_KEY and falls back to OLLAMA_API_KEY. *)
     None
 ;;
 
 let is_subprocess_cli = function
-  | Claude_code | Gemini_cli | Kimi_cli | Codex_cli -> true
-  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> false
+  | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a -> true
+  | Provider_a | Provider_c | Provider_d_compat | Ollama | Provider_f | Provider_k | Provider_h -> false
 ;;
 
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
-  | "anthropic" | "claude" -> Some Anthropic
-  | "kimi" -> Some Kimi
-  | "openai_compat" | "openai" -> Some OpenAI_compat
+  | "provider_a" | "agent_llm_a" -> Some Provider_a
+  | "provider_c" -> Some Provider_c
+  | "provider_d_compat" | "provider_d" -> Some Provider_d_compat
   | "ollama" | "llama" | "ollama_cloud" -> Some Ollama
-  | "gemini" -> Some Gemini
-  | "glm" -> Some Glm
-  | "dashscope" | "qwen" -> Some DashScope
-  | "claude_code" -> Some Claude_code
-  | "gemini_cli" -> Some Gemini_cli
-  | "kimi_cli" -> Some Kimi_cli
-  | "codex_cli" -> Some Codex_cli
+  | "provider_f" -> Some Provider_f
+  | "provider_k" -> Some Provider_k
+  | "provider_h" -> Some Provider_h
+  | "cli_tool_d" -> Some Cli_tool_d
+  | "cli_tool_b" -> Some Cli_tool_b
+  | "cli_tool_c" -> Some Cli_tool_c
+  | "cli_tool_a" -> Some Cli_tool_a
   | _ -> None
 ;;
 

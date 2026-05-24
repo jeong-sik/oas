@@ -27,8 +27,8 @@ val default_on_stderr_line : name:string -> string -> unit
     - [cwd]: when [Some dir], the child runs with [dir] as its OS-level
       working directory (via an [env -C dir] argv prefix) and with
       [PWD=dir] in its environment. Child tools that resolve project
-      config from cwd (e.g. claude / codex / gemini discovering
-      [.claude/] / [.codex/] / [.gemini/]) see [dir], not the parent's
+      config from cwd (e.g. agent_llm_a / agent_code / provider_f discovering
+      [.agent_llm_a/] / [.agent_code/] / [.provider_f/]) see [dir], not the parent's
       cwd. Blank strings are treated as [None].
     - [extra_env]: additional [KEY=VAL] pairs prepended to the env.
     - [stdin_content]: when [Some s], opens a pipe to the child's
@@ -51,7 +51,7 @@ val default_on_stderr_line : name:string -> string -> unit
       side cancellation token.  The deadline resets after each line.
     - [stdout_recovery]: opt-in predicate that lets a transport rescue
       a structurally complete stdout payload from a nonzero exit.  Some
-      CLIs (e.g. codex-cli 0.125.0+) finish the LLM response on stdout
+      CLIs (e.g. agent_code-cli 0.125.0+) finish the LLM response on stdout
       but exit nonzero on post-response bookkeeping races.  When the
       predicate returns [true] for the captured stdout, [run_collect]
       surfaces [Ok] so the caller can parse a real response instead of

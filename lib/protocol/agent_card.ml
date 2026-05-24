@@ -279,8 +279,8 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
 
 let provider_name (cfg : Provider.config) =
   match cfg.provider with
-  | Provider.Anthropic -> "anthropic"
-  | Provider.OpenAICompat _ -> "openai-compat"
+  | Provider.Provider_a -> "provider_a"
+  | Provider.OpenAICompat _ -> "provider_d-compat"
   | Provider.Local _ -> "local"
   | Provider.Custom_registered { name } -> name
 ;;
@@ -310,7 +310,7 @@ let of_info (info : agent_info) : agent_card =
   let providers =
     match info.provider with
     | Some cfg -> [ provider_name cfg ]
-    | None -> [ "anthropic" ]
+    | None -> [ "provider_a" ]
   in
   let all_providers = List.sort_uniq String.compare providers in
   let skills =

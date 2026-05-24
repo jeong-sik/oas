@@ -262,8 +262,8 @@ let test_structured_telemetry_step_all_some () =
     ; detail = Some "detail"
     ; actor = Some "actor"
     ; role = Some "lead"
-    ; provider = Some "anthropic"
-    ; model = Some "claude-sonnet-4-6"
+    ; provider = Some "provider_a"
+    ; model = Some "agent_llm_a-sonnet-4-6"
     ; raw_trace_run_id = Some "wr-1"
     ; stop_reason = Some "tool_use"
     ; artifact_id = Some "aid"
@@ -596,13 +596,13 @@ let test_worker_run_fully_populated () =
     ; role = Some "executor"
     ; aliases = [ "alias1"; "alias2" ]
     ; primary_alias = Some "alias1"
-    ; provider = Some "anthropic"
-    ; model = Some "claude-sonnet-4-6"
-    ; requested_provider = Some "anthropic"
-    ; requested_model = Some "claude-sonnet-4-6"
+    ; provider = Some "provider_a"
+    ; model = Some "agent_llm_a-sonnet-4-6"
+    ; requested_provider = Some "provider_a"
+    ; requested_model = Some "agent_llm_a-sonnet-4-6"
     ; requested_policy = Some "default"
-    ; resolved_provider = Some "anthropic"
-    ; resolved_model = Some "claude-sonnet-4-6"
+    ; resolved_provider = Some "provider_a"
+    ; resolved_model = Some "agent_llm_a-sonnet-4-6"
     ; status = Completed
     ; trace_capability = Raw
     ; validated = true
@@ -1139,8 +1139,8 @@ let test_transport_options_construction () =
   let opts : Transport.options =
     { runtime_path = Some "/usr/bin/oas_runtime"
     ; session_root = Some "/tmp/sessions"
-    ; provider = Some "anthropic"
-    ; model = Some "claude-sonnet-4-6"
+    ; provider = Some "provider_a"
+    ; model = Some "agent_llm_a-sonnet-4-6"
     ; permission_mode = Some "default"
     ; include_partial_messages = true
     ; setting_sources = [ "user"; "project" ]
@@ -1156,12 +1156,12 @@ let test_transport_options_construction () =
 let test_transport_options_partial () =
   let opts : Transport.options =
     { Transport.default_options with
-      provider = Some "openai"
+      provider = Some "provider_d"
     ; model = Some "gpt-4"
     ; include_partial_messages = true
     }
   in
-  check (option string) "provider" (Some "openai") opts.provider;
+  check (option string) "provider" (Some "provider_d") opts.provider;
   check (option string) "model" (Some "gpt-4") opts.model;
   check bool "partial" true opts.include_partial_messages;
   check (option string) "runtime_path still None" None opts.runtime_path;
@@ -1178,7 +1178,7 @@ let test_builder_safe_max_turns_zero () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_max_turns 0
     |> Builder.build_safe
   with
@@ -1190,7 +1190,7 @@ let test_builder_safe_max_turns_negative () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_max_turns (-1)
     |> Builder.build_safe
   with
@@ -1202,7 +1202,7 @@ let test_builder_safe_max_tokens_zero () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_max_tokens 0
     |> Builder.build_safe
   with
@@ -1214,7 +1214,7 @@ let test_builder_safe_thinking_budget_without_enable () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_thinking_budget 1024
     |> Builder.build_safe
   with
@@ -1227,7 +1227,7 @@ let test_builder_safe_thinking_budget_with_enable_false () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_enable_thinking false
     |> Builder.with_thinking_budget 1024
     |> Builder.build_safe
@@ -1241,7 +1241,7 @@ let test_builder_safe_negative_cost () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_max_cost_usd (-1.0)
     |> Builder.build_safe
   with
@@ -1258,7 +1258,7 @@ let test_builder_chaining () =
       Ok { Types.content = "ok" })
   in
   let result =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_name "chained"
     |> Builder.with_system_prompt "You are a test."
     |> Builder.with_max_tokens 2048
@@ -1296,7 +1296,7 @@ let test_builder_with_contract () =
   @@ fun net ->
   let skill = Skill.of_markdown "# Review\nReview code" in
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_skill skill
     |> Builder.with_tool_grants [ "shell"; "read" ]
     |> Builder.build_safe
@@ -1311,7 +1311,7 @@ let test_builder_with_skills_list () =
   let s1 = Skill.of_markdown "# Review\nreview" in
   let s2 = Skill.of_markdown "# Deploy\ndeploy" in
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_skills [ s1; s2 ]
     |> Builder.build_safe
   with
@@ -1323,7 +1323,7 @@ let test_builder_with_mcp_tool_allowlist () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_mcp_tool_allowlist [ "tool_a"; "tool_b" ]
     |> Builder.build_safe
   with
@@ -1339,7 +1339,7 @@ let test_builder_with_periodic_callback () =
     { interval_sec = 60.0; callback = (fun () -> ()) }
   in
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_periodic_callback cb
     |> Builder.with_periodic_callbacks [ cb2 ]
     |> Builder.build_safe
@@ -1360,7 +1360,7 @@ let test_builder_with_tools_list () =
       Ok { Types.content = "ok" })
   in
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_tools [ t1; t2 ]
     |> Builder.build_safe
   with
@@ -1381,7 +1381,7 @@ let test_builder_with_initial_messages () =
     ]
   in
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_initial_messages msgs
     |> Builder.build_safe
   with
@@ -1395,7 +1395,7 @@ let test_builder_valid_thinking_budget () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 4096
     |> Builder.build_safe
@@ -1408,7 +1408,7 @@ let test_builder_zero_cost () =
   with_net
   @@ fun net ->
   match
-    Builder.create ~net ~model:"claude-sonnet-4-6"
+    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_max_cost_usd 0.0
     |> Builder.build_safe
   with

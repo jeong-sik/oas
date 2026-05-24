@@ -19,9 +19,9 @@ val find_json_object : string -> (int * int) option
 val try_parse_json_object : string -> Yojson.Safe.t option
 
 (** Match a JSON value against known tool-call shapes and extract
-    [(name, input)]. Handles Anthropic-style [{name, input}], OpenAI
+    [(name, input)]. Handles Provider_a-style [{name, input}], Provider_d
     [{name, arguments}] (including double-stringified [arguments]),
-    OpenAI [{tool_calls: [...]}] wrapper, and bare [{function: ...}]. *)
+    Provider_d [{tool_calls: [...]}] wrapper, and bare [{function: ...}]. *)
 val extract_name_and_input : Yojson.Safe.t -> (string * Yojson.Safe.t) option
 
 (** Scan content blocks and replace recoverable Text blocks with

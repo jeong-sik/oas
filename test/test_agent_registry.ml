@@ -117,7 +117,7 @@ let test_register_remote () =
     ; capabilities = [ Tools; Streaming ]
     ; tools = []
     ; skills = []
-    ; supported_providers = [ "anthropic" ]
+    ; supported_providers = [ "provider_a" ]
     ; metadata = []
     }
   in

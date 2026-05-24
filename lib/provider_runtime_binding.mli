@@ -14,7 +14,7 @@ type transport =
   | Http
   | Cli
   | Managed
-  | Custom_openai_compat
+  | Custom_provider_d_compat
 
 type auth =
   | No_auth

@@ -57,15 +57,15 @@ let update_atomic_max cell candidate =
 let test_provider_key () =
   let config =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-20250514"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-20250514"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
   check
     string
     "key format"
-    "claude-sonnet-4-20250514@https://api.anthropic.com"
+    "agent_llm_a-sonnet-4-20250514@https://api.provider_a.com"
     (Complete_cascade.provider_key config)
 ;;
 
@@ -87,7 +87,7 @@ let test_provider_key_local () =
 let test_provider_key_different_models_same_url () =
   let base = "http://localhost:11434" in
   let c1 = Provider_config.make ~kind:Ollama ~model_id:"llama3" ~base_url:base () in
-  let c2 = Provider_config.make ~kind:Ollama ~model_id:"mistral" ~base_url:base () in
+  let c2 = Provider_config.make ~kind:Ollama ~model_id:"provider_j" ~base_url:base () in
   check
     bool
     "different keys"
@@ -175,18 +175,18 @@ let test_provider_health_scores_list () =
   let ccfg = Complete_cascade.default_cascade_config in
   (* Use canonical [model_id@base_url] keys so the test reflects how
      [provider_health] is keyed in production via [Complete_cascade.provider_key]. *)
-  let anthropic_key = "claude-3-5-sonnet@https://api.anthropic.com" in
-  let moonshot_key = "kimi-k2@https://api.moonshot.ai" in
-  Complete_cascade.record_failure health anthropic_key;
+  let provider_a_key = "agent_llm_a-3-5-sonnet@https://api.provider_a.com" in
+  let provider_b_key = "provider_c-k2@https://api.provider_b.ai" in
+  Complete_cascade.record_failure health provider_a_key;
   let scores =
     Complete_cascade.provider_health_scores
       health
       ~cascade_config:ccfg
-      ~provider_keys:[ anthropic_key; moonshot_key ]
+      ~provider_keys:[ provider_a_key; provider_b_key ]
   in
   check int "score count" 2 (List.length scores);
-  check (float 0.001) "anthropic degraded" (2.0 /. 3.0) (List.assoc anthropic_key scores);
-  check (float 0.001) "moonshot optimistic" 1.0 (List.assoc moonshot_key scores)
+  check (float 0.001) "provider_a degraded" (2.0 /. 3.0) (List.assoc provider_a_key scores);
+  check (float 0.001) "provider_b optimistic" 1.0 (List.assoc provider_b_key scores)
 ;;
 
 let test_provider_health_eio_mutex_concurrent_recording () =
@@ -453,9 +453,9 @@ let test_result_all_failed_variant () =
 let test_result_hard_quota_variant () =
   let config =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-20250514"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-20250514"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
   let err =
@@ -469,16 +469,16 @@ let test_result_hard_quota_variant () =
   let result = Complete_cascade.Hard_quota { config; error = err } in
   match result with
   | Complete_cascade.Hard_quota { config = c; _ } ->
-    check string "model_id" "claude-sonnet-4-20250514" c.Provider_config.model_id
+    check string "model_id" "agent_llm_a-sonnet-4-20250514" c.Provider_config.model_id
   | _ -> fail "expected Hard_quota"
 ;;
 
 let test_result_provider_terminal_variant () =
   let config =
     Provider_config.make
-      ~kind:Claude_code
-      ~model_id:"claude-code"
-      ~base_url:"cli://claude-code"
+      ~kind:Cli_tool_d
+      ~model_id:"agent_llm_a-code"
+      ~base_url:"cli://agent_llm_a-code"
       ()
   in
   let result =
@@ -491,7 +491,7 @@ let test_result_provider_terminal_variant () =
   match result with
   | Complete_cascade.Provider_terminal
       { config = c; kind = Http_client.Max_turns r; message } ->
-    check string "terminal provider" "claude-code" c.Provider_config.model_id;
+    check string "terminal provider" "agent_llm_a-code" c.Provider_config.model_id;
     check int "turns" 31 r.turns;
     check int "limit" 31 r.limit;
     check string "message" "error_max_turns" message
@@ -512,24 +512,24 @@ let test_circuit_open_skips_provider_and_falls_back () =
   @@ fun sw ->
   let clock = Eio.Stdenv.clock env in
   let health = Complete_cascade.create_health ~clock () in
-  let anthropic =
+  let provider_a =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-20250514"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-20250514"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
-  let moonshot =
+  let provider_b =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"moonshot-v1"
-      ~base_url:"https://api.moonshot.cn"
+      ~kind:Provider_c
+      ~model_id:"provider_b-v1"
+      ~base_url:"https://api.provider_b.cn"
       ()
   in
-  let anthropic_key = Complete_cascade.provider_key anthropic in
-  Complete_cascade.record_failure health anthropic_key;
-  Complete_cascade.record_failure health anthropic_key;
-  Complete_cascade.record_failure health anthropic_key;
+  let provider_a_key = Complete_cascade.provider_key provider_a in
+  Complete_cascade.record_failure health provider_a_key;
+  Complete_cascade.record_failure health provider_a_key;
+  Complete_cascade.record_failure health provider_a_key;
   let seen_models = ref [] in
   let circuit_states = ref [] in
   let metrics : Metrics.t =
@@ -558,33 +558,33 @@ let test_circuit_open_skips_provider_and_falls_back () =
       ~transport
       ~health
       ~metrics
-      ~steps:[ anthropic; moonshot ]
+      ~steps:[ provider_a; provider_b ]
       ~messages:[]
       ()
   in
-  check (list string) "only fallback provider called" [ "moonshot-v1" ] !seen_models;
+  check (list string) "only fallback provider called" [ "provider_b-v1" ] !seen_models;
   let ccfg = Complete_cascade.default_cascade_config in
-  let anthropic_info =
+  let provider_a_info =
     Complete_cascade.provider_health_info
       health
       ~cascade_config:ccfg
-      ~provider_key:anthropic_key
+      ~provider_key:provider_a_key
   in
-  check bool "anthropic circuit remains open" true anthropic_info.circuit_open;
+  check bool "provider_a circuit remains open" true provider_a_info.circuit_open;
   check
     bool
     "open circuit state metric emitted"
     true
     (List.exists
        (fun (_provider, model_id, provider_key, state) ->
-          String.equal model_id anthropic.model_id
-          && String.equal provider_key anthropic_key
+          String.equal model_id provider_a.model_id
+          && String.equal provider_key provider_a_key
           && state = Metrics.Circuit_open)
        !circuit_states);
   match result with
   | Complete_cascade.Success { step_index; model_id; _ } ->
     check int "fallback step index" 1 step_index;
-    check string "fallback model" "moonshot-v1" model_id
+    check string "fallback model" "provider_b-v1" model_id
   | _ -> fail "expected fallback Success"
 ;;
 
@@ -722,16 +722,16 @@ let test_hard_quota_stops_without_calling_fallback () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-20250514"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-20250514"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"moonshot-v1"
-      ~base_url:"https://api.moonshot.cn"
+      ~kind:Provider_c
+      ~model_id:"provider_b-v1"
+      ~base_url:"https://api.provider_b.cn"
       ()
   in
   let called_models = ref [] in
@@ -787,16 +787,16 @@ let test_provider_terminal_stops_without_calling_fallback () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:Claude_code
-      ~model_id:"claude-code"
-      ~base_url:"cli://claude-code"
+      ~kind:Cli_tool_d
+      ~model_id:"agent_llm_a-code"
+      ~base_url:"cli://agent_llm_a-code"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"moonshot-v1"
-      ~base_url:"https://api.moonshot.cn"
+      ~kind:Provider_c
+      ~model_id:"provider_b-v1"
+      ~base_url:"https://api.provider_b.cn"
       ()
   in
   let health = Complete_cascade.create_health ~clock () in
@@ -866,16 +866,16 @@ let test_tls_error_stops_without_calling_fallback () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"ollama-cloud"
       ~base_url:"https://ollama.com/v1"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"moonshot-v1"
-      ~base_url:"https://api.moonshot.cn"
+      ~kind:Provider_c
+      ~model_id:"provider_b-v1"
+      ~base_url:"https://api.provider_b.cn"
       ()
   in
   let health = Complete_cascade.create_health ~clock () in
@@ -940,16 +940,16 @@ let test_local_resource_error_stops_without_poisoning_provider_health () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"ollama-cloud"
       ~base_url:"https://ollama.com/v1"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"moonshot-v1"
-      ~base_url:"https://api.moonshot.cn"
+      ~kind:Provider_c
+      ~model_id:"provider_b-v1"
+      ~base_url:"https://api.provider_b.cn"
       ()
   in
   let health = Complete_cascade.create_health ~clock () in
@@ -1325,16 +1325,16 @@ let test_circuit_open_skip_emits_only_circuit_open_for_skipped_provider () =
   let health = Complete_cascade.create_health ~clock () in
   let primary =
     Provider_config.make
-      ~kind:Anthropic
-      ~model_id:"claude-sonnet-4-20250514"
-      ~base_url:"https://api.anthropic.com"
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-20250514"
+      ~base_url:"https://api.provider_a.com"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Kimi
-      ~model_id:"moonshot-v1"
-      ~base_url:"https://api.moonshot.cn"
+      ~kind:Provider_c
+      ~model_id:"provider_b-v1"
+      ~base_url:"https://api.provider_b.cn"
       ()
   in
   let primary_key = Complete_cascade.provider_key primary in

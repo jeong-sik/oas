@@ -8,12 +8,12 @@ open Types
 
 let model_gen =
   QCheck.Gen.oneof
-    [ QCheck.Gen.return "claude-opus-4-6"
-    ; QCheck.Gen.return "claude-sonnet-4-6"
-    ; QCheck.Gen.return "claude-opus-4-5"
-    ; QCheck.Gen.return "claude-sonnet-4"
-    ; QCheck.Gen.return "claude-haiku-4-5"
-    ; QCheck.Gen.return "claude-3-7-sonnet"
+    [ QCheck.Gen.return "agent_llm_a-opus-4-6"
+    ; QCheck.Gen.return "agent_llm_a-sonnet-4-6"
+    ; QCheck.Gen.return "agent_llm_a-opus-4-5"
+    ; QCheck.Gen.return "agent_llm_a-sonnet-4"
+    ; QCheck.Gen.return "agent_llm_a-haiku-4-5"
+    ; QCheck.Gen.return "agent_llm_a-3-7-sonnet"
     ; QCheck.Gen.string_printable
     ]
 ;;

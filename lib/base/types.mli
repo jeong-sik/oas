@@ -1,4 +1,4 @@
-(** Core types for Anthropic Agent SDK.
+(** Core types for Provider_a Agent SDK.
 
     LLM-level types (role, message, content_block, etc.) are re-exported from
     {!Llm_provider.Types}. Agent-specific types remain local.
@@ -55,7 +55,7 @@ type agent_config =
   ; disable_parallel_tool_use : bool
   ; cache_system_prompt : bool
   ; cache_extended_ttl : bool
-    (** When [true] and [cache_system_prompt = true], sets the Anthropic
+    (** When [true] and [cache_system_prompt = true], sets the Provider_a
       prompt cache TTL to 1 hour instead of the default 5 minutes.
       Write cost is 2x but the cache persists 12x longer — intended
       for long-running agents that go idle 5+ minutes between turns.

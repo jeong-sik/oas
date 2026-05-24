@@ -136,7 +136,7 @@ let () =
               ; env = []
               ; http_base_url = Some "http://127.0.0.1:8935/mcp"
               ; http_headers =
-                  [ "Authorization", "Bearer tok"; "X-Coordinator-Client", "codex" ]
+                  [ "Authorization", "Bearer tok"; "X-Coordinator-Client", "agent_code" ]
               ; tool_schemas = [ sample_tool_schema ]
               ; transport_kind = Http
               }

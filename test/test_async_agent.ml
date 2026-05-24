@@ -14,7 +14,7 @@ let quick_response text =
     text
 ;;
 
-(** Start a mock Anthropic API server. Returns base_url.
+(** Start a mock Provider_a API server. Returns base_url.
     Optionally delays [delay_sec] before responding. *)
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
@@ -344,9 +344,9 @@ let test_all_timeout_is_per_agent () =
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
-  (* Ensure ANTHROPIC_API_KEY is set for mock server tests *)
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
+  (* Ensure PROVIDER_A_API_KEY is set for mock server tests *)
+  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
+  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
   run
     "async_agent"
     [ ( "spawn"

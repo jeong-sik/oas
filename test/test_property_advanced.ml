@@ -76,9 +76,9 @@ let tool_choice_gen =
 
 let model_gen =
   QCheck.Gen.oneof
-    [ QCheck.Gen.return "claude-opus-4-6"
-    ; QCheck.Gen.return "claude-sonnet-4-6"
-    ; QCheck.Gen.return "claude-haiku-4-5"
+    [ QCheck.Gen.return "agent_llm_a-opus-4-6"
+    ; QCheck.Gen.return "agent_llm_a-sonnet-4-6"
+    ; QCheck.Gen.return "agent_llm_a-haiku-4-5"
     ; QCheck.Gen.string_printable
     ]
 ;;
@@ -251,15 +251,15 @@ let test_local_provider_resolve_always_succeeds =
        | Error _ -> false)
 ;;
 
-let test_capabilities_qwen_reasoning =
+let test_capabilities_provider_m_reasoning =
   QCheck.Test.make
     ~count:50
-    ~name:"Qwen models get reasoning capability"
+    ~name:"Provider_h models get reasoning capability"
     (QCheck.make
        (QCheck.Gen.oneof
           [ QCheck.Gen.return "qwen3.5-35b"
           ; QCheck.Gen.return "Qwen2.5-72B"
-          ; QCheck.Gen.return "qwen-turbo"
+          ; QCheck.Gen.return "provider_h-turbo"
           ]))
     (fun model_id ->
        let caps =
@@ -364,16 +364,16 @@ let test_token_budget_exceeds_limit =
 
 (* ── Capabilities Properties ─────────────────────────────────── *)
 
-let test_anthropic_supports_tools =
+let test_provider_a_supports_tools =
   QCheck.Test.make
     ~count:50
-    ~name:"Anthropic provider always supports tools"
+    ~name:"Provider_a provider always supports tools"
     (QCheck.make (QCheck.Gen.return ()))
     (fun () ->
        let caps =
          Provider.capabilities_for_model
-           ~provider:Provider.Anthropic
-           ~model_id:"claude-sonnet-4-6"
+           ~provider:Provider.Provider_a
+           ~model_id:"agent_llm_a-sonnet-4-6"
        in
        caps.supports_tools && caps.supports_tool_choice)
 ;;
@@ -398,7 +398,7 @@ let () =
       ; test_cost_scales_with_tokens
       ; (* Provider resolve *)
         test_local_provider_resolve_always_succeeds
-      ; test_capabilities_qwen_reasoning
+      ; test_capabilities_provider_m_reasoning
       ; (* Context reducer *)
         test_context_reducer_never_adds
       ; test_token_budget_reducer_respects_limit
@@ -408,7 +408,7 @@ let () =
         test_token_budget_within_limit
       ; test_token_budget_exceeds_limit
       ; (* Capabilities *)
-        test_anthropic_supports_tools
+        test_provider_a_supports_tools
       ]
   in
   Alcotest.run "property_advanced" [ "properties", suite ]

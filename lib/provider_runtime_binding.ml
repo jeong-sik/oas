@@ -11,7 +11,7 @@ type transport =
   | Http
   | Cli
   | Managed
-  | Custom_openai_compat
+  | Custom_provider_d_compat
 
 type auth =
   | No_auth
@@ -53,7 +53,7 @@ let transport_of_catalog = function
   | PC.Http -> Http
   | PC.Cli -> Cli
   | PC.Managed -> Managed
-  | PC.Custom_openai_compat -> Custom_openai_compat
+  | PC.Custom_provider_d_compat -> Custom_provider_d_compat
 ;;
 
 let auth_of_catalog = function
@@ -67,17 +67,17 @@ let auth_of_catalog = function
 ;;
 
 let command_of_kind = function
-  | PConfig.Claude_code -> Some "claude"
-  | PConfig.Gemini_cli -> Some "gemini"
-  | PConfig.Kimi_cli -> Some "kimi"
-  | PConfig.Codex_cli -> Some "codex"
-  | PConfig.Anthropic
-  | PConfig.Kimi
-  | PConfig.OpenAI_compat
+  | PConfig.Cli_tool_d -> Some "agent_llm_a"
+  | PConfig.Cli_tool_b -> Some "provider_f"
+  | PConfig.Cli_tool_c -> Some "provider_c"
+  | PConfig.Cli_tool_a -> Some "agent_code"
+  | PConfig.Provider_a
+  | PConfig.Provider_c
+  | PConfig.Provider_d_compat
   | PConfig.Ollama
-  | PConfig.Gemini
-  | PConfig.Glm
-  | PConfig.DashScope -> None
+  | PConfig.Provider_f
+  | PConfig.Provider_k
+  | PConfig.Provider_h -> None
 ;;
 
 let transport_of_kind kind = if PConfig.is_subprocess_cli kind then Cli else Http
@@ -284,16 +284,16 @@ let binding_for_provider_config (cfg : PConfig.t) =
 
 let base_capabilities_of_kind = function
   | PConfig.Ollama -> Llm_provider.Capabilities.ollama_capabilities
-  | PConfig.Anthropic -> Llm_provider.Capabilities.anthropic_capabilities
-  | PConfig.Kimi -> Llm_provider.Capabilities.kimi_capabilities
-  | PConfig.OpenAI_compat -> Llm_provider.Capabilities.openai_chat_capabilities
-  | PConfig.Gemini -> Llm_provider.Capabilities.gemini_capabilities
-  | PConfig.Glm -> Llm_provider.Capabilities.glm_capabilities
-  | PConfig.DashScope -> Llm_provider.Capabilities.dashscope_capabilities
-  | PConfig.Claude_code -> Llm_provider.Capabilities.claude_code_capabilities
-  | PConfig.Gemini_cli -> Llm_provider.Capabilities.gemini_cli_capabilities
-  | PConfig.Kimi_cli -> Llm_provider.Capabilities.kimi_cli_capabilities
-  | PConfig.Codex_cli -> Llm_provider.Capabilities.codex_cli_capabilities
+  | PConfig.Provider_a -> Llm_provider.Capabilities.provider_a_capabilities
+  | PConfig.Provider_c -> Llm_provider.Capabilities.provider_c_capabilities
+  | PConfig.Provider_d_compat -> Llm_provider.Capabilities.provider_d_chat_capabilities
+  | PConfig.Provider_f -> Llm_provider.Capabilities.provider_f_capabilities
+  | PConfig.Provider_k -> Llm_provider.Capabilities.provider_k_capabilities
+  | PConfig.Provider_h -> Llm_provider.Capabilities.provider_h_capabilities
+  | PConfig.Cli_tool_d -> Llm_provider.Capabilities.agent_llm_a_code_capabilities
+  | PConfig.Cli_tool_b -> Llm_provider.Capabilities.provider_f_cli_capabilities
+  | PConfig.Cli_tool_c -> Llm_provider.Capabilities.provider_c_cli_capabilities
+  | PConfig.Cli_tool_a -> Llm_provider.Capabilities.agent_code_cli_capabilities
 ;;
 
 let registry_capabilities_for_provider_config (cfg : PConfig.t) =

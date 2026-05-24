@@ -146,7 +146,7 @@ let mk_record
   ; session_id = Some "s-test-001"
   ; record_type
   ; prompt
-  ; model = Some "glm-5.1"
+  ; model = Some "provider_k-5.1"
   ; tool_choice = Some (Agent_sdk.Types.tool_choice_to_json Agent_sdk.Types.Any)
   ; enable_thinking = Some false
   ; thinking_budget = Some 2048
@@ -417,7 +417,7 @@ let test_record_json_all_fields_populated () =
     ; session_id = Some "s-full"
     ; record_type = Raw_trace.Assistant_block
     ; prompt = Some "test prompt"
-    ; model = Some "glm-5.1"
+    ; model = Some "provider_k-5.1"
     ; tool_choice =
         Some (Agent_sdk.Types.tool_choice_to_json (Agent_sdk.Types.Tool "complex_tool"))
     ; enable_thinking = Some true

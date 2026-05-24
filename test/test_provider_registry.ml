@@ -16,7 +16,7 @@ let test_register_and_find () =
   let entry : Provider_registry.entry =
     { name = "test-provider"
     ; defaults =
-        { kind = OpenAI_compat
+        { kind = Provider_d_compat
         ; base_url = "http://localhost:9999"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -38,7 +38,7 @@ let test_overwrite () =
   let mk url : Provider_registry.entry =
     { name = "p"
     ; defaults =
-        { kind = OpenAI_compat
+        { kind = Provider_d_compat
         ; base_url = url
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -61,7 +61,7 @@ let test_unregister () =
   let entry : Provider_registry.entry =
     { name = "temp"
     ; defaults =
-        { kind = OpenAI_compat
+        { kind = Provider_d_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -84,7 +84,7 @@ let test_available_filter () =
   let mk name avail : Provider_registry.entry =
     { name
     ; defaults =
-        { kind = OpenAI_compat
+        { kind = Provider_d_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -147,7 +147,7 @@ let test_find_capable_tools () =
   let mk name caps : Provider_registry.entry =
     { name
     ; defaults =
-        { kind = OpenAI_compat
+        { kind = Provider_d_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -171,7 +171,7 @@ let test_find_capable_composite () =
   let mk name caps : Provider_registry.entry =
     { name
     ; defaults =
-        { kind = OpenAI_compat
+        { kind = Provider_d_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -215,32 +215,32 @@ let test_default_has_19 () =
     "ollama_cloud exists"
     true
     (Option.is_some (Provider_registry.find reg "ollama_cloud"));
-  check bool "claude exists" true (Option.is_some (Provider_registry.find reg "claude"));
-  check bool "gemini exists" true (Option.is_some (Provider_registry.find reg "gemini"));
-  check bool "glm exists" true (Option.is_some (Provider_registry.find reg "glm"));
+  check bool "agent_llm_a exists" true (Option.is_some (Provider_registry.find reg "agent_llm_a"));
+  check bool "provider_f exists" true (Option.is_some (Provider_registry.find reg "provider_f"));
+  check bool "provider_k exists" true (Option.is_some (Provider_registry.find reg "provider_k"));
   check
     bool
-    "glm-coding exists"
+    "provider_k-coding exists"
     true
-    (Option.is_some (Provider_registry.find reg "glm-coding"));
-  check bool "kimi exists" true (Option.is_some (Provider_registry.find reg "kimi"));
+    (Option.is_some (Provider_registry.find reg "provider_k-coding"));
+  check bool "provider_c exists" true (Option.is_some (Provider_registry.find reg "provider_c"));
   check
     bool
     "openrouter exists"
     true
     (Option.is_some (Provider_registry.find reg "openrouter"));
-  check bool "groq exists" true (Option.is_some (Provider_registry.find reg "groq"));
+  check bool "provider_i exists" true (Option.is_some (Provider_registry.find reg "provider_i"));
   check
     bool
-    "deepseek exists"
+    "provider_g exists"
     true
-    (Option.is_some (Provider_registry.find reg "deepseek"));
+    (Option.is_some (Provider_registry.find reg "provider_g"));
   check bool "alibaba exists" true (Option.is_some (Provider_registry.find reg "alibaba"));
   check
     bool
-    "dashscope exists"
+    "provider_h exists"
     true
-    (Option.is_some (Provider_registry.find reg "dashscope"));
+    (Option.is_some (Provider_registry.find reg "provider_h"));
   check
     bool
     "siliconflow exists"
@@ -248,34 +248,34 @@ let test_default_has_19 () =
     (Option.is_some (Provider_registry.find reg "siliconflow"));
   check
     bool
-    "claude_code exists"
+    "cli_tool_d exists"
     true
-    (Option.is_some (Provider_registry.find reg "claude_code"));
+    (Option.is_some (Provider_registry.find reg "cli_tool_d"));
   check bool "cc exists" true (Option.is_some (Provider_registry.find reg "cc"));
   check
     bool
-    "gemini_cli exists"
+    "cli_tool_b exists"
     true
-    (Option.is_some (Provider_registry.find reg "gemini_cli"));
+    (Option.is_some (Provider_registry.find reg "cli_tool_b"));
   check
     bool
-    "kimi_cli exists"
+    "cli_tool_c exists"
     true
-    (Option.is_some (Provider_registry.find reg "kimi_cli"));
+    (Option.is_some (Provider_registry.find reg "cli_tool_c"));
   check
     bool
-    "codex_cli exists"
+    "cli_tool_a exists"
     true
-    (Option.is_some (Provider_registry.find reg "codex_cli"))
+    (Option.is_some (Provider_registry.find reg "cli_tool_a"))
 ;;
 
 let test_default_capabilities () =
   let reg = Provider_registry.default () in
-  (match Provider_registry.find reg "claude" with
+  (match Provider_registry.find reg "agent_llm_a" with
    | Some e ->
-     check bool "claude has tools" true e.capabilities.supports_tools;
-     check bool "claude has reasoning" true e.capabilities.supports_reasoning
-   | None -> fail "claude should exist");
+     check bool "agent_llm_a has tools" true e.capabilities.supports_tools;
+     check bool "agent_llm_a has reasoning" true e.capabilities.supports_reasoning
+   | None -> fail "agent_llm_a should exist");
   match Provider_registry.find reg "llama" with
   | Some e ->
     check bool "llama has tools" true e.capabilities.supports_tools;
@@ -298,7 +298,7 @@ let test_provider_name_of_ollama_cloud_config () =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Ollama
-      ~model_id:"glm-5.1:cloud"
+      ~model_id:"provider_k-5.1:cloud"
       ~base_url:"https://ollama.com"
       ~request_path:"/api/chat"
       ()
@@ -315,42 +315,42 @@ let test_default_max_context () =
   (match Provider_registry.find reg "llama" with
    | Some e -> check int "llama 128K" 128_000 e.max_context
    | None -> fail "llama should exist");
-  (match Provider_registry.find reg "claude" with
-   | Some e -> check int "claude 200K" 200_000 e.max_context
-   | None -> fail "claude should exist");
-  (match Provider_registry.find reg "gemini" with
-   | Some e -> check int "gemini 1M" 1_000_000 e.max_context
-   | None -> fail "gemini should exist");
-  (match Provider_registry.find reg "glm" with
-   | Some e -> check int "glm 200K" 200_000 e.max_context
-   | None -> fail "glm should exist");
-  (match Provider_registry.find reg "kimi" with
-   | Some e -> check int "kimi 262K" 262_144 e.max_context
-   | None -> fail "kimi should exist");
+  (match Provider_registry.find reg "agent_llm_a" with
+   | Some e -> check int "agent_llm_a 200K" 200_000 e.max_context
+   | None -> fail "agent_llm_a should exist");
+  (match Provider_registry.find reg "provider_f" with
+   | Some e -> check int "provider_f 1M" 1_000_000 e.max_context
+   | None -> fail "provider_f should exist");
+  (match Provider_registry.find reg "provider_k" with
+   | Some e -> check int "provider_k 200K" 200_000 e.max_context
+   | None -> fail "provider_k should exist");
+  (match Provider_registry.find reg "provider_c" with
+   | Some e -> check int "provider_c 262K" 262_144 e.max_context
+   | None -> fail "provider_c should exist");
   (match Provider_registry.find reg "cc" with
    | Some e -> check int "cc 1M" 1_000_000 e.max_context
    | None -> fail "cc should exist");
-  (match Provider_registry.find reg "groq" with
-   | Some e -> check int "groq 131K" 131_072 e.max_context
-   | None -> fail "groq should exist");
-  (match Provider_registry.find reg "deepseek" with
-   | Some e -> check int "deepseek 1M" 1_000_000 e.max_context
-   | None -> fail "deepseek should exist");
-  (match Provider_registry.find reg "dashscope" with
-   | Some e -> check int "dashscope 131K" 131_072 e.max_context
-   | None -> fail "dashscope should exist");
+  (match Provider_registry.find reg "provider_i" with
+   | Some e -> check int "provider_i 131K" 131_072 e.max_context
+   | None -> fail "provider_i should exist");
+  (match Provider_registry.find reg "provider_g" with
+   | Some e -> check int "provider_g 1M" 1_000_000 e.max_context
+   | None -> fail "provider_g should exist");
+  (match Provider_registry.find reg "provider_h" with
+   | Some e -> check int "provider_h 131K" 131_072 e.max_context
+   | None -> fail "provider_h should exist");
   (match Provider_registry.find reg "alibaba" with
    | Some e -> check int "alibaba 131K" 131_072 e.max_context
    | None -> fail "alibaba should exist");
   (match Provider_registry.find reg "siliconflow" with
    | Some e -> check int "siliconflow 128K" 128_000 e.max_context
    | None -> fail "siliconflow should exist");
-  (match Provider_registry.find reg "codex_cli" with
-   | Some e -> check int "codex_cli 1.05M" 1_050_000 e.max_context
-   | None -> fail "codex_cli should exist");
-  match Provider_registry.find reg "kimi_cli" with
-  | Some e -> check int "kimi_cli 262K" 262_144 e.max_context
-  | None -> fail "kimi_cli should exist"
+  (match Provider_registry.find reg "cli_tool_a" with
+   | Some e -> check int "cli_tool_a 1.05M" 1_050_000 e.max_context
+   | None -> fail "cli_tool_a should exist");
+  match Provider_registry.find reg "cli_tool_c" with
+  | Some e -> check int "cli_tool_c 262K" 262_144 e.max_context
+  | None -> fail "cli_tool_c should exist"
 ;;
 
 let test_default_max_context_matches_capabilities () =
@@ -369,21 +369,21 @@ let test_default_max_context_matches_capabilities () =
 
 let test_default_zai_base_urls () =
   let reg = Provider_registry.default () in
-  (match Provider_registry.find reg "glm" with
+  (match Provider_registry.find reg "provider_k" with
    | Some e ->
-     check string "glm base_url" Zai_catalog.general_base_url e.defaults.base_url;
-     check string "glm api_key_env" "ZAI_API_KEY" e.defaults.api_key_env
-   | None -> fail "glm should exist");
-  (match Provider_registry.find reg "glm-coding" with
+     check string "provider_k base_url" Zai_catalog.general_base_url e.defaults.base_url;
+     check string "provider_k api_key_env" "ZAI_API_KEY" e.defaults.api_key_env
+   | None -> fail "provider_k should exist");
+  (match Provider_registry.find reg "provider_k-coding" with
    | Some e ->
-     check string "glm-coding base_url" Zai_catalog.coding_base_url e.defaults.base_url;
-     check string "glm-coding api_key_env" "ZAI_CODING_API_KEY" e.defaults.api_key_env
-   | None -> fail "glm-coding should exist");
-  match Provider_registry.find reg "kimi" with
+     check string "provider_k-coding base_url" Zai_catalog.coding_base_url e.defaults.base_url;
+     check string "provider_k-coding api_key_env" "ZAI_CODING_API_KEY" e.defaults.api_key_env
+   | None -> fail "provider_k-coding should exist");
+  match Provider_registry.find reg "provider_c" with
   | Some e ->
-    check string "kimi base_url" "https://api.kimi.com/coding" e.defaults.base_url;
-    check string "kimi request_path" "/v1/messages" e.defaults.request_path
-  | None -> fail "kimi should exist"
+    check string "provider_c base_url" "https://api.provider_c.com/coding" e.defaults.base_url;
+    check string "provider_c request_path" "/v1/messages" e.defaults.request_path
+  | None -> fail "provider_c should exist"
 ;;
 
 let test_glm_coding_api_key_env_isolated () =
@@ -401,15 +401,15 @@ let test_glm_coding_api_key_env_isolated () =
        Unix.putenv "ZAI_API_KEY" "general-key";
        Unix.putenv "ZAI_CODING_API_KEY" "";
        let general_only = Provider_registry.default () in
-       (match Provider_registry.find general_only "glm-coding" with
+       (match Provider_registry.find general_only "provider_k-coding" with
         | Some e ->
           check bool "general key does not enable coding lane" false (e.is_available ())
-        | None -> fail "glm-coding should exist");
+        | None -> fail "provider_k-coding should exist");
        Unix.putenv "ZAI_CODING_API_KEY" "coding-key";
        let coding = Provider_registry.default () in
-       match Provider_registry.find coding "glm-coding" with
+       match Provider_registry.find coding "provider_k-coding" with
        | Some e -> check bool "coding key enables coding lane" true (e.is_available ())
-       | None -> fail "glm-coding should exist")
+       | None -> fail "provider_k-coding should exist")
 ;;
 
 let test_blank_zai_base_urls_fall_back () =
@@ -427,22 +427,22 @@ let test_blank_zai_base_urls_fall_back () =
        Unix.putenv "ZAI_BASE_URL" "   ";
        Unix.putenv "ZAI_CODING_BASE_URL" "\t";
        let reg = Provider_registry.default () in
-       (match Provider_registry.find reg "glm" with
+       (match Provider_registry.find reg "provider_k" with
         | Some e ->
           check
             string
-            "glm blank fallback"
+            "provider_k blank fallback"
             Zai_catalog.general_base_url
             e.defaults.base_url
-        | None -> fail "glm should exist");
-       match Provider_registry.find reg "glm-coding" with
+        | None -> fail "provider_k should exist");
+       match Provider_registry.find reg "provider_k-coding" with
        | Some e ->
          check
            string
-           "glm-coding blank fallback"
+           "provider_k-coding blank fallback"
            Zai_catalog.coding_base_url
            e.defaults.base_url
-       | None -> fail "glm-coding should exist")
+       | None -> fail "provider_k-coding should exist")
 ;;
 
 (* ── Provider catalog overlay ────────────────────────── *)
@@ -474,13 +474,13 @@ let test_catalog_overlay_adds_provider_and_alias () =
         {
           "id": "vllm-local",
           "aliases": ["Subscriber-Local"],
-          "kind": "openai_compat",
+          "kind": "provider_d_compat",
           "transport": "http",
           "base_url": "http://127.0.0.1:8000",
           "request_path": "/v1/chat/completions",
           "auth": {"type": "none"},
           "default_model": "local-model",
-          "capabilities_base": "openai_chat",
+          "capabilities_base": "provider_d_chat",
           "capabilities": {
             "max_context_tokens": 131072,
             "supports_tools": true,
@@ -511,12 +511,12 @@ let test_catalog_overlay_replaces_seed_provider () =
       "providers": [
         {
           "id": "openrouter",
-          "kind": "openai_compat",
+          "kind": "provider_d_compat",
           "transport": "http",
           "base_url": "https://example.test/openrouter",
           "request_path": "/chat/completions",
           "auth": {"type": "api_key_env", "env": "OPENROUTER_API_KEY"},
-          "capabilities_base": "openai_chat"
+          "capabilities_base": "provider_d_chat"
         }
       ]
     }|}
@@ -535,11 +535,11 @@ let test_catalog_overlay_normalizes_provider_id () =
       "providers": [
         {
           "id": "Acme-Cloud",
-          "kind": "openai_compat",
+          "kind": "provider_d_compat",
           "transport": "http",
           "base_url": "https://acme.example/v1",
           "auth": {"type": "none"},
-          "capabilities_base": "openai_chat"
+          "capabilities_base": "provider_d_chat"
         }
       ]
     }|}
@@ -557,11 +557,11 @@ let test_catalog_cli_noninteractive_availability_uses_command () =
       "providers": [
         {
           "id": "ghost-cli",
-          "kind": "codex_cli",
+          "kind": "cli_tool_a",
           "transport": "cli",
           "command": "provider-registry-missing-binary",
           "auth": {"type": "cli_cached_login"},
-          "capabilities_base": "codex_cli",
+          "capabilities_base": "cli_tool_a",
           "non_interactive": true,
           "daemon_safe": false
         }
@@ -581,7 +581,7 @@ let test_catalog_rejects_empty_provider_id () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "  ", "kind": "openai_compat"}
+             {"id": "  ", "kind": "provider_d_compat"}
            ]
          }|})
   with
@@ -596,7 +596,7 @@ let test_catalog_rejects_unknown_transport () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "openai_compat", "transport": "ftp"}
+             {"id": "x", "kind": "provider_d_compat", "transport": "ftp"}
            ]
          }|})
   with
@@ -611,7 +611,7 @@ let test_catalog_rejects_unknown_auth_type () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "openai_compat",
+             {"id": "x", "kind": "provider_d_compat",
               "auth": {"type": "magick"}}
            ]
          }|})
@@ -627,7 +627,7 @@ let test_catalog_rejects_unknown_capabilities_base () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "openai_compat",
+             {"id": "x", "kind": "provider_d_compat",
               "capabilities_base": "nonexistent_preset"}
            ]
          }|})
@@ -644,7 +644,7 @@ let test_catalog_rejects_unknown_thinking_control_format () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "openai_compat",
+             {"id": "x", "kind": "provider_d_compat",
               "capabilities": {"thinking_control_format": "telepathy"}}
            ]
          }|})
@@ -661,11 +661,11 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "kimi-k2", "kind": "openai_compat",
+             {"id": "provider_c-k2", "kind": "provider_d_compat",
               "capabilities": {"thinking_control_format": "thinking_object_only"}},
-             {"id": "dashscope", "kind": "openai_compat",
+             {"id": "provider_h", "kind": "provider_d_compat",
               "capabilities": {"thinking_control_format": "enable_thinking"}},
-             {"id": "openai-reasoning", "kind": "openai_compat",
+             {"id": "provider_d-reasoning", "kind": "provider_d_compat",
               "capabilities": {"thinking_control_format": "reasoning_effort"}}
            ]
          }|})
@@ -682,9 +682,9 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
           (entry.capabilities.thinking_control_format = expected)
       | None -> fail (id ^ " should exist")
     in
-    check_format "kimi-k2" Capabilities.Thinking_object_only;
-    check_format "dashscope" Capabilities.Enable_thinking;
-    check_format "openai-reasoning" Capabilities.Reasoning_effort
+    check_format "provider_c-k2" Capabilities.Thinking_object_only;
+    check_format "provider_h" Capabilities.Enable_thinking;
+    check_format "provider_d-reasoning" Capabilities.Reasoning_effort
 ;;
 
 let test_catalog_lookup_first_match_wins () =
@@ -694,9 +694,9 @@ let test_catalog_lookup_first_match_wins () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "dup", "kind": "openai_compat",
+             {"id": "dup", "kind": "provider_d_compat",
               "base_url": "http://first.example"},
-             {"id": "dup", "kind": "openai_compat",
+             {"id": "dup", "kind": "provider_d_compat",
               "base_url": "http://second.example"}
            ]
          }|})
@@ -722,7 +722,7 @@ let test_catalog_lookup_case_insensitive () =
            "providers": [
              {"id": "mixed-Case",
               "aliases": ["AlsoMixed"],
-              "kind": "openai_compat",
+              "kind": "provider_d_compat",
               "base_url": "http://x.example"}
            ]
          }|})
@@ -759,7 +759,7 @@ let test_catalog_empty_alias_not_registered () =
   let entry : Provider_catalog.entry =
     { id = "host"
     ; aliases = [ "good-alias"; ""; "   " ]
-    ; kind = OpenAI_compat
+    ; kind = Provider_d_compat
     ; transport = Http
     ; command = None
     ; base_url = "http://host.example"
@@ -832,7 +832,7 @@ let test_catalog_load_file_and_lookup_alias () =
                   {
                     "id": "file-cloud",
                     "aliases": ["file-cloud-alias"],
-                    "kind": "openai_compat",
+                    "kind": "provider_d_compat",
                     "transport": "http",
                     "base_url": "https://file-cloud.example/v1",
                     "default_model": "file-model",
@@ -859,11 +859,11 @@ let test_catalog_api_key_env_availability () =
         "providers": [
           {
             "id": "cloud-api",
-            "kind": "openai_compat",
+            "kind": "provider_d_compat",
             "transport": "http",
             "base_url": "https://cloud-api.example/v1",
             "auth": {"type": "api_key_env", "env": "%s"},
-            "capabilities_base": "openai_chat"
+            "capabilities_base": "provider_d_chat"
           }
         ]
       }|}
@@ -952,13 +952,13 @@ let test_requires_any () =
 (* ── Kind ↔ registry integrity ────────────────────────── *)
 
 (** Minimal [Provider_config.t] construction for a given kind, using a
-    localhost base URL so [is_local = true] for [OpenAI_compat] (resolves
+    localhost base URL so [is_local = true] for [Provider_d_compat] (resolves
     to the registry's "llama" entry) and a plain (non-coding) URL for
-    [Glm] (resolves to "glm"). *)
+    [Provider_k] (resolves to "provider_k"). *)
 let mk_config_for_kind kind =
   let base_url =
     match kind with
-    | Provider_config.OpenAI_compat -> "http://127.0.0.1:8085"
+    | Provider_config.Provider_d_compat -> "http://127.0.0.1:8085"
     | _ -> "https://example.test"
   in
   Provider_config.make ~kind ~model_id:"test" ~base_url ()
@@ -966,14 +966,14 @@ let mk_config_for_kind kind =
 
 (** Regression guard for the masc-mcp capability-lookup bug (boundary-allow) fixed in
     masc-mcp#9306 (boundary-allow). That bug passed [Provider_adapter.string_of_provider_kind]
-    (masc canonical_name: "claude-api", ...) (boundary-allow) to
+    (masc canonical_name: "agent_llm_a-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
-    returned by [Provider_registry.provider_name_of_config] ("claude",
-    "kimi", "llama", "ollama", "claude_code", "gemini_cli", ...). For
+    returned by [Provider_registry.provider_name_of_config] ("agent_llm_a",
+    "provider_c", "llama", "ollama", "cli_tool_d", "cli_tool_b", ...). For
     direct-API kinds the lookup silently fell back to
     [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
-    to match direct-API entries ("claude" → Anthropic, "gemini" → Gemini,
-    "kimi" → Kimi) and returned the wrong capability matrix.
+    to match direct-API entries ("agent_llm_a" → Provider_a, "provider_f" → Provider_f,
+    "provider_c" → Provider_c) and returned the wrong capability matrix.
 
     Assert here that [provider_name_of_config] is the authoritative key
     source: every variant in [Provider_config.all_provider_kinds]
@@ -1011,16 +1011,16 @@ let test_every_kind_resolves_in_registry () =
 (** Sharper assertion for the two CLI kinds that were the primary
     wrong-hit victims in masc-mcp#9306 (boundary-allow): assert their registry entries
     are CLI-shaped, not direct-API-shaped. If a regression reverts
-    [provider_name_of_config Claude_code] back to ["claude"], this
+    [provider_name_of_config Cli_tool_d] back to ["agent_llm_a"], this
     test fails because the resolved entry's [defaults.kind] will be
-    [Anthropic] instead of [Claude_code]. *)
+    [Provider_a] instead of [Cli_tool_d]. *)
 let test_cli_kinds_resolve_to_cli_entries () =
   let registry = Provider_registry.default () in
   let cases =
-    [ Provider_config.Claude_code, "claude_code"
-    ; Provider_config.Gemini_cli, "gemini_cli"
-    ; Provider_config.Kimi_cli, "kimi_cli"
-    ; Provider_config.Codex_cli, "codex_cli"
+    [ Provider_config.Cli_tool_d, "cli_tool_d"
+    ; Provider_config.Cli_tool_b, "cli_tool_b"
+    ; Provider_config.Cli_tool_c, "cli_tool_c"
+    ; Provider_config.Cli_tool_a, "cli_tool_a"
     ]
   in
   List.iter
@@ -1097,7 +1097,7 @@ let () =
             test_default_max_context_matches_capabilities
         ; test_case "zai base urls" `Quick test_default_zai_base_urls
         ; test_case
-            "glm coding api key env isolated"
+            "provider_k coding api key env isolated"
             `Quick
             test_glm_coding_api_key_env_isolated
         ; test_case

@@ -73,8 +73,8 @@ let context_window t = t.context_window
 
 [@@@coverage off]
 
-let%test "claude-opus-4-6 is cloud with 1M context" =
-  let m = for_model_id "claude-opus-4-6" in
+let%test "agent_llm_a-opus-4-6 is cloud with 1M context" =
+  let m = for_model_id "agent_llm_a-opus-4-6" in
   m.context_window = 1_000_000 && (not m.is_local) && m.cost_per_1k_input > 0.0
 ;;
 
@@ -95,8 +95,8 @@ let%test "unknown model gets conservative defaults" =
   && m.max_output_tokens = 4_096
 ;;
 
-let%test "claude-sonnet-4-6 has 1M context" =
-  let m = for_model_id "claude-sonnet-4-6" in
+let%test "agent_llm_a-sonnet-4-6 has 1M context" =
+  let m = for_model_id "agent_llm_a-sonnet-4-6" in
   m.context_window = 1_000_000
 ;;
 
@@ -105,30 +105,30 @@ let%test "gpt-4.1 is cloud" =
   (not m.is_local) && m.context_window = 1_000_000
 ;;
 
-let%test "gemini-2.5-flash has 1M context" =
-  let m = for_model_id "gemini-2.5-flash" in
+let%test "provider_f-2.5-flash has 1M context" =
+  let m = for_model_id "provider_f-2.5-flash" in
   m.context_window = 1_000_000
 ;;
 
-let%test "gemini-3-flash-preview has 1M context via gemini-3 prefix" =
-  let m = for_model_id "gemini-3-flash-preview" in
+let%test "provider_f-3-flash-preview has 1M context via provider_f-3 prefix" =
+  let m = for_model_id "provider_f-3-flash-preview" in
   m.context_window = 1_000_000
   && m.capabilities.supports_tools
   && m.capabilities.supports_parallel_tool_calls
 ;;
 
-let%test "gemini-3.1-pro-preview has 1M context via gemini-3 prefix" =
-  let m = for_model_id "gemini-3.1-pro-preview" in
+let%test "provider_f-3.1-pro-preview has 1M context via provider_f-3 prefix" =
+  let m = for_model_id "provider_f-3.1-pro-preview" in
   m.context_window = 1_000_000 && m.capabilities.supports_tools
 ;;
 
-let%test "gemini-3.1-flash-lite-preview has 1M context via gemini-3 prefix" =
-  let m = for_model_id "gemini-3.1-flash-lite-preview" in
+let%test "provider_f-3.1-flash-lite-preview has 1M context via provider_f-3 prefix" =
+  let m = for_model_id "provider_f-3.1-flash-lite-preview" in
   m.context_window = 1_000_000 && m.capabilities.supports_tools
 ;;
 
-let%test "deepseek-v4-flash can be marked local explicitly" =
-  let m = for_model_id ~locality:`Local "deepseek-v4-flash" in
+let%test "provider_g-v4-flash can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "provider_g-v4-flash" in
   m.is_local && m.context_window = 1_000_000
 ;;
 
@@ -140,7 +140,7 @@ let%test "llama-4-maverick can be marked local explicitly" =
 let%test "for_provider_config uses provider locality" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"qwen3.5-35b"
       ~base_url:Constants.Endpoints.default_url
       ()
@@ -152,7 +152,7 @@ let%test "for_provider_config uses provider locality" =
 let%test "for_provider_config keeps remote local-looking model ids remote" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
+      ~kind:Provider_d_compat
       ~model_id:"qwen3.5-35b"
       ~base_url:"https://api.example.com"
       ()
@@ -167,16 +167,16 @@ let%test "for_model_id_with_ctx overrides context_window" =
 ;;
 
 let%test "is_free for local models" =
-  is_free (for_model_id "qwen3.5-35b") && not (is_free (for_model_id "claude-opus-4-6"))
+  is_free (for_model_id "qwen3.5-35b") && not (is_free (for_model_id "agent_llm_a-opus-4-6"))
 ;;
 
-let%test "glm-5 is cloud" =
-  let m = for_model_id "glm-5" in
-  not m.is_local (* GLM is cloud, not local *)
+let%test "provider_k-5 is cloud" =
+  let m = for_model_id "provider_k-5" in
+  not m.is_local (* Provider_k is cloud, not local *)
 ;;
 
 let%test "for_model_id_with_ctx clamps max_output" =
-  let m = for_model_id_with_ctx "claude-opus-4-6" ~ctx_size:2000 in
+  let m = for_model_id_with_ctx "agent_llm_a-opus-4-6" ~ctx_size:2000 in
   m.context_window = 2000 && m.max_output_tokens <= 2000
 ;;
 
