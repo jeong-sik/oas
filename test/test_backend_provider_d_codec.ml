@@ -324,6 +324,146 @@ let test_tool_choice_and_tool_schema_conversion () =
     (Serialize.build_provider_d_tool_json passthrough = passthrough)
 ;;
 
+let ignored_blocks : content_block list =
+  [ Thinking { thinking_type = "reasoning"; content = "   " }
+  ; RedactedThinking "hidden"
+  ; ToolResult
+      { tool_use_id = "call-x"; content = "ignored"; is_error = false; json = None }
+  ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
+  ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
+  ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+  ]
+;;
+
+let test_serializer_ignored_block_variants () =
+  check_int
+    "provider_d tool_calls ignores non-tool blocks"
+    0
+    (Serialize.tool_calls_to_provider_d_json ignored_blocks |> List.length);
+  let ollama =
+    Serialize.ollama_messages_of_message (msg Assistant ignored_blocks) |> only "ollama"
+  in
+  Alcotest.(check bool)
+    "ollama has no tool_calls"
+    true
+    (member "tool_calls" ollama = `Null);
+  let assistant =
+    Serialize.provider_d_messages_of_message (msg Assistant ignored_blocks)
+    |> only "assistant"
+  in
+  check_string "assistant content is empty" "" (member "content" assistant |> to_string);
+  Alcotest.(check bool)
+    "assistant has no tool_calls"
+    true
+    (member "tool_calls" assistant = `Null);
+  let provider_k =
+    Serialize.provider_k_messages_of_message (msg Assistant ignored_blocks)
+    |> only "provider_k"
+  in
+  Alcotest.(check bool)
+    "blank reasoning omitted"
+    true
+    (member "reasoning_content" provider_k = `Null);
+  let tool_fallback_blocks =
+    [ Thinking { thinking_type = "reasoning"; content = "   " }
+    ; RedactedThinking "hidden"
+    ; ToolUse { id = "local-call"; name = "local"; input = `Null }
+    ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
+    ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
+    ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+    ]
+  in
+  let tool_fallback =
+    Serialize.provider_d_messages_of_message (msg Tool tool_fallback_blocks)
+    |> only "tool fallback"
+  in
+  check_string "tool fallback role" "user" (member "role" tool_fallback |> to_string)
+;;
+
+let test_strip_helpers_cover_non_tool_variants () =
+  let messages =
+    [ msg Assistant ignored_blocks
+    ; msg
+        User
+        (Text "kept"
+         :: ToolUse { id = "local-call"; name = "local"; input = `Null }
+         :: ignored_blocks)
+    ]
+  in
+  let stripped = Serialize.strip_orphaned_tool_results messages in
+  check_int "both messages remain" 2 (List.length stripped);
+  let user = List.nth stripped 1 in
+  Alcotest.(check bool)
+    "orphan tool result dropped"
+    false
+    (List.exists
+       (function
+         | ToolResult _ -> true
+         | _ -> false)
+       user.content);
+  let no_thinking =
+    Serialize.strip_thinking_blocks
+      [ msg
+          Assistant
+          [ RedactedThinking "hidden"
+          ; ToolUse { id = "call"; name = "lookup"; input = `Null }
+          ; ToolResult
+              { tool_use_id = "call"; content = "ok"; is_error = false; json = None }
+          ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
+          ; Document
+              { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
+          ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+          ]
+      ]
+  in
+  check_int "non-thinking blocks preserved" 6 (List.length (List.hd no_thinking).content)
+;;
+
+let test_tool_schema_defaults_and_legacy_edge_params () =
+  let defaulted =
+    Serialize.build_provider_d_tool_json
+      (`Assoc [ "name", `Int 1; "description", `Bool true ])
+  in
+  check_string
+    "default name"
+    "tool"
+    (member "function" defaulted |> member "name" |> to_string);
+  check_string
+    "default description"
+    ""
+    (member "function" defaulted |> member "description" |> to_string);
+  let legacy =
+    Serialize.build_provider_d_tool_json
+      (`Assoc
+          [ "name", `String "legacy-edge"
+          ; ( "parameters"
+            , `List
+                [ `Assoc [ "name", `Int 1; "description", `String "bad name" ]
+                ; `Assoc
+                    [ "name", `String "flag"
+                    ; "description", `Bool true
+                    ; "type", `Bool true
+                    ; "required", `String "yes"
+                    ]
+                ; `String "ignored"
+                ] )
+          ])
+  in
+  let params = member "function" legacy |> member "parameters" in
+  check_string
+    "default legacy param type"
+    "string"
+    (member "properties" params |> member "flag" |> member "type" |> to_string);
+  check_string
+    "default legacy param description"
+    ""
+    (member "properties" params |> member "flag" |> member "description" |> to_string);
+  check_int
+    "non-bool required omitted"
+    0
+    (member "required" params |> as_list "required" |> List.length)
+;;
+
 let test_strip_json_markdown_fences_variants () =
   check_string "plain" "plain" (Parse.strip_json_markdown_fences " plain ");
   check_string
@@ -487,6 +627,55 @@ let test_parse_error_default_message () =
   | Ok _ -> Alcotest.fail "expected API error"
 ;;
 
+let test_parse_edge_shapes_for_text_and_telemetry () =
+  let invalid_fence =
+    parse_ok (response_json ~content:(`String "```json\nnot-json\n```") ())
+  in
+  (match invalid_fence.content with
+   | [ Text "```json\nnot-json\n```" ] -> ()
+   | _ -> Alcotest.fail "invalid JSON fence should keep original text");
+  let no_text =
+    parse_ok
+      (response_json
+         ~content:
+           (`List
+               [ `Assoc [ "text", `Int 1 ]; `Assoc [ "type", `String "ignored" ]; `Int 7 ])
+         ~message_fields:[ "reasoning_content", `String "  " ]
+         ())
+  in
+  check_int "invalid content blocks produce no content" 0 (List.length no_text.content);
+  let telemetry =
+    parse_ok
+      (`Assoc
+          [ "id", `String "chatcmpl-telemetry"
+          ; "model", `String "provider-d-test"
+          ; ( "choices"
+            , `List
+                [ `Assoc
+                    [ "finish_reason", `String "length"
+                    ; "message", `Assoc [ "content", `Assoc [ "unexpected", `Bool true ] ]
+                    ]
+                ] )
+          ; ( "usage"
+            , `Assoc
+                [ "input_tokens", `Int 11
+                ; "output_tokens", `Int 5
+                ; "prompt_tps", `Int 22
+                ; "generation_tps", `Int 50
+                ; "peak_memory", `Int 3
+                ] )
+          ])
+  in
+  (match telemetry.stop_reason with
+   | MaxTokens -> ()
+   | _ -> Alcotest.fail "length should map to MaxTokens");
+  match telemetry.telemetry with
+  | Some { timings = Some t; peak_memory_gb = Some peak; _ } ->
+    check_float "int prompt tps" 22.0 (Option.get t.prompt_per_second);
+    check_float "int peak memory" 3.0 peak
+  | _ -> Alcotest.fail "expected telemetry from integer rates"
+;;
+
 let () =
   Alcotest.run
     "backend_provider_d_codec"
@@ -520,6 +709,18 @@ let () =
             "tool choice and schema conversion"
             `Quick
             test_tool_choice_and_tool_schema_conversion
+        ; Alcotest.test_case
+            "ignored block variants"
+            `Quick
+            test_serializer_ignored_block_variants
+        ; Alcotest.test_case
+            "strip helpers non-tool variants"
+            `Quick
+            test_strip_helpers_cover_non_tool_variants
+        ; Alcotest.test_case
+            "tool schema defaults and legacy edge params"
+            `Quick
+            test_tool_schema_defaults_and_legacy_edge_params
         ] )
     ; ( "parse"
       , [ Alcotest.test_case
@@ -543,6 +744,10 @@ let () =
             "error default message"
             `Quick
             test_parse_error_default_message
+        ; Alcotest.test_case
+            "edge text shapes and telemetry"
+            `Quick
+            test_parse_edge_shapes_for_text_and_telemetry
         ] )
     ]
 ;;

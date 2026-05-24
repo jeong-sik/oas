@@ -198,6 +198,7 @@
   test_sse_parser
   test_stream_accumulator
   test_streaming_cov
+  test_streaming_edge_cases
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
@@ -418,6 +419,7 @@
   test_sse_parser
   test_stream_accumulator
   test_streaming_cov
+  test_streaming_edge_cases
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
