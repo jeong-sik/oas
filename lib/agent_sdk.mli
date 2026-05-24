@@ -87,6 +87,7 @@ module Trace_eval = Trace_eval
 module Runtime = Runtime
 module Runtime_projection = Runtime_projection
 module Runtime_sync = Runtime_sync
+module Runtime_replay = Runtime_replay
 module Transport = Transport
 module Runtime_client = Runtime_client
 module Client = Client
