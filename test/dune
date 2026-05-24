@@ -60,6 +60,7 @@
   test_checkpoint_store
   test_checkpoint_validation
   test_cli_common_subprocess
+  test_code_snippet_eval
   test_clone
   test_complete_ext
   test_completion_contract_tool_use_calls
@@ -282,6 +283,7 @@
   test_checkpoint_store
   test_checkpoint_validation
   test_cli_common_subprocess
+  test_code_snippet_eval
   test_clone
   test_complete_ext
   test_completion_contract_tool_use_calls

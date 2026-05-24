@@ -131,6 +131,7 @@ module Harness_runner = Harness_runner
 module Eval = Eval
 module Eval_collector = Eval_collector
 module Eval_otel_bridge = Eval_otel_bridge
+module Code_snippet_eval = Code_snippet_eval
 module Trajectory = Trajectory
 module Sandbox_runner = Sandbox_runner
 module Metric_contract = Metric_contract
