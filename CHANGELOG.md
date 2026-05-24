@@ -10,6 +10,7 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Features
 
+* **agent_tool:** add typed child-agent invocation wrapper for agent-as-tool parity
 * **raw-trace:** include typed evidence role summaries in validation results
 
 ## [0.198.0](https://github.com/jeong-sik/oas/compare/v0.197.0...v0.198.0) (2026-05-24)
