@@ -153,7 +153,11 @@ jobs:
           # 2026-05-24: main CI after #1718 measured 73.73% coverage
           # (run 26354719636, job 77579231445). Raise the floor to
           # floor(73.73 - 1) = 72 per #1175 ratchet policy.
-          THRESHOLD=72
+          #
+          # 2026-05-24: PR #1738 CI measured 74.47% coverage
+          # (run 26360879180, job 77595953724). Raise the floor to
+          # floor(74.47 - 1) = 73 per #1175 ratchet policy.
+          THRESHOLD=73
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
