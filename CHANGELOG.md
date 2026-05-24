@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.13](https://github.com/jeong-sik/oas/compare/v0.196.12...v0.196.13) (2026-05-24)
+
+
+### Features
+
+* add runtime run window reads ([#1716](https://github.com/jeong-sik/oas/issues/1716)) ([c11b35b](https://github.com/jeong-sik/oas/commit/c11b35bb9142b5261d4b61daa324a8792fd85324))
+
 ## [0.196.12](https://github.com/jeong-sik/oas/compare/v0.196.11...v0.196.12) (2026-05-24)
 
 
