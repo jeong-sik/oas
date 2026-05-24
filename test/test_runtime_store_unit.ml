@@ -115,7 +115,7 @@ let test_store_create () =
 
 (* ── save_session / load_session tests ───────────────────────── *)
 
-let mk_session ?(session_id = "test-sess") () : Runtime.session =
+let mk_session ?(session_id = "test-sess") ?(updated_at = 1001.0) () : Runtime.session =
   { session_id
   ; goal = "test goal"
   ; title = None
@@ -123,7 +123,7 @@ let mk_session ?(session_id = "test-sess") () : Runtime.session =
   ; permission_mode = None
   ; phase = Running
   ; created_at = 1000.0
-  ; updated_at = 1001.0
+  ; updated_at
   ; provider = Some "anthropic"
   ; model = Some "test-model"
   ; system_prompt = None
@@ -186,14 +186,172 @@ let test_load_session_corrupt () =
        | Error _ -> ()))
 ;;
 
-(* ── append_event / read_events tests ────────────────────────── *)
-
 let mk_event seq =
   { Runtime.seq
   ; ts = float_of_int seq
   ; kind = Turn_recorded { actor = Some "agent"; message = Printf.sprintf "turn %d" seq }
   }
 ;;
+
+let save_run store session_id updated_at =
+  let session = mk_session ~session_id ~updated_at () in
+  match Runtime_store.save_session store session with
+  | Ok () -> session
+  | Error e -> Alcotest.fail (Error.to_string e)
+;;
+
+let corrupt_run store session_id =
+  let sess_dir = Runtime_store.session_dir store session_id in
+  (match Runtime_store.ensure_dir sess_dir with
+   | Ok () -> ()
+   | Error e -> Alcotest.fail (Error.to_string e));
+  let oc = open_out (Runtime_store.session_path store session_id) in
+  output_string oc "{not-json";
+  close_out oc
+;;
+
+let test_list_runs_stable_updated_at_order () =
+  with_temp_dir (fun dir ->
+    let root = Filename.concat dir "store" in
+    match Runtime_store.create ~root () with
+    | Error e -> Alcotest.fail (Error.to_string e)
+    | Ok store ->
+      ignore (save_run store "run-c" 30.0);
+      ignore (save_run store "run-a" 10.0);
+      ignore (save_run store "run-b" 20.0);
+      (match Runtime_store.list_runs store with
+       | Error e -> Alcotest.fail (Error.to_string e)
+       | Ok listing ->
+         Alcotest.(check (list string))
+           "updated_at ordering"
+           [ "run-a"; "run-b"; "run-c" ]
+           (List.map
+              (fun (run : Runtime_store.run_record) -> run.session.session_id)
+              listing.runs);
+         Alcotest.(check int) "no failures" 0 (List.length listing.failures)))
+;;
+
+let test_list_runs_reports_corrupt_without_dropping_valid_runs () =
+  with_temp_dir (fun dir ->
+    let root = Filename.concat dir "store" in
+    match Runtime_store.create ~root () with
+    | Error e -> Alcotest.fail (Error.to_string e)
+    | Ok store ->
+      ignore (save_run store "run-ok" 10.0);
+      corrupt_run store "run-bad";
+      (match Runtime_store.list_runs store with
+       | Error e -> Alcotest.fail (Error.to_string e)
+       | Ok listing ->
+         Alcotest.(check (list string))
+           "valid runs"
+           [ "run-ok" ]
+           (List.map
+              (fun (run : Runtime_store.run_record) -> run.session.session_id)
+              listing.runs);
+         Alcotest.(check int) "one partial failure" 1 (List.length listing.failures);
+         (match listing.failures with
+          | [ failure ] ->
+            Alcotest.(check string) "failure session" "run-bad" failure.session_id
+          | _ -> Alcotest.fail "expected one failure")))
+;;
+
+let test_select_run_windows_variants () =
+  with_temp_dir (fun dir ->
+    let root = Filename.concat dir "store" in
+    match Runtime_store.create ~root () with
+    | Error e -> Alcotest.fail (Error.to_string e)
+    | Ok store ->
+      ignore (save_run store "run-a" 10.0);
+      ignore (save_run store "run-b" 20.0);
+      ignore (save_run store "run-c" 30.0);
+      let ids (listing : Runtime_store.run_listing) =
+        List.map
+          (fun (run : Runtime_store.run_record) -> run.session.session_id)
+          listing.Runtime_store.runs
+      in
+      (match Runtime_store.select_run_windows store [ Runtime_store.Last_n_runs 2 ] with
+       | Ok listing ->
+         Alcotest.(check (list string)) "last n" [ "run-b"; "run-c" ] (ids listing)
+       | Error e -> Alcotest.fail (Error.to_string e));
+      (match Runtime_store.select_run_windows store [ Runtime_store.Session "run-a" ] with
+       | Ok listing -> Alcotest.(check (list string)) "session" [ "run-a" ] (ids listing)
+       | Error e -> Alcotest.fail (Error.to_string e));
+      (match
+         Runtime_store.select_run_windows store [ Runtime_store.Rolling_seconds 15.0 ]
+       with
+       | Ok listing ->
+         Alcotest.(check (list string))
+           "rolling seconds"
+           [ "run-b"; "run-c" ]
+           (ids listing)
+       | Error e -> Alcotest.fail (Error.to_string e)))
+;;
+
+let test_select_run_windows_corrupt_session_is_single_partial_failure () =
+  with_temp_dir (fun dir ->
+    let root = Filename.concat dir "store" in
+    match Runtime_store.create ~root () with
+    | Error e -> Alcotest.fail (Error.to_string e)
+    | Ok store ->
+      ignore (save_run store "run-ok" 10.0);
+      corrupt_run store "run-bad";
+      (match
+         Runtime_store.select_run_windows store [ Runtime_store.Session "run-bad" ]
+       with
+       | Error e -> Alcotest.fail (Error.to_string e)
+       | Ok listing ->
+         Alcotest.(check int) "no selected corrupt run" 0 (List.length listing.runs);
+         Alcotest.(check int) "single failure" 1 (List.length listing.failures);
+         (match listing.failures with
+          | [ failure ] ->
+            Alcotest.(check string) "failure session" "run-bad" failure.session_id
+          | _ -> Alcotest.fail "expected one failure")))
+;;
+
+let test_read_window_events_dedupes_overlapping_windows () =
+  with_temp_dir (fun dir ->
+    let root = Filename.concat dir "store" in
+    match Runtime_store.create ~root () with
+    | Error e -> Alcotest.fail (Error.to_string e)
+    | Ok store ->
+      ignore (save_run store "run-a" 10.0);
+      ignore (save_run store "run-b" 20.0);
+      let append session_id seq =
+        match Runtime_store.append_event store session_id (mk_event seq) with
+        | Ok () -> ()
+        | Error e -> Alcotest.fail (Error.to_string e)
+      in
+      append "run-a" 1;
+      append "run-b" 1;
+      append "run-b" 2;
+      (match
+         Runtime_store.read_window_events
+           store
+           [ Runtime_store.Last_n_runs 2
+           ; Runtime_store.Session "run-b"
+           ; Runtime_store.Rolling_seconds 5.0
+           ]
+       with
+       | Error e -> Alcotest.fail (Error.to_string e)
+       | Ok window ->
+         let event_ids =
+           List.map
+             (fun (record : Runtime_store.run_event_record) -> record.event_id)
+             window.events
+         in
+         let unique_ids = List.sort_uniq String.compare event_ids in
+         Alcotest.(check (list string))
+           "event order"
+           [ "run-a#1"; "run-b#1"; "run-b#2" ]
+           event_ids;
+         Alcotest.(check int)
+           "0 duplicate event ids"
+           (List.length event_ids)
+           (List.length unique_ids);
+         Alcotest.(check int) "no failures" 0 (List.length window.failures)))
+;;
+
+(* ── append_event / read_events tests ────────────────────────── *)
 
 let test_append_and_read_events () =
   with_temp_dir (fun dir ->
@@ -364,6 +522,25 @@ let () =
       , [ Alcotest.test_case "save and load" `Quick test_save_load_session
         ; Alcotest.test_case "missing" `Quick test_load_session_missing
         ; Alcotest.test_case "corrupt" `Quick test_load_session_corrupt
+        ] )
+    ; ( "runs"
+      , [ Alcotest.test_case
+            "stable updated_at ordering"
+            `Quick
+            test_list_runs_stable_updated_at_order
+        ; Alcotest.test_case
+            "corrupt run is partial failure"
+            `Quick
+            test_list_runs_reports_corrupt_without_dropping_valid_runs
+        ; Alcotest.test_case "window selectors" `Quick test_select_run_windows_variants
+        ; Alcotest.test_case
+            "corrupt selected run is one partial failure"
+            `Quick
+            test_select_run_windows_corrupt_session_is_single_partial_failure
+        ; Alcotest.test_case
+            "overlapping windows dedupe events"
+            `Quick
+            test_read_window_events_dedupes_overlapping_windows
         ] )
     ; ( "events"
       , [ Alcotest.test_case "append and read" `Quick test_append_and_read_events
