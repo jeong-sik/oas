@@ -9,7 +9,10 @@ let test_inject_stream_param_basic () =
   let json = Yojson.Safe.from_string result in
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "stream present" true (json |> member "stream" |> to_bool);
-  Alcotest.(check string) "model preserved" "model-d-4" (json |> member "model" |> to_string)
+  Alcotest.(check string)
+    "model preserved"
+    "model-d-4"
+    (json |> member "model" |> to_string)
 ;;
 
 let test_inject_stream_param_existing_stream () =

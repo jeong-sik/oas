@@ -73,7 +73,8 @@ let test_gemma4_capability_is_visual_first () =
     (match c.modality_priority with
      | Modality.Visual_first -> ()
      | Modality.Preserve_input_order ->
-       Alcotest.fail "model-f-gemma-4-31b-it should be Visual_first per Gemma 4 best practices")
+       Alcotest.fail
+         "model-f-gemma-4-31b-it should be Visual_first per Gemma 4 best practices")
 ;;
 
 let test_non_gemma_inherits_preserve () =

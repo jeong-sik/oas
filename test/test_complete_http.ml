@@ -334,7 +334,11 @@ let test_complete_provider_d_mlx_vlm_telemetry () =
            "latency patched"
            true
            (Option.value ~default:0 t.request_latency_ms > 0);
-         check (option string) "canonical model id" (Some "model-d-4") t.canonical_model_id;
+         check
+           (option string)
+           "canonical model id"
+           (Some "model-d-4")
+           t.canonical_model_id;
          check (option (float 0.001)) "peak memory" (Some 52.66) t.peak_memory_gb;
          (match t.timings with
           | Some timings ->

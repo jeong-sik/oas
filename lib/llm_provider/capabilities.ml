@@ -519,7 +519,8 @@ let static_model_route_of_id model_id =
       else if String.starts_with ~prefix:"command" m
       then Some Provider_m_command
       else if
-        String.starts_with ~prefix:"provider_e_grok" m || String.starts_with ~prefix:"model-e" m
+        String.starts_with ~prefix:"provider_e_grok" m
+        || String.starts_with ~prefix:"model-e" m
       then Some Provider_e_grok
       else if
         String.starts_with ~prefix:"nvidia/provider_l" m
@@ -534,7 +535,9 @@ let static_model_route_of_id model_id =
       else if
         String.starts_with ~prefix:"model-f-gemma-4" m
         || String.starts_with ~prefix:"google/model-f-gemma-4" m
-      then Some (Provider_f_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
+      then
+        Some
+          (Provider_f_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
       else if
         String.starts_with ~prefix:"provider_k-4.7-flash" m
         || String.starts_with ~prefix:"provider_k-4.5-flash" m
@@ -1269,7 +1272,8 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
           && c.supports_image_input
           && c.supports_seed
           && c.max_context_tokens = Some 262_144 )
-    ; ("google/model-f-gemma-4-27b-it", fun c -> c.supports_tools && c.supports_image_input)
+    ; ( "google/model-f-gemma-4-27b-it"
+      , fun c -> c.supports_tools && c.supports_image_input )
     ]
 ;;
 

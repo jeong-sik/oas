@@ -208,7 +208,11 @@ let test_default_has_19 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
   check int "19 known providers" 19 (List.length all);
-  check bool "llama exists" true (Option.is_some (Provider_registry.find reg "provider_n"));
+  check
+    bool
+    "llama exists"
+    true
+    (Option.is_some (Provider_registry.find reg "provider_n"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
   check
     bool
@@ -556,7 +560,11 @@ let test_catalog_overlay_replaces_seed_provider () =
        let reg = Provider_registry.default () in
        match Provider_registry.find reg "provider_o_router" with
        | Some e ->
-         check string "catalog wins" "https://example.test/provider_o_router" e.defaults.base_url
+         check
+           string
+           "catalog wins"
+           "https://example.test/provider_o_router"
+           e.defaults.base_url
        | None -> fail "provider_o_router should still exist")
 ;;
 
