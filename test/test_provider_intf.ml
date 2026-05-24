@@ -69,12 +69,26 @@ let state_for_provider (provider : Provider.config) =
   { config; messages = []; turn_count = 0; usage = empty_usage }
 ;;
 
-let with_mock_server ~port handler f =
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port =
+    match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> Alcotest.fail "expected inet socket"
+  in
+  Unix.close s;
+  port
+;;
+
+let with_mock_server ?port handler f =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
+    let port = Option.value ~default:(fresh_port ()) port in
     let socket =
       Eio.Net.listen
         env#net
@@ -105,7 +119,7 @@ let test_provider_dispatch_uses_http_client () =
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
     Cohttp_eio.Server.respond_string ~status:`OK ~body:provider_d_response ()
   in
-  with_mock_server ~port:18342 handler (fun ~sw ~net ~base_url ->
+  with_mock_server handler (fun ~sw ~net ~base_url ->
     let provider : Provider.config =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
@@ -142,7 +156,7 @@ let test_provider_dispatch_maps_server_error () =
       ~body:"temporarily down"
       ()
   in
-  with_mock_server ~port:18356 handler (fun ~sw ~net ~base_url ->
+  with_mock_server handler (fun ~sw ~net ~base_url ->
     let provider : Provider.config =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
@@ -167,7 +181,7 @@ let test_provider_dispatch_rejects_malformed_provider_d_response () =
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
     Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"choices":"not-a-list"}|} ()
   in
-  with_mock_server ~port:18357 handler (fun ~sw ~net ~base_url ->
+  with_mock_server handler (fun ~sw ~net ~base_url ->
     let provider : Provider.config =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
@@ -195,7 +209,7 @@ let test_custom_provider_dispatch_uses_registered_impl () =
     seen_body := Some Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all);
     Cohttp_eio.Server.respond_string ~status:`OK ~body:"custom response body" ()
   in
-  with_mock_server ~port:18358 handler (fun ~sw ~net ~base_url ->
+  with_mock_server handler (fun ~sw ~net ~base_url ->
     let impl : Provider.provider_impl =
       { name = custom_name
       ; request_kind = Provider.Custom custom_name
