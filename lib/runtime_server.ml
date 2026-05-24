@@ -56,6 +56,28 @@ type participant_run_result =
   | Participant_completed of participant_run_success
   | Participant_input_required of Runtime.input_request * paused_participant
 
+let agent_config_of_session (session : session) (detail : spawn_agent_request) =
+  { Types.default_config with
+    name = detail.participant_name
+  ; model =
+      (match detail.model with
+       | Some value when String.trim value <> "" -> Model_registry.resolve_model_id value
+       | _missing_model_override -> Types.default_config.model)
+  ; system_prompt =
+      (match detail.system_prompt with
+       | Some prompt when String.trim prompt <> "" -> Some prompt
+       | _missing_system_prompt_override -> session.system_prompt)
+  ; max_turns = Option.value detail.max_turns ~default:session.max_turns
+  }
+;;
+
+let agent_options_of_resolution (resolution : execution_resolution) trace_sink =
+  match resolution.provider_cfg with
+  | Some provider ->
+    { Agent.default_options with provider = Some provider; raw_trace = trace_sink }
+  | None -> { Agent.default_options with raw_trace = trace_sink }
+;;
+
 let latest_raw_trace_run_id = function
   | Some sink ->
     Option.map
@@ -82,6 +104,167 @@ let take_paused_input session_id request_id =
     let paused = Hashtbl.find_opt paused_inputs key in
     Hashtbl.remove paused_inputs key;
     paused)
+;;
+
+let file_component value =
+  let buf = Buffer.create (String.length value) in
+  String.iter
+    (function
+      | ('a' .. 'z' | 'A' .. 'Z' | '0' .. '9') as ch -> Buffer.add_char buf ch
+      | ('-' | '_' | '.') as ch -> Buffer.add_char buf ch
+      | _ -> Buffer.add_char buf '-')
+    value;
+  let sanitized = Buffer.contents buf in
+  if String.trim sanitized = "" then "pending-input" else sanitized
+;;
+
+let paused_inputs_dir store session_id =
+  Filename.concat (Runtime_store.snapshots_dir store session_id) "pending-inputs"
+;;
+
+let paused_input_path store session_id request_id =
+  Filename.concat
+    (paused_inputs_dir store session_id)
+    (Printf.sprintf "%s.json" (file_component request_id))
+;;
+
+let input_required_of_runtime_request (request : Runtime.input_request)
+  : Error.input_required
+  =
+  { request_id = request.request_id
+  ; participant_name = request.participant_name
+  ; question = request.question
+  ; schema = request.schema
+  ; timeout_s = request.timeout_s
+  ; created_at = request.created_at
+  }
+;;
+
+let durable_paused_input_to_json
+      ~(detail : Runtime.spawn_agent_request)
+      ~(input_required : Error.input_required)
+      ~(checkpoint : Checkpoint.t)
+  =
+  `Assoc
+    [ "version", `Int 1
+    ; "detail", Runtime.spawn_agent_request_to_yojson detail
+    ; ( "input_required"
+      , input_required
+        |> Agent_elicitation.runtime_input_request_of_input_required
+        |> Runtime.input_request_to_yojson )
+    ; "checkpoint", Checkpoint.to_json checkpoint
+    ]
+;;
+
+let json_member fields name =
+  match List.assoc_opt name fields with
+  | Some value -> Ok value
+  | None ->
+    Error
+      (Error.Serialization
+         (JsonParseError
+            { detail = Printf.sprintf "paused input metadata missing %S" name }))
+;;
+
+let durable_paused_input_of_json json =
+  match json with
+  | `Assoc fields ->
+    let* detail_json = json_member fields "detail" in
+    let* input_json = json_member fields "input_required" in
+    let* checkpoint_json = json_member fields "checkpoint" in
+    let* detail =
+      match Runtime.spawn_agent_request_of_yojson detail_json with
+      | Ok detail -> Ok detail
+      | Error detail -> Error (Error.Serialization (JsonParseError { detail }))
+    in
+    let* input_required =
+      match Runtime.input_request_of_yojson input_json with
+      | Ok input -> Ok (input_required_of_runtime_request input)
+      | Error detail -> Error (Error.Serialization (JsonParseError { detail }))
+    in
+    let* checkpoint = Checkpoint.of_json checkpoint_json in
+    Ok (detail, input_required, checkpoint)
+  | _ ->
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = "paused input metadata must be a JSON object" }))
+;;
+
+let save_durable_paused_input store session_id (paused : paused_participant) =
+  let path = paused_input_path store session_id paused.input_required.request_id in
+  let checkpoint = Agent.checkpoint ~session_id paused.agent in
+  let* () = Runtime_store.ensure_tree store session_id in
+  let* () = Runtime_store.ensure_dir (paused_inputs_dir store session_id) in
+  Runtime_store.save_text
+    path
+    (durable_paused_input_to_json
+       ~detail:paused.detail
+       ~input_required:paused.input_required
+       ~checkpoint
+     |> Yojson.Safe.pretty_to_string)
+;;
+
+let load_durable_paused_input
+      store
+      state
+      (session : Runtime.session)
+      (pending : Runtime.input_request)
+  =
+  let path = paused_input_path store session.session_id pending.request_id in
+  if not (Sys.file_exists path)
+  then Ok None
+  else
+    let* raw = Runtime_store.load_text path in
+    let* detail, input_required, checkpoint =
+      try durable_paused_input_of_json (Yojson.Safe.from_string raw) with
+      | Yojson.Json_error detail ->
+        Error (Error.Serialization (JsonParseError { detail }))
+    in
+    if not (String.equal input_required.request_id pending.request_id)
+    then
+      Error
+        (Error.Serialization
+           (JsonParseError
+              { detail =
+                  Printf.sprintf
+                    "paused input request mismatch: pending=%s checkpoint=%s"
+                    pending.request_id
+                    input_required.request_id
+              }))
+    else
+      let* resolution = resolve_execution session detail in
+      let trace_sink =
+        match
+          Raw_trace.create_for_session
+            ~session_root:store.root
+            ~session_id:session.session_id
+            ~agent_name:detail.participant_name
+            ()
+        with
+        | Ok trace -> Some trace
+        | Error e ->
+          Log.warn
+            _wlog
+            "trace sink creation failed for paused input restore"
+            [ Log.S ("session_id", session.session_id)
+            ; Log.S ("agent", detail.participant_name)
+            ; Log.S ("error", Error.to_string e)
+            ];
+          None
+      in
+      let config = agent_config_of_session session detail in
+      let options = agent_options_of_resolution resolution trace_sink in
+      let agent = Agent.resume ~net:state.net ~checkpoint ~config ~options () in
+      Ok
+        (Some
+           { detail
+           ; resolution
+           ; agent
+           ; input_required
+           ; trace_sink
+           ; delta_warn_logged = ref false
+           ; delta_error_count = ref 0
+           })
 ;;
 
 let make_event (session : session) kind =
@@ -307,6 +490,28 @@ let completion_anomaly_of_delta_errors delta_error_count =
   else None
 ;;
 
+let mock_runtime_response (detail : Runtime.spawn_agent_request) =
+  Printf.sprintf "Mock runtime response for %s: %s" detail.participant_name detail.prompt
+;;
+
+let mock_runtime_input_response
+      (detail : Runtime.spawn_agent_request)
+      (runtime_response : Runtime.input_response)
+  =
+  let input_text =
+    match runtime_response with
+    | Input_answer json -> Yojson.Safe.to_string json
+    | Input_declined -> "declined"
+    | Input_timeout -> "timeout"
+  in
+  Printf.sprintf "%s input=%s" (mock_runtime_response detail) input_text
+;;
+
+let mock_prompt_requires_input prompt =
+  Defaults.allow_test_providers ()
+  && Util.contains_substring_ci ~haystack:prompt ~needle:"needs_input"
+;;
+
 let run_participant
       store
       state
@@ -355,13 +560,61 @@ let run_participant
         { error = unsupported_test_provider resolution.selected_provider
         ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
         }
+    else if mock_prompt_requires_input detail.prompt
+    then (
+      match Runtime_store.load_session store session_id with
+      | Error err ->
+        Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
+      | Ok session ->
+        Eio.Switch.run
+        @@ fun sw ->
+        let before_turn = function
+          | Hooks.BeforeTurn _ ->
+            Hooks.ElicitInput
+              { question = Printf.sprintf "Provide input for %s" detail.participant_name
+              ; schema = Some (`Assoc [ "type", `String "string" ])
+              ; timeout_s = None
+              }
+          | _ -> Hooks.Continue
+        in
+        let config = agent_config_of_session session detail in
+        let options =
+          { Agent.default_options with
+            raw_trace = trace_sink
+          ; hooks = { Hooks.empty with before_turn = Some before_turn }
+          }
+        in
+        let agent = Agent.create ~net:state.net ~config ~options () in
+        let on_event = function
+          | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
+            emit_delta_text text
+          | _other_event -> ()
+        in
+        (match Agent.run_stream ~sw ~on_event agent detail.prompt with
+         | Error (Error.Agent (Error.InputRequired request)) ->
+           Ok
+             (Participant_input_required
+                ( Agent_elicitation.runtime_input_request_of_input_required request
+                , { detail
+                  ; resolution
+                  ; agent
+                  ; input_required = request
+                  ; trace_sink
+                  ; delta_warn_logged
+                  ; delta_error_count
+                  } ))
+         | Ok response ->
+           Ok
+             (Participant_completed
+                { summary = extract_text response
+                ; raw_trace_run_id = latest_raw_trace_run_id trace_sink
+                ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+                ; completion_anomaly = completion_anomaly ()
+                })
+         | Error err ->
+           Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }))
     else (
-      let full =
-        Printf.sprintf
-          "Mock runtime response for %s: %s"
-          detail.participant_name
-          detail.prompt
-      in
+      let full = mock_runtime_response detail in
       (match trace_sink with
        | Some sink ->
          (match
@@ -416,27 +669,8 @@ let run_participant
      | Error err ->
        Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
      | Ok session ->
-       let config =
-         { Types.default_config with
-           name = detail.participant_name
-         ; model =
-             (match detail.model with
-              | Some value when String.trim value <> "" ->
-                Model_registry.resolve_model_id value
-              | _missing_model_override -> Types.default_config.model)
-         ; system_prompt =
-             (match detail.system_prompt with
-              | Some prompt when String.trim prompt <> "" -> Some prompt
-              | _missing_system_prompt_override -> session.system_prompt)
-         ; max_turns = Option.value detail.max_turns ~default:session.max_turns
-         }
-       in
-       let options =
-         match resolution.provider_cfg with
-         | Some provider ->
-           { Agent.default_options with provider = Some provider; raw_trace = trace_sink }
-         | None -> { Agent.default_options with raw_trace = trace_sink }
-       in
+       let config = agent_config_of_session session detail in
+       let options = agent_options_of_resolution resolution trace_sink in
        let agent = Agent.create ~net:state.net ~config ~options () in
        let on_event = function
          | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
@@ -591,20 +825,17 @@ let persist_participant_input_required
       request
       paused
   =
-  store_paused_input session_id paused;
-  match persist_event store state session_id (Input_required request) with
-  | Ok _ -> ()
+  match save_durable_paused_input store session_id paused with
   | Error err ->
-    ignore (take_paused_input session_id request.request_id);
     let detail =
       Printf.sprintf
-        "participant requested input but input_required event could not be persisted: %s"
+        "participant requested input but paused checkpoint could not be persisted: %s"
         (Error.to_string err)
     in
     log_participant_persist_failure
       ~session_id
       ~participant_name
-      ~phase:"input_required"
+      ~phase:"input_required_checkpoint"
       err;
     persist_participant_failure
       store
@@ -614,65 +845,120 @@ let persist_participant_input_required
       ~provider:resolution.resolved_provider
       ~model:resolution.resolved_model
       ~detail
-      ~failure_cause:(Persistence_failure { phase = "input_required"; detail })
+      ~failure_cause:(Persistence_failure { phase = "input_required_checkpoint"; detail })
       ()
+  | Ok () ->
+    store_paused_input session_id paused;
+    (match persist_event store state session_id (Input_required request) with
+     | Ok _ -> ()
+     | Error err ->
+       ignore (take_paused_input session_id request.request_id);
+       let detail =
+         Printf.sprintf
+           "participant requested input but input_required event could not be persisted: \
+            %s"
+           (Error.to_string err)
+       in
+       log_participant_persist_failure
+         ~session_id
+         ~participant_name
+         ~phase:"input_required"
+         err;
+       persist_participant_failure
+         store
+         state
+         ~session_id
+         ~participant_name
+         ~provider:resolution.resolved_provider
+         ~model:resolution.resolved_model
+         ~detail
+         ~failure_cause:(Persistence_failure { phase = "input_required"; detail })
+         ())
 ;;
 
 let run_paused_participant_to_completion store state session_id paused runtime_response =
   let participant_name = paused.detail.participant_name in
-  Eio.Switch.run
-  @@ fun sw ->
   Agent.provide_input
     paused.agent
     paused.input_required
     (Agent_elicitation.runtime_response_to_hooks runtime_response);
-  let emit_delta_text text =
-    emit_delta_text_with_refs
-      store
-      state
-      session_id
-      participant_name
-      ~delta_warn_logged:paused.delta_warn_logged
-      ~delta_error_count:paused.delta_error_count
-      text
-  in
-  let on_event = function
-    | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } -> emit_delta_text text
-    | _other_event -> ()
-  in
-  let rec loop () =
-    let agent_state = Agent.state paused.agent in
-    if agent_state.turn_count >= agent_state.config.max_turns
-    then
-      Error
-        { error =
-            Error.Agent
-              (Error.MaxTurnsExceeded
-                 { turns = agent_state.turn_count; limit = agent_state.config.max_turns })
-        ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
-        }
-    else (
-      match Agent.run_turn_stream ~sw ~on_event paused.agent with
-      | Ok (`Complete response) ->
-        Ok
-          (Participant_completed
-             { summary = extract_text response
-             ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
-             ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
-             ; completion_anomaly =
-                 completion_anomaly_of_delta_errors paused.delta_error_count
-             })
-      | Ok `ToolsExecuted -> loop ()
-      | Error (Error.Agent (Error.InputRequired request)) ->
-        Ok
-          (Participant_input_required
-             ( Agent_elicitation.runtime_input_request_of_input_required request
-             , { paused with input_required = request } ))
-      | Error err ->
+  match paused.resolution.selected_provider with
+  | "mock" | "echo" ->
+    let full = mock_runtime_input_response paused.detail runtime_response in
+    let emit_delta_text text =
+      emit_delta_text_with_refs
+        store
+        state
+        session_id
+        participant_name
+        ~delta_warn_logged:paused.delta_warn_logged
+        ~delta_error_count:paused.delta_error_count
+        text
+    in
+    let half = String.length full / 2 in
+    emit_delta_text (String.sub full 0 half);
+    emit_delta_text (String.sub full half (String.length full - half));
+    Ok
+      (Participant_completed
+         { summary = full
+         ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+         ; stop_reason = Some "EndTurn"
+         ; completion_anomaly =
+             completion_anomaly_of_delta_errors paused.delta_error_count
+         })
+  | _ ->
+    Eio.Switch.run
+    @@ fun sw ->
+    let emit_delta_text text =
+      emit_delta_text_with_refs
+        store
+        state
+        session_id
+        participant_name
+        ~delta_warn_logged:paused.delta_warn_logged
+        ~delta_error_count:paused.delta_error_count
+        text
+    in
+    let on_event = function
+      | Types.ContentBlockDelta { delta = Types.TextDelta text; _ } ->
+        emit_delta_text text
+      | _other_event -> ()
+    in
+    let rec loop () =
+      let agent_state = Agent.state paused.agent in
+      if agent_state.turn_count >= agent_state.config.max_turns
+      then
         Error
-          { error = err; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink })
-  in
-  loop ()
+          { error =
+              Error.Agent
+                (Error.MaxTurnsExceeded
+                   { turns = agent_state.turn_count
+                   ; limit = agent_state.config.max_turns
+                   })
+          ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+          }
+      else (
+        match Agent.run_turn_stream ~sw ~on_event paused.agent with
+        | Ok (`Complete response) ->
+          Ok
+            (Participant_completed
+               { summary = extract_text response
+               ; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink
+               ; stop_reason = Some (Types.show_stop_reason response.stop_reason)
+               ; completion_anomaly =
+                   completion_anomaly_of_delta_errors paused.delta_error_count
+               })
+        | Ok `ToolsExecuted -> loop ()
+        | Error (Error.Agent (Error.InputRequired request)) ->
+          Ok
+            (Participant_input_required
+               ( Agent_elicitation.runtime_input_request_of_input_required request
+               , { paused with input_required = request } ))
+        | Error err ->
+          Error
+            { error = err; raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink })
+    in
+    loop ()
 ;;
 
 let resume_paused_participant store state session_id paused runtime_response =
@@ -793,6 +1079,11 @@ let apply_command ~sw state store (session : session) command =
                   detail.request_id
                   pending.request_id))
         | Some pending ->
+          let* paused =
+            match take_paused_input session_id detail.request_id with
+            | Some paused -> Ok (Some paused)
+            | None -> load_durable_paused_input store state session pending
+          in
           let* session, _ =
             persist_event_locked
               store
@@ -804,7 +1095,7 @@ let apply_command ~sw state store (session : session) command =
                  ; response = detail.response
                  })
           in
-          paused_to_resume := take_paused_input session_id detail.request_id;
+          paused_to_resume := paused;
           Ok (Command_applied session))
     in
     (match applied, !paused_to_resume with

@@ -43,16 +43,11 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
-let wait_until_session ~timeout_s fetch =
+let wait_until_session_match ~timeout_s fetch predicate =
   let deadline = Unix.gettimeofday () +. timeout_s in
   let rec loop () =
     let (session : Runtime.session) = fetch () in
-    let has_terminal_participant =
-      session.Runtime.participants
-      |> List.exists (fun (participant : Runtime.participant) ->
-        participant.state = Runtime.Done || participant.state = Runtime.Failed_participant)
-    in
-    if has_terminal_participant
+    if predicate session
     then session
     else if Unix.gettimeofday () >= deadline
     then session
@@ -61,6 +56,13 @@ let wait_until_session ~timeout_s fetch =
       loop ())
   in
   loop ()
+;;
+
+let wait_until_session ~timeout_s fetch =
+  wait_until_session_match ~timeout_s fetch (fun session ->
+    session.Runtime.participants
+    |> List.exists (fun (participant : Runtime.participant) ->
+      participant.state = Runtime.Done || participant.state = Runtime.Failed_participant))
 ;;
 
 let rec gather_messages_until ~timeout_s client predicate acc =
@@ -339,6 +341,127 @@ let test_runtime_input_required_resume () =
           | Runtime.Input_provided detail -> String.equal detail.request_id "input-1"
           | _ -> false)
        events)
+;;
+
+let test_runtime_agent_input_required_durable_resume () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  with_temp_dir
+  @@ fun session_root ->
+  let runtime = runtime_path () in
+  let options =
+    Runtime_client.
+      { default_options with
+        runtime_path = Some runtime
+      ; session_root = Some session_root
+      ; provider = Some "mock"
+      }
+  in
+  let client1 = unwrap (Runtime_client.connect ~sw ~mgr ~options ()) in
+  let start_request =
+    Runtime.
+      { session_id = Some "sess-agent-input-durable"
+      ; goal = "Resume paused agent after runtime restart"
+      ; participants = [ "planner" ]
+      ; provider = Some "mock"
+      ; model = None
+      ; permission_mode = Some "default"
+      ; system_prompt = None
+      ; max_turns = Some 3
+      ; workdir = None
+      }
+  in
+  let session = unwrap (Runtime_client.start_session client1 start_request) in
+  let _spawned =
+    unwrap
+      (Runtime_client.apply_command
+         client1
+         ~session_id:session.session_id
+         (Runtime.Spawn_agent
+            { participant_name = "planner"
+            ; role = Some "planner"
+            ; prompt = "needs_input before deployment"
+            ; provider = Some "mock"
+            ; model = None
+            ; system_prompt = None
+            ; max_turns = Some 3
+            }))
+  in
+  let waiting =
+    wait_until_session_match
+      ~timeout_s:1.0
+      (fun () -> unwrap (Runtime_client.status client1 ~session_id:session.session_id))
+      (fun session -> Option.is_some session.Runtime.pending_input)
+  in
+  let request_id =
+    match waiting.pending_input with
+    | Some pending ->
+      Alcotest.(check (option string))
+        "pending participant"
+        (Some "planner")
+        pending.participant_name;
+      Alcotest.(check string)
+        "pending question"
+        "Provide input for planner"
+        pending.question;
+      pending.request_id
+    | None -> Alcotest.fail "missing agent pending input"
+  in
+  Runtime_client.close client1;
+  let client2 = unwrap (Runtime_client.connect ~sw ~mgr ~options ()) in
+  let resumed =
+    unwrap
+      (Runtime_client.provide_input
+         client2
+         ~session_id:session.session_id
+         ~request_id
+         (Runtime.Input_answer (`String "user-approved")))
+  in
+  Alcotest.(check bool) "pending cleared" true (Option.is_none resumed.pending_input);
+  let completed =
+    wait_until_session ~timeout_s:1.0 (fun () ->
+      unwrap (Runtime_client.status client2 ~session_id:session.session_id))
+  in
+  let planner =
+    completed.participants
+    |> List.find_opt (fun (participant : Runtime.participant) ->
+      String.equal participant.name "planner")
+  in
+  (match planner with
+   | Some participant ->
+     Alcotest.(check bool) "planner done" true (participant.state = Runtime.Done);
+     (match participant.summary with
+      | Some summary ->
+        Alcotest.(check bool)
+          "summary includes provided input"
+          true
+          (contains_substring ~sub:"input=\"user-approved\"" summary)
+      | None -> Alcotest.fail "missing participant summary")
+   | None -> Alcotest.fail "missing planner participant");
+  let events = unwrap (Runtime_client.events client2 ~session_id:session.session_id ()) in
+  Alcotest.(check bool)
+    "agent input required event persisted"
+    true
+    (List.exists
+       (fun (event : Runtime.event) ->
+          match event.kind with
+          | Runtime.Input_required request -> String.equal request.request_id request_id
+          | _ -> false)
+       events);
+  Alcotest.(check bool)
+    "agent completed after durable resume"
+    true
+    (List.exists
+       (fun (event : Runtime.event) ->
+          match event.kind with
+          | Runtime.Agent_completed detail ->
+            String.equal detail.participant_name "planner"
+          | _ -> false)
+       events);
+  Runtime_client.close client2
 ;;
 
 let test_runtime_attach_artifact_and_read_back () =
@@ -1227,6 +1350,10 @@ let () =
             "request input then resume"
             `Quick
             test_runtime_input_required_resume
+        ; Alcotest.test_case
+            "agent input survives runtime restart"
+            `Quick
+            test_runtime_agent_input_required_durable_resume
         ] )
     ; ( "artifacts"
       , [ Alcotest.test_case
