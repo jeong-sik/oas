@@ -1105,7 +1105,7 @@ let test_session_settings_persist_across_resume () =
     | Some session_id -> session_id
     | None -> Alcotest.fail "missing session before mutation"
   in
-  unwrap (Client.set_model client1 (Some "qwen3.5-coder"));
+  unwrap (Client.set_model client1 (Some "provider_h-3.5-coder"));
   unwrap (Client.set_permission_mode client1 Client.Bypass_permissions);
   Client.disconnect client1;
   let resumed =
@@ -1134,7 +1134,7 @@ let test_session_settings_persist_across_resume () =
     "protocol unchanged"
     Runtime.protocol_version
     info.protocol_version;
-  Alcotest.(check (option string)) "model persisted" (Some "qwen3.5-coder") session.model;
+  Alcotest.(check (option string)) "model persisted" (Some "provider_h-3.5-coder") session.model;
   Alcotest.(check (option string))
     "permission mode persisted"
     (Some "bypass_permissions")

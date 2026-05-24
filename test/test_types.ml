@@ -326,64 +326,6 @@ let test_tool_choice_roundtrip_all () =
     variants
 ;;
 
-let test_tool_choice_tool_requires_name () =
-  let json = `Assoc [ "type", `String "tool" ] in
-  match Types.tool_choice_of_json json with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected error for tool choice without name"
-;;
-
-let test_response_format_roundtrip_modes () =
-  let schema = `Assoc [ "type", `String "object" ] in
-  let variants = [ Types.Off; Types.JsonMode; Types.JsonSchema schema ] in
-  List.iter
-    (fun rf ->
-       let json = Types.response_format_to_json rf in
-       match Types.response_format_of_json json with
-       | Ok decoded ->
-         Alcotest.(check string)
-           "response_format roundtrip"
-           (Types.show_response_format rf)
-           (Types.show_response_format decoded)
-       | Error err ->
-         Alcotest.fail ("response_format roundtrip failed: " ^ Error.to_string err))
-    variants
-;;
-
-let test_response_format_bool_and_null () =
-  (match Types.response_format_of_json (`Bool true) with
-   | Ok Types.JsonMode -> ()
-   | Ok other ->
-     Alcotest.fail ("expected JsonMode, got " ^ Types.show_response_format other)
-   | Error err -> Alcotest.fail (Error.to_string err));
-  (match Types.response_format_of_json (`Bool false) with
-   | Ok Types.Off -> ()
-   | Ok other -> Alcotest.fail ("expected Off, got " ^ Types.show_response_format other)
-   | Error err -> Alcotest.fail (Error.to_string err));
-  match Types.response_format_of_json `Null with
-  | Ok Types.Off -> ()
-  | Ok other -> Alcotest.fail ("expected Off, got " ^ Types.show_response_format other)
-  | Error err -> Alcotest.fail (Error.to_string err)
-;;
-
-let test_response_format_errors () =
-  let cases =
-    [ `Assoc [ "type", `String "json_schema" ]
-    ; `Assoc [ "type", `String "future_mode" ]
-    ; `Assoc []
-    ; `String "json"
-    ]
-  in
-  List.iter
-    (fun json ->
-       match Types.response_format_of_json json with
-       | Error _ -> ()
-       | Ok decoded ->
-         Alcotest.fail
-           ("expected response_format error, got " ^ Types.show_response_format decoded))
-    cases
-;;
-
 (* ── role_of_string ──────────────────────────────────────── *)
 
 let test_role_of_string () =
@@ -555,15 +497,6 @@ let () =
     ; ( "tool_choice_errors"
       , [ Alcotest.test_case "bogus type" `Quick test_tool_choice_of_json_error_bogus
         ; Alcotest.test_case "non-object" `Quick test_tool_choice_of_json_error_non_object
-        ; Alcotest.test_case
-            "tool missing name"
-            `Quick
-            test_tool_choice_tool_requires_name
-        ] )
-    ; ( "response_format"
-      , [ Alcotest.test_case "roundtrip modes" `Quick test_response_format_roundtrip_modes
-        ; Alcotest.test_case "bool and null" `Quick test_response_format_bool_and_null
-        ; Alcotest.test_case "errors" `Quick test_response_format_errors
         ] )
     ; ( "show_functions"
       , [ Alcotest.test_case

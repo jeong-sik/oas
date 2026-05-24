@@ -360,7 +360,7 @@ let%test "build_request pins keep_alive=-1 as integer by default" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ()
     in
@@ -386,7 +386,7 @@ let%test "build_request integer override sent as `Int" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ()
     in
@@ -410,7 +410,7 @@ let%test "build_request duration string override sent as `String" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ()
     in
@@ -434,7 +434,7 @@ let%test "build_request trims whitespace around override" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ()
     in
@@ -458,7 +458,7 @@ let%test "build_request whitespace-only env falls back to default integer" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ()
     in
@@ -482,7 +482,7 @@ let%test "build_request config.keep_alive overrides env (string form)" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ~keep_alive:"5m"
         ()
@@ -507,7 +507,7 @@ let%test "build_request config.keep_alive integer form sent as `Int" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3.5:35b-a3b-nvfp4"
+        ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
         ~base_url:"http://127.0.0.1:11434"
         ~keep_alive:"600"
         ()
@@ -532,7 +532,7 @@ let%test "build_request config.num_ctx injected into options" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ~num_ctx:8192
         ()
@@ -557,7 +557,7 @@ let%test "build_request omits num_ctx when None" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ()
     in
@@ -581,7 +581,7 @@ let%test "build_request num_ctx<=0 treated as unset" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ~num_ctx:0
         ()
@@ -603,7 +603,7 @@ let%test "build_request num_ctx<=0 treated as unset" =
 
 let%test "parse_ollama_response populates timings from eval_count/eval_duration" =
   let json =
-    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+    {|{"model":"provider_h-3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
        "message":{"role":"assistant","content":"hi"},
        "prompt_eval_count":100,"prompt_eval_duration":200000000,
        "eval_count":120,"eval_duration":2000000000}|}
@@ -627,7 +627,7 @@ let%test "parse_ollama_response populates timings from eval_count/eval_duration"
 
 let%test "parse_ollama_response maps prompt/eval counts to usage" =
   let json =
-    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+    {|{"model":"provider_h-3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
        "message":{"role":"assistant","content":"hi"},
        "prompt_eval_count":17,"eval_count":23}|}
   in
@@ -645,7 +645,7 @@ let%test "parse_ollama_response maps prompt/eval counts to usage" =
 
 let%test "parse_ollama_response guards zero eval_duration" =
   let json =
-    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+    {|{"model":"provider_h-3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
        "message":{"role":"assistant","content":"hi"},
        "eval_count":10,"eval_duration":0}|}
   in
@@ -662,7 +662,7 @@ let%test "parse_ollama_response guards zero eval_duration" =
 
 let%test "parse_ollama_response returns timings=None when no timing fields present" =
   let json =
-    {|{"model":"qwen3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
+    {|{"model":"provider_h-3.5:35b-a3b-nvfp4","done":true,"done_reason":"stop",
        "message":{"role":"assistant","content":"hi"}}|}
   in
   match parse_ollama_response json with
@@ -678,7 +678,7 @@ let%test "build_request sets think=true when enable_thinking=true" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ~enable_thinking:true
         ()
@@ -694,7 +694,7 @@ let%test "build_request sets think=false when enable_thinking=false" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ~enable_thinking:false
         ()
@@ -710,7 +710,7 @@ let%test "build_request maps max_tokens to num_predict in options" =
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ~max_tokens:2048
         ()
@@ -734,7 +734,7 @@ let%test
     let config =
       Provider_config.make
         ~kind:Ollama
-        ~model_id:"qwen3:8b"
+        ~model_id:"provider_h-3:8b"
         ~base_url:"http://127.0.0.1:11434"
         ~top_k:40
         ()
@@ -747,7 +747,7 @@ let%test
 
 let%test "parse_ollama_response maps done_reason=tool_calls to StopToolUse" =
   let json =
-    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]}}|}
   in
@@ -770,7 +770,7 @@ let%test "parse_ollama_response returns Error on error field" =
 
 let%test "parse_ollama_response extracts thinking block from message" =
   let json =
-    {|{"model":"qwen3:8b","done":true,"done_reason":"stop",
+    {|{"model":"provider_h-3:8b","done":true,"done_reason":"stop",
        "message":{"role":"assistant","content":"The answer is 42.",
          "thinking":"Let me reason about this step by step."}}|}
   in

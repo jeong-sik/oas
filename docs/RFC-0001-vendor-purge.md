@@ -42,6 +42,22 @@ OAS has one external consumer (masc-mcp), under the same operator's control. For
 | `Claude_opus_4`, `Claude_sonnet_4`, `Claude_haiku_4` | `Agent_llm_a_opus_4`, etc. |
 | `Kimi_for_coding`, `Kimi_k2` | `Provider_c_for_coding`, `Provider_c_k2` |
 | `Deepseek_v4_flash`, `Deepseek_v4_pro` | `Provider_g_v4_flash`, `Provider_g_v4_pro` |
+| `Qwen3` (capabilities static_model_route) | `Provider_h_3` |
+| `Mistral_large`, `Mistral_small` | `Provider_j_large`, `Provider_j_small` |
+| `Glm_quota_exceeded`, `Glm_rate_limited`, `Glm_auth_error`, `Glm_server_error`, `Glm_invalid_request` (backend_provider_k error variants) | `Provider_k_quota_exceeded`, `Provider_k_rate_limited`, `Provider_k_auth_error`, `Provider_k_server_error`, `Provider_k_invalid_request` |
+| `Glm_api_error` (exception) | `Provider_k_api_error` |
+| `glm_error_class`, `glm_error` (types) | `provider_k_error_class`, `provider_k_error` |
+| `classify_glm_error`, `http_code_of_glm_error_class`, `glm_messages_of_message`, `glm_auto_models`, `glm_coding_auto_models` (functions) | `classify_provider_k_error`, `http_code_of_provider_k_error_class`, `provider_k_messages_of_message`, `provider_k_auto_models`, `provider_k_coding_auto_models` |
+
+### Model id string renames (Qwen family — boundary-miss closure)
+
+| Original | New |
+|----------|-----|
+| `qwen3.5-35b`, `qwen3.5-35b-a3b`, `qwen3.5-35b-a3b-nvfp4` | `provider_h-3.5-35b`, `provider_h-3.5-35b-a3b`, `provider_h-3.5-35b-a3b-nvfp4` |
+| `qwen3.5`, `qwen3.5:9b`, `qwen3:8b` | `provider_h-3.5`, `provider_h-3.5:9b`, `provider_h-3:8b` |
+| `"qwen3"` (string prefix), `Qwen3.5-35B`, `Qwen3.5-35B-A3B`, `Qwen3.x`, `Qwen3.5` (comments) | `"provider_h-3"`, `Provider_h-3.5-35B`, `Provider_h-3.5-35B-A3B`, `Provider_h-3.x`, `Provider_h-3.5` |
+
+These were missed by the initial `\bqwen\b` perl regex pass because `qwen` followed by a digit (`qwen3`) has no word boundary — `\b` requires word-to-non-word transition, and `3` is `\w`. Explicit substring patterns close the gap.
 
 ### File renames
 
@@ -96,16 +112,22 @@ Module references updated repo-wide; `test/dune` test list updated.
 | `~name:"claude"`, `~name:"codex"`, `~name:"gemini"`, `~name:"kimi"` (log labels in subprocess transport) | Same as binary path — operator-facing label that matches the actual binary. |
 | `CODEX_COMPANION_SESSION_ID` env var (scrubbed) | External Codex CLI's own env var, scrubbed by transport before subprocess exec. Not OAS-defined. |
 | `Ollama` variant (provider_kind) | LLM serving framework, not vendor — same rationale as masc-mcp RFC-0168~0173. |
+| `Llama_4` variant (static_model_route) + `llama-3.1-70b` / `llama-3.3-70b` / `llama-4-maverick` / `llama3` model id strings | Meta-released open-weight model family. Sweep mapping has no `llama` entry — preserved as community model name (not company brand). |
+| `Gemma_4` variant (static_model_route) | Google open-weight model family. Sweep mapping has no `gemma` entry — preserved as community model name. |
+| `Grok` variant (static_model_route) + `"grok"` prefix strings | xAI's product brand. Sweep mapping has no `grok` entry (only `groq → provider_i` for the Groq inference company). Preserved. |
+| `Command` variant (static_model_route) | Cohere product. Sweep mapping has no `cohere` / `command` entry. Preserved as single token. |
+| `Gpt_5`, `Gpt_4_1`, `Gpt_4o` variants (static_model_route) | OpenAI model identifiers at constructor level. Sweep maps `openai → provider_d` for strings/types but not `Gpt_*` constructors. Preserved as the constructor surface is internal-only; downstream string-form `gpt-4o`/`gpt-4o-mini` already mapped via model-id table to `model-d`/`model-d-mini`. |
+| `llama-server`, `llama.cpp` references | External LLM serving infrastructure (Meta's `llama.cpp` project + its bundled `llama-server` binary). Operator-installed software, same boundary as `claude`/`codex` binaries. |
 | Comment references to original vendor names | None — all rewritten. |
 
-These 4 binary path + 12 spawn-name occurrences are the technical boundary: the SDK calls external OS binaries that must be installed by name on the operator's system.
+These 4 binary path + 12 spawn-name occurrences are the technical boundary: the SDK calls external OS binaries that must be installed by name on the operator's system. The variant-level preservations (Llama_4, Gemma_4, Grok, Command, Gpt_*) reflect the explicit decision encoded in the sweep mapping table: open-weight community models and a few brand-tokens without a sweep entry remain as-is. Adding them would require operator-side downstream label changes without producing additional vendor-decoupling benefit.
 
 ## 4. Verification
 
-- `scripts/dune-local.sh build lib` clean.
-- `scripts/dune-local.sh build bin` clean.
-- `scripts/dune-local.sh build test` clean.
-- `find lib bin test -type f \( -name '*.ml' -o -name '*.mli' \) | xargs grep -E 'anthropic|kimi|gemini|moonshot|codex|claude|dashscope'` returns only the §3 preserved occurrences (binary path + spawn names).
+- `dune build lib` clean (after both initial sweep and Qwen/Mistral/Glm boundary-miss closure).
+- `dune build bin` clean.
+- `dune build test` clean (including main's PR #1726 new test files which required follow-up sweep for `Constants.{Anthropic,Gemini}` modules and `gemini25_*` identifiers).
+- `find lib bin test -type f \( -name '*.ml' -o -name '*.mli' \) | xargs grep -E 'anthropic|kimi|gemini|moonshot|codex|claude|dashscope|qwen3|Mistral_(large|small)|Glm_(quota|rate|auth|server|invalid|api)_'` returns only the §3 preserved occurrences (binary path + spawn names + open-weight model families).
 
 ## 5. Downstream consumer migration
 

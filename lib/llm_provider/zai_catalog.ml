@@ -80,13 +80,13 @@ let mode_of_base_url base_url =
 
 let split_csv = Cli_common_env.split_on_char_trim ','
 
-let glm_auto_models () =
+let provider_k_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with
   | Some models -> models
   | None -> [ "provider_k-5.1"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.7-flashx" ]
 ;;
 
-let glm_coding_auto_models () =
+let provider_k_coding_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
   | Some models -> models
   | None -> [ "provider_k-5.1"; "provider_k-5"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.5-air" ]

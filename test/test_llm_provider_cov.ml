@@ -1644,13 +1644,13 @@ let test_for_model_id_gemini3 () =
 ;;
 
 let test_for_model_id_qwen3 () =
-  match Capabilities.for_model_id "qwen3.5-35b" with
+  match Capabilities.for_model_id "provider_h-3.5-35b" with
   | Some c ->
     Alcotest.(check bool) "tools" true c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check bool) "top_k" true c.supports_top_k;
     Alcotest.(check bool) "min_p" true c.supports_min_p
-  | None -> Alcotest.fail "expected Some for qwen3"
+  | None -> Alcotest.fail "expected Some for provider_h_3"
 ;;
 
 let test_for_model_id_llama4 () =
@@ -1984,7 +1984,7 @@ let () =
         ; Alcotest.test_case "model-d" `Quick test_for_model_id_gpt4o
         ; Alcotest.test_case "provider_f legacy" `Quick test_for_model_id_provider_f25
         ; Alcotest.test_case "provider_f-3" `Quick test_for_model_id_gemini3
-        ; Alcotest.test_case "qwen3" `Quick test_for_model_id_qwen3
+        ; Alcotest.test_case "provider_h-3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
         ; Alcotest.test_case

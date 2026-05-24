@@ -231,7 +231,7 @@ let test_ollama_output_schema () =
   let config =
     PC.make
       ~kind:Ollama
-      ~model_id:"qwen3.5:9b"
+      ~model_id:"provider_h-3.5:9b"
       ~base_url:"http://localhost:11434"
       ~output_schema:schema
       ()
@@ -244,7 +244,7 @@ let test_ollama_output_schema () =
 
 let test_ollama_parse_parallel_tool_calls_object_arguments () =
   let body =
-    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[
            {"function":{"index":0,"name":"get_temperature","arguments":{"city":"New York"}}},
@@ -273,7 +273,7 @@ let test_ollama_parse_parallel_tool_calls_object_arguments () =
 
 let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
   let body =
-    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[
            {"id":"call_explicit","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}
@@ -295,7 +295,7 @@ let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
 
 let test_ollama_parse_warns_on_malformed_tool_call () =
   let body =
-    {|{"model":"qwen3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[
            {"function":{"name":"ok_tool","arguments":{"city":"Seoul"}}},

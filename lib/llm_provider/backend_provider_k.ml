@@ -12,17 +12,17 @@
 
 open Types
 
-type glm_error_class =
-  | Glm_quota_exceeded
-  | Glm_rate_limited
-  | Glm_auth_error
-  | Glm_server_error
-  | Glm_invalid_request
+type provider_k_error_class =
+  | Provider_k_quota_exceeded
+  | Provider_k_rate_limited
+  | Provider_k_auth_error
+  | Provider_k_server_error
+  | Provider_k_invalid_request
 
-type glm_error =
+type provider_k_error =
   { code : string
   ; message : string
-  ; error_class : glm_error_class
+  ; error_class : provider_k_error_class
   ; is_retryable : bool
   }
 
@@ -37,7 +37,7 @@ type glm_error =
     - 1304,1308,1310: quota exhausted (cascadeable, not retryable)
     - 1309,1311,1313: subscription/plan (quota)
     - 1230,1234,500: server error *)
-let classify_glm_error ~code ~message : glm_error_class * bool =
+let classify_provider_k_error ~code ~message : provider_k_error_class * bool =
   match code with
   | "1000"
   | "1001"
@@ -49,11 +49,11 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1111"
   | "1112"
   | "1120"
-  | "1220" -> Glm_auth_error, false
-  | "1302" | "1303" | "1305" | "1312" -> Glm_rate_limited, true
+  | "1220" -> Provider_k_auth_error, false
+  | "1302" | "1303" | "1305" | "1312" -> Provider_k_rate_limited, true
   | "1113" | "1304" | "1308" | "1309" | "1310" | "1311" | "1313" ->
-    Glm_quota_exceeded, false
-  | "1230" | "1234" | "500" -> Glm_server_error, true
+    Provider_k_quota_exceeded, false
+  | "1230" | "1234" | "500" -> Provider_k_server_error, true
   | "1300"
   | "1301"
   | "1200"
@@ -64,28 +64,28 @@ let classify_glm_error ~code ~message : glm_error_class * bool =
   | "1214"
   | "1215"
   | "1231"
-  | "1261" -> Glm_invalid_request, false
+  | "1261" -> Provider_k_invalid_request, false
   | unknown_code ->
     let (_ : string) = unknown_code in
     if
       Retry.contains_case_insensitive ~haystack:message ~needle:"usage limit"
       || Retry.contains_case_insensitive ~haystack:message ~needle:"quota"
       || Retry.contains_case_insensitive ~haystack:message ~needle:"exceeded"
-    then Glm_quota_exceeded, false
+    then Provider_k_quota_exceeded, false
     else if Retry.contains_case_insensitive ~haystack:message ~needle:"rate limit"
-    then Glm_rate_limited, true
-    else Glm_invalid_request, false
+    then Provider_k_rate_limited, true
+    else Provider_k_invalid_request, false
 ;;
 
-let http_code_of_glm_error_class = function
-  | Glm_quota_exceeded -> 429
-  | Glm_rate_limited -> 429
-  | Glm_auth_error -> 401
-  | Glm_server_error -> 500
-  | Glm_invalid_request -> 400
+let http_code_of_provider_k_error_class = function
+  | Provider_k_quota_exceeded -> 429
+  | Provider_k_rate_limited -> 429
+  | Provider_k_auth_error -> 401
+  | Provider_k_server_error -> 500
+  | Provider_k_invalid_request -> 400
 ;;
 
-exception Glm_api_error of glm_error
+exception Provider_k_api_error of provider_k_error
 
 (* ── Request building ────────────────────────────── *)
 
@@ -126,7 +126,7 @@ let build_request
 (** Provider_k error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
     Standard Provider_d uses numeric HTTP codes. *)
-let check_glm_error body : glm_error option =
+let check_glm_error body : provider_k_error option =
   try
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -145,7 +145,7 @@ let check_glm_error body : glm_error option =
         |> to_string_option
         |> Option.value ~default:"Unknown Provider_k API error"
       in
-      let error_class, is_retryable = classify_glm_error ~code ~message in
+      let error_class, is_retryable = classify_provider_k_error ~code ~message in
       Some { code; message; error_class; is_retryable }
   with
   | Yojson.Json_error _ -> None
@@ -175,15 +175,15 @@ let extract_reasoning_content (resp : api_response) body : api_response =
 
 let parse_response body =
   match check_glm_error body with
-  | Some err -> raise (Glm_api_error err)
+  | Some err -> raise (Provider_k_api_error err)
   | None ->
     (match Backend_provider_d_parse.parse_provider_d_response_result body with
      | Error msg ->
        raise
-         (Glm_api_error
+         (Provider_k_api_error
             { code = "parse"
             ; message = msg
-            ; error_class = Glm_invalid_request
+            ; error_class = Provider_k_invalid_request
             ; is_retryable = false
             })
      | Ok resp -> extract_reasoning_content resp body)
@@ -303,7 +303,7 @@ let%test "build_request with thinking=false injects disabled" =
 let%test "check_glm_error detects string code" =
   let body = {|{"error":{"code":"1305","message":"service overloaded"}}|} in
   match check_glm_error body with
-  | Some err -> err.code = "1305" && err.error_class = Glm_rate_limited
+  | Some err -> err.code = "1305" && err.error_class = Provider_k_rate_limited
   | None -> false
 ;;
 
@@ -320,41 +320,41 @@ let%test "check_glm_error handles int code" =
 ;;
 
 let%test "classify quota exceeded from message" =
-  classify_glm_error
+  classify_provider_k_error
     ~code:"unknown"
     ~message:"You have reached your specified API usage limits"
-  = (Glm_quota_exceeded, false)
+  = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
-  classify_glm_error ~code:"1113" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_provider_k_error ~code:"1113" ~message:"whatever" = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
-  classify_glm_error ~code:"1001" ~message:"whatever" = (Glm_auth_error, false)
+  classify_provider_k_error ~code:"1001" ~message:"whatever" = (Provider_k_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
-  classify_glm_error ~code:"1304" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_provider_k_error ~code:"1304" ~message:"whatever" = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
-  classify_glm_error ~code:"1308" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_provider_k_error ~code:"1308" ~message:"whatever" = (Provider_k_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
-  classify_glm_error ~code:"1305" ~message:"whatever" = (Glm_rate_limited, true)
+  classify_provider_k_error ~code:"1305" ~message:"whatever" = (Provider_k_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
-  classify_glm_error ~code:"1301" ~message:"whatever" = (Glm_invalid_request, false)
+  classify_provider_k_error ~code:"1301" ~message:"whatever" = (Provider_k_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =
-  http_code_of_glm_error_class Glm_quota_exceeded = 429
+  http_code_of_provider_k_error_class Provider_k_quota_exceeded = 429
 ;;
 
-let%test "http_code auth maps to 401" = http_code_of_glm_error_class Glm_auth_error = 401
+let%test "http_code auth maps to 401" = http_code_of_provider_k_error_class Provider_k_auth_error = 401
 
 let%test "extract_reasoning_content prepends thinking block" =
   let resp =

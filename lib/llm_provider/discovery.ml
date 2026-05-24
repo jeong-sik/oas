@@ -847,13 +847,13 @@ let%test "parse_models valid" =
     `Assoc
       [ ( "data"
         , `List
-            [ `Assoc [ "id", `String "qwen3.5-35b"; "owned_by", `String "local" ]
+            [ `Assoc [ "id", `String "provider_h-3.5-35b"; "owned_by", `String "local" ]
             ; `Assoc [ "id", `String "llama-4-scout"; "owned_by", `String "meta" ]
             ] )
       ]
   in
   let models = parse_models json in
-  List.length models = 2 && (List.hd models).id = "qwen3.5-35b"
+  List.length models = 2 && (List.hd models).id = "provider_h-3.5-35b"
 ;;
 
 let%test "parse_models empty data" =
@@ -889,11 +889,11 @@ let%test "parse_props valid" =
     `Assoc
       [ "total_slots", `Int 4
       ; ( "default_generation_settings"
-        , `Assoc [ "n_ctx", `Int 8192; "model", `String "qwen3.5" ] )
+        , `Assoc [ "n_ctx", `Int 8192; "model", `String "provider_h-3.5" ] )
       ]
   in
   match parse_props json with
-  | Some p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "qwen3.5"
+  | Some p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "provider_h-3.5"
   | None -> false
 ;;
 
@@ -973,7 +973,7 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
 (* --- contains_case_insensitive (via Retry SSOT) --- *)
 
 let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"Qwen3.5-35B" ~needle:"provider_h" = true
+  Retry.contains_case_insensitive ~haystack:"Provider_h_3.5-35B" ~needle:"provider_h" = true
 ;;
 
 let%test "contains_case_insensitive no match" =
@@ -995,7 +995,7 @@ let%test "contains_case_insensitive exact match" =
 (* --- infer_capabilities --- *)
 
 let%test "infer_capabilities provider_h model gets extended" =
-  let models = [ { id = "Qwen3.5-35B-A3B"; owned_by = "local" } ] in
+  let models = [ { id = "Provider_h_3.5-35B-A3B"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_reasoning = true
   && caps.supports_top_k = true
@@ -1280,12 +1280,12 @@ let%test "find_context_length bare key without prefix" =
 (* --- probe_ollama_context parser (unit, no network) --- *)
 
 let%test "infer_capabilities uses ollama context when props present" =
-  let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
+  let models = [ { id = "provider_h-3.5-35b"; owned_by = "ollama" } ] in
   let props =
     Some
       { total_slots = 1
       ; ctx_size = 8192
-      ; model = "qwen3.5:latest"
+      ; model = "provider_h-3.5:latest"
       ; supports_tools = None
       }
   in
@@ -1294,7 +1294,7 @@ let%test "infer_capabilities uses ollama context when props present" =
 ;;
 
 let%test "infer_capabilities defaults to 262K when no props for provider_h" =
-  let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
+  let models = [ { id = "provider_h-3.5-35b"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:true models None in
   caps.max_context_tokens = Some 262_144
 ;;
@@ -1330,11 +1330,11 @@ let%test
     "infer_capabilities ollama known model lookup preserves context and overlays ollama \
      flags"
   =
-  (* qwen3.5-35b is in for_model_id with 262K context and supports_reasoning.
+  (* provider_h-3.5-35b is in for_model_id with 262K context and supports_reasoning.
      On a reasoning_effort wire-format endpoint, the overlay should add
      seed support + thinking_control_format = Reasoning_effort while
      preserving the model-specific context window and reasoning fields. *)
-  let models = [ { id = "qwen3.5-35b"; owned_by = "ollama" } ] in
+  let models = [ { id = "provider_h-3.5-35b"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:true models None in
   caps.thinking_control_format = Capabilities.Reasoning_effort
   && caps.supports_seed = true
@@ -1461,10 +1461,10 @@ let%test "endpoint_for_model returns url when model is indexed" =
        Atomic.set
          _discovered_ctx
          { endpoint_ctxs = [ "http://a:8085", 32768 ]
-         ; model_endpoints = [ "qwen3.5-9b", "http://a:8085" ]
+         ; model_endpoints = [ "provider_h-3.5-9b", "http://a:8085" ]
          ; per_slot_ctx = Some 32768
          };
-       endpoint_for_model "qwen3.5-9b" = Some "http://a:8085")
+       endpoint_for_model "provider_h-3.5-9b" = Some "http://a:8085")
 ;;
 
 let%test "endpoint_for_model returns None for unknown model" =
@@ -1475,7 +1475,7 @@ let%test "endpoint_for_model returns None for unknown model" =
        Atomic.set
          _discovered_ctx
          { endpoint_ctxs = [ "http://a:8085", 32768 ]
-         ; model_endpoints = [ "qwen3.5-9b", "http://a:8085" ]
+         ; model_endpoints = [ "provider_h-3.5-9b", "http://a:8085" ]
          ; per_slot_ctx = Some 32768
          };
        endpoint_for_model "nonexistent" = None)
@@ -1576,15 +1576,15 @@ let%test "first_discovered_model_id_for_url prevents cross-provider" =
          _discovered_ctx
          { endpoint_ctxs = []
          ; model_endpoints =
-             [ "qwen3.5-9b-local", "http://127.0.0.1:8085"
-             ; "qwen3.5:9b-nvfp4", "http://127.0.0.1:11434"
+             [ "provider_h-3.5-9b-local", "http://127.0.0.1:8085"
+             ; "provider_h-3.5:9b-nvfp4", "http://127.0.0.1:11434"
              ]
          ; per_slot_ctx = None
          };
        (* ollama endpoint must NOT return the llama-server model *)
-       first_discovered_model_id_for_url "http://127.0.0.1:8085" = Some "qwen3.5-9b-local"
+       first_discovered_model_id_for_url "http://127.0.0.1:8085" = Some "provider_h-3.5-9b-local"
        && first_discovered_model_id_for_url "http://127.0.0.1:11434"
-          = Some "qwen3.5:9b-nvfp4")
+          = Some "provider_h-3.5:9b-nvfp4")
 ;;
 
 (* --- template_has_tool_support tests --- *)

@@ -41,7 +41,7 @@ let test_event_type_name () =
              { agent_name = "a"
              ; turn = 1
              ; provider = "ollama"
-             ; model = "qwen3"
+             ; model = "provider_h-3"
              ; prompt_tokens = Some 100
              ; completion_tokens = Some 50
              ; prompt_ms = Some 200.0
@@ -322,7 +322,7 @@ let test_inference_telemetry_payload () =
          { agent_name = "worker"
          ; turn = 4
          ; provider = "ollama"
-         ; model = "qwen3.6:27b-coding-nvfp4"
+         ; model = "provider_h_3.6:27b-coding-nvfp4"
          ; prompt_tokens = Some 172000
          ; completion_tokens = Some 309
          ; prompt_ms = Some 540000.0
@@ -338,7 +338,7 @@ let test_inference_telemetry_payload () =
   Alcotest.(check string) "provider" "ollama" (p.data |> member "provider" |> to_string);
   Alcotest.(check string)
     "model"
-    "qwen3.6:27b-coding-nvfp4"
+    "provider_h_3.6:27b-coding-nvfp4"
     (p.data |> member "model" |> to_string);
   Alcotest.(check int) "prompt_tokens" 172000 (p.data |> member "prompt_tokens" |> to_int);
   Alcotest.(check int)

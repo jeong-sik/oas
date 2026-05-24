@@ -38,7 +38,7 @@ let test_parse_models_json () =
     Yojson.Safe.from_string
       {|{
     "data": [
-      {"id": "qwen3.5-35b", "owned_by": "llama-server"},
+      {"id": "provider_h-3.5-35b", "owned_by": "llama-server"},
       {"id": "llama-3.1-8b", "owned_by": "llama-server"}
     ]
   }|}
@@ -63,19 +63,19 @@ let test_parse_models_json () =
     | _ -> []
   in
   Alcotest.(check int) "model count" 2 (List.length models);
-  Alcotest.(check string) "first model id" "qwen3.5-35b" (List.hd models).id
+  Alcotest.(check string) "first model id" "provider_h-3.5-35b" (List.hd models).id
 ;;
 
 let test_endpoint_status_to_json_healthy () =
   let status : Discovery.endpoint_status =
     { url = "http://127.0.0.1:8085"
     ; healthy = true
-    ; models = [ { id = "qwen3.5-35b"; owned_by = "llama-server" } ]
+    ; models = [ { id = "provider_h-3.5-35b"; owned_by = "llama-server" } ]
     ; props =
         Some
           { total_slots = 4
           ; ctx_size = 32768
-          ; model = "qwen3.5-35b"
+          ; model = "provider_h-3.5-35b"
           ; supports_tools = None
           }
     ; slots = Some { total = 4; busy = 1; idle = 3 }

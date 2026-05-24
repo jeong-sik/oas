@@ -163,12 +163,12 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_f family -> Format.fprintf ppf "Provider_f(%a)" pp_provider_f_family family
   | Capabilities.Provider_c_for_coding -> Format.fprintf ppf "Provider_c_for_coding"
   | Capabilities.Provider_c_k2 -> Format.fprintf ppf "Provider_c_k2"
-  | Capabilities.Qwen3 -> Format.fprintf ppf "Qwen3"
+  | Capabilities.Provider_h_3 -> Format.fprintf ppf "Provider_h_3"
   | Capabilities.Llama_4 -> Format.fprintf ppf "Llama_4"
   | Capabilities.Provider_g_v4_flash -> Format.fprintf ppf "Provider_g_v4_flash"
   | Capabilities.Provider_g_v4_pro -> Format.fprintf ppf "Provider_g_v4_pro"
-  | Capabilities.Mistral_large -> Format.fprintf ppf "Mistral_large"
-  | Capabilities.Mistral_small -> Format.fprintf ppf "Mistral_small"
+  | Capabilities.Provider_j_large -> Format.fprintf ppf "Provider_j_large"
+  | Capabilities.Provider_j_small -> Format.fprintf ppf "Provider_j_small"
   | Capabilities.Command -> Format.fprintf ppf "Command"
   | Capabilities.Grok -> Format.fprintf ppf "Grok"
   | Capabilities.Provider_l { has_vision } ->
@@ -288,7 +288,7 @@ let test_lookup_provider_c_k2_cloud () =
 ;;
 
 let test_lookup_provider_m () =
-  match Capabilities.for_model_id "qwen3.5-35b-a3b" with
+  match Capabilities.for_model_id "provider_h-3.5-35b-a3b" with
   | Some c ->
     check (option int) "context 262K" (Some 262_144) c.max_context_tokens;
     check bool "tools" true c.supports_tools;
@@ -300,18 +300,18 @@ let test_lookup_provider_m () =
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs);
     check bool "top_k" true c.supports_top_k
-  | None -> fail "should match qwen3"
+  | None -> fail "should match provider_h_3"
 ;;
 
 let test_lookup_provider_m_runpod_name () =
-  match Capabilities.for_model_id "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" with
+  match Capabilities.for_model_id "Provider_h_3.6-35B-A3B-UD-Q4_K_XL.gguf" with
   | Some c ->
     check
       bool
-      "runpod qwen3.6 uses chat_template_kwargs"
+      "runpod provider_h_3.6 uses chat_template_kwargs"
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs)
-  | None -> fail "should match qwen3.6 runpod model id"
+  | None -> fail "should match provider_h_3.6 runpod model id"
 ;;
 
 let test_lookup_provider_g_v4_flash () =
@@ -511,15 +511,15 @@ let test_manifest_base_absent_uses_default () =
 ;;
 
 let test_manifest_prefix_wins_over_longer_static_prefix () =
-  (* Manifest entry "qwen3" must win over static table "qwen3" prefix too,
+  (* Manifest entry "provider_h-3" must win over static table "provider_h-3" prefix too,
      letting operator override even well-known models. *)
   let m =
     make_manifest
       ~base:"provider_d_chat"
       ~extra_fields:[ "supports_reasoning", "false" ]
-      "qwen3"
+      "provider_h-3"
   in
-  match Capabilities.for_model_id_with_manifest m "qwen3.5-35b-a3b-q4" with
+  match Capabilities.for_model_id_with_manifest m "provider_h-3.5-35b-a3b-q4" with
   | Some c ->
     check bool "manifest disables reasoning" false c.supports_reasoning;
     check bool "base provider_d_chat: tools" true c.supports_tools
@@ -706,7 +706,7 @@ let test_provider_d_compat_reasoning_records_have_explicit_control () =
     [ "provider_d_chat_extended", Some Capabilities.provider_d_chat_extended_capabilities
     ; "provider_c", Some Capabilities.provider_c_capabilities
     ; "provider_h", Some Capabilities.provider_h_capabilities
-    ; "qwen3.5", Capabilities.for_model_id "qwen3.5-35b-a3b"
+    ; "provider_h-3.5", Capabilities.for_model_id "provider_h-3.5-35b-a3b"
     ; "provider_g-v4-flash", Capabilities.for_model_id "provider_g-v4-flash"
     ; "provider_l-ultra", Capabilities.for_model_id "provider_l-ultra-253b"
     ]

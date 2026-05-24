@@ -222,7 +222,7 @@ let provider_d_messages_of_message msg =
   messages_of_message_with ~tool_calls_fn:tool_calls_to_provider_d_json msg
 ;;
 
-let glm_messages_of_message msg =
+let provider_k_messages_of_message msg =
   messages_of_message_with
     ~tool_calls_fn:tool_calls_to_provider_d_json
     ~include_reasoning_content:true

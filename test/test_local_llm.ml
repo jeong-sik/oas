@@ -1,4 +1,4 @@
-(** Live integration test: agent-sdk → llama-server (Qwen3.5)
+(** Live integration test: agent-sdk → llama-server (Provider_h_3.5)
 
     Requires: llama-server running on 127.0.0.1:8085
     Run: LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe
@@ -9,7 +9,7 @@ open Types
 
 let provider : Provider.config =
   { provider = Local { base_url = "http://127.0.0.1:8085" }
-  ; model_id = "qwen3.5-35b-a3b-ud-q8-xl"
+  ; model_id = "provider_h-3.5-35b-a3b-ud-q8-xl"
   ; api_key_env = "DUMMY_KEY"
   }
 ;;

@@ -6,19 +6,19 @@ open Llm_provider
 (* ── Discovery: model lookup integration ─────────────── *)
 
 let test_discovery_infers_from_model_name () =
-  (* Simulate: Discovery finds a "qwen3.5-35b" model *)
+  (* Simulate: Discovery finds a "provider_h-3.5-35b" model *)
   let models : Discovery.model_info list =
-    [ { id = "qwen3.5-35b-a3b-q4"; owned_by = "local" } ]
+    [ { id = "provider_h-3.5-35b-a3b-q4"; owned_by = "local" } ]
   in
   let props : Discovery.server_props option =
     Some
-      { total_slots = 4; ctx_size = 262144; model = "qwen3.5-35b"; supports_tools = None }
+      { total_slots = 4; ctx_size = 262144; model = "provider_h-3.5-35b"; supports_tools = None }
   in
   (* Discovery.infer_capabilities is internal, but we can test via
      the endpoint_status.capabilities after Discovery.discover.
      Here we verify the for_model_id lookup + with_context_size pattern. *)
   let caps =
-    match Capabilities.for_model_id "qwen3.5-35b-a3b-q4" with
+    match Capabilities.for_model_id "provider_h-3.5-35b-a3b-q4" with
     | Some c -> Capabilities.with_context_size c ~ctx_size:262144
     | None -> Capabilities.default_capabilities
   in

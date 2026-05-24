@@ -18,7 +18,7 @@ let provider_d_content_parts_of_blocks =
 ;;
 
 let provider_d_messages_of_message = Backend_provider_d_serialize.provider_d_messages_of_message
-let glm_messages_of_message = Backend_provider_d_serialize.glm_messages_of_message
+let provider_k_messages_of_message = Backend_provider_d_serialize.provider_k_messages_of_message
 let tool_choice_to_provider_d_json = Backend_provider_d_serialize.tool_choice_to_provider_d_json
 let build_provider_d_tool_json = Backend_provider_d_serialize.build_provider_d_tool_json
 let strip_orphaned_tool_results = Backend_provider_d_serialize.strip_orphaned_tool_results
@@ -165,13 +165,13 @@ let%test "provider_k drops top_k when model does not support it" =
 ;;
 
 let%test "ollama preserves min_p (llama.cpp supports it)" =
-  (* qwen3 via Ollama has supports_min_p = true in provider_m_capabilities.
+  (* provider_h_3 via Ollama has supports_min_p = true in provider_m_capabilities.
      The capability-gated path must still pass min_p through for
      providers that do support it. *)
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Ollama
-      ~model_id:"qwen3.5:35b-a3b-nvfp4"
+      ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434"
       ~min_p:0.05
       ()
@@ -555,7 +555,7 @@ let%test "provider_d_messages_of_message assistant excludes reasoning from conte
   && json |> member "reasoning_content" = `Null
 ;;
 
-let%test "glm_messages_of_message preserves reasoning_content separately" =
+let%test "provider_k_messages_of_message preserves reasoning_content separately" =
   let msg =
     { role = Assistant
     ; content =
@@ -567,7 +567,7 @@ let%test "glm_messages_of_message preserves reasoning_content separately" =
     ; metadata = []
     }
   in
-  let result = glm_messages_of_message msg in
+  let result = provider_k_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = ""
@@ -1360,11 +1360,11 @@ let%test "build_request emits chat_template_kwargs for provider_l (Chat_template
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request emits chat_template_kwargs for qwen3" =
+let%test "build_request emits chat_template_kwargs for provider_h_3" =
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"qwen3.5-35b-a3b"
+      ~model_id:"provider_h-3.5-35b-a3b"
       ~base_url:"http://localhost"
       ~enable_thinking:true
       ()

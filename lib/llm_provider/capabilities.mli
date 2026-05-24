@@ -135,12 +135,12 @@ type static_model_route =
   | Provider_f of provider_f_family
   | Provider_c_for_coding
   | Provider_c_k2
-  | Qwen3
+  | Provider_h_3
   | Llama_4
   | Provider_g_v4_flash
   | Provider_g_v4_pro
-  | Mistral_large
-  | Mistral_small
+  | Provider_j_large
+  | Provider_j_small
   | Command
   | Grok
   | Provider_l of { has_vision : bool }

@@ -79,12 +79,12 @@ let%test "agent_llm_a-opus-4-6 is cloud with 1M context" =
 ;;
 
 let%test "locality defaults to remote even for local-looking model ids" =
-  let m = for_model_id "qwen3.5-35b" in
+  let m = for_model_id "provider_h-3.5-35b" in
   m.context_window = 262_144 && (not m.is_local) && m.cost_per_1k_input = 0.0
 ;;
 
-let%test "qwen3.5-35b can be marked local explicitly" =
-  let m = for_model_id ~locality:`Local "qwen3.5-35b" in
+let%test "provider_h-3.5-35b can be marked local explicitly" =
+  let m = for_model_id ~locality:`Local "provider_h-3.5-35b" in
   m.context_window = 262_144 && m.is_local && m.cost_per_1k_input = 0.0
 ;;
 
@@ -141,7 +141,7 @@ let%test "for_provider_config uses provider locality" =
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"qwen3.5-35b"
+      ~model_id:"provider_h-3.5-35b"
       ~base_url:Constants.Endpoints.default_url
       ()
   in
@@ -153,7 +153,7 @@ let%test "for_provider_config keeps remote local-looking model ids remote" =
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"qwen3.5-35b"
+      ~model_id:"provider_h-3.5-35b"
       ~base_url:"https://api.example.com"
       ()
   in
@@ -162,12 +162,12 @@ let%test "for_provider_config keeps remote local-looking model ids remote" =
 ;;
 
 let%test "for_model_id_with_ctx overrides context_window" =
-  let m = for_model_id_with_ctx ~locality:`Local "qwen3.5-35b" ~ctx_size:131_072 in
+  let m = for_model_id_with_ctx ~locality:`Local "provider_h-3.5-35b" ~ctx_size:131_072 in
   m.context_window = 131_072 && m.capabilities.max_context_tokens = Some 131_072
 ;;
 
 let%test "is_free for local models" =
-  is_free (for_model_id "qwen3.5-35b") && not (is_free (for_model_id "agent_llm_a-opus-4-6"))
+  is_free (for_model_id "provider_h-3.5-35b") && not (is_free (for_model_id "agent_llm_a-opus-4-6"))
 ;;
 
 let%test "provider_k-5 is cloud" =
@@ -181,6 +181,6 @@ let%test "for_model_id_with_ctx clamps max_output" =
 ;;
 
 let%test "for_model_id_with_ctx guards zero" =
-  let m = for_model_id_with_ctx ~locality:`Local "qwen3.5-35b" ~ctx_size:0 in
+  let m = for_model_id_with_ctx ~locality:`Local "provider_h-3.5-35b" ~ctx_size:0 in
   m.context_window = 1
 ;;

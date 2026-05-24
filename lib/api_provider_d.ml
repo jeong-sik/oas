@@ -85,7 +85,7 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
   let provider_messages =
     let message_serializer =
       if is_glm_request ?provider_config config
-      then Llm_provider.Backend_provider_d_serialize.glm_messages_of_message
+      then Llm_provider.Backend_provider_d_serialize.provider_k_messages_of_message
       else provider_d_messages_of_message
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages

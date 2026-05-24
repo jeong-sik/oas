@@ -764,9 +764,9 @@ let complete_http
                 Diag.error "complete" "Provider_f API error: %s" msg;
                 Error
                   (Http_client.HttpError { code = 400; body = "Provider_f API error: " ^ msg })
-              | Backend_provider_k.Glm_api_error err ->
+              | Backend_provider_k.Provider_k_api_error err ->
                 let semantic_code =
-                  Backend_provider_k.http_code_of_glm_error_class err.error_class
+                  Backend_provider_k.http_code_of_provider_k_error_class err.error_class
                 in
                 let body = Printf.sprintf "Provider_k error %s: %s" err.code err.message in
                 Diag.error
@@ -2167,7 +2167,7 @@ let%test "apply_sampling_defaults Provider_d_compat provider_h model keeps min_p
   let config =
     Provider_config.make
       ~kind:Provider_d_compat
-      ~model_id:"qwen3.5-35b"
+      ~model_id:"provider_h-3.5-35b"
       ~base_url:"https://api.example.com/v1"
       ()
   in
@@ -2232,7 +2232,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
   let config =
     Provider_config.make
       ~kind:Ollama
-      ~model_id:"qwen3.5:9b"
+      ~model_id:"provider_h-3.5:9b"
       ~base_url:"http://localhost:11434"
       ()
   in
@@ -2268,7 +2268,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
     && t.reasoning_tokens = Some 10
     && t.provider_kind = Some Provider_config.Ollama
     && t.reasoning_effort = Some "none"
-    && t.canonical_model_id = Some "qwen3.5:9b"
+    && t.canonical_model_id = Some "provider_h-3.5:9b"
     && t.effective_context_window = Some 262_144
     && t.provider_internal_action_count = None
     && t.ttfrc_ms = None
@@ -2311,7 +2311,7 @@ let%test "patch_telemetry preserves ttfrc_ms/prefill_ms when optional args omitt
   let config =
     Provider_config.make
       ~kind:Ollama
-      ~model_id:"qwen3.5:9b"
+      ~model_id:"provider_h-3.5:9b"
       ~base_url:"http://localhost:11434"
       ()
   in
@@ -2349,7 +2349,7 @@ let%test "patch_telemetry overrides ttfrc_ms/prefill_ms when passed as Some" =
   let config =
     Provider_config.make
       ~kind:Ollama
-      ~model_id:"qwen3.5:9b"
+      ~model_id:"provider_h-3.5:9b"
       ~base_url:"http://localhost:11434"
       ()
   in

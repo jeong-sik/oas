@@ -257,7 +257,7 @@ let test_capabilities_provider_m_reasoning =
     ~name:"Provider_h models get reasoning capability"
     (QCheck.make
        (QCheck.Gen.oneof
-          [ QCheck.Gen.return "qwen3.5-35b"
+          [ QCheck.Gen.return "provider_h-3.5-35b"
           ; QCheck.Gen.return "Qwen2.5-72B"
           ; QCheck.Gen.return "provider_h-turbo"
           ]))

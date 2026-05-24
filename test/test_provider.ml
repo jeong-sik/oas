@@ -286,7 +286,7 @@ let test_non_zai_glm_capabilities_stay_provider_d_compat () =
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:8085" }
-    ; model_id = "qwen3.5-35b-a3b-ud-q8-xl"
+    ; model_id = "provider_h-3.5-35b-a3b-ud-q8-xl"
     ; api_key_env = "DUMMY_KEY"
     }
   in
@@ -306,7 +306,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
     Alcotest.(check string) "field" "modality" field;
     Alcotest.(check string)
       "detail"
-      "Model 'qwen3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support modality \
+      "Model 'provider_h-3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support modality \
        'image'"
       detail
   | Error e ->
@@ -324,7 +324,7 @@ let test_extended_provider_d_capabilities () =
            ; path = "/chat/completions"
            ; static_token = None
            })
-      ~model_id:"qwen3.5-35b-a3b-ud-q8-xl"
+      ~model_id:"provider_h-3.5-35b-a3b-ud-q8-xl"
   in
   Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
   Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
@@ -406,7 +406,7 @@ let test_pricing_local () =
   let p =
     Provider.pricing_for_provider
       ~provider:(Local { base_url = "http://127.0.0.1:8085" })
-      ~model_id:"qwen3.5-35b-a3b"
+      ~model_id:"provider_h-3.5-35b-a3b"
   in
   Alcotest.(check (float 0.001)) "free" 0.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "free output" 0.0 p.output_per_million
@@ -692,7 +692,7 @@ let test_provider_config_of_agent_none_fallback () =
 let test_provider_config_of_agent_local_strips_dummy_key () =
   let cfg : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:11434" }
-    ; model_id = "qwen3.5"
+    ; model_id = "provider_h-3.5"
     ; api_key_env = "IGNORED"
     }
   in

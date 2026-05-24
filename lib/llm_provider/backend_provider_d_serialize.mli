@@ -8,7 +8,7 @@
 val tool_calls_to_provider_d_json : Types.content_block list -> Yojson.Safe.t list
 val provider_d_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 val provider_d_messages_of_message : Types.message -> Yojson.Safe.t list
-val glm_messages_of_message : Types.message -> Yojson.Safe.t list
+val provider_k_messages_of_message : Types.message -> Yojson.Safe.t list
 val ollama_messages_of_message : ?model_id:string -> Types.message -> Yojson.Safe.t list
 val tool_choice_to_provider_d_json : Types.tool_choice -> Yojson.Safe.t
 val build_provider_d_tool_json : Yojson.Safe.t -> Yojson.Safe.t

@@ -859,12 +859,12 @@ let ollama_chunk_to_events (state : provider_d_stream_state) (chunk : ollama_chu
 
 let%test "parse_ollama_ndjson_chunk: content delta line" =
   let line =
-    {|{"model":"qwen3:8b","message":{"role":"assistant","content":"hi"},"done":false}|}
+    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":"hi"},"done":false}|}
   in
   match parse_ollama_ndjson_chunk line with
   | None -> false
   | Some c ->
-    c.oll_model = "qwen3:8b"
+    c.oll_model = "provider_h-3:8b"
     && c.oll_delta_content = Some "hi"
     && c.oll_delta_thinking = None
     && c.oll_tool_calls = []
@@ -875,7 +875,7 @@ let%test "parse_ollama_ndjson_chunk: content delta line" =
 
 let%test "parse_ollama_ndjson_chunk: done line carries timings + usage" =
   let line =
-    {|{"model":"qwen3:8b","message":{"role":"assistant","content":""},
+    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":""},
        "done_reason":"stop","done":true,
        "prompt_eval_count":15,"prompt_eval_duration":300000000,
        "eval_count":50,"eval_duration":1000000000}|}
@@ -905,7 +905,7 @@ let%test "parse_ollama_ndjson_chunk: done line carries timings + usage" =
 
 let%test "parse_ollama_ndjson_chunk: zero eval_duration → per_second None" =
   let line =
-    {|{"model":"qwen3:8b","message":{"role":"assistant","content":""},
+    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":""},
        "done":true,"eval_count":10,"eval_duration":0}|}
   in
   match parse_ollama_ndjson_chunk line with
@@ -918,7 +918,7 @@ let%test "parse_ollama_ndjson_chunk: zero eval_duration → per_second None" =
 
 let%test "parse_ollama_ndjson_chunk: tool_calls fully formed in done line" =
   let line =
-    {|{"model":"qwen3:8b","message":{"role":"assistant","content":"",
+    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":"",
        "tool_calls":[{"function":{"name":"foo","arguments":{"x":1}}}]},
        "done":true,"done_reason":"tool_calls"}|}
   in
@@ -948,7 +948,7 @@ let%test "parse_ollama_ndjson_chunk: malformed json → None" =
 let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
   let state = create_provider_d_stream_state () in
   let chunk =
-    { oll_model = "qwen3:8b"
+    { oll_model = "provider_h-3:8b"
     ; oll_delta_content = Some "hello"
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -971,7 +971,7 @@ let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
 let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
   let state = create_provider_d_stream_state () in
   let mk text =
-    { oll_model = "qwen3:8b"
+    { oll_model = "provider_h-3:8b"
     ; oll_delta_content = Some text
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -994,7 +994,7 @@ let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
 let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
   let state = create_provider_d_stream_state () in
   let chunk =
-    { oll_model = "qwen3:8b"
+    { oll_model = "provider_h-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -1023,7 +1023,7 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
 let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
   let state = create_provider_d_stream_state () in
   let chunk =
-    { oll_model = "qwen3:8b"
+    { oll_model = "provider_h-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = None
     ; oll_tool_calls =
@@ -1054,7 +1054,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
 let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
   let state = create_provider_d_stream_state () in
   let chunk =
-    { oll_model = "qwen3:8b"
+    { oll_model = "provider_h-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = Some "considering"
     ; oll_tool_calls = []

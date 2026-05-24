@@ -277,7 +277,7 @@ let test_parse_reasoning_chunk () =
 let test_parse_ollama_reasoning_fallback () =
   (* Ollama returns "reasoning" instead of "reasoning_content" *)
   let data =
-    {|{"id":"c-ollama","model":"qwen3.5:35b","choices":[{"index":0,"delta":{"reasoning":"Ollama thinking"},"finish_reason":null}]}|}
+    {|{"id":"c-ollama","model":"provider_h-3.5:35b","choices":[{"index":0,"delta":{"reasoning":"Ollama thinking"},"finish_reason":null}]}|}
   in
   match S.parse_provider_d_sse_chunk data with
   | Some chunk ->
