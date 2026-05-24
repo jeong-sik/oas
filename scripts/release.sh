@@ -19,6 +19,9 @@ if [[ "${1:-}" == "--tag" ]]; then
   TAG_MODE=true
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/release-version-lib.sh"
+
 # Check -1: running on `main` synced with origin/main.
 # Rationale: tag lands on HEAD, so a non-main HEAD (or a stale main)
 # produces an orphaned tag after PR merge rebases the SHA.
@@ -47,9 +50,9 @@ if [[ "$LOCAL_MAIN" != "$ORIGIN_MAIN" ]]; then
 fi
 
 # Extract versions from canonical sources
-DUNE_VER=$(grep '(version' dune-project | head -1 | sed 's/.*version \(.*\))/\1/')
-SDK_VER=$(sed -n 's/^let version = "\(.*\)"$/\1/p' lib/sdk_version.ml | head -1)
-OPAM_VER=$(sed -n 's/^version: "\(.*\)"$/\1/p' agent_sdk.opam | head -1)
+DUNE_VER=$(release_extract_dune_project_version dune-project)
+SDK_VER=$(release_extract_sdk_version lib/sdk_version.ml)
+OPAM_VER=$(release_extract_opam_version agent_sdk.opam)
 LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -1)
 
 echo "dune-project version: $DUNE_VER"
@@ -63,6 +66,13 @@ if [[ -z "$DUNE_VER" || -z "$SDK_VER" || -z "$OPAM_VER" ]]; then
   echo "ERROR: Failed to extract one or more version strings."
   exit 1
 fi
+
+for parsed_version in "$DUNE_VER" "$SDK_VER" "$OPAM_VER"; do
+  if ! release_is_supported_version "$parsed_version"; then
+    echo "ERROR: Extracted invalid release version string: $parsed_version"
+    exit 1
+  fi
+done
 
 # Check 1: dune-project == sdk_version.ml == agent_sdk.opam
 if [[ "$DUNE_VER" != "$SDK_VER" ]]; then
