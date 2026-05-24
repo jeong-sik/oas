@@ -1,8 +1,8 @@
 (** Minimal LLM call test — no tools, just one API round-trip *)
 open Agent_sdk
 
-let () =
-  Printf.printf "Testing LLM call via provider_a-proxy...\n%!";
+let run_live_test () =
+  Printf.printf "Testing LLM call via local LLM endpoint...\n%!";
   Eio_main.run
   @@ fun env ->
   let net = Eio.Stdenv.net env in
@@ -68,4 +68,12 @@ let () =
        Printf.printf "Usage: in=%d out=%d\n%!" u.Types.input_tokens u.output_tokens
      | None -> Printf.printf "No usage data\n%!")
   | Error e -> Printf.printf "Error: %s\n%!" (Error.to_string e)
+;;
+
+let () =
+  match Sys.getenv_opt "LLAMA_LIVE_TEST" with
+  | Some "1" -> run_live_test ()
+  | _ ->
+    Printf.printf
+      "Skipped: set LLAMA_LIVE_TEST=1 to run test_llm_call against local LLM\n%!"
 ;;

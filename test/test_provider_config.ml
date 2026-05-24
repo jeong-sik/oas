@@ -399,13 +399,13 @@ let test_kind_case_insensitive () =
   check_parse "PROVIDER_A" "PROVIDER_A" Provider_a;
   check_parse "Agent_llm_a" "Agent_llm_a" Provider_a;
   check_parse "Provider_k" "Provider_k" Provider_k;
-  check_parse "Gemini_CLI" "Gemini_CLI" Cli_tool_b
+  check_parse "CLI_TOOL_B" "CLI_TOOL_B" Cli_tool_b
 ;;
 
 let test_kind_whitespace () =
   check_parse "leading ws" "  agent_llm_a" Provider_a;
   check_parse "trailing ws" "ollama  " Ollama;
-  check_parse "both ws" "\topenai\n" Provider_d_compat
+  check_parse "both ws" "\tprovider_d_compat\n" Provider_d_compat
 ;;
 
 let test_kind_unknown_returns_none () =
