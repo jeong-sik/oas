@@ -2,6 +2,7 @@
 
 open Agent_sdk
 open Agent_sdk.Types
+module Retry = Llm_provider.Retry
 
 (* ── Module type satisfaction ────────────────────────────── *)
 
@@ -46,6 +47,28 @@ let provider_d_response =
   {|{"id":"chatcmpl-provider-intf","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}|}
 ;;
 
+let user_messages =
+  [ { role = User
+    ; content = [ Text "hello" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  ]
+;;
+
+let state_for_provider (provider : Provider.config) =
+  let config =
+    { default_config with
+      model = provider.model_id
+    ; system_prompt = Some "reply briefly"
+    ; max_turns = 1
+    ; max_tokens = Some 16
+    }
+  in
+  { config; messages = []; turn_count = 0; usage = empty_usage }
+;;
+
 let with_mock_server ~port handler f =
   Eio_main.run
   @@ fun env ->
@@ -87,25 +110,14 @@ let test_provider_dispatch_uses_http_client () =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
     let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
-    let config =
-      { default_config with
-        model = provider.model_id
-      ; system_prompt = Some "reply briefly"
-      ; max_turns = 1
-      ; max_tokens = Some 16
-      }
-    in
-    let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-    let messages =
-      [ { role = User
-        ; content = [ Text "hello" ]
-        ; name = None
-        ; tool_call_id = None
-        ; metadata = []
-        }
-      ]
-    in
-    match P.create_message ~sw ~net ~config:state ~messages () with
+    match
+      P.create_message
+        ~sw
+        ~net
+        ~config:(state_for_provider provider)
+        ~messages:user_messages
+        ()
+    with
     | Error err -> Alcotest.failf "expected Ok, got %s" (Error.to_string err)
     | Ok response ->
       Alcotest.(check (option string))
@@ -120,6 +132,116 @@ let test_provider_dispatch_uses_http_client () =
          | Some raw -> int_of_string_opt raw |> Option.value ~default:0 > 0
          | None -> false);
       Alcotest.(check string) "model" "mock" response.model)
+;;
+
+let test_provider_dispatch_maps_server_error () =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string
+      ~status:`Service_unavailable
+      ~body:"temporarily down"
+      ()
+  in
+  with_mock_server ~port:18356 handler (fun ~sw ~net ~base_url ->
+    let provider : Provider.config =
+      { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
+    in
+    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+    match
+      P.create_message
+        ~sw
+        ~net
+        ~config:(state_for_provider provider)
+        ~messages:user_messages
+        ()
+    with
+    | Error (Error.Api (Retry.ServerError { status; message })) ->
+      Alcotest.(check int) "status" 503 status;
+      Alcotest.(check string) "message" "temporarily down" message
+    | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
+    | Ok _ -> Alcotest.fail "expected server error")
+;;
+
+let test_provider_dispatch_rejects_malformed_provider_d_response () =
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"choices":"not-a-list"}|} ()
+  in
+  with_mock_server ~port:18357 handler (fun ~sw ~net ~base_url ->
+    let provider : Provider.config =
+      { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
+    in
+    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+    match
+      P.create_message
+        ~sw
+        ~net
+        ~config:(state_for_provider provider)
+        ~messages:user_messages
+        ()
+    with
+    | Error (Error.Api (Retry.InvalidRequest { message })) ->
+      Alcotest.(check bool) "parse message present" true (String.length message > 0)
+    | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
+    | Ok _ -> Alcotest.fail "expected malformed response rejection")
+;;
+
+let test_custom_provider_dispatch_uses_registered_impl () =
+  let custom_name = "provider-intf-custom-dispatch" in
+  let seen_path = ref None in
+  let seen_body = ref None in
+  let handler _conn req body =
+    seen_path := Some (Uri.path (Cohttp.Request.uri req));
+    seen_body := Some Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all);
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"custom response body" ()
+  in
+  with_mock_server ~port:18358 handler (fun ~sw ~net ~base_url ->
+    let impl : Provider.provider_impl =
+      { name = custom_name
+      ; request_kind = Provider.Custom custom_name
+      ; request_path = "/v1/custom"
+      ; capabilities =
+          { Provider.default_capabilities with supports_native_streaming = false }
+      ; build_body = (fun ~config:_ ~messages:_ ?tools:_ () -> {|{"custom":true}|})
+      ; parse_response =
+          (fun body ->
+            { id = "custom-id"
+            ; model = "custom-model"
+            ; stop_reason = EndTurn
+            ; content = [ Text body ]
+            ; usage = None
+            ; telemetry = None
+            })
+      ; resolve = (fun _cfg -> Ok (base_url, "", [ "Content-Type", "application/json" ]))
+      }
+    in
+    Provider.register_provider impl;
+    let provider =
+      Provider.custom_provider ~name:custom_name ~model_id:"custom-model" ()
+    in
+    (match Provider_intf.of_config_streaming provider with
+     | None -> ()
+     | Some _ -> Alcotest.fail "custom provider should not expose streaming");
+    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+    match
+      P.create_message
+        ~sw
+        ~net
+        ~config:(state_for_provider provider)
+        ~messages:user_messages
+        ()
+    with
+    | Error err -> Alcotest.failf "expected Ok, got %s" (Error.to_string err)
+    | Ok response ->
+      Alcotest.(check (option string)) "custom path" (Some "/v1/custom") !seen_path;
+      Alcotest.(check (option string)) "custom body" (Some {|{"custom":true}|}) !seen_body;
+      Alcotest.(check string) "custom response id" "custom-id" response.id;
+      Alcotest.(check string)
+        "custom response text"
+        "custom response body"
+        (match response.content with
+         | [ Text text ] -> text
+         | _ -> Alcotest.fail "expected text response"))
 ;;
 
 (* ── Runner ──────────────────────────────────────────────── *)
@@ -149,6 +271,18 @@ let () =
             "uses hardened post_sync headers"
             `Quick
             test_provider_dispatch_uses_http_client
+        ; Alcotest.test_case
+            "maps server error"
+            `Quick
+            test_provider_dispatch_maps_server_error
+        ; Alcotest.test_case
+            "rejects malformed response"
+            `Quick
+            test_provider_dispatch_rejects_malformed_provider_d_response
+        ; Alcotest.test_case
+            "custom provider dispatch"
+            `Quick
+            test_custom_provider_dispatch_uses_registered_impl
         ] )
     ]
 ;;
