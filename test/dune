@@ -47,6 +47,7 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
+  test_backend_provider_d_codec
   test_backend_tool_call_harness
   test_backend_provider_f
   test_body_timeout
@@ -266,6 +267,7 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
+  test_backend_provider_d_codec
   test_backend_tool_call_harness
   test_backend_provider_f
   test_body_timeout
