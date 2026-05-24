@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.17](https://github.com/jeong-sik/oas/compare/v0.196.16...v0.196.17) (2026-05-24)
+
+
+### Features
+
+* **runtime:** project checkpoint deltas from replay windows ([#1738](https://github.com/jeong-sik/oas/issues/1738)) ([e0377ad](https://github.com/jeong-sik/oas/commit/e0377ad0e574366fe6c8511e70bbda03a23ff5e7))
+
 ## [0.196.16](https://github.com/jeong-sik/oas/compare/v0.196.15...v0.196.16) (2026-05-24)
 
 
