@@ -24,7 +24,10 @@ let test_of_config_provider_d () =
 
 let test_provider_a_supports_streaming () =
   let config = Provider.provider_a_sonnet () in
-  Alcotest.(check bool) "provider_a streams" true (Provider_intf.supports_streaming config)
+  Alcotest.(check bool)
+    "provider_a streams"
+    true
+    (Provider_intf.supports_streaming config)
 ;;
 
 (* ── of_config_streaming ─────────────────────────────────── *)
@@ -129,7 +132,10 @@ let () =
             "provider_a satisfies PROVIDER"
             `Quick
             test_of_config_provider_a
-        ; Alcotest.test_case "provider_d satisfies PROVIDER" `Quick test_of_config_provider_d
+        ; Alcotest.test_case
+            "provider_d satisfies PROVIDER"
+            `Quick
+            test_of_config_provider_d
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case

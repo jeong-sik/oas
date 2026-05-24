@@ -36,7 +36,10 @@ let test_provider_a_basic_body () =
   let body = BA.build_request ~config ~messages:msgs () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  Alcotest.(check string) "model" "agent_llm_a-sonnet-4-6" (json |> member "model" |> to_string);
+  Alcotest.(check string)
+    "model"
+    "agent_llm_a-sonnet-4-6"
+    (json |> member "model" |> to_string);
   Alcotest.(check int) "max_tokens" 1024 (json |> member "max_tokens" |> to_int);
   Alcotest.(check bool) "stream false" false (json |> member "stream" |> to_bool);
   let msgs_json = json |> member "messages" |> to_list in
@@ -426,7 +429,10 @@ let test_provider_c_direct_with_tools_and_thinking () =
   let open Yojson.Safe.Util in
   let tools = json |> member "tools" |> to_list in
   let thinking = json |> member "thinking" in
-  Alcotest.(check string) "model" "provider_c-for-coding" (json |> member "model" |> to_string);
+  Alcotest.(check string)
+    "model"
+    "provider_c-for-coding"
+    (json |> member "model" |> to_string);
   Alcotest.(check int) "tool count" 1 (List.length tools);
   Alcotest.(check string)
     "thinking type"
@@ -765,7 +771,11 @@ let response_with_thinking =
 
 let test_provider_default_thinking_drift_is_info () =
   let config =
-    PC.make ~kind:Provider_d_compat ~model_id:"auto" ~base_url:"https://example.invalid/v1" ()
+    PC.make
+      ~kind:Provider_d_compat
+      ~model_id:"auto"
+      ~base_url:"https://example.invalid/v1"
+      ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
   Alcotest.(check bool)

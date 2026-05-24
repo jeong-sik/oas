@@ -365,7 +365,9 @@ let test_build_provider_d_body_with_provider_m_sampling () =
 ;;
 
 let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat () =
-  let provider_config = Provider.openrouter ~model_id:"provider_a/agent_llm_a-sonnet-4-6" () in
+  let provider_config =
+    Provider.openrouter ~model_id:"provider_a/agent_llm_a-sonnet-4-6" ()
+  in
   let state =
     { Types.config =
         { Types.default_config with
@@ -470,7 +472,11 @@ let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
     "clear_thinking default true"
     true
     (thinking |> member "clear_thinking" |> to_bool);
-  check string "provider_k tool choice coerced" "auto" (json |> member "tool_choice" |> to_string)
+  check
+    string
+    "provider_k tool choice coerced"
+    "auto"
+    (json |> member "tool_choice" |> to_string)
 ;;
 
 let test_build_provider_d_body_glm_preserves_reasoning_content () =
@@ -572,7 +578,11 @@ let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
   in
   let open Yojson.Safe.Util in
   let assoc = to_assoc json in
-  check bool "thinking omitted for non-zai provider_k" false (List.mem_assoc "thinking" assoc);
+  check
+    bool
+    "thinking omitted for non-zai provider_k"
+    false
+    (List.mem_assoc "thinking" assoc);
   check
     bool
     "chat_template_kwargs omitted for non-zai provider_k"
@@ -625,7 +635,11 @@ let test_build_provider_d_body_glm_tool_choice_none_omits_tools () =
   in
   let open Yojson.Safe.Util in
   let assoc = to_assoc json in
-  check bool "tool_choice omitted for provider_k none" false (List.mem_assoc "tool_choice" assoc);
+  check
+    bool
+    "tool_choice omitted for provider_k none"
+    false
+    (List.mem_assoc "tool_choice" assoc);
   check bool "tools omitted for provider_k none" false (List.mem_assoc "tools" assoc)
 ;;
 
@@ -1388,7 +1402,10 @@ let () =
         ; test_case "without thinking" `Quick test_build_body_without_thinking
         ; test_case "with tool_choice" `Quick test_build_body_with_tool_choice
         ; test_case "with tools" `Quick test_build_body_with_tools
-        ; test_case "provider_d json schema" `Quick test_build_provider_d_body_with_json_schema
+        ; test_case
+            "provider_d json schema"
+            `Quick
+            test_build_provider_d_body_with_json_schema
         ; test_case
             "provider_a sampling params serialized"
             `Quick
@@ -1397,7 +1414,10 @@ let () =
             "provider_a sampling params omitted when None"
             `Quick
             test_build_body_sampling_params_omitted_when_none
-        ; test_case "with provider_h sampling" `Quick test_build_provider_d_body_with_provider_m_sampling
+        ; test_case
+            "with provider_h sampling"
+            `Quick
+            test_build_provider_d_body_with_provider_m_sampling
         ; test_case
             "generic compat omits provider_h-only fields"
             `Quick
@@ -1450,7 +1470,10 @@ let () =
             "blank reasoning_content"
             `Quick
             test_parse_provider_d_response_blank_reasoning
-        ; test_case "no reasoning_content" `Quick test_parse_provider_d_response_no_reasoning
+        ; test_case
+            "no reasoning_content"
+            `Quick
+            test_parse_provider_d_response_no_reasoning
         ; test_case
             "ollama reasoning field"
             `Quick
@@ -1469,7 +1492,10 @@ let () =
             "provider_d api error unknown message"
             `Quick
             test_provider_d_api_error_unknown_message
-        ; test_case "provider_d error returns result" `Quick test_provider_d_error_returns_result
+        ; test_case
+            "provider_d error returns result"
+            `Quick
+            test_provider_d_error_returns_result
         ] )
     ; ( "parse_sse_event"
       , [ test_case "message_start" `Quick test_parse_sse_message_start

@@ -14,7 +14,8 @@
     it can be shared with {!Types} without creating a dependency cycle. *)
 type provider_kind = Provider_kind.t =
   | Provider_a
-  | Provider_c (** Provider_c Code direct API: Provider_a-compatible [/v1/messages]. @since 0.169.0 *)
+  | Provider_c
+  (** Provider_c Code direct API: Provider_a-compatible [/v1/messages]. @since 0.169.0 *)
   | Provider_d_compat
   | Ollama
   (** Ollama: Provider_d compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)

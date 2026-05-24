@@ -63,7 +63,8 @@ let all_event_kinds () =
     }
   in
   [ Session_started { goal = "collect telemetry"; participants = [ "alice" ] }
-  ; Session_settings_updated { model = Some "agent_llm_a-opus"; permission_mode = Some "safe" }
+  ; Session_settings_updated
+      { model = Some "agent_llm_a-opus"; permission_mode = Some "safe" }
   ; Turn_recorded { actor = Some "user"; message = "start" }
   ; Input_required input_request
   ; Input_provided

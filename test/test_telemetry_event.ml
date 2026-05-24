@@ -25,7 +25,11 @@ let check_float msg expected actual = check (float 0.001) msg expected actual
 let test_streaming_first_chunk () =
   let ev =
     Telemetry_event.Streaming_first_chunk
-      { provider = "provider_d"; model = "gpt-4"; ttfrc_ms = 123.456; requested_at = 1000.0 }
+      { provider = "provider_d"
+      ; model = "gpt-4"
+      ; ttfrc_ms = 123.456
+      ; requested_at = 1000.0
+      }
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_first_chunk r ->
@@ -108,7 +112,10 @@ let test_thinking_complete () =
 let test_timeout_no_response () =
   let ev =
     Telemetry_event.Timeout
-      { provider = "provider_f"; model = "flash"; timeout_type = Telemetry_event.No_response }
+      { provider = "provider_f"
+      ; model = "flash"
+      ; timeout_type = Telemetry_event.No_response
+      }
   in
   match roundtrip ev with
   | Telemetry_event.Timeout r ->

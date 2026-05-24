@@ -11,15 +11,26 @@ open Types
 
 (* ── Re-exports from serialization ─────────────────────── *)
 
-let tool_calls_to_provider_d_json = Backend_provider_d_serialize.tool_calls_to_provider_d_json
+let tool_calls_to_provider_d_json =
+  Backend_provider_d_serialize.tool_calls_to_provider_d_json
+;;
 
 let provider_d_content_parts_of_blocks =
   Backend_provider_d_serialize.provider_d_content_parts_of_blocks
 ;;
 
-let provider_d_messages_of_message = Backend_provider_d_serialize.provider_d_messages_of_message
-let provider_k_messages_of_message = Backend_provider_d_serialize.provider_k_messages_of_message
-let tool_choice_to_provider_d_json = Backend_provider_d_serialize.tool_choice_to_provider_d_json
+let provider_d_messages_of_message =
+  Backend_provider_d_serialize.provider_d_messages_of_message
+;;
+
+let provider_k_messages_of_message =
+  Backend_provider_d_serialize.provider_k_messages_of_message
+;;
+
+let tool_choice_to_provider_d_json =
+  Backend_provider_d_serialize.tool_choice_to_provider_d_json
+;;
+
 let build_provider_d_tool_json = Backend_provider_d_serialize.build_provider_d_tool_json
 let strip_orphaned_tool_results = Backend_provider_d_serialize.strip_orphaned_tool_results
 let strip_thinking_blocks = Backend_provider_d_serialize.strip_thinking_blocks
@@ -28,7 +39,10 @@ let strip_thinking_blocks = Backend_provider_d_serialize.strip_thinking_blocks
 
 let strip_json_markdown_fences = Backend_provider_d_parse.strip_json_markdown_fences
 let usage_of_provider_d_json = Backend_provider_d_parse.usage_of_provider_d_json
-let parse_provider_d_response_result = Backend_provider_d_parse.parse_provider_d_response_result
+
+let parse_provider_d_response_result =
+  Backend_provider_d_parse.parse_provider_d_response_result
+;;
 
 (* ── Re-exports from request building ─────────────────── *)
 
@@ -36,8 +50,15 @@ let warn_capability_drop = Backend_provider_d_request.warn_capability_drop
 let effective_tool_choice = Backend_provider_d_request.effective_tool_choice
 let effective_tools = Backend_provider_d_request.effective_tools
 let structured_schema_of_config = Backend_provider_d_request.structured_schema_of_config
-let provider_d_json_schema_payload = Backend_provider_d_request.provider_d_json_schema_payload
-let response_format_to_provider_d_json = Backend_provider_d_request.response_format_to_provider_d_json
+
+let provider_d_json_schema_payload =
+  Backend_provider_d_request.provider_d_json_schema_payload
+;;
+
+let response_format_to_provider_d_json =
+  Backend_provider_d_request.response_format_to_provider_d_json
+;;
+
 let response_format_of_config = Backend_provider_d_request.response_format_of_config
 let build_request = Backend_provider_d_request.build_request
 
@@ -1081,7 +1102,9 @@ let%test "provider_k build_request drops tool_choice when unsupported" =
   | _ -> false
 ;;
 
-let%test "provider_k build_request replays reasoning_content without leaking it into content" =
+let%test
+    "provider_k build_request replays reasoning_content without leaking it into content"
+  =
   let config =
     Provider_config.make
       ~kind:Provider_config.Provider_k

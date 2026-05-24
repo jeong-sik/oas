@@ -64,9 +64,9 @@ let part_of_content_block id_to_name = function
         Diag.warn
           "backend_provider_f"
           "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
-           using UUID as functionResponse name (Provider_f API requires name). This usually \
-           means the ToolUse block was in a conversation turn that was compacted or \
-           trimmed."
+           using UUID as functionResponse name (Provider_f API requires name). This \
+           usually means the ToolUse block was in a conversation turn that was compacted \
+           or trimmed."
           tool_use_id
           (Hashtbl.length id_to_name);
         tool_use_id
@@ -101,7 +101,9 @@ let contents_of_messages (messages : message list) =
          then
            contents
            := `Assoc
-                [ "role", `String (provider_f_role_of_oas msg.role); "parts", `List parts ]
+                [ "role", `String (provider_f_role_of_oas msg.role)
+                ; "parts", `List parts
+                ]
               :: !contents)
     messages;
   let system_instruction =

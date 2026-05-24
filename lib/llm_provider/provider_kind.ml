@@ -64,7 +64,13 @@ let default_api_key_env = function
 
 let is_subprocess_cli = function
   | Cli_tool_d | Cli_tool_b | Cli_tool_c | Cli_tool_a -> true
-  | Provider_a | Provider_c | Provider_d_compat | Ollama | Provider_f | Provider_k | Provider_h -> false
+  | Provider_a
+  | Provider_c
+  | Provider_d_compat
+  | Ollama
+  | Provider_f
+  | Provider_k
+  | Provider_h -> false
 ;;
 
 let of_string raw =

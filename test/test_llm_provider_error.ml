@@ -80,8 +80,8 @@ let test_capacity_exhausted () =
   check
     string
     "CapacityExhausted format"
-    "Provider capacity exhausted (model): model queue saturated affected=[provider_f-3-pro] \
-     (retry_after: 7.000s)"
+    "Provider capacity exhausted (model): model queue saturated \
+     affected=[provider_f-3-pro] (retry_after: 7.000s)"
     (Error.to_string
        (Error.CapacityExhausted
           { scope = Error.CapacityModel
@@ -175,10 +175,7 @@ let test_provider_terminal () =
     "Provider 'cli_tool_d' terminal max_turns:31/31: turn cap hit"
     (Error.to_string
        (Error.ProviderTerminal
-          { provider = "cli_tool_d"
-          ; reason = "max_turns:31/31"
-          ; detail = "turn cap hit"
-          }))
+          { provider = "cli_tool_d"; reason = "max_turns:31/31"; detail = "turn cap hit" }))
 ;;
 
 let test_retry_rate_limit_mapping () =

@@ -122,7 +122,8 @@ let test_zai_coding_auto_uses_coding_default_model () =
       in
       match Agent_sdk.Provider_bridge.to_provider_config legacy with
       | Error _ -> Alcotest.fail "z.ai coding provider should resolve without env var"
-      | Ok cfg -> Alcotest.(check string) "coding auto model" "provider_k-4.5-air" cfg.model_id))
+      | Ok cfg ->
+        Alcotest.(check string) "coding auto model" "provider_k-4.5-air" cfg.model_id))
 ;;
 
 let test_provider_c_custom_registered_becomes_provider_c_provider_config () =
@@ -153,7 +154,12 @@ let test_zai_coding_auto_models_default_order () =
   with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
     Alcotest.(check (list string))
       "coding auto order"
-      [ "provider_k-5.1"; "provider_k-5"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.5-air" ]
+      [ "provider_k-5.1"
+      ; "provider_k-5"
+      ; "provider_k-5-turbo"
+      ; "provider_k-4.7"
+      ; "provider_k-4.5-air"
+      ]
       (Llm_provider.Zai_catalog.provider_k_coding_auto_models ()))
 ;;
 
@@ -169,7 +175,10 @@ let () =
             "non-zai provider_k stays provider_d compat"
             `Quick
             test_non_zai_glm_stays_provider_d_compat
-        ; test_case "zai provider_k becomes provider_k" `Quick test_zai_glm_becomes_glm_provider_config
+        ; test_case
+            "zai provider_k becomes provider_k"
+            `Quick
+            test_zai_glm_becomes_glm_provider_config
         ; test_case
             "zai coding auto uses coding default model"
             `Quick

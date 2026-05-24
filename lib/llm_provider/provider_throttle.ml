@@ -107,15 +107,16 @@ let of_discovery_status (status : Discovery.endpoint_status) =
     All created with [source = Fallback]. *)
 let default_for_kind (kind : Provider_config.provider_kind) =
   match kind with
-  | Provider_config.Provider_d_compat | Provider_config.Ollama | Provider_config.Provider_h ->
-    create ~max_concurrent:4 ~provider_name:"local"
+  | Provider_config.Provider_d_compat
+  | Provider_config.Ollama
+  | Provider_config.Provider_h -> create ~max_concurrent:4 ~provider_name:"local"
   | Provider_config.Provider_a -> create ~max_concurrent:5 ~provider_name:"provider_a"
   | Provider_config.Provider_c -> create ~max_concurrent:5 ~provider_name:"provider_c"
   | Provider_config.Provider_f -> create ~max_concurrent:10 ~provider_name:"provider_f"
   | Provider_config.Provider_k -> create ~max_concurrent:10 ~provider_name:"provider_k"
   | Provider_config.Cli_tool_d -> create ~max_concurrent:2 ~provider_name:"cli_tool_d"
-  | Provider_config.Cli_tool_b | Provider_config.Cli_tool_c | Provider_config.Cli_tool_a ->
-    create ~max_concurrent:2 ~provider_name:"cli_subprocess"
+  | Provider_config.Cli_tool_b | Provider_config.Cli_tool_c | Provider_config.Cli_tool_a
+    -> create ~max_concurrent:2 ~provider_name:"cli_subprocess"
 ;;
 
 (* ── Capacity Query ────────────────────────────────────── *)

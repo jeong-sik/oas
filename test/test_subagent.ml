@@ -464,7 +464,11 @@ let () =
             in
             check string "name" "helper" target.name;
             check string "desc" "Helps out" target.description;
-            check bool "model" true (target.config.model = "agent_llm_a-haiku-4-5-20251001");
+            check
+              bool
+              "model"
+              true
+              (target.config.model = "agent_llm_a-haiku-4-5-20251001");
             check int "max_turns" 3 target.config.max_turns;
             check
               (option string)

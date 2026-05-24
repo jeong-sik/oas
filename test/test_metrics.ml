@@ -238,11 +238,13 @@ let test_prometheus_text_histogram_exports_labeled_series () =
     text;
   check_line
     "labeled sum"
-    "gen_ai_client_ttfrc_sum{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\"} 3.5"
+    "gen_ai_client_ttfrc_sum{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\"} \
+     3.5"
     text;
   check_line
     "labeled count"
-    "gen_ai_client_ttfrc_count{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\"} 2"
+    "gen_ai_client_ttfrc_count{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"provider_d\"} \
+     2"
     text
 ;;
 

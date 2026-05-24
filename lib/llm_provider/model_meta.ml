@@ -167,7 +167,8 @@ let%test "for_model_id_with_ctx overrides context_window" =
 ;;
 
 let%test "is_free for local models" =
-  is_free (for_model_id "provider_h-3.5-35b") && not (is_free (for_model_id "agent_llm_a-opus-4-6"))
+  is_free (for_model_id "provider_h-3.5-35b")
+  && not (is_free (for_model_id "agent_llm_a-opus-4-6"))
 ;;
 
 let%test "provider_k-5 is cloud" =

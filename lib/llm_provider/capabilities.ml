@@ -308,7 +308,8 @@ let provider_k_capabilities =
 
     @since 0.196.3 *)
 type provider_f_family =
-  | Provider_f_3_1 (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
+  | Provider_f_3_1
+  (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
   | Provider_f_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
   | Provider_f_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
   | Provider_f_other of string
@@ -493,13 +494,16 @@ let static_model_route_of_id model_id =
   then Some Gpt_4o
   else (
     match provider_f_family_of_id m with
-    | (Provider_f_3 | Provider_f_3_1 | Provider_f_2_5) as family -> Some (Provider_f family)
+    | (Provider_f_3 | Provider_f_3_1 | Provider_f_2_5) as family ->
+      Some (Provider_f family)
     | Provider_f_other _ ->
       if String.starts_with ~prefix:"provider_c-for-coding" m
       then Some Provider_c_for_coding
       else if String.starts_with ~prefix:"provider_c-k2" m
       then Some Provider_c_k2
-      else if String.starts_with ~prefix:"provider_h-3" m
+      else if
+        String.starts_with ~prefix:"provider_h-3" m
+        || String.starts_with ~prefix:"provider_h_3" m
       then Some Provider_h_3
       else if
         String.starts_with ~prefix:"llama-4" m || String.starts_with ~prefix:"llama4" m
@@ -514,7 +518,8 @@ let static_model_route_of_id model_id =
       then Some Provider_j_small
       else if String.starts_with ~prefix:"command" m
       then Some Command
-      else if String.starts_with ~prefix:"grok" m
+      else if
+        String.starts_with ~prefix:"grok" m || String.starts_with ~prefix:"model-e" m
       then Some Grok
       else if
         String.starts_with ~prefix:"nvidia/provider_l" m
@@ -542,7 +547,8 @@ let static_model_route_of_id model_id =
       else if String.starts_with ~prefix:"provider_k-ocr" m
       then Some Glm_ocr
       else if
-        String.starts_with ~prefix:"provider_k-4.6v" m || String.starts_with ~prefix:"provider_k-4.5v" m
+        String.starts_with ~prefix:"provider_k-4.6v" m
+        || String.starts_with ~prefix:"provider_k-4.5v" m
       then Some Glm_4_vision_reasoning
       else if String.starts_with ~prefix:"provider_k-5-code" m
       then Some Glm_5_code
@@ -1335,7 +1341,9 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.thinking_control_format = cb.thinking_control_format
     | _ -> false
   in
-  let alias_pairs = [ "provider_d", "provider_d_chat"; "provider_k", "provider_k-coding" ] in
+  let alias_pairs =
+    [ "provider_d", "provider_d_chat"; "provider_k", "provider_k-coding" ]
+  in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
   && Option.is_some (resolve "provider_a")
   && Option.is_some (resolve "provider_f")

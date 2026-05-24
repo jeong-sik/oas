@@ -126,7 +126,8 @@ let checkpoint_gen =
   let* session_id = small_string_gen in
   let* agent_name = small_string_gen in
   let* model =
-    oneof [ return "agent_llm_a-sonnet-4-6"; return "agent_llm_a-opus-4-6"; small_string_gen ]
+    oneof
+      [ return "agent_llm_a-sonnet-4-6"; return "agent_llm_a-opus-4-6"; small_string_gen ]
   in
   let* system_prompt = option small_string_gen in
   let* messages = list_size (int_range 0 5) message_gen in

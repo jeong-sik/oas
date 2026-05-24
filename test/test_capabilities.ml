@@ -160,7 +160,8 @@ let pp_static_model_route ppf = function
   | Capabilities.Gpt_5 -> Format.fprintf ppf "Gpt_5"
   | Capabilities.Gpt_4_1 -> Format.fprintf ppf "Gpt_4_1"
   | Capabilities.Gpt_4o -> Format.fprintf ppf "Gpt_4o"
-  | Capabilities.Provider_f family -> Format.fprintf ppf "Provider_f(%a)" pp_provider_f_family family
+  | Capabilities.Provider_f family ->
+    Format.fprintf ppf "Provider_f(%a)" pp_provider_f_family family
   | Capabilities.Provider_c_for_coding -> Format.fprintf ppf "Provider_c_for_coding"
   | Capabilities.Provider_c_k2 -> Format.fprintf ppf "Provider_c_k2"
   | Capabilities.Provider_h_3 -> Format.fprintf ppf "Provider_h_3"
@@ -251,7 +252,11 @@ let test_provider_f_family_drives_capabilities () =
     "provider_f-3.1-pro-preview ctx"
     (Some 1_000_000)
     (ctx "provider_f-3.1-pro-preview");
-  check (option int) "provider_f-2.5-flash ctx" (Some 1_000_000) (ctx "provider_f-2.5-flash")
+  check
+    (option int)
+    "provider_f-2.5-flash ctx"
+    (Some 1_000_000)
+    (ctx "provider_f-2.5-flash")
 ;;
 
 let test_static_model_route_normalizes_cloud_suffix () =
@@ -353,7 +358,11 @@ let test_lookup_unknown () =
 ;;
 
 let test_lookup_case_insensitive () =
-  check bool "uppercase matches" true (Capabilities.for_model_id "Agent_llm_a-Opus-4-6" <> None)
+  check
+    bool
+    "uppercase matches"
+    true
+    (Capabilities.for_model_id "Agent_llm_a-Opus-4-6" <> None)
 ;;
 
 let test_lookup_glm5_text_only () =

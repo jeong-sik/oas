@@ -12,7 +12,11 @@ let test_discovery_infers_from_model_name () =
   in
   let props : Discovery.server_props option =
     Some
-      { total_slots = 4; ctx_size = 262144; model = "provider_h-3.5-35b"; supports_tools = None }
+      { total_slots = 4
+      ; ctx_size = 262144
+      ; model = "provider_h-3.5-35b"
+      ; supports_tools = None
+      }
   in
   (* Discovery.infer_capabilities is internal, but we can test via
      the endpoint_status.capabilities after Discovery.discover.
@@ -39,15 +43,27 @@ let test_filter_parallel_tools () =
   let no =
     { Capabilities.default_capabilities with supports_parallel_tool_calls = false }
   in
-  check bool "provider_a has parallel" true (Capability_filter.requires_parallel_tools yes);
+  check
+    bool
+    "provider_a has parallel"
+    true
+    (Capability_filter.requires_parallel_tools yes);
   check bool "default lacks parallel" false (Capability_filter.requires_parallel_tools no)
 ;;
 
 let test_filter_thinking () =
   let agent_llm_a = Capabilities.provider_a_capabilities in
   let basic = Capabilities.provider_d_chat_capabilities in
-  check bool "agent_llm_a has thinking" true (Capability_filter.requires_thinking agent_llm_a);
-  check bool "basic provider_d no thinking" false (Capability_filter.requires_thinking basic)
+  check
+    bool
+    "agent_llm_a has thinking"
+    true
+    (Capability_filter.requires_thinking agent_llm_a);
+  check
+    bool
+    "basic provider_d no thinking"
+    false
+    (Capability_filter.requires_thinking basic)
 ;;
 
 let test_filter_fits_context () =

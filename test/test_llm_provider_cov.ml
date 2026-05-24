@@ -656,7 +656,9 @@ let test_build_request_basic () =
       ~temperature:0.5
       ()
   in
-  let body_str = Backend_provider_f.build_request ~config ~messages:[ user_msg "hello" ] () in
+  let body_str =
+    Backend_provider_f.build_request ~config ~messages:[ user_msg "hello" ] ()
+  in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   (* Check contents exist *)
@@ -671,9 +673,15 @@ let test_build_request_basic () =
 
 let test_build_request_with_system_prompt () =
   let config =
-    make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~system_prompt:"be helpful" ()
+    make_config
+      ~kind:Provider_f
+      ~model_id:provider_f25_flash_model
+      ~system_prompt:"be helpful"
+      ()
   in
-  let body_str = Backend_provider_f.build_request ~config ~messages:[ user_msg "hello" ] () in
+  let body_str =
+    Backend_provider_f.build_request ~config ~messages:[ user_msg "hello" ] ()
+  in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   match json |> member "systemInstruction" with
@@ -707,7 +715,11 @@ let test_build_request_with_thinking () =
 
 let test_build_request_with_thinking_default_budget () =
   let config =
-    make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~enable_thinking:true ()
+    make_config
+      ~kind:Provider_f
+      ~model_id:provider_f25_flash_model
+      ~enable_thinking:true
+      ()
   in
   let body_str =
     Backend_provider_f.build_request ~config ~messages:[ user_msg "reason" ] ()
@@ -911,7 +923,11 @@ let test_llm_transport_runtime_mcp_policy_json () =
 
 let test_build_request_json_mode () =
   let config =
-    make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~response_format_json:true ()
+    make_config
+      ~kind:Provider_f
+      ~model_id:provider_f25_flash_model
+      ~response_format_json:true
+      ()
   in
   let body_str =
     Backend_provider_f.build_request ~config ~messages:[ user_msg "json pls" ] ()
@@ -994,7 +1010,9 @@ let test_build_request_tool_choice_none () =
   let config =
     make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~tool_choice:None_ ()
   in
-  let body_str = Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] () in
+  let body_str =
+    Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
+  in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   let tc = json |> member "toolConfig" |> member "functionCallingConfig" in
@@ -1009,7 +1027,9 @@ let test_build_request_tool_choice_specific () =
       ~tool_choice:(Tool "get_weather")
       ()
   in
-  let body_str = Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] () in
+  let body_str =
+    Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
+  in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   let tc = json |> member "toolConfig" |> member "functionCallingConfig" in
@@ -1029,7 +1049,9 @@ let test_build_request_top_p_top_k () =
       ~top_k:40
       ()
   in
-  let body_str = Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] () in
+  let body_str =
+    Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
+  in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   let gc = json |> member "generationConfig" in
@@ -1285,7 +1307,10 @@ let test_parse_response_usage_with_cache () =
 
 let test_requires_tools () =
   let caps = Capabilities.provider_a_capabilities in
-  Alcotest.(check bool) "provider_a has tools" true (Capability_filter.requires_tools caps);
+  Alcotest.(check bool)
+    "provider_a has tools"
+    true
+    (Capability_filter.requires_tools caps);
   Alcotest.(check bool)
     "default no tools"
     false
@@ -1354,7 +1379,8 @@ let test_requires_structured_output () =
   Alcotest.(check bool)
     "provider_d structured"
     true
-    (Capability_filter.requires_structured_output Capabilities.provider_d_chat_capabilities);
+    (Capability_filter.requires_structured_output
+       Capabilities.provider_d_chat_capabilities);
   Alcotest.(check bool)
     "default no structured"
     false
@@ -1761,7 +1787,9 @@ let test_with_context_size () =
 
 let test_with_context_size_overrides () =
   let c =
-    Capabilities.with_context_size Capabilities.provider_a_capabilities ~ctx_size:1_000_000
+    Capabilities.with_context_size
+      Capabilities.provider_a_capabilities
+      ~ctx_size:1_000_000
   in
   Alcotest.(check (option int)) "overrides" (Some 1_000_000) c.max_context_tokens
 ;;
@@ -1976,9 +2004,18 @@ let () =
         ; Alcotest.test_case "provider_k" `Quick test_provider_k_capabilities
         ] )
     ; ( "capabilities.for_model_id"
-      , [ Alcotest.test_case "agent_llm_a-opus-4" `Quick test_for_model_id_agent_llm_a_opus_4
-        ; Alcotest.test_case "agent_llm_a-sonnet-4" `Quick test_for_model_id_agent_llm_a_sonnet_4
-        ; Alcotest.test_case "agent_llm_a-haiku-4" `Quick test_for_model_id_agent_llm_a_haiku_4
+      , [ Alcotest.test_case
+            "agent_llm_a-opus-4"
+            `Quick
+            test_for_model_id_agent_llm_a_opus_4
+        ; Alcotest.test_case
+            "agent_llm_a-sonnet-4"
+            `Quick
+            test_for_model_id_agent_llm_a_sonnet_4
+        ; Alcotest.test_case
+            "agent_llm_a-haiku-4"
+            `Quick
+            test_for_model_id_agent_llm_a_haiku_4
         ; Alcotest.test_case "gpt-5" `Quick test_for_model_id_gpt5
         ; Alcotest.test_case "gpt-4.1" `Quick test_for_model_id_gpt41
         ; Alcotest.test_case "model-d" `Quick test_for_model_id_gpt4o
@@ -1991,7 +2028,10 @@ let () =
             "provider_g-v4-flash"
             `Quick
             test_for_model_id_provider_g_v4_flash
-        ; Alcotest.test_case "provider_g-v4-pro" `Quick test_for_model_id_provider_g_v4_pro
+        ; Alcotest.test_case
+            "provider_g-v4-pro"
+            `Quick
+            test_for_model_id_provider_g_v4_pro
         ; Alcotest.test_case "provider_j-large" `Quick test_for_model_id_provider_j_large
         ; Alcotest.test_case "provider_j-small" `Quick test_for_model_id_provider_j_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command

@@ -660,7 +660,10 @@ let warn_unsupported_once (config : config) (req_config : Provider_config.t) war
   else (
     warned := true;
     let warn field =
-      Diag.warn "transport_agent_code_cli" "%s is not supported by cli_tool_a, ignoring" field
+      Diag.warn
+        "transport_agent_code_cli"
+        "%s is not supported by cli_tool_a, ignoring"
+        field
     in
     if Option.is_some config.mcp_config then warn "mcp_config";
     if config.allowed_tools <> [] then warn "allowed_tools";
@@ -828,7 +831,8 @@ let%test "build_args includes --json flag" =
   let args, env =
     build_args ~config:default_config ~req_config:(agent_code_req ()) ~prompt:"hello" ()
   in
-  args = [ "agent_code"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hello" ]
+  args
+  = [ "agent_code"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hello" ]
   && env = []
 ;;
 
@@ -1204,10 +1208,21 @@ let%test "default: argv disables MCP even with no env" =
       with_unset "OAS_CLI_TOOL_A_PROFILE" (fun () ->
         with_unset "OAS_CLI_TOOL_A_SKIP_GIT" (fun () ->
           let args, _ =
-            build_args ~config:default_config ~req_config:(agent_code_req ()) ~prompt:"hi" ()
+            build_args
+              ~config:default_config
+              ~req_config:(agent_code_req ())
+              ~prompt:"hi"
+              ()
           in
           args
-          = [ "agent_code"; "exec"; "--json"; "--ephemeral"; "-c"; "mcp_servers={}"; "hi" ]))))
+          = [ "agent_code"
+            ; "exec"
+            ; "--json"
+            ; "--ephemeral"
+            ; "-c"
+            ; "mcp_servers={}"
+            ; "hi"
+            ]))))
 ;;
 
 let%test "env: OAS_CLI_TOOL_A_CONFIG emits -c pairs before prompt" =

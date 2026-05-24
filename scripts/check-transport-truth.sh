@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-transport-truth.sh
 # Drift gate for OAS CLI transports
-# (transport_{claude_code,gemini_cli,kimi_cli,codex_cli}).
+# (transport_cli_tool_{a,b,c,d}).
 #
 # Background
 # ----------
@@ -11,7 +11,7 @@
 #   - mark it as a parity-only field and warn via warn_unsupported_once.
 #
 # Prior audits (see planning/task-118/origin-report.md, 2026-04-16) found
-# that transport_gemini_cli.mli and transport_codex_cli.mli declared
+# that the Gemini/Codex CLI transport mli files declared
 # fields (max_turns / allowed_tools / mcp_config / permission_mode) whose
 # behavior only existed as a warn-and-drop. The .mli comments claimed
 # "Gemini has no equivalent flag" — a claim that was false by 2026-04
@@ -44,10 +44,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # transport name : path prefix (relative to ROOT, without .ml/.mli suffix)
 TRANSPORTS=(
-  "claude_code:lib/llm_provider/transport_claude_code"
-  "gemini_cli:lib/llm_provider/transport_gemini_cli"
-  "kimi_cli:lib/llm_provider/transport_kimi_cli"
-  "codex_cli:lib/llm_provider/transport_codex_cli"
+  "cli_tool_a:lib/llm_provider/transport_cli_tool_a"
+  "cli_tool_b:lib/llm_provider/transport_cli_tool_b"
+  "cli_tool_c:lib/llm_provider/transport_cli_tool_c"
+  "cli_tool_d:lib/llm_provider/transport_cli_tool_d"
 )
 
 # Extract field names from the `type config = { ... }` record block.

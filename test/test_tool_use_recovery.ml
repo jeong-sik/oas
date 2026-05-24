@@ -175,7 +175,10 @@ let () =
         ] )
     ; ( "extract_name_and_input"
       , [ test_case "provider_a style" `Quick test_extract_provider_a_style
-        ; test_case "provider_d arguments object" `Quick test_extract_provider_d_arguments_object
+        ; test_case
+            "provider_d arguments object"
+            `Quick
+            test_extract_provider_d_arguments_object
         ; test_case "double stringified" `Quick test_extract_double_stringified
         ; test_case "tool_calls wrapper" `Quick test_extract_tool_calls_wrapper
         ; test_case "no shape" `Quick test_extract_none

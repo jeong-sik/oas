@@ -9,7 +9,8 @@
 
 (** Configuration for the Provider_f CLI subprocess. *)
 type config =
-  { provider_f_path : string (** Path to the [provider_f] executable. Default ["provider_f"]. *)
+  { provider_f_path : string
+    (** Path to the [provider_f] executable. Default ["provider_f"]. *)
   ; model : string option (** [--model] override. [None] uses the user's default. *)
   ; yolo : bool (** [--yolo] flag disables confirmation prompts. Default [true]. *)
   ; cwd : string option (** Working directory for the subprocess. *)

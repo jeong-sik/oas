@@ -10,7 +10,7 @@ let provider_a_base_url = "https://api.z.ai/api/provider_a"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
-  m = "provider_k" || (String.length m > 4 && String.sub m 0 4 = "provider_k-")
+  m = "provider_k" || String.starts_with ~prefix:"provider_k-" m
 ;;
 
 let has_prefix value prefix =
@@ -83,13 +83,20 @@ let split_csv = Cli_common_env.split_on_char_trim ','
 let provider_k_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with
   | Some models -> models
-  | None -> [ "provider_k-5.1"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.7-flashx" ]
+  | None ->
+    [ "provider_k-5.1"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.7-flashx" ]
 ;;
 
 let provider_k_coding_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
   | Some models -> models
-  | None -> [ "provider_k-5.1"; "provider_k-5"; "provider_k-5-turbo"; "provider_k-4.7"; "provider_k-4.5-air" ]
+  | None ->
+    [ "provider_k-5.1"
+    ; "provider_k-5"
+    ; "provider_k-5-turbo"
+    ; "provider_k-4.7"
+    ; "provider_k-4.5-air"
+    ]
 ;;
 
 let resolve_glm_alias ~default_model model_id =
@@ -166,7 +173,9 @@ let throttle_key_for_chat ~base_url ~model_id =
 [@@@coverage off]
 
 let%test "is_glm_model_id accepts provider_k prefixes only" =
-  is_glm_model_id "provider_k-5" && is_glm_model_id "provider_k" && not (is_glm_model_id "gpt-5")
+  is_glm_model_id "provider_k-5"
+  && is_glm_model_id "provider_k"
+  && not (is_glm_model_id "gpt-5")
 ;;
 
 let%test "base_url classifiers distinguish general coding and provider_a" =
@@ -190,7 +199,8 @@ let%test "resolve_glm_alias covers common aliases" =
   && resolve_glm_alias ~default_model:"provider_k-5.1" "flash" = "provider_k-4.7-flashx"
   && resolve_glm_alias ~default_model:"provider_k-5.1" "vf" = "provider_k-4.6v-flashx"
   && resolve_glm_alias ~default_model:"provider_k-5.1" "air" = "provider_k-4.5-air"
-  && resolve_glm_alias ~default_model:"provider_k-5.1" "provider_k-5-turbo" = "provider_k-5-turbo"
+  && resolve_glm_alias ~default_model:"provider_k-5.1" "provider_k-5-turbo"
+     = "provider_k-5-turbo"
 ;;
 
 let%test "general_concurrency_for_model hits key provider_k families" =
@@ -206,7 +216,8 @@ let%test "general_concurrency_for_model hits key provider_k families" =
 let%test "throttle_key_for_chat separates coding and general plans" =
   throttle_key_for_chat ~base_url:general_base_url ~model_id:" Provider_k-5 "
   = "zai/general/chat/provider_k-5"
-  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"provider_k-5" = "zai/coding/chat"
+  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"provider_k-5"
+     = "zai/coding/chat"
 ;;
 
 let%test "is_zai_base_url rejects untrusted host lookalikes" =

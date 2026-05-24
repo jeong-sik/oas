@@ -410,7 +410,10 @@ let test_apply_agent_spawn () =
     in
     Alcotest.(check bool) "state Starting" true (bob.state = Starting);
     Alcotest.(check (option string)) "role" (Some "reviewer") bob.role;
-    Alcotest.(check (option string)) "req_provider" (Some "provider_d") bob.requested_provider
+    Alcotest.(check (option string))
+      "req_provider"
+      (Some "provider_d")
+      bob.requested_provider
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 

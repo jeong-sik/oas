@@ -12,7 +12,8 @@
 
 (** Configuration for the Agent_code CLI subprocess. *)
 type config =
-  { agent_code_path : string (** Path to the [agent_code] executable. Default ["agent_code"]. *)
+  { agent_code_path : string
+    (** Path to the [agent_code] executable. Default ["agent_code"]. *)
   ; model : string option
     (** [--model] override. [None] uses the user's Agent_code CLI default.
 
