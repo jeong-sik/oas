@@ -8,9 +8,35 @@ let mk_event seq =
   }
 ;;
 
+let mk_runtime_event seq kind = { Runtime.seq; ts = float_of_int seq; kind }
+
 let expect_ok label = function
   | Ok value -> value
   | Error _ -> failf "%s failed" label
+;;
+
+let decode_window label window =
+  Runtime_sync.to_json window |> Runtime_sync.of_json |> expect_ok label
+;;
+
+let apply_event label session event =
+  match Runtime_projection.apply_event session event with
+  | Ok session -> session
+  | Error err -> failf "%s failed: %s" label (Error.to_string err)
+;;
+
+let apply_records label session (records : Runtime_sync.event_record list) =
+  List.fold_left
+    (fun session (record : Runtime_sync.event_record) ->
+       apply_event label session record.event)
+    session
+    records
+;;
+
+let single_window_event label (window : Runtime_sync.window) =
+  match window.events with
+  | [ record ] -> record.event
+  | records -> failf "%s expected one event, got %d" label (List.length records)
 ;;
 
 let test_make_window_sets_cursors () =
@@ -193,6 +219,97 @@ let test_merge_offline_events_reports_conflict () =
     check int "conflict seq" 2 (List.hd conflicts).Runtime_sync.seq
 ;;
 
+let test_a2a_resume_fixture_uses_runtime_input_events () =
+  let stream_id = "a2a-task/task-42" in
+  let start_request : Runtime.start_request =
+    { session_id = Some "session-a2a-resume"
+    ; goal = "Resume external task"
+    ; participants = [ "planner" ]
+    ; provider = Some "mock"
+    ; model = None
+    ; permission_mode = Some "default"
+    ; system_prompt = None
+    ; max_turns = Some 3
+    ; workdir = None
+    }
+  in
+  let input_request : Runtime.input_request =
+    { request_id = "input-task-42"
+    ; participant_name = Some "planner"
+    ; question = "Provide task resume payload"
+    ; schema =
+        Some
+          (`Assoc
+              [ "type", `String "object"
+              ; "required", `List [ `String "decision" ]
+              ; "properties", `Assoc [ "decision", `Assoc [ "type", `String "string" ] ]
+              ])
+    ; timeout_s = Some 60.0
+    ; created_at = 2.0
+    }
+  in
+  let session_started =
+    mk_runtime_event
+      1
+      (Runtime.Session_started
+         { goal = start_request.goal; participants = start_request.participants })
+  in
+  let input_required = mk_runtime_event 2 (Runtime.Input_required input_request) in
+  let input_provided =
+    mk_runtime_event
+      3
+      (Runtime.Input_provided
+         { request_id = input_request.request_id
+         ; participant_name = input_request.participant_name
+         ; response = Runtime.Input_answer (`Assoc [ "decision", `String "approve" ])
+         })
+  in
+  let pause_events = [ session_started; input_required ] in
+  let events = pause_events @ [ input_provided ] in
+  let running =
+    Runtime_projection.initial_session start_request
+    |> fun session -> apply_event "session start" session session_started
+  in
+  let pause_window =
+    Runtime_sync.make_window
+      ~artifact_refs:[ "a2a://task/task-42" ]
+      ~stream_id
+      ~after_seq:1
+      pause_events
+    |> decode_window "pause window decode"
+  in
+  check int "pause cursor" 1 pause_window.cursor.after_seq;
+  check int "pause next cursor" 2 pause_window.next_cursor.after_seq;
+  (match single_window_event "pause" pause_window with
+   | { kind = Runtime.Input_required request; _ } ->
+     check string "pause request id" input_request.request_id request.request_id
+   | event -> failf "expected Input_required, got %s" (Runtime.show_event event));
+  let paused = apply_records "pause replay" running pause_window.events in
+  check bool "paused phase" true (paused.phase = Runtime.Input_required);
+  (match paused.pending_input with
+   | Some pending ->
+     check string "pending input request" input_request.request_id pending.request_id
+   | None -> fail "missing pending input after pause replay");
+  let resume_window =
+    Runtime_sync.make_window
+      ~artifact_refs:[ "a2a://task/task-42" ]
+      ~stream_id
+      ~after_seq:2
+      events
+    |> decode_window "resume window decode"
+  in
+  check int "resume cursor" 2 resume_window.cursor.after_seq;
+  check int "resume next cursor" 3 resume_window.next_cursor.after_seq;
+  (match single_window_event "resume" resume_window with
+   | { kind = Runtime.Input_provided detail; _ } ->
+     check string "resume request id" input_request.request_id detail.request_id
+   | event -> failf "expected Input_provided, got %s" (Runtime.show_event event));
+  let resumed = apply_records "resume replay" paused resume_window.events in
+  check bool "resumed phase" true (resumed.phase = Runtime.Running);
+  check bool "pending cleared" true (Option.is_none resumed.pending_input);
+  check int "resume counts as turn" 1 resumed.turn_count
+;;
+
 let () =
   run
     "Runtime_sync"
@@ -231,6 +348,12 @@ let () =
             "reports committed sequence conflicts"
             `Quick
             test_merge_offline_events_reports_conflict
+        ] )
+    ; ( "resume_fixture"
+      , [ test_case
+            "A2A adapter pause/resume uses Runtime input replay"
+            `Quick
+            test_a2a_resume_fixture_uses_runtime_input_events
         ] )
     ]
 ;;
