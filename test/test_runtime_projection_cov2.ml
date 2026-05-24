@@ -36,6 +36,7 @@ let mk_session
       ?(phase = Runtime.Running)
       ?(participants = [])
       ?(artifacts = [])
+      ?(pending_input = None)
       ?(outcome = None)
       ?(turn_count = 0)
       ?(last_seq = 0)
@@ -58,6 +59,7 @@ let mk_session
   ; planned_participants = List.map (fun (p : Runtime.participant) -> p.name) participants
   ; participants
   ; artifacts
+  ; pending_input
   ; turn_count
   ; last_seq
   ; outcome
@@ -137,6 +139,14 @@ let test_turn_on_running_ok () =
   match Runtime_projection.apply_event session event with
   | Ok _ -> ()
   | Error _ -> Alcotest.fail "Running should accept turns"
+;;
+
+let test_turn_on_input_required_ok () =
+  let session = mk_session ~phase:Input_required () in
+  let event = mk_event (Turn_recorded { actor = None; message = "x" }) in
+  match Runtime_projection.apply_event session event with
+  | Ok _ -> ()
+  | Error _ -> Alcotest.fail "Input_required should accept resume turns"
 ;;
 
 let test_turn_on_bootstrapping_ok () =
@@ -307,6 +317,67 @@ let test_apply_turn_recorded () =
   match Runtime_projection.apply_event session event with
   | Ok s -> Alcotest.(check int) "turn_count" 3 s.turn_count
   | Error e -> Alcotest.fail (Error.to_string e)
+;;
+
+let input_request ?(request_id = "input-1") () : Runtime.input_request =
+  { request_id
+  ; participant_name = Some "alice"
+  ; question = "Which environment?"
+  ; schema = Some (`Assoc [ "type", `String "string" ])
+  ; timeout_s = Some 30.0
+  ; created_at = 123.0
+  }
+;;
+
+let test_apply_input_required_sets_pending_payload () =
+  let session = mk_session ~phase:Running () in
+  let request = input_request () in
+  let event = mk_event (Input_required request) in
+  match Runtime_projection.apply_event session event with
+  | Ok s ->
+    Alcotest.(check bool) "phase Input_required" true (s.phase = Input_required);
+    (match s.pending_input with
+     | Some pending ->
+       Alcotest.(check string) "request_id" request.request_id pending.request_id;
+       Alcotest.(check string) "question" request.question pending.question
+     | None -> Alcotest.fail "missing pending input")
+  | Error e -> Alcotest.fail (Error.to_string e)
+;;
+
+let test_apply_input_provided_resumes_running () =
+  let request = input_request () in
+  let session = mk_session ~phase:Input_required ~pending_input:(Some request) () in
+  let event =
+    mk_event
+      (Input_provided
+         { request_id = request.request_id
+         ; participant_name = request.participant_name
+         ; response = Input_answer (`String "prod")
+         })
+  in
+  match Runtime_projection.apply_event session event with
+  | Ok s ->
+    Alcotest.(check bool) "phase Running" true (s.phase = Running);
+    Alcotest.(check bool) "pending cleared" true (Option.is_none s.pending_input);
+    Alcotest.(check int) "input counts as turn" 1 s.turn_count
+  | Error e -> Alcotest.fail (Error.to_string e)
+;;
+
+let test_apply_input_provided_rejects_mismatch () =
+  let session =
+    mk_session
+      ~phase:Input_required
+      ~pending_input:(Some (input_request ~request_id:"input-1" ()))
+      ()
+  in
+  let event =
+    mk_event
+      (Input_provided
+         { request_id = "input-2"; participant_name = None; response = Input_declined })
+  in
+  match Runtime_projection.apply_event session event with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "mismatched input response should fail"
 ;;
 
 let test_apply_turn_recorded_terminal_fails () =
@@ -777,6 +848,7 @@ let () =
         ] )
     ; ( "ensure_active_phase"
       , [ Alcotest.test_case "Running ok" `Quick test_turn_on_running_ok
+        ; Alcotest.test_case "Input_required ok" `Quick test_turn_on_input_required_ok
         ; Alcotest.test_case "Bootstrapping ok" `Quick test_turn_on_bootstrapping_ok
         ; Alcotest.test_case "Waiting ok" `Quick test_turn_on_waiting_ok
         ; Alcotest.test_case "Finalizing ok" `Quick test_turn_on_finalizing_ok
@@ -788,6 +860,18 @@ let () =
       , [ Alcotest.test_case "Session_started" `Quick test_apply_session_started
         ; Alcotest.test_case "Settings_updated" `Quick test_apply_settings_updated
         ; Alcotest.test_case "Turn_recorded" `Quick test_apply_turn_recorded
+        ; Alcotest.test_case
+            "Input_required"
+            `Quick
+            test_apply_input_required_sets_pending_payload
+        ; Alcotest.test_case
+            "Input_provided resumes"
+            `Quick
+            test_apply_input_provided_resumes_running
+        ; Alcotest.test_case
+            "Input_provided mismatch"
+            `Quick
+            test_apply_input_provided_rejects_mismatch
         ; Alcotest.test_case
             "Turn terminal fails"
             `Quick

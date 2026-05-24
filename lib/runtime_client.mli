@@ -59,6 +59,15 @@ val apply_command
   -> Runtime.command
   -> (Runtime.session, Error.sdk_error) result
 
+val provide_input
+  :  ?control_handler:Transport.control_handler
+  -> ?event_handler:Transport.event_handler
+  -> t
+  -> session_id:string
+  -> request_id:string
+  -> Runtime.input_response
+  -> (Runtime.session, Error.sdk_error) result
+
 val status : t -> session_id:string -> (Runtime.session, Error.sdk_error) result
 
 val events

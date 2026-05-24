@@ -485,7 +485,7 @@ let finalize_session state store (session : session) reason =
   let* session, _ =
     match session.phase with
     | Finalizing -> Ok (session, make_event session (Finalize_requested { reason }))
-    | Bootstrapping | Running | Waiting_on_workers ->
+    | Bootstrapping | Running | Input_required | Waiting_on_workers ->
       persist_event store state session_id (Finalize_requested { reason })
     | Completed | Failed | Cancelled ->
       Ok (session, make_event session (Session_completed { outcome = session.outcome }))
@@ -494,7 +494,7 @@ let finalize_session state store (session : session) reason =
     match session.phase with
     | Failed -> Session_failed { outcome = reason }
     | Completed | Cancelled -> Session_completed { outcome = session.outcome }
-    | Bootstrapping | Running | Waiting_on_workers | Finalizing ->
+    | Bootstrapping | Running | Input_required | Waiting_on_workers | Finalizing ->
       Session_completed { outcome = first_some reason session.outcome }
   in
   let* _final_session, _ = persist_event store state session_id completion_kind in
@@ -516,6 +516,42 @@ let apply_command ~sw state store (session : session) command =
         (Turn_recorded { actor = detail.actor; message = detail.message })
     in
     Ok (Command_applied session)
+  | Request_input detail ->
+    if String.trim detail.request_id = ""
+    then Error (Error.Internal "input request_id must be non-empty")
+    else
+      let* session, _ = persist_event store state session_id (Input_required detail) in
+      Ok (Command_applied session)
+  | Provide_input detail ->
+    with_store_lock state (fun () ->
+      let* session = Runtime_store.load_session store session_id in
+      match session.pending_input with
+      | None ->
+        Error
+          (Error.Internal
+             (Printf.sprintf
+                "cannot provide input %s: no pending input request"
+                detail.request_id))
+      | Some pending when not (String.equal pending.request_id detail.request_id) ->
+        Error
+          (Error.Internal
+             (Printf.sprintf
+                "cannot provide input %s: pending request is %s"
+                detail.request_id
+                pending.request_id))
+      | Some pending ->
+        let* session, _ =
+          persist_event_locked
+            store
+            state
+            session
+            (Input_provided
+               { request_id = detail.request_id
+               ; participant_name = pending.participant_name
+               ; response = detail.response
+               })
+        in
+        Ok (Command_applied session))
   | Update_session_settings detail ->
     let* session, _ =
       persist_event store state session_id (Session_settings_updated detail)
@@ -789,6 +825,7 @@ let handle_request ~sw state request =
              [ "initialize"
              ; "start_session"
              ; "apply_command"
+             ; "input_required"
              ; "status"
              ; "events"
              ; "finalize"

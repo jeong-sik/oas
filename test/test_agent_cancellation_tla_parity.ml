@@ -2,7 +2,7 @@
 
    OCaml mirror predicate for the AgentCancellation.tla spec.
    Validates that Runtime.phase values align with the TLA+ model:
-   - 7-state alphabet
+   - 8-state alphabet
    - 3 terminal phases (Completed, Failed, Cancelled)
    - TerminalIsStable: terminal -> non-terminal is disallowed
    - CancelledRequiresSignal: implied by construction (Cancelled is terminal)
@@ -15,6 +15,7 @@ open Agent_sdk
 let all_phases =
   [ Runtime.Bootstrapping
   ; Runtime.Running
+  ; Runtime.Input_required
   ; Runtime.Waiting_on_workers
   ; Runtime.Finalizing
   ; Runtime.Completed
@@ -28,6 +29,7 @@ let terminal_phases = [ Runtime.Completed; Runtime.Failed; Runtime.Cancelled ]
 let non_terminal_phases =
   [ Runtime.Bootstrapping
   ; Runtime.Running
+  ; Runtime.Input_required
   ; Runtime.Waiting_on_workers
   ; Runtime.Finalizing
   ]
@@ -42,15 +44,15 @@ let terminal_is_stable ~prev_phase ~phase =
 
 (* Mirror of TLA+ CancelledIsTerminal *)
 let cancelled_is_terminal () = List.mem Runtime.Cancelled terminal_phases
-let phase_count_matches () = List.length all_phases = 7
+let phase_count_matches () = List.length all_phases = 8
 let terminal_count_matches () = List.length terminal_phases = 3
 
 let () =
   Alcotest.run
     "agent_cancellation_tla_parity"
     [ ( "invariants"
-      , [ Alcotest.test_case "phase count is 7" `Quick (fun () ->
-            Alcotest.(check bool) "7 phases" true (phase_count_matches ()))
+      , [ Alcotest.test_case "phase count is 8" `Quick (fun () ->
+            Alcotest.(check bool) "8 phases" true (phase_count_matches ()))
         ; Alcotest.test_case "terminal count is 3" `Quick (fun () ->
             Alcotest.(check bool) "3 terminal" true (terminal_count_matches ()))
         ; Alcotest.test_case "Cancelled is terminal" `Quick (fun () ->

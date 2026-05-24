@@ -54,6 +54,7 @@ let initial_session (request : start_request) =
   ; planned_participants = request.participants
   ; participants = List.map make_planned_participant request.participants
   ; artifacts = []
+  ; pending_input = None
   ; turn_count = 0
   ; last_seq = 0
   ; outcome = None
@@ -107,7 +108,8 @@ let ensure_active_phase session =
   match session.phase with
   | Completed | Failed | Cancelled ->
     Error (Error.Internal (Printf.sprintf "Session %s is terminal" session.session_id))
-  | Bootstrapping | Running | Waiting_on_workers | Finalizing -> Ok session
+  | Bootstrapping | Running | Input_required | Waiting_on_workers | Finalizing ->
+    Ok session
 ;;
 
 let participant_presence_status_of_state = function
@@ -175,6 +177,35 @@ let collaboration_events_of_event (event : event) =
         ~severity:Severity_low
         ~title:"turn recorded"
         ~summary:detail.message
+        ()
+    ]
+  | Input_required detail ->
+    [ system_event
+        ~severity:Severity_normal
+        ~status:"input_required"
+        ~summary:detail.question
+        "runtime_session"
+    ; activity_event
+        ?actor:detail.participant_name
+        ~category:Activity_coordination
+        ~severity:Severity_normal
+        ~title:"input required"
+        ~summary:detail.question
+        ~subject:detail.request_id
+        ()
+    ]
+  | Input_provided detail ->
+    [ system_event
+        ~severity:Severity_normal
+        ~status:"running"
+        ~summary:detail.request_id
+        "runtime_session"
+    ; activity_event
+        ?actor:detail.participant_name
+        ~category:Activity_coordination
+        ~severity:Severity_low
+        ~title:"input provided"
+        ~subject:detail.request_id
         ()
     ]
   | Agent_spawn_requested detail ->
@@ -294,12 +325,36 @@ let failure_cause_message = function
 let apply_event (session : session) (event : event) =
   let session = update_session_meta session event in
   match event.kind with
-  | Session_started _ -> Ok { session with phase = Running }
+  | Session_started _ -> Ok { session with phase = Running; pending_input = None }
   | Session_settings_updated detail ->
     Ok { session with model = detail.model; permission_mode = detail.permission_mode }
   | Turn_recorded _ ->
     let* session = ensure_active_phase session in
     Ok { session with turn_count = session.turn_count + 1 }
+  | Input_required detail ->
+    let* session = ensure_active_phase session in
+    Ok { session with phase = Input_required; pending_input = Some detail }
+  | Input_provided detail ->
+    let* session = ensure_active_phase session in
+    (match session.pending_input with
+     | Some pending when String.equal pending.request_id detail.request_id ->
+       Ok
+         { session with
+           phase = Running
+         ; pending_input = None
+         ; turn_count = session.turn_count + 1
+         }
+     | Some pending ->
+       Error
+         (Error.Internal
+            (Printf.sprintf
+               "Input response %s does not match pending request %s"
+               detail.request_id
+               pending.request_id))
+     | None ->
+       Error
+         (Error.Internal
+            (Printf.sprintf "Input response %s has no pending request" detail.request_id)))
   | Agent_spawn_requested detail ->
     let* session = ensure_active_phase session in
     Ok
@@ -448,11 +503,23 @@ let apply_event (session : session) (event : event) =
     Ok session
   | Finalize_requested detail ->
     let* session = ensure_active_phase session in
-    Ok { session with phase = Finalizing; outcome = detail.reason }
+    Ok { session with phase = Finalizing; pending_input = None; outcome = detail.reason }
   | Session_completed detail ->
-    Ok { session with phase = Completed; outcome = detail.outcome; updated_at = event.ts }
+    Ok
+      { session with
+        phase = Completed
+      ; pending_input = None
+      ; outcome = detail.outcome
+      ; updated_at = event.ts
+      }
   | Session_failed detail ->
-    Ok { session with phase = Failed; outcome = detail.outcome; updated_at = event.ts }
+    Ok
+      { session with
+        phase = Failed
+      ; pending_input = None
+      ; outcome = detail.outcome
+      ; updated_at = event.ts
+      }
 ;;
 
 let count_by_state target (session : session) =
@@ -531,7 +598,7 @@ let build_proof (session : session) (events : event list) =
   let has_turn =
     List.exists
       (function
-        | { kind = Turn_recorded _; _ } -> true
+        | { kind = Turn_recorded _ | Input_provided _; _ } -> true
         | _ -> false)
       events
   in
@@ -545,7 +612,7 @@ let build_proof (session : session) (events : event list) =
   let finalized =
     match session.phase with
     | Completed | Failed | Cancelled -> true
-    | Bootstrapping | Running | Waiting_on_workers | Finalizing -> false
+    | Bootstrapping | Running | Input_required | Waiting_on_workers | Finalizing -> false
   in
   let has_session_started =
     List.exists

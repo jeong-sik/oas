@@ -201,6 +201,146 @@ let test_runtime_client_roundtrip () =
        Alcotest.(check bool) "last seq progressed" true (status.last_seq >= 3))
 ;;
 
+let test_runtime_input_required_resume () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let mgr = Eio.Stdenv.process_mgr env in
+  with_temp_dir
+  @@ fun session_root ->
+  let runtime = runtime_path () in
+  let start_request =
+    Runtime.
+      { session_id = Some "sess-input-required"
+      ; goal = "Pause for human input"
+      ; participants = [ "planner" ]
+      ; provider = Some "mock"
+      ; model = None
+      ; permission_mode = Some "default"
+      ; system_prompt = None
+      ; max_turns = Some 3
+      ; workdir = None
+      }
+  in
+  let session =
+    match
+      unwrap_response
+        (runtime_query
+           ~sw
+           ~mgr
+           ~runtime_path:runtime
+           ~session_root
+           (Runtime.Start_session start_request))
+    with
+    | Runtime.Session_started_response session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  let input_request : Runtime.input_request =
+    { request_id = "input-1"
+    ; participant_name = Some "planner"
+    ; question = "Which deployment environment?"
+    ; schema = Some (`Assoc [ "type", `String "string" ])
+    ; timeout_s = Some 30.0
+    ; created_at = 123.0
+    }
+  in
+  let waiting =
+    match
+      unwrap_response
+        (runtime_query
+           ~sw
+           ~mgr
+           ~runtime_path:runtime
+           ~session_root
+           (Runtime.Apply_command
+              { session_id = session.session_id
+              ; command = Runtime.Request_input input_request
+              }))
+    with
+    | Runtime.Command_applied session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  Alcotest.(check bool)
+    "phase input_required"
+    true
+    (waiting.phase = Runtime.Input_required);
+  (match waiting.pending_input with
+   | Some pending ->
+     Alcotest.(check string) "pending request id" "input-1" pending.request_id;
+     Alcotest.(check string) "pending question" input_request.question pending.question
+   | None -> Alcotest.fail "missing pending input");
+  let status =
+    match
+      unwrap_response
+        (runtime_query
+           ~sw
+           ~mgr
+           ~runtime_path:runtime
+           ~session_root
+           (Runtime.Status { session_id = session.session_id }))
+    with
+    | Runtime.Status_response session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  Alcotest.(check bool) "status keeps pending" true (Option.is_some status.pending_input);
+  let resumed =
+    match
+      unwrap_response
+        (runtime_query
+           ~sw
+           ~mgr
+           ~runtime_path:runtime
+           ~session_root
+           (Runtime.Apply_command
+              { session_id = session.session_id
+              ; command =
+                  Runtime.Provide_input
+                    { request_id = "input-1"
+                    ; response = Runtime.Input_answer (`String "production")
+                    }
+              }))
+    with
+    | Runtime.Command_applied session -> session
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  Alcotest.(check bool) "phase running" true (resumed.phase = Runtime.Running);
+  Alcotest.(check bool) "pending cleared" true (Option.is_none resumed.pending_input);
+  Alcotest.(check int) "input counted as turn" 1 resumed.turn_count;
+  let events =
+    match
+      unwrap_response
+        (runtime_query
+           ~sw
+           ~mgr
+           ~runtime_path:runtime
+           ~session_root
+           (Runtime.Events { session_id = session.session_id; after_seq = None }))
+    with
+    | Runtime.Events_response events -> events
+    | other -> Alcotest.fail (Runtime.show_response other)
+  in
+  Alcotest.(check bool)
+    "input required event persisted"
+    true
+    (List.exists
+       (fun (event : Runtime.event) ->
+          match event.kind with
+          | Runtime.Input_required request ->
+            String.equal request.request_id input_request.request_id
+          | _ -> false)
+       events);
+  Alcotest.(check bool)
+    "input provided event persisted"
+    true
+    (List.exists
+       (fun (event : Runtime.event) ->
+          match event.kind with
+          | Runtime.Input_provided detail -> String.equal detail.request_id "input-1"
+          | _ -> false)
+       events)
+;;
+
 let test_runtime_attach_artifact_and_read_back () =
   Eio_main.run
   @@ fun env ->
@@ -1079,6 +1219,12 @@ let () =
       , [ Alcotest.test_case "local first options" `Quick test_default_local_first_options
         ] )
     ; "query", [ Alcotest.test_case "lifecycle" `Quick test_query_lifecycle ]
+    ; ( "input_required"
+      , [ Alcotest.test_case
+            "request input then resume"
+            `Quick
+            test_runtime_input_required_resume
+        ] )
     ; ( "artifacts"
       , [ Alcotest.test_case
             "attach artifact and read back"
