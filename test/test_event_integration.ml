@@ -2,79 +2,14 @@
     AgentFailed, HandoffRequested, HandoffCompleted, and the
     Hooks.on_context_compacted callback.
 
-    These verify that the emit sites in [lib/orchestrator.ml],
-    [lib/agent/agent.ml] (run_with_handoffs), and
-    [lib/pipeline/pipeline.ml] actually publish / invoke the new
-    surface end-to-end — not just that the variants typecheck. *)
+    These verify that [lib/agent/agent.ml] (run_with_handoffs) and
+    [lib/pipeline/pipeline.ml] actually publish / invoke the new surface
+    end-to-end — not just that the variants typecheck. *)
 
 open Alcotest
 open Agent_sdk
 
-(* ── A. Orchestrator error path emits AgentFailed ────────────── *)
-
-let test_orchestrator_error_emits_agent_failed () =
-  Eio_main.run
-  @@ fun _env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let bus = Event_bus.create () in
-  let sub = Event_bus.subscribe bus in
-  let orch_cfg = { Orchestrator.default_config with event_bus = Some bus } in
-  let orch = Orchestrator.create ~config:orch_cfg [] in
-  (* Task references an agent that does not exist — orchestrator returns
-     Error (UnknownAgent _), which should fire both AgentCompleted(Error)
-     AND the dedicated AgentFailed companion event. *)
-  let task = { Orchestrator.id = "t-err"; prompt = "x"; agent_name = "ghost" } in
-  let tr = Orchestrator.run_task ~sw orch task in
-  check bool "task result is Error" true (Result.is_error tr.result);
-  let events = Event_bus.drain sub in
-  let names = List.map Event_forward.event_type_name events in
-  check bool "AgentStarted emitted" true (List.mem "agent.started" names);
-  check bool "AgentCompleted emitted" true (List.mem "agent.completed" names);
-  check bool "AgentFailed emitted" true (List.mem "agent.failed" names);
-  (* AgentFailed must carry the same error payload as the task result. *)
-  let failed_events =
-    List.filter (fun e -> Event_forward.event_type_name e = "agent.failed") events
-  in
-  check int "exactly one AgentFailed" 1 (List.length failed_events);
-  (match (List.hd failed_events).payload with
-   | Event_bus.AgentFailed { agent_name; task_id; error = _; elapsed } ->
-     check string "agent_name" "ghost" agent_name;
-     check string "task_id" "t-err" task_id;
-     check bool "elapsed non-negative" true (elapsed >= 0.0)
-   | _ -> fail "expected AgentFailed payload");
-  (* Causation chain (#877): AgentCompleted / AgentFailed must carry
-     [caused_by = Some started.run_id], i.e. point back at the
-     AgentStarted envelope that opened this task. AgentStarted itself
-     is the chain root (caused_by = None). *)
-  let started =
-    try List.find (fun e -> Event_forward.event_type_name e = "agent.started") events with
-    | Not_found -> fail "AgentStarted missing"
-  in
-  let completed =
-    try
-      List.find (fun e -> Event_forward.event_type_name e = "agent.completed") events
-    with
-    | Not_found -> fail "AgentCompleted missing"
-  in
-  check
-    (option string)
-    "AgentStarted.caused_by is None (root)"
-    None
-    started.meta.caused_by;
-  check
-    (option string)
-    "AgentCompleted.caused_by points at started.run_id"
-    (Some started.meta.run_id)
-    completed.meta.caused_by;
-  check
-    (option string)
-    "AgentFailed.caused_by points at started.run_id"
-    (Some started.meta.run_id)
-    (List.hd failed_events).meta.caused_by
-;;
-
-(* ── B. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
+(* ── A. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
 (* Reuse the same mock wire format as test_handoff: Provider_d-compatible
    chat.completions that responds with a transfer_to_* tool call on the
@@ -224,7 +159,7 @@ let test_handoff_emits_request_and_completion () =
   | Exit -> ()
 ;;
 
-(* ── C. on_context_compacted hook invocation ─────────────────── *)
+(* ── B. on_context_compacted hook invocation ─────────────────── *)
 
 (* We verify the hook dispatch at the [Hooks.invoke] seam: if the
    field is [Some cb], the callback fires with the OnContextCompacted
@@ -295,13 +230,7 @@ let () =
   then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
   run
     "Event_integration"
-    [ ( "orchestrator_failure"
-      , [ test_case
-            "run_task error path emits AgentFailed"
-            `Quick
-            test_orchestrator_error_emits_agent_failed
-        ] )
-    ; ( "handoff_lifecycle"
+    [ ( "handoff_lifecycle"
       , [ test_case
             "run_with_handoffs emits Requested+Completed"
             `Quick

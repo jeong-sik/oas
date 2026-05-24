@@ -22,8 +22,8 @@ type retry_config =
 val default_retry_config : retry_config
 
 (** Adapter into the shared [Retry] module's config shape.  Used by
-    the orchestrator (still in [Complete.complete_with_retry]) and by
-    any caller that wants to feed [Retry.is_retryable] through. *)
+    [Complete.complete_with_retry] and by any caller that wants to feed
+    [Retry.is_retryable] through. *)
 val shared_retry_config_of_complete : retry_config -> Retry.retry_config
 
 (** Translates an [Http_client.http_error] into a [Retry.api_error]

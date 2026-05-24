@@ -106,7 +106,6 @@ module Agent_card = Agent_card
 module Agent_registry = Agent_registry
 module Agent_config = Agent_config
 module Approval = Approval
-module Orchestrator = Orchestrator
 module Agent_tool = Agent_tool
 module Otel_tracer = Otel_tracer
 module Otel_export = Otel_export

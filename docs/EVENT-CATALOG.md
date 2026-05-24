@@ -62,9 +62,9 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 
 | Variant | Emit site | Semantic |
 |---------|-----------|---------|
-| `AgentStarted` | `orchestrator.ml:run_task` | Orchestrator begins work on a task |
-| `AgentCompleted` | `orchestrator.ml:run_task` (success) | Result type captures success/error |
-| `AgentFailed` | `orchestrator.ml:run_task` (error branch) | Explicit failure companion to `AgentCompleted` |
+| `AgentStarted` | Reserved; no OAS core producer after legacy orchestrator removal | Legacy task lifecycle start |
+| `AgentCompleted` | Reserved; no OAS core producer after legacy orchestrator removal | Legacy task lifecycle completion |
+| `AgentFailed` | Reserved; no OAS core producer after legacy orchestrator removal | Legacy task lifecycle failure |
 | `TurnStarted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | Start of a single agent turn |
 | `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after guardrails, policy, overrides, and selection |
 | `TurnCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_collect.ml` | End of a single agent turn |
@@ -251,8 +251,8 @@ on **two channels simultaneously**:
 | `Session_failed` | `runtime.session_failed` |
 
 **Name collision note**: `Runtime.Agent_completed` (session-level
-participant lifecycle) is distinct from `Event_bus.AgentCompleted`
-(single-task orchestrator result). They live in different modules with
+participant lifecycle) is distinct from the reserved native
+`Event_bus.AgentCompleted` payload. They live in different modules with
 different payload shapes. Disambiguate by Custom name prefix:
 `runtime.agent_completed` vs native `AgentCompleted`.
 

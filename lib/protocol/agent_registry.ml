@@ -3,12 +3,12 @@
     Maintains a registry of local and remote agents, supporting:
     - Local agents: direct Agent.t references
     - Remote agents: URL + Agent Card (fetched via HTTP)
-    - Capability-based lookup for orchestration routing
+    - Capability-based lookup for agent routing
 
     Design:
     - Flat Hashtbl registry (name -> agent_entry)
     - Remote discovery via GET <url>/.well-known/agent.json
-    - No dependency on Orchestrator — can be used standalone *)
+    - No dependency on legacy coordinator modules — can be used standalone *)
 
 open Result_syntax
 
