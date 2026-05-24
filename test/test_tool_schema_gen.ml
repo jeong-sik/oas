@@ -100,6 +100,81 @@ let test_triple_params () =
   Alcotest.(check int) "3 params" 3 (List.length (Tool_schema_gen.to_params triple))
 ;;
 
+(* ── Four-field schema and coercion/error collection ─────────── *)
+
+let quad =
+  Tool_schema_gen.(
+    four
+      (string_field "name" ~required:true ~desc:"Name" ())
+      (int_field "count" ~required:true ~desc:"Count" ())
+      (float_field "ratio" ~required:false ~desc:"Ratio" ~default:1.5 ())
+      (bool_field "enabled" ~required:false ~desc:"Enabled" ~default:true ()))
+;;
+
+let test_quad_parse_with_coercions () =
+  let json =
+    `Assoc
+      [ "name", `Bool false
+      ; "count", `String " 8 "
+      ; "ratio", `Int 2
+      ; "enabled", `String "false"
+      ]
+  in
+  match Tool_schema_gen.parse quad json with
+  | Ok (name, count, ratio, enabled) ->
+    Alcotest.(check string) "name coerced" "false" name;
+    Alcotest.(check int) "count coerced" 8 count;
+    Alcotest.(check (float 0.001)) "ratio widened" 2.0 ratio;
+    Alcotest.(check bool) "enabled coerced" false enabled
+  | Error errs -> Alcotest.fail (format_errors errs)
+;;
+
+let test_quad_optional_defaults () =
+  let json = `Assoc [ "name", `String "Alice"; "count", `Int 1 ] in
+  match Tool_schema_gen.parse quad json with
+  | Ok (name, count, ratio, enabled) ->
+    Alcotest.(check string) "name" "Alice" name;
+    Alcotest.(check int) "count" 1 count;
+    Alcotest.(check (float 0.001)) "ratio default" 1.5 ratio;
+    Alcotest.(check bool) "enabled default" true enabled
+  | Error errs -> Alcotest.fail (format_errors errs)
+;;
+
+let test_quad_params_and_json_schema () =
+  Alcotest.(check int) "4 params" 4 (List.length (Tool_schema_gen.to_params quad));
+  let schema_json = Tool_schema_gen.to_json_schema quad in
+  let open Yojson.Safe.Util in
+  let props = schema_json |> member "properties" in
+  Alcotest.(check bool) "has ratio" true (props |> member "ratio" <> `Null);
+  Alcotest.(check bool) "has enabled" true (props |> member "enabled" <> `Null);
+  let req = schema_json |> member "required" |> to_list in
+  Alcotest.(check int) "2 required" 2 (List.length req)
+;;
+
+let test_quad_collects_multiple_errors () =
+  let json =
+    `Assoc [ "name", `List []; "ratio", `String "not-a-float"; "enabled", `String "true" ]
+  in
+  match Tool_schema_gen.parse quad json with
+  | Ok _ -> Alcotest.fail "expected errors"
+  | Error errs ->
+    Alcotest.(check int) "three errors" 3 (List.length errs);
+    Alcotest.(check (list string))
+      "paths"
+      [ "name"; "count"; "ratio" ]
+      (List.map (fun e -> e.Tool_input_validation.path) errs)
+;;
+
+let float_schema =
+  Tool_schema_gen.(one (float_field "score" ~required:true ~desc:"Score" ()))
+;;
+
+let test_float_accepts_int () =
+  match Tool_schema_gen.parse float_schema (`Assoc [ "score", `Int 9 ]) with
+  | Ok score -> Alcotest.(check (float 0.001)) "score" 9.0 score
+  | Error errs -> Alcotest.fail (format_errors errs)
+;;
+
 (* ── Integration: schema_gen + Typed_tool ───────────────── *)
 
 let test_typed_tool_integration () =
@@ -148,6 +223,16 @@ let () =
     ; ( "three_field"
       , [ Alcotest.test_case "parse" `Quick test_triple_parse
         ; Alcotest.test_case "params count" `Quick test_triple_params
+        ] )
+    ; ( "four_field"
+      , [ Alcotest.test_case "parse with coercions" `Quick test_quad_parse_with_coercions
+        ; Alcotest.test_case "optional defaults" `Quick test_quad_optional_defaults
+        ; Alcotest.test_case
+            "params and json schema"
+            `Quick
+            test_quad_params_and_json_schema
+        ; Alcotest.test_case "multiple errors" `Quick test_quad_collects_multiple_errors
+        ; Alcotest.test_case "float accepts int" `Quick test_float_accepts_int
         ] )
     ; ( "integration"
       , [ Alcotest.test_case "schema_gen + Typed_tool" `Quick test_typed_tool_integration
