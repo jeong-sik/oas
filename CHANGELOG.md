@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.196.10](https://github.com/jeong-sik/oas/compare/v0.196.9...v0.196.10) (2026-05-24)
+
+
+### Bug Fixes
+
+* tolerate release version markers ([#1708](https://github.com/jeong-sik/oas/issues/1708)) ([a5cd80f](https://github.com/jeong-sik/oas/commit/a5cd80fd1ffbc12ef3f5188d9c754ebd114958be))
+
 ## [0.196.10](https://github.com/jeong-sik/oas/compare/v0.196.9...v0.196.10) (2026-05-22)
 
 ### Bug Fixes
