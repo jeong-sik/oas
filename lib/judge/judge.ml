@@ -161,6 +161,25 @@ let parse_judgment text =
 
 (* ── LLM call (single provider) ─────────────────────────── *)
 
+let provider_config_for_judge ~(provider : Provider_config.t) ~(config : judge_config) =
+  let response_format =
+    match config.output_schema with
+    | Some schema -> Types.JsonSchema schema
+    | None -> provider.response_format
+  in
+  let output_schema =
+    Provider_config.output_schema_of_response_format
+      ?override:config.output_schema
+      response_format
+  in
+  { provider with
+    Provider_config.temperature = Some config.temperature
+  ; max_tokens = Some config.max_tokens
+  ; response_format
+  ; output_schema
+  }
+;;
+
 let judge ~sw ~net ~provider ~config ~context () =
   let messages : Types.message list =
     [ { role = System
@@ -177,14 +196,7 @@ let judge ~sw ~net ~provider ~config ~context () =
       }
     ]
   in
-  (* Override provider sampling with judge_config (deterministic evaluation). *)
-  let provider_cfg =
-    { provider with
-      Provider_config.temperature = Some config.temperature
-    ; max_tokens = Some config.max_tokens
-    ; output_schema = config.output_schema
-    }
-  in
+  let provider_cfg = provider_config_for_judge ~provider ~config in
   match Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] () with
   | Error err ->
     let msg =

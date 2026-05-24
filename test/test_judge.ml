@@ -1,6 +1,8 @@
 (** Tests for Judge module -- LLM-based evaluation and scoring. *)
 
 open Agent_sdk
+module PC = Llm_provider.Provider_config
+module LT = Llm_provider.Types
 
 (* ── Alcotest testable for risk_level ────────────────────── *)
 
@@ -114,6 +116,66 @@ let test_default_config () =
   Alcotest.(check (float 0.001)) "temperature" 0.2 cfg.temperature;
   Alcotest.(check int) "max_tokens" 2048 cfg.max_tokens;
   Alcotest.(check bool) "output_schema is None" true (Option.is_none cfg.output_schema)
+;;
+
+(* ── provider_config_for_judge ───────────────────────────── *)
+
+let judge_output_schema =
+  `Assoc
+    [ "type", `String "object"
+    ; "properties", `Assoc [ "score", `Assoc [ "type", `String "number" ] ]
+    ; "required", `List [ `String "score" ]
+    ]
+;;
+
+let test_provider_config_for_judge_sets_schema_contract () =
+  let provider =
+    PC.make
+      ~kind:PC.Provider_d_compat
+      ~model_id:"model-d-mini"
+      ~base_url:"https://api.provider_d.com/v1"
+      ~response_format:LT.JsonMode
+      ()
+  in
+  let config =
+    { (Judge.default_config ()) with
+      temperature = 0.0
+    ; max_tokens = 512
+    ; output_schema = Some judge_output_schema
+    }
+  in
+  let actual = Judge.provider_config_for_judge ~provider ~config in
+  Alcotest.(check bool)
+    "response_format is JsonSchema"
+    true
+    (actual.response_format = LT.JsonSchema judge_output_schema);
+  Alcotest.(check bool)
+    "output_schema is set"
+    true
+    (actual.output_schema = Some judge_output_schema);
+  Alcotest.(check bool) "temperature override" true (actual.temperature = Some 0.0);
+  Alcotest.(check bool) "max_tokens override" true (actual.max_tokens = Some 512)
+;;
+
+let test_provider_config_for_judge_preserves_provider_response_format () =
+  let provider =
+    PC.make
+      ~kind:PC.Provider_a
+      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~base_url:"https://api.provider_a.com"
+      ~response_format:(LT.JsonSchema judge_output_schema)
+      ()
+  in
+  let config = Judge.default_config () in
+  let actual = Judge.provider_config_for_judge ~provider ~config in
+  Alcotest.(check bool)
+    "provider response_format preserved"
+    true
+    (actual.response_format = LT.JsonSchema judge_output_schema);
+  Alcotest.(check bool)
+    "output_schema derived from preserved response_format"
+    true
+    (actual.output_schema = Some judge_output_schema)
 ;;
 
 (* ── risk_of_score derivation ────────────────────────────── *)
@@ -269,6 +331,16 @@ let () =
         ; Alcotest.test_case "score boundaries" `Quick test_parse_score_boundaries
         ] )
     ; "default_config", [ Alcotest.test_case "values" `Quick test_default_config ]
+    ; ( "provider_config_for_judge"
+      , [ Alcotest.test_case
+            "sets schema contract"
+            `Quick
+            test_provider_config_for_judge_sets_schema_contract
+        ; Alcotest.test_case
+            "preserves provider response format"
+            `Quick
+            test_provider_config_for_judge_preserves_provider_response_format
+        ] )
     ; ( "risk_of_score"
       , [ Alcotest.test_case "low" `Quick test_risk_of_score_low
         ; Alcotest.test_case "medium" `Quick test_risk_of_score_medium

@@ -122,6 +122,29 @@ let test_provider_a_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
+let test_provider_a_json_schema_response_format_without_output_schema () =
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
+      ; "required", `List [ `String "answer" ]
+      ]
+  in
+  let config =
+    { (PC.make ~kind:Provider_a ~model_id:"agent_llm_a-sonnet-4-6" ~base_url:"" ()) with
+      response_format = JsonSchema schema
+    ; output_schema = None
+    }
+  in
+  let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "schema copied from response_format"
+    true
+    (json |> member "output_config" |> member "format" |> member "schema" = schema)
+;;
+
 let test_provider_a_parse_response_initializes_telemetry () =
   let json =
     Yojson.Safe.from_string
@@ -1067,6 +1090,10 @@ let () =
         ; test_case "with system" `Quick test_provider_a_with_system
         ; test_case "with thinking" `Quick test_provider_a_with_thinking
         ; test_case "with output schema" `Quick test_provider_a_output_schema
+        ; test_case
+            "with json schema response_format"
+            `Quick
+            test_provider_a_json_schema_response_format_without_output_schema
         ; test_case "stream flag" `Quick test_provider_a_stream_flag
         ; test_case
             "parse response initializes telemetry"

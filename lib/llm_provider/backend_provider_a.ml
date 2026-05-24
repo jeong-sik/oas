@@ -137,7 +137,13 @@ let build_request
     | _ -> body
   in
   let body =
-    match config.output_schema with
+    let output_schema =
+      match config.output_schema, config.response_format with
+      | Some schema, _ -> Some schema
+      | None, JsonSchema schema -> Some schema
+      | None, JsonMode | None, Off -> None
+    in
+    match output_schema with
     | Some schema ->
       ( "output_config"
       , `Assoc [ "format", `Assoc [ "type", `String "json_schema"; "schema", schema ] ] )
