@@ -330,7 +330,7 @@ let test_build_provider_d_body_with_provider_m_sampling () =
   let state =
     { Types.config =
         { Types.default_config with
-          model = "qwen3.5-35b-a3b-ud-q8-xl"
+          model = "provider_h-3.5-35b-a3b-ud-q8-xl"
         ; temperature = Some 0.6
         ; top_p = Some 0.95
         ; top_k = Some 20
@@ -731,7 +731,7 @@ let test_parse_provider_d_response_reasoning_content () =
   let json_str =
     {|{
     "id": "chatcmpl_think",
-    "model": "qwen3.5-35b",
+    "model": "provider_h-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -764,7 +764,7 @@ let test_parse_provider_d_response_reasoning_with_tools () =
   let json_str =
     {|{
     "id": "chatcmpl_think_tool",
-    "model": "qwen3.5-35b",
+    "model": "provider_h-3.5-35b",
     "choices": [{
       "finish_reason": "tool_calls",
       "index": 0,
@@ -801,7 +801,7 @@ let test_parse_provider_d_response_blank_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_blank",
-    "model": "qwen3.5-35b",
+    "model": "provider_h-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -826,7 +826,7 @@ let test_parse_provider_d_response_no_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_no_think",
-    "model": "qwen3.5-35b",
+    "model": "provider_h-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -850,7 +850,7 @@ let test_parse_provider_d_response_ollama_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_ollama",
-    "model": "qwen3.5:35b-a3b-nvfp4",
+    "model": "provider_h-3.5:35b-a3b-nvfp4",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -890,7 +890,7 @@ let test_parse_provider_d_response_reasoning_content_preferred () =
   let json_str =
     {|{
     "id": "chatcmpl_both",
-    "model": "qwen3.5-35b",
+    "model": "provider_h-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,

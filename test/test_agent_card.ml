@@ -131,7 +131,7 @@ let test_providers_custom () =
             ; path = "/v1/chat/completions"
             ; static_token = None
             }
-      ; model_id = "qwen3.5"
+      ; model_id = "provider_h-3.5"
       ; api_key_env = ""
       }
   in

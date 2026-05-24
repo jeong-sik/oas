@@ -723,7 +723,7 @@ let%test "pricing ollama is free" =
 ;;
 
 let%test "pricing provider_h is free" =
-  let p = pricing_for_model "qwen3.5-35b" in
+  let p = pricing_for_model "provider_h-3.5-35b" in
   close_enough p.input_per_million 0.0
 ;;
 
@@ -752,7 +752,7 @@ let%test "pricing_for_model_opt: known local model returns Some with zero pricin
 ;;
 
 let%test "pricing_for_model_opt: provider_h returns Some" =
-  match pricing_for_model_opt "qwen3.5-35b" with
+  match pricing_for_model_opt "provider_h-3.5-35b" with
   | Some _ -> true
   | None -> false
 ;;
@@ -857,7 +857,7 @@ let%test "estimate_cost: regular_input clamped to zero when cache exceeds total"
 ;;
 
 let%test "estimate_cost: free model is always zero" =
-  let p = pricing_for_model "qwen3.5" in
+  let p = pricing_for_model "provider_h-3.5" in
   let cost =
     estimate_cost
       ~pricing:p
@@ -907,7 +907,7 @@ let%test "annotate_usage_cost fills zero cost for known free model" =
     ; cost_usd = None
     }
   in
-  match annotate_usage_cost ~model_id:"qwen3.5-35b" usage with
+  match annotate_usage_cost ~model_id:"provider_h-3.5-35b" usage with
   | { cost_usd = Some cost; _ } -> close_enough cost 0.0
   | _ -> false
 ;;

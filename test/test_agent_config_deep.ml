@@ -371,19 +371,19 @@ let test_resolve_provider_i () =
      so that downstream can look up the registry-declared kind.
      entry.defaults (url, path, api_key_env) are carried via the
      registry, not embedded in the Provider.config variant. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"provider_h/qwen3-32b" "provider_i" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"provider_h/provider_h_3-32b" "provider_i" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "provider_i name" "provider_i" name;
     Alcotest.(check string) "provider_i api_key_env" "GROQ_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "provider_i model_id" "provider_h/qwen3-32b" cfg.model_id
+    Alcotest.(check string) "provider_i model_id" "provider_h/provider_h_3-32b" cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for provider_i (registered)"
 ;;
 
 let test_resolve_provider_i_custom_url () =
   let cfg =
     Agent_config.resolve_provider
-      ~model_id:"provider_h/qwen3-32b"
+      ~model_id:"provider_h/provider_h_3-32b"
       "provider_i"
       (Some "http://proxy:8080")
   in

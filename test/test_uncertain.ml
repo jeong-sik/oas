@@ -7,7 +7,7 @@ let () =
     "Uncertain"
     [ ( "constructors"
       , [ Alcotest.test_case "from_llm defaults" `Quick (fun () ->
-            let u = Uncertain.from_llm ~model:"qwen3.5-9b" "hello" in
+            let u = Uncertain.from_llm ~model:"provider_h-3.5-9b" "hello" in
             Alcotest.(check string) "value" "hello" (Uncertain.value u);
             Alcotest.(check (float 0.01))
               "default confidence"

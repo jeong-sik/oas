@@ -210,7 +210,7 @@ let provider_d_chat_extended_capabilities =
 
 (* Ollama Provider_d-compat endpoint behavior on tool_choice is model-dependent
    (docs.ollama.com/capabilities/tool-calling: the parameter is silently
-   ignored for some models). Some Qwen3.5 deployments w/ native Jinja
+   ignored for some models). Some Provider_h_3.5 deployments w/ native Jinja
    chat template do honor tool_choice:required in practice.
 
    Industry context: LiteLLM's model_prices_and_context_window.json
@@ -225,7 +225,7 @@ let provider_d_chat_extended_capabilities =
    support declare it per Provider_config via
    [Provider_config.supports_tool_choice_override]. The SDK does not
    match on [model_id] to guess model-side behavior — the consumer
-   (e.g. a config loader that knows it deployed Qwen3.5 w/ the Jinja
+   (e.g. a config loader that knows it deployed Provider_h_3.5 w/ the Jinja
    chat template) owns that policy. This is stricter than LiteLLM's
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
@@ -435,12 +435,12 @@ type static_model_route =
   | Provider_f of provider_f_family
   | Provider_c_for_coding
   | Provider_c_k2
-  | Qwen3
+  | Provider_h_3
   | Llama_4
   | Provider_g_v4_flash
   | Provider_g_v4_pro
-  | Mistral_large
-  | Mistral_small
+  | Provider_j_large
+  | Provider_j_small
   | Command
   | Grok
   | Provider_l of { has_vision : bool }
@@ -499,8 +499,8 @@ let static_model_route_of_id model_id =
       then Some Provider_c_for_coding
       else if String.starts_with ~prefix:"provider_c-k2" m
       then Some Provider_c_k2
-      else if String.starts_with ~prefix:"qwen3" m
-      then Some Qwen3
+      else if String.starts_with ~prefix:"provider_h-3" m
+      then Some Provider_h_3
       else if
         String.starts_with ~prefix:"llama-4" m || String.starts_with ~prefix:"llama4" m
       then Some Llama_4
@@ -509,9 +509,9 @@ let static_model_route_of_id model_id =
       else if String.starts_with ~prefix:"provider_g-v4-pro" m
       then Some Provider_g_v4_pro
       else if String.starts_with ~prefix:"provider_j-large" m
-      then Some Mistral_large
+      then Some Provider_j_large
       else if String.starts_with ~prefix:"provider_j-small" m
-      then Some Mistral_small
+      then Some Provider_j_small
       else if String.starts_with ~prefix:"command" m
       then Some Command
       else if String.starts_with ~prefix:"grok" m
@@ -603,7 +603,7 @@ let capabilities_of_static_model_route = function
       }
   | Provider_f _ -> Some provider_f_capabilities
   | Provider_c_for_coding | Provider_c_k2 -> Some provider_c_capabilities
-  | Qwen3 ->
+  | Provider_h_3 ->
     Some
       { default_capabilities with
         max_context_tokens = Some 262_144
@@ -661,7 +661,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  | Mistral_large ->
+  | Provider_j_large ->
     Some
       { default_capabilities with
         max_context_tokens = Some 260_000
@@ -676,7 +676,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  | Mistral_small ->
+  | Provider_j_small ->
     Some
       { default_capabilities with
         max_context_tokens = Some 256_000
@@ -1156,12 +1156,12 @@ let%test "for_model_id provider_l-vl has image input" =
   | None -> false
 ;;
 
-let%test "for_model_id qwen3 has chat_template_kwargs thinking control" =
-  (* Qwen3.x Provider_d-compatible llama.cpp/llama-server deployments return
+let%test "for_model_id provider_h_3 has chat_template_kwargs thinking control" =
+  (* Provider_h_3.x Provider_d-compatible llama.cpp/llama-server deployments return
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
      format, [supports_extended_thinking = true] never reaches the wire. *)
-  match for_model_id "qwen3.5" with
+  match for_model_id "provider_h-3.5" with
   | Some c ->
     c.supports_reasoning_budget && c.thinking_control_format = Chat_template_kwargs
   | None -> false

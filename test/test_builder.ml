@@ -128,7 +128,7 @@ let test_with_provider_m_sampling () =
   with_net
   @@ fun net ->
   let agent =
-    Builder.create ~net ~model:"qwen3.5-35b-a3b-ud-q8-xl"
+    Builder.create ~net ~model:"provider_h-3.5-35b-a3b-ud-q8-xl"
     |> Builder.with_top_p 0.95
     |> Builder.with_top_k 20
     |> Builder.with_min_p 0.01
@@ -823,15 +823,15 @@ let test_with_context_thresholds_fallback_from_provider () =
   @@ fun net ->
   (* Construct a Provider.config whose model_id triggers a distinctive
      max_context_tokens via [Llm_provider.Capabilities.for_model_id].
-     [Local] + [qwen3-35b] routes through the Local branch of
+     [Local] + [provider_h_3-35b] routes through the Local branch of
      [Provider.capabilities_for_model], which calls [for_model_id] and
-     returns [max_context_tokens = Some 262_144] for any [qwen3*]
+     returns [max_context_tokens = Some 262_144] for any [provider_h_3*]
      prefix. We deliberately avoid the [Provider_a] branch because it
      returns the base [provider_a_capabilities] record regardless of
      [model_id] (separate issue — see capabilities_for_model). *)
   let provider : Provider.config =
     { provider = Local { base_url = "http://localhost:11434" }
-    ; model_id = "qwen3-35b"
+    ; model_id = "provider_h_3-35b"
     ; api_key_env = "DUMMY"
     }
   in
@@ -844,7 +844,7 @@ let test_with_context_thresholds_fallback_from_provider () =
   in
   let reducer = Option.get (Agent.options agent).context_reducer in
   (* No explicit input/total tokens on the builder, so resolution
-     falls through to the provider-capability branch. qwen3 →
+     falls through to the provider-capability branch. provider_h_3 →
      max_context_tokens = 262_144, budget = 262_144 * 0.5 = 131_072 *)
   Alcotest.(check (option int))
     "provider-derived fallback budget"

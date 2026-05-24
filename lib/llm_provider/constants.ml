@@ -81,7 +81,7 @@ module Inference = struct
       backends.
 
       16384 covers most modern models (GPT-4o, Agent_llm_a Sonnet 4, Provider_f 2.5,
-      Qwen3, Provider_g-V3) without overrunning smaller model limits. Models
+      Provider_h_3, Provider_g-V3) without overrunning smaller model limits. Models
       with lower caps should be declared in [Capabilities.for_model_id] so
       the capability-gated path (not this fallback) applies.
       @since 0.188.0

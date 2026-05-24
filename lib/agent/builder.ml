@@ -237,7 +237,7 @@ let with_context_thresholds
      2. builder's [max_input_tokens] (whole-run input cap),
      3. builder's [max_total_tokens] (whole-run total cap),
      4. [Provider.resolve_max_context_tokens] on [b.provider] when set
-        (e.g. a [qwen3*] model_id → 262_144) — this shares the
+        (e.g. a [provider_h_3*] model_id → 262_144) — this shares the
         "provider → capabilities → max_context_tokens" resolution with
         [Pipeline.proactive_context_window_tokens] so the reducer budget
         and the compaction watermark agree for the same agent.

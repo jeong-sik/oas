@@ -17,8 +17,8 @@ val is_zai_base_url : string -> bool
 val is_coding_base_url : string -> bool
 val is_provider_a_base_url : string -> bool
 val mode_of_base_url : string -> api_mode
-val glm_auto_models : unit -> string list
-val glm_coding_auto_models : unit -> string list
+val provider_k_auto_models : unit -> string list
+val provider_k_coding_auto_models : unit -> string list
 val resolve_glm_alias : default_model:string -> string -> string
 val resolve_glm_coding_alias : default_model:string -> string -> string
 val general_concurrency_for_model : string -> int

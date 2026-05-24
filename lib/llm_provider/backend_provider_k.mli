@@ -19,30 +19,30 @@ open Types
 
 (** Semantic classification of a Provider_k API error.
     Determined by error code (structured) with message fallback. *)
-type glm_error_class =
-  | Glm_quota_exceeded
-  | Glm_rate_limited
-  | Glm_auth_error
-  | Glm_server_error
-  | Glm_invalid_request
+type provider_k_error_class =
+  | Provider_k_quota_exceeded
+  | Provider_k_rate_limited
+  | Provider_k_auth_error
+  | Provider_k_server_error
+  | Provider_k_invalid_request
 
-type glm_error =
+type provider_k_error =
   { code : string
   ; message : string
-  ; error_class : glm_error_class
+  ; error_class : provider_k_error_class
   ; is_retryable : bool
   }
 
-exception Glm_api_error of glm_error
+exception Provider_k_api_error of provider_k_error
 
 (** Classify a Provider_k error code + message into a semantic class.
     Code-based classification takes priority; message keywords are fallback. *)
-val classify_glm_error : code:string -> message:string -> glm_error_class * bool
+val classify_provider_k_error : code:string -> message:string -> provider_k_error_class * bool
 
 (** Map a Provider_k error class to the equivalent HTTP status code.
     Used by complete.ml to normalize provider-specific codes
     into the shared HTTP error path. *)
-val http_code_of_glm_error_class : glm_error_class -> int
+val http_code_of_provider_k_error_class : provider_k_error_class -> int
 
 (** Build a Provider_k chat completion request body.
     Delegates to {!Backend_provider_d.build_request} and injects
