@@ -172,6 +172,7 @@
   test_request_priority
   test_retry
   test_runtime
+  test_runtime_evidence
   test_runtime_projection_cov2
   test_runtime_server_resolve
   test_runtime_server_types
@@ -388,6 +389,7 @@
   test_request_priority
   test_retry
   test_runtime
+  test_runtime_evidence
   test_runtime_projection_cov2
   test_runtime_server_resolve
   test_runtime_server_types
