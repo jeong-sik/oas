@@ -30,6 +30,32 @@ let error_runner _prompt : (Types.api_response, Error.sdk_error) result =
   Error (Error.Internal "agent crashed")
 ;;
 
+let structured_runner prompt : (Types.api_response, Error.sdk_error) result =
+  Ok
+    { id = "child-run-1"
+    ; model = "child-model"
+    ; stop_reason = EndTurn
+    ; content =
+        [ Text (Printf.sprintf "child: %s" prompt)
+        ; ToolResult
+            { tool_use_id = "toolu-child"
+            ; content = {|{"ok":true}|}
+            ; is_error = false
+            ; json = Some (`Assoc [ "ok", `Bool true ])
+            }
+        ]
+    ; usage =
+        Some
+          { input_tokens = 3
+          ; output_tokens = 5
+          ; cache_creation_input_tokens = 0
+          ; cache_read_input_tokens = 0
+          ; cost_usd = Some 0.01
+          }
+    ; telemetry = None
+    }
+;;
+
 (* ── Basic creation ──────────────────────────────────────────── *)
 
 let test_create_simple () =
@@ -136,6 +162,89 @@ let test_multi_content () =
   | Error { message; _ } -> Alcotest.failf "error: %s" message
 ;;
 
+(* ── Typed child invocation ──────────────────────────────────── *)
+
+let typed_config runner =
+  { Agent_tool.name = "typed_child"
+  ; description = "Typed child agent"
+  ; runner
+  ; output_summarizer = None
+  ; input_parameters = []
+  }
+;;
+
+let test_create_typed_schema () =
+  let tool = Agent_tool.create_typed (typed_config structured_runner) in
+  let schema = Typed_tool.schema tool in
+  Alcotest.(check string) "name" "typed_child" schema.name;
+  Alcotest.(check bool)
+    "has prompt param"
+    true
+    (List.exists (fun (p : Types.tool_param) -> p.name = "prompt") schema.parameters)
+;;
+
+let test_typed_child_invocation_output_json () =
+  let open Yojson.Safe.Util in
+  let tool = Agent_tool.create_typed (typed_config structured_runner) in
+  match Typed_tool.execute tool (`Assoc [ "prompt", `String "hello" ]) with
+  | Error { message; _ } -> Alcotest.failf "error: %s" message
+  | Ok { content } ->
+    let json = Yojson.Safe.from_string content in
+    Alcotest.(check string)
+      "type"
+      "agent_tool_child_output"
+      (json |> member "type" |> to_string);
+    Alcotest.(check string)
+      "response_id"
+      "child-run-1"
+      (json |> member "response_id" |> to_string);
+    Alcotest.(check string) "model" "child-model" (json |> member "model" |> to_string);
+    Alcotest.(check string) "text" "child: hello" (json |> member "text" |> to_string);
+    Alcotest.(check int)
+      "content blocks"
+      2
+      (json |> member "content" |> to_list |> List.length);
+    Alcotest.(check int)
+      "input tokens"
+      3
+      (json |> member "usage" |> member "input_tokens" |> to_int)
+;;
+
+let test_typed_child_invocation_preserves_raw_input () =
+  let open Yojson.Safe.Util in
+  let raw_input = `Assoc [ "prompt", `String "hello"; "parent_run_id", `String "p1" ] in
+  let tool = Agent_tool.create_typed (typed_config structured_runner) in
+  match Typed_tool.execute_parsed tool raw_input with
+  | Error message -> Alcotest.failf "parse error: %s" message
+  | Ok ((input : Agent_tool.child_invocation), Ok output) ->
+    Alcotest.(check string) "prompt" "hello" input.prompt;
+    Alcotest.(check string)
+      "parent_run_id"
+      "p1"
+      (input.raw_input |> member "parent_run_id" |> to_string);
+    Alcotest.(check string) "text" "child: hello" output.text
+  | Ok (_, Error message) -> Alcotest.failf "handler error: %s" message
+;;
+
+let test_typed_untyped_bridge_returns_json () =
+  let open Yojson.Safe.Util in
+  let tool = Agent_tool.create_typed_untyped (typed_config structured_runner) in
+  match Tool.execute tool (`Assoc [ "prompt", `String "bridge" ]) with
+  | Error { message; _ } -> Alcotest.failf "error: %s" message
+  | Ok { content } ->
+    let json = Yojson.Safe.from_string content in
+    Alcotest.(check string) "text" "child: bridge" (json |> member "text" |> to_string)
+;;
+
+let test_typed_missing_prompt_recoverable () =
+  let tool = Agent_tool.create_typed (typed_config structured_runner) in
+  match Typed_tool.execute tool (`Assoc [ "other", `String "x" ]) with
+  | Ok _ -> Alcotest.fail "expected parse error"
+  | Error { recoverable; message; _ } ->
+    Alcotest.(check bool) "recoverable" true recoverable;
+    Alcotest.(check string) "message" "Agent_tool input requires a prompt field" message
+;;
+
 (* ── Suite ───────────────────────────────────────────────────── *)
 
 let () =
@@ -150,5 +259,18 @@ let () =
     ; "summarizer", [ Alcotest.test_case "truncate" `Quick test_output_summarizer ]
     ; "params", [ Alcotest.test_case "extra" `Quick test_extra_parameters ]
     ; "multi_content", [ Alcotest.test_case "joined" `Quick test_multi_content ]
+    ; ( "typed_child"
+      , [ Alcotest.test_case "schema" `Quick test_create_typed_schema
+        ; Alcotest.test_case "output_json" `Quick test_typed_child_invocation_output_json
+        ; Alcotest.test_case
+            "preserves_raw_input"
+            `Quick
+            test_typed_child_invocation_preserves_raw_input
+        ; Alcotest.test_case
+            "untyped_bridge"
+            `Quick
+            test_typed_untyped_bridge_returns_json
+        ; Alcotest.test_case "missing_prompt" `Quick test_typed_missing_prompt_recoverable
+        ] )
     ]
 ;;

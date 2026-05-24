@@ -6,6 +6,16 @@ open Types
 
 type agent_runner = string -> (api_response, Error.sdk_error) result
 
+type child_invocation =
+  { prompt : string
+  ; raw_input : Yojson.Safe.t
+  }
+
+type child_output =
+  { text : string
+  ; response : api_response
+  }
+
 type config =
   { name : string
   ; description : string
@@ -25,7 +35,112 @@ let text_of_response (resp : api_response) =
   |> String.concat "\n"
 ;;
 
+let stop_reason_to_string = function
+  | EndTurn -> "end_turn"
+  | StopToolUse -> "tool_use"
+  | MaxTokens -> "max_tokens"
+  | StopSequence -> "stop_sequence"
+  | Unknown s -> s
+;;
+
+let api_usage_to_json = function
+  | None -> `Null
+  | Some usage ->
+    `Assoc
+      [ "input_tokens", `Int usage.input_tokens
+      ; "output_tokens", `Int usage.output_tokens
+      ; "cache_creation_input_tokens", `Int usage.cache_creation_input_tokens
+      ; "cache_read_input_tokens", `Int usage.cache_read_input_tokens
+      ; ( "cost_usd"
+        , match usage.cost_usd with
+          | Some cost -> `Float cost
+          | None -> `Null )
+      ]
+;;
+
+let content_block_to_json = function
+  | Text text -> `Assoc [ "type", `String "text"; "text", `String text ]
+  | Thinking { thinking_type; content } ->
+    `Assoc
+      [ "type", `String "thinking"
+      ; "thinking_type", `String thinking_type
+      ; "content", `String content
+      ]
+  | RedactedThinking value ->
+    `Assoc [ "type", `String "redacted_thinking"; "content", `String value ]
+  | ToolUse { id; name; input } ->
+    `Assoc
+      [ "type", `String "tool_use"
+      ; "id", `String id
+      ; "name", `String name
+      ; "input", input
+      ]
+  | ToolResult { tool_use_id; content; is_error; json } ->
+    `Assoc
+      [ "type", `String "tool_result"
+      ; "tool_use_id", `String tool_use_id
+      ; "content", `String content
+      ; "is_error", `Bool is_error
+      ; "json", Option.value ~default:`Null json
+      ]
+  | Image { media_type; data; source_type } ->
+    `Assoc
+      [ "type", `String "image"
+      ; "media_type", `String media_type
+      ; "data", `String data
+      ; "source_type", `String source_type
+      ]
+  | Document { media_type; data; source_type } ->
+    `Assoc
+      [ "type", `String "document"
+      ; "media_type", `String media_type
+      ; "data", `String data
+      ; "source_type", `String source_type
+      ]
+  | Audio { media_type; data; source_type } ->
+    `Assoc
+      [ "type", `String "audio"
+      ; "media_type", `String media_type
+      ; "data", `String data
+      ; "source_type", `String source_type
+      ]
+;;
+
+let child_output_to_json output =
+  let response = output.response in
+  `Assoc
+    [ "type", `String "agent_tool_child_output"
+    ; "response_id", `String response.id
+    ; "model", `String response.model
+    ; "stop_reason", `String (stop_reason_to_string response.stop_reason)
+    ; "text", `String output.text
+    ; "content", `List (List.map content_block_to_json response.content)
+    ; "usage", api_usage_to_json response.usage
+    ]
+;;
+
 (* ── Tool handler ────────────────────────────────────────────── *)
+
+let prompt_param =
+  { name = "prompt"
+  ; description = "The prompt to send to the agent"
+  ; param_type = String
+  ; required = true
+  }
+;;
+
+let parameters config = prompt_param :: config.input_parameters
+
+let prompt_of_input = function
+  | `Assoc fields ->
+    (match List.assoc_opt "prompt" fields with
+     | Some (`String s) -> Ok s
+     | Some _ -> Error "Agent_tool prompt must be a string"
+     | None -> Error "Agent_tool input requires a prompt field")
+  | `String s -> Ok s
+  | json ->
+    Error ("Agent_tool input must be an object or string: " ^ Yojson.Safe.to_string json)
+;;
 
 let make_handler config : Tool.tool_handler =
   fun (input : Yojson.Safe.t) ->
@@ -53,23 +168,47 @@ let make_handler config : Tool.tool_handler =
     Error { message = Error.to_string e; recoverable = false; error_class = None }
 ;;
 
+let parse_child_invocation input =
+  match prompt_of_input input with
+  | Ok prompt -> Ok { prompt; raw_input = input }
+  | Error message -> Error message
+;;
+
+let make_typed_handler config (input : child_invocation) =
+  match config.runner input.prompt with
+  | Ok response ->
+    let text = text_of_response response in
+    let text =
+      match config.output_summarizer with
+      | Some summarize -> summarize text
+      | None -> text
+    in
+    Ok { text; response }
+  | Error e -> Error (Error.to_string e)
+;;
+
 (* ── Construction ────────────────────────────────────────────── *)
 
 let create config =
-  let parameters =
-    { name = "prompt"
-    ; description = "The prompt to send to the agent"
-    ; param_type = String
-    ; required = true
-    }
-    :: config.input_parameters
-  in
   Tool.create
     ~name:config.name
     ~description:config.description
-    ~parameters
+    ~parameters:(parameters config)
     (make_handler config)
 ;;
+
+let create_typed config =
+  Typed_tool.create
+    ~name:config.name
+    ~description:config.description
+    ~params:(parameters config)
+    ~parse:parse_child_invocation
+    ~handler:(make_typed_handler config)
+    ~encode:child_output_to_json
+    ()
+;;
+
+let create_typed_untyped config = config |> create_typed |> Typed_tool.to_untyped
 
 let create_simple ~name ~description runner =
   create { name; description; runner; output_summarizer = None; input_parameters = [] }
