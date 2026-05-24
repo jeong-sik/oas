@@ -88,7 +88,8 @@ let all_event_kinds () =
          ~raw_trace_run_id:"raw-1"
          ~stop_reason:"end_turn"
          "alice")
-  ; Agent_output_delta { participant_name = "alice"; delta = "partial" }
+  ; Agent_output_delta
+      { participant_name = "alice"; delta = "partial"; raw_trace_run_id = Some "raw-1" }
   ; Agent_completed
       (participant_event
          ~summary:
@@ -161,6 +162,15 @@ let test_telemetry_report_covers_event_shapes () =
   let json = Runtime_evidence.telemetry_report_to_json report in
   let markdown = Runtime_evidence.telemetry_report_to_markdown report in
   check bool "json has steps" true Yojson.Safe.Util.(json |> member "steps" <> `Null);
+  let output_delta_step =
+    report.steps
+    |> List.find_opt (fun step ->
+      String.equal step.Runtime_evidence.event_name "agent_output_delta")
+  in
+  (match output_delta_step with
+   | Some step ->
+     check (option string) "delta raw trace run id" (Some "raw-1") step.raw_trace_run_id
+   | None -> fail "missing output delta step");
   check bool "markdown mentions anomalies" true (String.contains markdown 'A')
 ;;
 

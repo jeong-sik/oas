@@ -259,6 +259,9 @@ different payload shapes. Disambiguate by Custom name prefix:
 **Structured completion/failure metadata**:
 - `Runtime.participant_event` now carries optional `raw_trace_run_id`,
   `stop_reason`, `completion_anomaly`, and `failure_cause`.
+- `Runtime.output_delta_event` carries optional `raw_trace_run_id` so streamed
+  child-agent text can be joined to the same EventBus `run_id` and telemetry
+  row as its final completion event.
 - `Runtime.session.pending_input` carries the resumable `input_request`
   while phase is `Input_required`; `Provide_input` emits
   `Input_provided`, clears the payload, and returns the session to

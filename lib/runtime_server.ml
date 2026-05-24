@@ -445,7 +445,7 @@ let generate_report_and_proof store state session_id =
     Ok (final_session, final_report, final_proof))
 ;;
 
-let emit_output_delta store state session_id participant_name delta =
+let emit_output_delta store state session_id participant_name ?raw_trace_run_id delta =
   if String.trim delta = ""
   then Ok ()
   else
@@ -454,7 +454,7 @@ let emit_output_delta store state session_id participant_name delta =
         store
         state
         session_id
-        (Agent_output_delta { participant_name; delta })
+        (Agent_output_delta { participant_name; delta; raw_trace_run_id })
     in
     Ok ()
 ;;
@@ -466,9 +466,12 @@ let emit_delta_text_with_refs
       participant_name
       ~delta_warn_logged
       ~delta_error_count
+      ?raw_trace_run_id
       text
   =
-  match emit_output_delta store state session_id participant_name text with
+  match
+    emit_output_delta store state session_id participant_name ?raw_trace_run_id text
+  with
   | Ok () -> ()
   | Error e ->
     incr delta_error_count;
@@ -513,7 +516,7 @@ let mock_prompt_requires_input prompt =
 ;;
 
 let run_participant
-      store
+      (store : Runtime_store.t)
       state
       session_id
       (resolution : execution_resolution)
@@ -521,16 +524,6 @@ let run_participant
   =
   let delta_warn_logged = ref false in
   let delta_error_count = ref 0 in
-  let emit_delta_text text =
-    emit_delta_text_with_refs
-      store
-      state
-      session_id
-      detail.participant_name
-      ~delta_warn_logged
-      ~delta_error_count
-      text
-  in
   let trace_sink =
     match
       Raw_trace.create_for_session
@@ -550,6 +543,18 @@ let run_participant
         ; Log.S ("error", Error.to_string e)
         ];
       None
+  in
+  let emit_delta_text text =
+    let raw_trace_run_id = latest_raw_trace_run_id trace_sink in
+    emit_delta_text_with_refs
+      store
+      state
+      session_id
+      detail.participant_name
+      ~delta_warn_logged
+      ~delta_error_count
+      ?raw_trace_run_id
+      text
   in
   let completion_anomaly () = completion_anomaly_of_delta_errors delta_error_count in
   match resolution.selected_provider with
@@ -886,6 +891,7 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
   | "mock" | "echo" ->
     let full = mock_runtime_input_response paused.detail runtime_response in
     let emit_delta_text text =
+      let raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink in
       emit_delta_text_with_refs
         store
         state
@@ -893,6 +899,7 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
         participant_name
         ~delta_warn_logged:paused.delta_warn_logged
         ~delta_error_count:paused.delta_error_count
+        ?raw_trace_run_id
         text
     in
     let half = String.length full / 2 in
@@ -910,6 +917,7 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
     Eio.Switch.run
     @@ fun sw ->
     let emit_delta_text text =
+      let raw_trace_run_id = latest_raw_trace_run_id paused.trace_sink in
       emit_delta_text_with_refs
         store
         state
@@ -917,6 +925,7 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
         participant_name
         ~delta_warn_logged:paused.delta_warn_logged
         ~delta_error_count:paused.delta_error_count
+        ?raw_trace_run_id
         text
     in
     let on_event = function

@@ -450,7 +450,9 @@ let test_apply_agent_output_delta () =
   let p = mk_participant ~name:"alice" ~state:Live () in
   let session = mk_session ~participants:[ p ] () in
   let event =
-    mk_event (Agent_output_delta { participant_name = "alice"; delta = "some output" })
+    mk_event
+      (Agent_output_delta
+         { participant_name = "alice"; delta = "some output"; raw_trace_run_id = None })
   in
   match Runtime_projection.apply_event session event with
   | Ok s ->

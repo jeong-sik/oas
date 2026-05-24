@@ -200,7 +200,37 @@ let test_runtime_client_roundtrip () =
          wait_until_session ~timeout_s:1.0 (fun () ->
            unwrap (Runtime_client.status client ~session_id:session.session_id))
        in
-       Alcotest.(check bool) "last seq progressed" true (status.last_seq >= 3))
+       Alcotest.(check bool) "last seq progressed" true (status.last_seq >= 3);
+       let events =
+         unwrap (Runtime_client.events client ~session_id:session.session_id ())
+       in
+       let output_delta_run_ids =
+         List.filter_map
+           (fun (event : Runtime.event) ->
+              match event.kind with
+              | Runtime.Agent_output_delta detail -> detail.raw_trace_run_id
+              | _ -> None)
+           events
+       in
+       let completion_run_id =
+         List.find_map
+           (fun (event : Runtime.event) ->
+              match event.kind with
+              | Runtime.Agent_completed detail -> detail.raw_trace_run_id
+              | _ -> None)
+           events
+       in
+       Alcotest.(check bool)
+         "output deltas carry raw trace run id"
+         true
+         (output_delta_run_ids <> []);
+       match completion_run_id with
+       | Some run_id ->
+         Alcotest.(check bool)
+           "delta and completion run ids match"
+           true
+           (List.for_all (String.equal run_id) output_delta_run_ids)
+       | None -> Alcotest.fail "missing completion raw trace run id")
 ;;
 
 let test_runtime_input_required_resume () =
