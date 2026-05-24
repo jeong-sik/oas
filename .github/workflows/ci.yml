@@ -144,7 +144,12 @@ jobs:
           # added without corresponding test registration. Floor set to
           # floor(22.87) = 22 per ratchet policy until test registration
           # catches up.
-          THRESHOLD=22
+          #
+          # 2026-05-24: full CI on PR #1707 measured 70.90% coverage
+          # (run 26352648077, job 77573496681). Raise the floor to
+          # floor(70.90 - 1) = 69 per #1175 ratchet policy while leaving
+          # headroom for CI/runtime noise.
+          THRESHOLD=69
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
