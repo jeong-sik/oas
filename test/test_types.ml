@@ -112,6 +112,31 @@ let test_tool_choice_none () =
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 
+let test_response_format_json_helpers () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  let cases =
+    [ Types.Off, `Assoc [ "type", `String "off" ]
+    ; Types.JsonMode, `Assoc [ "type", `String "json_mode" ]
+    ; Types.JsonSchema schema, `Assoc [ "type", `String "json_schema"; "schema", schema ]
+    ]
+  in
+  List.iter
+    (fun (format, expected) ->
+       Alcotest.(check string)
+         "response_format json"
+         (Yojson.Safe.to_string expected)
+         (Types.response_format_to_json format |> Yojson.Safe.to_string))
+    cases;
+  Alcotest.(check string)
+    "enabled"
+    (Types.show_response_format Types.JsonMode)
+    (Types.response_format_of_json_mode true |> Types.show_response_format);
+  Alcotest.(check string)
+    "disabled"
+    (Types.show_response_format Types.Off)
+    (Types.response_format_of_json_mode false |> Types.show_response_format)
+;;
+
 let test_add_usage () =
   let stats = Types.empty_usage in
   let u : Types.api_usage =
@@ -326,6 +351,66 @@ let test_tool_choice_roundtrip_all () =
     variants
 ;;
 
+let test_tool_param_manual_json_helpers () =
+  let params =
+    [ { Types.name = "q"
+      ; description = "Query"
+      ; param_type = Types.String
+      ; required = true
+      }
+    ; { Types.name = "limit"
+      ; description = "Limit"
+      ; param_type = Types.Integer
+      ; required = false
+      }
+    ]
+  in
+  let schema = Types.params_to_input_schema params in
+  let open Yojson.Safe.Util in
+  Alcotest.(check string) "schema type" "object" (schema |> member "type" |> to_string);
+  Alcotest.(check int)
+    "required count"
+    1
+    (schema |> member "required" |> to_list |> List.length);
+  let param_json = Types.tool_param_to_json (List.hd params) in
+  (match Types.tool_param_of_json param_json with
+   | Ok decoded -> Alcotest.(check string) "decoded" "q" decoded.name
+   | Error msg -> Alcotest.fail msg);
+  let bad_param =
+    `Assoc
+      [ "name", `String "x"
+      ; "description", `String "bad"
+      ; "param_type", `String "bad_type"
+      ; "required", `Bool true
+      ]
+  in
+  (match Types.tool_param_of_json bad_param with
+   | Error msg ->
+     Alcotest.(check bool)
+       "mentions param_type"
+       true
+       (Agent_sdk.Util.contains_substring_ci ~haystack:msg ~needle:"param_type")
+   | Ok _ -> Alcotest.fail "expected bad param type");
+  let tool_schema =
+    { Types.name = "search"; description = "Search"; parameters = params }
+  in
+  let manual_json = Types.tool_schema_to_json tool_schema in
+  match Types.tool_schema_of_json manual_json with
+  | Ok decoded -> Alcotest.(check int) "params" 2 (List.length decoded.parameters)
+  | Error msg -> Alcotest.fail msg
+;;
+
+let test_result_all_helper () =
+  Alcotest.(check (list int))
+    "all ok"
+    [ 1; 2 ]
+    (Result.get_ok (Types.result_all [ Ok 1; Ok 2 ]));
+  match Types.result_all [ Ok 1; Error "boom"; Ok 3 ] with
+  | Error "boom" -> ()
+  | Error other -> Alcotest.fail ("unexpected error: " ^ other)
+  | Ok _ -> Alcotest.fail "expected first error"
+;;
+
 (* ── role_of_string ──────────────────────────────────────── *)
 
 let test_role_of_string () =
@@ -398,6 +483,24 @@ let test_tool_result_msg_error () =
   | _ -> Alcotest.fail "expected error ToolResult"
 ;;
 
+let test_tool_result_msg_json_detection () =
+  let m = Types.tool_result_msg ~tool_use_id:"tu-json" ~content:{|{"ok":true}|} () in
+  (match m.content with
+   | [ Types.ToolResult { json = Some (`Assoc _); _ } ] -> ()
+   | _ -> Alcotest.fail "expected parsed JSON payload");
+  let explicit = `Assoc [ "explicit", `Bool true ] in
+  let m =
+    Types.tool_result_msg ~tool_use_id:"tu-explicit" ~content:"not-json" ~json:explicit ()
+  in
+  match m.content with
+  | [ Types.ToolResult { json = Some json; _ } ] ->
+    Alcotest.(check string)
+      "explicit json wins"
+      (Yojson.Safe.to_string explicit)
+      (Yojson.Safe.to_string json)
+  | _ -> Alcotest.fail "expected explicit JSON payload"
+;;
+
 (* ── text_of_content / text_of_message ─────────────────── *)
 
 let test_text_of_content_text_only () =
@@ -444,6 +547,131 @@ let test_text_of_message () =
   Alcotest.(check string) "text" "hi" (Types.text_of_message m)
 ;;
 
+let test_text_of_response_and_usage_helpers () =
+  let usage =
+    { Types.input_tokens = 1
+    ; output_tokens = 2
+    ; cache_creation_input_tokens = 3
+    ; cache_read_input_tokens = 4
+    ; cost_usd = Some 0.01
+    }
+  in
+  let response : Types.api_response =
+    { id = "resp"
+    ; model = "model"
+    ; stop_reason = Types.EndTurn
+    ; content =
+        [ Types.Text "hello"
+        ; Types.ToolResult
+            { tool_use_id = "tu"; content = "tool text"; is_error = false; json = None }
+        ; Types.Thinking { thinking_type = "sig"; content = "hidden" }
+        ]
+    ; usage = Some usage
+    ; telemetry = None
+    }
+  in
+  Alcotest.(check string)
+    "response text"
+    "hello\ntool text"
+    (Types.text_of_response response);
+  Alcotest.(check (option int))
+    "usage"
+    (Some 1)
+    (Option.map (fun u -> u.Types.input_tokens) (Types.usage_of_response response));
+  Alcotest.(check int) "zero input" 0 Types.zero_api_usage.input_tokens
+;;
+
+let test_validate_tool_result_shape () =
+  let object_result =
+    Types.ToolResult
+      { tool_use_id = "obj"
+      ; content = {|{"ok":true}|}
+      ; is_error = false
+      ; json = Some (`Assoc [ "ok", `Bool true ])
+      }
+  in
+  let array_result =
+    Types.ToolResult
+      { tool_use_id = "arr"
+      ; content = "[1,2]"
+      ; is_error = false
+      ; json = Some (`List [ `Int 1; `Int 2 ])
+      }
+  in
+  let invalid_json_result =
+    Types.ToolResult
+      { tool_use_id = "bad"; content = "not-json"; is_error = false; json = None }
+  in
+  let empty_result =
+    Types.ToolResult
+      { tool_use_id = "empty"; content = " "; is_error = false; json = None }
+  in
+  Alcotest.(check bool)
+    "object ok"
+    true
+    (Result.is_ok
+       (Types.validate_tool_result_shape
+          ~expect_object:true
+          ~expect_array:false
+          object_result));
+  Alcotest.(check bool)
+    "array ok"
+    true
+    (Result.is_ok
+       (Types.validate_tool_result_shape
+          ~expect_object:false
+          ~expect_array:true
+          array_result));
+  Alcotest.(check bool)
+    "both accepts any json"
+    true
+    (Result.is_ok
+       (Types.validate_tool_result_shape
+          ~expect_object:true
+          ~expect_array:true
+          array_result));
+  Alcotest.(check bool)
+    "object expected"
+    true
+    (Result.is_error
+       (Types.validate_tool_result_shape
+          ~expect_object:true
+          ~expect_array:false
+          array_result));
+  Alcotest.(check bool)
+    "array expected"
+    true
+    (Result.is_error
+       (Types.validate_tool_result_shape
+          ~expect_object:false
+          ~expect_array:true
+          object_result));
+  Alcotest.(check bool)
+    "parse error"
+    true
+    (Result.is_error
+       (Types.validate_tool_result_shape
+          ~expect_object:true
+          ~expect_array:false
+          invalid_json_result));
+  Alcotest.(check bool)
+    "empty content"
+    true
+    (Result.is_error
+       (Types.validate_tool_result_shape
+          ~expect_object:false
+          ~expect_array:false
+          empty_result));
+  Alcotest.(check bool)
+    "non tool result ignored"
+    true
+    (Result.is_ok
+       (Types.validate_tool_result_shape
+          ~expect_object:true
+          ~expect_array:false
+          (Types.Text "plain")))
+;;
+
 (* ── Audio content block show ──────────────────────────── *)
 
 let test_show_audio_block () =
@@ -483,6 +711,8 @@ let () =
         ; Alcotest.test_case "tool" `Quick test_tool_choice_tool
         ; Alcotest.test_case "none roundtrip" `Quick test_tool_choice_none
         ] )
+    ; ( "response_format"
+      , [ Alcotest.test_case "json helpers" `Quick test_response_format_json_helpers ] )
     ; ( "usage"
       , [ Alcotest.test_case "add_usage" `Quick test_add_usage
         ; Alcotest.test_case "accumulates" `Quick test_add_usage_accumulates
@@ -556,6 +786,11 @@ let () =
               Alcotest.(check string) "name" "x" decoded.name;
               Alcotest.(check bool) "required" true decoded.required
             | Error msg -> Alcotest.fail ("tool_param_of_yojson: " ^ msg))
+        ; Alcotest.test_case
+            "manual json helpers"
+            `Quick
+            test_tool_param_manual_json_helpers
+        ; Alcotest.test_case "result_all" `Quick test_result_all_helper
         ] )
     ; ( "text_extraction"
       , [ Alcotest.test_case "text only" `Quick test_text_of_content_text_only
@@ -563,6 +798,14 @@ let () =
         ; Alcotest.test_case "tool result" `Quick test_text_of_content_tool_result
         ; Alcotest.test_case "empty" `Quick test_text_of_content_empty
         ; Alcotest.test_case "text_of_message" `Quick test_text_of_message
+        ; Alcotest.test_case
+            "text_of_response and usage"
+            `Quick
+            test_text_of_response_and_usage_helpers
+        ] )
+    ; ( "tool_result_validation"
+      , [ Alcotest.test_case "shape checks" `Quick test_validate_tool_result_shape
+        ; Alcotest.test_case "json detection" `Quick test_tool_result_msg_json_detection
         ] )
     ]
 ;;

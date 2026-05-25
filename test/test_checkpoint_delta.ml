@@ -240,6 +240,26 @@ let make_unit_checkpoint
   }
 ;;
 
+let sample_tool_schema =
+  { name = "lookup"
+  ; description = "Lookup a value"
+  ; parameters =
+      [ { name = "key"; description = "Key"; param_type = String; required = true } ]
+  }
+;;
+
+let sample_mcp_session =
+  { Mcp_session.server_name = "memory"
+  ; command = "memory-server"
+  ; args = [ "--stdio" ]
+  ; env = [ "MODE", "test" ]
+  ; http_base_url = None
+  ; http_headers = []
+  ; tool_schemas = [ sample_tool_schema ]
+  ; transport_kind = Mcp_session.Stdio
+  }
+;;
+
 let test_delta_roundtrip_property =
   QCheck.Test.make
     ~count:100
@@ -300,6 +320,125 @@ let test_delta_json_roundtrip () =
     (match Checkpoint.apply_delta base decoded with
      | Ok rebuilt -> checkpoint_equal rebuilt target
      | Error _ -> false)
+;;
+
+let test_delta_json_all_replacement_ops () =
+  let base = make_unit_checkpoint ~tool_choice:(Some Auto) () in
+  let target =
+    { base with
+      system_prompt = None
+    ; usage =
+        { total_input_tokens = 11
+        ; total_output_tokens = 7
+        ; total_cache_creation_input_tokens = 3
+        ; total_cache_read_input_tokens = 2
+        ; api_calls = 4
+        ; estimated_cost_usd = 0.42
+        ; unpriced_model = Some "custom-unpriced"
+        }
+    ; turn_count = 9
+    ; tools = [ sample_tool_schema ]
+    ; tool_choice = Some (Tool "lookup")
+    ; temperature = Some 0.2
+    ; top_p = Some 0.9
+    ; top_k = Some 40
+    ; min_p = Some 0.05
+    ; enable_thinking = Some true
+    ; thinking_budget = Some 128
+    ; disable_parallel_tool_use = true
+    ; response_format = JsonSchema (`Assoc [ "type", `String "object" ])
+    ; cache_system_prompt = true
+    ; max_input_tokens = Some 2048
+    ; max_total_tokens = Some 4096
+    ; mcp_sessions = [ sample_mcp_session ]
+    ; working_context = Some (`Assoc [ "kind", `String "full_replace" ])
+    }
+  in
+  let delta = Checkpoint.compute_delta base target in
+  let delta_json = Checkpoint.delta_to_json delta in
+  let kinds =
+    match delta_json with
+    | `Assoc fields ->
+      (match List.assoc_opt "operations" fields with
+       | Some (`List operations) ->
+         List.filter_map
+           (function
+             | `Assoc op_fields ->
+               (match List.assoc_opt "kind" op_fields with
+                | Some (`String kind) -> Some kind
+                | _ -> None)
+             | _ -> None)
+           operations
+       | _ -> Alcotest.fail "operations missing")
+    | _ -> Alcotest.fail "delta json should be an object"
+  in
+  List.iter
+    (fun kind -> Alcotest.(check bool) kind true (List.mem kind kinds))
+    [ "replace_system_prompt"
+    ; "replace_usage"
+    ; "replace_turn_count"
+    ; "replace_tools"
+    ; "replace_tool_choice"
+    ; "replace_sampling"
+    ; "replace_limits"
+    ; "replace_mcp_sessions"
+    ; "replace_working_context"
+    ];
+  let decoded = delta_json |> Checkpoint.delta_of_json |> Result.get_ok in
+  match Checkpoint.apply_delta base decoded with
+  | Ok rebuilt ->
+    Alcotest.(check bool)
+      "decoded replacement delta applies"
+      true
+      (checkpoint_equal rebuilt target)
+  | Error err ->
+    Alcotest.failf "expected delta to apply: %s" (Agent_sdk.Error.to_string err)
+;;
+
+let test_delta_json_null_and_legacy_limit_paths () =
+  let base = make_unit_checkpoint ~tool_choice:(Some Any) () in
+  let target = { base with tool_choice = None; working_context = None } in
+  let delta = Checkpoint.compute_delta base target in
+  let decoded =
+    delta |> Checkpoint.delta_to_json |> Checkpoint.delta_of_json |> Result.get_ok
+  in
+  (match Checkpoint.apply_delta base decoded with
+   | Ok rebuilt ->
+     Alcotest.(check bool) "tool choice none" true (Option.is_none rebuilt.tool_choice)
+   | Error err ->
+     Alcotest.failf "expected null delta to apply: %s" (Agent_sdk.Error.to_string err));
+  let with_operations operations =
+    match Checkpoint.delta_to_json (Checkpoint.compute_delta base base) with
+    | `Assoc fields ->
+      `Assoc
+        (List.map
+           (fun (key, value) ->
+              if key = "operations" then key, `List operations else key, value)
+           fields)
+    | _ -> Alcotest.fail "delta json should be an object"
+  in
+  let legacy_limits_json =
+    with_operations
+      [ `Assoc
+          [ "kind", `String "replace_limits"
+          ; "disable_parallel_tool_use", `Bool false
+          ; "response_format", `Null
+          ; "response_format_json", `Bool true
+          ; "cache_system_prompt", `Bool false
+          ; "max_input_tokens", `Null
+          ; "max_total_tokens", `Null
+          ]
+      ]
+  in
+  Alcotest.(check bool)
+    "legacy response_format_json accepted"
+    true
+    (Result.is_ok (Checkpoint.delta_of_json legacy_limits_json));
+  let unknown_op_json = with_operations [ `Assoc [ "kind", `String "bogus" ] ] in
+  Alcotest.(check bool)
+    "unknown op rejected"
+    true
+    (Result.is_error (Checkpoint.delta_of_json unknown_op_json))
 ;;
 
 let test_delta_json_rejects_malformed_context_removed () =
@@ -665,6 +804,14 @@ let () =
             "delta JSON rejects malformed context removed"
             `Quick
             test_delta_json_rejects_malformed_context_removed
+        ; Alcotest.test_case
+            "delta JSON all replacement ops"
+            `Quick
+            test_delta_json_all_replacement_ops
+        ; Alcotest.test_case
+            "delta JSON null and legacy limit paths"
+            `Quick
+            test_delta_json_null_and_legacy_limit_paths
         ; Alcotest.test_case "empty delta roundtrip" `Quick test_empty_delta_roundtrip
         ; Alcotest.test_case
             "metadata delta roundtrip"

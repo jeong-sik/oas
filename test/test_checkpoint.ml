@@ -353,6 +353,25 @@ let () =
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             check int "input" 0 cp2.usage.total_input_tokens;
             check int "api_calls" 0 cp2.usage.api_calls)
+        ; test_case "usage legacy defaults and unpriced model" `Quick (fun () ->
+            let usage =
+              Checkpoint.usage_of_json
+                (`Assoc
+                    [ "total_input_tokens", `Int 10
+                    ; "total_output_tokens", `Int 5
+                    ; "api_calls", `Int 2
+                    ; "estimated_cost_usd", `Int 1
+                    ; "unpriced_model", `String "custom-model"
+                    ])
+            in
+            check int "cache create default" 0 usage.total_cache_creation_input_tokens;
+            check int "cache read default" 0 usage.total_cache_read_input_tokens;
+            check (float 0.001) "int cost widens" 1.0 usage.estimated_cost_usd;
+            check
+              (option string)
+              "unpriced model"
+              (Some "custom-model")
+              usage.unpriced_model)
         ] )
     ; ( "tools"
       , [ test_case "tool_schema roundtrip" `Quick (fun () ->
@@ -814,6 +833,69 @@ let () =
               | other -> other
             in
             check bool "error" true (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "message metadata must be object" `Quick (fun () ->
+            let cp =
+              make_checkpoint
+                ~messages:
+                  [ { Types.role = Types.Assistant
+                    ; content = [ Types.Text "hello" ]
+                    ; name = None
+                    ; tool_call_id = None
+                    ; metadata = []
+                    }
+                  ]
+                ()
+            in
+            let json = Checkpoint.to_json cp in
+            let bad =
+              match json with
+              | `Assoc pairs ->
+                `Assoc
+                  (List.map
+                     (fun (k, v) ->
+                        if k = "messages"
+                        then (
+                          match v with
+                          | `List (`Assoc msg_fields :: rest) ->
+                            ( k
+                            , `List
+                                (`Assoc (("metadata", `String "bad") :: msg_fields)
+                                 :: rest) )
+                          | other -> k, other)
+                        else k, v)
+                     pairs)
+              | other -> other
+            in
+            check bool "error" true (Result.is_error (Checkpoint.of_json bad)))
+        ; test_case "context null and working_context value decode" `Quick (fun () ->
+            let cp = make_checkpoint () in
+            let working_context =
+              `Assoc [ "kind", `String "ctx"; "generation", `Int 1 ]
+            in
+            let json =
+              match Checkpoint.to_json cp with
+              | `Assoc pairs ->
+                `Assoc
+                  (List.map
+                     (fun (k, v) ->
+                        match k with
+                        | "context" -> k, `Null
+                        | "working_context" -> k, working_context
+                        | _ -> k, v)
+                     pairs)
+              | other -> other
+            in
+            let decoded = Result.get_ok (Checkpoint.of_json json) in
+            check
+              int
+              "context starts empty"
+              0
+              (List.length (Context.keys decoded.context));
+            check
+              (option (testable Yojson.Safe.pp Yojson.Safe.equal))
+              "working context"
+              (Some working_context)
+              decoded.working_context)
         ] )
     ; ( "mcp_sessions"
       , [ test_case "empty mcp_sessions roundtrip" `Quick (fun () ->

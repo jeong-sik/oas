@@ -1,9 +1,11 @@
 # Coverage ratchet evidence - 2026-05-25
 
-Scope: #1175 Stage C/D continuation. PR #1759 raises measured project coverage
-above 78% with behavior-backed provider dispatch, provider_d codec, streaming,
-pure-module, harness, CLI transport, provider_k, and provider catalog tests, so
-the CI coverage floor can move from 73% to 77%.
+Scope: #1175 Stage C/D/E/F continuation. PRs #1759 and #1761 raise measured
+project coverage above 80% with behavior-backed provider dispatch, provider_d
+codec, streaming, pure-module, harness, CLI transport, provider_k, provider
+catalog, runtime server, provider config, memory, discovery, HTTP client, tool
+selector, checkpoint, and type tests, so the CI coverage floor can move from
+73% to 79%.
 
 ## Measurement
 
@@ -141,6 +143,40 @@ the CI coverage floor can move from 73% to 77%.
 - Timestamp: 2026-05-25 KST
   Confidence: High for focused behavior coverage; project-wide CI coverage is
   now governed by the latest `77` floor above.
+
+## Stage F terminal-target follow-up
+
+- Evidence: local focused and full coverage runs on PR #1761 after extending
+  maintained memory, discovery, HTTP client, tool selector, checkpoint, and type
+  tests. Deprecated Orchestrator/Collaboration paths were intentionally not
+  expanded.
+- Focused validation:
+  `env MASC_DUNE_THROTTLE=0 scripts/dune-local.sh build test/test_memory.exe test/test_tool_selector.exe test/test_discovery.exe test/test_http_client.exe test/test_types.exe`
+  and
+  `env MASC_DUNE_THROTTLE=0 scripts/dune-local.sh build test/test_memory_episodic.exe test/test_memory_tools_parse.exe test/test_checkpoint_delta.exe test/test_checkpoint.exe`
+- Full clean coverage command:
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes EIO_BACKEND=posix BISECT_FILE=/tmp/oas_stage_f_full_coverage_20260525_3/bisect DUNE_BUILD_DIR=/Users/dancer/me/workspace/yousleepwhen/oas/.worktrees/runtime-server-coverage-20260525/_build_cov_stage_f3 scripts/dune-local.sh runtest --force --instrument-with bisect_ppx`
+- Summary command:
+  `opam exec -- bisect-ppx-report summary --per-file --coverage-path=/tmp/oas_stage_f_full_coverage_20260525_3`
+- Full clean coverage result:
+  `80.02%` (`23803/29748`) from
+  `/tmp/oas_stage_f_full_coverage_20260525_3`.
+- Key full-run per-file results:
+  - `lib/checkpoint_codec.ml`: `93.10%` (`351/377`)
+  - `lib/memory_episodic.ml`: `93.42%` (`71/76`)
+  - `lib/memory_tools_parse.ml`: `100.00%` (`112/112`)
+  - `lib/memory.ml`: `82.60%` (`299/362`)
+  - `lib/llm_provider/discovery.ml`: `71.58%` (`199/278`)
+  - `lib/llm_provider/http_client.ml`: `65.53%` (`268/409`)
+  - `lib/llm_provider/types.ml`: `76.03%` (`241/317`)
+  - `lib/tool_selector.ml`: `69.74%` (`106/152`)
+- Ratchet decision:
+  CI coverage threshold raised from `78` to `79`, using
+  `floor(80.02 - 1) = 79` and keeping one percentage point of headroom below
+  the measured result.
+- Timestamp: 2026-05-25 KST
+  Confidence: High for focused behavior coverage and full project coverage;
+  project-wide CI coverage is now governed by the latest `79` floor above.
 
 ## Stage E runtime server and provider config follow-up
 
