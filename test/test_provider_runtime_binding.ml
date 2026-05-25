@@ -34,6 +34,76 @@ let catalog_json =
 |}
 ;;
 
+let catalog_variants_json =
+  {|
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "custom-rich",
+      "aliases": ["Rich-Alias"],
+      "kind": "provider_d_compat",
+      "transport": "custom-openai-compat",
+      "base_url": "https://rich.example/v1/",
+      "request_path": "/chat/completions",
+      "auth": {"type": "setup-token-env", "key": "RICH_SETUP_TOKEN"},
+      "default_model": "rich-default",
+      "capabilities_base": "provider_d_chat"
+    },
+    {
+      "id": "managed-oauth",
+      "kind": "provider_d_compat",
+      "transport": "managed",
+      "auth": {"type": "oauth_cached_login"},
+      "capabilities_base": "provider_d_chat"
+    },
+    {
+      "id": "cli-login",
+      "kind": "cli_tool_a",
+      "transport": "cli",
+      "command": "agent_code",
+      "auth": {"type": "cli-cached-login"}
+    },
+    {
+      "id": "file-auth",
+      "kind": "provider_d_compat",
+      "auth": {"type": "file", "path": "/tmp/provider-token"},
+      "capabilities_base": "provider_d_chat"
+    },
+    {
+      "id": "exec-auth",
+      "kind": "provider_d_compat",
+      "auth": {"type": "exec", "command": "op read token"},
+      "capabilities_base": "provider_d_chat"
+    },
+    {
+      "id": "api-key-auth",
+      "kind": "provider_d_compat",
+      "api_key_env": "API_KEY_AUTH",
+      "capabilities_base": "provider_d_chat"
+    }
+  ]
+}
+|}
+;;
+
+let transport_to_string = function
+  | Provider_runtime_binding.Http -> "http"
+  | Provider_runtime_binding.Cli -> "cli"
+  | Provider_runtime_binding.Managed -> "managed"
+  | Provider_runtime_binding.Custom_provider_d_compat -> "custom"
+;;
+
+let auth_to_string = function
+  | Provider_runtime_binding.No_auth -> "none"
+  | Provider_runtime_binding.Api_key_env env -> "api_key_env:" ^ env
+  | Provider_runtime_binding.Cli_cached_login -> "cli"
+  | Provider_runtime_binding.Oauth_cached_login -> "oauth"
+  | Provider_runtime_binding.Setup_token_env env -> "setup:" ^ env
+  | Provider_runtime_binding.File path -> "file:" ^ path
+  | Provider_runtime_binding.Exec command -> "exec:" ^ command
+;;
+
 let expect_binding label =
   match Provider_runtime_binding.find label with
   | Some binding -> binding
@@ -140,6 +210,57 @@ let test_all_includes_catalog_entry_once () =
     Alcotest.(check int) "catalog entry count" 1 (List.length matches))
 ;;
 
+let test_catalog_transport_and_auth_variants () =
+  with_provider_catalog catalog_variants_json (fun () ->
+    let cases =
+      [ "rich-alias", "custom", "setup:RICH_SETUP_TOKEN", Some "rich-default", None
+      ; "managed-oauth", "managed", "oauth", None, None
+      ; "cli-login", "cli", "cli", None, Some "agent_code"
+      ; "file-auth", "http", "file:/tmp/provider-token", None, None
+      ; "exec-auth", "http", "exec:op read token", None, None
+      ; "api-key-auth", "http", "api_key_env:API_KEY_AUTH", None, None
+      ]
+    in
+    List.iter
+      (fun (label, transport, auth, default_model, command) ->
+         let binding = expect_binding label in
+         Alcotest.(check string)
+           (label ^ " transport")
+           transport
+           (transport_to_string binding.transport);
+         Alcotest.(check string) (label ^ " auth") auth (auth_to_string binding.auth);
+         Alcotest.(check (option string))
+           (label ^ " default model")
+           default_model
+           binding.default_model;
+         Alcotest.(check (option string)) (label ^ " command") command binding.command)
+      cases)
+;;
+
+let test_find_empty_missing_and_provider_config_fallbacks () =
+  Alcotest.(check bool)
+    "empty missing"
+    true
+    (Option.is_none (Provider_runtime_binding.find " "));
+  Alcotest.(check bool)
+    "unknown missing"
+    true
+    (Option.is_none (Provider_runtime_binding.find "not-a-provider"));
+  with_provider_catalog catalog_variants_json (fun () ->
+    let cfg =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.Provider_d_compat
+        ~model_id:"rich-default"
+        ~base_url:" https://rich.example/v1/// "
+        ~request_path:" /chat/completions "
+        ()
+    in
+    match Provider_runtime_binding.binding_for_provider_config cfg with
+    | Some binding ->
+      Alcotest.(check string) "normalized endpoint match" "custom-rich" binding.id
+    | None -> Alcotest.fail "expected normalized endpoint binding")
+;;
+
 let test_builtin_binding_resolves () =
   let binding = expect_binding "agent_llm_a" in
   Alcotest.(check string) "builtin id" "agent_llm_a" binding.id;
@@ -178,6 +299,14 @@ let () =
             "all includes catalog once"
             `Quick
             test_all_includes_catalog_entry_once
+        ; Alcotest.test_case
+            "transport and auth variants"
+            `Quick
+            test_catalog_transport_and_auth_variants
+        ; Alcotest.test_case
+            "find and provider config fallbacks"
+            `Quick
+            test_find_empty_missing_and_provider_config_fallbacks
         ] )
     ; ( "builtins"
       , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves ] )

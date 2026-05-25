@@ -1,4 +1,5 @@
 open Agent_sdk
+module Episodic = Agent_sdk__Memory_episodic
 
 let make_backend () =
   let store = Hashtbl.create 4 in
@@ -10,6 +11,17 @@ let make_backend () =
     }
   in
   backend
+;;
+
+let make_direct_episode ?(id = "direct") ?(timestamp = 0.0) ?(salience = 0.5) () =
+  { Episodic.id
+  ; timestamp
+  ; participants = [ "alice" ]
+  ; action = "direct recall"
+  ; outcome = Episodic.Neutral
+  ; salience
+  ; metadata = []
+  }
 ;;
 
 let () =
@@ -316,6 +328,78 @@ let () =
               };
             let _, _, ep, _, _ = Memory.stats mem in
             Alcotest.(check int) "episodic count" 1 ep)
+        ] )
+    ; ( "direct_module"
+      , [ Alcotest.test_case "outcome JSON edge cases" `Quick (fun () ->
+            (match
+               Episodic.outcome_of_json
+                 (`Assoc [ "type", `String "success"; "detail", `Null ])
+             with
+             | Episodic.Success "" -> ()
+             | _ -> Alcotest.fail "expected success with empty detail");
+            (match Episodic.outcome_of_json (`Assoc [ "type", `String "failure" ]) with
+             | Episodic.Failure "" -> ()
+             | _ -> Alcotest.fail "expected failure with empty detail");
+            (match Episodic.outcome_of_json (`Assoc [ "type", `String "unknown" ]) with
+             | Episodic.Neutral -> ()
+             | _ -> Alcotest.fail "expected neutral for unknown type");
+            match Episodic.outcome_of_json (`String "bad") with
+            | Episodic.Neutral -> ()
+            | _ -> Alcotest.fail "expected neutral for non-object")
+        ; Alcotest.test_case "episode JSON parse edge cases" `Quick (fun () ->
+            let json =
+              `Assoc
+                [ "id", `String "json-ep"
+                ; "timestamp", `Float 1.0
+                ; "participants", `List [ `String "alice" ]
+                ; "action", `String "act"
+                ; "outcome", `Assoc [ "type", `String "neutral" ]
+                ; "salience", `Float 0.4
+                ; "metadata", `String "not-object"
+                ]
+            in
+            (match Episodic.episode_of_json json with
+             | Some ep ->
+               Alcotest.(check string) "id" "json-ep" ep.Episodic.id;
+               Alcotest.(check int)
+                 "metadata default"
+                 0
+                 (List.length ep.Episodic.metadata)
+             | None -> Alcotest.fail "expected valid episode");
+            Alcotest.(check bool)
+              "missing required field rejected"
+              true
+              (Option.is_none
+                 (Episodic.episode_of_json (`Assoc [ "id", `String "missing" ]))))
+        ; Alcotest.test_case "direct recall sort filter limit and boost" `Quick (fun () ->
+            let ctx = Context.create () in
+            Episodic.store ctx (make_direct_episode ~id:"old" ~timestamp:0.0 ());
+            Episodic.store
+              ctx
+              (make_direct_episode ~id:"new" ~timestamp:9.0 ~salience:0.9 ());
+            let recalled =
+              Episodic.recall
+                ctx
+                ~now:10.0
+                ~decay_rate:0.0
+                ~min_salience:0.1
+                ~limit:1
+                ~filter:(fun ep -> ep.Episodic.id = "new")
+                ()
+            in
+            (match recalled with
+             | [ ep ] -> Alcotest.(check string) "new only" "new" ep.Episodic.id
+             | _ -> Alcotest.fail "expected one filtered episode");
+            Alcotest.(check int)
+              "zero limit"
+              0
+              (List.length (Episodic.recall ctx ~now:10.0 ~limit:0 ()));
+            Episodic.boost_salience ctx "old" 0.4;
+            Episodic.boost_salience ctx "missing" 0.4;
+            (match Episodic.recall_one ctx "old" with
+             | Some ep -> Alcotest.(check (float 0.01)) "boosted" 0.9 ep.salience
+             | None -> Alcotest.fail "old episode missing");
+            Alcotest.(check int) "direct count" 2 (Episodic.count ctx))
         ] )
     ]
 ;;

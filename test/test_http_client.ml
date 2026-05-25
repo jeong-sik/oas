@@ -139,10 +139,17 @@ let test_timeout_phase_policy_labels () =
     [ Http_client.Admission, "admission"
     ; Http_client.Queue, "queue"
     ; Http_client.First_token, "first_token"
-    ; ( Http_client.Stream_idle Http_client.Streaming_thinking
-      , "stream_idle:streaming_thinking" )
     ; Http_client.Wall_clock, "wall_clock"
     ; Http_client.Capacity_backpressure, "capacity_backpressure"
+    ; Http_client.Http_operation, "http_operation"
+    ; Http_client.Non_streaming_body, "non_streaming_body"
+    ; Http_client.Stream_body, "stream_body"
+    ; ( Http_client.Stream_idle Http_client.Streaming_thinking
+      , "stream_idle:streaming_thinking" )
+    ; Http_client.Provider_step, "provider_step"
+    ; Http_client.Cli_stdout_idle, "cli_stdout_idle"
+    ; Http_client.Caller_budget, "caller_budget"
+    ; Http_client.Unknown_timeout, "unknown_timeout"
     ]
   in
   List.iter
@@ -158,8 +165,13 @@ let test_timeout_phase_of_stream_idle_state () =
   let cases =
     [ Http_client.Awaiting_first_event, "first_token"
     ; Http_client.Awaiting_first_delta, "first_token"
-    ; Http_client.Streaming_thinking, "stream_idle:streaming_thinking"
     ; Http_client.Streaming_answer, "stream_idle:streaming_answer"
+    ; Http_client.Streaming_thinking, "stream_idle:streaming_thinking"
+    ; Http_client.Streaming_tool_call, "stream_idle:streaming_tool_call"
+    ; Http_client.Streaming_heartbeat, "stream_idle:streaming_heartbeat"
+    ; Http_client.Streaming_substrate, "stream_idle:streaming_substrate"
+    ; Http_client.Streaming_done, "stream_idle:streaming_done"
+    ; Http_client.Streaming_unknown, "stream_idle:streaming_unknown"
     ]
   in
   List.iter
@@ -170,6 +182,68 @@ let test_timeout_phase_of_stream_idle_state () =
          expected
          (Http_client.timeout_phase_to_label phase))
     cases
+;;
+
+let test_provider_failure_string_helpers () =
+  let cases =
+    [ ( Http_client.Capacity_exhausted
+          { scope = Http_client.Failure_scope_model
+          ; retry_after = Some 1.0
+          ; model = Some "m"
+          }
+      , "capacity_exhausted:model" )
+    ; ( Http_client.Capacity_exhausted
+          { scope = Http_client.Failure_scope_account; retry_after = None; model = None }
+      , "capacity_exhausted:account" )
+    ; ( Http_client.Capacity_exhausted
+          { scope = Http_client.Failure_scope_region; retry_after = None; model = None }
+      , "capacity_exhausted:region" )
+    ; ( Http_client.Capacity_exhausted
+          { scope = Http_client.Failure_scope_provider; retry_after = None; model = None }
+      , "capacity_exhausted:provider" )
+    ; ( Http_client.Capacity_exhausted
+          { scope = Http_client.Failure_scope_unknown; retry_after = None; model = None }
+      , "capacity_exhausted:unknown" )
+    ; Http_client.Hard_quota { retry_after = None }, "hard_quota"
+    ; ( Http_client.Capability_mismatch { capability = Some "json_schema" }
+      , "capability_mismatch:json_schema" )
+    ; Http_client.Capability_mismatch { capability = None }, "capability_mismatch"
+    ; ( Http_client.Cli_policy_invalid { tool_name = Some "Read"; rule = Some 2 }
+      , "cli_policy_invalid:rule_2:Read" )
+    ; ( Http_client.Cli_policy_invalid { tool_name = Some "Read"; rule = None }
+      , "cli_policy_invalid:Read" )
+    ; ( Http_client.Cli_policy_invalid { tool_name = None; rule = Some 7 }
+      , "cli_policy_invalid:rule_7" )
+    ; ( Http_client.Cli_policy_invalid { tool_name = None; rule = None }
+      , "cli_policy_invalid" )
+    ; Http_client.Cli_startup_failed { reason = "missing" }, "cli_startup_failed"
+    ; ( Http_client.Provider_parse_error { parser = Some "provider_k" }
+      , "provider_parse_error:provider_k" )
+    ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
+    ; ( Http_client.Unknown_provider_failure { reason = Some "exit_status" }
+      , "unknown_provider_failure:exit_status" )
+    ; Http_client.Unknown_provider_failure { reason = None }, "unknown_provider_failure"
+    ]
+  in
+  List.iter
+    (fun (kind, expected) ->
+       Alcotest.(check string)
+         expected
+         expected
+         (Http_client.provider_failure_kind_to_string kind))
+    cases;
+  Alcotest.(check string)
+    "blank message"
+    "hard_quota"
+    (Http_client.provider_failure_to_string
+       ~kind:(Http_client.Hard_quota { retry_after = None })
+       ~message:"   ");
+  Alcotest.(check string)
+    "with message"
+    "hard_quota: quota exhausted"
+    (Http_client.provider_failure_to_string
+       ~kind:(Http_client.Hard_quota { retry_after = None })
+       ~message:"quota exhausted")
 ;;
 
 let test_api_common_string_is_blank () =
@@ -331,6 +405,9 @@ let () =
             "stream idle pre-token maps to first_token"
             `Quick
             test_timeout_phase_of_stream_idle_state
+        ] )
+    ; ( "provider_failure"
+      , [ Alcotest.test_case "string helpers" `Quick test_provider_failure_string_helpers
         ] )
     ; ( "api_common"
       , [ Alcotest.test_case "string_is_blank" `Quick test_api_common_string_is_blank

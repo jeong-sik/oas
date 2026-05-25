@@ -163,6 +163,149 @@ let test_backend_remove_error () =
   | Ok () -> fail "expected Error from forget"
 ;;
 
+let test_tier_fallbacks_query_dedupe_and_typed_results () =
+  let backend : Memory.long_term_backend =
+    { persist = (fun ~key:_ _value -> Ok ())
+    ; retrieve =
+        (fun ~key ->
+          match key with
+          | "lt" -> Some (json_s "from-backend")
+          | _ -> None)
+    ; remove = (fun ~key:_ -> Ok ())
+    ; batch_persist = (fun _ -> Ok ())
+    ; query =
+        (fun ~prefix ~limit:_ ->
+          if prefix = "k"
+          then [ "k1", json_s "backend"; "k2", json_s "backend-only" ]
+          else [])
+    }
+  in
+  let retrieve_result ~key =
+    match key with
+    | "lt" -> Ok (json_s "typed")
+    | "bad" -> Error (Memory.Backend_error "corrupt")
+    | _ -> Error Memory.Missing_key
+  in
+  let mem =
+    Memory.create ~long_term:backend ~long_term_retrieve_result:retrieve_result ()
+  in
+  ignore (Memory.store mem ~tier:Working "scratch-fallback" (json_s "working"));
+  ignore (Memory.store mem ~tier:Long_term "k1" (json_s "context"));
+  check
+    (option string)
+    "scratch falls back to working"
+    (Some "working")
+    (Option.map
+       (function
+         | `String value -> value
+         | _ -> "wrong")
+       (Memory.recall mem ~tier:Scratchpad "scratch-fallback"));
+  (match Memory.recall_result mem ~tier:Scratchpad "lt" with
+   | Ok (`String "typed") -> ()
+   | Ok json -> failf "unexpected recall_result json: %s" (Yojson.Safe.to_string json)
+   | Error err ->
+     failf "unexpected recall_result error: %s" (Memory.retrieve_error_to_string err));
+  (match Memory.recall_exact_result mem ~tier:Long_term "bad" with
+   | Error (Memory.Backend_error "corrupt") -> ()
+   | Ok json -> failf "expected backend error, got %s" (Yojson.Safe.to_string json)
+   | Error err -> failf "unexpected error: %s" (Memory.retrieve_error_to_string err));
+  check
+    (list string)
+    "deduped query"
+    [ "k1"; "k2" ]
+    (Memory.query mem ~tier:Long_term ~prefix:"k" ~limit:10 |> List.map fst);
+  check
+    int
+    "zero limit"
+    0
+    (Memory.query mem ~tier:Long_term ~prefix:"k" ~limit:0 |> List.length)
+;;
+
+let test_episodic_and_procedural_backend_fallbacks () =
+  let backend_episode : Memory.episode =
+    { id = "ep-backend"
+    ; timestamp = 10.0
+    ; participants = [ "tester" ]
+    ; action = "backend episode"
+    ; outcome = Neutral
+    ; salience = 0.8
+    ; metadata = []
+    }
+  in
+  let backend_proc : Memory.procedure =
+    { id = "pr-backend"
+    ; pattern = "deploy"
+    ; action = "verify"
+    ; success_count = 2
+    ; failure_count = 0
+    ; confidence = 1.0
+    ; last_used = 10.0
+    ; metadata = []
+    }
+  in
+  let stored_episodes = ref [ backend_episode ] in
+  let stored_procedures = ref [ backend_proc ] in
+  let episodic : Memory.episodic_backend =
+    { persist_episode = (fun ep -> stored_episodes := ep :: !stored_episodes)
+    ; retrieve_episode =
+        (fun ~id ->
+          List.find_opt (fun (ep : Memory.episode) -> ep.id = id) !stored_episodes)
+    ; remove_episode =
+        (fun ~id ->
+          stored_episodes
+          := List.filter (fun (ep : Memory.episode) -> ep.id <> id) !stored_episodes)
+    ; all_episodes = (fun () -> !stored_episodes)
+    }
+  in
+  let procedural : Memory.procedural_backend =
+    { persist_procedure = (fun proc -> stored_procedures := proc :: !stored_procedures)
+    ; retrieve_procedure =
+        (fun ~id ->
+          List.find_opt (fun (proc : Memory.procedure) -> proc.id = id) !stored_procedures)
+    ; remove_procedure =
+        (fun ~id ->
+          stored_procedures
+          := List.filter
+               (fun (proc : Memory.procedure) -> proc.id <> id)
+               !stored_procedures)
+    ; all_procedures = (fun () -> !stored_procedures)
+    }
+  in
+  let mem = Memory.create ~episodic ~procedural () in
+  (match Memory.recall_exact_result mem ~tier:Episodic "ep-backend" with
+   | Ok (`Assoc _) -> ()
+   | Ok json -> failf "expected episode json, got %s" (Yojson.Safe.to_string json)
+   | Error err ->
+     failf "unexpected episode error: %s" (Memory.retrieve_error_to_string err));
+  (match Memory.recall_exact_result mem ~tier:Procedural "pr-backend" with
+   | Ok (`Assoc _) -> ()
+   | Ok json -> failf "expected procedure json, got %s" (Yojson.Safe.to_string json)
+   | Error err ->
+     failf "unexpected procedure error: %s" (Memory.retrieve_error_to_string err));
+  check
+    (list string)
+    "episodic query"
+    [ "ep-backend" ]
+    (Memory.query mem ~tier:Episodic ~prefix:"ep-" ~limit:10 |> List.map fst);
+  check
+    (list string)
+    "procedural query"
+    [ "pr-backend" ]
+    (Memory.query mem ~tier:Procedural ~prefix:"pr-" ~limit:10 |> List.map fst);
+  Memory.forget_episode mem "ep-backend";
+  Memory.forget_procedure mem "pr-backend";
+  check
+    bool
+    "episode removed"
+    true
+    (Option.is_none (Memory.recall_episode mem "ep-backend"));
+  check
+    bool
+    "procedure removed"
+    true
+    (Option.is_none (Memory.best_procedure mem ~pattern:"deploy"))
+;;
+
 (* ── Large-scale tests ───────────────────────────────── *)
 
 let test_1000_keys () =
@@ -211,6 +354,14 @@ let () =
       , [ test_case "persist error" `Quick test_backend_persist_error
         ; test_case "retrieve returns None" `Quick test_backend_retrieve_returns_none
         ; test_case "remove error" `Quick test_backend_remove_error
+        ; test_case
+            "fallbacks query dedupe and typed results"
+            `Quick
+            test_tier_fallbacks_query_dedupe_and_typed_results
+        ; test_case
+            "episodic and procedural backend fallbacks"
+            `Quick
+            test_episodic_and_procedural_backend_fallbacks
         ] )
     ; ( "large_scale"
       , [ test_case "1000 keys" `Quick test_1000_keys

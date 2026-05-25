@@ -99,9 +99,7 @@ let to_provider_config (legacy : Provider.config)
   | Error e -> Error e
   | Ok (base_url, api_key, headers) ->
     let m_lower = String.lowercase_ascii legacy.model_id in
-    let is_provider_f_model =
-      String.length m_lower >= 6 && String.sub m_lower 0 6 = "provider_f"
-    in
+    let is_provider_f_model = String.starts_with ~prefix:"provider_f" m_lower in
     let is_glm_model = is_glm_model_or_alias m_lower in
     let is_zai_provider = Llm_provider.Zai_catalog.is_zai_base_url base_url in
     let is_provider_c_provider = is_provider_c_coding_base_url base_url in

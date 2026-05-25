@@ -170,6 +170,26 @@ let test_select_names () =
   check (list string) "all names" (tool_names tools_5) names
 ;;
 
+let test_select_names_with_index_bm25 () =
+  let index = Tool_index.of_tools tools_5 in
+  let names =
+    Tool_selector.select_names_with_index
+      ~strategy:
+        (TopK_bm25
+           { k = 2
+           ; always_include = [ "broadcast"; "missing_tool" ]
+           ; confidence_threshold = None
+           ; fallback_tools = []
+           })
+      ~index
+      ~context:"read file"
+      ~tools:tools_5
+  in
+  check bool "broadcast included" true (List.mem "broadcast" names);
+  check bool "missing ignored" false (List.mem "missing_tool" names);
+  check bool "bounded plus always include" true (List.length names <= 3)
+;;
+
 (* ── TopK_llm ───────────────────────────────────── *)
 
 let mock_rerank ~k =
@@ -195,7 +215,7 @@ let test_topk_llm_with_mock () =
 ;;
 
 let test_topk_llm_fallback_on_failure () =
-  let failing_rerank ~context:_ ~candidates:_ = failwith "LLM unavailable" in
+  let failing_rerank ~context:_ ~candidates:_ = raise (Failure "LLM unavailable") in
   let result =
     Tool_selector.select
       ~strategy:
@@ -288,6 +308,55 @@ let test_topk_llm_invalid_names_dropped () =
   check int "no tools from invalid rerank" 0 (List.length result)
 ;;
 
+let test_topk_llm_invalid_names_preserve_always_include () =
+  let bad_rerank ~context:_ ~candidates:_ = [ "nonexistent_tool" ] in
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (TopK_llm
+           { k = 3
+           ; bm25_prefilter_n = 5
+           ; always_include = [ "broadcast"; "missing_tool" ]
+           ; confidence_threshold = 0.0
+           ; rerank_fn = bad_rerank
+           })
+      ~context:"read file"
+      ~tools:tools_5
+  in
+  check
+    (list string)
+    "only valid always_include remains"
+    [ "broadcast" ]
+    (tool_names result)
+;;
+
+let test_select_with_index_topk_llm_uses_index () =
+  let index = Tool_index.of_tools tools_5 in
+  let seen_candidates = ref [] in
+  let rerank ~context:_ ~candidates =
+    seen_candidates := candidates;
+    [ "search"; "read_file" ]
+  in
+  let result =
+    Tool_selector.select_with_index
+      ~strategy:
+        (TopK_llm
+           { k = 2
+           ; bm25_prefilter_n = 5
+           ; always_include = []
+           ; confidence_threshold = 0.0
+           ; rerank_fn = rerank
+           })
+      ~index
+      ~context:"search file"
+      ~tools:tools_5
+  in
+  let names = tool_names result in
+  check bool "reranker saw candidates" true (List.length !seen_candidates > 0);
+  check bool "search selected" true (List.mem "search" names);
+  check bool "read_file selected" true (List.mem "read_file" names)
+;;
+
 let test_topk_llm_candidates_preserve_first_duplicate_descriptor () =
   let saw_first_description = ref false in
   let rerank ~context:_ ~candidates =
@@ -319,6 +388,31 @@ let test_topk_llm_candidates_preserve_first_duplicate_descriptor () =
   in
   check bool "reranker saw first descriptor" true !saw_first_description;
   check (list string) "selected status once" [ "status" ] (tool_names result)
+;;
+
+let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let provider =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.Provider_d_compat
+      ~model_id:"provider_d_chat"
+      ~base_url:"http://"
+      ()
+  in
+  let rerank = Tool_selector.default_rerank_fn ~sw ~net:env#net ~provider ~k:2 () in
+  let selected =
+    rerank
+      ~context:"read file"
+      ~candidates:
+        [ "read_file", "Read file contents"
+        ; "search", "Search code"
+        ; "write_file", "Write file contents"
+        ]
+  in
+  check (list string) "bm25 fallback order" [ "read_file"; "search" ] selected
 ;;
 
 (* ── Categorical stubs ──────────────────────────── *)
@@ -420,6 +514,41 @@ let test_categorical_bm25 () =
   check bool "at least 1 result" true (List.length result >= 1)
 ;;
 
+let test_categorical_bm25_always_include_and_missing_names () =
+  let groups = [ "file_ops", [ "read_file"; "missing_tool" ] ] in
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (Categorical
+           { groups
+           ; classifier = `Bm25
+           ; always_include = [ "broadcast"; "also_missing" ]
+           })
+      ~context:"read file"
+      ~tools:tools_5
+  in
+  let names = tool_names result in
+  check bool "broadcast always included" true (List.mem "broadcast" names);
+  check bool "read_file included from group" true (List.mem "read_file" names);
+  check bool "missing group tool ignored" false (List.mem "missing_tool" names);
+  check bool "missing always include ignored" false (List.mem "also_missing" names)
+;;
+
+let test_categorical_bm25_empty_tools () =
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (Categorical
+           { groups = [ "file_ops", [ "read_file" ] ]
+           ; classifier = `Bm25
+           ; always_include = [ "broadcast" ]
+           })
+      ~context:"read file"
+      ~tools:[]
+  in
+  check int "empty tools" 0 (List.length result)
+;;
+
 (* ── Runner ──────────────────────────────────────── *)
 
 let () =
@@ -442,7 +571,13 @@ let () =
         ; test_case "boundary 15 -> All" `Quick test_auto_boundary
         ; test_case "16 -> TopK_bm25" `Quick test_auto_16
         ] )
-    ; "select_names", [ test_case "returns names" `Quick test_select_names ]
+    ; ( "select_names"
+      , [ test_case "returns names" `Quick test_select_names
+        ; test_case
+            "with index filters missing names"
+            `Quick
+            test_select_names_with_index_bm25
+        ] )
     ; ( "confidence"
       , [ test_case "fallback on low confidence" `Quick test_bm25_confidence_fallback
         ; test_case "no fallback above threshold" `Quick test_bm25_confidence_above
@@ -459,9 +594,21 @@ let () =
         ; test_case "empty tools" `Quick test_topk_llm_empty_tools
         ; test_case "invalid names dropped" `Quick test_topk_llm_invalid_names_dropped
         ; test_case
+            "invalid names preserve always_include"
+            `Quick
+            test_topk_llm_invalid_names_preserve_always_include
+        ; test_case
+            "select_with_index uses supplied index"
+            `Quick
+            test_select_with_index_topk_llm_uses_index
+        ; test_case
             "duplicate candidate descriptor keeps first"
             `Quick
             test_topk_llm_candidates_preserve_first_duplicate_descriptor
+        ; test_case
+            "default rerank falls back on provider error"
+            `Quick
+            test_default_rerank_fn_falls_back_to_candidates_on_provider_error
         ] )
     ; ( "stubs"
       , [ test_case
@@ -474,6 +621,12 @@ let () =
             test_categorical_llm_unimplemented_returns_empty_with_index
         ] )
     ; ( "categorical_bm25"
-      , [ test_case "file query matches file_ops" `Quick test_categorical_bm25 ] )
+      , [ test_case "file query matches file_ops" `Quick test_categorical_bm25
+        ; test_case
+            "always_include and missing names"
+            `Quick
+            test_categorical_bm25_always_include_and_missing_names
+        ; test_case "empty tools" `Quick test_categorical_bm25_empty_tools
+        ] )
     ]
 ;;
