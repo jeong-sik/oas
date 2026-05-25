@@ -94,6 +94,20 @@ let test_non_2xx_response_surfaces_action_and_body () =
       check bool "mentions body" true (contains_substring ~sub:"slot failed" msg))
 ;;
 
+let test_non_2xx_response_truncates_long_body () =
+  let long_body = String.make 240 'x' ^ "tail" in
+  let handler _conn _req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    Cohttp_eio.Server.respond_string ~status:`Bad_gateway ~body:long_body ()
+  in
+  with_mock_server ~port:18345 handler (fun ~sw ~net ~endpoint ->
+    match Slot_cache.save ~sw ~net ~endpoint ~slot_id:4 ~filename:"slot.bin" with
+    | Ok () -> fail "expected save error"
+    | Error msg ->
+      check bool "mentions status" true (contains_substring ~sub:"slot save HTTP 502" msg);
+      check bool "truncated body" true (String.length msg < String.length long_body))
+;;
+
 let () =
   run
     "slot-cache-http"
@@ -106,6 +120,10 @@ let () =
             "non-2xx response"
             `Quick
             test_non_2xx_response_surfaces_action_and_body
+        ; test_case
+            "non-2xx long body is truncated"
+            `Quick
+            test_non_2xx_response_truncates_long_body
         ] )
     ]
 ;;

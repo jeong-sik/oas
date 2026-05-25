@@ -12,6 +12,13 @@ let with_env key value f =
     f ())
 ;;
 
+let check_kind label expected (cfg : Llm_provider.Provider_config.t) =
+  Alcotest.(check string)
+    label
+    expected
+    (Llm_provider.Provider_config.string_of_provider_kind cfg.kind)
+;;
+
 let test_provider_a_bridge () =
   let legacy = Agent_sdk.Provider.provider_a_sonnet () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
@@ -150,6 +157,79 @@ let test_provider_c_custom_registered_becomes_provider_c_provider_config () =
       Alcotest.(check string) "path" "/v1/messages" cfg.request_path)
 ;;
 
+let test_provider_a_auto_and_explicit_models () =
+  let api_key_env = "PROVIDER_A_BRIDGE_TEST_KEY" in
+  with_env api_key_env "provider-a-test-key" (fun () ->
+    with_env "PROVIDER_A_DEFAULT_MODEL" "agent_llm_a-test-default" (fun () ->
+      let auto =
+        { Agent_sdk.Provider.provider = Provider_a; model_id = "auto"; api_key_env }
+      in
+      let explicit = { auto with model_id = "agent_llm_a-explicit" } in
+      (match Agent_sdk.Provider_bridge.to_provider_config auto with
+       | Ok cfg ->
+         check_kind "provider_a kind" "provider_a" cfg;
+         Alcotest.(check string) "auto model" "agent_llm_a-test-default" cfg.model_id
+       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
+      match Agent_sdk.Provider_bridge.to_provider_config explicit with
+      | Ok cfg ->
+        check_kind "provider_a explicit kind" "provider_a" cfg;
+        Alcotest.(check string) "explicit model" "agent_llm_a-explicit" cfg.model_id
+      | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
+;;
+
+let test_openai_compat_auto_model_branches () =
+  with_env "OLLAMA_DEFAULT_MODEL" "provider-d-env-default" (fun () ->
+    with_env "PROVIDER_F_DEFAULT_MODEL" "provider_f-env-default" (fun () ->
+      let provider_d_auto =
+        { Agent_sdk.Provider.provider =
+            OpenAICompat
+              { base_url = "https://provider-d.example/v1"
+              ; auth_header = None
+              ; path = "/chat/completions"
+              ; static_token = None
+              }
+        ; model_id = "auto"
+        ; api_key_env = ""
+        }
+      in
+      let provider_f_prefixed = { provider_d_auto with model_id = "provider_f-auto" } in
+      let provider_f_explicit =
+        { provider_d_auto with model_id = "provider_f-2.5-pro" }
+      in
+      (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
+       | Ok cfg ->
+         check_kind "provider_d compat kind" "provider_d_compat" cfg;
+         Alcotest.(check string) "provider_d auto" "provider-d-env-default" cfg.model_id
+       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
+      (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
+       | Ok cfg ->
+         check_kind "provider_f kind" "provider_f" cfg;
+         Alcotest.(check string) "provider_f prefixed" "provider_f-auto" cfg.model_id
+       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
+      match Agent_sdk.Provider_bridge.to_provider_config provider_f_explicit with
+      | Ok cfg ->
+        check_kind "provider_f explicit kind" "provider_f" cfg;
+        Alcotest.(check string) "provider_f explicit" "provider_f-2.5-pro" cfg.model_id
+      | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
+;;
+
+let test_provider_c_explicit_model_and_non_coding_base_url () =
+  let api_key_env = "PROVIDER_C_BRIDGE_TEST_KEY" in
+  with_env api_key_env "provider-c-test-key" (fun () ->
+    with_env "PROVIDER_C_BASE_URL" "https://api.provider_c.com/messages" (fun () ->
+      let non_coding =
+        { Agent_sdk.Provider.provider = Custom_registered { name = "provider_c" }
+        ; model_id = "provider_c-k2"
+        ; api_key_env
+        }
+      in
+      match Agent_sdk.Provider_bridge.to_provider_config non_coding with
+      | Ok cfg ->
+        check_kind "non-coding base routes as provider_a" "provider_a" cfg;
+        Alcotest.(check string) "explicit provider_c model" "provider_c-k2" cfg.model_id
+      | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
+;;
+
 let test_zai_coding_auto_models_default_order () =
   with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
     Alcotest.(check (list string))
@@ -187,6 +267,18 @@ let () =
             "provider_c custom provider becomes provider_c"
             `Quick
             test_provider_c_custom_registered_becomes_provider_c_provider_config
+        ; test_case
+            "provider_a auto and explicit models"
+            `Quick
+            test_provider_a_auto_and_explicit_models
+        ; test_case
+            "openai compat auto model branches"
+            `Quick
+            test_openai_compat_auto_model_branches
+        ; test_case
+            "provider_c explicit model and non-coding base url"
+            `Quick
+            test_provider_c_explicit_model_and_non_coding_base_url
         ; test_case
             "zai coding auto models default order"
             `Quick

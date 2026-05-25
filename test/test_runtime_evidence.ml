@@ -1,22 +1,32 @@
 open Agent_sdk
 open Alcotest
 
-let mk_session ?(artifacts = []) () : Runtime.session =
-  { session_id = "sess-evidence"
-  ; goal = "collect telemetry"
-  ; title = Some "Evidence"
-  ; tag = Some "test"
+let mk_session
+      ?(session_id = "sess-evidence")
+      ?(goal = "collect telemetry")
+      ?(title = Some "Evidence")
+      ?(tag = Some "test")
+      ?(updated_at = 2.0)
+      ?(participants = [])
+      ?(artifacts = [])
+      ()
+  : Runtime.session
+  =
+  { session_id
+  ; goal
+  ; title
+  ; tag
   ; permission_mode = Some "default"
   ; phase = Runtime.Running
   ; created_at = 1.0
-  ; updated_at = 2.0
+  ; updated_at
   ; provider = Some "provider_a"
   ; model = Some "agent_llm_a"
   ; system_prompt = None
   ; max_turns = 10
   ; workdir = Some "/tmp/work"
   ; planned_participants = [ "alice" ]
-  ; participants = []
+  ; participants
   ; artifacts
   ; pending_input = None
   ; turn_count = 0
@@ -262,6 +272,301 @@ let write_artifact store session_id ~artifact_id ~name ~kind ~created_at content
    : Runtime.artifact)
 ;;
 
+let with_temp_root prefix f =
+  let root =
+    Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "%s-%d-%06x" prefix (Unix.getpid ()) (Random.int 0xFFFFFF))
+  in
+  Unix.mkdir root 0o755;
+  Fun.protect
+    ~finally:(fun () -> ignore (Sys.command (Printf.sprintf "rm -rf %s" root)))
+    (fun () -> f root)
+;;
+
+let participant ?(aliases = []) name : Runtime.participant =
+  { name
+  ; role = Some "worker"
+  ; aliases
+  ; worker_id = None
+  ; runtime_actor = None
+  ; requested_provider = None
+  ; requested_model = None
+  ; requested_policy = None
+  ; provider = None
+  ; model = None
+  ; resolved_provider = None
+  ; resolved_model = None
+  ; state = Runtime.Planned
+  ; summary = None
+  ; accepted_at = None
+  ; ready_at = None
+  ; first_progress_at = None
+  ; started_at = None
+  ; finished_at = None
+  ; last_progress_at = None
+  ; last_error = None
+  }
+;;
+
+let check_error label result =
+  match result with
+  | Ok _ -> fail (label ^ ": expected error")
+  | Error _ -> ()
+;;
+
+let test_sessions_store_helpers_listing_and_mutation () =
+  with_temp_root "oas-sessions-store"
+  @@ fun root ->
+  let older : Runtime.artifact =
+    { artifact_id = "old"
+    ; name = "report"
+    ; kind = "json"
+    ; mime_type = "application/json"
+    ; path = None
+    ; inline_content = Some "{}"
+    ; size_bytes = 2
+    ; created_at = 1.0
+    }
+  in
+  let newer = { older with artifact_id = "new"; created_at = 3.0 } in
+  let other =
+    { older with artifact_id = "other"; name = "telemetry"; created_at = 5.0 }
+  in
+  check (option string) "primary alias empty" None (Sessions_store.primary_alias []);
+  check
+    (option string)
+    "primary alias blank"
+    None
+    (Sessions_store.primary_alias [ "  "; "later" ]);
+  check
+    (option string)
+    "primary alias first"
+    (Some " coder ")
+    (Sessions_store.primary_alias [ " coder "; "fallback" ]);
+  (match Sessions_store.latest_named_artifact [ older; other; newer ] "report" with
+   | Some artifact -> check string "latest artifact" "new" artifact.artifact_id
+   | None -> fail "missing latest artifact");
+  check
+    (option string)
+    "missing latest artifact"
+    None
+    (Option.map
+       (fun (artifact : Runtime.artifact) -> artifact.artifact_id)
+       (Sessions_store.latest_named_artifact [ older; newer ] "missing"));
+  let store = Runtime_store.create ~root () |> Result.get_ok in
+  let alice = participant ~aliases:[ "a"; "coder" ] "alice" in
+  Runtime_store.save_session
+    store
+    (mk_session
+       ~session_id:"sess-a"
+       ~goal:"first"
+       ~title:(Some "First")
+       ~tag:(Some "alpha")
+       ~updated_at:10.0
+       ~participants:[ alice ]
+       ())
+  |> Result.get_ok;
+  Runtime_store.save_session
+    store
+    (mk_session
+       ~session_id:"sess-b"
+       ~goal:"second"
+       ~title:None
+       ~tag:None
+       ~updated_at:11.0
+       ())
+  |> Result.get_ok;
+  let corrupt_dir = Runtime_store.session_dir store "sess-corrupt" in
+  Runtime_store.ensure_dir corrupt_dir |> Result.get_ok;
+  Runtime_store.save_text (Runtime_store.session_path store "sess-corrupt") "{broken"
+  |> Result.get_ok;
+  Runtime_store.save_text
+    (Filename.concat (Runtime_store.sessions_dir store) "not-a-dir")
+    ""
+  |> Result.get_ok;
+  let sessions = Sessions_store.list_sessions ~session_root:root () |> Result.get_ok in
+  check
+    (list string)
+    "valid sessions only"
+    [ "sess-a"; "sess-b" ]
+    (List.map (fun (info : Sessions.session_info) -> info.session_id) sessions);
+  let first = List.hd sessions in
+  check int "participant count" 1 first.participant_count;
+  check string "session path" (Runtime_store.session_path store "sess-a") first.path;
+  Sessions_store.rename_session ~session_root:root ~session_id:"sess-a" ~title:"   " ()
+  |> Result.get_ok;
+  Sessions_store.tag_session
+    ~session_root:root
+    ~session_id:"sess-a"
+    ~tag:(Some "  stable  ")
+    ()
+  |> Result.get_ok;
+  let renamed = Runtime_store.load_session store "sess-a" |> Result.get_ok in
+  check (option string) "blank title clears" None renamed.title;
+  check (option string) "trimmed tag" (Some "stable") renamed.tag;
+  Sessions_store.tag_session ~session_root:root ~session_id:"sess-a" ~tag:None ()
+  |> Result.get_ok;
+  let untagged = Runtime_store.load_session store "sess-a" |> Result.get_ok in
+  check (option string) "none tag clears" None untagged.tag;
+  check
+    int
+    "events missing"
+    0
+    (Sessions_store.get_session_events ~session_root:root "sess-a"
+     |> Result.get_ok
+     |> List.length);
+  check_error
+    "missing named artifact"
+    (Sessions_store.get_named_artifact
+       ~session_root:root
+       ~session_id:"sess-a"
+       ~name:"missing"
+       ());
+  check
+    int
+    "tool catalog absent"
+    0
+    (Sessions_store.get_tool_catalog ~session_root:root ~session_id:"sess-a" ()
+     |> Result.get_ok
+     |> List.length)
+;;
+
+let test_sessions_store_raw_trace_files_and_hooks () =
+  with_temp_root "oas-sessions-store-raw"
+  @@ fun root ->
+  check
+    (list string)
+    "missing raw trace dir"
+    []
+    (Sessions_store.get_raw_trace_files ~session_root:root ~session_id:"sess-hooks" ()
+     |> Result.get_ok);
+  let store = Runtime_store.create ~root () |> Result.get_ok in
+  Runtime_store.ensure_tree store "sess-hooks" |> Result.get_ok;
+  let raw_dir =
+    Sessions_store.get_raw_trace_dir ~session_root:root ~session_id:"sess-hooks" ()
+    |> Result.get_ok
+  in
+  let trace_path = Filename.concat raw_dir "hook_worker.jsonl" in
+  let record
+        ?prompt
+        ?model
+        ?hook_name
+        ?hook_decision
+        ?hook_detail
+        ?final_text
+        ?stop_reason
+        seq
+        record_type
+    : Raw_trace.record
+    =
+    { trace_version = Raw_trace.trace_version
+    ; worker_run_id = "wr-hooks"
+    ; seq
+    ; ts = float_of_int seq
+    ; agent_name = "hook worker"
+    ; session_id = Some "sess-hooks"
+    ; record_type
+    ; prompt
+    ; model
+    ; tool_choice = None
+    ; enable_thinking = None
+    ; thinking_budget = None
+    ; block_index = None
+    ; block_kind = None
+    ; assistant_block = None
+    ; tool_use_id = None
+    ; tool_name = None
+    ; tool_input = None
+    ; tool_planned_index = None
+    ; tool_batch_index = None
+    ; tool_batch_size = None
+    ; tool_concurrency_class = None
+    ; evidence_role = None
+    ; tool_result = None
+    ; tool_error = None
+    ; hook_name
+    ; hook_decision
+    ; hook_detail
+    ; final_text
+    ; stop_reason
+    ; error = None
+    }
+  in
+  [ record ~prompt:"collect hooks" ~model:"model-hook" 1 Raw_trace.Run_started
+  ; record
+      ~hook_name:"pre_tool"
+      ~hook_decision:"allow"
+      ~hook_detail:"initial"
+      2
+      Raw_trace.Hook_invoked
+  ; record
+      ~hook_name:"pre_tool"
+      ~hook_decision:"deny"
+      ~hook_detail:"latest"
+      3
+      Raw_trace.Hook_invoked
+  ; record ~hook_name:"post_tool" ~hook_decision:"allow" 4 Raw_trace.Hook_invoked
+  ; record ~final_text:"done" ~stop_reason:"stop" 5 Raw_trace.Run_finished
+  ]
+  |> List.map (fun record -> Raw_trace.record_to_json record |> Yojson.Safe.to_string)
+  |> String.concat "\n"
+  |> fun raw ->
+  Runtime_store.save_text trace_path (raw ^ "\n") |> Result.get_ok;
+  Runtime_store.save_text (Filename.concat raw_dir "ignore.txt") "ignored"
+  |> Result.get_ok;
+  let files =
+    Sessions_store.get_raw_trace_files ~session_root:root ~session_id:"sess-hooks" ()
+    |> Result.get_ok
+  in
+  check int "jsonl files only" 1 (List.length files);
+  check string "trace file path" trace_path (List.hd files);
+  let summaries =
+    Sessions_store.get_hook_summary ~session_root:root ~session_id:"sess-hooks" ()
+    |> Result.get_ok
+  in
+  check
+    (list string)
+    "hook summary sorted"
+    [ "post_tool"; "pre_tool" ]
+    (List.map (fun (summary : Sessions.hook_summary) -> summary.hook_name) summaries);
+  let pre_tool =
+    List.find
+      (fun (summary : Sessions.hook_summary) -> String.equal summary.hook_name "pre_tool")
+      summaries
+  in
+  check int "pre_tool count" 2 pre_tool.count;
+  check (option string) "latest decision" (Some "deny") pre_tool.latest_decision;
+  check (option string) "latest detail" (Some "latest") pre_tool.latest_detail;
+  check bool "latest timestamp" true (Option.is_some pre_tool.latest_ts);
+  let latest =
+    Sessions_store.get_latest_raw_trace_run ~session_root:root ~session_id:"sess-hooks" ()
+    |> Result.get_ok
+  in
+  check
+    (option string)
+    "latest run"
+    (Some "wr-hooks")
+    (Option.map (fun (run : Raw_trace.run_ref) -> run.worker_run_id) latest);
+  check_error
+    "missing raw trace run"
+    (Sessions_store.get_raw_trace_run
+       ~session_root:root
+       ~session_id:"sess-hooks"
+       ~worker_run_id:"missing"
+       ());
+  check
+    int
+    "summarize empty"
+    0
+    (Sessions_store.summarize_runs [] |> Result.get_ok |> List.length);
+  check
+    int
+    "validate empty"
+    0
+    (Sessions_store.validate_runs [] |> Result.get_ok |> List.length)
+;;
+
 let test_sessions_store_decodes_runtime_artifacts () =
   let root =
     Filename.concat
@@ -413,6 +718,14 @@ let () =
             `Quick
             test_file_specs_and_artifact_event
         ; Alcotest.test_case "raw trace manifest json" `Quick test_raw_trace_manifest_json
+        ; Alcotest.test_case
+            "sessions store helpers listing mutation"
+            `Quick
+            test_sessions_store_helpers_listing_and_mutation
+        ; Alcotest.test_case
+            "sessions store raw trace hooks"
+            `Quick
+            test_sessions_store_raw_trace_files_and_hooks
         ; Alcotest.test_case
             "sessions store artifact decoders"
             `Quick

@@ -247,6 +247,25 @@ let test_raw_trace_validation_empty_checks () =
     v
 ;;
 
+let test_raw_trace_manifest_roundtrip () =
+  let run_ref = mk_run_ref () in
+  let v : Sessions.raw_trace_manifest =
+    { session_id = "s-001"
+    ; generated_at = 123.0
+    ; latest_raw_trace_run = Some run_ref
+    ; raw_trace_runs = [ run_ref ]
+    ; raw_trace_summaries = [ mk_run_summary () ]
+    ; raw_trace_validations = [ mk_run_validation () ]
+    }
+  in
+  roundtrip
+    ~to_yojson:Sessions.raw_trace_manifest_to_yojson
+    ~of_yojson:Sessions.raw_trace_manifest_of_yojson
+    ~show:Sessions.show_raw_trace_manifest
+    ~name:"raw_trace_manifest"
+    v
+;;
+
 (* ── worker_run with each status variant ────────────────────────── *)
 
 let mk_worker_run status : Sessions.worker_run =
@@ -458,6 +477,153 @@ let test_record_minimal () =
     v
 ;;
 
+(* ── proof_bundle composite roundtrip ───────────────────────────── *)
+
+let mk_runtime_session () : Runtime.session =
+  { session_id = "s-001"
+  ; goal = "verify proof bundle"
+  ; title = Some "Proof"
+  ; tag = Some "coverage"
+  ; permission_mode = Some "default"
+  ; phase = Runtime.Completed
+  ; created_at = 1.0
+  ; updated_at = 2.0
+  ; provider = Some "provider_a"
+  ; model = Some "agent_llm_a-sonnet"
+  ; system_prompt = Some "system"
+  ; max_turns = 3
+  ; workdir = Some "/tmp"
+  ; planned_participants = [ "tester" ]
+  ; participants = []
+  ; artifacts = []
+  ; pending_input = None
+  ; turn_count = 1
+  ; last_seq = 3
+  ; outcome = Some "ok"
+  }
+;;
+
+let test_proof_bundle_roundtrip () =
+  let run_ref = mk_run_ref () in
+  let worker = mk_worker_run Sessions.Completed in
+  let telemetry_step : Sessions.telemetry_step =
+    { seq = 1
+    ; ts = 1.0
+    ; kind = "Agent_completed"
+    ; participant = Some "tester"
+    ; detail = Some "done"
+    }
+  in
+  let structured_step : Sessions.structured_telemetry_step =
+    { seq = 1
+    ; ts = 1.0
+    ; event_name = "agent_completed"
+    ; participant = Some "tester"
+    ; detail = Some "done"
+    ; actor = Some "agent"
+    ; role = Some "worker"
+    ; provider = Some "provider_a"
+    ; model = Some "agent_llm_a-sonnet"
+    ; raw_trace_run_id = Some run_ref.worker_run_id
+    ; stop_reason = Some "end_turn"
+    ; artifact_id = Some "artifact-1"
+    ; artifact_name = Some "report"
+    ; artifact_kind = Some "json"
+    ; checkpoint_label = Some "final"
+    ; outcome = Some "ok"
+    ; dropped_output_deltas = Some 0
+    ; persistence_failure_phase = None
+    }
+  in
+  let bundle : Sessions.proof_bundle =
+    { session = mk_runtime_session ()
+    ; report =
+        { Runtime.session_id = "s-001"
+        ; summary = [ "completed" ]
+        ; markdown = "# completed"
+        ; generated_at = 3.0
+        }
+    ; proof =
+        { Runtime.session_id = "s-001"
+        ; ok = true
+        ; checks = [ ({ name = "seq_contiguous"; passed = true } : Runtime.proof_check) ]
+        ; evidence = [ "events=3" ]
+        ; generated_at = 3.0
+        }
+    ; telemetry =
+        { session_id = "s-001"
+        ; generated_at = 3.0
+        ; step_count = 1
+        ; event_counts = [ { name = "Agent_completed"; count = 1 } ]
+        ; steps = [ telemetry_step ]
+        }
+    ; structured_telemetry =
+        { session_id = "s-001"
+        ; generated_at = 3.0
+        ; step_count = 1
+        ; event_counts = [ { event_name = "agent_completed"; count = 1 } ]
+        ; steps = [ structured_step ]
+        }
+    ; evidence =
+        { session_id = "s-001"
+        ; generated_at = 3.0
+        ; files =
+            [ { label = "report"
+              ; path = "/tmp/report.json"
+              ; size_bytes = 12
+              ; md5 = "0123456789abcdef0123456789abcdef"
+              }
+            ]
+        ; missing_files = [ { label = "proof"; path = "/tmp/proof.json" } ]
+        }
+    ; hook_summary =
+        [ { hook_name = "pre_tool"
+          ; count = 1
+          ; latest_decision = Some "allow"
+          ; latest_detail = Some "ok"
+          ; latest_ts = Some 2.0
+          }
+        ]
+    ; tool_catalog =
+        [ { name = "read_file"
+          ; description = "Read a file"
+          ; origin = Some "runtime"
+          ; kind = Some "local"
+          ; shell = None
+          ; notes = [ "readonly" ]
+          ; examples = [ "read_file path" ]
+          }
+        ]
+    ; latest_raw_trace_run = Some run_ref
+    ; raw_trace_runs = [ run_ref ]
+    ; raw_trace_summaries = [ mk_run_summary () ]
+    ; raw_trace_validations = [ mk_run_validation () ]
+    ; worker_runs = [ worker ]
+    ; latest_accepted_worker_run = None
+    ; latest_ready_worker_run = None
+    ; latest_running_worker_run = None
+    ; latest_worker_run = Some worker
+    ; latest_completed_worker_run = Some worker
+    ; latest_validated_worker_run = Some worker
+    ; latest_failed_worker_run = None
+    ; validated_worker_runs = [ worker ]
+    ; raw_trace_run_count = 1
+    ; validated_worker_run_count = 1
+    ; trace_capabilities = [ Sessions.Raw; Sessions.Summary_only; Sessions.No_trace ]
+    ; capabilities = { raw_trace = true; validated_summary = true; proof_bundle = true }
+    }
+  in
+  roundtrip_json_stable
+    ~to_yojson:Sessions.proof_bundle_to_yojson
+    ~of_yojson:Sessions.proof_bundle_of_yojson
+    ~name:"proof_bundle"
+    bundle;
+  Alcotest.(check bool)
+    "show proof bundle"
+    true
+    (String.length (Sessions.show_proof_bundle bundle) > 0)
+;;
+
 (* ── Test runner ───────────────────────────────────────────────── *)
 
 let () =
@@ -478,6 +644,8 @@ let () =
         ; Alcotest.test_case "fail" `Quick test_raw_trace_validation_fail
         ; Alcotest.test_case "empty checks" `Quick test_raw_trace_validation_empty_checks
         ] )
+    ; ( "raw_trace_manifest"
+      , [ Alcotest.test_case "roundtrip" `Quick test_raw_trace_manifest_roundtrip ] )
     ; ( "worker_run_statuses"
       , [ Alcotest.test_case "all 6 variants" `Quick test_worker_run_all_statuses
         ; Alcotest.test_case
@@ -493,5 +661,7 @@ let () =
       , [ Alcotest.test_case "tool execution" `Quick test_record_full
         ; Alcotest.test_case "minimal run_started" `Quick test_record_minimal
         ] )
+    ; ( "proof_bundle"
+      , [ Alcotest.test_case "roundtrip" `Quick test_proof_bundle_roundtrip ] )
     ]
 ;;

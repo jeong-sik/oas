@@ -231,6 +231,48 @@ let test_query_empty_prefix () =
     Alcotest.(check int) "all 2" 2 (List.length results)
 ;;
 
+let test_query_skips_invalid_entries_and_limit_zero_returns_all () =
+  Eio_main.run
+  @@ fun env ->
+  with_tmp_dir env
+  @@ fun dir ->
+  match Memory_file_backend.create dir with
+  | Error e -> Alcotest.failf "create: %s" (Error.to_string e)
+  | Ok t ->
+    let backend = Memory_file_backend.to_backend t in
+    ignore (backend.persist ~key:"valid:a" (`Int 1));
+    Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / "abc.json") "{}";
+    Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / "zz.json") "{}";
+    Eio.Path.save
+      ~create:(`Or_truncate 0o644)
+      Eio.Path.(dir / "76616c69643a626164.json")
+      "{bad";
+    Eio.Path.save
+      ~create:(`Or_truncate 0o644)
+      Eio.Path.(dir / "76616c69643a746d70.json.tmp")
+      "{}";
+    Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / "note.txt") "{}";
+    let results = backend.query ~prefix:"valid:" ~limit:0 in
+    Alcotest.(check (list string))
+      "valid entries only"
+      [ "valid:a" ]
+      (List.map fst results);
+    Alcotest.(check (list string))
+      "keys skip invalid"
+      [ "valid:a"; "valid:bad" ]
+      (Memory_file_backend.keys t);
+    Alcotest.(check string)
+      "backend error string"
+      "backend_error: disk"
+      (Memory_file_backend.retrieve_error_to_string
+         (Memory_file_backend.Backend_error "disk"));
+    (match Memory_file_backend.to_retrieve_result t ~key:"missing" with
+     | Error Memory.Missing_key -> ()
+     | Ok json -> Alcotest.failf "expected missing, got %s" (Yojson.Safe.to_string json)
+     | Error err ->
+       Alcotest.failf "expected Missing_key, got %s" (Memory.retrieve_error_to_string err))
+;;
+
 (* ── Clear ───────────────────────────────────────────────────── *)
 
 let test_clear () =
@@ -371,6 +413,53 @@ let test_memory_procedural_integration () =
     Alcotest.(check int) "stored file" 1 (Memory_file_backend.entry_count file_store)
 ;;
 
+let test_direct_episodic_and_procedural_backends () =
+  Eio_main.run
+  @@ fun env ->
+  with_tmp_dir env
+  @@ fun dir ->
+  match Memory_file_backend.create dir with
+  | Error e -> Alcotest.failf "create: %s" (Error.to_string e)
+  | Ok file_store ->
+    let episodic = Memory_file_backend.to_episodic_backend file_store in
+    let procedural = Memory_file_backend.to_procedural_backend file_store in
+    episodic.persist_episode
+      { id = "ep-direct"
+      ; timestamp = 200.0
+      ; participants = [ "user"; "assistant" ]
+      ; action = "direct episode"
+      ; outcome = Neutral
+      ; salience = 0.4
+      ; metadata = []
+      };
+    Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / "65703a626164.json") "{bad";
+    let episodes = episodic.all_episodes () in
+    Alcotest.(check int) "one valid episode" 1 (List.length episodes);
+    episodic.remove_episode ~id:"ep-direct";
+    Alcotest.(check bool)
+      "episode removed"
+      true
+      (Option.is_none (episodic.retrieve_episode ~id:"ep-direct"));
+    procedural.persist_procedure
+      { id = "pr-direct"
+      ; pattern = "ship"
+      ; action = "verify"
+      ; success_count = 3
+      ; failure_count = 1
+      ; confidence = 0.75
+      ; last_used = 200.0
+      ; metadata = []
+      };
+    Eio.Path.save ~create:(`Or_truncate 0o644) Eio.Path.(dir / "70723a626164.json") "{bad";
+    let procedures = procedural.all_procedures () in
+    Alcotest.(check int) "one valid procedure" 1 (List.length procedures);
+    procedural.remove_procedure ~id:"pr-direct";
+    Alcotest.(check bool)
+      "procedure removed"
+      true
+      (Option.is_none (procedural.retrieve_procedure ~id:"pr-direct"))
+;;
+
 (* ── Suite ───────────────────────────────────────────────────── *)
 
 let () =
@@ -394,6 +483,10 @@ let () =
       , [ Alcotest.test_case "prefix" `Quick test_query_prefix
         ; Alcotest.test_case "limit" `Quick test_query_limit
         ; Alcotest.test_case "empty_prefix" `Quick test_query_empty_prefix
+        ; Alcotest.test_case
+            "skips invalid entries"
+            `Quick
+            test_query_skips_invalid_entries_and_limit_zero_returns_all
         ] )
     ; "clear", [ Alcotest.test_case "clear" `Quick test_clear ]
     ; "keys", [ Alcotest.test_case "sorted" `Quick test_keys_sorted ]
@@ -405,6 +498,10 @@ let () =
             "procedural_memory_t"
             `Quick
             test_memory_procedural_integration
+        ; Alcotest.test_case
+            "direct episodic and procedural backends"
+            `Quick
+            test_direct_episodic_and_procedural_backends
         ] )
     ]
 ;;

@@ -400,6 +400,31 @@ let test_tool_param_manual_json_helpers () =
   | Error msg -> Alcotest.fail msg
 ;;
 
+let test_tool_schema_manual_json_rejects_bad_param () =
+  let bad_schema =
+    `Assoc
+      [ "name", `String "broken"
+      ; "description", `String "Broken schema"
+      ; ( "parameters"
+        , `List
+            [ `Assoc
+                [ "name", `String "x"
+                ; "description", `String "bad"
+                ; "param_type", `String "not-a-type"
+                ; "required", `Bool true
+                ]
+            ] )
+      ]
+  in
+  match Types.tool_schema_of_json bad_schema with
+  | Error msg ->
+    Alcotest.(check bool)
+      "propagates bad param"
+      true
+      (Agent_sdk.Util.contains_substring_ci ~haystack:msg ~needle:"not-a-type")
+  | Ok _ -> Alcotest.fail "expected tool_schema_of_json error"
+;;
+
 let test_result_all_helper () =
   Alcotest.(check (list int))
     "all ok"
@@ -409,6 +434,89 @@ let test_result_all_helper () =
   | Error "boom" -> ()
   | Error other -> Alcotest.fail ("unexpected error: " ^ other)
   | Ok _ -> Alcotest.fail "expected first error"
+;;
+
+let test_tool_error_class_yojson_roundtrip () =
+  List.iter
+    (fun error_class ->
+       let json = Types.tool_error_class_to_yojson error_class in
+       (match Types.tool_error_class_of_yojson json with
+        | Ok decoded ->
+          Alcotest.(check string)
+            "tool_error_class"
+            (Types.show_tool_error_class error_class)
+            (Types.show_tool_error_class decoded)
+        | Error msg -> Alcotest.fail msg);
+       Alcotest.(check bool)
+         "show non-empty"
+         true
+         (String.length (Types.show_tool_error_class error_class) > 0))
+    [ Types.Transient; Types.Deterministic; Types.Unknown ]
+;;
+
+let test_usage_and_inference_telemetry_yojson_roundtrip () =
+  let usage : Types.api_usage =
+    { input_tokens = 11
+    ; output_tokens = 22
+    ; cache_creation_input_tokens = 3
+    ; cache_read_input_tokens = 4
+    ; cost_usd = Some 0.25
+    }
+  in
+  (match Types.api_usage_of_yojson (Types.api_usage_to_yojson usage) with
+   | Ok decoded ->
+     Alcotest.(check int) "usage input" 11 decoded.input_tokens;
+     Alcotest.(check bool)
+       "usage show"
+       true
+       (String.length (Types.show_api_usage decoded) > 0)
+   | Error msg -> Alcotest.fail msg);
+  let timings : Types.inference_timings =
+    { prompt_n = Some 10
+    ; prompt_ms = Some 20.5
+    ; prompt_per_second = Some 30.5
+    ; predicted_n = Some 4
+    ; predicted_ms = Some 5.5
+    ; predicted_per_second = Some 6.5
+    ; cache_n = Some 7
+    }
+  in
+  (match
+     Types.inference_timings_of_yojson (Types.inference_timings_to_yojson timings)
+   with
+   | Ok decoded ->
+     Alcotest.(check (option int)) "cache_n" (Some 7) decoded.cache_n;
+     Alcotest.(check bool)
+       "timings show"
+       true
+       (String.length (Types.show_inference_timings decoded) > 0)
+   | Error msg -> Alcotest.fail msg);
+  let telemetry : Types.inference_telemetry =
+    { system_fingerprint = Some "fp"
+    ; timings = Some timings
+    ; reasoning_tokens = Some 12
+    ; reasoning_tokens_estimated = false
+    ; request_latency_ms = Some 123
+    ; peak_memory_gb = Some 4.5
+    ; provider_kind = Some Llm_provider.Provider_config.Provider_d_compat
+    ; reasoning_effort = Some "medium"
+    ; canonical_model_id = Some "model-d"
+    ; effective_context_window = Some 8192
+    ; provider_internal_action_count = Some 2
+    ; ttfrc_ms = Some 10.0
+    ; prefill_ms = Some 11.0
+    }
+  in
+  match
+    Types.inference_telemetry_of_yojson (Types.inference_telemetry_to_yojson telemetry)
+  with
+  | Ok decoded ->
+    Alcotest.(check (option string)) "fingerprint" (Some "fp") decoded.system_fingerprint;
+    Alcotest.(check bool)
+      "telemetry show"
+      true
+      (String.length (Types.show_inference_telemetry decoded) > 0)
+  | Error msg -> Alcotest.fail msg
 ;;
 
 (* ── role_of_string ──────────────────────────────────────── *)
@@ -716,6 +824,10 @@ let () =
     ; ( "usage"
       , [ Alcotest.test_case "add_usage" `Quick test_add_usage
         ; Alcotest.test_case "accumulates" `Quick test_add_usage_accumulates
+        ; Alcotest.test_case
+            "usage and telemetry yojson"
+            `Quick
+            test_usage_and_inference_telemetry_yojson_roundtrip
         ] )
     ; "config", [ Alcotest.test_case "default_config" `Quick test_default_config ]
     ; ( "yojson_roundtrip"
@@ -791,6 +903,14 @@ let () =
             `Quick
             test_tool_param_manual_json_helpers
         ; Alcotest.test_case "result_all" `Quick test_result_all_helper
+        ; Alcotest.test_case
+            "tool_schema_of_json bad param"
+            `Quick
+            test_tool_schema_manual_json_rejects_bad_param
+        ; Alcotest.test_case
+            "tool_error_class yojson"
+            `Quick
+            test_tool_error_class_yojson_roundtrip
         ] )
     ; ( "text_extraction"
       , [ Alcotest.test_case "text only" `Quick test_text_of_content_text_only

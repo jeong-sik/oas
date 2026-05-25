@@ -5,12 +5,30 @@ module Pipeline_common = Agent_sdk__Pipeline_common
 let check_bool = Alcotest.(check bool)
 let check_int = Alcotest.(check int)
 let check_string = Alcotest.(check string)
+let check_opt_string = Alcotest.(check (option string))
+let check_string_list = Alcotest.(check (list string))
 
 let provider_d_config : Provider.config =
   { provider = Local { base_url = "http://127.0.0.1:65535" }
   ; model_id = "provider_d_chat"
   ; api_key_env = "DUMMY_KEY"
   }
+;;
+
+let echo_tool =
+  Tool.create
+    ~name:"echo"
+    ~description:"Echo input"
+    ~parameters:
+      [ { Types.name = "message"
+        ; description = "Message"
+        ; param_type = Types.String
+        ; required = true
+        }
+      ]
+    (fun input ->
+       let open Yojson.Safe.Util in
+       Ok { Types.content = input |> member "message" |> to_string })
 ;;
 
 let text_response ?(content = [ Types.Text "ok" ]) () : Types.api_response =
@@ -58,6 +76,154 @@ let test_strategy_and_outcome_constructors () =
   match Pipeline_common.IdleSkipped with
   | Pipeline_common.IdleSkipped -> ()
   | _ -> Alcotest.fail "expected idle outcome"
+;;
+
+let test_agent_type_checkpoint_stage_labels () =
+  check_string
+    "assistant collected"
+    "after_assistant_collected"
+    (Internal_agent.checkpoint_stage_to_string After_assistant_collected);
+  check_string
+    "tool results appended"
+    "after_tool_results_appended"
+    (Internal_agent.checkpoint_stage_to_string After_tool_results_appended);
+  check_string
+    "retry feedback appended"
+    "after_retry_feedback_appended"
+    (Internal_agent.checkpoint_stage_to_string After_retry_feedback_appended)
+;;
+
+let test_agent_type_accessors_card_and_state_mutators () =
+  let config =
+    { Types.default_config with name = "coverage-agent"; model = "provider_d_chat" }
+  in
+  let options =
+    { Internal_agent.default_options with
+      description = Some "Coverage agent"
+    ; provider = Some provider_d_config
+    ; allowed_paths = [ "/tmp/oas" ]
+    }
+  in
+  Eio_main.run
+  @@ fun env ->
+  let agent =
+    Internal_agent.create ~net:env#net ~config ~tools:[ echo_tool ] ~options ()
+  in
+  check_string "config name" "coverage-agent" (Internal_agent.state agent).config.name;
+  check_bool "same net accessor" true (Internal_agent.net agent == env#net);
+  check_bool "tool present" true (Tool_set.mem "echo" (Internal_agent.tools agent));
+  check_bool
+    "context initially empty"
+    true
+    (Context.keys (Internal_agent.context agent) = []);
+  check_opt_string
+    "description"
+    (Some "Coverage agent")
+    (Internal_agent.description agent);
+  check_string_list "allowed paths" [ "/tmp/oas" ] (Internal_agent.allowed_paths agent);
+  check_bool "memory absent" true (Option.is_none (Internal_agent.memory agent));
+  check_bool
+    "provider option"
+    true
+    (Option.is_some (Internal_agent.options agent).provider);
+  let card = Internal_agent.card agent in
+  check_string "card name" "coverage-agent" card.name;
+  check_opt_string "card description" (Some "Coverage agent") card.description;
+  check_int "card tools" 1 (List.length card.tools);
+  Internal_agent.set_state agent { (Internal_agent.state agent) with turn_count = 2 };
+  check_int "set_state" 2 (Internal_agent.state agent).turn_count;
+  Internal_agent.update_state agent (fun state ->
+    { state with turn_count = state.turn_count + 3 });
+  check_int "update_state" 5 (Internal_agent.state agent).turn_count;
+  Internal_agent.set_consecutive_idle_turns agent 4;
+  check_int "idle turns" 4 agent.consecutive_idle_turns
+;;
+
+let test_agent_type_lifecycle_status_show () =
+  List.iter
+    (fun status ->
+       check_bool
+         "show status"
+         true
+         (String.length (Internal_agent.show_lifecycle_status status) > 0))
+    [ Accepted; Ready; Running; Completed; Failed ]
+;;
+
+let test_agent_type_create_merges_mcp_tools () =
+  Eio_main.run
+  @@ fun env ->
+  let managed : Mcp.managed =
+    { tools = [ echo_tool ]
+    ; name = "coverage-mcp"
+    ; transport =
+        Mcp.Http
+          { close_fn = (fun () -> ()); base_url = "http://127.0.0.1"; headers = [] }
+    }
+  in
+  let options = { Internal_agent.default_options with mcp_clients = [ managed ] } in
+  let agent = Internal_agent.create ~net:env#net ~options () in
+  check_bool "mcp tool merged" true (Tool_set.mem "echo" (Internal_agent.tools agent))
+;;
+
+let test_agent_type_lifecycle_rejects_invalid_transition () =
+  Eio_main.run
+  @@ fun env ->
+  let agent = Internal_agent.create ~net:env#net () in
+  Internal_agent.set_lifecycle agent ~accepted_at:1.0 Accepted;
+  Internal_agent.set_lifecycle agent ~ready_at:2.0 Ready;
+  Internal_agent.set_lifecycle agent ~current_run_id:"run-1" ~started_at:3.0 Running;
+  Internal_agent.set_lifecycle agent ~finished_at:4.0 Completed;
+  (match Internal_agent.lifecycle agent with
+   | Some snapshot ->
+     check_bool "completed" true (snapshot.status = Completed);
+     check_opt_string "run id" (Some "run-1") snapshot.current_run_id
+   | None -> Alcotest.fail "expected lifecycle snapshot");
+  Internal_agent.set_lifecycle agent Running;
+  match Internal_agent.lifecycle agent with
+  | Some snapshot ->
+    check_bool "invalid transition rejected" true (snapshot.status = Completed)
+  | None -> Alcotest.fail "expected lifecycle snapshot"
+;;
+
+let test_agent_type_clone_variants () =
+  let config = { Types.default_config with name = "clone-source"; max_turns = 5 } in
+  Eio_main.run
+  @@ fun env ->
+  let context = Context.create () in
+  Context.set context "marker" (`String "copied");
+  let agent =
+    Internal_agent.create
+      ~net:env#net
+      ~config
+      ~context
+      ~tools:[ echo_tool ]
+      ~auto_context_overflow_retry:false
+      ()
+  in
+  Internal_agent.set_state
+    agent
+    { (Internal_agent.state agent) with
+      turn_count = 7
+    ; messages = [ Types.user_msg "hello" ]
+    };
+  Internal_agent.set_lifecycle agent Accepted;
+  Internal_agent.set_consecutive_idle_turns agent 9;
+  let fresh = Internal_agent.clone agent in
+  check_int "fresh state copied" 7 (Internal_agent.state fresh).turn_count;
+  check_int "fresh messages copied" 1 (List.length (Internal_agent.state fresh).messages);
+  check_bool "fresh context empty" true (Context.keys (Internal_agent.context fresh) = []);
+  check_int "fresh idle reset" 0 fresh.consecutive_idle_turns;
+  check_bool "tools shared" true (Tool_set.mem "echo" (Internal_agent.tools fresh));
+  let copied = Internal_agent.clone ~copy_context:true agent in
+  check_bool
+    "context copied"
+    true
+    (Context.get (Internal_agent.context copied) "marker" = Some (`String "copied"));
+  Context.set (Internal_agent.context copied) "marker" (`String "changed");
+  check_bool
+    "source context independent"
+    true
+    (Context.get (Internal_agent.context agent) "marker" = Some (`String "copied"))
 ;;
 
 let test_validate_completion_contract_accepts_default_text () =
@@ -165,6 +331,27 @@ let () =
             "strategy and outcome constructors"
             `Quick
             test_strategy_and_outcome_constructors
+        ; Alcotest.test_case
+            "agent checkpoint labels"
+            `Quick
+            test_agent_type_checkpoint_stage_labels
+        ; Alcotest.test_case
+            "agent accessors card and state mutators"
+            `Quick
+            test_agent_type_accessors_card_and_state_mutators
+        ; Alcotest.test_case
+            "agent lifecycle status show"
+            `Quick
+            test_agent_type_lifecycle_status_show
+        ; Alcotest.test_case
+            "agent create merges mcp tools"
+            `Quick
+            test_agent_type_create_merges_mcp_tools
+        ; Alcotest.test_case
+            "agent lifecycle rejects invalid transition"
+            `Quick
+            test_agent_type_lifecycle_rejects_invalid_transition
+        ; Alcotest.test_case "agent clone variants" `Quick test_agent_type_clone_variants
         ] )
     ; ( "contract"
       , [ Alcotest.test_case

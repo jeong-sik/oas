@@ -390,6 +390,31 @@ let test_topk_llm_candidates_preserve_first_duplicate_descriptor () =
   check (list string) "selected status once" [ "status" ] (tool_names result)
 ;;
 
+let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let provider =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.Provider_d_compat
+      ~model_id:"provider_d_chat"
+      ~base_url:"http://"
+      ()
+  in
+  let rerank = Tool_selector.default_rerank_fn ~sw ~net:env#net ~provider ~k:2 () in
+  let selected =
+    rerank
+      ~context:"read file"
+      ~candidates:
+        [ "read_file", "Read file contents"
+        ; "search", "Search code"
+        ; "write_file", "Write file contents"
+        ]
+  in
+  check (list string) "bm25 fallback order" [ "read_file"; "search" ] selected
+;;
+
 (* ── Categorical stubs ──────────────────────────── *)
 
 let test_categorical_llm_unimplemented_returns_empty () =
@@ -580,6 +605,10 @@ let () =
             "duplicate candidate descriptor keeps first"
             `Quick
             test_topk_llm_candidates_preserve_first_duplicate_descriptor
+        ; test_case
+            "default rerank falls back on provider error"
+            `Quick
+            test_default_rerank_fn_falls_back_to_candidates_on_provider_error
         ] )
     ; ( "stubs"
       , [ test_case
