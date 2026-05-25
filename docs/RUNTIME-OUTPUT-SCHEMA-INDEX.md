@@ -23,13 +23,11 @@ Machine-readable catalog: `docs/schema-surfaces/runtime-output-surfaces.v1.json`
 | `oas.eval_report.v1` | Evaluation report JSON/text section | `lib/eval_report.mli` | Eval report and CLI baseline tests |
 | `oas.structured_schema.v1` | Structured output schema helper | `lib/structured.mli`, `lib/base/types.mli` | Structured schema tests |
 | `oas.cdal_proof_bundle.v1` | CDAL proof bundle JSON | `docs/schemas/cdal-proof-bundle-v1.json` | Catalog path drift test |
-| `oas.collaboration_event.v1` | Downstream collaboration observation JSON | `docs/collaboration-substrate-contract.md`, `docs/schemas/collaboration-event-v1.schema.json` | Catalog path drift test |
 
 ## Rules
 
 - OAS-owned runtime semantics live in OCaml `.mli` files first.
 - Cross-repo or downstream payloads use versioned JSON schema under `docs/schemas/`.
-- Downstream product domains should not become native OAS event variants unless
-  the semantic is provider-agnostic and belongs to the single-agent runtime.
+- Downstream product domains should not become native OAS event variants.
 - When a schema source or test file moves, update the machine-readable catalog
   in the same change.

@@ -6,7 +6,7 @@
 | Author | vincent (with Claude analysis) |
 | Created | 2026-05-14 |
 | Target | `agent_sdk` (oas) |
-| Sibling | RFC-OAS-007 (runtime-sync-transport-boundary), RFC-OAS-018 (provider-model-catalog-externalization) |
+| Sibling | RFC-OAS-018 (provider-model-catalog-externalization) |
 
 ## 0. Summary
 

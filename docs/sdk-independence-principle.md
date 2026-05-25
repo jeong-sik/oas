@@ -32,12 +32,7 @@ coordinator.
    "handoff" to map to `Coordination` intent, it should wrap
    `Context_intent.intent_of_string` in its own adapter.
 
-5. **Collaboration substrates stay downstream.** Shared documents, CRDT
-   replicas, participant grouping, and binary frame choices are embedding-layer
-   responsibilities. OAS may expose neutral runtime events and protocol fields
-   that such systems observe, but it must not own their coordination model.
-
-6. **Provider catalogs stay generic.** `OAS_PROVIDER_CATALOG` entries may
+5. **Provider catalogs stay generic.** `OAS_PROVIDER_CATALOG` entries may
    describe provider ids, transport, auth mode, endpoint, default model, and
    capabilities. They must not encode coordinator-owned routing concepts such
    as keeper, room, tier-group, board, governance queue, or dashboard policy.

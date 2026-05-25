@@ -161,7 +161,7 @@ Layer 1: agent_sdk  (lib/)
             +-- lib/pipeline/      6-stage turn pipeline
             +-- lib/protocol/      A2A, MCP, Agent Card, Agent Registry
             +-- lib/llm_provider/  Shared LLM types, HTTP client, streaming
-            +-- lib/*.ml           Context, Hooks, Guardrails, Orchestrator, etc.
+            +-- lib/*.ml           Context, Hooks, Guardrails, Runtime, etc.
 ```
 
 Anything outside this repository — multi-process coordination, repo-wide task queues, dashboards, persistent shared state — is the responsibility of an external coordinator, not of OAS. OAS deliberately knows nothing about any specific coordinator.
@@ -180,7 +180,6 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
 | `Guardrails` | Tool filtering (AllowList/DenyList/Custom) + per-turn call limits |
 | `Error` / `Error_domain` | 2-level structured errors: 7 domain variants + Internal, poly-variant mapping |
-| `Orchestrator` | Multi-agent task orchestration (Sequential, Parallel, FanOut, Pipeline, Conditional) |
 | `Log` | Structured logging with level filtering and composable sinks |
 | `Mcp` | MCP client (NDJSON-over-stdio, server lifecycle, paginated tool listing) |
 | `Streaming` | Multi-provider SSE parsing (Anthropic + OpenAI-compatible) |
@@ -204,7 +203,7 @@ For the current classification policy, see `docs/api-stability.md`.
 
 **Evolving** -- API may change between minor versions:
 
-`Streaming`, `Structured`, `Orchestrator`, `Runtime`, `Memory`, `Policy`
+`Streaming`, `Structured`, `Runtime`, `Memory`, `Policy`
 
 CDAL proof artifacts are no longer exposed as public OCaml modules from OAS.
 Use the versioned JSON schema catalog for downstream proof-bundle artifacts.
@@ -315,12 +314,6 @@ OAS is a single-process, single-Eio-domain agent runtime. The following concerns
 | Long-term persistence / vector storage | Embedding application | Session state, memory backends, and embedding indexes are injected via callbacks, not owned by the SDK. |
 
 If you find yourself pulling one of these responsibilities into `agent_sdk`, that is a signal the change belongs in a different repository. OAS does not name any specific downstream coordinator on purpose: anyone wiring OAS into a coordination layer should be free to make their own architectural choices.
-
-For real-time collaboration embeddings, OAS provides only the generic
-observation boundary in
-[`docs/collaboration-substrate-contract.md`](docs/collaboration-substrate-contract.md).
-CRDT/editor/VCS graph/TODO claim/turn queue state remains downstream-owned;
-OAS events are join points for correlation and telemetry.
 
 ## Versioning
 

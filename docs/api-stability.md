@@ -87,9 +87,6 @@ Representative modules:
 | Memory | `lib/memory.mli` | Memory system is under active development |
 | Policy | `lib/policy.mli` | Rule engine surface is still settling |
 
-Collaboration substrate guidance is intentionally docs/schema-only; there is
-no public `Collaboration` module in `agent_sdk`.
-
 CDAL proof-bundle artifacts are intentionally schema-only in OAS. They are
 tracked in `docs/schema-surfaces/runtime-output-surfaces.v1.json`, not as
 public OCaml modules in this stability table.

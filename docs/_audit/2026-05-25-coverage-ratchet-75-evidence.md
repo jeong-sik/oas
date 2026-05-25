@@ -148,8 +148,7 @@ selector, checkpoint, and type tests, so the CI coverage floor can move from
 
 - Evidence: local focused and full coverage runs on PR #1761 after extending
   maintained memory, discovery, HTTP client, tool selector, checkpoint, and type
-  tests. Deprecated Orchestrator/Collaboration paths were intentionally not
-  expanded.
+  tests. Deprecated runtime-projection paths were intentionally not expanded.
 - Focused validation:
   `env MASC_DUNE_THROTTLE=0 scripts/dune-local.sh build test/test_memory.exe test/test_tool_selector.exe test/test_discovery.exe test/test_http_client.exe test/test_types.exe`
   and

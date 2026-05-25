@@ -7,7 +7,7 @@
 | Created | 2026-05-17 |
 | Target | `agent_sdk` (oas) |
 | Extends | [[RFC-OAS-019]] (stream-lifecycle-aggregation) — adds two fields to its `Streaming_summary` |
-| Related | [[RFC-OAS-007]] (runtime-sync-transport-boundary), [[RFC-OAS-018]] (provider-model-catalog-externalization), masc-mcp [[RFC-0098]] (typed JSON-RPC envelope, IMPROVE-01 sibling) |
+| Related | [[RFC-OAS-018]] (provider-model-catalog-externalization), masc-mcp [[RFC-0098]] (typed JSON-RPC envelope, IMPROVE-01 sibling) |
 
 ## 0. Summary
 
