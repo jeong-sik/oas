@@ -414,11 +414,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
     { state with
       messages = Util.snoc state.messages assistant_message
     ; turn_count = state.turn_count + 1
-    ; usage =
-        Agent_turn.accumulate_usage
-          ~current_usage:state.usage
-          ~provider:agent.options.provider
-          ~response_usage:response.usage
+    ; usage
     });
   (match agent.options.event_bus with
    | Some bus ->
