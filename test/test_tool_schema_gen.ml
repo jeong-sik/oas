@@ -100,6 +100,63 @@ let test_triple_params () =
   Alcotest.(check int) "3 params" 3 (List.length (Tool_schema_gen.to_params triple))
 ;;
 
+(* ── Four-field schema and coercion/error accumulation ──── *)
+
+let four_fields =
+  Tool_schema_gen.(
+    four
+      (string_field "label" ~required:true ~desc:"Label" ())
+      (int_field "count" ~required:true ~desc:"Count" ())
+      (float_field "ratio" ~required:true ~desc:"Ratio" ())
+      (bool_field "enabled" ~required:true ~desc:"Enabled" ()))
+;;
+
+let test_four_field_coercion () =
+  let json =
+    `Assoc
+      [ "label", `Bool true
+      ; "count", `Intlit "9"
+      ; "ratio", `String "2.5"
+      ; "enabled", `String "false"
+      ]
+  in
+  match Tool_schema_gen.parse four_fields json with
+  | Ok (label, count, ratio, enabled) ->
+    Alcotest.(check string) "label coerced" "true" label;
+    Alcotest.(check int) "count coerced" 9 count;
+    Alcotest.(check (float 0.0001)) "ratio coerced" 2.5 ratio;
+    Alcotest.(check bool) "enabled coerced" false enabled
+  | Error errs -> Alcotest.fail (format_errors errs)
+;;
+
+let test_four_field_error_accumulation () =
+  let json = `Assoc [ "label", `List []; "count", `Float 1.5; "ratio", `Bool false ] in
+  match Tool_schema_gen.parse four_fields json with
+  | Ok _ -> Alcotest.fail "expected field errors"
+  | Error errs ->
+    let paths = List.map (fun e -> e.Tool_input_validation.path) errs in
+    Alcotest.(check int) "all four errors" 4 (List.length errs);
+    Alcotest.(check bool) "label error" true (List.mem "label" paths);
+    Alcotest.(check bool) "count error" true (List.mem "count" paths);
+    Alcotest.(check bool) "ratio error" true (List.mem "ratio" paths);
+    Alcotest.(check bool) "enabled missing" true (List.mem "enabled" paths)
+;;
+
+let optional_defaults =
+  Tool_schema_gen.(
+    two
+      (float_field "ratio" ~required:false ~desc:"Ratio" ~default:0.25 ())
+      (bool_field "enabled" ~required:false ~desc:"Enabled" ~default:true ()))
+;;
+
+let test_optional_custom_defaults () =
+  match Tool_schema_gen.parse optional_defaults (`Assoc []) with
+  | Ok (ratio, enabled) ->
+    Alcotest.(check (float 0.0001)) "ratio default" 0.25 ratio;
+    Alcotest.(check bool) "enabled default" true enabled
+  | Error errs -> Alcotest.fail (format_errors errs)
+;;
+
 (* ── Integration: schema_gen + Typed_tool ───────────────── *)
 
 let test_typed_tool_integration () =
@@ -148,6 +205,14 @@ let () =
     ; ( "three_field"
       , [ Alcotest.test_case "parse" `Quick test_triple_parse
         ; Alcotest.test_case "params count" `Quick test_triple_params
+        ] )
+    ; ( "four_field"
+      , [ Alcotest.test_case "coercion" `Quick test_four_field_coercion
+        ; Alcotest.test_case
+            "error accumulation"
+            `Quick
+            test_four_field_error_accumulation
+        ; Alcotest.test_case "optional defaults" `Quick test_optional_custom_defaults
         ] )
     ; ( "integration"
       , [ Alcotest.test_case "schema_gen + Typed_tool" `Quick test_typed_tool_integration

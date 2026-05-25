@@ -144,6 +144,154 @@ let test_validate_response_flags_unknown_tool_and_stop_reason () =
   check int "no dropped blocks" 0 result.dropped_content_blocks
 ;;
 
+let contains ~needle text =
+  let needle_len = String.length needle in
+  let text_len = String.length text in
+  let rec loop idx =
+    if idx + needle_len > text_len
+    then false
+    else if String.sub text idx needle_len = needle
+    then true
+    else loop (idx + 1)
+  in
+  needle_len = 0 || loop 0
+;;
+
+let test_schema_validation_covers_scalar_actual_types_and_feedback () =
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc
+            [ "as_array", `Assoc [ "type", `String "object" ]
+            ; "as_object", `Assoc [ "type", `String "array" ]
+            ; "as_null", `Assoc [ "type", `String "string" ]
+            ; "as_bool", `Assoc [ "type", `String "number" ]
+            ; "as_string", `Assoc [ "type", `String "boolean" ]
+            ; "as_float", `Assoc [ "type", `String "integer" ]
+            ] )
+      ]
+  in
+  let response =
+    mk_response
+      [ T.ToolUse
+          { id = "call-3"
+          ; name = "shape_check"
+          ; input =
+              `Assoc
+                [ "as_array", `List []
+                ; "as_object", `Assoc []
+                ; "as_null", `Null
+                ; "as_bool", `Bool true
+                ; "as_string", `String "yes"
+                ; "as_float", `Float 1.5
+                ]
+          }
+      ]
+  in
+  let result =
+    H.validate_response_with_schemas
+      ~declared_tools:[ "shape_check" ]
+      ~tool_schemas:[ "shape_check", schema ]
+      response
+  in
+  match result.tool_calls_found with
+  | [ call ] ->
+    check bool "invalid arguments" false call.arguments_valid;
+    check
+      (list string)
+      "paths"
+      [ "$.as_array"
+      ; "$.as_bool"
+      ; "$.as_float"
+      ; "$.as_null"
+      ; "$.as_object"
+      ; "$.as_string"
+      ]
+      (List.map (fun (v : H.schema_violation) -> v.path) call.violations
+       |> List.sort String.compare);
+    let feedback = H.format_violations_feedback call in
+    check bool "feedback names tool" true (contains ~needle:"shape_check" feedback);
+    check bool "feedback includes path" true (contains ~needle:"$.as_null" feedback);
+    check bool "feedback asks retry" true (contains ~needle:"Please retry" feedback)
+  | _ -> fail "expected one tool call"
+;;
+
+let test_build_schema_map_rejects_missing_name_and_schema () =
+  let direct_parameters =
+    `Assoc [ "name", `String "direct"; "parameters", `Assoc [ "type", `String "object" ] ]
+  in
+  let no_name = `Assoc [ "parameters", `Assoc [ "type", `String "object" ] ] in
+  let no_schema = `Assoc [ "name", `String "no_schema" ] in
+  let function_without_parameters =
+    `Assoc [ "function", `Assoc [ "name", `String "wrapped_no_schema" ] ]
+  in
+  let function_not_object =
+    `Assoc
+      [ "function", `String "bad"; "parameters", `Assoc [ "type", `String "object" ] ]
+  in
+  check
+    bool
+    "null schema ignored"
+    true
+    (H.extract_tool_schema (`Assoc [ "input_schema", `Null ]) = None);
+  let schemas =
+    H.build_schema_map
+      [ direct_parameters
+      ; no_name
+      ; no_schema
+      ; function_without_parameters
+      ; function_not_object
+      ]
+  in
+  check (list string) "only valid named schema" [ "direct" ] (List.map fst schemas)
+;;
+
+let test_provider_convenience_validators_cover_tool_responses () =
+  let provider_a_json =
+    `Assoc
+      [ "id", `String "msg_123"
+      ; "model", `String "agent_llm_a-sonnet"
+      ; "stop_reason", `String "tool_use"
+      ; ( "content"
+        , `List
+            [ `Assoc
+                [ "type", `String "tool_use"
+                ; "id", `String "toolu_1"
+                ; "name", `String "lookup"
+                ; "input", `Assoc [ "q", `String "test" ]
+                ]
+            ] )
+      ]
+  in
+  let provider_a =
+    H.validate_provider_a_response ~declared_tools:[ "lookup" ] provider_a_json
+  in
+  check bool "provider_a stop reason" true provider_a.stop_reason_correct;
+  check bool "provider_a declared tool" true provider_a.all_tools_declared;
+  check int "provider_a tool calls" 1 (List.length provider_a.tool_calls_found);
+  let provider_f_json =
+    Yojson.Safe.from_string
+      {|{
+        "candidates": [{
+          "content": {
+            "parts": [{
+              "functionCall": {"name": "lookup", "args": {"q": "test"}}
+            }],
+            "role": "model"
+          },
+          "finishReason": "STOP"
+        }]
+      }|}
+  in
+  let provider_f =
+    H.validate_provider_f_response ~declared_tools:[ "lookup" ] provider_f_json
+  in
+  check bool "provider_f stop reason" true provider_f.stop_reason_correct;
+  check bool "provider_f declared tool" true provider_f.all_tools_declared;
+  check int "provider_f tool calls" 1 (List.length provider_f.tool_calls_found)
+;;
+
 let () =
   run
     "backend_tool_call_harness"
@@ -167,6 +315,18 @@ let () =
             "unknown tool and stop reason"
             `Quick
             test_validate_response_flags_unknown_tool_and_stop_reason
+        ; test_case
+            "scalar actual types and feedback"
+            `Quick
+            test_schema_validation_covers_scalar_actual_types_and_feedback
+        ; test_case
+            "invalid schema map entries"
+            `Quick
+            test_build_schema_map_rejects_missing_name_and_schema
+        ; test_case
+            "provider convenience validators"
+            `Quick
+            test_provider_convenience_validators_cover_tool_responses
         ] )
     ]
 ;;

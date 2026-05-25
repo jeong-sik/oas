@@ -47,6 +47,8 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
+  test_backend_provider_d_codec
+  test_backend_provider_k_coverage
   test_backend_tool_call_harness
   test_backend_provider_f
   test_body_timeout
@@ -60,6 +62,7 @@
   test_checkpoint_store
   test_checkpoint_validation
   test_cli_common_subprocess
+  test_client_wrapper_coverage
   test_code_snippet_eval
   test_clone
   test_complete_ext
@@ -151,6 +154,7 @@
   test_otel_export
   test_otel_tracer
   test_pipeline
+  test_pipeline_common_coverage
   test_pipeline_deep
   test_pipeline_metrics
   test_plan
@@ -158,6 +162,7 @@
   test_policy_channel
   test_progressive_tools
   test_provider
+  test_provider_catalog_coverage
   test_provider_config
   test_provider_intf
   test_provider_runtime_binding
@@ -197,6 +202,7 @@
   test_sse_parser
   test_stream_accumulator
   test_streaming_cov
+  test_streaming_edge_cases
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
@@ -224,6 +230,10 @@
   test_trajectory
   test_trajectory_unit
   test_cli_transport_factory
+  test_transport_cli_tool_a_coverage
+  test_transport_cli_tool_b_coverage
+  test_transport_cli_tool_c_coverage
+  test_transport_cli_tool_d_coverage
   test_transport_deep
   test_transport_integration
   test_turn_budget
@@ -266,6 +276,8 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
+  test_backend_provider_d_codec
+  test_backend_provider_k_coverage
   test_backend_tool_call_harness
   test_backend_provider_f
   test_body_timeout
@@ -279,6 +291,7 @@
   test_checkpoint_store
   test_checkpoint_validation
   test_cli_common_subprocess
+  test_client_wrapper_coverage
   test_code_snippet_eval
   test_clone
   test_complete_ext
@@ -370,6 +383,7 @@
   test_otel_export
   test_otel_tracer
   test_pipeline
+  test_pipeline_common_coverage
   test_pipeline_deep
   test_pipeline_metrics
   test_plan
@@ -377,6 +391,7 @@
   test_policy_channel
   test_progressive_tools
   test_provider
+  test_provider_catalog_coverage
   test_provider_config
   test_provider_intf
   test_provider_runtime_binding
@@ -416,6 +431,7 @@
   test_sse_parser
   test_stream_accumulator
   test_streaming_cov
+  test_streaming_edge_cases
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
@@ -443,6 +459,10 @@
   test_trajectory
   test_trajectory_unit
   test_cli_transport_factory
+  test_transport_cli_tool_a_coverage
+  test_transport_cli_tool_b_coverage
+  test_transport_cli_tool_c_coverage
+  test_transport_cli_tool_d_coverage
   test_transport_deep
   test_transport_integration
   test_turn_budget

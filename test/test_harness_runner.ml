@@ -261,6 +261,236 @@ let test_grade_case_negative_metric_tolerance () =
   check bool "failed" true (result.status = Harness_report.Fail)
 ;;
 
+let test_grade_case_skips_empty_assertions () =
+  let case_ = Harness_case.make_fixture ~id:"empty" ~prompt:"noop" () in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "done"))
+      ~observation:(mk_observation ())
+      case_
+  in
+  check bool "skipped" true (result.status = Harness_report.Skip);
+  check (option string) "detail" (Some "case had no assertions") result.detail
+;;
+
+let test_grade_case_response_assertion_failures () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:
+        [ Harness_case.Response (Harness_case.Exact_text "expected")
+        ; Harness_case.Response (Harness_case.Contains_text "needle")
+        ; Harness_case.Response
+            (Harness_case.Structural_json (`Assoc [ "ok", `Bool true ]))
+        ]
+      ~id:"response-failures"
+      ~prompt:"noop"
+      ()
+  in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "not-json"))
+      ~observation:(mk_observation ~final_response:"not-json" ())
+      case_
+  in
+  check bool "failed" true (result.status = Harness_report.Fail);
+  check int "all verdicts evaluated" 3 (List.length result.verdicts)
+;;
+
+let test_grade_case_structural_json_passes () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:
+        [ Harness_case.Response
+            (Harness_case.Structural_json (`Assoc [ "ok", `Bool true ]))
+        ]
+      ~id:"json-pass"
+      ~prompt:"noop"
+      ()
+  in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response {|{"ok":true}|}))
+      ~observation:(mk_observation ~final_response:{|{"ok":true}|} ())
+      case_
+  in
+  check bool "passed" true (result.status = Harness_report.Pass)
+;;
+
+let test_grade_case_trace_assertion_matrix () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:
+        [ Harness_case.Trace (Harness_case.Tool_called "read")
+        ; Harness_case.Trace (Harness_case.Tool_sequence [ "read"; "write" ])
+        ; Harness_case.Trace (Harness_case.Tool_call_count 2)
+        ; Harness_case.Trace (Harness_case.Max_turns 3)
+        ]
+      ~id:"trace-pass"
+      ~prompt:"noop"
+      ()
+  in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "done"))
+      ~observation:(mk_observation ~tools_called:[ "read"; "write" ] ~turn_count:2 ())
+      ~trajectory:(mk_trajectory ~tool_names:[ "read"; "write" ] ())
+      case_
+  in
+  check bool "passed" true (result.status = Harness_report.Pass);
+  check int "trace verdicts" 4 (List.length result.verdicts)
+;;
+
+let test_grade_case_trace_assertion_failures () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:
+        [ Harness_case.Trace (Harness_case.Tool_called "write")
+        ; Harness_case.Trace (Harness_case.Tool_sequence [ "write" ])
+        ; Harness_case.Trace (Harness_case.Tool_call_count 2)
+        ; Harness_case.Trace (Harness_case.Max_turns 2)
+        ]
+      ~id:"trace-fail"
+      ~prompt:"noop"
+      ()
+  in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "done"))
+      ~observation:(mk_observation ~tools_called:[ "read" ] ~turn_count:5 ())
+      ~trajectory:(mk_trajectory ~tool_names:[ "read" ] ())
+      case_
+  in
+  check bool "failed" true (result.status = Harness_report.Fail);
+  check int "trace verdicts" 4 (List.length result.verdicts)
+;;
+
+let test_grade_case_metric_variants () =
+  let pass_case =
+    Harness_case.make_fixture
+      ~assertions:
+        [ Harness_case.Metric
+            { name = "input_tokens"
+            ; goal = Eval.Higher
+            ; target = Eval.Int_val 5
+            ; tolerance_pct = Some 0.0
+            }
+        ; Harness_case.Metric
+            { name = "output_tokens"
+            ; goal = Eval.Exact
+            ; target = Eval.Int_val 5
+            ; tolerance_pct = Some 0.0
+            }
+        ; Harness_case.Metric
+            { name = "success"
+            ; goal = Eval.Exact
+            ; target = Eval.Bool_val true
+            ; tolerance_pct = None
+            }
+        ]
+      ~id:"metric-pass"
+      ~prompt:"noop"
+      ()
+  in
+  let pass_result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "done"))
+      ~observation:(mk_observation ())
+      pass_case
+  in
+  check bool "metrics pass" true (pass_result.status = Harness_report.Pass);
+  let fail_case =
+    Harness_case.make_fixture
+      ~assertions:
+        [ Harness_case.Metric
+            { name = "missing_metric"
+            ; goal = Eval.Exact
+            ; target = Eval.Int_val 1
+            ; tolerance_pct = None
+            }
+        ; Harness_case.Metric
+            { name = "success"
+            ; goal = Eval.Higher
+            ; target = Eval.Bool_val false
+            ; tolerance_pct = None
+            }
+        ]
+      ~id:"metric-fail"
+      ~prompt:"noop"
+      ()
+  in
+  let fail_result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Ok (ok_response "done"))
+      ~observation:(mk_observation ())
+      fail_case
+  in
+  check bool "metrics fail" true (fail_result.status = Harness_report.Fail);
+  check int "all metric verdicts" 2 (List.length fail_result.verdicts)
+;;
+
+let test_grade_case_error_response_fails_success_assertion () =
+  let case_ =
+    Harness_case.make_fixture
+      ~assertions:[ Harness_case.Trace Harness_case.Succeeds ]
+      ~id:"error-response"
+      ~prompt:"noop"
+      ()
+  in
+  let result =
+    Harness_runner.grade_case
+      ~agent_name:"runner-agent"
+      ~elapsed:0.1
+      ~response:(Error (Error.Internal "boom"))
+      ~observation:(mk_observation ())
+      case_
+  in
+  check bool "failed" true (result.status = Harness_report.Fail);
+  check (option string) "empty response text" (Some "") result.response_text
+;;
+
+let trace_case_without_path =
+  { Harness_case.id = "trace-no-path"
+  ; kind = Harness_case.Trace_replay
+  ; prompt = "Replay"
+  ; tags = []
+  ; assertions = [ Harness_case.Trace Harness_case.Succeeds ]
+  ; artifacts = []
+  ; source_trace_path = None
+  }
+;;
+
+let test_grade_case_from_trace_rejects_missing_path () =
+  match Harness_runner.grade_case_from_trace trace_case_without_path with
+  | Ok _ -> fail "expected missing trace path to fail"
+  | Error _ -> ()
+;;
+
+let test_execute_case_trace_missing_path_returns_failure () =
+  let result = Harness_runner.execute_case trace_case_without_path in
+  check bool "failed" true (result.status = Harness_report.Fail);
+  check
+    bool
+    "detail mentions source_trace_path"
+    true
+    (match result.detail with
+     | Some detail -> Util.string_contains ~needle:"source_trace_path" detail
+     | None -> false)
+;;
+
 let test_run_dataset_mixed_dispatches_by_kind () =
   with_trace_file "mixed" (fun trace_path ->
     let fixture_case =
@@ -339,6 +569,30 @@ let () =
             "rejects negative tolerance"
             `Quick
             test_grade_case_negative_metric_tolerance
+        ; test_case "skips empty assertions" `Quick test_grade_case_skips_empty_assertions
+        ; test_case
+            "response assertion failures"
+            `Quick
+            test_grade_case_response_assertion_failures
+        ; test_case "structural json passes" `Quick test_grade_case_structural_json_passes
+        ; test_case "trace assertion matrix" `Quick test_grade_case_trace_assertion_matrix
+        ; test_case
+            "trace assertion failures"
+            `Quick
+            test_grade_case_trace_assertion_failures
+        ; test_case "metric variants" `Quick test_grade_case_metric_variants
+        ; test_case
+            "error response fails success assertion"
+            `Quick
+            test_grade_case_error_response_fails_success_assertion
+        ; test_case
+            "trace missing path rejected"
+            `Quick
+            test_grade_case_from_trace_rejects_missing_path
+        ; test_case
+            "execute trace missing path"
+            `Quick
+            test_execute_case_trace_missing_path_returns_failure
         ; test_case
             "mixed dataset dispatches by kind"
             `Quick

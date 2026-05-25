@@ -250,6 +250,33 @@ let test_acc_sse_error_propagated () =
   | Ok _ -> Alcotest.fail "expected Error from SSEError"
 ;;
 
+let test_acc_parse_failed_truncates_raw_chunk () =
+  let acc = Streaming.create_stream_acc () in
+  let raw = String.make 240 'x' in
+  Streaming.accumulate_event acc (SSEParseFailed { raw; reason = "bad-json" });
+  match Streaming.finalize_stream_acc acc with
+  | Error msg ->
+    check_bool "has prefix" true (String.starts_with ~prefix:"sse_parse_failed:" msg);
+    check_bool "truncated" true (String.contains msg '.')
+  | Ok _ -> Alcotest.fail "expected parse failure"
+;;
+
+let test_acc_unknown_event_truncates_raw_chunk () =
+  let acc = Streaming.create_stream_acc () in
+  let raw = String.make 240 'y' in
+  Streaming.accumulate_event
+    acc
+    (SSEUnknownEventType { event_type = "future.event"; raw });
+  match Streaming.finalize_stream_acc acc with
+  | Error msg ->
+    check_bool
+      "has prefix"
+      true
+      (String.starts_with ~prefix:"sse_unknown_event_type: future.event" msg);
+    check_bool "truncated" true (String.contains msg '.')
+  | Ok _ -> Alcotest.fail "expected unknown event failure"
+;;
+
 let test_acc_ignores_content_block_stop () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc (ContentBlockStop { index = 0 });
@@ -365,6 +392,15 @@ let test_finalize_unknown_content_type () =
     (ContentBlockDelta { index = 0; delta = TextDelta "ignored" });
   let resp = finalize_ok acc in
   check_int "unknown type skipped" 0 (List.length resp.content)
+;;
+
+let test_finalize_registered_type_without_buffer () =
+  let acc = Streaming.create_stream_acc () in
+  Hashtbl.replace acc.block_types 7 "text";
+  let resp = finalize_ok acc in
+  match resp.content with
+  | [ Text "" ] -> ()
+  | _ -> Alcotest.fail "expected empty text from missing buffer"
 ;;
 
 (* ── finalize: usage thresholds ─────────────────────────────────── *)
@@ -576,6 +612,40 @@ let test_map_http_error_auth_error () =
   | _ -> Alcotest.fail "expected Error.Api AuthError"
 ;;
 
+let test_map_http_error_extra_variants () =
+  let open Llm_provider.Http_client in
+  (match Streaming.map_http_error (AcceptRejected { reason = "policy" }) with
+   | Error.Api (Retry.NetworkError { message = "policy"; _ }) -> ()
+   | _ -> Alcotest.fail "expected AcceptRejected as Api NetworkError");
+  (match
+     Streaming.map_http_error
+       (TimeoutError { message = "deadline"; phase = Caller_budget })
+   with
+   | Error.Provider _ -> ()
+   | _ -> Alcotest.fail "expected TimeoutError as Provider error");
+  (match Streaming.map_http_error (CliTransportRequired { kind = "cli_tool_d" }) with
+   | Error.Provider _ -> ()
+   | _ -> Alcotest.fail "expected CliTransportRequired as Provider error");
+  (match
+     Streaming.map_http_error
+       (ProviderTerminal { kind = Max_turns { turns = 31; limit = 31 }; message = "max" })
+   with
+   | Error.Agent (MaxTurnsExceeded { turns = 31; limit = 31 }) -> ()
+   | _ -> Alcotest.fail "expected max-turns terminal as Agent error");
+  (match
+     Streaming.map_http_error (ProviderTerminal { kind = Other "halt"; message = "halt" })
+   with
+   | Error.Provider _ -> ()
+   | _ -> Alcotest.fail "expected other terminal as Provider error");
+  match
+    Streaming.map_http_error
+      (ProviderFailure
+         { kind = Provider_parse_error { parser = Some "provider" }; message = "bad" })
+  with
+  | Error.Provider _ -> ()
+  | _ -> Alcotest.fail "expected ProviderFailure as Provider error"
+;;
+
 (* ── MessageDelta cache update with prior values ────────────────── *)
 
 let test_acc_message_delta_cache_update_nonzero () =
@@ -738,6 +808,14 @@ let () =
         ; Alcotest.test_case "ignores MessageStop" `Quick test_acc_ignores_message_stop
         ; Alcotest.test_case "SSEError propagated" `Quick test_acc_sse_error_propagated
         ; Alcotest.test_case
+            "SSEParseFailed truncates"
+            `Quick
+            test_acc_parse_failed_truncates_raw_chunk
+        ; Alcotest.test_case
+            "SSEUnknownEventType truncates"
+            `Quick
+            test_acc_unknown_event_truncates_raw_chunk
+        ; Alcotest.test_case
             "ignores ContentBlockStop"
             `Quick
             test_acc_ignores_content_block_stop
@@ -763,6 +841,10 @@ let () =
             "unknown content_type"
             `Quick
             test_finalize_unknown_content_type
+        ; Alcotest.test_case
+            "registered type without buffer"
+            `Quick
+            test_finalize_registered_type_without_buffer
         ; Alcotest.test_case "usage all zero" `Quick test_finalize_usage_all_zero
         ; Alcotest.test_case
             "usage only cache_creation"
@@ -786,6 +868,7 @@ let () =
         ; Alcotest.test_case "network error" `Quick test_map_http_error_network_error
         ; Alcotest.test_case "server 500" `Quick test_map_http_error_server_error
         ; Alcotest.test_case "auth 401" `Quick test_map_http_error_auth_error
+        ; Alcotest.test_case "extra variants" `Quick test_map_http_error_extra_variants
         ] )
     ]
 ;;
