@@ -172,7 +172,12 @@ jobs:
           # 78.13% (23241/29748) after Stage D provider_k, tool-call
           # harness, and provider catalog coverage. Raise the floor to
           # floor(78.13 - 1) = 77 per #1175 ratchet policy.
-          THRESHOLD=77
+          #
+          # 2026-05-25: local clean full coverage measured 79.00%
+          # (23500/29748) after Stage E runtime server and provider config
+          # coverage. Raise the floor to floor(79.00 - 1) = 78 per #1175
+          # ratchet policy.
+          THRESHOLD=78
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1

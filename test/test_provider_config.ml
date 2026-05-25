@@ -63,6 +63,16 @@ let test_request_path_glm () =
   check_string "provider_k path" "/chat/completions" cfg.request_path
 ;;
 
+let test_request_path_ollama () =
+  let cfg = Provider_config.make ~kind:Ollama ~model_id:"m" ~base_url:"" () in
+  check_string "ollama path" "/api/chat" cfg.request_path
+;;
+
+let test_request_path_provider_h () =
+  let cfg = Provider_config.make ~kind:Provider_h ~model_id:"m" ~base_url:"" () in
+  check_string "provider_h path" "/chat/completions" cfg.request_path
+;;
+
 let test_request_path_agent_llm_a_code () =
   let cfg = Provider_config.make ~kind:Cli_tool_d ~model_id:"m" ~base_url:"" () in
   check_string "cli_tool_d path" "" cfg.request_path
@@ -71,6 +81,17 @@ let test_request_path_agent_llm_a_code () =
 let test_request_path_provider_c_cli () =
   let cfg = Provider_config.make ~kind:Cli_tool_c ~model_id:"m" ~base_url:"" () in
   check_string "cli_tool_c path" "" cfg.request_path
+;;
+
+let test_request_path_other_cli_kinds () =
+  List.iter
+    (fun kind ->
+       let cfg = Provider_config.make ~kind ~model_id:"m" ~base_url:"" () in
+       check_string
+         (Provider_config.string_of_provider_kind kind ^ " path")
+         ""
+         cfg.request_path)
+    [ Cli_tool_a; Cli_tool_b ]
 ;;
 
 let test_request_path_override () =
@@ -130,6 +151,45 @@ let test_make_with_all_options () =
     (cfg.response_format = Types.JsonSchema expected_schema);
   check_bool "has output schema" true (Option.is_some cfg.output_schema);
   check_bool "cache prompt" true cfg.cache_system_prompt
+;;
+
+let test_make_response_format_json_mode () =
+  let cfg =
+    Provider_config.make
+      ~kind:Provider_d_compat
+      ~model_id:"model-d"
+      ~base_url:"https://api.provider_d.com/v1"
+      ~response_format_json:true
+      ()
+  in
+  check_bool "json mode" true (cfg.response_format = Types.JsonMode);
+  check_bool "no json schema" true (Option.is_none cfg.output_schema)
+;;
+
+let test_output_schema_of_response_format () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  check_bool
+    "schema derived"
+    true
+    (Option.equal
+       Yojson.Safe.equal
+       (Some schema)
+       (Provider_config.output_schema_of_response_format (Types.JsonSchema schema)));
+  check_bool
+    "json mode has no schema"
+    true
+    (Option.is_none (Provider_config.output_schema_of_response_format Types.JsonMode));
+  check_bool
+    "off has no schema"
+    true
+    (Option.is_none (Provider_config.output_schema_of_response_format Types.Off));
+  check_bool
+    "override wins"
+    true
+    (Option.equal
+       Yojson.Safe.equal
+       (Some schema)
+       (Provider_config.output_schema_of_response_format ~override:schema Types.JsonMode))
 ;;
 
 let test_validate_output_schema_provider_d_official () =
@@ -205,6 +265,86 @@ let test_validate_output_schema_provider_c_rejected () =
     "provider_c rejected"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_unrequested_ok () =
+  let cfg =
+    Provider_config.make
+      ~kind:Provider_c
+      ~model_id:"provider_c-for-coding"
+      ~base_url:"https://api.provider_c.com/coding"
+      ()
+  in
+  check_bool
+    "no schema request bypasses provider restriction"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_direct_response_format_record () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  let cfg =
+    { (Provider_config.make
+         ~kind:Provider_d_compat
+         ~model_id:"model-d"
+         ~base_url:"https://openrouter.ai/api/v1"
+         ())
+      with
+      response_format = Types.JsonSchema schema
+    ; output_schema = None
+    }
+  in
+  check_bool
+    "response_format JsonSchema is validated even without output_schema"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_supported_non_provider_d () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  List.iter
+    (fun kind ->
+       let cfg =
+         Provider_config.make
+           ~kind
+           ~model_id:"m"
+           ~base_url:"https://api.example.test"
+           ~output_schema:schema
+           ()
+       in
+       check_bool
+         (Provider_config.string_of_provider_kind kind ^ " accepts schema")
+         true
+         (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
+    [ Provider_a; Provider_f; Ollama; Provider_h ]
+;;
+
+let test_validate_output_schema_cli_rejected () =
+  let schema = `Assoc [ "type", `String "object" ] in
+  List.iter
+    (fun kind ->
+       let cfg =
+         Provider_config.make ~kind ~model_id:"m" ~base_url:"" ~output_schema:schema ()
+       in
+       check_bool
+         (Provider_config.string_of_provider_kind kind ^ " rejects schema")
+         true
+         (Result.is_error (Provider_config.validate_output_schema_request cfg)))
+    [ Cli_tool_a; Cli_tool_b; Cli_tool_c; Cli_tool_d ]
+;;
+
+let test_validate_output_schema_capability_rejected () =
+  let cfg =
+    Provider_config.make
+      ~kind:Provider_d_compat
+      ~model_id:"unknown-model-without-schema-capability"
+      ~base_url:"https://api.provider_d.com/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg -> check_bool "returns explanatory error" true (String.length msg > 0)
+  | Ok () -> Alcotest.fail "expected model capability rejection"
 ;;
 
 (* ── make: headers default ────────────────────────────── *)
@@ -301,6 +441,132 @@ let test_default_attempt_timeout_s () =
     "provider_d_compat has no default hard attempt timeout"
     None
     Provider_d_compat
+;;
+
+let test_max_turns_hard_cap_and_clamp () =
+  Alcotest.(check (option int))
+    "cli_tool_d hard cap"
+    (Some 30)
+    (Provider_config.max_turns_hard_cap Cli_tool_d);
+  Alcotest.(check (option int))
+    "provider_a no hard cap"
+    None
+    (Provider_config.max_turns_hard_cap Provider_a);
+  check_int
+    "cli_tool_d clamps high request"
+    30
+    (Provider_config.clamp_max_turns Cli_tool_d 99);
+  check_int
+    "cli_tool_d preserves low request"
+    12
+    (Provider_config.clamp_max_turns Cli_tool_d 12);
+  check_int
+    "provider_a preserves request"
+    99
+    (Provider_config.clamp_max_turns Provider_a 99)
+;;
+
+let test_reasoning_effort_of_thinking_config () =
+  let check_effort label expected enable_thinking thinking_budget =
+    check_string
+      label
+      expected
+      (Provider_config.effort_of_thinking_config ~enable_thinking ~thinking_budget)
+  in
+  check_effort "disabled" "none" (Some false) (Some 4096);
+  check_effort "missing flag" "none" None (Some 4096);
+  check_effort "zero budget" "none" (Some true) (Some 0);
+  check_effort "low budget" "low" (Some true) (Some 2048);
+  check_effort "medium budget" "medium" (Some true) (Some 8192);
+  check_effort "high budget" "high" (Some true) (Some 8193)
+;;
+
+let test_reasoning_effort_of_config () =
+  let ollama =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"llama"
+      ~base_url:"http://127.0.0.1:11434"
+      ~enable_thinking:true
+      ~thinking_budget:2048
+      ()
+  in
+  let provider_a =
+    Provider_config.make
+      ~kind:Provider_a
+      ~model_id:"agent_llm_a-sonnet"
+      ~base_url:"https://api.provider_a.com"
+      ~enable_thinking:true
+      ~thinking_budget:2048
+      ()
+  in
+  Alcotest.(check (option string))
+    "ollama exposes effort"
+    (Some "low")
+    (Provider_config.reasoning_effort_of_config ollama);
+  Alcotest.(check (option string))
+    "non-ollama has no effort"
+    None
+    (Provider_config.reasoning_effort_of_config provider_a)
+;;
+
+let test_structured_output_name_of_schema () =
+  let check_name label expected schema =
+    check_string label expected (Provider_config.structured_output_name_of_schema schema)
+  in
+  check_name "normalizes title" "invoice_v2" (`Assoc [ "title", `String " Invoice V2! " ]);
+  check_name
+    "keeps hyphen underscore"
+    "my-schema_v2"
+    (`Assoc [ "title", `String "My-Schema_v2" ]);
+  check_name
+    "blank title uses default"
+    "structured_output"
+    (`Assoc [ "title", `String "   " ]);
+  check_name "missing title uses default" "structured_output" (`Assoc []);
+  check_name "non-object uses default" "structured_output" (`List [])
+;;
+
+let test_validate_cli_sampling_params () =
+  let expect_error label cfg =
+    check_bool
+      label
+      true
+      (Result.is_error (Provider_config.validate_cli_sampling_params cfg))
+  in
+  let expect_ok label cfg =
+    check_bool
+      label
+      true
+      (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
+  in
+  expect_error
+    "cli min_p"
+    (Provider_config.make ~kind:Cli_tool_a ~model_id:"m" ~base_url:"" ~min_p:0.05 ());
+  expect_error
+    "cli top_k"
+    (Provider_config.make ~kind:Cli_tool_b ~model_id:"m" ~base_url:"" ~top_k:40 ());
+  expect_error
+    "cli both"
+    (Provider_config.make
+       ~kind:Cli_tool_c
+       ~model_id:"m"
+       ~base_url:""
+       ~min_p:0.05
+       ~top_k:40
+       ());
+  expect_ok
+    "cli clean"
+    (Provider_config.make ~kind:Cli_tool_d ~model_id:"m" ~base_url:"" ());
+  expect_ok
+    "http provider accepts sampling"
+    (Provider_config.make
+       ~kind:Provider_a
+       ~model_id:"m"
+       ~base_url:"https://api.provider_a.com"
+       ~min_p:0.05
+       ~top_k:40
+       ())
 ;;
 
 (* ── provider_name_of_config ─────────────────────────── *)
@@ -779,13 +1045,24 @@ let () =
         ; Alcotest.test_case "provider_d" `Quick test_request_path_provider_d
         ; Alcotest.test_case "provider_f" `Quick test_request_path_provider_f
         ; Alcotest.test_case "provider_k" `Quick test_request_path_glm
+        ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
+        ; Alcotest.test_case "provider_h" `Quick test_request_path_provider_h
         ; Alcotest.test_case "cli_tool_d" `Quick test_request_path_agent_llm_a_code
         ; Alcotest.test_case "cli_tool_c" `Quick test_request_path_provider_c_cli
+        ; Alcotest.test_case "other cli kinds" `Quick test_request_path_other_cli_kinds
         ; Alcotest.test_case "override" `Quick test_request_path_override
         ] )
     ; ( "explicit_values"
       , [ Alcotest.test_case "all options" `Quick test_make_with_all_options
         ; Alcotest.test_case "custom headers" `Quick test_custom_headers
+        ; Alcotest.test_case
+            "response_format_json mode"
+            `Quick
+            test_make_response_format_json_mode
+        ; Alcotest.test_case
+            "output schema derivation"
+            `Quick
+            test_output_schema_of_response_format
         ] )
     ; ( "output_schema"
       , [ Alcotest.test_case
@@ -808,6 +1085,26 @@ let () =
             "provider_h accepted"
             `Quick
             test_validate_output_schema_provider_h_accepted
+        ; Alcotest.test_case
+            "unrequested schema bypasses restrictions"
+            `Quick
+            test_validate_output_schema_unrequested_ok
+        ; Alcotest.test_case
+            "direct JsonSchema record is validated"
+            `Quick
+            test_validate_output_schema_direct_response_format_record
+        ; Alcotest.test_case
+            "supported non-provider_d providers"
+            `Quick
+            test_validate_output_schema_supported_non_provider_d
+        ; Alcotest.test_case
+            "cli providers rejected"
+            `Quick
+            test_validate_output_schema_cli_rejected
+        ; Alcotest.test_case
+            "provider_d capability rejection"
+            `Quick
+            test_validate_output_schema_capability_rejected
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip
@@ -825,6 +1122,26 @@ let () =
             "default attempt timeout hints"
             `Quick
             test_default_attempt_timeout_s
+        ; Alcotest.test_case
+            "turn hard caps and clamp"
+            `Quick
+            test_max_turns_hard_cap_and_clamp
+        ; Alcotest.test_case
+            "thinking effort thresholds"
+            `Quick
+            test_reasoning_effort_of_thinking_config
+        ; Alcotest.test_case
+            "reasoning effort by config"
+            `Quick
+            test_reasoning_effort_of_config
+        ; Alcotest.test_case
+            "structured output names"
+            `Quick
+            test_structured_output_name_of_schema
+        ; Alcotest.test_case
+            "cli sampling validation"
+            `Quick
+            test_validate_cli_sampling_params
         ] )
     ; ( "provider_name"
       , [ Alcotest.test_case

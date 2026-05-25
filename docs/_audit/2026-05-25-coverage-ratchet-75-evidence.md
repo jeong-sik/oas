@@ -142,6 +142,50 @@ the CI coverage floor can move from 73% to 77%.
   Confidence: High for focused behavior coverage; project-wide CI coverage is
   now governed by the latest `77` floor above.
 
+## Stage E runtime server and provider config follow-up
+
+- Evidence: local focused and full coverage runs after PR #1759 merged, adding
+  maintained runtime server request/command coverage and extending pure
+  provider configuration coverage. Deprecated runtime paths were intentionally
+  left out of this slice.
+- Runtime server focused command:
+  `DUNE_BUILD_DIR=/tmp/oas_runtime_server_cov_build dune build --root /Users/dancer/me/workspace/yousleepwhen/oas/.worktrees/runtime-server-coverage-20260525 --instrument-with bisect_ppx test/test_runtime_server_coverage.exe`
+- Runtime server focused test:
+  `env BISECT_FILE=/tmp/oas_stage_e_runtime_server_coverage_run2/bisect /tmp/oas_runtime_server_cov_build/default/test/test_runtime_server_coverage.exe`
+- Runtime server focused result:
+  `test/test_runtime_server_coverage.exe` passed 3 tests;
+  `lib/runtime_server.ml` reached `31.33%` (`193/616`) in the focused slice.
+- Provider config focused command:
+  `DUNE_BUILD_DIR=/tmp/oas_provider_config_cov_build2 dune build --root /Users/dancer/me/workspace/yousleepwhen/oas/.worktrees/runtime-server-coverage-20260525 --instrument-with bisect_ppx test/test_provider_config.exe`
+- Provider config focused test:
+  `env BISECT_FILE=/tmp/oas_provider_config_cov_run2/bisect /tmp/oas_provider_config_cov_build2/default/test/test_provider_config.exe`
+- Provider config focused result:
+  `test/test_provider_config.exe` passed 65 tests;
+  `lib/llm_provider/provider_config.ml` reached `79.19%` (`156/197`) in
+  the focused slice.
+- Full clean coverage command:
+  `env MASC_DUNE_THROTTLE=0 BISECT_ENABLE=yes EIO_BACKEND=posix BISECT_FILE=/tmp/oas_stage_e_full_runtime_provider_coverage_final/bisect DUNE_BUILD_DIR=/Users/dancer/me/workspace/yousleepwhen/oas/.worktrees/runtime-server-coverage-20260525/_build_cov_runtime_provider scripts/dune-local.sh runtest --force --instrument-with bisect_ppx`
+- Full clean coverage result:
+  `79.00%` (`23500/29748`) from
+  `/tmp/oas_stage_e_full_runtime_provider_coverage_final`.
+- Full per-file results:
+  - `lib/runtime_server.ml`: `33.12%` (`204/616`)
+  - `lib/llm_provider/provider_config.ml`: `82.74%` (`163/197`)
+  - `lib/runtime_evidence.ml`: `94.21%` (`244/259`)
+  - `lib/runtime_projection.ml`: `81.75%` (`233/285`)
+  - `lib/runtime_store.ml`: `87.79%` (`266/303`)
+- Ratchet decision:
+  CI coverage threshold raised from `77` to `78`, leaving 1 point of headroom
+  below the measured `79.00%` while preventing regression.
+- Note:
+  A prior full coverage attempt with `DUNE_BUILD_DIR=/tmp/...` failed because
+  sandboxed repo-root-sensitive tests could not locate `dune-project`; rerunning
+  with the build dir inside the worktree passed. This was an execution
+  environment issue, not a product test failure.
+- Timestamp: 2026-05-25 KST
+  Confidence: High for focused behavior coverage and full project coverage;
+  project-wide CI coverage is now governed by the latest `78` floor above.
+
 ## Stage D CLI A/D and validation follow-up
 
 - Evidence: local focused coverage run on PR #1759 after adding
