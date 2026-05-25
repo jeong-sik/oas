@@ -184,20 +184,6 @@
       "stability": "evolving",
       "version_field": "schema_version",
       "notes": "Cross-repo consumers should use the JSON schema and fixtures instead of reading OAS runtime internals."
-    },
-    {
-      "id": "oas.collaboration_event.v1",
-      "kind": "json_schema",
-      "owner": "OAS",
-      "producer": "Downstream collaboration substrate",
-      "consumer": ["OAS correlation tooling", "downstream observability"],
-      "wire_or_artifact": "Collaboration observation JSON event",
-      "schema_source": ["docs/collaboration-substrate-contract.md", "docs/schemas/collaboration-event-v1.schema.json"],
-      "validator": "Versioned JSON schema",
-      "tests": ["test/test_schema_surface_index.ml"],
-      "stability": "evolving",
-      "version_field": "schema_version",
-      "notes": "OAS owns correlation semantics only; collaboration domain payloads remain downstream-owned."
     }
   ]
 }

@@ -64,9 +64,9 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 
 | Variant | Emit site | Semantic |
 |---------|-----------|---------|
-| `AgentStarted` | Reserved; no OAS core producer after legacy orchestrator removal | Legacy task lifecycle start |
-| `AgentCompleted` | Reserved; no OAS core producer after legacy orchestrator removal | Legacy task lifecycle completion |
-| `AgentFailed` | Reserved; no OAS core producer after legacy orchestrator removal | Legacy task lifecycle failure |
+| `AgentStarted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle start |
+| `AgentCompleted` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle completion |
+| `AgentFailed` | Reserved; no OAS core producer after legacy task lifecycle removal | Legacy task lifecycle failure |
 | `TurnStarted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | Start of a single agent turn |
 | `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after guardrails, policy, overrides, and selection |
 | `TurnCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_collect.ml` | End of a single agent turn |
@@ -107,12 +107,9 @@ purpose telemetry channel for their own domain events.** Create your own
 `Event_bus.t` instance for your events and bridge into OAS's where
 necessary via a forwarder.
 
-For collaboration substrates such as CRDT documents, editor projections,
-VCS graph surfaces, TODO claims, or shared turn queues, keep the events in
-the downstream bus and use the neutral observation payload in
-`docs/collaboration-substrate-contract.md`. Those events can correlate with
-OAS via `correlation_id`, `run_id`, `caused_by`, raw-trace refs, and OTel
-trace/span IDs without becoming OAS-native taxonomy.
+External product/domain events can correlate with OAS via `correlation_id`,
+`run_id`, `caused_by`, raw-trace refs, and OTel trace/span IDs without becoming
+OAS-native taxonomy.
 
 ### 2.4 Filters, subscriptions, and draining
 
@@ -284,35 +281,6 @@ different payload shapes. Disambiguate by Custom name prefix:
   `docs/RUNTIME-OUTPUT-SCHEMA-INDEX.md` and
   `docs/schema-surfaces/runtime-output-surfaces.v1.json`.
 
-### 5.2 Collaboration UI projection
-
-OAS exposes generic collaboration projections for downstream UIs without
-encoding any downstream cockpit, dashboard, CSS, or keeper-specific policy.
-`Runtime_projection.collaboration_events_of_event` projects persisted runtime
-events into typed `Runtime.collaboration_event` values; it does not introduce
-a new persisted runtime event kind.
-
-Collaboration events use three independent channels:
-
-| Channel | Persistence | QoS | Intended consumer |
-|---------|-------------|-----|-------------------|
-| `Presence_channel` | `Ephemeral` | `Coalesced { max_hz = 30 }` | Presence indicators, current participant activity |
-| `Activity_channel` | `Append_only` | `Ordered` | Activity feed, history, audit-adjacent timelines |
-| `System_channel` | `Aggregated_snapshot` | `Best_effort` | Status bars and health summaries |
-
-Presence status is derived from runtime participant state by
-`participant_presence_status_of_state`: planned/idle participants map to
-`Presence_idle`, starting participants to `Presence_busy`, live participants
-to `Presence_active`, completed/detached participants to `Presence_offline`,
-and failed participants to `Presence_error`.
-
-Activity feed items carry typed `activity_category` and `activity_severity`
-fields. The first slice classifies runtime lifecycle/work/artifact/system
-events only; downstream domain events should still live on downstream-owned
-event buses unless they are generic OAS runtime collaboration signals.
-
----
-
 ## 6. Surface 5: LLM wire stream (`Types.sse_event`)
 
 **Header**: `lib/llm_provider/types.ml`. Stability: Internal.
@@ -447,8 +415,6 @@ string identifier:
    - A replay-relevant record? → `Durable_event` variant.
    - Provider-specific? → `Custom("provider.<name>.<event>", json)`.
    - Downstream domain event? → downstream's own Event_bus, not OAS's.
-     For collaboration substrates, use
-     `docs/collaboration-substrate-contract.md`.
 
 2. **Provider-agnostic check** (native variants only, per I6):
    - Confirm the semantic exists in Anthropic + OpenAI + Gemini.

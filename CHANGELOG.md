@@ -8,6 +8,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### ⚠ BREAKING CHANGES
+
+* **runtime:** remove retired domain projection event types, schema catalog entry, and projection helpers from `Runtime` / `Runtime_projection`
+
 ### Features
 
 * **agent_tool:** add typed child-agent invocation wrapper for agent-as-tool parity

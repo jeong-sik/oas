@@ -15,7 +15,7 @@ These are consumer-agnostic primitives. They do not assume:
 - a specific research loop
 - a git ratchet policy
 - a reviewer agent topology
-- a long-running overnight orchestrator
+- a long-running overnight supervisor
 
 ## Why the Full Runner Stays Outside OAS
 

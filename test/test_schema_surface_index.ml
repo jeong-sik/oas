@@ -71,7 +71,7 @@ let test_catalog_shape () =
   let json = catalog () in
   check int "version" 1 (require_int "version" json);
   let rows = surfaces json in
-  check bool "has surfaces" true (List.length rows >= 14);
+  check bool "has surfaces" true (List.length rows >= 13);
   let ids = List.map (require_string "id") rows in
   let sorted = List.sort String.compare ids in
   check (list string) "ids unique" sorted (List.sort_uniq String.compare ids);
@@ -119,7 +119,6 @@ let test_required_surfaces_present () =
     ; "oas.eval_report.v1"
     ; "oas.structured_schema.v1"
     ; "oas.cdal_proof_bundle.v1"
-    ; "oas.collaboration_event.v1"
     ]
 ;;
 

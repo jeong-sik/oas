@@ -132,7 +132,7 @@ OAS에 cascade/throttle이 있는 것은 SDK 역할을 넘은 orchestration 침�
 OAS (SDK): Provider.call(config, messages) -> Result<response, error>
            per-provider retry, request build, response parse
 
-MASC (Orchestrator): cascade FSM 구동
+MASC: cascade FSM 구동
                       state: Pending -> Trying(A) -> [call OAS] -> ShrinkContext -> [retry] -> Accepted
                       slot/admission 통합 queue
                       accept predicate 소유

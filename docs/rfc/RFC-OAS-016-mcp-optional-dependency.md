@@ -177,7 +177,7 @@ Drop `module Mcp = Mcp` etc. from `agent_sdk.ml` so the **public facade** doesn'
 ## 8. Out of scope (for this RFC, but listed so they aren't lost)
 
 - `structured.ml`'s `add_retry_usage` helper silently treats `None` `cost_usd` as `0.0` — same antipattern shape as the closed #555 / the just-landed `max_cost_usd` fix, in yet another code path. Track separately.
-- `lib/runtime.mli` exposing coordinator-shaped types (`participant_state`, `worker_id`, `collaboration_channel`) via the public facade — separate RFC.
+- `lib/runtime.mli` exposing coordinator-shaped types (`participant_state`, `worker_id`) via the public facade — separate RFC.
 
 ---
 

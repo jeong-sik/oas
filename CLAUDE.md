@@ -20,9 +20,9 @@ examples/   →  사용 예제
 | `lib/agent/` | Agent 라이프사이클, 턴 실행, 도구 호출, handoff |
 | `lib/pipeline/` | 6-stage 턴 파이프라인 |
 | `lib/protocol/` | A2A, Agent Card, Agent Registry, MCP |
-| `lib/*.ml` | API(multi-provider), Context, Hooks, Guardrails, Orchestrator 등 |
+| `lib/*.ml` | API(multi-provider), Context, Hooks, Guardrails, Runtime 등 |
 
-주요 모듈: `Agent`, `Types`, `Error`, `Provider`, `Context`, `Orchestrator`, `Hooks`, `Tool`
+주요 모듈: `Agent`, `Types`, `Error`, `Provider`, `Context`, `Runtime`, `Hooks`, `Tool`
 
 ## Build
 
