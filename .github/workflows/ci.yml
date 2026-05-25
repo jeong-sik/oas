@@ -221,6 +221,9 @@ jobs:
       - name: Forbid legacy pipeline stage modules
         run: bash scripts/lint-legacy-pipeline-stages.sh
 
+      - name: Enforce pipeline usage accumulator SSOT
+        run: bash scripts/lint-pipeline-usage-ssot.sh
+
   lint:
     name: Lint
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
