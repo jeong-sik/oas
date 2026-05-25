@@ -69,34 +69,35 @@ let state_for_provider (provider : Provider.config) =
   { config; messages = []; turn_count = 0; usage = empty_usage }
 ;;
 
-let fresh_port () =
-  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Unix.setsockopt s Unix.SO_REUSEADDR true;
-  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-  let port =
-    match Unix.getsockname s with
-    | Unix.ADDR_INET (_, p) -> p
-    | _ -> Alcotest.fail "expected inet socket"
-  in
-  Unix.close s;
-  port
-;;
-
 let with_mock_server ?port handler f =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
-    let port = Option.value ~default:(fresh_port ()) port in
-    let socket =
-      Eio.Net.listen
-        env#net
-        ~sw
-        ~backlog:128
-        ~reuse_addr:true
-        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+    let candidate_ports =
+      match port with
+      | Some p -> [ p; p + 1; p + 2; p + 3; p + 4; p + 5 ]
+      | None ->
+        [ 18342; 18356; 18357; 18358; 18359; 18360; 18361; 18362; 18363; 18364 ]
     in
+    let rec bind_with_retry = function
+      | [] -> failwith "no free port found for mock server"
+      | port :: remaining ->
+        try
+          let socket =
+            Eio.Net.listen
+              env#net
+              ~sw
+              ~backlog:128
+              ~reuse_addr:true
+              (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+          in
+          (socket, port)
+        with
+        | Unix.Unix_error (Unix.EADDRINUSE, _, _) -> bind_with_retry remaining
+    in
+    let socket, port = bind_with_retry candidate_ports in
     let server = Cohttp_eio.Server.make ~callback:handler () in
     Eio.Fiber.fork ~sw (fun () ->
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
@@ -104,6 +105,7 @@ let with_mock_server ?port handler f =
     f ~sw ~net:env#net ~base_url;
     Eio.Switch.fail sw Exit
   with
+  | Unix.Unix_error (Unix.EPERM, "bind", _) -> Alcotest.skip ()
   | Exit -> ()
 ;;
 
