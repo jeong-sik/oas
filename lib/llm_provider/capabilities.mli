@@ -146,12 +146,15 @@ type static_model_route =
   | Provider_e_grok
   | Provider_l of { has_vision : bool }
   | Provider_f_gemma_4 of { has_large_audio : bool }
-  | Glm_flash_air
+  | Glm_4_7_flash
+  | Glm_4_5_flash_air
   | Glm_5_turbo
   | Glm_5v_turbo
   | Glm_ocr
-  | Glm_4_vision_reasoning
+  | Glm_4_6_vision_reasoning
+  | Glm_4_5_vision_reasoning
   | Glm_5_code
+  | Glm_4_5_text
   | Glm_full_text
   | Glm_4_flash
   | Glm_4v

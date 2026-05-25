@@ -840,6 +840,26 @@ let test_model_capability_thinking_drift_remains_warn () =
        entries)
 ;;
 
+let test_bare_glm_model_thinking_uses_model_capability () =
+  let config =
+    PC.make
+      ~kind:Provider_d_compat
+      ~model_id:"glm-5"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ()
+  in
+  let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
+  Alcotest.(check bool)
+    "bare glm-5 thinking does not emit capability drift"
+    false
+    (List.exists
+       (fun (_level, ctx, message) ->
+          ctx = "complete"
+          && (contains_substring ~sub:"capability_observation" message
+              || contains_substring ~sub:"capability_drift" message))
+       entries)
+;;
+
 let test_complete_rejects_output_schema_for_glm () =
   Eio_main.run
   @@ fun env ->
@@ -1161,6 +1181,10 @@ let () =
             "model-specific thinking drift remains warn"
             `Quick
             test_model_capability_thinking_drift_remains_warn
+        ; test_case
+            "bare glm thinking uses model capability"
+            `Quick
+            test_bare_glm_model_thinking_uses_model_capability
         ] )
     ; ( "cost"
       , [ test_case "annotate response cost" `Quick test_annotate_response_cost

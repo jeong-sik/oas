@@ -106,6 +106,11 @@ let capabilities_of_config (config : Provider_config.t) =
      | Provider_config.Provider_d_compat -> Capabilities.default_capabilities)
 ;;
 
+let is_zai_glm_request (config : Provider_config.t) =
+  Zai_catalog.is_zai_base_url config.base_url
+  && Zai_catalog.is_glm_model_id config.model_id
+;;
+
 (** Build Provider_d Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
@@ -244,6 +249,18 @@ let build_request
          (match enabled, config.thinking_budget with
           | true, Some budget -> ("thinking_budget", `Int budget) :: body
           | _ -> body)
+       | No_thinking_control when is_zai_glm_request config ->
+         let thinking =
+           if enabled
+           then
+             `Assoc
+               [ "type", `String "enabled"
+               ; ( "clear_thinking"
+                 , `Bool (Option.value ~default:true config.clear_thinking) )
+               ]
+           else `Assoc [ "type", `String "disabled" ]
+         in
+         ("thinking", thinking) :: body
        | No_thinking_control -> body)
     | None ->
       (match caps.thinking_control_format with

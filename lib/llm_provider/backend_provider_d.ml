@@ -1255,6 +1255,24 @@ let%test "build_request serializes disabled thinking for provider_g-v4-pro" =
   json |> member "thinking" |> member "type" |> to_string = "disabled"
 ;;
 
+let%test "build_request serializes ZAI thinking object for bare GLM compat model" =
+  let config =
+    Provider_config.make
+      ~kind:Provider_d_compat
+      ~model_id:"glm-5"
+      ~base_url:Zai_catalog.coding_base_url
+      ~enable_thinking:true
+      ~clear_thinking:false
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "thinking" |> member "type" |> to_string = "enabled"
+  && json |> member "thinking" |> member "clear_thinking" |> to_bool = false
+  && json |> member "reasoning_effort" = `Null
+;;
+
 let%test "build_request emits reasoning_effort for Provider_d reasoning models" =
   let config =
     Provider_config.make

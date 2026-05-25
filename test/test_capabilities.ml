@@ -176,12 +176,15 @@ let pp_static_model_route ppf = function
     Format.fprintf ppf "Provider_l(has_vision=%b)" has_vision
   | Capabilities.Provider_f_gemma_4 { has_large_audio } ->
     Format.fprintf ppf "Provider_f_gemma_4(has_large_audio=%b)" has_large_audio
-  | Capabilities.Glm_flash_air -> Format.fprintf ppf "Glm_flash_air"
+  | Capabilities.Glm_4_7_flash -> Format.fprintf ppf "Glm_4_7_flash"
+  | Capabilities.Glm_4_5_flash_air -> Format.fprintf ppf "Glm_4_5_flash_air"
   | Capabilities.Glm_5_turbo -> Format.fprintf ppf "Glm_5_turbo"
   | Capabilities.Glm_5v_turbo -> Format.fprintf ppf "Glm_5v_turbo"
   | Capabilities.Glm_ocr -> Format.fprintf ppf "Glm_ocr"
-  | Capabilities.Glm_4_vision_reasoning -> Format.fprintf ppf "Glm_4_vision_reasoning"
+  | Capabilities.Glm_4_6_vision_reasoning -> Format.fprintf ppf "Glm_4_6_vision_reasoning"
+  | Capabilities.Glm_4_5_vision_reasoning -> Format.fprintf ppf "Glm_4_5_vision_reasoning"
   | Capabilities.Glm_5_code -> Format.fprintf ppf "Glm_5_code"
+  | Capabilities.Glm_4_5_text -> Format.fprintf ppf "Glm_4_5_text"
   | Capabilities.Glm_full_text -> Format.fprintf ppf "Glm_full_text"
   | Capabilities.Glm_4_flash -> Format.fprintf ppf "Glm_4_flash"
   | Capabilities.Glm_4v -> Format.fprintf ppf "Glm_4v"
@@ -758,27 +761,7 @@ let test_prefix_ordering_invariant () =
      The predicate is true only when the more-specific (longer-prefix)
      branch wins. *)
   let cases =
-    [ (* provider_k-4.7-flash must precede provider_k-4.7 (inside broad provider_k-4.5|4.6|4.7|5 branch) *)
-      ( "provider_k-4.7-flash-x"
-      , "provider_k-4.7-flash must precede broad provider_k-4.7"
-      , fun (c : Capabilities.capabilities) ->
-          (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 )
-    ; (* provider_k-4.5-flash must precede provider_k-4.5 (inside broad branch) *)
-      ( "provider_k-4.5-flash-x"
-      , "provider_k-4.5-flash must precede broad provider_k-4.5"
-      , fun (c : Capabilities.capabilities) ->
-          (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 )
-    ; (* provider_k-4.5-air must precede provider_k-4.5 (inside broad branch) *)
-      ( "provider_k-4.5-air-x"
-      , "provider_k-4.5-air must precede broad provider_k-4.5"
-      , fun (c : Capabilities.capabilities) ->
-          (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 )
-    ; (* provider_k-5-turbo must precede provider_k-5 (inside broad branch) *)
-      ( "provider_k-5-turbo-x"
-      , "provider_k-5-turbo must precede broad provider_k-5"
-      , fun (c : Capabilities.capabilities) ->
-          (not c.supports_extended_thinking) && c.max_output_tokens = Some 16_384 )
-    ; (* provider_k-5v-turbo must precede provider_k-5 (inside broad branch).
+    [ (* provider_k-5v-turbo must precede provider_k-5 (inside broad branch).
          Discriminator: supports_image_input (5v-turbo) vs not (broad provider_k-5). *)
       ( "provider_k-5v-turbo-x"
       , "provider_k-5v-turbo must precede broad provider_k-5"
@@ -803,13 +786,13 @@ let test_prefix_ordering_invariant () =
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
           && c.supports_reasoning
-          && c.max_output_tokens = Some 32_768 )
+          && c.max_output_tokens = Some 16_384 )
     ; (* broad provider_k-4.5 branch must precede provider_k-4.
-         Discriminator: supports_reasoning + 128K output (broad) vs neither (provider_k-4). *)
+         Discriminator: supports_reasoning + 96K output (broad) vs neither (provider_k-4). *)
       ( "provider_k-4.5-latest"
       , "broad provider_k-4.5 branch must precede provider_k-4"
       , fun (c : Capabilities.capabilities) ->
-          c.supports_reasoning && c.max_output_tokens = Some 128_000 )
+          c.supports_reasoning && c.max_output_tokens = Some 96_000 )
     ; (* provider_k-4v must precede provider_k-4.
          Discriminator: supports_image_input (provider_k-4v) vs not (provider_k-4). *)
       ( "provider_k-4v-x"

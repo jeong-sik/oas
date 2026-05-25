@@ -446,12 +446,15 @@ type static_model_route =
   | Provider_e_grok
   | Provider_l of { has_vision : bool }
   | Provider_f_gemma_4 of { has_large_audio : bool }
-  | Glm_flash_air
+  | Glm_4_7_flash
+  | Glm_4_5_flash_air
   | Glm_5_turbo
   | Glm_5v_turbo
   | Glm_ocr
-  | Glm_4_vision_reasoning
+  | Glm_4_6_vision_reasoning
+  | Glm_4_5_vision_reasoning
   | Glm_5_code
+  | Glm_4_5_text
   | Glm_full_text
   | Glm_4_flash
   | Glm_4v
@@ -482,6 +485,10 @@ let provider_f_gemma_4_has_large_audio model_id =
   | Some size_token ->
     List.exists (fun prefix -> String.starts_with ~prefix size_token) [ "27b"; "31b" ]
   | None -> false
+;;
+
+let starts_with_any model_id prefixes =
+  List.exists (fun prefix -> String.starts_with ~prefix model_id) prefixes
 ;;
 
 let static_model_route_of_id model_id =
@@ -544,34 +551,43 @@ let static_model_route_of_id model_id =
       then
         Some
           (Provider_f_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
+      else if starts_with_any m [ "provider_k-4.7-flash"; "glm-4.7-flash" ]
+      then Some Glm_4_7_flash
       else if
-        String.starts_with ~prefix:"provider_k-4.7-flash" m
-        || String.starts_with ~prefix:"provider_k-4.5-flash" m
-        || String.starts_with ~prefix:"provider_k-4.5-air" m
-      then Some Glm_flash_air
-      else if String.starts_with ~prefix:"provider_k-5-turbo" m
+        starts_with_any
+          m
+          [ "provider_k-4.5-flash"; "provider_k-4.5-air"; "glm-4.5-flash"; "glm-4.5-air" ]
+      then Some Glm_4_5_flash_air
+      else if starts_with_any m [ "provider_k-5-turbo"; "glm-5-turbo" ]
       then Some Glm_5_turbo
-      else if String.starts_with ~prefix:"provider_k-5v-turbo" m
+      else if starts_with_any m [ "provider_k-5v-turbo"; "glm-5v-turbo" ]
       then Some Glm_5v_turbo
-      else if String.starts_with ~prefix:"provider_k-ocr" m
+      else if starts_with_any m [ "provider_k-ocr"; "glm-ocr" ]
       then Some Glm_ocr
-      else if
-        String.starts_with ~prefix:"provider_k-4.6v" m
-        || String.starts_with ~prefix:"provider_k-4.5v" m
-      then Some Glm_4_vision_reasoning
-      else if String.starts_with ~prefix:"provider_k-5-code" m
+      else if starts_with_any m [ "provider_k-4.6v"; "glm-4.6v" ]
+      then Some Glm_4_6_vision_reasoning
+      else if starts_with_any m [ "provider_k-4.5v"; "glm-4.5v" ]
+      then Some Glm_4_5_vision_reasoning
+      else if starts_with_any m [ "provider_k-5-code"; "glm-5-code" ]
       then Some Glm_5_code
+      else if starts_with_any m [ "provider_k-4.5"; "glm-4.5" ]
+      then Some Glm_4_5_text
       else if
-        String.starts_with ~prefix:"provider_k-4.5" m
-        || String.starts_with ~prefix:"provider_k-4.6" m
-        || String.starts_with ~prefix:"provider_k-4.7" m
-        || String.starts_with ~prefix:"provider_k-5" m
+        starts_with_any
+          m
+          [ "provider_k-4.6"
+          ; "provider_k-4.7"
+          ; "provider_k-5"
+          ; "glm-4.6"
+          ; "glm-4.7"
+          ; "glm-5"
+          ]
       then Some Glm_full_text
-      else if String.starts_with ~prefix:"provider_k-4-flash" m
+      else if starts_with_any m [ "provider_k-4-flash"; "glm-4-flash" ]
       then Some Glm_4_flash
-      else if String.starts_with ~prefix:"provider_k-4v" m
+      else if starts_with_any m [ "provider_k-4v"; "glm-4v" ]
       then Some Glm_4v
-      else if String.starts_with ~prefix:"provider_k-4" m
+      else if starts_with_any m [ "provider_k-4"; "glm-4" ]
       then Some Glm_4
       else None)
 ;;
@@ -764,27 +780,44 @@ let capabilities_of_static_model_route = function
           (* Gemma 4 best practices: place image/audio before text for
            optimal multimodal performance. *)
       }
-    (* Provider_k flash/air variants: faster, no reasoning, smaller output.
-     Must precede the broad provider_k-4.5/4.6/4.7/5 match below. *)
-  | Glm_flash_air ->
+    (* GLM-4.7 Flash/FlashX: official Z.AI GLM-4.7 series docs describe
+       thinking mode with 200K context and 128K max output. Must precede the
+       broad GLM-4.7 match below. *)
+  | Glm_4_7_flash ->
     Some
       { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-    (* Provider_k 5-turbo: tool-calling optimized, fast, reasoning but no extended thinking *)
-  | Glm_5_turbo ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
+        max_context_tokens = Some 200_000
+      ; max_output_tokens = Some 128_000
       ; supports_tools = true
       ; supports_tool_choice = false
       ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_response_format_json = true
+      ; supports_native_streaming = true
+      }
+  | Glm_4_5_flash_air ->
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 128_000
+      ; max_output_tokens = Some 96_000
+      ; supports_tools = true
+      ; supports_tool_choice = false
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_response_format_json = true
+      ; supports_native_streaming = true
+      }
+    (* GLM-5-Turbo: official docs list Thinking Mode, 200K context, and
+       128K max output. *)
+  | Glm_5_turbo ->
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 200_000
+      ; max_output_tokens = Some 128_000
+      ; supports_tools = true
+      ; supports_tool_choice = false
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       }
@@ -811,11 +844,24 @@ let capabilities_of_static_model_route = function
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  | Glm_4_vision_reasoning ->
+  | Glm_4_6_vision_reasoning ->
     Some
       { default_capabilities with
         max_context_tokens = Some 128_000
       ; max_output_tokens = Some 32_768
+      ; supports_tools = true
+      ; supports_tool_choice = false
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_multimodal_inputs = true
+      ; supports_image_input = true
+      ; supports_native_streaming = true
+      }
+  | Glm_4_5_vision_reasoning ->
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 128_000
+      ; max_output_tokens = Some 16_384
       ; supports_tools = true
       ; supports_tool_choice = false
       ; supports_reasoning = true
@@ -838,7 +884,20 @@ let capabilities_of_static_model_route = function
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       }
-    (* Provider_k full text models: reasoning, large context/output, but no vision. *)
+  | Glm_4_5_text ->
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 128_000
+      ; max_output_tokens = Some 96_000
+      ; supports_tools = true
+      ; supports_tool_choice = false
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_response_format_json = true
+      ; supports_native_streaming = true
+      }
+    (* GLM-4.6/4.7/5/5.1 full text models: reasoning, large context/output,
+       but no vision. *)
   | Glm_full_text ->
     Some
       { default_capabilities with
@@ -1005,7 +1064,11 @@ let for_model_id model_id =
 
 let%test "for_model_id provider_k-4.5 has reasoning" =
   match for_model_id "provider_k-4.5" with
-  | Some c -> c.supports_reasoning && c.max_context_tokens = Some 200_000
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_context_tokens = Some 128_000
+    && c.max_output_tokens = Some 96_000
   | None -> false
 ;;
 
@@ -1049,36 +1112,45 @@ let%test "for_model_id provider_k-4.6v stays vision-capable" =
 let%test "for_model_id provider_k-4.5v stays vision-capable" =
   match for_model_id "provider_k-4.5v" with
   | Some c ->
-    c.supports_reasoning && c.supports_image_input && c.max_output_tokens = Some 32_768
+    c.supports_reasoning && c.supports_image_input && c.max_output_tokens = Some 16_384
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.7-flashx is flash (no reasoning, 16K output)" =
+let%test "for_model_id provider_k-4.7-flashx has GLM-4.7 thinking limits" =
   match for_model_id "provider_k-4.7-flashx" with
   | Some c ->
-    (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 && c.supports_tools
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_context_tokens = Some 200_000
+    && c.max_output_tokens = Some 128_000
+    && c.supports_tools
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.7-flash is flash (not broad provider_k-4.7)" =
+let%test "for_model_id provider_k-4.7-flash has thinking" =
   match for_model_id "provider_k-4.7-flash" with
-  | Some c -> (not c.supports_reasoning) && c.max_output_tokens = Some 16_384
+  | Some c -> c.supports_reasoning && c.max_output_tokens = Some 128_000
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.5-flash is flash (not broad provider_k-4.5)" =
+let%test "for_model_id provider_k-4.5-flash has GLM-4.5 thinking limits" =
   match for_model_id "provider_k-4.5-flash" with
   | Some c ->
-    (not c.supports_reasoning) && c.max_output_tokens = Some 16_384 && c.supports_tools
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_context_tokens = Some 128_000
+    && c.max_output_tokens = Some 96_000
+    && c.supports_tools
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-5-turbo has reasoning but not extended thinking" =
+let%test "for_model_id provider_k-5-turbo has GLM-5 thinking limits" =
   match for_model_id "provider_k-5-turbo" with
   | Some c ->
     c.supports_reasoning
-    && (not c.supports_extended_thinking)
-    && c.max_output_tokens = Some 16_384
+    && c.supports_extended_thinking
+    && c.max_context_tokens = Some 200_000
+    && c.max_output_tokens = Some 128_000
   | None -> false
 ;;
 
@@ -1087,6 +1159,34 @@ let%test "for_model_id provider_k-5.1 full model (reasoning + extended thinking)
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
+    && c.max_output_tokens = Some 128_000
+  | None -> false
+;;
+
+let%test "for_model_id bare glm-5 full model (reasoning + extended thinking)" =
+  match for_model_id "glm-5" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_output_tokens = Some 128_000
+  | None -> false
+;;
+
+let%test "for_model_id bare glm-5.1 full model (reasoning + extended thinking)" =
+  match for_model_id "glm-5.1" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_output_tokens = Some 128_000
+  | None -> false
+;;
+
+let%test "for_model_id bare glm-5-turbo has GLM-5 thinking limits" =
+  match for_model_id "glm-5-turbo" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.max_context_tokens = Some 200_000
     && c.max_output_tokens = Some 128_000
   | None -> false
 ;;
@@ -1243,25 +1343,37 @@ let%test "for_model_id: specific model IDs get correct (not shadowed) capabiliti
   List.for_all
     (fun (m, e) -> check m e)
     [ ( "provider_k-4.7-flash-turbo"
-      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
     ; ( "provider_k-4.5-flash-test"
-      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+      , fun c -> c.max_output_tokens = Some 96_000 && c.supports_extended_thinking )
     ; ( "provider_k-5-turbo-latest"
-      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_extended_thinking )
+      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
+    ; ( "glm-5-turbo-latest"
+      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
     ; ("provider_k-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
     ; ( "provider_k-4.7-flash-test"
-      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
+    ; ( "glm-4.7-flashx"
+      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
     ; ( "provider_k-4-flash-mini"
       , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
     ; ("provider_k-4v-plus", fun c -> c.supports_image_input)
     ; ( "provider_k-4.5-air-test"
-      , fun c -> c.max_output_tokens = Some 16_384 && not c.supports_reasoning )
+      , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
+    ; ( "glm-4.5-air-test"
+      , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
     ; ( "provider_k-5v-turbo-latest"
       , fun c ->
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 128_000 )
+    ; ( "glm-5v-turbo-latest"
+      , fun c ->
+          c.supports_image_input
+          && c.supports_reasoning
+          && c.max_output_tokens = Some 128_000 )
     ; ("provider_k-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
+    ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
     ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
     ; ("provider_g-v4-flash-test", fun c -> c.thinking_control_format = Thinking_object)
