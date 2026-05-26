@@ -2,8 +2,8 @@
 (* Models Runtime.phase's Cancelled state and Eio.Cancel.Cancelled reraise
    behaviour across the OAS codebase.
 
-   Runtime.phase alphabet (7 states):
-     Bootstrapping, Running, Waiting_on_workers, Finalizing,
+   Runtime.phase alphabet (8 states):
+     Bootstrapping, Running, Input_required, Waiting_on_workers, Finalizing,
      Completed, Failed, Cancelled
 
    Cancellation propagation contract (lib/eval_baseline.ml:80,
@@ -32,10 +32,11 @@ VARIABLES
 
 vars == <<phase, prev_phase, cancel_count, absorbed>>
 
-Phases == {"Bootstrapping", "Running", "Waiting_on_workers",
+Phases == {"Bootstrapping", "Running", "Input_required", "Waiting_on_workers",
            "Finalizing", "Completed", "Failed", "Cancelled"}
 
-NonTerminal == {"Bootstrapping", "Running", "Waiting_on_workers", "Finalizing"}
+NonTerminal == {"Bootstrapping", "Running", "Input_required",
+                "Waiting_on_workers", "Finalizing"}
 Terminal == {"Completed", "Failed", "Cancelled"}
 
 (* ── Type invariant ─────────────────────────────────────── *)
@@ -65,7 +66,15 @@ NormalBootstrapping ==
     /\ phase = "Bootstrapping"
     /\ TransitionTo("Running")
 
-NormalRunning ==
+NormalRunningToInput ==
+    /\ phase = "Running"
+    /\ TransitionTo("Input_required")
+
+NormalInputRequired ==
+    /\ phase = "Input_required"
+    /\ TransitionTo("Running")
+
+NormalRunningToWorkers ==
     /\ phase = "Running"
     /\ TransitionTo("Waiting_on_workers")
 
@@ -80,7 +89,9 @@ NormalFinalizing ==
 NormalTransition ==
     /\ ~absorbed
     /\ (NormalBootstrapping
-        \/ NormalRunning
+        \/ NormalRunningToInput
+        \/ NormalInputRequired
+        \/ NormalRunningToWorkers
         \/ NormalWaiting
         \/ NormalFinalizing)
 
