@@ -182,6 +182,35 @@ val model_family_default_caps : Model_family.t -> model_caps
 
 `apply_manifest_entry`의 `base_label` 인터페이스는 `Model_family.t` 또는 `Wire_protocol.t` 중 하나를 명시하도록 변경.
 
+**의존도 측정 (Decision #3, 2026-05-26)**:
+
+`rg -c "capabilities_for_provider_label" lib/ test/ bin/` 결과:
+
+| 사이트 | callsite | 성격 |
+|---|---|---|
+| `lib/llm_provider/capabilities.ml` | 28 | 자기 정의 + 내부 helper (rename 시 자동 추적) |
+| `lib/llm_provider/capabilities.mli` | 2 | signature export (시그니처 변경 또는 제거) |
+| `lib/llm_provider/provider_catalog.ml` | 2 | **외부 caller — migration 대상** |
+| `lib/llm_provider/capability_manifest.mli` | 1 | **외부 caller — `base_label` 인터페이스** |
+
+**실 외부 caller: 3 사이트** (`provider_catalog.ml` × 2 + `capability_manifest.mli` × 1). 폐지/재정의 비용 *낮음*.
+
+반면 silent default (`default_provider_d_compat_capabilities`) 의 의존도:
+
+| 위치 | callsite |
+|---|---|
+| `lib/` (이 함수가 출현하는 파일 수: 12) | 60 |
+| `test/` (fixture 가 silent default 를 *expect*) | 73 |
+| **총** | **133 사이트** |
+
+해석:
+
+- `capabilities_for_provider_label` *함수 자체* 의 폐지는 외부 caller 3 사이트라 안전 — Decision #3 (a) **완전 폐지** 권고.
+- 다만 *이 함수가 반환하던 caps record* (e.g. `provider_d_chat_capabilities`) 의 silent default fallback path 가 **133 사이트** 에서 의존 중. silent default 제거 (Decision #5) 는 *별개의 큰 비용* — test 73 fixture 가 silent default 의 정확한 값을 lock 하고 있을 가능성 (메모리 [feedback_tests_locking_anti_pattern_behavior] 적용).
+- 두 Decision (#3 함수 폐지 + #5 silent default 제거) 가 *분리 가능* — Decision #3 만 먼저 진행해도 silent default path 는 유지 가능. Phase 1 후보로 적절.
+
+> **[DECISION NEEDED #3 — RESOLVED (권고)]** 옵션 (a) **`capabilities_for_provider_label` 완전 폐지** 권고 (외부 caller 3 사이트 migration). 사용자 최종 결정 대기.
+
 ## 4. Naming sweep
 
 ### 4.1 Provider_kind.t variant 복원
