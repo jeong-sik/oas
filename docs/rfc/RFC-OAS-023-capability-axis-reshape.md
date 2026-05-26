@@ -277,7 +277,31 @@ provider_k_capabilities             → glm_model_default_caps
 - Phase 4: silent default fallback 제거 + Unknown 정책 적용
 - Phase 5: cascade.toml audit 기반 model catalog 채움
 
-> **[DECISION NEEDED #1]** 사용자 결정점 — Single big PR vs Phased 5. 메모리는 big PR 선호. masc-mcp 의존성(§7.3) 때문에 phased가 더 안전할 수도 있음.
+**Phase 1 단독 (variant rename only) 의 OAS 내부 size estimate (2026-05-26)**:
+
+```
+rg "Provider_a\b|Provider_c\b|Provider_d_compat\b|Provider_f\b|Provider_g\b|
+    Provider_h\b|Provider_j\b|Provider_k\b|Cli_tool_[abcd]\b|Agent_llm_a"
+   lib/ test/ bin/
+```
+
+| Surface | Count |
+|---|---|
+| Total cipher callsite (OAS 자체) | **1159** |
+| 영향 파일 | **138** |
+| Paired test 파일 | **38** |
+
+Big PR 선택 시 OAS 내부 단일 sweep 크기 = 138 file × 1159 callsite × 38 paired test.
+
+Phased 5 선택 시 Phase 1 단독 만 위 범위 — 나머지 phase 들은 record reshape (Phase 2), label 함수 폐지 (Phase 3, 3 caller), silent default 제거 (Phase 4, 133 callsite per §3.3), catalog 채움 (Phase 5).
+
+**OAS standalone scope notice**: 본 size estimate 는 *OAS 자체* lib/+test/+bin/ 만. SDK consumer (masc-mcp 등) 영향은 *consumer 측 책임* — OAS RFC 는 cross-repo 영향을 own 하지 않는다 (RFC-OAS-018 §0 자매 약속). 286 consumer-side callsite (§7.3) 는 *evidence-only*.
+
+[feedback_radical_improvement_over_diff_size] / [feedback_big_bang_refactor_preference] 메모리: consumer 1명 codebase 에서는 big PR 선호. OAS 도 SDK 로서 consumer (masc-mcp) 한 명 — 동일 정신 적용 시 OAS 측 big PR 권고.
+
+다만 138 file × 38 paired test 의 *dead-export audit* 부담 (5-prong check, [feedback_dead_export_sweep_2026_05_23_anti_pattern]) 은 phased 일수록 작아짐 — phase 별 audit 동의 가능.
+
+> **[DECISION NEEDED #1 — RESOLVED (권고)]** **Single big PR** 권고 (OAS standalone, 1159 callsite). audit 의무 §6.2 강제 충족 조건 하. 사용자 최종 결정 대기.
 
 ### 6.2 Audit obligations
 
