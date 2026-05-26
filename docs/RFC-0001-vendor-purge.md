@@ -2,10 +2,26 @@
 
 | | |
 |---|---|
-| Status | Draft |
+| Status | **Withdrawn (superseded by RFC-OAS-023)** |
+| Withdrawn | 2026-05-26 |
+| Superseded by | [RFC-OAS-023](rfc/RFC-OAS-023-capability-axis-reshape.md) capability axis reshape |
 | Related (masc-mcp) | RFC-0165 ~ RFC-0173 client-agnostic family |
 | Scope | All `lib/`, `bin/`, `test/` OCaml files |
 | Repo | yousleepwhen/oas |
+
+## 0. Withdrawal notice (2026-05-26)
+
+본 RFC 는 RFC-OAS-023 §7.1 에 의해 **명명 정책 부분이 역방향으로 supersede** 되었다.
+
+사유 ([feedback_vendor_brand_substitution_is_encryption_not_abstraction], 2026-05-24):
+
+> Vendor brand → 알파벳 부호 1:1 substitution 은 abstraction 아닌 *암호화*.
+
+RFC-0001 이 정의한 14×N 부호 매핑은 *암호화* 였다는 자기 평가에 따라 폐기. RFC-OAS-023 의 대안: hybrid naming (model=brand, transport=wire-protocol).
+
+**보존되는 동기**: RFC-0001 의 *다른* 동기 (SDK boundary 폐쇄, masc-mcp 일관성, single consumer environment) 는 RFC-OAS-023 에 흡수.
+
+향후 *역사적 참고* 로만 보존.
 
 ## 1. Problem
 

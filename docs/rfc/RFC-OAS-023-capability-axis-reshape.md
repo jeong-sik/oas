@@ -376,6 +376,21 @@ provider_k_capabilities             → glm_model_default_caps
 - RFC-OAS-018 catalog externalization 도 이 평면 불일치를 *해결하지 못함*. JSON manifest 로 빼내도 `id_prefix` 를 brand 로 쓸지 cipher 로 쓸지가 또 결정점이 된다.
 - 즉 **RFC-OAS-023 (hybrid: model=brand 복원) 이 RFC-OAS-018 보다 *논리적으로 선행*** 한다. RFC-OAS-023 으로 catalog 의 key 평면을 wire 평면과 일치시킨 *후에* 만 RFC-OAS-018 의 externalization 이 의미 있는 데이터를 받을 수 있다.
 
+**Runtime evidence (2026-05-26 16:42 라이브 prod log)**:
+
+```
+[2026-05-26 16:42:27] [llm_provider] [INFO] capability_observation
+    model=kimi-k2.6:cloud provider=provider_d_compat
+    capability_source=provider_default confidence=low
+    observations=[Thinking_returned_but_declared_unsupported]
+[2026-05-26 16:42:58] [llm_provider] [INFO] capability_observation
+    (동일)
+```
+
+- **1분 안 2회** 동일 drift WARN — cascade 호출마다 emit. 시간당 X회 누적.
+- `capability_source:"provider_default"` 라벨이 *OAS observability code 의 self-report* — catalog miss 명시. RFC merge + Phase 5 catalog 채움 후 `model_specific` 로 전환되는 게 성공 metric.
+- **0/13 audit 의 runtime confirmation** — 평면 불일치가 *현 시점 prod state* 에서 가시화 진행 중. §5.2 +91% literal leak 와 함께 *비용 정량 의 두 축*.
+
 ### 5.2 RFC-OAS-018 inventory refresh
 
 RFC-OAS-018 의 inventory (2026-05-12 측정) 를 14일 후 재측정 (2026-05-26):
