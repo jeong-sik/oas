@@ -259,6 +259,44 @@ provider_k_capabilities             → glm_model_default_caps
 
 > RFC-OAS-018의 2026-05-12 inventory를 본 RFC merge 시점에 갱신. 14개 cipher token, 35 `starts_with` dispatcher, 11 closed-sum variants, 240 model literal — 현재 시점 수치 재측정.
 
+### 5.3 Phase 5 catalog 채움 draft — cascade.toml × OAS catalog 1:1 mapping
+
+#1777 권고 (cascade alias verbatim 을 catalog key) 적용 시 Phase 5 의 *시작점 mapping draft*. cascade.toml 의 model 명세를 그대로 OAS model_caps catalog entry 로 변환:
+
+| cascade.toml api-name | model_caps brand-id | model_caps draft (cascade declared + defaults) |
+|---|---|---|
+| `gpt-5.3-codex-spark` | `gpt-5.3-codex-spark` | { context: 128000 (cascade), tools: true, reasoning: ? }* |
+| `gpt-4.1` | `gpt-4.1` | { context: 1M, tools: true, reasoning: false }* |
+| `glm-5.1` | `glm-5.1` | { context: 128K, tools: true (ZAI native) } |
+| `glm-5-turbo` | `glm-5-turbo` | { context: 64K, tools: true } |
+| `glm-5` | `glm-5` | { context: 128K, tools: true } |
+| `glm-5.1:cloud` | `glm-5.1:cloud` | { 같음 — `:cloud` suffix 는 별 entry } |
+| `gemma4:e2b` | `gemma4:e2b` | { context: 32K, tools: false }* |
+| `qwen3.5` | `qwen3.5` | { context: 128K, tools: true, thinking: enable_thinking_kwarg } |
+| `qwen` | `qwen` | { generic alias, defaults to current loaded } |
+| `qwen-local-35b-a3b` | `qwen-local-35b-a3b` | { context: depends on quantization slot, tools: true (cascade decl), thinking: enable } |
+| `kimi-k2.6:cloud` | `kimi-k2.6:cloud` | { context: 200K (cascade decl), tools: true, native_streaming: true (cascade decl), thinking: top-level } |
+| `deepseek-v4-pro:cloud` | `deepseek-v4-pro:cloud` | { context: 1M (cascade decl), tools: true } |
+| `deepseek-v4-flash:cloud` | `deepseek-v4-flash:cloud` | { context: 64K, tools: true } |
+
+`*` = 확인 필요 (cascade declaration 없음, 외부 vendor 문서 참조 + cli/llm_provider catalog 측 default)
+
+**관찰**:
+
+1. **13 entry × 13 entry** — cascade 의 *모든* api-name 이 OAS catalog 의 1 entry 로 매핑. cascade alias verbatim (#1777 권고) 적용 시 mapping 이 *identity function*.
+2. **`:cloud` suffix 는 별 entry** — 동일 모델의 cloud passthrough 는 *다른 deployment* 라 *별 entry* (Decision #6 의 cross-product 분리 정합). 단 transport_caps 차이 가 effective_caps 에 반영 — model_caps 자체는 같아도 됨 (옵션).
+3. **cascade declaration spotty** — 25/29 모델 (per §5.1) capability 미선언. catalog 채울 때 *vendor docs* 또는 *probe 결과* 가 primary source. cascade.toml 은 *시작점* 일 뿐.
+
+**Phase 5 작업 순서**:
+
+1. Catalog skeleton (cascade alias 13 entry 의 빈 record) — RFC merge 직후 PR
+2. cascade declared capability 흡수 (4 모델 declared 부분) — 사용자 declaration 신뢰
+3. Vendor docs 인용 (각 brand 의 공식 capability) — Anthropic / OpenAI / GLM / Kimi / DeepSeek / Qwen
+4. Runtime probe 결과 보강 — `lib/llm_provider/discovery.ml` 의 `/props`, `/slots` 응답 사용 (local llama-server case)
+5. Drift detector 검증 — catalog 채운 후 `Thinking_returned_but_declared_unsupported` 등 drift WARN 이 0건 되는지 확인
+
+**RFC scope reminder**: cascade.toml audit 은 *external evidence* — OAS 는 cascade 의 존재를 모름 (§1.4 boundary). Phase 5 의 catalog 채움은 *OAS 자체 의 결정* 으로 진행, mapping 은 *시작점 reference* 일 뿐. 실 catalog 는 vendor docs + probe 가 우선.
+
 ## 6. Migration
 
 ### 6.1 Single big PR vs phased
