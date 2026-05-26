@@ -17,14 +17,14 @@
       "supports_system_prompt": true
     },
     {
-      "_comment": "GPT-5.3-Codex-Spark — OpenAI research preview, ChatGPT Pro only as of 2026-05. NOT in public API yet. Entry retained for cascade routing visibility; verify access before relying. https://openai.com/index/introducing-gpt-5-3-codex-spark/",
+      "_comment": "GPT-5.3-Codex-Spark — OpenAI. Codex/ChatGPT-Pro subscription required, NOT public chat completions API. Reachable via Codex CLI bridge (non-interactive batch invocation), so base_label is cli_tool_a (Cli_tool_a transport) not provider_d_chat. supports_native_streaming=false because non-interactive call surface streams whole response. https://openai.com/index/introducing-gpt-5-3-codex-spark/",
       "id_prefix": "gpt-5.3-codex-spark",
-      "base_label": "provider_d_chat",
+      "base_label": "cli_tool_a",
       "max_context_tokens": 131072,
       "supports_tools": true,
       "supports_tool_choice": true,
       "supports_reasoning": true,
-      "supports_native_streaming": true,
+      "supports_native_streaming": false,
       "supports_prompt_caching": true
     },
     {
