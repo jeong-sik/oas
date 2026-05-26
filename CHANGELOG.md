@@ -8,6 +8,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+(no changes yet)
+
+## [0.199.0](https://github.com/jeong-sik/oas/compare/v0.198.5...v0.199.0) (2026-05-26)
+
 ### ⚠ BREAKING CHANGES
 
 * **runtime:** remove retired domain projection event types, schema catalog entry, and projection helpers from `Runtime` / `Runtime_projection`
@@ -16,6 +20,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **agent_tool:** add typed child-agent invocation wrapper for agent-as-tool parity
 * **raw-trace:** include typed evidence role summaries in validation results
+
+### Documentation
+
+* **rfc:** RFC-OAS-023 capability axis reshape (model × transport) — hybrid naming + two-record capability composition. supersedes RFC-0001 naming policy. supplements RFC-OAS-018 catalog externalization. 0/13 cascade × OAS audit + 16:42 runtime drift WARN evidence. Phase 1 sweep follow-up (variant + file rename, ~140-150 files) planned for next release.
+* **rfc:** RFC-0001 status Draft → Withdrawn (superseded by RFC-OAS-023). vendor brand cipher substitution self-critique per `feedback_vendor_brand_substitution_is_encryption_not_abstraction` (2026-05-24).
 
 ## [0.198.5](https://github.com/jeong-sik/oas/compare/v0.198.4...v0.198.5) (2026-05-26)
 
