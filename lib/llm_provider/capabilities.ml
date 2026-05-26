@@ -459,6 +459,7 @@ type static_model_route =
   | Glm_4_flash
   | Glm_4v
   | Glm_4
+  | Qwen_3
 
 let normalize_static_model_id model_id =
   model_id |> String.trim |> String.lowercase_ascii |> strip_suffix ~suffix:":cloud"
@@ -589,6 +590,8 @@ let static_model_route_of_id model_id =
       then Some Glm_4v
       else if starts_with_any m [ "provider_k-4"; "glm-4" ]
       then Some Glm_4
+      else if starts_with_any m [ "qwen3"; "qwen-3" ]
+      then Some Qwen_3
       else None)
 ;;
 
@@ -937,6 +940,31 @@ let capabilities_of_static_model_route = function
       ; supports_tool_choice = false
       ; supports_native_streaming = true
       }
+    (* Qwen3 / Qwen3.5 family.  All Qwen3 sizes (0.6B–235B) and Qwen3.5
+       expose native <think> reasoning blocks via the OpenAI-compatible
+       endpoint (typically through vLLM / llama.cpp / Ollama, which route
+       to the [Provider_d_compat] kind in OAS).  Without this entry the
+       provider-default capability set declared no thinking support, and
+       every cycle produced a [Thinking_returned_but_declared_unsupported]
+       INFO observation — silent in the warn channel but noisy in the
+       info channel.  Declaring thinking + tools support here promotes
+       the capability source from [Provider_default_capability] to
+       [Model_capability], which silences the drift observation and
+       upgrades subsequent declaration errors to high-confidence warns. *)
+  | Qwen_3 ->
+    Some
+      { default_capabilities with
+        max_context_tokens = Some 128_000
+      ; max_output_tokens = Some 32_768
+      ; supports_tools = true
+      ; supports_tool_choice = true
+      ; supports_parallel_tool_calls = true
+      ; supports_reasoning = true
+      ; supports_extended_thinking = true
+      ; supports_response_format_json = true
+      ; supports_structured_output = true
+      ; supports_native_streaming = true
+      }
 ;;
 
 let for_model_id_static model_id =
@@ -1141,6 +1169,33 @@ let%test "for_model_id provider_k-4.5-flash has GLM-4.5 thinking limits" =
     && c.max_context_tokens = Some 128_000
     && c.max_output_tokens = Some 96_000
     && c.supports_tools
+  | None -> false
+;;
+
+(* qwen3 family tests use [for_model_id_static] rather than [for_model_id]
+   so they remain stable when an ambient [OAS_CAPABILITY_MANIFEST] or
+   the default [~/.masc/config/capability-manifest.json] overrides the
+   static table — the contract under test here is the static fallback
+   for environments without a manifest. *)
+let%test "for_model_id_static qwen3 has extended thinking" =
+  match for_model_id_static "qwen3-32b" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && c.supports_tools
+    && c.supports_native_streaming
+  | None -> false
+;;
+
+let%test "for_model_id_static qwen3.5 routes to Qwen_3 family" =
+  match for_model_id_static "qwen3.5" with
+  | Some c -> c.supports_extended_thinking && c.max_output_tokens = Some 32_768
+  | None -> false
+;;
+
+let%test "for_model_id_static qwen-3-7b prefix variant resolves" =
+  match for_model_id_static "qwen-3-7b-instruct" with
+  | Some c -> c.supports_extended_thinking
   | None -> false
 ;;
 

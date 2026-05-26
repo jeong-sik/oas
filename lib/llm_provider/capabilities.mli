@@ -159,6 +159,7 @@ type static_model_route =
   | Glm_4_flash
   | Glm_4v
   | Glm_4
+  | Qwen_3
 
 (** Resolve a raw model id to the static capability-table route.
     Input is case-insensitive and trims the Ollama Cloud [":cloud"] suffix
