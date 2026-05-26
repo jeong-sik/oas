@@ -319,7 +319,46 @@ masc-mcp는 OAS SDK의 `Provider_kind.t` variant 이름에 의존한다 (RFC-017
 - (a) masc-mcp에 *동시 PR*로 rename sweep — 두 repo cross-cut 작업.
 - (b) OAS에서 `Provider_kind.t` variant alias 유지 (`Anthropic = Provider_a` deprecated alias) → masc-mcp는 점진 마이그레이션. 단 alias 자체가 cipher 잔존을 의미하므로 6.1의 phased 모드와 정합.
 
-> **[DECISION NEEDED #2]** masc-mcp 동시 처리 정책. masc-mcp 쪽 RFC-0174~0177이 어떤 강도로 부호에 의존하는지 사전 측정 필요.
+**masc-mcp 의존 강도 측정 (2026-05-26)**:
+
+```
+rg "Provider_kind|Provider_a\b|Provider_c\b|Provider_d_compat\b|Provider_f\b|Provider_k\b" lib/ test/
+```
+
+- **총 286 callsite** in masc-mcp lib/+test/, 30+ 파일 분포
+- `lib/cascade/` 만 15 파일 의존 (라우팅 평면 자체가 cipher 에 묶임)
+
+Top 의존 파일:
+
+| 파일 | callsite | 성격 |
+|---|---|---|
+| `test/test_provider_kind_resolution.ml` | 31 | cipher matrix 검증 fixture (rename 시 *동시 수정 필수*) |
+| `test/test_provider_capability_matrix.ml` | 18 | cipher × capability matrix 검증 (test 가 cipher 자체에 묶임) |
+| `test/test_keeper_hooks_oas_telemetry.ml` | 15 | hooks telemetry 가 provider 부호 로 분기 |
+| `test/test_oas_worker.ml` | 13 | worker 가 provider 부호 dispatch |
+| `lib/cascade/cascade_runtime_candidate.ml` | 11 | 런타임 후보 선택이 부호 기반 |
+| `lib/cascade/cascade_wire_overlay.ml` | 8 | wire overlay 가 부호별 분기 |
+| `lib/cascade/cascade_phonebook_resolve.ml` | 6 | RFC Cascade Phonebook Phase 4 (2026-05-24 머지) 가 부호로 routing key |
+| `lib/cascade/cascade_config_provider_binding.ml` | 6 | provider binding 이 부호로 declared |
+
+**해석**:
+
+- Test fixture 가 의존 1-4위 (총 77 사이트) — `test_provider_kind_resolution` / `test_provider_capability_matrix` 둘이 *cipher 검증 자체를 책임*. rename 은 *test fixture 까지 동기 수정 필수* (RFC body §6.2 audit 의무 #5 `paired test file` 강제).
+- `cascade/*` (방금 머지된 phonebook 포함) 가 *런타임 라우팅의 cipher 의존*. cascade phonebook Phase 4 가 2026-05-24 머지된 시점에 cipher 기반 routing key 가 굳어진 상태 — rename 시 phonebook config 의 declared provider key 도 동시 변경 필요.
+- 286 callsite × 30+ 파일 = **alias 유지 (옵션 b) 의 *실효성 의문***. deprecated alias 가 286 사이트 의 *어디서도 자동 청소되지 않으며*, alias 자체가 cipher 잔존 신호이므로 사용자 자기비판 (encryption 패턴) 의 부분 보존. cross-cut PR (옵션 a) 이 *오히려 정직*하다.
+
+**Decision #2 권고**: 옵션 (a) **cross-cut PR 동시 처리**.
+
+- 이유 1: 286 사이트가 OAS rename 후 *자동 정합화 안 됨*. alias 유지는 286 사이트가 cipher 를 *계속 학습*하게 함 — [feedback_radical_improvement_over_diff_size] / "한 PR 안에서 회복 시도" 입장과 정합.
+- 이유 2: Test fixture 동기 수정 강제로 인해 rename PR 의 *경계가 명확*. 부분 sweep 으로는 test 가 깨져서 partial state 가 검출됨 — [feedback_codex_partial_sweep_fan_out_anti_pattern] 회피.
+- 이유 3: cascade phonebook Phase 4 가 *방금* 머지되어 cipher routing key 가 굳기 *직전*. 더 지체하면 phonebook config 가 더 많은 cipher 를 흡수해 비가역화.
+
+**보류 사항**:
+
+- 286 callsite 중 *명명 의존 vs dispatch 의존* 분류 미수행 — 일부는 rename 으로 자동 해결, 일부는 의미 변경 동반. cross-cut PR 시작 전 *file-level breakdown* 추가 필요 (Task #4 의 후속).
+- cascade phonebook TOML config 파일이 cipher key 를 가지는지 별도 확인 필요 — config 파일 변경은 binary rebuild 영향, ~/me 의 cascade.toml 도 동시 변경 가능성.
+
+> **[DECISION NEEDED #2 — RESOLVED (권고)]** cross-cut PR 동시 처리 권고. 사용자 최종 결정 대기.
 
 ## 8. Non-goals
 
