@@ -255,6 +255,30 @@ provider_k_capabilities             → glm_model_default_caps
 - RFC-OAS-018 catalog externalization 도 이 평면 불일치를 *해결하지 못함*. JSON manifest 로 빼내도 `id_prefix` 를 brand 로 쓸지 cipher 로 쓸지가 또 결정점이 된다.
 - 즉 **RFC-OAS-023 (hybrid: model=brand 복원) 이 RFC-OAS-018 보다 *논리적으로 선행*** 한다. RFC-OAS-023 으로 catalog 의 key 평면을 wire 평면과 일치시킨 *후에* 만 RFC-OAS-018 의 externalization 이 의미 있는 데이터를 받을 수 있다.
 
+**Cascade.toml declared capability 분포 (2026-05-26)**:
+
+`rg -c "^\[models\." ~/me/.masc/config/cascade.toml = 29 models`
+`rg "^api-name" ~/me/.masc/config/cascade.toml | wc -l = 15 unique`
+
+`[models.X.capabilities]` 블록이 *명시된* 모델은 단 **4개**:
+
+| 모델 | 명시된 capability 필드 |
+|---|---|
+| `codex-spark` | `max-output-tokens = 128000` |
+| `ollama-local-default` | `supports-tool-choice = true` |
+| `ollama-cloud-default` | `max-output-tokens = 16384` |
+| `ollama-cloud-kimi` | `supports-tool-choice = true`, `supports-native-streaming = true` |
+
+→ **29 모델 중 25 모델은 `[capabilities]` 선언 없음 (86%)**. cascade.toml 의 capability 선언 자체가 *spotty* — 일부 모델만 명시, 나머지는 routing tier 의 implicit default 에 의존.
+
+이는 **OAS catalog 가 진실원이어야 함** 의 추가 근거:
+
+- cascade.toml 은 *consumer 가 자기 routing 결정에 필요한 만큼만 선언* — capability authority 가 아니다.
+- §5.1 의 0/13 audit 결과는 일관: cascade.toml 이 capability 의 SSOT 가 아니라면, OAS catalog 가 그 책임. wire 평면 정합 + catalog 완전성 두 가지가 본 RFC 의 핵심.
+- 사용자 입장 ("가능한 모든 것의 카탈로그가 있어야 한다") 와 cascade.toml 의 spotty declaration 이 *함께 정합* — cascade 가 일부만 선언하는 *권한* 을 가지므로, OAS catalog 가 *모든 모델* 의 진실원 역할을 떠안아야.
+
+**Out of scope reminder** (RFC-OAS-018 §0 자매 약속): OAS 는 cascade.toml 의 존재를 *모르고* catalog 를 운영한다. 본 절의 cascade.toml 측정은 OAS 가 "consumer 가 wire 에 흘리는 형식" 을 *외부 evidence* 로 인용한 것일 뿐, cascade.toml 자체를 OAS 가 의존하지 않는다.
+
 ### 5.2 RFC-OAS-018 inventory refresh
 
 > RFC-OAS-018의 2026-05-12 inventory를 본 RFC merge 시점에 갱신. 14개 cipher token, 35 `starts_with` dispatcher, 11 closed-sum variants, 240 model literal — 현재 시점 수치 재측정.
