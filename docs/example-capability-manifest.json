@@ -59,10 +59,10 @@
       "supports_native_streaming": true
     },
     {
+      "_comment": "gemma4 tools/reasoning 미확정 — base_label default 에 inherit. Vendor docs 확인 후 명시.",
       "id_prefix": "gemma4",
       "base_label": "provider_d_chat",
       "max_context_tokens": 32000,
-      "supports_tools": false,
       "supports_native_streaming": true
     },
     {
@@ -86,10 +86,9 @@
       "supports_native_streaming": true
     },
     {
+      "_comment": "qwen — generic alias, capability 모델 따라 다름. base inherit.",
       "id_prefix": "qwen",
       "base_label": "provider_d_chat",
-      "max_context_tokens": 128000,
-      "supports_tools": true,
       "supports_native_streaming": true
     },
     {
