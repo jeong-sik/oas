@@ -45,6 +45,7 @@ let terminal_is_stable ~prev_phase ~phase =
 (* Mirror of TLA+ CancelledIsTerminal *)
 let cancelled_is_terminal () = List.mem Runtime.Cancelled terminal_phases
 let phase_count_matches () = List.length all_phases = 8
+let non_terminal_count_matches () = List.length non_terminal_phases = 5
 let terminal_count_matches () = List.length terminal_phases = 3
 
 let () =
@@ -55,6 +56,8 @@ let () =
             Alcotest.(check bool) "8 phases" true (phase_count_matches ()))
         ; Alcotest.test_case "terminal count is 3" `Quick (fun () ->
             Alcotest.(check bool) "3 terminal" true (terminal_count_matches ()))
+        ; Alcotest.test_case "non-terminal count is 5" `Quick (fun () ->
+            Alcotest.(check bool) "5 non-terminal" true (non_terminal_count_matches ()))
         ; Alcotest.test_case "Cancelled is terminal" `Quick (fun () ->
             Alcotest.(check bool) "cancelled terminal" true (cancelled_is_terminal ()))
         ; Alcotest.test_case
