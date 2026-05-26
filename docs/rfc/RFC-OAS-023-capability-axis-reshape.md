@@ -293,6 +293,42 @@ provider_k_capabilities             → glm_model_default_caps
 
 5가지 모두 0 이어야 삭제 안전. PR body에 audit 결과 인용 의무.
 
+**외부 evidence — 동일 정신 sweep 의 사고 사례 (informational only)**:
+
+본 절의 audit 5-prong 의 *중요성* 을 보강하기 위해, OAS 외부에서 같은 정신의 vendor sweep 을 진행했던 *유사한 codebase* 에서 발생한 사고 사례를 *외부 참고* 로 인용한다. 본 RFC 가 그 codebase 를 *알거나 의존*하지는 않으며 (RFC-OAS-018 §0 자매 약속 — OAS 는 consumer 를 모름), 단지 5-prong audit 이 *실측으로 검증된 안전망* 임을 보이기 위함.
+
+`gh pr list --search "dead-export OR orphan after:2026-05-20"` 결과 (외부 codebase, 2026-05-26 측정):
+
+| PR # | 제목 | 사고 유형 |
+|---|---|---|
+| #17886 | refactor(tool_misc_admin): delete unused handle_feature_flags + 4-helper enforcement cascade | dead-helper cascade |
+| #17846 | refactor(operator): delete unused write_review_decisions + latest_active_json | partial-module orphan |
+| #17945 | chronicle: remove dead .mli (all 3 exports dead) | full-module orphan |
+| #17952 | heuristic: remove dead .mli (all 3 exports dead) | full-module orphan |
+| #18085 | test(orphan-cleanup): delete dead test surfaces from 2026-05-23 dead-export sweep | sweep aftermath |
+| #18090 | fix(lib): drop orphan mli decls and restore live exports (PRs #18015, #18026) | **restore live exports — sweep miss** |
+| #18098 | test(exec): drop orphaned stats/stats_to_json test paths | paired test orphan |
+| #18173 | scripts(audit-dead-export): add filename-based module discovery (v3) | audit tooling iteration |
+| #18308 | refactor(dashboard): remove 9 dead common component modules (-2,713 lines) | dashboard sweep |
+
+**핵심 관찰**:
+
+- **#18090** 가 특히 시사적: 이전 sweep PR (#18015, #18026) 이 *live export 를 잘못 삭제* → restore PR 필요. 5-prong audit (특히 `include Module` facade re-export + opener-unqualified bare name) 의 *부재* 가 직접적 사고 원인.
+- **#18173**: audit tooling 이 **v3 까지 반복** 진화 — filename-based module discovery 추가. 정적 audit 의 *충분성* 이 보장되지 않으므로 도구 자체가 누적 진화.
+- 8 sweep aftermath PR (#17846, #17886, #17945, #17952, #18085, #18090, #18098, #18308) = sweep 이후 발생한 잡정리 비용. 본 RFC 의 sweep 도 *동일 곡선* 을 그릴 수 있으므로, audit 5-prong 강제가 비용을 *사전* 부담시킴.
+
+**OAS RFC 의 적용 방식**:
+
+본 RFC sweep 의 *각 PR* 은 다음을 PR body 에 인용 의무:
+
+1. 5-prong audit 의 5 결과 (각 0 여부)
+2. paired test 파일 동시 수정 여부
+3. `.mli` exports 부분 변경 시 *전체 exports* 재검토 ([feedback_partial_module_orphan_check_all_exports])
+
+이전 PR (외부 #18090 사례) 처럼 *후속 restore PR* 이 필요해지는 사고를 사전 차단.
+
+> **외부 evidence boundary 명시**: 위 PR 목록은 *OAS 외부 codebase* 의 데이터. 본 RFC 는 그 codebase 의 operational state 를 own 하지 않음. 단지 *audit 의무의 importance 보강* 을 위한 *현실 세계 evidence* 인용일 뿐.
+
 ### 6.3 Test 운영
 
 - Capability drift detector(`detect_drift`)가 PR 직후 *오히려 더 많은 WARN을 emit*할 수 있다 — silent default 제거로 인해. CI 임계는 PR 시점에 baseline reset.
