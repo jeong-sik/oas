@@ -251,6 +251,7 @@ val default_max_tool_result_chars : int
     @since 0.128.0 added [relocation] parameter *)
 val make_tool_results
   :  ?max_result_chars:int
+  -> ?event_bus:Event_bus.t
   -> ?relocation:Tool_result_store.t * Content_replacement_state.t
   -> Agent_tools.tool_execution_result list
   -> Types.content_block list

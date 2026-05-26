@@ -613,6 +613,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       let* results = results in
       let tool_results =
         Agent_turn.make_tool_results
+          ?event_bus:agent.options.event_bus
           ?relocation:agent.options.tool_result_relocation
           results
       in

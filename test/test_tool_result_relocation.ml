@@ -297,6 +297,68 @@ let test_make_tool_results_persist_failure_freezes_kept () =
   rm_rf dir
 ;;
 
+let test_make_tool_results_publishes_content_replacement_events () =
+  let dir = tmp_dir () in
+  let config : Tool_result_store.config =
+    { storage_dir = dir
+    ; session_id = "events"
+    ; threshold_chars = 10
+    ; preview_chars = 5
+    ; aggregate_budget = 0
+    }
+  in
+  let store = Tool_result_store.create config |> Result.get_ok in
+  let crs = Content_replacement_state.create () in
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  let mock_results : Agent_tools.tool_execution_result list =
+    [ { tool_use_id = "big"
+      ; tool_name = "read"
+      ; content = String.make 40 'x'
+      ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
+      }
+    ; { tool_use_id = "small"
+      ; tool_name = "echo"
+      ; content = "ok"
+      ; is_error = false
+      ; failure_kind = None
+      ; error_class = None
+      }
+    ]
+  in
+  let _blocks =
+    Agent_turn.make_tool_results ~event_bus:bus ~relocation:(store, crs) mock_results
+  in
+  let events = Event_bus.drain sub in
+  Alcotest.(check int) "events published" 2 (List.length events);
+  Alcotest.(check bool)
+    "replacement event emitted"
+    true
+    (List.exists
+       (fun event ->
+          match event.payload with
+          | Event_bus.ContentReplacementReplaced payload ->
+            String.equal payload.tool_use_id "big"
+            && payload.original_chars = 40
+            && payload.seen_count_after >= 1
+          | _ -> false)
+       events);
+  Alcotest.(check bool)
+    "kept event emitted"
+    true
+    (List.exists
+       (fun event ->
+          match event.payload with
+          | Event_bus.ContentReplacementKept payload ->
+            String.equal payload.tool_use_id "small" && payload.seen_count_after >= 1
+          | _ -> false)
+       events);
+  let _ = Tool_result_store.cleanup store in
+  rm_rf dir
+;;
+
 (* ── 4. Compaction + relocation compose ───────────────── *)
 
 let test_compaction_preserves_relocated_previews () =
@@ -631,6 +693,10 @@ let () =
             "persist failure freezes kept"
             `Quick
             test_make_tool_results_persist_failure_freezes_kept
+        ; Alcotest.test_case
+            "publishes content replacement events"
+            `Quick
+            test_make_tool_results_publishes_content_replacement_events
         ] )
     ; ( "compaction_compose"
       , [ Alcotest.test_case
