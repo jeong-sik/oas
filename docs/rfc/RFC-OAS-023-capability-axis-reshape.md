@@ -336,7 +336,41 @@ masc-mcp는 OAS SDK의 `Provider_kind.t` variant 이름에 의존한다 (RFC-017
 | 3 | `capabilities_for_provider_label` 완전 폐지 vs `transport_caps_for_protocol` 으로 재정의 | NEEDED |
 | 4 | RFC-OAS-018 Phase 1-4 와의 작업 순서 — 본 RFC 먼저 vs RFC-OAS-018 Phase 1-2 먼저 | NEEDED |
 | 5 | Unknown model 시 동작 — hard error vs fallback to model_family_default | NEEDED |
-| 6 | Model id 명명 — `kimi-k2.6` (cascade alias 그대로) vs canonical (`moonshot-kimi-k2.6-instruct`) | NEEDED |
+| 6 | Model id 명명 — `kimi-k2.6` (cascade alias 그대로) vs canonical (`moonshot-kimi-k2.6-instruct`) | **RESOLVED (권고)** — §9.6 참조 |
+
+### 9.6 Decision #6 정밀화 — Model id form (2026-05-26)
+
+**cascade.toml api-name suffix 3 패턴**:
+
+```
+:cloud       (ollama Turbo cloud passthrough)
+-local-      (llama-server local quantization)
+:e           (ollama embedding family)
+```
+
+(plus brand-only forms: `gpt-4.1`, `glm-5`, `qwen3.5` 등 — no suffix)
+
+**두 옵션의 trade-off**:
+
+| | Cascade alias 그대로 | Vendor-prefixed canonical |
+|---|---|---|
+| Catalog key | `"kimi-k2.6:cloud"` | `"moonshot/kimi-k2.6-instruct"` |
+| Wire 와의 정합 | **wire 그대로 매칭** (0/13 audit 즉시 해결) | 별도 normalization layer 필요 |
+| Quantization 표현 | suffix 로 자연 (`-local-35b-a3b`) | normalization 어려움 |
+| Provider routing 표현 | 명시적 (`:cloud` = cloud passthrough) | 별도 metadata 필요 |
+| 동일 모델의 *다중 entry* | 각 deployment 가 별도 entry (자연) | canonical 1개 + transport_caps mask 로 표현 (이론적 깔끔) |
+| 사용자 declaration vs catalog 정합 | cascade.toml 그대로 OAS catalog 에 등록 | OAS catalog 가 별도 명명 체계 운영 |
+
+**권고**: 옵션 (a) **cascade alias 그대로**. 이유:
+
+- 0/13 audit 의 root cause = 매핑 키 평면 불일치. cascade alias 를 catalog key 로 그대로 쓰면 *즉시 0/13 → 13/13 해결*.
+- §2.2 의 two-record model 이 이 옵션과 정합 — 같은 모델 (`kimi-k2.6`) 의 cloud/local/local-q3 등 *deployment 각각이 별도 model_caps entry*, transport_caps 가 wire 차이를 흡수.
+- canonical form 도입은 cascade.toml ↔ OAS catalog 사이 *추가 normalization layer* 가 필요 (사용자 cascade 가 wire 형식으로 적는 한, OAS 가 wire→canonical 매핑 책임을 떠안음). [feedback_vendor_brand_substitution_is_encryption_not_abstraction] 의 *암호화* 패턴 회귀 위험.
+- 동일 모델의 다중 deployment 는 *별도 model_caps* 가 자연 — quantization/cloud-vs-local 의 capability 차이가 *model 차원에서 표현* (예: local-q3 는 context window 절반). 이건 §1.3 cross-product 분리와 일관.
+
+> **[DECISION NEEDED #6 — RESOLVED (권고)]** Cascade alias 그대로 catalog key. Wire 가 흘리는 형식 = catalog key. 사용자 최종 결정 대기.
+
+| 6 | Model id 명명 — RESOLVED 권고 | (정보 lemma) |
 
 ---
 
