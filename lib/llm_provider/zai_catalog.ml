@@ -10,7 +10,9 @@ let provider_a_base_url = "https://api.z.ai/api/provider_a"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
-  m = "provider_k" || String.starts_with ~prefix:"provider_k-" m
+  m = "provider_k"
+  || String.starts_with ~prefix:"provider_k-" m
+  || String.starts_with ~prefix:"glm-" m
 ;;
 
 let has_prefix value prefix =
@@ -172,9 +174,11 @@ let throttle_key_for_chat ~base_url ~model_id =
 
 [@@@coverage off]
 
-let%test "is_glm_model_id accepts provider_k prefixes only" =
+let%test "is_glm_model_id accepts provider_k and bare glm prefixes" =
   is_glm_model_id "provider_k-5"
   && is_glm_model_id "provider_k"
+  && is_glm_model_id "glm-5"
+  && is_glm_model_id "GLM-4.7-Flash"
   && not (is_glm_model_id "model-d-5")
 ;;
 

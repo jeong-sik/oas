@@ -479,6 +479,62 @@ let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
     (json |> member "tool_choice" |> to_string)
 ;;
 
+let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
+  let provider_config =
+    { Provider.provider =
+        Provider.OpenAICompat
+          { base_url = Llm_provider.Zai_catalog.general_base_url
+          ; auth_header = None
+          ; path = "/chat/completions"
+          ; static_token = None
+          }
+    ; model_id = "glm-5"
+    ; api_key_env = ""
+    }
+  in
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = provider_config.model_id
+        ; enable_thinking = Some true
+        ; tool_choice = Some (Types.Tool "calculator")
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let tool_json =
+    `Assoc
+      [ "name", `String "calculator"
+      ; "description", `String "math"
+      ; "input_schema", `Assoc [ "type", `String "object" ]
+      ]
+  in
+  let json =
+    Api.build_provider_d_body
+      ~provider_config
+      ~config:state
+      ~messages:[]
+      ~tools:[ tool_json ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  check string "thinking enabled" "enabled" (thinking |> member "type" |> to_string);
+  check
+    bool
+    "clear_thinking default true"
+    true
+    (thinking |> member "clear_thinking" |> to_bool);
+  check
+    string
+    "bare glm tool choice coerced"
+    "auto"
+    (json |> member "tool_choice" |> to_string)
+;;
+
 let test_build_provider_d_body_glm_preserves_reasoning_content () =
   let provider_config =
     { Provider.provider =
@@ -1426,6 +1482,10 @@ let () =
             "provider_k thinking + auto tool choice"
             `Quick
             test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice
+        ; test_case
+            "bare glm thinking + auto tool choice"
+            `Quick
+            test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice
         ; test_case
             "provider_k preserved reasoning replay"
             `Quick

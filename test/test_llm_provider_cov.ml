@@ -1748,13 +1748,14 @@ let test_for_model_id_grok () =
 ;;
 
 let test_for_model_id_glm () =
-  (* provider_k-4.5-flash now matches the flash-specific entry (128K ctx, 16K out) *)
+  (* provider_k-4.5-flash matches current Z.AI GLM-4.5 thinking limits. *)
   (match Capabilities.for_model_id "provider_k-4.5-flash" with
    | Some c ->
      Alcotest.(check (option int)) "128K context" (Some 128_000) c.max_context_tokens;
-     Alcotest.(check (option int)) "16K output" (Some 16_384) c.max_output_tokens;
+     Alcotest.(check (option int)) "96K output" (Some 96_000) c.max_output_tokens;
      Alcotest.(check bool) "tools" true c.supports_tools;
-     Alcotest.(check bool) "no reasoning" false c.supports_reasoning
+     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
+     Alcotest.(check bool) "thinking" true c.supports_extended_thinking
    | None -> Alcotest.fail "expected Some for provider_k-4.5-flash");
   (* provider_k-5.1 should still get full capabilities *)
   match Capabilities.for_model_id "provider_k-5.1" with
