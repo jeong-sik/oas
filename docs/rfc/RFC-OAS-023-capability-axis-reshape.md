@@ -97,6 +97,26 @@ kimi-k2.6  →  Moonshot direct           (chat_completions_v1)
 - 같은 `kimi-k2.6`을 다른 provider로 라우팅할 때 capability가 정확히 표현되지 않는다.
 - `apply_manifest_entry`에서 `base_label` 인터페이스가 부자연스럽다 (base로 무엇을 골라야 할지 model/transport 어느 축에서 잡을지 모호).
 
+### 1.4 Scope boundary — OAS doesn't know about consumers
+
+본 RFC 의 *operational scope* 는 OAS 자체 의 lib/+test/+bin/ 에 한정한다. **OAS 는 자신의 consumer (masc-mcp, cascade.toml, 기타) 를 모른다** — RFC-OAS-018 §0 자매 약속의 그대로 적용:
+
+> 같은 SDK 가 'MASC 를 모른다' 와 자매 약속인 'Ollama / Qwen / Gemma / Kimi 를 모른다'
+
+이 boundary 의 함의:
+
+- **권고/operational coordination 의 범위**: 본 RFC 본문이 "masc-mcp 와 동시 cross-cut PR" 같은 *consumer 측 operational 권고* 를 *하지 않는다*. consumer 의 migration timeline 은 *consumer 책임*. SDK 는 자기 자신 의 catalog/variant 만 own 한다.
+- **외부 evidence 인용 가능**: consumer-side 측정 (e.g. §7.3 의 286 callsite, §5.1 의 cascade.toml 0/13 hit) 은 *evidence-only*. RFC 가 그 측정 을 own 하지 않고, 단지 "consumer 가 SDK 를 어떻게 사용하는지" 의 *현실 세계 evidence* 로 참조.
+- **결정 권한 분리**: SDK 의 variant 명명 / capability schema 는 OAS 의 결정. consumer 가 그 SDK 를 어느 timeline 에 받을지 / 어떤 alias 를 자기 routing 에 쓸지는 consumer 의 결정.
+
+**검증 체크리스트** (PR body 자기 검증):
+
+1. ☐ 본 PR 본문이 consumer 의 *operational action* (cross-cut PR, 동시 머지, etc.) 을 권고하지 *않는가*?
+2. ☐ consumer-side 측정은 "informational only / external evidence" 로 명시되었는가?
+3. ☐ SDK 의 결정 (variant 명명, schema) 만 own 하고 consumer 의 migration timeline 은 own 하지 *않는가*?
+
+3 가지 모두 ☑ 일 때만 boundary preserved. 본 RFC 의 모든 stack PR (#1771-#1778) 은 #1772 corrected 후 이 체크리스트 통과.
+
 ## 2. Decision
 
 ### 2.1 Hybrid naming
