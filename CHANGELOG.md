@@ -17,6 +17,16 @@ original tag dates. `0.100.4` was never tagged or released.
 * **agent_tool:** add typed child-agent invocation wrapper for agent-as-tool parity
 * **raw-trace:** include typed evidence role summaries in validation results
 
+## [0.198.5](https://github.com/jeong-sik/oas/compare/v0.198.4...v0.198.5) (2026-05-26)
+
+
+### Bug Fixes
+
+* **agent:** hydrate relocated tool results on resume ([#1766](https://github.com/jeong-sik/oas/issues/1766)) ([8a80296](https://github.com/jeong-sik/oas/commit/8a80296c8372606f488e44c46b0faa97ccfb583e))
+* **pipeline:** reuse accumulated usage in collect stage ([#1764](https://github.com/jeong-sik/oas/issues/1764)) ([fde41d7](https://github.com/jeong-sik/oas/commit/fde41d76d84ed01ff6a22598c2dd61fd5310d970))
+* recognize bare GLM model ids in capabilities ([#1763](https://github.com/jeong-sik/oas/issues/1763)) ([44b5ff9](https://github.com/jeong-sik/oas/commit/44b5ff94c719bf03de03d48b6ace82b4289b613e))
+* **spec:** include input-required runtime phase ([#1769](https://github.com/jeong-sik/oas/issues/1769)) ([a341140](https://github.com/jeong-sik/oas/commit/a341140be322059c065b7f967924f33c2ec8ba49))
+
 ## [0.198.4](https://github.com/jeong-sik/oas/compare/v0.198.3...v0.198.4) (2026-05-24)
 
 
