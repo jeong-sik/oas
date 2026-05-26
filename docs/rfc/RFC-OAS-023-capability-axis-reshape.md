@@ -219,6 +219,54 @@ provider_k_capabilities             → glm_model_default_caps
 
 `provider_d_chat_extended_capabilities`의 사례가 axis confusion의 가장 선명한 증거 — "OpenAI 호환 wire의 *Qwen-3 확장*"이라는 명명 자체가 두 축을 한 record로 압축했다는 자기 진술.
 
+### 4.3 함수/타입 명명 sweep (full mapping table)
+
+RFC-0001 의 함수/타입 매핑을 *역방향* sweep + axis-split:
+
+**Model caps 함수 (model brand 기반)**:
+
+| RFC-0001 (현행) | RFC-OAS-023 (목표) | 분류 |
+|---|---|---|
+| `provider_a_capabilities` | `anthropic_model_caps` | model brand |
+| `provider_c_capabilities` | `kimi_model_caps` | model brand |
+| `provider_f_capabilities` | `gemini_model_caps` | model brand |
+| `provider_g_v4_pro_capabilities` | `deepseek_v4_pro_model_caps` | model brand |
+| `provider_h_3_capabilities` | `qwen_3_model_caps` | model brand |
+| `provider_j_large_capabilities` | `mistral_large_model_caps` | model brand |
+| `provider_k_capabilities` | `glm_model_caps` | model brand |
+| `agent_llm_a_opus_4_*` | `claude_opus_4_*_model_caps` | model brand |
+
+**Transport caps 함수 (wire protocol 기반, model brand 제거)**:
+
+| RFC-0001 (현행) | RFC-OAS-023 (목표) | 분리 |
+|---|---|---|
+| `provider_d_chat_capabilities` | `chat_completions_v1_transport_caps` + `openai_model_caps` (model 분리) | split |
+| `provider_d_chat_extended_capabilities` | **폐지** — Qwen-3 부분은 `qwen_3_model_caps` 흡수 | merge into model |
+
+**파일명 rename (filesystem cipher 제거)**:
+
+| RFC-0001 (현행) | RFC-OAS-023 (목표) |
+|---|---|
+| `backend_provider_a.ml/.mli` | `backend_messages_v1.ml/.mli` |
+| `backend_provider_d.ml + _parse/_request/_serialize` | `backend_chat_completions_v1.ml + ...` |
+| `backend_provider_f.ml` | `backend_gemini_generate_v1.ml` |
+| `backend_provider_k.ml` | `backend_glm_native_v1.ml` |
+| `transport_provider_d_compat.ml` | `transport_chat_completions_v1_http.ml` |
+| `transport_cli_tool_[abcd].ml` | `transport_codex_cli.ml` / `_gemini_cli.ml` / `_kimi_cli.ml` / `_claude_code_cli.ml` |
+| `api_provider_a.ml/.mli` | `api_anthropic.ml/.mli` |
+| `api_provider_d.ml` | `api_openai.ml` |
+
+**Error type rename (역방향)**:
+
+| RFC-0001 (현행) | RFC-OAS-023 (목표) |
+|---|---|
+| `provider_k_error_class` | `glm_error_class` |
+| `Provider_k_quota_exceeded` etc. | `Glm_quota_exceeded` etc. |
+| `classify_provider_k_error` | `classify_glm_error` |
+| `provider_k_messages_of_message` | `glm_messages_of_message` |
+
+§6.4 dry-run 의 facade 발견 적용: 위 모든 rename 은 *3-axis 동시* — (a) variant/function 정의 + (b) 파일명 + (c) caller reference. dune `--keep-going` 으로 cascading 일괄 처리.
+
 ## 5. Inventory
 
 ### 5.1 cascade.toml × OAS catalog 커버리지 (2026-05-26 audit)
@@ -293,10 +341,29 @@ provider_k_capabilities             → glm_model_default_caps
 
 5가지 모두 0 이어야 삭제 안전. PR body에 audit 결과 인용 의무.
 
-### 6.3 Test 운영
+### 6.3 Test 운영 + Sweep 도구 운영 (#1781 dry-run 발견 반영)
 
-- Capability drift detector(`detect_drift`)가 PR 직후 *오히려 더 많은 WARN을 emit*할 수 있다 — silent default 제거로 인해. CI 임계는 PR 시점에 baseline reset.
-- TLA+ spec이 capability 관련해서 존재한다면 검증 필요 (현재 OAS에 TLA+ spec 없음으로 추정).
+**Build 운영**:
+
+- `dune build --keep-going` 으로 cascading error *일괄 수집*. dune 의 first-error halt 가 sweep cycle 길이를 *과도하게* 늘림 (#1781 dry-run: 1 변경 → 1 error 만 보임).
+- **fix-and-retry loop**: 1 cycle = `build --keep-going` → error sample N개 → batch fix → 재build. 5-10 cycle 안에 수렴 예상.
+- **`_build/` cache 클리어 시점**: 파일 rename / module discovery 변경 시 `rm -rf _build/` 필수 — dune cache 가 *옛 module name* 을 기억해 stale resolution. (#1781 발견의 직접 운영 결론)
+- **Sandbox config**: `MASC_CONFIG_DIR` 등 env 의존성 *없음* 확인 — OAS 는 SDK standalone (§1.4) 이라 config sandbox 영향 없을 예정.
+
+**Test fixture sync**:
+
+- `test_provider_kind_resolution.ml` 등 cipher-name-locked fixture (#1772 의 lib/cascade 286 callsite 의 OAS 측 mirror image) 동기 수정. [feedback_dead_export_sweep_2026_05_23_anti_pattern] 5-prong audit #5 (paired test) 적용.
+- alcotest case name 자체에 cipher 포함된 경우 (`let%test "provider_a has cache_control"`) 도 rename — string literal 까지 sweep.
+
+**Drift detector + CI baseline reset**:
+
+- Capability drift detector(`detect_drift`)가 PR 직후 *catalog 채움 전* 단계 (Phase 1-4) 에서 *오히려 더 많은 WARN emit* 가능 — silent default 제거 (#1776) 시 catalog miss 가 hard error 로 노출.
+- CI baseline reset 시점: Phase 5 (#1783 catalog 채움) 완료 후, drift WARN 가 0건 되어야 baseline lock.
+- `bisect_ppx` coverage CI floor 영향: rename PR 직후 coverage 측정값 drift 가능 (test fixture 변경으로). PR 시점에 floor *유지* 또는 *임시 완화* 결정 필요.
+
+**TLA+ spec**:
+
+- 현재 OAS 에 capability 관련 TLA+ spec *없음* 추정 (`find . -name "*.tla" 2>/dev/null` 결과 0). 새로 작성 *선택사항* — `thinking_wire_variant` closed-sum exhaustiveness 검증 케이스로 적합 (masc-mcp `KeeperOASAdvanced.tla` 의 `BugAction` 패턴, 2026-04-08).
 
 ## 7. Relations
 
@@ -309,6 +376,48 @@ RFC-0001 status를 Draft → Withdrawn (superseded by RFC-OAS-023)로 변경.
 ### 7.2 RFC-OAS-018 catalog externalization — supplement
 
 RFC-OAS-018의 4-phase plan (closed-sum dispatcher → external catalog)은 *직교* 작업이며 본 RFC와 합쳐서 진행. 단 RFC-OAS-018의 *전제* (catalog의 1차축이 provider)를 본 RFC가 *재조정* — 1차축은 model. RFC-OAS-018 §2 Decision의 catalog schema에서 `provider_id` 1차 키를 `model_id` 1차 키로 변경.
+
+**Sequencing (작업 순서)**:
+
+```
+RFC-OAS-023 stack merge (this RFC)
+   │
+   ├── Phase 1: variant rename + file rename sweep (#1775 + #1781)
+   │         [Big PR ~140-150 files, ~1200+ callsites]
+   │
+   ├── Phase 2: model_caps / transport_caps record split
+   │         [thinking_wire_variant closed-sum 도입, #1771 §3.4]
+   │
+   ├── Phase 3: capabilities_for_provider_label 폐지 (#1773)
+   │         [외부 caller 3 사이트 migration]
+   │
+   ├── Phase 4: silent default → Capability_unknown hard error (#1776)
+   │         [73 callsite migration, test lock 0건 confirmed safe]
+   │
+   ├── Phase 5: cascade alias verbatim catalog 채움 (#1783)
+   │         [13 entry 1:1 identity mapping skeleton + vendor docs 흡수]
+   │
+   ├── (gate) Drift detector 0건 + CI baseline reset
+   │
+   └── ─── RFC-OAS-018 진입 ─────
+                                                │
+                                                ▼
+            RFC-OAS-018 Phase 1: catalog externalization (JSON manifest)
+                          [primary key 가 이미 model_id, schema 적용 직접]
+            RFC-OAS-018 Phase 2: pricing 외재화
+            RFC-OAS-018 Phase 3: discovery integration
+            RFC-OAS-018 Phase 4: model_meta 폐지
+```
+
+**핵심 변경 (RFC-OAS-018 의 schema 영향)**:
+
+- `id_prefix` (RFC-OAS-018 §1 capability_manifest schema) 를 *brand model_id* 기반으로 사용 (e.g. `"kimi-k2.6"`, `"claude-opus-4"`). cipher prefix (e.g. `"provider_c-k2"`) 폐기.
+- `base` (RFC-OAS-018 의 base label) 는 *Wire_protocol.t* 또는 *Model_family.t* — `provider_d_chat` 같은 *chimera* 부호 폐지.
+- JSON manifest entry 의 *transport-bound 필드* 와 *model-bound 필드* 분리 (§3.4 transport_caps record 와 일관).
+
+**가속 효과**:
+
+- §5.2 의 +91% literal leak 가 RFC-OAS-018 진입 *직전* 까지 자가 가속 중. Phase 1-5 sweep 이 catalog 데이터를 *brand 평면* 으로 정착시켜 RFC-OAS-018 externalization 시 *anchor 가 정확*. 두 RFC 합쳐서 leak 곡선 *반전*.
 
 ### 7.3 masc-mcp RFC-0174~0177 boundary
 
@@ -329,14 +438,63 @@ masc-mcp는 OAS SDK의 `Provider_kind.t` variant 이름에 의존한다 (RFC-017
 
 ## 9. Open questions / Decision points
 
-| # | Decision | Status |
-|---|----------|--------|
-| 1 | Single big PR vs phased 5 | NEEDED |
-| 2 | masc-mcp 동시 처리 — 동시 PR vs alias 유지 | NEEDED |
-| 3 | `capabilities_for_provider_label` 완전 폐지 vs `transport_caps_for_protocol` 으로 재정의 | NEEDED |
-| 4 | RFC-OAS-018 Phase 1-4 와의 작업 순서 — 본 RFC 먼저 vs RFC-OAS-018 Phase 1-2 먼저 | NEEDED |
-| 5 | Unknown model 시 동작 — hard error vs fallback to model_family_default | NEEDED |
-| 6 | Model id 명명 — `kimi-k2.6` (cascade alias 그대로) vs canonical (`moonshot-kimi-k2.6-instruct`) | NEEDED |
+| # | Decision | Status | 권고 PR |
+|---|----------|--------|---------|
+| 1 | Single big PR vs phased 5 | **RESOLVED (권고)** — Big PR | #1775 + #1781 |
+| 2 | masc-mcp 동시 처리 | **RESOLVED (권고)** — OAS standalone, consumer 책임 분리 | #1772 corrected + #1780 |
+| 3 | `capabilities_for_provider_label` 폐지 | **RESOLVED (권고)** — 완전 폐지 | #1773 |
+| 4 | RFC-OAS-018 작업 순서 | **RESOLVED (권고)** — RFC-OAS-023 선행 | #1774 + #1783 |
+| 5 | Unknown model 동작 | **RESOLVED (권고)** — Hard error (Capability_unknown) | #1776 |
+| 6 | Model id 명명 | **RESOLVED (권고)** — cascade alias verbatim | #1777 |
+
+### 9.1 Decision #1 recap — Big PR
+
+- 권고: **Single big PR**
+- 근거 (#1775, #1781):
+  - OAS 자체 cipher reference: 1159 callsite × 138 file × 38 paired test
+  - Phase 1 dry-run 정밀화: ~140-150 file, ~1200+ callsite, ~12 filename rename, 4 facade layer, -200/+1500 line 추정
+  - Consumer 1명 SDK + [feedback_radical_improvement_over_diff_size] + [feedback_big_bang_refactor_preference] 정합
+- 조건: §6.2 audit 5-prong 의무 충족 + §6.3 dune `--keep-going` + `_build/` cache 클리어
+
+### 9.2 Decision #2 recap — OAS standalone
+
+- 권고: **OAS standalone rename, masc-mcp consumer migration 은 별개 책임**
+- 근거 (#1772 corrected, #1780):
+  - RFC-OAS-018 §0 자매 약속 ("SDK 가 MASC 를 모른다")
+  - §1.4 Scope boundary statement
+  - cross-cut PR 패턴은 boundary 위반
+- 286 consumer callsite (#1772 §7.3) 는 evidence-only
+
+### 9.3 Decision #3 recap — 완전 폐지
+
+- 권고: **`capabilities_for_provider_label` 완전 폐지**
+- 근거 (#1773):
+  - 외부 caller 3 사이트 (provider_catalog.ml × 2 + capability_manifest.mli × 1)
+  - 폐지 비용 낮음, Phase 1 후보 적절
+- Decision #5 (silent default 제거) 와 *분리 가능* — 독립 PR
+
+### 9.4 Decision #4 recap — RFC-OAS-023 선행
+
+- 권고: **RFC-OAS-023 이 RFC-OAS-018 보다 선행**
+- 근거 (#1774, #1783, §7.2 sequencing):
+  - 14일 +91% literal leak 자가 가속 (#1774)
+  - 0/13 audit 평면 불일치가 catalog externalization 의 *anchor 부재* 야기
+  - RFC-OAS-023 sweep 후 catalog 가 brand 평면으로 정착되어야 RFC-OAS-018 externalization 이 의미 가짐
+
+### 9.5 Decision #5 recap — Hard error
+
+- 권고: **silent default 폐지 + `Capability_unknown` hard error**
+- 근거 (#1776):
+  - Test fixture lock 측정: **0건** (`Alcotest.check.*default` / `let%expect_test` 모두 0 match)
+  - [feedback_tests_locking_anti_pattern_behavior] 의 lock 패턴이 OAS test/ 에 *부재*
+  - 73 callsite migration 이 *값 expectation 깨짐 없이* 안전
+- Decision #3 의 *별개 phase*
+
+### 9.6 Decision #6 recap — Cascade alias verbatim
+
+- (이미 §9.6 detail 에 포함됨)
+- 권고: **`kimi-k2.6:cloud` 등 cascade alias 그대로** catalog key
+- #1783 mapping 이 *identity function* — wire 형식 ↔ catalog key 일치
 
 ---
 
