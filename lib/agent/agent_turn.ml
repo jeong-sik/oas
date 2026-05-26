@@ -617,13 +617,33 @@ let update_idle_detection ~idle_state ~tool_uses =
     Pass [~max_result_chars:0] to disable. *)
 let default_max_tool_result_chars = 50_000
 
-let record_replacement_or_ignore crs replacement =
-  try Content_replacement_state.record_replacement crs replacement with
+let record_replacement_or_ignore ?event_bus ?correlation_id ?run_id crs replacement =
+  try
+    match event_bus with
+    | Some bus ->
+      Content_replacement_event_bridge.record_replacement_with_events
+        ?correlation_id
+        ?run_id
+        bus
+        crs
+        replacement
+    | None -> Content_replacement_state.record_replacement crs replacement
+  with
   | Invalid_argument _ -> ()
 ;;
 
-let record_kept_or_ignore crs tool_use_id =
-  try Content_replacement_state.record_kept crs tool_use_id with
+let record_kept_or_ignore ?event_bus ?correlation_id ?run_id crs tool_use_id =
+  try
+    match event_bus with
+    | Some bus ->
+      Content_replacement_event_bridge.record_kept_with_events
+        ?correlation_id
+        ?run_id
+        bus
+        crs
+        tool_use_id
+    | None -> Content_replacement_state.record_kept crs tool_use_id
+  with
   | Invalid_argument _ -> ()
 ;;
 
@@ -661,6 +681,9 @@ let warn_tool_result_persist_failed ~phase ~tool_use_id ~content_chars err =
     @since 0.128.0 (Phase 1), 0.129.0 (Phase 2 aggregate budget) *)
 let make_tool_results
       ?(max_result_chars = default_max_tool_result_chars)
+      ?event_bus
+      ?correlation_id
+      ?run_id
       ?relocation
       results
   =
@@ -721,6 +744,9 @@ let make_tool_results
                with
                | Ok preview ->
                  record_replacement_or_ignore
+                   ?event_bus
+                   ?correlation_id
+                   ?run_id
                    crs
                    { tool_use_id = result.tool_use_id
                    ; preview
@@ -733,7 +759,12 @@ let make_tool_results
                    ~tool_use_id:result.tool_use_id
                    ~content_chars:(String.length sanitized)
                    err;
-                 record_kept_or_ignore crs result.tool_use_id;
+                 record_kept_or_ignore
+                   ?event_bus
+                   ?correlation_id
+                   ?run_id
+                   crs
+                   result.tool_use_id;
                  sanitized
              in
              result.tool_use_id, content, result.is_error, false)
@@ -797,6 +828,9 @@ let make_tool_results
                with
                | Ok preview ->
                  record_replacement_or_ignore
+                   ?event_bus
+                   ?correlation_id
+                   ?run_id
                    crs
                    { tool_use_id = tid; preview; original_chars = String.length original };
                  preview
@@ -806,11 +840,11 @@ let make_tool_results
                    ~tool_use_id:tid
                    ~content_chars:(String.length original)
                    err;
-                 record_kept_or_ignore crs tid;
+                 record_kept_or_ignore ?event_bus ?correlation_id ?run_id crs tid;
                  content)
              else (
                (* Under budget — record as kept *)
-               record_kept_or_ignore crs tid;
+               record_kept_or_ignore ?event_bus ?correlation_id ?run_id crs tid;
                content)
            else content
          in
