@@ -298,6 +298,8 @@ let test_make_tool_results_persist_failure_freezes_kept () =
 ;;
 
 let test_make_tool_results_publishes_content_replacement_events () =
+  Eio_main.run
+  @@ fun _env ->
   let dir = tmp_dir () in
   let config : Tool_result_store.config =
     { storage_dir = dir
@@ -329,16 +331,29 @@ let test_make_tool_results_publishes_content_replacement_events () =
     ]
   in
   let _blocks =
-    Agent_turn.make_tool_results ~event_bus:bus ~relocation:(store, crs) mock_results
+    Agent_turn.make_tool_results
+      ~event_bus:bus
+      ~correlation_id:"corr-events"
+      ~run_id:"run-events"
+      ~relocation:(store, crs)
+      mock_results
   in
   let events = Event_bus.drain sub in
   Alcotest.(check int) "events published" 2 (List.length events);
+  List.iter
+    (fun (event : Event_bus.event) ->
+       Alcotest.(check string)
+         "correlation propagated"
+         "corr-events"
+         event.Event_bus.meta.correlation_id;
+       Alcotest.(check string) "run propagated" "run-events" event.Event_bus.meta.run_id)
+    events;
   Alcotest.(check bool)
     "replacement event emitted"
     true
     (List.exists
-       (fun event ->
-          match event.payload with
+       (fun (event : Event_bus.event) ->
+          match event.Event_bus.payload with
           | Event_bus.ContentReplacementReplaced payload ->
             String.equal payload.tool_use_id "big"
             && payload.original_chars = 40
@@ -349,8 +364,8 @@ let test_make_tool_results_publishes_content_replacement_events () =
     "kept event emitted"
     true
     (List.exists
-       (fun event ->
-          match event.payload with
+       (fun (event : Event_bus.event) ->
+          match event.Event_bus.payload with
           | Event_bus.ContentReplacementKept payload ->
             String.equal payload.tool_use_id "small" && payload.seen_count_after >= 1
           | _ -> false)

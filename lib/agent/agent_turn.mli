@@ -252,6 +252,8 @@ val default_max_tool_result_chars : int
 val make_tool_results
   :  ?max_result_chars:int
   -> ?event_bus:Event_bus.t
+  -> ?correlation_id:string
+  -> ?run_id:string
   -> ?relocation:Tool_result_store.t * Content_replacement_state.t
   -> Agent_tools.tool_execution_result list
   -> Types.content_block list
