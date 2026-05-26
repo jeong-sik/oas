@@ -347,18 +347,28 @@ Top 의존 파일:
 - `cascade/*` (방금 머지된 phonebook 포함) 가 *런타임 라우팅의 cipher 의존*. cascade phonebook Phase 4 가 2026-05-24 머지된 시점에 cipher 기반 routing key 가 굳어진 상태 — rename 시 phonebook config 의 declared provider key 도 동시 변경 필요.
 - 286 callsite × 30+ 파일 = **alias 유지 (옵션 b) 의 *실효성 의문***. deprecated alias 가 286 사이트 의 *어디서도 자동 청소되지 않으며*, alias 자체가 cipher 잔존 신호이므로 사용자 자기비판 (encryption 패턴) 의 부분 보존. cross-cut PR (옵션 a) 이 *오히려 정직*하다.
 
-**Decision #2 권고**: 옵션 (a) **cross-cut PR 동시 처리**.
+**Decision #2 권고 — RECONSIDERED**:
 
-- 이유 1: 286 사이트가 OAS rename 후 *자동 정합화 안 됨*. alias 유지는 286 사이트가 cipher 를 *계속 학습*하게 함 — [feedback_radical_improvement_over_diff_size] / "한 PR 안에서 회복 시도" 입장과 정합.
-- 이유 2: Test fixture 동기 수정 강제로 인해 rename PR 의 *경계가 명확*. 부분 sweep 으로는 test 가 깨져서 partial state 가 검출됨 — [feedback_codex_partial_sweep_fan_out_anti_pattern] 회피.
-- 이유 3: cascade phonebook Phase 4 가 *방금* 머지되어 cipher routing key 가 굳기 *직전*. 더 지체하면 phonebook config 가 더 많은 cipher 를 흡수해 비가역화.
+**OAS 는 masc-mcp 를 모른다** (RFC-OAS-018 §0 자매 약속: "같은 SDK 가 'MASC 를 모른다' 와 자매 약속인 'Ollama / Qwen / Gemma / Kimi 를 모른다'"). 본 RFC 의 *operational scope* 는 *OAS 자체* 의 catalog/variant rename 에 한정한다.
 
-**보류 사항**:
+따라서:
 
-- 286 callsite 중 *명명 의존 vs dispatch 의존* 분류 미수행 — 일부는 rename 으로 자동 해결, 일부는 의미 변경 동반. cross-cut PR 시작 전 *file-level breakdown* 추가 필요 (Task #4 의 후속).
-- cascade phonebook TOML config 파일이 cipher key 를 가지는지 별도 확인 필요 — config 파일 변경은 binary rebuild 영향, ~/me 의 cascade.toml 도 동시 변경 가능성.
+- **OAS PR**: variant rename + capability axis reshape sweep, OAS 단독. masc-mcp 의 존재를 RFC 본문이 *전제하지 않는다*.
+- **masc-mcp PR**: OAS SDK 의 신 variant 이름으로 자신의 286 import site 를 migrate 하는 작업은 **masc-mcp 측 별개 RFC/PR** 의 책임. 본 RFC 의 범위 밖.
+- **타이밍**: OAS PR 머지 후 masc-mcp 는 *consumer 로서* 새 SDK 버전을 받아 자신의 timeline 에 마이그레이션. RFC body 가 동시 처리/cross-cut 을 *권고하지 않는다*.
 
-> **[DECISION NEEDED #2 — RESOLVED (권고)]** cross-cut PR 동시 처리 권고. 사용자 최종 결정 대기.
+286 callsite 측정은 *외부 evidence* 로서 가치 보존 — "RFC-OAS-023 sweep 후 SDK consumer 가 받게 될 영향 범위" 를 알려준다. 그러나 본 RFC 는 *그 consumer 영향* 을 own 하지 않는다.
+
+이전 cross-cut PR 권고는 RFC-OAS-018 자매 약속을 위반한 *잘못된 방향* (정정).
+
+> **[DECISION NEEDED #2 — RESOLVED]** OAS standalone rename. masc-mcp consumer migration 은 별개 책임. cross-cut PR 패턴 폐기.
+
+**masc-mcp side concerns (out of scope, FYI only)**:
+
+- cascade phonebook TOML config 의 cipher key 사용 여부는 masc-mcp 의 *consumer 책임*. OAS RFC 가 결정하지 않는다.
+- `~/me/.masc/config/cascade.toml` 영향은 masc-mcp consumer 의 마이그레이션 plan 의 일부.
+
+이 두 항목은 *masc-mcp 측 RFC* 에서 다룬다 (본 RFC 가 cross-reference 만 할 뿐 권고 안 함).
 
 ## 8. Non-goals
 
