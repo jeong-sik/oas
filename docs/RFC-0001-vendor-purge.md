@@ -2,10 +2,28 @@
 
 | | |
 |---|---|
-| Status | Draft |
+| Status | **Withdrawn (superseded by RFC-OAS-023)** |
+| Withdrawn | 2026-05-26 |
+| Superseded by | [RFC-OAS-023](rfc/RFC-OAS-023-capability-axis-reshape.md) capability axis reshape |
 | Related (masc-mcp) | RFC-0165 ~ RFC-0173 client-agnostic family |
 | Scope | All `lib/`, `bin/`, `test/` OCaml files |
 | Repo | yousleepwhen/oas |
+
+## 0. Withdrawal notice (2026-05-26)
+
+본 RFC 는 RFC-OAS-023 §7.1 에 의해 **명명 정책 부분이 역방향으로 supersede** 되었다.
+
+사유 ([feedback_vendor_brand_substitution_is_encryption_not_abstraction], 2026-05-24):
+
+> Vendor brand → 알파벳 부호 1:1 substitution 은 abstraction 아닌 *암호화*. coupling 본질 보존 + 가독성 감소 + 매핑 테이블 외부 분산.
+
+본 RFC 가 정의한 14×N 부호 매핑 (Anthropic → Provider_a, Kimi → Provider_c, OpenAI_compat → Provider_d_compat 등) 은 *암호화* 였다는 자기 평가에 따라 폐기.
+
+**RFC-OAS-023 의 대안**: hybrid naming — model id 는 brand 그대로 (e.g. `kimi-k2.6`, `claude-opus-4`), transport 는 wire-protocol 명명 (`messages_v1`, `chat_completions_v1`).
+
+**보존되는 동기**: RFC-0001 의 *다른* 동기 (SDK 경계 폐쇄, masc-mcp 와의 일관성, code consumer 1명 environment) 는 RFC-OAS-023 에 그대로 *흡수*. SDK boundary 책임은 변하지 않고, 표기 정책만 *역방향* 으로 정정.
+
+향후 본 문서는 *역사적 참고* 로만 보존. 신규 명명 결정은 RFC-OAS-023 을 따른다.
 
 ## 1. Problem
 
