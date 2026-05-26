@@ -170,6 +170,37 @@ val effective_caps : model_id:string -> provider:provider -> capabilities
 
 이유: "가능한 모든 것의 카탈로그가 있어야 한다"는 사용자 입장에서, silent default는 *catalog의 부재를 가시화*하지 못한다. drift WARN은 사후 가시화이지 사전 차단이 아니다.
 
+**제거 비용 정량 (Decision #5, 2026-05-26)**:
+
+`rg -c "default_provider_d_compat_capabilities|provider_d_chat_capabilities\b" test/`:
+
+| 파일 | callsite | 성격 |
+|---|---|---|
+| `test/test_capabilities.ml` | 1 | helper 호출 |
+| `test/test_capabilities_wiring.ml` | 1 | helper 호출 |
+| `test/test_llm_provider_cov.ml` | 5 | cov 측정 |
+
+**Lock 패턴 측정**:
+
+```
+rg "expect.*provider_d_chat|expect.*default_capabilities|Alcotest.check.*default" test/
+→ 0 matches
+```
+
+```
+rg "let%expect_test" test/*.ml → 0 matches
+```
+
+해석:
+
+- silent default 의 *값* 을 lock 하는 test fixture 가 **0건**. [feedback_tests_locking_anti_pattern_behavior] 의 lock 패턴은 OAS test/ 에 *존재하지 않음*.
+- 73 fixture site 는 *fixture 값 lock 이 아니라 단순 helper 호출/cov* — 제거 시 *값 expectation 깨짐 없이* migration 가능.
+- 이전 §3.3 의 "test 73 fixture 가 silent default 값을 lock 하고 있을 가능성" 은 *실측 반증* 됨.
+
+→ Decision #5 의 hard error 전환 비용이 *예상보다 낮음*. 73 callsite 의 import 갱신 또는 명시적 `Capability_unknown` 처리만 필요.
+
+> **[DECISION NEEDED #5 — RESOLVED (권고)]** 옵션 (a) **silent default 폐지 + `Capability_unknown` hard error** 권고 (lock-없는 73 callsite migration 으로 안전). 사용자 최종 결정 대기.
+
 ### 3.3 `capabilities_for_provider_label` 폐지
 
 `capabilities_for_provider_label : string -> capabilities option` 함수는 의미상 model 축의 사실을 provider 축으로 *위장*시킨다. 폐지하고 다음 두 함수로 대체:
