@@ -182,6 +182,50 @@ val model_family_default_caps : Model_family.t -> model_caps
 
 `apply_manifest_entry`의 `base_label` 인터페이스는 `Model_family.t` 또는 `Wire_protocol.t` 중 하나를 명시하도록 변경.
 
+### 3.4 Per-wire-protocol `transport_caps` matrix
+
+`lib/llm_provider/backend_*.ml` 의 wire 변환 코드를 capability 표면별로 grep 한 결과 (2026-05-26):
+
+| Surface | `messages_v1` (Anthropic) | `chat_completions_v1` (OpenAI compat) | `gemini_generate_v1` (Gemini) | `ollama_chat_v1` (Ollama) | `glm_native_v1` (GLM) |
+|---|---|---|---|---|---|
+| `cache_control` carriage | ✅ 4 sites (exclusive) | ❌ 0 | ❌ 0 | ❌ 0 | ❌ 0 |
+| `tool_choice` enum width | 8 sites | **57 sites** (45 main + 12 request) | 2 sites | 1 site | 0 sites |
+| `thinking_control_format` complexity | 2 sites | **39 sites** (26 main + 10 request + 3 parse) | 1 site | 8 sites | 7 sites |
+| `streaming` (SSE/chunked) | (별도 모듈) | 3 sites | 2 sites | 1 site | 4 sites |
+
+두 가지 강한 관찰:
+
+1. **Cache control 은 Anthropic 만 운반** — 다른 모든 wire 에서 0 사이트. 동일 모델이 OpenRouter 같은 chat_completions_v1 transport 로 라우팅되면 cache 가 *완전히 소실*. `transport_caps.can_carry_cache_control` 의 유일 true 분포가 messages_v1.
+2. **`chat_completions_v1` 의 thinking_control_format 이 비대칭적으로 복잡** (39 사이트) — 같은 wire 가 *여러 thinking 변형* (Kimi K2.5 top-level `thinking`, Qwen `enable_thinking` chat_template_kwargs, OpenAI o1-style `reasoning_effort`) 을 모두 처리. `provider_d_chat_extended_capabilities` 가 별도로 존재했던 *이유* 이자 axis confusion 의 가장 선명한 증거. RFC-OAS-023 은 이 single record 를 *thinking 변형 type variant* + per-variant model_caps 로 분해.
+
+`transport_caps` record schema 1차 안:
+
+```ocaml
+type thinking_wire_variant =
+  | Anthropic_messages              (* "thinking" block, budget integer *)
+  | OpenAI_o1_reasoning_effort       (* "reasoning_effort": "low|medium|high" *)
+  | Kimi_k2_thinking_field           (* top-level "thinking": { ... } *)
+  | Qwen_enable_thinking_kwarg       (* chat_template_kwargs.enable_thinking *)
+  | Ollama_thinking_native           (* native field *)
+  | Glm_enable_thinking
+  | None_supported
+
+type transport_caps = {
+  can_carry_cache_control : bool;
+  can_carry_tool_choice : bool;
+  tool_choice_strictness : [ `Required | `Suggested | `None ];
+  supports_streaming : bool;
+  thinking_wire : thinking_wire_variant;
+  carries_reasoning_summary_blocks : bool;
+  max_output_tokens_cap : int option;        (* provider-side quota cap, model 본체 cap 과 별도 *)
+  multimodal_carriage : [ `Image_url | `Image_base64 | `None ];
+}
+```
+
+`thinking_wire` 가 *closed sum* 이라 새 variant 추가 시 exhaustive match 가 누락 사이트를 *컴파일 타임* 강제 — RFC-0042 closed-sum 정신과 정합. 현행 `String.starts_with` 35 dispatcher 의 string-classifier anti-pattern (CLAUDE.md §Workaround Sig #2) 을 닫는다.
+
+`max_output_tokens_cap` 는 model_caps.max_output_tokens 와 별개: 모델은 100K 가능하지만 OpenRouter 가 32K cap 거는 case 가 대표적. effective = `min(model_caps.max_output_tokens, transport_caps.max_output_tokens_cap)`.
+
 ## 4. Naming sweep
 
 ### 4.1 Provider_kind.t variant 복원
