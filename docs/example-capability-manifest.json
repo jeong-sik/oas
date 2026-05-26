@@ -1,0 +1,112 @@
+{
+  "_comment": "RFC-OAS-023 §5.3 Phase 5 catalog draft — cascade.toml × OAS catalog 1:1 identity mapping. Apply with: OAS_CAPABILITY_MANIFEST=docs/example-capability-manifest.json",
+  "schema_version": 1,
+  "models": [
+    {
+      "id_prefix": "kimi-k2.6",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 200000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_reasoning": true,
+      "supports_extended_thinking": true,
+      "supports_reasoning_budget": true,
+      "supports_native_streaming": true,
+      "supports_system_prompt": true
+    },
+    {
+      "id_prefix": "gpt-5.3-codex-spark",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 128000,
+      "max_output_tokens": 128000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_reasoning": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "gpt-4.1",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 1000000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "glm-5.1",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 128000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_reasoning": true,
+      "supports_reasoning_budget": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "glm-5-turbo",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 64000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "glm-5",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 128000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "gemma4",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 32000,
+      "supports_tools": false,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "qwen3.5",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 128000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_reasoning": true,
+      "supports_extended_thinking": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "qwen-local-35b-a3b",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 128000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_reasoning": true,
+      "supports_extended_thinking": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "qwen",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 128000,
+      "supports_tools": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "deepseek-v4-pro",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 1000000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_native_streaming": true
+    },
+    {
+      "id_prefix": "deepseek-v4-flash",
+      "base_label": "provider_d_chat",
+      "max_context_tokens": 64000,
+      "supports_tools": true,
+      "supports_tool_choice": true,
+      "supports_native_streaming": true
+    }
+  ]
+}
