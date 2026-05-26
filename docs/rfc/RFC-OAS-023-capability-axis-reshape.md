@@ -298,6 +298,50 @@ provider_k_capabilities             → glm_model_default_caps
 - Capability drift detector(`detect_drift`)가 PR 직후 *오히려 더 많은 WARN을 emit*할 수 있다 — silent default 제거로 인해. CI 임계는 PR 시점에 baseline reset.
 - TLA+ spec이 capability 관련해서 존재한다면 검증 필요 (현재 OAS에 TLA+ spec 없음으로 추정).
 
+### 6.4 Phase 1 dry-run findings (2026-05-26)
+
+본 RFC stack 작업 중 *최소 단위 변경* 으로 Phase 1 의 *실 size* 를 측정. 한 worktree 에서 variant 1개 (`Provider_a → Anthropic`) 만 `provider_kind.ml` + `provider_kind.mli` 양쪽 rename 후 `dune build lib/llm_provider/`:
+
+| 발견 | 정량 | 함의 |
+|---|---|---|
+| **Facade pattern 의 반복 declare** | `provider_kind.ml/.mli` + `provider_config.ml/.mli` 모두 *type 을 재선언* (별도 variant constructor). variant rename 시 양 facade 동기 변경 필수 | RFC §6.2 audit #3 (`include Module` / re-export) 의 *실증* — facade 가 *실제로 존재* 함. dead-export sweep 안전망 [feedback_dead_export_audit_must_trace_include_facade] 가 *반드시* 의무 |
+| **`Provider_a` reference 분포** | `lib/` 안 **55+ 파일** (single variant 만) | §6.1 의 "OAS 자체 1159 callsite / 138 file" 추정의 *실측 근거*. 14 cipher 합산이 1159 라면 *cipher 당 평균 ~83 callsite* 라는 1차 정량 |
+| **파일명 자체에 cipher 침투** | `backend_provider_a.ml/.mli`, `api_provider_a.ml/.mli`, `transport_provider_d_compat.ml`, `backend_provider_d_*.ml` 등 다수 | Sweep 가 *파일 시스템 rename* 까지 own 해야 완결. masc-mcp #18173 (audit tooling v3 filename-based module discovery) 와 정합 — 정적 grep 만으로는 *filename cipher* 못 잡음 |
+| **dune first-error halt** | 1 변경 → 1 error 만 보고 (`provider_config.mli:15-29` type alias mismatch) | sweep 작업 시 `dune build --keep-going` 또는 *fix-and-retry loop* 필수. 한 번에 *모든 cascading error* 수집해서 batch 처리 |
+
+**§6.1 size estimate 의 정밀화**:
+
+기존 #1775 측정 (138 file × 1159 callsite × 38 paired test) 은 *시점 측정*. dry-run 발견을 추가:
+
+- **+ 파일 rename**: 최소 *cipher 가 들어간 모든 파일명* (현재 추정 ~12+ 파일: `backend_provider_a/c/d_*/.ml/.mli`, `api_provider_a/d/.ml/.mli`, `transport_provider_d_compat.ml`, `transport_cli_tool_*.ml` 등)
+- **+ facade 재선언 layer**: `provider_kind` + `provider_config` 의 양쪽 type 정의 (4 .ml/.mli 동기 변경)
+- **+ build cycle**: dune --keep-going 또는 N-iteration fix-and-retry (1 cipher 변경 시 발생하는 cascading error 의 *batch* 처리 필요)
+
+**Sweep 패턴 권고** (Phase 1 본격 작업 시):
+
+1. 모든 cipher 의 *3-axis rename* 동시 적용:
+   - (a) variant 정의 (provider_kind + provider_config 양 facade)
+   - (b) 파일명 rename (cipher 가 박힌 .ml/.mli)
+   - (c) caller reference (lib/ + test/ + bin/)
+2. `dune build --keep-going` 으로 *모든* cascading error 수집
+3. 5-prong audit (§6.2) 의 *각 prong* 결과 PR body 에 인용 (특히 #3 facade re-export, #5 paired test)
+4. dune module discovery 변경 시 _build/ 캐시 클리어 (`rm -rf _build` 후 fresh build)
+
+**Phase 1 본격 작업 시 예상 크기** (대략 추정, 실 측정 시 갱신):
+
+```
+14 cipher × 평균 ~83 caller    ≈ 1162 callsite (§6.1 측정과 일관)
++ 14 cipher × 4 facade layer    ≈ 56 facade 동기 위치
++ ~12 cipher-named 파일 rename   = 12 파일명 변경
++ paired test 38 file            (각 변경 사이트별 paired test sync)
+─────────────────────────────────────
+Phase 1 단독 sweep 크기:        ~140-150 file 변경, ~1200+ callsite
+```
+
+> **§6.1 권고 갱신**: 이전 #1775 의 "Big PR" 권고는 *유효* 하나, `dune --keep-going` 필수 + file rename 영역 추가 명시. Single PR diff 가 *훨씬* 크다 (예상 -200 / +1500 line 규모, 대부분 mechanical rename + filename 변경).
+
+**dry-run worktree**: `.worktrees/phase1-dryrun-provider-a` (`feat/phase1-dryrun-provider-a` branch) 에 *최소 변경 evidence* 보존. 본 RFC merge 후 *정리* 또는 *Phase 1 본격 PR 의 시작점* 으로 활용.
+
 ## 7. Relations
 
 ### 7.1 RFC-0001 vendor purge — supersede partial
