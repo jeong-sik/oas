@@ -611,8 +611,12 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
           Error err
       in
       let* results = results in
+      let tool_result_event_envelope = Pipeline_common.event_envelope agent in
       let tool_results =
         Agent_turn.make_tool_results
+          ?event_bus:agent.options.event_bus
+          ~correlation_id:tool_result_event_envelope.correlation_id
+          ~run_id:tool_result_event_envelope.run_id
           ?relocation:agent.options.tool_result_relocation
           results
       in
