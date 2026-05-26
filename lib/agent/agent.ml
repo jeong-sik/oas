@@ -492,6 +492,15 @@ let resume
     | Some p -> { state with config = { state.config with priority = Some p } }
     | None -> state
   in
+  let options =
+    match options.tool_result_relocation with
+    | None -> options
+    | Some (store, _) ->
+      { options with
+        tool_result_relocation =
+          Some (store, Content_replacement_state.restore_from_context ctx)
+      }
+  in
   { mu = Eio.Mutex.create ()
   ; state
   ; lifecycle = None
