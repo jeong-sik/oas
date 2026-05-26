@@ -255,9 +255,36 @@ provider_k_capabilities             → glm_model_default_caps
 - RFC-OAS-018 catalog externalization 도 이 평면 불일치를 *해결하지 못함*. JSON manifest 로 빼내도 `id_prefix` 를 brand 로 쓸지 cipher 로 쓸지가 또 결정점이 된다.
 - 즉 **RFC-OAS-023 (hybrid: model=brand 복원) 이 RFC-OAS-018 보다 *논리적으로 선행*** 한다. RFC-OAS-023 으로 catalog 의 key 평면을 wire 평면과 일치시킨 *후에* 만 RFC-OAS-018 의 externalization 이 의미 있는 데이터를 받을 수 있다.
 
-### 5.2 RFC-OAS-018 inventory refresh
+### 5.2 RFC-OAS-018 inventory refresh (2026-05-26 측정)
 
-> RFC-OAS-018의 2026-05-12 inventory를 본 RFC merge 시점에 갱신. 14개 cipher token, 35 `starts_with` dispatcher, 11 closed-sum variants, 240 model literal — 현재 시점 수치 재측정.
+RFC-OAS-018 의 inventory (2026-05-12 측정) 를 14일 후 재측정:
+
+| Surface | RFC-OAS-018 (2026-05-12) | 본 RFC (2026-05-26) | Δ | 해석 |
+|---|---|---|---|---|
+| `lib/llm_provider/` 내 model_id literal | 240 | **458** | **+91% (+218)** | **leak 가속 — 14일에 거의 2배** |
+| `String.starts_with` dispatcher in capabilities.ml | 35 | 32 | -3 (-9%) | 약간 감소, 여전히 string-classifier anti-pattern |
+| `Provider_kind.t` closed-sum variants | 11 | 11 | 0 | 안정 |
+| `capabilities.ml` LoC | 1238 | 1537 | +24% (+299) | 같은 기간 sweep 누적 |
+
+**핵심 관찰: model_id literal 의 leak 이 *자가 가속*** —
+
+- 14일 동안 +218 literal = ~15 literal/일 누적
+- RFC-0001/0018 미해결 상태에서 새 PR 들이 *literal 을 더 박는* 패턴 지속
+- 이는 RFC body §1.2 (Axis confusion) 의 *진행형 증상* — catalog 가 잡지 못한 모델이 매일 새 hard-coded literal 로 lib/ 안 산포
+
+가속 메커니즘 추정:
+
+1. 새 모델/provider 가 추가될 때 catalog 등록 대신 backend wire 변환 코드 안에 string literal 박힘 (entry-by-entry add 가 평면 불일치로 안 되므로).
+2. RFC-0001 cipher substitution 정책 후 wire literal 은 brand 그대로 유지되어야 하나, source-level cipher 와 *공존*하면서 양측 모두 누적.
+3. 0/13 audit 결과(§5.1) 가 보여주듯 catalog 의 *전체 평면* 이 wire 와 어긋난 상태라 entry-by-entry fix 동기 자체가 약함.
+
+**시급성 정량**:
+
+- 현재 추세 (15 literal/일) 가 유지되면 **3개월 후 약 1800 literal** 누적. 비가역화 가속.
+- RFC-OAS-023 + RFC-OAS-018 두 작업이 *지금* 진행 안 되면 데이터 leak 이 self-fulfilling 으로 굳음.
+- capabilities.ml LoC 1537 도 CLAUDE.md "300줄+ 분할 검토" 기준 5배 초과 — sweep 동시에 sub-library 분해 (RFC-OAS-018 §sub-library-decomp 항목) 고려 가치 상승.
+
+> Decision #4 (RFC-OAS-018 과의 순서) 의 정량 ammunition. RFC-OAS-023 (axis reshape + 평면 정합) 이 *먼저* 진행되어야 RFC-OAS-018 의 externalization 이 받을 데이터가 *cipher 평면* 이 아니라 *wire 평면* 으로 정착.
 
 ## 6. Migration
 
