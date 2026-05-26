@@ -279,24 +279,6 @@ let missing_tool_feedback_text
     (Types.show_stop_reason response.stop_reason)
 ;;
 
-let event_envelope agent : Event_bus.envelope =
-  let session_id = Option.bind agent.options.raw_trace Raw_trace.session_id in
-  let worker_run_id =
-    Option.bind (lifecycle_snapshot agent) (fun s -> s.current_run_id)
-  in
-  let correlation_id =
-    match session_id with
-    | Some s -> s
-    | None -> Event_bus.fresh_id ()
-  in
-  let run_id =
-    match worker_run_id with
-    | Some r -> r
-    | None -> Event_bus.fresh_id ()
-  in
-  Event_bus.mk_envelope ~correlation_id ~run_id ()
-;;
-
 (* ── Stage 1: Input ──────────────────────────────────────── *)
 
 (** Set lifecycle to Ready, invoke BeforeTurn hook, handle elicitation. *)
@@ -420,7 +402,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
    | Some bus ->
      Event_bus.publish
        bus
-       { meta = event_envelope agent
+       { meta = Pipeline_common.event_envelope agent
        ; payload =
            TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
        }
@@ -871,7 +853,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
          | Some bus ->
            Event_bus.publish
              bus
-             { meta = event_envelope agent
+             { meta = Pipeline_common.event_envelope agent
              ; payload =
                  ContextCompacted
                    { agent_name = agent.state.config.name
@@ -966,7 +948,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
        | Some bus ->
          Event_bus.publish
            bus
-           { meta = event_envelope agent
+           { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextCompacted
                  { agent_name = agent.state.config.name
@@ -1049,7 +1031,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        | Some bus ->
          Event_bus.publish
            bus
-           { meta = event_envelope agent
+           { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextOverflowImminent
                  { agent_name = agent.state.config.name
@@ -1064,7 +1046,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        | Some bus ->
          Event_bus.publish
            bus
-           { meta = event_envelope agent
+           { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextCompactStarted
                  { agent_name = agent.state.config.name; trigger = "proactive" }
@@ -1165,7 +1147,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
          | Some bus ->
            Event_bus.publish
              bus
-             { meta = event_envelope agent
+             { meta = Pipeline_common.event_envelope agent
              ; payload =
                  ContextCompactStarted
                    { agent_name = agent.state.config.name; trigger = "emergency" }
