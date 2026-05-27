@@ -603,7 +603,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~schedule
-      "Read"
+      "MissingRead"
       (`Assoc [])
       "tool-unknown"
   in
@@ -622,7 +622,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
     bool
     "content names missing tool"
     true
-    (string_contains ~needle:"Tool not found: Read" result.content);
+    (string_contains ~needle:"Tool not found: MissingRead" result.content);
   check
     bool
     "content includes available tools"
@@ -634,7 +634,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
       bool
       "detail names missing tool"
       true
-      (string_contains ~needle:"Tool not found: Read" detail);
+      (string_contains ~needle:"Tool not found: MissingRead" detail);
     check
       bool
       "detail includes available tools"
@@ -643,6 +643,80 @@ let test_unknown_tool_reports_available_tools_and_retries () =
     check string "context labels dispatch site" "agent_tools.find_and_execute_tool" ctx
   | [] -> fail "on_error hook not fired"
   | _ -> fail "on_error fired more than once"
+;;
+
+let test_legacy_read_dispatches_to_read_file_when_visible () =
+  Eio_main.run
+  @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let captured_input = ref `Null in
+  let read_file =
+    Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun input ->
+      captured_input := input;
+      Ok { Types.content = "read-ok" })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; concurrency_class = "sequential_workspace"
+    ; batch_kind = "sequential"
+    }
+  in
+  let on_error_called = ref false in
+  let hooks =
+    { Hooks.empty with
+      on_error =
+        Some
+          (fun _event ->
+            on_error_called := true;
+            Hooks.Continue)
+    }
+  in
+  let sub = Event_bus.subscribe bus in
+  let result =
+    Agent_tools.find_and_execute_tool
+      ~context
+      ~tools:[ read_file ]
+      ~hooks
+      ~event_bus:(Some bus)
+      ~tracer:Tracing.null
+      ~agent_name:"agent"
+      ~turn_count:0
+      ~correlation_id:"c"
+      ~run_id:"r"
+      ~schedule
+      "Read"
+      (`Assoc [ "path", `String "README.md" ])
+      "tool-legacy-read"
+  in
+  check bool "legacy Read succeeds" false result.is_error;
+  check string "result uses visible tool name" "ReadFile" result.tool_name;
+  check string "read content" "read-ok" result.content;
+  check bool "on_error not called" false !on_error_called;
+  (match !captured_input with
+   | `Assoc fields ->
+     check
+       (option string)
+       "path normalized to file_path"
+       (Some "README.md")
+       (match List.assoc_opt "file_path" fields with
+        | Some (`String path) -> Some path
+        | _ -> None)
+   | _ -> fail "expected object input");
+  let events = Event_bus.drain sub in
+  check
+    bool
+    "event bus records resolved tool name"
+    true
+    (List.exists
+       (fun (event : Event_bus.event) ->
+          match event.payload with
+          | Event_bus.ToolCalled { tool_name; _ }
+          | Event_bus.ToolCompleted { tool_name; _ } -> String.equal tool_name "ReadFile"
+          | _ -> false)
+       events)
 ;;
 
 let test_on_error_silent_on_successful_dispatch () =
@@ -986,6 +1060,10 @@ let () =
             "unknown tool reports available tools and retries"
             `Quick
             test_unknown_tool_reports_available_tools_and_retries
+        ; test_case
+            "legacy Read dispatches to ReadFile when visible"
+            `Quick
+            test_legacy_read_dispatches_to_read_file_when_visible
         ; test_case
             "on_error silent on successful dispatch"
             `Quick
