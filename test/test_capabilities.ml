@@ -103,6 +103,18 @@ let test_provider_d_extended () =
   check bool "has min_p" true c.supports_min_p
 ;;
 
+let test_lookup_mimo_v25_pro () =
+  match Capabilities.for_model_id "mimo-v2.5-pro" with
+  | Some c ->
+    check bool "has reasoning" true c.supports_reasoning;
+    check_thinking_control
+      "uses thinking object only"
+      Capabilities.Thinking_object_only
+      c.thinking_control_format;
+    check bool "has tools" true c.supports_tools
+  | None -> fail "should match mimo-v2.5-pro"
+;;
+
 (* ── Model lookup ────────────────────────────────────── *)
 
 let test_lookup_agent_llm_a_opus () =
@@ -160,6 +172,7 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_d_5 -> Format.fprintf ppf "Provider_d_5"
   | Capabilities.Provider_d_4_1 -> Format.fprintf ppf "Provider_d_4_1"
   | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
+  | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
   | Capabilities.Provider_f family ->
     Format.fprintf ppf "Provider_f(%a)" pp_provider_f_family family
   | Capabilities.Provider_c_for_coding -> Format.fprintf ppf "Provider_c_for_coding"
@@ -189,6 +202,7 @@ let pp_static_model_route ppf = function
   | Capabilities.Glm_4_flash -> Format.fprintf ppf "Glm_4_flash"
   | Capabilities.Glm_4v -> Format.fprintf ppf "Glm_4v"
   | Capabilities.Glm_4 -> Format.fprintf ppf "Glm_4"
+  | Capabilities.Qwen_3 -> Format.fprintf ppf "Qwen_3"
 ;;
 
 let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
@@ -718,6 +732,7 @@ let test_provider_d_compat_reasoning_records_have_explicit_control () =
     [ "provider_d_chat_extended", Some Capabilities.provider_d_chat_extended_capabilities
     ; "provider_c", Some Capabilities.provider_c_capabilities
     ; "provider_h", Some Capabilities.provider_h_capabilities
+    ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"
     ; "provider_h-3.5", Capabilities.for_model_id "provider_h-3.5-35b-a3b"
     ; "provider_g-v4-flash", Capabilities.for_model_id "provider_g-v4-flash"
     ; "provider_l-ultra", Capabilities.for_model_id "provider_l-ultra-253b"
@@ -867,6 +882,7 @@ let () =
         ; test_case "provider_k-5v vision" `Quick test_lookup_glm5v_vision
         ; test_case "provider_k-4.6v vision" `Quick test_lookup_glm46v_vision
         ; test_case "provider_k-ocr vision" `Quick test_lookup_glm_ocr
+        ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "unknown" `Quick test_lookup_unknown
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive
         ] )

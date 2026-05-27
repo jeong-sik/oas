@@ -1,6 +1,7 @@
 let with_runtime f =
   Eio_main.run
   @@ fun env ->
+  Mirage_crypto_rng_unix.use_default ();
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in

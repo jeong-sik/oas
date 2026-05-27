@@ -20,6 +20,7 @@
   (cohttp-eio (>= 6.2.0))
   (tls (>= 2.0.0))
   (tls-eio (>= 2.0.0))
+  (mirage-crypto-rng (>= 1.0.0))
   (ca-certs (>= 1.0.0))
   (yojson (and (>= 3.0.0) (< 4.0.0)))
   (ppx_deriving_yojson (>= 3.10.0))

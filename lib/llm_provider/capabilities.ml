@@ -433,6 +433,7 @@ type static_model_route =
   | Provider_d_5
   | Provider_d_4_1
   | Provider_d_4o
+  | Mimo_v2_5_chat
   | Provider_f of provider_f_family
   | Provider_c_for_coding
   | Provider_c_k2
@@ -506,6 +507,8 @@ let static_model_route_of_id model_id =
   then Some Provider_d_4_1
   else if String.starts_with ~prefix:"model-d" m
   then Some Provider_d_4o
+  else if m = "mimo-v2.5" || String.starts_with ~prefix:"mimo-v2.5-pro" m
+  then Some Mimo_v2_5_chat
   else (
     match provider_f_family_of_id m with
     | (Provider_f_3 | Provider_f_3_1 | Provider_f_2_5) as family ->
@@ -634,6 +637,12 @@ let capabilities_of_static_model_route = function
       { provider_d_chat_capabilities with
         max_context_tokens = Some 128_000
       ; max_output_tokens = Some 16_384
+      }
+  | Mimo_v2_5_chat ->
+    Some
+      { provider_d_chat_capabilities with
+        supports_reasoning = true
+      ; thinking_control_format = Thinking_object_only
       }
   | Provider_f _ -> Some provider_f_capabilities
   | Provider_c_for_coding | Provider_c_k2 -> Some provider_c_capabilities
