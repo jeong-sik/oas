@@ -4,6 +4,8 @@
 
     @since 0.128.0 *)
 
+let _log = Log.create ~module_name:"content_replacement_state" ()
+
 open Types
 
 (* ── Types ──────────────────────────────────────────────────── *)
@@ -146,11 +148,9 @@ let restore_from_context (ctx : Context.t) =
     (match of_json json with
      | Ok t -> t
      | Error e ->
-       Printf.eprintf
-         "[WARN] Content_replacement_state.restore_from_context: CRS deserialization \
-          failed (%s), starting fresh\n\
-          %!"
-         (Error.to_string e);
+       Log.warn _log
+         "CRS deserialization failed, starting fresh"
+         [ Log.S ("error", Error.to_string e) ];
        create ())
 ;;
 

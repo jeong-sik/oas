@@ -2,6 +2,8 @@
 
     @since 0.77.0 *)
 
+let _log = Log.create ~module_name:"plan" ()
+
 type step_status =
   | Pending
   | Running
@@ -144,21 +146,21 @@ let plan_transition_error_to_string = function
 
 let start t =
   (match transition_plan t Executing with
-   | Error e -> Printf.eprintf "[WARN] Plan: %s\n%!" (plan_transition_error_to_string e)
+   | Error e -> Log.warn _log "plan transition failed" [ Log.S ("error", plan_transition_error_to_string e) ]
    | Ok _ -> ());
   { t with status = Executing }
 ;;
 
 let finish t =
   (match transition_plan t Completed with
-   | Error e -> Printf.eprintf "[WARN] Plan: %s\n%!" (plan_transition_error_to_string e)
+   | Error e -> Log.warn _log "plan transition failed" [ Log.S ("error", plan_transition_error_to_string e) ]
    | Ok _ -> ());
   { t with status = Completed }
 ;;
 
 let abandon t ~reason =
   (match transition_plan t (Abandoned reason) with
-   | Error e -> Printf.eprintf "[WARN] Plan: %s\n%!" (plan_transition_error_to_string e)
+   | Error e -> Log.warn _log "plan transition failed" [ Log.S ("error", plan_transition_error_to_string e) ]
    | Ok _ -> ());
   { t with status = Abandoned reason }
 ;;
