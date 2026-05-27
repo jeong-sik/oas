@@ -89,9 +89,9 @@ let cli_model_override ~(config : config) ~(req_config : Provider_config.t) =
    | Some m, Some supported ->
      if not (List.mem (String.lowercase_ascii m) supported)
      then
-       Eio.traceln
-         "[warn] [cli_tool_c] Unsupported model %s requested. Provider_c CLI officially \
-          supports %s"
+       Diag.warn
+         "cli_tool_c"
+         "Unsupported model %s requested. Provider_c CLI officially supports %s"
          m
          (String.concat ", " supported)
    | Some _, None | None, Some _ | None, None -> ());
