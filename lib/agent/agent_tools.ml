@@ -112,6 +112,12 @@ let recoverable_of_failure_kind = function
   | Some Non_retryable_tool_error | None -> false
 ;;
 
+let json_object_keys_for_log = function
+  | `Assoc fields ->
+    fields |> List.map fst |> List.sort_uniq String.compare |> String.concat ","
+  | _ -> "-"
+;;
+
 let tool_exception_result ~id ~name exn =
   let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
   { tool_use_id = id
@@ -275,10 +281,12 @@ let find_and_execute_tool_with_index
              : Hooks.hook_decision)
         in
         (* Multi-stage deterministic correction before execution.
-       Correction_pipeline runs 3 stages (type coercion, default injection,
-       format normalization) then validates. If det correction fixes the
-       input, skip the LLM retry path entirely. If still invalid, fall back
-       to Tool_middleware.validate_and_coerce for structured error feedback.
+       Correction_pipeline runs safe default stages (type coercion and format
+       normalization) then validates. Optional zero-default injection is
+       opt-in because adding absent optional fields can change a tool-call
+       union branch. If det correction fixes the input, skip the LLM retry
+       path entirely. If still invalid, fall back to
+       Tool_middleware.validate_and_coerce for structured error feedback.
        Ref: Samchon function calling harness (6.75% → 100%). *)
         let validated_input =
           match Correction_pipeline.run ~schema:tool.schema input with
@@ -297,6 +305,24 @@ let find_and_execute_tool_with_index
                 |> List.sort_uniq String.compare
                 |> String.concat ","
               in
+              let added_fields =
+                corrections
+                |> List.filter_map (fun (c : Correction_pipeline.correction) ->
+                  match c.from_value with
+                  | None -> Some c.field
+                  | Some _ -> None)
+                |> List.sort_uniq String.compare
+                |> String.concat ","
+              in
+              let changed_fields =
+                corrections
+                |> List.filter_map (fun (c : Correction_pipeline.correction) ->
+                  match c.from_value with
+                  | Some _ -> Some c.field
+                  | None -> None)
+                |> List.sort_uniq String.compare
+                |> String.concat ","
+              in
               Log.info
                 _log
                 "correction_pipeline fixed tool input fields"
@@ -304,6 +330,10 @@ let find_and_execute_tool_with_index
                 ; Log.I ("fixes", List.length corrections)
                 ; Log.S ("fields", field_names)
                 ; Log.S ("stages", stage_names)
+                ; Log.S ("input_keys", json_object_keys_for_log input)
+                ; Log.S ("corrected_keys", json_object_keys_for_log corrected)
+                ; Log.S ("added_fields", added_fields)
+                ; Log.S ("changed_fields", changed_fields)
                 ]);
             Ok corrected
           | Correction_pipeline.Still_invalid { errors; attempted } ->

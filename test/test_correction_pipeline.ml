@@ -18,6 +18,23 @@ let bool_param name required : Types.tool_param =
   { name; description = ""; param_type = Boolean; required }
 ;;
 
+let array_param name required : Types.tool_param =
+  { name; description = ""; param_type = Array; required }
+;;
+
+let object_param name required : Types.tool_param =
+  { name; description = ""; param_type = Object; required }
+;;
+
+let number_param name required : Types.tool_param =
+  { name; description = ""; param_type = Number; required }
+;;
+
+let has_object_key key = function
+  | `Assoc fields -> List.mem_assoc key fields
+  | _ -> false
+;;
+
 (* ── Stage 1: Coercion ──────────────────────────────────── *)
 
 let test_coercion_string_to_int () =
@@ -55,7 +72,9 @@ let test_coercion_impossible () =
 let test_default_missing_optional () =
   let schema = make_schema [ str_param "name" true; str_param "format" false ] in
   let input = `Assoc [ "name", `String "test" ] in
-  match Correction_pipeline.run ~schema input with
+  match
+    Correction_pipeline.run ~schema ~stages:Correction_pipeline.zero_default_stages input
+  with
   | Fixed { corrected; corrections } ->
     let format = Yojson.Safe.Util.(corrected |> member "format" |> to_string) in
     Alcotest.(check string) "default injected" "" format;
@@ -65,6 +84,19 @@ let test_default_missing_optional () =
       (List.exists
          (fun c -> c.Correction_pipeline.stage = "default_injection")
          corrections)
+  | Still_invalid _ -> Alcotest.fail "expected Fixed"
+;;
+
+let test_default_pipeline_preserves_missing_optional () =
+  let schema = make_schema [ str_param "name" true; str_param "format" false ] in
+  let input = `Assoc [ "name", `String "test" ] in
+  match Correction_pipeline.run ~schema input with
+  | Fixed { corrected; corrections } ->
+    Alcotest.(check bool)
+      "format remains absent"
+      false
+      (has_object_key "format" corrected);
+    Alcotest.(check int) "no correction" 0 (List.length corrections)
   | Still_invalid _ -> Alcotest.fail "expected Fixed"
 ;;
 
@@ -84,7 +116,9 @@ let test_default_no_inject_if_present () =
 
 let test_default_null_input () =
   let schema = make_schema [ str_param "opt" false ] in
-  match Correction_pipeline.run ~schema `Null with
+  match
+    Correction_pipeline.run ~schema ~stages:Correction_pipeline.zero_default_stages `Null
+  with
   | Fixed { corrected; _ } ->
     (match corrected with
      | `Assoc _ -> () (* null treated as empty object with defaults *)
@@ -108,14 +142,42 @@ let test_format_trim_whitespace () =
 
 let test_multi_stage_correction () =
   let schema = make_schema [ int_param "count" true; str_param "label" false ] in
-  (* count is string (needs coercion), label is missing (needs default) *)
+  (* count is string (needs coercion), label is optional and remains absent. *)
   let input = `Assoc [ "count", `String "7" ] in
   match Correction_pipeline.run ~schema input with
   | Fixed { corrected; corrections } ->
     let count = Yojson.Safe.Util.(corrected |> member "count" |> to_int) in
     Alcotest.(check int) "coerced count" 7 count;
-    Alcotest.(check bool) "multi corrections" true (List.length corrections >= 2)
+    Alcotest.(check bool) "label remains absent" false (has_object_key "label" corrected);
+    Alcotest.(check int) "coercion only" 1 (List.length corrections)
   | Still_invalid _ -> Alcotest.fail "expected Fixed after multi-stage"
+;;
+
+let test_default_pipeline_preserves_execute_union_branch () =
+  let schema =
+    make_schema
+      [ str_param "executable" false
+      ; array_param "argv" false
+      ; array_param "pipeline" false
+      ; object_param "env" false
+      ; str_param "cwd" false
+      ; number_param "timeout_sec" false
+      ]
+  in
+  let input = `Assoc [ "executable", `String "ls"; "argv", `List [ `String "repos" ] ] in
+  match Correction_pipeline.run ~schema input with
+  | Fixed { corrected; _ } ->
+    Alcotest.(check bool)
+      "pipeline remains absent"
+      false
+      (has_object_key "pipeline" corrected);
+    Alcotest.(check bool) "env remains absent" false (has_object_key "env" corrected);
+    Alcotest.(check bool) "cwd remains absent" false (has_object_key "cwd" corrected);
+    Alcotest.(check bool)
+      "timeout_sec remains absent"
+      false
+      (has_object_key "timeout_sec" corrected)
+  | Still_invalid _ -> Alcotest.fail "expected Fixed"
 ;;
 
 let test_valid_input_no_corrections () =
@@ -201,6 +263,10 @@ let () =
     ; ( "default_injection"
       , [ Alcotest.test_case "missing optional" `Quick test_default_missing_optional
         ; Alcotest.test_case
+            "default pipeline preserves missing optional"
+            `Quick
+            test_default_pipeline_preserves_missing_optional
+        ; Alcotest.test_case
             "no inject if present"
             `Quick
             test_default_no_inject_if_present
@@ -210,6 +276,10 @@ let () =
       , [ Alcotest.test_case "trim whitespace" `Quick test_format_trim_whitespace ] )
     ; ( "combined"
       , [ Alcotest.test_case "multi-stage" `Quick test_multi_stage_correction
+        ; Alcotest.test_case
+            "Execute branch-preserving default pipeline"
+            `Quick
+            test_default_pipeline_preserves_execute_union_branch
         ; Alcotest.test_case
             "valid = no corrections"
             `Quick

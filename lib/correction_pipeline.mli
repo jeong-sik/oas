@@ -4,10 +4,14 @@
     LLM retry. Enforces the Det/NonDet boundary at the function signature level:
     {!build_nondet_feedback} requires errors from a failed deterministic run.
 
-    Stage ordering (most specific first):
+    Default stage ordering (most specific first):
     1. Type coercion — delegates to {!Tool_input_validation.try_coerce}
-    2. Default injection — fills missing optional fields from schema
-    3. Format normalization — trims whitespace from string values
+    2. Format normalization — trims whitespace from string values
+
+    Zero-default injection remains available as an explicit stage for callers
+    that own a closed input shape. It is not part of the default pipeline
+    because optional fields can participate in discriminated tool-call unions,
+    where adding a missing optional field changes the caller-selected branch.
 
     Inspired by Typia's 3-layer harness (lenient parse → coercion → feedback).
 
@@ -69,8 +73,18 @@ val make_format_normalization_stage
   -> unit
   -> stage
 
-(** The default pipeline: [coercion; default_injection; format_normalization]. *)
+(** The default pipeline: [coercion; format_normalization].
+
+    Missing optional fields remain absent unless the caller opts into
+    {!zero_default_stages} or passes {!default_injection_stage} explicitly. *)
 val default_stages : stage list
+
+(** Legacy zero-value pipeline:
+    [coercion; default_injection; format_normalization].
+
+    Use only when absent optional fields are semantically equivalent to zero
+    values for the target tool. *)
+val zero_default_stages : stage list
 
 (** {1 Pipeline execution} *)
 
