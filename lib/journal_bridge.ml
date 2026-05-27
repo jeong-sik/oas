@@ -80,10 +80,15 @@ let projection_of_event (evt : Durable_event.event) : string * Yojson.Safe.t =
         ] )
 ;;
 
+let _log = Log.create ~module_name:"journal_bridge" ()
+
 let make ~bus ?correlation_id ?run_id () : Durable_event.event -> unit =
   fun evt ->
   let name, payload = projection_of_event evt in
-  Event_bus.publish
-    bus
-    (Event_bus.mk_event ?correlation_id ?run_id (Custom (name, payload)))
+  (try Event_bus.publish bus
+       (Event_bus.mk_event ?correlation_id ?run_id (Custom (name, payload)))
+   with exn ->
+     Log.warn _log
+       "Event_bus.publish failed in journal bridge"
+       [ Log.S ("error", Printexc.to_string exn) ])
 ;;

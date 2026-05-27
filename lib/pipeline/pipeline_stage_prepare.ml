@@ -8,6 +8,16 @@ open Agent_trace
     via local aliases so existing tests and call sites remain unchanged while
     the file is split by stage responsibility. *)
 
+let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
+
+let safe_publish bus event =
+  try Event_bus.publish bus event
+  with exn ->
+    Log.warn _stage_log
+      "Event_bus.publish failed"
+      [ Log.S ("error", Printexc.to_string exn) ]
+;;
+
 let stage_input ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
   set_lifecycle agent ~ready_at:ts Ready;
@@ -26,8 +36,7 @@ let stage_input ?raw_trace_run agent =
        let response = cb req in
        (match agent.options.event_bus with
         | Some bus ->
-          Event_bus.publish
-            bus
+          safe_publish bus
             (Event_bus.mk_event
                (ElicitationCompleted
                   { agent_name = agent.state.config.name
@@ -263,8 +272,7 @@ let stage_parse ?raw_trace_run agent =
   let original_config = original_config in
   (match agent.options.event_bus with
    | Some bus ->
-     Event_bus.publish
-       bus
+     safe_publish bus
        { meta =
            Event_bus.mk_envelope
              ~correlation_id:
@@ -306,8 +314,7 @@ let stage_parse ?raw_trace_run agent =
      Sibling of TurnStarted (announce) and TurnCompleted (post-LLM). *)
   (match agent.options.event_bus with
    | Some bus ->
-     Event_bus.publish
-       bus
+     safe_publish bus
        { meta =
            Event_bus.mk_envelope
              ~correlation_id:

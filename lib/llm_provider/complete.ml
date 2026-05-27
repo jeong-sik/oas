@@ -7,7 +7,6 @@
     @since 0.53.0  Streaming, retry
     @since 0.54.0  Optional cache + metrics hooks *)
 
-let _log = Log.create ~module_name:"complete" ()
 
 (* ── Internal: timed HTTP completion ──────────────────── *)
 
@@ -1094,9 +1093,8 @@ let complete
              let json = Cache.response_to_json resp in
              (try c.set ~key ~ttl_sec:Constants.Cache.default_ttl_sec json with
               | Eio.Io _ | Sys_error _ as exn ->
-                Log.warn _log
-                  "cache set failed"
-                  [ Log.S ("key", key); Log.S ("error", Printexc.to_string exn) ])
+                Diag.warn "complete"
+                  "cache set failed for key %s: %s" key (Printexc.to_string exn) )
            | _, _ -> ());
           Ok resp
         | Error err ->

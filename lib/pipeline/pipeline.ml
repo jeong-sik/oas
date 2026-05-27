@@ -408,8 +408,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
     });
   (match agent.options.event_bus with
    | Some bus ->
-     Event_bus.publish
-       bus
+     safe_publish bus
        { meta = Pipeline_common.event_envelope agent
        ; payload =
            TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
@@ -863,8 +862,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
                 }));
         (match agent.options.event_bus with
          | Some bus ->
-           Event_bus.publish
-             bus
+           safe_publish bus
              { meta = Pipeline_common.event_envelope agent
              ; payload =
                  ContextCompacted
@@ -958,8 +956,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
               }));
       (match agent.options.event_bus with
        | Some bus ->
-         Event_bus.publish
-           bus
+         safe_publish bus
            { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextCompacted
@@ -1041,8 +1038,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       (* Emit ContextOverflowImminent before compaction *)
       (match agent.options.event_bus with
        | Some bus ->
-         Event_bus.publish
-           bus
+         safe_publish bus
            { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextOverflowImminent
@@ -1056,8 +1052,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       (* Emit ContextCompactStarted *)
       (match agent.options.event_bus with
        | Some bus ->
-         Event_bus.publish
-           bus
+         safe_publish bus
            { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextCompactStarted
@@ -1157,8 +1152,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
         when agent.auto_context_overflow_retry && compact_attempts < 2 ->
         (match agent.options.event_bus with
          | Some bus ->
-           Event_bus.publish
-             bus
+           safe_publish bus
              { meta = Pipeline_common.event_envelope agent
              ; payload =
                  ContextCompactStarted

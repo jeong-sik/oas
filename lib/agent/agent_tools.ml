@@ -283,7 +283,11 @@ let find_and_execute_tool_with_index
           ?run_id
           (ToolCalled { agent_name; tool_name = name; input })
       in
-      Event_bus.publish bus ev;
+      (try Event_bus.publish bus ev
+       with exn ->
+         Log.warn _log
+           "Event_bus.publish failed (ToolCalled)"
+           [ Log.S ("error", Printexc.to_string exn) ]);
       Some ev.meta.run_id
     | None -> None
   in
@@ -542,13 +546,17 @@ let find_and_execute_tool_with_index
            }
        else Ok { content = output_content }
      in
-     Event_bus.publish
-       bus
-       (Event_bus.mk_event
-          ?correlation_id
-          ?run_id
-          ?caused_by:tool_called_run_id
-          (ToolCompleted { agent_name; tool_name = name; output }))
+     (try Event_bus.publish
+        bus
+        (Event_bus.mk_event
+           ?correlation_id
+           ?run_id
+           ?caused_by:tool_called_run_id
+           (ToolCompleted { agent_name; tool_name = name; output }))
+      with exn ->
+        Log.warn _log
+          "Event_bus.publish failed (ToolCompleted)"
+          [ Log.S ("error", Printexc.to_string exn) ])
    | None -> ());
   result
 ;;
