@@ -16,11 +16,9 @@ open Agent_trace
 let _log = Log.create ~module_name:"pipeline" ()
 
 let safe_publish bus event =
-  try Event_bus.publish bus event
-  with exn ->
-    Log.warn _log
-      "Event_bus.publish failed"
-      [ Log.S ("error", Printexc.to_string exn) ]
+  try Event_bus.publish bus event with
+  | exn ->
+    Log.warn _log "Event_bus.publish failed" [ Log.S ("error", Printexc.to_string exn) ]
 ;;
 
 (* ── Context compaction watermark ───────────────────── *)
@@ -37,10 +35,10 @@ let compact_watermark_default =
     (match float_of_string_opt s with
      | Some w when w > 0.0 && w < 1.0 -> w
      | _ ->
-       Eio.traceln
-         "[warn] [pipeline] OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), \
-          using 0.9"
-         s;
+       Log.warn
+         _log
+         "OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), using 0.9"
+         [ Log.S ("value", s) ];
        0.9)
 ;;
 
@@ -408,7 +406,8 @@ let stage_collect ?raw_trace_run agent ~original_config response =
     });
   (match agent.options.event_bus with
    | Some bus ->
-     safe_publish bus
+     safe_publish
+       bus
        { meta = Pipeline_common.event_envelope agent
        ; payload =
            TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
@@ -862,7 +861,8 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
                 }));
         (match agent.options.event_bus with
          | Some bus ->
-           safe_publish bus
+           safe_publish
+             bus
              { meta = Pipeline_common.event_envelope agent
              ; payload =
                  ContextCompacted
@@ -956,7 +956,8 @@ let emergency_compact ?raw_trace_run agent ?limit () =
               }));
       (match agent.options.event_bus with
        | Some bus ->
-         safe_publish bus
+         safe_publish
+           bus
            { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextCompacted
@@ -1038,7 +1039,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       (* Emit ContextOverflowImminent before compaction *)
       (match agent.options.event_bus with
        | Some bus ->
-         safe_publish bus
+         safe_publish
+           bus
            { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextOverflowImminent
@@ -1052,7 +1054,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       (* Emit ContextCompactStarted *)
       (match agent.options.event_bus with
        | Some bus ->
-         safe_publish bus
+         safe_publish
+           bus
            { meta = Pipeline_common.event_envelope agent
            ; payload =
                ContextCompactStarted
@@ -1152,7 +1155,8 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
         when agent.auto_context_overflow_retry && compact_attempts < 2 ->
         (match agent.options.event_bus with
          | Some bus ->
-           safe_publish bus
+           safe_publish
+             bus
              { meta = Pipeline_common.event_envelope agent
              ; payload =
                  ContextCompactStarted

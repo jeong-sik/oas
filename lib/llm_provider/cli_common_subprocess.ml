@@ -30,10 +30,10 @@ let cwd_wrapper = function
   | Some dir -> [ "/usr/bin/env"; "-C"; dir ]
 ;;
 
-(** Default stderr-line handler: route to [Eio.traceln] with a
+(** Default stderr-line handler: route to [Diag.warn] with a
     transport-name prefix.  Transports that want silence pass
     [~on_stderr_line:ignore]. *)
-let default_on_stderr_line ~name line = Eio.traceln "[%s stderr] %s" name line
+let default_on_stderr_line ~name line = Diag.warn name "[%s stderr] %s" name line
 
 let last_nonempty_line text =
   text
@@ -113,8 +113,9 @@ let run_core
        Eio.Flow.close r_stdin;
        (try Eio.Flow.copy_string s (w_stdin :> Eio.Flow.sink_ty Eio.Resource.t) with
         | exn ->
-          Eio.traceln
-            "cli_common_subprocess: stdin write raised: %s"
+          Diag.warn
+            "cli_common_subprocess"
+            "stdin write raised: %s"
             (Printexc.to_string exn));
        Eio.Flow.close w_stdin
      | _ -> ());
@@ -141,8 +142,9 @@ let run_core
           Buffer.add_char stdout_buf '\n';
           try on_line line with
           | exn ->
-            Eio.traceln
-              "cli_common_subprocess: on_line raised: %s"
+            Diag.warn
+              "cli_common_subprocess"
+              "on_line raised: %s"
               (Printexc.to_string exn)
         done
       with
@@ -170,8 +172,9 @@ let run_core
           Buffer.add_char stderr_buf '\n';
           try on_stderr_line line with
           | exn ->
-            Eio.traceln
-              "cli_common_subprocess: on_stderr_line raised: %s"
+            Diag.warn
+              "cli_common_subprocess"
+              "on_stderr_line raised: %s"
               (Printexc.to_string exn)
         done
       with
@@ -239,8 +242,9 @@ let run_core
           | Some predicate ->
             (try predicate stdout_str with
              | exn ->
-               Eio.traceln
-                 "cli_common_subprocess: stdout_recovery raised: %s"
+               Diag.warn
+                 "cli_common_subprocess"
+                 "stdout_recovery raised: %s"
                  (Printexc.to_string exn);
                false)
           | None -> false
@@ -252,9 +256,9 @@ let run_core
             | Some line -> line
             | None -> "<empty stderr>"
           in
-          Eio.traceln
-            "cli_common_subprocess: stdout_recovery accepted nonzero exit code %d; \
-             stderr_last=%s"
+          Diag.warn
+            "cli_common_subprocess"
+            "stdout_recovery accepted nonzero exit code %d; stderr_last=%s"
             code
             stderr_detail;
           Ok
