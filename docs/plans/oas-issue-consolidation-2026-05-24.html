@@ -272,7 +272,7 @@
           <span class="pill">New canonical issue: 1</span>
           <span class="pill">Canonical issues resolved: 6/6</span>
           <span class="pill">Closed by consolidation: 10</span>
-          <span class="pill">Remaining open: #1791 (CI)</span>
+          <span class="pill">Remaining: #1791 fix PR #1805 open</span>
           <span class="pill">Legacy policy: purge, no compatibility shim</span>
         </div>
       </div>
@@ -488,12 +488,12 @@
               <td>
                 <a href="https://github.com/jeong-sik/oas/issues/1791">#1791 CI failing: SDK independence term and Qwen_3 capability test</a>
               </td>
-              <td><span class="tag p1">OPEN</span></td>
+              <td><span class="tag p1">FIX PR #1805</span></td>
               <td>
-                <code>check-sdk-independence.sh</code> catches coordinator-specific term
-                in <code>capabilities.ml:1177</code>. Non-exhaustive pattern match in
-                <code>test_capabilities.ml</code> for <code>Qwen_3</code>. Latest main CI
-                runs show mixed success/failure. Needs targeted fix.
+                <code>check-sdk-independence.sh</code> catches <code>\bmasc\b</code> pattern
+                in comment at <code>capabilities.ml:1186</code>. Qwen_3 pattern match already
+                complete. Comment reworded to remove SDK-specific reference.
+                <a href="https://github.com/jeong-sik/oas/pull/1805">PR #1805</a> open.
               </td>
             </tr>
           </tbody>
