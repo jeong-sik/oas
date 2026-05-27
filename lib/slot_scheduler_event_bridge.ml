@@ -9,6 +9,8 @@
 
 module Sched = Llm_provider.Slot_scheduler
 
+let log = Log.create ~module_name:"slot_scheduler_event_bridge" ()
+
 let derive_state (snap : Sched.snapshot) : Event_bus.slot_scheduler_state =
   if snap.available = 0 && snap.queue_length > 0
   then Event_bus.Saturated
@@ -36,7 +38,13 @@ let publish_snap
          ; state = derive_state snap
          })
   in
-  Event_bus.publish bus event
+  try Event_bus.publish bus event
+  with exn ->
+    Log.warn log
+      "publish_snap failed after slot scheduler observation"
+      [ Log.S ("correlation_id", correlation_id)
+      ; Log.S ("error", Printexc.to_string exn)
+      ]
 ;;
 
 let publish_snapshot
