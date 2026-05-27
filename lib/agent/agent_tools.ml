@@ -152,30 +152,11 @@ let unknown_tool_failure ~requested ~available =
   , failure_kind )
 ;;
 
-let has_assoc_key key fields = List.exists (fun (k, _) -> String.equal k key) fields
-
-let normalize_read_alias_input = function
-  | `Assoc fields as input ->
-    if has_assoc_key "file_path" fields
-    then input
-    else (
-      match List.assoc_opt "path" fields with
-      | Some path -> `Assoc (("file_path", path) :: fields)
-      | None -> input)
-  | input -> input
-;;
-
-let legacy_tool_alias requested input =
-  match requested with
-  | "Read" -> Some ("ReadFile", normalize_read_alias_input input)
-  | _ -> None
-;;
-
 let resolve_tool_call tool_index name input =
   match find_in_index tool_index name with
   | Some tool -> name, input, Some tool, None
   | None ->
-    (match legacy_tool_alias name input with
+    (match Agent_tool_name_alias.resolve ~requested:name ~input with
      | Some (alias, aliased_input) ->
        (match find_in_index tool_index alias with
         | Some tool -> alias, aliased_input, Some tool, Some alias
@@ -305,7 +286,7 @@ let find_and_execute_tool_with_index
    | Some alias ->
      Log.info
        _log
-       "legacy tool alias resolved"
+       "provider tool name alias resolved"
        [ Log.S ("requested_tool", requested_name); Log.S ("resolved_tool", alias) ]
    | None -> ());
   (* ToolCalled event — capture the published envelope's run_id so the

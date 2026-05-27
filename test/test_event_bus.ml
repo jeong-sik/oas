@@ -645,7 +645,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
   | _ -> fail "on_error fired more than once"
 ;;
 
-let test_legacy_read_dispatches_to_read_file_when_visible () =
+let test_provider_read_alias_dispatches_to_read_file_when_visible () =
   Eio_main.run
   @@ fun _env ->
   let context = Context.create () in
@@ -689,9 +689,9 @@ let test_legacy_read_dispatches_to_read_file_when_visible () =
       ~schedule
       "Read"
       (`Assoc [ "path", `String "README.md" ])
-      "tool-legacy-read"
+      "tool-name-alias-read"
   in
-  check bool "legacy Read succeeds" false result.is_error;
+  check bool "provider Read alias succeeds" false result.is_error;
   check string "result uses visible tool name" "ReadFile" result.tool_name;
   check string "read content" "read-ok" result.content;
   check bool "on_error not called" false !on_error_called;
@@ -717,6 +717,146 @@ let test_legacy_read_dispatches_to_read_file_when_visible () =
           | Event_bus.ToolCompleted { tool_name; _ } -> String.equal tool_name "ReadFile"
           | _ -> false)
        events)
+;;
+
+let test_provider_search_alias_dispatches_to_search_files_when_visible () =
+  Eio_main.run
+  @@ fun _env ->
+  let context = Context.create () in
+  let captured_input = ref `Null in
+  let search_files =
+    Tool.create
+      ~name:"SearchFiles"
+      ~description:"Search files"
+      ~parameters:[]
+      (fun input ->
+         captured_input := input;
+         Ok { Types.content = "search-ok" })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; concurrency_class = "sequential_workspace"
+    ; batch_kind = "sequential"
+    }
+  in
+  let on_error_called = ref false in
+  let hooks =
+    { Hooks.empty with
+      on_error =
+        Some
+          (fun _event ->
+            on_error_called := true;
+            Hooks.Continue)
+    }
+  in
+  let result =
+    Agent_tools.find_and_execute_tool
+      ~context
+      ~tools:[ search_files ]
+      ~hooks
+      ~event_bus:None
+      ~tracer:Tracing.null
+      ~agent_name:"agent"
+      ~turn_count:0
+      ~schedule
+      "Grep"
+      (`Assoc [ "query", `String "tool_returned_error_result"; "path", `String "logs" ])
+      "tool-name-alias-search"
+  in
+  check bool "provider Grep alias succeeds" false result.is_error;
+  check string "result uses visible tool name" "SearchFiles" result.tool_name;
+  check string "search content" "search-ok" result.content;
+  check bool "on_error not called" false !on_error_called;
+  match !captured_input with
+  | `Assoc fields ->
+    check
+      (option string)
+      "query normalized to pattern"
+      (Some "tool_returned_error_result")
+      (match List.assoc_opt "pattern" fields with
+       | Some (`String pattern) -> Some pattern
+       | _ -> None);
+    check
+      (option string)
+      "path preserved"
+      (Some "logs")
+      (match List.assoc_opt "path" fields with
+       | Some (`String path) -> Some path
+       | _ -> None)
+  | _ -> fail "expected object input"
+;;
+
+let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
+  Eio_main.run
+  @@ fun _env ->
+  let context = Context.create () in
+  let captured_input = ref `Null in
+  let execute =
+    Tool.create
+      ~name:"Execute"
+      ~description:"Execute command"
+      ~parameters:[]
+      (fun input ->
+         captured_input := input;
+         Ok { Types.content = "execute-ok" })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; concurrency_class = "sequential_workspace"
+    ; batch_kind = "sequential"
+    }
+  in
+  let result =
+    Agent_tools.find_and_execute_tool
+      ~context
+      ~tools:[ execute ]
+      ~hooks:Hooks.empty
+      ~event_bus:None
+      ~tracer:Tracing.null
+      ~agent_name:"agent"
+      ~turn_count:0
+      ~schedule
+      "execute_command"
+      (`Assoc [ "command", `String "git status --short"; "cwd", `String "/tmp/workspace" ])
+      "tool-name-alias-execute"
+  in
+  check bool "provider execute_command alias succeeds" false result.is_error;
+  check string "result uses visible tool name" "Execute" result.tool_name;
+  check string "execute content" "execute-ok" result.content;
+  match !captured_input with
+  | `Assoc fields ->
+    check
+      (option string)
+      "command normalized to executable"
+      (Some "git")
+      (match List.assoc_opt "executable" fields with
+       | Some (`String executable) -> Some executable
+       | _ -> None);
+    check
+      (list string)
+      "command args normalized to argv"
+      [ "status"; "--short" ]
+      (match List.assoc_opt "argv" fields with
+       | Some (`List argv) ->
+         List.filter_map
+           (function
+             | `String arg -> Some arg
+             | _ -> None)
+           argv
+       | _ -> []);
+    check
+      (option string)
+      "cwd preserved"
+      (Some "/tmp/workspace")
+      (match List.assoc_opt "cwd" fields with
+       | Some (`String cwd) -> Some cwd
+       | _ -> None);
+    check bool "raw command omitted" false (List.mem_assoc "command" fields)
+  | _ -> fail "expected object input"
 ;;
 
 let test_on_error_silent_on_successful_dispatch () =
@@ -1061,9 +1201,17 @@ let () =
             `Quick
             test_unknown_tool_reports_available_tools_and_retries
         ; test_case
-            "legacy Read dispatches to ReadFile when visible"
+            "provider Read alias dispatches to ReadFile when visible"
             `Quick
-            test_legacy_read_dispatches_to_read_file_when_visible
+            test_provider_read_alias_dispatches_to_read_file_when_visible
+        ; test_case
+            "provider Grep alias dispatches to SearchFiles when visible"
+            `Quick
+            test_provider_search_alias_dispatches_to_search_files_when_visible
+        ; test_case
+            "provider execute_command alias dispatches to typed Execute when visible"
+            `Quick
+            test_provider_execute_alias_dispatches_simple_command_as_typed_argv
         ; test_case
             "on_error silent on successful dispatch"
             `Quick
