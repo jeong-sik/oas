@@ -118,6 +118,40 @@ let json_object_keys_for_log = function
   | _ -> "-"
 ;;
 
+let tool_names_of_index index =
+  Hashtbl.fold (fun name _ acc -> name :: acc) index.by_name []
+  |> List.sort_uniq String.compare
+;;
+
+let preview_tool_names ?(limit = 12) names =
+  match names with
+  | [] -> "(none)"
+  | _ ->
+    let rec take n rest =
+      if n = 0
+      then []
+      else (
+        match rest with
+        | [] -> []
+        | x :: xs -> x :: take (n - 1) xs)
+    in
+    let visible = take limit names in
+    let suffix =
+      let extra = List.length names - List.length visible in
+      if extra > 0 then [ Printf.sprintf "...(+%d more)" extra ] else []
+    in
+    String.concat "," (visible @ suffix)
+;;
+
+let unknown_tool_failure ~requested ~available =
+  let available_preview = preview_tool_names available in
+  let failure_kind =
+    if available = [] then Some Non_retryable_tool_error else Some Validation_error
+  in
+  ( Printf.sprintf "Tool not found: %s. Available tools: %s" requested available_preview
+  , failure_kind )
+;;
+
 let tool_exception_result ~id ~name exn =
   let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
   { tool_use_id = id
@@ -457,7 +491,17 @@ let find_and_execute_tool_with_index
          registered). Distinct from OnToolError — that fires when a
          tool actually ran and returned Error. This is a configuration
          / routing mistake, so it belongs on the general OnError
-         channel. First production emit site for Hooks.OnError (#1032). *)
+         channel. Unknown names are treated as validation errors when
+         the current turn has visible tools, so the retry path can use
+         the actual schema instead of preserving a stale name. *)
+        let available = tool_names_of_index tool_index in
+        let message, failure_kind = unknown_tool_failure ~requested:name ~available in
+        Log.warn
+          _log
+          "tool not found"
+          [ Log.S ("tool", name)
+          ; Log.S ("available_tools", preview_tool_names available)
+          ];
         ignore
           (invoke_hook
              ?on_hook_invoked
@@ -467,15 +511,13 @@ let find_and_execute_tool_with_index
              ~hook_name:"on_error"
              hooks.on_error
              (Hooks.OnError
-                { detail = Printf.sprintf "Tool not found: %s" name
-                ; context = "agent_tools.find_and_execute_tool"
-                })
+                { detail = message; context = "agent_tools.find_and_execute_tool" })
            : Hooks.hook_decision);
         { tool_use_id = id
         ; tool_name = name
-        ; content = "Tool not found"
+        ; content = message
         ; is_error = true
-        ; failure_kind = Some Non_retryable_tool_error
+        ; failure_kind
         ; error_class = Some Types.Deterministic
         }
     with
