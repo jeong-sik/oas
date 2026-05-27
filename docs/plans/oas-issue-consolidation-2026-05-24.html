@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>OAS Issue Consolidation Execution Plan - 2026-05-24 (Resolved 2026-05-28)</title>
+    <title>OAS Issue Consolidation Execution Plan - 2026-05-24 (6/6 Canonical Resolved, #1791 Pending)</title>
     <style>
       :root {
         --ink: #17212b;
@@ -261,7 +261,7 @@
       <div class="wrap">
         <h1>OAS Issue Consolidation Execution Plan</h1>
         <p class="muted">
-          Audit date: 2026-05-24 KST. Resolution complete: 2026-05-25 KST.
+          Audit date: 2026-05-24 KST. Canonical issues resolved: 2026-05-25 KST.
           Repository:
           <a href="https://github.com/jeong-sik/oas">jeong-sik/oas</a>.
           Local base: <code>main</code> at <code>b70bfc56</code> / tag
@@ -269,10 +269,10 @@
         </p>
         <div class="meta">
           <span class="pill">Initial open issues: 15</span>
-          <span class="pill">New canonical issue: 1</span>
+          <span class="pill">New issue from audit: #1791</span>
           <span class="pill">Canonical issues resolved: 6/6</span>
           <span class="pill">Closed by consolidation: 10</span>
-          <span class="pill">Remaining: #1791 fix PR #1805 open</span>
+          <span class="pill">Remaining: #1791 PR #1805 + #1806 follow-up</span>
           <span class="pill">Legacy policy: purge, no compatibility shim</span>
         </div>
       </div>
@@ -496,6 +496,17 @@
                 <a href="https://github.com/jeong-sik/oas/pull/1805">PR #1805</a> open.
               </td>
             </tr>
+            <tr>
+              <td>
+                <a href="https://github.com/jeong-sik/oas/issues/1806">#1806 [codex] fix legacy tool aliases</a>
+              </td>
+              <td><span class="tag p1">OPEN</span></td>
+              <td>
+                Follow-up from consolidation. Legacy tool-call aliases (<code>Grep</code>/<code>Search</code>/<code>Find</code>
+                → <code>SearchFiles</code>, <code>Bash</code>/<code>Shell</code> → <code>Execute</code>) need expansion
+                so stale provider/tool names resolve correctly.
+              </td>
+            </tr>
           </tbody>
         </table>
       </section>
@@ -518,10 +529,11 @@
             </p>
           </div>
           <div class="card">
-            <h3>Level 3: Product roadmap track <span class="tag done">IN PROGRESS</span></h3>
+            <h3>Level 3: Product roadmap track <span class="tag done">TRACKS ACTIVE</span></h3>
             <p>
               #522 (agent surface parity) and #484 (runtime replay) closed as
-              issues but feature worktrees remain active for incremental delivery.
+              consolidation issues. Feature worktrees remain active for incremental
+              delivery — these are ongoing product tracks, not consolidation blockers.
             </p>
           </div>
           <div class="card">
