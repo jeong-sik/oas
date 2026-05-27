@@ -254,6 +254,45 @@
           white-space: nowrap;
         }
       }
+
+      @media print {
+        body {
+          background: #ffffff;
+          font-size: 12px;
+        }
+
+        header {
+          border-bottom: 2px solid #000;
+        }
+
+        .pill {
+          border-color: #999;
+        }
+
+        a {
+          color: #000;
+          text-decoration: underline;
+        }
+
+        a[href^="http"]::after {
+          content: " (" attr(href) ")";
+          font-size: 10px;
+          color: #666;
+          word-break: break-all;
+        }
+
+        .step {
+          break-inside: avoid;
+        }
+
+        table {
+          break-inside: avoid;
+        }
+
+        section {
+          break-inside: avoid;
+        }
+      }
     </style>
   </head>
   <body>
