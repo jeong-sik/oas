@@ -12,6 +12,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Apply with `OAS_CAPABILITY_MANIFEST=docs/example-capability-manifest.json` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
 
+## [0.200.6](https://github.com/jeong-sik/oas/compare/v0.200.5...v0.200.6) (2026-05-27)
+
+
+### Bug Fixes
+
+* **telemetry:** replace Eio.traceln with structured Log/Diag ([#1801](https://github.com/jeong-sik/oas/issues/1801)) ([a71c21b](https://github.com/jeong-sik/oas/commit/a71c21bcc91d18715277cc508a09ea5e438ac503))
+
 ## [0.200.5](https://github.com/jeong-sik/oas/compare/v0.200.4...v0.200.5) (2026-05-27)
 
 
