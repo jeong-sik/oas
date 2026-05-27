@@ -1183,8 +1183,8 @@ let%test "for_model_id provider_k-4.5-flash has GLM-4.5 thinking limits" =
 
 (* qwen3 family tests use [for_model_id_static] rather than [for_model_id]
    so they remain stable when an ambient [OAS_CAPABILITY_MANIFEST] or
-   the default [~/.masc/config/capability-manifest.json] overrides the
-   static table — the contract under test here is the static fallback
+   an external manifest file overrides the static table — the contract
+   under test here is the static fallback
    for environments without a manifest. *)
 let%test "for_model_id_static qwen3 has extended thinking" =
   match for_model_id_static "qwen3-32b" with
