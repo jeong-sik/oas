@@ -15,6 +15,14 @@ open Agent_trace
 
 let _log = Log.create ~module_name:"pipeline" ()
 
+let safe_publish bus event =
+  try Event_bus.publish bus event
+  with exn ->
+    Log.warn _log
+      "Event_bus.publish failed"
+      [ Log.S ("error", Printexc.to_string exn) ]
+;;
+
 (* ── Context compaction watermark ───────────────────── *)
 
 (** Default ratio at which proactive compaction fires (0.9 = 90% of context).
