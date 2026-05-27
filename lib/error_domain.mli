@@ -51,6 +51,8 @@ type agent_error =
         with no pricing entry, so the cap cannot be enforced. *)
   | `Idle_detected of int (** consecutive_idle_turns *)
   | `Tool_retry_exhausted of int * int * string (** attempts, limit, detail *)
+  | `Agent_execution_timeout of float * float * int * int
+    (** elapsed_sec, timeout_sec, turn_count, max_turns *)
   | `Completion_contract_violation of
       Completion_contract_id.t * string * Completion_contract_violation_detail.t option
     (** contract, reason, violation detail *)

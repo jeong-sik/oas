@@ -272,15 +272,17 @@ let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
 let with_optional_timeout ?clock agent f =
   match agent.options.max_execution_time_s, clock with
   | Some timeout_s, Some clock ->
+    let started_at = Unix.gettimeofday () in
     (try Eio.Time.with_timeout_exn clock timeout_s f with
      | Eio.Time.Timeout ->
+       let elapsed_sec = Float.max 0.0 (Unix.gettimeofday () -. started_at) in
        Error
-         (Error.Api
-            (Llm_provider.Retry.Timeout
-               { message =
-                   Printf.sprintf
-                     "Agent execution exceeded max_execution_time_s (%f)"
-                     timeout_s
+         (Error.Agent
+            (Error.AgentExecutionTimeout
+               { elapsed_sec
+               ; timeout_sec = timeout_s
+               ; turn_count = agent.state.turn_count
+               ; max_turns = agent.state.config.max_turns
                })))
   | _ -> f ()
 ;;

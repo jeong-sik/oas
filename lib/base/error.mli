@@ -54,6 +54,12 @@ type agent_error =
       ; limit : int
       ; detail : string
       }
+  | AgentExecutionTimeout of
+      { elapsed_sec : float
+      ; timeout_sec : float
+      ; turn_count : int
+      ; max_turns : int
+      }
   | CompletionContractViolation of
       { contract : Completion_contract_id.t
       ; reason : string
