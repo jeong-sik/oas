@@ -52,6 +52,25 @@
         border-radius: 2px;
       }
 
+      .skip-link {
+        position: absolute;
+        top: -100%;
+        left: 8px;
+        z-index: 100;
+        padding: 8px 16px;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 0 0 6px 6px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: top 0.15s;
+      }
+
+      .skip-link:focus {
+        top: 0;
+      }
+
       header {
         background: #ffffff;
         border-bottom: 1px solid var(--line);
@@ -403,10 +422,24 @@
           border-color: var(--accent);
           color: var(--accent);
         }
+
+        .pill {
+          background: var(--surface);
+          border-color: var(--line);
+        }
+
+        header {
+          background: var(--surface);
+        }
+
+        .metric strong {
+          color: var(--accent);
+        }
       }
     </style>
   </head>
   <body>
+    <a href="#main-content" class="skip-link">Skip to content</a>
     <header id="top">
       <div class="wrap">
         <h1>OAS Issue Consolidation Execution Plan</h1>
@@ -430,7 +463,7 @@
       </div>
     </header>
 
-    <main class="wrap">
+    <main class="wrap" id="main-content">
       <nav class="toc" aria-label="Table of contents">
         <strong>Contents</strong>
         <a href="#outcome">Outcome</a>
