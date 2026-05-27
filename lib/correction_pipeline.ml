@@ -128,7 +128,9 @@ let format_normalization_stage = make_format_normalization_stage ()
 
 (* ── Default pipeline ───────────────────────────────────── *)
 
-let default_stages =
+let default_stages = [ coercion_stage; format_normalization_stage ]
+
+let zero_default_stages =
   [ coercion_stage; default_injection_stage; format_normalization_stage ]
 ;;
 
