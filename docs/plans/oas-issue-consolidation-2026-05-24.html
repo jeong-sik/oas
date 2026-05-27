@@ -207,6 +207,39 @@
         color: var(--accent);
       }
 
+      .toc {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        padding: 14px 0;
+        margin-bottom: 8px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .toc strong {
+        font-size: 13px;
+        color: var(--muted);
+        margin-right: 4px;
+      }
+
+      .toc a {
+        display: inline-block;
+        padding: 4px 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        font-size: 13px;
+        color: var(--ink);
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+      }
+
+      .toc a:hover {
+        background: var(--accent-soft);
+        border-color: var(--accent);
+        color: var(--accent);
+      }
+
       .muted {
         color: var(--muted);
       }
@@ -266,6 +299,10 @@
       }
 
       @media print {
+        .toc {
+          display: none;
+        }
+
         body {
           background: #ffffff;
           font-size: 12px;
@@ -329,7 +366,18 @@
     </header>
 
     <main class="wrap">
-      <section>
+      <nav class="toc">
+        <strong>Contents</strong>
+        <a href="#outcome">Outcome</a>
+        <a href="#canonical">Canonical Issues</a>
+        <a href="#consolidated">Closed / Consolidated</a>
+        <a href="#execution">Execution Order</a>
+        <a href="#remaining">Remaining Work</a>
+        <a href="#levels">Implementation Levels</a>
+        <a href="#evidence">Evidence</a>
+      </nav>
+
+      <section id="outcome">
         <h2>Outcome</h2>
         <div class="grid cols-3">
           <div class="card metric">
@@ -347,7 +395,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="canonical">
         <h2>Canonical Issues (All Resolved)</h2>
         <table>
           <thead>
@@ -440,7 +488,7 @@
         </table>
       </section>
 
-      <section>
+      <section id="consolidated">
         <h2>Closed / Consolidated Issues</h2>
         <table>
           <thead>
@@ -492,7 +540,7 @@
         </table>
       </section>
 
-      <section>
+      <section id="execution">
         <h2>Execution Order (Completed)</h2>
         <div class="timeline">
           <div class="step">
@@ -551,7 +599,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="remaining">
         <h2>Remaining Work</h2>
         <table>
           <thead>
@@ -589,7 +637,7 @@
         </table>
       </section>
 
-      <section>
+      <section id="levels">
         <h2>Implementation Levels</h2>
         <div class="grid cols-2">
           <div class="card">
@@ -632,7 +680,7 @@
         </div>
       </section>
 
-      <section>
+      <section id="evidence">
         <h2>Evidence</h2>
         <table>
           <thead>
