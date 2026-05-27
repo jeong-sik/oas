@@ -35,6 +35,24 @@ let test_roundtrip_agent_max_turns () =
   | _ -> Alcotest.fail "roundtrip mismatch for MaxTurnsExceeded"
 ;;
 
+let test_roundtrip_agent_execution_timeout () =
+  let orig =
+    Error.Agent
+      (AgentExecutionTimeout
+         { elapsed_sec = 12.0; timeout_sec = 10.0; turn_count = 4; max_turns = 8 })
+  in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Agent_execution_timeout (12.0, 10.0, 4, 8) -> ()
+   | _ -> Alcotest.fail "expected Agent_execution_timeout");
+  let back = Error_domain.to_sdk_error poly in
+  match back with
+  | Error.Agent
+      (AgentExecutionTimeout
+         { elapsed_sec = 12.0; timeout_sec = 10.0; turn_count = 4; max_turns = 8 }) -> ()
+  | _ -> Alcotest.fail "roundtrip mismatch for AgentExecutionTimeout"
+;;
+
 let test_roundtrip_config_missing_env () =
   let orig = Error.Config (MissingEnvVar { var_name = "API_KEY" }) in
   let poly = Error_domain.of_sdk_error orig in
@@ -138,6 +156,7 @@ let test_to_string_each_variant () =
     ; `Max_turns_exceeded (20, 10)
     ; `Token_budget_exceeded (5000, 4000)
     ; `Idle_detected 5
+    ; `Agent_execution_timeout (12.0, 10.0, 4, 8)
     ; `Completion_contract_violation
         (Completion_contract.Require_tool_use, "no ToolUse block", None)
     ; `Unrecognized_stop_reason "weird"
@@ -183,6 +202,7 @@ let test_all_variants_convert () =
     ; `Max_turns_exceeded (1, 2)
     ; `Token_budget_exceeded (100, 50)
     ; `Idle_detected 3
+    ; `Agent_execution_timeout (12.0, 10.0, 4, 8)
     ; `Completion_contract_violation
         (Completion_contract.Require_tool_use, "no ToolUse block", None)
     ; `Unrecognized_stop_reason "x"
@@ -765,6 +785,10 @@ let () =
             `Quick
             test_roundtrip_api_context_overflow_no_limit
         ; Alcotest.test_case "agent max_turns" `Quick test_roundtrip_agent_max_turns
+        ; Alcotest.test_case
+            "agent execution_timeout"
+            `Quick
+            test_roundtrip_agent_execution_timeout
         ; Alcotest.test_case "agent token_budget" `Quick test_roundtrip_agent_token_budget
         ; Alcotest.test_case
             "agent idle_detected"

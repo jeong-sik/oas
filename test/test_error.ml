@@ -65,6 +65,19 @@ let test_agent_token_budget () =
     (Error.to_string err)
 ;;
 
+let test_agent_execution_timeout () =
+  let err =
+    Error.Agent
+      (AgentExecutionTimeout
+         { elapsed_sec = 12.3; timeout_sec = 10.0; turn_count = 4; max_turns = 8 })
+  in
+  check
+    string
+    "agent execution timeout"
+    "Agent execution timed out after 12.3s (max_execution_time_s=10.0s, turns=4/8)"
+    (Error.to_string err)
+;;
+
 let test_agent_stop_reason () =
   let err = Error.Agent (UnrecognizedStopReason { reason = "unknown_42" }) in
   check
@@ -264,6 +277,7 @@ let () =
         ; test_case "Provider timeout phase" `Quick test_provider_timeout_phase
         ; test_case "Agent MaxTurnsExceeded" `Quick test_agent_max_turns
         ; test_case "Agent TokenBudgetExceeded" `Quick test_agent_token_budget
+        ; test_case "Agent AgentExecutionTimeout" `Quick test_agent_execution_timeout
         ; test_case
             "Agent CompletionContractViolation"
             `Quick

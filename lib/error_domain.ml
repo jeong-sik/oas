@@ -26,6 +26,7 @@ type agent_error =
   | `Cost_budget_unenforceable of string * float
   | `Idle_detected of int
   | `Tool_retry_exhausted of int * int * string
+  | `Agent_execution_timeout of float * float * int * int
   | `Completion_contract_violation of
       Completion_contract_id.t * string * Completion_contract_violation_detail.t option
   | `Guardrail_violation of string * string
@@ -115,6 +116,8 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
   | Error.Agent (ToolRetryExhausted r) ->
     `Tool_retry_exhausted (r.attempts, r.limit, r.detail)
+  | Error.Agent (AgentExecutionTimeout r) ->
+    `Agent_execution_timeout (r.elapsed_sec, r.timeout_sec, r.turn_count, r.max_turns)
   | Error.Agent (CompletionContractViolation r) ->
     `Completion_contract_violation (r.contract, r.reason, r.violation_detail)
   | Error.Agent (GuardrailViolation r) -> `Guardrail_violation (r.validator, r.reason)
@@ -171,6 +174,9 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   | `Idle_detected n -> Error.Agent (IdleDetected { consecutive_idle_turns = n })
   | `Tool_retry_exhausted (attempts, limit, detail) ->
     Error.Agent (ToolRetryExhausted { attempts; limit; detail })
+  | `Agent_execution_timeout (elapsed_sec, timeout_sec, turn_count, max_turns) ->
+    Error.Agent
+      (AgentExecutionTimeout { elapsed_sec; timeout_sec; turn_count; max_turns })
   | `Completion_contract_violation (contract, reason, violation_detail) ->
     Error.Agent (CompletionContractViolation { contract; reason; violation_detail })
   | `Guardrail_violation (validator, reason) ->

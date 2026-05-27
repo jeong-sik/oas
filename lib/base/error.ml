@@ -52,6 +52,12 @@ type agent_error =
       ; limit : int
       ; detail : string
       }
+  | AgentExecutionTimeout of
+      { elapsed_sec : float
+      ; timeout_sec : float
+      ; turn_count : int
+      ; max_turns : int
+      }
   | CompletionContractViolation of
       { contract : Completion_contract_id.t
       ; reason : string
@@ -185,6 +191,13 @@ let agent_error_to_string = function
       r.attempts
       r.limit
       r.detail
+  | AgentExecutionTimeout r ->
+    Printf.sprintf
+      "Agent execution timed out after %.1fs (max_execution_time_s=%.1fs, turns=%d/%d)"
+      r.elapsed_sec
+      r.timeout_sec
+      r.turn_count
+      r.max_turns
   | CompletionContractViolation r ->
     Printf.sprintf
       "Completion contract [%s] violated: %s"

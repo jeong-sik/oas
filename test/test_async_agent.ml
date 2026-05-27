@@ -330,7 +330,11 @@ let test_all_timeout_is_per_agent () =
      | Ok resp -> check string "first sibling completed" "fast-1" (extract_text resp)
      | Error e -> fail (Printf.sprintf "first sibling failed: %s" (Error.to_string e)));
     (match lookup "all-slow" with
-     | Error (Error.Api (Retry.Timeout _)) -> ()
+     | Error
+         (Error.Agent
+            (Error.AgentExecutionTimeout { timeout_sec; turn_count; max_turns; _ })) ->
+       Alcotest.(check bool) "timeout budget preserved" true (timeout_sec <= 0.21);
+       Alcotest.(check bool) "turn count captured" true (turn_count <= max_turns)
      | Ok _ -> fail "slow branch should time out"
      | Error e -> fail (Printf.sprintf "wrong slow error: %s" (Error.to_string e)));
     (match lookup "all-fast-2" with
