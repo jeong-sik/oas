@@ -337,6 +337,13 @@ let find_and_execute_tool_with_index
                 ]);
             Ok corrected
           | Correction_pipeline.Still_invalid { errors; attempted } ->
+            Log.warn
+              _log
+              "correction_pipeline still invalid after deterministic fixes"
+              [ Log.S ("tool", name)
+              ; Log.I ("error_count", List.length errors)
+              ; Log.I ("attempted_corrections", List.length attempted)
+              ];
             (* Det correction insufficient — build structured feedback for the
            turn-level retry policy (pipeline Stage 5) to relay to the LLM. *)
             let message =
