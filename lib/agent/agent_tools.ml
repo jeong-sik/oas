@@ -152,6 +152,37 @@ let unknown_tool_failure ~requested ~available =
   , failure_kind )
 ;;
 
+let has_assoc_key key fields = List.exists (fun (k, _) -> String.equal k key) fields
+
+let normalize_read_alias_input = function
+  | `Assoc fields as input ->
+    if has_assoc_key "file_path" fields
+    then input
+    else (
+      match List.assoc_opt "path" fields with
+      | Some path -> `Assoc (("file_path", path) :: fields)
+      | None -> input)
+  | input -> input
+;;
+
+let legacy_tool_alias requested input =
+  match requested with
+  | "Read" -> Some ("ReadFile", normalize_read_alias_input input)
+  | _ -> None
+;;
+
+let resolve_tool_call tool_index name input =
+  match find_in_index tool_index name with
+  | Some tool -> name, input, Some tool, None
+  | None ->
+    (match legacy_tool_alias name input with
+     | Some (alias, aliased_input) ->
+       (match find_in_index tool_index alias with
+        | Some tool -> alias, aliased_input, Some tool, Some alias
+        | None -> name, input, None, None)
+     | None -> name, input, None, None)
+;;
+
 let tool_exception_result ~id ~name exn =
   let msg = Printf.sprintf "Tool '%s' raised: %s" name (Printexc.to_string exn) in
   { tool_use_id = id
@@ -268,6 +299,15 @@ let find_and_execute_tool_with_index
       input
       id
   =
+  let requested_name = name in
+  let name, input, tool_opt, alias_opt = resolve_tool_call tool_index name input in
+  (match alias_opt with
+   | Some alias ->
+     Log.info
+       _log
+       "legacy tool alias resolved"
+       [ Log.S ("requested_tool", requested_name); Log.S ("resolved_tool", alias) ]
+   | None -> ());
   (* ToolCalled event — capture the published envelope's run_id so the
      matching ToolCompleted records it as caused_by, preserving the
      call -> completion causation chain per tool invocation (#877).
@@ -283,15 +323,15 @@ let find_and_execute_tool_with_index
           ?run_id
           (ToolCalled { agent_name; tool_name = name; input })
       in
-      (try Event_bus.publish bus ev
-       with exn ->
-         Log.warn _log
+      (try Event_bus.publish bus ev with
+       | exn ->
+         Log.warn
+           _log
            "Event_bus.publish failed (ToolCalled)"
            [ Log.S ("error", Printexc.to_string exn) ]);
       Some ev.meta.run_id
     | None -> None
   in
-  let tool_opt = find_in_index tool_index name in
   let result =
     try
       match tool_opt with
@@ -499,11 +539,13 @@ let find_and_execute_tool_with_index
          the current turn has visible tools, so the retry path can use
          the actual schema instead of preserving a stale name. *)
         let available = tool_names_of_index tool_index in
-        let message, failure_kind = unknown_tool_failure ~requested:name ~available in
+        let message, failure_kind =
+          unknown_tool_failure ~requested:requested_name ~available
+        in
         Log.warn
           _log
           "tool not found"
-          [ Log.S ("tool", name)
+          [ Log.S ("tool", requested_name)
           ; Log.S ("available_tools", preview_tool_names available)
           ];
         ignore
@@ -518,7 +560,7 @@ let find_and_execute_tool_with_index
                 { detail = message; context = "agent_tools.find_and_execute_tool" })
            : Hooks.hook_decision);
         { tool_use_id = id
-        ; tool_name = name
+        ; tool_name = requested_name
         ; content = message
         ; is_error = true
         ; failure_kind
@@ -546,15 +588,18 @@ let find_and_execute_tool_with_index
            }
        else Ok { content = output_content }
      in
-     (try Event_bus.publish
-        bus
-        (Event_bus.mk_event
-           ?correlation_id
-           ?run_id
-           ?caused_by:tool_called_run_id
-           (ToolCompleted { agent_name; tool_name = name; output }))
-      with exn ->
-        Log.warn _log
+     (try
+        Event_bus.publish
+          bus
+          (Event_bus.mk_event
+             ?correlation_id
+             ?run_id
+             ?caused_by:tool_called_run_id
+             (ToolCompleted { agent_name; tool_name = name; output }))
+      with
+      | exn ->
+        Log.warn
+          _log
           "Event_bus.publish failed (ToolCompleted)"
           [ Log.S ("error", Printexc.to_string exn) ])
    | None -> ());
