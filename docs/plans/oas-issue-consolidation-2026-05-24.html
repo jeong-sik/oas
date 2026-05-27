@@ -197,6 +197,16 @@
         color: var(--accent);
       }
 
+      .confidence {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 650;
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
       .muted {
         color: var(--muted);
       }
@@ -301,6 +311,7 @@
         <h1>OAS Issue Consolidation Execution Plan</h1>
         <p class="muted">
           Audit date: 2026-05-24 KST. Canonical issues resolved: 2026-05-25 KST.
+          Last updated: 2026-05-28 KST.
           Repository:
           <a href="https://github.com/jeong-sik/oas">jeong-sik/oas</a>.
           Local base: <code>main</code> at <code>b70bfc56</code> / tag
@@ -636,7 +647,7 @@
               <td>OpenAI reasoning</td>
               <td>
                 Official OpenAI Chat Completions reference, checked 2026-05-24
-                KST, confidence High:
+                KST, <span class="confidence">High</span>:
                 <a href="https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create">reasoning_effort parameter</a>.
               </td>
               <td>Map OpenAI reasoning-capable chat models to typed reasoning control.</td>
@@ -644,8 +655,8 @@
             <tr>
               <td>Z.AI coding endpoint</td>
               <td>
-                Official Z.AI API reference, checked 2026-05-24 KST, confidence
-                High:
+                Official Z.AI API reference, checked 2026-05-24 KST,
+                <span class="confidence">High</span>:
                 <a href="https://docs.z.ai/api-reference/introduction">general vs GLM Coding Plan endpoint</a>.
               </td>
               <td>Separate coding endpoint and credential defaults.</td>
@@ -653,7 +664,8 @@
             <tr>
               <td>Kimi thinking</td>
               <td>
-                Official Kimi API docs, checked 2026-05-24 KST, confidence High:
+                Official Kimi API docs, checked 2026-05-24 KST,
+                <span class="confidence">High</span>:
                 <a href="https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model">thinking enable/disable and reasoning_content</a>.
               </td>
               <td>Patch Kimi capability shape with evidence-backed thinking control.</td>
@@ -662,7 +674,7 @@
               <td>DashScope/Qwen thinking</td>
               <td>
                 Official Alibaba Model Studio docs, checked 2026-05-24 KST,
-                confidence High:
+                <span class="confidence">High</span>:
                 <a href="https://help.aliyun.com/zh/model-studio/deep-thinking">OpenAI-compatible enable_thinking and reasoning_content</a>.
               </td>
               <td>Patch DashScope/Qwen capability shape without provider string hacks.</td>
