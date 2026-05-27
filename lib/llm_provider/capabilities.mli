@@ -133,6 +133,7 @@ type static_model_route =
   | Provider_d_5
   | Provider_d_4_1
   | Provider_d_4o
+  | Mimo_v2_5_chat
   | Provider_f of provider_f_family
   | Provider_c_for_coding
   | Provider_c_k2

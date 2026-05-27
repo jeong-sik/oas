@@ -32,6 +32,60 @@
 
 open Result_syntax
 
+let bearer_auth_header_for_env api_key_env =
+  if String.trim api_key_env = "" then None else Some "Authorization"
+;;
+
+let string_has_suffix s suffix =
+  let len = String.length s in
+  let suffix_len = String.length suffix in
+  len >= suffix_len && String.sub s (len - suffix_len) suffix_len = suffix
+;;
+
+let string_has_prefix s prefix =
+  let len = String.length s in
+  let prefix_len = String.length prefix in
+  len >= prefix_len && String.sub s 0 prefix_len = prefix
+;;
+
+let trim_trailing_slashes s =
+  let rec loop i =
+    if
+      i > 0
+      && s.[i - 1] = '/'
+      && not (i >= 3 && s.[i - 3] = ':' && s.[i - 2] = '/' && s.[i - 1] = '/')
+    then loop (i - 1)
+    else String.sub s 0 i
+  in
+  loop (String.length s)
+;;
+
+let normalize_request_path path =
+  let path = String.trim path in
+  if path = "" || path.[0] = '/' then path else "/" ^ path
+;;
+
+let normalize_openai_compat_endpoint ~base_url ~path =
+  let base_url = base_url |> String.trim |> trim_trailing_slashes in
+  let path = normalize_request_path path in
+  let path =
+    if string_has_suffix base_url "/v1" && string_has_prefix path "/v1/"
+    then String.sub path 3 (String.length path - 3)
+    else path
+  in
+  base_url, path
+;;
+
+let openai_compat_config ~base_url ~api_key_env ?(path = "/v1/chat/completions") () =
+  let base_url, path = normalize_openai_compat_endpoint ~base_url ~path in
+  Provider.OpenAICompat
+    { base_url
+    ; auth_header = bearer_auth_header_for_env api_key_env
+    ; path
+    ; static_token = None
+    }
+;;
+
 (* ── Tool config ─────────────────────────────────────────── *)
 
 type tool_file_config =
@@ -273,20 +327,15 @@ let resolve_provider ~model_id provider_str base_url =
     | Some Provider_a ->
       { Provider.provider = Provider_a; model_id; api_key_env = "PROVIDER_A_API_KEY" }
     | Some Provider_d_compat ->
+      let api_key_env = "PROVIDER_D_API_KEY" in
       let url =
         match base_url with
         | Some u -> u
         | None -> "https://api.provider_d.com"
       in
-      { Provider.provider =
-          OpenAICompat
-            { base_url = url
-            ; auth_header = None
-            ; path = "/v1/chat/completions"
-            ; static_token = None
-            }
+      { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
       ; model_id
-      ; api_key_env = "PROVIDER_D_API_KEY"
+      ; api_key_env
       }
     | Some
         ( Provider_c
@@ -318,31 +367,26 @@ let resolve_provider ~model_id provider_str base_url =
                     flattens to Provider_d_compat. For kind-preserving override,
                     construct Llm_provider.Provider_config.t directly via
                     Provider_config.make. *)
+            let api_key_env = entry.defaults.api_key_env in
             { Provider.provider =
-                OpenAICompat
-                  { base_url = url
-                  ; auth_header = None
-                  ; path = entry.defaults.request_path
-                  ; static_token = None
-                  }
+                openai_compat_config
+                  ~base_url:url
+                  ~api_key_env
+                  ~path:entry.defaults.request_path
+                  ()
             ; model_id
-            ; api_key_env = entry.defaults.api_key_env
+            ; api_key_env
             })
        | None ->
+         let api_key_env = provider_str in
          let url =
            match base_url with
            | Some u -> u
            | None -> Defaults.local_llm_url
          in
-         { Provider.provider =
-             OpenAICompat
-               { base_url = url
-               ; auth_header = None
-               ; path = "/v1/chat/completions"
-               ; static_token = None
-               }
+         { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
          ; model_id
-         ; api_key_env = provider_str
+         ; api_key_env
          }))
 ;;
 

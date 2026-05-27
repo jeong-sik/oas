@@ -334,8 +334,9 @@ let test_resolve_provider_a () =
 let test_resolve_provider_d () =
   let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d" None in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } ->
+  | Provider.OpenAICompat { base_url; auth_header; _ } ->
     Alcotest.(check string) "base_url" "https://api.provider_d.com" base_url;
+    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header;
     Alcotest.(check string) "api_key_env" "PROVIDER_D_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
@@ -348,16 +349,18 @@ let test_resolve_provider_d_custom_url () =
       (Some "http://custom:4000")
   in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } ->
-    Alcotest.(check string) "custom url" "http://custom:4000" base_url
+  | Provider.OpenAICompat { base_url; auth_header; _ } ->
+    Alcotest.(check string) "custom url" "http://custom:4000" base_url;
+    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
 
 let test_resolve_other () =
   let cfg = Agent_config.resolve_provider ~model_id:"m1" "MY_CUSTOM_KEY" None in
   match cfg.provider with
-  | Provider.OpenAICompat _ ->
-    Alcotest.(check string) "api_key_env" "MY_CUSTOM_KEY" cfg.api_key_env
+  | Provider.OpenAICompat { auth_header; _ } ->
+    Alcotest.(check string) "api_key_env" "MY_CUSTOM_KEY" cfg.api_key_env;
+    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
 
@@ -366,8 +369,25 @@ let test_resolve_other_custom_url () =
     Agent_config.resolve_provider ~model_id:"m1" "MY_KEY" (Some "http://custom:5000")
   in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } ->
-    Alcotest.(check string) "custom url" "http://custom:5000" base_url
+  | Provider.OpenAICompat { base_url; auth_header; _ } ->
+    Alcotest.(check string) "custom url" "http://custom:5000" base_url;
+    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header
+  | _ -> Alcotest.fail "expected OpenAICompat"
+;;
+
+let test_resolve_other_openai_v1_base_url () =
+  let cfg =
+    Agent_config.resolve_provider
+      ~model_id:"mimo-v2.5-pro"
+      "MIMO_API_KEY"
+      (Some "https://token-plan-sgp.xiaomimimo.com/v1")
+  in
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; auth_header; path; _ } ->
+    Alcotest.(check string) "base_url" "https://token-plan-sgp.xiaomimimo.com/v1" base_url;
+    Alcotest.(check string) "path" "/chat/completions" path;
+    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header;
+    Alcotest.(check string) "api_key_env" "MIMO_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
 
@@ -401,8 +421,9 @@ let test_resolve_provider_i_custom_url () =
       (Some "http://proxy:8080")
   in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } ->
-    Alcotest.(check string) "overridden url" "http://proxy:8080" base_url
+  | Provider.OpenAICompat { base_url; auth_header; _ } ->
+    Alcotest.(check string) "overridden url" "http://proxy:8080" base_url;
+    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header
   | _ -> Alcotest.fail "expected OpenAICompat for provider_i custom url"
 ;;
 
@@ -505,6 +526,21 @@ let test_resolve_unknown_still_goes_to_registry_fallback () =
   | _ -> Alcotest.fail "expected registry fallback OpenAICompat"
 ;;
 
+let test_resolve_ollama_custom_url_stays_no_auth () =
+  let cfg =
+    Agent_config.resolve_provider
+      ~model_id:"llama3.2"
+      "ollama"
+      (Some "http://127.0.0.1:11434")
+  in
+  match cfg.provider with
+  | Provider.OpenAICompat { base_url; auth_header; path; _ } ->
+    Alcotest.(check string) "base_url" "http://127.0.0.1:11434" base_url;
+    Alcotest.(check string) "path" "/api/chat" path;
+    Alcotest.(check (option string)) "auth header" None auth_header
+  | _ -> Alcotest.fail "expected OpenAICompat for ollama custom url"
+;;
+
 (* ── of_json error cases ─────────────────────────────────────── *)
 
 let test_of_json_bad_param () =
@@ -598,6 +634,7 @@ let () =
         ; tc "provider_d custom url" test_resolve_provider_d_custom_url
         ; tc "other" test_resolve_other
         ; tc "other custom url" test_resolve_other_custom_url
+        ; tc "other OpenAI /v1 base url" test_resolve_other_openai_v1_base_url
         ; tc "provider_i" test_resolve_provider_i
         ; tc "provider_i custom url" test_resolve_provider_i_custom_url
         ; tc "provider_g" test_resolve_provider_g
@@ -610,6 +647,9 @@ let () =
         ; tc
             "unknown still goes to registry fallback"
             test_resolve_unknown_still_goes_to_registry_fallback
+        ; tc
+            "ollama custom url stays no-auth"
+            test_resolve_ollama_custom_url_stays_no_auth
         ] )
     ]
 ;;
