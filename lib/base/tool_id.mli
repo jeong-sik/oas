@@ -11,9 +11,6 @@
 
 type t =
   (* Read-only — file & code navigation *)
-  | Read
-  | Glob
-  | Grep
   | Search
   | List_dir
   | Find_file
@@ -35,8 +32,6 @@ type t =
   | Task_get
   | Task_output
   (* Local-mutation — file editing *)
-  | Write
-  | Edit
   | Create_text_file
   | Replace_content
   | Rename_symbol
@@ -64,7 +59,6 @@ type t =
   | Tabs_create_mcp
   | Upload_image
   (* Shell-dynamic *)
-  | Bash
   | Execute_shell_command
   (* Escape hatches *)
   | Mcp of

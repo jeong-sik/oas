@@ -1,7 +1,4 @@
 type t =
-  | Read
-  | Glob
-  | Grep
   | Search
   | List_dir
   | Find_file
@@ -19,8 +16,6 @@ type t =
   | Task_list
   | Task_get
   | Task_output
-  | Write
-  | Edit
   | Create_text_file
   | Replace_content
   | Rename_symbol
@@ -43,7 +38,6 @@ type t =
   | Javascript_tool
   | Tabs_create_mcp
   | Upload_image
-  | Bash
   | Execute_shell_command
   | Mcp of
       { server : string
@@ -58,9 +52,6 @@ type t =
 let equal = ( = )
 
 let to_string = function
-  | Read -> "read"
-  | Glob -> "glob"
-  | Grep -> "grep"
   | Search -> "search"
   | List_dir -> "list_dir"
   | Find_file -> "find_file"
@@ -78,8 +69,6 @@ let to_string = function
   | Task_list -> "task_list"
   | Task_get -> "task_get"
   | Task_output -> "task_output"
-  | Write -> "write"
-  | Edit -> "edit"
   | Create_text_file -> "create_text_file"
   | Replace_content -> "replace_content"
   | Rename_symbol -> "rename_symbol"
@@ -102,17 +91,13 @@ let to_string = function
   | Javascript_tool -> "javascript_tool"
   | Tabs_create_mcp -> "tabs_create_mcp"
   | Upload_image -> "upload_image"
-  | Bash -> "bash"
   | Execute_shell_command -> "execute_shell_command"
   | Mcp { server; tool } -> "mcp__" ^ server ^ "__" ^ tool
   | User name -> name
 ;;
 
 let all_builtins =
-  [ Read
-  ; Glob
-  ; Grep
-  ; Search
+  [ Search
   ; List_dir
   ; Find_file
   ; Read_file
@@ -129,8 +114,6 @@ let all_builtins =
   ; Task_list
   ; Task_get
   ; Task_output
-  ; Write
-  ; Edit
   ; Create_text_file
   ; Replace_content
   ; Rename_symbol
@@ -153,7 +136,6 @@ let all_builtins =
   ; Javascript_tool
   ; Tabs_create_mcp
   ; Upload_image
-  ; Bash
   ; Execute_shell_command
   ]
 ;;
@@ -196,9 +178,6 @@ let parse_mcp s =
 let of_string raw =
   let s = String.lowercase_ascii raw in
   match s with
-  | "read" -> Read
-  | "glob" -> Glob
-  | "grep" -> Grep
   | "search" -> Search
   | "list_dir" -> List_dir
   | "find_file" -> Find_file
@@ -216,8 +195,6 @@ let of_string raw =
   | "task_list" -> Task_list
   | "task_get" -> Task_get
   | "task_output" -> Task_output
-  | "write" -> Write
-  | "edit" -> Edit
   | "create_text_file" -> Create_text_file
   | "replace_content" -> Replace_content
   | "rename_symbol" -> Rename_symbol
@@ -240,7 +217,6 @@ let of_string raw =
   | "javascript_tool" -> Javascript_tool
   | "tabs_create_mcp" -> Tabs_create_mcp
   | "upload_image" -> Upload_image
-  | "bash" -> Bash
   | "execute_shell_command" -> Execute_shell_command
   | other ->
     (match parse_mcp other with
@@ -252,7 +228,14 @@ let%test "all_builtins_round_trip" =
   List.for_all (fun b -> equal (of_string (to_string b)) b) all_builtins
 ;;
 
-let%test "of_string_lowercases_builtin" = equal (of_string "READ") Read
+let%test "of_string_lowercases_builtin" = equal (of_string "READ_FILE") Read_file
+
+let%test "of_string_retired_native_tool_names_are_user_tools" =
+  List.for_all
+    (fun name -> equal (of_string name) (User (String.lowercase_ascii name)))
+    [ "Read"; "Glob"; "Grep"; "Write"; "Edit"; "Bash" ]
+;;
+
 let%test "of_string_user_lowercases" = equal (of_string "MyTool") (User "mytool")
 
 let%test "of_string_mcp_parses" =

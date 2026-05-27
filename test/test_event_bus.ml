@@ -5,6 +5,14 @@ open Agent_sdk
 
 (* ── Helpers ──────────────────────────────────────────────────────── *)
 
+let string_contains ~needle haystack =
+  try
+    let _ = Str.search_forward (Str.regexp_string needle) haystack 0 in
+    true
+  with
+  | Not_found -> false
+;;
+
 let mock_response text =
   { Types.id = "r-1"
   ; model = "mock"
@@ -556,6 +564,87 @@ let test_on_error_fires_on_tool_not_found () =
   | _ -> fail "on_error fired more than once"
 ;;
 
+let test_unknown_tool_reports_available_tools_and_retries () =
+  Eio_main.run
+  @@ fun _env ->
+  let context = Context.create () in
+  let bus = Event_bus.create () in
+  let read_file =
+    Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun _ ->
+      Ok { Types.content = "unused" })
+  in
+  let schedule : Hooks.tool_schedule =
+    { planned_index = 0
+    ; batch_index = 0
+    ; batch_size = 1
+    ; concurrency_class = "sequential_workspace"
+    ; batch_kind = "sequential"
+    }
+  in
+  let fired = ref [] in
+  let on_error =
+    Some
+      (fun event ->
+        (match event with
+         | Hooks.OnError { detail; context } -> fired := (detail, context) :: !fired
+         | _ -> ());
+        Hooks.Continue)
+  in
+  let hooks = { Hooks.empty with on_error } in
+  let result =
+    Agent_tools.find_and_execute_tool
+      ~context
+      ~tools:[ read_file ]
+      ~hooks
+      ~event_bus:(Some bus)
+      ~tracer:Tracing.null
+      ~agent_name:"agent"
+      ~turn_count:0
+      ~correlation_id:"c"
+      ~run_id:"r"
+      ~schedule
+      "Read"
+      (`Assoc [])
+      "tool-unknown"
+  in
+  check bool "unknown call is an error" true result.is_error;
+  check
+    (option string)
+    "unknown call is retryable validation"
+    (Some "validation")
+    (Option.map
+       (function
+         | Agent_tools.Validation_error -> "validation"
+         | Agent_tools.Recoverable_tool_error -> "recoverable"
+         | Agent_tools.Non_retryable_tool_error -> "non_retryable")
+       result.failure_kind);
+  check
+    bool
+    "content names missing tool"
+    true
+    (string_contains ~needle:"Tool not found: Read" result.content);
+  check
+    bool
+    "content includes available tools"
+    true
+    (string_contains ~needle:"Available tools: ReadFile" result.content);
+  match List.rev !fired with
+  | [ (detail, ctx) ] ->
+    check
+      bool
+      "detail names missing tool"
+      true
+      (string_contains ~needle:"Tool not found: Read" detail);
+    check
+      bool
+      "detail includes available tools"
+      true
+      (string_contains ~needle:"Available tools: ReadFile" detail);
+    check string "context labels dispatch site" "agent_tools.find_and_execute_tool" ctx
+  | [] -> fail "on_error hook not fired"
+  | _ -> fail "on_error fired more than once"
+;;
+
 let test_on_error_silent_on_successful_dispatch () =
   Eio_main.run
   @@ fun _env ->
@@ -893,6 +982,10 @@ let () =
             "on_error fires on tool-not-found"
             `Quick
             test_on_error_fires_on_tool_not_found
+        ; test_case
+            "unknown tool reports available tools and retries"
+            `Quick
+            test_unknown_tool_reports_available_tools_and_retries
         ; test_case
             "on_error silent on successful dispatch"
             `Quick
