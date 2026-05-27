@@ -12,6 +12,15 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Apply with `OAS_CAPABILITY_MANIFEST=docs/example-capability-manifest.json` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
 
+## [0.200.4](https://github.com/jeong-sik/oas/compare/v0.200.3...v0.200.4) (2026-05-27)
+
+
+### Bug Fixes
+
+* **agent-tools:** purge retired native tool ids ([#1796](https://github.com/jeong-sik/oas/issues/1796)) ([d40180d](https://github.com/jeong-sik/oas/commit/d40180d963aefed06b72faac2a1a7e097591023e))
+* **telemetry:** Event_bus.publish error handling + cache failure logging ([#1797](https://github.com/jeong-sik/oas/issues/1797)) ([b415057](https://github.com/jeong-sik/oas/commit/b415057bfd12b373e96de2cac361f922b5db2e4a))
+* **telemetry:** propagate participant_name in Agent_output_delta, add structured logging ([#1794](https://github.com/jeong-sik/oas/issues/1794)) ([bab2c20](https://github.com/jeong-sik/oas/commit/bab2c2048a41eb8100ccfdd93166968fc4a4df58))
+
 ## [0.200.3](https://github.com/jeong-sik/oas/compare/v0.200.2...v0.200.3) (2026-05-27)
 
 
