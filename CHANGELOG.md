@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.7](https://github.com/jeong-sik/oas/compare/v0.200.6...v0.200.7) (2026-05-28)
+
+### Documentation
+
+* **issue-consolidation:** finalize plan HTML with executive summary, dark mode, responsive design, accessibility (skip-link, aria-label, scope, focus-visible, time elements), and 51 clickable GitHub links ([#1804](https://github.com/jeong-sik/oas/pull/1804))
+
+### Bug Fixes
+
+* **sdk-independence:** reword comment in capabilities.ml to remove `\bmasc\b` pattern match ([#1805](https://github.com/jeong-sik/oas/pull/1805), closes [#1791](https://github.com/jeong-sik/oas/issues/1791))
+
 ### Documentation
 
 * **capability-manifest:** add `docs/example-capability-manifest.json` — RFC-OAS-023 §5.3 Phase 5 catalog draft applied as runtime manifest. 12 model entries covering cascade.toml api-name surface (kimi-k2.6, gpt-5.3-codex-spark, gpt-4.1, glm-5.1/5-turbo/5, gemma4, qwen3.5/qwen/qwen-local-35b-a3b, deepseek-v4-pro/flash). Apply with `OAS_CAPABILITY_MANIFEST=docs/example-capability-manifest.json` to resolve the §5.1 0/13 catalog miss + 16:42 runtime drift WARN. WORKAROUND: cipher catalog plane still in place via `base_label: provider_d_chat`; removal target = Phase 1 sweep completion (variant + file rename) per RFC §6.1.
