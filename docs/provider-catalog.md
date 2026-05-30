@@ -97,7 +97,7 @@ Important provider fields:
 | Field | Type | Description |
 |---|---|---|
 | `kind` | string | Existing wire/runtime kind, for example `openai_compat`, `anthropic`, `gemini`, `codex_cli`. Defaults to `openai_compat`. |
-| `transport` | string | `http`, `managed`, or `custom_openai_compat`. |
+| `transport` | string | `http`, `managed`, or legacy alias `custom-openai-compat`. |
 | `base_url` | string | HTTP endpoint base URL. |
 | `request_path` | string | Completion request path. Defaults from `kind`. |
 | `auth` | object | Credential mode. See below. |
