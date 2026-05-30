@@ -161,6 +161,21 @@ let show_provider_kind = Provider_kind.show
 let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
+(** Return only the auth-specific headers for a config.
+    Callers merge this into [config.headers] at HTTP request time so that
+    [Provider_config.t.headers] never carries sensitive tokens like API keys.
+    Gemini keys go in the URL query string, not headers. *)
+let auth_headers_for_config (config : t) : (string * string) list =
+  match String.trim config.api_key with
+  | "" -> []
+  | key ->
+    (match config.kind with
+     | Anthropic | Kimi -> [ "x-api-key", key ]
+     | Gemini -> []
+     | OpenAI_compat | Ollama | Glm | DashScope ->
+       [ "Authorization", "Bearer " ^ key ])
+;;
+
 let max_turns_hard_cap = function
   | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;

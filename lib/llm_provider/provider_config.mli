@@ -289,3 +289,9 @@ val validate_cli_sampling_params : t -> (unit, string) result
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)
 val is_local : t -> bool
+
+(** Return only the auth-specific headers for a config.
+    Callers merge this into [config.headers] at HTTP request time so that
+    [Provider_config.t.headers] never carries sensitive tokens like API keys.
+    Gemini keys go in the URL query string, not headers. *)
+val auth_headers_for_config : t -> (string * string) list
