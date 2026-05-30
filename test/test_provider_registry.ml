@@ -1134,8 +1134,7 @@ let () =
             test_catalog_api_key_env_availability
         ] )
     ; ( "kind_registry_integrity"
-      , [ test_case "every kind resolves" `Quick test_every_kind_resolves_in_registry
-        ] )
+      , [ test_case "every kind resolves" `Quick test_every_kind_resolves_in_registry ] )
     ; ( "types_usage"
       , [ test_case "zero_api_usage" `Quick test_zero_api_usage
         ; test_case "usage_of_response some" `Quick test_usage_of_response_some

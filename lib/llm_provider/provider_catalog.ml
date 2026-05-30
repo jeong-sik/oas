@@ -126,8 +126,8 @@ let member_string_list key json =
 ;;
 
 let parse_transport = function
-     | None -> Ok None
-    | Some raw ->
+  | None -> Ok None
+  | Some raw ->
     let trimmed = String.lowercase_ascii (String.trim raw) in
     (match trimmed with
      | "" -> Ok None
@@ -138,13 +138,12 @@ let parse_transport = function
      | other ->
        Error
          (Printf.sprintf
-            "unknown transport %S (canonical: http, managed, \
-             custom_provider_d_compat; dashed aliases also accepted)"
+            "unknown transport %S (canonical: http, managed, custom_provider_d_compat; \
+             dashed aliases also accepted)"
             other))
 ;;
 
 let default_transport_for_kind _kind = Http
-;;
 
 let auth_env = function
   | Api_key_env env | Setup_token_env env -> env
@@ -175,8 +174,8 @@ let parse_auth json =
        Error
          (Printf.sprintf
             "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-             oauth_cached_login, file, exec; dashed and short aliases \
-             also accepted, e.g. api-key-env, env)"
+             oauth_cached_login, file, exec; dashed and short aliases also accepted, \
+             e.g. api-key-env, env)"
             other))
   | _ ->
     (match member_string "api_key_env" json with

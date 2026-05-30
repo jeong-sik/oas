@@ -42,13 +42,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# transport name : path prefix (relative to ROOT, without .ml/.mli suffix)
-TRANSPORTS=(
-  "cli_tool_a:lib/llm_provider/transport_cli_tool_a"
-  "cli_tool_b:lib/llm_provider/transport_cli_tool_b"
-  "cli_tool_c:lib/llm_provider/transport_cli_tool_c"
-  "cli_tool_d:lib/llm_provider/transport_cli_tool_d"
-)
+check_mli_modules=("$ROOT"/lib/llm_provider/transport_*.mli)
+if [[ ${#check_mli_modules[@]} -eq 1 && "${check_mli_modules[0]}" == "$ROOT/lib/llm_provider/transport_*.mli" ]]; then
+  check_mli_modules=()
+fi
 
 # Extract field names from the `type config = { ... }` record block.
 # Supports both compact and ocamlformat-split forms:
@@ -83,15 +80,20 @@ extract_config_fields() {
     | sed -n 's/^[[:space:]]*;[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p; s/^[[:space:]]*\([a-z_][a-zA-Z0-9_]*\)[[:space:]]*:.*/\1/p'
 }
 
-fail=0
-for spec in "${TRANSPORTS[@]}"; do
-  name="${spec%%:*}"
-  prefix="${spec#*:}"
-  mli="$ROOT/$prefix.mli"
-  ml="$ROOT/$prefix.ml"
+if [[ ${#check_mli_modules[@]} -eq 0 ]]; then
+  echo "FAIL: no transport_*.mli modules found under $ROOT/lib/llm_provider" >&2
+  exit 1
+fi
 
-  if [[ ! -f "$mli" || ! -f "$ml" ]]; then
-    echo "FAIL: $name: .mli or .ml missing ($mli, $ml)" >&2
+fail=0
+for mli in "${check_mli_modules[@]}"; do
+  prefix="${mli%.mli}"
+  base="$(basename "$prefix")"
+  name="${base#transport_}"
+  ml="$prefix.ml"
+
+  if [[ ! -f "$ml" ]]; then
+    echo "FAIL: $name: .mli/.ml mismatch ($mli, $ml)" >&2
     fail=1
     continue
   fi
