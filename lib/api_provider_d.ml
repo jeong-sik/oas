@@ -37,7 +37,7 @@ let capabilities_for_request ?provider_config (config : agent_state) =
 let is_zai_provider_config (cfg : Provider.config) =
   (* Enumerate every [Provider.provider] variant (the type of
      [cfg.provider]) so the compiler flags any new constructor here.
-     ZAI detection depends on a [base_url] field; [Provider_a] and
+     ZAI detection depends on a [base_url] field; [Anthropic] and
      [Custom_registered] don't carry one so they are non-ZAI today,
      but a future base_url-carrying variant (e.g. [Provider_n_server],
      [Provider_o_router]) would silently inherit "non-ZAI" under the previous
@@ -45,7 +45,7 @@ let is_zai_provider_config (cfg : Provider.config) =
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } | Provider.Local { base_url } ->
     Llm_provider.Zai_catalog.is_zai_base_url base_url
-  | Provider.Provider_a | Provider.Custom_registered _ -> false
+  | Provider.Anthropic | Provider.Custom_registered _ -> false
 ;;
 
 let is_glm_request ?provider_config (config : agent_state) =

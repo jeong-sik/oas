@@ -78,8 +78,8 @@ let test_gemma4_capability_is_visual_first () =
 ;;
 
 let test_non_gemma_inherits_preserve () =
-  (* Provider_a models stay Preserve_input_order — the default — since
-     Provider_a does not call out a modality-order preference. *)
+  (* Anthropic models stay Preserve_input_order — the default — since
+     Anthropic does not call out a modality-order preference. *)
   match Capabilities.for_model_id "agent_llm_a-sonnet-4-6" with
   | None -> () (* not in static table — fine, default applies *)
   | Some c ->

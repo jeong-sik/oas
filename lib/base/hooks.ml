@@ -1,5 +1,5 @@
 (** Lifecycle hooks for agent execution.
-    Inspired by Provider_a SDK PreToolUse/PostToolUse/Stop
+    Inspired by Anthropic SDK PreToolUse/PostToolUse/Stop
     and Google ADK ToolContext patterns.
 
     All hook types use exhaustive variants for compile-time safety. *)

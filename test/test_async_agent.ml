@@ -14,7 +14,7 @@ let quick_response text =
     text
 ;;
 
-(** Start a mock Provider_a API server. Returns base_url.
+(** Start a mock Anthropic API server. Returns base_url.
     Optionally delays [delay_sec] before responding. *)
 let fresh_port () =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in

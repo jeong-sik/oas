@@ -828,7 +828,7 @@ let test_with_context_thresholds_fallback_from_provider () =
      [Local] + [provider_h_3-35b] routes through the Local branch of
      [Provider.capabilities_for_model], which calls [for_model_id] and
      returns [max_context_tokens = Some 262_144] for any [provider_h_3*]
-     prefix. We deliberately avoid the [Provider_a] branch because it
+     prefix. We deliberately avoid the [Anthropic] branch because it
      returns the base [provider_a_capabilities] record regardless of
      [model_id] (separate issue — see capabilities_for_model). *)
   let provider : Provider.config =

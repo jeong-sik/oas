@@ -254,13 +254,13 @@ let test_local_provider_resolve_always_succeeds =
 let test_capabilities_provider_m_reasoning =
   QCheck.Test.make
     ~count:50
-    ~name:"Provider_h_3 models get reasoning capability"
+    ~name:"DashScope_3 models get reasoning capability"
     (QCheck.make
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
           [ QCheck.Gen.return "provider_h-3.5-35b"
           ; QCheck.Gen.return "provider_h_3.6:27b-coding-nvfp4"
-          ; QCheck.Gen.return "Provider_h_3.6-35B-A3B-UD-Q4_K_XL.gguf"
+          ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
           ]))
     (fun model_id ->
        let caps =
@@ -368,12 +368,12 @@ let test_token_budget_exceeds_limit =
 let test_provider_a_supports_tools =
   QCheck.Test.make
     ~count:50
-    ~name:"Provider_a provider always supports tools"
+    ~name:"Anthropic provider always supports tools"
     (QCheck.make (QCheck.Gen.return ()))
     (fun () ->
        let caps =
          Provider.capabilities_for_model
-           ~provider:Provider.Provider_a
+           ~provider:Provider.Anthropic
            ~model_id:"agent_llm_a-sonnet-4-6"
        in
        caps.supports_tools && caps.supports_tool_choice)

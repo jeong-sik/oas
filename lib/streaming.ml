@@ -1,6 +1,6 @@
 (** SSE streaming client for multi-provider LLM APIs.
 
-    Supports Provider_a (native SSE) and Provider_d-compatible (SSE).
+    Supports Anthropic (native SSE) and Provider_d-compatible (SSE).
     Pure SSE event parsing and synthetic emission are delegated to
     {!Llm_provider.Streaming}. The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling. *)
@@ -196,7 +196,7 @@ let map_http_error = function
 ;;
 
 (** Streaming variant of create_message.
-    Supports Provider_a (native SSE) and Provider_d-compatible (SSE).
+    Supports Anthropic (native SSE) and Provider_d-compatible (SSE).
     Custom providers fall back to sync + synthetic events.
 
     Does not accept retry_config: SSE streams deliver partial results
@@ -223,7 +223,7 @@ let create_message_stream
       (match Sys.getenv_opt "PROVIDER_A_API_KEY" with
        | Some key ->
          let fallback_provider : Provider.config =
-           { provider = Provider.Provider_a
+           { provider = Provider.Anthropic
            ; model_id = model_to_string config.config.model
            ; api_key_env = "PROVIDER_A_API_KEY"
            }
@@ -235,7 +235,7 @@ let create_message_stream
   | Error e -> Error e
   | Ok (provider_cfg, base_url, api_key) ->
     (match Provider.request_kind provider_cfg.provider with
-     | Provider.Provider_a_messages ->
+     | Provider.Anthropic_messages ->
        let headers =
          [ "Content-Type", "application/json"
          ; "x-api-key", api_key

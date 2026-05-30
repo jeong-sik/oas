@@ -2,7 +2,7 @@
     provider returns a tool-call intent as text instead of a proper
     ToolUse block.
 
-    Motivated by Provider_k / Ollama providers that receive [tool_choice]
+    Motivated by Glm / Ollama providers that receive [tool_choice]
     parameters but emit the call as JSON inside a Text block (often
     wrapped in Markdown fences). Without recovery,
     [validate_completion_contract] raises [require_tool_use] even though
@@ -13,7 +13,7 @@
     Text blocks promoted to ToolUse blocks.
 
     Reference: Samchon function calling harness, Layer 1 "Lenient parse"
-    (dev.to/samchon, Provider_h Meetup 2025). Delegates JSON normalization to
+    (dev.to/samchon, DashScope Meetup 2025). Delegates JSON normalization to
     {!Llm_provider.Lenient_json} (markdown fence strip, double-stringify
     unwrap, trailing comma cleanup, bracket completion).
 
@@ -92,7 +92,7 @@ let try_parse_json_object (s : string) : Yojson.Safe.t option =
 (** Extract [(name, input)] from a JSON value matching one of the
     common tool-call shapes:
 
-    - Provider_a-style: [{"name": "X", "input": {...}}]
+    - Anthropic-style: [{"name": "X", "input": {...}}]
     - Provider_d function call: [{"name": "X", "arguments": {...}}]
       where arguments may be a JSON-encoded string (double-stringified)
     - Provider_d tool_calls wrapper: [{"tool_calls": [{"function": {...}}]}]

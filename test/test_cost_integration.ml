@@ -3,7 +3,7 @@
     Uses mock HTTP server to verify cost accumulates across turns
     and budget limits are enforced by Agent.run.
 
-    Pattern: test_integration.ml (Provider_a Messages API mock) *)
+    Pattern: test_integration.ml (Anthropic Messages API mock) *)
 
 open Agent_sdk
 open Types

@@ -9,7 +9,7 @@ let to_string json = Yojson.Safe.Util.to_string json
 
 let provider_k_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
   PC.make
-    ~kind:PC.Provider_k
+    ~kind:PC.Glm
     ~model_id:"provider_k-5.1"
     ~base_url:"https://api.z.ai/api/paas/v4"
     ?enable_thinking
@@ -53,28 +53,28 @@ let response_json ?(reasoning = Some "step by step") ?(content = "answer") () =
 ;;
 
 let test_classification_matrix () =
-  check_classification "auth" "1001" "bad api key" K.Provider_k_auth_error false;
-  check_classification "rate" "1305" "service overloaded" K.Provider_k_rate_limited true;
-  check_classification "quota" "1308" "quota exhausted" K.Provider_k_quota_exceeded false;
-  check_classification "server" "1234" "backend timeout" K.Provider_k_server_error true;
-  check_classification "invalid" "1210" "bad parameter" K.Provider_k_invalid_request false;
+  check_classification "auth" "1001" "bad api key" K.Glm_auth_error false;
+  check_classification "rate" "1305" "service overloaded" K.Glm_rate_limited true;
+  check_classification "quota" "1308" "quota exhausted" K.Glm_quota_exceeded false;
+  check_classification "server" "1234" "backend timeout" K.Glm_server_error true;
+  check_classification "invalid" "1210" "bad parameter" K.Glm_invalid_request false;
   check_classification
     "message quota fallback"
     "unknown"
     "usage limit exceeded"
-    K.Provider_k_quota_exceeded
+    K.Glm_quota_exceeded
     false;
   check_classification
     "message rate fallback"
     "unknown"
     "rate limit hit"
-    K.Provider_k_rate_limited
+    K.Glm_rate_limited
     true;
   check_classification
     "unknown fallback"
     "9999"
     "unclassified"
-    K.Provider_k_invalid_request
+    K.Glm_invalid_request
     false
 ;;
 
@@ -83,15 +83,15 @@ let test_http_status_mapping () =
     int
     "quota"
     429
-    (K.http_code_of_provider_k_error_class K.Provider_k_quota_exceeded);
-  check int "rate" 429 (K.http_code_of_provider_k_error_class K.Provider_k_rate_limited);
-  check int "auth" 401 (K.http_code_of_provider_k_error_class K.Provider_k_auth_error);
-  check int "server" 500 (K.http_code_of_provider_k_error_class K.Provider_k_server_error);
+    (K.http_code_of_provider_k_error_class K.Glm_quota_exceeded);
+  check int "rate" 429 (K.http_code_of_provider_k_error_class K.Glm_rate_limited);
+  check int "auth" 401 (K.http_code_of_provider_k_error_class K.Glm_auth_error);
+  check int "server" 500 (K.http_code_of_provider_k_error_class K.Glm_server_error);
   check
     int
     "invalid"
     400
-    (K.http_code_of_provider_k_error_class K.Provider_k_invalid_request)
+    (K.http_code_of_provider_k_error_class K.Glm_invalid_request)
 ;;
 
 let test_build_request_thinking_modes_and_tool_stream () =
@@ -162,38 +162,38 @@ let test_parse_response_classifies_provider_k_errors () =
   let cases =
     [ ( {|{"error":{"code":"1305","message":"service overloaded"}}|}
       , "1305"
-      , K.Provider_k_rate_limited
+      , K.Glm_rate_limited
       , true )
     ; ( {|{"error":{"code":1234,"message":"server unavailable"}}|}
       , "1234"
-      , K.Provider_k_server_error
+      , K.Glm_server_error
       , true )
     ; ( {|{"error":{"code":{"nested":true},"message":"quota exceeded"}}|}
       , "unknown"
-      , K.Provider_k_quota_exceeded
+      , K.Glm_quota_exceeded
       , false )
-    ; {|{"error":{"code":1200}}|}, "1200", K.Provider_k_invalid_request, false
+    ; {|{"error":{"code":1200}}|}, "1200", K.Glm_invalid_request, false
     ]
   in
   List.iter
     (fun (body, code, expected_class, expected_retryable) ->
        match K.parse_response body with
-       | exception K.Provider_k_api_error err ->
+       | exception K.Glm_api_error err ->
          check string "error code" code err.code;
          check_class "error class" expected_class err.error_class;
          check bool "retryable" expected_retryable err.is_retryable
-       | _ -> fail "expected Provider_k_api_error")
+       | _ -> fail "expected Glm_api_error")
     cases
 ;;
 
 let test_parse_response_wraps_provider_d_parse_errors () =
   match K.parse_response {|{"choices":"not-a-list"}|} with
-  | exception K.Provider_k_api_error err ->
+  | exception K.Glm_api_error err ->
     check string "parse code" "parse" err.code;
-    check_class "parse class" K.Provider_k_invalid_request err.error_class;
+    check_class "parse class" K.Glm_invalid_request err.error_class;
     check bool "parse is not retryable" false err.is_retryable;
     check bool "parse message surfaced" true (String.length err.message > 0)
-  | _ -> fail "expected Provider_k_api_error"
+  | _ -> fail "expected Glm_api_error"
 ;;
 
 let test_extract_reasoning_handles_empty_and_malformed_bodies () =

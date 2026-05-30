@@ -1,7 +1,7 @@
 (** Provider_d Chat Completions HTTP transport.
 
     Implements {!Llm_transport.t} for any Provider_d-compatible API endpoint:
-    llama-server, Provider_k, Provider_o_router, vLLM, Ollama, LiteLLM, etc.
+    llama-server, Glm, Provider_o_router, vLLM, Ollama, LiteLLM, etc.
 
     Thin wrapper around the HTTP completion pipeline in {!Complete}.
     Callers get a simplified config instead of constructing

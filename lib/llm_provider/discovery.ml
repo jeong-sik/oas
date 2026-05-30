@@ -144,7 +144,7 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
 
 (** Detect tool-calling support from a chat template string.
     Checks for tool-related keywords and special tokens used by
-    various model families (Provider_h, Llama, Provider_j, etc.). *)
+    various model families (DashScope, Llama, Provider_j, etc.). *)
 let template_has_tool_support (template : string) : bool =
   let has_tool_keyword =
     Retry.contains_case_insensitive ~haystack:template ~needle:"tools"
@@ -973,7 +973,7 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
 (* --- contains_case_insensitive (via Retry SSOT) --- *)
 
 let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"Provider_h_3.5-35B" ~needle:"provider_h"
+  Retry.contains_case_insensitive ~haystack:"DashScope_3.5-35B" ~needle:"provider_h"
   = true
 ;;
 
@@ -996,7 +996,7 @@ let%test "contains_case_insensitive exact match" =
 (* --- infer_capabilities --- *)
 
 let%test "infer_capabilities provider_h model gets extended" =
-  let models = [ { id = "Provider_h_3.5-35B-A3B"; owned_by = "local" } ] in
+  let models = [ { id = "DashScope_3.5-35B-A3B"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_reasoning = true
   && caps.supports_top_k = true

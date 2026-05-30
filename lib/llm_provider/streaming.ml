@@ -120,7 +120,7 @@ let parse_sse_event event_type data_str =
     Some (SSEParseFailed { raw = data_str; reason = "json_error: " ^ msg })
 ;;
 
-(* RFC-OAS-020: TTFT classification — distinguishes Provider_a prelude
+(* RFC-OAS-020: TTFT classification — distinguishes Anthropic prelude
    events ([MessageStart], [ContentBlockStart], [Ping]) from the
    first user-visible token. Capture point in [Complete] uses this
    to fill [Streaming_summary.ttft_ms]. *)
@@ -142,7 +142,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
 ;;
 
 (** Emit synthetic SSE events from a complete [api_response].
-    Used as fallback for non-Provider_a providers that don't support SSE. *)
+    Used as fallback for non-Anthropic providers that don't support SSE. *)
 let emit_synthetic_events (response : api_response) on_event =
   on_event
     (MessageStart { id = response.id; model = response.model; usage = response.usage });
@@ -182,7 +182,7 @@ let emit_synthetic_events (response : api_response) on_event =
     - Text content arrives as [delta.content] strings
     - Tool calls arrive as [delta.tool_calls] with incremental arguments
     - [finish_reason] signals end of a choice
-    - No explicit content_block_start/stop events (unlike Provider_a)
+    - No explicit content_block_start/stop events (unlike Anthropic)
 
     We parse each SSE chunk into {!provider_d_chunk}, then convert to
     {!sse_event} list using a stateful adapter ({!provider_d_stream_state}). *)
@@ -204,7 +204,7 @@ type provider_d_chunk =
   ; chunk_usage : api_usage option
   }
 
-(* RFC-OAS-020: TTFT classification for Provider_d-compat / Provider_f /
+(* RFC-OAS-020: TTFT classification for Provider_d-compat / Gemini /
    Ollama chunk streams. [true] when this chunk would surface a
    visible token (or tool-call argument) to the application;
    [false] for role-prelude chunks, [DONE]-only finalisers, and
@@ -437,9 +437,9 @@ let provider_d_chunk_to_events
   List.rev !events, !telemetry_event
 ;;
 
-(** {1 Provider_f SSE Streaming}
+(** {1 Gemini SSE Streaming}
 
-    Provider_f [streamGenerateContent?alt=sse] emits SSE data lines with
+    Gemini [streamGenerateContent?alt=sse] emits SSE data lines with
     JSON payloads: [{candidates: [{content: {parts: [...]}}]}].
     Each chunk may contain text, thought, or functionCall parts. *)
 

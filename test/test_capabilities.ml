@@ -76,7 +76,7 @@ let test_provider_a_capabilities () =
   check bool "has computer use" true c.supports_computer_use;
   check bool "has structured output" true c.supports_structured_output;
   check bool "no audio" false c.supports_audio_input;
-  (* Provider_a Messages API accepts top_k per its documented body
+  (* Anthropic Messages API accepts top_k per its documented body
      params; pin the field so the #830/#831 capability-gated
      serializer paths do not silently drop it for agent_llm_a configs. *)
   check bool "supports top_k" true c.supports_top_k;
@@ -157,10 +157,10 @@ let test_lookup_provider_f () =
 (* ── Typed provider_f_family classifier (root-fix for #968) ─────── *)
 
 let pp_provider_f_family ppf = function
-  | Capabilities.Provider_f_3_1 -> Format.fprintf ppf "Provider_f_3_1"
-  | Capabilities.Provider_f_3 -> Format.fprintf ppf "Provider_f_3"
-  | Capabilities.Provider_f_2_5 -> Format.fprintf ppf "Provider_f_2_5"
-  | Capabilities.Provider_f_other s -> Format.fprintf ppf "Provider_f_other(%s)" s
+  | Capabilities.Gemini_3_1 -> Format.fprintf ppf "Gemini_3_1"
+  | Capabilities.Gemini_3 -> Format.fprintf ppf "Gemini_3"
+  | Capabilities.Gemini_2_5 -> Format.fprintf ppf "Gemini_2_5"
+  | Capabilities.Gemini_other s -> Format.fprintf ppf "Gemini_other(%s)" s
 ;;
 
 let provider_f_family_testable = Alcotest.testable pp_provider_f_family ( = )
@@ -173,11 +173,11 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_d_4_1 -> Format.fprintf ppf "Provider_d_4_1"
   | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
   | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
-  | Capabilities.Provider_f family ->
-    Format.fprintf ppf "Provider_f(%a)" pp_provider_f_family family
-  | Capabilities.Provider_c_for_coding -> Format.fprintf ppf "Provider_c_for_coding"
-  | Capabilities.Provider_c_k2 -> Format.fprintf ppf "Provider_c_k2"
-  | Capabilities.Provider_h_3 -> Format.fprintf ppf "Provider_h_3"
+  | Capabilities.Gemini family ->
+    Format.fprintf ppf "Gemini(%a)" pp_provider_f_family family
+  | Capabilities.Kimi_for_coding -> Format.fprintf ppf "Kimi_for_coding"
+  | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
+  | Capabilities.DashScope_3 -> Format.fprintf ppf "DashScope_3"
   | Capabilities.Provider_n_4 -> Format.fprintf ppf "Provider_n_4"
   | Capabilities.Provider_g_v4_flash -> Format.fprintf ppf "Provider_g_v4_flash"
   | Capabilities.Provider_g_v4_pro -> Format.fprintf ppf "Provider_g_v4_pro"
@@ -187,8 +187,8 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_e_grok -> Format.fprintf ppf "Provider_e_grok"
   | Capabilities.Provider_l { has_vision } ->
     Format.fprintf ppf "Provider_l(has_vision=%b)" has_vision
-  | Capabilities.Provider_f_gemma_4 { has_large_audio } ->
-    Format.fprintf ppf "Provider_f_gemma_4(has_large_audio=%b)" has_large_audio
+  | Capabilities.Gemini_gemma_4 { has_large_audio } ->
+    Format.fprintf ppf "Gemini_gemma_4(has_large_audio=%b)" has_large_audio
   | Capabilities.Glm_4_7_flash -> Format.fprintf ppf "Glm_4_7_flash"
   | Capabilities.Glm_4_5_flash_air -> Format.fprintf ppf "Glm_4_5_flash_air"
   | Capabilities.Glm_5_turbo -> Format.fprintf ppf "Glm_5_turbo"
@@ -210,42 +210,42 @@ let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
 let test_provider_f_family_3_1 () =
   check
     provider_f_family_testable
-    "provider_f-3.1-pro-preview classifies as Provider_f_3_1"
-    Capabilities.Provider_f_3_1
+    "provider_f-3.1-pro-preview classifies as Gemini_3_1"
+    Capabilities.Gemini_3_1
     (Capabilities.provider_f_family_of_id "provider_f-3.1-pro-preview")
 ;;
 
 let test_provider_f_family_3 () =
   check
     provider_f_family_testable
-    "provider_f-3-flash-preview classifies as Provider_f_3 (not 3.1)"
-    Capabilities.Provider_f_3
+    "provider_f-3-flash-preview classifies as Gemini_3 (not 3.1)"
+    Capabilities.Gemini_3
     (Capabilities.provider_f_family_of_id "provider_f-3-flash-preview")
 ;;
 
 let test_provider_f_family_2_5 () =
   check
     provider_f_family_testable
-    "provider_f-2.5-flash classifies as Provider_f_2_5"
-    Capabilities.Provider_f_2_5
+    "provider_f-2.5-flash classifies as Gemini_2_5"
+    Capabilities.Gemini_2_5
     (Capabilities.provider_f_family_of_id "provider_f-2.5-flash")
 ;;
 
 let test_provider_f_family_other_non_provider_f () =
   check
     provider_f_family_testable
-    "non-provider_f id falls into Provider_f_other with literal retained"
-    (Capabilities.Provider_f_other "agent_llm_a-opus-4")
+    "non-provider_f id falls into Gemini_other with literal retained"
+    (Capabilities.Gemini_other "agent_llm_a-opus-4")
     (Capabilities.provider_f_family_of_id "agent_llm_a-opus-4")
 ;;
 
 let test_provider_f_family_other_unknown_provider_f () =
-  (* A future provider_f line not yet classified should land in Provider_f_other —
+  (* A future provider_f line not yet classified should land in Gemini_other —
      not be silently absorbed into an existing arm. *)
   check
     provider_f_family_testable
-    "provider_f-4-foo lands in Provider_f_other (no silent fallback)"
-    (Capabilities.Provider_f_other "provider_f-4-foo")
+    "provider_f-4-foo lands in Gemini_other (no silent fallback)"
+    (Capabilities.Gemini_other "provider_f-4-foo")
     (Capabilities.provider_f_family_of_id "provider_f-4-foo")
 ;;
 
@@ -280,7 +280,7 @@ let test_static_model_route_normalizes_cloud_suffix () =
   check
     (option static_model_route_testable)
     "provider_c-k2 cloud route"
-    (Some Capabilities.Provider_c_k2)
+    (Some Capabilities.Kimi_k2)
     (Capabilities.static_model_route_of_id " provider_c-k2.6:cloud ");
   check
     (option static_model_route_testable)
@@ -326,7 +326,7 @@ let test_lookup_provider_m () =
 ;;
 
 let test_lookup_provider_m_runpod_name () =
-  match Capabilities.for_model_id "Provider_h_3.6-35B-A3B-UD-Q4_K_XL.gguf" with
+  match Capabilities.for_model_id "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf" with
   | Some c ->
     check
       bool
@@ -708,12 +708,12 @@ let test_manifest_load_runtime_file_success_logs_info () =
        check bool "logs info load success" true has_info)
 ;;
 
-(* ── Provider_h preset ────────────────────────────────── *)
+(* ── DashScope preset ────────────────────────────────── *)
 
 let test_provider_h_capabilities () =
   let c = Capabilities.provider_h_capabilities in
-  (* Provider_h (Provider_h) exposes response_format.json_schema on its Provider_d-compatible
-     endpoint; native schema output is supported. Ref: Provider_h structured output
+  (* DashScope (DashScope) exposes response_format.json_schema on its Provider_d-compatible
+     endpoint; native schema output is supported. Ref: DashScope structured output
      guide — checked 2026-05-05. *)
   check bool "has structured output" true c.supports_structured_output;
   check bool "has json mode" true c.supports_response_format_json;
@@ -853,15 +853,15 @@ let () =
         ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
         ; test_case "model-d-5" `Quick test_lookup_gpt5
         ; test_case "provider_f" `Quick test_lookup_provider_f
-        ; test_case "provider_f_family Provider_f_3_1" `Quick test_provider_f_family_3_1
-        ; test_case "provider_f_family Provider_f_3" `Quick test_provider_f_family_3
-        ; test_case "provider_f_family Provider_f_2_5" `Quick test_provider_f_family_2_5
+        ; test_case "provider_f_family Gemini_3_1" `Quick test_provider_f_family_3_1
+        ; test_case "provider_f_family Gemini_3" `Quick test_provider_f_family_3
+        ; test_case "provider_f_family Gemini_2_5" `Quick test_provider_f_family_2_5
         ; test_case
-            "provider_f_family Provider_f_other (non-provider_f)"
+            "provider_f_family Gemini_other (non-provider_f)"
             `Quick
             test_provider_f_family_other_non_provider_f
         ; test_case
-            "provider_f_family Provider_f_other (unknown provider_f)"
+            "provider_f_family Gemini_other (unknown provider_f)"
             `Quick
             test_provider_f_family_other_unknown_provider_f
         ; test_case

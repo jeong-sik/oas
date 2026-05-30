@@ -230,11 +230,6 @@
   test_tracing
   test_trajectory
   test_trajectory_unit
-  test_cli_transport_factory
-  test_transport_cli_tool_a_coverage
-  test_transport_cli_tool_b_coverage
-  test_transport_cli_tool_c_coverage
-  test_transport_cli_tool_d_coverage
   test_transport_deep
   test_transport_integration
   test_turn_budget
@@ -460,11 +455,6 @@
   test_tracing
   test_trajectory
   test_trajectory_unit
-  test_cli_transport_factory
-  test_transport_cli_tool_a_coverage
-  test_transport_cli_tool_b_coverage
-  test_transport_cli_tool_c_coverage
-  test_transport_cli_tool_d_coverage
   test_transport_deep
   test_transport_integration
   test_turn_budget

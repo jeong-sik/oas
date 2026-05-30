@@ -117,7 +117,7 @@ let create_message
       (match Sys.getenv_opt "PROVIDER_A_API_KEY" with
        | Some key ->
          let fallback_provider : Provider.config =
-           { provider = Provider.Provider_a
+           { provider = Provider.Anthropic
            ; model_id = model_to_string config.config.model
            ; api_key_env = "PROVIDER_A_API_KEY"
            }
@@ -139,7 +139,7 @@ let create_message
     let path = model_spec.request_path in
     let body_str =
       match kind with
-      | Provider.Provider_a_messages ->
+      | Provider.Anthropic_messages ->
         Yojson.Safe.to_string
           (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ()))
       | Provider.Openai_chat_completions ->
@@ -187,7 +187,7 @@ let create_message
         | `Ok body_str ->
           let lat = measured_latency_ms () in
           (match kind with
-           | Provider.Provider_a_messages ->
+           | Provider.Anthropic_messages ->
              Ok
                (parse_response (Yojson.Safe.from_string body_str)
                 |> Llm_provider.Pricing.annotate_response_cost
@@ -229,10 +229,10 @@ let create_message
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
       | Unix.Unix_error _ as exn ->
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
-      (* Backend_provider_f.Gemini_api_error and Backend_provider_k.Provider_k_api_error
+      (* Backend_provider_f.Gemini_api_error and Backend_provider_k.Glm_api_error
        are intentionally NOT caught here: this function only
-       dispatches [Provider_a_messages | Openai_chat_completions |
-       Custom] (see the match on [kind] above), so the Provider_f/Provider_k
+       dispatches [Anthropic_messages | Openai_chat_completions |
+       Custom] (see the match on [kind] above), so the Gemini/Glm
        response parsers are never invoked on this path and those
        exceptions cannot reach here. They are caught at their real
        live site in [Llm_provider.Complete] — see
@@ -483,7 +483,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     ; request_latency_ms = None
     ; (* parser cannot observe transport latency *)
       peak_memory_gb = None
-    ; provider_kind = Some Llm_provider.Provider_config.Provider_a
+    ; provider_kind = Some Llm_provider.Provider_config.Anthropic
     ; reasoning_effort = None
     ; canonical_model_id = Some "agent_llm_a-4-sonnet"
     ; effective_context_window = Some 200_000

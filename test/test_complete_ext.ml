@@ -5,7 +5,7 @@ open Alcotest
 open Llm_provider
 
 let make_config
-      ?(kind = Provider_config.Provider_d_compat)
+      ?(kind = Provider_config.OpenAI_compat)
       ?(model_id = "coverage-model")
       ?(base_url = "http://127.0.0.1:8080")
       ?(headers = [])
@@ -250,7 +250,7 @@ let test_retry_config_backoff () =
 let test_provider_f_url_variants () =
   let keyed =
     make_config
-      ~kind:Provider_config.Provider_f
+      ~kind:Provider_config.Gemini
       ~model_id:"provider_f-3-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~api_key:"secret"
@@ -268,7 +268,7 @@ let test_provider_f_url_variants () =
     (Complete.provider_f_url ~config:keyed ~stream:true);
   let no_key =
     make_config
-      ~kind:Provider_config.Provider_f
+      ~kind:Provider_config.Gemini
       ~model_id:"provider_f-3-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ()
@@ -281,13 +281,13 @@ let test_provider_f_url_variants () =
 ;;
 
 let test_sampling_defaults_and_overlay () =
-  let defaults = Complete.provider_sampling_defaults Provider_config.Provider_d_compat in
+  let defaults = Complete.provider_sampling_defaults Provider_config.OpenAI_compat in
   check
     (option (float 0.001))
     "provider_d min_p"
     (Some Constants.Sampling.provider_d_compat_min_p)
     defaults.default_min_p;
-  let no_defaults = Complete.provider_sampling_defaults Provider_config.Provider_a in
+  let no_defaults = Complete.provider_sampling_defaults Provider_config.Anthropic in
   check (option (float 0.001)) "provider_a min_p" None no_defaults.default_min_p;
   let local = make_config () in
   let local_defaulted = Complete.apply_sampling_defaults local in
@@ -440,7 +440,7 @@ let test_complete_transport_error_and_cli_required_metrics () =
   check (list string) "transport error metric" [ "HTTP 503" ] (List.rev probe.errors);
   let cli_probe = metric_probe () in
   let cli_config =
-    make_config ~kind:Provider_config.Cli_tool_a ~model_id:"cli-tool-a" ~base_url:"" ()
+    make_config ~kind:Provider_config.Anthropic ~model_id:"cli-tool-a" ~base_url:"" ()
   in
   (match
      Complete.complete
@@ -598,7 +598,7 @@ let test_complete_stream_cli_required () =
   Eio.Switch.run
   @@ fun sw ->
   let cli_config =
-    make_config ~kind:Provider_config.Cli_tool_b ~model_id:"cli-tool-b" ~base_url:"" ()
+    make_config ~kind:Provider_config.Gemini ~model_id:"gemini-pro" ~base_url:"" ()
   in
   match
     Complete.complete_stream

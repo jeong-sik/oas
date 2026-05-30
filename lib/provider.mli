@@ -5,7 +5,7 @@
 
 type provider =
   | Local of { base_url : string }
-  | Provider_a
+  | Anthropic
   | OpenAICompat of
       { base_url : string
       ; auth_header : string option
@@ -21,7 +21,7 @@ type config =
   }
 
 type request_kind =
-  | Provider_a_messages
+  | Anthropic_messages
   | Openai_chat_completions
   | Custom of string
 
@@ -224,7 +224,7 @@ val config_of_provider_config : Llm_provider.Provider_config.t -> config
     headers, request_path, and api_key come from [provider_opt]
     (or the [PROVIDER_A_API_KEY] fallback when [None]).
 
-    [OpenAICompat] provider collapses to [Provider_d_compat] kind: the
+    [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
     legacy {!config} variant does not distinguish arbitrary
     Provider_d-compatible endpoints from named providers carrying their own
     kind.  Callers needing kind + arbitrary URL should construct

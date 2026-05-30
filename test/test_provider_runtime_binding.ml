@@ -148,14 +148,14 @@ let test_catalog_to_provider_config () =
     Alcotest.(check bool)
       "kind"
       true
-      (cfg.kind = Llm_provider.Provider_config.Provider_d_compat))
+      (cfg.kind = Llm_provider.Provider_config.OpenAI_compat))
 ;;
 
 let test_binding_for_provider_config_uses_catalog_endpoint () =
   with_provider_catalog catalog_json (fun () ->
     let cfg =
       Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.Provider_d_compat
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
         ~model_id:"local-model"
         ~base_url:"http://127.0.0.1:8123"
         ~request_path:"/v1/chat/completions"
@@ -171,7 +171,7 @@ let test_capabilities_for_provider_config_uses_catalog_capabilities () =
   with_provider_catalog catalog_json (fun () ->
     let cfg =
       Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.Provider_d_compat
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
         ~model_id:"unlisted-local-model"
         ~base_url:"http://127.0.0.1:8123"
         ~request_path:"/v1/chat/completions"
@@ -189,7 +189,7 @@ let test_capabilities_for_provider_config_honors_override () =
   with_provider_catalog catalog_json (fun () ->
     let cfg =
       Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.Provider_d_compat
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
         ~model_id:"unlisted-local-model"
         ~base_url:"http://127.0.0.1:8123"
         ~request_path:"/v1/chat/completions"
@@ -249,7 +249,7 @@ let test_find_empty_missing_and_provider_config_fallbacks () =
   with_provider_catalog catalog_variants_json (fun () ->
     let cfg =
       Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.Provider_d_compat
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
         ~model_id:"rich-default"
         ~base_url:" https://rich.example/v1/// "
         ~request_path:" /chat/completions "
@@ -267,7 +267,7 @@ let test_builtin_binding_resolves () =
   Alcotest.(check bool)
     "builtin kind"
     true
-    (binding.kind = Llm_provider.Provider_config.Provider_a);
+    (binding.kind = Llm_provider.Provider_config.Anthropic);
   Alcotest.(check string)
     "fallback model"
     Model_registry.default_model_id

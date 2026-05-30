@@ -1,4 +1,4 @@
-(** Provider_a Agent_llm_a API response parsing and request building.
+(** Anthropic Agent_llm_a API response parsing and request building.
 
     Pure functions operating on {!Llm_provider.Types}.
     {!build_request} uses {!Provider_config.t} (no agent_sdk coupling).
@@ -6,7 +6,7 @@
 
 open Types
 
-(** Parse Provider_a API response JSON into {!api_response}. *)
+(** Parse Anthropic API response JSON into {!api_response}. *)
 let parse_response json =
   let open Yojson.Safe.Util in
   let id = json |> member "id" |> to_string in
@@ -60,7 +60,7 @@ let parse_response json =
   }
 ;;
 
-(** Build Provider_a Messages API request body from {!Provider_config.t}.
+(** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
       ?(stream = false)
@@ -71,7 +71,7 @@ let build_request
   =
   let message_to_json =
     match config.kind with
-    | Provider_config.Provider_c -> Api_common.provider_c_message_to_json
+    | Provider_config.Kimi -> Api_common.provider_c_message_to_json
     | _ -> Api_common.message_to_json
   in
   let msgs_json = List.map message_to_json messages in
@@ -92,11 +92,11 @@ let build_request
       let s = Utf8_sanitize.sanitize s in
       let should_cache_system =
         config.cache_system_prompt
-        && String.length s >= Constants.Provider_a.prompt_cache_min_chars
+        && String.length s >= Constants.Anthropic.prompt_cache_min_chars
       in
       if should_cache_system
       then (
-        (* Provider_a prompt caching: requires ~1024+ tokens.
+        (* Anthropic prompt caching: requires ~1024+ tokens.
              Send system as content block array with cache_control breakpoint. *)
         let block =
           `Assoc
@@ -156,7 +156,7 @@ let build_request
     | ts ->
       let should_cache_tools =
         config.cache_system_prompt
-        || List.length ts >= Constants.Provider_a.prompt_cache_min_tools
+        || List.length ts >= Constants.Anthropic.prompt_cache_min_tools
       in
       if should_cache_tools
       then (
@@ -177,13 +177,13 @@ let build_request
         ("tools", `List ts_with_cache) :: body)
       else ("tools", `List ts) :: body
   in
-  (* Provider_a Messages API nests [disable_parallel_tool_use] INSIDE
+  (* Anthropic Messages API nests [disable_parallel_tool_use] INSIDE
      the [tool_choice] object — it is NOT a top-level body field.
      See docs.provider_a.com/en/api/messages body params:
        tool_choice.disable_parallel_tool_use: boolean
 
      The previous implementation emitted [disable_parallel_tool_use]
-     as a top-level key, which Provider_a silently ignores, so any
+     as a top-level key, which Anthropic silently ignores, so any
      caller with [disable_parallel_tool_use = true] and
      tools was still receiving parallel tool calls. Same class of
      silent-drop bug as #834 but for a different field; also fixes

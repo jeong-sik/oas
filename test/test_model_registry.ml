@@ -1,5 +1,5 @@
 (** Coverage for [Model_registry] (oas#1175 step 2 — vendor model alias
-    SSOT).  The module is the single place where short→full Provider_a
+    SSOT).  The module is the single place where short→full Anthropic
     model IDs are resolved; new models are added here only.
 
     [lib/types.ml:76] documents [Model_registry.resolve_model_id] in

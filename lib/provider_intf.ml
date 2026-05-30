@@ -83,7 +83,7 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       let path = spec.request_path in
       let body_str =
         match kind with
-        | Provider.Provider_a_messages ->
+        | Provider.Anthropic_messages ->
           Yojson.Safe.to_string
             (`Assoc
                 (Api_provider_a.build_body_assoc
@@ -108,7 +108,7 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       match Http_client.post_sync ~sw ~net ~url ~headers ~body:body_str () with
       | Ok (200, body_str) ->
         (match kind with
-         | Provider.Provider_a_messages ->
+         | Provider.Anthropic_messages ->
            Ok (Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
          | Provider.Openai_chat_completions ->
            (match parse_provider_d_response_result body_str with
@@ -137,7 +137,7 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
 ;;
 
 (** Resolve to a streaming provider if supported.
-    Returns [Some] for Provider_a and Provider_d-compatible providers. *)
+    Returns [Some] for Anthropic and Provider_d-compatible providers. *)
 let of_config_streaming (provider_cfg : Provider.config)
   : streaming_provider_module option
   =
@@ -174,9 +174,9 @@ let of_config_streaming (provider_cfg : Provider.config)
 [@@@coverage off]
 (* === Inline tests === *)
 
-let%test "supports_streaming Provider_a" =
+let%test "supports_streaming Anthropic" =
   let cfg : Provider.config =
-    { provider = Provider.Provider_a
+    { provider = Provider.Anthropic
     ; model_id = "agent_llm_a-3-5-sonnet-20241022"
     ; api_key_env = "PROVIDER_A_API_KEY"
     }
@@ -203,7 +203,7 @@ let%test "supports_streaming OpenAICompat" =
 
 let%test "of_config returns a provider_module" =
   let cfg : Provider.config =
-    { provider = Provider.Provider_a
+    { provider = Provider.Anthropic
     ; model_id = "agent_llm_a-3-5-sonnet-20241022"
     ; api_key_env = "PROVIDER_A_API_KEY"
     }
@@ -213,9 +213,9 @@ let%test "of_config returns a provider_module" =
   true
 ;;
 
-let%test "of_config_streaming Provider_a returns Some" =
+let%test "of_config_streaming Anthropic returns Some" =
   let cfg : Provider.config =
-    { provider = Provider.Provider_a
+    { provider = Provider.Anthropic
     ; model_id = "agent_llm_a-3-5-sonnet-20241022"
     ; api_key_env = "PROVIDER_A_API_KEY"
     }

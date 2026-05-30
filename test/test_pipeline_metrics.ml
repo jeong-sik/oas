@@ -81,7 +81,7 @@ let test_sync_dispatches_via_complete_triggers_metrics () =
   @@ fun sw ->
   let pc =
     Llm_provider.Provider_config.make
-      ~kind:Cli_tool_d
+      ~kind:Anthropic
       ~model_id:"auto"
       ~base_url:""
       ~api_key:""

@@ -13,7 +13,7 @@
     it will always return [true] regardless of subsequent operations.
 
     This preserves prompt cache prefixes across turns for all providers
-    (Provider_a, Provider_d, Ollama 0.5+).
+    (Anthropic, Provider_d, Ollama 0.5+).
 
     @stability Evolving
     @since 0.128.0 *)

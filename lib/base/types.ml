@@ -1,4 +1,4 @@
-(** Core types for Provider_a Agent SDK.
+(** Core types for Anthropic Agent SDK.
 
     LLM-level types (role, message, content_block, etc.) are defined in
     {!Llm_provider.Types} and re-exported here for backward compatibility.
@@ -103,7 +103,7 @@ type agent_config =
   ; thinking_budget : int option (* For Agent_llm_a 3.7+ extended thinking *)
   ; tool_choice : tool_choice option
   ; disable_parallel_tool_use : bool
-    (* Provider_a: tool_choice.disable_parallel_tool_use, Provider_d: parallel_tool_calls=false *)
+    (* Anthropic: tool_choice.disable_parallel_tool_use, Provider_d: parallel_tool_calls=false *)
   ; cache_system_prompt : bool (* Wrap system prompt with cache_control ephemeral *)
   ; cache_extended_ttl : bool (* true=1h TTL (2x write cost), false=5min default *)
   ; max_input_tokens : int option (* Token budget: max cumulative input tokens *)

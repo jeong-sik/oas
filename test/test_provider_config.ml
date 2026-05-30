@@ -11,7 +11,7 @@ let check_bool = Alcotest.(check bool)
 let test_make_defaults () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"test"
       ~base_url:"http://localhost:8080"
       ()
@@ -39,27 +39,27 @@ let test_make_defaults () =
 (* ── make: request_path per kind ──────────────────────── *)
 
 let test_request_path_provider_a () =
-  let cfg = Provider_config.make ~kind:Provider_a ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   check_string "provider_a path" "/v1/messages" cfg.request_path
 ;;
 
 let test_request_path_provider_c () =
-  let cfg = Provider_config.make ~kind:Provider_c ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
   check_string "provider_c path" "/v1/messages" cfg.request_path
 ;;
 
 let test_request_path_provider_d () =
-  let cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   check_string "provider_d path" "/v1/chat/completions" cfg.request_path
 ;;
 
 let test_request_path_provider_f () =
-  let cfg = Provider_config.make ~kind:Provider_f ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:Gemini ~model_id:"m" ~base_url:"" () in
   check_string "provider_f path" "" cfg.request_path
 ;;
 
 let test_request_path_glm () =
-  let cfg = Provider_config.make ~kind:Provider_k ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:Glm ~model_id:"m" ~base_url:"" () in
   check_string "provider_k path" "/chat/completions" cfg.request_path
 ;;
 
@@ -69,35 +69,15 @@ let test_request_path_ollama () =
 ;;
 
 let test_request_path_provider_h () =
-  let cfg = Provider_config.make ~kind:Provider_h ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:DashScope ~model_id:"m" ~base_url:"" () in
   check_string "provider_h path" "/chat/completions" cfg.request_path
 ;;
 
-let test_request_path_agent_llm_a_code () =
-  let cfg = Provider_config.make ~kind:Cli_tool_d ~model_id:"m" ~base_url:"" () in
-  check_string "cli_tool_d path" "" cfg.request_path
-;;
-
-let test_request_path_provider_c_cli () =
-  let cfg = Provider_config.make ~kind:Cli_tool_c ~model_id:"m" ~base_url:"" () in
-  check_string "cli_tool_c path" "" cfg.request_path
-;;
-
-let test_request_path_other_cli_kinds () =
-  List.iter
-    (fun kind ->
-       let cfg = Provider_config.make ~kind ~model_id:"m" ~base_url:"" () in
-       check_string
-         (Provider_config.string_of_provider_kind kind ^ " path")
-         ""
-         cfg.request_path)
-    [ Cli_tool_a; Cli_tool_b ]
-;;
 
 let test_request_path_override () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"m"
       ~base_url:""
       ~request_path:"/custom/path"
@@ -111,7 +91,7 @@ let test_request_path_override () =
 let test_make_with_all_options () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-opus"
       ~base_url:"https://api.provider_a.com"
       ~api_key:"sk-test"
@@ -156,7 +136,7 @@ let test_make_with_all_options () =
 let test_make_response_format_json_mode () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"model-d"
       ~base_url:"https://api.provider_d.com/v1"
       ~response_format_json:true
@@ -195,7 +175,7 @@ let test_output_schema_of_response_format () =
 let test_validate_output_schema_provider_d_official () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"model-d"
       ~base_url:"https://api.provider_d.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
@@ -210,7 +190,7 @@ let test_validate_output_schema_provider_d_official () =
 let test_validate_output_schema_provider_d_compat_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"model-d"
       ~base_url:"https://openrouter.ai/api/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
@@ -225,7 +205,7 @@ let test_validate_output_schema_provider_d_compat_rejected () =
 let test_validate_output_schema_glm_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~output_schema:(`Assoc [ "type", `String "object" ])
@@ -240,7 +220,7 @@ let test_validate_output_schema_glm_rejected () =
 let test_validate_output_schema_provider_h_accepted () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_h
+      ~kind:DashScope
       ~model_id:"provider_h-max"
       ~base_url:"https://provider_h-intl.aliyuncs.com/compatible-mode/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
@@ -255,7 +235,7 @@ let test_validate_output_schema_provider_h_accepted () =
 let test_validate_output_schema_provider_c_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_c-for-coding"
       ~base_url:"https://api.provider_c.com/coding"
       ~output_schema:(`Assoc [ "type", `String "object" ])
@@ -270,7 +250,7 @@ let test_validate_output_schema_provider_c_rejected () =
 let test_validate_output_schema_unrequested_ok () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_c-for-coding"
       ~base_url:"https://api.provider_c.com/coding"
       ()
@@ -285,7 +265,7 @@ let test_validate_output_schema_direct_response_format_record () =
   let schema = `Assoc [ "type", `String "object" ] in
   let cfg =
     { (Provider_config.make
-         ~kind:Provider_d_compat
+         ~kind:OpenAI_compat
          ~model_id:"model-d"
          ~base_url:"https://openrouter.ai/api/v1"
          ())
@@ -316,27 +296,13 @@ let test_validate_output_schema_supported_non_provider_d () =
          (Provider_config.string_of_provider_kind kind ^ " accepts schema")
          true
          (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
-    [ Provider_a; Provider_f; Ollama; Provider_h ]
-;;
-
-let test_validate_output_schema_cli_rejected () =
-  let schema = `Assoc [ "type", `String "object" ] in
-  List.iter
-    (fun kind ->
-       let cfg =
-         Provider_config.make ~kind ~model_id:"m" ~base_url:"" ~output_schema:schema ()
-       in
-       check_bool
-         (Provider_config.string_of_provider_kind kind ^ " rejects schema")
-         true
-         (Result.is_error (Provider_config.validate_output_schema_request cfg)))
-    [ Cli_tool_a; Cli_tool_b; Cli_tool_c; Cli_tool_d ]
+    [ Anthropic; Gemini; Ollama; DashScope ]
 ;;
 
 let test_validate_output_schema_capability_rejected () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"unknown-model-without-schema-capability"
       ~base_url:"https://api.provider_d.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
@@ -350,7 +316,7 @@ let test_validate_output_schema_capability_rejected () =
 (* ── make: headers default ────────────────────────────── *)
 
 let test_default_headers () =
-  let cfg = Provider_config.make ~kind:Provider_d_compat ~model_id:"m" ~base_url:"" () in
+  let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   check_int "1 default header" 1 (List.length cfg.headers);
   let k, v = List.hd cfg.headers in
   check_string "Content-Type key" "Content-Type" k;
@@ -360,7 +326,7 @@ let test_default_headers () =
 let test_custom_headers () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"m"
       ~base_url:""
       ~headers:[ "Auth", "Bearer x"; "X-Custom", "val" ]
@@ -374,7 +340,7 @@ let test_custom_headers () =
 let test_is_local_loopback_ip () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"m"
       ~base_url:"http://127.0.0.1:8085"
       ()
@@ -385,7 +351,7 @@ let test_is_local_loopback_ip () =
 let test_is_local_localhost () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"m"
       ~base_url:"http://localhost/v1"
       ()
@@ -396,7 +362,7 @@ let test_is_local_localhost () =
 let test_is_local_remote_false () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"m"
       ~base_url:"https://api.example.com"
       ()
@@ -407,7 +373,7 @@ let test_is_local_remote_false () =
 let test_is_local_host_boundary_false () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"m"
       ~base_url:"http://localhostevil.com"
       ()
@@ -418,7 +384,7 @@ let test_is_local_host_boundary_false () =
 let test_is_local_localhost_query_true () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"m"
       ~base_url:"http://localhost?foo=bar"
       ()
@@ -434,36 +400,21 @@ let test_default_attempt_timeout_s () =
       (Provider_config.default_attempt_timeout_s kind)
   in
   check_timeout "ollama has no default hard attempt timeout" None Ollama;
-  check_timeout "cli_tool_d keeps CLI default" (Some 120.0) Cli_tool_d;
-  check_timeout "cli_tool_c keeps CLI default" (Some 60.0) Cli_tool_c;
-  check_timeout "cli_tool_b keeps CLI default" (Some 180.0) Cli_tool_b;
   check_timeout
     "provider_d_compat has no default hard attempt timeout"
     None
-    Provider_d_compat
+    OpenAI_compat
 ;;
 
 let test_max_turns_hard_cap_and_clamp () =
   Alcotest.(check (option int))
-    "cli_tool_d hard cap"
-    (Some 30)
-    (Provider_config.max_turns_hard_cap Cli_tool_d);
-  Alcotest.(check (option int))
     "provider_a no hard cap"
     None
-    (Provider_config.max_turns_hard_cap Provider_a);
-  check_int
-    "cli_tool_d clamps high request"
-    30
-    (Provider_config.clamp_max_turns Cli_tool_d 99);
-  check_int
-    "cli_tool_d preserves low request"
-    12
-    (Provider_config.clamp_max_turns Cli_tool_d 12);
+    (Provider_config.max_turns_hard_cap Anthropic);
   check_int
     "provider_a preserves request"
     99
-    (Provider_config.clamp_max_turns Provider_a 99)
+    (Provider_config.clamp_max_turns Anthropic 99)
 ;;
 
 let test_reasoning_effort_of_thinking_config () =
@@ -493,7 +444,7 @@ let test_reasoning_effort_of_config () =
   in
   let provider_a =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet"
       ~base_url:"https://api.provider_a.com"
       ~enable_thinking:true
@@ -527,54 +478,12 @@ let test_structured_output_name_of_schema () =
   check_name "non-object uses default" "structured_output" (`List [])
 ;;
 
-let test_validate_cli_sampling_params () =
-  let expect_error label cfg =
-    check_bool
-      label
-      true
-      (Result.is_error (Provider_config.validate_cli_sampling_params cfg))
-  in
-  let expect_ok label cfg =
-    check_bool
-      label
-      true
-      (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
-  in
-  expect_error
-    "cli min_p"
-    (Provider_config.make ~kind:Cli_tool_a ~model_id:"m" ~base_url:"" ~min_p:0.05 ());
-  expect_error
-    "cli top_k"
-    (Provider_config.make ~kind:Cli_tool_b ~model_id:"m" ~base_url:"" ~top_k:40 ());
-  expect_error
-    "cli both"
-    (Provider_config.make
-       ~kind:Cli_tool_c
-       ~model_id:"m"
-       ~base_url:""
-       ~min_p:0.05
-       ~top_k:40
-       ());
-  expect_ok
-    "cli clean"
-    (Provider_config.make ~kind:Cli_tool_d ~model_id:"m" ~base_url:"" ());
-  expect_ok
-    "http provider accepts sampling"
-    (Provider_config.make
-       ~kind:Provider_a
-       ~model_id:"m"
-       ~base_url:"https://api.provider_a.com"
-       ~min_p:0.05
-       ~top_k:40
-       ())
-;;
-
 (* ── provider_name_of_config ─────────────────────────── *)
 
 let test_provider_name_of_config_glm_general () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-5.1"
       ~base_url:Zai_catalog.general_base_url
       ()
@@ -588,7 +497,7 @@ let test_provider_name_of_config_glm_general () =
 let test_provider_name_of_config_glm_coding () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-5.1"
       ~base_url:Zai_catalog.coding_base_url
       ()
@@ -602,7 +511,7 @@ let test_provider_name_of_config_glm_coding () =
 let test_provider_name_of_config_local_provider_d_compat () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"local-model"
       ~base_url:"http://127.0.0.1:8085"
       ()
@@ -616,7 +525,7 @@ let test_provider_name_of_config_local_provider_d_compat () =
 let test_provider_name_of_config_openrouter () =
   let cfg =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"provider_d/gpt-oss-20b"
       ~base_url:"https://openrouter.ai/api/v1"
       ~request_path:"/chat/completions"
@@ -656,22 +565,21 @@ let test_kind_roundtrip () =
 ;;
 
 let test_kind_aliases () =
-  check_parse "agent_llm_a -> Provider_a" "agent_llm_a" Provider_a;
-  check_parse "provider_d -> Provider_d_compat" "provider_d" Provider_d_compat;
+  check_parse "agent_llm_a -> Anthropic" "agent_llm_a" Anthropic;
+  check_parse "provider_d -> OpenAI_compat" "provider_d" OpenAI_compat;
   check_parse "llama -> Ollama" "provider_n" Ollama
 ;;
 
 let test_kind_case_insensitive () =
-  check_parse "PROVIDER_A" "PROVIDER_A" Provider_a;
-  check_parse "Agent_llm_a" "Agent_llm_a" Provider_a;
-  check_parse "Provider_k" "Provider_k" Provider_k;
-  check_parse "CLI_TOOL_B" "CLI_TOOL_B" Cli_tool_b
+  check_parse "PROVIDER_A" "PROVIDER_A" Anthropic;
+  check_parse "Agent_llm_a" "Agent_llm_a" Anthropic;
+  check_parse "Glm" "Glm" Glm;
 ;;
 
 let test_kind_whitespace () =
-  check_parse "leading ws" "  agent_llm_a" Provider_a;
+  check_parse "leading ws" "  agent_llm_a" Anthropic;
   check_parse "trailing ws" "ollama  " Ollama;
-  check_parse "both ws" "\tprovider_d_compat\n" Provider_d_compat
+  check_parse "both ws" "\tprovider_d_compat\n" OpenAI_compat
 ;;
 
 let test_kind_unknown_returns_none () =
@@ -708,9 +616,9 @@ let test_show_matches_string_of () =
 let test_pp_uses_lowercase () =
   let buf = Buffer.create 32 in
   let fmt = Format.formatter_of_buffer buf in
-  Provider_config.pp_provider_kind fmt Provider_a;
+  Provider_config.pp_provider_kind fmt Anthropic;
   Format.pp_print_flush fmt ();
-  check_string "pp Provider_a" "provider_a" (Buffer.contents buf)
+  check_string "pp Anthropic" "provider_a" (Buffer.contents buf)
 ;;
 
 let test_to_yojson_roundtrip () =
@@ -811,14 +719,11 @@ let contains_substring ~sub text =
 
 let test_wire_kind_lowercase () =
   let cases =
-    [ Provider_config.Provider_a, "\"provider_kind\":\"provider_a\""
-    ; Provider_config.Provider_d_compat, "\"provider_kind\":\"provider_d_compat\""
+    [ Provider_config.Anthropic, "\"provider_kind\":\"provider_a\""
+    ; Provider_config.OpenAI_compat, "\"provider_kind\":\"provider_d_compat\""
     ; Provider_config.Ollama, "\"provider_kind\":\"ollama\""
-    ; Provider_config.Provider_f, "\"provider_kind\":\"provider_f\""
-    ; Provider_config.Provider_k, "\"provider_kind\":\"provider_k\""
-    ; Provider_config.Cli_tool_d, "\"provider_kind\":\"cli_tool_d\""
-    ; Provider_config.Cli_tool_b, "\"provider_kind\":\"cli_tool_b\""
-    ; Provider_config.Cli_tool_a, "\"provider_kind\":\"cli_tool_a\""
+    ; Provider_config.Gemini, "\"provider_kind\":\"provider_f\""
+    ; Provider_config.Glm, "\"provider_kind\":\"provider_k\""
     ]
   in
   List.iter
@@ -903,17 +808,13 @@ let test_all_is_exhaustive () =
   List.iter
     (fun k ->
        match (k : Provider_config.provider_kind) with
-       | Provider_a
-       | Provider_c
-       | Provider_d_compat
+       | Anthropic
+       | Kimi
+       | OpenAI_compat
        | Ollama
-       | Provider_f
-       | Provider_h
-       | Provider_k
-       | Cli_tool_d
-       | Cli_tool_b
-       | Cli_tool_c
-       | Cli_tool_a -> ())
+       | Gemini
+       | DashScope
+       | Glm -> ())
     xs
 ;;
 
@@ -939,61 +840,19 @@ let test_default_api_key_env_known () =
   Alcotest.(check (option string))
     "provider_a"
     (Some "PROVIDER_A_API_KEY")
-    (Provider_config.default_api_key_env Provider_a);
+    (Provider_config.default_api_key_env Anthropic);
   Alcotest.(check (option string))
     "provider_f"
     (Some "PROVIDER_F_API_KEY")
-    (Provider_config.default_api_key_env Provider_f);
+    (Provider_config.default_api_key_env Gemini);
   Alcotest.(check (option string))
     "provider_k"
     (Some "ZAI_API_KEY")
-    (Provider_config.default_api_key_env Provider_k);
+    (Provider_config.default_api_key_env Glm);
   Alcotest.(check (option string))
     "provider_c"
     (Some "PROVIDER_C_API_KEY")
-    (Provider_config.default_api_key_env Provider_c)
-;;
-
-let test_is_subprocess_cli () =
-  List.iter
-    (fun (label, k) ->
-       Alcotest.(check bool)
-         ("subprocess: " ^ label)
-         true
-         (Provider_config.is_subprocess_cli k))
-    [ "cli_tool_d", Provider_config.Cli_tool_d
-    ; "cli_tool_b", Provider_config.Cli_tool_b
-    ; "cli_tool_c", Provider_config.Cli_tool_c
-    ; "cli_tool_a", Provider_config.Cli_tool_a
-    ];
-  List.iter
-    (fun (label, k) ->
-       Alcotest.(check bool)
-         ("http: " ^ label)
-         false
-         (Provider_config.is_subprocess_cli k))
-    [ "provider_a", Provider_config.Provider_a
-    ; "provider_c", Provider_config.Provider_c
-    ; "provider_d_compat", Provider_config.Provider_d_compat
-    ; "ollama", Provider_config.Ollama
-    ; "provider_f", Provider_config.Provider_f
-    ; "provider_k", Provider_config.Provider_k
-    ]
-;;
-
-(* Partition property: every variant is either a subprocess CLI or
-   direct-HTTP, never both, never neither. Verifies the predicate is
-   total over [all] and catches future variants that slip past the
-   compiler's exhaustive match (defensive runtime check). *)
-let test_subprocess_partitions_all () =
-  let xs = Provider_config.all_provider_kinds in
-  let sub, http = List.partition Provider_config.is_subprocess_cli xs in
-  Alcotest.(check int) "four subprocess kinds" 4 (List.length sub);
-  Alcotest.(check int) "seven http-direct kinds" 7 (List.length http);
-  Alcotest.(check int)
-    "partition sums to all"
-    (List.length xs)
-    (List.length sub + List.length http)
+    (Provider_config.default_api_key_env Kimi)
 ;;
 
 let test_default_api_key_env_none_for_others () =
@@ -1002,12 +861,8 @@ let test_default_api_key_env_none_for_others () =
   List.iter
     (fun (label, k) ->
        Alcotest.(check (option string)) label None (Provider_config.default_api_key_env k))
-    [ "provider_d_compat", Provider_config.Provider_d_compat
+    [ "provider_d_compat", Provider_config.OpenAI_compat
     ; "ollama", Provider_config.Ollama
-    ; "cli_tool_d", Provider_config.Cli_tool_d
-    ; "cli_tool_b", Provider_config.Cli_tool_b
-    ; "cli_tool_c", Provider_config.Cli_tool_c
-    ; "cli_tool_a", Provider_config.Cli_tool_a
     ]
 ;;
 
@@ -1047,9 +902,6 @@ let () =
         ; Alcotest.test_case "provider_k" `Quick test_request_path_glm
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
         ; Alcotest.test_case "provider_h" `Quick test_request_path_provider_h
-        ; Alcotest.test_case "cli_tool_d" `Quick test_request_path_agent_llm_a_code
-        ; Alcotest.test_case "cli_tool_c" `Quick test_request_path_provider_c_cli
-        ; Alcotest.test_case "other cli kinds" `Quick test_request_path_other_cli_kinds
         ; Alcotest.test_case "override" `Quick test_request_path_override
         ] )
     ; ( "explicit_values"
@@ -1098,10 +950,6 @@ let () =
             `Quick
             test_validate_output_schema_supported_non_provider_d
         ; Alcotest.test_case
-            "cli providers rejected"
-            `Quick
-            test_validate_output_schema_cli_rejected
-        ; Alcotest.test_case
             "provider_d capability rejection"
             `Quick
             test_validate_output_schema_capability_rejected
@@ -1138,10 +986,6 @@ let () =
             "structured output names"
             `Quick
             test_structured_output_name_of_schema
-        ; Alcotest.test_case
-            "cli sampling validation"
-            `Quick
-            test_validate_cli_sampling_params
         ] )
     ; ( "provider_name"
       , [ Alcotest.test_case
@@ -1200,14 +1044,6 @@ let () =
             "default_api_key_env None for others"
             `Quick
             test_default_api_key_env_none_for_others
-        ; Alcotest.test_case
-            "is_subprocess_cli partitions variants"
-            `Quick
-            test_is_subprocess_cli
-        ; Alcotest.test_case
-            "subprocess + http partition covers all"
-            `Quick
-            test_subprocess_partitions_all
         ] )
     ; ( "telemetry_wire_format"
       , [ Alcotest.test_case

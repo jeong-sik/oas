@@ -179,7 +179,7 @@ type tool_choice =
   | Auto
   | Any
   | Tool of string
-  | None_ (** Disables tool use. Provider_a: {type:none}, Provider_d: "none" *)
+  | None_ (** Disables tool use. Anthropic: {type:none}, Provider_d: "none" *)
 [@@deriving show]
 
 let tool_choice_to_json = function

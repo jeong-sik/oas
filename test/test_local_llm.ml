@@ -1,4 +1,4 @@
-(** Live integration test: agent-sdk → llama-server (Provider_h_3.5)
+(** Live integration test: agent-sdk → llama-server (DashScope_3.5)
 
     Requires: llama-server running on 127.0.0.1:8085
     Run: LLAMA_LIVE_TEST=1 dune exec ./test/test_local_llm.exe

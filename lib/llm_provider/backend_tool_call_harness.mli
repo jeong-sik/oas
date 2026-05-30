@@ -40,7 +40,7 @@ type response_parse_error =
 (** {1 Schema extraction} *)
 
 (** Extract parameter schema from a tool definition JSON.
-    Handles "input_schema" (Provider_a), "parameters" (Provider_d),
+    Handles "input_schema" (Anthropic), "parameters" (Provider_d),
     and "function.parameters" (Provider_d nested). *)
 val extract_tool_schema : Yojson.Safe.t -> Yojson.Safe.t option
 

@@ -1,12 +1,12 @@
-(** Provider_a Agent_llm_a API request building and response parsing.
+(** Anthropic Agent_llm_a API request building and response parsing.
 
     @stability Internal
     @since 0.93.1 *)
 
-(** Parse Provider_a API response JSON. *)
+(** Parse Anthropic API response JSON. *)
 val parse_response : Yojson.Safe.t -> Types.api_response
 
-(** Build request body assoc list for Provider_a Messages API. *)
+(** Build request body assoc list for Anthropic Messages API. *)
 val build_body_assoc
   :  config:Types.agent_state
   -> messages:Types.message list

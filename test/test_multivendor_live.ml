@@ -3,9 +3,9 @@
     Runs the golden Event_bus lifecycle transcript against whatever
     providers are reachable in the current environment:
 
-    - Provider_a      if [PROVIDER_A_API_KEY] is set
+    - Anthropic      if [PROVIDER_A_API_KEY] is set
     - Provider_d         if [PROVIDER_D_API_KEY] is set
-    - Provider_f         if [PROVIDER_F_API_KEY] is set
+    - Gemini         if [PROVIDER_F_API_KEY] is set
     - Provider_d-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
@@ -112,7 +112,7 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
     if names <> [] then assert_envelope ~provider:provider_label events
 ;;
 
-(* ── Provider_a ────────────────────────────────────────────────── *)
+(* ── Anthropic ────────────────────────────────────────────────── *)
 
 let test_provider_a () =
   match Sys.getenv_opt "PROVIDER_A_API_KEY" with
@@ -124,7 +124,7 @@ let test_provider_a () =
     Eio.Switch.run
     @@ fun sw ->
     let provider : Provider.config =
-      { provider = Provider.Provider_a
+      { provider = Provider.Anthropic
       ; model_id = "agent_llm_a-haiku-4-5"
       ; api_key_env = "PROVIDER_A_API_KEY"
       }
@@ -170,7 +170,7 @@ let test_provider_d () =
       ~model:"model-d-mini"
 ;;
 
-(* ── Provider_f (via Provider_d-compat endpoint) ──────────────────────── *)
+(* ── Gemini (via Provider_d-compat endpoint) ──────────────────────── *)
 
 let test_provider_f () =
   match Sys.getenv_opt "PROVIDER_F_API_KEY" with
@@ -180,7 +180,7 @@ let test_provider_f () =
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    (* Google's Provider_d-compatible endpoint for Provider_f. *)
+    (* Google's Provider_d-compatible endpoint for Gemini. *)
     let base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d" in
     let provider : Provider.config =
       { provider =

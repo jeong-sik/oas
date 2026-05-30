@@ -330,7 +330,7 @@ let prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_par
        byte-identical across turns — critical for local LLM KV-cache
        reuse.  The dynamic context (timestamps, tool counts) changes
        every turn; placing it at the tail keeps the stable history
-       prefix cacheable.  Provider_a API handles caching server-side
+       prefix cacheable.  Anthropic API handles caching server-side
        regardless of position, but Ollama/llama.cpp prefix-match. *)
     let system_msg =
       { role = User
