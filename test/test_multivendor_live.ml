@@ -218,7 +218,7 @@ let test_local_compat () =
   if healthy = []
   then
     skip_note
-      "local-provider_d-compat"
+      "local-openai-compat"
       (Printf.sprintf "no healthy endpoint in [%s]" (String.concat ", " endpoints))
   else
     List.iter
@@ -260,7 +260,7 @@ let () =
       , [ test_case "provider_a" `Quick test_provider_a
         ; test_case "provider_d" `Quick test_provider_d
         ; test_case "provider_f" `Quick test_provider_f
-        ; test_case "local provider_d-compat" `Quick test_local_compat
+        ; test_case "local openai-compat" `Quick test_local_compat
         ] )
     ]
 ;;

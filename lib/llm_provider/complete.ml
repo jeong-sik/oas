@@ -7,7 +7,6 @@
     @since 0.53.0  Streaming, retry
     @since 0.54.0  Optional cache + metrics hooks *)
 
-
 (* ── Internal: timed HTTP completion ──────────────────── *)
 
 (** Construct the URL for a Gemini API call.
@@ -42,7 +41,7 @@ type sampling_defaults =
    also lands here because the backend applies its own per-model
    defaults in [Backend_ollama]; pre-filling a top-level value here
    would shadow that. Only OpenAI_compat carries the non-empty
-   [provider_d_compat_min_p] floor. *)
+   [openai_compat_min_p] floor. *)
 let no_sampling_defaults : sampling_defaults =
   { default_min_p = None; default_top_p = None; default_top_k = None }
 ;;
@@ -50,7 +49,7 @@ let no_sampling_defaults : sampling_defaults =
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
   | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
-    { default_min_p = Some Constants.Sampling.provider_d_compat_min_p
+    { default_min_p = Some Constants.Sampling.openai_compat_min_p
     ; default_top_p = None
     ; default_top_k = None
     }
@@ -60,7 +59,7 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
   | Provider_config.Glm -> no_sampling_defaults
 ;;
 
-let provider_d_compat_should_default_min_p (config : Provider_config.t) : bool =
+let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
   match Capabilities.for_model_id config.model_id with
   | Some caps -> caps.supports_min_p
   | None -> Provider_config.is_local config
@@ -73,14 +72,9 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   let default_min_p =
     match config.kind with
     | Provider_config.OpenAI_compat
-      when not (provider_d_compat_should_default_min_p config) -> None
-    | Anthropic
-    | Kimi
-    | OpenAI_compat
-    | Ollama
-    | Gemini
-    | Glm
-    | DashScope -> defaults.default_min_p
+      when not (openai_compat_should_default_min_p config) -> None
+    | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope ->
+      defaults.default_min_p
   in
   { config with
     min_p =
@@ -551,12 +545,8 @@ let complete_http
       let url =
         match config.kind with
         | Provider_config.Gemini -> provider_f_url ~config ~stream:false
-        | Anthropic
-        | Kimi
-        | OpenAI_compat
-        | Ollama
-        | Glm
-        | DashScope -> config.base_url ^ config.request_path
+        | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
+          config.base_url ^ config.request_path
       in
       (* Pre-flight body validation: detect truncated JSON before sending.
      Yojson.Safe.to_string should always produce balanced JSON, but if it
@@ -712,8 +702,7 @@ let complete_http
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
                 | Provider_config.Gemini ->
                   Ok (Backend_provider_f.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Glm ->
-                  Ok (Backend_provider_k.parse_response body)
+                | Provider_config.Glm -> Ok (Backend_provider_k.parse_response body)
               with
               | Yojson.Json_error msg ->
                 Diag.error "complete" "JSON parse error: %s" msg;
@@ -731,15 +720,12 @@ let complete_http
               | Backend_provider_f.Gemini_api_error msg ->
                 Diag.error "complete" "Gemini API error: %s" msg;
                 Error
-                  (Http_client.HttpError
-                     { code = 400; body = "Gemini API error: " ^ msg })
+                  (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
               | Backend_provider_k.Glm_api_error err ->
                 let semantic_code =
                   Backend_provider_k.http_code_of_provider_k_error_class err.error_class
                 in
-                let body =
-                  Printf.sprintf "Glm error %s: %s" err.code err.message
-                in
+                let body = Printf.sprintf "Glm error %s: %s" err.code err.message in
                 Diag.error
                   "complete"
                   "Glm API error (code=%s class=%d): %s"
@@ -1055,9 +1041,12 @@ let complete
            | Some c, Some key ->
              let json = Cache.response_to_json resp in
              (try c.set ~key ~ttl_sec:Constants.Cache.default_ttl_sec json with
-              | Eio.Io _ | Sys_error _ as exn ->
-                Diag.warn "complete"
-                  "cache set failed for key %s: %s" key (Printexc.to_string exn) )
+              | (Eio.Io _ | Sys_error _) as exn ->
+                Diag.warn
+                  "complete"
+                  "cache set failed for key %s: %s"
+                  key
+                  (Printexc.to_string exn))
            | _, _ -> ());
           Ok resp
         | Error err ->
@@ -1235,22 +1224,14 @@ let complete_stream_http
       let url =
         match config.kind with
         | Provider_config.Gemini -> provider_f_url ~config ~stream:true
-        | Anthropic
-        | Kimi
-        | OpenAI_compat
-        | Ollama
-        | Glm
-        | DashScope -> config.base_url ^ config.request_path
+        | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
+          config.base_url ^ config.request_path
       in
       let body_with_stream =
         match config.kind with
         | Provider_config.Gemini -> body_str
-        | Anthropic
-        | Kimi
-        | OpenAI_compat
-        | Ollama
-        | Glm
-        | DashScope -> Http_client.inject_stream_param body_str
+        | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
+          Http_client.inject_stream_param body_str
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in
@@ -1510,6 +1491,7 @@ let complete_stream_http
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
+                           | Provider_config.OpenAI_compat | Provider_config.DashScope ->
                            | Provider_config.OpenAI_compat
                            | Provider_config.DashScope
                            | Provider_config.Kimi ->
@@ -1660,12 +1642,7 @@ let complete_stream_http
                   }
             in
             { resp with usage; telemetry }
-          | Anthropic
-          | Kimi
-          | OpenAI_compat
-          | Gemini
-          | Glm
-          | DashScope -> resp
+          | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> resp
         in
         (match !ollama_timings with
          | Some
@@ -2086,7 +2063,6 @@ let%test "provider_sampling_defaults Gemini has no min_p" =
   let d = provider_sampling_defaults Provider_config.Gemini in
   d.default_min_p = None
 ;;
-
 
 let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
   let config =

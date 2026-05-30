@@ -73,7 +73,6 @@ let test_request_path_provider_h () =
   check_string "provider_h path" "/chat/completions" cfg.request_path
 ;;
 
-
 let test_request_path_override () =
   let cfg =
     Provider_config.make
@@ -187,7 +186,7 @@ let test_validate_output_schema_provider_d_official () =
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_provider_d_compat_rejected () =
+let test_validate_output_schema_openai_compat_rejected () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -400,10 +399,7 @@ let test_default_attempt_timeout_s () =
       (Provider_config.default_attempt_timeout_s kind)
   in
   check_timeout "ollama has no default hard attempt timeout" None Ollama;
-  check_timeout
-    "provider_d_compat has no default hard attempt timeout"
-    None
-    OpenAI_compat
+  check_timeout "openai_compat has no default hard attempt timeout" None OpenAI_compat
 ;;
 
 let test_max_turns_hard_cap_and_clamp () =
@@ -508,7 +504,7 @@ let test_provider_name_of_config_glm_coding () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
-let test_provider_name_of_config_local_provider_d_compat () =
+let test_provider_name_of_config_local_openai_compat () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -573,13 +569,13 @@ let test_kind_aliases () =
 let test_kind_case_insensitive () =
   check_parse "PROVIDER_A" "PROVIDER_A" Anthropic;
   check_parse "Agent_llm_a" "Agent_llm_a" Anthropic;
-  check_parse "Glm" "Glm" Glm;
+  check_parse "Glm" "Glm" Glm
 ;;
 
 let test_kind_whitespace () =
   check_parse "leading ws" "  agent_llm_a" Anthropic;
   check_parse "trailing ws" "ollama  " Ollama;
-  check_parse "both ws" "\tprovider_d_compat\n" OpenAI_compat
+  check_parse "both ws" "\topenai_compat\n" OpenAI_compat
 ;;
 
 let test_kind_unknown_returns_none () =
@@ -656,7 +652,7 @@ let test_of_yojson_accepts_aliases () =
            (Provider_config.string_of_provider_kind k)
        | Error msg -> Alcotest.failf "of_yojson alias %S failed: %s" input msg)
     [ "agent_llm_a", "provider_a"
-    ; "provider_d", "provider_d_compat"
+    ; "provider_d", "openai_compat"
     ; "provider_n", "ollama"
     ]
 ;;
@@ -720,7 +716,7 @@ let contains_substring ~sub text =
 let test_wire_kind_lowercase () =
   let cases =
     [ Provider_config.Anthropic, "\"provider_kind\":\"provider_a\""
-    ; Provider_config.OpenAI_compat, "\"provider_kind\":\"provider_d_compat\""
+    ; Provider_config.OpenAI_compat, "\"provider_kind\":\"openai_compat\""
     ; Provider_config.Ollama, "\"provider_kind\":\"ollama\""
     ; Provider_config.Gemini, "\"provider_kind\":\"provider_f\""
     ; Provider_config.Glm, "\"provider_kind\":\"provider_k\""
@@ -750,7 +746,7 @@ let test_wire_kind_none_roundtrip () =
          (Printf.sprintf "None telemetry must not contain %S" s)
          false
          (contains_substring ~sub:s encoded))
-    [ "\"provider_a\""; "\"ollama\""; "\"provider_d_compat\"" ]
+    [ "\"provider_a\""; "\"ollama\""; "\"openai_compat\"" ]
 ;;
 
 let test_wire_unknown_latency_is_null () =
@@ -808,13 +804,7 @@ let test_all_is_exhaustive () =
   List.iter
     (fun k ->
        match (k : Provider_config.provider_kind) with
-       | Anthropic
-       | Kimi
-       | OpenAI_compat
-       | Ollama
-       | Gemini
-       | DashScope
-       | Glm -> ())
+       | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | DashScope | Glm -> ())
     xs
 ;;
 
@@ -861,7 +851,7 @@ let test_default_api_key_env_none_for_others () =
   List.iter
     (fun (label, k) ->
        Alcotest.(check (option string)) label None (Provider_config.default_api_key_env k))
-    [ "provider_d_compat", Provider_config.OpenAI_compat
+    [ "openai_compat", Provider_config.OpenAI_compat
     ; "ollama", Provider_config.Ollama
     ]
 ;;
@@ -924,7 +914,7 @@ let () =
         ; Alcotest.test_case
             "generic compat rejected"
             `Quick
-            test_validate_output_schema_provider_d_compat_rejected
+            test_validate_output_schema_openai_compat_rejected
         ; Alcotest.test_case
             "provider_k rejected"
             `Quick
@@ -999,7 +989,7 @@ let () =
         ; Alcotest.test_case
             "local provider_d compat"
             `Quick
-            test_provider_name_of_config_local_provider_d_compat
+            test_provider_name_of_config_local_openai_compat
         ; Alcotest.test_case
             "provider_o_router"
             `Quick

@@ -27,16 +27,7 @@ let to_string = function
   | DashScope -> "dashscope"
 ;;
 
-let all : t list =
-  [ Anthropic
-  ; Kimi
-  ; OpenAI_compat
-  ; Ollama
-  ; Gemini
-  ; Glm
-  ; DashScope
-  ]
-;;
+let all : t list = [ Anthropic; Kimi; OpenAI_compat; Ollama; Gemini; Glm; DashScope ]
 
 let default_api_key_env = function
   | Anthropic -> Some "ANTHROPIC_API_KEY"

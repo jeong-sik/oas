@@ -64,9 +64,9 @@ let part_of_content_block id_to_name = function
         Diag.warn
           "backend_provider_f"
           "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
-           using UUID as functionResponse name (Gemini API requires name). This \
-           usually means the ToolUse block was in a conversation turn that was compacted \
-           or trimmed."
+           using UUID as functionResponse name (Gemini API requires name). This usually \
+           means the ToolUse block was in a conversation turn that was compacted or \
+           trimmed."
           tool_use_id
           (Hashtbl.length id_to_name);
         tool_use_id

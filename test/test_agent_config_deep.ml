@@ -456,13 +456,13 @@ let test_resolve_provider_f_preserves_kind () =
 
 (* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
 
-let test_resolve_provider_d_compat_ssot () =
-  (* "provider_d_compat" is the canonical string emitted by
+let test_resolve_openai_compat_ssot () =
+  (* "openai_compat" is the canonical string emitted by
      Provider_kind.to_string OpenAI_compat. Before the parser dispatch,
      it fell through to the registry fallback and ended up with
-     api_key_env = "provider_d_compat" — a meaningless value. *)
+     api_key_env = "openai_compat" — a meaningless value. *)
   let cfg =
-    Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d_compat" None
+    Agent_config.resolve_provider ~model_id:"model-d-4" "openai_compat" None
   in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
@@ -474,7 +474,7 @@ let test_resolve_provider_d_compat_ssot () =
       "api_key_env is PROVIDER_D_API_KEY"
       "PROVIDER_D_API_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected OpenAICompat for provider_d_compat"
+  | _ -> Alcotest.fail "expected OpenAICompat for openai_compat"
 ;;
 
 let test_resolve_provider_a_case_insensitive () =
@@ -639,7 +639,7 @@ let () =
         ; tc "provider_i custom url" test_resolve_provider_i_custom_url
         ; tc "provider_g" test_resolve_provider_g
         ; tc "provider_f preserves kind (#1003)" test_resolve_provider_f_preserves_kind
-        ; tc "provider_d_compat SSOT string" test_resolve_provider_d_compat_ssot
+        ; tc "openai_compat SSOT string" test_resolve_openai_compat_ssot
         ; tc "provider_a case-insensitive" test_resolve_provider_a_case_insensitive
         ; tc
             "agent_llm_a alias routes to Anthropic"

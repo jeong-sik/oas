@@ -26,7 +26,7 @@ let sample_breakdown : T.streaming_kind_breakdown =
 
 let sample_summary : T.t =
   T.Streaming_summary
-    { provider = "provider_d_compat"
+    { provider = "openai_compat"
     ; model = "provider_k-5.1"
     ; chunk_count = 314
     ; kind_breakdown = sample_breakdown
@@ -58,7 +58,7 @@ let test_yojson_roundtrip_summary () =
 let test_terminal_error_roundtrip () =
   let summary_with_error : T.t =
     T.Streaming_summary
-      { provider = "provider_d_compat"
+      { provider = "openai_compat"
       ; model = "provider_k-5.1"
       ; chunk_count = 12
       ; kind_breakdown =

@@ -30,7 +30,7 @@ let test_provider_a_bridge () =
     Alcotest.(check string) "path" "/v1/messages" cfg.request_path
 ;;
 
-let test_provider_d_compat_bridge () =
+let test_openai_compat_bridge () =
   let legacy = Agent_sdk.Provider.provider_o_router () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
   | Error _ -> Alcotest.(check pass) "missing key = expected in test" () ()
@@ -46,7 +46,7 @@ let test_local_provider_bridge () =
     Alcotest.(check string) "path" "/v1/chat/completions" cfg.request_path
 ;;
 
-let test_non_zai_glm_stays_provider_d_compat () =
+let test_non_zai_glm_stays_openai_compat () =
   let legacy =
     { Agent_sdk.Provider.provider =
         OpenAICompat
@@ -64,9 +64,9 @@ let test_non_zai_glm_stays_provider_d_compat () =
   | Ok cfg ->
     Alcotest.(check string)
       "kind remains provider_d compat"
-      "provider_d_compat"
+      "openai_compat"
       (match cfg.kind with
-       | Llm_provider.Provider_config.OpenAI_compat -> "provider_d_compat"
+       | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
        | Anthropic -> "provider_a"
        | Kimi -> "provider_c"
        | Gemini -> "provider_f"
@@ -95,7 +95,7 @@ let test_zai_glm_becomes_glm_provider_config () =
       "kind becomes provider_k"
       "provider_k"
       (match cfg.kind with
-       | Llm_provider.Provider_config.OpenAI_compat -> "provider_d_compat"
+       | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
        | Anthropic -> "provider_a"
        | Kimi -> "provider_c"
        | Gemini -> "provider_f"
@@ -190,7 +190,7 @@ let test_openai_compat_auto_model_branches () =
       in
       (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
        | Ok cfg ->
-         check_kind "provider_d compat kind" "provider_d_compat" cfg;
+         check_kind "provider_d compat kind" "openai_compat" cfg;
          Alcotest.(check string) "provider_d auto" "provider-d-env-default" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
@@ -241,12 +241,12 @@ let () =
     "provider_bridge"
     [ ( "to_provider_config"
       , [ test_case "provider_a" `Quick test_provider_a_bridge
-        ; test_case "provider_d compat" `Quick test_provider_d_compat_bridge
+        ; test_case "provider_d compat" `Quick test_openai_compat_bridge
         ; test_case "local" `Quick test_local_provider_bridge
         ; test_case
             "non-zai provider_k stays provider_d compat"
             `Quick
-            test_non_zai_glm_stays_provider_d_compat
+            test_non_zai_glm_stays_openai_compat
         ; test_case
             "zai provider_k becomes provider_k"
             `Quick

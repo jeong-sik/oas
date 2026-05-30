@@ -90,9 +90,10 @@ let emit_event state session_id (event : event) =
     | Some run_id -> Event_bus.mk_event ~correlation_id:session_id ~run_id payload
     | None -> Event_bus.mk_event ~correlation_id:session_id payload
   in
-  (try Event_bus.publish state.event_bus event_bus_event
-   with exn ->
-     Log.warn (Log.create ~module_name:"runtime_server_types" ())
+  (try Event_bus.publish state.event_bus event_bus_event with
+   | exn ->
+     Log.warn
+       (Log.create ~module_name:"runtime_server_types" ())
        "Event_bus.publish failed"
        [ Log.S ("error", Printexc.to_string exn) ]);
   write_protocol_message state (Event_message { session_id = Some session_id; event })

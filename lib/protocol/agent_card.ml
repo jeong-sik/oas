@@ -280,7 +280,7 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
 let provider_name (cfg : Provider.config) =
   match cfg.provider with
   | Provider.Anthropic -> "provider_a"
-  | Provider.OpenAICompat _ -> "provider_d-compat"
+  | Provider.OpenAICompat _ -> "openai-compat"
   | Provider.Local _ -> "local"
   | Provider.Custom_registered { name } -> name
 ;;

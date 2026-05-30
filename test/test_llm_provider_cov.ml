@@ -715,11 +715,7 @@ let test_build_request_with_thinking () =
 
 let test_build_request_with_thinking_default_budget () =
   let config =
-    make_config
-      ~kind:Gemini
-      ~model_id:provider_f25_flash_model
-      ~enable_thinking:true
-      ()
+    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~enable_thinking:true ()
   in
   let body_str =
     Backend_provider_f.build_request ~config ~messages:[ user_msg "reason" ] ()
@@ -794,7 +790,7 @@ let test_constants_retry_cache_sampling_and_endpoints () =
     "structured max delay"
     60.0
     Constants.Structured_retry.max_delay;
-  Alcotest.(check (float 0.001)) "min_p" 0.05 Constants.Sampling.provider_d_compat_min_p;
+  Alcotest.(check (float 0.001)) "min_p" 0.05 Constants.Sampling.openai_compat_min_p;
   Alcotest.(check int) "truncate" 200 Constants.Truncation.max_error_body_length;
   Alcotest.(check int) "llama port" 8085 Constants.Endpoints.default_llama_port;
   Alcotest.(check string)

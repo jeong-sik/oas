@@ -9,14 +9,11 @@ type capabilities = Provider.capabilities
 
 type transport =
   | Http
-  | Cli
   | Managed
-  | Custom_provider_d_compat
 
 type auth =
   | No_auth
   | Api_key_env of string
-  | Cli_cached_login
   | Oauth_cached_login
   | Setup_token_env of string
   | File of string
@@ -36,9 +33,6 @@ type t =
   ; max_context : int option
   ; capabilities : capabilities
   ; available : bool
-  ; non_interactive : bool
-  ; interactive_required : bool
-  ; daemon_safe : bool
   ; credential_scope : string option
   }
 
@@ -51,15 +45,12 @@ let trim_non_empty value =
 
 let transport_of_catalog = function
   | PC.Http -> Http
-  | PC.Cli -> Cli
   | PC.Managed -> Managed
-  | PC.Custom_provider_d_compat -> Custom_provider_d_compat
 ;;
 
 let auth_of_catalog = function
   | PC.No_auth -> No_auth
   | PC.Api_key_env env -> Api_key_env env
-  | PC.Cli_cached_login -> Cli_cached_login
   | PC.Oauth_cached_login -> Oauth_cached_login
   | PC.Setup_token_env env -> Setup_token_env env
   | PC.File path -> File path
@@ -147,9 +138,6 @@ let binding_of_catalog_entry registry (entry : PC.entry) =
   ; max_context = registry_lookup_max_context registry entry.id entry.max_context
   ; capabilities = public_capabilities entry.capabilities
   ; available = registry_lookup_available registry entry.id
-  ; non_interactive = entry.non_interactive
-  ; interactive_required = entry.interactive_required
-  ; daemon_safe = entry.daemon_safe
   ; credential_scope = entry.credential_scope
   }
 ;;
@@ -168,9 +156,6 @@ let binding_of_registry_entry (entry : PR.entry) =
   ; max_context = (if entry.max_context > 0 then Some entry.max_context else None)
   ; capabilities = public_capabilities entry.capabilities
   ; available = entry.is_available ()
-  ; non_interactive = true
-  ; interactive_required = false
-  ; daemon_safe = true
   ; credential_scope = None
   }
 ;;

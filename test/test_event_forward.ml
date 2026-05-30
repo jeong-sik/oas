@@ -360,7 +360,7 @@ let test_inference_telemetry_partial_fields () =
       (Event_bus.InferenceTelemetry
          { agent_name = "a"
          ; turn = 1
-         ; provider = "provider_d_compat"
+         ; provider = "openai_compat"
          ; model = "gpt-x"
          ; prompt_tokens = Some 50
          ; completion_tokens = Some 10

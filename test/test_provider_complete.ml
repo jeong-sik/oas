@@ -682,9 +682,7 @@ let test_complete_agent_llm_a_code_without_transport_is_guarded () =
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
-  let kinds =
-    [ ]
-  in
+  let kinds = [] in
   List.iter
     (fun (kind, expected_name) ->
        let config = PC.make ~kind ~model_id:"auto" ~base_url:"" () in
@@ -790,11 +788,7 @@ let response_with_thinking =
 
 let test_provider_default_thinking_drift_is_info () =
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"auto"
-      ~base_url:"https://example.invalid/v1"
-      ()
+    PC.make ~kind:OpenAI_compat ~model_id:"auto" ~base_url:"https://example.invalid/v1" ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
   Alcotest.(check bool)

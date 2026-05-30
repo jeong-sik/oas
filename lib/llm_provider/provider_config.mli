@@ -14,8 +14,7 @@
     it can be shared with {!Types} without creating a dependency cycle. *)
 type provider_kind = Provider_kind.t =
   | Anthropic
-  | Kimi
-  (** Kimi direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
+  | Kimi (** Kimi direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
   | OpenAI_compat
   | Ollama
   (** Ollama: OpenAI_compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)

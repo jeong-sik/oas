@@ -31,7 +31,7 @@ let provider_runtime_name selected (cfg : Provider.config option) =
     (match cfg.provider with
      | Provider.Local _ -> "local"
      | Provider.Anthropic -> "provider_a"
-     | Provider.OpenAICompat _ -> "provider_d-compat"
+     | Provider.OpenAICompat _ -> "openai-compat"
      | Provider.Custom_registered { name } -> "custom:" ^ name)
 ;;
 

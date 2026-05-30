@@ -35,16 +35,13 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
           {
             "id": "rich-http",
             "aliases": [" Alias ", "", 7, "second"],
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "custom-openai-compat",
             "base_url": "https://rich.example/v1",
             "request_path": "/chat/completions",
             "default_model": "rich-model",
             "credential_scope": "workspace",
             "auth": {"type": "setup-token-env", "key": "SETUP_TOKEN"},
-            "interactive_required": true,
-            "non_interactive": false,
-            "daemon_safe": false,
             "max_context": 32000,
             "capabilities_base": "provider_d_chat",
             "capabilities": {
@@ -82,30 +79,30 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
           },
           {
             "id": "cli-cached",
-            "kind": "cli_tool_a",
+            "kind": "openai_compat",
             "transport": "",
             "command": "tool-a",
-            "auth": {"type": "cli-cached-login"}
+            "auth": {"type": "oauth_cached_login"}
           },
           {
             "id": "oauth",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "managed",
             "auth": {"type": "oauth_cached_login"}
           },
           {
             "id": "file-auth",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "file", "path": "/tmp/provider-token"}
           },
           {
             "id": "exec-auth",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "exec", "command": "op read token"}
           },
           {
             "id": "legacy-env",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "api_key_env": "LEGACY_KEY"
           }
         ]
@@ -116,17 +113,14 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check (list string) "aliases" [ "Alias"; "second" ] rich.aliases;
   check
     bool
-    "custom transport"
+    "legacy custom transport alias"
     true
-    (rich.transport = Provider_catalog.Custom_provider_d_compat);
+    (rich.transport = Provider_catalog.Http);
   check bool "setup auth" true (rich.auth = Provider_catalog.Setup_token_env "SETUP_TOKEN");
   check string "api key from setup auth" "SETUP_TOKEN" rich.api_key_env;
   check (option string) "default model" (Some "rich-model") rich.default_model;
   check (option int) "explicit max context" (Some 32000) rich.max_context;
   check (option string) "credential scope" (Some "workspace") rich.credential_scope;
-  check bool "interactive required" true rich.interactive_required;
-  check bool "non interactive" false rich.non_interactive;
-  check bool "daemon safe" false rich.daemon_safe;
   let caps = rich.capabilities in
   check (option int) "cap max context" (Some 64000) caps.max_context_tokens;
   check (option int) "cap max output" (Some 4096) caps.max_output_tokens;
@@ -172,10 +166,8 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
     (Some "rich-model")
     (Provider_catalog.default_model_for_provider catalog "rich-http");
   let cli = require_lookup catalog "cli-cached" in
-  check bool "cli default transport" true (cli.transport = Provider_catalog.Cli);
-  check bool "cli cached auth" true (cli.auth = Provider_catalog.Cli_cached_login);
-  check bool "cli non interactive default" true cli.non_interactive;
-  check bool "cli daemon safe default" true cli.daemon_safe;
+  check bool "cli default transport" true (cli.transport = Provider_catalog.Http);
+  check bool "cli cached auth" true (cli.auth = Provider_catalog.Oauth_cached_login);
   let oauth = require_lookup catalog "oauth" in
   check bool "managed transport" true (oauth.transport = Provider_catalog.Managed);
   check bool "oauth auth" true (oauth.auth = Provider_catalog.Oauth_cached_login);
@@ -242,40 +234,40 @@ let test_transport_auth_and_thinking_alias_matrix () =
         "providers": [
           {
             "id": "http-none",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "http",
             "auth": {"type": "none"},
             "capabilities": {"thinking_control_format": "none"}
           },
           {
             "id": "cli-env",
-            "kind": "cli_tool_b",
-            "transport": "cli",
+            "kind": "openai_compat",
+            "transport": "http",
             "auth": {"type": "api-key-env", "env": "ENV_KEY"},
             "capabilities": {"thinking_control_format": "thinking-object"}
           },
-          {
+      {
             "id": "compat-alias",
-            "kind": "provider_d_compat",
-            "transport": "provider_d_compat",
+            "kind": "openai_compat",
+            "transport": "custom-openai-compat",
             "auth": {"type": "env", "env": "SHORT_ENV"},
             "capabilities": {"thinking_control_format": "thinking-object-plain"}
           },
           {
             "id": "reasoning",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "api_key_env", "env": "REASON_KEY"},
             "capabilities": {"thinking_control_format": "reasoning-effort"}
           },
           {
             "id": "enable",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "api-key-env", "env": "ENABLE_KEY"},
             "capabilities": {"thinking_control_format": "enable-thinking"}
           },
           {
             "id": "base-fallback",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "base": "provider_d_chat",
             "max_context": 9223372036854775807999,
             "capabilities": {
@@ -294,7 +286,7 @@ let test_transport_auth_and_thinking_alias_matrix () =
     true
     (http_none.capabilities.thinking_control_format = Capabilities.No_thinking_control);
   let cli_env = require_lookup catalog "cli-env" in
-  check bool "cli transport" true (cli_env.transport = Provider_catalog.Cli);
+  check bool "cli transport" true (cli_env.transport = Provider_catalog.Http);
   check
     bool
     "api key auth alias"
@@ -308,9 +300,9 @@ let test_transport_auth_and_thinking_alias_matrix () =
   let compat = require_lookup catalog "compat-alias" in
   check
     bool
-    "provider_d_compat transport alias"
+    "custom-openai-compat transport alias"
     true
-    (compat.transport = Provider_catalog.Custom_provider_d_compat);
+    (compat.transport = Provider_catalog.Http);
   check bool "env auth alias" true (compat.auth = Provider_catalog.Api_key_env "SHORT_ENV");
   check
     bool
@@ -357,7 +349,7 @@ let test_rejects_schema_version_and_accumulates_entry_errors () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"kind": "provider_d_compat"},
+             {"kind": "openai_compat"},
              {"id": "bad-kind", "kind": "missing_kind"},
              {"id": "bad-auth", "auth": {"type": "unknown"}}
            ]
@@ -388,7 +380,7 @@ let test_load_file_and_runtime_file_edges () =
        in
        write_file
          valid_path
-         {|{"schema_version":1,"providers":[{"id":"runtime","kind":"provider_d_compat"}]}|};
+         {|{"schema_version":1,"providers":[{"id":"runtime","kind":"openai_compat"}]}|};
        write_file invalid_path {|{"schema_version":|};
        (match Provider_catalog.load_file valid_path with
         | Ok catalog ->
@@ -425,7 +417,7 @@ let test_global_override_lifecycle () =
   Provider_catalog.clear_global ();
   let catalog =
     catalog_of_string
-      {|{"schema_version":1,"providers":[{"id":"override","kind":"provider_d_compat"}]}|}
+      {|{"schema_version":1,"providers":[{"id":"override","kind":"openai_compat"}]}|}
   in
   Provider_catalog.set_global catalog;
   (match Provider_catalog.global () with

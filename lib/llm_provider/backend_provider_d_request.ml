@@ -123,8 +123,7 @@ let build_request
   let provider_messages =
     let message_serializer =
       match config.kind with
-      | Provider_config.Glm ->
-        Backend_provider_d_serialize.provider_k_messages_of_message
+      | Provider_config.Glm -> Backend_provider_d_serialize.provider_k_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat

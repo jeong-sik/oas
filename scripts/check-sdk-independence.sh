@@ -63,27 +63,61 @@ warn_patterns=(
 
 # Filter out:
 #   - lines explicitly tagged with `boundary-allow` (intentional historical references)
+#   - a match on the line immediately following such a tag (formatter can move
+#     inline comments to their own line).
 #   - OCaml comment lines that start with "(*", "*", or "(**"  (left-trimmed)
 # Caveat: this is a line-level heuristic, not a full OCaml lexer. A code line
 # containing an inline `(* ... *)` whose pattern sits inside the comment may
 # slip through. Use `boundary-allow` for those edge cases.
 filter_noise() {
-  awk -F':' '
+  local pattern="$1"
+  awk -v pattern="$pattern" '
     {
-      idx = index($0, ":")
-      rest = substr($0, idx + 1)
-      idx2 = index(rest, ":")
-      content = substr(rest, idx2 + 1)
+      # rg context format emits:
+      #   path:120:  MATCH
+      #   path:120-  CONTEXT
+      # and chunk separators "--".
+      if ($0 == "--") {
+        last_file = ""
+        last_allow = 0
+        next
+      }
+      is_context = 0
+      file = ""
+      content = $0
+      if (match($0, /^[^:]+:[0-9]+:/)) {
+        file = substr($0, 1, RLENGTH)
+        sub(/:[0-9]+:$/, "", file)
+        content = substr($0, RSTART + RLENGTH)
+      } else if (match($0, /^[^-]+-[0-9]+-/)) {
+        is_context = 1
+        file = substr($0, 1, RLENGTH)
+        sub(/-[0-9]+-$/, "", file)
+        content = substr($0, RSTART + RLENGTH)
+      } else {
+        next
+      }
+      if (file != last_file) {
+        last_file = file
+        last_allow = 0
+      }
       # left-trim
       sub(/^[[:space:]]+/, "", content)
-      # OCaml comment heuristics
+      if (is_context) {
+        last_allow = (content ~ /boundary-allow/)
+        next
+      }
+      # Preserve existing OCaml comment filtering.
       if (content ~ /^\*/) next
       if (content ~ /^\(\*/) next
       # explicit allow marker
-      if ($0 ~ /boundary-allow/) next
+      if (last_allow && content ~ pattern) {
+        last_allow = 0
+        next
+      }
       print $0
     }
-  '
+  ' 
 }
 
 scan_tier() {
@@ -98,7 +132,7 @@ scan_tier() {
   local tier_fail=0
   for pattern in "${patterns_arr[@]}"; do
     local matches
-    matches="$(rg -n -i -e "$pattern" "${targets[@]}" 2>/dev/null | filter_noise || true)"
+    matches="$(rg --with-filename -n -i -C 1 -e "$pattern" "${targets[@]}" 2>/dev/null | filter_noise "$pattern" || true)"
     if [[ -n "$matches" ]]; then
       if [[ "$fail_on_match" -eq 1 ]]; then
         echo "FAIL [$tier]: coordinator-specific term matched pattern: $pattern" >&2

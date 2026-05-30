@@ -389,19 +389,22 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                  match agent_with_handoffs.options.event_bus with
                  | Some bus ->
                    let run_id = Event_bus.fresh_id () in
-                   (try Event_bus.publish
-                     bus
-                     (Event_bus.mk_event
-                        ~run_id
-                        (HandoffRequested
-                           { from_agent = from_name
-                           ; to_agent = target.name
-                           ; reason = prompt
-                           }))
-                   with exn ->
-                     Log.warn _log
-                       "Event_bus.publish failed (HandoffRequested)"
-                       [ Log.S ("error", Printexc.to_string exn) ]);
+                   (try
+                      Event_bus.publish
+                        bus
+                        (Event_bus.mk_event
+                           ~run_id
+                           (HandoffRequested
+                              { from_agent = from_name
+                              ; to_agent = target.name
+                              ; reason = prompt
+                              }))
+                    with
+                    | exn ->
+                      Log.warn
+                        _log
+                        "Event_bus.publish failed (HandoffRequested)"
+                        [ Log.S ("error", Printexc.to_string exn) ]);
                    Some run_id
                  | None -> None
                in
@@ -423,17 +426,20 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
                let handoff_elapsed = Unix.gettimeofday () -. handoff_t0 in
                (match agent_with_handoffs.options.event_bus with
                 | Some bus ->
-                  (try Event_bus.publish
-                     bus
-                     (Event_bus.mk_event
-                        ?caused_by:handoff_requested_run_id
-                        (HandoffCompleted
-                           { from_agent = from_name
-                           ; to_agent = target.name
-                           ; elapsed = handoff_elapsed
-                           }))
-                   with exn ->
-                     Log.warn _log
+                  (try
+                     Event_bus.publish
+                       bus
+                       (Event_bus.mk_event
+                          ?caused_by:handoff_requested_run_id
+                          (HandoffCompleted
+                             { from_agent = from_name
+                             ; to_agent = target.name
+                             ; elapsed = handoff_elapsed
+                             }))
+                   with
+                   | exn ->
+                     Log.warn
+                       _log
                        "Event_bus.publish failed (HandoffCompleted)"
                        [ Log.S ("error", Printexc.to_string exn) ])
                 | None -> ());

@@ -138,8 +138,8 @@ let test_providers_custom () =
   let info = { base_info with provider = Some provider } in
   let card = Agent_card.of_info info in
   Alcotest.(check (list string))
-    "provider_d-compat provider"
-    [ "provider_d-compat" ]
+    "openai-compat provider"
+    [ "openai-compat" ]
     card.supported_providers
 ;;
 
