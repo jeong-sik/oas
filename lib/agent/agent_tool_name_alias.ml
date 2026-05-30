@@ -113,8 +113,8 @@ let resolve ~requested ~input =
   match requested with
   | "Read" -> Some ("ReadFile", normalize_read_input input)
   | "Grep" | "Search" | "Find" -> Some ("SearchFiles", normalize_search_input input)
+  (* boundary-allow *)
   | "Bash" | "Shell" | "execute_command" | "masc_code_shell" ->
-    (* boundary-allow: legacy CLI alias retained for compatibility *)
     Some ("Execute", normalize_execute_input input)
   | _ -> None
 ;;
