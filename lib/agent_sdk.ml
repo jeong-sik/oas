@@ -114,9 +114,7 @@ module Runtime = Runtime
 module Runtime_projection = Runtime_projection
 module Runtime_sync = Runtime_sync
 module Runtime_replay = Runtime_replay
-module Transport = Transport
-module Runtime_client = Runtime_client
-module Client = Client
+(* Transport/Runtime_client/Client removed — CLI Runtime purge *)
 module Sdk_client_types = Sdk_client_types
 module Artifact_service = Artifact_service
 module Sessions = Sessions
@@ -245,8 +243,7 @@ let create_agent
   Agent.create ~net ~config ~options ()
 ;;
 
-let runtime_query = Runtime_query.query
-let query = Query.query
+(* runtime_query/query removed — CLI Runtime purge *)
 
 (** Version info *)
 let version = Sdk_version.version

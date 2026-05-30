@@ -239,8 +239,6 @@ let probe_ollama_context ~sw ~net base_url =
             | Http_client.NetworkError { message; _ } -> message
             | Http_client.TimeoutError { message; _ } -> message
             | Http_client.AcceptRejected { reason } -> reason
-            | Http_client.CliTransportRequired { kind } ->
-              Printf.sprintf "CLI transport required for %s" kind
             | Http_client.ProviderTerminal { message; _ } -> message
             | Http_client.ProviderFailure { kind; message } ->
               Http_client.provider_failure_to_string ~kind ~message

@@ -87,9 +87,7 @@ module Runtime = Runtime
 module Runtime_projection = Runtime_projection
 module Runtime_sync = Runtime_sync
 module Runtime_replay = Runtime_replay
-module Transport = Transport
-module Runtime_client = Runtime_client
-module Client = Client
+(* Transport/Runtime_client/Client removed — CLI Runtime purge *)
 module Sdk_client_types = Sdk_client_types
 module Artifact_service = Artifact_service
 module Sessions = Sessions
@@ -177,25 +175,6 @@ val create_agent
   -> ?raw_trace:Raw_trace.t
   -> unit
   -> Agent.t
-
-(** Low-level runtime query. *)
-val runtime_query
-  :  sw:Eio.Switch.t
-  -> mgr:_ Eio.Process.mgr
-  -> ?runtime_path:string
-  -> ?session_root:string
-  -> Runtime.request
-  -> (Runtime.response, Error.sdk_error) result
-
-(** One-shot client query — connect, send prompt, collect messages,
-    disconnect. *)
-val query
-  :  sw:Eio.Switch.t
-  -> mgr:_ Eio.Process.mgr
-  -> ?options:Sdk_client_types.options
-  -> prompt:string
-  -> unit
-  -> (Sdk_client_types.message list, Error.sdk_error) result
 
 (** {1 Version} *)
 

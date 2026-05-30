@@ -102,15 +102,6 @@ let sdk_error_of_http_error = function
     Error.Provider (Llm_provider.Error.of_http_error err)
   | Llm_provider.Http_client.AcceptRejected { reason } ->
     Error.Config (InvalidConfig { field = "output_schema"; detail = reason })
-  | Llm_provider.Http_client.CliTransportRequired { kind } ->
-    Error.Config
-      (UnsupportedProvider
-         { detail =
-             Printf.sprintf
-               "CLI transport required for %s, but native structured output is only \
-                wired for HTTP providers"
-               kind
-         })
   | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
     Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
   | Llm_provider.Http_client.ProviderTerminal { kind = Other _; _ } as err ->

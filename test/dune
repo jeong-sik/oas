@@ -61,8 +61,6 @@
   test_checkpoint
   test_checkpoint_store
   test_checkpoint_validation
-  test_cli_common_subprocess
-  test_client_wrapper_coverage
   test_code_snippet_eval
   test_clone
   test_complete_ext
@@ -79,9 +77,7 @@
   test_correction_pipeline
   test_cost_integration
   test_cost_tracker
-  test_coverage_hotspots_srt
   test_custom_provider
-  test_deep_coverage
   test_defaults
   test_defaults_unit
   test_disclosure_resolver
@@ -175,17 +171,6 @@
   test_request_priority
   test_response_harness
   test_retry
-  test_runtime
-  test_runtime_evidence
-  test_runtime_health
-  test_runtime_replay
-  test_runtime_projection_cov2
-  test_runtime_server_coverage
-  test_runtime_server_resolve
-  test_runtime_server_types
-  test_runtime_store_unit
-  test_runtime_sync
-  test_runtime_types
   test_sdk_client_types
   test_session
   test_session_advanced
@@ -230,8 +215,6 @@
   test_tracing
   test_trajectory
   test_trajectory_unit
-  test_transport_deep
-  test_transport_integration
   test_turn_budget
   test_turn_params
   test_typed_tool
@@ -286,8 +269,6 @@
   test_checkpoint
   test_checkpoint_store
   test_checkpoint_validation
-  test_cli_common_subprocess
-  test_client_wrapper_coverage
   test_code_snippet_eval
   test_clone
   test_complete_ext
@@ -304,9 +285,7 @@
   test_correction_pipeline
   test_cost_integration
   test_cost_tracker
-  test_coverage_hotspots_srt
   test_custom_provider
-  test_deep_coverage
   test_defaults
   test_defaults_unit
   test_disclosure_resolver
@@ -400,17 +379,6 @@
   test_request_priority
   test_response_harness
   test_retry
-  test_runtime
-  test_runtime_evidence
-  test_runtime_health
-  test_runtime_replay
-  test_runtime_projection_cov2
-  test_runtime_server_coverage
-  test_runtime_server_resolve
-  test_runtime_server_types
-  test_runtime_store_unit
-  test_runtime_sync
-  test_runtime_types
   test_sdk_client_types
   test_session
   test_session_advanced
@@ -455,8 +423,6 @@
   test_tracing
   test_trajectory
   test_trajectory_unit
-  test_transport_deep
-  test_transport_integration
   test_turn_budget
   test_turn_params
   test_typed_tool
@@ -468,12 +434,8 @@
   test_v024_fixes
   test_vcs_graph_snapshot)
  (libraries agent_sdk agent_sdk.llm_provider alcotest)
- (deps %{bin:oas-runtime})
  (action
-  (setenv
-   OAS_RUNTIME_PATH
-   %{bin:oas-runtime}
-   (run %{test}))))
+  (run %{test})))
 
 ; QCheck-based property tests
 
@@ -495,12 +457,8 @@
   test_tool_op
   test_tool_set)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest)
- (deps %{bin:oas-runtime})
  (action
-  (setenv
-   OAS_RUNTIME_PATH
-   %{bin:oas-runtime}
-   (run %{test}))))
+  (run %{test})))
 
 ; Tests with extra dependencies — kept as individual stanzas
 ; so the grouped (tests (names ...)) above does not need to pull
@@ -510,12 +468,8 @@
  (name test_complete_cascade)
  (modules test_complete_cascade)
  (libraries agent_sdk alcotest eio_main)
- (deps %{bin:oas-runtime})
  (action
-  (setenv
-   OAS_RUNTIME_PATH
-   %{bin:oas-runtime}
-   (run %{test}))))
+  (run %{test})))
 
 (test
  (name test_streaming)
@@ -567,16 +521,6 @@
  (modules test_builder)
  (libraries agent_sdk alcotest eio_main))
 
-(test
- (name test_cli)
- (modules test_cli)
- (libraries agent_sdk alcotest cohttp-eio eio eio_main str unix yojson)
- (deps ../bin/oas_cli.exe %{bin:oas-runtime})
- (action
-  (setenv
-   OAS_RUNTIME_PATH
-   %{bin:oas-runtime}
-   (run %{test}))))
 
 (test
  (name test_full_pipeline_cov)

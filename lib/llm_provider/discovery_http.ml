@@ -10,8 +10,6 @@ let get_json ~sw ~net url =
   | Error (Http_client.AcceptRejected { reason }) -> Error reason
   | Error (Http_client.NetworkError { message; _ }) -> Error message
   | Error (Http_client.TimeoutError { message; _ }) -> Error message
-  | Error (Http_client.CliTransportRequired { kind }) ->
-    Error (Printf.sprintf "CLI transport required for %s" kind)
   | Error (Http_client.ProviderTerminal { message; _ }) ->
     (* Discovery hits HTTP endpoints only; CLI subprocess terminals
        cannot reach this match.  Surface the message defensively so the

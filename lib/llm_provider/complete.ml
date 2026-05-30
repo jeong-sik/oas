@@ -973,19 +973,6 @@ let complete
              ; tools
              ; runtime_mcp_policy
              }
-         | None when requires_non_http_transport config.kind ->
-           (* CLI subprocess providers (cli_tool_d/cli_tool_a/cli_tool_b/cli_tool_c)
-             register with [base_url = ""] on purpose.  Without a CLI
-             transport wired by the caller, falling through to
-             [complete_http] would let cohttp-eio raise
-             [Fmt.failwith "Unknown scheme None"] when parsing the empty
-             URL.  Fail fast with a dedicated variant so cascades and
-             downstream consumers can distinguish a wiring bug from a
-             transient network failure. *)
-           let kind = Provider_registry.provider_name_of_config config in
-           { Llm_transport.response = Error (Http_client.CliTransportRequired { kind })
-           ; latency_ms = None
-           }
          | None ->
            let resp, lat =
              complete_http
@@ -1056,8 +1043,6 @@ let complete
             | Http_client.AcceptRejected { reason } -> reason
             | Http_client.NetworkError { message; _ } -> message
             | Http_client.TimeoutError { message; _ } -> message
-            | Http_client.CliTransportRequired { kind } ->
-              Printf.sprintf "CLI transport required for %s but none injected" kind
             | Http_client.ProviderTerminal { message; _ } -> message
             | Http_client.ProviderFailure { kind; message } ->
               Http_client.provider_failure_to_string ~kind ~message
@@ -1491,9 +1476,7 @@ let complete_stream_http
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
-                           | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-                           | Provider_config.OpenAI_compat
-                           | Provider_config.DashScope
+                           | Provider_config.OpenAI_compat | Provider_config.DashScope
                            | Provider_config.Kimi ->
                              (match Streaming.parse_provider_d_sse_chunk data with
                               | Some chunk ->
@@ -1682,10 +1665,8 @@ let complete_stream_http
                    | Http_client.TimeoutError { message; _ } -> message
                    | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
                    | Http_client.AcceptRejected { reason } -> reason
-                   | Http_client.CliTransportRequired { kind } ->
-                     Printf.sprintf "CLI transport required for %s" kind
-                   | Http_client.ProviderTerminal { message; _ }
-                   | Http_client.ProviderFailure { message; _ } -> message)))
+                   | Http_client.ProviderTerminal { message; _ } -> message
+                   | Http_client.ProviderFailure { kind; message } -> message)))
           ();
         Error err)
 ;;
@@ -1734,12 +1715,6 @@ let complete_stream
           ?on_telemetry:transport_on_telemetry
           ~on_event
           { Llm_transport.config = request_config; messages; tools; runtime_mcp_policy }
-      | None when requires_non_http_transport request_config.kind ->
-        (* Same rationale as the sync [complete] guard: CLI kinds have
-       [base_url = ""] and must not reach cohttp-eio. *)
-        Error
-          (Http_client.CliTransportRequired
-             { kind = Provider_registry.provider_name_of_config config })
       | None ->
         complete_stream_http
           ~sw
