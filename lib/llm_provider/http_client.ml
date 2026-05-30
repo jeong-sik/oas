@@ -104,7 +104,6 @@ type http_error =
      cascades can skip the candidate without counting it as a flaky
      network failure, and so callers see a clear "configuration/wiring
      bug" rather than a cohttp [Unknown scheme None]. *)
-  | CliTransportRequired of { kind : string }
   | ProviderTerminal of
       { kind : provider_terminal_kind
       ; message : string
@@ -320,7 +319,6 @@ let is_local_resource_exhaustion = function
   | TimeoutError _ -> false
   | AcceptRejected _ -> false
   | HttpError _ -> false
-  | CliTransportRequired _ -> false
   | NetworkError _ -> false
   | ProviderTerminal _ -> false
   | ProviderFailure _ -> false
@@ -721,7 +719,6 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
       | NetworkError _
       | TimeoutError _
       | AcceptRejected _
-      | CliTransportRequired _
       | ProviderTerminal _
       | ProviderFailure _ ) -> false
 ;;
@@ -736,7 +733,6 @@ let%test "catch_network maps Sys_error to NetworkError" =
       | NetworkError _
       | TimeoutError _
       | AcceptRejected _
-      | CliTransportRequired _
       | ProviderTerminal _
       | ProviderFailure _ ) -> false
 ;;
@@ -752,7 +748,6 @@ let%test "catch_network classifies Unix ECONNREFUSED" =
       | NetworkError _
       | TimeoutError _
       | AcceptRejected _
-      | CliTransportRequired _
       | ProviderTerminal _
       | ProviderFailure _ ) -> false
 ;;
@@ -768,7 +763,6 @@ let%test "catch_network classifies Unix ETIMEDOUT" =
       | NetworkError _
       | TimeoutError _
       | AcceptRejected _
-      | CliTransportRequired _
       | ProviderTerminal _
       | ProviderFailure _ ) -> false
 ;;

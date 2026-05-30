@@ -31,7 +31,7 @@ val shared_retry_config_of_complete : retry_config -> Retry.retry_config
 
     Returns [None] for terminal/wiring conditions:
 
-    - [AcceptRejected] / [CliTransportRequired] — wiring bugs, not
+    - [AcceptRejected] — wiring bugs, not
       transient; retry would not summon a missing transport.
     - [ProviderTerminal] — provider hit its own terminal condition
       (e.g. cli_tool_d internal max_turns); retry would re-trigger

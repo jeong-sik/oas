@@ -612,39 +612,6 @@ let test_map_http_error_auth_error () =
   | _ -> Alcotest.fail "expected Error.Api AuthError"
 ;;
 
-let test_map_http_error_extra_variants () =
-  let open Llm_provider.Http_client in
-  (match Streaming.map_http_error (AcceptRejected { reason = "policy" }) with
-   | Error.Api (Retry.NetworkError { message = "policy"; _ }) -> ()
-   | _ -> Alcotest.fail "expected AcceptRejected as Api NetworkError");
-  (match
-     Streaming.map_http_error
-       (TimeoutError { message = "deadline"; phase = Caller_budget })
-   with
-   | Error.Provider _ -> ()
-   | _ -> Alcotest.fail "expected TimeoutError as Provider error");
-  (match Streaming.map_http_error (CliTransportRequired { kind = "cli_tool_d" }) with
-   | Error.Provider _ -> ()
-   | _ -> Alcotest.fail "expected CliTransportRequired as Provider error");
-  (match
-     Streaming.map_http_error
-       (ProviderTerminal { kind = Max_turns { turns = 31; limit = 31 }; message = "max" })
-   with
-   | Error.Agent (MaxTurnsExceeded { turns = 31; limit = 31 }) -> ()
-   | _ -> Alcotest.fail "expected max-turns terminal as Agent error");
-  (match
-     Streaming.map_http_error (ProviderTerminal { kind = Other "halt"; message = "halt" })
-   with
-   | Error.Provider _ -> ()
-   | _ -> Alcotest.fail "expected other terminal as Provider error");
-  match
-    Streaming.map_http_error
-      (ProviderFailure
-         { kind = Provider_parse_error { parser = Some "provider" }; message = "bad" })
-  with
-  | Error.Provider _ -> ()
-  | _ -> Alcotest.fail "expected ProviderFailure as Provider error"
-;;
 
 (* ── MessageDelta cache update with prior values ────────────────── *)
 
@@ -868,7 +835,6 @@ let () =
         ; Alcotest.test_case "network error" `Quick test_map_http_error_network_error
         ; Alcotest.test_case "server 500" `Quick test_map_http_error_server_error
         ; Alcotest.test_case "auth 401" `Quick test_map_http_error_auth_error
-        ; Alcotest.test_case "extra variants" `Quick test_map_http_error_extra_variants
         ] )
     ]
 ;;

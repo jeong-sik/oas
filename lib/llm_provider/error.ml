@@ -273,11 +273,6 @@ let of_http_error ?provider = function
   | Http_client.AcceptRejected { reason } ->
     InvalidRequest
       { provider = provider_name provider; reason = "accept rejected: " ^ reason }
-  | Http_client.CliTransportRequired { kind } ->
-    InvalidConfig
-      { field = "transport"
-      ; detail = Printf.sprintf "CLI transport required for %s" kind
-      }
   | Http_client.ProviderTerminal { kind = Http_client.Max_turns r; message } ->
     ProviderTerminal
       { provider = provider_name provider

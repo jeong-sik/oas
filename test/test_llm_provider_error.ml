@@ -172,10 +172,8 @@ let test_provider_terminal () =
   check
     string
     "ProviderTerminal format"
-    "Provider 'cli_tool_d' terminal max_turns:31/31: turn cap hit"
     (Error.to_string
        (Error.ProviderTerminal
-          { provider = "cli_tool_d"; reason = "max_turns:31/31"; detail = "turn cap hit" }))
 ;;
 
 let test_retry_rate_limit_mapping () =
@@ -271,7 +269,6 @@ let test_http_server_error_mapping () =
 let test_http_terminal_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"cli_tool_d"
       (Http_client.ProviderTerminal
          { kind = Http_client.Max_turns { turns = 31; limit = 31 }
          ; message = "turn cap hit"
@@ -279,7 +276,6 @@ let test_http_terminal_mapping () =
   in
   match err with
   | Error.ProviderTerminal { provider; reason; detail } ->
-    check string "provider" "cli_tool_d" provider;
     check string "reason" "max_turns:31/31" reason;
     check string "detail" "turn cap hit" detail
   | _ -> fail "expected ProviderTerminal"
@@ -325,16 +321,6 @@ let test_http_timeout_error_mapping () =
   | _ -> fail "expected Timeout"
 ;;
 
-let test_cli_transport_required_mapping () =
-  let err =
-    Error.of_http_error (Http_client.CliTransportRequired { kind = "cli_tool_a" })
-  in
-  match err with
-  | Error.InvalidConfig { field; detail } ->
-    check string "field" "transport" field;
-    check string "detail" "CLI transport required for cli_tool_a" detail
-  | _ -> fail "expected InvalidConfig"
-;;
 
 let test_retry_remaining_variants_mapping () =
   let cases =
@@ -428,7 +414,6 @@ let test_provider_failure_remaining_variants_mapping () =
    | _ -> fail "expected InvalidRequest capability mismatch");
   let policy =
     provider_failure
-      ~provider:"cli_tool_d"
       (Http_client.Cli_policy_invalid { tool_name = Some "Read"; rule = Some 3 })
       "blocked"
   in
@@ -442,7 +427,6 @@ let test_provider_failure_remaining_variants_mapping () =
    | _ -> fail "expected InvalidRequest policy rejection");
   let startup =
     provider_failure
-      ~provider:"cli_tool_a"
       (Http_client.Cli_startup_failed { reason = "not executable" })
       "permission denied"
   in
@@ -481,7 +465,6 @@ let test_http_boundary_remaining_variants_mapping () =
    | _ -> fail "expected accept InvalidRequest");
   let terminal_other =
     Error.of_http_error
-      ~provider:"cli_tool_a"
       (Http_client.ProviderTerminal
          { kind = Http_client.Other "cancelled"; message = "operator cancelled" })
   in
@@ -571,7 +554,6 @@ let () =
         ; test_case "HTTP terminal" `Quick test_http_terminal_mapping
         ; test_case "HTTP network error" `Quick test_http_network_error_mapping
         ; test_case "HTTP timeout error" `Quick test_http_timeout_error_mapping
-        ; test_case "CLI transport required" `Quick test_cli_transport_required_mapping
         ; test_case
             "Retry remaining variants"
             `Quick

@@ -34,8 +34,6 @@ let slot_action ~sw ~net ~endpoint ~slot_id ~action ~body_fields =
          action
          (Http_client.timeout_phase_to_label phase)
          message)
-  | Error (Http_client.CliTransportRequired { kind }) ->
-    Error (Printf.sprintf "slot %s: CLI transport required for %s" action kind)
   | Error (Http_client.ProviderTerminal { message; _ }) ->
     Error (Printf.sprintf "slot %s: %s" action message)
   | Error (Http_client.ProviderFailure { kind; message }) ->

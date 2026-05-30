@@ -121,7 +121,6 @@ let string_of_http_error = function
   | NetworkError { message; _ } -> message
   | TimeoutError { message; _ } -> message
   | AcceptRejected { reason } -> reason
-  | CliTransportRequired { kind } -> Printf.sprintf "CLI transport required: %s" kind
   | ProviderTerminal { message; _ } -> message
   | ProviderFailure { kind; message } ->
     Http_client.provider_failure_to_string ~kind ~message
@@ -408,61 +407,6 @@ let test_complete_transport_success_cache_metrics_and_trace_headers () =
   check (list int) "tool calls" [ 1 ] (List.rev probe.tool_calls)
 ;;
 
-let test_complete_transport_error_and_cli_required_metrics () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let probe = metric_probe () in
-  let metrics = metrics_of_probe probe in
-  let config = make_config ~model_id:"provider_d-error" () in
-  let transport =
-    transport_of_sync (fun () ->
-      { Llm_transport.response =
-          Error (Http_client.HttpError { code = 503; body = "down" })
-      ; latency_ms = Some 5
-      })
-  in
-  (match
-     Complete.complete
-       ~sw
-       ~net:(Eio.Stdenv.net env)
-       ~transport
-       ~config
-       ~messages:[ Types.user_msg "hello" ]
-       ~metrics
-       ()
-   with
-   | Error (Http_client.HttpError { code = 503; _ }) -> ()
-   | Error err -> failf "wrong error: %s" (string_of_http_error err)
-   | Ok _ -> fail "expected HTTP error");
-  check (list int) "transport status" [ 503 ] (List.rev probe.statuses);
-  check (list string) "transport error metric" [ "HTTP 503" ] (List.rev probe.errors);
-  let cli_probe = metric_probe () in
-  let cli_config =
-    make_config ~kind:Provider_config.Anthropic ~model_id:"cli-tool-a" ~base_url:"" ()
-  in
-  (match
-     Complete.complete
-       ~sw
-       ~net:(Eio.Stdenv.net env)
-       ~config:cli_config
-       ~messages:[ Types.user_msg "hello" ]
-       ~metrics:(metrics_of_probe cli_probe)
-       ()
-   with
-   | Error (Http_client.CliTransportRequired { kind }) ->
-     check string "cli kind" "cli_tool_a" kind
-   | Error err -> failf "wrong cli error: %s" (string_of_http_error err)
-   | Ok _ -> fail "expected CLI transport required");
-  check
-    (list string)
-    "cli error metric"
-    [ "CLI transport required for cli_tool_a but none injected" ]
-    (List.rev cli_probe.errors);
-  check (list int) "no cli HTTP status" [] (List.rev cli_probe.statuses)
-;;
-
 let test_complete_with_retry_retries_then_success () =
   Eio_main.run
   @@ fun env ->
@@ -592,28 +536,6 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
     (List.rev probe.streaming_first_chunks)
 ;;
 
-let test_complete_stream_cli_required () =
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let cli_config =
-    make_config ~kind:Provider_config.Gemini ~model_id:"gemini-pro" ~base_url:"" ()
-  in
-  match
-    Complete.complete_stream
-      ~sw
-      ~net:(Eio.Stdenv.net env)
-      ~config:cli_config
-      ~messages:[ Types.user_msg "hello" ]
-      ~on_event:(fun _ -> ())
-      ()
-  with
-  | Error (Http_client.CliTransportRequired { kind }) ->
-    check string "stream cli kind" "cli_tool_b" kind
-  | Error err -> failf "wrong stream cli error: %s" (string_of_http_error err)
-  | Ok _ -> fail "expected stream CLI transport required"
-;;
 
 (* ── Runner ──────────────────────────────────────────── *)
 
@@ -653,9 +575,7 @@ let () =
             `Quick
             test_complete_transport_success_cache_metrics_and_trace_headers
         ; test_case
-            "transport error and cli required metrics"
             `Quick
-            test_complete_transport_error_and_cli_required_metrics
         ; test_case
             "retry retries then success"
             `Quick
@@ -664,7 +584,6 @@ let () =
             "stream transport success metrics and telemetry"
             `Quick
             test_complete_stream_transport_success_metrics_and_telemetry
-        ; test_case "stream cli required" `Quick test_complete_stream_cli_required
         ] )
     ]
 ;;

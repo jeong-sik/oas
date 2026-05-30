@@ -147,7 +147,6 @@ type http_error =
       ; phase : timeout_phase
       }
   | AcceptRejected of { reason : string }
-  | CliTransportRequired of { kind : string }
   (** Provider kind requires a non-HTTP transport (CLI subprocess)
           but the caller did not inject one.  Distinct from
           {!NetworkError} so cascades can treat it as a configuration

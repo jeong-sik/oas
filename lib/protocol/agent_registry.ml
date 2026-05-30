@@ -90,7 +90,6 @@ let fetch_remote_card ~sw ~net url =
     | NetworkError { message; _ } -> message
     | TimeoutError { message; _ } -> message
     | AcceptRejected { reason } -> "Response rejected: " ^ reason
-    | CliTransportRequired { kind } -> "CLI transport required: " ^ kind
     | ProviderTerminal { message; _ } -> message
     | ProviderFailure { kind; message } ->
       Llm_provider.Http_client.provider_failure_to_string ~kind ~message

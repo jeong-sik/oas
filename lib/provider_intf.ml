@@ -17,9 +17,6 @@ let retry_error_of_http_error = function
   | Http_client.TimeoutError { message; _ } -> Retry.Timeout { message }
   | Http_client.AcceptRejected { reason } ->
     Retry.InvalidRequest { message = "Response rejected: " ^ reason }
-  | Http_client.CliTransportRequired { kind } ->
-    Retry.InvalidRequest
-      { message = Printf.sprintf "Provider kind requires CLI transport: %s" kind }
   | Http_client.ProviderTerminal { message; _ } -> Retry.InvalidRequest { message }
   | Http_client.ProviderFailure { kind; message } ->
     Retry.InvalidRequest
