@@ -23,7 +23,7 @@ type envelope =
         event" (root of a causation chain). Convention:
         [caused_by = Some parent.run_id] when the trigger is a concrete
         event; [caused_by = Some parent.correlation_id] when the
-        trigger is the session as a whole. Provider_a Multi-Agent
+        trigger is the session as a whole. Anthropic Multi-Agent
         Pattern 4 (Message Bus). @since 0.161.0 (#877) *)
   }
 

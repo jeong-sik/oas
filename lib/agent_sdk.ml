@@ -1,6 +1,6 @@
-(** Provider_a Agent SDK for OCaml
+(** Anthropic Agent SDK for OCaml
 
-    A type-safe, Eio-based implementation of the Provider_a Agent SDK.
+    A type-safe, Eio-based implementation of the Anthropic Agent SDK.
 
     Example usage:
     {[

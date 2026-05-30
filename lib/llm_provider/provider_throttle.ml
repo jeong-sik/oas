@@ -107,16 +107,13 @@ let of_discovery_status (status : Discovery.endpoint_status) =
     All created with [source = Fallback]. *)
 let default_for_kind (kind : Provider_config.provider_kind) =
   match kind with
-  | Provider_config.Provider_d_compat
+  | Provider_config.OpenAI_compat
   | Provider_config.Ollama
-  | Provider_config.Provider_h -> create ~max_concurrent:4 ~provider_name:"local"
-  | Provider_config.Provider_a -> create ~max_concurrent:5 ~provider_name:"provider_a"
-  | Provider_config.Provider_c -> create ~max_concurrent:5 ~provider_name:"provider_c"
-  | Provider_config.Provider_f -> create ~max_concurrent:10 ~provider_name:"provider_f"
-  | Provider_config.Provider_k -> create ~max_concurrent:10 ~provider_name:"provider_k"
-  | Provider_config.Cli_tool_d -> create ~max_concurrent:2 ~provider_name:"cli_tool_d"
-  | Provider_config.Cli_tool_b | Provider_config.Cli_tool_c | Provider_config.Cli_tool_a
-    -> create ~max_concurrent:2 ~provider_name:"cli_subprocess"
+  | Provider_config.DashScope -> create ~max_concurrent:4 ~provider_name:"local"
+  | Provider_config.Anthropic -> create ~max_concurrent:5 ~provider_name:"provider_a"
+  | Provider_config.Kimi -> create ~max_concurrent:5 ~provider_name:"provider_c"
+  | Provider_config.Gemini -> create ~max_concurrent:10 ~provider_name:"provider_f"
+  | Provider_config.Glm -> create ~max_concurrent:10 ~provider_name:"provider_k"
 ;;
 
 (* ── Capacity Query ────────────────────────────────────── *)
@@ -241,12 +238,12 @@ let%test "of_discovery_status without info returns None" =
 ;;
 
 let%test "default_for_kind local" =
-  let t = default_for_kind Provider_config.Provider_d_compat in
+  let t = default_for_kind Provider_config.OpenAI_compat in
   t.max_concurrent = 4
 ;;
 
 let%test "default_for_kind provider_a" =
-  let t = default_for_kind Provider_config.Provider_a in
+  let t = default_for_kind Provider_config.Anthropic in
   t.max_concurrent = 5
 ;;
 

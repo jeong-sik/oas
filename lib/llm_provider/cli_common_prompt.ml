@@ -116,7 +116,7 @@ let%test "non_system_messages drops system" =
 let%test "system_prompt_of prefers explicit req_config" =
   let req =
     Provider_config.make
-      ~kind:Cli_tool_d
+      ~kind:Anthropic
       ~model_id:""
       ~base_url:""
       ~system_prompt:"explicit"
@@ -126,13 +126,13 @@ let%test "system_prompt_of prefers explicit req_config" =
 ;;
 
 let%test "system_prompt_of falls back to system message" =
-  let req = Provider_config.make ~kind:Cli_tool_d ~model_id:"" ~base_url:"" () in
+  let req = Provider_config.make ~kind:Anthropic ~model_id:"" ~base_url:"" () in
   system_prompt_of ~req_config:req [ msg System [ Text "be helpful" ] ]
   = Some "be helpful"
 ;;
 
 let%test "system_prompt_of returns None when absent" =
-  let req = Provider_config.make ~kind:Cli_tool_d ~model_id:"" ~base_url:"" () in
+  let req = Provider_config.make ~kind:Anthropic ~model_id:"" ~base_url:"" () in
   system_prompt_of ~req_config:req [ msg User [ Text "hi" ] ] = None
 ;;
 

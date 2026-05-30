@@ -140,7 +140,7 @@ let%test "model-n-4-maverick can be marked local explicitly" =
 let%test "for_provider_config uses provider locality" =
   let config =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"provider_h-3.5-35b"
       ~base_url:Constants.Endpoints.default_url
       ()
@@ -152,7 +152,7 @@ let%test "for_provider_config uses provider locality" =
 let%test "for_provider_config keeps remote local-looking model ids remote" =
   let config =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"provider_h-3.5-35b"
       ~base_url:"https://api.example.com"
       ()
@@ -173,7 +173,7 @@ let%test "is_free for local models" =
 
 let%test "provider_k-5 is cloud" =
   let m = for_model_id "provider_k-5" in
-  not m.is_local (* Provider_k is cloud, not local *)
+  not m.is_local (* Glm is cloud, not local *)
 ;;
 
 let%test "for_model_id_with_ctx clamps max_output" =

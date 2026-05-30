@@ -132,7 +132,7 @@ val with_event_bus : Event_bus.t -> t -> t
 val with_max_execution_time : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Provider_a / Provider_d / Provider_f / Provider_k SSE). Resets after
+    (Ollama NDJSON, Anthropic / Provider_d / Gemini / Glm SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], preserving whether
@@ -141,7 +141,7 @@ val with_max_execution_time : float -> t -> t
 val with_stream_idle_timeout : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Provider_a / Provider_d / Provider_f / Provider_k SSE). Resets after
+    (Ollama NDJSON, Anthropic / Provider_d / Gemini / Glm SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], preserving whether
@@ -185,7 +185,7 @@ val with_base_url : string -> t -> t
     Required for CLI provider kinds ([Cli_tool_d], [Cli_tool_a],
     [Cli_tool_b], [Cli_tool_c]) which are reached via subprocess rather
     than HTTP.
-    For HTTP kinds (Provider_a/Provider_f/Provider_k/Ollama/Provider_d_compat) the
+    For HTTP kinds (Anthropic/Gemini/Glm/Ollama/OpenAI_compat) the
     transport is unused and can be left unset.
 
     The transport must outlive the agent's [run] call.

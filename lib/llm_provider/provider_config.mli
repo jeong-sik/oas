@@ -13,23 +13,18 @@
     Re-exported from {!Provider_kind} — the underlying type now lives there so
     it can be shared with {!Types} without creating a dependency cycle. *)
 type provider_kind = Provider_kind.t =
-  | Provider_a
-  | Provider_c
-  (** Provider_c Code direct API: Provider_a-compatible [/v1/messages]. @since 0.169.0 *)
-  | Provider_d_compat
+  | Anthropic
+  | Kimi
+  (** Kimi direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
+  | OpenAI_compat
   | Ollama
-  (** Ollama: Provider_d compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
-  | Provider_f
-  | Provider_k
-  (** ZhipuAI Provider_k native: Provider_d wire format + JWT auth + Provider_k error parsing. @since 0.83.0 *)
-  | Provider_h
-  | Cli_tool_d (** Subprocess transport via [agent_llm_a -p]. @since 0.78.0 *)
-  | Cli_tool_b (** Subprocess transport via [provider_f -p]. @since 0.133.0 *)
-  | Cli_tool_c (** Subprocess transport via [provider_c --print]. @since 0.169.0 *)
-  | Cli_tool_a (** Subprocess transport via [agent_code exec]. @since 0.133.0 *)
+  (** Ollama: OpenAI_compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
+  | Gemini
+  | Glm
+  (** ZhipuAI GLM native: OpenAI_compat wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
+  | DashScope
 
-(** Default HTTP request path for a given provider kind, returning
-    [""] for CLI subprocess kinds that do not dispatch over a path.
+(** Default HTTP request path for a given provider kind.
     Single source of truth shared by [make] and direct record-literal
     callers; pin the [kind] and the [request_path] together via this
     helper to avoid the two fields drifting out of sync. *)
@@ -138,7 +133,7 @@ type t =
       {!Capabilities.t.supports_seed} is [true]. [None] = use the
       [OAS_DEFAULT_SEED] env var, then fallback to
       {!Constants.Deterministic.default_seed} (42).
-      Provider_a (Agent_llm_a) does not support seed — the field is silently
+      Anthropic (Agent_llm_a) does not support seed — the field is silently
       ignored for that provider.
       @since 0.185.0 *)
   }
@@ -178,7 +173,7 @@ val make
   -> t
 
 (** Lowercase string representation of the wire-format kind.
-    Returns the variant name in lowercase (e.g. [Provider_a] -> ["provider_a"]).
+    Returns the variant name in lowercase (e.g. [Anthropic] -> ["provider_a"]).
     Exhaustive match: adding a new variant triggers a compile error.
     @since 0.100.0 *)
 val string_of_provider_kind : provider_kind -> string
@@ -196,18 +191,12 @@ val all_provider_kinds : provider_kind list
     @since 0.166.0 *)
 val default_api_key_env : provider_kind -> string option
 
-(** Re-export of {!Provider_kind.is_subprocess_cli}. [true] for the
-    four CLI-subprocess kinds (Cli_tool_d, Cli_tool_b, Cli_tool_c,
-    Cli_tool_a); [false] for direct-HTTP kinds.
-    @since 0.170.0 *)
-val is_subprocess_cli : provider_kind -> bool
-
 (** Canonical inverse of {!string_of_provider_kind}.
 
     Accepts every lowercase form produced by {!string_of_provider_kind} plus
     the documented legacy aliases used by cascade configs and callers:
-    - [agent_llm_a]  -> [Provider_a]
-    - [provider_d]  -> [Provider_d_compat]
+    - [agent_llm_a]  -> [Anthropic]
+    - [provider_d]  -> [OpenAI_compat]
     - [llama]   -> [Ollama]
 
     The match is case-insensitive; leading and trailing whitespace is
@@ -224,7 +213,7 @@ val provider_kind_of_string : string -> provider_kind option
     Hand-written to emit the wire-format produced by
     {!string_of_provider_kind} (for example ["provider_a"]) rather than the
     capitalised constructor name that [\[@@deriving yojson\]] would default
-    to (["Provider_a"]).
+    to (["Anthropic"]).
 
     Records that embed [provider_kind] (for example
     [Types.inference_telemetry]) can therefore add it to a derived-yojson
@@ -278,14 +267,14 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [Provider_d_compat] is accepted only for official Provider_d hosts with a
+    - [OpenAI_compat] is accepted only for official Provider_d hosts with a
       model capability record that reports [supports_structured_output].
-    - [Provider_f], [Provider_a], [Ollama], and [Provider_h] are accepted.
-      Provider_h (Provider_h) exposes [response_format.json_schema] on its
+    - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
+      DashScope (DashScope) exposes [response_format.json_schema] on its
       Provider_d-compatible endpoint; the field is forwarded by
       [backend_provider_d.ml] without additional host validation.
-    - [Provider_c] is rejected until native json_schema support is verified.
-    - [Provider_k] is rejected: Z.AI's current official docs document JSON mode
+    - [Kimi] is rejected until native json_schema support is verified.
+    - [Glm] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.
     - CLI kinds are rejected.
 

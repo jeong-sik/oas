@@ -57,7 +57,7 @@ let update_atomic_max cell candidate =
 let test_provider_key () =
   let config =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet-4-20250514"
       ~base_url:"https://api.provider_a.com"
       ()
@@ -457,7 +457,7 @@ let test_result_all_failed_variant () =
 let test_result_hard_quota_variant () =
   let config =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet-4-20250514"
       ~base_url:"https://api.provider_a.com"
       ()
@@ -480,9 +480,9 @@ let test_result_hard_quota_variant () =
 let test_result_provider_terminal_variant () =
   let config =
     Provider_config.make
-      ~kind:Cli_tool_d
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-code"
-      ~base_url:"cli://agent_llm_a-code"
+      ~base_url:"https://api.anthropic.com"
       ()
   in
   let result =
@@ -518,14 +518,14 @@ let test_circuit_open_skips_provider_and_falls_back () =
   let health = Complete_cascade.create_health ~clock () in
   let provider_a =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet-4-20250514"
       ~base_url:"https://api.provider_a.com"
       ()
   in
   let provider_b =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_b-v1"
       ~base_url:"https://api.provider_b.cn"
       ()
@@ -726,14 +726,14 @@ let test_hard_quota_stops_without_calling_fallback () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet-4-20250514"
       ~base_url:"https://api.provider_a.com"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_b-v1"
       ~base_url:"https://api.provider_b.cn"
       ()
@@ -791,14 +791,14 @@ let test_provider_terminal_stops_without_calling_fallback () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:Cli_tool_d
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-code"
-      ~base_url:"cli://agent_llm_a-code"
+      ~base_url:"https://api.anthropic.com"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_b-v1"
       ~base_url:"https://api.provider_b.cn"
       ()
@@ -870,14 +870,14 @@ let test_tls_error_stops_without_calling_fallback () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"ollama-cloud"
       ~base_url:"https://ollama.com/v1"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_b-v1"
       ~base_url:"https://api.provider_b.cn"
       ()
@@ -944,14 +944,14 @@ let test_local_resource_error_stops_without_poisoning_provider_health () =
   let clock = Eio.Stdenv.clock env in
   let primary =
     Provider_config.make
-      ~kind:Provider_d_compat
+      ~kind:OpenAI_compat
       ~model_id:"ollama-cloud"
       ~base_url:"https://ollama.com/v1"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_b-v1"
       ~base_url:"https://api.provider_b.cn"
       ()
@@ -1329,14 +1329,14 @@ let test_circuit_open_skip_emits_only_circuit_open_for_skipped_provider () =
   let health = Complete_cascade.create_health ~clock () in
   let primary =
     Provider_config.make
-      ~kind:Provider_a
+      ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet-4-20250514"
       ~base_url:"https://api.provider_a.com"
       ()
   in
   let fallback =
     Provider_config.make
-      ~kind:Provider_c
+      ~kind:Kimi
       ~model_id:"provider_b-v1"
       ~base_url:"https://api.provider_b.cn"
       ()

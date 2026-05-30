@@ -1,7 +1,7 @@
 (** Integration tests for guardrails — verify tool filtering and limits
     interact correctly with Agent.run.
 
-    Uses mock HTTP server (Cohttp_eio, Provider_a Messages API format).
+    Uses mock HTTP server (Cohttp_eio, Anthropic Messages API format).
     Each test gets a unique port. *)
 
 open Agent_sdk

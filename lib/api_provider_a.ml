@@ -1,11 +1,11 @@
-(** Provider_a Agent_llm_a API request building and response parsing.
+(** Anthropic Agent_llm_a API request building and response parsing.
 
     Response parsing is delegated to {!Llm_provider.Backend_provider_a}.
     Request building remains here due to agent_config/agent_state coupling. *)
 
 open Types
 
-(** Parse Provider_a API response JSON.
+(** Parse Anthropic API response JSON.
     Re-exported from {!Llm_provider.Backend_provider_a}. *)
 let parse_response = Llm_provider.Backend_provider_a.parse_response
 
@@ -26,7 +26,7 @@ let build_body_assoc
     ; "stream", `Bool stream
     ]
   in
-  (* Provider_a requires ~1024+ tokens for cache_control to take effect.
+  (* Anthropic requires ~1024+ tokens for cache_control to take effect.
      Heuristic: 1 token ≈ 4 chars, so 4096 chars ≈ 1024 tokens minimum. *)
   let min_cache_chars = 4096 in
   let body_assoc =
@@ -52,7 +52,7 @@ let build_body_assoc
   let body_assoc =
     match tools with
     | Some t when config.config.cache_system_prompt ->
-      (* Provider_a prompt caching: place cache_control on the last tool
+      (* Anthropic prompt caching: place cache_control on the last tool
            so the entire prefix (system + tools) is cached together.
            Same gate as system prompt caching — both are prefix components. *)
       let cached_tools =
@@ -127,17 +127,17 @@ let build_body_assoc
     | _ -> body_assoc
   in
   (* Sampling parameters were previously omitted entirely from the
-     Provider_a agent_sdk request path — any [temperature], [top_p],
+     Anthropic agent_sdk request path — any [temperature], [top_p],
      or [top_k] the caller set on the agent config was silently
-     dropped, so Provider_a defaulted to temperature = 1.0 + top_p = 1.
+     dropped, so Anthropic defaulted to temperature = 1.0 + top_p = 1.
      Serialise them here so Agent_llm_a agents honour deterministic
      configs (e.g. temperature = 0.0 for coding assistants).
 
-     Provider_a Messages API body params (docs.provider_a.com/en/api/
+     Anthropic Messages API body params (docs.provider_a.com/en/api/
      messages): [temperature] float 0-1, [top_p] float 0-1, [top_k]
      int >= 1. No [min_p] field — we intentionally do not serialise
      it so a caller who sets [min_p] on a cross-provider config gets
-     the same silent-omit behaviour Provider_a itself enforces. *)
+     the same silent-omit behaviour Anthropic itself enforces. *)
   let body_assoc =
     match config.config.temperature with
     | Some t -> ("temperature", `Float t) :: body_assoc

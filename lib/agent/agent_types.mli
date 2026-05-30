@@ -47,8 +47,8 @@ type options =
         Threaded through {!Pipeline.stage_route} into
         {!Llm_provider.Complete.complete_stream}, which forwards it to
         {!Llm_provider.Http_client.read_ndjson} (Ollama native NDJSON)
-        and {!Llm_provider.Http_client.read_sse} (Provider_a / Provider_d-
-        compatible / Provider_f / Provider_k). The deadline resets after each
+        and {!Llm_provider.Http_client.read_sse} (Anthropic / Provider_d-
+        compatible / Gemini / Glm). The deadline resets after each
         successful line, so this caps inter-chunk silence — not total
         stream duration. A stalled endpoint surfaces as
         [TimeoutError { phase = Stream_idle state; _ }], preserving

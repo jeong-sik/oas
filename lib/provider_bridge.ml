@@ -63,7 +63,7 @@ let resolve_auto_model_id
   =
   let open Llm_provider.Provider_config in
   match kind with
-  | Ollama | Provider_d_compat | Provider_h ->
+  | Ollama | OpenAI_compat | DashScope ->
     (* Local llama-server and Provider_d-compatible endpoints share the
          "auto" -> discovery -> OLLAMA_DEFAULT_MODEL fallback. Cloud-only
          Provider_d-compatible backends still traverse this branch. *)
@@ -73,23 +73,22 @@ let resolve_auto_model_id
       | Some id -> id
       | None -> Util.env_or model_id "OLLAMA_DEFAULT_MODEL")
     else model_id
-  | Provider_k ->
+  | Glm ->
     if Llm_provider.Zai_catalog.is_coding_base_url base_url
     then resolve_glm_coding_model_id model_id
     else resolve_glm_model_id model_id
-  | Provider_f ->
+  | Gemini ->
     if model_id = "auto"
     then Util.env_or "provider_f-2.5-flash" "PROVIDER_F_DEFAULT_MODEL"
     else model_id
-  | Provider_c ->
+  | Kimi ->
     if model_id = "auto"
     then Util.env_or "provider_c-for-coding" "PROVIDER_C_DEFAULT_MODEL"
     else model_id
-  | Provider_a | Cli_tool_d ->
+  | Anthropic ->
     if model_id = "auto"
     then Util.env_or "agent_llm_a-sonnet-4-6-20250514" "PROVIDER_A_DEFAULT_MODEL"
     else model_id
-  | Cli_tool_b | Cli_tool_c | Cli_tool_a -> model_id
 ;;
 
 let to_provider_config (legacy : Provider.config)
@@ -105,16 +104,16 @@ let to_provider_config (legacy : Provider.config)
     let is_provider_c_provider = is_provider_c_coding_base_url base_url in
     let kind =
       match Provider.request_kind legacy.provider with
-      | Provider.Provider_a_messages ->
+      | Provider.Anthropic_messages ->
         if is_provider_c_provider
-        then Llm_provider.Provider_config.Provider_c
-        else Llm_provider.Provider_config.Provider_a
+        then Llm_provider.Provider_config.Kimi
+        else Llm_provider.Provider_config.Anthropic
       | Provider.Openai_chat_completions | Provider.Custom _ ->
         if is_provider_f_model
-        then Llm_provider.Provider_config.Provider_f
+        then Llm_provider.Provider_config.Gemini
         else if is_zai_provider && is_glm_model
-        then Llm_provider.Provider_config.Provider_k
-        else Llm_provider.Provider_config.Provider_d_compat
+        then Llm_provider.Provider_config.Glm
+        else Llm_provider.Provider_config.OpenAI_compat
     in
     let request_path = Provider.request_path legacy.provider in
     let resolved_model_id = resolve_auto_model_id ~base_url kind legacy.model_id in

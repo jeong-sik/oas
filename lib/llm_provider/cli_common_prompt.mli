@@ -1,6 +1,6 @@
 (** Shared prompt-shaping helpers for non-interactive CLI transports.
 
-    All CLI transports (Agent_llm_a Code, Provider_f CLI, Agent_code CLI) flatten an
+    All CLI transports (Agent_llm_a Code, Gemini CLI, Agent_code CLI) flatten an
     OAS message history into a single prompt string plus an optional
     system prompt. This module centralises that logic so bug fixes
     propagate across transports. *)

@@ -1,4 +1,4 @@
-(** SSE event parsing for Provider_a and Provider_d streaming APIs.
+(** SSE event parsing for Anthropic and Provider_d streaming APIs.
 
     Pure functions — no I/O or agent_sdk coupling.
 
@@ -7,7 +7,7 @@
 
 open Types
 
-(** {1 Provider_a SSE} *)
+(** {1 Anthropic SSE} *)
 
 val parse_sse_event : string option -> string -> sse_event option
 val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
@@ -89,9 +89,9 @@ val provider_d_chunk_to_events
   -> provider_d_chunk
   -> sse_event list * Telemetry_event.t option
 
-(** {1 Provider_f SSE}
+(** {1 Gemini SSE}
 
-    Provider_f [streamGenerateContent?alt=sse] emits SSE chunks with
+    Gemini [streamGenerateContent?alt=sse] emits SSE chunks with
     [{candidates: [{content: {parts: [...]}}]}] structure per chunk.
     We reuse {!provider_d_stream_state} for block tracking since the
     state management pattern is identical. *)

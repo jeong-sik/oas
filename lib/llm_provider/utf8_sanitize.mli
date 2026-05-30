@@ -4,7 +4,7 @@
     OCaml strings are byte sequences with no UTF-8 guarantee.
     When tool results or LLM responses contain truncated multi-byte
     sequences or raw bytes from file reads, Yojson passes them
-    through without validation.  Some providers (Provider_k/BigModel)
+    through without validation.  Some providers (Glm/BigModel)
     reject the resulting JSON with parse errors.  Control characters
     (0x00-0x1F except LF/CR/TAB, plus DEL) break prompt formatting.
 

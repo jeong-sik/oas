@@ -8,7 +8,7 @@ open Llm_provider.Types
 (* ── Helpers ─────────────────────────────────────────────── *)
 
 let make_config ?(model_id = "test-model") () =
-  PC.make ~kind:Provider_a ~model_id ~base_url:"http://localhost" ()
+  PC.make ~kind:Anthropic ~model_id ~base_url:"http://localhost" ()
 ;;
 
 let simple_response ?(id = "resp-1") ?(model = "test-model") content =

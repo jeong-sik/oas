@@ -403,7 +403,7 @@ let make_closing_client ~sw ~net ~uri =
          We also store the TLS-wrapped resource (not the raw socket) so
          [Eio.Resource.close] triggers TLS close_notify before the TCP
          layer closes.  Raw-socket close without TLS shutdown causes the
-         peer (e.g. Provider_k / Cloudflare-fronted endpoints) to interpret the
+         peer (e.g. Glm / Cloudflare-fronted endpoints) to interpret the
          half-close as "keep waiting" and hold the connection in
          CLOSE_WAIT indefinitely. *)
     let tracked_transports

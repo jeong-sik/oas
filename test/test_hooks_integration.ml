@@ -3,7 +3,7 @@
     Uses a mock HTTP server (Cohttp_eio) to exercise the full agent loop
     without any real LLM. Each test gets a unique port to avoid bind conflicts.
 
-    Pattern: test_integration.ml (Provider_a Messages API mock) *)
+    Pattern: test_integration.ml (Anthropic Messages API mock) *)
 
 open Agent_sdk
 open Types

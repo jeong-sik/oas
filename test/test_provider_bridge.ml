@@ -66,17 +66,13 @@ let test_non_zai_glm_stays_provider_d_compat () =
       "kind remains provider_d compat"
       "provider_d_compat"
       (match cfg.kind with
-       | Llm_provider.Provider_config.Provider_d_compat -> "provider_d_compat"
-       | Provider_a -> "provider_a"
-       | Provider_c -> "provider_c"
-       | Provider_f -> "provider_f"
-       | Provider_k -> "provider_k"
+       | Llm_provider.Provider_config.OpenAI_compat -> "provider_d_compat"
+       | Anthropic -> "provider_a"
+       | Kimi -> "provider_c"
+       | Gemini -> "provider_f"
+       | Glm -> "provider_k"
        | Ollama -> "ollama"
-       | Provider_h -> "provider_h"
-       | Cli_tool_d -> "cli_tool_d"
-       | Cli_tool_b -> "cli_tool_b"
-       | Cli_tool_c -> "cli_tool_c"
-       | Cli_tool_a -> "cli_tool_a")
+       | DashScope -> "provider_h")
 ;;
 
 let test_zai_glm_becomes_glm_provider_config () =
@@ -99,17 +95,13 @@ let test_zai_glm_becomes_glm_provider_config () =
       "kind becomes provider_k"
       "provider_k"
       (match cfg.kind with
-       | Llm_provider.Provider_config.Provider_d_compat -> "provider_d_compat"
-       | Provider_a -> "provider_a"
-       | Provider_c -> "provider_c"
-       | Provider_f -> "provider_f"
-       | Provider_k -> "provider_k"
+       | Llm_provider.Provider_config.OpenAI_compat -> "provider_d_compat"
+       | Anthropic -> "provider_a"
+       | Kimi -> "provider_c"
+       | Gemini -> "provider_f"
+       | Glm -> "provider_k"
        | Ollama -> "ollama"
-       | Provider_h -> "provider_h"
-       | Cli_tool_d -> "cli_tool_d"
-       | Cli_tool_b -> "cli_tool_b"
-       | Cli_tool_c -> "cli_tool_c"
-       | Cli_tool_a -> "cli_tool_a")
+       | DashScope -> "provider_h")
 ;;
 
 let test_zai_coding_auto_uses_coding_default_model () =
@@ -162,7 +154,7 @@ let test_provider_a_auto_and_explicit_models () =
   with_env api_key_env "provider-a-test-key" (fun () ->
     with_env "PROVIDER_A_DEFAULT_MODEL" "agent_llm_a-test-default" (fun () ->
       let auto =
-        { Agent_sdk.Provider.provider = Provider_a; model_id = "auto"; api_key_env }
+        { Agent_sdk.Provider.provider = Anthropic; model_id = "auto"; api_key_env }
       in
       let explicit = { auto with model_id = "agent_llm_a-explicit" } in
       (match Agent_sdk.Provider_bridge.to_provider_config auto with

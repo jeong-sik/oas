@@ -30,7 +30,7 @@ let provider_runtime_name selected (cfg : Provider.config option) =
   | Some cfg ->
     (match cfg.provider with
      | Provider.Local _ -> "local"
-     | Provider.Provider_a -> "provider_a"
+     | Provider.Anthropic -> "provider_a"
      | Provider.OpenAICompat _ -> "provider_d-compat"
      | Provider.Custom_registered { name } -> "custom:" ^ name)
 ;;
@@ -54,12 +54,12 @@ let provider_config_of_registry_entry
       (entry : Llm_provider.Provider_registry.entry)
   =
   match entry.defaults.kind with
-  | Llm_provider.Provider_config.Provider_a ->
-    { Provider.provider = Provider.Provider_a
+  | Llm_provider.Provider_config.Anthropic ->
+    { Provider.provider = Provider.Anthropic
     ; model_id
     ; api_key_env = entry.defaults.api_key_env
     }
-  | Llm_provider.Provider_config.Provider_d_compat ->
+  | Llm_provider.Provider_config.OpenAI_compat ->
     { Provider.provider =
         Provider.OpenAICompat
           { base_url = entry.defaults.base_url
@@ -118,7 +118,7 @@ let resolve_from_registry registry ~provider_name ?model () =
                 entry))
       | None ->
         unsupported_provider
-          "provider alias resolved to an Provider_a model but provider catalog has no \
+          "provider alias resolved to an Anthropic model but provider catalog has no \
            \"agent_llm_a\" entry")
     else
       unsupported_provider

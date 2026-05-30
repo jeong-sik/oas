@@ -247,7 +247,7 @@ let ollama_messages_of_message ?(model_id = "") msg =
     compaction drops or reorders a ToolUse while the corresponding
     ToolResult survives.
 
-    Provider_d-compatible APIs reject orphaned tool_call_ids; the Provider_a
+    Provider_d-compatible APIs reject orphaned tool_call_ids; the Anthropic
     API has its own dangling-tool-call repair, so this is Provider_d-path only.
 
     Pure function — no I/O, no mutation. *)

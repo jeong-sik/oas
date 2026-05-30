@@ -149,8 +149,7 @@ let parse_transport = function
             other))
 ;;
 
-let default_transport_for_kind kind =
-  if Provider_kind.is_subprocess_cli kind then Cli else Http
+let default_transport_for_kind _kind = Http
 ;;
 
 let auth_env = function

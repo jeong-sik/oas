@@ -1,5 +1,5 @@
 (** OAS v0.24 End-to-End Integration Tests
-    Exercises the 5 new tracks against a live local LLM (Provider_h_3.5 via llama-server).
+    Exercises the 5 new tracks against a live local LLM (DashScope_3.5 via llama-server).
 
     Run: LLAMA_LIVE_TEST=1 dune exec ./test/test_e2e_v024.exe
 

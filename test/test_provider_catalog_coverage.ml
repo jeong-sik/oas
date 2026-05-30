@@ -217,7 +217,7 @@ let test_type_mismatches_fall_back_without_rejecting_entry () =
       }|}
   in
   let typed = require_lookup catalog "typed" in
-  check bool "default kind" true (typed.kind = Provider_config.Provider_d_compat);
+  check bool "default kind" true (typed.kind = Provider_config.OpenAI_compat);
   check bool "default transport" true (typed.transport = Provider_catalog.Http);
   check (list string) "aliases default empty" [] typed.aliases;
   check bool "env auth with empty env" true (typed.auth = Provider_catalog.Api_key_env "");

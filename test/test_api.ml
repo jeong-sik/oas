@@ -287,9 +287,9 @@ let test_build_provider_d_body_with_json_schema () =
 ;;
 
 let test_build_body_sampling_params_provider_a () =
-  (* Regression: the Provider_a agent_sdk request path previously omitted
+  (* Regression: the Anthropic agent_sdk request path previously omitted
      temperature/top_p/top_k entirely, silently defaulting every Agent_llm_a
-     agent to Provider_a's server-side temperature = 1.0 + top_p = 1. *)
+     agent to Anthropic's server-side temperature = 1.0 + top_p = 1. *)
   let state =
     { Types.config =
         { Types.default_config with
@@ -311,8 +311,8 @@ let test_build_body_sampling_params_provider_a () =
 ;;
 
 let test_build_body_sampling_params_omitted_when_none () =
-  (* When the caller does not set a sampling param, the Provider_a body
-     must not carry the key at all — relying on Provider_a's server-side
+  (* When the caller does not set a sampling param, the Anthropic body
+     must not carry the key at all — relying on Anthropic's server-side
      defaults rather than encoding some OAS-layer default. *)
   let state = make_state () in
   let assoc = Api.build_body_assoc ~config:state ~messages:[] ~stream:false () in

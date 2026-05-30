@@ -67,28 +67,21 @@ let auth_of_catalog = function
 ;;
 
 let command_of_kind = function
-  | PConfig.Cli_tool_d -> Some "agent_llm_a"
-  | PConfig.Cli_tool_b -> Some "provider_f"
-  | PConfig.Cli_tool_c -> Some "provider_c"
-  | PConfig.Cli_tool_a -> Some "agent_code"
-  | PConfig.Provider_a
-  | PConfig.Provider_c
-  | PConfig.Provider_d_compat
+  | PConfig.Anthropic
+  | PConfig.Kimi
+  | PConfig.OpenAI_compat
   | PConfig.Ollama
-  | PConfig.Provider_f
-  | PConfig.Provider_k
-  | PConfig.Provider_h -> None
+  | PConfig.Gemini
+  | PConfig.Glm
+  | PConfig.DashScope -> None
 ;;
 
-let transport_of_kind kind = if PConfig.is_subprocess_cli kind then Cli else Http
+let transport_of_kind _kind = Http
 
 let auth_of_defaults (defaults : PR.provider_defaults) =
-  if PConfig.is_subprocess_cli defaults.kind
-  then Cli_cached_login
-  else (
-    match trim_non_empty defaults.api_key_env with
-    | Some env -> Api_key_env env
-    | None -> No_auth)
+  match trim_non_empty defaults.api_key_env with
+  | Some env -> Api_key_env env
+  | None -> No_auth
 ;;
 
 let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
@@ -175,9 +168,9 @@ let binding_of_registry_entry (entry : PR.entry) =
   ; max_context = (if entry.max_context > 0 then Some entry.max_context else None)
   ; capabilities = public_capabilities entry.capabilities
   ; available = entry.is_available ()
-  ; non_interactive = not (PConfig.is_subprocess_cli entry.defaults.kind)
+  ; non_interactive = true
   ; interactive_required = false
-  ; daemon_safe = not (PConfig.is_subprocess_cli entry.defaults.kind)
+  ; daemon_safe = true
   ; credential_scope = None
   }
 ;;
@@ -284,16 +277,12 @@ let binding_for_provider_config (cfg : PConfig.t) =
 
 let base_capabilities_of_kind = function
   | PConfig.Ollama -> Llm_provider.Capabilities.ollama_capabilities
-  | PConfig.Provider_a -> Llm_provider.Capabilities.provider_a_capabilities
-  | PConfig.Provider_c -> Llm_provider.Capabilities.provider_c_capabilities
-  | PConfig.Provider_d_compat -> Llm_provider.Capabilities.provider_d_chat_capabilities
-  | PConfig.Provider_f -> Llm_provider.Capabilities.provider_f_capabilities
-  | PConfig.Provider_k -> Llm_provider.Capabilities.provider_k_capabilities
-  | PConfig.Provider_h -> Llm_provider.Capabilities.provider_h_capabilities
-  | PConfig.Cli_tool_d -> Llm_provider.Capabilities.agent_llm_a_code_capabilities
-  | PConfig.Cli_tool_b -> Llm_provider.Capabilities.provider_f_cli_capabilities
-  | PConfig.Cli_tool_c -> Llm_provider.Capabilities.provider_c_cli_capabilities
-  | PConfig.Cli_tool_a -> Llm_provider.Capabilities.agent_code_cli_capabilities
+  | PConfig.Anthropic -> Llm_provider.Capabilities.provider_a_capabilities
+  | PConfig.Kimi -> Llm_provider.Capabilities.provider_c_capabilities
+  | PConfig.OpenAI_compat -> Llm_provider.Capabilities.provider_d_chat_capabilities
+  | PConfig.Gemini -> Llm_provider.Capabilities.provider_f_capabilities
+  | PConfig.Glm -> Llm_provider.Capabilities.provider_k_capabilities
+  | PConfig.DashScope -> Llm_provider.Capabilities.provider_h_capabilities
 ;;
 
 let registry_capabilities_for_provider_config (cfg : PConfig.t) =
@@ -316,12 +305,9 @@ let registry_capabilities_for_provider_config (cfg : PConfig.t) =
 let capabilities_for_provider_config (cfg : PConfig.t) =
   let caps = registry_capabilities_for_provider_config cfg in
   let caps =
-    if PConfig.is_subprocess_cli cfg.kind
-    then caps
-    else (
-      match Llm_provider.Capabilities.for_model_id cfg.model_id with
-      | Some model_caps -> model_caps
-      | None -> caps)
+    match Llm_provider.Capabilities.for_model_id cfg.model_id with
+    | Some model_caps -> model_caps
+    | None -> caps
   in
   match cfg.supports_tool_choice_override with
   | Some supports_tool_choice -> { caps with supports_tool_choice }

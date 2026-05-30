@@ -33,7 +33,7 @@ val build_request
 
     Called from the silent-drop branches of the capability gates in
     {!build_request} and [Api_provider_d.build_provider_d_body] so operators
-    who set a non-supported field (e.g. [min_p] on a Provider_k config) see
+    who set a non-supported field (e.g. [min_p] on a Glm config) see
     exactly which field was stripped without the per-request WARN
     spam that would otherwise fire on every automated turn.
 

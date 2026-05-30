@@ -311,7 +311,7 @@ let test_schema_all_six_param_types () =
 
 (* ── Schema JSON structure validation ───────────────────────── *)
 
-(** Verify the full JSON structure matches Provider_a tool definition format. *)
+(** Verify the full JSON structure matches Anthropic tool definition format. *)
 let test_schema_json_full_structure () =
   let schema : string Structured.schema =
     { name = "get_weather"

@@ -1,4 +1,4 @@
-(** Verify all remaining edge cases for Provider_f backend. *)
+(** Verify all remaining edge cases for Gemini backend. *)
 
 open Llm_provider
 
@@ -28,7 +28,7 @@ let test_disable_parallel () =
   Printf.printf "=== disable_parallel_tool_use ===\n";
   let config =
     Provider_config.make
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:"provider_f-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~disable_parallel_tool_use:true
@@ -41,7 +41,7 @@ let test_disable_parallel () =
   let json = Yojson.Safe.from_string body in
   ignore json;
   check "no crash with disable_parallel=true" true;
-  check "parallel flag absent from Provider_f body" (not (string_has body "parallel"))
+  check "parallel flag absent from Gemini body" (not (string_has body "parallel"))
 ;;
 
 (* ── 2. cache_system_prompt: verify graceful ignore ── *)
@@ -49,7 +49,7 @@ let test_cache_system_prompt () =
   Printf.printf "=== cache_system_prompt ===\n";
   let config =
     Provider_config.make
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:"provider_f-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~cache_system_prompt:true
@@ -67,12 +67,12 @@ let test_cache_system_prompt () =
   check "cachedContent absent (not implemented)" (cached = `Null)
 ;;
 
-(* ── 3. Provider_f cloud auth: URL without ?key= when api_key empty ── *)
+(* ── 3. Gemini cloud auth: URL without ?key= when api_key empty ── *)
 let test_vertex_ai_url () =
-  Printf.printf "=== Provider_f cloud URL (no api_key) ===\n";
+  Printf.printf "=== Gemini cloud URL (no api_key) ===\n";
   let config =
     Provider_config.make
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:"provider_f-2.5-flash"
       ~base_url:"https://us-central1-aiplatform.googleapis.com/v1beta1"
       ~api_key:""
@@ -158,7 +158,7 @@ let test_tool_use_id_roundtrip () =
   (* Build next turn with ToolResult using this synthesized id *)
   let config =
     Provider_config.make
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:"provider_f-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ()

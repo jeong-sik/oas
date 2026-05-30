@@ -16,7 +16,7 @@ let test_register_and_find () =
   let entry : Provider_registry.entry =
     { name = "test-provider"
     ; defaults =
-        { kind = Provider_d_compat
+        { kind = OpenAI_compat
         ; base_url = "http://localhost:9999"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -38,7 +38,7 @@ let test_overwrite () =
   let mk url : Provider_registry.entry =
     { name = "p"
     ; defaults =
-        { kind = Provider_d_compat
+        { kind = OpenAI_compat
         ; base_url = url
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -61,7 +61,7 @@ let test_unregister () =
   let entry : Provider_registry.entry =
     { name = "temp"
     ; defaults =
-        { kind = Provider_d_compat
+        { kind = OpenAI_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -84,7 +84,7 @@ let test_available_filter () =
   let mk name avail : Provider_registry.entry =
     { name
     ; defaults =
-        { kind = Provider_d_compat
+        { kind = OpenAI_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -147,7 +147,7 @@ let test_find_capable_tools () =
   let mk name caps : Provider_registry.entry =
     { name
     ; defaults =
-        { kind = Provider_d_compat
+        { kind = OpenAI_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -171,7 +171,7 @@ let test_find_capable_composite () =
   let mk name caps : Provider_registry.entry =
     { name
     ; defaults =
-        { kind = Provider_d_compat
+        { kind = OpenAI_compat
         ; base_url = "http://x"
         ; api_key_env = ""
         ; request_path = "/v1/chat/completions"
@@ -799,7 +799,7 @@ let test_catalog_empty_alias_not_registered () =
   let entry : Provider_catalog.entry =
     { id = "host"
     ; aliases = [ "good-alias"; ""; "   " ]
-    ; kind = Provider_d_compat
+    ; kind = OpenAI_compat
     ; transport = Http
     ; command = None
     ; base_url = "http://host.example"
@@ -992,28 +992,28 @@ let test_requires_any () =
 (* ── Kind ↔ registry integrity ────────────────────────── *)
 
 (** Minimal [Provider_config.t] construction for a given kind, using a
-    localhost base URL so [is_local = true] for [Provider_d_compat] (resolves
+    localhost base URL so [is_local = true] for [OpenAI_compat] (resolves
     to the registry's "provider_n" entry) and a plain (non-coding) URL for
-    [Provider_k] (resolves to "provider_k"). *)
+    [Glm] (resolves to "provider_k"). *)
 let mk_config_for_kind kind =
   let base_url =
     match kind with
-    | Provider_config.Provider_d_compat -> "http://127.0.0.1:8085"
+    | Provider_config.OpenAI_compat -> "http://127.0.0.1:8085"
     | _ -> "https://example.test"
   in
   Provider_config.make ~kind ~model_id:"test" ~base_url ()
 ;;
 
 (** Regression guard for the masc-mcp capability-lookup bug (boundary-allow) fixed in
-    masc-mcp#9306 (boundary-allow). That bug passed [Provider_adapter.string_of_provider_kind]
+    masc-mcp#9306 (boundary-allow). That bug passed [Anthropicdapter.string_of_provider_kind]
     (masc canonical_name: "agent_llm_a-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
     returned by [Provider_registry.provider_name_of_config] ("agent_llm_a",
     "provider_c", "provider_n", "ollama", "cli_tool_d", "cli_tool_b", ...). For
     direct-API kinds the lookup silently fell back to
     [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
-    to match direct-API entries ("agent_llm_a" → Provider_a, "provider_f" → Provider_f,
-    "provider_c" → Provider_c) and returned the wrong capability matrix.
+    to match direct-API entries ("agent_llm_a" → Anthropic, "provider_f" → Gemini,
+    "provider_c" → Kimi) and returned the wrong capability matrix.
 
     Assert here that [provider_name_of_config] is the authoritative key
     source: every variant in [Provider_config.all_provider_kinds]
@@ -1046,49 +1046,6 @@ let test_every_kind_resolves_in_registry () =
            label
            name)
     Provider_config.all_provider_kinds
-;;
-
-(** Sharper assertion for the two CLI kinds that were the primary
-    wrong-hit victims in masc-mcp#9306 (boundary-allow): assert their registry entries
-    are CLI-shaped, not direct-API-shaped. If a regression reverts
-    [provider_name_of_config Cli_tool_d] back to ["agent_llm_a"], this
-    test fails because the resolved entry's [defaults.kind] will be
-    [Provider_a] instead of [Cli_tool_d]. *)
-let test_cli_kinds_resolve_to_cli_entries () =
-  let registry = Provider_registry.default () in
-  let cases =
-    [ Provider_config.Cli_tool_d, "cli_tool_d"
-    ; Provider_config.Cli_tool_b, "cli_tool_b"
-    ; Provider_config.Cli_tool_c, "cli_tool_c"
-    ; Provider_config.Cli_tool_a, "cli_tool_a"
-    ]
-  in
-  List.iter
-    (fun (kind, expected_name) ->
-       let cfg = mk_config_for_kind kind in
-       let name = Provider_registry.provider_name_of_config cfg in
-       check
-         string
-         (Printf.sprintf
-            "%s maps to expected registry key"
-            (Provider_config.string_of_provider_kind kind))
-         expected_name
-         name;
-       match Provider_registry.find registry name with
-       | Some entry ->
-         (* The entry's defaults.kind must equal the variant we
-              started from; this catches any future renaming that
-              silently points a CLI kind at a direct-API entry. *)
-         check
-           bool
-           (Printf.sprintf
-              "%s → entry.defaults.kind equals source"
-              (Provider_config.string_of_provider_kind kind))
-           true
-           (entry.defaults.kind = kind)
-       | None ->
-         failf "%s: no entry for %S" (Provider_config.string_of_provider_kind kind) name)
-    cases
 ;;
 
 (* ── Suite ──────────────────────────────────────────── *)
@@ -1209,10 +1166,6 @@ let () =
         ] )
     ; ( "kind_registry_integrity"
       , [ test_case "every kind resolves" `Quick test_every_kind_resolves_in_registry
-        ; test_case
-            "CLI kinds resolve to CLI entries"
-            `Quick
-            test_cli_kinds_resolve_to_cli_entries
         ] )
     ; ( "types_usage"
       , [ test_case "zero_api_usage" `Quick test_zero_api_usage

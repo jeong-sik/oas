@@ -1,4 +1,4 @@
-(** Provider_f native API request building and response parsing.
+(** Gemini native API request building and response parsing.
 
     Wire format: contents/parts, systemInstruction, thinkingConfig,
     functionDeclarations.  Ref: ai.google.dev/api/generate-content
@@ -17,7 +17,7 @@ let provider_f_role_of_oas = function
 ;;
 
 (** Build a tool_use_id -> tool_name lookup table from message history.
-    Provider_f's functionResponse requires the function NAME, but OAS
+    Gemini's functionResponse requires the function NAME, but OAS
     ToolResult only carries the tool_use_id (a UUID). *)
 let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t =
   let tbl = Hashtbl.create 8 in
@@ -32,7 +32,7 @@ let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t
   tbl
 ;;
 
-(* ── Content block -> Provider_f part ───────────────────── *)
+(* ── Content block -> Gemini part ───────────────────── *)
 
 let part_of_content_block id_to_name = function
   | Text s -> Some (`Assoc [ "text", `String (Utf8_sanitize.sanitize s) ])
@@ -64,7 +64,7 @@ let part_of_content_block id_to_name = function
         Diag.warn
           "backend_provider_f"
           "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
-           using UUID as functionResponse name (Provider_f API requires name). This \
+           using UUID as functionResponse name (Gemini API requires name). This \
            usually means the ToolUse block was in a conversation turn that was compacted \
            or trimmed."
           tool_use_id
@@ -114,7 +114,7 @@ let contents_of_messages (messages : message list) =
   List.rev !contents, system_instruction
 ;;
 
-(* ── Tool schema -> Provider_f functionDeclarations ─────── *)
+(* ── Tool schema -> Gemini functionDeclarations ─────── *)
 
 let build_function_declaration = function
   | `Assoc fields ->
@@ -154,7 +154,7 @@ let build_request
       ()
   =
   ignore stream;
-  (* Provider_f streaming is URL-based, not body-based *)
+  (* Gemini streaming is URL-based, not body-based *)
   let contents, system_instruction = contents_of_messages messages in
   (* Prepend system_prompt from config if present *)
   let system_instruction =
@@ -196,7 +196,7 @@ let build_request
   (match config.top_k with
    | Some k -> gen_config := ("topK", `Int k) :: !gen_config
    | None -> ());
-  (* Seed — Provider_f API supports seed in generationConfig *)
+  (* Seed — Gemini API supports seed in generationConfig *)
   (let caps =
      match Capabilities.for_model_id config.model_id with
      | Some c -> c
@@ -323,7 +323,7 @@ let parse_response json =
     let has_tool_use =
       (* N-of-M followup to PR #1519 / #1521 — same content_block
          catch-all that was closed in tool_use_recovery.ml and
-         context_reducer_apply.ml. The Provider_f backend's stop-reason
+         context_reducer_apply.ml. The Gemini backend's stop-reason
          inference uses the same shape and was missed in those sweeps. *)
       List.exists
         (fun (block : Types.content_block) ->
@@ -370,7 +370,7 @@ let parse_response json =
       err
       |> member "message"
       |> to_string_option
-      |> Option.value ~default:"Unknown Provider_f API error"
+      |> Option.value ~default:"Unknown Gemini API error"
     in
     raise (Gemini_api_error msg)
 ;;

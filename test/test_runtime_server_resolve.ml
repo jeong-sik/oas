@@ -80,7 +80,7 @@ let test_provider_runtime_name_local () =
 let test_provider_runtime_name_provider_a () =
   let cfg =
     Some
-      { Provider.provider = Provider.Provider_a
+      { Provider.provider = Provider.Anthropic
       ; model_id = "agent_llm_a-sonnet-4-6"
       ; api_key_env = "K"
       }
@@ -157,21 +157,21 @@ let test_resolve_provider_local () =
 let test_resolve_provider_sonnet () =
   match Runtime_server_resolve.resolve_provider ~provider:"sonnet" () with
   | Ok (Some cfg) ->
-    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Provider_a)
+    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Anthropic)
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
 let test_resolve_provider_haiku () =
   match Runtime_server_resolve.resolve_provider ~provider:"haiku" () with
   | Ok (Some cfg) ->
-    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Provider_a)
+    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Anthropic)
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
 let test_resolve_provider_opus () =
   match Runtime_server_resolve.resolve_provider ~provider:"opus" () with
   | Ok (Some cfg) ->
-    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Provider_a)
+    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Anthropic)
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
@@ -376,7 +376,7 @@ let () =
             test_provider_runtime_name_none_cfg
         ; Alcotest.test_case "Local provider" `Quick test_provider_runtime_name_local
         ; Alcotest.test_case
-            "Provider_a provider"
+            "Anthropic provider"
             `Quick
             test_provider_runtime_name_provider_a
         ; Alcotest.test_case
@@ -400,11 +400,11 @@ let () =
             `Quick
             test_resolve_provider_local
         ; Alcotest.test_case
-            "sonnet returns Provider_a"
+            "sonnet returns Anthropic"
             `Quick
             test_resolve_provider_sonnet
-        ; Alcotest.test_case "haiku returns Provider_a" `Quick test_resolve_provider_haiku
-        ; Alcotest.test_case "opus returns Provider_a" `Quick test_resolve_provider_opus
+        ; Alcotest.test_case "haiku returns Anthropic" `Quick test_resolve_provider_haiku
+        ; Alcotest.test_case "opus returns Anthropic" `Quick test_resolve_provider_opus
         ; Alcotest.test_case
             "provider_o_router returns OpenAICompat"
             `Quick

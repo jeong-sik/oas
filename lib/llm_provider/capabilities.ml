@@ -17,7 +17,7 @@ type thinking_control_format =
   | Thinking_object
   (** Provider_g-style: top-level [thinking] object plus [reasoning_effort]. *)
   | Thinking_object_only
-  (** Provider_c K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
+  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
@@ -27,7 +27,7 @@ type thinking_control_format =
       also accepts ["minimal"], but no current OAS request builder emits
       it.) Ollama's Provider_d-compatible mode uses this shape. *)
   | Enable_thinking
-  (** Provider_h-style top-level [enable_thinking] bool plus optional
+  (** DashScope-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
 
 type capabilities =
@@ -76,7 +76,7 @@ type capabilities =
     (** Whether the provider respects [seed] deterministically when
       image inputs are present.  Local providers (Ollama, llama-server)
       achieve near-perfect determinism on identical hardware; cloud
-      providers (Provider_d, Provider_f) do not guarantee deterministic output
+      providers (Provider_d, Gemini) do not guarantee deterministic output
       when images are in the prompt. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
@@ -84,8 +84,8 @@ type capabilities =
   ; (* ── Usage reporting ─────────────────────────────────── *)
     emits_usage_tokens : bool
     (** True when the provider's standard response carries
-      [input_tokens]/[output_tokens] (direct APIs like Provider_a,
-      Provider_d, Provider_f, Provider_c-API, Provider_k, Ollama). False for CLI-class
+      [input_tokens]/[output_tokens] (direct APIs like Anthropic,
+      Provider_d, Gemini, Kimi-API, Glm, Ollama). False for CLI-class
       wrappers that strip usage before returning (cli_tool_a,
       cli_tool_b, cli_tool_c).
 
@@ -152,16 +152,16 @@ let provider_a_capabilities =
   ; supports_prompt_caching = true
   ; prompt_cache_alignment = Some 1024
   ; supports_computer_use = true
-  ; (* Provider_a Messages API documents [top_k] as a valid sampling
+  ; (* Anthropic Messages API documents [top_k] as a valid sampling
      parameter ("Only sample from the top K options for each
      subsequent token", docs.provider_a.com/en/api/messages body
      params). [backend_provider_a.build_request] already serializes
      [config.top_k] unconditionally when [Some]; the capability record
      must match so cross-layer consumers (the #831 Api_provider_d gate,
      the #830 Backend_provider_d gate, and the capability_filter passes)
-     do not silently drop top_k when the caller routes an Provider_a
+     do not silently drop top_k when the caller routes an Anthropic
      config through a capability-checking path. [supports_min_p]
-     remains [false] — Provider_a does not accept min_p. *)
+     remains [false] — Anthropic does not accept min_p. *)
     supports_top_k = true
   }
 ;;
@@ -210,7 +210,7 @@ let provider_d_chat_extended_capabilities =
 
 (* Ollama Provider_d-compat endpoint behavior on tool_choice is model-dependent
    (docs.ollama.com/capabilities/tool-calling: the parameter is silently
-   ignored for some models). Some Provider_h_3.5 deployments w/ native Jinja
+   ignored for some models). Some DashScope_3.5 deployments w/ native Jinja
    chat template do honor tool_choice:required in practice.
 
    Industry context: LiteLLM's model_prices_and_context_window.json
@@ -225,7 +225,7 @@ let provider_d_chat_extended_capabilities =
    support declare it per Provider_config via
    [Provider_config.supports_tool_choice_override]. The SDK does not
    match on [model_id] to guess model-side behavior — the consumer
-   (e.g. a config loader that knows it deployed Provider_h_3.5 w/ the Jinja
+   (e.g. a config loader that knows it deployed DashScope_3.5 w/ the Jinja
    chat template) owns that policy. This is stricter than LiteLLM's
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
@@ -262,7 +262,7 @@ let provider_h_capabilities =
 let provider_k_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000
-  ; (* Provider_k-5.1 API enforces max_tokens <= 40960 at request time; keeping a
+  ; (* Glm-5.1 API enforces max_tokens <= 40960 at request time; keeping a
      higher value here causes server-side rejection with
      "Invalid request: `max_tokens` must be less than or equal to `40960`".
      Empirical upper bound observed on 2026-04-12 during automated
@@ -271,10 +271,10 @@ let provider_k_capabilities =
   ; supports_tools = true
   ; (* Z.AI's function-calling docs currently document [tool_choice]
      as default [auto] and "only supports auto". OAS therefore treats
-     Provider_k as "tools supported, forced tool_choice unsupported":
+     Glm as "tools supported, forced tool_choice unsupported":
      callers may still send tools and OAS may coerce an explicit
      tool_choice request to [auto], but the completion contract must
-     stay relaxed so direct Provider_k text replies do not count as contract
+     stay relaxed so direct Glm text replies do not count as contract
      violations. Ref checked 2026-04-21:
      https://docs.z.ai/guides/capabilities/function-calling *)
     supports_tool_choice = false
@@ -285,9 +285,9 @@ let provider_k_capabilities =
      response_format={"type":"json_object"} plus prompt/schema-in-text
      guidance, but do not document a native JSON-schema request field
      equivalent to Provider_d's json_schema response_format. OAS therefore
-     treats Provider_k as JSON-mode-only: supports_response_format_json=true
+     treats Glm as JSON-mode-only: supports_response_format_json=true
      but supports_structured_output=false. validate_output_schema_request
-     rejects output_schema for Provider_k configs to prevent silent pass-through
+     rejects output_schema for Glm configs to prevent silent pass-through
      of schemas the provider will not enforce.
      Ref: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21. *)
     supports_structured_output = false
@@ -295,7 +295,7 @@ let provider_k_capabilities =
   }
 ;;
 
-(** Typed Provider_f model family (root-fix for #968 string-classifier drift gate).
+(** Typed Gemini model family (root-fix for #968 string-classifier drift gate).
 
     Centralizes the [String.starts_with ~prefix:"provider_f-..."] dispatch into a
     single classifier with an exhaustive variant. Downstream code switches on
@@ -308,11 +308,11 @@ let provider_k_capabilities =
 
     @since 0.196.3 *)
 type provider_f_family =
-  | Provider_f_3_1
+  | Gemini_3_1
   (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
-  | Provider_f_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
-  | Provider_f_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
-  | Provider_f_other of string
+  | Gemini_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
+  | Gemini_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
+  | Gemini_other of string
   (** Unknown provider_f id or non-provider_f id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
@@ -327,12 +327,12 @@ let strip_suffix ~suffix value =
     Input is expected lowercased (callers pass the already-normalized id). *)
 let provider_f_family_of_id (id : string) : provider_f_family =
   if String.starts_with ~prefix:"provider_f-3.1" id
-  then Provider_f_3_1
+  then Gemini_3_1
   else if String.starts_with ~prefix:"provider_f-3" id
-  then Provider_f_3
+  then Gemini_3
   else if String.starts_with ~prefix:"provider_f-2.5" id
-  then Provider_f_2_5
-  else Provider_f_other id
+  then Gemini_2_5
+  else Gemini_other id
 ;;
 
 let provider_f_capabilities =
@@ -356,14 +356,14 @@ let provider_f_capabilities =
   ; supports_prompt_caching = false
   ; prompt_cache_alignment = None
   ; supports_code_execution = true
-  ; (* Google Provider_f's generateContent API documents [topK] as part of
+  ; (* Google Gemini's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
      [backend_provider_f.build_request] serializer already emits it at
      lib/llm_provider/backend_provider_f.ml:162-164, so the capability
      record must match. Same discrepancy story as provider_a_capabilities
-     (#832) — Provider_d-compat consumers that route a Provider_f config
+     (#832) — Provider_d-compat consumers that route a Gemini config
      through a capability-checking path were silently dropping top_k.
-     [supports_min_p] stays false; Provider_f's generationConfig has no
+     [supports_min_p] stays false; Gemini's generationConfig has no
      min_p field. *)
     supports_top_k = true
   }
@@ -434,10 +434,10 @@ type static_model_route =
   | Provider_d_4_1
   | Provider_d_4o
   | Mimo_v2_5_chat
-  | Provider_f of provider_f_family
-  | Provider_c_for_coding
-  | Provider_c_k2
-  | Provider_h_3
+  | Gemini of provider_f_family
+  | Kimi_for_coding
+  | Kimi_k2
+  | DashScope_3
   | Provider_n_4
   | Provider_g_v4_flash
   | Provider_g_v4_pro
@@ -446,7 +446,7 @@ type static_model_route =
   | Provider_m_command
   | Provider_e_grok
   | Provider_l of { has_vision : bool }
-  | Provider_f_gemma_4 of { has_large_audio : bool }
+  | Gemini_gemma_4 of { has_large_audio : bool }
   | Glm_4_7_flash
   | Glm_4_5_flash_air
   | Glm_5_turbo
@@ -511,17 +511,17 @@ let static_model_route_of_id model_id =
   then Some Mimo_v2_5_chat
   else (
     match provider_f_family_of_id m with
-    | (Provider_f_3 | Provider_f_3_1 | Provider_f_2_5) as family ->
-      Some (Provider_f family)
-    | Provider_f_other _ ->
+    | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family ->
+      Some (Gemini family)
+    | Gemini_other _ ->
       if String.starts_with ~prefix:"provider_c-for-coding" m
-      then Some Provider_c_for_coding
+      then Some Kimi_for_coding
       else if String.starts_with ~prefix:"provider_c-k2" m
-      then Some Provider_c_k2
+      then Some Kimi_k2
       else if
         String.starts_with ~prefix:"provider_h-3" m
         || String.starts_with ~prefix:"provider_h_3" m
-      then Some Provider_h_3
+      then Some DashScope_3
       else if
         String.starts_with ~prefix:"model-n-4" m || String.starts_with ~prefix:"llama4" m
       then Some Provider_n_4
@@ -554,7 +554,7 @@ let static_model_route_of_id model_id =
         || String.starts_with ~prefix:"google/model-f-gemma-4" m
       then
         Some
-          (Provider_f_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
+          (Gemini_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
       else if starts_with_any m [ "provider_k-4.7-flash"; "glm-4.7-flash" ]
       then Some Glm_4_7_flash
       else if
@@ -644,9 +644,9 @@ let capabilities_of_static_model_route = function
         supports_reasoning = true
       ; thinking_control_format = Thinking_object_only
       }
-  | Provider_f _ -> Some provider_f_capabilities
-  | Provider_c_for_coding | Provider_c_k2 -> Some provider_c_capabilities
-  | Provider_h_3 ->
+  | Gemini _ -> Some provider_f_capabilities
+  | Kimi_for_coding | Kimi_k2 -> Some provider_c_capabilities
+  | DashScope_3 ->
     Some
       { default_capabilities with
         max_context_tokens = Some 262_144
@@ -774,7 +774,7 @@ let capabilities_of_static_model_route = function
     (* Gemma 4: Google open-weight multimodal.
        4 sizes (1B/4B/12B/27B-31B). All support function calling,
        image input, streaming. 27B+ supports audio. 256K context. *)
-  | Provider_f_gemma_4 { has_large_audio } ->
+  | Gemini_gemma_4 { has_large_audio } ->
     Some
       { default_capabilities with
         max_context_tokens = Some 262_144
@@ -882,8 +882,8 @@ let capabilities_of_static_model_route = function
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-    (* Provider_k-5-Code: coding-specific variant with 128K context (not 200K).
-       Z.AI docs: Provider_k-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
+    (* Glm-5-Code: coding-specific variant with 128K context (not 200K).
+       Z.AI docs: Glm-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
   | Glm_5_code ->
     Some
       { default_capabilities with
@@ -952,7 +952,7 @@ let capabilities_of_static_model_route = function
     (* Qwen3 / Qwen3.5 family.  All Qwen3 sizes (0.6B–235B) and Qwen3.5
        expose native <think> reasoning blocks via the OpenAI-compatible
        endpoint (typically through vLLM / llama.cpp / Ollama, which route
-       to the [Provider_d_compat] kind in OAS).  Without this entry the
+       to the [OpenAI_compat] kind in OAS).  Without this entry the
        provider-default capability set declared no thinking support, and
        every cycle produced a [Thinking_returned_but_declared_unsupported]
        INFO observation — silent in the warn channel but noisy in the
@@ -1336,7 +1336,7 @@ let%test "for_model_id provider_l-vl has image input" =
 ;;
 
 let%test "for_model_id provider_h_3 has chat_template_kwargs thinking control" =
-  (* Provider_h_3.x Provider_d-compatible llama.cpp/llama-server deployments return
+  (* DashScope_3.x Provider_d-compatible llama.cpp/llama-server deployments return
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
      format, [supports_extended_thinking = true] never reaches the wire. *)

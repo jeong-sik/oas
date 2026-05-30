@@ -204,7 +204,7 @@ let is_dropped_content_block = function
 ;;
 
 (** Extract parameter schema from a tool definition JSON.
-    Handles both "input_schema" (Provider_a) and "parameters" (Provider_d). *)
+    Handles both "input_schema" (Anthropic) and "parameters" (Provider_d). *)
 let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
   let open Yojson.Safe.Util in
   match schema_if_present (tool_def |> member "input_schema") with

@@ -11,7 +11,7 @@ type thinking_control_format =
   | Thinking_object
   (** Provider_g-style: top-level [thinking] object plus [reasoning_effort]. *)
   | Thinking_object_only
-  (** Provider_c K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
+  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
@@ -21,7 +21,7 @@ type thinking_control_format =
       also accepts ["minimal"], but no current OAS request builder emits
       it.) Ollama's Provider_d-compatible mode uses this shape. *)
   | Enable_thinking
-  (** Provider_h-style top-level [enable_thinking] bool plus optional
+  (** DashScope-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
 
 type capabilities =
@@ -63,7 +63,7 @@ type capabilities =
   ; supports_seed_with_images : bool
     (** Whether seed determinism is maintained when image inputs are present.
       Local providers (Ollama) achieve near-perfect reproducibility; cloud
-      providers (Provider_d, Provider_f) do not guarantee it.
+      providers (Provider_d, Gemini) do not guarantee it.
       @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
@@ -80,7 +80,7 @@ type capabilities =
   ; (* Model limitations *)
     supported_models : string list option
     (** Explicit list of supported models if the provider is restricted
-        to a specific set (e.g. Provider_c CLI to "provider_c-for-coding").
+        to a specific set (e.g. Kimi CLI to "provider_c-for-coding").
         [None] means no strict client-side restriction. *)
   }
 
@@ -102,16 +102,16 @@ val agent_code_cli_capabilities : capabilities
     @since 0.185.0 *)
 val provider_l_capabilities : capabilities
 
-(** Typed Provider_f model family. SSOT for the [provider_f-*] prefix dispatch that
+(** Typed Gemini model family. SSOT for the [provider_f-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code
     should switch on this variant rather than re-compare strings.
 
     @since 0.196.3 *)
 type provider_f_family =
-  | Provider_f_3_1 (** [provider_f-3.1.*] *)
-  | Provider_f_3 (** [provider_f-3.*] but not 3.1 *)
-  | Provider_f_2_5 (** [provider_f-2.5.*] (legacy line) *)
-  | Provider_f_other of string
+  | Gemini_3_1 (** [provider_f-3.1.*] *)
+  | Gemini_3 (** [provider_f-3.*] but not 3.1 *)
+  | Gemini_2_5 (** [provider_f-2.5.*] (legacy line) *)
+  | Gemini_other of string
   (** Unknown provider_f id, or non-provider_f id (literal retained). *)
 
 (** Classify a model id into a [provider_f_family]. Order: [3.1] before [3] so the
@@ -134,10 +134,10 @@ type static_model_route =
   | Provider_d_4_1
   | Provider_d_4o
   | Mimo_v2_5_chat
-  | Provider_f of provider_f_family
-  | Provider_c_for_coding
-  | Provider_c_k2
-  | Provider_h_3
+  | Gemini of provider_f_family
+  | Kimi_for_coding
+  | Kimi_k2
+  | DashScope_3
   | Provider_n_4
   | Provider_g_v4_flash
   | Provider_g_v4_pro
@@ -146,7 +146,7 @@ type static_model_route =
   | Provider_m_command
   | Provider_e_grok
   | Provider_l of { has_vision : bool }
-  | Provider_f_gemma_4 of { has_large_audio : bool }
+  | Gemini_gemma_4 of { has_large_audio : bool }
   | Glm_4_7_flash
   | Glm_4_5_flash_air
   | Glm_5_turbo

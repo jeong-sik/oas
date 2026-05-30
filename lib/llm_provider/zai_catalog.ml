@@ -218,7 +218,7 @@ let%test "general_concurrency_for_model hits key provider_k families" =
 ;;
 
 let%test "throttle_key_for_chat separates coding and general plans" =
-  throttle_key_for_chat ~base_url:general_base_url ~model_id:" Provider_k-5 "
+  throttle_key_for_chat ~base_url:general_base_url ~model_id:" Glm-5 "
   = "zai/general/chat/provider_k-5"
   && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"provider_k-5"
      = "zai/coding/chat"

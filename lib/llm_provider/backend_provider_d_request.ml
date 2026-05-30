@@ -94,16 +94,12 @@ let capabilities_of_config (config : Provider_config.t) =
   | None ->
     (match config.kind with
      | Provider_config.Ollama -> Capabilities.ollama_capabilities
-     | Provider_config.Provider_c -> Capabilities.provider_c_capabilities
-     | Provider_config.Provider_h -> Capabilities.provider_h_capabilities
-     | Provider_config.Provider_k -> Capabilities.provider_k_capabilities
-     | Provider_config.Provider_a -> Capabilities.provider_a_capabilities
-     | Provider_config.Provider_f -> Capabilities.provider_f_capabilities
-     | Provider_config.Cli_tool_d -> Capabilities.agent_llm_a_code_capabilities
-     | Provider_config.Cli_tool_b -> Capabilities.provider_f_cli_capabilities
-     | Provider_config.Cli_tool_c -> Capabilities.provider_c_cli_capabilities
-     | Provider_config.Cli_tool_a -> Capabilities.agent_code_cli_capabilities
-     | Provider_config.Provider_d_compat -> Capabilities.default_capabilities)
+     | Provider_config.Kimi -> Capabilities.provider_c_capabilities
+     | Provider_config.DashScope -> Capabilities.provider_h_capabilities
+     | Provider_config.Glm -> Capabilities.provider_k_capabilities
+     | Provider_config.Gemini -> Capabilities.provider_f_capabilities
+     | Provider_config.Anthropic -> Capabilities.provider_a_capabilities
+     | Provider_config.OpenAI_compat -> Capabilities.default_capabilities)
 ;;
 
 let is_zai_glm_request (config : Provider_config.t) =
@@ -127,18 +123,14 @@ let build_request
   let provider_messages =
     let message_serializer =
       match config.kind with
-      | Provider_config.Provider_k ->
+      | Provider_config.Glm ->
         Backend_provider_d_serialize.provider_k_messages_of_message
-      | Provider_config.Provider_a
-      | Provider_config.Provider_c
-      | Provider_config.Provider_d_compat
+      | Provider_config.Anthropic
+      | Provider_config.Kimi
+      | Provider_config.OpenAI_compat
       | Provider_config.Ollama
-      | Provider_config.Provider_h
-      | Provider_config.Provider_f
-      | Provider_config.Cli_tool_d
-      | Provider_config.Cli_tool_b
-      | Provider_config.Cli_tool_c
-      | Provider_config.Cli_tool_a ->
+      | Provider_config.DashScope
+      | Provider_config.Gemini ->
         Backend_provider_d_serialize.provider_d_messages_of_message
     in
     (match config.system_prompt with
@@ -165,7 +157,7 @@ let build_request
      When the caller sends [Some n], we clamp to the capability ceiling
      to avoid 400 errors that corrupt partial-commit state.
 
-     The resolved value is always emitted - Provider_a and most
+     The resolved value is always emitted - Anthropic and most
      Provider_d-compat endpoints REQUIRE the field. *)
   let effective_max_tokens =
     match config.max_tokens, caps.max_output_tokens with
@@ -193,7 +185,7 @@ let build_request
     | None -> body
   in
   (* Silent drops of user-supplied sampling params are a debugging
-     hazard (Provider_k review on #830), so emit a ONE-SHOT stderr WARN per
+     hazard (Glm review on #830), so emit a ONE-SHOT stderr WARN per
      (model_id, field) combination the first time a drop fires. Per-
      request WARN would spam under high-throughput agents - hence
      the dedup table. The cell is best-effort: Eio cooperative
@@ -274,7 +266,7 @@ let build_request
            so conservatively dropping it on unknown models would
            regress every agent that uses a model Capabilities does
            not know about yet.
-       (2) top_k / min_p are non-standard extensions - ZAI Provider_k hard
+       (2) top_k / min_p are non-standard extensions - ZAI Glm hard
            400s on them (#827/#830), so conservative drop is the
            right default for those specifically.
      That is why this lookup is NOT a dedup candidate against the

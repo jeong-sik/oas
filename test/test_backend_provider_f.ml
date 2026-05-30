@@ -14,7 +14,7 @@ let provider_f_config
   =
   ignore tools;
   Provider_config.make
-    ~kind:Provider_f
+    ~kind:Gemini
     ~model_id:"provider_f-2.5-flash"
     ~base_url:"https://generativelanguage.googleapis.com/v1beta"
     ~api_key:"test-key"
@@ -593,7 +593,7 @@ let test_thinking_part_roundtrip () =
     (thought_part |> member "text" |> to_string)
 ;;
 
-(** Regression test for issue #332: Provider_f thinking delta must use the
+(** Regression test for issue #332: Gemini thinking delta must use the
     assigned block index, not hardcoded 0. *)
 let test_provider_f_stream_thinking_delta_index () =
   (* First chunk: thinking part *)
@@ -663,7 +663,7 @@ let test_provider_f_stream_thinking_delta_index () =
   | None -> fail "expected Some chunk"
 ;;
 
-(** Regression test for issue #333: function call before text in Provider_f
+(** Regression test for issue #333: function call before text in Gemini
     must not collide block indices. *)
 let test_provider_f_stream_tool_first_then_text () =
   let state = Streaming.create_provider_d_stream_state () in

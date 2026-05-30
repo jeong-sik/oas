@@ -1,6 +1,6 @@
-(** Provider_f native API request building and response parsing.
+(** Gemini native API request building and response parsing.
 
-    Uses the Provider_f [contents/parts] wire format instead of the
+    Uses the Gemini [contents/parts] wire format instead of the
     Provider_d-compatible [/chat/completions] wrapper.  Enables native
     thinking (thinkingConfig), function calling, and multimodal input.
 
@@ -13,7 +13,7 @@
 
 exception Gemini_api_error of string
 
-(** Build a Provider_f [generateContent] request body from {!Provider_config.t}.
+(** Build a Gemini [generateContent] request body from {!Provider_config.t}.
     Returns a JSON string.  URL construction (including [?key=]) is handled
     by {!Complete}; this function only produces the body. *)
 val build_request
@@ -24,9 +24,9 @@ val build_request
   -> unit
   -> string
 
-(** Parse a Provider_f [generateContent] response JSON into {!Types.api_response}. *)
+(** Parse a Gemini [generateContent] response JSON into {!Types.api_response}. *)
 val parse_response : Yojson.Safe.t -> Types.api_response
 
 (** Extract [contents] list and optional [systemInstruction] from messages.
-    Exposed for unit-testing the OAS-to-Provider_f message mapping. *)
+    Exposed for unit-testing the OAS-to-Gemini message mapping. *)
 val contents_of_messages : Types.message list -> Yojson.Safe.t list * Yojson.Safe.t option

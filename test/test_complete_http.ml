@@ -102,7 +102,7 @@ let start_header_capture_server ~sw ~net ~seen response_body =
 
 (* ── Helper: make Provider_config ────────────────────── *)
 
-let make_config ?(kind = Provider_config.Provider_a) base_url =
+let make_config ?(kind = Provider_config.Anthropic) base_url =
   Provider_config.make
     ~kind
     ~model_id:"test-model"
@@ -115,7 +115,7 @@ let make_config ?(kind = Provider_config.Provider_a) base_url =
 
 let make_provider_d_config base_url =
   Provider_config.make
-    ~kind:Provider_config.Provider_d_compat
+    ~kind:Provider_config.OpenAI_compat
     ~model_id:"model-d-4"
     ~base_url
     ~request_path:"/v1/chat/completions"
@@ -201,7 +201,7 @@ let test_complete_http_empty_error_body_has_context () =
     let url = start_mock_server ~sw ~net:env#net ~status:`Not_found "" in
     let config =
       Provider_config.make
-        ~kind:Provider_config.Provider_a
+        ~kind:Provider_config.Anthropic
         ~model_id:"test-model"
         ~base_url:url
         ~request_path:"/v1/messages?api_key=secret"
@@ -636,7 +636,7 @@ let test_complete_transport_cli_does_not_emit_status () =
     @@ fun sw ->
     let config =
       Provider_config.make
-        ~kind:Provider_config.Cli_tool_a
+        ~kind:Provider_config.Anthropic
         ~model_id:"agent_code-mini"
         ~base_url:""
         ()

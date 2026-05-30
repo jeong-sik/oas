@@ -66,7 +66,7 @@ let string_contains ~needle haystack =
 
 (* Internal: static pricing table lookup on a pre-normalised model ID.
    Called by [pricing_for_model_opt] when no dynamic override matches.
-   Provider_a cache pricing: write = 1.25x input, read = 0.1x input.
+   Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
    Newer Provider_d text models expose cached input at 0.1x input.
    Local/free models keep no-op cache multipliers. *)
 let static_pricing_opt_normalized normalized =
@@ -90,9 +90,9 @@ let static_pricing_opt_normalized normalized =
       (* cli_tool_d provider alias fallback. The Agent_llm_a Code transport
        surfaces telemetry.model_used as the alias (e.g. "cli_tool_d:auto",
        "cc:default") instead of the canonical model id returned by the
-       Provider_a response, so substring matches against opus/sonnet/haiku
+       Anthropic response, so substring matches against opus/sonnet/haiku
        above never fire. Estimate at sonnet-4-6 rates as the modal
-       Provider_a backend; per-call accuracy is a follow-up that should
+       Anthropic backend; per-call accuracy is a follow-up that should
        resolve the canonical id from the API response. *)
     else if
       string_contains ~needle:"cli_tool_d" normalized
@@ -132,7 +132,7 @@ let static_pricing_opt_normalized normalized =
     else if string_contains ~needle:"provider_g-v4-flash" normalized
     then
       Some ((0.14, 0.28), (1.0, 0.02))
-      (* Provider_f 3-계 preview. Source: ai.google.dev/provider_f-api/docs/pricing,
+      (* Gemini 3-계 preview. Source: ai.google.dev/provider_f-api/docs/pricing,
        confirmed 2026-04-16. Google also exposes context caching with a
        per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the
        pricing record cannot represent time-based storage, so we keep
@@ -155,7 +155,7 @@ let static_pricing_opt_normalized normalized =
       || string_contains ~needle:"provider_f-3.1-flash-lite" normalized
     then
       Some ((0.25, 1.5), no_cache)
-      (* Provider_k (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
+      (* Glm (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
          2026-05-01. Cache write at standard input rate (no surcharge).
          Cache read multiplier = cached_input_price / input_price.
          Free models: provider_k-4.7-flash, provider_k-4.5-flash.
@@ -486,7 +486,7 @@ let%test "string_contains: needle longer than haystack" =
 
 let%test "string_contains: case sensitive" = not (string_contains ~needle:"HELLO" "hello")
 
-(* --- pricing_for_model: Provider_a models --- *)
+(* --- pricing_for_model: Anthropic models --- *)
 
 let%test "pricing opus-4-6" =
   let p = pricing_for_model "agent_llm_a-opus-4-6-20250514" in
@@ -592,7 +592,7 @@ let%test "pricing o3-mini" =
   close_enough p.input_per_million 1.1 && close_enough p.output_per_million 4.4
 ;;
 
-(* --- pricing_for_model: Provider_f 3-계 preview (2026-04-16) --- *)
+(* --- pricing_for_model: Gemini 3-계 preview (2026-04-16) --- *)
 
 let%test "pricing provider_f-3-flash-preview" =
   let p = pricing_for_model "provider_f-3-flash-preview" in
@@ -614,7 +614,7 @@ let%test "pricing provider_f-3.1-flash-lite-preview" =
   close_enough p.input_per_million 0.25 && close_enough p.output_per_million 1.5
 ;;
 
-(* --- pricing_for_model: Provider_k (Z.ai) --- *)
+(* --- pricing_for_model: Glm (Z.ai) --- *)
 
 let%test "pricing provider_k-5.1" =
   let p = pricing_for_model "provider_k-5.1" in

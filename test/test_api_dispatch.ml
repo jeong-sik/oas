@@ -41,7 +41,7 @@ let json_get key json =
   | _ -> None
 ;;
 
-(* ── Provider_a body shape ────────────────────────────────────── *)
+(* ── Anthropic body shape ────────────────────────────────────── *)
 
 let test_provider_a_body_shape () =
   let assoc =
@@ -167,12 +167,12 @@ let test_request_kind_routing () =
       msg
       expected
       (match Provider.request_kind provider with
-       | Provider.Provider_a_messages -> "provider_a"
+       | Provider.Anthropic_messages -> "provider_a"
        | Provider.Openai_chat_completions -> "provider_d"
        | Provider.Custom name -> "custom:" ^ name)
   in
   check_kind "local" "provider_d" (Provider.Local { base_url = "http://x" });
-  check_kind "provider_a" "provider_a" Provider.Provider_a;
+  check_kind "provider_a" "provider_a" Provider.Anthropic;
   check_kind
     "provider_d"
     "provider_d"

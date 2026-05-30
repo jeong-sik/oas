@@ -1184,11 +1184,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        Error e
      | Ok raw_response ->
        (* Stage 3.4: Lenient tool-use recovery.
-       Some providers (Provider_k, smaller Ollama models) return tool-call
+       Some providers (Glm, smaller Ollama models) return tool-call
        intent as text content instead of a ToolUse content block.
        Promote recoverable Text blocks to ToolUse before contract
        validation so the pipeline proceeds normally.
-       Ref: Samchon harness Layer 1 (dev.to/samchon, Provider_h 2025). *)
+       Ref: Samchon harness Layer 1 (dev.to/samchon, DashScope 2025). *)
        let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
        let response = Tool_use_recovery.recover_response ~valid_tool_names raw_response in
        let* missing_tool_action =

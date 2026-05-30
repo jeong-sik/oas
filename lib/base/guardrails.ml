@@ -1,5 +1,5 @@
 (** Guardrails for tool filtering and execution limits.
-    Inspired by Provider_a SDK's allowedTools + permissionMode.
+    Inspired by Anthropic SDK's allowedTools + permissionMode.
 
     Filters are applied when building the tool list sent to the API,
     so the LLM only sees allowed tools. *)

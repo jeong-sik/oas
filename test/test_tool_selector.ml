@@ -397,7 +397,7 @@ let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
   @@ fun sw ->
   let provider =
     Llm_provider.Provider_config.make
-      ~kind:Llm_provider.Provider_config.Provider_d_compat
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
       ~model_id:"provider_d_chat"
       ~base_url:"http://"
       ()

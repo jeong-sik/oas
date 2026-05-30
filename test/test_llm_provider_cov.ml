@@ -9,7 +9,7 @@ open Llm_provider
 (* ── Helpers ──────────────────────────────────────── *)
 
 let make_config
-      ?(kind = Provider_config.Provider_d_compat)
+      ?(kind = Provider_config.OpenAI_compat)
       ?(model_id = "test-model")
       ?(base_url = "http://127.0.0.1:8085")
       ?(api_key = "")
@@ -93,7 +93,7 @@ let mk_response
 let test_provider_f_url_sync_no_key () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
@@ -106,7 +106,7 @@ let test_provider_f_url_sync_no_key () =
 let test_provider_f_url_sync_with_key () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
@@ -122,7 +122,7 @@ let test_provider_f_url_sync_with_key () =
 let test_provider_f_url_stream_with_key () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
@@ -138,7 +138,7 @@ let test_provider_f_url_stream_with_key () =
 let test_provider_f_url_stream_no_key () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
@@ -650,7 +650,7 @@ let test_contents_of_messages_redacted_filtered () =
 let test_build_request_basic () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~max_tokens:100
       ~temperature:0.5
@@ -674,7 +674,7 @@ let test_build_request_basic () =
 let test_build_request_with_system_prompt () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~system_prompt:"be helpful"
       ()
@@ -696,7 +696,7 @@ let test_build_request_with_system_prompt () =
 let test_build_request_with_thinking () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~enable_thinking:true
       ~thinking_budget:5000
@@ -716,7 +716,7 @@ let test_build_request_with_thinking () =
 let test_build_request_with_thinking_default_budget () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~enable_thinking:true
       ()
@@ -839,11 +839,11 @@ let test_constants_env_helpers () =
   Alcotest.(check int)
     "anthropic cache min chars"
     3500
-    Constants.Provider_a.default_prompt_cache_min_chars;
+    Constants.Anthropic.default_prompt_cache_min_chars;
   Alcotest.(check int)
     "anthropic cache min tools"
     3
-    Constants.Provider_a.prompt_cache_min_tools
+    Constants.Anthropic.prompt_cache_min_tools
 ;;
 
 let test_slot_cache_helpers () =
@@ -924,7 +924,7 @@ let test_llm_transport_runtime_mcp_policy_json () =
 let test_build_request_json_mode () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~response_format_json:true
       ()
@@ -942,7 +942,7 @@ let test_build_request_json_mode () =
 ;;
 
 let test_build_request_with_tools () =
-  let config = make_config ~kind:Provider_f ~model_id:provider_f25_flash_model () in
+  let config = make_config ~kind:Gemini ~model_id:provider_f25_flash_model () in
   let tool_schema =
     `Assoc
       [ "name", `String "get_weather"
@@ -974,7 +974,7 @@ let test_build_request_with_tools () =
 
 let test_build_request_tool_choice_auto () =
   let config =
-    make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~tool_choice:Auto ()
+    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:Auto ()
   in
   let body_str =
     Backend_provider_f.build_request
@@ -991,7 +991,7 @@ let test_build_request_tool_choice_auto () =
 
 let test_build_request_tool_choice_any () =
   let config =
-    make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~tool_choice:Any ()
+    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:Any ()
   in
   let body_str =
     Backend_provider_f.build_request
@@ -1008,7 +1008,7 @@ let test_build_request_tool_choice_any () =
 
 let test_build_request_tool_choice_none () =
   let config =
-    make_config ~kind:Provider_f ~model_id:provider_f25_flash_model ~tool_choice:None_ ()
+    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:None_ ()
   in
   let body_str =
     Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
@@ -1022,7 +1022,7 @@ let test_build_request_tool_choice_none () =
 let test_build_request_tool_choice_specific () =
   let config =
     make_config
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~tool_choice:(Tool "get_weather")
       ()
@@ -1042,7 +1042,7 @@ let test_build_request_tool_choice_specific () =
 let test_build_request_top_p_top_k () =
   let config : Provider_config.t =
     Provider_config.make
-      ~kind:Provider_f
+      ~kind:Gemini
       ~model_id:provider_f25_flash_model
       ~base_url:""
       ~top_p:0.9
@@ -1258,7 +1258,7 @@ let test_parse_response_error_no_message () =
     Alcotest.fail "expected exception"
   with
   | Backend_provider_f.Gemini_api_error msg ->
-    Alcotest.(check string) "default msg" "Unknown Provider_f API error" msg
+    Alcotest.(check string) "default msg" "Unknown Gemini API error" msg
 ;;
 
 let test_parse_response_no_candidates () =
@@ -1586,8 +1586,8 @@ let test_provider_f_capabilities () =
   Alcotest.(check bool) "audio" true c.supports_audio_input;
   Alcotest.(check bool) "video" true c.supports_video_input;
   Alcotest.(check bool) "code_execution" true c.supports_code_execution;
-  (* Provider_f generationConfig accepts topK — pin so capability-gated
-     consumers do not silently drop it for Provider_f configs. *)
+  (* Gemini generationConfig accepts topK — pin so capability-gated
+     consumers do not silently drop it for Gemini configs. *)
   Alcotest.(check bool) "top_k" true c.supports_top_k;
   Alcotest.(check bool) "no min_p" false c.supports_min_p;
   Alcotest.(check (option int)) "max_context" (Some 1_000_000) c.max_context_tokens;
@@ -1598,7 +1598,7 @@ let test_provider_k_capabilities () =
   let c = Capabilities.provider_k_capabilities in
   (* Tool descriptions are sent and the model can still emit tool_use blocks. *)
   Alcotest.(check bool) "supports_tools" true c.supports_tools;
-  (* Pin the empirical Provider_k tool_choice semantics: Provider_k does not reliably
+  (* Pin the empirical Glm tool_choice semantics: Glm does not reliably
      honor tool_choice=required (returns text-only).  This capability must
      remain [false] so [Completion_contract.of_tool_choice] relaxes any
      tool_choice contract to [Allow_text_or_tool] and a text response is

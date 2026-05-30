@@ -1,6 +1,6 @@
-(** ZhipuAI Provider_k native backend.
+(** ZhipuAI Glm native backend.
 
-    Provider_d wire format with Provider_k-specific extensions:
+    Provider_d wire format with Glm-specific extensions:
     - [thinking] parameter: [{"type":"enabled","clear_thinking":true}]
     - [reasoning_content] in response message and streaming delta
     - String error codes (e.g., ["1305"])
@@ -13,11 +13,11 @@
 open Types
 
 type provider_k_error_class =
-  | Provider_k_quota_exceeded
-  | Provider_k_rate_limited
-  | Provider_k_auth_error
-  | Provider_k_server_error
-  | Provider_k_invalid_request
+  | Glm_quota_exceeded
+  | Glm_rate_limited
+  | Glm_auth_error
+  | Glm_server_error
+  | Glm_invalid_request
 
 type provider_k_error =
   { code : string
@@ -26,7 +26,7 @@ type provider_k_error =
   ; is_retryable : bool
   }
 
-(** Classify Provider_k error by code first, message fallback.
+(** Classify Glm error by code first, message fallback.
     Code mapping from docs.z.ai/api-reference/api-code:
     - 1000-1004,1100-1120: auth/account
     - 1200-1261: parameter/request (non-cascadeable)
@@ -49,11 +49,11 @@ let classify_provider_k_error ~code ~message : provider_k_error_class * bool =
   | "1111"
   | "1112"
   | "1120"
-  | "1220" -> Provider_k_auth_error, false
-  | "1302" | "1303" | "1305" | "1312" -> Provider_k_rate_limited, true
+  | "1220" -> Glm_auth_error, false
+  | "1302" | "1303" | "1305" | "1312" -> Glm_rate_limited, true
   | "1113" | "1304" | "1308" | "1309" | "1310" | "1311" | "1313" ->
-    Provider_k_quota_exceeded, false
-  | "1230" | "1234" | "500" -> Provider_k_server_error, true
+    Glm_quota_exceeded, false
+  | "1230" | "1234" | "500" -> Glm_server_error, true
   | "1300"
   | "1301"
   | "1200"
@@ -64,28 +64,28 @@ let classify_provider_k_error ~code ~message : provider_k_error_class * bool =
   | "1214"
   | "1215"
   | "1231"
-  | "1261" -> Provider_k_invalid_request, false
+  | "1261" -> Glm_invalid_request, false
   | unknown_code ->
     let (_ : string) = unknown_code in
     if
       Retry.contains_case_insensitive ~haystack:message ~needle:"usage limit"
       || Retry.contains_case_insensitive ~haystack:message ~needle:"quota"
       || Retry.contains_case_insensitive ~haystack:message ~needle:"exceeded"
-    then Provider_k_quota_exceeded, false
+    then Glm_quota_exceeded, false
     else if Retry.contains_case_insensitive ~haystack:message ~needle:"rate limit"
-    then Provider_k_rate_limited, true
-    else Provider_k_invalid_request, false
+    then Glm_rate_limited, true
+    else Glm_invalid_request, false
 ;;
 
 let http_code_of_provider_k_error_class = function
-  | Provider_k_quota_exceeded -> 429
-  | Provider_k_rate_limited -> 429
-  | Provider_k_auth_error -> 401
-  | Provider_k_server_error -> 500
-  | Provider_k_invalid_request -> 400
+  | Glm_quota_exceeded -> 429
+  | Glm_rate_limited -> 429
+  | Glm_auth_error -> 401
+  | Glm_server_error -> 500
+  | Glm_invalid_request -> 400
 ;;
 
-exception Provider_k_api_error of provider_k_error
+exception Glm_api_error of provider_k_error
 
 (* ── Request building ────────────────────────────── *)
 
@@ -123,7 +123,7 @@ let build_request
 
 (* ── Response parsing ────────────────────────────── *)
 
-(** Provider_k error responses use string error codes:
+(** Glm error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
     Standard Provider_d uses numeric HTTP codes. *)
 let check_glm_error body : provider_k_error option =
@@ -143,7 +143,7 @@ let check_glm_error body : provider_k_error option =
         err
         |> member "message"
         |> to_string_option
-        |> Option.value ~default:"Unknown Provider_k API error"
+        |> Option.value ~default:"Unknown Glm API error"
       in
       let error_class, is_retryable = classify_provider_k_error ~code ~message in
       Some { code; message; error_class; is_retryable }
@@ -151,8 +151,8 @@ let check_glm_error body : provider_k_error option =
   | Yojson.Json_error _ -> None
 ;;
 
-(** Extract reasoning_content from Provider_k response and prepend as Thinking block.
-    Provider_k returns reasoning in [message.reasoning_content] alongside [message.content]. *)
+(** Extract reasoning_content from Glm response and prepend as Thinking block.
+    Glm returns reasoning in [message.reasoning_content] alongside [message.content]. *)
 let extract_reasoning_content (resp : api_response) body : api_response =
   try
     let json = Yojson.Safe.from_string body in
@@ -177,17 +177,17 @@ let extract_reasoning_content (resp : api_response) body : api_response =
 ;;
 
 let provider_k_parse_error message =
-  Provider_k_api_error
+  Glm_api_error
     { code = "parse"
     ; message
-    ; error_class = Provider_k_invalid_request
+    ; error_class = Glm_invalid_request
     ; is_retryable = false
     }
 ;;
 
 let parse_response body =
   match check_glm_error body with
-  | Some err -> raise (Provider_k_api_error err)
+  | Some err -> raise (Glm_api_error err)
   | None ->
     (try
        match Backend_provider_d_parse.parse_provider_d_response_result body with
@@ -201,7 +201,7 @@ let parse_response body =
 
 (* ── Streaming ───────────────────────────────────── *)
 
-(** Parse Provider_k SSE chunk.  Provider_k uses Provider_d SSE format but adds
+(** Parse Glm SSE chunk.  Glm uses Provider_d SSE format but adds
     [delta.reasoning_content] for thinking. We parse this as
     [delta_reasoning] in the provider_d_chunk type. *)
 let parse_stream_chunk = Streaming.parse_provider_d_sse_chunk
@@ -213,7 +213,7 @@ let parse_stream_chunk = Streaming.parse_provider_d_sse_chunk
 let%test "build_request without thinking is passthrough" =
   let config =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-4.7"
       ~base_url:"https://open.bigmodel.cn/api/paas/v4"
       ()
@@ -236,7 +236,7 @@ let%test "build_request without thinking is passthrough" =
 let%test "build_request with thinking injects correct format" =
   let config =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-4.5"
       ~base_url:"https://open.bigmodel.cn/api/paas/v4"
       ~enable_thinking:true
@@ -262,7 +262,7 @@ let%test "build_request with thinking injects correct format" =
 let%test "build_request can preserve reasoning on demand" =
   let config =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~enable_thinking:true
@@ -287,7 +287,7 @@ let%test "build_request can preserve reasoning on demand" =
 let%test "build_request with thinking=false injects disabled" =
   let config =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-4.5"
       ~base_url:"https://open.bigmodel.cn/api/paas/v4"
       ~enable_thinking:false
@@ -313,7 +313,7 @@ let%test "build_request with thinking=false injects disabled" =
 let%test "check_glm_error detects string code" =
   let body = {|{"error":{"code":"1305","message":"service overloaded"}}|} in
   match check_glm_error body with
-  | Some err -> err.code = "1305" && err.error_class = Provider_k_rate_limited
+  | Some err -> err.code = "1305" && err.error_class = Glm_rate_limited
   | None -> false
 ;;
 
@@ -333,45 +333,45 @@ let%test "classify quota exceeded from message" =
   classify_provider_k_error
     ~code:"unknown"
     ~message:"You have reached your specified API usage limits"
-  = (Provider_k_quota_exceeded, false)
+  = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
   classify_provider_k_error ~code:"1113" ~message:"whatever"
-  = (Provider_k_quota_exceeded, false)
+  = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
   classify_provider_k_error ~code:"1001" ~message:"whatever"
-  = (Provider_k_auth_error, false)
+  = (Glm_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
   classify_provider_k_error ~code:"1304" ~message:"whatever"
-  = (Provider_k_quota_exceeded, false)
+  = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
   classify_provider_k_error ~code:"1308" ~message:"whatever"
-  = (Provider_k_quota_exceeded, false)
+  = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
   classify_provider_k_error ~code:"1305" ~message:"whatever"
-  = (Provider_k_rate_limited, true)
+  = (Glm_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
   classify_provider_k_error ~code:"1301" ~message:"whatever"
-  = (Provider_k_invalid_request, false)
+  = (Glm_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =
-  http_code_of_provider_k_error_class Provider_k_quota_exceeded = 429
+  http_code_of_provider_k_error_class Glm_quota_exceeded = 429
 ;;
 
 let%test "http_code auth maps to 401" =
-  http_code_of_provider_k_error_class Provider_k_auth_error = 401
+  http_code_of_provider_k_error_class Glm_auth_error = 401
 ;;
 
 let%test "extract_reasoning_content prepends thinking block" =
@@ -415,10 +415,10 @@ let%test "parse_stream_chunk delegates to provider_d" =
   | None -> false
 ;;
 
-let%test "build_request strips chat_template_kwargs from Provider_k body" =
+let%test "build_request strips chat_template_kwargs from Glm body" =
   let config =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-5.1"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~enable_thinking:true
@@ -443,7 +443,7 @@ let%test "build_request strips chat_template_kwargs from Provider_k body" =
 let%test "build_request adds tool_stream when enabled" =
   let config =
     Provider_config.make
-      ~kind:Provider_k
+      ~kind:Glm
       ~model_id:"provider_k-5.1"
       ~base_url:"https://api.z.ai/api/paas/v4"
       ~tool_stream:true

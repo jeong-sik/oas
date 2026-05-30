@@ -74,7 +74,7 @@ let test_build_snapshot_last_error () =
 
 let test_build_snapshot_with_provider () =
   let provider : Provider.config =
-    { provider = Provider_a; model_id = "agent_llm_a-sonnet-4-6"; api_key_env = "TEST" }
+    { provider = Anthropic; model_id = "agent_llm_a-sonnet-4-6"; api_key_env = "TEST" }
   in
   let snap =
     Agent_lifecycle.build_snapshot
@@ -117,7 +117,7 @@ let test_runtime_name_local () =
 
 let test_runtime_name_provider_a () =
   let cfg : Provider.config =
-    { provider = Provider_a; model_id = "test"; api_key_env = "DUMMY" }
+    { provider = Anthropic; model_id = "test"; api_key_env = "DUMMY" }
   in
   Alcotest.(check (option string))
     "provider_a"
@@ -395,7 +395,7 @@ let () =
     ; ( "provider_runtime_name"
       , [ Alcotest.test_case "None" `Quick test_runtime_name_none
         ; Alcotest.test_case "Local" `Quick test_runtime_name_local
-        ; Alcotest.test_case "Provider_a" `Quick test_runtime_name_provider_a
+        ; Alcotest.test_case "Anthropic" `Quick test_runtime_name_provider_a
         ; Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_provider_d_compat
         ; Alcotest.test_case "Custom_registered" `Quick test_runtime_name_custom
         ] )

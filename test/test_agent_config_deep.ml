@@ -325,10 +325,10 @@ let test_resolve_provider_a () =
     Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "provider_a" None
   in
   match cfg.provider with
-  | Provider.Provider_a ->
+  | Provider.Anthropic ->
     Alcotest.(check string) "model_id" "agent_llm_a-sonnet" cfg.model_id;
     Alcotest.(check string) "api_key_env" "PROVIDER_A_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected Provider_a"
+  | _ -> Alcotest.fail "expected Anthropic"
 ;;
 
 let test_resolve_provider_d () =
@@ -439,10 +439,10 @@ let test_resolve_provider_g () =
 
 let test_resolve_provider_f_preserves_kind () =
   (* Regression for #1003: registered providers with non-Provider_d kind
-     (e.g. Provider_f) must route through Custom_registered so downstream
+     (e.g. Gemini) must route through Custom_registered so downstream
      preserves entry.defaults.kind. Previously resolve_provider
-     returned OpenAICompat, flattening kind to Provider_d_compat and
-     producing 404 against the Provider_f endpoint. *)
+     returned OpenAICompat, flattening kind to OpenAI_compat and
+     producing 404 against the Gemini endpoint. *)
   let cfg =
     Agent_config.resolve_provider ~model_id:"provider_f-2.5-flash" "provider_f" None
   in
@@ -458,7 +458,7 @@ let test_resolve_provider_f_preserves_kind () =
 
 let test_resolve_provider_d_compat_ssot () =
   (* "provider_d_compat" is the canonical string emitted by
-     Provider_kind.to_string Provider_d_compat. Before the parser dispatch,
+     Provider_kind.to_string OpenAI_compat. Before the parser dispatch,
      it fell through to the registry fallback and ended up with
      api_key_env = "provider_d_compat" — a meaningless value. *)
   let cfg =
@@ -478,25 +478,25 @@ let test_resolve_provider_d_compat_ssot () =
 ;;
 
 let test_resolve_provider_a_case_insensitive () =
-  (* The parser trims and lowercases; ["Provider_a"] and [" PROVIDER_A "]
-     both land on the Provider_a branch, not the registry fallback. *)
+  (* The parser trims and lowercases; ["Anthropic"] and [" PROVIDER_A "]
+     both land on the Anthropic branch, not the registry fallback. *)
   List.iter
     (fun input ->
        let cfg =
          Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" input None
        in
        match cfg.provider with
-       | Provider.Provider_a ->
+       | Provider.Anthropic ->
          Alcotest.(check string)
            (Printf.sprintf "api_key_env for %S" input)
            "PROVIDER_A_API_KEY"
            cfg.api_key_env
-       | _ -> Alcotest.failf "expected Provider_a for %S" input)
-    [ "Provider_a"; " PROVIDER_A "; "provider_a" ]
+       | _ -> Alcotest.failf "expected Anthropic for %S" input)
+    [ "Anthropic"; " PROVIDER_A "; "provider_a" ]
 ;;
 
 let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
-  (* ["agent_llm_a"] is a documented Provider_kind alias for Provider_a. Prior
+  (* ["agent_llm_a"] is a documented Provider_kind alias for Anthropic. Prior
      to this fix it fell to the registry fallback (Provider_registry
      has no "agent_llm_a" entry) and ended up as OpenAICompat with
      api_key_env = "agent_llm_a" — broken. *)
@@ -504,12 +504,12 @@ let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
     Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "agent_llm_a" None
   in
   match cfg.provider with
-  | Provider.Provider_a ->
+  | Provider.Anthropic ->
     Alcotest.(check string)
-      "api_key_env routed to Provider_a"
+      "api_key_env routed to Anthropic"
       "PROVIDER_A_API_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected Provider_a for agent_llm_a alias"
+  | _ -> Alcotest.fail "expected Anthropic for agent_llm_a alias"
 ;;
 
 let test_resolve_unknown_still_goes_to_registry_fallback () =
@@ -642,7 +642,7 @@ let () =
         ; tc "provider_d_compat SSOT string" test_resolve_provider_d_compat_ssot
         ; tc "provider_a case-insensitive" test_resolve_provider_a_case_insensitive
         ; tc
-            "agent_llm_a alias routes to Provider_a"
+            "agent_llm_a alias routes to Anthropic"
             test_resolve_agent_llm_a_alias_routes_to_provider_a
         ; tc
             "unknown still goes to registry fallback"

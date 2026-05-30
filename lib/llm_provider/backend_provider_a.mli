@@ -1,4 +1,4 @@
-(** Provider_a Agent_llm_a API response parsing and request building.
+(** Anthropic Agent_llm_a API response parsing and request building.
 
     Pure functions operating on {!Llm_provider.Types}.
 

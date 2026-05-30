@@ -32,7 +32,7 @@ end
 module Inference_profile = struct
   (** Inference parameter profile. Sampling fields ([top_p], [top_k],
       [min_p]) are [option] because provider support is not uniform
-      (e.g. Provider_a does not accept [min_p]); [None] means the
+      (e.g. Anthropic does not accept [min_p]); [None] means the
       parameter is omitted from the request and the provider's own
       default applies.
 
@@ -77,11 +77,11 @@ module Inference = struct
   let default_max_tokens = Inference_profile.cascade_default.max_tokens
 
   (** Fallback [max_tokens] when both caller override and model capability
-      are absent. Emitted as a required field by Provider_d-compat and Provider_a
+      are absent. Emitted as a required field by Provider_d-compat and Anthropic
       backends.
 
-      16384 covers most modern models (GPT-4o, Agent_llm_a Sonnet 4, Provider_f 2.5,
-      Provider_h_3, Provider_g-V3) without overrunning smaller model limits. Models
+      16384 covers most modern models (GPT-4o, Agent_llm_a Sonnet 4, Gemini 2.5,
+      DashScope_3, Provider_g-V3) without overrunning smaller model limits. Models
       with lower caps should be declared in [Capabilities.for_model_id] so
       the capability-gated path (not this fallback) applies.
       @since 0.188.0
@@ -187,10 +187,10 @@ module Thinking = struct
   ;;
 
   (** Default extended thinking budget when not specified by caller.
-      Used by Provider_a and Provider_f backends.
+      Used by Anthropic and Gemini backends.
 
       16000 tokens covers most single-turn reasoning tasks. Models with
-      higher caps (Agent_llm_a Opus 4: 128K, Provider_f 2.5 Pro: 32K) should be
+      higher caps (Agent_llm_a Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
       declared in [Capabilities] so callers can override per-model.
       Override with [OAS_THINKING_BUDGET_DEFAULT] env var.
       @since 0.185.0 — raised from 10000 to 16000 *)
@@ -241,16 +241,16 @@ module Deterministic = struct
   ;;
 end
 
-(* ── Provider_a ──────────────────────────────────── *)
+(* ── Anthropic ──────────────────────────────────── *)
 
-module Provider_a = struct
+module Anthropic = struct
   (** Minimum system prompt length (chars) to enable prompt caching.
       Approximation: ~1024 tokens at ~3.4 chars/token.
       Override with [OAS_PROMPT_CACHE_MIN_CHARS] env var. *)
   let default_prompt_cache_min_chars = 3500
 
   (** Minimum tool count to auto-enable prompt caching on the last tool
-      definition. Provider_a's cache prefix benefits grow with tool count
+      definition. Anthropic's cache prefix benefits grow with tool count
       because the tool definitions are repeated verbatim in every request.
       3+ tools means the serialized tool array typically exceeds ~1024 tokens.
       @since 0.185.0 *)
