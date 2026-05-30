@@ -4,7 +4,6 @@ let ( let* ) = Result.bind
 
 type transport =
   | Http
-  | Cli
   | Managed
   | Custom_provider_d_compat
 [@@deriving show]
@@ -12,7 +11,6 @@ type transport =
 type auth_mode =
   | No_auth
   | Api_key_env of string
-  | Cli_cached_login
   | Oauth_cached_login
   | Setup_token_env of string
   | File of string
@@ -32,9 +30,7 @@ type entry =
   ; default_model : string option
   ; max_context : int option
   ; capabilities : Capabilities.capabilities
-  ; non_interactive : bool
   ; interactive_required : bool
-  ; daemon_safe : bool
   ; credential_scope : string option
   }
 
@@ -131,20 +127,19 @@ let member_string_list key json =
 ;;
 
 let parse_transport = function
-  | None -> Ok None
-  | Some raw ->
+     | None -> Ok None
+    | Some raw ->
     let trimmed = String.lowercase_ascii (String.trim raw) in
     (match trimmed with
      | "" -> Ok None
      | "http" -> Ok (Some Http)
-     | "cli" -> Ok (Some Cli)
      | "managed" -> Ok (Some Managed)
      | "custom_provider_d_compat" | "custom-openai-compat" | "provider_d_compat" ->
        Ok (Some Custom_provider_d_compat)
      | other ->
        Error
          (Printf.sprintf
-            "unknown transport %S (canonical: http, cli, managed, \
+            "unknown transport %S (canonical: http, managed, \
              custom_provider_d_compat; dashed aliases also accepted)"
             other))
 ;;
@@ -154,7 +149,7 @@ let default_transport_for_kind _kind = Http
 
 let auth_env = function
   | Api_key_env env | Setup_token_env env -> env
-  | No_auth | Cli_cached_login | Oauth_cached_login | File _ | Exec _ -> ""
+  | No_auth | Oauth_cached_login | File _ | Exec _ -> ""
 ;;
 
 let parse_auth json =
@@ -174,7 +169,6 @@ let parse_auth json =
      | "none" -> Ok No_auth
      | "api_key_env" | "api-key-env" | "env" -> Ok (Api_key_env env)
      | "setup_token_env" | "setup-token-env" -> Ok (Setup_token_env env)
-     | "cli_cached_login" | "cli-cached-login" -> Ok Cli_cached_login
      | "oauth_cached_login" | "oauth-cached-login" -> Ok Oauth_cached_login
      | "file" -> Ok (File (member_string_default "path" ~default:"" auth_json))
      | "exec" -> Ok (Exec (member_string_default "command" ~default:"" auth_json))
@@ -182,7 +176,7 @@ let parse_auth json =
        Error
          (Printf.sprintf
             "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-             cli_cached_login, oauth_cached_login, file, exec; dashed and short aliases \
+             oauth_cached_login, file, exec; dashed and short aliases \
              also accepted, e.g. api-key-env, env)"
             other))
   | _ ->
@@ -476,15 +470,6 @@ let parse_entry json =
         let interactive_required =
           member_bool_default "interactive_required" ~default:false json
         in
-        let non_interactive =
-          member_bool_default "non_interactive" ~default:(not interactive_required) json
-        in
-        let daemon_safe =
-          member_bool_default
-            "daemon_safe"
-            ~default:(non_interactive && not interactive_required)
-            json
-        in
         let* capabilities = Result.map_error prefix_id (parse_capabilities json) in
         let max_context =
           match member_int "max_context" json with
@@ -508,9 +493,7 @@ let parse_entry json =
           ; default_model = member_string "default_model" json
           ; max_context
           ; capabilities
-          ; non_interactive
           ; interactive_required
-          ; daemon_safe
           ; credential_scope = member_string "credential_scope" json
           })
 ;;

@@ -24,9 +24,7 @@ let catalog_json =
       "default_model": "local-model",
       "capabilities_base": "provider_d_chat",
       "capabilities": {"supports_tools": true},
-      "non_interactive": true,
       "interactive_required": false,
-      "daemon_safe": true,
       "credential_scope": "test runtime"
     }
   ]
@@ -57,17 +55,10 @@ let catalog_variants_json =
       "auth": {"type": "oauth_cached_login"},
       "capabilities_base": "provider_d_chat"
     },
-    {
-      "id": "cli-login",
-      "kind": "cli_tool_a",
-      "transport": "cli",
-      "command": "agent_code",
-      "auth": {"type": "cli-cached-login"}
-    },
-    {
-      "id": "file-auth",
-      "kind": "provider_d_compat",
-      "auth": {"type": "file", "path": "/tmp/provider-token"},
+        {
+          "id": "file-auth",
+          "kind": "provider_d_compat",
+          "auth": {"type": "file", "path": "/tmp/provider-token"},
       "capabilities_base": "provider_d_chat"
     },
     {
@@ -89,7 +80,6 @@ let catalog_variants_json =
 
 let transport_to_string = function
   | Provider_runtime_binding.Http -> "http"
-  | Provider_runtime_binding.Cli -> "cli"
   | Provider_runtime_binding.Managed -> "managed"
   | Provider_runtime_binding.Custom_provider_d_compat -> "custom"
 ;;
@@ -97,7 +87,6 @@ let transport_to_string = function
 let auth_to_string = function
   | Provider_runtime_binding.No_auth -> "none"
   | Provider_runtime_binding.Api_key_env env -> "api_key_env:" ^ env
-  | Provider_runtime_binding.Cli_cached_login -> "cli"
   | Provider_runtime_binding.Oauth_cached_login -> "oauth"
   | Provider_runtime_binding.Setup_token_env env -> "setup:" ^ env
   | Provider_runtime_binding.File path -> "file:" ^ path
@@ -120,8 +109,6 @@ let test_catalog_alias_default_and_capabilities () =
       (Some "local-model")
       binding.default_model;
     Alcotest.(check bool) "supports tools" true binding.capabilities.supports_tools;
-    Alcotest.(check bool) "non interactive" true binding.non_interactive;
-    Alcotest.(check bool) "daemon safe" true binding.daemon_safe;
     Alcotest.(check (option string))
       "credential scope"
       (Some "test runtime")
@@ -215,7 +202,6 @@ let test_catalog_transport_and_auth_variants () =
     let cases =
       [ "rich-alias", "custom", "setup:RICH_SETUP_TOKEN", Some "rich-default", None
       ; "managed-oauth", "managed", "oauth", None, None
-      ; "cli-login", "cli", "cli", None, Some "agent_code"
       ; "file-auth", "http", "file:/tmp/provider-token", None, None
       ; "exec-auth", "http", "exec:op read token", None, None
       ; "api-key-auth", "http", "api_key_env:API_KEY_AUTH", None, None

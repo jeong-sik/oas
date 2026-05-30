@@ -590,30 +590,6 @@ let test_catalog_overlay_normalizes_provider_id () =
        | None -> fail "catalog provider id should be normalized")
 ;;
 
-let test_catalog_cli_noninteractive_availability_uses_command () =
-  with_provider_catalog
-    {|{
-      "schema_version": 1,
-      "providers": [
-        {
-          "id": "ghost-cli",
-          "kind": "cli_tool_a",
-          "transport": "cli",
-          "command": "provider-registry-missing-binary",
-          "auth": {"type": "cli_cached_login"},
-          "capabilities_base": "cli_tool_a",
-          "non_interactive": true,
-          "daemon_safe": false
-        }
-      ]
-    }|}
-    (fun () ->
-       let reg = Provider_registry.default () in
-       match Provider_registry.find reg "ghost-cli" with
-       | Some e -> check bool "missing command unavailable" false (e.is_available ())
-       | None -> fail "ghost-cli should be registered")
-;;
-
 let test_catalog_rejects_empty_provider_id () =
   match
     Provider_catalog.of_json
@@ -809,9 +785,7 @@ let test_catalog_empty_alias_not_registered () =
     ; default_model = None
     ; max_context = None
     ; capabilities = Capabilities.default_capabilities
-    ; non_interactive = false
     ; interactive_required = false
-    ; daemon_safe = false
     ; credential_scope = None
     }
   in
@@ -1115,10 +1089,6 @@ let () =
             "overlay normalizes provider id"
             `Quick
             test_catalog_overlay_normalizes_provider_id
-        ; test_case
-            "cli non-interactive availability uses command"
-            `Quick
-            test_catalog_cli_noninteractive_availability_uses_command
         ; test_case
             "rejects empty provider id"
             `Quick

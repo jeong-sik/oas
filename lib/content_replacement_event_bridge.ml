@@ -11,13 +11,12 @@ let log = Log.create ~module_name:"content_replacement_event_bridge" ()
 
 let publish_event ~bus ~correlation_id ~run_id payload =
   let event = Event_bus.mk_event ~correlation_id ~run_id payload in
-  try Event_bus.publish bus event
-  with exn ->
-    Log.warn log
+  try Event_bus.publish bus event with
+  | exn ->
+    Log.warn
+      log
       "publish_event failed after state change committed"
-      [ S ("correlation_id", correlation_id)
-      ; S ("error", Printexc.to_string exn)
-      ]
+      [ S ("correlation_id", correlation_id); S ("error", Printexc.to_string exn) ]
 ;;
 
 let record_replacement_with_events

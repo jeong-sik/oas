@@ -459,7 +459,7 @@ let test_provider_failure_remaining_variants_mapping () =
    | _ -> fail "expected ParseError");
   let unknown =
     provider_failure
-      ~provider:"provider_x"
+      ~provider:"unknown-provider"
       (Http_client.Unknown_provider_failure { reason = Some "exit_status" })
       "exited 2"
   in

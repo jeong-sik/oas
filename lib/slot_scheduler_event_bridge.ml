@@ -38,9 +38,10 @@ let publish_snap
          ; state = derive_state snap
          })
   in
-  try Event_bus.publish bus event
-  with exn ->
-    Log.warn log
+  try Event_bus.publish bus event with
+  | exn ->
+    Log.warn
+      log
       "publish_snap failed after slot scheduler observation"
       [ Log.S ("correlation_id", correlation_id)
       ; Log.S ("error", Printexc.to_string exn)

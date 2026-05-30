@@ -10,7 +10,6 @@
 
 type transport =
   | Http
-  | Cli
   | Managed
   | Custom_provider_d_compat
 [@@deriving show]
@@ -18,7 +17,6 @@ type transport =
 type auth_mode =
   | No_auth
   | Api_key_env of string
-  | Cli_cached_login
   | Oauth_cached_login
   | Setup_token_env of string
   | File of string
@@ -38,9 +36,7 @@ type entry =
   ; default_model : string option
   ; max_context : int option
   ; capabilities : Capabilities.capabilities
-  ; non_interactive : bool
   ; interactive_required : bool
-  ; daemon_safe : bool
   ; credential_scope : string option
   }
 

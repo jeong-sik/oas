@@ -80,9 +80,7 @@ makes the behavior depend on which API the caller used.
         "supports_tools": true,
         "supports_tool_choice": true
       },
-      "non_interactive": true,
-      "interactive_required": false,
-      "daemon_safe": true
+      "interactive_required": false
     }
   ]
 }
@@ -100,8 +98,7 @@ Important provider fields:
 | Field | Type | Description |
 |---|---|---|
 | `kind` | string | Existing wire/runtime kind, for example `openai_compat`, `anthropic`, `gemini`, `codex_cli`. Defaults to `openai_compat`. |
-| `transport` | string | `http`, `cli`, `managed`, or `custom_openai_compat`. |
-| `command` | string | CLI binary name for `transport = "cli"`. Used for availability. |
+| `transport` | string | `http`, `managed`, or `custom_openai_compat`. |
 | `base_url` | string | HTTP endpoint base URL. |
 | `request_path` | string | Completion request path. Defaults from `kind`. |
 | `auth` | object | Credential mode. See below. |
@@ -109,9 +106,7 @@ Important provider fields:
 | `aliases` | string array | Additional provider ids registered to the same entry. |
 | `capabilities_base` | string | Provider preset from `Capabilities.capabilities_for_provider_label`. |
 | `capabilities` | object | Optional capability overrides. |
-| `non_interactive` | bool | Runtime can run without prompts once credentials exist. |
 | `interactive_required` | bool | Runtime may require browser/login/user interaction at call time. |
-| `daemon_safe` | bool | Runtime is suitable for long-running background processes. |
 | `credential_scope` | string | Human-readable credential scope label. |
 
 Auth modes:
@@ -121,7 +116,6 @@ Auth modes:
 | `none` | | Local unauthenticated endpoints. |
 | `api_key_env` | `env` | Cloud APIs using an API key environment variable. |
 | `setup_token_env` | `env` | Setup/bootstrap token environment variable. |
-| `cli_cached_login` | | Subscription CLI already logged in locally. |
 | `oauth_cached_login` | | OAuth-backed cached login. |
 | `file` | `path` | Credential file owned by the embedding app. |
 | `exec` | `command` | External credential helper. OAS records availability only; it does not shell out from the catalog loader. |
@@ -144,8 +138,7 @@ Auth modes:
       "capabilities": {
         "supports_tools": true,
         "supports_response_format_json": true
-      },
-      "daemon_safe": true
+      }
     }
   ]
 }
@@ -154,34 +147,6 @@ Auth modes:
 Use this for OpenAI-compatible cloud providers, hosted vLLM gateways,
 OpenRouter-style aggregators, and private model APIs that already follow the
 chat-completions contract.
-
-## CLI / Subscriber Runtime Example
-
-```json
-{
-  "schema_version": 1,
-  "providers": [
-    {
-      "id": "subscriber-codex",
-      "kind": "codex_cli",
-      "transport": "cli",
-      "command": "codex",
-      "auth": {"type": "cli_cached_login"},
-      "default_model": "auto",
-      "capabilities_base": "codex_cli",
-      "non_interactive": true,
-      "interactive_required": false,
-      "daemon_safe": false,
-      "credential_scope": "local subscription login"
-    }
-  ]
-}
-```
-
-Use this for users who want to consume a local subscription or cached CLI
-login in non-interactive mode. `daemon_safe = false` is a useful default for
-CLI runtimes whose cached login or binary behavior is not guaranteed to be
-stable in a long-running service.
 
 ## Capability Overrides
 

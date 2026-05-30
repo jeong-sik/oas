@@ -12,14 +12,12 @@ type capabilities = Provider.capabilities
 
 type transport =
   | Http
-  | Cli
   | Managed
   | Custom_provider_d_compat
 
 type auth =
   | No_auth
   | Api_key_env of string
-  | Cli_cached_login
   | Oauth_cached_login
   | Setup_token_env of string
   | File of string
@@ -39,9 +37,7 @@ type t =
   ; max_context : int option
   ; capabilities : capabilities
   ; available : bool
-  ; non_interactive : bool
   ; interactive_required : bool
-  ; daemon_safe : bool
   ; credential_scope : string option
   }
 
@@ -63,9 +59,7 @@ val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
 (** Resolve OAS-owned provider capabilities for a concrete provider config.
 
     Catalog/registry provider capabilities are preferred. Non-CLI providers
-    then honor model-specific capability overrides when available. CLI
-    providers keep the transport-level capability record because their
-    [model_id] is a runtime selection hint rather than an API model id. *)
+    then honor model-specific capability overrides when available. *)
 val capabilities_for_provider_config
   :  Llm_provider.Provider_config.t
   -> Llm_provider.Capabilities.capabilities

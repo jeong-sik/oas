@@ -43,8 +43,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
             "credential_scope": "workspace",
             "auth": {"type": "setup-token-env", "key": "SETUP_TOKEN"},
             "interactive_required": true,
-            "non_interactive": false,
-            "daemon_safe": false,
             "max_context": 32000,
             "capabilities_base": "provider_d_chat",
             "capabilities": {
@@ -82,10 +80,10 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
           },
           {
             "id": "cli-cached",
-            "kind": "cli_tool_a",
+            "kind": "provider_d_compat",
             "transport": "",
             "command": "tool-a",
-            "auth": {"type": "cli-cached-login"}
+            "auth": {"type": "oauth_cached_login"}
           },
           {
             "id": "oauth",
@@ -125,8 +123,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check (option int) "explicit max context" (Some 32000) rich.max_context;
   check (option string) "credential scope" (Some "workspace") rich.credential_scope;
   check bool "interactive required" true rich.interactive_required;
-  check bool "non interactive" false rich.non_interactive;
-  check bool "daemon safe" false rich.daemon_safe;
   let caps = rich.capabilities in
   check (option int) "cap max context" (Some 64000) caps.max_context_tokens;
   check (option int) "cap max output" (Some 4096) caps.max_output_tokens;
@@ -172,10 +168,8 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
     (Some "rich-model")
     (Provider_catalog.default_model_for_provider catalog "rich-http");
   let cli = require_lookup catalog "cli-cached" in
-  check bool "cli default transport" true (cli.transport = Provider_catalog.Cli);
-  check bool "cli cached auth" true (cli.auth = Provider_catalog.Cli_cached_login);
-  check bool "cli non interactive default" true cli.non_interactive;
-  check bool "cli daemon safe default" true cli.daemon_safe;
+  check bool "cli default transport" true (cli.transport = Provider_catalog.Http);
+  check bool "cli cached auth" true (cli.auth = Provider_catalog.Oauth_cached_login);
   let oauth = require_lookup catalog "oauth" in
   check bool "managed transport" true (oauth.transport = Provider_catalog.Managed);
   check bool "oauth auth" true (oauth.auth = Provider_catalog.Oauth_cached_login);
@@ -249,8 +243,8 @@ let test_transport_auth_and_thinking_alias_matrix () =
           },
           {
             "id": "cli-env",
-            "kind": "cli_tool_b",
-            "transport": "cli",
+            "kind": "provider_d_compat",
+            "transport": "http",
             "auth": {"type": "api-key-env", "env": "ENV_KEY"},
             "capabilities": {"thinking_control_format": "thinking-object"}
           },
@@ -294,7 +288,7 @@ let test_transport_auth_and_thinking_alias_matrix () =
     true
     (http_none.capabilities.thinking_control_format = Capabilities.No_thinking_control);
   let cli_env = require_lookup catalog "cli-env" in
-  check bool "cli transport" true (cli_env.transport = Provider_catalog.Cli);
+  check bool "cli transport" true (cli_env.transport = Provider_catalog.Http);
   check
     bool
     "api key auth alias"

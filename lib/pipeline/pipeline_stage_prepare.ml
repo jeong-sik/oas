@@ -11,9 +11,10 @@ open Agent_trace
 let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
 
 let safe_publish bus event =
-  try Event_bus.publish bus event
-  with exn ->
-    Log.warn _stage_log
+  try Event_bus.publish bus event with
+  | exn ->
+    Log.warn
+      _stage_log
       "Event_bus.publish failed"
       [ Log.S ("error", Printexc.to_string exn) ]
 ;;
@@ -36,7 +37,8 @@ let stage_input ?raw_trace_run agent =
        let response = cb req in
        (match agent.options.event_bus with
         | Some bus ->
-          safe_publish bus
+          safe_publish
+            bus
             (Event_bus.mk_event
                (ElicitationCompleted
                   { agent_name = agent.state.config.name
@@ -272,7 +274,8 @@ let stage_parse ?raw_trace_run agent =
   let original_config = original_config in
   (match agent.options.event_bus with
    | Some bus ->
-     safe_publish bus
+     safe_publish
+       bus
        { meta =
            Event_bus.mk_envelope
              ~correlation_id:
@@ -314,7 +317,8 @@ let stage_parse ?raw_trace_run agent =
      Sibling of TurnStarted (announce) and TurnCompleted (post-LLM). *)
   (match agent.options.event_bus with
    | Some bus ->
-     safe_publish bus
+     safe_publish
+       bus
        { meta =
            Event_bus.mk_envelope
              ~correlation_id:

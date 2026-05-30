@@ -81,13 +81,9 @@ let command_in_path ?path name =
 ;;
 
 let catalog_command_available (entry : Provider_catalog.entry) =
-  match entry.transport, entry.command with
-  | Provider_catalog.Cli, Some command when String.trim command <> "" ->
-    command_in_path command
-  | Provider_catalog.Cli, _ -> false
-  | Provider_catalog.Http, _
-  | Provider_catalog.Managed, _
-  | Provider_catalog.Custom_provider_d_compat, _ -> true
+  match entry.transport with
+  | Provider_catalog.Http | Provider_catalog.Managed | Provider_catalog.Custom_provider_d_compat
+    -> true
 ;;
 
 let catalog_auth_available (entry : Provider_catalog.entry) =
@@ -95,7 +91,7 @@ let catalog_auth_available (entry : Provider_catalog.entry) =
   | Provider_catalog.Api_key_env env | Provider_catalog.Setup_token_env env ->
     has_api_key env
   | Provider_catalog.No_auth -> true
-  | Provider_catalog.Cli_cached_login | Provider_catalog.Oauth_cached_login -> true
+  | Provider_catalog.Oauth_cached_login -> true
   | Provider_catalog.File path -> String.trim path <> "" && safe_file_exists path
   | Provider_catalog.Exec command -> String.trim command <> ""
 ;;
