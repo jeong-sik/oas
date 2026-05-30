@@ -38,7 +38,7 @@ let test_discovery_infers_from_model_name () =
 
 let test_filter_parallel_tools () =
   let yes =
-    { Capabilities.provider_a_capabilities with supports_parallel_tool_calls = true }
+    { Capabilities.anthropic_capabilities with supports_parallel_tool_calls = true }
   in
   let no =
     { Capabilities.default_capabilities with supports_parallel_tool_calls = false }
@@ -52,8 +52,8 @@ let test_filter_parallel_tools () =
 ;;
 
 let test_filter_thinking () =
-  let agent_llm_a = Capabilities.provider_a_capabilities in
-  let basic = Capabilities.provider_d_chat_capabilities in
+  let agent_llm_a = Capabilities.anthropic_capabilities in
+  let basic = Capabilities.openai_compat_chat_capabilities in
   check
     bool
     "agent_llm_a has thinking"
@@ -86,7 +86,7 @@ let test_filter_fits_output () =
 ;;
 
 let test_filter_combined () =
-  let caps = Capabilities.provider_a_capabilities in
+  let caps = Capabilities.anthropic_capabilities in
   let need_all =
     Capability_filter.requires_all
       [ Capability_filter.requires_tools

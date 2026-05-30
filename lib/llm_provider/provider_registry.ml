@@ -385,23 +385,23 @@ let default () =
     "provider_n"
     llama_defaults
     ~max_context:128_000
-    Capabilities.provider_d_chat_extended_capabilities;
+    Capabilities.openai_compat_chat_extended_capabilities;
   reg
     "agent_llm_a"
     agent_llm_a_defaults
     ~max_context:200_000
-    Capabilities.provider_a_capabilities;
+    Capabilities.anthropic_capabilities;
   reg
     "provider_f"
     provider_f_defaults
     ~max_context:1_000_000
-    Capabilities.provider_f_capabilities;
-  reg "provider_k" glm_defaults ~max_context:200_000 Capabilities.provider_k_capabilities;
+    Capabilities.gemini_capabilities;
+  reg "provider_k" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
   reg
     "provider_k-coding"
     glm_coding_defaults
     ~max_context:128_000
-    Capabilities.provider_k_capabilities;
+    Capabilities.glm_capabilities;
   register
     t
     { name = "provider_c"
@@ -409,41 +409,41 @@ let default () =
     ; max_context =
         max_context_from_capabilities
           ~default:262_144
-          Capabilities.provider_c_capabilities
-    ; capabilities = Capabilities.provider_c_capabilities
+          Capabilities.kimi_capabilities
+    ; capabilities = Capabilities.kimi_capabilities
     ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
     };
   reg
     "provider_o_router"
     openrouter_defaults
     ~max_context:128_000
-    Capabilities.provider_d_chat_extended_capabilities;
+    Capabilities.openai_compat_chat_extended_capabilities;
   reg
     "provider_i"
     provider_i_defaults
     ~max_context:131_072
-    Capabilities.provider_d_chat_capabilities;
+    Capabilities.openai_compat_chat_capabilities;
   (* Provider_g v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
     "provider_g"
     provider_g_defaults
     ~max_context:1_000_000
-    Capabilities.provider_d_chat_capabilities;
+    Capabilities.openai_compat_chat_capabilities;
   reg
     "provider_h"
     provider_h_defaults
     ~max_context:131_072
-    Capabilities.provider_h_capabilities;
+    Capabilities.dashscope_capabilities;
   reg
     "alibaba"
     provider_h_defaults
     ~max_context:131_072
-    Capabilities.provider_h_capabilities;
+    Capabilities.dashscope_capabilities;
   reg
     "siliconflow"
     siliconflow_defaults
     ~max_context:128_000
-    Capabilities.provider_d_chat_capabilities;
+    Capabilities.openai_compat_chat_capabilities;
   register
     t
     { name = "ollama"

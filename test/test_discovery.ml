@@ -118,7 +118,7 @@ let test_endpoint_status_to_json_healthy () =
           ; supports_tools = None
           }
     ; slots = Some { total = 4; busy = 1; idle = 3 }
-    ; capabilities = Capabilities.provider_d_chat_extended_capabilities
+    ; capabilities = Capabilities.openai_compat_chat_extended_capabilities
     }
   in
   let json = Discovery.endpoint_status_to_json status in

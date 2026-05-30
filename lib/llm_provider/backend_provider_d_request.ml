@@ -94,11 +94,11 @@ let capabilities_of_config (config : Provider_config.t) =
   | None ->
     (match config.kind with
      | Provider_config.Ollama -> Capabilities.ollama_capabilities
-     | Provider_config.Kimi -> Capabilities.provider_c_capabilities
-     | Provider_config.DashScope -> Capabilities.provider_h_capabilities
-     | Provider_config.Glm -> Capabilities.provider_k_capabilities
-     | Provider_config.Gemini -> Capabilities.provider_f_capabilities
-     | Provider_config.Anthropic -> Capabilities.provider_a_capabilities
+     | Provider_config.Kimi -> Capabilities.kimi_capabilities
+     | Provider_config.DashScope -> Capabilities.dashscope_capabilities
+     | Provider_config.Glm -> Capabilities.glm_capabilities
+     | Provider_config.Gemini -> Capabilities.gemini_capabilities
+     | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
      | Provider_config.OpenAI_compat -> Capabilities.default_capabilities)
 ;;
 

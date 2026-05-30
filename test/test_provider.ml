@@ -334,9 +334,9 @@ let test_extended_provider_d_capabilities () =
   Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
 ;;
 
-let test_provider_a_capabilities_consults_for_model_id () =
+let test_anthropic_capabilities_consults_for_model_id () =
   (* Regression for #824: the Anthropic branch of capabilities_for_model
-     was returning the base provider_a_capabilities (200K window)
+     was returning the base anthropic_capabilities (200K window)
      regardless of model_id, bypassing the per-model overrides in
      Llm_provider.Capabilities.for_model_id. Opus 4 / Sonnet 4 advertise
      a 1M window in that table; this test pins that the config path
@@ -370,9 +370,9 @@ let test_provider_a_capabilities_consults_for_model_id () =
     haiku_caps.max_context_tokens
 ;;
 
-let test_provider_a_capabilities_unknown_model_id_falls_back () =
+let test_anthropic_capabilities_unknown_model_id_falls_back () =
   (* Unknown Anthropic model_ids still fall back to the conservative
-     base provider_a_capabilities rather than failing hard. *)
+     base anthropic_capabilities rather than failing hard. *)
   let cfg : Provider.config =
     { provider = Anthropic
     ; model_id = "agent_llm_a-nonexistent-future-model"
@@ -380,7 +380,7 @@ let test_provider_a_capabilities_unknown_model_id_falls_back () =
     }
   in
   let caps = Provider.capabilities_for_config cfg in
-  (* Base provider_a_capabilities has max_context_tokens = Some 200_000 *)
+  (* Base anthropic_capabilities has max_context_tokens = Some 200_000 *)
   Alcotest.(check (option int))
     "unknown provider_a model falls back to base 200K"
     (Some 200_000)
@@ -916,11 +916,11 @@ let () =
         ; Alcotest.test_case
             "provider_a consults for_model_id (#824)"
             `Quick
-            test_provider_a_capabilities_consults_for_model_id
+            test_anthropic_capabilities_consults_for_model_id
         ; Alcotest.test_case
             "provider_a unknown model falls back to base"
             `Quick
-            test_provider_a_capabilities_unknown_model_id_falls_back
+            test_anthropic_capabilities_unknown_model_id_falls_back
         ] )
     ; ( "pricing"
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet

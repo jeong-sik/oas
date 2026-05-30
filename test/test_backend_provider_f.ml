@@ -526,8 +526,8 @@ let test_provider_f_stream_finish () =
 (* NOTE: test_cascade_provider_f_kind was removed — Cascade_config.parse_model_string
    was deleted from OAS in 0.144.0 as part of the MASC migration (boundary-allow). *)
 
-let test_provider_f_capabilities_named () =
-  let caps = Capabilities.provider_f_capabilities in
+let test_gemini_capabilities_named () =
+  let caps = Capabilities.gemini_capabilities in
   check bool "tools" true caps.supports_tools;
   check bool "thinking" true caps.supports_extended_thinking;
   check bool "audio" true caps.supports_audio_input;
@@ -778,7 +778,7 @@ let () =
             test_provider_f_stream_tool_first_then_text
         ] )
     ; ( "capabilities"
-      , [ test_case "provider_f capabilities" `Quick test_provider_f_capabilities_named ]
+      , [ test_case "provider_f capabilities" `Quick test_gemini_capabilities_named ]
       )
     ]
 ;;
