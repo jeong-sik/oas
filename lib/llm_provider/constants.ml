@@ -146,7 +146,7 @@ end
 module Sampling = struct
   (** Default min_p for Provider_d-compatible (llama.cpp) providers.
       2026 llama.cpp standard: min_p = 0.05. *)
-  let provider_d_compat_min_p = 0.05
+  let openai_compat_min_p = 0.05
 end
 
 (* ── HTTP response body truncation ───────────────── *)

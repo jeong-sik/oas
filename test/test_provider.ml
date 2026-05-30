@@ -82,7 +82,7 @@ let test_provider_a_provider () =
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
 ;;
 
-let test_provider_d_compat_resolve_success () =
+let test_openai_compat_resolve_success () =
   let env_var = "AGENT_SDK_TEST_OPENROUTER_KEY_q1w2e3" in
   Unix.putenv env_var "or-test-key";
   let cfg : Provider.config =
@@ -106,7 +106,7 @@ let test_provider_d_compat_resolve_success () =
   | Error e -> Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 ;;
 
-let test_provider_d_compat_resolve_missing_key () =
+let test_openai_compat_resolve_missing_key () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -265,7 +265,7 @@ let test_zai_glm5v_capabilities_include_image_input () =
     capabilities.supports_multimodal_inputs
 ;;
 
-let test_non_zai_glm_capabilities_stay_provider_d_compat () =
+let test_non_zai_glm_capabilities_stay_openai_compat () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -507,7 +507,7 @@ let test_config_of_provider_config_provider_c_uses_custom_provider () =
     Alcotest.fail "expected provider_c config to round-trip through Custom_registered"
 ;;
 
-let test_provider_d_compat_static_token () =
+let test_openai_compat_static_token () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -528,7 +528,7 @@ let test_provider_d_compat_static_token () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-let test_provider_d_compat_no_auth () =
+let test_openai_compat_no_auth () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -610,7 +610,7 @@ let test_provider_config_of_agent_provider_a () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-let test_provider_config_of_agent_provider_d_compat_collapses () =
+let test_provider_config_of_agent_openai_compat_collapses () =
   (* OpenAICompat collapses to OpenAI_compat (lossy — documented limitation) *)
   let env_var = "AGENT_SDK_TEST_ADAPTER_KEY_oai" in
   Unix.putenv env_var "sk-oai-adapter-test";
@@ -632,8 +632,8 @@ let test_provider_config_of_agent_provider_d_compat_collapses () =
   with
   | Ok pc ->
     Alcotest.(check string)
-      "kind collapses to provider_d_compat"
-      "provider_d_compat"
+      "kind collapses to openai_compat"
+      "openai_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string)
       "base_url from resolve"
@@ -710,7 +710,7 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
   | Ok pc ->
     Alcotest.(check string)
       "kind"
-      "provider_d_compat"
+      "openai_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "request_path" "/v1/chat/completions" pc.request_path;
     Alcotest.(check string) "local strips dummy api_key" "" pc.api_key;
@@ -867,11 +867,11 @@ let () =
         ; Alcotest.test_case
             "provider_d compat success"
             `Quick
-            test_provider_d_compat_resolve_success
+            test_openai_compat_resolve_success
         ; Alcotest.test_case
             "provider_d compat missing key"
             `Quick
-            test_provider_d_compat_resolve_missing_key
+            test_openai_compat_resolve_missing_key
         ; Alcotest.test_case "provider_a headers" `Quick test_provider_a_headers
         ; Alcotest.test_case
             "local llm model spec capabilities"
@@ -904,7 +904,7 @@ let () =
         ; Alcotest.test_case
             "non-zai provider_k stays provider_d compat"
             `Quick
-            test_non_zai_glm_capabilities_stay_provider_d_compat
+            test_non_zai_glm_capabilities_stay_openai_compat
         ; Alcotest.test_case
             "invalid modality gets actionable error"
             `Quick
@@ -949,9 +949,9 @@ let () =
             `Quick
             test_config_of_provider_config_provider_c_uses_custom_provider
         ] )
-    ; ( "provider_d_compat"
-      , [ Alcotest.test_case "static token" `Quick test_provider_d_compat_static_token
-        ; Alcotest.test_case "no auth" `Quick test_provider_d_compat_no_auth
+    ; ( "openai_compat"
+      , [ Alcotest.test_case "static token" `Quick test_openai_compat_static_token
+        ; Alcotest.test_case "no auth" `Quick test_openai_compat_no_auth
         ] )
     ; ( "provider_config_of_agent"
       , [ Alcotest.test_case
@@ -959,9 +959,9 @@ let () =
             `Quick
             test_provider_config_of_agent_provider_a
         ; Alcotest.test_case
-            "provider_d_compat kind collapses"
+            "openai_compat kind collapses"
             `Quick
-            test_provider_config_of_agent_provider_d_compat_collapses
+            test_provider_config_of_agent_openai_compat_collapses
         ; Alcotest.test_case
             "missing env propagates"
             `Quick

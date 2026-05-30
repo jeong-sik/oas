@@ -125,7 +125,7 @@ let test_runtime_name_provider_a () =
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
-let test_runtime_name_provider_d_compat () =
+let test_runtime_name_openai_compat () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
@@ -139,8 +139,8 @@ let test_runtime_name_provider_d_compat () =
     }
   in
   Alcotest.(check (option string))
-    "provider_d-compat"
-    (Some "provider_d-compat")
+    "openai-compat"
+    (Some "openai-compat")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
@@ -396,7 +396,7 @@ let () =
       , [ Alcotest.test_case "None" `Quick test_runtime_name_none
         ; Alcotest.test_case "Local" `Quick test_runtime_name_local
         ; Alcotest.test_case "Anthropic" `Quick test_runtime_name_provider_a
-        ; Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_provider_d_compat
+        ; Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_openai_compat
         ; Alcotest.test_case "Custom_registered" `Quick test_runtime_name_custom
         ] )
     ; ( "hook_decision"

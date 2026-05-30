@@ -299,7 +299,7 @@ let load path =
 
     Canonical provider kinds ({!Llm_provider.Provider_kind.t}) are dispatched
     through {!Llm_provider.Provider_kind.of_string}, which accepts the
-    canonical wire forms (["provider_a"], ["provider_d_compat"], …) plus the
+    canonical wire forms (["provider_a"], ["openai_compat"], …) plus the
     documented aliases (["agent_llm_a"] -> Anthropic,
     ["provider_d"] -> OpenAI_compat, ["provider_n"] -> Ollama), case-insensitively
     with leading/trailing whitespace trimmed.

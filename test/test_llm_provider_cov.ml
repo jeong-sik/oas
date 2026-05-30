@@ -790,7 +790,7 @@ let test_constants_retry_cache_sampling_and_endpoints () =
     "structured max delay"
     60.0
     Constants.Structured_retry.max_delay;
-  Alcotest.(check (float 0.001)) "min_p" 0.05 Constants.Sampling.provider_d_compat_min_p;
+  Alcotest.(check (float 0.001)) "min_p" 0.05 Constants.Sampling.openai_compat_min_p;
   Alcotest.(check int) "truncate" 200 Constants.Truncation.max_error_body_length;
   Alcotest.(check int) "llama port" 8085 Constants.Endpoints.default_llama_port;
   Alcotest.(check string)

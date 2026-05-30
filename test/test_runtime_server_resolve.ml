@@ -91,7 +91,7 @@ let test_provider_runtime_name_provider_a () =
     (Runtime_server_resolve.provider_runtime_name "provider_a" cfg)
 ;;
 
-let test_provider_runtime_name_provider_d_compat () =
+let test_provider_runtime_name_openai_compat () =
   let cfg =
     Some
       { Provider.provider =
@@ -106,8 +106,8 @@ let test_provider_runtime_name_provider_d_compat () =
       }
   in
   Alcotest.(check string)
-    "provider_d-compat"
-    "provider_d-compat"
+    "openai-compat"
+    "openai-compat"
     (Runtime_server_resolve.provider_runtime_name "provider_d" cfg)
 ;;
 
@@ -233,7 +233,7 @@ let test_resolve_provider_catalog_entry () =
         {
           "id": "vllm-local",
           "aliases": ["Subscriber-Local"],
-          "kind": "provider_d_compat",
+          "kind": "openai_compat",
           "transport": "http",
           "base_url": "http://127.0.0.1:8000",
           "request_path": "/v1/chat/completions",
@@ -382,7 +382,7 @@ let () =
         ; Alcotest.test_case
             "OpenAICompat provider"
             `Quick
-            test_provider_runtime_name_provider_d_compat
+            test_provider_runtime_name_openai_compat
         ; Alcotest.test_case
             "Custom_registered provider"
             `Quick

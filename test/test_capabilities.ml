@@ -727,7 +727,7 @@ let test_provider_h_capabilities () =
   check bool "has min_p" true c.supports_min_p
 ;;
 
-let test_provider_d_compat_reasoning_records_have_explicit_control () =
+let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
     [ "provider_d_chat_extended", Some Capabilities.provider_d_chat_extended_capabilities
     ; "provider_c", Some Capabilities.provider_c_capabilities
@@ -846,7 +846,7 @@ let () =
         ; test_case
             "provider_d compat reasoning records have explicit control"
             `Quick
-            test_provider_d_compat_reasoning_records_have_explicit_control
+            test_openai_compat_reasoning_records_have_explicit_control
         ] )
     ; ( "model_lookup"
       , [ test_case "agent_llm_a opus" `Quick test_lookup_agent_llm_a_opus

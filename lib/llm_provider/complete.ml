@@ -41,7 +41,7 @@ type sampling_defaults =
    also lands here because the backend applies its own per-model
    defaults in [Backend_ollama]; pre-filling a top-level value here
    would shadow that. Only OpenAI_compat carries the non-empty
-   [provider_d_compat_min_p] floor. *)
+   [openai_compat_min_p] floor. *)
 let no_sampling_defaults : sampling_defaults =
   { default_min_p = None; default_top_p = None; default_top_k = None }
 ;;
@@ -49,7 +49,7 @@ let no_sampling_defaults : sampling_defaults =
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
   | Provider_config.OpenAI_compat | Provider_config.DashScope ->
-    { default_min_p = Some Constants.Sampling.provider_d_compat_min_p
+    { default_min_p = Some Constants.Sampling.openai_compat_min_p
     ; default_top_p = None
     ; default_top_k = None
     }
@@ -60,7 +60,7 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
   | Provider_config.Glm -> no_sampling_defaults
 ;;
 
-let provider_d_compat_should_default_min_p (config : Provider_config.t) : bool =
+let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
   match Capabilities.for_model_id config.model_id with
   | Some caps -> caps.supports_min_p
   | None -> Provider_config.is_local config
@@ -73,7 +73,7 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   let default_min_p =
     match config.kind with
     | Provider_config.OpenAI_compat
-      when not (provider_d_compat_should_default_min_p config) -> None
+      when not (openai_compat_should_default_min_p config) -> None
     | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope ->
       defaults.default_min_p
   in

@@ -510,7 +510,7 @@ let test_catalog_overlay_adds_provider_and_alias () =
         {
           "id": "vllm-local",
           "aliases": ["Subscriber-Local"],
-          "kind": "provider_d_compat",
+          "kind": "openai_compat",
           "transport": "http",
           "base_url": "http://127.0.0.1:8000",
           "request_path": "/v1/chat/completions",
@@ -547,7 +547,7 @@ let test_catalog_overlay_replaces_seed_provider () =
       "providers": [
         {
           "id": "provider_o_router",
-          "kind": "provider_d_compat",
+          "kind": "openai_compat",
           "transport": "http",
           "base_url": "https://example.test/provider_o_router",
           "request_path": "/chat/completions",
@@ -575,7 +575,7 @@ let test_catalog_overlay_normalizes_provider_id () =
       "providers": [
         {
           "id": "Acme-Cloud",
-          "kind": "provider_d_compat",
+          "kind": "openai_compat",
           "transport": "http",
           "base_url": "https://acme.example/v1",
           "auth": {"type": "none"},
@@ -597,7 +597,7 @@ let test_catalog_rejects_empty_provider_id () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "  ", "kind": "provider_d_compat"}
+             {"id": "  ", "kind": "openai_compat"}
            ]
          }|})
   with
@@ -612,7 +612,7 @@ let test_catalog_rejects_unknown_transport () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "provider_d_compat", "transport": "ftp"}
+             {"id": "x", "kind": "openai_compat", "transport": "ftp"}
            ]
          }|})
   with
@@ -627,7 +627,7 @@ let test_catalog_rejects_unknown_auth_type () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "provider_d_compat",
+             {"id": "x", "kind": "openai_compat",
               "auth": {"type": "magick"}}
            ]
          }|})
@@ -643,7 +643,7 @@ let test_catalog_rejects_unknown_capabilities_base () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "provider_d_compat",
+             {"id": "x", "kind": "openai_compat",
               "capabilities_base": "nonexistent_preset"}
            ]
          }|})
@@ -660,7 +660,7 @@ let test_catalog_rejects_unknown_thinking_control_format () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "x", "kind": "provider_d_compat",
+             {"id": "x", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "telepathy"}}
            ]
          }|})
@@ -677,11 +677,11 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "provider_c-k2", "kind": "provider_d_compat",
+             {"id": "provider_c-k2", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "thinking_object_only"}},
-             {"id": "provider_h", "kind": "provider_d_compat",
+             {"id": "provider_h", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "enable_thinking"}},
-             {"id": "provider_d-reasoning", "kind": "provider_d_compat",
+             {"id": "provider_d-reasoning", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "reasoning_effort"}}
            ]
          }|})
@@ -710,9 +710,9 @@ let test_catalog_lookup_first_match_wins () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"id": "dup", "kind": "provider_d_compat",
+             {"id": "dup", "kind": "openai_compat",
               "base_url": "http://first.example"},
-             {"id": "dup", "kind": "provider_d_compat",
+             {"id": "dup", "kind": "openai_compat",
               "base_url": "http://second.example"}
            ]
          }|})
@@ -738,7 +738,7 @@ let test_catalog_lookup_case_insensitive () =
            "providers": [
              {"id": "mixed-Case",
               "aliases": ["AlsoMixed"],
-              "kind": "provider_d_compat",
+              "kind": "openai_compat",
               "base_url": "http://x.example"}
            ]
          }|})
@@ -845,7 +845,7 @@ let test_catalog_load_file_and_lookup_alias () =
                   {
                     "id": "file-cloud",
                     "aliases": ["file-cloud-alias"],
-                    "kind": "provider_d_compat",
+                    "kind": "openai_compat",
                     "transport": "http",
                     "base_url": "https://file-cloud.example/v1",
                     "default_model": "file-model",
@@ -872,7 +872,7 @@ let test_catalog_api_key_env_availability () =
         "providers": [
           {
             "id": "cloud-api",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "http",
             "base_url": "https://cloud-api.example/v1",
             "auth": {"type": "api_key_env", "env": "%s"},

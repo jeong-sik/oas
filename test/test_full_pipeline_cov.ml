@@ -547,7 +547,7 @@ let test_pre_tool_skip () =
 
 (* ── 14. Provider_d-compatible provider ───────────────────────────── *)
 
-let test_provider_d_compat () =
+let test_openai_compat () =
   Eio_main.run
   @@ fun env ->
   try
@@ -739,7 +739,7 @@ let () =
     "full_pipeline_cov"
     [ ( "basic"
       , [ test_case "text completion" `Quick test_basic_text
-        ; test_case "provider_d compat" `Quick test_provider_d_compat
+        ; test_case "provider_d compat" `Quick test_openai_compat
         ; test_case "agent clone" `Quick test_agent_clone_run
         ; test_case "agent card" `Quick test_agent_card
         ] )

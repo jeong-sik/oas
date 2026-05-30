@@ -54,7 +54,7 @@ let needs_extended_capabilities model_id =
   Util.string_contains ~needle:"provider_h" normalized
 ;;
 
-let default_provider_d_compat_capabilities model_id =
+let default_openai_compat_capabilities model_id =
   if needs_extended_capabilities model_id
   then provider_d_chat_extended_capabilities
   else provider_d_chat_capabilities
@@ -68,7 +68,7 @@ let uses_native_glm_capabilities ~base_url ~model_id =
 let provider_name = function
   | Local _ -> "local"
   | Anthropic -> "provider_a"
-  | OpenAICompat _ -> "provider_d_compat"
+  | OpenAICompat _ -> "openai_compat"
   | Custom_registered { name } -> "custom:" ^ name
 ;;
 
@@ -289,11 +289,11 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
     if
       Llm_provider.Zai_catalog.is_glm_model_id model_id
       && not (uses_native_glm_capabilities ~base_url ~model_id)
-    then default_provider_d_compat_capabilities model_id
+    then default_openai_compat_capabilities model_id
     else (
       match Llm_provider.Capabilities.for_model_id model_id with
       | Some caps -> caps
-      | None -> default_provider_d_compat_capabilities model_id)
+      | None -> default_openai_compat_capabilities model_id)
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.capabilities
