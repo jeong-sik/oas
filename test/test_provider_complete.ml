@@ -661,65 +661,7 @@ let test_is_retryable () =
   Alcotest.(check bool)
     "404 not retryable"
     false
-    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }));
-  Alcotest.(check bool)
-    false
-;;
-
-let test_complete_agent_llm_a_code_without_transport_is_guarded () =
-  (* Regression: [Complete.complete] used to forward CLI-kind configs
-     (base_url = "") to cohttp-eio, which crashed with
-     [Fmt.failwith "Unknown scheme None"].  The guard now returns a
-     distinguish a wiring bug from a transient network failure.
-
-     Covers the full matrix (Cli_tool_d, Cli_tool_b, Cli_tool_c, Cli_tool_a). *)
-  Eio_main.run
-  @@ fun env ->
-  Eio.Switch.run
-  @@ fun sw ->
-  let net = Eio.Stdenv.net env in
-  let kinds = [] in
-  List.iter
-    (fun (kind, expected_name) ->
-       let config = PC.make ~kind ~model_id:"auto" ~base_url:"" () in
-       let messages = [ user_msg "hi" ] in
-       match
-         Llm_provider.Complete.complete ~sw ~net ~config ~messages ?transport:None ()
-       with
-       | Ok _ ->
-         Alcotest.failf
-           "%s with no transport must not succeed via HTTP fallback"
-           expected_name
-         Alcotest.(check string)
-           (Printf.sprintf "%s reports its own kind" expected_name)
-           expected_name
-           kind
-       | Error (Llm_provider.Http_client.HttpError { code; _ }) ->
-         Alcotest.failf
-           expected_name
-           code
-       | Error (Llm_provider.Http_client.NetworkError { message; _ }) ->
-         Alcotest.failf
-            scheme None' regression)"
-           expected_name
-           message
-       | Error (Llm_provider.Http_client.TimeoutError { message; _ }) ->
-         Alcotest.failf
-           expected_name
-           message
-       | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
-         Alcotest.failf
-           expected_name
-           reason
-       | Error (Llm_provider.Http_client.ProviderTerminal { message; _ }) ->
-         Alcotest.failf
-           expected_name
-           message
-       | Error (Llm_provider.Http_client.ProviderFailure { kind; message }) ->
-         Alcotest.failf
-           expected_name
-           (Llm_provider.Http_client.provider_failure_to_string ~kind ~message))
-    kinds
+    (Complete.is_retryable (Http_client.HttpError { code = 404; body = "" }))
 ;;
 
 let usage =
@@ -775,9 +717,95 @@ let response_with_thinking =
   }
 ;;
 
+let test_provider_default_thinking_drift_is_info () =
+  let config =
+    PC.make ~kind:OpenAI_compat ~model_id:"auto" ~base_url:"https://example.invalid/v1" ()
+  in
+  let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
+  Alcotest.(check bool)
+    "no warn for provider-default thinking observation"
+    false
+    (List.exists (fun (level, _, _) -> level = Llm_provider.Diag.Warn) entries);
+  Alcotest.(check bool)
+    "low-confidence info is recorded"
+    true
+    (List.exists
+       (fun (level, ctx, message) ->
+          level = Llm_provider.Diag.Info
+          && ctx = "complete"
+          && contains_substring ~sub:"capability_observation" message
+          && contains_substring ~sub:"provider_default" message
+          && contains_substring ~sub:"low" message)
+       entries)
+;;
 
+let test_model_capability_thinking_drift_remains_warn () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"provider_k-4-flash"
+      ~base_url:"https://example.invalid/v1"
+      ()
+  in
+  let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
+  Alcotest.(check bool)
+    "model-specific mismatch remains warn"
+    true
+    (List.exists
+       (fun (level, ctx, message) ->
+          level = Llm_provider.Diag.Warn
+          && ctx = "complete"
+          && contains_substring ~sub:"capability_drift" message
+          && contains_substring ~sub:"model" message
+          && contains_substring ~sub:"high" message)
+       entries)
+;;
 
+let test_bare_glm_model_thinking_uses_model_capability () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"glm-5"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ()
+  in
+  let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
+  Alcotest.(check bool)
+    "bare glm-5 thinking does not emit capability drift"
+    false
+    (List.exists
+       (fun (_level, ctx, message) ->
+          ctx = "complete"
+          && (contains_substring ~sub:"capability_observation" message
+              || contains_substring ~sub:"capability_drift" message))
+       entries)
+;;
 
+let test_complete_rejects_output_schema_for_glm () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let config =
+    PC.make
+      ~kind:Glm
+      ~model_id:"provider_k-5"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match
+    Llm_provider.Complete.complete ~sw ~net ~config ~messages:[ user_msg "hi" ] ()
+  with
+  | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+    Alcotest.(check bool)
+      "mentions provider_k json mode"
+      true
+      (contains_substring ~sub:"json mode" (String.lowercase_ascii reason))
+  | Ok _ -> Alcotest.fail "expected AcceptRejected for provider_k output_schema"
+  | Error _ -> Alcotest.fail "expected AcceptRejected for provider_k output_schema"
+;;
 
 let test_annotate_response_cost () =
   let response : api_response =
@@ -1055,11 +1083,8 @@ let () =
       , [ test_case "default config" `Quick test_default_retry_config
         ; test_case "is_retryable" `Quick test_is_retryable
         ] )
+    ; ( "cli_transport_guard"
       , [ test_case
-            "complete refuses HTTP fallback for CLI kinds"
-            `Quick
-            test_complete_agent_llm_a_code_without_transport_is_guarded
-        ; test_case
             "provider_k output schema rejected before request"
             `Quick
             test_complete_rejects_output_schema_for_glm

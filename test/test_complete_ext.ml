@@ -536,9 +536,6 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
     (List.rev probe.streaming_first_chunks)
 ;;
 
-
-(* ── Runner ──────────────────────────────────────────── *)
-
 let () =
   run
     "complete_ext"
@@ -574,8 +571,6 @@ let () =
             "transport success cache metrics and trace headers"
             `Quick
             test_complete_transport_success_cache_metrics_and_trace_headers
-        ; test_case
-            `Quick
         ; test_case
             "retry retries then success"
             `Quick
