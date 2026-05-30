@@ -785,7 +785,6 @@ let test_catalog_empty_alias_not_registered () =
     ; default_model = None
     ; max_context = None
     ; capabilities = Capabilities.default_capabilities
-    ; interactive_required = false
     ; credential_scope = None
     }
   in

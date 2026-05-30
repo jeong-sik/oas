@@ -42,7 +42,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
             "default_model": "rich-model",
             "credential_scope": "workspace",
             "auth": {"type": "setup-token-env", "key": "SETUP_TOKEN"},
-            "interactive_required": true,
             "max_context": 32000,
             "capabilities_base": "provider_d_chat",
             "capabilities": {
@@ -122,7 +121,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check (option string) "default model" (Some "rich-model") rich.default_model;
   check (option int) "explicit max context" (Some 32000) rich.max_context;
   check (option string) "credential scope" (Some "workspace") rich.credential_scope;
-  check bool "interactive required" true rich.interactive_required;
   let caps = rich.capabilities in
   check (option int) "cap max context" (Some 64000) caps.max_context_tokens;
   check (option int) "cap max output" (Some 4096) caps.max_output_tokens;

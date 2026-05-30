@@ -80,7 +80,6 @@ makes the behavior depend on which API the caller used.
         "supports_tools": true,
         "supports_tool_choice": true
       },
-      "interactive_required": false
     }
   ]
 }
@@ -106,7 +105,6 @@ Important provider fields:
 | `aliases` | string array | Additional provider ids registered to the same entry. |
 | `capabilities_base` | string | Provider preset from `Capabilities.capabilities_for_provider_label`. |
 | `capabilities` | object | Optional capability overrides. |
-| `interactive_required` | bool | Runtime may require browser/login/user interaction at call time. |
 | `credential_scope` | string | Human-readable credential scope label. |
 
 Auth modes:

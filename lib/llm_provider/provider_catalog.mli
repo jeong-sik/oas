@@ -36,7 +36,6 @@ type entry =
   ; default_model : string option
   ; max_context : int option
   ; capabilities : Capabilities.capabilities
-  ; interactive_required : bool
   ; credential_scope : string option
   }
 

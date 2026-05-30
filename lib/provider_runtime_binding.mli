@@ -37,7 +37,6 @@ type t =
   ; max_context : int option
   ; capabilities : capabilities
   ; available : bool
-  ; interactive_required : bool
   ; credential_scope : string option
   }
 

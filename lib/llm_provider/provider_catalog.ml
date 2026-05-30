@@ -30,7 +30,6 @@ type entry =
   ; default_model : string option
   ; max_context : int option
   ; capabilities : Capabilities.capabilities
-  ; interactive_required : bool
   ; credential_scope : string option
   }
 
@@ -467,9 +466,6 @@ let parse_entry json =
         let transport =
           Option.value transport_opt ~default:(default_transport_for_kind kind)
         in
-        let interactive_required =
-          member_bool_default "interactive_required" ~default:false json
-        in
         let* capabilities = Result.map_error prefix_id (parse_capabilities json) in
         let max_context =
           match member_int "max_context" json with
@@ -493,7 +489,6 @@ let parse_entry json =
           ; default_model = member_string "default_model" json
           ; max_context
           ; capabilities
-          ; interactive_required
           ; credential_scope = member_string "credential_scope" json
           })
 ;;

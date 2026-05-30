@@ -140,7 +140,6 @@ let binding_of_catalog_entry registry (entry : PC.entry) =
   ; max_context = registry_lookup_max_context registry entry.id entry.max_context
   ; capabilities = public_capabilities entry.capabilities
   ; available = registry_lookup_available registry entry.id
-  ; interactive_required = entry.interactive_required
   ; credential_scope = entry.credential_scope
   }
 ;;

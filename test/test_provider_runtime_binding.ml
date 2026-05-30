@@ -24,7 +24,6 @@ let catalog_json =
       "default_model": "local-model",
       "capabilities_base": "provider_d_chat",
       "capabilities": {"supports_tools": true},
-      "interactive_required": false,
       "credential_scope": "test runtime"
     }
   ]
