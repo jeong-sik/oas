@@ -162,13 +162,7 @@ let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
 let max_turns_hard_cap = function
-  | Anthropic
-  | Kimi
-  | OpenAI_compat
-  | Ollama
-  | Gemini
-  | Glm
-  | DashScope -> None
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;
 
 let clamp_max_turns kind requested =
@@ -178,13 +172,7 @@ let clamp_max_turns kind requested =
 ;;
 
 let default_attempt_timeout_s = function
-  | Anthropic
-  | Kimi
-  | OpenAI_compat
-  | Ollama
-  | Gemini
-  | Glm
-  | DashScope -> None
+  | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;
 
 (** Default reasoning effort level when thinking is enabled but no budget
@@ -315,8 +303,8 @@ let validate_output_schema_request (config : t) =
      | Gemini | Anthropic | Ollama | DashScope -> Ok ()
      | Glm ->
        Error
-         "Glm supports JSON mode (json_object) only; native json_schema output is \
-          not documented in the current Z.AI API"
+         "Glm supports JSON mode (json_object) only; native json_schema output is not \
+          documented in the current Z.AI API"
      | Kimi ->
        Error "Kimi direct API native json_schema output is not verified yet in OAS"
      | OpenAI_compat ->
@@ -338,8 +326,7 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "native structured output is only wired for official Provider_d hosts, got \
                %s"
-              config.base_url)
-     )
+              config.base_url))
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess
@@ -350,7 +337,6 @@ let validate_output_schema_request (config : t) =
     transport layer ([warn_unsupported_once]).
     @since 0.185.0 *)
 let validate_cli_sampling_params (_config : t) = Ok ()
-;;
 
 let has_host_prefix ~url ~prefix =
   let prefix_len = String.length prefix in

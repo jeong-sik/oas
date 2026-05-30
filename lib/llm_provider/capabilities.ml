@@ -308,8 +308,7 @@ let provider_k_capabilities =
 
     @since 0.196.3 *)
 type provider_f_family =
-  | Gemini_3_1
-  (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
+  | Gemini_3_1 (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
   | Gemini_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
   | Gemini_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
   | Gemini_other of string
@@ -511,8 +510,7 @@ let static_model_route_of_id model_id =
   then Some Mimo_v2_5_chat
   else (
     match provider_f_family_of_id m with
-    | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family ->
-      Some (Gemini family)
+    | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
     | Gemini_other _ ->
       if String.starts_with ~prefix:"provider_c-for-coding" m
       then Some Kimi_for_coding
@@ -553,8 +551,7 @@ let static_model_route_of_id model_id =
         String.starts_with ~prefix:"model-f-gemma-4" m
         || String.starts_with ~prefix:"google/model-f-gemma-4" m
       then
-        Some
-          (Gemini_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
+        Some (Gemini_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
       else if starts_with_any m [ "provider_k-4.7-flash"; "glm-4.7-flash" ]
       then Some Glm_4_7_flash
       else if

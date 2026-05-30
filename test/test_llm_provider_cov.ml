@@ -715,11 +715,7 @@ let test_build_request_with_thinking () =
 
 let test_build_request_with_thinking_default_budget () =
   let config =
-    make_config
-      ~kind:Gemini
-      ~model_id:provider_f25_flash_model
-      ~enable_thinking:true
-      ()
+    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~enable_thinking:true ()
   in
   let body_str =
     Backend_provider_f.build_request ~config ~messages:[ user_msg "reason" ] ()

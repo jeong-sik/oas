@@ -41,4 +41,3 @@
 (executable
  (name builder_patterns)
  (libraries agent_sdk eio eio_main yojson))
-

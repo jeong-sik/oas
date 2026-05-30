@@ -178,11 +178,7 @@ let extract_reasoning_content (resp : api_response) body : api_response =
 
 let provider_k_parse_error message =
   Glm_api_error
-    { code = "parse"
-    ; message
-    ; error_class = Glm_invalid_request
-    ; is_retryable = false
-    }
+    { code = "parse"; message; error_class = Glm_invalid_request; is_retryable = false }
 ;;
 
 let parse_response body =
@@ -337,33 +333,27 @@ let%test "classify quota exceeded from message" =
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
-  classify_provider_k_error ~code:"1113" ~message:"whatever"
-  = (Glm_quota_exceeded, false)
+  classify_provider_k_error ~code:"1113" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
-  classify_provider_k_error ~code:"1001" ~message:"whatever"
-  = (Glm_auth_error, false)
+  classify_provider_k_error ~code:"1001" ~message:"whatever" = (Glm_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
-  classify_provider_k_error ~code:"1304" ~message:"whatever"
-  = (Glm_quota_exceeded, false)
+  classify_provider_k_error ~code:"1304" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
-  classify_provider_k_error ~code:"1308" ~message:"whatever"
-  = (Glm_quota_exceeded, false)
+  classify_provider_k_error ~code:"1308" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
-  classify_provider_k_error ~code:"1305" ~message:"whatever"
-  = (Glm_rate_limited, true)
+  classify_provider_k_error ~code:"1305" ~message:"whatever" = (Glm_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
-  classify_provider_k_error ~code:"1301" ~message:"whatever"
-  = (Glm_invalid_request, false)
+  classify_provider_k_error ~code:"1301" ~message:"whatever" = (Glm_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =

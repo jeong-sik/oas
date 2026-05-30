@@ -79,19 +79,11 @@ let test_classification_matrix () =
 ;;
 
 let test_http_status_mapping () =
-  check
-    int
-    "quota"
-    429
-    (K.http_code_of_provider_k_error_class K.Glm_quota_exceeded);
+  check int "quota" 429 (K.http_code_of_provider_k_error_class K.Glm_quota_exceeded);
   check int "rate" 429 (K.http_code_of_provider_k_error_class K.Glm_rate_limited);
   check int "auth" 401 (K.http_code_of_provider_k_error_class K.Glm_auth_error);
   check int "server" 500 (K.http_code_of_provider_k_error_class K.Glm_server_error);
-  check
-    int
-    "invalid"
-    400
-    (K.http_code_of_provider_k_error_class K.Glm_invalid_request)
+  check int "invalid" 400 (K.http_code_of_provider_k_error_class K.Glm_invalid_request)
 ;;
 
 let test_build_request_thinking_modes_and_tool_stream () =

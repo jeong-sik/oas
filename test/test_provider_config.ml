@@ -73,7 +73,6 @@ let test_request_path_provider_h () =
   check_string "provider_h path" "/chat/completions" cfg.request_path
 ;;
 
-
 let test_request_path_override () =
   let cfg =
     Provider_config.make
@@ -400,10 +399,7 @@ let test_default_attempt_timeout_s () =
       (Provider_config.default_attempt_timeout_s kind)
   in
   check_timeout "ollama has no default hard attempt timeout" None Ollama;
-  check_timeout
-    "provider_d_compat has no default hard attempt timeout"
-    None
-    OpenAI_compat
+  check_timeout "provider_d_compat has no default hard attempt timeout" None OpenAI_compat
 ;;
 
 let test_max_turns_hard_cap_and_clamp () =
@@ -573,7 +569,7 @@ let test_kind_aliases () =
 let test_kind_case_insensitive () =
   check_parse "PROVIDER_A" "PROVIDER_A" Anthropic;
   check_parse "Agent_llm_a" "Agent_llm_a" Anthropic;
-  check_parse "Glm" "Glm" Glm;
+  check_parse "Glm" "Glm" Glm
 ;;
 
 let test_kind_whitespace () =
@@ -808,13 +804,7 @@ let test_all_is_exhaustive () =
   List.iter
     (fun k ->
        match (k : Provider_config.provider_kind) with
-       | Anthropic
-       | Kimi
-       | OpenAI_compat
-       | Ollama
-       | Gemini
-       | DashScope
-       | Glm -> ())
+       | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | DashScope | Glm -> ())
     xs
 ;;
 
