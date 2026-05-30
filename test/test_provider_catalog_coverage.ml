@@ -35,7 +35,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
           {
             "id": "rich-http",
             "aliases": [" Alias ", "", 7, "second"],
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "custom-openai-compat",
             "base_url": "https://rich.example/v1",
             "request_path": "/chat/completions",
@@ -79,30 +79,30 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
           },
           {
             "id": "cli-cached",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "",
             "command": "tool-a",
             "auth": {"type": "oauth_cached_login"}
           },
           {
             "id": "oauth",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "managed",
             "auth": {"type": "oauth_cached_login"}
           },
           {
             "id": "file-auth",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "file", "path": "/tmp/provider-token"}
           },
           {
             "id": "exec-auth",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "exec", "command": "op read token"}
           },
           {
             "id": "legacy-env",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "api_key_env": "LEGACY_KEY"
           }
         ]
@@ -113,9 +113,9 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check (list string) "aliases" [ "Alias"; "second" ] rich.aliases;
   check
     bool
-    "custom transport"
+    "legacy custom transport alias"
     true
-    (rich.transport = Provider_catalog.Custom_provider_d_compat);
+    (rich.transport = Provider_catalog.Http);
   check bool "setup auth" true (rich.auth = Provider_catalog.Setup_token_env "SETUP_TOKEN");
   check string "api key from setup auth" "SETUP_TOKEN" rich.api_key_env;
   check (option string) "default model" (Some "rich-model") rich.default_model;
@@ -234,40 +234,40 @@ let test_transport_auth_and_thinking_alias_matrix () =
         "providers": [
           {
             "id": "http-none",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "http",
             "auth": {"type": "none"},
             "capabilities": {"thinking_control_format": "none"}
           },
           {
             "id": "cli-env",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "http",
             "auth": {"type": "api-key-env", "env": "ENV_KEY"},
             "capabilities": {"thinking_control_format": "thinking-object"}
           },
-          {
+      {
             "id": "compat-alias",
-            "kind": "provider_d_compat",
-            "transport": "provider_d_compat",
+            "kind": "openai_compat",
+            "transport": "custom-openai-compat",
             "auth": {"type": "env", "env": "SHORT_ENV"},
             "capabilities": {"thinking_control_format": "thinking-object-plain"}
           },
           {
             "id": "reasoning",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "api_key_env", "env": "REASON_KEY"},
             "capabilities": {"thinking_control_format": "reasoning-effort"}
           },
           {
             "id": "enable",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "auth": {"type": "api-key-env", "env": "ENABLE_KEY"},
             "capabilities": {"thinking_control_format": "enable-thinking"}
           },
           {
             "id": "base-fallback",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "base": "provider_d_chat",
             "max_context": 9223372036854775807999,
             "capabilities": {
@@ -300,9 +300,9 @@ let test_transport_auth_and_thinking_alias_matrix () =
   let compat = require_lookup catalog "compat-alias" in
   check
     bool
-    "provider_d_compat transport alias"
+    "custom-openai-compat transport alias"
     true
-    (compat.transport = Provider_catalog.Custom_provider_d_compat);
+    (compat.transport = Provider_catalog.Http);
   check bool "env auth alias" true (compat.auth = Provider_catalog.Api_key_env "SHORT_ENV");
   check
     bool
@@ -349,7 +349,7 @@ let test_rejects_schema_version_and_accumulates_entry_errors () =
          {|{
            "schema_version": 1,
            "providers": [
-             {"kind": "provider_d_compat"},
+             {"kind": "openai_compat"},
              {"id": "bad-kind", "kind": "missing_kind"},
              {"id": "bad-auth", "auth": {"type": "unknown"}}
            ]
@@ -380,7 +380,7 @@ let test_load_file_and_runtime_file_edges () =
        in
        write_file
          valid_path
-         {|{"schema_version":1,"providers":[{"id":"runtime","kind":"provider_d_compat"}]}|};
+         {|{"schema_version":1,"providers":[{"id":"runtime","kind":"openai_compat"}]}|};
        write_file invalid_path {|{"schema_version":|};
        (match Provider_catalog.load_file valid_path with
         | Ok catalog ->
@@ -417,7 +417,7 @@ let test_global_override_lifecycle () =
   Provider_catalog.clear_global ();
   let catalog =
     catalog_of_string
-      {|{"schema_version":1,"providers":[{"id":"override","kind":"provider_d_compat"}]}|}
+      {|{"schema_version":1,"providers":[{"id":"override","kind":"openai_compat"}]}|}
   in
   Provider_catalog.set_global catalog;
   (match Provider_catalog.global () with

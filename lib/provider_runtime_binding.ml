@@ -10,7 +10,6 @@ type capabilities = Provider.capabilities
 type transport =
   | Http
   | Managed
-  | Custom_provider_d_compat
 
 type auth =
   | No_auth
@@ -47,7 +46,6 @@ let trim_non_empty value =
 let transport_of_catalog = function
   | PC.Http -> Http
   | PC.Managed -> Managed
-  | PC.Custom_provider_d_compat -> Custom_provider_d_compat
 ;;
 
 let auth_of_catalog = function

@@ -11,7 +11,6 @@
 type transport =
   | Http
   | Managed
-  | Custom_provider_d_compat
 [@@deriving show]
 
 type auth_mode =
@@ -51,7 +50,7 @@ type t = entry list
         "providers": [
           {
             "id": "vllm-local",
-            "kind": "provider_d_compat",
+            "kind": "openai_compat",
             "transport": "http",
             "base_url": "http://127.0.0.1:8000",
             "request_path": "/v1/chat/completions",

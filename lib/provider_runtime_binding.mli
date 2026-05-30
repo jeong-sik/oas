@@ -13,7 +13,6 @@ type capabilities = Provider.capabilities
 type transport =
   | Http
   | Managed
-  | Custom_provider_d_compat
 
 type auth =
   | No_auth

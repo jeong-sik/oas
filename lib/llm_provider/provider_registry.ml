@@ -84,7 +84,7 @@ let catalog_command_available (entry : Provider_catalog.entry) =
   match entry.transport with
   | Provider_catalog.Http
   | Provider_catalog.Managed
-  | Provider_catalog.Custom_provider_d_compat -> true
+  -> true
 ;;
 
 let catalog_auth_available (entry : Provider_catalog.entry) =

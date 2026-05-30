@@ -16,7 +16,7 @@ let catalog_json =
     {
       "id": "subscriber-local",
       "aliases": ["Subscriber-Alias"],
-      "kind": "provider_d_compat",
+      "kind": "openai_compat",
       "transport": "http",
       "base_url": "http://127.0.0.1:8123",
       "request_path": "/v1/chat/completions",
@@ -39,7 +39,7 @@ let catalog_variants_json =
     {
       "id": "custom-rich",
       "aliases": ["Rich-Alias"],
-      "kind": "provider_d_compat",
+      "kind": "openai_compat",
       "transport": "custom-openai-compat",
       "base_url": "https://rich.example/v1/",
       "request_path": "/chat/completions",
@@ -49,26 +49,26 @@ let catalog_variants_json =
     },
     {
       "id": "managed-oauth",
-      "kind": "provider_d_compat",
+      "kind": "openai_compat",
       "transport": "managed",
       "auth": {"type": "oauth_cached_login"},
       "capabilities_base": "provider_d_chat"
     },
         {
           "id": "file-auth",
-          "kind": "provider_d_compat",
+          "kind": "openai_compat",
           "auth": {"type": "file", "path": "/tmp/provider-token"},
       "capabilities_base": "provider_d_chat"
     },
     {
       "id": "exec-auth",
-      "kind": "provider_d_compat",
+      "kind": "openai_compat",
       "auth": {"type": "exec", "command": "op read token"},
       "capabilities_base": "provider_d_chat"
     },
     {
       "id": "api-key-auth",
-      "kind": "provider_d_compat",
+      "kind": "openai_compat",
       "api_key_env": "API_KEY_AUTH",
       "capabilities_base": "provider_d_chat"
     }
@@ -80,7 +80,6 @@ let catalog_variants_json =
 let transport_to_string = function
   | Provider_runtime_binding.Http -> "http"
   | Provider_runtime_binding.Managed -> "managed"
-  | Provider_runtime_binding.Custom_provider_d_compat -> "custom"
 ;;
 
 let auth_to_string = function
@@ -199,7 +198,7 @@ let test_all_includes_catalog_entry_once () =
 let test_catalog_transport_and_auth_variants () =
   with_provider_catalog catalog_variants_json (fun () ->
     let cases =
-      [ "rich-alias", "custom", "setup:RICH_SETUP_TOKEN", Some "rich-default", None
+      [ "rich-alias", "http", "setup:RICH_SETUP_TOKEN", Some "rich-default", None
       ; "managed-oauth", "managed", "oauth", None, None
       ; "file-auth", "http", "file:/tmp/provider-token", None, None
       ; "exec-auth", "http", "exec:op read token", None, None
