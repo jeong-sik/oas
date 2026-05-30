@@ -67,10 +67,10 @@ type streaming_provider_module = (module STREAMING_PROVIDER)
     supported, [None] otherwise (caller should fall back to sync + synthetic). *)
 let of_config (provider_cfg : Provider.config) : provider_module =
   let spec = Provider.model_spec_of_config provider_cfg in
-  let base_url, headers =
+  let base_url, api_key, headers =
     match Provider.resolve provider_cfg with
-    | Ok (url, _key, hdrs) -> url, hdrs
-    | Error _ -> "", []
+    | Ok (url, key, hdrs) -> url, key, hdrs
+    | Error _ -> "", "", []
   in
   let module P = struct
     type t = unit
@@ -102,7 +102,16 @@ let of_config (provider_cfg : Provider.config) : provider_module =
            | None -> Yojson.Safe.to_string (`Assoc []))
       in
       let url = base_url ^ path in
-      match Http_client.post_sync ~sw ~net ~url ~headers ~body:body_str () with
+      (* Merge auth headers at request time so that [headers] (from
+         [Provider.resolve]) never carries sensitive tokens. *)
+      let auth_hdrs =
+        if api_key = "" then []
+        else match kind with
+          | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
+          | Provider.Openai_chat_completions | Provider.Custom _ ->
+            [ "Authorization", "Bearer " ^ api_key ]
+      in
+      match Http_client.post_sync ~sw ~net ~url ~headers:(headers @ auth_hdrs) ~body:body_str () with
       | Ok (200, body_str) ->
         (match kind with
          | Provider.Anthropic_messages ->

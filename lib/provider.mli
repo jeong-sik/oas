@@ -146,6 +146,16 @@ val model_spec_of_config : config -> model_spec
 (** Resolve provider config to (base_url, api_key, headers) *)
 val resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
 
+(** Return only the auth-specific headers for a given provider kind.
+    Unlike [headers_with_auth_for_kind] which returns the full header list
+    (including Content-Type), this returns only the authentication header
+    so it can be merged with existing non-auth headers at request time.
+    This keeps [Provider_config.t.headers] free of sensitive tokens. *)
+val auth_headers_only_for_kind
+  :  kind:Llm_provider.Provider_config.provider_kind
+  -> api_key:string
+  -> (string * string) list
+
 (** Pre-built provider configs *)
 val local_llm : unit -> config
 

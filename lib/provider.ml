@@ -201,9 +201,11 @@ let provider_c_direct_base_url () =
 
 let provider_c_direct_request_path = "/v1/messages"
 
-let provider_c_direct_headers key =
+(** Non-auth headers for provider_c (provider_a-compatible).
+    Auth header ("x-api-key") is NOT included — callers merge
+    [auth_headers_only_for_kind] at HTTP request time. *)
+let provider_c_direct_headers _key =
   [ "Content-Type", "application/json"
-  ; "x-api-key", key
   ; "provider_a-version", "2023-06-01"
   ]
 ;;
@@ -406,34 +408,29 @@ let resolve (cfg : config) =
   | Anthropic ->
     (match Sys.getenv_opt cfg.api_key_env with
      | Some key ->
+       (* Auth header ("x-api-key") is NOT included in the returned headers
+          list.  Callers must merge [auth_headers_only_for_kind] at HTTP
+          request time so that [Provider_config.t.headers] never carries
+          sensitive tokens. *)
        Ok
          ( "https://api.provider_a.com"
          , key
-         , [ "x-api-key", key
-           ; "provider_a-version", "2023-06-01"
+         , [ "provider_a-version", "2023-06-01"
            ; "Content-Type", "application/json"
            ] )
      | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))
-  | OpenAICompat { base_url; auth_header; static_token; _ } ->
+  | OpenAICompat { base_url; auth_header = _; static_token; _ } ->
     (match static_token with
      | Some key when String.trim key <> "" ->
-       let headers =
-         match auth_header with
-         | Some header -> [ header, "Bearer " ^ key; "Content-Type", "application/json" ]
-         | None -> [ "Content-Type", "application/json" ]
-       in
-       Ok (base_url, key, headers)
+       (* Auth header is NOT included in the returned headers list.
+          Callers must merge [auth_headers_only_for_kind] at HTTP request
+          time so that [Provider_config.t.headers] never carries tokens. *)
+       Ok (base_url, key, [ "Content-Type", "application/json" ])
      | _ ->
-       (match auth_header with
-        | None -> Ok (base_url, "", [ "Content-Type", "application/json" ])
-        | Some header ->
-          (match Sys.getenv_opt cfg.api_key_env with
-           | Some key ->
-             Ok
-               ( base_url
-               , key
-               , [ header, "Bearer " ^ key; "Content-Type", "application/json" ] )
-           | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))))
+       (match Sys.getenv_opt cfg.api_key_env with
+        | Some key ->
+          Ok (base_url, key, [ "Content-Type", "application/json" ])
+        | None -> Ok (base_url, "", [ "Content-Type", "application/json" ])))
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.resolve cfg
@@ -651,6 +648,25 @@ let headers_with_auth_for_kind
        ("Authorization", "Bearer " ^ key) :: base)
 ;;
 
+(** Return only the auth-specific headers for a given provider kind.
+    Unlike {!headers_with_auth_for_kind} which returns the full header list
+    (including Content-Type), this returns only the authentication header
+    so it can be merged with existing non-auth headers at request time.
+    This keeps [Provider_config.t.headers] free of sensitive tokens. *)
+let auth_headers_only_for_kind
+      ~(kind : Llm_provider.Provider_config.provider_kind)
+      ~api_key
+  =
+  match String.trim api_key with
+  | "" -> []
+  | key ->
+    (match kind with
+     | Anthropic | Kimi -> [ "x-api-key", key ]
+     | Gemini -> []
+     | OpenAI_compat | Ollama | Glm | DashScope ->
+       [ "Authorization", "Bearer " ^ key ])
+;;
+
 (** Convert a [Llm_provider.Provider_config.t] into a
     [Provider.config] (for Agent Builder).  Keeps the conversion
     internal to OAS so consumers don't need their own adapters.
@@ -792,9 +808,10 @@ let provider_config_of_agent
                then ""
                else api_key_from_env entry.defaults.api_key_env
              in
-             let headers =
-               headers_with_auth_for_kind ~kind:entry.defaults.kind ~api_key
-             in
+             (* Auth headers are NOT included here.  Callers merge
+                [auth_headers_only_for_kind] at HTTP request time so that
+                [Provider_config.t.headers] never carries sensitive tokens. *)
+             let headers = [ "Content-Type", "application/json" ] in
              build
                ~kind:entry.defaults.kind
                ~resolved_base_url:entry.defaults.base_url

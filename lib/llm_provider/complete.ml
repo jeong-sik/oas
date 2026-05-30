@@ -638,7 +638,7 @@ let complete_http
             ~net
             ?clock
             ~url
-            ~headers:config.headers
+            ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
             ~body:body_str
             ()
         in
@@ -1339,7 +1339,7 @@ let complete_stream_http
           ?clock
           ~net
           ~url
-          ~headers:config.headers
+          ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
           ~body:body_with_stream
           ~f:(fun reader ->
             let body_logic () =

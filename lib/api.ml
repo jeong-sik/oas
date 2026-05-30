@@ -108,7 +108,7 @@ let create_message
     match provider with
     | Some p ->
       (match Provider.resolve p with
-       | Ok (url, _key, headers) -> Ok (p, url, headers)
+       | Ok (url, api_key, headers) -> Ok (p, url, api_key, headers)
        | Error e -> Error e)
     | None ->
       (match Sys.getenv_opt "PROVIDER_A_API_KEY" with
@@ -119,18 +119,20 @@ let create_message
            ; api_key_env = "PROVIDER_A_API_KEY"
            }
          in
+         (* Auth header ("x-api-key") is NOT included here.
+            Merged at HTTP request time via auth_headers_only_for_kind. *)
          Ok
            ( fallback_provider
            , base_url
+           , key
            , [ "Content-Type", "application/json"
-             ; "x-api-key", key
              ; "provider_a-version", api_version
              ] )
        | None -> Error (Error.Config (MissingEnvVar { var_name = "PROVIDER_A_API_KEY" })))
   in
   match resolve_result with
   | Error e -> Error e
-  | Ok (provider_cfg, base_url, header_list) ->
+  | Ok (provider_cfg, base_url, api_key, header_list) ->
     let model_spec = Provider.model_spec_of_config provider_cfg in
     let kind = model_spec.request_kind in
     let path = model_spec.request_path in
@@ -154,6 +156,15 @@ let create_message
     in
     let url = base_url ^ path in
     let do_http_call () =
+      (* Merge auth headers at request time so that [header_list] (from
+         [Provider.resolve]) never carries sensitive tokens. *)
+      let auth_hdrs =
+        if api_key = "" then []
+        else match kind with
+          | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
+          | Provider.Openai_chat_completions | Provider.Custom _ ->
+            [ "Authorization", "Bearer " ^ api_key ]
+      in
       match
         Llm_provider.Http_client.post_sync
           ?clock
@@ -161,7 +172,7 @@ let create_message
           ~sw
           ~net
           ~url
-          ~headers:header_list
+          ~headers:(header_list @ auth_hdrs)
           ~body:body_str
           ()
       with
