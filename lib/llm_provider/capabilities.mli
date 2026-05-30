@@ -71,38 +71,31 @@ type capabilities =
   ; (* Usage reporting *)
     emits_usage_tokens : bool
     (** Whether the provider's standard response carries usage tokens
-      (input_tokens/output_tokens). CLI-class wrappers (cli_tool_a,
-      cli_tool_b, cli_tool_c) strip usage before returning, so
-      downstream metrics coverage gating must treat text-only turns
-      against them as structurally unreported rather than a gap.
+      (input_tokens/output_tokens).
 
       @since 0.170.9 *)
   ; (* Model limitations *)
     supported_models : string list option
     (** Explicit list of supported models if the provider is restricted
-        to a specific set (e.g. Kimi CLI to "provider_c-for-coding").
+        to a specific set (e.g. Kimi to "kimi-for-coding").
         [None] means no strict client-side restriction. *)
   }
 
 val default_capabilities : capabilities
-val provider_a_capabilities : capabilities
-val provider_c_capabilities : capabilities
-val provider_d_chat_capabilities : capabilities
-val provider_d_chat_extended_capabilities : capabilities
-val provider_f_capabilities : capabilities
+val anthropic_capabilities : capabilities
+val kimi_capabilities : capabilities
+val openai_compat_chat_capabilities : capabilities
+val openai_compat_chat_extended_capabilities : capabilities
+val gemini_capabilities : capabilities
 val ollama_capabilities : capabilities
-val provider_h_capabilities : capabilities
-val provider_k_capabilities : capabilities
-val agent_llm_a_code_capabilities : capabilities
-val provider_f_cli_capabilities : capabilities
-val provider_c_cli_capabilities : capabilities
-val agent_code_cli_capabilities : capabilities
+val dashscope_capabilities : capabilities
+val glm_capabilities : capabilities
 
 (** NVIDIA NIM Provider_l capabilities: Llama-based, chat_template_kwargs thinking.
     @since 0.185.0 *)
 val provider_l_capabilities : capabilities
 
-(** Typed Gemini model family. SSOT for the [provider_f-*] prefix dispatch that
+(** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code
     should switch on this variant rather than re-compare strings.
 
@@ -174,9 +167,8 @@ val for_model_id : string -> capabilities option
 (** Lookup capabilities for a provider label string.
 
     Recognized labels (case-insensitive, whitespace trimmed):
-    [provider_a], [provider_d] / [provider_d_chat], [provider_d_chat_extended],
-    [provider_f], [ollama], [provider_k] / [provider_k-coding], [provider_c], [provider_l],
-    [cli_tool_d], [cli_tool_b], [cli_tool_c], [cli_tool_a].
+    [anthropic] / [claude], [openai_compat] / [openai],
+    [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope], [provider_l].
 
     Returns [None] for labels outside this set. Intended for adapter
     layers that track provider kind as a string (e.g. config loaders,

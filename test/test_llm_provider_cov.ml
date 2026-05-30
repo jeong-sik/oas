@@ -1302,7 +1302,7 @@ let test_parse_response_usage_with_cache () =
    ═══════════════════════════════════════════════════ *)
 
 let test_requires_tools () =
-  let caps = Capabilities.provider_a_capabilities in
+  let caps = Capabilities.anthropic_capabilities in
   Alcotest.(check bool)
     "provider_a has tools"
     true
@@ -1317,7 +1317,7 @@ let test_requires_streaming () =
   Alcotest.(check bool)
     "provider_a streaming"
     true
-    (Capability_filter.requires_streaming Capabilities.provider_a_capabilities);
+    (Capability_filter.requires_streaming Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
     "default no streaming"
     false
@@ -1328,7 +1328,7 @@ let test_requires_reasoning () =
   Alcotest.(check bool)
     "provider_a reasoning"
     true
-    (Capability_filter.requires_reasoning Capabilities.provider_a_capabilities);
+    (Capability_filter.requires_reasoning Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
     "default no reasoning"
     false
@@ -1339,14 +1339,14 @@ let test_requires_multimodal () =
   Alcotest.(check bool)
     "provider_a multimodal"
     true
-    (Capability_filter.requires_multimodal Capabilities.provider_a_capabilities)
+    (Capability_filter.requires_multimodal Capabilities.anthropic_capabilities)
 ;;
 
 let test_requires_json_format () =
   Alcotest.(check bool)
     "provider_d json"
     true
-    (Capability_filter.requires_json_format Capabilities.provider_d_chat_capabilities);
+    (Capability_filter.requires_json_format Capabilities.openai_compat_chat_capabilities);
   Alcotest.(check bool)
     "default no json"
     false
@@ -1357,14 +1357,14 @@ let test_requires_parallel_tools () =
   Alcotest.(check bool)
     "provider_a parallel tools"
     true
-    (Capability_filter.requires_parallel_tools Capabilities.provider_a_capabilities)
+    (Capability_filter.requires_parallel_tools Capabilities.anthropic_capabilities)
 ;;
 
 let test_requires_thinking () =
   Alcotest.(check bool)
     "provider_a thinking"
     true
-    (Capability_filter.requires_thinking Capabilities.provider_a_capabilities);
+    (Capability_filter.requires_thinking Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
     "default no thinking"
     false
@@ -1376,7 +1376,7 @@ let test_requires_structured_output () =
     "provider_d structured"
     true
     (Capability_filter.requires_structured_output
-       Capabilities.provider_d_chat_capabilities);
+       Capabilities.openai_compat_chat_capabilities);
   Alcotest.(check bool)
     "default no structured"
     false
@@ -1387,7 +1387,7 @@ let test_requires_caching () =
   Alcotest.(check bool)
     "provider_a caching"
     true
-    (Capability_filter.requires_caching Capabilities.provider_a_capabilities);
+    (Capability_filter.requires_caching Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
     "default no caching"
     false
@@ -1398,7 +1398,7 @@ let test_requires_vision () =
   Alcotest.(check bool)
     "provider_a vision"
     true
-    (Capability_filter.requires_vision Capabilities.provider_a_capabilities);
+    (Capability_filter.requires_vision Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
     "default no vision"
     false
@@ -1409,7 +1409,7 @@ let test_requires_computer_use () =
   Alcotest.(check bool)
     "provider_a computer_use"
     true
-    (Capability_filter.requires_computer_use Capabilities.provider_a_capabilities);
+    (Capability_filter.requires_computer_use Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
     "default no computer_use"
     false
@@ -1434,14 +1434,14 @@ let test_fits_context_within () =
   Alcotest.(check bool)
     "within limit"
     true
-    (Capability_filter.fits_context ~tokens:100000 Capabilities.provider_a_capabilities)
+    (Capability_filter.fits_context ~tokens:100000 Capabilities.anthropic_capabilities)
 ;;
 
 let test_fits_context_over () =
   Alcotest.(check bool)
     "over limit"
     false
-    (Capability_filter.fits_context ~tokens:999999 Capabilities.provider_a_capabilities)
+    (Capability_filter.fits_context ~tokens:999999 Capabilities.anthropic_capabilities)
 ;;
 
 let test_fits_output_none () =
@@ -1455,14 +1455,14 @@ let test_fits_output_within () =
   Alcotest.(check bool)
     "within limit"
     true
-    (Capability_filter.fits_output ~tokens:1000 Capabilities.provider_a_capabilities)
+    (Capability_filter.fits_output ~tokens:1000 Capabilities.anthropic_capabilities)
 ;;
 
 let test_fits_output_over () =
   Alcotest.(check bool)
     "over limit"
     false
-    (Capability_filter.fits_output ~tokens:999999 Capabilities.provider_a_capabilities)
+    (Capability_filter.fits_output ~tokens:999999 Capabilities.anthropic_capabilities)
 ;;
 
 let fit_result_testable =
@@ -1486,14 +1486,14 @@ let test_check_context_fits () =
   Alcotest.(check fit_result_testable)
     "within -> Fits"
     Capability_filter.Fits
-    (Capability_filter.check_context ~tokens:100000 Capabilities.provider_a_capabilities)
+    (Capability_filter.check_context ~tokens:100000 Capabilities.anthropic_capabilities)
 ;;
 
 let test_check_context_over () =
   Alcotest.(check fit_result_testable)
     "over -> Does_not_fit"
     Capability_filter.Does_not_fit
-    (Capability_filter.check_context ~tokens:999999 Capabilities.provider_a_capabilities)
+    (Capability_filter.check_context ~tokens:999999 Capabilities.anthropic_capabilities)
 ;;
 
 let test_check_output_unknown () =
@@ -1507,7 +1507,7 @@ let test_check_output_unknown () =
 let requires_code_execution (c : Capabilities.capabilities) = c.supports_code_execution
 
 let test_requires_all () =
-  let caps = Capabilities.provider_a_capabilities in
+  let caps = Capabilities.anthropic_capabilities in
   let pred =
     Capability_filter.requires_all
       [ Capability_filter.requires_tools; Capability_filter.requires_streaming ]
@@ -1546,8 +1546,8 @@ let test_default_capabilities () =
   Alcotest.(check bool) "no context limit" true (c.max_context_tokens = None)
 ;;
 
-let test_provider_a_capabilities () =
-  let c = Capabilities.provider_a_capabilities in
+let test_anthropic_capabilities () =
+  let c = Capabilities.anthropic_capabilities in
   Alcotest.(check bool) "tools" true c.supports_tools;
   Alcotest.(check bool) "tool_choice" true c.supports_tool_choice;
   Alcotest.(check bool) "parallel tools" true c.supports_parallel_tool_calls;
@@ -1561,24 +1561,24 @@ let test_provider_a_capabilities () =
   Alcotest.(check (option int)) "max_context" (Some 200_000) c.max_context_tokens
 ;;
 
-let test_provider_d_chat_capabilities () =
-  let c = Capabilities.provider_d_chat_capabilities in
+let test_openai_compat_chat_capabilities () =
+  let c = Capabilities.openai_compat_chat_capabilities in
   Alcotest.(check bool) "tools" true c.supports_tools;
   Alcotest.(check bool) "json format" true c.supports_response_format_json;
   Alcotest.(check bool) "structured" true c.supports_structured_output;
   Alcotest.(check (option int)) "max_context" (Some 128_000) c.max_context_tokens
 ;;
 
-let test_provider_d_chat_extended_capabilities () =
-  let c = Capabilities.provider_d_chat_extended_capabilities in
+let test_openai_compat_chat_extended_capabilities () =
+  let c = Capabilities.openai_compat_chat_extended_capabilities in
   Alcotest.(check bool) "reasoning" true c.supports_reasoning;
   Alcotest.(check bool) "extended_thinking" true c.supports_extended_thinking;
   Alcotest.(check bool) "top_k" true c.supports_top_k;
   Alcotest.(check bool) "min_p" true c.supports_min_p
 ;;
 
-let test_provider_f_capabilities () =
-  let c = Capabilities.provider_f_capabilities in
+let test_gemini_capabilities () =
+  let c = Capabilities.gemini_capabilities in
   Alcotest.(check bool) "audio" true c.supports_audio_input;
   Alcotest.(check bool) "video" true c.supports_video_input;
   Alcotest.(check bool) "code_execution" true c.supports_code_execution;
@@ -1590,8 +1590,8 @@ let test_provider_f_capabilities () =
   Alcotest.(check (option int)) "max_output" (Some 65_000) c.max_output_tokens
 ;;
 
-let test_provider_k_capabilities () =
-  let c = Capabilities.provider_k_capabilities in
+let test_glm_capabilities () =
+  let c = Capabilities.glm_capabilities in
   (* Tool descriptions are sent and the model can still emit tool_use blocks. *)
   Alcotest.(check bool) "supports_tools" true c.supports_tools;
   (* Pin the empirical Glm tool_choice semantics: Glm does not reliably
@@ -1785,7 +1785,7 @@ let test_with_context_size () =
 let test_with_context_size_overrides () =
   let c =
     Capabilities.with_context_size
-      Capabilities.provider_a_capabilities
+      Capabilities.anthropic_capabilities
       ~ctx_size:1_000_000
   in
   Alcotest.(check (option int)) "overrides" (Some 1_000_000) c.max_context_tokens
@@ -1991,14 +1991,14 @@ let () =
         ] )
     ; ( "capabilities.presets"
       , [ Alcotest.test_case "default" `Quick test_default_capabilities
-        ; Alcotest.test_case "provider_a" `Quick test_provider_a_capabilities
-        ; Alcotest.test_case "provider_d_chat" `Quick test_provider_d_chat_capabilities
+        ; Alcotest.test_case "provider_a" `Quick test_anthropic_capabilities
+        ; Alcotest.test_case "provider_d_chat" `Quick test_openai_compat_chat_capabilities
         ; Alcotest.test_case
             "provider_d_chat_extended"
             `Quick
-            test_provider_d_chat_extended_capabilities
-        ; Alcotest.test_case "provider_f" `Quick test_provider_f_capabilities
-        ; Alcotest.test_case "provider_k" `Quick test_provider_k_capabilities
+            test_openai_compat_chat_extended_capabilities
+        ; Alcotest.test_case "provider_f" `Quick test_gemini_capabilities
+        ; Alcotest.test_case "provider_k" `Quick test_glm_capabilities
         ] )
     ; ( "capabilities.for_model_id"
       , [ Alcotest.test_case

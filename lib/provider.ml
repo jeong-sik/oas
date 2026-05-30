@@ -56,8 +56,8 @@ let needs_extended_capabilities model_id =
 
 let default_openai_compat_capabilities model_id =
   if needs_extended_capabilities model_id
-  then provider_d_chat_extended_capabilities
-  else provider_d_chat_capabilities
+  then openai_compat_chat_extended_capabilities
+  else openai_compat_chat_capabilities
 ;;
 
 let uses_native_glm_capabilities ~base_url ~model_id =
@@ -212,7 +212,7 @@ let provider_c_provider_impl : provider_impl =
   { name = "provider_c"
   ; request_kind = Anthropic_messages
   ; request_path = provider_c_direct_request_path
-  ; capabilities = Llm_provider.Capabilities.provider_c_capabilities
+  ; capabilities = Llm_provider.Capabilities.kimi_capabilities
   ; build_body =
       (fun ~config ~messages ?tools () ->
         Yojson.Safe.to_string
@@ -268,7 +268,7 @@ let registered_providers () =
 let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
   | Anthropic ->
-    (* Base [provider_a_capabilities] is a conservative 200K record;
+    (* Base [anthropic_capabilities] is a conservative 200K record;
          the per-model overrides (agent_llm_a-opus-4, agent_llm_a-sonnet-4, etc.)
          live in [Llm_provider.Capabilities.for_model_id] and carry the
          real 1M windows and output-token ceilings. The [Local] and
@@ -278,13 +278,13 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
          ~150K instead of ~750K. *)
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
-     | None -> provider_a_capabilities)
+     | None -> anthropic_capabilities)
   | Local _ ->
     (* Local (llama-server) uses Provider_d-compatible API.
          Resolve capabilities by model_id, fall back to provider_d_chat. *)
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
-     | None -> provider_d_chat_capabilities)
+     | None -> openai_compat_chat_capabilities)
   | OpenAICompat { base_url; _ } ->
     if
       Llm_provider.Zai_catalog.is_glm_model_id model_id

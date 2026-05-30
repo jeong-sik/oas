@@ -65,8 +65,8 @@ let test_default_new_fields_false () =
 
 (* ── Preset capabilities ─────────────────────────────── *)
 
-let test_provider_a_capabilities () =
-  let c = Capabilities.provider_a_capabilities in
+let test_anthropic_capabilities () =
+  let c = Capabilities.anthropic_capabilities in
   check bool "has tools" true c.supports_tools;
   check bool "has parallel tools" true c.supports_parallel_tool_calls;
   check bool "has extended thinking" true c.supports_extended_thinking;
@@ -85,7 +85,7 @@ let test_provider_a_capabilities () =
 ;;
 
 let test_provider_d_capabilities () =
-  let c = Capabilities.provider_d_chat_capabilities in
+  let c = Capabilities.openai_compat_chat_capabilities in
   check bool "has structured output" true c.supports_structured_output;
   check bool "has parallel tools" true c.supports_parallel_tool_calls;
   check bool "no reasoning" false c.supports_reasoning;
@@ -93,7 +93,7 @@ let test_provider_d_capabilities () =
 ;;
 
 let test_provider_d_extended () =
-  let c = Capabilities.provider_d_chat_extended_capabilities in
+  let c = Capabilities.openai_compat_chat_extended_capabilities in
   check bool "has reasoning" true c.supports_reasoning;
   check_thinking_control
     "uses reasoning_effort"
@@ -251,7 +251,7 @@ let test_provider_f_family_other_unknown_provider_f () =
 
 let test_provider_f_family_drives_capabilities () =
   (* Behavioural cross-check: all three live variants resolve to
-     provider_f_capabilities (1M context). This is the property the #968 drift
+     gemini_capabilities (1M context). This is the property the #968 drift
      gate was trying to assert via string-grep; now it is enforced by the
      type system at the dispatch site and by this test. *)
   let ctx id =
@@ -297,7 +297,9 @@ let test_static_model_route_normalizes_cloud_suffix () =
 let test_lookup_provider_c_k2_cloud () =
   match Capabilities.for_model_id "provider_c-k2.6:cloud" with
   | Some c ->
-    check (option int) "context 262K" (Some 262_144) c.max_context_tokens;
+    (* Kimi K2.6: 256K context per platform.kimi.ai official docs (2026-05-30
+       verified). Previously 262_144 from the anonymized provider_c era. *)
+    check (option int) "context 256K" (Some 256_000) c.max_context_tokens;
     check (option int) "output 32K" (Some 32_768) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
@@ -561,7 +563,7 @@ let test_apply_manifest_entry_all_none_uses_base () =
   let manifest = Capability_manifest.of_json json |> Result.get_ok in
   let entry = List.hd manifest in
   let caps = Capabilities.apply_manifest_entry entry in
-  let base = Capabilities.provider_a_capabilities in
+  let base = Capabilities.anthropic_capabilities in
   check bool "tools matches base" base.supports_tools caps.supports_tools;
   check (option int) "ctx matches base" base.max_context_tokens caps.max_context_tokens;
   check bool "caching matches base" base.supports_caching caps.supports_caching
@@ -710,8 +712,8 @@ let test_manifest_load_runtime_file_success_logs_info () =
 
 (* ── DashScope preset ────────────────────────────────── *)
 
-let test_provider_h_capabilities () =
-  let c = Capabilities.provider_h_capabilities in
+let test_dashscope_capabilities () =
+  let c = Capabilities.dashscope_capabilities in
   (* DashScope (DashScope) exposes response_format.json_schema on its Provider_d-compatible
      endpoint; native schema output is supported. Ref: DashScope structured output
      guide — checked 2026-05-05. *)
@@ -729,9 +731,9 @@ let test_provider_h_capabilities () =
 
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
-    [ "provider_d_chat_extended", Some Capabilities.provider_d_chat_extended_capabilities
-    ; "provider_c", Some Capabilities.provider_c_capabilities
-    ; "provider_h", Some Capabilities.provider_h_capabilities
+    [ "provider_d_chat_extended", Some Capabilities.openai_compat_chat_extended_capabilities
+    ; "provider_c", Some Capabilities.kimi_capabilities
+    ; "provider_h", Some Capabilities.dashscope_capabilities
     ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"
     ; "provider_h-3.5", Capabilities.for_model_id "provider_h-3.5-35b-a3b"
     ; "provider_g-v4-flash", Capabilities.for_model_id "provider_g-v4-flash"
@@ -839,10 +841,10 @@ let () =
         ; test_case "new fields false" `Quick test_default_new_fields_false
         ] )
     ; ( "presets"
-      , [ test_case "provider_a" `Quick test_provider_a_capabilities
+      , [ test_case "provider_a" `Quick test_anthropic_capabilities
         ; test_case "provider_d" `Quick test_provider_d_capabilities
         ; test_case "provider_d extended" `Quick test_provider_d_extended
-        ; test_case "provider_h" `Quick test_provider_h_capabilities
+        ; test_case "provider_h" `Quick test_dashscope_capabilities
         ; test_case
             "provider_d compat reasoning records have explicit control"
             `Quick

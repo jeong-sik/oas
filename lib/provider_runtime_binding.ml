@@ -262,12 +262,12 @@ let binding_for_provider_config (cfg : PConfig.t) =
 
 let base_capabilities_of_kind = function
   | PConfig.Ollama -> Llm_provider.Capabilities.ollama_capabilities
-  | PConfig.Anthropic -> Llm_provider.Capabilities.provider_a_capabilities
-  | PConfig.Kimi -> Llm_provider.Capabilities.provider_c_capabilities
-  | PConfig.OpenAI_compat -> Llm_provider.Capabilities.provider_d_chat_capabilities
-  | PConfig.Gemini -> Llm_provider.Capabilities.provider_f_capabilities
-  | PConfig.Glm -> Llm_provider.Capabilities.provider_k_capabilities
-  | PConfig.DashScope -> Llm_provider.Capabilities.provider_h_capabilities
+  | PConfig.Anthropic -> Llm_provider.Capabilities.anthropic_capabilities
+  | PConfig.Kimi -> Llm_provider.Capabilities.kimi_capabilities
+  | PConfig.OpenAI_compat -> Llm_provider.Capabilities.openai_compat_chat_capabilities
+  | PConfig.Gemini -> Llm_provider.Capabilities.gemini_capabilities
+  | PConfig.Glm -> Llm_provider.Capabilities.glm_capabilities
+  | PConfig.DashScope -> Llm_provider.Capabilities.dashscope_capabilities
 ;;
 
 let registry_capabilities_for_provider_config (cfg : PConfig.t) =
