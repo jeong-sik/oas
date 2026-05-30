@@ -297,7 +297,9 @@ let test_static_model_route_normalizes_cloud_suffix () =
 let test_lookup_provider_c_k2_cloud () =
   match Capabilities.for_model_id "provider_c-k2.6:cloud" with
   | Some c ->
-    check (option int) "context 262K" (Some 262_144) c.max_context_tokens;
+    (* Kimi K2.6: 256K context per platform.kimi.ai official docs (2026-05-30
+       verified). Previously 262_144 from the anonymized provider_c era. *)
+    check (option int) "context 256K" (Some 256_000) c.max_context_tokens;
     check (option int) "output 32K" (Some 32_768) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;

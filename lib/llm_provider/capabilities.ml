@@ -167,7 +167,10 @@ let anthropic_capabilities =
 let kimi_capabilities =
   { default_capabilities with
     max_context_tokens = Some 256_000
-  ; max_output_tokens = Some 128_000
+    (* platform.kimi.ai documents only the default max_tokens (32768); it does
+       not state a higher output ceiling. Keep the verified default here. A
+       higher ceiling (if any) is deferred to the per-provider capability pass. *)
+  ; max_output_tokens = Some 32_768
   ; supports_tools = true
   ; supports_tool_choice = true
   ; supports_parallel_tool_calls = true
@@ -181,6 +184,9 @@ let kimi_capabilities =
   ; supports_native_streaming = true
   ; supports_multimodal_inputs = true
   ; supports_image_input = true
+  ; supports_code_execution = true
+    (* Preserved from the pre-rename provider_c_capabilities; dropped by accident
+       in the capability rename. *)
   }
 ;;
 
@@ -942,12 +948,12 @@ let for_model_id_static model_id =
     having default capabilities. *)
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
-  | "anthropic" | "claude" -> Some anthropic_capabilities
+  | "anthropic" | "claude" | "provider_a" -> Some anthropic_capabilities
   | "openai_compat" | "openai" | "provider_d" | "provider_d_chat" ->
     Some openai_compat_chat_capabilities
   | "openai_compat_chat_extended" | "provider_d_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
-  | "gemini" -> Some gemini_capabilities
+  | "gemini" | "provider_f" -> Some gemini_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
   | "glm" | "zhipu" | "provider_k" | "provider_k-coding" -> Some glm_capabilities
   | "dashscope" | "provider_h" -> Some dashscope_capabilities
