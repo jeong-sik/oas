@@ -480,6 +480,7 @@ let static_model_route_of_id model_id =
       else if
         String.starts_with ~prefix:"provider_h-3" m
         || String.starts_with ~prefix:"provider_h_3" m
+        || String.starts_with ~prefix:"dashscope_3" m
       then Some DashScope_3
       else if
         String.starts_with ~prefix:"model-n-4" m || String.starts_with ~prefix:"llama4" m
