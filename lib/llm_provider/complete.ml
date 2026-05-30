@@ -49,14 +49,13 @@ let no_sampling_defaults : sampling_defaults =
 
 let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling_defaults =
   match kind with
-  | Provider_config.OpenAI_compat | Provider_config.DashScope ->
+  | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
     { default_min_p = Some Constants.Sampling.provider_d_compat_min_p
     ; default_top_p = None
     ; default_top_k = None
     }
   | Provider_config.Ollama
   | Provider_config.Anthropic
-  | Provider_config.Kimi
   | Provider_config.Gemini
   | Provider_config.Glm -> no_sampling_defaults
 ;;
@@ -114,12 +113,12 @@ let capability_source_to_string = function
 
 let base_capabilities_for_kind = function
   | Provider_config.Ollama -> Capabilities.ollama_capabilities
-  | DashScope -> Capabilities.provider_h_capabilities
-  | Anthropic -> Capabilities.provider_a_capabilities
-  | Kimi -> Capabilities.provider_c_capabilities
-  | Glm -> Capabilities.provider_k_capabilities
-  | Gemini -> Capabilities.provider_f_capabilities
-  | OpenAI_compat -> Capabilities.provider_d_chat_capabilities
+  | DashScope -> Capabilities.dashscope_capabilities
+  | Anthropic -> Capabilities.anthropic_capabilities
+  | Kimi -> Capabilities.kimi_capabilities
+  | Glm -> Capabilities.glm_capabilities
+  | Gemini -> Capabilities.gemini_capabilities
+  | OpenAI_compat -> Capabilities.openai_compat_chat_capabilities
 ;;
 
 let resolve_capabilities_for_config (config : Provider_config.t) =
@@ -540,11 +539,9 @@ let complete_http
         match config.kind with
         | Provider_config.Anthropic ->
           Backend_provider_a.build_request ~config ~messages ~tools ()
-        | Provider_config.Kimi ->
-          Backend_provider_a.build_request ~config ~messages ~tools ()
         | Provider_config.Ollama ->
           Backend_ollama.build_request ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope ->
+        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
           Backend_provider_d.build_request ~config ~messages ~tools ()
         | Provider_config.Gemini ->
           Backend_provider_f.build_request ~config ~messages ~tools ()
@@ -703,13 +700,11 @@ let complete_http
                 match config.kind with
                 | Provider_config.Anthropic ->
                   Ok (Backend_provider_a.parse_response (Yojson.Safe.from_string body))
-                | Provider_config.Kimi ->
-                  Ok (Backend_provider_a.parse_response (Yojson.Safe.from_string body))
                 | Provider_config.Ollama ->
                   (match Backend_ollama.parse_ollama_response body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
-                | Provider_config.OpenAI_compat | Provider_config.DashScope ->
+                | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
                   (match
                      Backend_provider_d_parse.parse_provider_d_response_result body
                    with
@@ -1222,8 +1217,6 @@ let complete_stream_http
         match config.kind with
         | Provider_config.Anthropic ->
           Backend_provider_a.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.Kimi ->
-          Backend_provider_a.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Ollama ->
           (* Native /api/chat + NDJSON. The Backend_provider_d detour was a
            deferred work-around (#849) that dropped Ollama's
@@ -1232,7 +1225,7 @@ let complete_stream_http
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
           Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope ->
+        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
           Backend_provider_d.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Gemini ->
           Backend_provider_f.build_request ~stream:true ~config ~messages ~tools ()
@@ -1513,12 +1506,13 @@ let complete_stream_http
                        ~on_data:(fun ~event_type data ->
                          let events =
                            match config.kind with
-                           | Provider_config.Anthropic | Provider_config.Kimi ->
+                           | Provider_config.Anthropic ->
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
                            | Provider_config.OpenAI_compat
-                           | Provider_config.DashScope ->
+                           | Provider_config.DashScope
+                           | Provider_config.Kimi ->
                              (match Streaming.parse_provider_d_sse_chunk data with
                               | Some chunk ->
                                 Streaming.provider_d_chunk_to_events (get_state ()) chunk

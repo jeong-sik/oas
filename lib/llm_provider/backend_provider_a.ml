@@ -69,11 +69,7 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let message_to_json =
-    match config.kind with
-    | Provider_config.Kimi -> Api_common.provider_c_message_to_json
-    | _ -> Api_common.message_to_json
-  in
+  let message_to_json = Api_common.message_to_json in
   let msgs_json = List.map message_to_json messages in
   let body =
     [ "model", `String config.model_id

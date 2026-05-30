@@ -20,7 +20,7 @@ type provider_kind = Provider_kind.t =
     it does not dispatch over an HTTP path. *)
 let request_path_default_for_kind = function
   | Anthropic -> "/v1/messages"
-  | Kimi -> "/v1/messages"
+  | Kimi -> "/v1/chat/completions"
   | OpenAI_compat -> "/v1/chat/completions"
   | Ollama -> "/api/chat"
   | Gemini -> ""
@@ -317,9 +317,7 @@ let validate_output_schema_request (config : t) =
        Error
          "Glm supports JSON mode (json_object) only; native json_schema output is \
           not documented in the current Z.AI API"
-     | Kimi ->
-       Error "Kimi direct API native json_schema output is not verified yet in OAS"
-     | OpenAI_compat ->
+     | Kimi | OpenAI_compat ->
        let caps =
          match Capabilities.for_model_id config.model_id with
          | Some c -> c

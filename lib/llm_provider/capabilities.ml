@@ -85,9 +85,7 @@ type capabilities =
     emits_usage_tokens : bool
     (** True when the provider's standard response carries
       [input_tokens]/[output_tokens] (direct APIs like Anthropic,
-      Provider_d, Gemini, Kimi-API, Glm, Ollama). False for CLI-class
-      wrappers that strip usage before returning (cli_tool_a,
-      cli_tool_b, cli_tool_c).
+      OpenAI_compat, Gemini, Kimi, Glm, Ollama).
 
       Consumers use this to decide whether a text-only turn with no
       usage should be treated as a structurally unreported one
@@ -132,7 +130,7 @@ let default_capabilities =
   }
 ;;
 
-let provider_a_capabilities =
+let anthropic_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000
   ; (* default; opus/sonnet 4.6 = 1M *)
@@ -166,20 +164,27 @@ let provider_a_capabilities =
   }
 ;;
 
-let provider_c_capabilities =
+let kimi_capabilities =
   { default_capabilities with
-    max_context_tokens = Some 262_144
-  ; max_output_tokens = Some 32_768
+    max_context_tokens = Some 256_000
+  ; max_output_tokens = Some 128_000
   ; supports_tools = true
   ; supports_tool_choice = true
+  ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; supports_reasoning_budget = true
   ; thinking_control_format = Thinking_object_only
+  ; supports_response_format_json = true
+  ; supports_structured_output = true
   ; supports_system_prompt = true
-  ; supports_code_execution = true
+  ; supports_native_streaming = true
+  ; supports_multimodal_inputs = true
+  ; supports_image_input = true
   }
 ;;
 
-let provider_d_chat_capabilities =
+let openai_compat_chat_capabilities =
   { default_capabilities with
     max_context_tokens = Some 128_000
   ; max_output_tokens = Some 16_384
@@ -197,8 +202,8 @@ let provider_d_chat_capabilities =
   }
 ;;
 
-let provider_d_chat_extended_capabilities =
-  { provider_d_chat_capabilities with
+let openai_compat_chat_extended_capabilities =
+  { openai_compat_chat_capabilities with
     supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_reasoning_budget = true
@@ -235,7 +240,7 @@ let provider_d_chat_extended_capabilities =
    llama-server backend). VL variants add image input.
    Ref: build.nvidia.com/nvidia docs, Provider_l model cards. *)
 let provider_l_capabilities =
-  { provider_d_chat_extended_capabilities with
+  { openai_compat_chat_extended_capabilities with
     supports_tool_choice = true
   ; supports_reasoning = true
   ; thinking_control_format = Chat_template_kwargs
@@ -243,7 +248,7 @@ let provider_l_capabilities =
 ;;
 
 let ollama_capabilities =
-  { provider_d_chat_extended_capabilities with
+  { openai_compat_chat_extended_capabilities with
     supports_tool_choice = false
   ; supports_seed = true
   ; supports_seed_with_images = true
@@ -251,15 +256,15 @@ let ollama_capabilities =
   }
 ;;
 
-let provider_h_capabilities =
-  { provider_d_chat_extended_capabilities with
+let dashscope_capabilities =
+  { openai_compat_chat_extended_capabilities with
     supports_tool_choice = true
   ; supports_min_p = true
   ; thinking_control_format = Enable_thinking
   }
 ;;
 
-let provider_k_capabilities =
+let glm_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000
   ; (* Glm-5.1 API enforces max_tokens <= 40960 at request time; keeping a
@@ -335,7 +340,7 @@ let provider_f_family_of_id (id : string) : provider_f_family =
   else Gemini_other id
 ;;
 
-let provider_f_capabilities =
+let gemini_capabilities =
   { default_capabilities with
     max_context_tokens = Some 1_000_000
   ; max_output_tokens = Some 65_000
@@ -360,7 +365,7 @@ let provider_f_capabilities =
      generationConfig (ai.google.dev/api/generate-content). The
      [backend_provider_f.build_request] serializer already emits it at
      lib/llm_provider/backend_provider_f.ml:162-164, so the capability
-     record must match. Same discrepancy story as provider_a_capabilities
+     record must match. Same discrepancy story as anthropic_capabilities
      (#832) — Provider_d-compat consumers that route a Gemini config
      through a capability-checking path were silently dropping top_k.
      [supports_min_p] stays false; Gemini's generationConfig has no
@@ -369,60 +374,8 @@ let provider_f_capabilities =
   }
 ;;
 
-let agent_llm_a_code_capabilities =
-  { provider_a_capabilities with
-    max_context_tokens = Some 1_000_000
-  ; (* 1M context via Agent_llm_a Code *)
-    max_output_tokens = Some 64_000
-  ; supports_structured_output = false
-  ; supports_computer_use = true
-  ; supports_code_execution = true
-  ; supports_runtime_mcp_tools = true
-  ; supports_runtime_tool_events = true
-  }
-;;
-
-let provider_f_cli_capabilities =
-  { default_capabilities with
-    max_context_tokens = Some 1_000_000
-  ; max_output_tokens = Some 65_000
-  ; supports_tools = false
-  ; supports_tool_choice = false
-  ; supports_native_streaming = false
-  ; supports_system_prompt = true
-  ; supports_runtime_mcp_tools = true
-  ; supports_runtime_tool_events = true
-  ; emits_usage_tokens = false (* CLI wrapper strips usage *)
-  }
-;;
-
-let provider_c_cli_capabilities =
-  { default_capabilities with
-    max_context_tokens = Some 262_144
-  ; max_output_tokens = Some 32_768
-  ; supports_tools = true
-  ; supports_tool_choice = false
-  ; supports_reasoning = true
-  ; supports_system_prompt = true
-  ; supports_code_execution = true
-  ; emits_usage_tokens = false (* CLI wrapper strips usage *)
-  ; supported_models = Some [ "provider_c-for-coding" ]
-  }
-;;
-
-let agent_code_cli_capabilities =
-  { default_capabilities with
-    max_context_tokens = Some 1_050_000
-  ; max_output_tokens = Some 32_000
-  ; supports_tools = false
-  ; supports_tool_choice = false
-  ; supports_native_streaming = false
-  ; supports_system_prompt = true
-  ; supports_runtime_mcp_tools = true
-  ; supports_runtime_tool_events = true
-  ; emits_usage_tokens = false (* CLI wrapper strips usage *)
-  }
-;;
+(* CLI subprocess transports have been removed; CLI-specific capability
+   records deleted. See PR #1809. *)
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
@@ -603,49 +556,49 @@ let static_model_route_of_id model_id =
 let capabilities_of_static_model_route = function
   | Agent_llm_a_opus_4 ->
     Some
-      { provider_a_capabilities with
+      { anthropic_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 128_000
       }
   | Agent_llm_a_sonnet_4 ->
     Some
-      { provider_a_capabilities with
+      { anthropic_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 64_000
       }
   | Agent_llm_a_haiku_4 ->
     Some
-      { provider_a_capabilities with
+      { anthropic_capabilities with
         max_context_tokens = Some 200_000
       ; max_output_tokens = Some 8_192
       }
   | Provider_d_5 ->
     Some
-      { provider_d_chat_extended_capabilities with
+      { openai_compat_chat_extended_capabilities with
         max_context_tokens = Some 1_050_000
       ; max_output_tokens = Some 128_000
       ; supports_computer_use = true
       }
   | Provider_d_4_1 ->
     Some
-      { provider_d_chat_capabilities with
+      { openai_compat_chat_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 32_000
       }
   | Provider_d_4o ->
     Some
-      { provider_d_chat_capabilities with
+      { openai_compat_chat_capabilities with
         max_context_tokens = Some 128_000
       ; max_output_tokens = Some 16_384
       }
   | Mimo_v2_5_chat ->
     Some
-      { provider_d_chat_capabilities with
+      { openai_compat_chat_capabilities with
         supports_reasoning = true
       ; thinking_control_format = Thinking_object_only
       }
-  | Gemini _ -> Some provider_f_capabilities
-  | Kimi_for_coding | Kimi_k2 -> Some provider_c_capabilities
+  | Gemini _ -> Some gemini_capabilities
+  | Kimi_for_coding | Kimi_k2 -> Some kimi_capabilities
   | DashScope_3 ->
     Some
       { default_capabilities with
@@ -989,19 +942,17 @@ let for_model_id_static model_id =
     having default capabilities. *)
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
-  | "provider_a" -> Some provider_a_capabilities
-  | "provider_d" | "provider_d_chat" -> Some provider_d_chat_capabilities
-  | "provider_d_chat_extended" -> Some provider_d_chat_extended_capabilities
-  | "provider_f" -> Some provider_f_capabilities
+  | "anthropic" | "claude" -> Some anthropic_capabilities
+  | "openai_compat" | "openai" | "provider_d" | "provider_d_chat" ->
+    Some openai_compat_chat_capabilities
+  | "openai_compat_chat_extended" | "provider_d_chat_extended" ->
+    Some openai_compat_chat_extended_capabilities
+  | "gemini" -> Some gemini_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
-  | "provider_k" | "provider_k-coding" -> Some provider_k_capabilities
-  | "provider_h" -> Some provider_h_capabilities
+  | "glm" | "zhipu" | "provider_k" | "provider_k-coding" -> Some glm_capabilities
+  | "dashscope" | "provider_h" -> Some dashscope_capabilities
   | "provider_l" -> Some provider_l_capabilities
-  | "provider_c" -> Some provider_c_capabilities
-  | "cli_tool_d" -> Some agent_llm_a_code_capabilities
-  | "cli_tool_b" -> Some provider_f_cli_capabilities
-  | "cli_tool_c" -> Some provider_c_cli_capabilities
-  | "cli_tool_a" -> Some agent_code_cli_capabilities
+  | "kimi" | "provider_c" -> Some kimi_capabilities
   | _ -> None
 ;;
 
@@ -1260,44 +1211,14 @@ let%test "for_model_id bare glm-5-turbo has GLM-5 thinking limits" =
 let%test "emits_usage_tokens: default is true" = default_capabilities.emits_usage_tokens
 
 let%test "emits_usage_tokens: provider_a reports usage" =
-  provider_a_capabilities.emits_usage_tokens
+  anthropic_capabilities.emits_usage_tokens
 ;;
 
 let%test "emits_usage_tokens: ollama reports usage" =
   ollama_capabilities.emits_usage_tokens
 ;;
 
-let%test "emits_usage_tokens: cli_tool_d reports usage" =
-  agent_llm_a_code_capabilities.emits_usage_tokens
-;;
-
-let%test "emits_usage_tokens: cli_tool_b strips usage" =
-  not provider_f_cli_capabilities.emits_usage_tokens
-;;
-
-let%test "emits_usage_tokens: cli_tool_c strips usage" =
-  not provider_c_cli_capabilities.emits_usage_tokens
-;;
-
-let%test "emits_usage_tokens: cli_tool_a strips usage" =
-  not agent_code_cli_capabilities.emits_usage_tokens
-;;
-
-let%test "capabilities_for_provider_label: cli_tool_c" =
-  match capabilities_for_provider_label "cli_tool_c" with
-  | Some c -> not c.emits_usage_tokens
-  | None -> false
-;;
-
-let%test "capabilities_for_provider_label: CLI_TOOL_C (case insensitive)" =
-  Option.is_some (capabilities_for_provider_label "CLI_TOOL_C")
-;;
-
-let%test "capabilities_for_provider_label: trims whitespace" =
-  Option.is_some (capabilities_for_provider_label "  cli_tool_a  ")
-;;
-
-let%test "capabilities_for_provider_label: provider_a" =
+let%test "capabilities_for_provider_label: anthropic" =
   match capabilities_for_provider_label "provider_a" with
   | Some c -> c.emits_usage_tokens && c.supports_caching
   | None -> false

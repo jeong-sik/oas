@@ -118,7 +118,7 @@ let build_request
      request-build pipeline.
 
      For the default ollama_capabilities (inherited from
-     provider_d_chat_extended_capabilities) both flags are true, so
+     openai_compat_chat_extended_capabilities) both flags are true, so
      behaviour is byte-identical for the common path. The gate only
      fires when an operator explicitly sets [supports_min_p = false]
      or [supports_top_k = false] for a specific Ollama variant — at

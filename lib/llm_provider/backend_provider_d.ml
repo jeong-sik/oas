@@ -153,7 +153,7 @@ let%test "provider_k drops tools when tool_choice none" =
 (* === Capability-gated sampling param tests (oas#827) === *)
 
 let%test "provider_k drops min_p when model does not support it" =
-  (* Glm's provider_k_capabilities inherits supports_min_p = false from
+  (* Glm's glm_capabilities inherits supports_min_p = false from
      default_capabilities.  Even when the caller sets min_p explicitly
      (via higher-level config inheritance or agent default), backend_provider_d must
      omit it from the wire body — ZAI rejects the request with

@@ -45,7 +45,7 @@ let test_check_context_unknown_limit () =
 
 let test_check_context_fits () =
   let result =
-    Capability_filter.check_context ~tokens:100 Capabilities.provider_a_capabilities
+    Capability_filter.check_context ~tokens:100 Capabilities.anthropic_capabilities
   in
   check bool "Fits when tokens <= max" true (result = Capability_filter.Fits)
 ;;
@@ -54,7 +54,7 @@ let test_check_context_does_not_fit () =
   let result =
     Capability_filter.check_context
       ~tokens:999_999_999
-      Capabilities.provider_a_capabilities
+      Capabilities.anthropic_capabilities
   in
   check
     bool
@@ -74,14 +74,14 @@ let test_check_output_unknown_limit () =
 
 let test_check_output_fits () =
   let result =
-    Capability_filter.check_output ~tokens:100 Capabilities.provider_a_capabilities
+    Capability_filter.check_output ~tokens:100 Capabilities.anthropic_capabilities
   in
   check bool "Fits when tokens <= max" true (result = Capability_filter.Fits)
 ;;
 
 let test_check_output_does_not_fit () =
   let result =
-    Capability_filter.check_output ~tokens:999_999 Capabilities.provider_a_capabilities
+    Capability_filter.check_output ~tokens:999_999 Capabilities.anthropic_capabilities
   in
   check
     bool

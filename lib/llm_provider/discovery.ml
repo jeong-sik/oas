@@ -311,8 +311,8 @@ let infer_capabilities ~uses_reasoning_effort models props =
             models
         in
         if needs_extended
-        then Capabilities.provider_d_chat_extended_capabilities
-        else Capabilities.provider_d_chat_capabilities)
+        then Capabilities.openai_compat_chat_extended_capabilities
+        else Capabilities.openai_compat_chat_capabilities)
   in
   (* 3. Merge ctx_size from /props into capabilities *)
   match props with
