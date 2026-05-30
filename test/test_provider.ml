@@ -502,7 +502,7 @@ let test_config_of_provider_config_provider_c_uses_custom_provider () =
   match Provider.config_of_provider_config cfg with
   | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
     Alcotest.(check string) "provider name" "provider_c" name;
-    Alcotest.(check string) "api_key_env" "PROVIDER_C_API_KEY" api_key_env
+    Alcotest.(check string) "api_key_env" "KIMI_API_KEY" api_key_env
   | _ ->
     Alcotest.fail "expected provider_c config to round-trip through Custom_registered"
 ;;
@@ -585,7 +585,7 @@ let test_provider_config_of_agent_provider_a () =
   | Ok pc ->
     Alcotest.(check string)
       "kind"
-      "provider_a"
+      "anthropic"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "model_id" "agent_llm_a-sonnet-4-20250514" pc.model_id;
     Alcotest.(check string) "api_key" "sk-ant-adapter-test" pc.api_key;
@@ -632,8 +632,8 @@ let test_provider_config_of_agent_provider_d_compat_collapses () =
   with
   | Ok pc ->
     Alcotest.(check string)
-      "kind collapses to provider_d_compat"
-      "provider_d_compat"
+      "kind collapses to openai_compat"
+      "openai_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string)
       "base_url from resolve"
@@ -680,8 +680,8 @@ let test_provider_config_of_agent_none_fallback () =
   with
   | Ok pc ->
     Alcotest.(check string)
-      "defaults to provider_a"
-      "provider_a"
+      "defaults to anthropic"
+      "anthropic"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "uses fallback key" "sk-ant-default-fallback" pc.api_key;
     Alcotest.(check string)
@@ -710,7 +710,7 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
   | Ok pc ->
     Alcotest.(check string)
       "kind"
-      "provider_d_compat"
+      "openai_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "request_path" "/v1/chat/completions" pc.request_path;
     Alcotest.(check string) "local strips dummy api_key" "" pc.api_key;
