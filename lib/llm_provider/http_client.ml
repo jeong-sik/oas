@@ -234,67 +234,101 @@ let log_close_failure ~url ~message =
   Diag.warn "http_client" "%s" (Yojson.Safe.to_string json)
 ;;
 
-(* CDN/reverse-proxy total-header-size budget. Cloudflare and similar edges
-   (e.g. RunPod's *.proxy.runpod.net) reject requests whose combined header
-   bytes exceed roughly this size with an opaque "400 Bad Request" HTML page
-   returned at the edge — before the request reaches the origin server. The SDK
-   then surfaces only that HTML, which is undiagnosable. 8 KB is conservative:
-   normal completion requests carry well under 1 KB of headers, so this only
-   fires on genuinely oversized request-scoped headers. *)
-let cdn_safe_header_budget_bytes = 8192
+(* Empirically measured (2026-05-31) against RunPod's *.proxy.runpod.net edge:
+   a single request header LINE >= 8192 bytes is rejected by the cloudflare edge
+   with an opaque "400 Bad Request" (server: cloudflare, empty body, cf-ray)
+   BEFORE the request reaches the origin. The binding limit is per-header-line,
+   NOT the header total — 20 x 500B headers (10 KB total) passed, while one
+   8192B header did not. Body size (up to 2 MB) and malformed header values did
+   not reproduce it. *)
+let cdn_per_header_limit_bytes = 8192
 
 (* key + ": " + value + CRLF — the on-wire size of one header line. *)
-let header_line_bytes (key, value) =
-  String.length key + String.length value + 4
+let header_line_bytes (key, value) = String.length key + String.length value + 4
 
-let warn_if_headers_exceed_cdn_budget ~url headers =
-  let total = List.fold_left (fun acc h -> acc + header_line_bytes h) 0 headers in
-  if total > cdn_safe_header_budget_bytes then begin
-    let largest =
-      headers
-      |> List.map (fun ((k, _) as h) -> (k, header_line_bytes h))
-      |> List.sort (fun (_, a) (_, b) -> compare b a)
-      |> (function a :: b :: c :: _ -> [ a; b; c ] | l -> l)
-      |> List.map (fun (k, n) -> `Assoc [ "key", `String k; "bytes", `Int n ])
+(* Request header size profile (name + on-wire bytes, largest first). VALUES ARE
+   OMITTED: header values may carry credentials (Authorization, tokens), so only
+   sizes are logged. *)
+let header_size_profile headers =
+  headers
+  |> List.map (fun ((k, _) as h) -> k, header_line_bytes h)
+  |> List.sort (fun (_, a) (_, b) -> compare b a)
+  |> List.map (fun (k, n) -> `Assoc [ "name", `String k; "bytes", `Int n ])
+;;
+
+let max_single_header_bytes headers =
+  List.fold_left (fun acc h -> max acc (header_line_bytes h)) 0 headers
+;;
+
+(* On a 4xx response, log the request's header size profile and the response's
+   edge signature (server, cf-ray). A 4xx with an empty/opaque body and a
+   "cloudflare" server indicates an edge rejection — commonly a single header
+   line over [cdn_per_header_limit_bytes] — rather than an origin-level error.
+   This names the offending header WHEN a real failure recurs: header contents
+   are runtime-dependent and not knowable statically, so a pre-send size guess
+   either never fires (small headers) or false-fires on benign many-small-header
+   requests the edge accepts. *)
+let profile_headers_on_client_error ~url ~code ~resp_headers request_headers =
+  if code >= 400 && code < 500
+  then (
+    let server = Http.Header.get resp_headers "server" in
+    let cf_ray = Http.Header.get resp_headers "cf-ray" in
+    let opt = function
+      | Some s -> `String s
+      | None -> `Null
+    in
+    let total =
+      List.fold_left (fun acc h -> acc + header_line_bytes h) 0 request_headers
     in
     let json =
       `Assoc
-        [ "event", `String "http_client_headers_exceed_cdn_budget"
+        [ "event", `String "http_client_4xx_request_header_profile"
         ; "url", `String url
-        ; "total_header_bytes", `Int total
-        ; "cdn_safe_budget_bytes", `Int cdn_safe_header_budget_bytes
-        ; "largest_headers", `List largest
+        ; "status", `Int code
+        ; "response_server", opt server
+        ; "cf_ray", opt cf_ray
+        ; "request_header_count", `Int (List.length request_headers)
+        ; "total_request_header_bytes", `Int total
+        ; "max_single_header_bytes", `Int (max_single_header_bytes request_headers)
+        ; "cdn_per_header_limit_bytes", `Int cdn_per_header_limit_bytes
+        ; "header_sizes", `List (header_size_profile request_headers)
         ; ( "note"
           , `String
-              "CDN/proxy (e.g. cloudflare) may reject this request with an \
-               opaque 400 before it reaches the origin; reduce request-scoped \
-               header size." )
+              "4xx from an LLM endpoint. Header VALUES omitted (may carry credentials); \
+               sizes only. A cloudflare/RunPod edge rejects a single header line over \
+               cdn_per_header_limit_bytes with an opaque 400 before the origin — compare \
+               max_single_header_bytes." )
         ]
     in
-    Diag.warn "http_client" "%s" (Yojson.Safe.to_string json)
-  end
+    Diag.warn "http_client" "%s" (Yojson.Safe.to_string json))
 ;;
 
 let%test "header_line_bytes = key + value + 4 (\": \" + CRLF)" =
   (* "x-runtime-mcp" = 13, "abc" = 3, + 4 = 20 *)
   header_line_bytes ("x-runtime-mcp", "abc") = 20
+;;
 
-let%test "an oversized single header exceeds the CDN header budget" =
-  let total =
-    List.fold_left (fun a h -> a + header_line_bytes h) 0
-      [ ("x-big", String.make 9000 'x') ]
-  in
-  total > cdn_safe_header_budget_bytes
+let%test "header_size_profile orders the largest header first" =
+  match
+    header_size_profile
+      [ "small", "v"; "big", String.make 100 'x'; "mid", String.make 20 'y' ]
+  with
+  | `Assoc (("name", `String "big") :: _) :: _ -> true
+  | _ -> false
+;;
 
-let%test "a normal completion request header set is under the CDN budget" =
-  let normal =
-    [ ("Authorization", "Bearer " ^ String.make 64 'k')
-    ; ("Content-Type", "application/json")
-    ; ("x-masc-keeper-name", "masc-improver")
-    ]
+(* The edge checks per-header-line size, not the total. Many small headers whose
+   total far exceeds the limit are accepted; only the per-header max matters. *)
+let%test "max_single_header_bytes ignores the total, tracks the largest line" =
+  let many_small =
+    List.init 20 (fun i -> Printf.sprintf "x-h%d" i, String.make 500 'y')
   in
-  let total = List.fold_left (fun a h -> a + header_line_bytes h) 0 normal in
-  not (total > cdn_safe_header_budget_bytes)
+  max_single_header_bytes many_small < cdn_per_header_limit_bytes
+;;
+
+let%test "max_single_header_bytes flags a single oversized header line" =
+  max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
+;;
 
 (* Substring check on already-lowered strings. *)
 let has_substr haystack needle =
@@ -583,7 +617,6 @@ let post_sync
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers
     in
-    warn_if_headers_exceed_cdn_budget ~url headers_with_length;
     let hdr = Http.Header.of_list headers_with_length in
     with_optional_timeout ~clock ~timeout_s (fun () ->
       let resp, resp_body =
@@ -595,6 +628,11 @@ let post_sync
           uri
       in
       let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+      profile_headers_on_client_error
+        ~url
+        ~code
+        ~resp_headers:(Cohttp.Response.headers resp)
+        headers_with_length;
       let body_str =
         try
           Eio.Buf_read.(
@@ -624,7 +662,6 @@ let post_stream
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers
     in
-    warn_if_headers_exceed_cdn_budget ~url headers_with_length;
     let hdr = Http.Header.of_list headers_with_length in
     (* Only the connect + initial response headers are bounded; body
        consumption happens in the returned reader and is the caller's
@@ -642,6 +679,11 @@ let post_stream
     | `OK -> Ok (Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body)
     | status ->
       let code = Cohttp.Code.code_of_status status in
+      profile_headers_on_client_error
+        ~url
+        ~code
+        ~resp_headers:(Cohttp.Response.headers resp)
+        headers_with_length;
       let body_str =
         try
           Eio.Buf_read.(
@@ -673,7 +715,6 @@ let with_post_stream
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers
     in
-    warn_if_headers_exceed_cdn_budget ~url headers_with_length;
     let hdr = Http.Header.of_list headers_with_length in
     (* Only bound connect + initial response headers.  Body consumption
        in [f] is the caller's responsibility to timebox. *)
@@ -694,6 +735,11 @@ let with_post_stream
       Ok (f reader)
     | status ->
       let code = Cohttp.Code.code_of_status status in
+      profile_headers_on_client_error
+        ~url
+        ~code
+        ~resp_headers:(Cohttp.Response.headers resp)
+        headers_with_length;
       let body_str =
         try
           Eio.Buf_read.(
