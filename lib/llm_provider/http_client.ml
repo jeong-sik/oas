@@ -234,6 +234,68 @@ let log_close_failure ~url ~message =
   Diag.warn "http_client" "%s" (Yojson.Safe.to_string json)
 ;;
 
+(* CDN/reverse-proxy total-header-size budget. Cloudflare and similar edges
+   (e.g. RunPod's *.proxy.runpod.net) reject requests whose combined header
+   bytes exceed roughly this size with an opaque "400 Bad Request" HTML page
+   returned at the edge — before the request reaches the origin server. The SDK
+   then surfaces only that HTML, which is undiagnosable. 8 KB is conservative:
+   normal completion requests carry well under 1 KB of headers, so this only
+   fires on genuinely oversized request-scoped headers. *)
+let cdn_safe_header_budget_bytes = 8192
+
+(* key + ": " + value + CRLF — the on-wire size of one header line. *)
+let header_line_bytes (key, value) =
+  String.length key + String.length value + 4
+
+let warn_if_headers_exceed_cdn_budget ~url headers =
+  let total = List.fold_left (fun acc h -> acc + header_line_bytes h) 0 headers in
+  if total > cdn_safe_header_budget_bytes then begin
+    let largest =
+      headers
+      |> List.map (fun ((k, _) as h) -> (k, header_line_bytes h))
+      |> List.sort (fun (_, a) (_, b) -> compare b a)
+      |> (function a :: b :: c :: _ -> [ a; b; c ] | l -> l)
+      |> List.map (fun (k, n) -> `Assoc [ "key", `String k; "bytes", `Int n ])
+    in
+    let json =
+      `Assoc
+        [ "event", `String "http_client_headers_exceed_cdn_budget"
+        ; "url", `String url
+        ; "total_header_bytes", `Int total
+        ; "cdn_safe_budget_bytes", `Int cdn_safe_header_budget_bytes
+        ; "largest_headers", `List largest
+        ; ( "note"
+          , `String
+              "CDN/proxy (e.g. cloudflare) may reject this request with an \
+               opaque 400 before it reaches the origin; reduce request-scoped \
+               header size." )
+        ]
+    in
+    Diag.warn "http_client" "%s" (Yojson.Safe.to_string json)
+  end
+;;
+
+let%test "header_line_bytes = key + value + 4 (\": \" + CRLF)" =
+  (* "x-runtime-mcp" = 13, "abc" = 3, + 4 = 20 *)
+  header_line_bytes ("x-runtime-mcp", "abc") = 20
+
+let%test "an oversized single header exceeds the CDN header budget" =
+  let total =
+    List.fold_left (fun a h -> a + header_line_bytes h) 0
+      [ ("x-big", String.make 9000 'x') ]
+  in
+  total > cdn_safe_header_budget_bytes
+
+let%test "a normal completion request header set is under the CDN budget" =
+  let normal =
+    [ ("Authorization", "Bearer " ^ String.make 64 'k')
+    ; ("Content-Type", "application/json")
+    ; ("x-masc-keeper-name", "masc-improver")
+    ]
+  in
+  let total = List.fold_left (fun a h -> a + header_line_bytes h) 0 normal in
+  not (total > cdn_safe_header_budget_bytes)
+
 (* Substring check on already-lowered strings. *)
 let has_substr haystack needle =
   let hlen = String.length haystack
@@ -521,6 +583,7 @@ let post_sync
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers
     in
+    warn_if_headers_exceed_cdn_budget ~url headers_with_length;
     let hdr = Http.Header.of_list headers_with_length in
     with_optional_timeout ~clock ~timeout_s (fun () ->
       let resp, resp_body =
@@ -561,6 +624,7 @@ let post_stream
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers
     in
+    warn_if_headers_exceed_cdn_budget ~url headers_with_length;
     let hdr = Http.Header.of_list headers_with_length in
     (* Only the connect + initial response headers are bounded; body
        consumption happens in the returned reader and is the caller's
@@ -609,6 +673,7 @@ let with_post_stream
       ("content-length", string_of_int (String.length body))
       :: add_connection_close headers
     in
+    warn_if_headers_exceed_cdn_budget ~url headers_with_length;
     let hdr = Http.Header.of_list headers_with_length in
     (* Only bound connect + initial response headers.  Body consumption
        in [f] is the caller's responsibility to timebox. *)
