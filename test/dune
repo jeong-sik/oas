@@ -90,6 +90,7 @@
   test_elicitation
   test_error
   test_error_domain
+  test_execution_idle_timeout
   test_eval
   test_eval_baseline
   test_eval_coverage
@@ -298,6 +299,7 @@
   test_elicitation
   test_error
   test_error_domain
+  test_execution_idle_timeout
   test_eval
   test_eval_baseline
   test_eval_coverage

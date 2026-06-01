@@ -58,6 +58,18 @@ type agent_error =
       ; turn_count : int
       ; max_turns : int
       }
+  | AgentExecutionIdleTimeout of
+      { idle_sec : float
+      ; idle_timeout_sec : float
+      ; turn_count : int
+      ; max_turns : int
+      }
+      (** No execution activity (streamed token or completed turn) was
+          observed for [idle_timeout_sec]. Distinct from
+          [AgentExecutionTimeout], which caps total wall-clock regardless
+          of progress: an idle timeout means the run is genuinely stuck,
+          whereas an execution timeout can fire on a healthy-but-slow run.
+          @since 0.201.0 *)
   | CompletionContractViolation of
       { contract : Completion_contract_id.t
       ; reason : string
@@ -196,6 +208,13 @@ let agent_error_to_string = function
       "Agent execution timed out after %.1fs (max_execution_time_s=%.1fs, turns=%d/%d)"
       r.elapsed_sec
       r.timeout_sec
+      r.turn_count
+      r.max_turns
+  | AgentExecutionIdleTimeout r ->
+    Printf.sprintf
+      "Agent stalled: no progress for %.1fs (execution_idle_timeout_s=%.1fs, turns=%d/%d)"
+      r.idle_sec
+      r.idle_timeout_sec
       r.turn_count
       r.max_turns
   | CompletionContractViolation r ->

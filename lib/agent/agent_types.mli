@@ -70,6 +70,28 @@ type options =
         [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
         layer treats as retryable.
         @since 0.181.0 *)
+  ; execution_idle_timeout_s : float option
+    (** Agent-level inactivity deadline for the entire run. The timer
+        resets on execution activity — a streamed token (every
+        [on_event], including reasoning/thinking deltas) or a completed
+        turn — and fires only after [execution_idle_timeout_s] of genuine
+        silence, surfacing as [Error.AgentExecutionIdleTimeout]. Unlike
+        [max_execution_time_s] (a total wall-clock that also kills a
+        healthy-but-slow run) this never cancels a stream that is still
+        producing output, so it is the liveness guard while
+        [max_execution_time_s] becomes a generous backstop.
+
+        Complements [stream_idle_timeout_s], which caps per-line silence
+        at the HTTP layer for a single stream; this knob spans the whole
+        run, including the gaps between turns (tool execution, turn
+        transitions) where no stream is open.
+
+        Requires [clock] to be supplied to [run]/[run_stream]; without a
+        clock the watchdog is skipped and behaviour matches earlier
+        versions. For non-streaming [run], activity is observed only at
+        turn boundaries (no token signal), so set this above the longest
+        expected single-turn latency or prefer [run_stream].
+        @since 0.201.0 *)
   ; max_idle_turns : int
   ; idle_final_warning_at : int option
     (** Threshold for [Hooks.on_idle_escalated] to emit
