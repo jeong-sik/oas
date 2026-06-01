@@ -344,7 +344,7 @@ provider_k_capabilities             → glm_model_default_caps
 
 ### 5.1 cascade.toml × OAS catalog 커버리지 (2026-05-26 audit)
 
-base path `/Users/dancer/me` 기준 runtime config root인 `/Users/dancer/me/.masc/config/cascade.toml` 의 모든 `api-name` 을 OAS `Capabilities.for_model_id` 의 prefix table (capabilities.ml `String.starts_with` 30 prefixes) 과 대조한 결과:
+`<MASC_BASE>/.masc/config/cascade.toml` 의 모든 `api-name` 을 OAS `Capabilities.for_model_id` 의 prefix table (capabilities.ml `String.starts_with` 30 prefixes) 과 대조한 결과:
 
 | api-name (wire에 흐르는 그대로) | Brand | RFC-0001 cipher | OAS prefix가 기대하는 형태 | Match |
 |---|---|---|---|---|
