@@ -64,7 +64,7 @@ type agent_error =
       ; turn_count : int
       ; max_turns : int
       }
-      (** No execution activity (streamed token or completed turn) was
+  (** No execution activity (streamed token or completed turn) was
           observed for [idle_timeout_sec]. Distinct from
           [AgentExecutionTimeout], which caps total wall-clock regardless
           of progress: the idle deadline resets on each unit of progress

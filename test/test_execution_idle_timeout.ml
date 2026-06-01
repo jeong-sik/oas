@@ -135,7 +135,8 @@ let test_error_domain_roundtrip () =
   match back with
   | Error.Agent
       (Error.AgentExecutionIdleTimeout
-         { idle_sec = 45.0; idle_timeout_sec = 40.0; turn_count = 2; max_turns = 8 }) -> ()
+         { idle_sec = 45.0; idle_timeout_sec = 40.0; turn_count = 2; max_turns = 8 }) ->
+    ()
   | _ -> Alcotest.fail "roundtrip mismatch for AgentExecutionIdleTimeout"
 ;;
 
@@ -152,6 +153,7 @@ let () =
         ; tc "distinct from total timeout msg" test_message_differs_from_execution_timeout
         ; tc "distinct variant" test_idle_is_not_execution_timeout_variant
         ] )
-    ; ("error_domain round-trip", [ tc "idle timeout roundtrip" test_error_domain_roundtrip ])
+    ; ( "error_domain round-trip"
+      , [ tc "idle timeout roundtrip" test_error_domain_roundtrip ] )
     ]
 ;;

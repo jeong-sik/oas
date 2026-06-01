@@ -157,7 +157,6 @@ val with_body_timeout : float -> t -> t
     [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
     layer treats as retryable. @since 0.181.0 *)
 
-val with_execution_idle_timeout : float -> t -> t
 (** Set the agent-level inactivity deadline for the entire run. The timer
     resets on execution activity — a streamed token (every [on_event],
     including reasoning/thinking deltas) or a completed turn — and fires
@@ -170,6 +169,7 @@ val with_execution_idle_timeout : float -> t -> t
     spanning the gaps between turns. Requires a clock on [run]/[run_stream];
     without one the watchdog is skipped. For non-streaming [run], activity
     is observed only at turn boundaries. @since 0.201.0 *)
+val with_execution_idle_timeout : float -> t -> t
 
 (** Set the total deadline applied to streaming HTTP body consumption.
     Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
