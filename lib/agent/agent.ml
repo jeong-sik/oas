@@ -317,9 +317,12 @@ let race_idle_watchdog ~clock ~idle_timeout_s ~last_activity f =
          else (
            (* Sleep only the remaining window; activity during the sleep
               advances [last_activity], so the post-wake re-check resets
-              the deadline instead of firing. The small floor avoids a
-              busy-spin when [idle_for] races just under the threshold. *)
-           Eio.Time.sleep clock (Float.max 0.05 (idle_timeout_s -. idle_for));
+              the deadline instead of firing. Floor the sleep to avoid a
+              busy-spin when [idle_for] races just under the threshold, but
+              cap the floor at [idle_timeout_s] so a sub-floor idle window
+              is still respected (fires on time, not one floor late). *)
+           let floor = Float.min 0.05 idle_timeout_s in
+           Eio.Time.sleep clock (Float.max floor (idle_timeout_s -. idle_for));
            watch ())
        in
        watch ())
@@ -478,10 +481,13 @@ let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
      reach [on_event] as [ContentBlockDelta { delta = ThinkingDelta _ }]
      (see Llm_provider.Streaming.provider_d_chunk_to_events) — counts as
      progress, so a long reasoning burst keeps the idle watchdog from
-     firing. The caller's [on_event] runs after the bump. *)
+     firing. [caller_on_event] is the original callback (bound under a
+     distinct name so the wrapper is not misread as self-recursion); it
+     runs after the activity bump. *)
+  let caller_on_event = on_event in
   let on_event ev =
     on_activity ();
-    on_event ev
+    caller_on_event ev
   in
   with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
     run_loop
@@ -714,10 +720,13 @@ let checkpoint ?(session_id = "") ?working_context agent =
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
   let last_activity = ref (now_or_zero clock) in
   (* Single-turn streaming: only token-level [on_event] bumps activity
-     (no run_loop, so no turn-boundary signal). *)
+     (no run_loop, so no turn-boundary signal). [caller_on_event] is the
+     original callback, bound under a distinct name so the wrapper is not
+     misread as self-recursion. *)
+  let caller_on_event = on_event in
   let on_event ev =
     last_activity := now_or_zero clock;
-    on_event ev
+    caller_on_event ev
   in
   with_optional_timeout ?clock ~last_activity agent (fun () ->
     run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event; on_telemetry }) agent)
