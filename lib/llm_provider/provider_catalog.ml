@@ -61,6 +61,11 @@ let warn_type_mismatch key ~expected actual =
 
 let member key json = Yojson.Safe.Util.member key json
 
+let member_present key = function
+  | `Assoc fields -> List.exists (fun (name, _) -> String.equal name key) fields
+  | _ -> false
+;;
+
 let member_string key json =
   match member key json with
   | `String s -> Some s
@@ -429,13 +434,13 @@ let parse_entry json =
       | Some kind ->
         let prefix_id msg = Printf.sprintf "provider %S: %s" id msg in
         let* () =
-          match member "api_key_env" json with
-          | `Null -> Ok ()
-          | _ ->
+          if member_present "api_key_env" json
+          then
             Error
               (prefix_id
                  "removed provider catalog field \"api_key_env\"; use \
                   auth.type=api_key_env with auth.env")
+          else Ok ()
         in
         let* auth = Result.map_error prefix_id (parse_auth json) in
         let api_key_env = auth_env auth in

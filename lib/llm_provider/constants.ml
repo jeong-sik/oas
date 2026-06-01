@@ -73,10 +73,9 @@ end
     are absent. Emitted as a required field by Provider_d-compat and Anthropic
     backends.
 
-    16384 covers most modern models (GPT-4o, Agent_llm_a Sonnet 4, Gemini 2.5,
-    DashScope_3, Provider_g-V3) without overrunning smaller model limits. Models
-    with lower caps should be declared in [Capabilities.for_model_id] so
-    the capability-gated path (not this fallback) applies.
+    16384 is a last-resort ceiling for modern high-context models. Models with
+    lower caps should be declared in [Capabilities.for_model_id] so the
+    capability-gated path (not this fallback) applies.
     @since 0.188.0
     @since 0.185.0 — raised from 4096 to 16384 *)
 let unknown_model_max_tokens_fallback =

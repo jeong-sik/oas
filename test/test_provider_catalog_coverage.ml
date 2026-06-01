@@ -328,6 +328,10 @@ let test_removed_catalog_aliases_are_rejected () =
     {|{"schema_version":1,"providers":[{"id":"p","api_key_env":"LEGACY_KEY"}]}|}
     "removed provider catalog field";
   assert_reject
+    "top-level api_key_env null rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","api_key_env":null}]}|}
+    "removed provider catalog field";
+  assert_reject
     "auth alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","auth":{"type":"api-key-env","env":"K"}}]}|}
     "unknown auth type";
