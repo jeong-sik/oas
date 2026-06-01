@@ -151,25 +151,28 @@ let auth_env = function
 let parse_auth json =
   match member "auth" json with
   | `Assoc _ as auth_json ->
-    let auth_type =
-      member_string_default "type" ~default:"none" auth_json
-      |> String.trim
-      |> String.lowercase_ascii
-    in
-    let env = member_string_default "env" ~default:"" auth_json in
-    (match auth_type with
-     | "none" -> Ok No_auth
-     | "api_key_env" -> Ok (Api_key_env env)
-     | "setup_token_env" -> Ok (Setup_token_env env)
-     | "oauth_cached_login" -> Ok Oauth_cached_login
-     | "file" -> Ok (File (member_string_default "path" ~default:"" auth_json))
-     | "exec" -> Ok (Exec (member_string_default "command" ~default:"" auth_json))
-     | other ->
-       Error
-         (Printf.sprintf
-            "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-             oauth_cached_login, file, exec)"
-            other))
+    if member_present "key" auth_json
+    then Error "removed provider catalog auth field \"key\"; use auth.env"
+    else (
+      let auth_type =
+        member_string_default "type" ~default:"none" auth_json
+        |> String.trim
+        |> String.lowercase_ascii
+      in
+      let env = member_string_default "env" ~default:"" auth_json in
+      match auth_type with
+      | "none" -> Ok No_auth
+      | "api_key_env" -> Ok (Api_key_env env)
+      | "setup_token_env" -> Ok (Setup_token_env env)
+      | "oauth_cached_login" -> Ok Oauth_cached_login
+      | "file" -> Ok (File (member_string_default "path" ~default:"" auth_json))
+      | "exec" -> Ok (Exec (member_string_default "command" ~default:"" auth_json))
+      | other ->
+        Error
+          (Printf.sprintf
+             "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
+              oauth_cached_login, file, exec)"
+             other))
   | _ -> Ok No_auth
 ;;
 
@@ -197,22 +200,25 @@ let parse_thinking_control_format = function
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
-  let label = member_string "capabilities_base" json in
-  match label with
-  | None -> Ok Capabilities.default_capabilities
-  | Some raw ->
-    let trimmed = String.trim raw in
-    if trimmed = ""
-    then Ok Capabilities.default_capabilities
-    else (
-      match Capabilities.capabilities_for_provider_label trimmed with
-      | Some caps -> Ok caps
-      | None ->
-        Error
-          (Printf.sprintf
-             "unknown capabilities_base %S (see \
-              Capabilities.capabilities_for_provider_label for valid presets)"
-             trimmed))
+  if member_present "base" json
+  then Error "removed provider catalog field \"base\"; use \"capabilities_base\""
+  else (
+    let label = member_string "capabilities_base" json in
+    match label with
+    | None -> Ok Capabilities.default_capabilities
+    | Some raw ->
+      let trimmed = String.trim raw in
+      if trimmed = ""
+      then Ok Capabilities.default_capabilities
+      else (
+        match Capabilities.capabilities_for_provider_label trimmed with
+        | Some caps -> Ok caps
+        | None ->
+          Error
+            (Printf.sprintf
+               "unknown capabilities_base %S (see \
+                Capabilities.capabilities_for_provider_label for valid presets)"
+               trimmed)))
 ;;
 
 let override_bool key caps f json =
