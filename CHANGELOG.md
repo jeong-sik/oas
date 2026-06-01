@@ -8,6 +8,24 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.7](https://github.com/jeong-sik/oas/compare/v0.200.6...v0.200.7) (2026-06-01)
+
+
+### Features
+
+* **http_client:** diagnose oversized request headers that CDN proxies reject ([#1819](https://github.com/jeong-sik/oas/issues/1819)) ([03a07b8](https://github.com/jeong-sik/oas/commit/03a07b8d6485f2e121868d8e4e0f938e1bb8987c))
+
+
+### Bug Fixes
+
+* **http_client:** replace pre-send header-size guard with 4xx response profiler ([#1820](https://github.com/jeong-sik/oas/issues/1820)) ([e44dee8](https://github.com/jeong-sik/oas/commit/e44dee8b91f3797436f3b7c4993a7b5497406ec6))
+* **llm_provider:** finish service-name migration, restore main green ([#1813](https://github.com/jeong-sik/oas/issues/1813)) ([b309bc1](https://github.com/jeong-sik/oas/commit/b309bc199f8a6f821dde5dca9379c0b8c22b86c6)), closes [#1811](https://github.com/jeong-sik/oas/issues/1811)
+* **llm_provider:** Kimi backend mapping + capability rename to service names ([#1812](https://github.com/jeong-sik/oas/issues/1812)) ([27151c1](https://github.com/jeong-sik/oas/commit/27151c1c082467fb51cd7d1d77e192b0d4a87d03))
+* **provider:** remove api_key from Provider_config.t.headers ([#1817](https://github.com/jeong-sik/oas/issues/1817)) ([31b750c](https://github.com/jeong-sik/oas/commit/31b750ceec8993b06b740273e4609b68238fa474))
+* reject removed provider catalog aliases ([#1822](https://github.com/jeong-sik/oas/issues/1822)) ([e725e2c](https://github.com/jeong-sik/oas/commit/e725e2ceaae87ab51d39c71287b65fd26b0b4ebb))
+* remove masc reference from comment to pass SDK independence check ([#1805](https://github.com/jeong-sik/oas/issues/1805)) ([5f76987](https://github.com/jeong-sik/oas/commit/5f76987d25a24b18370f81efc4fdc79208a7e546)), closes [#1791](https://github.com/jeong-sik/oas/issues/1791)
+* **test:** repair CLI Runtime purge residue to restore compilation ([#1815](https://github.com/jeong-sik/oas/issues/1815)) ([503439b](https://github.com/jeong-sik/oas/commit/503439bbb6e6cf59264b8f774a95466b138180d8))
+
 ## [0.200.7](https://github.com/jeong-sik/oas/compare/v0.200.6...v0.200.7) (2026-05-28)
 
 ### Documentation
