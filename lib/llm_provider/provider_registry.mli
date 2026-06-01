@@ -55,11 +55,8 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 (** Check whether a command is discoverable from PATH without shelling out. *)
 val command_in_path : ?path:string -> string -> bool
 
-(** Default registry pre-populated with known direct providers plus
-    non-interactive CLI transports ([cli_tool_d], [cli_tool_b],
-    [provider_c], [cli_tool_c], [cli_tool_a], and compat alias [cc]).
-    Availability is determined by API-key env vars for direct providers
-    and PATH discovery for CLI transports.
+(** Default registry pre-populated with known direct providers.
+    Availability is determined by API-key env vars for direct providers.
 
     If [OAS_PROVIDER_CATALOG] or {!Provider_catalog.set_global} supplies
     entries, those entries are overlaid last and may add or replace provider

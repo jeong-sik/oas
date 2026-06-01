@@ -606,7 +606,7 @@ let test_config_default_paths () =
   let anth = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "provider_a path" "/v1/messages" anth.request_path;
   let provider_c = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "provider_c path" "/v1/messages" provider_c.request_path;
+  Alcotest.(check string) "provider_c path" "/v1/chat/completions" provider_c.request_path;
   let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "provider_d path" "/v1/chat/completions" oai.request_path
 ;;

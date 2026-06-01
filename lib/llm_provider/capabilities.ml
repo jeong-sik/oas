@@ -1185,7 +1185,7 @@ let%test "for_model_id provider_k-5.1 full model (reasoning + extended thinking)
 ;;
 
 let%test "for_model_id bare glm-5 full model (reasoning + extended thinking)" =
-  match for_model_id "glm-5" with
+  match for_model_id_static "glm-5" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1194,7 +1194,7 @@ let%test "for_model_id bare glm-5 full model (reasoning + extended thinking)" =
 ;;
 
 let%test "for_model_id bare glm-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id "glm-5.1" with
+  match for_model_id_static "glm-5.1" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1203,7 +1203,7 @@ let%test "for_model_id bare glm-5.1 full model (reasoning + extended thinking)" 
 ;;
 
 let%test "for_model_id bare glm-5-turbo has GLM-5 thinking limits" =
-  match for_model_id "glm-5-turbo" with
+  match for_model_id_static "glm-5-turbo" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1327,7 +1327,7 @@ let%test "capabilities_for_provider_label: provider_l" =
    return wrong capabilities. The test catches that. *)
 let%test "for_model_id: specific model IDs get correct (not shadowed) capabilities" =
   let check model_id expected =
-    match for_model_id model_id with
+    match for_model_id_static model_id with
     | Some c -> expected c
     | None -> false
   in
@@ -1480,10 +1480,6 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
     ; "provider_k-coding"
     ; "provider_l"
     ; "provider_c"
-    ; "cli_tool_d"
-    ; "cli_tool_b"
-    ; "cli_tool_c"
-    ; "cli_tool_a"
     ]
   in
   List.for_all (fun l -> Option.is_some (capabilities_for_provider_label l)) labels
@@ -1495,16 +1491,7 @@ let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
   let non_aliased =
-    [ "provider_a"
-    ; "provider_f"
-    ; "ollama"
-    ; "provider_c"
-    ; "cli_tool_d"
-    ; "cli_tool_b"
-    ; "cli_tool_c"
-    ; "cli_tool_a"
-    ; "provider_l"
-    ]
+    [ "provider_a"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
   in
   let fingerprints =
     List.filter_map

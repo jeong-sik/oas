@@ -123,8 +123,18 @@ let resolve_glm_coding_alias ~default_model model_id =
   | _ -> model_id
 ;;
 
+let canonical_model_key model_id =
+  let m = String.lowercase_ascii (String.trim model_id) in
+  let glm_prefix = "glm-" in
+  if has_prefix m glm_prefix
+  then
+    "provider_k-"
+    ^ String.sub m (String.length glm_prefix) (String.length m - String.length glm_prefix)
+  else m
+;;
+
 let general_concurrency_for_model model_id =
-  let m = String.lowercase_ascii model_id in
+  let m = canonical_model_key model_id in
   let starts_with prefix =
     String.length m >= String.length prefix
     && String.sub m 0 (String.length prefix) = prefix
@@ -168,8 +178,7 @@ let coding_concurrency_default = 3
 let throttle_key_for_chat ~base_url ~model_id =
   match mode_of_base_url base_url with
   | Coding_plan -> "zai/coding/chat"
-  | General_api ->
-    Printf.sprintf "zai/general/chat/%s" (String.lowercase_ascii (String.trim model_id))
+  | General_api -> Printf.sprintf "zai/general/chat/%s" (canonical_model_key model_id)
 ;;
 
 [@@@coverage off]

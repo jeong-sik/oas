@@ -341,12 +341,9 @@ let validate_output_schema_request (config : t) =
               config.base_url))
 ;;
 
-(** Validate that sampling parameters not supported by CLI subprocess
-    transports are not set.  CLI transports (Cli_tool_a, Cli_tool_c,
-    Cli_tool_b, Cli_tool_d) run external binaries and cannot relay
-    fine-grained sampling parameters like [min_p] or [top_k].
-    Detecting these at validation time avoids silent downgrading at the
-    transport layer ([warn_unsupported_once]).
+(** Compatibility hook retained for older callers. CLI subprocess transports
+    are no longer provider kinds in this module, so sampling validation is
+    handled by each active HTTP provider's capability gate.
     @since 0.185.0 *)
 let validate_cli_sampling_params (_config : t) = Ok ()
 
@@ -373,7 +370,7 @@ let is_local (config : t) =
 
 [@@@coverage off]
 
-let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
+let%test "validate_cli_sampling_params: active providers pass through" =
   let config =
     make
       ~kind:Anthropic
