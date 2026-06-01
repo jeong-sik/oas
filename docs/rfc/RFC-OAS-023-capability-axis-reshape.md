@@ -344,7 +344,7 @@ provider_k_capabilities             → glm_model_default_caps
 
 ### 5.1 cascade.toml × OAS catalog 커버리지 (2026-05-26 audit)
 
-`~/me/.masc/config/cascade.toml` 의 모든 `api-name` 을 OAS `Capabilities.for_model_id` 의 prefix table (capabilities.ml `String.starts_with` 30 prefixes) 과 대조한 결과:
+base path `/Users/dancer/me` 기준 runtime config root인 `/Users/dancer/me/.masc/config/cascade.toml` 의 모든 `api-name` 을 OAS `Capabilities.for_model_id` 의 prefix table (capabilities.ml `String.starts_with` 30 prefixes) 과 대조한 결과:
 
 | api-name (wire에 흐르는 그대로) | Brand | RFC-0001 cipher | OAS prefix가 기대하는 형태 | Match |
 |---|---|---|---|---|
@@ -623,7 +623,7 @@ masc-mcp는 OAS SDK의 `Provider_kind.t` variant 이름에 의존한다 (RFC-017
 
 > **[DECISION NEEDED #2 — RESOLVED]** OAS standalone rename. masc-mcp consumer migration 은 별개 책임. cross-cut PR 패턴 폐기.
 
-cascade phonebook TOML config / `~/me/.masc/config/cascade.toml` 영향은 *masc-mcp 측 책임* — 본 RFC 가 cross-reference 만 할 뿐 권고 안 함 (§1.4).
+cascade phonebook TOML config / `<base-path>/.masc/config/cascade.toml` 영향은 *masc-mcp 측 책임* — 본 RFC 가 cross-reference 만 할 뿐 권고 안 함 (§1.4).
 
 ## 8. Non-goals
 
