@@ -45,7 +45,7 @@ let test_request_path_provider_a () =
 
 let test_request_path_provider_c () =
   let cfg = Provider_config.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  check_string "provider_c path" "/v1/messages" cfg.request_path
+  check_string "kimi path" "/v1/chat/completions" cfg.request_path
 ;;
 
 let test_request_path_provider_d () =
@@ -560,20 +560,24 @@ let test_kind_roundtrip () =
     all_kinds
 ;;
 
-let test_kind_aliases () =
-  check_parse "agent_llm_a -> Anthropic" "agent_llm_a" Anthropic;
-  check_parse "provider_d -> OpenAI_compat" "provider_d" OpenAI_compat;
-  check_parse "llama -> Ollama" "provider_n" Ollama
+let test_kind_aliases_rejected () =
+  List.iter
+    (fun input ->
+       check_bool
+         ("alias rejected " ^ input)
+         true
+         (Option.is_none (Provider_config.provider_kind_of_string input)))
+    [ "agent_llm_a"; "provider_d"; "provider_n"; "claude"; "openai"; "llama"; "zhipu" ]
 ;;
 
 let test_kind_case_insensitive () =
-  check_parse "PROVIDER_A" "PROVIDER_A" Anthropic;
-  check_parse "Agent_llm_a" "Agent_llm_a" Anthropic;
+  check_parse "ANTHROPIC" "ANTHROPIC" Anthropic;
+  check_parse "OpenAI_Compat" "OpenAI_Compat" OpenAI_compat;
   check_parse "Glm" "Glm" Glm
 ;;
 
 let test_kind_whitespace () =
-  check_parse "leading ws" "  agent_llm_a" Anthropic;
+  check_parse "leading ws" "  anthropic" Anthropic;
   check_parse "trailing ws" "ollama  " Ollama;
   check_parse "both ws" "\topenai_compat\n" OpenAI_compat
 ;;
@@ -614,7 +618,7 @@ let test_pp_uses_lowercase () =
   let fmt = Format.formatter_of_buffer buf in
   Provider_config.pp_provider_kind fmt Anthropic;
   Format.pp_print_flush fmt ();
-  check_string "pp Anthropic" "provider_a" (Buffer.contents buf)
+  check_string "pp Anthropic" "anthropic" (Buffer.contents buf)
 ;;
 
 let test_to_yojson_roundtrip () =
@@ -640,21 +644,14 @@ let test_of_yojson_accepts_canonical () =
     all_kinds
 ;;
 
-let test_of_yojson_accepts_aliases () =
+let test_of_yojson_rejects_aliases () =
   List.iter
-    (fun (input, expected_wire) ->
+    (fun input ->
        let json : Yojson.Safe.t = `String input in
        match Provider_config.provider_kind_of_yojson json with
-       | Ok k ->
-         check_string
-           ("of_yojson alias " ^ input)
-           expected_wire
-           (Provider_config.string_of_provider_kind k)
-       | Error msg -> Alcotest.failf "of_yojson alias %S failed: %s" input msg)
-    [ "agent_llm_a", "provider_a"
-    ; "provider_d", "openai_compat"
-    ; "provider_n", "ollama"
-    ]
+       | Ok _ -> Alcotest.failf "of_yojson alias %S should fail" input
+       | Error _ -> ())
+    [ "agent_llm_a"; "provider_d"; "provider_n" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -715,11 +712,11 @@ let contains_substring ~sub text =
 
 let test_wire_kind_lowercase () =
   let cases =
-    [ Provider_config.Anthropic, "\"provider_kind\":\"provider_a\""
+    [ Provider_config.Anthropic, "\"provider_kind\":\"anthropic\""
     ; Provider_config.OpenAI_compat, "\"provider_kind\":\"openai_compat\""
     ; Provider_config.Ollama, "\"provider_kind\":\"ollama\""
-    ; Provider_config.Gemini, "\"provider_kind\":\"provider_f\""
-    ; Provider_config.Glm, "\"provider_kind\":\"provider_k\""
+    ; Provider_config.Gemini, "\"provider_kind\":\"gemini\""
+    ; Provider_config.Glm, "\"provider_kind\":\"glm\""
     ]
   in
   List.iter
@@ -793,7 +790,7 @@ let test_wire_measured_zero_latency_is_distinct () =
     silently skip the new kind otherwise. *)
 let test_all_is_exhaustive () =
   let xs = Provider_config.all_provider_kinds in
-  Alcotest.(check int) "eleven canonical variants" 11 (List.length xs);
+  Alcotest.(check int) "seven canonical variants" 7 (List.length xs);
   Alcotest.(check bool)
     "no duplicate canonical strings"
     true
@@ -828,20 +825,20 @@ let test_all_drives_parse_roundtrip () =
 
 let test_default_api_key_env_known () =
   Alcotest.(check (option string))
-    "provider_a"
-    (Some "PROVIDER_A_API_KEY")
+    "anthropic"
+    (Some "ANTHROPIC_API_KEY")
     (Provider_config.default_api_key_env Anthropic);
   Alcotest.(check (option string))
-    "provider_f"
-    (Some "PROVIDER_F_API_KEY")
+    "gemini"
+    (Some "GEMINI_API_KEY")
     (Provider_config.default_api_key_env Gemini);
   Alcotest.(check (option string))
     "provider_k"
     (Some "ZAI_API_KEY")
     (Provider_config.default_api_key_env Glm);
   Alcotest.(check (option string))
-    "provider_c"
-    (Some "PROVIDER_C_API_KEY")
+    "kimi"
+    (Some "KIMI_API_KEY")
     (Provider_config.default_api_key_env Kimi)
 ;;
 
@@ -851,9 +848,7 @@ let test_default_api_key_env_none_for_others () =
   List.iter
     (fun (label, k) ->
        Alcotest.(check (option string)) label None (Provider_config.default_api_key_env k))
-    [ "openai_compat", Provider_config.OpenAI_compat
-    ; "ollama", Provider_config.Ollama
-    ]
+    [ "openai_compat", Provider_config.OpenAI_compat; "ollama", Provider_config.Ollama ]
 ;;
 
 let test_wire_kind_roundtrip_via_yojson () =
@@ -997,7 +992,7 @@ let () =
         ] )
     ; ( "kind_of_string"
       , [ Alcotest.test_case "roundtrip all variants" `Quick test_kind_roundtrip
-        ; Alcotest.test_case "documented aliases" `Quick test_kind_aliases
+        ; Alcotest.test_case "aliases rejected" `Quick test_kind_aliases_rejected
         ; Alcotest.test_case "case insensitive" `Quick test_kind_case_insensitive
         ; Alcotest.test_case "whitespace trimmed" `Quick test_kind_whitespace
         ; Alcotest.test_case "unknown returns None" `Quick test_kind_unknown_returns_none
@@ -1007,7 +1002,10 @@ let () =
         ; Alcotest.test_case "pp uses lowercase" `Quick test_pp_uses_lowercase
         ; Alcotest.test_case "to_yojson roundtrip" `Quick test_to_yojson_roundtrip
         ; Alcotest.test_case "of_yojson canonical" `Quick test_of_yojson_accepts_canonical
-        ; Alcotest.test_case "of_yojson aliases" `Quick test_of_yojson_accepts_aliases
+        ; Alcotest.test_case
+            "of_yojson aliases rejected"
+            `Quick
+            test_of_yojson_rejects_aliases
         ; Alcotest.test_case
             "of_yojson unknown rejected"
             `Quick

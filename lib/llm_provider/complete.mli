@@ -133,12 +133,6 @@ val complete_with_retry
     Each retry attempt gets a fresh deadline; the parameter does not
     cap the total time across all attempts. @since 0.195.0 *)
 
-(** {1 Stream Accumulator} *)
-
-(** Re-exported from {!Complete_stream_acc} for backward compatibility.
-    @since 0.79.0 *)
-include module type of Complete_stream_acc
-
 (** {1 Streaming Completion} *)
 
 (** Execute a streaming LLM completion.

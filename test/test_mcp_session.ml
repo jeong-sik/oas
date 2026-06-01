@@ -241,10 +241,10 @@ let () =
                 ]
             in
             check bool "error" true (Result.is_error (Mcp_session.info_of_json bad)))
-        ; test_case "legacy http info without endpoint still parses" `Quick (fun () ->
-            let legacy =
+        ; test_case "http info without endpoint rejected" `Quick (fun () ->
+            let missing_endpoint =
               `Assoc
-                [ "server_name", `String "legacy-http"
+                [ "server_name", `String "http-no-endpoint"
                 ; "command", `String "http"
                 ; "args", `List []
                 ; "env", `List []
@@ -252,9 +252,11 @@ let () =
                 ; "transport_kind", `String "http"
                 ]
             in
-            let info = Result.get_ok (Mcp_session.info_of_json legacy) in
-            check (option string) "no http endpoint" None info.http_base_url;
-            check int "no http headers" 0 (List.length info.http_headers))
+            check
+              bool
+              "error"
+              true
+              (Result.is_error (Mcp_session.info_of_json missing_endpoint)))
         ] )
     ; ( "spec_roundtrip"
       , [ test_case "to_server_spec preserves all fields" `Quick (fun () ->

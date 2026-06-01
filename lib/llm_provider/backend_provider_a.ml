@@ -76,7 +76,7 @@ let build_request
     ; ( "max_tokens"
       , `Int
           (Option.value
-             ~default:Constants.Inference.unknown_model_max_tokens_fallback
+             ~default:Constants.unknown_model_max_tokens_fallback
              config.max_tokens) )
     ; "messages", `List msgs_json
     ; "stream", `Bool stream

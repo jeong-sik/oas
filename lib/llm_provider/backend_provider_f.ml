@@ -182,9 +182,7 @@ let build_request
   (* generationConfig *)
   let gen_config = ref [] in
   (let mt =
-     Option.value
-       ~default:Constants.Inference.unknown_model_max_tokens_fallback
-       config.max_tokens
+     Option.value ~default:Constants.unknown_model_max_tokens_fallback config.max_tokens
    in
    gen_config := ("maxOutputTokens", `Int mt) :: !gen_config);
   (match config.temperature with

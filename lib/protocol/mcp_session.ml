@@ -84,9 +84,7 @@ let to_http_spec (info : info) : Mcp_http.http_spec option =
 
 (** Reconnect to MCP servers from saved session info.
     Returns a pair: (successfully connected, failed infos with error messages).
-    Failed connections do not abort the others.
-    Legacy HTTP checkpoints without stored endpoint metadata still cannot be
-    reconnected and are reported as failed with an informational error. *)
+    Failed connections do not abort the others. *)
 let reconnect_all ~sw ~mgr ~net (infos : info list)
   : Mcp.managed list * (info * Error.sdk_error) list
   =
@@ -105,8 +103,8 @@ let reconnect_all ~sw ~mgr ~net (infos : info list)
                 (InitializeFailed
                    { detail =
                        Printf.sprintf
-                         "HTTP MCP server '%s' cannot be reconnected from legacy session \
-                          data"
+                         "HTTP MCP server '%s' cannot be reconnected without \
+                          http_base_url"
                          info.server_name
                    })
             in
@@ -164,8 +162,12 @@ let transport_kind_to_string = function
 ;;
 
 let transport_kind_of_string = function
-  | "http" -> Http
-  | _ -> Stdio (* default to stdio for backward compat *)
+  | "stdio" -> Ok Stdio
+  | "http" -> Ok Http
+  | value ->
+    Error
+      (Error.Serialization
+         (UnknownVariant { type_name = "mcp_session.transport_kind"; value }))
 ;;
 
 let info_to_json (info : info) : Yojson.Safe.t =
@@ -207,32 +209,38 @@ let info_of_json json : (info, Error.sdk_error) result =
     in
     match env_result, http_headers_result, tools_result with
     | Ok env, Ok http_headers, Ok tool_schemas ->
-      let transport_kind =
-        json
-        |> member "transport_kind"
-        |> to_string_option
-        |> Option.value ~default:"stdio"
-        |> transport_kind_of_string
-      in
-      let http_base_url =
-        match json |> member "http_base_url" |> to_string_option with
-        | Some base_url -> Some base_url
+      let transport_kind_result =
+        match json |> member "transport_kind" |> to_string_option with
+        | Some raw -> transport_kind_of_string raw
         | None ->
-          (match transport_kind with
-           | Http when json |> member "command" |> to_string <> "http" ->
-             Some (json |> member "command" |> to_string)
-           | _ -> None)
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Mcp_session.info_of_json: missing transport_kind" }))
       in
-      Ok
-        { server_name = json |> member "server_name" |> to_string
-        ; command = json |> member "command" |> to_string
-        ; args = json |> member "args" |> to_list |> List.map to_string
-        ; env
-        ; http_base_url
-        ; http_headers
-        ; tool_schemas
-        ; transport_kind
-        }
+      (match transport_kind_result with
+       | Error e -> Error e
+       | Ok transport_kind ->
+         let http_base_url = json |> member "http_base_url" |> to_string_option in
+         (match transport_kind, http_base_url with
+          | Http, None ->
+            Error
+              (Error.Serialization
+                 (JsonParseError
+                    { detail =
+                        "Mcp_session.info_of_json: HTTP transport requires http_base_url"
+                    }))
+          | _ ->
+            Ok
+              { server_name = json |> member "server_name" |> to_string
+              ; command = json |> member "command" |> to_string
+              ; args = json |> member "args" |> to_list |> List.map to_string
+              ; env
+              ; http_base_url
+              ; http_headers
+              ; tool_schemas
+              ; transport_kind
+              }))
     | Error e, _, _ -> Error e
     | _, Error e, _ -> Error e
     | _, _, Error e -> Error e

@@ -36,12 +36,12 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
             "id": "rich-http",
             "aliases": [" Alias ", "", 7, "second"],
             "kind": "openai_compat",
-            "transport": "custom-openai-compat",
+            "transport": "http",
             "base_url": "https://rich.example/v1",
             "request_path": "/chat/completions",
             "default_model": "rich-model",
             "credential_scope": "workspace",
-            "auth": {"type": "setup-token-env", "key": "SETUP_TOKEN"},
+            "auth": {"type": "setup_token_env", "env": "SETUP_TOKEN"},
             "max_context": 32000,
             "capabilities_base": "provider_d_chat",
             "capabilities": {
@@ -73,7 +73,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
               "supports_computer_use": true,
               "supports_code_execution": true,
               "emits_usage_tokens": true,
-              "thinking_control_format": "chat-template-kwargs",
+              "thinking_control_format": "chat_template_kwargs",
               "supported_models": [" rich-model ", "", 3, "rich-fast"]
             }
           },
@@ -99,11 +99,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
             "id": "exec-auth",
             "kind": "openai_compat",
             "auth": {"type": "exec", "command": "op read token"}
-          },
-          {
-            "id": "legacy-env",
-            "kind": "openai_compat",
-            "api_key_env": "LEGACY_KEY"
           }
         ]
       }|}
@@ -111,11 +106,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   let rich = require_lookup catalog "alias" in
   check string "id" "rich-http" rich.id;
   check (list string) "aliases" [ "Alias"; "second" ] rich.aliases;
-  check
-    bool
-    "legacy custom transport alias"
-    true
-    (rich.transport = Provider_catalog.Http);
+  check bool "http transport" true (rich.transport = Provider_catalog.Http);
   check bool "setup auth" true (rich.auth = Provider_catalog.Setup_token_env "SETUP_TOKEN");
   check string "api key from setup auth" "SETUP_TOKEN" rich.api_key_env;
   check (option string) "default model" (Some "rich-model") rich.default_model;
@@ -178,13 +169,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
     true
     (file_auth.auth = Provider_catalog.File "/tmp/provider-token");
   let exec_auth = require_lookup catalog "exec-auth" in
-  check bool "exec auth" true (exec_auth.auth = Provider_catalog.Exec "op read token");
-  let legacy = require_lookup catalog "legacy-env" in
-  check
-    bool
-    "legacy api_key_env auth"
-    true
-    (legacy.auth = Provider_catalog.Api_key_env "LEGACY_KEY")
+  check bool "exec auth" true (exec_auth.auth = Provider_catalog.Exec "op read token")
 ;;
 
 let test_type_mismatches_fall_back_without_rejecting_entry () =
@@ -198,7 +183,7 @@ let test_type_mismatches_fall_back_without_rejecting_entry () =
             "kind": 42,
             "aliases": "not-array",
             "transport": false,
-            "auth": {"type": "env", "env": 17},
+            "auth": 17,
             "capabilities": {
               "supports_tools": "yes",
               "max_output_tokens": "many",
@@ -212,7 +197,11 @@ let test_type_mismatches_fall_back_without_rejecting_entry () =
   check bool "default kind" true (typed.kind = Provider_config.OpenAI_compat);
   check bool "default transport" true (typed.transport = Provider_catalog.Http);
   check (list string) "aliases default empty" [] typed.aliases;
-  check bool "env auth with empty env" true (typed.auth = Provider_catalog.Api_key_env "");
+  check
+    bool
+    "invalid auth defaults to no_auth"
+    true
+    (typed.auth = Provider_catalog.No_auth);
   check bool "supports tools remains default" false typed.capabilities.supports_tools;
   check
     (option int)
@@ -226,7 +215,7 @@ let test_type_mismatches_fall_back_without_rejecting_entry () =
     typed.capabilities.supported_models
 ;;
 
-let test_transport_auth_and_thinking_alias_matrix () =
+let test_transport_auth_and_thinking_canonical_matrix () =
   let catalog =
     catalog_of_string
       {|{
@@ -243,32 +232,32 @@ let test_transport_auth_and_thinking_alias_matrix () =
             "id": "cli-env",
             "kind": "openai_compat",
             "transport": "http",
-            "auth": {"type": "api-key-env", "env": "ENV_KEY"},
-            "capabilities": {"thinking_control_format": "thinking-object"}
+            "auth": {"type": "api_key_env", "env": "ENV_KEY"},
+            "capabilities": {"thinking_control_format": "thinking_object"}
           },
       {
-            "id": "compat-alias",
+            "id": "http-direct",
             "kind": "openai_compat",
-            "transport": "custom-openai-compat",
-            "auth": {"type": "env", "env": "SHORT_ENV"},
-            "capabilities": {"thinking_control_format": "thinking-object-plain"}
+            "transport": "http",
+            "auth": {"type": "api_key_env", "env": "SHORT_ENV"},
+            "capabilities": {"thinking_control_format": "thinking_object_only"}
           },
           {
             "id": "reasoning",
             "kind": "openai_compat",
             "auth": {"type": "api_key_env", "env": "REASON_KEY"},
-            "capabilities": {"thinking_control_format": "reasoning-effort"}
+            "capabilities": {"thinking_control_format": "reasoning_effort"}
           },
           {
             "id": "enable",
             "kind": "openai_compat",
-            "auth": {"type": "api-key-env", "env": "ENABLE_KEY"},
-            "capabilities": {"thinking_control_format": "enable-thinking"}
+            "auth": {"type": "api_key_env", "env": "ENABLE_KEY"},
+            "capabilities": {"thinking_control_format": "enable_thinking"}
           },
           {
-            "id": "base-fallback",
+            "id": "base-entry",
             "kind": "openai_compat",
-            "base": "provider_d_chat",
+            "capabilities_base": "provider_d_chat",
             "max_context": 9223372036854775807999,
             "capabilities": {
               "prompt_cache_alignment": 9223372036854775807999
@@ -287,49 +276,65 @@ let test_transport_auth_and_thinking_alias_matrix () =
     (http_none.capabilities.thinking_control_format = Capabilities.No_thinking_control);
   let cli_env = require_lookup catalog "cli-env" in
   check bool "cli transport" true (cli_env.transport = Provider_catalog.Http);
+  check bool "api key auth" true (cli_env.auth = Provider_catalog.Api_key_env "ENV_KEY");
   check
     bool
-    "api key auth alias"
-    true
-    (cli_env.auth = Provider_catalog.Api_key_env "ENV_KEY");
-  check
-    bool
-    "thinking object alias"
+    "thinking object"
     true
     (cli_env.capabilities.thinking_control_format = Capabilities.Thinking_object);
-  let compat = require_lookup catalog "compat-alias" in
+  let compat = require_lookup catalog "http-direct" in
+  check bool "http transport" true (compat.transport = Provider_catalog.Http);
+  check bool "env auth" true (compat.auth = Provider_catalog.Api_key_env "SHORT_ENV");
   check
     bool
-    "custom-openai-compat transport alias"
-    true
-    (compat.transport = Provider_catalog.Http);
-  check bool "env auth alias" true (compat.auth = Provider_catalog.Api_key_env "SHORT_ENV");
-  check
-    bool
-    "thinking object plain alias"
+    "thinking object only"
     true
     (compat.capabilities.thinking_control_format = Capabilities.Thinking_object_only);
   let reasoning = require_lookup catalog "reasoning" in
   check
     bool
-    "reasoning effort alias"
+    "reasoning effort"
     true
     (reasoning.capabilities.thinking_control_format = Capabilities.Reasoning_effort);
   let enable = require_lookup catalog "enable" in
   check bool "enable env" true (enable.auth = Provider_catalog.Api_key_env "ENABLE_KEY");
   check
     bool
-    "enable thinking alias"
+    "enable thinking"
     true
     (enable.capabilities.thinking_control_format = Capabilities.Enable_thinking);
-  let base = require_lookup catalog "base-fallback" in
-  check bool "base fallback supports tools" true base.capabilities.supports_tools;
+  let base = require_lookup catalog "base-entry" in
+  check bool "capabilities_base supports tools" true base.capabilities.supports_tools;
   check
     (option int)
     "oversized prompt alignment ignored"
     None
     base.capabilities.prompt_cache_alignment;
   check int "catalog size" 6 (List.length catalog)
+;;
+
+let test_removed_catalog_aliases_are_rejected () =
+  let assert_reject label json_text needle =
+    match Provider_catalog.of_json (Yojson.Safe.from_string json_text) with
+    | Error msg -> check bool label true (contains ~needle msg)
+    | Ok _ -> failf "%s should be rejected" label
+  in
+  assert_reject
+    "transport alias rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","transport":"custom-openai-compat"}]}|}
+    "unknown transport";
+  assert_reject
+    "top-level api_key_env rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","api_key_env":"LEGACY_KEY"}]}|}
+    "removed provider catalog field";
+  assert_reject
+    "auth alias rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","auth":{"type":"api-key-env","env":"K"}}]}|}
+    "unknown auth type";
+  assert_reject
+    "thinking alias rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"thinking-object"}}]}|}
+    "unknown thinking_control_format"
 ;;
 
 let test_non_list_providers_is_empty_catalog () =
@@ -444,9 +449,13 @@ let () =
             `Quick
             test_type_mismatches_fall_back_without_rejecting_entry
         ; test_case
-            "transport auth thinking aliases"
+            "transport auth thinking canonical"
             `Quick
-            test_transport_auth_and_thinking_alias_matrix
+            test_transport_auth_and_thinking_canonical_matrix
+        ; test_case
+            "removed catalog aliases rejected"
+            `Quick
+            test_removed_catalog_aliases_are_rejected
         ; test_case
             "non-list providers is empty"
             `Quick

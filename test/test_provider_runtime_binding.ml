@@ -40,10 +40,10 @@ let catalog_variants_json =
       "id": "custom-rich",
       "aliases": ["Rich-Alias"],
       "kind": "openai_compat",
-      "transport": "custom-openai-compat",
+      "transport": "http",
       "base_url": "https://rich.example/v1/",
       "request_path": "/chat/completions",
-      "auth": {"type": "setup-token-env", "key": "RICH_SETUP_TOKEN"},
+      "auth": {"type": "setup_token_env", "env": "RICH_SETUP_TOKEN"},
       "default_model": "rich-default",
       "capabilities_base": "provider_d_chat"
     },
@@ -69,7 +69,7 @@ let catalog_variants_json =
     {
       "id": "api-key-auth",
       "kind": "openai_compat",
-      "api_key_env": "API_KEY_AUTH",
+      "auth": {"type": "api_key_env", "env": "API_KEY_AUTH"},
       "capabilities_base": "provider_d_chat"
     }
   ]

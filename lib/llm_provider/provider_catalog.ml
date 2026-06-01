@@ -132,12 +132,8 @@ let parse_transport = function
      | "" -> Ok None
      | "http" -> Ok (Some Http)
      | "managed" -> Ok (Some Managed)
-     | "custom-openai-compat" -> Ok (Some Http)
      | other ->
-       Error
-         (Printf.sprintf
-            "unknown transport %S (canonical: http, managed, custom-openai-compat)"
-            other))
+       Error (Printf.sprintf "unknown transport %S (canonical: http, managed)" other))
 ;;
 
 let default_transport_for_kind _kind = Http
@@ -155,29 +151,21 @@ let parse_auth json =
       |> String.trim
       |> String.lowercase_ascii
     in
-    let env =
-      match member_string "env" auth_json with
-      | Some v -> v
-      | None -> member_string_default "key" ~default:"" auth_json
-    in
+    let env = member_string_default "env" ~default:"" auth_json in
     (match auth_type with
      | "none" -> Ok No_auth
-     | "api_key_env" | "api-key-env" | "env" -> Ok (Api_key_env env)
-     | "setup_token_env" | "setup-token-env" -> Ok (Setup_token_env env)
-     | "oauth_cached_login" | "oauth-cached-login" -> Ok Oauth_cached_login
+     | "api_key_env" -> Ok (Api_key_env env)
+     | "setup_token_env" -> Ok (Setup_token_env env)
+     | "oauth_cached_login" -> Ok Oauth_cached_login
      | "file" -> Ok (File (member_string_default "path" ~default:"" auth_json))
      | "exec" -> Ok (Exec (member_string_default "command" ~default:"" auth_json))
      | other ->
        Error
          (Printf.sprintf
             "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-             oauth_cached_login, file, exec; dashed and short aliases also accepted, \
-             e.g. api-key-env, env)"
+             oauth_cached_login, file, exec)"
             other))
-  | _ ->
-    (match member_string "api_key_env" json with
-     | Some env when String.trim env <> "" -> Ok (Api_key_env env)
-     | _ -> Ok No_auth)
+  | _ -> Ok No_auth
 ;;
 
 let parse_thinking_control_format = function
@@ -186,35 +174,25 @@ let parse_thinking_control_format = function
     let trimmed = String.lowercase_ascii (String.trim raw) in
     (match trimmed with
      | "" -> Ok None
-     | "none" | "no_thinking_control" | "no-thinking-control" ->
-       Ok (Some Capabilities.No_thinking_control)
-     | "thinking_object" | "thinking-object" -> Ok (Some Capabilities.Thinking_object)
-     | "thinking_object_only"
-     | "thinking-object-only"
-     | "thinking_object_plain"
-     | "thinking-object-plain" -> Ok (Some Capabilities.Thinking_object_only)
-     | "chat_template_kwargs" | "chat-template-kwargs" ->
-       Ok (Some Capabilities.Chat_template_kwargs)
-     | "reasoning_effort" | "reasoning-effort" -> Ok (Some Capabilities.Reasoning_effort)
-     | "enable_thinking" | "enable-thinking" -> Ok (Some Capabilities.Enable_thinking)
+     | "none" -> Ok (Some Capabilities.No_thinking_control)
+     | "thinking_object" -> Ok (Some Capabilities.Thinking_object)
+     | "thinking_object_only" -> Ok (Some Capabilities.Thinking_object_only)
+     | "chat_template_kwargs" -> Ok (Some Capabilities.Chat_template_kwargs)
+     | "reasoning_effort" -> Ok (Some Capabilities.Reasoning_effort)
+     | "enable_thinking" -> Ok (Some Capabilities.Enable_thinking)
      | other ->
        Error
          (Printf.sprintf
             "unknown thinking_control_format %S (canonical: none, thinking_object, \
              thinking_object_only, chat_template_kwargs, reasoning_effort, \
-             enable_thinking; dashed and full-word aliases also accepted, e.g. \
-             no_thinking_control, thinking-object)"
+             enable_thinking)"
             other))
 ;;
 
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
-  let label =
-    match member_string "capabilities_base" json with
-    | Some v -> Some v
-    | None -> member_string "base" json
-  in
+  let label = member_string "capabilities_base" json in
   match label with
   | None -> Ok Capabilities.default_capabilities
   | Some raw ->
@@ -450,12 +428,17 @@ let parse_entry json =
       | None -> Error (Printf.sprintf "provider %S has unknown kind %S" id kind_raw)
       | Some kind ->
         let prefix_id msg = Printf.sprintf "provider %S: %s" id msg in
-        let* auth = Result.map_error prefix_id (parse_auth json) in
-        let api_key_env =
-          match member_string "api_key_env" json with
-          | Some env -> env
-          | None -> auth_env auth
+        let* () =
+          match member "api_key_env" json with
+          | `Null -> Ok ()
+          | _ ->
+            Error
+              (prefix_id
+                 "removed provider catalog field \"api_key_env\"; use \
+                  auth.type=api_key_env with auth.env")
         in
+        let* auth = Result.map_error prefix_id (parse_auth json) in
+        let api_key_env = auth_env auth in
         let* transport_opt =
           Result.map_error prefix_id (parse_transport (member_string "transport" json))
         in

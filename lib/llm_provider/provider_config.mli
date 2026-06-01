@@ -192,18 +192,14 @@ val default_api_key_env : provider_kind -> string option
 
 (** Canonical inverse of {!string_of_provider_kind}.
 
-    Accepts every lowercase form produced by {!string_of_provider_kind} plus
-    the documented legacy aliases used by cascade configs and callers:
-    - [agent_llm_a]  -> [Anthropic]
-    - [provider_d]  -> [OpenAI_compat]
-    - [llama]   -> [Ollama]
+    Accepts every lowercase form produced by {!string_of_provider_kind}.
 
     The match is case-insensitive; leading and trailing whitespace is
     trimmed. Returns [None] for any other input so callers fail fast
     rather than silently falling back to a default provider.
 
-    Use this instead of scattered ad-hoc [match s with "agent_llm_a" -> ...]
-    ladders to keep all string-to-kind drift in one place.
+    Use this instead of scattered ad-hoc string-to-kind matches to keep all
+    string drift in one place.
     @since 0.165.0 *)
 val provider_kind_of_string : string -> provider_kind option
 

@@ -232,65 +232,6 @@ let test_remove_error_propagates () =
   | Ok () -> fail "expected Error from forget"
 ;;
 
-(* ── legacy_backend ──────────────────────────────────── *)
-
-let test_legacy_backend () =
-  let store = Hashtbl.create 4 in
-  let backend =
-    Memory.legacy_backend
-      ~persist:(fun ~key value -> Hashtbl.replace store key value)
-      ~retrieve:(fun ~key -> Hashtbl.find_opt store key)
-      ~remove:(fun ~key -> Hashtbl.remove store key)
-  in
-  let mem = Memory.create ~long_term:backend () in
-  ignore (Memory.store mem ~tier:Long_term "lk" (json_s "lv"));
-  check
-    (option string)
-    "persisted"
-    (Some "\"lv\"")
-    (Option.map Yojson.Safe.to_string (Hashtbl.find_opt store "lk"));
-  ignore (Memory.forget mem ~tier:Long_term "lk");
-  check bool "removed" true (not (Hashtbl.mem store "lk"))
-;;
-
-let test_legacy_backend_batch () =
-  let store = Hashtbl.create 4 in
-  let backend =
-    Memory.legacy_backend
-      ~persist:(fun ~key value -> Hashtbl.replace store key value)
-      ~retrieve:(fun ~key -> Hashtbl.find_opt store key)
-      ~remove:(fun ~key -> Hashtbl.remove store key)
-  in
-  (match backend.batch_persist [ "a", json_i 1; "b", json_i 2 ] with
-   | Ok () -> ()
-   | Error e -> fail e);
-  check
-    int
-    "a"
-    1
-    (match Hashtbl.find_opt store "a" with
-     | Some (`Int n) -> n
-     | _ -> -1);
-  check
-    int
-    "b"
-    2
-    (match Hashtbl.find_opt store "b" with
-     | Some (`Int n) -> n
-     | _ -> -1)
-;;
-
-let test_legacy_backend_query_empty () =
-  let backend =
-    Memory.legacy_backend
-      ~persist:(fun ~key:_ _v -> ())
-      ~retrieve:(fun ~key:_ -> None)
-      ~remove:(fun ~key:_ -> ())
-  in
-  let results = backend.query ~prefix:"any" ~limit:10 in
-  check int "always empty" 0 (List.length results)
-;;
-
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
@@ -318,11 +259,6 @@ let () =
     ; ( "error_propagation"
       , [ test_case "persist error" `Quick test_persist_error_propagates
         ; test_case "remove error" `Quick test_remove_error_propagates
-        ] )
-    ; ( "legacy_backend"
-      , [ test_case "persist/remove" `Quick test_legacy_backend
-        ; test_case "batch via legacy" `Quick test_legacy_backend_batch
-        ; test_case "query returns empty" `Quick test_legacy_backend_query_empty
         ] )
     ]
 ;;
