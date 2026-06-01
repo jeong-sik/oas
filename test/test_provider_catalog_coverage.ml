@@ -332,6 +332,14 @@ let test_removed_catalog_aliases_are_rejected () =
     {|{"schema_version":1,"providers":[{"id":"p","api_key_env":null}]}|}
     "removed provider catalog field";
   assert_reject
+    "auth key rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","auth":{"type":"api_key_env","key":"LEGACY_KEY"}}]}|}
+    "removed provider catalog auth field";
+  assert_reject
+    "capability base alias rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","base":"provider_d_chat"}]}|}
+    "removed provider catalog field \"base\"";
+  assert_reject
     "auth alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","auth":{"type":"api-key-env","env":"K"}}]}|}
     "unknown auth type";
