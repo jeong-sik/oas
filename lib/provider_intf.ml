@@ -25,8 +25,7 @@ let retry_error_of_http_error = function
 
 let parse_chat_completions_v1_response_result body_str =
   try
-    Llm_provider.Backend_chat_completions_v1_parse
-    .parse_chat_completions_v1_response_result
+    Llm_provider.Backend_chat_completions_v1_parse.parse_chat_completions_v1_response_result
       body_str
   with
   | Yojson.Json_error msg | Yojson.Safe.Util.Type_error (msg, _) -> Error msg

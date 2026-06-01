@@ -698,8 +698,7 @@ let complete_http
                 | Provider_config.DashScope
                 | Provider_config.Kimi ->
                   (match
-                     Backend_chat_completions_v1_parse
-                     .parse_chat_completions_v1_response_result
+                     Backend_chat_completions_v1_parse.parse_chat_completions_v1_response_result
                        body
                    with
                    | Ok resp -> Ok resp
