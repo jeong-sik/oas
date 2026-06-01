@@ -172,8 +172,7 @@ let auth_headers_for_config (config : t) : (string * string) list =
     (match config.kind with
      | Anthropic | Kimi -> [ "x-api-key", key ]
      | Gemini -> []
-     | OpenAI_compat | Ollama | Glm | DashScope ->
-       [ "Authorization", "Bearer " ^ key ])
+     | OpenAI_compat | Ollama | Glm | DashScope -> [ "Authorization", "Bearer " ^ key ])
 ;;
 
 let max_turns_hard_cap = function
@@ -318,8 +317,8 @@ let validate_output_schema_request (config : t) =
      | Gemini | Anthropic | Ollama | DashScope -> Ok ()
      | Glm ->
        Error
-         "Glm supports JSON mode (json_object) only; native json_schema output is \
-          not documented in the current Z.AI API"
+         "Glm supports JSON mode (json_object) only; native json_schema output is not \
+          documented in the current Z.AI API"
      | Kimi | OpenAI_compat ->
        let caps =
          match Capabilities.for_model_id config.model_id with
@@ -339,7 +338,7 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "native structured output is only wired for official Provider_d hosts, got \
                %s"
-               config.base_url))
+              config.base_url))
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess

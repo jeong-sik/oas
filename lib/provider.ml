@@ -205,9 +205,7 @@ let provider_c_direct_request_path = "/v1/messages"
     Auth header ("x-api-key") is NOT included — callers merge
     [auth_headers_only_for_kind] at HTTP request time. *)
 let provider_c_direct_headers _key =
-  [ "Content-Type", "application/json"
-  ; "provider_a-version", "2023-06-01"
-  ]
+  [ "Content-Type", "application/json"; "provider_a-version", "2023-06-01" ]
 ;;
 
 let provider_c_provider_impl : provider_impl =
@@ -415,9 +413,7 @@ let resolve (cfg : config) =
        Ok
          ( "https://api.provider_a.com"
          , key
-         , [ "provider_a-version", "2023-06-01"
-           ; "Content-Type", "application/json"
-           ] )
+         , [ "provider_a-version", "2023-06-01"; "Content-Type", "application/json" ] )
      | None -> Error (Error.Config (MissingEnvVar { var_name = cfg.api_key_env })))
   | OpenAICompat { base_url; auth_header = _; static_token; _ } ->
     (match static_token with
@@ -428,8 +424,7 @@ let resolve (cfg : config) =
        Ok (base_url, key, [ "Content-Type", "application/json" ])
      | _ ->
        (match Sys.getenv_opt cfg.api_key_env with
-        | Some key ->
-          Ok (base_url, key, [ "Content-Type", "application/json" ])
+        | Some key -> Ok (base_url, key, [ "Content-Type", "application/json" ])
         | None -> Ok (base_url, "", [ "Content-Type", "application/json" ])))
   | Custom_registered { name } ->
     (match find_provider name with
@@ -663,8 +658,7 @@ let auth_headers_only_for_kind
     (match kind with
      | Anthropic | Kimi -> [ "x-api-key", key ]
      | Gemini -> []
-     | OpenAI_compat | Ollama | Glm | DashScope ->
-       [ "Authorization", "Bearer " ^ key ])
+     | OpenAI_compat | Ollama | Glm | DashScope -> [ "Authorization", "Bearer " ^ key ])
 ;;
 
 (** Convert a [Llm_provider.Provider_config.t] into a

@@ -166,8 +166,9 @@ let anthropic_capabilities =
 
 let kimi_capabilities =
   { default_capabilities with
-    max_context_tokens = Some 256_000
-    (* platform.kimi.ai documents only the default max_tokens (32768); it does
+    max_context_tokens =
+      Some 256_000
+      (* platform.kimi.ai documents only the default max_tokens (32768); it does
        not state a higher output ceiling. Keep the verified default here. A
        higher ceiling (if any) is deferred to the per-provider capability pass. *)
   ; max_output_tokens = Some 32_768
@@ -184,8 +185,9 @@ let kimi_capabilities =
   ; supports_native_streaming = true
   ; supports_multimodal_inputs = true
   ; supports_image_input = true
-  ; supports_code_execution = true
-    (* Preserved from the pre-rename provider_c_capabilities; dropped by accident
+  ; supports_code_execution =
+      true
+      (* Preserved from the pre-rename provider_c_capabilities; dropped by accident
        in the capability rename. *)
   }
 ;;

@@ -523,7 +523,6 @@
  (modules test_builder)
  (libraries agent_sdk alcotest eio_main))
 
-
 (test
  (name test_full_pipeline_cov)
  (modules test_full_pipeline_cov)
