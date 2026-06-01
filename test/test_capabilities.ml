@@ -84,7 +84,7 @@ let test_anthropic_capabilities () =
   check bool "context 200K" true (c.max_context_tokens = Some 200_000)
 ;;
 
-let test_provider_d_capabilities () =
+let test_chat_completions_v1_capabilities () =
   let c = Capabilities.openai_compat_chat_capabilities in
   check bool "has structured output" true c.supports_structured_output;
   check bool "has parallel tools" true c.supports_parallel_tool_calls;
@@ -92,7 +92,7 @@ let test_provider_d_capabilities () =
   check bool "context 128K" true (c.max_context_tokens = Some 128_000)
 ;;
 
-let test_provider_d_extended () =
+let test_chat_completions_v1_extended () =
   let c = Capabilities.openai_compat_chat_extended_capabilities in
   check bool "has reasoning" true c.supports_reasoning;
   check_thinking_control
@@ -169,9 +169,9 @@ let pp_static_model_route ppf = function
   | Capabilities.Agent_llm_a_opus_4 -> Format.fprintf ppf "Agent_llm_a_opus_4"
   | Capabilities.Agent_llm_a_sonnet_4 -> Format.fprintf ppf "Agent_llm_a_sonnet_4"
   | Capabilities.Agent_llm_a_haiku_4 -> Format.fprintf ppf "Agent_llm_a_haiku_4"
-  | Capabilities.Provider_d_5 -> Format.fprintf ppf "Provider_d_5"
-  | Capabilities.Provider_d_4_1 -> Format.fprintf ppf "Provider_d_4_1"
-  | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
+  | Capabilities.Chat_completions_v1_5 -> Format.fprintf ppf "Chat_completions_v1_5"
+  | Capabilities.Chat_completions_v1_4_1 -> Format.fprintf ppf "Chat_completions_v1_4_1"
+  | Capabilities.Chat_completions_v1_4o -> Format.fprintf ppf "Chat_completions_v1_4o"
   | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
   | Capabilities.Gemini family ->
     Format.fprintf ppf "Gemini(%a)" pp_provider_f_family family
@@ -456,7 +456,7 @@ let test_manifest_overrides_static_table () =
      but different capabilities — manifest must win. *)
   let m =
     make_manifest
-      ~base:"provider_d_chat"
+      ~base:"chat_completions_v1"
       ~extra_fields:
         [ "max_context_tokens", "999999"
         ; "supports_computer_use", "false"
@@ -492,18 +492,18 @@ let test_manifest_unknown_model_still_none () =
     (Capabilities.for_model_id_with_manifest m "totally-unknown-xyz" = None)
 ;;
 
-let test_manifest_base_label_provider_d_chat () =
+let test_manifest_base_label_chat_completions_v1 () =
   let m =
     make_manifest
-      ~base:"provider_d_chat"
+      ~base:"chat_completions_v1"
       ~extra_fields:[ "max_context_tokens", "65536" ]
       "custom-gpt"
   in
   match Capabilities.for_model_id_with_manifest m "custom-gpt-v2" with
   | Some c ->
     check (option int) "custom ctx" (Some 65536) c.max_context_tokens;
-    check bool "provider_d_chat base: tools" true c.supports_tools;
-    check bool "provider_d_chat base: streaming" true c.supports_native_streaming
+    check bool "chat_completions_v1 base: tools" true c.supports_tools;
+    check bool "chat_completions_v1 base: streaming" true c.supports_native_streaming
   | None -> fail "expected Some"
 ;;
 
@@ -543,14 +543,14 @@ let test_manifest_prefix_wins_over_longer_static_prefix () =
      letting operator override even well-known models. *)
   let m =
     make_manifest
-      ~base:"provider_d_chat"
+      ~base:"chat_completions_v1"
       ~extra_fields:[ "supports_reasoning", "false" ]
       "provider_h-3"
   in
   match Capabilities.for_model_id_with_manifest m "provider_h-3.5-35b-a3b-q4" with
   | Some c ->
     check bool "manifest disables reasoning" false c.supports_reasoning;
-    check bool "base provider_d_chat: tools" true c.supports_tools
+    check bool "base chat_completions_v1: tools" true c.supports_tools
   | None -> fail "expected Some"
 ;;
 
@@ -714,7 +714,7 @@ let test_manifest_load_runtime_file_success_logs_info () =
 
 let test_dashscope_capabilities () =
   let c = Capabilities.dashscope_capabilities in
-  (* DashScope (DashScope) exposes response_format.json_schema on its Provider_d-compatible
+  (* DashScope (DashScope) exposes response_format.json_schema on its Chat_completions_v1-compatible
      endpoint; native schema output is supported. Ref: DashScope structured output
      guide — checked 2026-05-05. *)
   check bool "has structured output" true c.supports_structured_output;
@@ -731,7 +731,7 @@ let test_dashscope_capabilities () =
 
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
-    [ ( "provider_d_chat_extended"
+    [ ( "chat_completions_v1_extended"
       , Some Capabilities.openai_compat_chat_extended_capabilities )
     ; "provider_c", Some Capabilities.kimi_capabilities
     ; "provider_h", Some Capabilities.dashscope_capabilities
@@ -843,11 +843,14 @@ let () =
         ] )
     ; ( "presets"
       , [ test_case "provider_a" `Quick test_anthropic_capabilities
-        ; test_case "provider_d" `Quick test_provider_d_capabilities
-        ; test_case "provider_d extended" `Quick test_provider_d_extended
+        ; test_case "chat_completions_v1" `Quick test_chat_completions_v1_capabilities
+        ; test_case
+            "chat_completions_v1 extended"
+            `Quick
+            test_chat_completions_v1_extended
         ; test_case "provider_h" `Quick test_dashscope_capabilities
         ; test_case
-            "provider_d compat reasoning records have explicit control"
+            "chat_completions_v1 compat reasoning records have explicit control"
             `Quick
             test_openai_compat_reasoning_records_have_explicit_control
         ] )
@@ -894,7 +897,10 @@ let () =
       , [ test_case "overrides static table" `Quick test_manifest_overrides_static_table
         ; test_case "fallback to static" `Quick test_manifest_fallback_to_static
         ; test_case "unknown model → None" `Quick test_manifest_unknown_model_still_none
-        ; test_case "base provider_d_chat" `Quick test_manifest_base_label_provider_d_chat
+        ; test_case
+            "base chat_completions_v1"
+            `Quick
+            test_manifest_base_label_chat_completions_v1
         ; test_case "base provider_a" `Quick test_manifest_base_label_provider_a
         ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
         ; test_case

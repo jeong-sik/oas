@@ -60,10 +60,11 @@ let test_non_zai_glm_stays_openai_compat () =
     }
   in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
-  | Error _ -> Alcotest.fail "custom provider_d compat provider should not need env var"
+  | Error _ ->
+    Alcotest.fail "custom chat_completions_v1 compat provider should not need env var"
   | Ok cfg ->
     Alcotest.(check string)
-      "kind remains provider_d compat"
+      "kind remains chat_completions_v1 compat"
       "openai_compat"
       (match cfg.kind with
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
@@ -170,12 +171,12 @@ let test_provider_a_auto_and_explicit_models () =
 ;;
 
 let test_openai_compat_auto_model_branches () =
-  with_env "OLLAMA_DEFAULT_MODEL" "provider-d-env-default" (fun () ->
+  with_env "OLLAMA_DEFAULT_MODEL" "chat-completions-v1-env-default" (fun () ->
     with_env "PROVIDER_F_DEFAULT_MODEL" "provider_f-env-default" (fun () ->
-      let provider_d_auto =
+      let chat_completions_v1_auto =
         { Agent_sdk.Provider.provider =
             OpenAICompat
-              { base_url = "https://provider-d.example/v1"
+              { base_url = "https://chat-completions-v1.example/v1"
               ; auth_header = None
               ; path = "/chat/completions"
               ; static_token = None
@@ -184,14 +185,19 @@ let test_openai_compat_auto_model_branches () =
         ; api_key_env = ""
         }
       in
-      let provider_f_prefixed = { provider_d_auto with model_id = "provider_f-auto" } in
-      let provider_f_explicit =
-        { provider_d_auto with model_id = "provider_f-2.5-pro" }
+      let provider_f_prefixed =
+        { chat_completions_v1_auto with model_id = "provider_f-auto" }
       in
-      (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
+      let provider_f_explicit =
+        { chat_completions_v1_auto with model_id = "provider_f-2.5-pro" }
+      in
+      (match Agent_sdk.Provider_bridge.to_provider_config chat_completions_v1_auto with
        | Ok cfg ->
-         check_kind "provider_d compat kind" "openai_compat" cfg;
-         Alcotest.(check string) "provider_d auto" "provider-d-env-default" cfg.model_id
+         check_kind "chat_completions_v1 compat kind" "openai_compat" cfg;
+         Alcotest.(check string)
+           "chat_completions_v1 auto"
+           "chat-completions-v1-env-default"
+           cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
        | Ok cfg ->
@@ -241,10 +247,10 @@ let () =
     "provider_bridge"
     [ ( "to_provider_config"
       , [ test_case "provider_a" `Quick test_provider_a_bridge
-        ; test_case "provider_d compat" `Quick test_openai_compat_bridge
+        ; test_case "chat_completions_v1 compat" `Quick test_openai_compat_bridge
         ; test_case "local" `Quick test_local_provider_bridge
         ; test_case
-            "non-zai provider_k stays provider_d compat"
+            "non-zai provider_k stays chat_completions_v1 compat"
             `Quick
             test_non_zai_glm_stays_openai_compat
         ; test_case

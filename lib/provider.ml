@@ -47,7 +47,7 @@ type model_spec =
   ; capabilities : capabilities
   }
 
-(** Check if a model needs extended Provider_d capabilities
+(** Check if a model needs extended Chat_completions_v1 capabilities
     (reasoning, top_k, min_p). Currently triggers on provider_h family models. *)
 let needs_extended_capabilities model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
@@ -280,8 +280,8 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
      | Some caps -> caps
      | None -> anthropic_capabilities)
   | Local _ ->
-    (* Local (llama-server) uses Provider_d-compatible API.
-         Resolve capabilities by model_id, fall back to provider_d_chat. *)
+    (* Local (llama-server) uses Chat_completions_v1-compatible API.
+         Resolve capabilities by model_id, fall back to chat_completions_v1. *)
     (match Llm_provider.Capabilities.for_model_id model_id with
      | Some caps -> caps
      | None -> openai_compat_chat_capabilities)
@@ -499,10 +499,10 @@ let zero_pricing =
 let pricing_for_model_opt model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-     Newer Provider_d text models expose cached input at 0.1x input.
+     Newer Chat_completions_v1 text models expose cached input at 0.1x input.
      Local/free models keep no-op cache multipliers. *)
   let provider_a_cache = 1.25, 0.1 in
-  let provider_d_cached_input = 1.0, 0.1 in
+  let chat_completions_v1_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
     if Util.string_contains ~needle:"opus-4-6" normalized
@@ -518,21 +518,21 @@ let pricing_for_model_opt model_id =
     else if Util.string_contains ~needle:"agent_llm_a-3-7-sonnet" normalized
     then
       Some ((3.0, 15.0), provider_a_cache)
-      (* Provider_d API text-token pricing, confirmed from official model docs
+      (* Chat_completions_v1 API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
        its Agent_code rate card labels it research preview with non-final rates. *)
     else if Util.string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
     then None
     else if Util.string_contains ~needle:"model-d-5.5" normalized
-    then Some ((5.0, 30.0), provider_d_cached_input)
+    then Some ((5.0, 30.0), chat_completions_v1_cached_input)
     else if Util.string_contains ~needle:"model-d-5.4-mini" normalized
-    then Some ((0.75, 4.5), provider_d_cached_input)
+    then Some ((0.75, 4.5), chat_completions_v1_cached_input)
     else if Util.string_contains ~needle:"model-d-5.4" normalized
-    then Some ((2.5, 15.0), provider_d_cached_input)
+    then Some ((2.5, 15.0), chat_completions_v1_cached_input)
     else if Util.string_contains ~needle:"model-d-5.3-agent_code" normalized
-    then Some ((1.75, 14.0), provider_d_cached_input)
+    then Some ((1.75, 14.0), chat_completions_v1_cached_input)
     else if Util.string_contains ~needle:"model-d-5.2" normalized
-    then Some ((1.75, 14.0), provider_d_cached_input)
+    then Some ((1.75, 14.0), chat_completions_v1_cached_input)
     else if Util.string_contains ~needle:"model-d-mini" normalized
     then Some ((0.15, 0.6), no_cache)
     else if Util.string_contains ~needle:"model-d" normalized
@@ -711,7 +711,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind — the
     legacy {!config} variant does not distinguish arbitrary
-    Provider_d-compatible endpoints from named providers carrying their
+    Chat_completions_v1-compatible endpoints from named providers carrying their
     own kind.  Callers that require kind + arbitrary URL should
     construct {!Llm_provider.Provider_config.t} directly via
     {!Llm_provider.Provider_config.make}.

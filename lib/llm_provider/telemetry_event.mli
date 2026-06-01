@@ -61,7 +61,7 @@ type t =
             exposes a separable prefill marker
             (e.g. Anthropic [MessageStart] arrives before the first
             [ContentBlockDelta]); [None] for providers that do not
-            (e.g. Provider_d-compat first chunk is a content delta). *)
+            (e.g. Chat_completions_v1-compat first chunk is a content delta). *)
       ; total_ms : float
       ; inter_chunk_ms_p50 : float
       ; inter_chunk_ms_p95 : float

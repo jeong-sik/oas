@@ -1,6 +1,6 @@
-(** Provider_d Chat Completions HTTP transport.
+(** Chat_completions_v1 Chat Completions HTTP transport.
 
-    Implements {!Llm_transport.t} for any Provider_d-compatible API endpoint:
+    Implements {!Llm_transport.t} for any Chat_completions_v1-compatible API endpoint:
     llama-server, Glm, Provider_o_router, vLLM, Ollama, LiteLLM, etc.
 
     Thin wrapper around the HTTP completion pipeline in {!Complete}.
@@ -12,7 +12,7 @@
     @stability Internal
     @since 0.93.1 *)
 
-(** Configuration for an Provider_d-compatible endpoint. *)
+(** Configuration for an Chat_completions_v1-compatible endpoint. *)
 type config =
   { base_url : string (** Base URL (e.g. {!Constants.Endpoints.default_url}). *)
   ; api_key : string (** API key. Empty string when no auth is needed (local servers). *)
@@ -28,10 +28,10 @@ type config =
 (** Default config for local llama-server on port 8085. *)
 val default_config : config
 
-(** Create an Provider_d-compatible HTTP transport.
+(** Create an Chat_completions_v1-compatible HTTP transport.
 
     The returned {!Llm_transport.t} sends requests to the configured
-    endpoint using the Provider_d Chat Completions wire format.
+    endpoint using the Chat_completions_v1 Chat Completions wire format.
 
     Per-request overrides from {!Llm_transport.completion_request.config}
     (temperature, system_prompt, tools, etc.) are respected. The

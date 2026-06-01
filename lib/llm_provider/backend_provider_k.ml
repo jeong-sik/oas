@@ -1,6 +1,6 @@
 (** ZhipuAI Glm native backend.
 
-    Provider_d wire format with Glm-specific extensions:
+    Chat_completions_v1 wire format with Glm-specific extensions:
     - [thinking] parameter: [{"type":"enabled","clear_thinking":true}]
     - [reasoning_content] in response message and streaming delta
     - String error codes (e.g., ["1305"])
@@ -96,7 +96,9 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let base_body = Backend_provider_d.build_request ~stream ~config ~messages ~tools () in
+  let base_body =
+    Backend_chat_completions_v1.build_request ~stream ~config ~messages ~tools ()
+  in
   match Yojson.Safe.from_string base_body with
   | `Assoc fields ->
     let fields =
@@ -125,7 +127,7 @@ let build_request
 
 (** Glm error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
-    Standard Provider_d uses numeric HTTP codes. *)
+    Standard Chat_completions_v1 uses numeric HTTP codes. *)
 let check_glm_error body : provider_k_error option =
   try
     let json = Yojson.Safe.from_string body in
@@ -186,7 +188,9 @@ let parse_response body =
   | Some err -> raise (Glm_api_error err)
   | None ->
     (try
-       match Backend_provider_d_parse.parse_provider_d_response_result body with
+       match
+         Backend_chat_completions_v1_parse.parse_chat_completions_v1_response_result body
+       with
        | Error msg -> raise (provider_k_parse_error msg)
        | Ok resp -> extract_reasoning_content resp body
      with
@@ -197,10 +201,10 @@ let parse_response body =
 
 (* ── Streaming ───────────────────────────────────── *)
 
-(** Parse Glm SSE chunk.  Glm uses Provider_d SSE format but adds
+(** Parse Glm SSE chunk.  Glm uses Chat_completions_v1 SSE format but adds
     [delta.reasoning_content] for thinking. We parse this as
-    [delta_reasoning] in the provider_d_chunk type. *)
-let parse_stream_chunk = Streaming.parse_provider_d_sse_chunk
+    [delta_reasoning] in the chat_completions_v1_chunk type. *)
+let parse_stream_chunk = Streaming.parse_chat_completions_v1_sse_chunk
 
 (* ── Inline tests ────────────────────────────────── *)
 
@@ -398,7 +402,7 @@ let%test "extract_reasoning_content skips empty reasoning" =
   List.length result.content = 1
 ;;
 
-let%test "parse_stream_chunk delegates to provider_d" =
+let%test "parse_stream_chunk delegates to chat_completions_v1" =
   let data = {|{"id":"x","choices":[{"delta":{"content":"hi"},"index":0}]}|} in
   match parse_stream_chunk data with
   | Some chunk -> chunk.delta_content = Some "hi"

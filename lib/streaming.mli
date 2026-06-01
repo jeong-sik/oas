@@ -1,6 +1,6 @@
 (** SSE streaming client for multi-provider LLM APIs.
 
-    Supports Anthropic (native SSE) and Provider_d-compatible (SSE).
+    Supports Anthropic (native SSE) and Chat_completions_v1-compatible (SSE).
     Pure SSE event parsing and synthetic emission are delegated to
     {!Llm_provider.Streaming}.  The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling.
@@ -53,7 +53,7 @@ val map_http_error : Llm_provider.Http_client.http_error -> Error.sdk_error
 (** {1 Streaming API Call} *)
 
 (** Create a streaming LLM message.
-    Supports Anthropic (native SSE), Provider_d-compatible (SSE),
+    Supports Anthropic (native SSE), Chat_completions_v1-compatible (SSE),
     and custom providers (sync fallback with synthetic events).
 
     Does not accept [retry_config]: SSE streams deliver partial results

@@ -1,12 +1,12 @@
-(** Provider_d-compatible API request building and response parsing.
+(** Chat_completions_v1-compatible API request building and response parsing.
 
-    Pure serialization/parsing is delegated to {!Llm_provider.Backend_provider_d}.
+    Pure serialization/parsing is delegated to {!Llm_provider.Backend_chat_completions_v1}.
     Request building remains here due to agent_config/agent_state/Provider coupling. *)
 
 open Types
 
 (* Re-export pure functions from llm_provider *)
-include Llm_provider.Backend_provider_d
+include Llm_provider.Backend_chat_completions_v1
 
 let system_message_json (config : agent_state) : Yojson.Safe.t list =
   match config.config.system_prompt with
@@ -64,11 +64,11 @@ let effective_tool_choice_json
   match config.config.tool_choice with
   | Some Types.None_ when is_glm -> None
   | Some (Types.Auto | Types.Any | Types.Tool _) when is_glm ->
-    Some (tool_choice_to_provider_d_json Types.Auto)
+    Some (tool_choice_to_chat_completions_v1_json Types.Auto)
   | Some Types.Auto when capabilities.supports_tool_choice ->
-    Some (tool_choice_to_provider_d_json Types.Auto)
+    Some (tool_choice_to_chat_completions_v1_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->
-    Some (tool_choice_to_provider_d_json choice)
+    Some (tool_choice_to_chat_completions_v1_json choice)
   | _ -> None
 ;;
 
@@ -78,15 +78,16 @@ let should_include_tools ?provider_config (config : agent_state) =
   | _ -> true
 ;;
 
-let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () =
+let build_chat_completions_v1_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
     let message_serializer =
       if is_glm_request ?provider_config config
-      then Llm_provider.Backend_provider_d_serialize.provider_k_messages_of_message
-      else provider_d_messages_of_message
+      then
+        Llm_provider.Backend_chat_completions_v1_serialize.provider_k_messages_of_message
+      else chat_completions_v1_messages_of_message
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
   in
@@ -111,7 +112,7 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
     | Some top_k when capabilities.supports_top_k -> ("top_k", `Int top_k) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-      Llm_provider.Backend_provider_d.warn_capability_drop
+      Llm_provider.Backend_chat_completions_v1.warn_capability_drop
         ~model_id:model_str
         ~field:"top_k";
       body_assoc
@@ -121,7 +122,7 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
     | Some min_p when capabilities.supports_min_p -> ("min_p", `Float min_p) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-      Llm_provider.Backend_provider_d.warn_capability_drop
+      Llm_provider.Backend_chat_completions_v1.warn_capability_drop
         ~model_id:model_str
         ~field:"min_p";
       body_assoc
@@ -183,7 +184,8 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
       when entries <> []
            && capabilities.supports_tools
            && should_include_tools ?provider_config config ->
-      ("tools", `List (List.map build_provider_d_tool_json entries)) :: body_assoc
+      ("tools", `List (List.map build_chat_completions_v1_tool_json entries))
+      :: body_assoc
     | _ -> body_assoc
   in
   let body_assoc =
@@ -199,11 +201,13 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
   let body_assoc =
     match config.config.response_format with
     | JsonMode when capabilities.supports_response_format_json ->
-      (match response_format_to_provider_d_json JsonMode with
+      (match response_format_to_chat_completions_v1_json JsonMode with
        | Some response_format -> ("response_format", response_format) :: body_assoc
        | None -> body_assoc)
     | JsonSchema _ when capabilities.supports_structured_output ->
-      (match response_format_to_provider_d_json config.config.response_format with
+      (match
+         response_format_to_chat_completions_v1_json config.config.response_format
+       with
        | Some response_format -> ("response_format", response_format) :: body_assoc
        | None -> body_assoc)
     | JsonSchema _ | JsonMode | Off -> body_assoc

@@ -312,7 +312,7 @@ let test_apply_agent_spawn () =
          { participant_name = "bob"
          ; role = Some "reviewer"
          ; prompt = "review"
-         ; provider = Some "provider_d"
+         ; provider = Some "chat_completions_v1"
          ; model = Some "model-d-4"
          ; permission_mode = None
          })
@@ -326,7 +326,7 @@ let test_apply_agent_spawn () =
     Alcotest.(check (option string)) "role" (Some "reviewer") bob.role;
     Alcotest.(check (option string))
       "req_provider"
-      (Some "provider_d")
+      (Some "chat_completions_v1")
       bob.requested_provider
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;

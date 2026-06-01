@@ -36,14 +36,17 @@ val build_body_assoc
   -> unit
   -> (string * Yojson.Safe.t) list
 
-(** {1 Re-exports from Api_provider_d} *)
+(** {1 Re-exports from Api_chat_completions_v1} *)
 
-val provider_d_messages_of_message : Types.message -> Yojson.Safe.t list
-val provider_d_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
+val chat_completions_v1_messages_of_message : Types.message -> Yojson.Safe.t list
 
-(** Parse an Provider_d-compatible JSON response.
+val chat_completions_v1_content_parts_of_blocks
+  :  Types.content_block list
+  -> Yojson.Safe.t list
+
+(** Parse an Chat_completions_v1-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
-val build_provider_d_body
+val build_chat_completions_v1_body
   :  ?provider_config:Provider.config
   -> config:Types.agent_state
   -> messages:Types.message list
@@ -52,9 +55,11 @@ val build_provider_d_body
   -> unit
   -> string
 
-(** Parse an Provider_d-compatible JSON response.
+(** Parse an Chat_completions_v1-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
-val parse_provider_d_response_result : string -> (Types.api_response, string) result
+val parse_chat_completions_v1_response_result
+  :  string
+  -> (Types.api_response, string) result
 
 (** {1 Non-streaming request} *)
 

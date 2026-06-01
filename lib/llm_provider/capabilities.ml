@@ -7,7 +7,7 @@
     @since 0.42.0
     @since 0.72.0 — added numeric limits, parallel tool calls, thinking split *)
 
-(** Wire-format for controlling thinking/reasoning on Provider_d-compat backends.
+(** Wire-format for controlling thinking/reasoning on Chat_completions_v1-compat backends.
     Different model families use different JSON shapes to enable/disable
     thinking, so the runtime must know which format to emit.
 
@@ -21,11 +21,11 @@ type thinking_control_format =
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** Provider_d-style top-level [reasoning_effort] string field. The set of
+  (** Chat_completions_v1-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
+      see {!Provider_config.effort_of_thinking_config}. (Chat_completions_v1's spec
       also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's Provider_d-compatible mode uses this shape. *)
+      it.) Ollama's Chat_completions_v1-compatible mode uses this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
@@ -45,10 +45,10 @@ type capabilities =
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
   ; thinking_control_format : thinking_control_format
-    (** Wire-format for thinking control on Provider_d-compat backends.
+    (** Wire-format for thinking control on Chat_completions_v1-compat backends.
         Determines which JSON shape the backend emits for enable_thinking.
         Only meaningful when [supports_reasoning] or [supports_extended_thinking]
-        is true and the request goes through backend_provider_d.
+        is true and the request goes through backend_chat_completions_v1.
         @since 0.184.0 *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
@@ -76,7 +76,7 @@ type capabilities =
     (** Whether the provider respects [seed] deterministically when
       image inputs are present.  Local providers (Ollama, llama-server)
       achieve near-perfect determinism on identical hardware; cloud
-      providers (Provider_d, Gemini) do not guarantee deterministic output
+      providers (Chat_completions_v1, Gemini) do not guarantee deterministic output
       when images are in the prompt. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
@@ -155,8 +155,8 @@ let anthropic_capabilities =
      subsequent token", docs.provider_a.com/en/api/messages body
      params). [backend_provider_a.build_request] already serializes
      [config.top_k] unconditionally when [Some]; the capability record
-     must match so cross-layer consumers (the #831 Api_provider_d gate,
-     the #830 Backend_provider_d gate, and the capability_filter passes)
+     must match so cross-layer consumers (the #831 Api_chat_completions_v1 gate,
+     the #830 Backend_chat_completions_v1 gate, and the capability_filter passes)
      do not silently drop top_k when the caller routes an Anthropic
      config through a capability-checking path. [supports_min_p]
      remains [false] — Anthropic does not accept min_p. *)
@@ -221,7 +221,7 @@ let openai_compat_chat_extended_capabilities =
   }
 ;;
 
-(* Ollama Provider_d-compat endpoint behavior on tool_choice is model-dependent
+(* Ollama Chat_completions_v1-compat endpoint behavior on tool_choice is model-dependent
    (docs.ollama.com/capabilities/tool-calling: the parameter is silently
    ignored for some models). Some DashScope_3.5 deployments w/ native Jinja
    chat template do honor tool_choice:required in practice.
@@ -243,7 +243,7 @@ let openai_compat_chat_extended_capabilities =
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
    the Agent_llm_a Agent SDK sidesteps by being single-provider. *)
-(* NVIDIA NIM Provider_l: Llama-based Provider_d-compatible endpoint.
+(* NVIDIA NIM Provider_l: Llama-based Chat_completions_v1-compatible endpoint.
    Thinking uses chat_template_kwargs (same wire format as Ollama's
    llama-server backend). VL variants add image input.
    Ref: build.nvidia.com/nvidia docs, Provider_l model cards. *)
@@ -297,7 +297,7 @@ let glm_capabilities =
   ; (* Z.AI's current official docs describe JSON mode via
      response_format={"type":"json_object"} plus prompt/schema-in-text
      guidance, but do not document a native JSON-schema request field
-     equivalent to Provider_d's json_schema response_format. OAS therefore
+     equivalent to Chat_completions_v1's json_schema response_format. OAS therefore
      treats Glm as JSON-mode-only: supports_response_format_json=true
      but supports_structured_output=false. validate_output_schema_request
      rejects output_schema for Glm configs to prevent silent pass-through
@@ -373,7 +373,7 @@ let gemini_capabilities =
      [backend_provider_f.build_request] serializer already emits it at
      lib/llm_provider/backend_provider_f.ml:162-164, so the capability
      record must match. Same discrepancy story as anthropic_capabilities
-     (#832) — Provider_d-compat consumers that route a Gemini config
+     (#832) — Chat_completions_v1-compat consumers that route a Gemini config
      through a capability-checking path were silently dropping top_k.
      [supports_min_p] stays false; Gemini's generationConfig has no
      min_p field. *)
@@ -390,9 +390,9 @@ type static_model_route =
   | Agent_llm_a_opus_4
   | Agent_llm_a_sonnet_4
   | Agent_llm_a_haiku_4
-  | Provider_d_5
-  | Provider_d_4_1
-  | Provider_d_4o
+  | Chat_completions_v1_5
+  | Chat_completions_v1_4_1
+  | Chat_completions_v1_4o
   | Mimo_v2_5_chat
   | Gemini of provider_f_family
   | Kimi_for_coding
@@ -462,11 +462,11 @@ let static_model_route_of_id model_id =
   else if String.starts_with ~prefix:"agent_llm_a-haiku-4" m
   then Some Agent_llm_a_haiku_4
   else if String.starts_with ~prefix:"model-d-5" m
-  then Some Provider_d_5
+  then Some Chat_completions_v1_5
   else if String.starts_with ~prefix:"model-d-4.1" m
-  then Some Provider_d_4_1
+  then Some Chat_completions_v1_4_1
   else if String.starts_with ~prefix:"model-d" m
-  then Some Provider_d_4o
+  then Some Chat_completions_v1_4o
   else if m = "mimo-v2.5" || String.starts_with ~prefix:"mimo-v2.5-pro" m
   then Some Mimo_v2_5_chat
   else (
@@ -578,20 +578,20 @@ let capabilities_of_static_model_route = function
         max_context_tokens = Some 200_000
       ; max_output_tokens = Some 8_192
       }
-  | Provider_d_5 ->
+  | Chat_completions_v1_5 ->
     Some
       { openai_compat_chat_extended_capabilities with
         max_context_tokens = Some 1_050_000
       ; max_output_tokens = Some 128_000
       ; supports_computer_use = true
       }
-  | Provider_d_4_1 ->
+  | Chat_completions_v1_4_1 ->
     Some
       { openai_compat_chat_capabilities with
         max_context_tokens = Some 1_000_000
       ; max_output_tokens = Some 32_000
       }
-  | Provider_d_4o ->
+  | Chat_completions_v1_4o ->
     Some
       { openai_compat_chat_capabilities with
         max_context_tokens = Some 128_000
@@ -719,7 +719,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-    (* NVIDIA Provider_l: Llama-based, NIM Provider_d-compat API.
+    (* NVIDIA Provider_l: Llama-based, NIM Chat_completions_v1-compat API.
        Base text models (provider_l-ultra, provider_l-core) get reasoning
        but no vision. VL suffix gets image input. *)
   | Provider_l { has_vision } ->
@@ -949,9 +949,9 @@ let for_model_id_static model_id =
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
   | "anthropic" | "claude" | "provider_a" -> Some anthropic_capabilities
-  | "openai_compat" | "openai" | "provider_d" | "provider_d_chat" ->
+  | "openai_compat" | "openai" | "chat_completions_v1" ->
     Some openai_compat_chat_capabilities
-  | "openai_compat_chat_extended" | "provider_d_chat_extended" ->
+  | "openai_compat_chat_extended" | "chat_completions_v1_extended" ->
     Some openai_compat_chat_extended_capabilities
   | "gemini" | "provider_f" -> Some gemini_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
@@ -1230,9 +1230,9 @@ let%test "capabilities_for_provider_label: anthropic" =
   | None -> false
 ;;
 
-let%test "capabilities_for_provider_label: provider_d alias" =
-  Option.is_some (capabilities_for_provider_label "provider_d")
-  && Option.is_some (capabilities_for_provider_label "provider_d_chat")
+let%test "capabilities_for_provider_label: chat_completions_v1 alias" =
+  Option.is_some (capabilities_for_provider_label "chat_completions_v1")
+  && Option.is_some (capabilities_for_provider_label "openai_compat")
 ;;
 
 let%test "capabilities_for_provider_label: provider_k alias" =
@@ -1263,7 +1263,7 @@ let%test "for_model_id provider_l-vl has image input" =
 ;;
 
 let%test "for_model_id provider_h_3 has chat_template_kwargs thinking control" =
-  (* DashScope_3.x Provider_d-compatible llama.cpp/llama-server deployments return
+  (* DashScope_3.x Chat_completions_v1-compatible llama.cpp/llama-server deployments return
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
      format, [supports_extended_thinking = true] never reaches the wire. *)
@@ -1455,7 +1455,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
     | _ -> false
   in
   let alias_pairs =
-    [ "provider_d", "provider_d_chat"; "provider_k", "provider_k-coding" ]
+    [ "chat_completions_v1", "openai_compat"; "provider_k", "provider_k-coding" ]
   in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
   && Option.is_some (resolve "provider_a")
@@ -1471,9 +1471,8 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
 let%test "capabilities_for_provider_label: all declared labels resolve" =
   let labels =
     [ "provider_a"
-    ; "provider_d"
-    ; "provider_d_chat"
-    ; "provider_d_chat_extended"
+    ; "chat_completions_v1"
+    ; "chat_completions_v1_extended"
     ; "provider_f"
     ; "ollama"
     ; "provider_k"

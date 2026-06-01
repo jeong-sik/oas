@@ -131,10 +131,10 @@ let test_add_usage_cache_accumulation () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* Provider_d: cache token parsing from prompt_tokens_details               *)
+(* Chat_completions_v1: cache token parsing from prompt_tokens_details               *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_usage_with_cached_tokens () =
+let test_chat_completions_v1_usage_with_cached_tokens () =
   let json_str =
     {|{
     "id": "chatcmpl-abc",
@@ -154,7 +154,7 @@ let test_provider_d_usage_with_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_provider_d_response_result json_str with
+    match Agent_sdk.Api.parse_chat_completions_v1_response_result json_str with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -167,7 +167,7 @@ let test_provider_d_usage_with_cached_tokens () =
   | None -> Alcotest.fail "expected usage"
 ;;
 
-let test_provider_d_usage_without_cached_tokens () =
+let test_chat_completions_v1_usage_without_cached_tokens () =
   let json_str =
     {|{
     "id": "chatcmpl-def",
@@ -184,7 +184,7 @@ let test_provider_d_usage_without_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_provider_d_response_result json_str with
+    match Agent_sdk.Api.parse_chat_completions_v1_response_result json_str with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -272,15 +272,15 @@ let () =
     ; ( "add_usage"
       , [ test_case "cache token accumulation" `Quick test_add_usage_cache_accumulation ]
       )
-    ; ( "provider_d_cache"
+    ; ( "chat_completions_v1_cache"
       , [ test_case
             "usage with cached_tokens"
             `Quick
-            test_provider_d_usage_with_cached_tokens
+            test_chat_completions_v1_usage_with_cached_tokens
         ; test_case
             "usage without cached_tokens"
             `Quick
-            test_provider_d_usage_without_cached_tokens
+            test_chat_completions_v1_usage_without_cached_tokens
         ] )
     ; ( "streaming_delta_cache"
       , [ test_case

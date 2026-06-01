@@ -103,7 +103,7 @@ let test_sse_function_call () =
     check "parsed chunk" true;
     check "has parts" (List.length chunk.gem_parts > 0);
     check "finish reason STOP" (chunk.gem_finish_reason = Some "STOP");
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_chat_completions_v1_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_tool_start =
       List.exists

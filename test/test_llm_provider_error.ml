@@ -95,19 +95,23 @@ let test_auth_error () =
   check
     string
     "AuthError format"
-    "Provider 'provider_d' auth error: invalid API key"
+    "Provider 'chat_completions_v1' auth error: invalid API key"
     (Error.to_string
-       (Error.AuthError { provider = "provider_d"; detail = "invalid API key" }))
+       (Error.AuthError { provider = "chat_completions_v1"; detail = "invalid API key" }))
 ;;
 
 let test_server_error () =
   check
     string
     "ServerError format"
-    "Provider 'provider_d' server error 503 (transient=true): down"
+    "Provider 'chat_completions_v1' server error 503 (transient=true): down"
     (Error.to_string
        (Error.ServerError
-          { provider = "provider_d"; code = 503; transient = true; detail = "down" }))
+          { provider = "chat_completions_v1"
+          ; code = 503
+          ; transient = true
+          ; detail = "down"
+          }))
 ;;
 
 let test_network_error () =
@@ -141,10 +145,10 @@ let test_timeout_phase () =
   check
     string
     "Timeout phase format"
-    "Provider 'provider_d' timeout phase=stream_idle:streaming_thinking: stalled"
+    "Provider 'chat_completions_v1' timeout phase=stream_idle:streaming_thinking: stalled"
     (Error.to_string
        (Error.Timeout
-          { provider = "provider_d"
+          { provider = "chat_completions_v1"
           ; timeout_phase = Some (Http_client.Stream_idle Http_client.Streaming_thinking)
           ; detail = "stalled"
           }))
@@ -256,12 +260,12 @@ let test_http_capacity_failure_mapping () =
 let test_http_server_error_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"provider_d"
+      ~provider:"chat_completions_v1"
       (Http_client.HttpError { code = 503; body = "down" })
   in
   match err with
   | Error.ServerError { provider; code; transient; detail } ->
-    check string "provider" "provider_d" provider;
+    check string "provider" "chat_completions_v1" provider;
     check int "code" 503 code;
     check bool "transient" true transient;
     check string "detail" "down" detail
@@ -307,7 +311,7 @@ let test_http_network_error_mapping () =
 let test_http_timeout_error_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"provider_d"
+      ~provider:"chat_completions_v1"
       (Http_client.TimeoutError
          { message = "stream stalled"
          ; phase = Http_client.Stream_idle Http_client.Streaming_thinking
@@ -315,7 +319,7 @@ let test_http_timeout_error_mapping () =
   in
   match err with
   | Error.Timeout { provider; timeout_phase; detail } ->
-    check string "provider" "provider_d" provider;
+    check string "provider" "chat_completions_v1" provider;
     check
       (option string)
       "phase"
@@ -328,27 +332,27 @@ let test_http_timeout_error_mapping () =
 let test_retry_remaining_variants_mapping () =
   let cases =
     [ ( Error.of_retry_api_error
-          ~provider:"provider_d"
+          ~provider:"chat_completions_v1"
           (Retry.AuthError { message = "bad key" })
       , "auth" )
     ; ( Error.of_retry_api_error
-          ~provider:"provider_d"
+          ~provider:"chat_completions_v1"
           (Retry.InvalidRequest { message = "bad payload" })
       , "invalid" )
     ; ( Error.of_retry_api_error
-          ~provider:"provider_d"
+          ~provider:"chat_completions_v1"
           (Retry.NotFound { message = "missing model" })
       , "not_found" )
     ; ( Error.of_retry_api_error
-          ~provider:"provider_d"
+          ~provider:"chat_completions_v1"
           (Retry.ContextOverflow { message = "too long"; limit = Some 123 })
       , "context" )
     ; ( Error.of_retry_api_error
-          ~provider:"provider_d"
+          ~provider:"chat_completions_v1"
           (Retry.NetworkError { message = "tls"; kind = Http_client.Tls_error })
       , "network" )
     ; ( Error.of_retry_api_error
-          ~provider:"provider_d"
+          ~provider:"chat_completions_v1"
           (Retry.Timeout { message = "slow" })
       , "timeout" )
     ]

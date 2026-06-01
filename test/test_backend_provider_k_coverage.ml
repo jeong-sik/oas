@@ -178,7 +178,7 @@ let test_parse_response_classifies_provider_k_errors () =
     cases
 ;;
 
-let test_parse_response_wraps_provider_d_parse_errors () =
+let test_parse_response_wraps_chat_completions_v1_parse_errors () =
   match K.parse_response {|{"choices":"not-a-list"}|} with
   | exception K.Glm_api_error err ->
     check string "parse code" "parse" err.code;
@@ -242,9 +242,9 @@ let () =
             `Quick
             test_parse_response_classifies_provider_k_errors
         ; test_case
-            "provider_d parse errors"
+            "chat_completions_v1 parse errors"
             `Quick
-            test_parse_response_wraps_provider_d_parse_errors
+            test_parse_response_wraps_chat_completions_v1_parse_errors
         ; test_case
             "empty and malformed reasoning bodies"
             `Quick

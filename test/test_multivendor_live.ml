@@ -4,9 +4,9 @@
     providers are reachable in the current environment:
 
     - Anthropic      if [PROVIDER_A_API_KEY] is set
-    - Provider_d         if [PROVIDER_D_API_KEY] is set
+    - Chat_completions_v1         if [PROVIDER_D_API_KEY] is set
     - Gemini         if [PROVIDER_F_API_KEY] is set
-    - Provider_d-compat  for every healthy endpoint in [LLM_ENDPOINTS]
+    - Chat_completions_v1-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
     Each provider case is [Quick] but skips gracefully (logs +
@@ -138,17 +138,17 @@ let test_provider_a () =
       ~model:"agent_llm_a-haiku-4-5"
 ;;
 
-(* ── Provider_d (via OpenAICompat) ────────────────────────────────── *)
+(* ── Chat_completions_v1 (via OpenAICompat) ────────────────────────────────── *)
 
-let test_provider_d () =
+let test_chat_completions_v1 () =
   match Sys.getenv_opt "PROVIDER_D_API_KEY" with
-  | None | Some "" -> skip_note "provider_d" "PROVIDER_D_API_KEY not set"
+  | None | Some "" -> skip_note "chat_completions_v1" "PROVIDER_D_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    let base_url = "https://api.provider_d.com" in
+    let base_url = "https://api.chat-completions-v1.example" in
     let provider : Provider.config =
       { provider =
           Provider.OpenAICompat
@@ -164,13 +164,13 @@ let test_provider_d () =
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"provider_d"
+      ~provider_label:"chat_completions_v1"
       ~provider
       ~base_url
       ~model:"model-d-mini"
 ;;
 
-(* ── Gemini (via Provider_d-compat endpoint) ──────────────────────── *)
+(* ── Gemini (via Chat_completions_v1-compat endpoint) ──────────────────────── *)
 
 let test_provider_f () =
   match Sys.getenv_opt "PROVIDER_F_API_KEY" with
@@ -180,8 +180,10 @@ let test_provider_f () =
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    (* Google's Provider_d-compatible endpoint for Gemini. *)
-    let base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d" in
+    (* Google's Chat_completions_v1-compatible endpoint for Gemini. *)
+    let base_url =
+      "https://generativelanguage.googleapis.com/v1beta/chat_completions_v1"
+    in
     let provider : Provider.config =
       { provider =
           Provider.OpenAICompat
@@ -203,7 +205,7 @@ let test_provider_f () =
       ~model:"provider_f-2.0-flash"
 ;;
 
-(* ── Local Provider_d-compatible (llama-server, Ollama, vLLM, ...) ─ *)
+(* ── Local Chat_completions_v1-compatible (llama-server, Ollama, vLLM, ...) ─ *)
 
 let test_local_compat () =
   Eio_main.run
@@ -258,7 +260,7 @@ let () =
     "Multivendor_live"
     [ ( "golden_transcript"
       , [ test_case "provider_a" `Quick test_provider_a
-        ; test_case "provider_d" `Quick test_provider_d
+        ; test_case "chat_completions_v1" `Quick test_chat_completions_v1
         ; test_case "provider_f" `Quick test_provider_f
         ; test_case "local openai-compat" `Quick test_local_compat
         ] )

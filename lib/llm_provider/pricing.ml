@@ -67,11 +67,11 @@ let string_contains ~needle haystack =
 (* Internal: static pricing table lookup on a pre-normalised model ID.
    Called by [pricing_for_model_opt] when no dynamic override matches.
    Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-   Newer Provider_d text models expose cached input at 0.1x input.
+   Newer Chat_completions_v1 text models expose cached input at 0.1x input.
    Local/free models keep no-op cache multipliers. *)
 let static_pricing_opt_normalized normalized =
   let provider_a_cache = 1.25, 0.1 in
-  let provider_d_cached_input = 1.0, 0.1 in
+  let chat_completions_v1_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
     if string_contains ~needle:"opus-4-6" normalized
@@ -99,21 +99,21 @@ let static_pricing_opt_normalized normalized =
       || string_contains ~needle:"cc:" normalized
     then
       Some ((3.0, 15.0), provider_a_cache)
-      (* Provider_d API text-token pricing, confirmed from official model docs
+      (* Chat_completions_v1 API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
        its Agent_code rate card labels it research preview with non-final rates. *)
     else if string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
     then None
     else if string_contains ~needle:"model-d-5.5" normalized
-    then Some ((5.0, 30.0), provider_d_cached_input)
+    then Some ((5.0, 30.0), chat_completions_v1_cached_input)
     else if string_contains ~needle:"model-d-5.4-mini" normalized
-    then Some ((0.75, 4.5), provider_d_cached_input)
+    then Some ((0.75, 4.5), chat_completions_v1_cached_input)
     else if string_contains ~needle:"model-d-5.4" normalized
-    then Some ((2.5, 15.0), provider_d_cached_input)
+    then Some ((2.5, 15.0), chat_completions_v1_cached_input)
     else if string_contains ~needle:"model-d-5.3-agent_code" normalized
-    then Some ((1.75, 14.0), provider_d_cached_input)
+    then Some ((1.75, 14.0), chat_completions_v1_cached_input)
     else if string_contains ~needle:"model-d-5.2" normalized
-    then Some ((1.75, 14.0), provider_d_cached_input)
+    then Some ((1.75, 14.0), chat_completions_v1_cached_input)
     else if string_contains ~needle:"model-d-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"model-d-mini" normalized
@@ -526,7 +526,7 @@ let%test "pricing agent_llm_a-3-7-sonnet" =
   && close_enough p.cache_write_multiplier 1.25
 ;;
 
-(* --- pricing_for_model: Provider_d models --- *)
+(* --- pricing_for_model: Chat_completions_v1 models --- *)
 
 let%test "pricing model-d-mini" =
   let p = pricing_for_model "model-d-mini" in

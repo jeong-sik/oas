@@ -25,7 +25,7 @@ let check_float msg expected actual = check (float 0.001) msg expected actual
 let test_streaming_first_chunk () =
   let ev =
     Telemetry_event.Streaming_first_chunk
-      { provider = "provider_d"
+      { provider = "chat_completions_v1"
       ; model = "model-d-4"
       ; ttfrc_ms = 123.456
       ; requested_at = 1000.0
@@ -33,7 +33,7 @@ let test_streaming_first_chunk () =
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_first_chunk r ->
-    check string "provider" "provider_d" r.provider;
+    check string "provider" "chat_completions_v1" r.provider;
     check string "model" "model-d-4" r.model;
     check_float "ttfrc_ms" 123.456 r.ttfrc_ms;
     check_float "requested_at" 1000.0 r.requested_at
@@ -61,7 +61,7 @@ let test_streaming_chunk_n () =
 let test_streaming_summary () =
   let ev =
     Telemetry_event.Streaming_summary
-      { provider = "provider_d"
+      { provider = "chat_completions_v1"
       ; model = "model-d-4"
       ; chunk_count = 3
       ; kind_breakdown =
@@ -85,7 +85,7 @@ let test_streaming_summary () =
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_summary r ->
-    check string "provider" "provider_d" r.provider;
+    check string "provider" "chat_completions_v1" r.provider;
     check string "model" "model-d-4" r.model;
     check int "chunk_count" 3 r.chunk_count;
     check int "thinking chunks" 1 r.kind_breakdown.thinking;
@@ -101,7 +101,7 @@ let test_streaming_summary () =
 let test_thinking_complete () =
   let ev =
     Telemetry_event.Thinking_complete
-      { provider = "provider_d"; model = "o3"; thinking_duration_ms = 888.8 }
+      { provider = "chat_completions_v1"; model = "o3"; thinking_duration_ms = 888.8 }
   in
   match roundtrip ev with
   | Telemetry_event.Thinking_complete r ->

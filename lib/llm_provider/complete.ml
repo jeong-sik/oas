@@ -289,7 +289,7 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | DashScope -> "provider_h"
   | Anthropic -> "provider_a"
   | Kimi -> "provider_c"
-  | OpenAI_compat -> "provider_d"
+  | OpenAI_compat -> "chat_completions_v1"
   | Gemini -> "provider_f"
   | Glm -> "provider_k"
 ;;
@@ -431,7 +431,7 @@ let%test "http_error_diagnostic_body preserves non-empty provider body" =
     Provider_config.make
       ~kind:Provider_config.Gemini
       ~model_id:"provider_f-3-flash-preview"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/chat_completions_v1"
       ~api_key:"secret"
       ~headers:[]
       ~request_path:"/v1/chat/completions?api_key=secret"
@@ -452,7 +452,7 @@ let%test "http_error_diagnostic_body enriches empty provider body" =
     Provider_config.make
       ~kind:Provider_config.Gemini
       ~model_id:"provider_f-3-flash-preview"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/chat_completions_v1"
       ~api_key:"secret"
       ~headers:[]
       ~request_path:"/v1/chat/completions?api_key=secret"
@@ -466,7 +466,7 @@ let%test "http_error_diagnostic_body enriches empty provider body" =
     ~code:404
     ~body:""
   = "empty HTTP 404 response from provider=provider_f model=provider_f-3-flash-preview \
-     base_url=https://generativelanguage.googleapis.com/v1beta/provider_d \
+     base_url=https://generativelanguage.googleapis.com/v1beta/chat_completions_v1 \
      request_path=/v1/chat/completions \
      url=https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent"
 ;;
@@ -536,7 +536,7 @@ let complete_http
         | Provider_config.Ollama ->
           Backend_ollama.build_request ~config ~messages ~tools ()
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          -> Backend_provider_d.build_request ~config ~messages ~tools ()
+          -> Backend_chat_completions_v1.build_request ~config ~messages ~tools ()
         | Provider_config.Gemini ->
           Backend_provider_f.build_request ~config ~messages ~tools ()
         | Provider_config.Glm ->
@@ -698,7 +698,9 @@ let complete_http
                 | Provider_config.DashScope
                 | Provider_config.Kimi ->
                   (match
-                     Backend_provider_d_parse.parse_provider_d_response_result body
+                     Backend_chat_completions_v1_parse
+                     .parse_chat_completions_v1_response_result
+                       body
                    with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
@@ -1191,7 +1193,7 @@ let complete_stream_http
         | Provider_config.Anthropic ->
           Backend_provider_a.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Ollama ->
-          (* Native /api/chat + NDJSON. The Backend_provider_d detour was a
+          (* Native /api/chat + NDJSON. The Backend_chat_completions_v1 detour was a
            deferred work-around (#849) that dropped Ollama's
            prompt_eval_count / eval_count / *_duration fields and
            silently disabled prompt_tok_s / decode_tok_s telemetry
@@ -1199,7 +1201,13 @@ let complete_stream_http
            Streaming.parse_ollama_ndjson_chunk. *)
           Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
-          -> Backend_provider_d.build_request ~stream:true ~config ~messages ~tools ()
+          ->
+          Backend_chat_completions_v1.build_request
+            ~stream:true
+            ~config
+            ~messages
+            ~tools
+            ()
         | Provider_config.Gemini ->
           Backend_provider_f.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Glm ->
@@ -1297,7 +1305,7 @@ let complete_stream_http
           (* RFC-OAS-020: compute TTFT from first-token capture
              (was first-chunk = ttfrc). [prefill_ms] is the gap
              between any first event and the first token; [None]
-             when they coincide (Provider_d-compat: no separable
+             when they coincide (Chat_completions_v1-compat: no separable
              prelude). *)
           let ttft_ms =
             match !first_token_at_ref with
@@ -1343,16 +1351,18 @@ let complete_stream_http
           ~f:(fun reader ->
             let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
-              let provider_d_state = ref None in
+              let chat_completions_v1_state = ref None in
               (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
                  hoisted out of body_logic so publish_summary on
                  exception paths sees consistent state. *)
               let get_state () =
-                match !provider_d_state with
+                match !chat_completions_v1_state with
                 | Some s -> s
                 | None ->
-                  let s = Streaming.create_provider_d_stream_state ~provider ~model () in
-                  provider_d_state := Some s;
+                  let s =
+                    Streaming.create_chat_completions_v1_stream_state ~provider ~model ()
+                  in
+                  chat_completions_v1_state := Some s;
                   s
               in
               let dispatch (events, tel_opt) =
@@ -1478,9 +1488,13 @@ let complete_stream_http
                            | Provider_config.OpenAI_compat
                            | Provider_config.DashScope
                            | Provider_config.Kimi ->
-                             (match Streaming.parse_provider_d_sse_chunk data with
+                             (match
+                                Streaming.parse_chat_completions_v1_sse_chunk data
+                              with
                               | Some chunk ->
-                                Streaming.provider_d_chunk_to_events (get_state ()) chunk
+                                Streaming.chat_completions_v1_chunk_to_events
+                                  (get_state ())
+                                  chunk
                               | None -> [], None)
                            | Provider_config.Gemini ->
                              (match Streaming.parse_provider_f_sse_chunk data with
@@ -1490,7 +1504,9 @@ let complete_stream_http
                            | Provider_config.Glm ->
                              (match Backend_provider_k.parse_stream_chunk data with
                               | Some chunk ->
-                                Streaming.provider_d_chunk_to_events (get_state ()) chunk
+                                Streaming.chat_completions_v1_chunk_to_events
+                                  (get_state ())
+                                  chunk
                               | None -> [], None)
                            | Provider_config.Ollama ->
                              [], None (* unreachable: handled above *)
@@ -2056,7 +2072,7 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"provider_f-2.5-flash"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/chat_completions_v1"
       ()
   in
   let applied = apply_sampling_defaults config in
@@ -2181,7 +2197,7 @@ let%test "patch_telemetry creates telemetry when None" =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-4"
-      ~base_url:"https://api.provider_d.com"
+      ~base_url:"https://api.chat-completions-v1.example"
       ()
   in
   let resp =
@@ -2290,7 +2306,7 @@ let%test "patch_telemetry fills blank response model" =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-5.4-mini"
-      ~base_url:"https://api.provider_d.com"
+      ~base_url:"https://api.chat-completions-v1.example"
       ()
   in
   let resp =

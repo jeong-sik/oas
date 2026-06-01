@@ -242,7 +242,7 @@ let test_build_body_with_tools () =
   check int "1 tool" 1 (List.length tools)
 ;;
 
-let test_build_provider_d_body_with_json_schema () =
+let test_build_chat_completions_v1_body_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -261,7 +261,8 @@ let test_build_provider_d_body_with_json_schema () =
     }
   in
   let json =
-    Api.build_provider_d_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_chat_completions_v1_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   let response_format = json |> member "response_format" in
@@ -326,7 +327,7 @@ let test_build_body_sampling_params_omitted_when_none () =
   check bool "no min_p key" false (List.exists (fun (k, _) -> k = "min_p") assoc)
 ;;
 
-let test_build_provider_d_body_with_provider_m_sampling () =
+let test_build_chat_completions_v1_body_with_provider_m_sampling () =
   let state =
     { Types.config =
         { Types.default_config with
@@ -343,7 +344,8 @@ let test_build_provider_d_body_with_provider_m_sampling () =
     }
   in
   let json =
-    Api.build_provider_d_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_chat_completions_v1_body ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   check
@@ -364,7 +366,8 @@ let test_build_provider_d_body_with_provider_m_sampling () =
     (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
 ;;
 
-let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat () =
+let test_build_chat_completions_v1_body_omits_provider_m_only_fields_for_generic_compat ()
+  =
   let provider_config =
     Provider.provider_o_router ~model_id:"provider_a/agent_llm_a-sonnet-4-6" ()
   in
@@ -392,7 +395,7 @@ let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat (
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_chat_completions_v1_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -423,7 +426,7 @@ let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat (
   check bool "tools preserved" true (List.mem_assoc "tools" assoc)
 ;;
 
-let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
+let test_build_chat_completions_v1_body_uses_glm_thinking_and_auto_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -456,7 +459,7 @@ let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_chat_completions_v1_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -479,7 +482,7 @@ let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
     (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
+let test_build_chat_completions_v1_body_uses_bare_glm_thinking_and_auto_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -512,7 +515,7 @@ let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_chat_completions_v1_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -535,7 +538,7 @@ let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
     (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_provider_d_body_glm_preserves_reasoning_content () =
+let test_build_chat_completions_v1_body_glm_preserves_reasoning_content () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -577,7 +580,7 @@ let test_build_provider_d_body_glm_preserves_reasoning_content () =
     }
   in
   let json =
-    Api.build_provider_d_body ~provider_config ~config:state ~messages ()
+    Api.build_chat_completions_v1_body ~provider_config ~config:state ~messages ()
     |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
@@ -591,7 +594,7 @@ let test_build_provider_d_body_glm_preserves_reasoning_content () =
   check string "tool choice still auto" "auto" (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
+let test_build_chat_completions_v1_body_does_not_treat_non_zai_glm_as_glm () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -624,7 +627,7 @@ let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_chat_completions_v1_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -649,7 +652,7 @@ let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
   | _ -> fail "non-zai provider_k tool_choice should preserve named function form"
 ;;
 
-let test_build_provider_d_body_glm_tool_choice_none_omits_tools () =
+let test_build_chat_completions_v1_body_glm_tool_choice_none_omits_tools () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -681,7 +684,7 @@ let test_build_provider_d_body_glm_tool_choice_none_omits_tools () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_chat_completions_v1_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -770,7 +773,7 @@ let test_parse_response_unknown_stop () =
   | sr -> fail (Printf.sprintf "expected Unknown, got %s" (Types.show_stop_reason sr))
 ;;
 
-let test_parse_provider_d_response_strips_fenced_json () =
+let test_parse_chat_completions_v1_response_strips_fenced_json () =
   let json_str =
     {|{
     "id": "chatcmpl_test",
@@ -785,7 +788,7 @@ let test_parse_provider_d_response_strips_fenced_json () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
@@ -797,7 +800,7 @@ let test_parse_provider_d_response_strips_fenced_json () =
      | _ -> Alcotest.fail "expected stripped text block")
 ;;
 
-let test_parse_provider_d_response_reasoning_content () =
+let test_parse_chat_completions_v1_response_reasoning_content () =
   let json_str =
     {|{
     "id": "chatcmpl_think",
@@ -814,7 +817,7 @@ let test_parse_provider_d_response_reasoning_content () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
@@ -830,7 +833,7 @@ let test_parse_provider_d_response_reasoning_content () =
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
 
-let test_parse_provider_d_response_reasoning_with_tools () =
+let test_parse_chat_completions_v1_response_reasoning_with_tools () =
   let json_str =
     {|{
     "id": "chatcmpl_think_tool",
@@ -851,7 +854,7 @@ let test_parse_provider_d_response_reasoning_with_tools () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
@@ -867,7 +870,7 @@ let test_parse_provider_d_response_reasoning_with_tools () =
          (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
 ;;
 
-let test_parse_provider_d_response_blank_reasoning () =
+let test_parse_chat_completions_v1_response_blank_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_blank",
@@ -883,7 +886,7 @@ let test_parse_provider_d_response_blank_reasoning () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
@@ -892,7 +895,7 @@ let test_parse_provider_d_response_blank_reasoning () =
      | _ -> Alcotest.fail "expected [Text] only, blank reasoning should be filtered")
 ;;
 
-let test_parse_provider_d_response_no_reasoning () =
+let test_parse_chat_completions_v1_response_no_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_no_think",
@@ -907,7 +910,7 @@ let test_parse_provider_d_response_no_reasoning () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "1 content block" 1 (List.length resp.content);
@@ -916,7 +919,7 @@ let test_parse_provider_d_response_no_reasoning () =
      | _ -> Alcotest.fail "expected [Text]")
 ;;
 
-let test_parse_provider_d_response_ollama_reasoning () =
+let test_parse_chat_completions_v1_response_ollama_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_ollama",
@@ -933,7 +936,7 @@ let test_parse_provider_d_response_ollama_reasoning () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks (thinking + text)" 2 (List.length resp.content);
@@ -956,7 +959,7 @@ let test_parse_provider_d_response_ollama_reasoning () =
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
 
-let test_parse_provider_d_response_reasoning_content_preferred () =
+let test_parse_chat_completions_v1_response_reasoning_content_preferred () =
   let json_str =
     {|{
     "id": "chatcmpl_both",
@@ -974,7 +977,7 @@ let test_parse_provider_d_response_reasoning_content_preferred () =
     "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_chat_completions_v1_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
@@ -1295,10 +1298,10 @@ let test_message_to_json_assistant () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* provider_d_messages_of_message: multimodal user content                  *)
+(* chat_completions_v1_messages_of_message: multimodal user content                  *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_messages_text_only () =
+let test_chat_completions_v1_messages_text_only () =
   let msg =
     { Types.role = Types.User
     ; content = [ Types.Text "hello" ]
@@ -1307,7 +1310,7 @@ let test_provider_d_messages_text_only () =
     ; metadata = []
     }
   in
-  let msgs = Api.provider_d_messages_of_message msg in
+  let msgs = Api.chat_completions_v1_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
   let content = List.hd msgs |> member "content" in
@@ -1315,7 +1318,7 @@ let test_provider_d_messages_text_only () =
   check string "plain string" "hello" (to_string content)
 ;;
 
-let test_provider_d_messages_with_image () =
+let test_chat_completions_v1_messages_with_image () =
   let msg =
     { Types.role = Types.User
     ; content =
@@ -1328,7 +1331,7 @@ let test_provider_d_messages_with_image () =
     ; metadata = []
     }
   in
-  let msgs = Api.provider_d_messages_of_message msg in
+  let msgs = Api.chat_completions_v1_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
   let content = List.hd msgs |> member "content" |> to_list in
@@ -1340,32 +1343,32 @@ let test_provider_d_messages_with_image () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* F1: Provider_d API error → Openai_api_error exception                    *)
+(* F1: Chat_completions_v1 API error → Openai_api_error exception                    *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_api_error_returns_error () =
+let test_chat_completions_v1_api_error_returns_error () =
   let error_json =
     {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|}
   in
-  match Api.parse_provider_d_response_result error_json with
+  match Api.parse_chat_completions_v1_response_result error_json with
   | Error msg -> check string "error message" "Invalid API key" msg
   | Ok _ -> Alcotest.fail "expected Error on API error"
 ;;
 
-let test_provider_d_api_error_unknown_message () =
+let test_chat_completions_v1_api_error_unknown_message () =
   let error_json = {|{"error":{}}|} in
-  match Api.parse_provider_d_response_result error_json with
+  match Api.parse_chat_completions_v1_response_result error_json with
   | Error msg -> check string "unknown error" "Unknown API error" msg
   | Ok _ -> Alcotest.fail "expected Error on empty error"
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* F2: Provider_d error returns structured Error, not exception              *)
+(* F2: Chat_completions_v1 error returns structured Error, not exception              *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_error_returns_result () =
+let test_chat_completions_v1_error_returns_result () =
   let error_json = {|{"error":{"message":"bad request"}}|} in
-  match Api.parse_provider_d_response_result error_json with
+  match Api.parse_chat_completions_v1_response_result error_json with
   | Error msg -> check string "error msg" "bad request" msg
   | Ok _ -> Alcotest.fail "expected Error result"
 ;;
@@ -1459,9 +1462,9 @@ let () =
         ; test_case "with tool_choice" `Quick test_build_body_with_tool_choice
         ; test_case "with tools" `Quick test_build_body_with_tools
         ; test_case
-            "provider_d json schema"
+            "chat_completions_v1 json schema"
             `Quick
-            test_build_provider_d_body_with_json_schema
+            test_build_chat_completions_v1_body_with_json_schema
         ; test_case
             "provider_a sampling params serialized"
             `Quick
@@ -1473,31 +1476,31 @@ let () =
         ; test_case
             "with provider_h sampling"
             `Quick
-            test_build_provider_d_body_with_provider_m_sampling
+            test_build_chat_completions_v1_body_with_provider_m_sampling
         ; test_case
             "generic compat omits provider_h-only fields"
             `Quick
-            test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat
+            test_build_chat_completions_v1_body_omits_provider_m_only_fields_for_generic_compat
         ; test_case
             "provider_k thinking + auto tool choice"
             `Quick
-            test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice
+            test_build_chat_completions_v1_body_uses_glm_thinking_and_auto_tool_choice
         ; test_case
             "bare glm thinking + auto tool choice"
             `Quick
-            test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice
+            test_build_chat_completions_v1_body_uses_bare_glm_thinking_and_auto_tool_choice
         ; test_case
             "provider_k preserved reasoning replay"
             `Quick
-            test_build_provider_d_body_glm_preserves_reasoning_content
+            test_build_chat_completions_v1_body_glm_preserves_reasoning_content
         ; test_case
             "non-zai provider_k avoids provider_k path"
             `Quick
-            test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm
+            test_build_chat_completions_v1_body_does_not_treat_non_zai_glm_as_glm
         ; test_case
             "provider_k none tool_choice omits tools"
             `Quick
-            test_build_provider_d_body_glm_tool_choice_none_omits_tools
+            test_build_chat_completions_v1_body_glm_tool_choice_none_omits_tools
         ; test_case "with cache_system_prompt" `Quick test_build_body_with_cache
         ; test_case
             "tools cache_control with flag"
@@ -1516,46 +1519,46 @@ let () =
         ; test_case
             "strip fenced json"
             `Quick
-            test_parse_provider_d_response_strips_fenced_json
+            test_parse_chat_completions_v1_response_strips_fenced_json
         ; test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens
         ; test_case
             "reasoning_content"
             `Quick
-            test_parse_provider_d_response_reasoning_content
+            test_parse_chat_completions_v1_response_reasoning_content
         ; test_case
             "reasoning_content with tools"
             `Quick
-            test_parse_provider_d_response_reasoning_with_tools
+            test_parse_chat_completions_v1_response_reasoning_with_tools
         ; test_case
             "blank reasoning_content"
             `Quick
-            test_parse_provider_d_response_blank_reasoning
+            test_parse_chat_completions_v1_response_blank_reasoning
         ; test_case
             "no reasoning_content"
             `Quick
-            test_parse_provider_d_response_no_reasoning
+            test_parse_chat_completions_v1_response_no_reasoning
         ; test_case
             "ollama reasoning field"
             `Quick
-            test_parse_provider_d_response_ollama_reasoning
+            test_parse_chat_completions_v1_response_ollama_reasoning
         ; test_case
             "reasoning_content preferred over reasoning"
             `Quick
-            test_parse_provider_d_response_reasoning_content_preferred
+            test_parse_chat_completions_v1_response_reasoning_content_preferred
         ] )
     ; ( "error_handling"
       , [ test_case
-            "provider_d api error returns Error"
+            "chat_completions_v1 api error returns Error"
             `Quick
-            test_provider_d_api_error_returns_error
+            test_chat_completions_v1_api_error_returns_error
         ; test_case
-            "provider_d api error unknown message"
+            "chat_completions_v1 api error unknown message"
             `Quick
-            test_provider_d_api_error_unknown_message
+            test_chat_completions_v1_api_error_unknown_message
         ; test_case
-            "provider_d error returns result"
+            "chat_completions_v1 error returns result"
             `Quick
-            test_provider_d_error_returns_result
+            test_chat_completions_v1_error_returns_result
         ] )
     ; ( "parse_sse_event"
       , [ test_case "message_start" `Quick test_parse_sse_message_start
@@ -1584,9 +1587,9 @@ let () =
         ; test_case "ignores metadata" `Quick test_message_to_json_ignores_metadata
         ; test_case "assistant mixed content" `Quick test_message_to_json_assistant
         ] )
-    ; ( "provider_d_messages"
-      , [ test_case "text only user" `Quick test_provider_d_messages_text_only
-        ; test_case "user with image" `Quick test_provider_d_messages_with_image
+    ; ( "chat_completions_v1_messages"
+      , [ test_case "text only user" `Quick test_chat_completions_v1_messages_text_only
+        ; test_case "user with image" `Quick test_chat_completions_v1_messages_with_image
         ] )
     ; ( "api_common_helpers"
       , [ test_case "text_blocks_to_string" `Quick test_text_blocks_to_string

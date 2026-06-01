@@ -15,11 +15,11 @@ type thinking_control_format =
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** Provider_d-style top-level [reasoning_effort] string field. The set of
+  (** Chat_completions_v1-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
+      see {!Provider_config.effort_of_thinking_config}. (Chat_completions_v1's spec
       also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's Provider_d-compatible mode uses this shape. *)
+      it.) Ollama's Chat_completions_v1-compatible mode uses this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
@@ -63,7 +63,7 @@ type capabilities =
   ; supports_seed_with_images : bool
     (** Whether seed determinism is maintained when image inputs are present.
       Local providers (Ollama) achieve near-perfect reproducibility; cloud
-      providers (Provider_d, Gemini) do not guarantee it.
+      providers (Chat_completions_v1, Gemini) do not guarantee it.
       @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
@@ -123,9 +123,9 @@ type static_model_route =
   | Agent_llm_a_opus_4
   | Agent_llm_a_sonnet_4
   | Agent_llm_a_haiku_4
-  | Provider_d_5
-  | Provider_d_4_1
-  | Provider_d_4o
+  | Chat_completions_v1_5
+  | Chat_completions_v1_4_1
+  | Chat_completions_v1_4o
   | Mimo_v2_5_chat
   | Gemini of provider_f_family
   | Kimi_for_coding

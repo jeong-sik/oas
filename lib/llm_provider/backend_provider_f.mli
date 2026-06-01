@@ -1,7 +1,7 @@
 (** Gemini native API request building and response parsing.
 
     Uses the Gemini [contents/parts] wire format instead of the
-    Provider_d-compatible [/chat/completions] wrapper.  Enables native
+    Chat_completions_v1-compatible [/chat/completions] wrapper.  Enables native
     thinking (thinkingConfig), function calling, and multimodal input.
 
     Pure functions operating on {!Llm_provider.Types}.

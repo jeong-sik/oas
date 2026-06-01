@@ -1,4 +1,4 @@
-(** Provider_d Chat Completions HTTP transport.
+(** Chat_completions_v1 Chat Completions HTTP transport.
 
     @since 0.86.0 *)
 

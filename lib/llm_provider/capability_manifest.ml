@@ -242,13 +242,13 @@ let global () =
 let%test "of_json: valid manifest parses successfully" =
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"my-llm","base":"provider_d_chat","max_context_tokens":131072,"supports_tools":true}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":"my-llm","base":"chat_completions_v1","max_context_tokens":131072,"supports_tools":true}]}|}
   in
   match of_json json with
   | Ok entries ->
     List.length entries = 1
     && (List.hd entries).id_prefix = "my-llm"
-    && (List.hd entries).base_label = Some "provider_d_chat"
+    && (List.hd entries).base_label = Some "chat_completions_v1"
     && (List.hd entries).max_context_tokens = Some 131072
     && (List.hd entries).supports_tools = Some true
   | Error _ -> false
@@ -270,7 +270,8 @@ let%test "of_json: missing schema_version returns error" =
 
 let%test "of_json: entry missing id_prefix returns error" =
   let json =
-    Yojson.Safe.from_string {|{"schema_version":1,"models":[{"base":"provider_d_chat"}]}|}
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"base":"chat_completions_v1"}]}|}
   in
   match of_json json with
   | Error _ -> true
@@ -337,7 +338,7 @@ let%test "of_json: unknown fields are ignored (forward-compat)" =
 let%test "set_global / clear_global: runtime override roundtrips" =
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"runtime-override-token-9fX","base":"provider_d_chat"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":"runtime-override-token-9fX","base":"chat_completions_v1"}]}|}
   in
   match of_json json with
   | Error _ -> false

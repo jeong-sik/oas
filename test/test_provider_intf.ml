@@ -15,7 +15,7 @@ let test_of_config_provider_a () =
   ignore (module P : Provider_intf.PROVIDER)
 ;;
 
-let test_of_config_provider_d () =
+let test_of_config_chat_completions_v1 () =
   let config = Provider.provider_o_router ~model_id:"model-d-4" () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   ignore (module P : Provider_intf.PROVIDER)
@@ -43,7 +43,7 @@ let test_streaming_provider_some () =
 
 (* ── HTTP dispatch ───────────────────────────────────────── *)
 
-let provider_d_response =
+let chat_completions_v1_response =
   {|{"id":"chatcmpl-provider-intf","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}|}
 ;;
 
@@ -117,7 +117,7 @@ let test_provider_dispatch_uses_http_client () =
     seen_content_length := Cohttp.Header.get headers "content-length";
     seen_path := Some (Uri.path (Cohttp.Request.uri req));
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:provider_d_response ()
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:chat_completions_v1_response ()
   in
   with_mock_server handler (fun ~sw ~net ~base_url ->
     let provider : Provider.config =
@@ -176,7 +176,7 @@ let test_provider_dispatch_maps_server_error () =
     | Ok _ -> Alcotest.fail "expected server error")
 ;;
 
-let test_provider_dispatch_rejects_malformed_provider_d_response () =
+let test_provider_dispatch_rejects_malformed_chat_completions_v1_response () =
   let handler _conn _req body =
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
     Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"choices":"not-a-list"}|} ()
@@ -269,9 +269,9 @@ let () =
             `Quick
             test_of_config_provider_a
         ; Alcotest.test_case
-            "provider_d satisfies PROVIDER"
+            "chat_completions_v1 satisfies PROVIDER"
             `Quick
-            test_of_config_provider_d
+            test_of_config_chat_completions_v1
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case
@@ -292,7 +292,7 @@ let () =
         ; Alcotest.test_case
             "rejects malformed response"
             `Quick
-            test_provider_dispatch_rejects_malformed_provider_d_response
+            test_provider_dispatch_rejects_malformed_chat_completions_v1_response
         ; Alcotest.test_case
             "custom provider dispatch"
             `Quick

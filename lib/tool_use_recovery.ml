@@ -93,9 +93,9 @@ let try_parse_json_object (s : string) : Yojson.Safe.t option =
     common tool-call shapes:
 
     - Anthropic-style: [{"name": "X", "input": {...}}]
-    - Provider_d function call: [{"name": "X", "arguments": {...}}]
+    - Chat_completions_v1 function call: [{"name": "X", "arguments": {...}}]
       where arguments may be a JSON-encoded string (double-stringified)
-    - Provider_d tool_calls wrapper: [{"tool_calls": [{"function": {...}}]}]
+    - Chat_completions_v1 tool_calls wrapper: [{"tool_calls": [{"function": {...}}]}]
     - Bare function wrapper: [{"function": {"name": ..., ...}}]
 
     Returns [None] if no recognizable shape is found. *)

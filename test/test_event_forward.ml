@@ -352,7 +352,7 @@ let test_inference_telemetry_payload () =
 ;;
 
 let test_inference_telemetry_partial_fields () =
-  (* Provider_d-compat backends typically only report token counts; absent
+  (* Chat_completions_v1-compat backends typically only report token counts; absent
      timing fields must serialize as JSON null, not be omitted or default
      to 0. Subscribers distinguish "absent" from "zero". *)
   let evt =

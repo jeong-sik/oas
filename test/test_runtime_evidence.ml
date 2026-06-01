@@ -586,7 +586,7 @@ let test_sessions_store_decodes_runtime_artifacts () =
   "step_count":1,
   "event_counts":{"Agent_completed":1},
   "event_name_counts":[{"event_name":"agent_completed","count":1}],
-  "steps":[{"seq":1,"ts":10.1,"kind":"Agent_completed","participant":"alice","detail":"done","actor":"agent","role":"worker","provider":"provider_d","model":"model-d","raw_trace_run_id":"run-1","stop_reason":"stop","artifact_id":"art-telemetry","artifact_name":"runtime-telemetry-json","artifact_kind":"json","checkpoint_label":"cp","outcome":"ok","dropped_output_deltas":2,"persistence_failure_phase":"append_event"}]
+  "steps":[{"seq":1,"ts":10.1,"kind":"Agent_completed","participant":"alice","detail":"done","actor":"agent","role":"worker","provider":"chat_completions_v1","model":"model-d","raw_trace_run_id":"run-1","stop_reason":"stop","artifact_id":"art-telemetry","artifact_name":"runtime-telemetry-json","artifact_kind":"json","checkpoint_label":"cp","outcome":"ok","dropped_output_deltas":2,"persistence_failure_phase":"append_event"}]
 }|}
        in
        let evidence_json =
@@ -673,7 +673,7 @@ let test_sessions_store_decodes_runtime_artifacts () =
          "agent_completed"
          (List.hd structured.event_counts).event_name;
        let step = List.hd structured.steps in
-       check (option string) "step provider" (Some "provider_d") step.provider;
+       check (option string) "step provider" (Some "chat_completions_v1") step.provider;
        check (option int) "dropped deltas" (Some 2) step.dropped_output_deltas;
        let evidence =
          Sessions_store.get_evidence ~session_root:root ~session_id () |> Result.get_ok

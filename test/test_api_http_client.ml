@@ -1,7 +1,7 @@
 open Agent_sdk
 open Types
 
-let provider_d_response =
+let chat_completions_v1_response =
   {|{"id":"chatcmpl-legacy-api","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}|}
 ;;
 
@@ -39,7 +39,7 @@ let test_create_message_uses_hardened_http_client () =
     seen_content_length := Cohttp.Header.get headers "content-length";
     seen_path := Some (Uri.path (Cohttp.Request.uri req));
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:provider_d_response ()
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:chat_completions_v1_response ()
   in
   with_mock_server ~port:18341 handler (fun ~sw ~net ~clock ~base_url ->
     let provider : Provider.config =

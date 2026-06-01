@@ -1,7 +1,7 @@
 open Llm_provider
 open Types
-module Parse = Backend_provider_d_parse
-module Serialize = Backend_provider_d_serialize
+module Parse = Backend_chat_completions_v1_parse
+module Serialize = Backend_chat_completions_v1_serialize
 
 let check_string = Alcotest.(check string)
 let check_int = Alcotest.(check int)
@@ -37,7 +37,7 @@ let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_f
   in
   `Assoc
     [ "id", `String "chatcmpl-test"
-    ; "model", `String "provider-d-test"
+    ; "model", `String "chat-completions-v1-test"
     ; ( "choices"
       , `List
           [ `Assoc
@@ -47,14 +47,14 @@ let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_f
 ;;
 
 let parse_ok json =
-  match Parse.parse_provider_d_response_result (Yojson.Safe.to_string json) with
+  match Parse.parse_chat_completions_v1_response_result (Yojson.Safe.to_string json) with
   | Ok response -> response
   | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
 ;;
 
 let test_content_parts_cover_modalities () =
   let parts =
-    Serialize.provider_d_content_parts_of_blocks
+    Serialize.chat_completions_v1_content_parts_of_blocks
       [ Text "hello"
       ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
       ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
@@ -87,7 +87,7 @@ let test_content_parts_cover_modalities () =
     (member "input_audio" audio |> member "format" |> to_string)
 ;;
 
-let test_provider_d_user_messages_text_tool_and_empty () =
+let test_chat_completions_v1_user_messages_text_tool_and_empty () =
   let user =
     msg
       User
@@ -97,7 +97,7 @@ let test_provider_d_user_messages_text_tool_and_empty () =
           { tool_use_id = "call-1"; content = "42"; is_error = false; json = None }
       ]
   in
-  let messages = Serialize.provider_d_messages_of_message user in
+  let messages = Serialize.chat_completions_v1_messages_of_message user in
   check_int "user + tool messages" 2 (List.length messages);
   let user_json = List.nth messages 0 in
   check_string "user role" "user" (member "role" user_json |> to_string);
@@ -107,7 +107,7 @@ let test_provider_d_user_messages_text_tool_and_empty () =
   check_string "tool id" "call-1" (member "tool_call_id" tool_json |> to_string);
   check_string "tool content" "42" (member "content" tool_json |> to_string);
   let empty_user =
-    Serialize.provider_d_messages_of_message
+    Serialize.chat_completions_v1_messages_of_message
       (msg User [ Thinking { thinking_type = ""; content = "x" } ])
   in
   check_int "empty user drops message" 0 (List.length empty_user)
@@ -119,14 +119,17 @@ let test_user_multimodal_preserve_and_visual_first () =
     ; Image { media_type = "image/jpeg"; data = "jpeg"; source_type = "base64" }
     ]
   in
-  let provider_d =
-    Serialize.provider_d_messages_of_message (msg User content) |> only "provider_d"
+  let chat_completions_v1 =
+    Serialize.chat_completions_v1_messages_of_message (msg User content)
+    |> only "chat_completions_v1"
   in
-  let provider_d_parts = member "content" provider_d |> as_list "provider_d content" in
+  let chat_completions_v1_parts =
+    member "content" chat_completions_v1 |> as_list "chat_completions_v1 content"
+  in
   check_string
-    "provider_d preserves text first"
+    "chat_completions_v1 preserves text first"
     "text"
-    (List.nth provider_d_parts 0 |> member "type" |> to_string);
+    (List.nth chat_completions_v1_parts 0 |> member "type" |> to_string);
   let visual_first =
     Serialize.ollama_messages_of_message
       ~model_id:"model-f-gemma-4-27b-it"
@@ -140,23 +143,29 @@ let test_user_multimodal_preserve_and_visual_first () =
     (List.nth visual_parts 0 |> member "type" |> to_string)
 ;;
 
-let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
+let test_assistant_tool_calls_chat_completions_v1_ollama_and_provider_k () =
   let assistant =
     msg
       Assistant
       [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [ "q", `String "x" ] } ]
   in
-  let provider_d =
-    Serialize.provider_d_messages_of_message assistant |> only "provider_d"
+  let chat_completions_v1 =
+    Serialize.chat_completions_v1_messages_of_message assistant
+    |> only "chat_completions_v1"
   in
-  check_string "assistant role" "assistant" (member "role" provider_d |> to_string);
-  Alcotest.(check bool)
-    "provider_d content null"
-    true
-    (member "content" provider_d = `Null);
-  let call = member "tool_calls" provider_d |> as_list "tool_calls" |> only "tool_call" in
   check_string
-    "provider_d arguments string"
+    "assistant role"
+    "assistant"
+    (member "role" chat_completions_v1 |> to_string);
+  Alcotest.(check bool)
+    "chat_completions_v1 content null"
+    true
+    (member "content" chat_completions_v1 = `Null);
+  let call =
+    member "tool_calls" chat_completions_v1 |> as_list "tool_calls" |> only "tool_call"
+  in
+  check_string
+    "chat_completions_v1 arguments string"
     {|{"q":"x"}|}
     (member "function" call |> member "arguments" |> to_string);
   let ollama = Serialize.ollama_messages_of_message assistant |> only "ollama" in
@@ -183,12 +192,13 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
 
 let test_system_and_tool_role_messages () =
   let system =
-    Serialize.provider_d_messages_of_message (msg System [ Text "sys" ]) |> only "system"
+    Serialize.chat_completions_v1_messages_of_message (msg System [ Text "sys" ])
+    |> only "system"
   in
   check_string "system role" "system" (member "role" system |> to_string);
   check_string "system content" "sys" (member "content" system |> to_string);
   let tool =
-    Serialize.provider_d_messages_of_message
+    Serialize.chat_completions_v1_messages_of_message
       (msg
          Tool
          [ ToolResult
@@ -199,7 +209,7 @@ let test_system_and_tool_role_messages () =
   check_string "tool role" "tool" (member "role" tool |> to_string);
   check_string "tool call id" "call-2" (member "tool_call_id" tool |> to_string);
   let fallback =
-    Serialize.provider_d_messages_of_message (msg Tool [ Text "plain fallback" ])
+    Serialize.chat_completions_v1_messages_of_message (msg Tool [ Text "plain fallback" ])
     |> only "fallback"
   in
   check_string "fallback role" "user" (member "role" fallback |> to_string);
@@ -264,23 +274,23 @@ let test_tool_choice_and_tool_schema_conversion () =
   check_string
     "auto"
     "\"auto\""
-    (Serialize.tool_choice_to_provider_d_json Auto |> Yojson.Safe.to_string);
+    (Serialize.tool_choice_to_chat_completions_v1_json Auto |> Yojson.Safe.to_string);
   check_string
     "required"
     "\"required\""
-    (Serialize.tool_choice_to_provider_d_json Any |> Yojson.Safe.to_string);
+    (Serialize.tool_choice_to_chat_completions_v1_json Any |> Yojson.Safe.to_string);
   check_string
     "none"
     "\"none\""
-    (Serialize.tool_choice_to_provider_d_json None_ |> Yojson.Safe.to_string);
-  let tool_choice = Serialize.tool_choice_to_provider_d_json (Tool "lookup") in
+    (Serialize.tool_choice_to_chat_completions_v1_json None_ |> Yojson.Safe.to_string);
+  let tool_choice = Serialize.tool_choice_to_chat_completions_v1_json (Tool "lookup") in
   check_string
     "tool choice name"
     "lookup"
     (member "function" tool_choice |> member "name" |> to_string);
   let schema = `Assoc [ "type", `String "object" ] in
   let with_input_schema =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_chat_completions_v1_tool_json
       (`Assoc
           [ "name", `String "direct"; "description", `String "d"; "input_schema", schema ])
   in
@@ -292,7 +302,7 @@ let test_tool_choice_and_tool_schema_conversion () =
      |> member "type"
      |> to_string);
   let legacy =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_chat_completions_v1_tool_json
       (`Assoc
           [ "name", `String "legacy"
           ; ( "parameters"
@@ -321,7 +331,7 @@ let test_tool_choice_and_tool_schema_conversion () =
   Alcotest.(check bool)
     "non-object passthrough"
     true
-    (Serialize.build_provider_d_tool_json passthrough = passthrough)
+    (Serialize.build_chat_completions_v1_tool_json passthrough = passthrough)
 ;;
 
 let ignored_blocks : content_block list =
@@ -337,9 +347,9 @@ let ignored_blocks : content_block list =
 
 let test_serializer_ignored_block_variants () =
   check_int
-    "provider_d tool_calls ignores non-tool blocks"
+    "chat_completions_v1 tool_calls ignores non-tool blocks"
     0
-    (Serialize.tool_calls_to_provider_d_json ignored_blocks |> List.length);
+    (Serialize.tool_calls_to_chat_completions_v1_json ignored_blocks |> List.length);
   let ollama =
     Serialize.ollama_messages_of_message (msg Assistant ignored_blocks) |> only "ollama"
   in
@@ -348,7 +358,7 @@ let test_serializer_ignored_block_variants () =
     true
     (member "tool_calls" ollama = `Null);
   let assistant =
-    Serialize.provider_d_messages_of_message (msg Assistant ignored_blocks)
+    Serialize.chat_completions_v1_messages_of_message (msg Assistant ignored_blocks)
     |> only "assistant"
   in
   check_string "assistant content is empty" "" (member "content" assistant |> to_string);
@@ -374,7 +384,7 @@ let test_serializer_ignored_block_variants () =
     ]
   in
   let tool_fallback =
-    Serialize.provider_d_messages_of_message (msg Tool tool_fallback_blocks)
+    Serialize.chat_completions_v1_messages_of_message (msg Tool tool_fallback_blocks)
     |> only "tool fallback"
   in
   check_string "tool fallback role" "user" (member "role" tool_fallback |> to_string)
@@ -421,7 +431,7 @@ let test_strip_helpers_cover_non_tool_variants () =
 
 let test_tool_schema_defaults_and_legacy_edge_params () =
   let defaulted =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_chat_completions_v1_tool_json
       (`Assoc [ "name", `Int 1; "description", `Bool true ])
   in
   check_string
@@ -433,7 +443,7 @@ let test_tool_schema_defaults_and_legacy_edge_params () =
     ""
     (member "function" defaulted |> member "description" |> to_string);
   let legacy =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_chat_completions_v1_tool_json
       (`Assoc
           [ "name", `String "legacy-edge"
           ; ( "parameters"
@@ -476,9 +486,9 @@ let test_strip_json_markdown_fences_variants () =
     (Parse.strip_json_markdown_fences "```\n{\"a\":1}")
 ;;
 
-let test_usage_provider_d_fallbacks () =
+let test_usage_chat_completions_v1_fallbacks () =
   let usage =
-    Parse.usage_of_provider_d_json
+    Parse.usage_of_chat_completions_v1_json
       (`Assoc
           [ ( "usage"
             , `Assoc
@@ -495,7 +505,7 @@ let test_usage_provider_d_fallbacks () =
      check_int "cache read" 4 u.cache_read_input_tokens
    | None -> Alcotest.fail "expected usage");
   let usage =
-    Parse.usage_of_provider_d_json
+    Parse.usage_of_chat_completions_v1_json
       (`Assoc
           [ ( "usage"
             , `Assoc
@@ -622,7 +632,7 @@ let test_parse_tool_calls_filters_malformed_and_sets_stop_reason () =
 
 let test_parse_error_default_message () =
   let json = `Assoc [ "error", `Assoc [] ] |> Yojson.Safe.to_string in
-  match Parse.parse_provider_d_response_result json with
+  match Parse.parse_chat_completions_v1_response_result json with
   | Error msg -> check_string "default error" "Unknown API error" msg
   | Ok _ -> Alcotest.fail "expected API error"
 ;;
@@ -648,7 +658,7 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
     parse_ok
       (`Assoc
           [ "id", `String "chatcmpl-telemetry"
-          ; "model", `String "provider-d-test"
+          ; "model", `String "chat-completions-v1-test"
           ; ( "choices"
             , `List
                 [ `Assoc
@@ -678,16 +688,16 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
 
 let () =
   Alcotest.run
-    "backend_provider_d_codec"
+    "backend_chat_completions_v1_codec"
     [ ( "serialize"
       , [ Alcotest.test_case
             "content parts cover modalities"
             `Quick
             test_content_parts_cover_modalities
         ; Alcotest.test_case
-            "provider_d user text/tool/empty"
+            "chat_completions_v1 user text/tool/empty"
             `Quick
-            test_provider_d_user_messages_text_tool_and_empty
+            test_chat_completions_v1_user_messages_text_tool_and_empty
         ; Alcotest.test_case
             "multimodal ordering policies"
             `Quick
@@ -695,7 +705,7 @@ let () =
         ; Alcotest.test_case
             "assistant tool calls provider variants"
             `Quick
-            test_assistant_tool_calls_provider_d_ollama_and_provider_k
+            test_assistant_tool_calls_chat_completions_v1_ollama_and_provider_k
         ; Alcotest.test_case
             "system and tool roles"
             `Quick
@@ -727,7 +737,10 @@ let () =
             "strip markdown fences variants"
             `Quick
             test_strip_json_markdown_fences_variants
-        ; Alcotest.test_case "usage fallbacks" `Quick test_usage_provider_d_fallbacks
+        ; Alcotest.test_case
+            "usage fallbacks"
+            `Quick
+            test_usage_chat_completions_v1_fallbacks
         ; Alcotest.test_case
             "text list reasoning and reported telemetry"
             `Quick

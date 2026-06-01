@@ -132,7 +132,7 @@ val with_event_bus : Event_bus.t -> t -> t
 val with_max_execution_time : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Anthropic / Provider_d / Gemini / Glm SSE). Resets after
+    (Ollama NDJSON, Anthropic / Chat_completions_v1 / Gemini / Glm SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], preserving whether
@@ -141,7 +141,7 @@ val with_max_execution_time : float -> t -> t
 val with_stream_idle_timeout : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Anthropic / Provider_d / Gemini / Glm SSE). Resets after
+    (Ollama NDJSON, Anthropic / Chat_completions_v1 / Gemini / Glm SSE). Resets after
     each successful line, so this caps inter-chunk silence — not total
     stream duration. A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], preserving whether

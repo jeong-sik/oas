@@ -47,7 +47,7 @@ type options =
         Threaded through {!Pipeline.stage_route} into
         {!Llm_provider.Complete.complete_stream}, which forwards it to
         {!Llm_provider.Http_client.read_ndjson} (Ollama native NDJSON)
-        and {!Llm_provider.Http_client.read_sse} (Anthropic / Provider_d-
+        and {!Llm_provider.Http_client.read_sse} (Anthropic / Chat_completions_v1-
         compatible / Gemini / Glm). The deadline resets after each
         successful line, so this caps inter-chunk silence — not total
         stream duration. A stalled endpoint surfaces as
@@ -162,7 +162,7 @@ type options =
         @since 0.102.0 *)
   ; slot_id : int option
     (** Pin LLM requests to a specific llama-server slot for KV cache reuse.
-        When [Some n], adds ["id_slot": n] to Provider_d-compat request body.
+        When [Some n], adds ["id_slot": n] to Chat_completions_v1-compat request body.
         @since 0.109.0 *)
   ; on_run_complete : (bool -> unit) option
     (** Optional callback invoked when a run finishes.  Receives [true]

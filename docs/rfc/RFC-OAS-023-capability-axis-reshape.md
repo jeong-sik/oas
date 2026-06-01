@@ -15,7 +15,7 @@
 
 OAS capability catalog가 두 가지 동시 결함을 가지고 있다.
 
-1. **표기 결함** — RFC-0001 후 brand가 알파벳 부호로 1:1 치환되었다 (`Anthropic → Provider_a`, `Kimi → Provider_c`, `OpenAI_compat → Provider_d_compat` 등 14×N). [feedback_vendor_brand_substitution_is_encryption_not_abstraction] 메모리(2026-05-24)의 자기 비판이 그대로 적용된다 — abstraction이 아니라 encryption.
+1. **표기 결함** — RFC-0001 후 brand가 알파벳 부호로 1:1 치환되었다 (`Anthropic → Provider_a`, `Kimi → Provider_c`, `OpenAI_compat → Chat_completions_v1` 등 14×N). [feedback_vendor_brand_substitution_is_encryption_not_abstraction] 메모리(2026-05-24)의 자기 비판이 그대로 적용된다 — abstraction이 아니라 encryption.
 2. **축 결함** — capability의 1차 축은 *model*인데 catalog는 *provider* 부호로 분류되어 있다. 같은 모델(`kimi-k2.6`)이 여러 provider(Moonshot direct / Ollama Turbo cloud / OpenRouter / local quantization)로 갈 수 있고, capability는 `model_caps ∩ transport_caps`의 cross-product에서 결정되는데, 지금 catalog는 두 record를 한 record로 압축하여 *둘 다*를 잃었다.
 
 본 RFC는 두 결함을 동시에 해결한다:
@@ -33,7 +33,7 @@ RFC-0001은 "OAS 가 그쪽이니까 같이 폭파에 동참하자", "전체 폭
 Anthropic       → Provider_a
 Moonshot        → Provider_b
 Kimi            → Provider_c
-OpenAI_compat   → Provider_d_compat
+OpenAI_compat   → Chat_completions_v1
 Gemini          → Provider_f
 DeepSeek        → Provider_g
 DashScope       → Provider_h
@@ -52,9 +52,9 @@ Codex_cli       → Cli_tool_a
 
 증상:
 
-- 새 maintainer가 `base = "provider_d_chat"` manifest entry를 적으려면 `capabilities_for_provider_label` 매핑을 *역추적*해야 한다 ("끝말풀이").
+- 새 maintainer가 `base = "chat_completions_v1"` manifest entry를 적으려면 `capabilities_for_provider_label` 매핑을 *역추적*해야 한다 ("끝말풀이").
 - cascade.toml의 model id는 brand 그대로(`kimi-k2.6:cloud`, `deepseek-v4-pro:cloud`)인데 OAS catalog만 부호 — 양쪽이 만나는 모든 경계에서 매핑 테이블이 필요해진다.
-- 부호의 *의미*는 코드 어디에도 명시되어 있지 않다 (`provider_d_chat`이 OpenAI chat completions wire를 가리킨다는 사실은 `backend_openai.ml` 파일명을 봐야 추정 가능).
+- 부호의 *의미*는 코드 어디에도 명시되어 있지 않다 (`chat_completions_v1`이 OpenAI chat completions wire를 가리킨다는 사실은 `backend_openai.ml` 파일명을 봐야 추정 가능).
 
 ### 1.2 Axis confusion — capability의 1차축이 model
 
@@ -67,10 +67,10 @@ Codex_cli       → Cli_tool_a
   ...
   (match Llm_provider.Capabilities.for_model_id model_id with
    | Some caps -> caps
-   | None -> default_provider_d_compat_capabilities model_id)  (* ← silent default *)
+   | None -> default_chat_completions_v1_capabilities model_id)  (* ← silent default *)
 ```
 
-증상: 카탈로그에 없는 모델이 `provider_d_chat_capabilities` (reasoning=false)로 fallback → 실제 응답에 thinking block이 있어 `Thinking_returned_but_declared_unsupported` drift WARN. 이는 *catalog miss*를 *capability 사실*로 silent하게 변환한 결과.
+증상: 카탈로그에 없는 모델이 `chat_completions_v1_capabilities` (reasoning=false)로 fallback → 실제 응답에 thinking block이 있어 `Thinking_returned_but_declared_unsupported` drift WARN. 이는 *catalog miss*를 *capability 사실*로 silent하게 변환한 결과.
 
 ### 1.3 Cross-product collapse — model × transport
 
@@ -90,7 +90,7 @@ kimi-k2.6  →  Moonshot direct           (chat_completions_v1)
 - Local quantization: max_context_tokens가 quantization config에 의해 잘림
 - Moonshot direct: 모든 모델 capability 운반 가능 (canonical)
 
-지금 catalog는 이 cross-product를 *한 record로 압축*하고 있다 — `provider_d_chat_capabilities`는 "OpenAI 호환 chat completions wire를 통과한 어떤 가상 모델의 보수적 caps"라는 chimera. model도 transport도 아닌 중간 존재.
+지금 catalog는 이 cross-product를 *한 record로 압축*하고 있다 — `chat_completions_v1_capabilities`는 "OpenAI 호환 chat completions wire를 통과한 어떤 가상 모델의 보수적 caps"라는 chimera. model도 transport도 아닌 중간 존재.
 
 증상:
 
@@ -178,7 +178,7 @@ val effective_caps : model_id:string -> provider:provider -> capabilities
 
 ### 3.2 Unknown model 정책 — fail closed
 
-`provider.ml:296`의 silent default fallback (`default_provider_d_compat_capabilities`)을 폐지한다. catalog miss는:
+`provider.ml:296`의 silent default fallback (`default_chat_completions_v1_capabilities`)을 폐지한다. catalog miss는:
 
 - (a) RFC-OAS-018에서 도입한 manifest layer로 *재시도* (operator escape hatch),
 - (b) 그래도 miss면 `Capability_unknown { model_id }` 에러를 *큰소리로* 호출자에 전달.
@@ -187,8 +187,8 @@ val effective_caps : model_id:string -> provider:provider -> capabilities
 
 **제거 비용 정량 (Decision #5, 2026-05-26)**:
 
-- `default_provider_d_compat_capabilities` callers in `test/`: **3 파일 (7 사이트)** (test_capabilities × 1, test_capabilities_wiring × 1, test_llm_provider_cov × 5)
-- Lock 패턴: `rg "expect.*provider_d_chat|Alcotest.check.*default" test/` → **0 matches**, `rg "let%expect_test" test/` → **0 matches**
+- `default_chat_completions_v1_capabilities` callers in `test/`: **3 파일 (7 사이트)** (test_capabilities × 1, test_capabilities_wiring × 1, test_llm_provider_cov × 5)
+- Lock 패턴: `rg "expect.*chat_completions_v1|Alcotest.check.*default" test/` → **0 matches**, `rg "let%expect_test" test/` → **0 matches**
 - [feedback_tests_locking_anti_pattern_behavior] 의 lock 패턴이 OAS test/ 에 *부재*
 
 → Decision #5 hard error 전환 비용 *예상보다 낮음*. 73 callsite migration 이 *값 expectation 깨짐 없이* 안전.
@@ -218,7 +218,7 @@ val model_family_default_caps : Model_family.t -> model_caps
 
 **실 외부 caller: 3 사이트**. 폐지 비용 *낮음*.
 
-silent default (`default_provider_d_compat_capabilities`) 의 의존도는 *별개 큰 비용*: lib/ 60 callsite + test/ 73 callsite = **133 사이트** (Decision #5 §3.2 측정). 두 Decision (#3 함수 폐지 + #5 silent default 제거) 가 *분리 가능*.
+silent default (`default_chat_completions_v1_capabilities`) 의 의존도는 *별개 큰 비용*: lib/ 60 callsite + test/ 73 callsite = **133 사이트** (Decision #5 §3.2 측정). 두 Decision (#3 함수 폐지 + #5 silent default 제거) 가 *분리 가능*.
 
 > **[DECISION NEEDED #3 — RESOLVED (권고)]** 옵션 (a) **`capabilities_for_provider_label` 완전 폐지** 권고 (외부 caller 3 사이트 migration).
 
@@ -235,7 +235,7 @@ silent default (`default_provider_d_compat_capabilities`) 의 의존도는 *별�
 핵심 관찰:
 
 1. **Cache control 은 Anthropic 만 운반** — 다른 모든 wire 에서 0 사이트.
-2. **`chat_completions_v1` 의 thinking_control_format 이 비대칭 복잡** (39 사이트) — 단일 wire 가 여러 thinking 변형 (Kimi K2.5, Qwen `enable_thinking`, OpenAI `reasoning_effort`) 동시 처리. `provider_d_chat_extended_capabilities` 가 별도 존재한 *이유* 이자 axis confusion 의 가장 선명한 증거.
+2. **`chat_completions_v1` 의 thinking_control_format 이 비대칭 복잡** (39 사이트) — 단일 wire 가 여러 thinking 변형 (Kimi K2.5, Qwen `enable_thinking`, OpenAI `reasoning_effort`) 동시 처리. `chat_completions_v1_extended_capabilities` 가 별도 존재한 *이유* 이자 axis confusion 의 가장 선명한 증거.
 
 `transport_caps` record schema 1차 안:
 
@@ -268,8 +268,8 @@ type transport_caps = {
 | `Provider_a` | `Anthropic` | model brand |
 | `Provider_b` | `Moonshot` | model brand |
 | `Provider_c` | `Kimi` | model brand |
-| `Provider_d` | `OpenAI` | model brand |
-| `Provider_d_compat` | `Chat_completions_v1` | **wire protocol** (OpenAI-호환 wire를 의미하므로) |
+| `Chat_completions_v1` | `OpenAI` | model brand |
+| `Chat_completions_v1` | `Chat_completions_v1` | **wire protocol** (OpenAI-호환 wire를 의미하므로) |
 | `Provider_f` | `Gemini` | model brand |
 | `Provider_g` | `DeepSeek` | model brand |
 | `Provider_h` | `DashScope` | model brand |
@@ -281,20 +281,20 @@ type transport_caps = {
 | `Cli_tool_c` | `Kimi_cli` | tool brand |
 | `Cli_tool_d` | `Claude_code_cli` | tool brand |
 
-핵심 관찰: `Provider_d_compat`만 wire-protocol로 가는 이유 — 이 variant는 brand가 아니라 *protocol*을 의미했다 (Ollama, OpenRouter, llama-server, vLLM 모두 같은 chat completions wire를 구현). 나머지는 brand 그대로 복원.
+핵심 관찰: `Chat_completions_v1`만 wire-protocol로 가는 이유 — 이 variant는 brand가 아니라 *protocol*을 의미했다 (Ollama, OpenRouter, llama-server, vLLM 모두 같은 chat completions wire를 구현). 나머지는 brand 그대로 복원.
 
 ### 4.2 함수/타입 명명 sweep
 
 ```
 provider_a_capabilities             → anthropic_model_caps
-provider_d_chat_capabilities        → chat_completions_v1_transport_caps + openai_model_default_caps (분리)
-provider_d_chat_extended_capabilities → 폐지 (Provider_h가 wire가 아니라 model이므로 model_caps에 흡수)
+chat_completions_v1_capabilities        → chat_completions_v1_transport_caps + openai_model_default_caps (분리)
+chat_completions_v1_extended_capabilities → 폐지 (Provider_h가 wire가 아니라 model이므로 model_caps에 흡수)
 provider_c_capabilities             → kimi_model_default_caps
 provider_k_capabilities             → glm_model_default_caps
 ...
 ```
 
-`provider_d_chat_extended_capabilities`의 사례가 axis confusion의 가장 선명한 증거 — "OpenAI 호환 wire의 *Qwen-3 확장*"이라는 명명 자체가 두 축을 한 record로 압축했다는 자기 진술.
+`chat_completions_v1_extended_capabilities`의 사례가 axis confusion의 가장 선명한 증거 — "OpenAI 호환 wire의 *Qwen-3 확장*"이라는 명명 자체가 두 축을 한 record로 압축했다는 자기 진술.
 
 ### 4.3 함수/타입 명명 sweep (full mapping table)
 
@@ -315,18 +315,18 @@ provider_k_capabilities             → glm_model_default_caps
 
 | RFC-0001 | RFC-OAS-023 |
 |---|---|
-| `provider_d_chat_capabilities` | `chat_completions_v1_transport_caps` + `openai_model_caps` (분리) |
-| `provider_d_chat_extended_capabilities` | **폐지** — Qwen-3 부분은 `qwen_3_model_caps` 흡수 |
+| `chat_completions_v1_capabilities` | `chat_completions_v1_transport_caps` + `openai_model_caps` (분리) |
+| `chat_completions_v1_extended_capabilities` | **폐지** — Qwen-3 부분은 `qwen_3_model_caps` 흡수 |
 
 **파일명 rename**:
 
 | RFC-0001 | RFC-OAS-023 |
 |---|---|
 | `backend_provider_a.ml/.mli` | `backend_messages_v1.ml/.mli` |
-| `backend_provider_d.ml + _parse/_request/_serialize` | `backend_chat_completions_v1.ml + ...` |
+| `backend_chat_completions_v1.ml + _parse/_request/_serialize` | `backend_chat_completions_v1.ml + ...` |
 | `backend_provider_f.ml` | `backend_gemini_generate_v1.ml` |
 | `backend_provider_k.ml` | `backend_glm_native_v1.ml` |
-| `transport_provider_d_compat.ml` | `transport_chat_completions_v1_http.ml` |
+| `transport_chat_completions_v1_http.ml` | `transport_chat_completions_v1_http.ml` |
 | `transport_cli_tool_[abcd].ml` | `transport_codex_cli.ml` / `_gemini_cli.ml` / `_kimi_cli.ml` / `_claude_code_cli.ml` |
 | `api_provider_a.ml/.mli` | `api_anthropic.ml/.mli` |
 
@@ -348,8 +348,8 @@ provider_k_capabilities             → glm_model_default_caps
 
 | api-name (wire에 흐르는 그대로) | Brand | RFC-0001 cipher | OAS prefix가 기대하는 형태 | Match |
 |---|---|---|---|---|
-| `gpt-5.3-codex-spark` | OpenAI | Provider_d | `model-d-5*` | **MISS** |
-| `gpt-4.1` | OpenAI | Provider_d | `model-d-4.1*` | **MISS** |
+| `gpt-5.3-codex-spark` | OpenAI | Chat_completions_v1 | `model-d-5*` | **MISS** |
+| `gpt-4.1` | OpenAI | Chat_completions_v1 | `model-d-4.1*` | **MISS** |
 | `glm-5.1` | GLM | Provider_k | (no `provider_k-*` prefix) | **MISS** |
 | `glm-5-turbo` | GLM | Provider_k | — | **MISS** |
 | `glm-5` | GLM | Provider_k | — | **MISS** |
@@ -367,7 +367,7 @@ provider_k_capabilities             → glm_model_default_caps
 해석:
 
 - RFC-0001 이 *source-level brand* 는 cipher 로 바꿨지만, *wire 에 들어오는 model_id 문자열* 은 brand 그대로다. cascade 가 `kimi-k2.6:cloud` 를 그대로 흘리는데 OAS catalog 의 prefix table 은 `provider_c-k2*` 를 기대 — 100% miss.
-- 결과적으로 cascade.toml 의 모든 모델이 `default_provider_d_compat_capabilities` (≡ `provider_d_chat_capabilities`, reasoning=false) 보수적 default 로 fallback 중. 즉 cascade.toml 의 `[models.X.capabilities]` 블록에 사용자가 *명시적으로 적은* capability 선언이 OAS 가 보는 effective_caps 와 *전혀 일치하지 않는다*.
+- 결과적으로 cascade.toml 의 모든 모델이 `default_chat_completions_v1_capabilities` (≡ `chat_completions_v1_capabilities`, reasoning=false) 보수적 default 로 fallback 중. 즉 cascade.toml 의 `[models.X.capabilities]` 블록에 사용자가 *명시적으로 적은* capability 선언이 OAS 가 보는 effective_caps 와 *전혀 일치하지 않는다*.
 - drift WARN (`Thinking_returned_but_declared_unsupported`, `Tools_used_but_declared_unsupported` 등) 이 *전체 cascade 모델* 에서 발생 가능 상태. kimi-k2.6 만 본 것이 아니라 *시스템 전체* 가 catalog miss 영역에 있다.
 
 평면 불일치 문제로서의 함의:
@@ -380,7 +380,7 @@ provider_k_capabilities             → glm_model_default_caps
 
 ```
 [2026-05-26 16:42:27] [llm_provider] [INFO] capability_observation
-    model=kimi-k2.6:cloud provider=provider_d_compat
+    model=kimi-k2.6:cloud provider=chat_completions_v1
     capability_source=provider_default confidence=low
     observations=[Thinking_returned_but_declared_unsupported]
 [2026-05-26 16:42:58] [llm_provider] [INFO] capability_observation
@@ -542,7 +542,7 @@ OAS 외부 codebase 에서 vendor sweep 진행 후 발생한 사고 (`gh pr list
 |---|---|---|
 | **Facade 반복 declare** | `provider_kind.ml/.mli` + `provider_config.ml/.mli` 모두 *type 을 재선언* | §6.2 audit #3 (`include Module` / re-export) 의 *실증*. dead-export 안전망 *반드시* 의무 |
 | **`Provider_a` reference 분포** | `lib/` 55+ 파일 (single variant 만) | §6.1 의 1159 callsite / 138 file 의 *실측 근거* (cipher 당 평균 ~83) |
-| **파일명 cipher 침투** | `backend_provider_a.ml/.mli`, `api_provider_a.ml/.mli`, `transport_provider_d_compat.ml` 등 ~12 파일 | Sweep 가 *파일 시스템 rename* 까지 own. 정적 grep 만으로는 *filename cipher* 못 잡음 |
+| **파일명 cipher 침투** | `backend_provider_a.ml/.mli`, `api_provider_a.ml/.mli`, `transport_chat_completions_v1_http.ml` 등 ~12 파일 | Sweep 가 *파일 시스템 rename* 까지 own. 정적 grep 만으로는 *filename cipher* 못 잡음 |
 | **dune first-error halt** | 1 변경 → 1 error 만 보고 | `--keep-going` 또는 fix-and-retry loop 필수 (§6.3) |
 
 **Sweep 패턴 권고** (Phase 1 본격 작업):
@@ -591,7 +591,7 @@ RFC-OAS-023 stack merge (this RFC)
 **RFC-OAS-018 schema 영향**:
 
 - `id_prefix` (capability_manifest schema) 를 *brand model_id* 기반으로 사용 (`"kimi-k2.6"`, `"claude-opus-4"`). cipher prefix 폐기.
-- `base` label 은 `Wire_protocol.t` 또는 `Model_family.t` — `provider_d_chat` 같은 chimera 부호 폐지.
+- `base` label 은 `Wire_protocol.t` 또는 `Model_family.t` — `chat_completions_v1` 같은 chimera 부호 폐지.
 - JSON manifest entry 의 *transport-bound 필드* 와 *model-bound 필드* 분리 (§3.4 정합).
 
 **가속 효과**: §5.2 의 +91% literal leak 가 RFC-OAS-018 진입 직전까지 자가 가속. Phase 1-5 sweep 이 catalog 데이터를 *brand 평면* 으로 정착시켜 RFC-OAS-018 시점 anchor 정확. 두 RFC 합쳐서 leak 곡선 *반전*.

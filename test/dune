@@ -47,7 +47,7 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
-  test_backend_provider_d_codec
+  test_backend_chat_completions_v1_codec
   test_backend_provider_k_coverage
   test_backend_tool_call_harness
   test_backend_provider_f
@@ -193,7 +193,7 @@
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
-  test_streaming_provider_d
+  test_streaming_chat_completions_v1
   test_streaming_summary
   test_structured
   test_structured_coverage
@@ -256,7 +256,7 @@
   test_artifact_service
   test_async_agent
   test_atomic_write_race
-  test_backend_provider_d_codec
+  test_backend_chat_completions_v1_codec
   test_backend_provider_k_coverage
   test_backend_tool_call_harness
   test_backend_provider_f
@@ -402,7 +402,7 @@
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
-  test_streaming_provider_d
+  test_streaming_chat_completions_v1
   test_streaming_summary
   test_structured
   test_structured_coverage

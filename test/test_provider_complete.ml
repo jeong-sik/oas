@@ -2,7 +2,7 @@
 
 module PC = Llm_provider.Provider_config
 module BA = Llm_provider.Backend_provider_a
-module BO = Llm_provider.Backend_provider_d
+module BO = Llm_provider.Backend_chat_completions_v1
 module BGlm = Llm_provider.Backend_provider_k
 module BOL = Llm_provider.Backend_ollama
 module BGemini = Llm_provider.Backend_provider_f
@@ -177,14 +177,14 @@ let test_provider_a_parse_response_initializes_telemetry () =
   | None -> Alcotest.fail "expected telemetry placeholder"
 ;;
 
-(* ── Provider_d build_request ────────────────────────────── *)
+(* ── Chat_completions_v1 build_request ────────────────────────────── *)
 
-let test_provider_d_basic_body () =
+let test_chat_completions_v1_basic_body () =
   let config =
     PC.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-4"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.chat-completions-v1.example/v1"
       ~max_tokens:2048
       ()
   in
@@ -198,7 +198,7 @@ let test_provider_d_basic_body () =
   Alcotest.(check int) "1 message" 1 (List.length msgs_json)
 ;;
 
-let test_provider_d_with_system () =
+let test_chat_completions_v1_with_system () =
   let config =
     PC.make
       ~kind:OpenAI_compat
@@ -220,7 +220,7 @@ let test_provider_d_with_system () =
     (first |> member "content" |> to_string)
 ;;
 
-let test_provider_d_with_tools () =
+let test_chat_completions_v1_with_tools () =
   let config = PC.make ~kind:OpenAI_compat ~model_id:"model-d-4" ~base_url:"" () in
   let tool =
     `Assoc
@@ -238,7 +238,7 @@ let test_provider_d_with_tools () =
   Alcotest.(check int) "1 tool" 1 (List.length tools)
 ;;
 
-let test_provider_d_stream_flag () =
+let test_chat_completions_v1_stream_flag () =
   let config = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   let body = BO.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
@@ -352,7 +352,7 @@ let test_ollama_parse_warns_on_malformed_tool_call () =
   Alcotest.(check bool) "malformed tool call warning" true has_warning
 ;;
 
-let test_provider_d_with_json_schema () =
+let test_chat_completions_v1_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -363,7 +363,7 @@ let test_provider_d_with_json_schema () =
     PC.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-mini"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.chat-completions-v1.example/v1"
       ~response_format:(JsonSchema schema)
       ()
   in
@@ -608,7 +608,10 @@ let test_config_default_paths () =
   let provider_c = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "provider_c path" "/v1/messages" provider_c.request_path;
   let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "provider_d path" "/v1/chat/completions" oai.request_path
+  Alcotest.(check string)
+    "chat_completions_v1 path"
+    "/v1/chat/completions"
+    oai.request_path
 ;;
 
 let test_config_custom_path () =
@@ -1041,10 +1044,10 @@ let () =
             `Quick
             test_provider_a_parse_response_initializes_telemetry
         ] )
-    ; ( "provider_d_build_request"
-      , [ test_case "basic body" `Quick test_provider_d_basic_body
-        ; test_case "with system" `Quick test_provider_d_with_system
-        ; test_case "with tools" `Quick test_provider_d_with_tools
+    ; ( "chat_completions_v1_build_request"
+      , [ test_case "basic body" `Quick test_chat_completions_v1_basic_body
+        ; test_case "with system" `Quick test_chat_completions_v1_with_system
+        ; test_case "with tools" `Quick test_chat_completions_v1_with_tools
         ; test_case
             "provider_c direct tools + thinking"
             `Quick
@@ -1053,8 +1056,8 @@ let () =
             "provider_c direct tool_result uses text blocks"
             `Quick
             test_provider_c_direct_tool_result_uses_text_blocks
-        ; test_case "stream flag" `Quick test_provider_d_stream_flag
-        ; test_case "with json schema" `Quick test_provider_d_with_json_schema
+        ; test_case "stream flag" `Quick test_chat_completions_v1_stream_flag
+        ; test_case "with json schema" `Quick test_chat_completions_v1_with_json_schema
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
         ; test_case
             "ollama parse parallel tool calls object args"

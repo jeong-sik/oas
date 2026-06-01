@@ -1,7 +1,7 @@
 open Agent_sdk
 open Types
 
-(** Mock Server Logic — Provider_d Chat Completions format *)
+(** Mock Server Logic — Chat_completions_v1 Chat Completions format *)
 let mock_handler _conn req body =
   let path = Uri.path (Cohttp.Request.uri req) in
   match path with

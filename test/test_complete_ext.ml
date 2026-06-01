@@ -283,7 +283,7 @@ let test_sampling_defaults_and_overlay () =
   let defaults = Complete.provider_sampling_defaults Provider_config.OpenAI_compat in
   check
     (option (float 0.001))
-    "provider_d min_p"
+    "chat_completions_v1 min_p"
     (Some Constants.Sampling.openai_compat_min_p)
     defaults.default_min_p;
   let no_defaults = Complete.provider_sampling_defaults Provider_config.Anthropic in
@@ -324,7 +324,7 @@ let test_complete_transport_success_cache_metrics_and_trace_headers () =
   let config =
     make_config
       ~headers:[ "traceparent", "old"; "x-base", "base" ]
-      ~model_id:"provider_d-test"
+      ~model_id:"chat_completions_v1-test"
       ()
   in
   let content =
@@ -371,14 +371,14 @@ let test_complete_transport_success_cache_metrics_and_trace_headers () =
   in
   (match first with
    | Ok resp ->
-     check string "model patched" "provider_d-test" resp.model;
+     check string "model patched" "chat_completions_v1-test" resp.model;
      (match resp.telemetry with
       | Some t ->
         check (option int) "latency patched" (Some 42) t.request_latency_ms;
         check
           (option string)
           "canonical model"
-          (Some "provider_d-test")
+          (Some "chat_completions_v1-test")
           t.canonical_model_id
       | None -> fail "expected telemetry")
    | Error err -> failf "unexpected complete error: %s" (string_of_http_error err));
@@ -415,8 +415,10 @@ let test_complete_with_retry_retries_then_success () =
   let probe = metric_probe () in
   let metrics = metrics_of_probe probe in
   let attempts = ref 0 in
-  let config = make_config ~model_id:"provider_d-retry" () in
-  let response = make_response ~model:"provider_d-retry" ~usage:(make_usage ()) () in
+  let config = make_config ~model_id:"chat_completions_v1-retry" () in
+  let response =
+    make_response ~model:"chat_completions_v1-retry" ~usage:(make_usage ()) ()
+  in
   let transport =
     transport_of_sync (fun () ->
       incr attempts;
@@ -447,7 +449,7 @@ let test_complete_with_retry_retries_then_success () =
        ~metrics
        ()
    with
-   | Ok resp -> check string "retry success" "provider_d-retry" resp.model
+   | Ok resp -> check string "retry success" "chat_completions_v1-retry" resp.model
    | Error err -> failf "unexpected retry error: %s" (string_of_http_error err));
   check int "attempts" 3 !attempts;
   check (list int) "retry callbacks" [ 1; 2 ] (List.rev probe.retries);
@@ -465,7 +467,10 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
   let seen_events = ref [] in
   let seen_telemetry = ref [] in
   let config =
-    make_config ~model_id:"provider_d-stream" ~headers:[ "traceparent", "old-stream" ] ()
+    make_config
+      ~model_id:"chat_completions_v1-stream"
+      ~headers:[ "traceparent", "old-stream" ]
+      ()
   in
   let response =
     make_response
@@ -492,7 +497,7 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
            | Some emit ->
              emit
                (Telemetry_event.Streaming_first_chunk
-                  { provider = "provider_d"
+                  { provider = "chat_completions_v1"
                   ; model = request.config.model_id
                   ; ttfrc_ms = 1.5
                   ; requested_at = 0.0
@@ -515,14 +520,14 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
        ()
    with
    | Ok resp ->
-     check string "stream model patched" "provider_d-stream" resp.model;
+     check string "stream model patched" "chat_completions_v1-stream" resp.model;
      (match resp.telemetry with
       | Some t ->
         check bool "stream latency patched" true (Option.is_some t.request_latency_ms);
         check
           (option string)
           "stream canonical model"
-          (Some "provider_d-stream")
+          (Some "chat_completions_v1-stream")
           t.canonical_model_id
       | None -> fail "expected stream telemetry")
    | Error err -> failf "unexpected stream error: %s" (string_of_http_error err));

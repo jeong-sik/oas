@@ -17,13 +17,13 @@ let provider_a_response ?(id = "msg-1") ?(model = "mock") ?(stop_reason = "end_t
     stop_reason
 ;;
 
-let provider_d_response text =
+let chat_completions_v1_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"model-d-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}|}
     text
 ;;
 
-let provider_d_mlx_vlm_response text =
+let chat_completions_v1_mlx_vlm_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-mlx-1","object":"chat.completion","model":"model-d-4","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"input_tokens":11,"output_tokens":5,"prompt_tps":21.55,"generation_tps":81.56},"peak_memory":52.66}|}
     text
@@ -113,7 +113,7 @@ let make_config ?(kind = Provider_config.Anthropic) base_url =
     ()
 ;;
 
-let make_provider_d_config base_url =
+let make_chat_completions_v1_config base_url =
   Provider_config.make
     ~kind:Provider_config.OpenAI_compat
     ~model_id:"model-d-4"
@@ -228,18 +228,21 @@ let test_complete_http_empty_error_body_has_context () =
   | Exit -> ()
 ;;
 
-(* ── complete: Provider_d compat ─────────────────────────── *)
+(* ── complete: Chat_completions_v1 compat ─────────────────────────── *)
 
-let test_complete_provider_d_ok () =
+let test_complete_chat_completions_v1_ok () =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_mock_server ~sw ~net:env#net (provider_d_response "provider_d reply")
+      start_mock_server
+        ~sw
+        ~net:env#net
+        (chat_completions_v1_response "chat_completions_v1 reply")
     in
-    let config = make_provider_d_config url in
+    let config = make_chat_completions_v1_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->
       let text =
@@ -250,9 +253,9 @@ let test_complete_provider_d_ok () =
           resp.content
         |> String.concat ""
       in
-      check string "text" "provider_d reply" text;
+      check string "text" "chat_completions_v1 reply" text;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok for provider_d"
+    | Error _ -> fail "expected Ok for chat_completions_v1"
   with
   | Exit -> ()
 ;;
@@ -295,7 +298,7 @@ let test_complete_trace_context_headers () =
   | Exit -> ()
 ;;
 
-let test_complete_provider_d_mlx_vlm_telemetry () =
+let test_complete_chat_completions_v1_mlx_vlm_telemetry () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -308,9 +311,9 @@ let test_complete_provider_d_mlx_vlm_telemetry () =
         ~net:env#net
         ~delay_sec:0.02
         ~clock
-        (provider_d_mlx_vlm_response "mlx reply")
+        (chat_completions_v1_mlx_vlm_response "mlx reply")
     in
-    let config = make_provider_d_config url in
+    let config = make_chat_completions_v1_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->
       let text =
@@ -355,7 +358,7 @@ let test_complete_provider_d_mlx_vlm_telemetry () =
           | None -> fail "expected timings")
        | None -> fail "expected telemetry");
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok for mlx-vlm provider_d compat"
+    | Error _ -> fail "expected Ok for mlx-vlm chat_completions_v1 compat"
   with
   | Exit -> ()
 ;;
@@ -576,7 +579,7 @@ let test_complete_transport_http_metrics_ok () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let config = make_provider_d_config "http://unused.test" in
+    let config = make_chat_completions_v1_config "http://unused.test" in
     let status_calls = ref [] in
     let metrics : Metrics.t =
       { Metrics.noop with
@@ -589,7 +592,7 @@ let test_complete_transport_http_metrics_ok () =
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
       (match !status_calls with
-       | [ ("provider_d", "model-d-4", 200) ] -> Eio.Switch.fail sw Exit
+       | [ ("chat_completions_v1", "model-d-4", 200) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, code) ] -> fail (Printf.sprintf "expected 200, got %d" code)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected Ok"
@@ -603,7 +606,7 @@ let test_complete_transport_http_metrics_error () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let config = make_provider_d_config "http://unused.test" in
+    let config = make_chat_completions_v1_config "http://unused.test" in
     let status_calls = ref [] in
     let metrics : Metrics.t =
       { Metrics.noop with
@@ -620,7 +623,7 @@ let test_complete_transport_http_metrics_error () =
     | Error (Http_client.HttpError { code; _ }) ->
       check int "status 429" 429 code;
       (match !status_calls with
-       | [ ("provider_d", "model-d-4", 429) ] -> Eio.Switch.fail sw Exit
+       | [ ("chat_completions_v1", "model-d-4", 429) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, seen) ] -> fail (Printf.sprintf "expected 429, got %d" seen)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected HttpError"
@@ -943,11 +946,11 @@ let () =
             "empty http error body has context"
             `Quick
             test_complete_http_empty_error_body_has_context
-        ; test_case "provider_d ok" `Quick test_complete_provider_d_ok
+        ; test_case "chat_completions_v1 ok" `Quick test_complete_chat_completions_v1_ok
         ; test_case
-            "provider_d mlx-vlm telemetry"
+            "chat_completions_v1 mlx-vlm telemetry"
             `Quick
-            test_complete_provider_d_mlx_vlm_telemetry
+            test_complete_chat_completions_v1_mlx_vlm_telemetry
         ; test_case "trace context headers" `Quick test_complete_trace_context_headers
         ; test_case "non-retryable" `Quick test_complete_non_retryable
         ; test_case

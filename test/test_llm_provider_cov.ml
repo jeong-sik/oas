@@ -1336,7 +1336,7 @@ let test_requires_multimodal () =
 
 let test_requires_json_format () =
   Alcotest.(check bool)
-    "provider_d json"
+    "chat_completions_v1 json"
     true
     (Capability_filter.requires_json_format Capabilities.openai_compat_chat_capabilities);
   Alcotest.(check bool)
@@ -1365,7 +1365,7 @@ let test_requires_thinking () =
 
 let test_requires_structured_output () =
   Alcotest.(check bool)
-    "provider_d structured"
+    "chat_completions_v1 structured"
     true
     (Capability_filter.requires_structured_output
        Capabilities.openai_compat_chat_capabilities);
@@ -1982,9 +1982,12 @@ let () =
     ; ( "capabilities.presets"
       , [ Alcotest.test_case "default" `Quick test_default_capabilities
         ; Alcotest.test_case "provider_a" `Quick test_anthropic_capabilities
-        ; Alcotest.test_case "provider_d_chat" `Quick test_openai_compat_chat_capabilities
         ; Alcotest.test_case
-            "provider_d_chat_extended"
+            "chat_completions_v1"
+            `Quick
+            test_openai_compat_chat_capabilities
+        ; Alcotest.test_case
+            "chat_completions_v1_extended"
             `Quick
             test_openai_compat_chat_extended_capabilities
         ; Alcotest.test_case "provider_f" `Quick test_gemini_capabilities

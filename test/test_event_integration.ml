@@ -11,7 +11,7 @@ open Agent_sdk
 
 (* ── A. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
-(* Reuse the same mock wire format as test_handoff: Provider_d-compatible
+(* Reuse the same mock wire format as test_handoff: Chat_completions_v1-compatible
    chat.completions that responds with a transfer_to_* tool call on the
    first request and a plain text response on the second. *)
 

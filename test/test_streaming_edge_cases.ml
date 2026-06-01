@@ -11,14 +11,14 @@ let usage ?(input_tokens = 1) ?(output_tokens = 2) () =
   }
 ;;
 
-let provider_d_chunk
+let chat_completions_v1_chunk
       ?delta_content
       ?delta_reasoning
       ?(delta_tool_calls = [])
       ?finish_reason
       ?chunk_usage
       ()
-  : S.provider_d_chunk
+  : S.chat_completions_v1_chunk
   =
   { chunk_id = "chunk-1"
   ; chunk_model = "model-1"
@@ -156,14 +156,14 @@ let test_synthetic_events_media_blocks () =
     starts
 ;;
 
-let test_provider_d_parse_edge_shapes () =
+let test_chat_completions_v1_parse_edge_shapes () =
   let mixed_tool_calls =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":"bad"},{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}],"usage":{"prompt_tokens":4,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3}}}|}
   in
   let chunk =
     require_some
-      "provider_d mixed tool calls"
-      (S.parse_provider_d_sse_chunk mixed_tool_calls)
+      "chat_completions_v1 mixed tool calls"
+      (S.parse_chat_completions_v1_sse_chunk mixed_tool_calls)
   in
   check int "only valid tool call retained" 1 (List.length chunk.delta_tool_calls);
   (match chunk.chunk_usage with
@@ -176,18 +176,22 @@ let test_provider_d_parse_edge_shapes () =
   in
   let chunk =
     require_some
-      "provider_d non-list tool calls"
-      (S.parse_provider_d_sse_chunk non_list_tool_calls)
+      "chat_completions_v1 non-list tool calls"
+      (S.parse_chat_completions_v1_sse_chunk non_list_tool_calls)
   in
   check int "non-list tool calls ignored" 0 (List.length chunk.delta_tool_calls)
 ;;
 
-let test_provider_d_event_edge_branches () =
-  let state = S.create_provider_d_stream_state ~provider:"p" ~model:"m" () in
+let test_chat_completions_v1_event_edge_branches () =
+  let state = S.create_chat_completions_v1_stream_state ~provider:"p" ~model:"m" () in
   ignore
-    (S.provider_d_chunk_to_events state (provider_d_chunk ~delta_reasoning:"thinking" ()));
+    (S.chat_completions_v1_chunk_to_events
+       state
+       (chat_completions_v1_chunk ~delta_reasoning:"thinking" ()));
   let empty_reasoning_events, telemetry =
-    S.provider_d_chunk_to_events state (provider_d_chunk ~delta_reasoning:"" ())
+    S.chat_completions_v1_chunk_to_events
+      state
+      (chat_completions_v1_chunk ~delta_reasoning:"" ())
   in
   check_event_count "empty reasoning emits no content event" 0 empty_reasoning_events;
   (match telemetry with
@@ -197,13 +201,15 @@ let test_provider_d_event_edge_branches () =
    | _ -> fail "expected thinking completion telemetry");
   state.thinking_state <- S.Thinking_done;
   let repeat_reasoning_events, _ =
-    S.provider_d_chunk_to_events state (provider_d_chunk ~delta_reasoning:"again" ())
+    S.chat_completions_v1_chunk_to_events
+      state
+      (chat_completions_v1_chunk ~delta_reasoning:"again" ())
   in
   check_event_count
     "repeat reasoning after done emits delta only"
     1
     repeat_reasoning_events;
-  let tool_state = S.create_provider_d_stream_state () in
+  let tool_state = S.create_chat_completions_v1_stream_state () in
   let tc_empty =
     { S.tc_index = 0
     ; tc_id = Some "call-1"
@@ -213,21 +219,24 @@ let test_provider_d_event_edge_branches () =
   in
   let tc_none = { S.tc_index = 0; tc_id = None; tc_name = None; tc_arguments = None } in
   let first_tool_events, _ =
-    S.provider_d_chunk_to_events
+    S.chat_completions_v1_chunk_to_events
       tool_state
-      (provider_d_chunk ~delta_tool_calls:[ tc_empty ] ())
+      (chat_completions_v1_chunk ~delta_tool_calls:[ tc_empty ] ())
   in
   check_event_count "empty-args tool starts block only" 1 first_tool_events;
   let reused_tool_events, _ =
-    S.provider_d_chunk_to_events
+    S.chat_completions_v1_chunk_to_events
       tool_state
-      (provider_d_chunk ~delta_tool_calls:[ tc_none ] ())
+      (chat_completions_v1_chunk ~delta_tool_calls:[ tc_none ] ())
   in
   check_event_count "same tool index without args emits nothing" 0 reused_tool_events;
   let unknown_finish_events, _ =
-    S.provider_d_chunk_to_events
+    S.chat_completions_v1_chunk_to_events
       tool_state
-      (provider_d_chunk ~finish_reason:"safety_filter" ~chunk_usage:(usage ()) ())
+      (chat_completions_v1_chunk
+         ~finish_reason:"safety_filter"
+         ~chunk_usage:(usage ())
+         ())
   in
   match unknown_finish_events with
   | [ MessageDelta { stop_reason = Some (Unknown "safety_filter"); usage = Some _ } ] ->
@@ -269,7 +278,9 @@ let provider_f_chunk ?(parts = []) ?finish_reason ?usage () : S.provider_f_chunk
 ;;
 
 let test_provider_f_event_edge_branches () =
-  let state = S.create_provider_d_stream_state ~provider:"provider_f" ~model:"gem" () in
+  let state =
+    S.create_chat_completions_v1_stream_state ~provider:"provider_f" ~model:"gem" ()
+  in
   let thought_part = `Assoc [ "thought", `Bool true; "text", `String "plan" ] in
   ignore
     (S.provider_f_chunk_to_events state (provider_f_chunk ~parts:[ thought_part ] ()));
@@ -295,7 +306,7 @@ let test_provider_f_event_edge_branches () =
   in
   let tool_events, _ =
     S.provider_f_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (provider_f_chunk ~parts:[ empty_text_with_call ] ())
   in
   check_event_count "empty text can still carry function call" 2 tool_events;
@@ -304,13 +315,13 @@ let test_provider_f_event_edge_branches () =
   in
   let ignored_events, _ =
     S.provider_f_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (provider_f_chunk ~parts:[ empty_text_without_call ] ())
   in
   check_event_count "non-object functionCall ignored" 0 ignored_events;
   let max_tokens_events, _ =
     S.provider_f_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (provider_f_chunk ~finish_reason:"MAX_TOKENS" ~usage:(usage ()) ())
   in
   (match max_tokens_events with
@@ -318,7 +329,7 @@ let test_provider_f_event_edge_branches () =
    | _ -> fail "expected provider_f max-tokens finish");
   let unknown_events, _ =
     S.provider_f_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (provider_f_chunk ~finish_reason:"SAFETY" ())
   in
   match unknown_events with
@@ -364,7 +375,9 @@ let test_ollama_parse_edge_shapes () =
 ;;
 
 let test_ollama_event_edge_branches () =
-  let state = S.create_provider_d_stream_state ~provider:"ollama" ~model:"m" () in
+  let state =
+    S.create_chat_completions_v1_stream_state ~provider:"ollama" ~model:"m" ()
+  in
   ignore (S.ollama_chunk_to_events state (ollama_chunk ~delta_thinking:"first" ()));
   let repeated_thinking_events, _ =
     S.ollama_chunk_to_events state (ollama_chunk ~delta_thinking:"second" ())
@@ -386,11 +399,11 @@ let test_ollama_event_edge_branches () =
    | _ -> fail "expected none-thinking telemetry");
   let text_empty_events, _ =
     S.ollama_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (ollama_chunk ~delta_content:"" ())
   in
   check_event_count "empty text ignored" 0 text_empty_events;
-  let tool_state = S.create_provider_d_stream_state () in
+  let tool_state = S.create_chat_completions_v1_stream_state () in
   let tc_empty =
     { S.oll_tc_index = 0
     ; oll_tc_id = Some "call"
@@ -411,7 +424,7 @@ let test_ollama_event_edge_branches () =
   check_event_count "reused ollama tool without args emits nothing" 0 tool_reuse_events;
   let done_none_events, _ =
     S.ollama_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (ollama_chunk ~is_done:true ())
   in
   (match done_none_events with
@@ -419,7 +432,7 @@ let test_ollama_event_edge_branches () =
    | _ -> fail "done without reason should be EndTurn");
   let done_length_events, _ =
     S.ollama_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (ollama_chunk ~is_done:true ~done_reason:"length" ())
   in
   (match done_length_events with
@@ -427,7 +440,7 @@ let test_ollama_event_edge_branches () =
    | _ -> fail "done length should be MaxTokens");
   let done_unknown_tool_events, _ =
     S.ollama_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (ollama_chunk ~is_done:true ~done_reason:"future" ~tool_calls:[ tc_none ] ())
   in
   (match done_unknown_tool_events with
@@ -435,7 +448,7 @@ let test_ollama_event_edge_branches () =
    | _ -> fail "unknown done reason with tools should stop for tool use");
   let done_unknown_events, _ =
     S.ollama_chunk_to_events
-      (S.create_provider_d_stream_state ())
+      (S.create_chat_completions_v1_stream_state ())
       (ollama_chunk ~is_done:true ~done_reason:"content_filter" ())
   in
   match done_unknown_events with
@@ -454,9 +467,12 @@ let () =
             test_first_token_classifier_edges
         ; test_case "synthetic media events" `Quick test_synthetic_events_media_blocks
         ] )
-    ; ( "provider_d_sse"
-      , [ test_case "parse edge shapes" `Quick test_provider_d_parse_edge_shapes
-        ; test_case "event edge branches" `Quick test_provider_d_event_edge_branches
+    ; ( "chat_completions_v1_sse"
+      , [ test_case "parse edge shapes" `Quick test_chat_completions_v1_parse_edge_shapes
+        ; test_case
+            "event edge branches"
+            `Quick
+            test_chat_completions_v1_event_edge_branches
         ] )
     ; ( "provider_f_sse"
       , [ test_case "parse edge shapes" `Quick test_provider_f_parse_edge_shapes

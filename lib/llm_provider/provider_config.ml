@@ -211,7 +211,7 @@ let default_reasoning_effort () =
     When [thinking_budget] is [None] and thinking is enabled, the default
     effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
     (fallback: "medium").
-    Shared by Ollama backends and api_provider_d request building.
+    Shared by Ollama backends and api_chat_completions_v1 request building.
     @since 0.114.0 *)
 let effort_of_thinking_config
       ~(enable_thinking : bool option)
@@ -291,9 +291,9 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
   if trimmed = "" then default_name else trimmed
 ;;
 
-let provider_d_host_supports_output_schema base_url =
+let chat_completions_v1_host_supports_output_schema base_url =
   match Uri.of_string base_url |> Uri.host with
-  | Some host -> String.lowercase_ascii host = "api.provider_d.com"
+  | Some host -> String.lowercase_ascii host = "api.chat-completions-v1.example"
   | None -> false
 ;;
 
@@ -301,7 +301,7 @@ let provider_d_host_supports_output_schema base_url =
     Callers can build a [Provider_config.t] directly with [response_format =
     JsonSchema _] and [output_schema = None]; gating only on [output_schema]
     would let that path skip provider/host validation and still emit
-    [response_format.type=json_schema] in [backend_provider_d]. *)
+    [response_format.type=json_schema] in [backend_chat_completions_v1]. *)
 let structured_schema_requested (config : t) : bool =
   match config.output_schema, config.response_format with
   | Some _, _ -> true
@@ -331,13 +331,13 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "model %s does not advertise native structured output"
               config.model_id)
-       else if provider_d_host_supports_output_schema config.base_url
+       else if chat_completions_v1_host_supports_output_schema config.base_url
        then Ok ()
        else
          Error
            (Printf.sprintf
-              "native structured output is only wired for official Provider_d hosts, got \
-               %s"
+              "native structured output is only wired for official Chat_completions_v1 \
+               hosts, got %s"
               config.base_url))
 ;;
 

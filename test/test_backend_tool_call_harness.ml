@@ -2,17 +2,17 @@ open Alcotest
 module H = Llm_provider.Backend_tool_call_harness
 module T = Llm_provider.Types
 
-let malformed_provider_d_response = `Assoc [ "choices", `String "not-a-list" ]
+let malformed_chat_completions_v1_response = `Assoc [ "choices", `String "not-a-list" ]
 
-let test_provider_d_parse_error_is_typed () =
+let test_chat_completions_v1_parse_error_is_typed () =
   match
-    H.validate_provider_d_response
+    H.validate_chat_completions_v1_response
       ~declared_tools:[ "read_file" ]
-      malformed_provider_d_response
+      malformed_chat_completions_v1_response
   with
   | Ok _ -> fail "expected typed parse error"
   | Error err ->
-    check string "backend" "provider_d" err.response_backend;
+    check string "backend" "chat_completions_v1" err.response_backend;
     check
       bool
       "parse error detail is surfaced"
@@ -20,7 +20,7 @@ let test_provider_d_parse_error_is_typed () =
       (String.length err.response_parse_error > 0)
 ;;
 
-let test_provider_d_text_response_is_ok_empty_validation () =
+let test_chat_completions_v1_text_response_is_ok_empty_validation () =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-text"
@@ -37,7 +37,7 @@ let test_provider_d_text_response_is_ok_empty_validation () =
             ] )
       ]
   in
-  match H.validate_provider_d_response ~declared_tools:[ "read_file" ] json with
+  match H.validate_chat_completions_v1_response ~declared_tools:[ "read_file" ] json with
   | Error err -> fail ("unexpected parse error: " ^ err.response_parse_error)
   | Ok result ->
     check bool "stop reason accepted" true result.stop_reason_correct;
@@ -109,7 +109,7 @@ let test_build_schema_map_accepts_provider_shapes () =
     `Assoc
       [ "name", `String "search"; "input_schema", `Assoc [ "type", `String "object" ] ]
   in
-  let provider_d_tool =
+  let chat_completions_v1_tool =
     `Assoc
       [ ( "function"
         , `Assoc
@@ -119,7 +119,9 @@ let test_build_schema_map_accepts_provider_shapes () =
       ]
   in
   let ignored = `Assoc [ "name", `String "noop"; "input_schema", `Null ] in
-  let schemas = H.build_schema_map [ provider_a_tool; provider_d_tool; ignored ] in
+  let schemas =
+    H.build_schema_map [ provider_a_tool; chat_completions_v1_tool; ignored ]
+  in
   check (list string) "names" [ "search"; "write_file" ] (List.map fst schemas)
 ;;
 
@@ -295,15 +297,15 @@ let test_provider_convenience_validators_cover_tool_responses () =
 let () =
   run
     "backend_tool_call_harness"
-    [ ( "provider_d_parse_errors"
+    [ ( "chat_completions_v1_parse_errors"
       , [ test_case
             "typed result surfaces parse error"
             `Quick
-            test_provider_d_parse_error_is_typed
+            test_chat_completions_v1_parse_error_is_typed
         ; test_case
             "valid text response stays Ok with no tool calls"
             `Quick
-            test_provider_d_text_response_is_ok_empty_validation
+            test_chat_completions_v1_text_response_is_ok_empty_validation
         ] )
     ; ( "schema_validation"
       , [ test_case

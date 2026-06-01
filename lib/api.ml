@@ -41,13 +41,21 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
   Api_provider_a.build_body_assoc ~config ~messages ?tools ~stream ()
 ;;
 
-(* Re-export Api_provider_d *)
-let provider_d_messages_of_message = Api_provider_d.provider_d_messages_of_message
-let provider_d_content_parts_of_blocks = Api_provider_d.provider_d_content_parts_of_blocks
-let build_provider_d_body = Api_provider_d.build_provider_d_body
+(* Re-export Api_chat_completions_v1 *)
+let chat_completions_v1_messages_of_message =
+  Api_chat_completions_v1.chat_completions_v1_messages_of_message
+;;
 
-let parse_provider_d_response_result =
-  Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result
+let chat_completions_v1_content_parts_of_blocks =
+  Api_chat_completions_v1.chat_completions_v1_content_parts_of_blocks
+;;
+
+let build_chat_completions_v1_body =
+  Api_chat_completions_v1.build_chat_completions_v1_body
+;;
+
+let parse_chat_completions_v1_response_result =
+  Llm_provider.Backend_chat_completions_v1_parse.parse_chat_completions_v1_response_result
 ;;
 
 (* Wall-clock latency patch. Parser layers leave request_latency_ms unknown
@@ -140,7 +148,7 @@ let create_message
         Yojson.Safe.to_string
           (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ()))
       | Provider.Openai_chat_completions ->
-        Api_provider_d.build_provider_d_body
+        Api_chat_completions_v1.build_chat_completions_v1_body
           ~provider_config:provider_cfg
           ~config
           ~messages
@@ -201,7 +209,7 @@ let create_message
                 |> Llm_provider.Pricing.annotate_response_cost
                 |> fun r -> patch_latency r lat)
            | Provider.Openai_chat_completions ->
-             (match parse_provider_d_response_result body_str with
+             (match parse_chat_completions_v1_response_result body_str with
               | Ok resp ->
                 Ok
                   (Llm_provider.Pricing.annotate_response_cost resp
@@ -215,7 +223,7 @@ let create_message
                    |> Llm_provider.Pricing.annotate_response_cost
                    |> fun r -> patch_latency r lat)
               | None ->
-                (match parse_provider_d_response_result body_str with
+                (match parse_chat_completions_v1_response_result body_str with
                  | Ok resp ->
                    Ok
                      (Llm_provider.Pricing.annotate_response_cost resp

@@ -106,14 +106,14 @@ type payload =
       }
   (** Agent-to-agent handoff has been requested. Emitted when an
           agent delegates control to another agent (e.g. via a handoff
-          tool). Mirrors Provider_d Agents SDK [handoff_requested].
+          tool). Mirrors Chat_completions_v1 Agents SDK [handoff_requested].
           @since 0.154.0 *)
   | HandoffCompleted of
       { from_agent : string
       ; to_agent : string
       ; elapsed : float
       }
-  (** Handoff target finished its run. Mirrors Provider_d Agents SDK
+  (** Handoff target finished its run. Mirrors Chat_completions_v1 Agents SDK
           [handoff_occurred].
           @since 0.154.0 *)
   | ElicitationCompleted of
@@ -198,7 +198,7 @@ type payload =
 
           Subscribers should treat absent fields as "backend did not
           report this metric" — never fabricate a value or substitute
-          a default. Ollama reports all five metrics; Provider_d-compatible
+          a default. Ollama reports all five metrics; Chat_completions_v1-compatible
           backends typically report only token counts. *)
   | Custom of string * Yojson.Safe.t
   (** Extension point.  [name] must be a dot-separated, lowercase,
@@ -209,7 +209,7 @@ type payload =
           - [durable.*] — bridged from [Durable_event] journal.
           - [provider.*] — provider-specific escape hatch
             (e.g. [provider.provider_a.cache_hit],
-            [provider.provider_d.reasoning_tokens]).
+            [provider.chat_completions_v1.reasoning_tokens]).
           - [oas.*] — reserved for future OAS use.
 
           External publishers should use their own [Event_bus.t] instance

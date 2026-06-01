@@ -1,6 +1,6 @@
-(** Provider_d-compatible request body building.
+(** Chat_completions_v1-compatible request body building.
 
-    Extracted from {!Backend_provider_d} so the top-level backend module can stay
+    Extracted from {!Backend_chat_completions_v1} so the top-level backend module can stay
     a compatibility facade over request construction, response parsing, and
     message serialization. *)
 
@@ -23,7 +23,7 @@ let warn_capability_drop ~model_id ~field =
     Hashtbl.replace capability_drop_warned key ();
     (Metrics.get_global ()).on_capability_drop ~model_id ~field;
     Diag.warn
-      "backend_provider_d"
+      "backend_chat_completions_v1"
       "dropping sampling field %s for model %s: capability record reports supports_%s = \
        false. Update Capabilities.for_model_id if this model actually supports it, \
        otherwise remove the field from your request config."
@@ -38,7 +38,9 @@ let effective_tool_choice (config : Provider_config.t) =
   match config.tool_choice with
   | Some None_ -> None
   | Some choice ->
-    Some (Backend_provider_d_serialize.tool_choice_to_provider_d_json choice)
+    Some
+      (Backend_chat_completions_v1_serialize.tool_choice_to_chat_completions_v1_json
+         choice)
   | None -> None
 ;;
 
@@ -55,7 +57,7 @@ let structured_schema_of_config (config : Provider_config.t) =
   | None, JsonMode | None, Off -> None
 ;;
 
-let provider_d_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =
+let chat_completions_v1_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =
   match schema with
   | `Assoc fields when List.mem_assoc "name" fields && List.mem_assoc "schema" fields ->
     schema
@@ -67,24 +69,24 @@ let provider_d_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =
       ]
 ;;
 
-let response_format_to_provider_d_json = function
+let response_format_to_chat_completions_v1_json = function
   | Types.Off -> None
   | Types.JsonMode -> Some (`Assoc [ "type", `String "json_object" ])
   | Types.JsonSchema schema ->
     Some
       (`Assoc
           [ "type", `String "json_schema"
-          ; "json_schema", provider_d_json_schema_payload schema
+          ; "json_schema", chat_completions_v1_json_schema_payload schema
           ])
 ;;
 
-(** Build Provider_d Chat Completions request body from {!Provider_config.t}.
+(** Build Chat_completions_v1 Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let response_format_of_config (config : Provider_config.t) =
   match structured_schema_of_config config with
-  | Some schema -> response_format_to_provider_d_json (Types.JsonSchema schema)
+  | Some schema -> response_format_to_chat_completions_v1_json (Types.JsonSchema schema)
   | None when config.response_format = JsonMode ->
-    response_format_to_provider_d_json Types.JsonMode
+    response_format_to_chat_completions_v1_json Types.JsonMode
   | None -> None
 ;;
 
@@ -107,7 +109,7 @@ let is_zai_glm_request (config : Provider_config.t) =
   && Zai_catalog.is_glm_model_id config.model_id
 ;;
 
-(** Build Provider_d Chat Completions request body from {!Provider_config.t}.
+(** Build Chat_completions_v1 Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
       ?(stream = false)
@@ -118,19 +120,20 @@ let build_request
   =
   let tools = effective_tools config tools in
   let sanitized_messages =
-    Backend_provider_d_serialize.strip_orphaned_tool_results messages
+    Backend_chat_completions_v1_serialize.strip_orphaned_tool_results messages
   in
   let provider_messages =
     let message_serializer =
       match config.kind with
-      | Provider_config.Glm -> Backend_provider_d_serialize.provider_k_messages_of_message
+      | Provider_config.Glm ->
+        Backend_chat_completions_v1_serialize.provider_k_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat
       | Provider_config.Ollama
       | Provider_config.DashScope
       | Provider_config.Gemini ->
-        Backend_provider_d_serialize.provider_d_messages_of_message
+        Backend_chat_completions_v1_serialize.chat_completions_v1_messages_of_message
     in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -144,7 +147,7 @@ let build_request
      (1) the [max_tokens] clamp below (avoid server 400 on over-cap),
      (2) the [top_k] / [min_p] sampling-field gates further down.
      If no model-specific record exists, fall back to the provider-kind
-     preset, then to conservative defaults for unknown Provider_d-compatible
+     preset, then to conservative defaults for unknown Chat_completions_v1-compatible
      configs. *)
   let caps = capabilities_of_config config in
   (* Resolve [max_tokens] from three layers:
@@ -157,7 +160,7 @@ let build_request
      to avoid 400 errors that corrupt partial-commit state.
 
      The resolved value is always emitted - Anthropic and most
-     Provider_d-compat endpoints REQUIRE the field. *)
+     Chat_completions_v1-compat endpoints REQUIRE the field. *)
   let effective_max_tokens =
     match config.max_tokens, caps.max_output_tokens with
     | None, Some cap -> cap
@@ -260,8 +263,8 @@ let build_request
   in
   (* tool_choice uses a DIFFERENT unknown-model default than top_k /
      min_p above: unknown -> assume supported (true). Two reasons:
-       (1) [tool_choice] is a standard Provider_d Chat Completions body
-           param and virtually every Provider_d-compat server accepts it,
+       (1) [tool_choice] is a standard Chat_completions_v1 Chat Completions body
+           param and virtually every Chat_completions_v1-compat server accepts it,
            so conservatively dropping it on unknown models would
            regress every agent that uses a model Capabilities does
            not know about yet.
@@ -292,7 +295,10 @@ let build_request
     | [] -> body
     | ts ->
       ( "tools"
-      , `List (List.map Backend_provider_d_serialize.build_provider_d_tool_json ts) )
+      , `List
+          (List.map
+             Backend_chat_completions_v1_serialize.build_chat_completions_v1_tool_json
+             ts) )
       :: body
   in
   let body =

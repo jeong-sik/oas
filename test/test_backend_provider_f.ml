@@ -438,7 +438,7 @@ let test_provider_f_stream_text () =
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
     check int "one part" 1 (List.length chunk.gem_parts);
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_chat_completions_v1_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     check bool "has events" true (List.length events > 0)
   | None -> fail "expected Some chunk"
@@ -457,7 +457,7 @@ let test_provider_f_stream_thinking () =
   in
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_chat_completions_v1_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_thinking =
       List.exists
@@ -485,7 +485,7 @@ let test_provider_f_stream_function_call () =
   in
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_chat_completions_v1_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_tool =
       List.exists
@@ -510,7 +510,7 @@ let test_provider_f_stream_finish () =
   in
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_chat_completions_v1_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_delta =
       List.exists
@@ -607,7 +607,7 @@ let test_provider_f_stream_thinking_delta_index () =
     }]
   }|}
   in
-  let state = Streaming.create_provider_d_stream_state () in
+  let state = Streaming.create_chat_completions_v1_stream_state () in
   (match Streaming.parse_provider_f_sse_chunk data1 with
    | Some chunk ->
      let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
@@ -666,7 +666,7 @@ let test_provider_f_stream_thinking_delta_index () =
 (** Regression test for issue #333: function call before text in Gemini
     must not collide block indices. *)
 let test_provider_f_stream_tool_first_then_text () =
-  let state = Streaming.create_provider_d_stream_state () in
+  let state = Streaming.create_chat_completions_v1_stream_state () in
   (* Chunk 1: functionCall — gets block index 0 *)
   let data1 =
     {|{

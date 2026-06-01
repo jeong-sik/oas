@@ -32,7 +32,7 @@ type modality =
   | Video
   | Multimodal
 
-(** Wire-format for controlling thinking/reasoning on Provider_d-compat backends.
+(** Wire-format for controlling thinking/reasoning on Chat_completions_v1-compat backends.
 
     {b API stability note (pre-1.0).}  This type is part of the Stable
     surface but is intentionally a transparent equation of
@@ -236,7 +236,7 @@ val config_of_provider_config : Llm_provider.Provider_config.t -> config
 
     [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
     legacy {!config} variant does not distinguish arbitrary
-    Provider_d-compatible endpoints from named providers carrying their own
+    Chat_completions_v1-compatible endpoints from named providers carrying their own
     kind.  Callers needing kind + arbitrary URL should construct
     {!Llm_provider.Provider_config.t} via
     {!Llm_provider.Provider_config.make} directly.

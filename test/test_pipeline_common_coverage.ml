@@ -8,9 +8,9 @@ let check_string = Alcotest.(check string)
 let check_opt_string = Alcotest.(check (option string))
 let check_string_list = Alcotest.(check (list string))
 
-let provider_d_config : Provider.config =
+let chat_completions_v1_config : Provider.config =
   { provider = Local { base_url = "http://127.0.0.1:65535" }
-  ; model_id = "provider_d_chat"
+  ; model_id = "chat_completions_v1"
   ; api_key_env = "DUMMY_KEY"
   }
 ;;
@@ -33,7 +33,7 @@ let echo_tool =
 
 let text_response ?(content = [ Types.Text "ok" ]) () : Types.api_response =
   { id = "resp-1"
-  ; model = "provider_d_chat"
+  ; model = "chat_completions_v1"
   ; stop_reason = EndTurn
   ; content
   ; usage = None
@@ -95,12 +95,12 @@ let test_agent_type_checkpoint_stage_labels () =
 
 let test_agent_type_accessors_card_and_state_mutators () =
   let config =
-    { Types.default_config with name = "coverage-agent"; model = "provider_d_chat" }
+    { Types.default_config with name = "coverage-agent"; model = "chat_completions_v1" }
   in
   let options =
     { Internal_agent.default_options with
       description = Some "Coverage agent"
-    ; provider = Some provider_d_config
+    ; provider = Some chat_completions_v1_config
     ; allowed_paths = [ "/tmp/oas" ]
     }
   in
@@ -236,7 +236,7 @@ let test_validate_completion_contract_accepts_default_text () =
 let test_validate_completion_contract_rejects_missing_tool () =
   let config = { Types.default_config with tool_choice = Some Types.Any } in
   let options =
-    { Internal_agent.default_options with provider = Some provider_d_config }
+    { Internal_agent.default_options with provider = Some chat_completions_v1_config }
   in
   with_agent ~config ~options (fun agent ->
     match Pipeline_common.validate_completion_contract agent (text_response ()) with
@@ -248,7 +248,7 @@ let test_validate_completion_contract_rejects_missing_tool () =
 let test_validate_completion_contract_accepts_tool_use () =
   let config = { Types.default_config with tool_choice = Some Types.Any } in
   let options =
-    { Internal_agent.default_options with provider = Some provider_d_config }
+    { Internal_agent.default_options with provider = Some chat_completions_v1_config }
   in
   let response =
     text_response

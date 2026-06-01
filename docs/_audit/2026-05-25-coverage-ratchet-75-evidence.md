@@ -1,7 +1,7 @@
 # Coverage ratchet evidence - 2026-05-25
 
 Scope: #1175 Stage C/D/E/F continuation. PRs #1759 and #1761 raise measured
-project coverage above 80% with behavior-backed provider dispatch, provider_d
+project coverage above 80% with behavior-backed provider dispatch, chat_completions_v1
 codec, streaming, pure-module, harness, CLI transport, provider_k, provider
 catalog, runtime server, provider config, memory, discovery, HTTP client, tool
 selector, checkpoint, and type tests, so the CI coverage floor can move from
@@ -41,11 +41,11 @@ selector, checkpoint, and type tests, so the CI coverage floor can move from
   provider and streaming surfaces rather than zero-coverage files.
 - Tests added in this PR:
   - `test/test_provider_intf.ml`: provider dispatch error/custom-provider paths.
-  - `test/test_backend_provider_d_codec.ml`: provider_d serialization, schema,
+  - `test/test_backend_chat_completions_v1_codec.ml`: chat_completions_v1 serialization, schema,
     parse, telemetry, reasoning, fenced JSON, and malformed tool-call branches.
   - `test/test_streaming_coverage.ml`: stream accumulator/finalize/http-error
     edge branches.
-  - `test/test_streaming_edge_cases.ml`: provider_a SSE, provider_d,
+  - `test/test_streaming_edge_cases.ml`: provider_a SSE, chat_completions_v1,
     provider_f, Ollama NDJSON, and synthetic-event edge branches.
   - `test/test_client_wrapper_coverage.ml`: public client wrapper show/default
     aliases.

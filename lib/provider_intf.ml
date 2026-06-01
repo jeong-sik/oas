@@ -23,8 +23,12 @@ let retry_error_of_http_error = function
       { message = Http_client.provider_failure_to_string ~kind ~message }
 ;;
 
-let parse_provider_d_response_result body_str =
-  try Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str with
+let parse_chat_completions_v1_response_result body_str =
+  try
+    Llm_provider.Backend_chat_completions_v1_parse
+    .parse_chat_completions_v1_response_result
+      body_str
+  with
   | Yojson.Json_error msg | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 ;;
 
@@ -90,7 +94,7 @@ let of_config (provider_cfg : Provider.config) : provider_module =
                    ~stream:false
                    ()))
         | Provider.Openai_chat_completions ->
-          Api_provider_d.build_provider_d_body
+          Api_chat_completions_v1.build_chat_completions_v1_body
             ~provider_config:provider_cfg
             ~config
             ~messages
@@ -127,14 +131,14 @@ let of_config (provider_cfg : Provider.config) : provider_module =
          | Provider.Anthropic_messages ->
            Ok (Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
          | Provider.Openai_chat_completions ->
-           (match parse_provider_d_response_result body_str with
+           (match parse_chat_completions_v1_response_result body_str with
             | Ok resp -> Ok resp
             | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
          | Provider.Custom name ->
            (match Provider.find_provider name with
             | Some impl -> Ok (impl.parse_response body_str)
             | None ->
-              (match parse_provider_d_response_result body_str with
+              (match parse_chat_completions_v1_response_result body_str with
                | Ok resp -> Ok resp
                | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
       | Ok (code, body_str) ->
@@ -153,7 +157,7 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
 ;;
 
 (** Resolve to a streaming provider if supported.
-    Returns [Some] for Anthropic and Provider_d-compatible providers. *)
+    Returns [Some] for Anthropic and Chat_completions_v1-compatible providers. *)
 let of_config_streaming (provider_cfg : Provider.config)
   : streaming_provider_module option
   =
@@ -213,7 +217,7 @@ let%test "supports_streaming OpenAICompat" =
     ; api_key_env = ""
     }
   in
-  (* Provider_d-compat providers support streaming *)
+  (* Chat_completions_v1-compat providers support streaming *)
   supports_streaming cfg
 ;;
 

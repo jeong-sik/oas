@@ -95,9 +95,9 @@ let test_provider_a_parse_response () =
   | _ -> fail "expected single text block"
 ;;
 
-(* ── Provider_d body shape ───────────────────────────────────────── *)
+(* ── Chat_completions_v1 body shape ───────────────────────────────────────── *)
 
-let test_provider_d_body_shape () =
+let test_chat_completions_v1_body_shape () =
   let provider_config : Provider.config =
     { provider =
         OpenAICompat
@@ -111,7 +111,7 @@ let test_provider_d_body_shape () =
     }
   in
   let body_str =
-    Api.build_provider_d_body
+    Api.build_chat_completions_v1_body
       ~provider_config
       ~config:base_state
       ~messages:base_state.messages
@@ -120,13 +120,13 @@ let test_provider_d_body_shape () =
   let json = Yojson.Safe.from_string body_str in
   check bool "has model" true (json_has_key "model" json);
   check bool "has messages" true (json_has_key "messages" json);
-  (* build_provider_d_body uses config.model, not provider_config.model_id *)
+  (* build_chat_completions_v1_body uses config.model, not provider_config.model_id *)
   match json_get "model" json with
   | Some (`String "test-model") -> ()
   | _ -> fail "model should come from config"
 ;;
 
-let test_provider_d_parse_response () =
+let test_chat_completions_v1_parse_response () =
   let mock_body =
     {|{
     "id": "chatcmpl-test",
@@ -136,7 +136,7 @@ let test_provider_d_parse_response () =
       "index": 0,
       "message": {
         "role": "assistant",
-        "content": "Provider_d response"
+        "content": "Chat_completions_v1 response"
       },
       "finish_reason": "stop"
     }],
@@ -145,7 +145,7 @@ let test_provider_d_parse_response () =
   }|}
   in
   let resp =
-    match Api.parse_provider_d_response_result mock_body with
+    match Api.parse_chat_completions_v1_response_result mock_body with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -154,7 +154,7 @@ let test_provider_d_parse_response () =
    | Types.EndTurn -> ()
    | _ -> fail "expected EndTurn from stop");
   match resp.content with
-  | [ Types.Text "Provider_d response" ] -> ()
+  | [ Types.Text "Chat_completions_v1 response" ] -> ()
   | _ -> fail "expected single text block"
 ;;
 
@@ -168,14 +168,14 @@ let test_request_kind_routing () =
       expected
       (match Provider.request_kind provider with
        | Provider.Anthropic_messages -> "provider_a"
-       | Provider.Openai_chat_completions -> "provider_d"
+       | Provider.Openai_chat_completions -> "chat_completions_v1"
        | Provider.Custom name -> "custom:" ^ name)
   in
-  check_kind "local" "provider_d" (Provider.Local { base_url = "http://x" });
+  check_kind "local" "chat_completions_v1" (Provider.Local { base_url = "http://x" });
   check_kind "provider_a" "provider_a" Provider.Anthropic;
   check_kind
-    "provider_d"
-    "provider_d"
+    "chat_completions_v1"
+    "chat_completions_v1"
     (Provider.OpenAICompat
        { base_url = "http://x"
        ; auth_header = None
@@ -315,7 +315,7 @@ let test_cache_cost_no_cache_tokens () =
 
 let test_cache_multipliers_for_non_provider_a () =
   let pricing = Provider.pricing_for_model "model-d" in
-  (* Provider_d: no cache pricing, multipliers are 1.0 *)
+  (* Chat_completions_v1: no cache pricing, multipliers are 1.0 *)
   check (float 0.001) "no cache write discount" 1.0 pricing.cache_write_multiplier;
   check (float 0.001) "no cache read discount" 1.0 pricing.cache_read_multiplier
 ;;
@@ -330,9 +330,9 @@ let () =
         ; test_case "body stream" `Quick test_provider_a_body_stream
         ; test_case "parse response" `Quick test_provider_a_parse_response
         ] )
-    ; ( "provider_d"
-      , [ test_case "body shape" `Quick test_provider_d_body_shape
-        ; test_case "parse response" `Quick test_provider_d_parse_response
+    ; ( "chat_completions_v1"
+      , [ test_case "body shape" `Quick test_chat_completions_v1_body_shape
+        ; test_case "parse response" `Quick test_chat_completions_v1_parse_response
         ] )
     ; "routing", [ test_case "request_kind" `Quick test_request_kind_routing ]
     ; ( "pricing"

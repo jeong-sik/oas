@@ -43,8 +43,8 @@ OAS has one external consumer (masc-mcp), under the same operator's control. For
 | `Anthropic` | `Provider_a` |
 | `Moonshot` | `Provider_b` |
 | `Kimi` | `Provider_c` |
-| `OpenAI_compat` | `Provider_d_compat` |
-| `OpenAI` (if any) | `Provider_d` |
+| `OpenAI_compat` | `Chat_completions_v1` |
+| `OpenAI` (if any) | `Chat_completions_v1` |
 | `Gemini` | `Provider_f` |
 | `DeepSeek` | `Provider_g` |
 | `DashScope` | `Provider_h` |
@@ -99,7 +99,7 @@ These were missed by the initial `\bqwen\b` perl regex pass because `qwen` follo
 
 | Original | New |
 |----------|-----|
-| `Gpt_5`, `Gpt_4_1`, `Gpt_4o` | `Provider_d_5`, `Provider_d_4_1`, `Provider_d_4o` |
+| `Gpt_5`, `Gpt_4_1`, `Gpt_4o` | `Chat_completions_v1_5`, `Chat_completions_v1_4_1`, `Chat_completions_v1_4o` |
 | `Llama_4` | `Provider_n_4` |
 | `Gemma_4 of { has_large_audio : bool }` | `Provider_f_gemma_4 of { has_large_audio : bool }` |
 | `Grok` | `Provider_e_grok` |
@@ -127,19 +127,19 @@ These were missed by the initial `\bqwen\b` perl regex pass because `qwen` follo
 17 modules renamed via `git mv`:
 
 - `api_anthropic.{ml,mli}` → `api_provider_a.{ml,mli}`
-- `api_openai.{ml,mli}` → `api_provider_d.{ml,mli}`
+- `api_openai.{ml,mli}` → `api_chat_completions_v1.{ml,mli}`
 - `backend_anthropic.{ml,mli}` → `backend_provider_a.{ml,mli}`
-- `backend_openai{,_parse,_request,_serialize}.{ml,mli}` → `backend_provider_d{,_parse,_request,_serialize}.{ml,mli}`
+- `backend_openai{,_parse,_request,_serialize}.{ml,mli}` → `backend_chat_completions_v1{,_parse,_request,_serialize}.{ml,mli}`
 - `backend_gemini.{ml,mli}` → `backend_provider_f.{ml,mli}`
 - `backend_glm.{ml,mli}` → `backend_provider_k.{ml,mli}`
 - `transport_codex_cli.{ml,mli}` → `transport_cli_tool_a.{ml,mli}`
 - `transport_gemini_cli.{ml,mli}` → `transport_cli_tool_b.{ml,mli}`
 - `transport_kimi_cli.{ml,mli}` → `transport_cli_tool_c.{ml,mli}`
 - `transport_claude_code.{ml,mli}` → `transport_cli_tool_d.{ml,mli}`
-- `transport_openai_compat.{ml,mli}` → `transport_provider_d_compat.{ml,mli}`
+- `transport_openai_compat.{ml,mli}` → `transport_chat_completions_v1_http.{ml,mli}`
 - `test_gemini_edge_cases.ml` → `test_provider_f_edge_cases.ml`
 - `test_backend_gemini.ml` → `test_backend_provider_f.ml`
-- `test_streaming_openai.ml` → `test_streaming_provider_d.ml`
+- `test_streaming_openai.ml` → `test_streaming_chat_completions_v1.ml`
 
 Module references updated repo-wide; `test/dune` test list updated.
 

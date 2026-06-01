@@ -96,7 +96,7 @@ let test_provider_runtime_name_openai_compat () =
     Some
       { Provider.provider =
           Provider.OpenAICompat
-            { base_url = "https://api.provider_d.com"
+            { base_url = "https://api.chat-completions-v1.example"
             ; auth_header = None
             ; path = "/v1/chat/completions"
             ; static_token = None
@@ -108,7 +108,7 @@ let test_provider_runtime_name_openai_compat () =
   Alcotest.(check string)
     "openai-compat"
     "openai-compat"
-    (Runtime_server_resolve.provider_runtime_name "provider_d" cfg)
+    (Runtime_server_resolve.provider_runtime_name "chat_completions_v1" cfg)
 ;;
 
 let test_provider_runtime_name_custom_registered () =
@@ -239,7 +239,7 @@ let test_resolve_provider_catalog_entry () =
           "request_path": "/v1/chat/completions",
           "auth": {"type": "none"},
           "default_model": "local-model",
-          "capabilities_base": "provider_d_chat"
+          "capabilities_base": "chat_completions_v1"
         }
       ]
     }|}

@@ -204,7 +204,7 @@ let is_dropped_content_block = function
 ;;
 
 (** Extract parameter schema from a tool definition JSON.
-    Handles both "input_schema" (Anthropic) and "parameters" (Provider_d). *)
+    Handles both "input_schema" (Anthropic) and "parameters" (Chat_completions_v1). *)
 let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
   let open Yojson.Safe.Util in
   match schema_if_present (tool_def |> member "input_schema") with
@@ -213,7 +213,7 @@ let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
     (match schema_if_present (tool_def |> member "parameters") with
      | Some schema -> Some schema
      | None ->
-       (* Provider_d wraps in "function" *)
+       (* Chat_completions_v1 wraps in "function" *)
        (match tool_def |> member "function" with
         | `Assoc func -> schema_if_present (`Assoc func |> member "parameters")
         | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None))
@@ -333,16 +333,18 @@ let validate_provider_f_response ~declared_tools json =
   validate_response ~declared_tools (Backend_provider_f.parse_response json)
 ;;
 
-let validate_provider_d_response ~declared_tools json =
+let validate_chat_completions_v1_response ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
   let parsed =
-    try Backend_provider_d_parse.parse_provider_d_response_result json_str with
+    try
+      Backend_chat_completions_v1_parse.parse_chat_completions_v1_response_result json_str
+    with
     | exn -> Error (Printexc.to_string exn)
   in
   match parsed with
   | Ok resp -> Ok (validate_response ~declared_tools resp)
   | Error response_parse_error ->
-    Error { response_backend = "provider_d"; response_parse_error }
+    Error { response_backend = "chat_completions_v1"; response_parse_error }
 ;;
 
 (* ── Inline Tests ─────────────────────────────────────── *)
@@ -436,7 +438,7 @@ let%test "provider_f functionCall response validates correctly" =
   && List.length result.tool_calls_found = 1
 ;;
 
-let%test "provider_d tool_calls response validates correctly" =
+let%test "chat_completions_v1 tool_calls response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-123"
@@ -472,7 +474,7 @@ let%test "provider_d tool_calls response validates correctly" =
             ] )
       ]
   in
-  match validate_provider_d_response ~declared_tools:[ "read_file" ] json with
+  match validate_chat_completions_v1_response ~declared_tools:[ "read_file" ] json with
   | Error _ -> false
   | Ok result ->
     result.stop_reason_correct

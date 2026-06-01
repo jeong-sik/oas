@@ -48,9 +48,9 @@ let test_request_path_provider_c () =
   check_string "kimi path" "/v1/chat/completions" cfg.request_path
 ;;
 
-let test_request_path_provider_d () =
+let test_request_path_chat_completions_v1 () =
   let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
-  check_string "provider_d path" "/v1/chat/completions" cfg.request_path
+  check_string "chat_completions_v1 path" "/v1/chat/completions" cfg.request_path
 ;;
 
 let test_request_path_provider_f () =
@@ -137,7 +137,7 @@ let test_make_response_format_json_mode () =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.chat-completions-v1.example/v1"
       ~response_format_json:true
       ()
   in
@@ -171,17 +171,17 @@ let test_output_schema_of_response_format () =
        (Provider_config.output_schema_of_response_format ~override:schema Types.JsonMode))
 ;;
 
-let test_validate_output_schema_provider_d_official () =
+let test_validate_output_schema_chat_completions_v1_official () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.chat-completions-v1.example/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "official provider_d accepted"
+    "official chat_completions_v1 accepted"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -279,7 +279,7 @@ let test_validate_output_schema_direct_response_format_record () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_supported_non_provider_d () =
+let test_validate_output_schema_supported_non_chat_completions_v1 () =
   let schema = `Assoc [ "type", `String "object" ] in
   List.iter
     (fun kind ->
@@ -303,7 +303,7 @@ let test_validate_output_schema_capability_rejected () =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"unknown-model-without-schema-capability"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.chat-completions-v1.example/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
@@ -513,7 +513,7 @@ let test_provider_name_of_config_local_openai_compat () =
       ()
   in
   check_string
-    "local provider_d compat resolves to llama"
+    "local chat_completions_v1 compat resolves to llama"
     "provider_n"
     (Provider_registry.provider_name_of_config cfg)
 ;;
@@ -522,7 +522,7 @@ let test_provider_name_of_config_openrouter () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_d/gpt-oss-20b"
+      ~model_id:"chat_completions_v1/gpt-oss-20b"
       ~base_url:"https://openrouter.ai/api/v1"
       ~request_path:"/chat/completions"
       ()
@@ -567,7 +567,14 @@ let test_kind_aliases_rejected () =
          ("alias rejected " ^ input)
          true
          (Option.is_none (Provider_config.provider_kind_of_string input)))
-    [ "agent_llm_a"; "provider_d"; "provider_n"; "claude"; "openai"; "llama"; "zhipu" ]
+    [ "agent_llm_a"
+    ; "chat_completions_v1"
+    ; "provider_n"
+    ; "claude"
+    ; "openai"
+    ; "llama"
+    ; "zhipu"
+    ]
 ;;
 
 let test_kind_case_insensitive () =
@@ -651,7 +658,7 @@ let test_of_yojson_rejects_aliases () =
        match Provider_config.provider_kind_of_yojson json with
        | Ok _ -> Alcotest.failf "of_yojson alias %S should fail" input
        | Error _ -> ())
-    [ "agent_llm_a"; "provider_d"; "provider_n" ]
+    [ "agent_llm_a"; "chat_completions_v1"; "provider_n" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -843,7 +850,7 @@ let test_default_api_key_env_known () =
 ;;
 
 let test_default_api_key_env_none_for_others () =
-  (* Local / transport-mediated / Provider_d-compatible share: OAS does not
+  (* Local / transport-mediated / Chat_completions_v1-compatible share: OAS does not
      dictate a single env var; callers supply their own. *)
   List.iter
     (fun (label, k) ->
@@ -882,7 +889,10 @@ let () =
     ; ( "request_path"
       , [ Alcotest.test_case "provider_a" `Quick test_request_path_provider_a
         ; Alcotest.test_case "provider_c" `Quick test_request_path_provider_c
-        ; Alcotest.test_case "provider_d" `Quick test_request_path_provider_d
+        ; Alcotest.test_case
+            "chat_completions_v1"
+            `Quick
+            test_request_path_chat_completions_v1
         ; Alcotest.test_case "provider_f" `Quick test_request_path_provider_f
         ; Alcotest.test_case "provider_k" `Quick test_request_path_glm
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
@@ -903,9 +913,9 @@ let () =
         ] )
     ; ( "output_schema"
       , [ Alcotest.test_case
-            "official provider_d"
+            "official chat_completions_v1"
             `Quick
-            test_validate_output_schema_provider_d_official
+            test_validate_output_schema_chat_completions_v1_official
         ; Alcotest.test_case
             "generic compat rejected"
             `Quick
@@ -931,11 +941,11 @@ let () =
             `Quick
             test_validate_output_schema_direct_response_format_record
         ; Alcotest.test_case
-            "supported non-provider_d providers"
+            "supported non-chat_completions_v1 providers"
             `Quick
-            test_validate_output_schema_supported_non_provider_d
+            test_validate_output_schema_supported_non_chat_completions_v1
         ; Alcotest.test_case
-            "provider_d capability rejection"
+            "chat_completions_v1 capability rejection"
             `Quick
             test_validate_output_schema_capability_rejected
         ] )
@@ -982,7 +992,7 @@ let () =
             `Quick
             test_provider_name_of_config_glm_coding
         ; Alcotest.test_case
-            "local provider_d compat"
+            "local chat_completions_v1 compat"
             `Quick
             test_provider_name_of_config_local_openai_compat
         ; Alcotest.test_case

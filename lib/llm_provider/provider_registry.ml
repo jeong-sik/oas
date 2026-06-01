@@ -311,7 +311,8 @@ let openrouter_defaults =
 
 let provider_i_defaults =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "GROQ_BASE_URL" "https://api.provider_i.com/provider_d/v1"
+  ; base_url =
+      env_or_default "GROQ_BASE_URL" "https://api.provider_i.com/chat_completions_v1/v1"
   ; api_key_env = "GROQ_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -486,5 +487,5 @@ let provider_name_of_config (config : Provider_config.t) =
           && String.equal (String.trim entry.defaults.request_path) request_path)
       with
       | Some entry -> entry.name
-      | None -> "provider_d")
+      | None -> "chat_completions_v1")
 ;;

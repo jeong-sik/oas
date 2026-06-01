@@ -197,7 +197,7 @@ let test_inference_contract_task_transcription () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "https://api.provider_d.com/v1"
+          { base_url = "https://api.chat-completions-v1.example/v1"
           ; auth_header = Some "Authorization"
           ; path = "/audio/transcriptions"
           ; static_token = None
@@ -317,7 +317,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
   | Ok () -> Alcotest.fail "expected unsupported modality validation to fail"
 ;;
 
-let test_extended_provider_d_capabilities () =
+let test_extended_chat_completions_v1_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -617,7 +617,8 @@ let test_provider_config_of_agent_openai_compat_collapses () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d"
+          { base_url =
+              "https://generativelanguage.googleapis.com/v1beta/chat_completions_v1"
           ; auth_header = Some "Authorization"
           ; path = "/chat/completions"
           ; static_token = None
@@ -637,7 +638,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string)
       "base_url from resolve"
-      "https://generativelanguage.googleapis.com/v1beta/provider_d"
+      "https://generativelanguage.googleapis.com/v1beta/chat_completions_v1"
       pc.base_url;
     Alcotest.(check string) "request_path preserved" "/chat/completions" pc.request_path;
     Alcotest.(check bool)
@@ -725,7 +726,7 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
   (* Regression for #1003: Custom_registered must preserve the
      registry-declared provider_kind (e.g. Gemini) rather than
      flattening to OpenAI_compat, which would route Gemini requests
-     through the Provider_d wire format and produce 404 against the
+     through the Chat_completions_v1 wire format and produce 404 against the
      Gemini base URL. *)
   let cfg : Provider.config =
     { provider = Custom_registered { name = "provider_f" }
@@ -865,11 +866,11 @@ let () =
         ; Alcotest.test_case "local skips env var" `Quick test_local_skips_env_var
         ; Alcotest.test_case "provider_a provider" `Quick test_provider_a_provider
         ; Alcotest.test_case
-            "provider_d compat success"
+            "chat_completions_v1 compat success"
             `Quick
             test_openai_compat_resolve_success
         ; Alcotest.test_case
-            "provider_d compat missing key"
+            "chat_completions_v1 compat missing key"
             `Quick
             test_openai_compat_resolve_missing_key
         ; Alcotest.test_case "provider_a headers" `Quick test_provider_a_headers
@@ -902,7 +903,7 @@ let () =
             `Quick
             test_zai_glm5v_capabilities_include_image_input
         ; Alcotest.test_case
-            "non-zai provider_k stays provider_d compat"
+            "non-zai provider_k stays chat_completions_v1 compat"
             `Quick
             test_non_zai_glm_capabilities_stay_openai_compat
         ; Alcotest.test_case
@@ -910,9 +911,9 @@ let () =
             `Quick
             test_validate_inference_contract_rejects_unsupported_modality
         ; Alcotest.test_case
-            "extended provider_d capabilities"
+            "extended chat_completions_v1 capabilities"
             `Quick
-            test_extended_provider_d_capabilities
+            test_extended_chat_completions_v1_capabilities
         ; Alcotest.test_case
             "provider_a consults for_model_id (#824)"
             `Quick

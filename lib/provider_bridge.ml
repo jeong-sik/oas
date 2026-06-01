@@ -55,7 +55,7 @@ let resolve_glm_coding_model_id model_id =
     for "auto"; cloud providers fall back to environment-variable defaults.
 
     Parse, don't validate: callers hand in the concrete variant so dead
-    branches ([provider_d], [provider_o_router] in the pre-typed version) cannot exist. *)
+    branches ([chat_completions_v1], [provider_o_router] in the pre-typed version) cannot exist. *)
 let resolve_auto_model_id
       ~base_url
       (kind : Llm_provider.Provider_config.provider_kind)
@@ -64,9 +64,9 @@ let resolve_auto_model_id
   let open Llm_provider.Provider_config in
   match kind with
   | Ollama | OpenAI_compat | DashScope ->
-    (* Local llama-server and Provider_d-compatible endpoints share the
+    (* Local llama-server and Chat_completions_v1-compatible endpoints share the
          "auto" -> discovery -> OLLAMA_DEFAULT_MODEL fallback. Cloud-only
-         Provider_d-compatible backends still traverse this branch. *)
+         Chat_completions_v1-compatible backends still traverse this branch. *)
     if model_id = "auto"
     then (
       match Llm_provider.Discovery.first_discovered_model_id () with

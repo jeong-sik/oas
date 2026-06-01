@@ -1,4 +1,4 @@
-(** SSE event parsing for Anthropic and Provider_d streaming APIs.
+(** SSE event parsing for Anthropic and Chat_completions_v1 streaming APIs.
 
     Pure functions — no I/O or agent_sdk coupling.
 
@@ -29,21 +29,21 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
     @stability Internal *)
 val sse_event_is_first_token_signal : sse_event -> bool
 
-(** {1 Provider_d SSE} *)
+(** {1 Chat_completions_v1 SSE} *)
 
-type provider_d_tool_call_delta =
+type chat_completions_v1_tool_call_delta =
   { tc_index : int
   ; tc_id : string option
   ; tc_name : string option
   ; tc_arguments : string option
   }
 
-type provider_d_chunk =
+type chat_completions_v1_chunk =
   { chunk_id : string
   ; chunk_model : string
   ; delta_content : string option
   ; delta_reasoning : string option
-  ; delta_tool_calls : provider_d_tool_call_delta list
+  ; delta_tool_calls : chat_completions_v1_tool_call_delta list
   ; finish_reason : string option
   ; chunk_usage : api_usage option
   }
@@ -53,7 +53,7 @@ type thinking_state =
   | Thinking_started of float
   | Thinking_done
 
-type provider_d_stream_state =
+type chat_completions_v1_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
@@ -65,7 +65,7 @@ type provider_d_stream_state =
   ; model : string
   }
 
-val parse_provider_d_sse_chunk : string -> provider_d_chunk option
+val parse_chat_completions_v1_sse_chunk : string -> chat_completions_v1_chunk option
 
 (** RFC-OAS-020: [true] when the chunk carries either a non-empty
     [delta_content] or a non-empty [delta_reasoning] or any
@@ -76,24 +76,24 @@ val parse_provider_d_sse_chunk : string -> provider_d_chunk option
     first real token.
 
     @stability Internal *)
-val chunk_has_non_empty_delta : provider_d_chunk -> bool
+val chunk_has_non_empty_delta : chat_completions_v1_chunk -> bool
 
-val create_provider_d_stream_state
+val create_chat_completions_v1_stream_state
   :  ?provider:string
   -> ?model:string
   -> unit
-  -> provider_d_stream_state
+  -> chat_completions_v1_stream_state
 
-val provider_d_chunk_to_events
-  :  provider_d_stream_state
-  -> provider_d_chunk
+val chat_completions_v1_chunk_to_events
+  :  chat_completions_v1_stream_state
+  -> chat_completions_v1_chunk
   -> sse_event list * Telemetry_event.t option
 
 (** {1 Gemini SSE}
 
     Gemini [streamGenerateContent?alt=sse] emits SSE chunks with
     [{candidates: [{content: {parts: [...]}}]}] structure per chunk.
-    We reuse {!provider_d_stream_state} for block tracking since the
+    We reuse {!chat_completions_v1_stream_state} for block tracking since the
     state management pattern is identical. *)
 
 type provider_f_chunk =
@@ -106,7 +106,7 @@ type provider_f_chunk =
 val parse_provider_f_sse_chunk : string -> provider_f_chunk option
 
 val provider_f_chunk_to_events
-  :  provider_d_stream_state
+  :  chat_completions_v1_stream_state
   -> provider_f_chunk
   -> sse_event list * Telemetry_event.t option
 
@@ -116,10 +116,10 @@ val provider_f_chunk_to_events
     line (newline-delimited JSON, NDJSON). The final line carries
     [done:true] together with [done_reason] and the
     [prompt_eval_count] / [prompt_eval_duration] /
-    [eval_count] / [eval_duration] timing fields that the Provider_d
+    [eval_count] / [eval_duration] timing fields that the Chat_completions_v1
     compat path on [/v1/chat/completions] strips out.
 
-    State management reuses {!provider_d_stream_state} since the block
+    State management reuses {!chat_completions_v1_stream_state} since the block
     tracking pattern is identical. Tool calls in Ollama typically
     arrive fully-formed in the [done:true] line, so the streaming
     consumer treats them as a single delta rather than incremental.
@@ -155,6 +155,6 @@ val parse_ollama_ndjson_chunk : string -> ollama_chunk option
     [done:true] chunk also emits [MessageDelta] carrying the
     stop_reason and any token-count usage. *)
 val ollama_chunk_to_events
-  :  provider_d_stream_state
+  :  chat_completions_v1_stream_state
   -> ollama_chunk
   -> sse_event list * Telemetry_event.t option

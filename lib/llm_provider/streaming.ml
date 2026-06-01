@@ -176,40 +176,40 @@ let emit_synthetic_events (response : api_response) on_event =
   on_event MessageStop
 ;;
 
-(** {1 Provider_d-compatible SSE Streaming}
+(** {1 Chat_completions_v1-compatible SSE Streaming}
 
-    Provider_d Chat Completions streaming uses SSE with flat deltas:
+    Chat_completions_v1 Chat Completions streaming uses SSE with flat deltas:
     - Text content arrives as [delta.content] strings
     - Tool calls arrive as [delta.tool_calls] with incremental arguments
     - [finish_reason] signals end of a choice
     - No explicit content_block_start/stop events (unlike Anthropic)
 
-    We parse each SSE chunk into {!provider_d_chunk}, then convert to
-    {!sse_event} list using a stateful adapter ({!provider_d_stream_state}). *)
+    We parse each SSE chunk into {!chat_completions_v1_chunk}, then convert to
+    {!sse_event} list using a stateful adapter ({!chat_completions_v1_stream_state}). *)
 
-type provider_d_tool_call_delta =
+type chat_completions_v1_tool_call_delta =
   { tc_index : int
   ; tc_id : string option
   ; tc_name : string option
   ; tc_arguments : string option
   }
 
-type provider_d_chunk =
+type chat_completions_v1_chunk =
   { chunk_id : string
   ; chunk_model : string
   ; delta_content : string option
   ; delta_reasoning : string option
-  ; delta_tool_calls : provider_d_tool_call_delta list
+  ; delta_tool_calls : chat_completions_v1_tool_call_delta list
   ; finish_reason : string option
   ; chunk_usage : api_usage option
   }
 
-(* RFC-OAS-020: TTFT classification for Provider_d-compat / Gemini /
+(* RFC-OAS-020: TTFT classification for Chat_completions_v1-compat / Gemini /
    Ollama chunk streams. [true] when this chunk would surface a
    visible token (or tool-call argument) to the application;
    [false] for role-prelude chunks, [DONE]-only finalisers, and
    empty deltas. *)
-let chunk_has_non_empty_delta (c : provider_d_chunk) : bool =
+let chunk_has_non_empty_delta (c : chat_completions_v1_chunk) : bool =
   let non_empty_opt = function
     | Some s -> String.length s > 0
     | None -> false
@@ -219,9 +219,9 @@ let chunk_has_non_empty_delta (c : provider_d_chunk) : bool =
   || c.delta_tool_calls <> []
 ;;
 
-(** Parse a single Provider_d SSE data payload into an {!provider_d_chunk}.
+(** Parse a single Chat_completions_v1 SSE data payload into an {!chat_completions_v1_chunk}.
     Returns [None] for the "[DONE]" sentinel or unparseable data. *)
-let parse_provider_d_sse_chunk data_str : provider_d_chunk option =
+let parse_chat_completions_v1_sse_chunk data_str : chat_completions_v1_chunk option =
   if data_str = "[DONE]"
   then None
   else
@@ -289,13 +289,13 @@ let parse_provider_d_sse_chunk data_str : provider_d_chunk option =
     | Invalid_argument _ -> None
 ;;
 
-(** Mutable state for converting Provider_d flat deltas to block-based events. *)
+(** Mutable state for converting Chat_completions_v1 flat deltas to block-based events. *)
 type thinking_state =
   | Not_thinking
   | Thinking_started of float
   | Thinking_done
 
-type provider_d_stream_state =
+type chat_completions_v1_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
@@ -307,7 +307,7 @@ type provider_d_stream_state =
   ; model : string
   }
 
-let create_provider_d_stream_state ?(provider = "") ?(model = "") () =
+let create_chat_completions_v1_stream_state ?(provider = "") ?(model = "") () =
   { thinking_block_started = false
   ; thinking_block_index = -1
   ; text_block_started = false
@@ -320,12 +320,12 @@ let create_provider_d_stream_state ?(provider = "") ?(model = "") () =
   }
 ;;
 
-(** Convert a parsed {!provider_d_chunk} into {!sse_event} list.
+(** Convert a parsed {!chat_completions_v1_chunk} into {!sse_event} list.
     Synthesizes [ContentBlockStart] events on first occurrence of
     text content or each new tool_call index. *)
-let provider_d_chunk_to_events
-      (state : provider_d_stream_state)
-      (chunk : provider_d_chunk)
+let chat_completions_v1_chunk_to_events
+      (state : chat_completions_v1_stream_state)
+      (chunk : chat_completions_v1_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
@@ -397,7 +397,7 @@ let provider_d_chunk_to_events
    | None -> ());
   (* Tool call deltas *)
   List.iter
-    (fun (tc : provider_d_tool_call_delta) ->
+    (fun (tc : chat_completions_v1_tool_call_delta) ->
        let block_idx =
          match Hashtbl.find_opt state.tool_block_indices tc.tc_index with
          | Some idx -> idx
@@ -491,7 +491,7 @@ let parse_provider_f_sse_chunk data_str : provider_f_chunk option =
 ;;
 
 let provider_f_chunk_to_events
-      (state : provider_d_stream_state)
+      (state : chat_completions_v1_stream_state)
       (chunk : provider_f_chunk)
   : sse_event list * Telemetry_event.t option
   =
@@ -605,7 +605,7 @@ let provider_f_chunk_to_events
     line. Non-final lines carry a [message.content] delta; the final
     line has [done:true] together with [done_reason] and the four
     timing fields ([prompt_eval_count] / [prompt_eval_duration] /
-    [eval_count] / [eval_duration]) that the Provider_d compat path on
+    [eval_count] / [eval_duration]) that the Chat_completions_v1 compat path on
     [/v1/chat/completions] strips out. *)
 
 type ollama_tool_call_delta =
@@ -741,8 +741,10 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
 ;;
 
 (** Convert a parsed {!ollama_chunk} into {!sse_event} list.
-    Reuses {!provider_d_stream_state} for block index tracking. *)
-let ollama_chunk_to_events (state : provider_d_stream_state) (chunk : ollama_chunk)
+    Reuses {!chat_completions_v1_stream_state} for block index tracking. *)
+let ollama_chunk_to_events
+      (state : chat_completions_v1_stream_state)
+      (chunk : ollama_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
@@ -950,7 +952,7 @@ let%test "parse_ollama_ndjson_chunk: malformed json → None" =
 (* ── ollama_chunk_to_events tests ─────────────────────────── *)
 
 let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
-  let state = create_provider_d_stream_state () in
+  let state = create_chat_completions_v1_stream_state () in
   let chunk =
     { oll_model = "provider_h-3:8b"
     ; oll_delta_content = Some "hello"
@@ -973,7 +975,7 @@ let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
 ;;
 
 let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
-  let state = create_provider_d_stream_state () in
+  let state = create_chat_completions_v1_stream_state () in
   let mk text =
     { oll_model = "provider_h-3:8b"
     ; oll_delta_content = Some text
@@ -996,7 +998,7 @@ let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
 ;;
 
 let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
-  let state = create_provider_d_stream_state () in
+  let state = create_chat_completions_v1_stream_state () in
   let chunk =
     { oll_model = "provider_h-3:8b"
     ; oll_delta_content = None
@@ -1025,7 +1027,7 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
 ;;
 
 let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
-  let state = create_provider_d_stream_state () in
+  let state = create_chat_completions_v1_stream_state () in
   let chunk =
     { oll_model = "provider_h-3:8b"
     ; oll_delta_content = None
@@ -1056,7 +1058,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
 ;;
 
 let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
-  let state = create_provider_d_stream_state () in
+  let state = create_chat_completions_v1_stream_state () in
   let chunk =
     { oll_model = "provider_h-3:8b"
     ; oll_delta_content = None

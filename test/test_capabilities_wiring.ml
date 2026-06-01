@@ -61,7 +61,7 @@ let test_filter_thinking () =
     (Capability_filter.requires_thinking agent_llm_a);
   check
     bool
-    "basic provider_d no thinking"
+    "basic chat_completions_v1 no thinking"
     false
     (Capability_filter.requires_thinking basic)
 ;;

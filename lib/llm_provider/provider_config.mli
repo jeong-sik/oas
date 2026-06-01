@@ -185,7 +185,7 @@ val all_provider_kinds : provider_kind list
 (** Conventional API key env var name per kind. Re-export of
     {!Provider_kind.default_api_key_env}. Returns [None] for kinds
     that do not have a universally-agreed env var (local / transport-
-    mediated / Provider_d-compatible spaces where the env name is
+    mediated / Chat_completions_v1-compatible spaces where the env name is
     consumer-specified).
     @since 0.166.0 *)
 val default_api_key_env : provider_kind -> string option
@@ -252,7 +252,7 @@ val effort_of_thinking_config
 val reasoning_effort_of_config : t -> string option
 
 (** Derive a provider-safe schema name for native structured-output APIs
-    that require one (for example Provider_d's [json_schema.name]). *)
+    that require one (for example Chat_completions_v1's [json_schema.name]). *)
 val structured_output_name_of_schema : Yojson.Safe.t -> string
 
 (** Validate whether [output_schema] can be sent natively for this config.
@@ -262,12 +262,12 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [OpenAI_compat] is accepted only for official Provider_d hosts with a
+    - [OpenAI_compat] is accepted only for official Chat_completions_v1 hosts with a
       model capability record that reports [supports_structured_output].
     - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
       DashScope (DashScope) exposes [response_format.json_schema] on its
-      Provider_d-compatible endpoint; the field is forwarded by
-      [backend_provider_d.ml] without additional host validation.
+      Chat_completions_v1-compatible endpoint; the field is forwarded by
+      [backend_chat_completions_v1.ml] without additional host validation.
     - [Kimi] is rejected until native json_schema support is verified.
     - [Glm] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.

@@ -8,8 +8,8 @@ open Alcotest
 
 (* ── Mock server: stateful, multi-response ──────────── *)
 
-(* Provider_d Chat Completions format — Local provider routes through this since PR #308 *)
-let provider_d_text_response ?(id = "chatcmpl-1") text =
+(* Chat_completions_v1 Chat Completions format — Local provider routes through this since PR #308 *)
+let chat_completions_v1_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id
@@ -43,7 +43,7 @@ let contains_substring ~needle haystack =
   loop 0
 ;;
 
-let provider_d_tool_use_response tool_name input_json =
+let chat_completions_v1_tool_use_response tool_name input_json =
   Printf.sprintf
     {|{"id":"chatcmpl-t","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
     tool_name
@@ -160,7 +160,7 @@ let test_agent_run_simple () =
         ~sw
         ~net:env#net
         ~port:20001
-        [ provider_d_text_response "hello pipeline" ]
+        [ chat_completions_v1_text_response "hello pipeline" ]
     in
     let agent = make_agent ~net:env#net url in
     match Agent.run ~sw agent "test prompt" with
@@ -182,9 +182,9 @@ let test_agent_run_tool_use () =
     @@ fun sw ->
     let responses =
       [ (* Turn 1: model calls a tool *)
-        provider_d_tool_use_response "get_time" {|{"timezone": "UTC"}|}
+        chat_completions_v1_tool_use_response "get_time" {|{"timezone": "UTC"}|}
       ; (* Turn 2: model responds with text after tool result *)
-        provider_d_text_response "The time is 12:00 UTC"
+        chat_completions_v1_text_response "The time is 12:00 UTC"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20002 responses in
@@ -223,7 +223,7 @@ let test_agent_run_requires_tool_use_when_tool_choice_is_any () =
         ~sw
         ~net:env#net
         ~port:20013
-        [ provider_d_text_response "I ignored the tool requirement" ]
+        [ chat_completions_v1_text_response "I ignored the tool requirement" ]
     in
     let time_tool =
       Tool.create
@@ -268,9 +268,9 @@ let test_agent_run_missing_required_tool_use_retry_success () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_text_response "I ignored the tool requirement"
-      ; provider_d_tool_use_response "get_time" {|{"timezone": "UTC"}|}
-      ; provider_d_text_response "The time is 12:00 UTC"
+      [ chat_completions_v1_text_response "I ignored the tool requirement"
+      ; chat_completions_v1_tool_use_response "get_time" {|{"timezone": "UTC"}|}
+      ; chat_completions_v1_text_response "The time is 12:00 UTC"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20016 responses in
@@ -313,9 +313,9 @@ let test_agent_run_missing_specific_tool_retry_success () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_text_response "I ignored the specific tool requirement"
-      ; provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_text_response "The time is 12:00 UTC"
+      [ chat_completions_v1_text_response "I ignored the specific tool requirement"
+      ; chat_completions_v1_tool_use_response "get_time" {|{}|}
+      ; chat_completions_v1_text_response "The time is 12:00 UTC"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20017 responses in
@@ -355,7 +355,7 @@ let test_agent_run_missing_required_tool_use_retry_exhausted () =
         ~sw
         ~net:env#net
         ~port:20018
-        [ provider_d_text_response "still no tool" ]
+        [ chat_completions_v1_text_response "still no tool" ]
     in
     let time_tool =
       Tool.create
@@ -395,9 +395,9 @@ let test_agent_run_missing_required_tool_use_does_not_retry_on_relaxed_provider 
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_text_response "I ignored the relaxed tool_choice"
-      ; provider_d_tool_use_response "get_time" {|{"timezone": "UTC"}|}
-      ; provider_d_text_response "The time is 12:00 UTC"
+      [ chat_completions_v1_text_response "I ignored the relaxed tool_choice"
+      ; chat_completions_v1_tool_use_response "get_time" {|{"timezone": "UTC"}|}
+      ; chat_completions_v1_text_response "The time is 12:00 UTC"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20019 responses in
@@ -449,7 +449,7 @@ let test_agent_run_requires_specific_tool_when_tool_choice_is_tool () =
         ~sw
         ~net:env#net
         ~port:20014
-        [ provider_d_tool_use_response "other_tool" {|{}|} ]
+        [ chat_completions_v1_tool_use_response "other_tool" {|{}|} ]
     in
     let requested_tool =
       Tool.create
@@ -507,7 +507,7 @@ let test_agent_run_rejects_any_tool_choice_when_no_tools_visible () =
         ~sw
         ~net:env#net
         ~port:20121
-        [ provider_d_text_response "should not be requested" ]
+        [ chat_completions_v1_text_response "should not be requested" ]
     in
     let agent = make_agent ~net:env#net ~tools:[] ~tool_choice:Types.Any url in
     match Agent.run ~sw agent "use any available tool" with
@@ -540,7 +540,7 @@ let test_agent_run_accepts_any_tool_choice_when_only_runtime_mcp_tools_visible (
         ~sw
         ~net:env#net
         ~port:20131
-        [ provider_d_text_response "should reach provider" ]
+        [ chat_completions_v1_text_response "should reach provider" ]
     in
     let agent =
       make_agent
@@ -581,7 +581,7 @@ let test_agent_run_rejects_specific_tool_choice_when_tool_hidden () =
         ~sw
         ~net:env#net
         ~port:20122
-        [ provider_d_tool_use_response "get_time" {|{}|} ]
+        [ chat_completions_v1_tool_use_response "get_time" {|{}|} ]
     in
     let time_tool =
       Tool.create
@@ -632,7 +632,7 @@ let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
         ~sw
         ~net:env#net
         ~port:20015
-        [ provider_d_tool_use_response "other_tool" {|{}|} ]
+        [ chat_completions_v1_tool_use_response "other_tool" {|{}|} ]
     in
     let other_tool =
       Tool.create
@@ -670,7 +670,7 @@ let test_agent_run_strict_required_tool_rejects_read_only_tool () =
         ~sw
         ~net:env#net
         ~port:20016
-        [ provider_d_tool_use_response "status" {|{}|} ]
+        [ chat_completions_v1_tool_use_response "status" {|{}|} ]
     in
     let status_tool =
       Tool.create
@@ -744,7 +744,7 @@ let test_agent_run_strict_specific_tool_rejects_read_only_match () =
         ~sw
         ~net:env#net
         ~port:20018
-        [ provider_d_tool_use_response "status" {|{}|} ]
+        [ chat_completions_v1_tool_use_response "status" {|{}|} ]
     in
     let status_tool =
       Tool.create
@@ -795,7 +795,7 @@ let test_agent_run_max_turns () =
         ~sw
         ~net:env#net
         ~port:20003
-        [ provider_d_tool_use_response "loop_tool" {|{}|} ]
+        [ chat_completions_v1_tool_use_response "loop_tool" {|{}|} ]
     in
     let loop_tool =
       Tool.create
@@ -826,7 +826,11 @@ let test_agent_run_with_hooks () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20004 [ provider_d_text_response "hooked" ]
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20004
+        [ chat_completions_v1_text_response "hooked" ]
     in
     let before_count = ref 0 in
     let after_count = ref 0 in
@@ -865,7 +869,11 @@ let test_agent_run_with_reducer () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20005 [ provider_d_text_response "reduced" ]
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20005
+        [ chat_completions_v1_text_response "reduced" ]
     in
     let reducer =
       Context_reducer.compose
@@ -883,7 +891,7 @@ let test_agent_run_with_reducer () =
 
 (* ── Test 6: Agent.run_stream ────────────────────────── *)
 
-let provider_d_sse text =
+let chat_completions_v1_sse text =
   Printf.sprintf
     "data: \
      {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n\
@@ -922,7 +930,11 @@ let test_agent_run_stream () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_sse_mock ~sw ~net:env#net ~port:20006 (provider_d_sse "stream pipeline")
+      start_sse_mock
+        ~sw
+        ~net:env#net
+        ~port:20006
+        (chat_completions_v1_sse "stream pipeline")
     in
     let agent = make_agent ~net:env#net url in
     let events = ref [] in
@@ -947,8 +959,8 @@ let test_agent_run_tool_error () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use_response "fail_tool" {|{}|}
-      ; provider_d_text_response "recovered from tool error"
+      [ chat_completions_v1_tool_use_response "fail_tool" {|{}|}
+      ; chat_completions_v1_text_response "recovered from tool error"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20007 responses in
@@ -977,9 +989,9 @@ let test_agent_run_validation_retry_success () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_tool_use_response "get_time" {|{"timezone":"UTC"}|}
-      ; provider_d_text_response "The time is 12:00 UTC"
+      [ chat_completions_v1_tool_use_response "get_time" {|{}|}
+      ; chat_completions_v1_tool_use_response "get_time" {|{"timezone":"UTC"}|}
+      ; chat_completions_v1_text_response "The time is 12:00 UTC"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20011 responses in
@@ -1027,9 +1039,9 @@ let test_agent_run_validation_retry_exhausted () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_text_response "should not happen"
+      [ chat_completions_v1_tool_use_response "get_time" {|{}|}
+      ; chat_completions_v1_tool_use_response "get_time" {|{}|}
+      ; chat_completions_v1_text_response "should not happen"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20012 responses in
@@ -1086,8 +1098,8 @@ let test_agent_run_pre_tool_hook () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use_response "blocked_tool" {|{}|}
-      ; provider_d_text_response "after block"
+      [ chat_completions_v1_tool_use_response "blocked_tool" {|{}|}
+      ; chat_completions_v1_text_response "after block"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20008 responses in
@@ -1186,7 +1198,9 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
         ~sw
         ~net:env#net
         ~port:20020
-        [ `Bad_request, overflow_body; `OK, provider_d_text_response "should not retry" ]
+        [ `Bad_request, overflow_body
+        ; `OK, chat_completions_v1_text_response "should not retry"
+        ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }
@@ -1267,7 +1281,11 @@ let test_agent_run_guardrails () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20010 [ provider_d_text_response "guarded" ]
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20010
+        [ chat_completions_v1_text_response "guarded" ]
     in
     let guardrails =
       { Guardrails.tool_filter = Guardrails.AllowAll; max_tool_calls_per_turn = Some 5 }
@@ -1300,7 +1318,7 @@ let test_agent_run_tiered_memory_triggers_proactive_compaction () =
         ~sw
         ~net:env#net
         ~port:20011
-        [ provider_d_text_response "compacted" ]
+        [ chat_completions_v1_text_response "compacted" ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }

@@ -69,7 +69,7 @@ val default : unit -> t
 (** Best-effort canonical provider name for a concrete provider config.
     Unlike [Provider_config.string_of_provider_kind], this keeps
     registry-level distinctions that share a wire kind but differ by
-    endpoint (for example [provider_k] vs [provider_k-coding], or [provider_d] vs
+    endpoint (for example [provider_k] vs [provider_k-coding], or [chat_completions_v1] vs
     [provider_o_router]). Falls back to a stable kind-derived label when the
     config does not match a known registry entry exactly. *)
 val provider_name_of_config : Provider_config.t -> string

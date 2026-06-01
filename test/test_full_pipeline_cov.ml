@@ -1,6 +1,6 @@
 (** Full-pipeline coverage tests with mock HTTP server.
     Exercises Agent.run end-to-end: api.ml, provider_intf.ml, pipeline.ml,
-    backend_provider_d.ml, complete.ml, streaming.ml, structured.ml,
+    backend_chat_completions_v1.ml, complete.ml, streaming.ml, structured.ml,
     agent_tools.ml, context_reducer, mcp, error paths.
 
     All responses are canned JSON. No real LLM calls. *)
@@ -22,7 +22,7 @@ let escape_json_string s =
   Buffer.contents buf
 ;;
 
-let provider_d_text_response ?(id = "chatcmpl-1") text =
+let chat_completions_v1_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id
@@ -43,7 +43,7 @@ let provider_a_text_response
     stop_reason
 ;;
 
-let provider_d_tool_use ?(id = "chatcmpl-t") tool_name input_json =
+let chat_completions_v1_tool_use ?(id = "chatcmpl-t") tool_name input_json =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
     id
@@ -51,7 +51,7 @@ let provider_d_tool_use ?(id = "chatcmpl-t") tool_name input_json =
     (escape_json_string input_json)
 ;;
 
-let provider_d_multi_content tool_name input_json text =
+let chat_completions_v1_multi_content tool_name input_json text =
   Printf.sprintf
     {|{"id":"chatcmpl-m","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s","tool_calls":[{"id":"call_2","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":15,"total_tokens":35}}|}
     (escape_json_string text)
@@ -59,13 +59,13 @@ let provider_d_multi_content tool_name input_json text =
     (escape_json_string input_json)
 ;;
 
-let provider_d_response text =
+let chat_completions_v1_response text =
   Printf.sprintf
     {|{"id":"chatcmpl-1","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     (escape_json_string text)
 ;;
 
-let provider_d_sse text =
+let chat_completions_v1_sse text =
   Printf.sprintf
     "data: \
      {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":null}]}\n\n\
@@ -218,7 +218,7 @@ let test_basic_text () =
         ~sw
         ~net:env#net
         ~port:21001
-        [ provider_d_text_response "hello coverage" ]
+        [ chat_completions_v1_text_response "hello coverage" ]
     in
     let agent = make_agent ~net:env#net url in
     match Agent.run ~sw agent "hi" with
@@ -239,7 +239,9 @@ let test_tool_call_loop () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use "calc" {|{"x":42}|}; provider_d_text_response "result is 42" ]
+      [ chat_completions_v1_tool_use "calc" {|{"x":42}|}
+      ; chat_completions_v1_text_response "result is 42"
+      ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21002 responses in
     let tool =
@@ -276,8 +278,8 @@ let test_multi_content_tool () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_multi_content "greet" {|{"name":"test"}|} "thinking..."
-      ; provider_d_text_response "done"
+      [ chat_completions_v1_multi_content "greet" {|{"name":"test"}|} "thinking..."
+      ; chat_completions_v1_text_response "done"
       ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21003 responses in
@@ -312,7 +314,9 @@ let test_streaming_sse () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url = start_sse ~sw ~net:env#net ~port:21004 (provider_d_sse "streamed text") in
+    let url =
+      start_sse ~sw ~net:env#net ~port:21004 (chat_completions_v1_sse "streamed text")
+    in
     let agent = make_agent ~net:env#net url in
     let events = ref [] in
     match
@@ -393,7 +397,9 @@ let test_tool_error_recovery () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use "bad_tool" {|{}|}; provider_d_text_response "recovered" ]
+      [ chat_completions_v1_tool_use "bad_tool" {|{}|}
+      ; chat_completions_v1_text_response "recovered"
+      ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21008 responses in
     let tool =
@@ -419,7 +425,11 @@ let test_max_turns () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21009 [ provider_d_tool_use "loop" {|{}|} ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21009
+        [ chat_completions_v1_tool_use "loop" {|{}|} ]
     in
     let tool =
       Tool.create ~name:"loop" ~description:"loops" ~parameters:[] (fun _input ->
@@ -442,7 +452,11 @@ let test_hooks_turn () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21010 [ provider_d_text_response "hooked" ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21010
+        [ chat_completions_v1_text_response "hooked" ]
     in
     let before_count = ref 0 in
     let after_count = ref 0 in
@@ -480,7 +494,11 @@ let test_context_reducer () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21019 [ provider_d_text_response "reduced" ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21019
+        [ chat_completions_v1_text_response "reduced" ]
     in
     let reducer =
       Context_reducer.compose
@@ -505,7 +523,11 @@ let test_guardrails_filter () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21012 [ provider_d_text_response "guarded" ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21012
+        [ chat_completions_v1_text_response "guarded" ]
     in
     let guardrails =
       { Guardrails.tool_filter = Guardrails.AllowAll; max_tool_calls_per_turn = Some 3 }
@@ -529,7 +551,9 @@ let test_pre_tool_skip () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use "skipped" {|{}|}; provider_d_text_response "skipped result" ]
+      [ chat_completions_v1_tool_use "skipped" {|{}|}
+      ; chat_completions_v1_text_response "skipped result"
+      ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21013 responses in
     let tool =
@@ -545,7 +569,7 @@ let test_pre_tool_skip () =
   | Exit -> ()
 ;;
 
-(* ── 14. Provider_d-compatible provider ───────────────────────────── *)
+(* ── 14. Chat_completions_v1-compatible provider ───────────────────────────── *)
 
 let test_openai_compat () =
   Eio_main.run
@@ -554,7 +578,11 @@ let test_openai_compat () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21014 [ provider_d_response "provider_d hello" ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21014
+        [ chat_completions_v1_response "chat_completions_v1 hello" ]
     in
     let provider : Provider.config =
       { provider =
@@ -564,18 +592,20 @@ let test_openai_compat () =
             ; path = "/v1/chat/completions"
             ; static_token = None
             }
-      ; model_id = "mock-provider_d"
+      ; model_id = "mock-chat_completions_v1"
       ; api_key_env = ""
       }
     in
-    let config = { Types.default_config with name = "provider_d-agent"; max_turns = 1 } in
+    let config =
+      { Types.default_config with name = "chat_completions_v1-agent"; max_turns = 1 }
+    in
     let options =
       { Agent.default_options with base_url = url; provider = Some provider }
     in
     let a = Agent.create ~net:env#net ~config ~options () in
     match Agent.run ~sw a "hello" with
     | Ok resp ->
-      check string "text" "provider_d hello" (extract_text resp);
+      check string "text" "chat_completions_v1 hello" (extract_text resp);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -591,7 +621,11 @@ let test_agent_clone_run () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21015 [ provider_d_text_response "cloned" ]
+      start_multi
+        ~sw
+        ~net:env#net
+        ~port:21015
+        [ chat_completions_v1_text_response "cloned" ]
     in
     let agent = make_agent ~net:env#net url in
     let cloned = Agent.clone agent in
@@ -702,8 +736,8 @@ let test_context_tool () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use "ctx_tool" {|{"key":"val"}|}
-      ; provider_d_text_response "ctx done"
+      [ chat_completions_v1_tool_use "ctx_tool" {|{"key":"val"}|}
+      ; chat_completions_v1_text_response "ctx done"
       ]
     in
     let url = start_multi ~sw ~net:env#net ~port:21020 responses in
@@ -739,7 +773,7 @@ let () =
     "full_pipeline_cov"
     [ ( "basic"
       , [ test_case "text completion" `Quick test_basic_text
-        ; test_case "provider_d compat" `Quick test_openai_compat
+        ; test_case "chat_completions_v1 compat" `Quick test_openai_compat
         ; test_case "agent clone" `Quick test_agent_clone_run
         ; test_case "agent card" `Quick test_agent_card
         ] )

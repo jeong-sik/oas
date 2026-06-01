@@ -1,6 +1,6 @@
 (** ZhipuAI Glm native backend.
 
-    Uses Provider_d-compatible wire format with Glm-specific extensions:
+    Uses Chat_completions_v1-compatible wire format with Glm-specific extensions:
     - [thinking] parameter: [{"type":"enabled","clear_thinking":true}]
     - [reasoning_content] in response and streaming delta
     - String error codes (e.g., ["1305"])
@@ -48,7 +48,7 @@ val classify_provider_k_error
 val http_code_of_provider_k_error_class : provider_k_error_class -> int
 
 (** Build a Glm chat completion request body.
-    Delegates to {!Backend_provider_d.build_request} and injects
+    Delegates to {!Backend_chat_completions_v1.build_request} and injects
     Glm-specific [thinking] parameter when [enable_thinking] is set. *)
 val build_request
   :  ?stream:bool
@@ -68,5 +68,5 @@ val parse_response : string -> api_response
 val extract_reasoning_content : api_response -> string -> api_response
 
 (** Parse a Glm SSE streaming chunk.
-    Delegates to {!Streaming.parse_provider_d_sse_chunk}. *)
-val parse_stream_chunk : string -> Streaming.provider_d_chunk option
+    Delegates to {!Streaming.parse_chat_completions_v1_sse_chunk}. *)
+val parse_stream_chunk : string -> Streaming.chat_completions_v1_chunk option

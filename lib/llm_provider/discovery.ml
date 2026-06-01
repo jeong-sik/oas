@@ -269,7 +269,7 @@ let apply_reasoning_effort_overlay (caps : Capabilities.capabilities)
 (** Infer capabilities from model info and server props.
     Priority: model-specific lookup > generic inference > default.
     When [uses_reasoning_effort] is [true] the endpoint speaks the
-    Provider_d-compatible reasoning_effort wire format (currently mapped from
+    Chat_completions_v1-compatible reasoning_effort wire format (currently mapped from
     Ollama-endpoint detection at the caller, but the function takes the
     behavior class — not the vendor — as input), so
     {!apply_reasoning_effort_overlay} is layered on top of the
@@ -1001,7 +1001,7 @@ let%test "infer_capabilities provider_h model gets extended" =
   && caps.supports_min_p = true
 ;;
 
-let%test "infer_capabilities unknown model gets basic provider_d" =
+let%test "infer_capabilities unknown model gets basic chat_completions_v1" =
   let models = [ { id = "my-custom-model"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_tools = true && caps.supports_reasoning = false

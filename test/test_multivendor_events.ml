@@ -1,6 +1,6 @@
 (** Multi-vendor Event_bus taxonomy invariants.
 
-    Every provider OAS supports — Anthropic, Provider_d (+ compatibles),
+    Every provider OAS supports — Anthropic, Chat_completions_v1 (+ compatibles),
     Gemini, Glm, Provider_o_router, llama.cpp, Ollama, vLLM, LM Studio, etc. —
     produces the same native Event_bus payload variants when running
     through OAS.  This test encodes the taxonomy invariants so any

@@ -331,21 +331,23 @@ let test_resolve_provider_a () =
   | _ -> Alcotest.fail "expected Anthropic"
 ;;
 
-let test_resolve_provider_d () =
-  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d" None in
+let test_resolve_chat_completions_v1 () =
+  let cfg =
+    Agent_config.resolve_provider ~model_id:"model-d-4" "chat_completions_v1" None
+  in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; auth_header; _ } ->
-    Alcotest.(check string) "base_url" "https://api.provider_d.com" base_url;
+    Alcotest.(check string) "base_url" "https://api.chat-completions-v1.example" base_url;
     Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header;
     Alcotest.(check string) "api_key_env" "PROVIDER_D_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected OpenAICompat"
 ;;
 
-let test_resolve_provider_d_custom_url () =
+let test_resolve_chat_completions_v1_custom_url () =
   let cfg =
     Agent_config.resolve_provider
       ~model_id:"model-d-4"
-      "provider_d"
+      "chat_completions_v1"
       (Some "http://custom:4000")
   in
   match cfg.provider with
@@ -438,7 +440,7 @@ let test_resolve_provider_g () =
 ;;
 
 let test_resolve_provider_f_preserves_kind () =
-  (* Regression for #1003: registered providers with non-Provider_d kind
+  (* Regression for #1003: registered providers with non-Chat_completions_v1 kind
      (e.g. Gemini) must route through Custom_registered so downstream
      preserves entry.defaults.kind. Previously resolve_provider
      returned OpenAICompat, flattening kind to OpenAI_compat and
@@ -465,8 +467,8 @@ let test_resolve_openai_compat_ssot () =
   match cfg.provider with
   | Provider.OpenAICompat { base_url; _ } ->
     Alcotest.(check string)
-      "canonical form reaches provider_d branch"
-      "https://api.provider_d.com"
+      "canonical form reaches chat_completions_v1 branch"
+      "https://api.chat-completions-v1.example"
       base_url;
     Alcotest.(check string)
       "api_key_env is PROVIDER_D_API_KEY"
@@ -628,8 +630,8 @@ let () =
       , [ tc "local" test_resolve_local
         ; tc "local custom url" test_resolve_local_custom_url
         ; tc "provider_a" test_resolve_provider_a
-        ; tc "provider_d" test_resolve_provider_d
-        ; tc "provider_d custom url" test_resolve_provider_d_custom_url
+        ; tc "chat_completions_v1" test_resolve_chat_completions_v1
+        ; tc "chat_completions_v1 custom url" test_resolve_chat_completions_v1_custom_url
         ; tc "other" test_resolve_other
         ; tc "other custom url" test_resolve_other_custom_url
         ; tc "other OpenAI /v1 base url" test_resolve_other_openai_v1_base_url

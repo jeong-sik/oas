@@ -26,8 +26,8 @@
       }
     ]}
 
-    Provider values: "local" (llama-server), "provider_a", "provider_d",
-    or any string (treated as Provider_d-compatible with api_key_env = that string).
+    Provider values: "local" (llama-server), "provider_a", "chat_completions_v1",
+    or any string (treated as Chat_completions_v1-compatible with api_key_env = that string).
 *)
 
 open Result_syntax
@@ -301,7 +301,7 @@ let load path =
     through {!Llm_provider.Provider_kind.of_string}, which accepts the
     canonical wire forms (["provider_a"], ["openai_compat"], …) plus the
     documented aliases (["agent_llm_a"] -> Anthropic,
-    ["provider_d"] -> OpenAI_compat, ["provider_n"] -> Ollama), case-insensitively
+    ["chat_completions_v1"] -> OpenAI_compat, ["provider_n"] -> Ollama), case-insensitively
     with leading/trailing whitespace trimmed.
 
     ["local"] remains a first-class routing shorthand (not a Provider_kind
@@ -331,7 +331,7 @@ let resolve_provider ~model_id provider_str base_url =
       let url =
         match base_url with
         | Some u -> u
-        | None -> "https://api.provider_d.com"
+        | None -> "https://api.chat-completions-v1.example"
       in
       { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
       ; model_id

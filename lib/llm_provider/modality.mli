@@ -8,7 +8,7 @@
       place image and/or audio content before the text in your prompt.
     v}
 
-    Other models (Anthropic, Provider_d, Glm) are not sensitive to this
+    Other models (Anthropic, Chat_completions_v1, Glm) are not sensitive to this
     ordering, so the default is to preserve caller-supplied block order.
 
     @since 0.193.0 *)
