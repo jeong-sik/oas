@@ -132,7 +132,12 @@ let log_turn ~run_start ~turn_start ~turn_index ~max_turns ~model ~stop =
     ]
 ;;
 
-let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
+let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent user_prompt =
+  let bump_activity () =
+    match on_activity with
+    | Some f -> f ()
+    | None -> ()
+  in
   let user_prompt = Llm_provider.Utf8_sanitize.sanitize user_prompt in
   let user_msg =
     { role = User
@@ -195,6 +200,12 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume agent user_prompt =
       let max_turns = agent.state.config.max_turns in
       let turn_start = Unix.gettimeofday () in
       let result = run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent in
+      (* A completed turn is execution progress: bump the idle watchdog
+         so a multi-turn run (especially non-streaming, where there are no
+         token-level [on_event] signals) is not flagged as stalled between
+         turns. Streaming turns also bump per token via the wrapped
+         [on_event] in [run_stream]. *)
+      bump_activity ();
       (match result with
        | Error e ->
          log_turn
@@ -269,22 +280,157 @@ let start_periodic_callbacks ~sw ?clock (cbs : periodic_callback list) =
     fun () -> List.iter (fun stop -> stop ()) stops
 ;;
 
-let with_optional_timeout ?clock agent f =
-  match agent.options.max_execution_time_s, clock with
-  | Some timeout_s, Some clock ->
-    let started_at = Unix.gettimeofday () in
-    (try Eio.Time.with_timeout_exn clock timeout_s f with
-     | Eio.Time.Timeout ->
-       let elapsed_sec = Float.max 0.0 (Unix.gettimeofday () -. started_at) in
-       Error
-         (Error.Agent
-            (Error.AgentExecutionTimeout
-               { elapsed_sec
-               ; timeout_sec = timeout_s
-               ; turn_count = agent.state.turn_count
-               ; max_turns = agent.state.config.max_turns
-               })))
-  | _ -> f ()
+(* Eio clock read; falls back to 0.0 when no clock is available (the
+   timers below are skipped in that case anyway, so the value is unused). *)
+let now_or_zero = function
+  | Some clock -> Eio.Time.now clock
+  | None -> 0.0
+;;
+
+(* Idle / no-progress watchdog. Races [f] against an inactivity timer
+   that resets whenever [!last_activity] advances — bumped per streamed
+   token via the wrapped [on_event] in {!run_stream} and per completed
+   turn via {!run_loop}'s [on_activity]. Returns [f]'s result, or an
+   [AgentExecutionIdleTimeout] when no activity is seen for
+   [idle_timeout_s].
+
+   Cancellation safety: [Eio.Fiber.first] cancels the loser through the
+   same Eio cancellation path the hard ceiling ([with_timeout_exn])
+   already relies on. When the watchdog fires it cancels [f]; the
+   streaming HTTP connection lives under an [Eio.Switch] inside
+   [Http_client], so the socket is released on cancel. When [f] finishes
+   first, the sleeping watchdog is cancelled and its [Cancelled] is
+   absorbed by [Eio.Fiber.first]. We never catch [Cancelled] here, so a
+   parent-scope cancellation propagates unchanged. *)
+(* Racing core, kept agent-free so it is unit-testable with only a clock
+   and an activity ref (no full agent / network). Returns
+   [`Completed (f ())] when [f] finishes first, or [`Idle_timeout idle_for]
+   when [idle_timeout_s] elapses with [!last_activity] never advancing. *)
+let race_idle_watchdog ~clock ~idle_timeout_s ~last_activity f =
+  Eio.Fiber.first
+    (fun () -> `Completed (f ()))
+    (fun () ->
+       let rec watch () =
+         let idle_for = Eio.Time.now clock -. !last_activity in
+         if idle_for >= idle_timeout_s
+         then `Idle_timeout idle_for
+         else (
+           (* Sleep only the remaining window; activity during the sleep
+              advances [last_activity], so the post-wake re-check resets
+              the deadline instead of firing. Floor the sleep to avoid a
+              busy-spin when [idle_for] races just under the threshold, but
+              cap the floor at [idle_timeout_s] so a sub-floor idle window
+              is still respected (fires on time, not one floor late). *)
+           let floor = Float.min 0.05 idle_timeout_s in
+           Eio.Time.sleep clock (Float.max floor (idle_timeout_s -. idle_for));
+           watch ())
+       in
+       watch ())
+;;
+
+let with_idle_watchdog ~clock ~idle_timeout_s ~last_activity agent f =
+  match race_idle_watchdog ~clock ~idle_timeout_s ~last_activity f with
+  | `Completed result -> result
+  | `Idle_timeout idle_for ->
+    Error
+      (Error.Agent
+         (Error.AgentExecutionIdleTimeout
+            { idle_sec = idle_for
+            ; idle_timeout_sec = idle_timeout_s
+            ; turn_count = agent.state.turn_count
+            ; max_turns = agent.state.config.max_turns
+            }))
+;;
+
+let%test "race_idle_watchdog: fires when f makes no progress" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let last_activity = ref (Eio.Time.now clock) in
+  let outcome =
+    race_idle_watchdog ~clock ~idle_timeout_s:0.05 ~last_activity (fun () ->
+      (* Stuck run: sleeps far past the idle window, never bumps activity. *)
+      Eio.Time.sleep clock 1.0;
+      `Done)
+  in
+  match outcome with
+  | `Idle_timeout idle_for -> idle_for >= 0.05
+  | `Completed _ -> false
+;;
+
+let%test "race_idle_watchdog: does NOT fire while f keeps bumping activity" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let last_activity = ref (Eio.Time.now clock) in
+  let outcome =
+    race_idle_watchdog ~clock ~idle_timeout_s:0.1 ~last_activity (fun () ->
+      (* Progressing stream: 15 "tokens" at 0.02s each (total ~0.3s, 3x the
+         idle window) each bumping activity. Proves the watchdog tracks
+         progress, not total elapsed time — the exact regression a blunt
+         total wall-clock would cause on a long reasoning burst. *)
+      for _ = 1 to 15 do
+        Eio.Time.sleep clock 0.02;
+        last_activity := Eio.Time.now clock
+      done;
+      `Done)
+  in
+  match outcome with
+  | `Completed `Done -> true
+  | `Completed _ | `Idle_timeout _ -> false
+;;
+
+let%test "race_idle_watchdog: returns f's result immediately on fast completion" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let last_activity = ref (Eio.Time.now clock) in
+  let outcome =
+    race_idle_watchdog ~clock ~idle_timeout_s:10.0 ~last_activity (fun () -> `Done)
+  in
+  match outcome with
+  | `Completed `Done -> true
+  | `Completed _ | `Idle_timeout _ -> false
+;;
+
+(* Wrap [f] in the configured execution timeouts:
+   - [max_execution_time_s] -> a hard total wall-clock backstop (the
+     historical behaviour), surfacing as [AgentExecutionTimeout]. Any
+     [Some _] engages it, including [Some 0.0] / negatives which fire
+     immediately via [with_timeout_exn] exactly as before this field
+     gained an idle companion — the ceiling's semantics are unchanged.
+   - [execution_idle_timeout_s] -> an inactivity watchdog that resets on
+     progress, surfacing as [AgentExecutionIdleTimeout]. A non-positive
+     value disables it (treated like [None]): a 0s idle deadline would
+     cancel on the first check, which is never useful.
+   Both require a clock; with neither set (or no clock) behaviour matches
+   earlier versions. When both are set, the ceiling wraps the idle
+   watchdog so either guard can fire. *)
+let with_optional_timeout ?clock ~last_activity agent f =
+  match clock with
+  | None -> f ()
+  | Some clock ->
+    let run_with_idle () =
+      match agent.options.execution_idle_timeout_s with
+      | Some idle_timeout_s when idle_timeout_s > 0.0 ->
+        with_idle_watchdog ~clock ~idle_timeout_s ~last_activity agent f
+      | _ -> f ()
+    in
+    (match agent.options.max_execution_time_s with
+     | Some timeout_s ->
+       let started_at = Unix.gettimeofday () in
+       (try Eio.Time.with_timeout_exn clock timeout_s run_with_idle with
+        | Eio.Time.Timeout ->
+          let elapsed_sec = Float.max 0.0 (Unix.gettimeofday () -. started_at) in
+          Error
+            (Error.Agent
+               (Error.AgentExecutionTimeout
+                  { elapsed_sec
+                  ; timeout_sec = timeout_s
+                  ; turn_count = agent.state.turn_count
+                  ; max_turns = agent.state.config.max_turns
+                  })))
+     | _ -> run_with_idle ())
 ;;
 
 let stop_once stop =
@@ -292,14 +438,14 @@ let stop_once stop =
   fun () -> if Atomic.compare_and_set stopped false true then stop ()
 ;;
 
-let with_periodic_callbacks ~sw:_ ?clock agent f =
+let with_periodic_callbacks ~sw:_ ?clock ~last_activity agent f =
   match agent.options.periodic_callbacks with
-  | [] -> with_optional_timeout ?clock agent f
+  | [] -> with_optional_timeout ?clock ~last_activity agent f
   | callbacks ->
     Eio.Switch.run
     @@ fun callback_sw ->
     let stop = start_periodic_callbacks ~sw:callback_sw ?clock callbacks |> stop_once in
-    (match with_optional_timeout ?clock agent f with
+    (match with_optional_timeout ?clock ~last_activity agent f with
      | result ->
        stop ();
        result
@@ -309,8 +455,18 @@ let with_periodic_callbacks ~sw:_ ?clock agent f =
 ;;
 
 let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
-  with_periodic_callbacks ~sw ?clock agent (fun () ->
-    run_loop ~sw ?clock ~api_strategy:Sync ?on_yield ?on_resume agent user_prompt)
+  let last_activity = ref (now_or_zero clock) in
+  let on_activity () = last_activity := now_or_zero clock in
+  with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
+    run_loop
+      ~sw
+      ?clock
+      ~api_strategy:Sync
+      ?on_yield
+      ?on_resume
+      ~on_activity
+      agent
+      user_prompt)
 ;;
 
 let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
@@ -319,13 +475,28 @@ let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
       (fun bus -> Telemetry_bus.publish (Telemetry_bus.of_event_bus bus))
       agent.options.event_bus
   in
-  with_periodic_callbacks ~sw ?clock agent (fun () ->
+  let last_activity = ref (now_or_zero clock) in
+  let on_activity () = last_activity := now_or_zero clock in
+  (* Every streamed event — including reasoning/thinking deltas, which
+     reach [on_event] as [ContentBlockDelta { delta = ThinkingDelta _ }]
+     (see Llm_provider.Streaming.provider_d_chunk_to_events) — counts as
+     progress, so a long reasoning burst keeps the idle watchdog from
+     firing. [caller_on_event] is the original callback (bound under a
+     distinct name so the wrapper is not misread as self-recursion); it
+     runs after the activity bump. *)
+  let caller_on_event = on_event in
+  let on_event ev =
+    on_activity ();
+    caller_on_event ev
+  in
+  with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
     run_loop
       ~sw
       ?clock
       ~api_strategy:(Stream { on_event; on_telemetry })
       ?on_yield
       ?on_resume
+      ~on_activity
       agent
       user_prompt)
 ;;
@@ -547,7 +718,17 @@ let checkpoint ?(session_id = "") ?working_context agent =
 ;;
 
 let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
-  with_optional_timeout ?clock agent (fun () ->
+  let last_activity = ref (now_or_zero clock) in
+  (* Single-turn streaming: only token-level [on_event] bumps activity
+     (no run_loop, so no turn-boundary signal). [caller_on_event] is the
+     original callback, bound under a distinct name so the wrapper is not
+     misread as self-recursion. *)
+  let caller_on_event = on_event in
+  let on_event ev =
+    last_activity := now_or_zero clock;
+    caller_on_event ev
+  in
+  with_optional_timeout ?clock ~last_activity agent (fun () ->
     run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event; on_telemetry }) agent)
 ;;
 

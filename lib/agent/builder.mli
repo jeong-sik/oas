@@ -157,6 +157,20 @@ val with_body_timeout : float -> t -> t
     [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
     layer treats as retryable. @since 0.181.0 *)
 
+(** Set the agent-level inactivity deadline for the entire run. The timer
+    resets on execution activity — a streamed token (every [on_event],
+    including reasoning/thinking deltas) or a completed turn — and fires
+    only after this many seconds of genuine silence, surfacing as
+    [Error.AgentExecutionIdleTimeout]. Unlike [with_max_execution_time]
+    (a total wall-clock that also kills a healthy-but-slow run) this never
+    cancels a stream that is still producing output, so it is the liveness
+    guard while [with_max_execution_time] becomes a generous backstop.
+    Complements [with_stream_idle_timeout] (per-line, single stream) by
+    spanning the gaps between turns. Requires a clock on [run]/[run_stream];
+    without one the watchdog is skipped. For non-streaming [run], activity
+    is observed only at turn boundaries. @since 0.201.0 *)
+val with_execution_idle_timeout : float -> t -> t
+
 (** Set the total deadline applied to streaming HTTP body consumption.
     Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
     [with_stream_idle_timeout] (which only caps inter-line silence).

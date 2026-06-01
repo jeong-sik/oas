@@ -60,6 +60,21 @@ type agent_error =
       ; turn_count : int
       ; max_turns : int
       }
+  | AgentExecutionIdleTimeout of
+      { idle_sec : float
+      ; idle_timeout_sec : float
+      ; turn_count : int
+      ; max_turns : int
+      }
+  (** No execution activity (streamed token or completed turn) was
+          observed for [idle_timeout_sec]. Distinct from
+          [AgentExecutionTimeout], which caps total wall-clock regardless
+          of progress: the idle deadline resets on each unit of progress
+          and fires only on observed silence, so it does not cancel a run
+          that is still streaming output. For non-streaming [run] activity
+          is seen only at turn boundaries, so a long single turn can trip
+          this without the run being hung.
+          @since 0.201.0 *)
   | CompletionContractViolation of
       { contract : Completion_contract_id.t
       ; reason : string
