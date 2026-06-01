@@ -274,27 +274,6 @@ let test_long_term_backend_set_after_create () =
   | _ -> fail "late backend should work"
 ;;
 
-let test_legacy_backend_batch_and_remove () =
-  let store = Hashtbl.create 4 in
-  let removed = ref [] in
-  let backend =
-    Memory.legacy_backend
-      ~persist:(fun ~key value -> Hashtbl.replace store key value)
-      ~retrieve:(fun ~key -> Hashtbl.find_opt store key)
-      ~remove:(fun ~key ->
-        removed := key :: !removed;
-        Hashtbl.remove store key)
-  in
-  check_ok "legacy persist" (backend.persist ~key:"one" (json_i 1));
-  check_ok "legacy batch" (backend.batch_persist [ "two", json_i 2; "three", json_i 3 ]);
-  (match backend.retrieve ~key:"two" with
-   | Some (`Int 2) -> ()
-   | _ -> fail "batch should persist values");
-  check int "legacy query empty" 0 (List.length (backend.query ~prefix:"" ~limit:10));
-  check_ok "legacy remove" (backend.remove ~key:"one");
-  check (list string) "remove callback called" [ "one" ] !removed
-;;
-
 let test_long_term_backend_errors_and_result_fallback () =
   let backend : Memory.long_term_backend =
     { persist = (fun ~key:_ _ -> Error "disk full")
@@ -610,7 +589,6 @@ let () =
             "set backend after create"
             `Quick
             test_long_term_backend_set_after_create
-        ; test_case "legacy backend" `Quick test_legacy_backend_batch_and_remove
         ; test_case
             "backend errors and result fallback"
             `Quick

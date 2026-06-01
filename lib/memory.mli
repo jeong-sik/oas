@@ -96,15 +96,6 @@ type procedural_backend =
   ; all_procedures : unit -> procedure list
   }
 
-(** Wrap legacy callbacks that return [unit] into a {!long_term_backend}
-    where [persist]/[remove] always return [Ok ()],
-    [batch_persist] iterates, and [query] returns [[]]. *)
-val legacy_backend
-  :  persist:(key:string -> Yojson.Safe.t -> unit)
-  -> retrieve:(key:string -> Yojson.Safe.t option)
-  -> remove:(key:string -> unit)
-  -> long_term_backend
-
 (** {1 Abstract type} *)
 
 type t

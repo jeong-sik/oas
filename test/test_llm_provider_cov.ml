@@ -769,15 +769,7 @@ let test_constants_inference_profiles () =
   check_profile "agent" 0.7 16_384 Constants.Inference_profile.agent_default;
   check_profile "low_variance" 0.1 2048 Constants.Inference_profile.low_variance;
   check_profile "worker" 0.2 16_384 Constants.Inference_profile.worker_default;
-  check_profile "deterministic" 0.0 4096 Constants.Inference_profile.deterministic;
-  Alcotest.(check (float 0.001))
-    "legacy temperature"
-    Constants.Inference_profile.cascade_default.temperature
-    Constants.Inference.default_temperature;
-  Alcotest.(check int)
-    "legacy max tokens"
-    Constants.Inference_profile.cascade_default.max_tokens
-    Constants.Inference.default_max_tokens
+  check_profile "deterministic" 0.0 4096 Constants.Inference_profile.deterministic
 ;;
 
 let test_constants_retry_cache_sampling_and_endpoints () =
@@ -1784,9 +1776,7 @@ let test_with_context_size () =
 
 let test_with_context_size_overrides () =
   let c =
-    Capabilities.with_context_size
-      Capabilities.anthropic_capabilities
-      ~ctx_size:1_000_000
+    Capabilities.with_context_size Capabilities.anthropic_capabilities ~ctx_size:1_000_000
   in
   Alcotest.(check (option int)) "overrides" (Some 1_000_000) c.max_context_tokens
 ;;

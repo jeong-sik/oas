@@ -69,37 +69,28 @@ module Inference_profile = struct
   let deterministic = { no_sampling_overrides with temperature = 0.0; max_tokens = 4096 }
 end
 
-(** Backward-compatible aliases — existing callers of
-    [Constants.Inference.default_temperature] continue to compile.
-    New code should prefer {!Inference_profile}. *)
-module Inference = struct
-  let default_temperature = Inference_profile.cascade_default.temperature
-  let default_max_tokens = Inference_profile.cascade_default.max_tokens
+(** Fallback [max_tokens] when both caller override and model capability
+    are absent. Emitted as a required field by Provider_d-compat and Anthropic
+    backends.
 
-  (** Fallback [max_tokens] when both caller override and model capability
-      are absent. Emitted as a required field by Provider_d-compat and Anthropic
-      backends.
-
-      16384 covers most modern models (GPT-4o, Agent_llm_a Sonnet 4, Gemini 2.5,
-      DashScope_3, Provider_g-V3) without overrunning smaller model limits. Models
-      with lower caps should be declared in [Capabilities.for_model_id] so
-      the capability-gated path (not this fallback) applies.
-      @since 0.188.0
-      @since 0.185.0 — raised from 4096 to 16384 *)
-  let unknown_model_max_tokens_fallback =
-    match Sys.getenv "OAS_MAX_TOKENS_DEFAULT" with
-    | exception Not_found -> 16384
-    | s ->
-      (match int_of_string_opt s with
-       | Some n when n > 0 -> n
-       | _ ->
-         Diag.warn
-           "constants"
-           "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384"
-           s;
-         16384)
-  ;;
-end
+    16384 is a last-resort ceiling for modern high-context models. Models with
+    lower caps should be declared in [Capabilities.for_model_id] so the
+    capability-gated path (not this fallback) applies.
+    @since 0.188.0
+    @since 0.185.0 — raised from 4096 to 16384 *)
+let unknown_model_max_tokens_fallback =
+  match Sys.getenv "OAS_MAX_TOKENS_DEFAULT" with
+  | exception Not_found -> 16384
+  | s ->
+    (match int_of_string_opt s with
+     | Some n when n > 0 -> n
+     | _ ->
+       Diag.warn
+         "constants"
+         "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384"
+         s;
+       16384)
+;;
 
 (* ── Cache ───────────────────────────────────────── *)
 

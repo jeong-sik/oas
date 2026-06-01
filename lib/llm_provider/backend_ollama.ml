@@ -130,9 +130,7 @@ let build_request
   in
   let options = ref [] in
   (let mt =
-     Option.value
-       ~default:Constants.Inference.unknown_model_max_tokens_fallback
-       config.max_tokens
+     Option.value ~default:Constants.unknown_model_max_tokens_fallback config.max_tokens
    in
    options := ("num_predict", `Int mt) :: !options);
   (match config.temperature with

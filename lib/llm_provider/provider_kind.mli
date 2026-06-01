@@ -35,11 +35,10 @@ val default_api_key_env : t -> string option
     Exhaustive — adding a new variant forces a compile error. *)
 val to_string : t -> string
 
-(** Canonical inverse of {!to_string}. Accepts the 7 canonical forms plus
-    the documented legacy aliases [claude -> Anthropic],
-    [openai -> OpenAI_compat], [llama -> Ollama]. Match is case-insensitive
-    with leading/trailing whitespace trimmed. Returns [None] for anything
-    else so callers fail fast instead of silently defaulting. *)
+(** Canonical inverse of {!to_string}. Accepts only the 7 canonical forms.
+    Match is case-insensitive with leading/trailing whitespace trimmed. Returns
+    [None] for anything else so callers fail fast instead of silently
+    defaulting. *)
 val of_string : string -> t option
 
 val pp : Format.formatter -> t -> unit

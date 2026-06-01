@@ -172,8 +172,7 @@ let test_session_transport_kind () =
   check (option string) "http url" (Some "http://127.0.0.1:8935/mcp") info2.http_base_url
 ;;
 
-let test_session_transport_kind_stdio_default () =
-  (* Old JSON without transport_kind should default to Stdio *)
+let test_session_transport_kind_required () =
   let json =
     `Assoc
       [ "server_name", `String "old-srv"
@@ -183,8 +182,11 @@ let test_session_transport_kind_stdio_default () =
       ; "tool_schemas", `List [] (* no transport_kind field *)
       ]
   in
-  let info = Result.get_ok (Mcp_session.info_of_json json) in
-  check bool "defaults to Stdio" true (info.transport_kind = Mcp_session.Stdio)
+  check
+    bool
+    "missing transport_kind rejected"
+    true
+    (Result.is_error (Mcp_session.info_of_json json))
 ;;
 
 (* ── Suite ──────────────────────────────────────────────── *)
@@ -211,10 +213,7 @@ let () =
     ; "errors", [ test_case "http transport error" `Quick test_http_transport_error ]
     ; ( "session"
       , [ test_case "transport_kind roundtrip" `Quick test_session_transport_kind
-        ; test_case
-            "transport_kind default stdio"
-            `Quick
-            test_session_transport_kind_stdio_default
+        ; test_case "transport_kind required" `Quick test_session_transport_kind_required
         ] )
     ]
 ;;

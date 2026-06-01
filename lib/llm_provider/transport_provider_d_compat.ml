@@ -16,7 +16,7 @@ let default_config =
   ; api_key = ""
   ; model_id = ""
   ; request_path = "/v1/chat/completions"
-  ; max_tokens = Constants.Inference.unknown_model_max_tokens_fallback
+  ; max_tokens = Constants.unknown_model_max_tokens_fallback
   ; extra_headers = []
   }
 ;;
@@ -93,7 +93,7 @@ let%test "default_config request_path" =
 ;;
 
 let%test "default_config max_tokens" =
-  default_config.max_tokens = Constants.Inference.unknown_model_max_tokens_fallback
+  default_config.max_tokens = Constants.unknown_model_max_tokens_fallback
 ;;
 
 let%test "default_config api_key empty" = default_config.api_key = ""

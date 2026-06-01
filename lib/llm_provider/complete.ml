@@ -71,8 +71,8 @@ let apply_sampling_defaults (config : Provider_config.t) : Provider_config.t =
   let defaults = provider_sampling_defaults config.kind in
   let default_min_p =
     match config.kind with
-    | Provider_config.OpenAI_compat
-      when not (openai_compat_should_default_min_p config) -> None
+    | Provider_config.OpenAI_compat when not (openai_compat_should_default_min_p config)
+      -> None
     | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope ->
       defaults.default_min_p
   in
@@ -535,8 +535,8 @@ let complete_http
           Backend_provider_a.build_request ~config ~messages ~tools ()
         | Provider_config.Ollama ->
           Backend_ollama.build_request ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
-          Backend_provider_d.build_request ~config ~messages ~tools ()
+        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
+          -> Backend_provider_d.build_request ~config ~messages ~tools ()
         | Provider_config.Gemini ->
           Backend_provider_f.build_request ~config ~messages ~tools ()
         | Provider_config.Glm ->
@@ -694,7 +694,9 @@ let complete_http
                   (match Backend_ollama.parse_ollama_response body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
-                | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
+                | Provider_config.OpenAI_compat
+                | Provider_config.DashScope
+                | Provider_config.Kimi ->
                   (match
                      Backend_provider_d_parse.parse_provider_d_response_result body
                    with
@@ -1141,9 +1143,6 @@ let complete_with_retry
 
 (* ── Streaming ───────────────────────────────────────── *)
 
-(* Re-export stream accumulator for backward compatibility *)
-include Complete_stream_acc
-
 let record_streaming_metrics (metrics : Metrics.t) = function
   | Telemetry_event.Streaming_first_chunk { provider; model; ttfrc_ms; _ } ->
     metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
@@ -1199,8 +1198,8 @@ let complete_stream_http
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
           Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
-        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi ->
-          Backend_provider_d.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
+          -> Backend_provider_d.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Gemini ->
           Backend_provider_f.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Glm ->
@@ -1343,7 +1342,7 @@ let complete_stream_http
           ~body:body_with_stream
           ~f:(fun reader ->
             let body_logic () =
-              let acc = create_stream_acc () in
+              let acc = Complete_stream_acc.create_stream_acc () in
               let provider_d_state = ref None in
               (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
                  hoisted out of body_logic so publish_summary on
@@ -1374,7 +1373,7 @@ let complete_stream_http
                 List.iter
                   (fun evt ->
                      on_event evt;
-                     accumulate_event acc evt;
+                     Complete_stream_acc.accumulate_event acc evt;
                      (* RFC-OAS-019: classify each delta for the
                         [Streaming_summary] kind_breakdown that fires at
                         finalize. Wire errors set terminal_state; per-chunk
@@ -1476,7 +1475,8 @@ let complete_stream_http
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
-                           | Provider_config.OpenAI_compat | Provider_config.DashScope
+                           | Provider_config.OpenAI_compat
+                           | Provider_config.DashScope
                            | Provider_config.Kimi ->
                              (match Streaming.parse_provider_d_sse_chunk data with
                               | Some chunk ->
@@ -1529,7 +1529,7 @@ let complete_stream_http
               | Error _ as err -> err
               | Ok () ->
                 let result =
-                  match finalize_stream_acc acc with
+                  match Complete_stream_acc.finalize_stream_acc acc with
                   | Ok _ as ok -> ok
                   | Error msg ->
                     Error

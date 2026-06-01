@@ -43,12 +43,12 @@ let default_api_key_env = function
 
 let of_string raw =
   match String.lowercase_ascii (String.trim raw) with
-  | "anthropic" | "claude" -> Some Anthropic
+  | "anthropic" -> Some Anthropic
   | "kimi" -> Some Kimi
-  | "openai_compat" | "openai" | "provider_d" -> Some OpenAI_compat
-  | "ollama" | "llama" | "ollama_cloud" -> Some Ollama
+  | "openai_compat" -> Some OpenAI_compat
+  | "ollama" -> Some Ollama
   | "gemini" -> Some Gemini
-  | "glm" | "zhipu" -> Some Glm
+  | "glm" -> Some Glm
   | "dashscope" -> Some DashScope
   | _ -> None
 ;;

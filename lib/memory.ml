@@ -45,24 +45,6 @@ let default_retrieve_result backend ~key =
   | None -> Error Missing_key
 ;;
 
-let legacy_backend ~persist ~retrieve ~remove =
-  { persist =
-      (fun ~key value ->
-        persist ~key value;
-        Ok ())
-  ; retrieve
-  ; remove =
-      (fun ~key ->
-        remove ~key;
-        Ok ())
-  ; batch_persist =
-      (fun pairs ->
-        List.iter (fun (k, v) -> persist ~key:k v) pairs;
-        Ok ())
-  ; query = (fun ~prefix:_ ~limit:_ -> [])
-  }
-;;
-
 type outcome = Memory_episodic.outcome =
   | Success of string
   | Failure of string
