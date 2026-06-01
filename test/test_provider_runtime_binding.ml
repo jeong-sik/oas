@@ -258,6 +258,23 @@ let test_builtin_binding_resolves () =
     (Provider_runtime_binding.resolve_model binding ~requested_model:None)
 ;;
 
+let test_builtin_aliases_resolve_to_canonical_bindings () =
+  let cases =
+    [ "anthropic", "agent_llm_a"
+    ; "glm", "provider_k"
+    ; "zai-coding", "provider_k-coding"
+    ; "dashscope", "provider_h"
+    ; "gemini", "provider_f"
+    ; "kimi", "provider_c"
+    ]
+  in
+  List.iter
+    (fun (alias, expected_id) ->
+       let binding = expect_binding alias in
+       Alcotest.(check string) alias expected_id binding.id)
+    cases
+;;
+
 let () =
   Alcotest.run
     "Provider_runtime_binding"
@@ -293,6 +310,11 @@ let () =
             test_find_empty_missing_and_provider_config_fallbacks
         ] )
     ; ( "builtins"
-      , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves ] )
+      , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves
+        ; Alcotest.test_case
+            "aliases resolve to canonical bindings"
+            `Quick
+            test_builtin_aliases_resolve_to_canonical_bindings
+        ] )
     ]
 ;;

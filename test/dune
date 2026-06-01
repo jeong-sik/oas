@@ -484,6 +484,11 @@
  (libraries agent_sdk alcotest unix))
 
 (test
+ (name test_runtime_server_resolve)
+ (modules test_runtime_server_resolve)
+ (libraries agent_sdk alcotest unix))
+
+(test
  (name test_provider_complete)
  (modules test_provider_complete)
  (libraries agent_sdk llm_provider alcotest eio_main))

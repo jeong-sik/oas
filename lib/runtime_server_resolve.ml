@@ -28,94 +28,69 @@ let provider_runtime_name selected (cfg : Provider.config option) =
   match cfg with
   | None -> selected
   | Some cfg ->
-    (match cfg.provider with
-     | Provider.Local _ -> "local"
-     | Provider.Anthropic -> "provider_a"
-     | Provider.OpenAICompat _ -> "openai-compat"
-     | Provider.Custom_registered { name } -> "custom:" ^ name)
+    Option.value
+      ~default:selected
+      (Provider_runtime_binding.provider_id_of_legacy_config cfg)
 ;;
 
-let registry_valid_provider_detail registry =
+let runtime_valid_provider_detail () =
   let names =
-    Llm_provider.Provider_registry.all registry
-    |> List.map (fun (entry : Llm_provider.Provider_registry.entry) -> entry.name)
+    Provider_runtime_binding.all ()
+    |> List.concat_map (fun (binding : Provider_runtime_binding.t) ->
+      binding.id :: binding.aliases)
     |> List.sort_uniq String.compare
   in
-  let names = "local" :: names in
+  let names = Provider_runtime_binding.known_aliases () @ ("local" :: names) in
   let names =
     if Defaults.allow_test_providers () then "mock" :: "echo" :: names else names
   in
   String.concat ", " (List.sort_uniq String.compare names)
 ;;
 
-let provider_config_of_registry_entry
-      ~provider_name
-      ~model_id
-      (entry : Llm_provider.Provider_registry.entry)
-  =
-  match entry.defaults.kind with
+let request_path_or_default (binding : Provider_runtime_binding.t) =
+  let request_path = String.trim binding.request_path in
+  if request_path <> ""
+  then request_path
+  else Llm_provider.Provider_config.request_path_default_for_kind binding.kind
+;;
+
+let legacy_provider_config_of_binding ?model (binding : Provider_runtime_binding.t) =
+  let model_id = Provider_runtime_binding.resolve_model binding ~requested_model:model in
+  match binding.kind with
   | Llm_provider.Provider_config.Anthropic ->
     { Provider.provider = Provider.Anthropic
     ; model_id
-    ; api_key_env = entry.defaults.api_key_env
+    ; api_key_env = binding.api_key_env
     }
   | Llm_provider.Provider_config.OpenAI_compat ->
     { Provider.provider =
         Provider.OpenAICompat
-          { base_url = entry.defaults.base_url
+          { base_url = binding.base_url
           ; auth_header =
-              (if String.trim entry.defaults.api_key_env = ""
-               then None
-               else Some "Authorization")
-          ; path = entry.defaults.request_path
+              (if String.trim binding.api_key_env = "" then None else Some "Authorization")
+          ; path = request_path_or_default binding
           ; static_token = None
           }
     ; model_id
-    ; api_key_env = entry.defaults.api_key_env
+    ; api_key_env = binding.api_key_env
     }
   | _ ->
-    { Provider.provider = Provider.Custom_registered { name = provider_name }
+    { Provider.provider = Provider.Custom_registered { name = binding.id }
     ; model_id
-    ; api_key_env = entry.defaults.api_key_env
+    ; api_key_env = binding.api_key_env
     }
 ;;
 
-let catalog_default_model provider_name =
-  match Llm_provider.Provider_catalog.global () with
-  | None -> None
-  | Some catalog ->
-    Llm_provider.Provider_catalog.default_model_for_provider catalog provider_name
-;;
-
-let effective_model_id ~provider_name ~entry ?model () =
-  match model with
-  | Some value when String.trim value <> "" -> value
-  | _ ->
-    (match catalog_default_model provider_name with
-     | Some model_id when String.trim model_id <> "" -> model_id
-     | _ ->
-       (match entry.Llm_provider.Provider_registry.defaults.kind with
-        | Llm_provider.Provider_config.Ollama -> "default"
-        | _ -> Model_registry.default_model_id))
-;;
-
-let resolve_from_registry registry ~provider_name ?model () =
-  match Llm_provider.Provider_registry.find registry provider_name with
-  | Some entry ->
-    let model_id = effective_model_id ~provider_name ~entry ?model () in
-    Ok (Some (provider_config_of_registry_entry ~provider_name ~model_id entry))
+let resolve_from_runtime_binding ~provider_name ?model () =
+  match Provider_runtime_binding.find provider_name with
+  | Some binding -> Ok (Some (legacy_provider_config_of_binding ?model binding))
   | None ->
     let resolved_model = Model_registry.resolve_model_id provider_name in
     if not (String.equal resolved_model provider_name)
     then (
-      match Llm_provider.Provider_registry.find registry "agent_llm_a" with
-      | Some entry ->
-        Ok
-          (Some
-             (provider_config_of_registry_entry
-                ~provider_name:"agent_llm_a"
-                ~model_id:resolved_model
-                entry))
+      match Provider_runtime_binding.find "anthropic" with
+      | Some binding ->
+        Ok (Some (legacy_provider_config_of_binding ~model:resolved_model binding))
       | None ->
         unsupported_provider
           "provider alias resolved to an Anthropic model but provider catalog has no \
@@ -125,7 +100,7 @@ let resolve_from_registry registry ~provider_name ?model () =
         (Printf.sprintf
            "unknown provider %S; valid: %s"
            provider_name
-           (registry_valid_provider_detail registry))
+           (runtime_valid_provider_detail ()))
 ;;
 
 let resolve_provider ?provider ?model () =
@@ -135,14 +110,13 @@ let resolve_provider ?provider ?model () =
       String.lowercase_ascii (String.trim value)
     | _ -> Defaults.fallback_provider
   in
-  let registry = Llm_provider.Provider_registry.default () in
   let base =
     match selected with
     | "mock" | "echo" ->
       let* () = ensure_test_provider_enabled selected in
       Ok None
     | "local" -> Ok (Some (Provider.local_llm ()))
-    | other -> resolve_from_registry registry ~provider_name:other ?model ()
+    | other -> resolve_from_runtime_binding ~provider_name:other ?model ()
   in
   match base with
   | Error _ as e -> e

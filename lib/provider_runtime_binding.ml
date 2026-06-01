@@ -38,6 +38,26 @@ type t =
 
 let normalize value = String.trim value |> String.lowercase_ascii
 
+let builtin_aliases =
+  [ "anthropic", "agent_llm_a"
+  ; "claude", "agent_llm_a"
+  ; "provider_a", "agent_llm_a"
+  ; "kimi", "provider_c"
+  ; "moonshot", "provider_c"
+  ; "gemini", "provider_f"
+  ; "glm", "provider_k"
+  ; "zhipu", "provider_k"
+  ; "zai", "provider_k"
+  ; "glm-coding", "provider_k-coding"
+  ; "zhipu-coding", "provider_k-coding"
+  ; "zai-coding", "provider_k-coding"
+  ; "dashscope", "provider_h"
+  ]
+;;
+
+let alias_target label = List.assoc_opt (normalize label) builtin_aliases
+let known_aliases () = List.map fst builtin_aliases
+
 let trim_non_empty value =
   let trimmed = String.trim value in
   if trimmed = "" then None else Some trimmed
@@ -184,18 +204,27 @@ let all () =
   sort_bindings (from_catalog @ from_registry)
 ;;
 
+let find_raw normalized =
+  let registry = PR.default () in
+  match PC.global () with
+  | Some catalog ->
+    (match PC.lookup catalog normalized with
+     | Some entry -> Some (binding_of_catalog_entry registry entry)
+     | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
+  | None -> Option.map binding_of_registry_entry (PR.find registry normalized)
+;;
+
 let find label =
   let normalized = normalize label in
   if normalized = ""
   then None
   else (
-    let registry = PR.default () in
-    match PC.global () with
-    | Some catalog ->
-      (match PC.lookup catalog normalized with
-       | Some entry -> Some (binding_of_catalog_entry registry entry)
-       | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
-    | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
+    match find_raw normalized with
+    | Some _ as binding -> binding
+    | None ->
+      (match alias_target normalized with
+       | Some target -> find_raw target
+       | None -> None))
 ;;
 
 let normalize_endpoint_url value =
@@ -258,6 +287,32 @@ let binding_for_provider_config (cfg : PConfig.t) =
     (match registry_binding_for_provider_config registry cfg with
      | Some binding -> Some binding
      | None -> PR.provider_name_of_config cfg |> find)
+;;
+
+let provider_id_of_legacy_config (cfg : Provider.config) =
+  match cfg.provider with
+  | Provider.Local _ -> Some "local"
+  | Provider.Anthropic ->
+    (match find "anthropic" with
+     | Some binding -> Some binding.id
+     | None -> Some "agent_llm_a")
+  | Provider.Custom_registered { name } ->
+    (match find name with
+     | Some binding -> Some binding.id
+     | None -> trim_non_empty name)
+  | Provider.OpenAICompat { base_url; path; _ } ->
+    let request_path = trim_non_empty path in
+    let pc =
+      PConfig.make
+        ~kind:PConfig.OpenAI_compat
+        ~model_id:cfg.model_id
+        ~base_url
+        ?request_path
+        ()
+    in
+    (match binding_for_provider_config pc with
+     | Some binding -> Some binding.id
+     | None -> Some "openai_compat")
 ;;
 
 let base_capabilities_of_kind = function

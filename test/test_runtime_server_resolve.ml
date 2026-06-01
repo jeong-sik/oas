@@ -86,8 +86,8 @@ let test_provider_runtime_name_provider_a () =
       }
   in
   Alcotest.(check string)
-    "provider_a"
-    "provider_a"
+    "agent_llm_a"
+    "agent_llm_a"
     (Runtime_server_resolve.provider_runtime_name "provider_a" cfg)
 ;;
 
@@ -96,7 +96,7 @@ let test_provider_runtime_name_openai_compat () =
     Some
       { Provider.provider =
           Provider.OpenAICompat
-            { base_url = "https://api.provider_d.com"
+            { base_url = "https://openai-compatible.example.test"
             ; auth_header = None
             ; path = "/v1/chat/completions"
             ; static_token = None
@@ -106,9 +106,9 @@ let test_provider_runtime_name_openai_compat () =
       }
   in
   Alcotest.(check string)
-    "openai-compat"
-    "openai-compat"
-    (Runtime_server_resolve.provider_runtime_name "provider_d" cfg)
+    "openai_compat"
+    "openai_compat"
+    (Runtime_server_resolve.provider_runtime_name "openai_compat" cfg)
 ;;
 
 let test_provider_runtime_name_custom_registered () =
@@ -120,8 +120,8 @@ let test_provider_runtime_name_custom_registered () =
       }
   in
   Alcotest.(check string)
-    "custom:myvendor"
-    "custom:myvendor"
+    "myvendor"
+    "myvendor"
     (Runtime_server_resolve.provider_runtime_name "custom" cfg)
 ;;
 
@@ -181,6 +181,32 @@ let test_resolve_provider_openrouter () =
     (match cfg.Provider.provider with
      | Provider.OpenAICompat _ -> ()
      | _ -> Alcotest.fail "expected OpenAICompat")
+  | _ -> Alcotest.fail "expected Ok (Some cfg)"
+;;
+
+let test_resolve_provider_openai_compat_requires_concrete_binding () =
+  match Runtime_server_resolve.resolve_provider ~provider:"openai_compat" () with
+  | Error (Error.Config (Error.UnsupportedProvider _)) -> ()
+  | _ -> Alcotest.fail "expected OpenAI-compatible kind without binding to fail closed"
+;;
+
+let test_resolve_provider_glm_alias () =
+  match Runtime_server_resolve.resolve_provider ~provider:"glm" () with
+  | Ok (Some cfg) ->
+    (match cfg.Provider.provider with
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "canonical binding" "provider_k" name
+     | _ -> Alcotest.fail "expected Custom_registered provider_k")
+  | _ -> Alcotest.fail "expected Ok (Some cfg)"
+;;
+
+let test_resolve_provider_dashscope_alias () =
+  match Runtime_server_resolve.resolve_provider ~provider:"dashscope" () with
+  | Ok (Some cfg) ->
+    (match cfg.Provider.provider with
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "canonical binding" "provider_h" name
+     | _ -> Alcotest.fail "expected Custom_registered provider_h")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
@@ -295,7 +321,7 @@ let test_resolve_execution_non_mock_has_provider_cfg () =
     Alcotest.(check bool) "has provider cfg" true (Option.is_some res.provider_cfg);
     Alcotest.(check (option string))
       "resolved provider"
-      (Some "provider_a")
+      (Some "agent_llm_a")
       res.resolved_provider
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
@@ -409,6 +435,18 @@ let () =
             "provider_o_router returns OpenAICompat"
             `Quick
             test_resolve_provider_openrouter
+        ; Alcotest.test_case
+            "openai_compat requires concrete binding"
+            `Quick
+            test_resolve_provider_openai_compat_requires_concrete_binding
+        ; Alcotest.test_case
+            "glm resolves provider_k binding"
+            `Quick
+            test_resolve_provider_glm_alias
+        ; Alcotest.test_case
+            "dashscope resolves provider_h binding"
+            `Quick
+            test_resolve_provider_dashscope_alias
         ; Alcotest.test_case
             "unknown returns UnsupportedProvider error"
             `Quick

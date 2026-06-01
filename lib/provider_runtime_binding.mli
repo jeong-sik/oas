@@ -47,12 +47,22 @@ val all : unit -> t list
     case-insensitive and whitespace-trimmed. *)
 val find : string -> t option
 
+(** Built-in runtime aliases accepted before catalog lookup. These aliases
+    are parser compatibility only; they are not emitted as canonical binding
+    identifiers. *)
+val known_aliases : unit -> string list
+
 (** Resolve the runtime binding that owns a concrete provider config.
 
     Catalog endpoint matches are resolved before registry provider-name
     fallbacks, so catalog-provided OpenAI-compatible providers remain
     OAS-owned even when the endpoint is local. *)
 val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
+
+(** Return the canonical runtime binding id for a legacy {!Provider.config}.
+    Unknown custom providers return their raw custom name, without adding a
+    display-only ["custom:"] prefix. *)
+val provider_id_of_legacy_config : Provider.config -> string option
 
 (** Resolve OAS-owned provider capabilities for a concrete provider config.
 

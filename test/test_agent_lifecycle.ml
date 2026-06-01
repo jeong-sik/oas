@@ -120,8 +120,8 @@ let test_runtime_name_provider_a () =
     { provider = Anthropic; model_id = "test"; api_key_env = "DUMMY" }
   in
   Alcotest.(check (option string))
-    "provider_a"
-    (Some "provider_a")
+    "agent_llm_a"
+    (Some "agent_llm_a")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
@@ -139,8 +139,8 @@ let test_runtime_name_openai_compat () =
     }
   in
   Alcotest.(check (option string))
-    "openai-compat"
-    (Some "openai-compat")
+    "provider_n"
+    (Some "provider_n")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
@@ -153,7 +153,7 @@ let test_runtime_name_custom () =
   in
   Alcotest.(check (option string))
     "custom"
-    (Some "custom:my-custom")
+    (Some "my-custom")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
