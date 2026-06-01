@@ -86,6 +86,14 @@ let openai_compat_config ~base_url ~api_key_env ?(path = "/v1/chat/completions")
     }
 ;;
 
+let provider_kind_of_config_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "provider_a" | "agent_llm_a" -> Some Llm_provider.Provider_kind.Anthropic
+  | "chat_completions_v1" -> Some Llm_provider.Provider_kind.OpenAI_compat
+  | "provider_n" -> Some Llm_provider.Provider_kind.Ollama
+  | normalized -> Llm_provider.Provider_kind.of_string normalized
+;;
+
 (* ── Tool config ─────────────────────────────────────────── *)
 
 type tool_file_config =
@@ -298,11 +306,13 @@ let load path =
 (** Resolve provider string + optional base_url to a Provider.config.
 
     Canonical provider kinds ({!Llm_provider.Provider_kind.t}) are dispatched
-    through {!Llm_provider.Provider_kind.of_string}, which accepts the
-    canonical wire forms (["provider_a"], ["openai_compat"], …) plus the
-    documented aliases (["agent_llm_a"] -> Anthropic,
-    ["chat_completions_v1"] -> OpenAI_compat, ["provider_n"] -> Ollama), case-insensitively
-    with leading/trailing whitespace trimmed.
+    through [provider_kind_of_config_string]. It accepts canonical kind strings
+    (for example ["anthropic"], ["openai_compat"], and ["ollama"]) plus legacy
+    configuration aliases (["provider_a"] / ["agent_llm_a"] -> Anthropic,
+    ["chat_completions_v1"] -> OpenAI_compat, ["provider_n"] -> Ollama),
+    case-insensitively with leading/trailing whitespace trimmed.
+    Catalog-provided names are resolved by the registry lookup below after the
+    kind parser misses.
 
     ["local"] remains a first-class routing shorthand (not a Provider_kind
     variant) and is matched explicitly before the parser so that
@@ -323,7 +333,7 @@ let resolve_provider ~model_id provider_str base_url =
     in
     { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
   else (
-    match Llm_provider.Provider_kind.of_string provider_str with
+    match provider_kind_of_config_string provider_str with
     | Some Anthropic ->
       { Provider.provider = Anthropic; model_id; api_key_env = "PROVIDER_A_API_KEY" }
     | Some OpenAI_compat ->
