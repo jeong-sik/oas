@@ -731,7 +731,8 @@ let test_dashscope_capabilities () =
 
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
-    [ "provider_d_chat_extended", Some Capabilities.openai_compat_chat_extended_capabilities
+    [ ( "provider_d_chat_extended"
+      , Some Capabilities.openai_compat_chat_extended_capabilities )
     ; "provider_c", Some Capabilities.kimi_capabilities
     ; "provider_h", Some Capabilities.dashscope_capabilities
     ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"

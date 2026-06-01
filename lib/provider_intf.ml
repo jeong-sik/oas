@@ -105,13 +105,23 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       (* Merge auth headers at request time so that [headers] (from
          [Provider.resolve]) never carries sensitive tokens. *)
       let auth_hdrs =
-        if api_key = "" then []
-        else match kind with
+        if api_key = ""
+        then []
+        else (
+          match kind with
           | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
           | Provider.Openai_chat_completions | Provider.Custom _ ->
-            [ "Authorization", "Bearer " ^ api_key ]
+            [ "Authorization", "Bearer " ^ api_key ])
       in
-      match Http_client.post_sync ~sw ~net ~url ~headers:(headers @ auth_hdrs) ~body:body_str () with
+      match
+        Http_client.post_sync
+          ~sw
+          ~net
+          ~url
+          ~headers:(headers @ auth_hdrs)
+          ~body:body_str
+          ()
+      with
       | Ok (200, body_str) ->
         (match kind with
          | Provider.Anthropic_messages ->

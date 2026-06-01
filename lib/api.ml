@@ -125,9 +125,7 @@ let create_message
            ( fallback_provider
            , base_url
            , key
-           , [ "Content-Type", "application/json"
-             ; "provider_a-version", api_version
-             ] )
+           , [ "Content-Type", "application/json"; "provider_a-version", api_version ] )
        | None -> Error (Error.Config (MissingEnvVar { var_name = "PROVIDER_A_API_KEY" })))
   in
   match resolve_result with
@@ -159,11 +157,13 @@ let create_message
       (* Merge auth headers at request time so that [header_list] (from
          [Provider.resolve]) never carries sensitive tokens. *)
       let auth_hdrs =
-        if api_key = "" then []
-        else match kind with
+        if api_key = ""
+        then []
+        else (
+          match kind with
           | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
           | Provider.Openai_chat_completions | Provider.Custom _ ->
-            [ "Authorization", "Bearer " ^ api_key ]
+            [ "Authorization", "Bearer " ^ api_key ])
       in
       match
         Llm_provider.Http_client.post_sync

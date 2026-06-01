@@ -778,7 +778,6 @@ let () =
             test_provider_f_stream_tool_first_then_text
         ] )
     ; ( "capabilities"
-      , [ test_case "provider_f capabilities" `Quick test_gemini_capabilities_named ]
-      )
+      , [ test_case "provider_f capabilities" `Quick test_gemini_capabilities_named ] )
     ]
 ;;

@@ -612,7 +612,6 @@ let test_map_http_error_auth_error () =
   | _ -> Alcotest.fail "expected Error.Api AuthError"
 ;;
 
-
 (* ── MessageDelta cache update with prior values ────────────────── *)
 
 let test_acc_message_delta_cache_update_nonzero () =
