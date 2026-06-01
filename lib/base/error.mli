@@ -69,8 +69,11 @@ type agent_error =
       (** No execution activity (streamed token or completed turn) was
           observed for [idle_timeout_sec]. Distinct from
           [AgentExecutionTimeout], which caps total wall-clock regardless
-          of progress: an idle timeout means the run is genuinely stuck,
-          whereas an execution timeout can fire on a healthy-but-slow run.
+          of progress: the idle deadline resets on each unit of progress
+          and fires only on observed silence, so it does not cancel a run
+          that is still streaming output. For non-streaming [run] activity
+          is seen only at turn boundaries, so a long single turn can trip
+          this without the run being hung.
           @since 0.201.0 *)
   | CompletionContractViolation of
       { contract : Completion_contract_id.t

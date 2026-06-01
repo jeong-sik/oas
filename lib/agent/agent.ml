@@ -392,12 +392,17 @@ let%test "race_idle_watchdog: returns f's result immediately on fast completion"
 
 (* Wrap [f] in the configured execution timeouts:
    - [max_execution_time_s] -> a hard total wall-clock backstop (the
-     historical behaviour), surfacing as [AgentExecutionTimeout].
+     historical behaviour), surfacing as [AgentExecutionTimeout]. Any
+     [Some _] engages it, including [Some 0.0] / negatives which fire
+     immediately via [with_timeout_exn] exactly as before this field
+     gained an idle companion — the ceiling's semantics are unchanged.
    - [execution_idle_timeout_s] -> an inactivity watchdog that resets on
-     progress, surfacing as [AgentExecutionIdleTimeout].
-   Both require a clock and are independently optional; with neither set
-   (or no clock) behaviour matches earlier versions. When both are set,
-   the ceiling wraps the idle watchdog so either guard can fire. *)
+     progress, surfacing as [AgentExecutionIdleTimeout]. A non-positive
+     value disables it (treated like [None]): a 0s idle deadline would
+     cancel on the first check, which is never useful.
+   Both require a clock; with neither set (or no clock) behaviour matches
+   earlier versions. When both are set, the ceiling wraps the idle
+   watchdog so either guard can fire. *)
 let with_optional_timeout ?clock ~last_activity agent f =
   match clock with
   | None -> f ()
@@ -409,7 +414,7 @@ let with_optional_timeout ?clock ~last_activity agent f =
       | _ -> f ()
     in
     (match agent.options.max_execution_time_s with
-     | Some timeout_s when timeout_s > 0.0 ->
+     | Some timeout_s ->
        let started_at = Unix.gettimeofday () in
        (try Eio.Time.with_timeout_exn clock timeout_s run_with_idle with
         | Eio.Time.Timeout ->

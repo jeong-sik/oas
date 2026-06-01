@@ -88,8 +88,9 @@ type options =
 
         Requires [clock] to be supplied to [run]/[run_stream]; without a
         clock the watchdog is skipped and behaviour matches earlier
-        versions. For non-streaming [run], activity is observed only at
-        turn boundaries (no token signal), so set this above the longest
+        versions. A non-positive value disables the watchdog (treated like
+        [None]). For non-streaming [run], activity is observed only at turn
+        boundaries (no token signal), so set this above the longest
         expected single-turn latency or prefer [run_stream].
         @since 0.201.0 *)
   ; max_idle_turns : int
