@@ -204,10 +204,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_19 () =
+let test_default_has_14 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "19 known providers" 19 (List.length all);
+  check int "14 known providers" 14 (List.length all);
   check
     bool
     "llama exists"
@@ -269,28 +269,7 @@ let test_default_has_19 () =
     bool
     "siliconflow exists"
     true
-    (Option.is_some (Provider_registry.find reg "siliconflow"));
-  check
-    bool
-    "cli_tool_d exists"
-    true
-    (Option.is_some (Provider_registry.find reg "cli_tool_d"));
-  check bool "cc exists" true (Option.is_some (Provider_registry.find reg "cc"));
-  check
-    bool
-    "cli_tool_b exists"
-    true
-    (Option.is_some (Provider_registry.find reg "cli_tool_b"));
-  check
-    bool
-    "cli_tool_c exists"
-    true
-    (Option.is_some (Provider_registry.find reg "cli_tool_c"));
-  check
-    bool
-    "cli_tool_a exists"
-    true
-    (Option.is_some (Provider_registry.find reg "cli_tool_a"))
+    (Option.is_some (Provider_registry.find reg "siliconflow"))
 ;;
 
 let test_default_capabilities () =
@@ -351,9 +330,6 @@ let test_default_max_context () =
   (match Provider_registry.find reg "provider_c" with
    | Some e -> check int "provider_c 262K" 262_144 e.max_context
    | None -> fail "provider_c should exist");
-  (match Provider_registry.find reg "cc" with
-   | Some e -> check int "cc 1M" 1_000_000 e.max_context
-   | None -> fail "cc should exist");
   (match Provider_registry.find reg "provider_i" with
    | Some e -> check int "provider_i 131K" 131_072 e.max_context
    | None -> fail "provider_i should exist");
@@ -366,15 +342,9 @@ let test_default_max_context () =
   (match Provider_registry.find reg "alibaba" with
    | Some e -> check int "alibaba 131K" 131_072 e.max_context
    | None -> fail "alibaba should exist");
-  (match Provider_registry.find reg "siliconflow" with
-   | Some e -> check int "siliconflow 128K" 128_000 e.max_context
-   | None -> fail "siliconflow should exist");
-  (match Provider_registry.find reg "cli_tool_a" with
-   | Some e -> check int "cli_tool_a 1.05M" 1_050_000 e.max_context
-   | None -> fail "cli_tool_a should exist");
-  match Provider_registry.find reg "cli_tool_c" with
-  | Some e -> check int "cli_tool_c 262K" 262_144 e.max_context
-  | None -> fail "cli_tool_c should exist"
+  match Provider_registry.find reg "siliconflow" with
+  | Some e -> check int "siliconflow 128K" 128_000 e.max_context
+  | None -> fail "siliconflow should exist"
 ;;
 
 let test_default_max_context_matches_capabilities () =
@@ -982,11 +952,8 @@ let mk_config_for_kind kind =
     (masc canonical_name: "agent_llm_a-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
     returned by [Provider_registry.provider_name_of_config] ("agent_llm_a",
-    "provider_c", "provider_n", "ollama", "cli_tool_d", "cli_tool_b", ...). For
-    direct-API kinds the lookup silently fell back to
-    [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
-    to match direct-API entries ("agent_llm_a" → Anthropic, "provider_f" → Gemini,
-    "provider_c" → Kimi) and returned the wrong capability matrix.
+    "provider_c", "provider_n", "ollama", ...). A mismatched lookup silently
+    falls back to [default_capabilities] and returns the wrong capability matrix.
 
     Assert here that [provider_name_of_config] is the authoritative key
     source: every variant in [Provider_config.all_provider_kinds]
@@ -1053,7 +1020,7 @@ let () =
         ; test_case "requires_any" `Quick test_requires_any
         ] )
     ; ( "default"
-      , [ test_case "has 19 providers" `Quick test_default_has_19
+      , [ test_case "has 14 providers" `Quick test_default_has_14
         ; test_case "correct capabilities" `Quick test_default_capabilities
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
         ; test_case

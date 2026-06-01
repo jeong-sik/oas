@@ -271,14 +271,12 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     - [Kimi] is rejected until native json_schema support is verified.
     - [Glm] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.
-    - CLI kinds are rejected.
 
     @since 0.163.0 *)
 val validate_output_schema_request : t -> (unit, string) result
 
-(** Validate that sampling parameters unsupported by CLI subprocess
-    transports ([min_p], [top_k]) are not set.
-    Returns [Error] with the unsupported parameter names for CLI providers.
+(** Compatibility hook retained for older callers. Active provider sampling
+    checks are enforced by provider capability gates.
     @since 0.185.0 *)
 val validate_cli_sampling_params : t -> (unit, string) result
 

@@ -12,7 +12,7 @@
     - Install a [Metrics.t] sink that increments a separate counter on
       each [on_request_end].
     - Run one agent turn with [transport = Some mock_transport] and
-      a CLI provider config.
+      a registry-backed provider config.
     - Assert transport was invoked once and metrics.on_request_end fired
       exactly once with matching [latency_ms >= 0]. *)
 
@@ -122,8 +122,8 @@ let test_stage_route_passes_trace_context_headers () =
   let transport = mk_header_capture_transport observed_headers in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "cli_tool_d" }
-      ; model_id = "auto"
+      { Provider.provider = Provider.Custom_registered { name = "ollama" }
+      ; model_id = "provider_h-3.5"
       ; api_key_env = ""
       }
   in
@@ -175,8 +175,8 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
   in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "cli_tool_d" }
-      ; model_id = "auto"
+      { Provider.provider = Provider.Custom_registered { name = "ollama" }
+      ; model_id = "provider_h-3.5"
       ; api_key_env = ""
       }
   in

@@ -299,10 +299,9 @@ let load path =
 
     Canonical provider kinds ({!Llm_provider.Provider_kind.t}) are dispatched
     through {!Llm_provider.Provider_kind.of_string}, which accepts the
-    canonical wire forms (["provider_a"], ["openai_compat"], …) plus the
-    documented aliases (["agent_llm_a"] -> Anthropic,
-    ["provider_d"] -> OpenAI_compat, ["provider_n"] -> Ollama), case-insensitively
-    with leading/trailing whitespace trimmed.
+    canonical wire forms (["anthropic"], ["openai_compat"], …). The
+    legacy public aliases ["provider_a"], ["agent_llm_a"], and ["provider_d"]
+    are handled here before falling through to the registry path.
 
     ["local"] remains a first-class routing shorthand (not a Provider_kind
     variant) and is matched explicitly before the parser so that
@@ -323,10 +322,10 @@ let resolve_provider ~model_id provider_str base_url =
     in
     { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
   else (
-    match Llm_provider.Provider_kind.of_string provider_str with
-    | Some Anthropic ->
+    match normalized, Llm_provider.Provider_kind.of_string normalized with
+    | ("provider_a" | "agent_llm_a"), _ | _, Some Anthropic ->
       { Provider.provider = Anthropic; model_id; api_key_env = "PROVIDER_A_API_KEY" }
-    | Some OpenAI_compat ->
+    | "provider_d", _ | _, Some OpenAI_compat ->
       let api_key_env = "PROVIDER_D_API_KEY" in
       let url =
         match base_url with
@@ -337,9 +336,9 @@ let resolve_provider ~model_id provider_str base_url =
       ; model_id
       ; api_key_env
       }
-    | Some (Kimi | Ollama | Gemini | Glm | DashScope) | None ->
+    | _, (Some (Kimi | Ollama | Gemini | Glm | DashScope) | None) ->
       let registry = Llm_provider.Provider_registry.default () in
-      (match Llm_provider.Provider_registry.find registry provider_str with
+      (match Llm_provider.Provider_registry.find registry normalized with
        | Some entry ->
          (match base_url with
           | None ->
@@ -347,7 +346,7 @@ let resolve_provider ~model_id provider_str base_url =
                     via Custom_registered. Downstream (provider_config_of_agent,
                     request_path, Capabilities, resolve) dispatches through
                     Provider_registry by name, retaining entry.defaults.kind. *)
-            { Provider.provider = Custom_registered { name = provider_str }
+            { Provider.provider = Custom_registered { name = normalized }
             ; model_id
             ; api_key_env = entry.defaults.api_key_env
             }
