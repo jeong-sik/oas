@@ -20,7 +20,7 @@ type provider_kind = Provider_kind.t =
     it does not dispatch over an HTTP path. *)
 let request_path_default_for_kind = function
   | Anthropic -> "/v1/messages"
-  | Kimi -> "/v1/chat/completions"
+  | Kimi -> "/v1/messages"
   | OpenAI_compat -> "/v1/chat/completions"
   | Ollama -> "/api/chat"
   | Gemini -> ""
