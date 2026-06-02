@@ -75,7 +75,7 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
   let text =
     response
     |> Types.text_of_response
-    |> Llm_provider.Backend_provider_d.strip_json_markdown_fences
+    |> Llm_provider.Backend_openai.strip_json_markdown_fences
     |> String.trim
   in
   if text = ""

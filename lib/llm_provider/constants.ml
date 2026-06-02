@@ -75,7 +75,7 @@ module Inference_profile = struct
 end
 
 (** Fallback [max_tokens] when both caller override and model capability
-    are absent. Emitted as a required field by Provider_d-compat and Anthropic
+    are absent. Emitted as a required field by OpenAI-compat and Anthropic
     backends.
 
     16384 is a last-resort ceiling for modern high-context models. Models with
@@ -140,7 +140,7 @@ end
 (* ── Sampling ────────────────────────────────────── *)
 
 module Sampling = struct
-  (** Default min_p for Provider_d-compatible (llama.cpp) providers.
+  (** Default min_p for OpenAI-compatible (llama.cpp) providers.
       2026 llama.cpp standard: min_p = 0.05. *)
   let openai_compat_min_p = 0.05
 end

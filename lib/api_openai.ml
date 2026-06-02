@@ -1,12 +1,12 @@
-(** Provider_d-compatible API request building and response parsing.
+(** OpenAI-compatible API request building and response parsing.
 
-    Pure serialization/parsing is delegated to {!Llm_provider.Backend_provider_d}.
+    Pure serialization/parsing is delegated to {!Llm_provider.Backend_openai}.
     Request building remains here due to agent_config/agent_state/Provider coupling. *)
 
 open Types
 
 (* Re-export pure functions from llm_provider *)
-include Llm_provider.Backend_provider_d
+include Llm_provider.Backend_openai
 
 let system_message_json (config : agent_state) : Yojson.Safe.t list =
   match config.config.system_prompt with
@@ -78,15 +78,15 @@ let should_include_tools ?provider_config (config : agent_state) =
   | _ -> true
 ;;
 
-let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () =
+let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
     let message_serializer =
       if is_glm_request ?provider_config config
-      then Llm_provider.Backend_provider_d_serialize.provider_k_messages_of_message
-      else provider_d_messages_of_message
+      then Llm_provider.Backend_openai_serialize.provider_k_messages_of_message
+      else openai_messages_of_message
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
   in
@@ -111,7 +111,7 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
     | Some top_k when capabilities.supports_top_k -> ("top_k", `Int top_k) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-      Llm_provider.Backend_provider_d.warn_capability_drop
+      Llm_provider.Backend_openai.warn_capability_drop
         ~model_id:model_str
         ~field:"top_k";
       body_assoc
@@ -121,7 +121,7 @@ let build_provider_d_body ?provider_config ~config ~messages ?tools ?slot_id () 
     | Some min_p when capabilities.supports_min_p -> ("min_p", `Float min_p) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-      Llm_provider.Backend_provider_d.warn_capability_drop
+      Llm_provider.Backend_openai.warn_capability_drop
         ~model_id:model_str
         ~field:"min_p";
       body_assoc

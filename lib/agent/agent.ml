@@ -479,7 +479,7 @@ let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
   let on_activity () = last_activity := now_or_zero clock in
   (* Every streamed event — including reasoning/thinking deltas, which
      reach [on_event] as [ContentBlockDelta { delta = ThinkingDelta _ }]
-     (see Llm_provider.Streaming.provider_d_chunk_to_events) — counts as
+     (see Llm_provider.Streaming.openai_chunk_to_events) — counts as
      progress, so a long reasoning burst keeps the idle watchdog from
      firing. [caller_on_event] is the original callback (bound under a
      distinct name so the wrapper is not misread as self-recursion); it

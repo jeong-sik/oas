@@ -411,7 +411,7 @@ let%test "parse_image_generation rejects malformed json" =
 let%test "parse_async_submit handles basic body" =
   match
     parse_async_submit
-      {|{"model":"provider_k-image","id":"job-1","task_status":"PROCESSING"}|}
+      {|{"model":"glm-image","id":"job-1","task_status":"PROCESSING"}|}
   with
   | Ok result -> result.id = "job-1" && result.task_status = Processing
   | Error _ -> false
@@ -420,7 +420,7 @@ let%test "parse_async_submit handles basic body" =
 let%test "parse_async_submit keeps unknown statuses" =
   match
     parse_async_submit
-      {|{"model":"provider_k-image","id":"job-1","task_status":"QUEUED","request_id":"req-1"}|}
+      {|{"model":"glm-image","id":"job-1","task_status":"QUEUED","request_id":"req-1"}|}
   with
   | Ok result -> result.request_id = Some "req-1" && result.task_status = Unknown "QUEUED"
   | Error _ -> false
@@ -435,7 +435,7 @@ let%test "parse_async_submit rejects missing required fields" =
 let%test "parse_media_async_result handles published schema" =
   match
     parse_media_async_result
-      {|{"model":"provider_k-image","task_status":"SUCCESS","video_result":[{"url":"https://example.com/a.png","cover_image_url":"https://example.com/c.png"}]}|}
+      {|{"model":"glm-image","task_status":"SUCCESS","video_result":[{"url":"https://example.com/a.png","cover_image_url":"https://example.com/c.png"}]}|}
   with
   | Ok result -> result.task_status = Success && List.length result.results = 1
   | Error _ -> false
@@ -444,7 +444,7 @@ let%test "parse_media_async_result handles published schema" =
 let%test "parse_media_async_result defaults unknown status and filters bad items" =
   match
     parse_media_async_result
-      {|{"model":"provider_k-video","task_status":"QUEUED","video_result":[{"cover_image_url":"https://example.com/c.png"},{"url":"https://example.com/a.mp4"}]}|}
+      {|{"model":"glm-video","task_status":"QUEUED","video_result":[{"cover_image_url":"https://example.com/c.png"},{"url":"https://example.com/a.mp4"}]}|}
   with
   | Ok result ->
     result.task_status = Unknown "QUEUED"
@@ -464,7 +464,7 @@ let%test "media_async_result_url encodes task id path segment" =
 let%test "parse_transcription handles sync response" =
   match
     parse_transcription
-      {|{"id":"tr-1","created":1,"model":"provider_k-asr-2512","text":"hello"}|}
+      {|{"id":"tr-1","created":1,"model":"glm-asr-2512","text":"hello"}|}
   with
   | Ok result -> result.text = "hello"
   | Error _ -> false
@@ -473,7 +473,7 @@ let%test "parse_transcription handles sync response" =
 let%test "multipart_body reports missing file path" =
   match
     multipart_body
-      ~model:"provider_k-asr-2512"
+      ~model:"glm-asr-2512"
       ~source:(File_path "/nonexistent/file.wav")
       ()
   with
@@ -484,7 +484,7 @@ let%test "multipart_body reports missing file path" =
 let%test "multipart_body supports base64 source with optional fields" =
   match
     multipart_body
-      ~model:"provider_k-asr-2512"
+      ~model:"glm-asr-2512"
       ~source:(File_base64 "Zm9v")
       ~prompt:"hello"
       ~language:"ko"
@@ -505,7 +505,7 @@ let%test "multipart_body supports file path source" =
        let oc = open_out_bin path in
        output_string oc "wavdata";
        close_out oc;
-       match multipart_body ~model:"provider_k-asr-2512" ~source:(File_path path) () with
+       match multipart_body ~model:"glm-asr-2512" ~source:(File_path path) () with
        | Error _ -> false
        | Ok (_boundary, body) -> String.contains body 'w' && String.contains body 'a')
 ;;

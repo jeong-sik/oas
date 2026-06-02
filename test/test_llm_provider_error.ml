@@ -47,20 +47,20 @@ let test_provider_unavailable () =
   check
     string
     "ProviderUnavailable format"
-    "Provider 'provider_a' unavailable: HTTP 503 retry-after exhausted"
+    "Provider 'anthropic' unavailable: HTTP 503 retry-after exhausted"
     (Error.to_string
        (Error.ProviderUnavailable
-          { provider = "provider_a"; detail = "HTTP 503 retry-after exhausted" }))
+          { provider = "anthropic"; detail = "HTTP 503 retry-after exhausted" }))
 ;;
 
 let test_rate_limit () =
   check
     string
     "RateLimit format"
-    "Provider 'provider_a' rate limited: quota window exhausted (retry_after: 1.250s)"
+    "Provider 'anthropic' rate limited: quota window exhausted (retry_after: 1.250s)"
     (Error.to_string
        (Error.RateLimit
-          { provider = "provider_a"
+          { provider = "anthropic"
           ; retry_after = Some 1.25
           ; detail = "quota window exhausted"
           }))
@@ -154,9 +154,9 @@ let test_invalid_request () =
   check
     string
     "InvalidRequest format"
-    "Provider 'provider_a' invalid request: context too long"
+    "Provider 'anthropic' invalid request: context too long"
     (Error.to_string
-       (Error.InvalidRequest { provider = "provider_a"; reason = "context too long" }))
+       (Error.InvalidRequest { provider = "anthropic"; reason = "context too long" }))
 ;;
 
 let test_not_found () =
@@ -181,12 +181,12 @@ let test_provider_terminal () =
 let test_retry_rate_limit_mapping () =
   let err =
     Error.of_retry_api_error
-      ~provider:"provider_a"
+      ~provider:"anthropic"
       (Retry.RateLimited { retry_after = Some 2.5; message = "try later" })
   in
   match err with
   | Error.RateLimit { provider; retry_after; detail } ->
-    check string "provider" "provider_a" provider;
+    check string "provider" "anthropic" provider;
     check (option (float 0.001)) "retry_after" (Some 2.5) retry_after;
     check string "detail" "try later" detail
   | _ -> fail "expected RateLimit"
@@ -461,7 +461,7 @@ let test_provider_failure_remaining_variants_mapping () =
 let test_http_boundary_remaining_variants_mapping () =
   let accept =
     Error.of_http_error
-      ~provider:"provider_a"
+      ~provider:"anthropic"
       (Http_client.AcceptRejected { reason = "unsupported media type" })
   in
   (match accept with

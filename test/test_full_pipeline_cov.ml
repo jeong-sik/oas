@@ -1,6 +1,6 @@
 (** Full-pipeline coverage tests with mock HTTP server.
     Exercises Agent.run end-to-end: api.ml, provider_intf.ml, pipeline.ml,
-    backend_provider_d.ml, complete.ml, streaming.ml, structured.ml,
+    backend_openai.ml, complete.ml, streaming.ml, structured.ml,
     agent_tools.ml, context_reducer, mcp, error paths.
 
     All responses are canned JSON. No real LLM calls. *)
@@ -545,7 +545,7 @@ let test_pre_tool_skip () =
   | Exit -> ()
 ;;
 
-(* ── 14. Provider_d-compatible provider ───────────────────────────── *)
+(* ── 14. OpenAI-compatible provider ───────────────────────────── *)
 
 let test_openai_compat () =
   Eio_main.run
@@ -733,8 +733,8 @@ let test_context_tool () =
 (* ── Suite ─────────────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run
     "full_pipeline_cov"
     [ ( "basic"

@@ -154,16 +154,16 @@ let test_lookup_provider_f () =
   | None -> fail "should match provider_f"
 ;;
 
-(* ── Typed provider_f_family classifier (root-fix for #968) ─────── *)
+(* ── Typed gemini_family classifier (root-fix for #968) ─────── *)
 
-let pp_provider_f_family ppf = function
+let pp_gemini_family ppf = function
   | Capabilities.Gemini_3_1 -> Format.fprintf ppf "Gemini_3_1"
   | Capabilities.Gemini_3 -> Format.fprintf ppf "Gemini_3"
   | Capabilities.Gemini_2_5 -> Format.fprintf ppf "Gemini_2_5"
   | Capabilities.Gemini_other s -> Format.fprintf ppf "Gemini_other(%s)" s
 ;;
 
-let provider_f_family_testable = Alcotest.testable pp_provider_f_family ( = )
+let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
 
 let pp_static_model_route ppf = function
   | Capabilities.Agent_llm_a_opus_4 -> Format.fprintf ppf "Agent_llm_a_opus_4"
@@ -174,7 +174,7 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
   | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
   | Capabilities.Gemini family ->
-    Format.fprintf ppf "Gemini(%a)" pp_provider_f_family family
+    Format.fprintf ppf "Gemini(%a)" pp_gemini_family family
   | Capabilities.Kimi_for_coding -> Format.fprintf ppf "Kimi_for_coding"
   | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
   | Capabilities.DashScope_3 -> Format.fprintf ppf "DashScope_3"
@@ -207,49 +207,49 @@ let pp_static_model_route ppf = function
 
 let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
 
-let test_provider_f_family_3_1 () =
+let test_gemini_family_3_1 () =
   check
-    provider_f_family_testable
+    gemini_family_testable
     "provider_f-3.1-pro-preview classifies as Gemini_3_1"
     Capabilities.Gemini_3_1
-    (Capabilities.provider_f_family_of_id "provider_f-3.1-pro-preview")
+    (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
 ;;
 
-let test_provider_f_family_3 () =
+let test_gemini_family_3 () =
   check
-    provider_f_family_testable
-    "provider_f-3-flash-preview classifies as Gemini_3 (not 3.1)"
+    gemini_family_testable
+    "gemini-3-flash-preview classifies as Gemini_3 (not 3.1)"
     Capabilities.Gemini_3
-    (Capabilities.provider_f_family_of_id "provider_f-3-flash-preview")
+    (Capabilities.gemini_family_of_id "gemini-3-flash-preview")
 ;;
 
-let test_provider_f_family_2_5 () =
+let test_gemini_family_2_5 () =
   check
-    provider_f_family_testable
+    gemini_family_testable
     "provider_f-2.5-flash classifies as Gemini_2_5"
     Capabilities.Gemini_2_5
-    (Capabilities.provider_f_family_of_id "provider_f-2.5-flash")
+    (Capabilities.gemini_family_of_id "gemini-2.5-flash")
 ;;
 
-let test_provider_f_family_other_non_provider_f () =
+let test_gemini_family_other_non_provider_f () =
   check
-    provider_f_family_testable
+    gemini_family_testable
     "non-provider_f id falls into Gemini_other with literal retained"
     (Capabilities.Gemini_other "agent_llm_a-opus-4")
-    (Capabilities.provider_f_family_of_id "agent_llm_a-opus-4")
+    (Capabilities.gemini_family_of_id "agent_llm_a-opus-4")
 ;;
 
-let test_provider_f_family_other_unknown_provider_f () =
+let test_gemini_family_other_unknown_provider_f () =
   (* A future provider_f line not yet classified should land in Gemini_other —
      not be silently absorbed into an existing arm. *)
   check
-    provider_f_family_testable
+    gemini_family_testable
     "provider_f-4-foo lands in Gemini_other (no silent fallback)"
-    (Capabilities.Gemini_other "provider_f-4-foo")
-    (Capabilities.provider_f_family_of_id "provider_f-4-foo")
+    (Capabilities.Gemini_other "gemini-4-foo")
+    (Capabilities.gemini_family_of_id "gemini-4-foo")
 ;;
 
-let test_provider_f_family_drives_capabilities () =
+let test_gemini_family_drives_capabilities () =
   (* Behavioural cross-check: all three live variants resolve to
      gemini_capabilities (1M context). This is the property the #968 drift
      gate was trying to assert via string-grep; now it is enforced by the
@@ -261,19 +261,19 @@ let test_provider_f_family_drives_capabilities () =
   in
   check
     (option int)
-    "provider_f-3-flash-preview ctx"
+    "gemini-3-flash-preview ctx"
     (Some 1_000_000)
-    (ctx "provider_f-3-flash-preview");
+    (ctx "gemini-3-flash-preview");
   check
     (option int)
     "provider_f-3.1-pro-preview ctx"
     (Some 1_000_000)
-    (ctx "provider_f-3.1-pro-preview");
+    (ctx "gemini-3.1-pro-preview");
   check
     (option int)
     "provider_f-2.5-flash ctx"
     (Some 1_000_000)
-    (ctx "provider_f-2.5-flash")
+    (ctx "gemini-2.5-flash")
 ;;
 
 let test_static_model_route_normalizes_cloud_suffix () =
@@ -456,7 +456,7 @@ let test_manifest_overrides_static_table () =
      but different capabilities — manifest must win. *)
   let m =
     make_manifest
-      ~base:"provider_d_chat"
+      ~base:"openai_chat"
       ~extra_fields:
         [ "max_context_tokens", "999999"
         ; "supports_computer_use", "false"
@@ -492,25 +492,25 @@ let test_manifest_unknown_model_still_none () =
     (Capabilities.for_model_id_with_manifest m "totally-unknown-xyz" = None)
 ;;
 
-let test_manifest_base_label_provider_d_chat () =
+let test_manifest_base_label_openai_chat () =
   let m =
     make_manifest
-      ~base:"provider_d_chat"
+      ~base:"openai_chat"
       ~extra_fields:[ "max_context_tokens", "65536" ]
       "custom-gpt"
   in
   match Capabilities.for_model_id_with_manifest m "custom-gpt-v2" with
   | Some c ->
     check (option int) "custom ctx" (Some 65536) c.max_context_tokens;
-    check bool "provider_d_chat base: tools" true c.supports_tools;
-    check bool "provider_d_chat base: streaming" true c.supports_native_streaming
+    check bool "openai_chat base: tools" true c.supports_tools;
+    check bool "openai_chat base: streaming" true c.supports_native_streaming
   | None -> fail "expected Some"
 ;;
 
 let test_manifest_base_label_provider_a () =
   let m =
     make_manifest
-      ~base:"provider_a"
+      ~base:"anthropic"
       ~extra_fields:[ "max_context_tokens", "512000" ]
       "my-agent_llm_a"
   in
@@ -543,14 +543,14 @@ let test_manifest_prefix_wins_over_longer_static_prefix () =
      letting operator override even well-known models. *)
   let m =
     make_manifest
-      ~base:"provider_d_chat"
+      ~base:"openai_chat"
       ~extra_fields:[ "supports_reasoning", "false" ]
       "provider_h-3"
   in
   match Capabilities.for_model_id_with_manifest m "provider_h-3.5-35b-a3b-q4" with
   | Some c ->
     check bool "manifest disables reasoning" false c.supports_reasoning;
-    check bool "base provider_d_chat: tools" true c.supports_tools
+    check bool "base openai_chat: tools" true c.supports_tools
   | None -> fail "expected Some"
 ;;
 
@@ -558,7 +558,7 @@ let test_apply_manifest_entry_all_none_uses_base () =
   (* Entry with only id_prefix set — should be identical to base. *)
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"x","base":"provider_a"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":"x","base":"anthropic"}]}|}
   in
   let manifest = Capability_manifest.of_json json |> Result.get_ok in
   let entry = List.hd manifest in
@@ -714,7 +714,7 @@ let test_manifest_load_runtime_file_success_logs_info () =
 
 let test_dashscope_capabilities () =
   let c = Capabilities.dashscope_capabilities in
-  (* DashScope (DashScope) exposes response_format.json_schema on its Provider_d-compatible
+  (* DashScope (DashScope) exposes response_format.json_schema on its OpenAI-compatible
      endpoint; native schema output is supported. Ref: DashScope structured output
      guide — checked 2026-05-05. *)
   check bool "has structured output" true c.supports_structured_output;
@@ -731,7 +731,7 @@ let test_dashscope_capabilities () =
 
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
-    [ ( "provider_d_chat_extended"
+    [ ( "openai_chat_extended"
       , Some Capabilities.openai_compat_chat_extended_capabilities )
     ; "provider_c", Some Capabilities.kimi_capabilities
     ; "provider_h", Some Capabilities.dashscope_capabilities
@@ -842,7 +842,7 @@ let () =
         ; test_case "new fields false" `Quick test_default_new_fields_false
         ] )
     ; ( "presets"
-      , [ test_case "provider_a" `Quick test_anthropic_capabilities
+      , [ test_case "anthropic" `Quick test_anthropic_capabilities
         ; test_case "provider_d" `Quick test_provider_d_capabilities
         ; test_case "provider_d extended" `Quick test_provider_d_extended
         ; test_case "provider_h" `Quick test_dashscope_capabilities
@@ -856,21 +856,21 @@ let () =
         ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
         ; test_case "model-d-5" `Quick test_lookup_gpt5
         ; test_case "provider_f" `Quick test_lookup_provider_f
-        ; test_case "provider_f_family Gemini_3_1" `Quick test_provider_f_family_3_1
-        ; test_case "provider_f_family Gemini_3" `Quick test_provider_f_family_3
-        ; test_case "provider_f_family Gemini_2_5" `Quick test_provider_f_family_2_5
+        ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
+        ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
+        ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
         ; test_case
-            "provider_f_family Gemini_other (non-provider_f)"
+            "gemini_family Gemini_other (non-provider_f)"
             `Quick
-            test_provider_f_family_other_non_provider_f
+            test_gemini_family_other_non_provider_f
         ; test_case
-            "provider_f_family Gemini_other (unknown provider_f)"
+            "gemini_family Gemini_other (unknown provider_f)"
             `Quick
-            test_provider_f_family_other_unknown_provider_f
+            test_gemini_family_other_unknown_provider_f
         ; test_case
-            "provider_f_family drives 1M ctx capabilities"
+            "gemini_family drives 1M ctx capabilities"
             `Quick
-            test_provider_f_family_drives_capabilities
+            test_gemini_family_drives_capabilities
         ; test_case
             "static route normalizes cloud suffix"
             `Quick
@@ -894,7 +894,7 @@ let () =
       , [ test_case "overrides static table" `Quick test_manifest_overrides_static_table
         ; test_case "fallback to static" `Quick test_manifest_fallback_to_static
         ; test_case "unknown model → None" `Quick test_manifest_unknown_model_still_none
-        ; test_case "base provider_d_chat" `Quick test_manifest_base_label_provider_d_chat
+        ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
         ; test_case "base provider_a" `Quick test_manifest_base_label_provider_a
         ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
         ; test_case

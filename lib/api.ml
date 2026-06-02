@@ -34,20 +34,20 @@ let content_block_of_json = Api_common.content_block_of_json
 let message_to_json = Api_common.message_to_json
 let make_https = Api_common.make_https
 
-(* Re-export Api_provider_a *)
-let parse_response = Api_provider_a.parse_response
+(* Re-export Api_anthropic *)
+let parse_response = Api_anthropic.parse_response
 
 let build_body_assoc ~config ~messages ?tools ~stream () =
-  Api_provider_a.build_body_assoc ~config ~messages ?tools ~stream ()
+  Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream ()
 ;;
 
-(* Re-export Api_provider_d *)
-let provider_d_messages_of_message = Api_provider_d.provider_d_messages_of_message
-let provider_d_content_parts_of_blocks = Api_provider_d.provider_d_content_parts_of_blocks
-let build_provider_d_body = Api_provider_d.build_provider_d_body
+(* Re-export Api_openai *)
+let openai_messages_of_message = Api_openai.openai_messages_of_message
+let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
+let build_openai_body = Api_openai.build_openai_body
 
-let parse_provider_d_response_result =
-  Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result
+let parse_openai_response_result =
+  Llm_provider.Backend_openai_parse.parse_openai_response_result
 ;;
 
 (* Wall-clock latency patch. Parser layers leave request_latency_ms unknown
@@ -111,12 +111,12 @@ let create_message
        | Ok (url, api_key, headers) -> Ok (p, url, api_key, headers)
        | Error e -> Error e)
     | None ->
-      (match Sys.getenv_opt "PROVIDER_A_API_KEY" with
+      (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
        | Some key ->
          let fallback_provider : Provider.config =
            { provider = Provider.Anthropic
            ; model_id = model_to_string config.config.model
-           ; api_key_env = "PROVIDER_A_API_KEY"
+           ; api_key_env = "ANTHROPIC_API_KEY"
            }
          in
          (* Auth header ("x-api-key") is NOT included here.
@@ -125,8 +125,8 @@ let create_message
            ( fallback_provider
            , base_url
            , key
-           , [ "Content-Type", "application/json"; "provider_a-version", api_version ] )
-       | None -> Error (Error.Config (MissingEnvVar { var_name = "PROVIDER_A_API_KEY" })))
+           , [ "Content-Type", "application/json"; "anthropic-version", api_version ] )
+       | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
   in
   match resolve_result with
   | Error e -> Error e
@@ -140,7 +140,7 @@ let create_message
         Yojson.Safe.to_string
           (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ()))
       | Provider.Openai_chat_completions ->
-        Api_provider_d.build_provider_d_body
+        Api_openai.build_openai_body
           ~provider_config:provider_cfg
           ~config
           ~messages
@@ -201,7 +201,7 @@ let create_message
                 |> Llm_provider.Pricing.annotate_response_cost
                 |> fun r -> patch_latency r lat)
            | Provider.Openai_chat_completions ->
-             (match parse_provider_d_response_result body_str with
+             (match parse_openai_response_result body_str with
               | Ok resp ->
                 Ok
                   (Llm_provider.Pricing.annotate_response_cost resp
@@ -215,7 +215,7 @@ let create_message
                    |> Llm_provider.Pricing.annotate_response_cost
                    |> fun r -> patch_latency r lat)
               | None ->
-                (match parse_provider_d_response_result body_str with
+                (match parse_openai_response_result body_str with
                  | Ok resp ->
                    Ok
                      (Llm_provider.Pricing.annotate_response_cost resp
@@ -237,7 +237,7 @@ let create_message
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
       | Unix.Unix_error _ as exn ->
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
-      (* Backend_provider_f.Gemini_api_error and Backend_provider_k.Glm_api_error
+      (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
        are intentionally NOT caught here: this function only
        dispatches [Anthropic_messages | Openai_chat_completions |
        Custom] (see the match on [kind] above), so the Gemini/Glm

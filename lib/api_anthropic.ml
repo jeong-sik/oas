@@ -1,13 +1,13 @@
 (** Anthropic Agent_llm_a API request building and response parsing.
 
-    Response parsing is delegated to {!Llm_provider.Backend_provider_a}.
+    Response parsing is delegated to {!Llm_provider.Backend_anthropic}.
     Request building remains here due to agent_config/agent_state coupling. *)
 
 open Types
 
 (** Parse Anthropic API response JSON.
-    Re-exported from {!Llm_provider.Backend_provider_a}. *)
-let parse_response = Llm_provider.Backend_provider_a.parse_response
+    Re-exported from {!Llm_provider.Backend_anthropic}. *)
+let parse_response = Llm_provider.Backend_anthropic.parse_response
 
 (** Build request body assoc list shared between stream and non-stream calls *)
 let build_body_assoc
@@ -111,7 +111,7 @@ let build_body_assoc
            → thinking block emitted anyway (wrong — operator disabled
              thinking but a stray budget turned it back on)
      Match the llm_provider backend's semantics from
-     lib/llm_provider/backend_provider_a.ml:75-83: gate on
+     lib/llm_provider/backend_anthropic.ml:75-83: gate on
      [enable_thinking = Some true] and fall back to a 10_000-token
      default budget if the caller did not specify one. *)
   let body_assoc =
@@ -133,7 +133,7 @@ let build_body_assoc
      Serialise them here so Agent_llm_a agents honour deterministic
      configs (e.g. temperature = 0.0 for coding assistants).
 
-     Anthropic Messages API body params (docs.provider_a.com/en/api/
+     Anthropic Messages API body params (docs.anthropic.com/en/api/
      messages): [temperature] float 0-1, [top_p] float 0-1, [top_k]
      int >= 1. No [min_p] field — we intentionally do not serialise
      it so a caller who sets [min_p] on a cross-provider config gets

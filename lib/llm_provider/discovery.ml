@@ -269,7 +269,7 @@ let apply_reasoning_effort_overlay (caps : Capabilities.capabilities)
 (** Infer capabilities from model info and server props.
     Priority: model-specific lookup > generic inference > default.
     When [uses_reasoning_effort] is [true] the endpoint speaks the
-    Provider_d-compatible reasoning_effort wire format (currently mapped from
+    OpenAI-compatible reasoning_effort wire format (currently mapped from
     Ollama-endpoint detection at the caller, but the function takes the
     behavior class — not the vendor — as input), so
     {!apply_reasoning_effort_overlay} is layered on top of the
@@ -1008,7 +1008,7 @@ let%test "infer_capabilities unknown model gets basic provider_d" =
 ;;
 
 let%test "infer_capabilities known model lookup has priority" =
-  let models = [ { id = "agent_llm_a-opus-4-20260320"; owned_by = "provider_a" } ] in
+  let models = [ { id = "agent_llm_a-opus-4-20260320"; owned_by = "anthropic" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_caching = true && caps.supports_computer_use = true
 ;;

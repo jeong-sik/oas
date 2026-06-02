@@ -109,7 +109,7 @@ let default_for_kind (kind : Provider_config.provider_kind) =
   match kind with
   | Provider_config.OpenAI_compat | Provider_config.Ollama | Provider_config.DashScope ->
     create ~max_concurrent:4 ~provider_name:"local"
-  | Provider_config.Anthropic -> create ~max_concurrent:5 ~provider_name:"provider_a"
+  | Provider_config.Anthropic -> create ~max_concurrent:5 ~provider_name:"anthropic"
   | Provider_config.Kimi -> create ~max_concurrent:5 ~provider_name:"provider_c"
   | Provider_config.Gemini -> create ~max_concurrent:10 ~provider_name:"provider_f"
   | Provider_config.Glm -> create ~max_concurrent:10 ~provider_name:"provider_k"

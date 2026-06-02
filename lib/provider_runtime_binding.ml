@@ -173,7 +173,7 @@ let sort_bindings bindings = List.sort (fun a b -> String.compare a.id b.id) bin
 let builtin_provider_aliases =
   [ "anthropic", "agent_llm_a"
   ; "claude", "agent_llm_a"
-  ; "provider_a", "agent_llm_a"
+  ; "anthropic", "agent_llm_a"
   ; "moonshot", "provider_c"
   ; "kimi", "provider_c"
   ; "gemini", "provider_f"

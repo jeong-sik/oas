@@ -117,7 +117,7 @@ let test_providers_default () =
   let card = Agent_card.of_info base_info in
   Alcotest.(check (list string))
     "default provider"
-    [ "provider_a" ]
+    [ "anthropic" ]
     card.supported_providers
 ;;
 
@@ -266,7 +266,7 @@ let test_json_with_authentication () =
     ; capabilities = [ Tools; Streaming ]
     ; tools = []
     ; skills = []
-    ; supported_providers = [ "provider_a" ]
+    ; supported_providers = [ "anthropic" ]
     ; metadata = [ "env", `String "test" ]
     }
   in

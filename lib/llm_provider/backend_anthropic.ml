@@ -175,7 +175,7 @@ let build_request
   in
   (* Anthropic Messages API nests [disable_parallel_tool_use] INSIDE
      the [tool_choice] object — it is NOT a top-level body field.
-     See docs.provider_a.com/en/api/messages body params:
+     See docs.anthropic.com/en/api/messages body params:
        tool_choice.disable_parallel_tool_use: boolean
 
      The previous implementation emitted [disable_parallel_tool_use]
@@ -183,7 +183,7 @@ let build_request
      caller with [disable_parallel_tool_use = true] and
      tools was still receiving parallel tool calls. Same class of
      silent-drop bug as #834 but for a different field; also fixes
-     the drift with the agent_sdk path in lib/api_provider_a.ml which
+     the drift with the agent_sdk path in lib/api_anthropic.ml which
      already nests correctly. *)
   let tool_choice_json_with_disable choice =
     let base = tool_choice_to_json choice in
@@ -203,7 +203,7 @@ let build_request
         (* No explicit tool_choice but caller still wants to disable
            parallel tool use — synthesize an [auto] choice to carry
            the flag, matching the agent_sdk path at
-           lib/api_provider_a.ml. *)
+           lib/api_anthropic.ml. *)
         let tc =
           `Assoc [ "type", `String "auto"; "disable_parallel_tool_use", `Bool true ]
         in

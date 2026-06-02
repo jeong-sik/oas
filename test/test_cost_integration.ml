@@ -194,8 +194,8 @@ let test_no_budget_unlimited () =
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Cost_Integration"

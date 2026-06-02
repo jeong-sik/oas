@@ -111,7 +111,7 @@ let test_provider_d_body_shape () =
     }
   in
   let body_str =
-    Api.build_provider_d_body
+    Api.build_openai_body
       ~provider_config
       ~config:base_state
       ~messages:base_state.messages
@@ -120,7 +120,7 @@ let test_provider_d_body_shape () =
   let json = Yojson.Safe.from_string body_str in
   check bool "has model" true (json_has_key "model" json);
   check bool "has messages" true (json_has_key "messages" json);
-  (* build_provider_d_body uses config.model, not provider_config.model_id *)
+  (* build_openai_body uses config.model, not provider_config.model_id *)
   match json_get "model" json with
   | Some (`String "test-model") -> ()
   | _ -> fail "model should come from config"
@@ -145,7 +145,7 @@ let test_provider_d_parse_response () =
   }|}
   in
   let resp =
-    match Api.parse_provider_d_response_result mock_body with
+    match Api.parse_openai_response_result mock_body with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -167,12 +167,12 @@ let test_request_kind_routing () =
       msg
       expected
       (match Provider.request_kind provider with
-       | Provider.Anthropic_messages -> "provider_a"
+       | Provider.Anthropic_messages -> "anthropic"
        | Provider.Openai_chat_completions -> "provider_d"
        | Provider.Custom name -> "custom:" ^ name)
   in
   check_kind "local" "provider_d" (Provider.Local { base_url = "http://x" });
-  check_kind "provider_a" "provider_a" Provider.Anthropic;
+  check_kind "anthropic" "anthropic" Provider.Anthropic;
   check_kind
     "provider_d"
     "provider_d"
@@ -249,7 +249,7 @@ let test_provider_a_empty_content () =
   check int "empty content" 0 (List.length resp.content)
 ;;
 
-let test_provider_a_cache_usage_parsing () =
+let test_anthropic_cache_usage_parsing () =
   let json =
     Yojson.Safe.from_string
       {|{
@@ -325,7 +325,7 @@ let test_cache_multipliers_for_non_provider_a () =
 let () =
   run
     "api_dispatch"
-    [ ( "provider_a"
+    [ ( "anthropic"
       , [ test_case "body shape" `Quick test_provider_a_body_shape
         ; test_case "body stream" `Quick test_provider_a_body_stream
         ; test_case "parse response" `Quick test_provider_a_parse_response
@@ -348,7 +348,7 @@ let () =
     ; ( "adversarial"
       , [ test_case "missing usage" `Quick test_provider_a_missing_usage
         ; test_case "empty content" `Quick test_provider_a_empty_content
-        ; test_case "cache usage parsing" `Quick test_provider_a_cache_usage_parsing
+        ; test_case "cache usage parsing" `Quick test_anthropic_cache_usage_parsing
         ] )
     ]
 ;;

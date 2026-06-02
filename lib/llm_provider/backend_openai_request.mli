@@ -1,7 +1,7 @@
 (** OpenAI-compatible request body building.
 
     This module owns provider-config -> Chat Completions JSON request
-    construction. {!Backend_provider_d} re-exports the public surface for
+    construction. {!Backend_openai} re-exports the public surface for
     backwards compatibility while response parsing and message serialization
     stay in their existing modules.
 
@@ -11,7 +11,7 @@ val warn_capability_drop : model_id:string -> field:string -> unit
 val effective_tool_choice : Provider_config.t -> Yojson.Safe.t option
 val effective_tools : Provider_config.t -> Yojson.Safe.t list -> Yojson.Safe.t list
 val structured_schema_of_config : Provider_config.t -> Yojson.Safe.t option
-val provider_d_json_schema_payload : Yojson.Safe.t -> Yojson.Safe.t
+val openai_json_schema_payload : Yojson.Safe.t -> Yojson.Safe.t
 val response_format_to_provider_d_json : Types.response_format -> Yojson.Safe.t option
 val response_format_of_config : Provider_config.t -> Yojson.Safe.t option
 

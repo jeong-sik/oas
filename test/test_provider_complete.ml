@@ -1,11 +1,11 @@
 (** Tests for Llm_provider.Complete — request JSON verification. *)
 
 module PC = Llm_provider.Provider_config
-module BA = Llm_provider.Backend_provider_a
-module BO = Llm_provider.Backend_provider_d
-module BGlm = Llm_provider.Backend_provider_k
+module BA = Llm_provider.Backend_anthropic
+module BO = Llm_provider.Backend_openai
+module BGlm = Llm_provider.Backend_glm
 module BOL = Llm_provider.Backend_ollama
-module BGemini = Llm_provider.Backend_provider_f
+module BGemini = Llm_provider.Backend_gemini
 open Llm_provider.Types
 
 let contains_substring ~sub text =
@@ -28,7 +28,7 @@ let test_provider_a_basic_body () =
     PC.make
       ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet-4-6"
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       ~max_tokens:1024
       ()
   in
@@ -400,7 +400,7 @@ let test_provider_f_with_json_schema () =
   let config =
     PC.make
       ~kind:Gemini
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~api_key:"test-key"
       ~response_format:(JsonSchema schema)

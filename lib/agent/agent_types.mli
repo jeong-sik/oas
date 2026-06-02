@@ -162,7 +162,7 @@ type options =
         @since 0.102.0 *)
   ; slot_id : int option
     (** Pin LLM requests to a specific llama-server slot for KV cache reuse.
-        When [Some n], adds ["id_slot": n] to Provider_d-compat request body.
+        When [Some n], adds ["id_slot": n] to OpenAI-compat request body.
         @since 0.109.0 *)
   ; on_run_complete : (bool -> unit) option
     (** Optional callback invoked when a run finishes.  Receives [true]

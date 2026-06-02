@@ -136,8 +136,8 @@ let test_mcp_tool_call () =
 ;;
 
 let test_config_missing_env () =
-  let err = Error.Config (MissingEnvVar { var_name = "PROVIDER_A_API_KEY" }) in
-  check string "missing env" "Missing env var: PROVIDER_A_API_KEY" (Error.to_string err)
+  let err = Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" }) in
+  check string "missing env" "Missing env var: ANTHROPIC_API_KEY" (Error.to_string err)
 ;;
 
 let test_config_unsupported_provider () =

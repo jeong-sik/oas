@@ -43,7 +43,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
             "credential_scope": "workspace",
             "auth": {"type": "setup_token_env", "env": "SETUP_TOKEN"},
             "max_context": 32000,
-            "capabilities_base": "provider_d_chat",
+            "capabilities_base": "openai_chat",
             "capabilities": {
               "max_context_tokens": 64000,
               "max_output_tokens": 4096,
@@ -257,7 +257,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
           {
             "id": "base-entry",
             "kind": "openai_compat",
-            "capabilities_base": "provider_d_chat",
+            "capabilities_base": "openai_chat",
             "max_context": 9223372036854775807999,
             "capabilities": {
               "prompt_cache_alignment": 9223372036854775807999
@@ -337,7 +337,7 @@ let test_removed_catalog_aliases_are_rejected () =
     "removed provider catalog auth field";
   assert_reject
     "capability base alias rejected"
-    {|{"schema_version":1,"providers":[{"id":"p","base":"provider_d_chat"}]}|}
+    {|{"schema_version":1,"providers":[{"id":"p","base":"openai_chat"}]}|}
     "removed provider catalog field \"base\"";
   assert_reject
     "auth alias rejected"

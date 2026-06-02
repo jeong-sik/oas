@@ -23,8 +23,8 @@ let retry_error_of_http_error = function
       { message = Http_client.provider_failure_to_string ~kind ~message }
 ;;
 
-let parse_provider_d_response_result body_str =
-  try Llm_provider.Backend_provider_d_parse.parse_provider_d_response_result body_str with
+let parse_openai_response_result body_str =
+  try Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
   | Yojson.Json_error msg | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
 ;;
 
@@ -83,14 +83,14 @@ let of_config (provider_cfg : Provider.config) : provider_module =
         | Provider.Anthropic_messages ->
           Yojson.Safe.to_string
             (`Assoc
-                (Api_provider_a.build_body_assoc
+                (Api_anthropic.build_body_assoc
                    ~config
                    ~messages
                    ?tools
                    ~stream:false
                    ()))
         | Provider.Openai_chat_completions ->
-          Api_provider_d.build_provider_d_body
+          Api_openai.build_openai_body
             ~provider_config:provider_cfg
             ~config
             ~messages
@@ -125,16 +125,16 @@ let of_config (provider_cfg : Provider.config) : provider_module =
       | Ok (200, body_str) ->
         (match kind with
          | Provider.Anthropic_messages ->
-           Ok (Api_provider_a.parse_response (Yojson.Safe.from_string body_str))
+           Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
          | Provider.Openai_chat_completions ->
-           (match parse_provider_d_response_result body_str with
+           (match parse_openai_response_result body_str with
             | Ok resp -> Ok resp
             | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
          | Provider.Custom name ->
            (match Provider.find_provider name with
             | Some impl -> Ok (impl.parse_response body_str)
             | None ->
-              (match parse_provider_d_response_result body_str with
+              (match parse_openai_response_result body_str with
                | Ok resp -> Ok resp
                | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
       | Ok (code, body_str) ->
@@ -153,7 +153,7 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
 ;;
 
 (** Resolve to a streaming provider if supported.
-    Returns [Some] for Anthropic and Provider_d-compatible providers. *)
+    Returns [Some] for Anthropic and OpenAI-compatible providers. *)
 let of_config_streaming (provider_cfg : Provider.config)
   : streaming_provider_module option
   =
@@ -194,7 +194,7 @@ let%test "supports_streaming Anthropic" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
     ; model_id = "agent_llm_a-3-5-sonnet-20241022"
-    ; api_key_env = "PROVIDER_A_API_KEY"
+    ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in
   supports_streaming cfg = true
@@ -213,7 +213,7 @@ let%test "supports_streaming OpenAICompat" =
     ; api_key_env = ""
     }
   in
-  (* Provider_d-compat providers support streaming *)
+  (* OpenAI-compat providers support streaming *)
   supports_streaming cfg
 ;;
 
@@ -221,7 +221,7 @@ let%test "of_config returns a provider_module" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
     ; model_id = "agent_llm_a-3-5-sonnet-20241022"
-    ; api_key_env = "PROVIDER_A_API_KEY"
+    ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in
   let _m = of_config cfg in
@@ -233,7 +233,7 @@ let%test "of_config_streaming Anthropic returns Some" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
     ; model_id = "agent_llm_a-3-5-sonnet-20241022"
-    ; api_key_env = "PROVIDER_A_API_KEY"
+    ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in
   match of_config_streaming cfg with

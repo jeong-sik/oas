@@ -171,7 +171,7 @@ val make
   -> t
 
 (** Lowercase string representation of the wire-format kind.
-    Returns the variant name in lowercase (e.g. [Anthropic] -> ["provider_a"]).
+    Returns the variant name in lowercase (e.g. [Anthropic] -> ["anthropic"]).
     Exhaustive match: adding a new variant triggers a compile error.
     @since 0.100.0 *)
 val string_of_provider_kind : provider_kind -> string
@@ -184,7 +184,7 @@ val all_provider_kinds : provider_kind list
 (** Conventional API key env var name per kind. Re-export of
     {!Provider_kind.default_api_key_env}. Returns [None] for kinds
     that do not have a universally-agreed env var (local / transport-
-    mediated / Provider_d-compatible spaces where the env name is
+    mediated / OpenAI-compatible spaces where the env name is
     consumer-specified).
     @since 0.166.0 *)
 val default_api_key_env : provider_kind -> string option
@@ -205,7 +205,7 @@ val provider_kind_of_string : string -> provider_kind option
 (** {1 Serializers}
 
     Hand-written to emit the wire-format produced by
-    {!string_of_provider_kind} (for example ["provider_a"]) rather than the
+    {!string_of_provider_kind} (for example ["anthropic"]) rather than the
     capitalised constructor name that [\[@@deriving yojson\]] would default
     to (["Anthropic"]).
 
@@ -265,8 +265,8 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
       model capability record that reports [supports_structured_output].
     - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
       DashScope (DashScope) exposes [response_format.json_schema] on its
-      Provider_d-compatible endpoint; the field is forwarded by
-      [backend_provider_d.ml] without additional host validation.
+      OpenAI-compatible endpoint; the field is forwarded by
+      [backend_openai.ml] without additional host validation.
     - [Kimi] is rejected until native json_schema support is verified.
     - [Glm] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.

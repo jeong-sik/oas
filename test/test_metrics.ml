@@ -64,7 +64,7 @@ let test_histogram_with_labels () =
     0.9;
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "provider_a"; "gen_ai.request.model", "agent_llm_a" ]
+    ~labels:[ "gen_ai.system", "anthropic"; "gen_ai.request.model", "agent_llm_a" ]
     2.5;
   check int "total count" 3 (Metrics.histogram_count h);
   check

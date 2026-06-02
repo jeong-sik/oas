@@ -7,7 +7,7 @@
     @since 0.42.0
     @since 0.72.0 — added numeric limits, parallel tool calls, thinking split *)
 
-(** Wire-format for controlling thinking/reasoning on Provider_d-compat backends.
+(** Wire-format for controlling thinking/reasoning on OpenAI-compat backends.
     Different model families use different JSON shapes to enable/disable
     thinking, so the runtime must know which format to emit.
 
@@ -25,7 +25,7 @@ type thinking_control_format =
       values this codebase emits is [{"none","low","medium","high"}] —
       see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
       also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's Provider_d-compatible mode uses this shape. *)
+      it.) Ollama's OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] bool plus optional
       [thinking_budget]. *)
@@ -45,10 +45,10 @@ type capabilities =
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
   ; thinking_control_format : thinking_control_format
-    (** Wire-format for thinking control on Provider_d-compat backends.
+    (** Wire-format for thinking control on OpenAI-compat backends.
         Determines which JSON shape the backend emits for enable_thinking.
         Only meaningful when [supports_reasoning] or [supports_extended_thinking]
-        is true and the request goes through backend_provider_d.
+        is true and the request goes through backend_openai.
         @since 0.184.0 *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
@@ -152,11 +152,11 @@ let anthropic_capabilities =
   ; supports_computer_use = true
   ; (* Anthropic Messages API documents [top_k] as a valid sampling
      parameter ("Only sample from the top K options for each
-     subsequent token", docs.provider_a.com/en/api/messages body
-     params). [backend_provider_a.build_request] already serializes
+     subsequent token", docs.anthropic.com/en/api/messages body
+     params). [backend_anthropic.build_request] already serializes
      [config.top_k] unconditionally when [Some]; the capability record
-     must match so cross-layer consumers (the #831 Api_provider_d gate,
-     the #830 Backend_provider_d gate, and the capability_filter passes)
+     must match so cross-layer consumers (the #831 Api_openai gate,
+     the #830 Backend_openai gate, and the capability_filter passes)
      do not silently drop top_k when the caller routes an Anthropic
      config through a capability-checking path. [supports_min_p]
      remains [false] — Anthropic does not accept min_p. *)
@@ -221,7 +221,7 @@ let openai_compat_chat_extended_capabilities =
   }
 ;;
 
-(* Ollama Provider_d-compat endpoint behavior on tool_choice is model-dependent
+(* Ollama OpenAI-compat endpoint behavior on tool_choice is model-dependent
    (docs.ollama.com/capabilities/tool-calling: the parameter is silently
    ignored for some models). Some DashScope_3.5 deployments w/ native Jinja
    chat template do honor tool_choice:required in practice.
@@ -243,7 +243,7 @@ let openai_compat_chat_extended_capabilities =
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
    the Agent_llm_a Agent SDK sidesteps by being single-provider. *)
-(* NVIDIA NIM Provider_l: Llama-based Provider_d-compatible endpoint.
+(* NVIDIA NIM Provider_l: Llama-based OpenAI-compatible endpoint.
    Thinking uses chat_template_kwargs (same wire format as Ollama's
    llama-server backend). VL variants add image input.
    Ref: build.nvidia.com/nvidia docs, Provider_l model cards. *)
@@ -315,12 +315,12 @@ let glm_capabilities =
     the variant instead of comparing strings, so a new family member is a
     compile-time obligation rather than a runtime string-match miss.
 
-    The internal use of [starts_with] inside [provider_f_family_of_id] is
+    The internal use of [starts_with] inside [gemini_family_of_id] is
     intentional and bounded: prefix matching is the only signal Google's model
     IDs offer. Concentrating it here keeps the rest of the codebase typed.
 
     @since 0.196.3 *)
-type provider_f_family =
+type gemini_family =
   | Gemini_3_1 (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
   | Gemini_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
   | Gemini_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
@@ -334,15 +334,16 @@ let strip_suffix ~suffix value =
   else value
 ;;
 
-(** Classify a model id into a [provider_f_family]. Order matters: [provider_f-3.1]
+(** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
     is checked before [provider_f-3] so the more specific prefix wins.
     Input is expected lowercased (callers pass the already-normalized id). *)
-let provider_f_family_of_id (id : string) : provider_f_family =
-  if String.starts_with ~prefix:"provider_f-3.1" id
+let gemini_family_of_id (id : string) : gemini_family =
+  let starts p = String.starts_with ~prefix:p id in
+  if starts "gemini-3.1" || starts "provider_f-3.1"
   then Gemini_3_1
-  else if String.starts_with ~prefix:"provider_f-3" id
+  else if starts "gemini-3" || starts "provider_f-3"
   then Gemini_3
-  else if String.starts_with ~prefix:"provider_f-2.5" id
+  else if starts "gemini-2.5" || starts "provider_f-2.5"
   then Gemini_2_5
   else Gemini_other id
 ;;
@@ -370,10 +371,10 @@ let gemini_capabilities =
   ; supports_code_execution = true
   ; (* Google Gemini's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
-     [backend_provider_f.build_request] serializer already emits it at
-     lib/llm_provider/backend_provider_f.ml:162-164, so the capability
+     [backend_gemini.build_request] serializer already emits it at
+     lib/llm_provider/backend_gemini.ml:162-164, so the capability
      record must match. Same discrepancy story as anthropic_capabilities
-     (#832) — Provider_d-compat consumers that route a Gemini config
+     (#832) — OpenAI-compat consumers that route a Gemini config
      through a capability-checking path were silently dropping top_k.
      [supports_min_p] stays false; Gemini's generationConfig has no
      min_p field. *)
@@ -394,7 +395,7 @@ type static_model_route =
   | Provider_d_4_1
   | Provider_d_4o
   | Mimo_v2_5_chat
-  | Gemini of provider_f_family
+  | Gemini of gemini_family
   | Kimi_for_coding
   | Kimi_k2
   | DashScope_3
@@ -470,7 +471,7 @@ let static_model_route_of_id model_id =
   else if m = "mimo-v2.5" || String.starts_with ~prefix:"mimo-v2.5-pro" m
   then Some Mimo_v2_5_chat
   else (
-    match provider_f_family_of_id m with
+    match gemini_family_of_id m with
     | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
     | Gemini_other _ ->
       if String.starts_with ~prefix:"provider_c-for-coding" m
@@ -719,7 +720,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-    (* NVIDIA Provider_l: Llama-based, NIM Provider_d-compat API.
+    (* NVIDIA Provider_l: Llama-based, NIM OpenAI-compat API.
        Base text models (provider_l-ultra, provider_l-core) get reasoning
        but no vision. VL suffix gets image input. *)
   | Provider_l { has_vision } ->
@@ -948,10 +949,10 @@ let for_model_id_static model_id =
     having default capabilities. *)
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
-  | "anthropic" | "claude" | "provider_a" -> Some anthropic_capabilities
-  | "openai_compat" | "openai" | "provider_d" | "provider_d_chat" ->
+  | "anthropic" | "claude" -> Some anthropic_capabilities
+  | "openai_compat" | "openai" | "provider_d" | "openai_chat" ->
     Some openai_compat_chat_capabilities
-  | "openai_compat_chat_extended" | "provider_d_chat_extended" ->
+  | "openai_compat_chat_extended" | "openai_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
   | "gemini" | "provider_f" -> Some gemini_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
@@ -1228,14 +1229,14 @@ let%test "emits_usage_tokens: ollama reports usage" =
 ;;
 
 let%test "capabilities_for_provider_label: anthropic" =
-  match capabilities_for_provider_label "provider_a" with
+  match capabilities_for_provider_label "anthropic" with
   | Some c -> c.emits_usage_tokens && c.supports_caching
   | None -> false
 ;;
 
 let%test "capabilities_for_provider_label: provider_d alias" =
   Option.is_some (capabilities_for_provider_label "provider_d")
-  && Option.is_some (capabilities_for_provider_label "provider_d_chat")
+  && Option.is_some (capabilities_for_provider_label "openai_chat")
 ;;
 
 let%test "capabilities_for_provider_label: provider_k alias" =
@@ -1266,7 +1267,7 @@ let%test "for_model_id provider_l-vl has image input" =
 ;;
 
 let%test "for_model_id provider_h_3 has chat_template_kwargs thinking control" =
-  (* DashScope_3.x Provider_d-compatible llama.cpp/llama-server deployments return
+  (* DashScope_3.x OpenAI-compatible llama.cpp/llama-server deployments return
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
      format, [supports_extended_thinking = true] never reaches the wire. *)
@@ -1459,10 +1460,10 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
     | _ -> false
   in
   let alias_pairs =
-    [ "provider_d", "provider_d_chat"; "provider_k", "provider_k-coding" ]
+    [ "provider_d", "openai_chat"; "provider_k", "provider_k-coding" ]
   in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
-  && Option.is_some (resolve "provider_a")
+  && Option.is_some (resolve "anthropic")
   && Option.is_some (resolve "provider_f")
   && Option.is_some (resolve "ollama")
   && Option.is_some (resolve "provider_c")
@@ -1474,10 +1475,10 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
    binding, this test will fail. *)
 let%test "capabilities_for_provider_label: all declared labels resolve" =
   let labels =
-    [ "provider_a"
+    [ "anthropic"
     ; "provider_d"
-    ; "provider_d_chat"
-    ; "provider_d_chat_extended"
+    ; "openai_chat"
+    ; "openai_chat_extended"
     ; "provider_f"
     ; "ollama"
     ; "provider_k"
@@ -1495,7 +1496,7 @@ let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
   let non_aliased =
-    [ "provider_a"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
+    [ "anthropic"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
   in
   let fingerprints =
     List.filter_map

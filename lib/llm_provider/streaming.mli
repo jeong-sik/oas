@@ -65,7 +65,7 @@ type provider_d_stream_state =
   ; model : string
   }
 
-val parse_provider_d_sse_chunk : string -> provider_d_chunk option
+val parse_openai_sse_chunk : string -> provider_d_chunk option
 
 (** RFC-OAS-020: [true] when the chunk carries either a non-empty
     [delta_content] or a non-empty [delta_reasoning] or any
@@ -78,13 +78,13 @@ val parse_provider_d_sse_chunk : string -> provider_d_chunk option
     @stability Internal *)
 val chunk_has_non_empty_delta : provider_d_chunk -> bool
 
-val create_provider_d_stream_state
+val create_openai_stream_state
   :  ?provider:string
   -> ?model:string
   -> unit
   -> provider_d_stream_state
 
-val provider_d_chunk_to_events
+val openai_chunk_to_events
   :  provider_d_stream_state
   -> provider_d_chunk
   -> sse_event list * Telemetry_event.t option
