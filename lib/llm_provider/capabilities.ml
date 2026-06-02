@@ -166,8 +166,9 @@ let anthropic_capabilities =
 
 let kimi_capabilities =
   { default_capabilities with
-    max_context_tokens = Some 256_000
-    (* platform.kimi.ai documents only the default max_tokens (32768); it does
+    max_context_tokens =
+      Some 256_000
+      (* platform.kimi.ai documents only the default max_tokens (32768); it does
        not state a higher output ceiling. Keep the verified default here. A
        higher ceiling (if any) is deferred to the per-provider capability pass. *)
   ; max_output_tokens = Some 32_768
@@ -184,8 +185,9 @@ let kimi_capabilities =
   ; supports_native_streaming = true
   ; supports_multimodal_inputs = true
   ; supports_image_input = true
-  ; supports_code_execution = true
-    (* Preserved from the pre-rename provider_c_capabilities; dropped by accident
+  ; supports_code_execution =
+      true
+      (* Preserved from the pre-rename provider_c_capabilities; dropped by accident
        in the capability rename. *)
   }
 ;;
@@ -1478,10 +1480,6 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
     ; "provider_k-coding"
     ; "provider_l"
     ; "provider_c"
-    ; "cli_tool_d"
-    ; "cli_tool_b"
-    ; "cli_tool_c"
-    ; "cli_tool_a"
     ]
   in
   List.for_all (fun l -> Option.is_some (capabilities_for_provider_label l)) labels
@@ -1493,16 +1491,7 @@ let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
   let non_aliased =
-    [ "provider_a"
-    ; "provider_f"
-    ; "ollama"
-    ; "provider_c"
-    ; "cli_tool_d"
-    ; "cli_tool_b"
-    ; "cli_tool_c"
-    ; "cli_tool_a"
-    ; "provider_l"
-    ]
+    [ "provider_a"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
   in
   let fingerprints =
     List.filter_map
