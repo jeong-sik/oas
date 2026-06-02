@@ -570,7 +570,7 @@ let test_complete_error_metrics () =
   | Exit -> ()
 ;;
 
-let test_complete_transport_http_metrics_ok () =
+let test_complete_transport_ok_does_not_emit_http_status () =
   Eio_main.run
   @@ fun env ->
   try
@@ -588,16 +588,14 @@ let test_complete_transport_http_metrics_ok () =
     let transport = make_transport (Ok (mock_transport_response "transport ok")) in
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
-      (match !status_calls with
-       | [ ("openai_compat", "model-d-4", 200) ] -> Eio.Switch.fail sw Exit
-       | [ (_, _, code) ] -> fail (Printf.sprintf "expected 200, got %d" code)
-       | _ -> fail "expected exactly one transport status call")
+      check int "custom transport does not emit http status" 0 (List.length !status_calls);
+      Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
   with
   | Exit -> ()
 ;;
 
-let test_complete_transport_http_metrics_error () =
+let test_complete_transport_error_does_not_emit_http_status () =
   Eio_main.run
   @@ fun env ->
   try
@@ -619,16 +617,14 @@ let test_complete_transport_http_metrics_error () =
     | Ok _ -> fail "expected Error"
     | Error (Http_client.HttpError { code; _ }) ->
       check int "status 429" 429 code;
-      (match !status_calls with
-       | [ ("openai_compat", "model-d-4", 429) ] -> Eio.Switch.fail sw Exit
-       | [ (_, _, seen) ] -> fail (Printf.sprintf "expected 429, got %d" seen)
-       | _ -> fail "expected exactly one transport status call")
+      check int "custom transport does not emit http status" 0 (List.length !status_calls);
+      Eio.Switch.fail sw Exit
     | Error _ -> fail "expected HttpError"
   with
   | Exit -> ()
 ;;
 
-let test_complete_transport_mock_emits_status () =
+let test_complete_transport_mock_does_not_emit_http_status () =
   Eio_main.run
   @@ fun env ->
   try
@@ -650,7 +646,7 @@ let test_complete_transport_mock_emits_status () =
     let transport = make_transport (Ok (mock_transport_response "cli ok")) in
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
-      check int "mock transport emits status" 1 !hits;
+      check int "mock transport does not emit http status" 0 !hits;
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
   with
@@ -964,15 +960,18 @@ let () =
       , [ test_case "callbacks" `Quick test_complete_metrics
         ; test_case "tool call callback" `Quick test_complete_tool_call_metrics
         ; test_case "error callback" `Quick test_complete_error_metrics
-        ; test_case "transport http ok" `Quick test_complete_transport_http_metrics_ok
         ; test_case
-            "transport http error"
+            "transport ok does not emit http status"
             `Quick
-            test_complete_transport_http_metrics_error
+            test_complete_transport_ok_does_not_emit_http_status
         ; test_case
-            "transport mock emits status"
+            "transport error does not emit http status"
             `Quick
-            test_complete_transport_mock_emits_status
+            test_complete_transport_error_does_not_emit_http_status
+        ; test_case
+            "transport mock does not emit http status"
+            `Quick
+            test_complete_transport_mock_does_not_emit_http_status
         ; test_case "global default is noop" `Quick test_metrics_global_default_is_noop
         ; test_case "global set and get" `Quick test_metrics_global_set_and_get
         ; test_case

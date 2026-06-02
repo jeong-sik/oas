@@ -990,23 +990,6 @@ let complete
            in
            { Llm_transport.response = resp; latency_ms = Some lat }
        in
-       (* HTTP-backed transports bypass complete_http, so emit the status
-         here using the transport result. Non-HTTP CLI transports must
-         stay silent because they never observed an HTTP status code. *)
-       if Option.is_some transport && not (requires_non_http_transport config.kind)
-       then (
-         match result with
-         | Ok _ ->
-           m.on_http_status
-             ~provider:(Provider_registry.provider_name_of_config config)
-             ~model_id
-             ~status:200
-         | Error (Http_client.HttpError { code; _ }) ->
-           m.on_http_status
-             ~provider:(Provider_registry.provider_name_of_config config)
-             ~model_id
-             ~status:code
-         | Error _ -> ());
        (match result with
         | Ok resp ->
           let resp = Pricing.annotate_response_cost resp in
