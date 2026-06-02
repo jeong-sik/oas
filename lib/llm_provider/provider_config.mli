@@ -91,9 +91,8 @@ type t =
       {"30m"}, {"24h"}). [None] falls back to the
       [OAS_OLLAMA_KEEP_ALIVE] env var, then to the SDK default
       ({"-1"}, permanent). Honored only by the Ollama backend; ignored
-      by other kinds. Profiles may surface this so a profile
-      can declare its own residency policy without a global env
-      variable.
+      by other kinds. Profiles may surface this field to declare
+      their own residency policy without a global env variable.
       @since 0.171.0 *)
   ; internal_model_rotation_count : int option
     (** Number of model attempts the subprocess CLI is configured to
@@ -123,8 +122,8 @@ type t =
       in tokens. Drives KV cache RAM allocation. [None] leaves the
       field unset so Ollama uses its own default (Modelfile or 4096).
       Honored only by the Ollama backend; ignored by other kinds.
-      Profiles may surface this so a small-model profile can
-      pick a smaller window than a long-context profile.
+      Profiles may surface this field so small-model configurations
+      can pick a smaller window than long-context configurations.
       @since 0.171.0 *)
   ; seed : int option
     (** Deterministic seed for providers that support it. When [Some n],
