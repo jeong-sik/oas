@@ -154,7 +154,7 @@ val with_body_timeout : float -> t -> t
     Catches the case where a single bulk read hangs without producing
     line breaks. Requires a clock to be provided to the underlying
     request; without one the wrapper is skipped. A timeout surfaces as
-    [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
+    [TimeoutError { phase = Stream_body; _ }] which the retry
     layer treats as retryable. @since 0.181.0 *)
 
 (** Set the agent-level inactivity deadline for the entire run. The timer
@@ -177,7 +177,7 @@ val with_execution_idle_timeout : float -> t -> t
     Catches the case where a single bulk read hangs without producing
     line breaks. Requires a clock to be provided to the underlying
     request; without one the wrapper is skipped. A timeout surfaces as
-    [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
+    [TimeoutError { phase = Stream_body; _ }] which the retry
     layer treats as retryable. @since 0.181.0 *)
 val with_max_idle_turns : int -> t -> t
 

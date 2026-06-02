@@ -1480,10 +1480,6 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
     ; "provider_k-coding"
     ; "provider_l"
     ; "provider_c"
-    ; "cli_tool_d"
-    ; "cli_tool_b"
-    ; "cli_tool_c"
-    ; "cli_tool_a"
     ]
   in
   List.for_all (fun l -> Option.is_some (capabilities_for_provider_label l)) labels
@@ -1495,16 +1491,7 @@ let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
   let non_aliased =
-    [ "provider_a"
-    ; "provider_f"
-    ; "ollama"
-    ; "provider_c"
-    ; "cli_tool_d"
-    ; "cli_tool_b"
-    ; "cli_tool_c"
-    ; "cli_tool_a"
-    ; "provider_l"
-    ]
+    [ "provider_a"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
   in
   let fingerprints =
     List.filter_map

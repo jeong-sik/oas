@@ -5,8 +5,8 @@
     callers that build their own retry loop without depending on the
     full [Complete] module.  [Complete] keeps re-exports of
     [retry_config], [default_retry_config], and [is_retryable] for
-    backward compatibility with [Complete_cascade] and the existing
-    test suite that imports through [Complete].
+    backward compatibility with the existing test suite and downstream
+    callers that import through [Complete].
 
     Pure module: no I/O, no async.  Maps [Http_client] errors to the
     shared [Retry] policy taxonomy. *)
@@ -37,11 +37,11 @@ val shared_retry_config_of_complete : retry_config -> Retry.retry_config
       (e.g. cli_tool_d internal max_turns); retry would re-trigger
       the same deterministic exit.
     - [ProviderFailure] — provider/runtime failures are semantic
-      cascade inputs, not local retry inputs; retrying the same
+      routing inputs, not local retry inputs; retrying the same
       lane would hide the typed reason from downstream policy. *)
 val classify_retry_error : Http_client.http_error -> Retry.api_error option
 
 (** Convenience wrapper: [true] iff [classify_retry_error] yields a
-    retryable [Retry.api_error].  Used by [Complete_cascade] and
-    direct callers that just need a yes/no signal. *)
+    retryable [Retry.api_error].  Used by direct callers that just need
+    a yes/no signal. *)
 val is_retryable : Http_client.http_error -> bool

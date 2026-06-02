@@ -253,7 +253,7 @@ type sse_event =
             chunk was silently dropped; consumers that then saw
             [MessageStop] would never know the response was incomplete.
             Emit this event so the accumulator can mark the stream as
-            corrupted and the cascade layer can route to a different
+            corrupted and the caller can route to a different
             provider instead of presenting a phantom completion. *)
   | SSEUnknownEventType of
       { event_type : string

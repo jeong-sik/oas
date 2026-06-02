@@ -158,8 +158,6 @@ val auto : tools:Tool.t list -> strategy
     ]}
 
     @since 0.101.0
-    @since 0.125.0 Replaced [named_cascade] parameter with individual
-      [cascade_name], [defaults], [?config_path].
     @since 0.142.0 Single-provider API. *)
 val default_rerank_fn
   :  sw:Eio.Switch.t

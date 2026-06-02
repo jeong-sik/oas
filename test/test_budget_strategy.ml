@@ -337,7 +337,8 @@ let test_builtin_profiles_sampling_unset () =
        Alcotest.(check bool) (name ^ " top_p=None") true (p.IP.top_p = None);
        Alcotest.(check bool) (name ^ " top_k=None") true (p.IP.top_k = None);
        Alcotest.(check bool) (name ^ " min_p=None") true (p.IP.min_p = None))
-    [ "cascade_default", IP.cascade_default
+    [ "coordinator_default", IP.coordinator_default
+    ; "cascade_default", IP.cascade_default
     ; "agent_default", IP.agent_default
     ; "low_variance", IP.low_variance
     ; "worker_default", IP.worker_default

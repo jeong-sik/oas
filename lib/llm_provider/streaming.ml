@@ -1085,7 +1085,7 @@ let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
    MessageStop and presenting a phantom completion. The accumulator could
    not distinguish "no event in this chunk" from "we lost data here".
    These regression tests pin the new contract: the parser surfaces a
-   structured failure event so the accumulator and cascade layer can react. *)
+   structured failure event so the accumulator can react. *)
 
 let%test "parse_sse_event: unknown event type yields SSEUnknownEventType" =
   let raw = "{\"type\":\"future_event_v3\"}" in

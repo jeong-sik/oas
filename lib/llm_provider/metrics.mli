@@ -41,7 +41,7 @@ type t =
       -> provider_key:string
       -> state:circuit_state
       -> unit
-    (** Fired when cascade circuit-breaker state is observed or updated.
+    (** Fired when provider circuit-breaker state is observed or updated.
         Backends can export this as a gauge using
         {!circuit_state_to_int}; [provider_key] keeps same-model,
         different-endpoint circuits distinguishable.

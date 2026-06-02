@@ -36,7 +36,7 @@ let classify_retry_error = function
      deterministic exit, so signal non-retryable and let the agent
      runtime checkpoint via [Error.Agent (MaxTurnsExceeded ...)]. *)
   | Http_client.ProviderTerminal _ -> None
-  (* Provider/runtime failures are semantic cascade inputs, not local
+  (* Provider/runtime failures are semantic routing inputs, not local
      retry inputs.  Retrying the same CLI/API lane would hide the typed
      reason from downstream policy. *)
   | Http_client.ProviderFailure _ -> None
