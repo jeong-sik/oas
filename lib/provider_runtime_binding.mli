@@ -47,12 +47,28 @@ val all : unit -> t list
     case-insensitive and whitespace-trimmed. *)
 val find : string -> t option
 
+(** Return all known binding ids and selector aliases. This is a display /
+    diagnostics surface; callers should use {!find} for resolution. *)
+val known_labels : unit -> string list
+
 (** Resolve the runtime binding that owns a concrete provider config.
 
     Catalog endpoint matches are resolved before registry provider-name
     fallbacks, so catalog-provided OpenAI-compatible providers remain
     OAS-owned even when the endpoint is local. *)
 val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
+
+(** Best-effort runtime provider id for a concrete provider config.
+
+    When the endpoint matches a catalog or registry binding, returns that
+    binding id. Otherwise returns a stable kind-derived label such as
+    ["openai_compat"]; it never invents a fake provider id. *)
+val provider_id_of_provider_config : Llm_provider.Provider_config.t -> string
+
+(** Best-effort runtime provider id for the legacy {!Provider.config}
+    adapter. Custom providers are reported by their registered name, without
+    a ["custom:"] display prefix. *)
+val provider_id_of_legacy_config : Provider.config -> string
 
 (** Resolve OAS-owned provider capabilities for a concrete provider config.
 

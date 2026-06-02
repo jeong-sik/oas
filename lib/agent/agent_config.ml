@@ -26,8 +26,11 @@
       }
     ]}
 
-    Provider values: "local" (llama-server), "provider_a", "provider_d",
-    or any string (treated as Provider_d-compatible with api_key_env = that string).
+    Provider values are runtime provider ids or aliases from
+    {!Provider_runtime_binding}; ["local"] remains the built-in llama-server
+    shorthand. Unknown strings are custom provider names unless paired with an
+    explicit [base_url], in which case they are treated as an explicit
+    OpenAI-compatible endpoint using the string as [api_key_env].
 *)
 
 open Result_syntax
@@ -295,23 +298,26 @@ let load path =
     Error (Error.Io (FileOpFailed { op = "load"; path; detail = "JSON error: " ^ msg }))
 ;;
 
-(** Resolve provider string + optional base_url to a Provider.config.
+(** Resolve provider string + optional base_url to a Provider.config. *)
+let provider_config_of_binding ~model_id ?base_url (binding : Provider_runtime_binding.t) =
+  match base_url with
+  | Some url ->
+    { Provider.provider =
+        openai_compat_config
+          ~base_url:url
+          ~api_key_env:binding.api_key_env
+          ~path:binding.request_path
+          ()
+    ; model_id
+    ; api_key_env = binding.api_key_env
+    }
+  | None ->
+    { Provider.provider = Custom_registered { name = binding.id }
+    ; model_id
+    ; api_key_env = binding.api_key_env
+    }
+;;
 
-    Canonical provider kinds ({!Llm_provider.Provider_kind.t}) are dispatched
-    through {!Llm_provider.Provider_kind.of_string}, which accepts the
-    canonical wire forms (["provider_a"], ["openai_compat"], …) plus the
-    documented aliases (["agent_llm_a"] -> Anthropic,
-    ["provider_d"] -> OpenAI_compat, ["provider_n"] -> Ollama), case-insensitively
-    with leading/trailing whitespace trimmed.
-
-    ["local"] remains a first-class routing shorthand (not a Provider_kind
-    variant) and is matched explicitly before the parser so that
-    ["LOCAL"] / [" local "] also reach the Local branch.
-
-    Any kind the parser recognises beyond Anthropic / OpenAI_compat — or
-    anything it does not recognise at all — falls through to the registry
-    lookup path, preserving the legacy [Custom_registered] behaviour that
-    downstream tests and configs depend on. *)
 let resolve_provider ~model_id provider_str base_url =
   let normalized = String.lowercase_ascii (String.trim provider_str) in
   if normalized = "local"
@@ -323,60 +329,20 @@ let resolve_provider ~model_id provider_str base_url =
     in
     { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
   else (
-    match Llm_provider.Provider_kind.of_string provider_str with
-    | Some Anthropic ->
-      { Provider.provider = Anthropic; model_id; api_key_env = "PROVIDER_A_API_KEY" }
-    | Some OpenAI_compat ->
-      let api_key_env = "PROVIDER_D_API_KEY" in
-      let url =
-        match base_url with
-        | Some u -> u
-        | None -> "https://api.provider_d.com"
-      in
-      { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
-      ; model_id
-      ; api_key_env
-      }
-    | Some (Kimi | Ollama | Gemini | Glm | DashScope) | None ->
-      let registry = Llm_provider.Provider_registry.default () in
-      (match Llm_provider.Provider_registry.find registry provider_str with
-       | Some entry ->
-         (match base_url with
-          | None ->
-            (* Preserve registry-declared kind (Gemini/Glm/Ollama/etc.)
-                    via Custom_registered. Downstream (provider_config_of_agent,
-                    request_path, Capabilities, resolve) dispatches through
-                    Provider_registry by name, retaining entry.defaults.kind. *)
-            { Provider.provider = Custom_registered { name = provider_str }
-            ; model_id
-            ; api_key_env = entry.defaults.api_key_env
-            }
-          | Some url ->
-            (* Explicit base_url override: legacy Provider.config variant
-                    cannot carry kind + arbitrary URL simultaneously, so kind
-                    flattens to OpenAI_compat. For kind-preserving override,
-                    construct Llm_provider.Provider_config.t directly via
-                    Provider_config.make. *)
-            let api_key_env = entry.defaults.api_key_env in
-            { Provider.provider =
-                openai_compat_config
-                  ~base_url:url
-                  ~api_key_env
-                  ~path:entry.defaults.request_path
-                  ()
-            ; model_id
-            ; api_key_env
-            })
-       | None ->
-         let api_key_env = provider_str in
-         let url =
-           match base_url with
-           | Some u -> u
-           | None -> Defaults.local_llm_url
-         in
+    match Provider_runtime_binding.find normalized with
+    | Some binding -> provider_config_of_binding ~model_id ?base_url binding
+    | None ->
+      (match base_url with
+       | Some url ->
+         let api_key_env = String.trim provider_str in
          { Provider.provider = openai_compat_config ~base_url:url ~api_key_env ()
          ; model_id
          ; api_key_env
+         }
+       | None ->
+         { Provider.provider = Custom_registered { name = normalized }
+         ; model_id
+         ; api_key_env = String.trim provider_str
          }))
 ;;
 

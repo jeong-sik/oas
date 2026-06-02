@@ -258,6 +258,58 @@ let test_builtin_binding_resolves () =
     (Provider_runtime_binding.resolve_model binding ~requested_model:None)
 ;;
 
+let test_builtin_aliases_are_canonicalized () =
+  let cases =
+    [ "provider_a", "agent_llm_a"
+    ; "anthropic", "agent_llm_a"
+    ; "kimi", "provider_c"
+    ; "gemini", "provider_f"
+    ; "glm", "provider_k"
+    ; "dashscope", "provider_h"
+    ]
+  in
+  List.iter
+    (fun (input, expected_id) ->
+       let binding = expect_binding input in
+       Alcotest.(check string) input expected_id binding.id)
+    cases;
+  Alcotest.(check bool)
+    "openai_compat is a kind, not a provider selector"
+    true
+    (Option.is_none (Provider_runtime_binding.find "openai_compat"))
+;;
+
+let test_provider_id_fallbacks_do_not_invent_provider_d () =
+  let cfg =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"unlisted-model"
+      ~base_url:"https://unlisted.example/v1"
+      ~request_path:"/chat/completions"
+      ()
+  in
+  Alcotest.(check string)
+    "unmatched openai compat"
+    "openai_compat"
+    (Provider_runtime_binding.provider_id_of_provider_config cfg);
+  let legacy : Provider.config =
+    { provider =
+        Provider.OpenAICompat
+          { base_url = "https://unlisted.example/v1"
+          ; auth_header = None
+          ; path = "/chat/completions"
+          ; static_token = None
+          }
+    ; model_id = "unlisted-model"
+    ; api_key_env = "UNLISTED_API_KEY"
+    }
+  in
+  Alcotest.(check string)
+    "legacy unmatched openai compat"
+    "openai_compat"
+    (Provider_runtime_binding.provider_id_of_legacy_config legacy)
+;;
+
 let () =
   Alcotest.run
     "Provider_runtime_binding"
@@ -293,6 +345,15 @@ let () =
             test_find_empty_missing_and_provider_config_fallbacks
         ] )
     ; ( "builtins"
-      , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves ] )
+      , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves
+        ; Alcotest.test_case
+            "builtin aliases canonicalize"
+            `Quick
+            test_builtin_aliases_are_canonicalized
+        ; Alcotest.test_case
+            "provider id fallback"
+            `Quick
+            test_provider_id_fallbacks_do_not_invent_provider_d
+        ] )
     ]
 ;;

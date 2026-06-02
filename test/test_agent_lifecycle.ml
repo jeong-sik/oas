@@ -85,7 +85,7 @@ let test_build_snapshot_with_provider () =
   in
   Alcotest.(check (option string))
     "requested_provider"
-    (Some "provider_a")
+    (Some "agent_llm_a")
     snap.requested_provider;
   Alcotest.(check (option string))
     "resolved_model"
@@ -120,8 +120,8 @@ let test_runtime_name_provider_a () =
     { provider = Anthropic; model_id = "test"; api_key_env = "DUMMY" }
   in
   Alcotest.(check (option string))
-    "provider_a"
-    (Some "provider_a")
+    "agent_llm_a"
+    (Some "agent_llm_a")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
@@ -129,7 +129,7 @@ let test_runtime_name_openai_compat () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "http://localhost"
+          { base_url = "https://unlisted.example"
           ; auth_header = None
           ; path = "/v1/chat"
           ; static_token = None
@@ -139,8 +139,8 @@ let test_runtime_name_openai_compat () =
     }
   in
   Alcotest.(check (option string))
-    "openai-compat"
-    (Some "openai-compat")
+    "openai_compat"
+    (Some "openai_compat")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
@@ -153,7 +153,7 @@ let test_runtime_name_custom () =
   in
   Alcotest.(check (option string))
     "custom"
-    (Some "custom:my-custom")
+    (Some "my-custom")
     (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 

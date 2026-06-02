@@ -86,8 +86,8 @@ let test_provider_runtime_name_provider_a () =
       }
   in
   Alcotest.(check string)
-    "provider_a"
-    "provider_a"
+    "agent_llm_a"
+    "agent_llm_a"
     (Runtime_server_resolve.provider_runtime_name "provider_a" cfg)
 ;;
 
@@ -96,7 +96,7 @@ let test_provider_runtime_name_openai_compat () =
     Some
       { Provider.provider =
           Provider.OpenAICompat
-            { base_url = "https://api.provider_d.com"
+            { base_url = "https://example.invalid"
             ; auth_header = None
             ; path = "/v1/chat/completions"
             ; static_token = None
@@ -106,9 +106,9 @@ let test_provider_runtime_name_openai_compat () =
       }
   in
   Alcotest.(check string)
-    "openai-compat"
-    "openai-compat"
-    (Runtime_server_resolve.provider_runtime_name "provider_d" cfg)
+    "openai_compat"
+    "openai_compat"
+    (Runtime_server_resolve.provider_runtime_name "openai_compat" cfg)
 ;;
 
 let test_provider_runtime_name_custom_registered () =
@@ -120,8 +120,8 @@ let test_provider_runtime_name_custom_registered () =
       }
   in
   Alcotest.(check string)
-    "custom:myvendor"
-    "custom:myvendor"
+    "myvendor"
+    "myvendor"
     (Runtime_server_resolve.provider_runtime_name "custom" cfg)
 ;;
 
@@ -157,21 +157,30 @@ let test_resolve_provider_local () =
 let test_resolve_provider_sonnet () =
   match Runtime_server_resolve.resolve_provider ~provider:"sonnet" () with
   | Ok (Some cfg) ->
-    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Anthropic)
+    (match cfg.Provider.provider with
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "provider id" "agent_llm_a" name
+     | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
 let test_resolve_provider_haiku () =
   match Runtime_server_resolve.resolve_provider ~provider:"haiku" () with
   | Ok (Some cfg) ->
-    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Anthropic)
+    (match cfg.Provider.provider with
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "provider id" "agent_llm_a" name
+     | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
 let test_resolve_provider_opus () =
   match Runtime_server_resolve.resolve_provider ~provider:"opus" () with
   | Ok (Some cfg) ->
-    Alcotest.(check bool) "provider_a" true (cfg.Provider.provider = Provider.Anthropic)
+    (match cfg.Provider.provider with
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "provider id" "agent_llm_a" name
+     | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
@@ -179,9 +188,26 @@ let test_resolve_provider_openrouter () =
   match Runtime_server_resolve.resolve_provider ~provider:"provider_o_router" () with
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
-     | Provider.OpenAICompat _ -> ()
-     | _ -> Alcotest.fail "expected OpenAICompat")
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "provider id" "provider_o_router" name
+     | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
+;;
+
+let test_resolve_provider_alias_provider_a () =
+  match Runtime_server_resolve.resolve_provider ~provider:"provider_a" () with
+  | Ok (Some cfg) ->
+    (match cfg.Provider.provider with
+     | Provider.Custom_registered { name } ->
+       Alcotest.(check string) "provider id" "agent_llm_a" name
+     | _ -> Alcotest.fail "expected registered provider")
+  | _ -> Alcotest.fail "expected Ok (Some cfg)"
+;;
+
+let test_resolve_provider_openai_compat_kind_is_not_provider () =
+  match Runtime_server_resolve.resolve_provider ~provider:"openai_compat" () with
+  | Error (Error.Config (Error.UnsupportedProvider _)) -> ()
+  | _ -> Alcotest.fail "expected UnsupportedProvider"
 ;;
 
 let test_resolve_provider_unknown () =
@@ -248,10 +274,9 @@ let test_resolve_provider_catalog_entry () =
        | Ok (Some cfg) ->
          Alcotest.(check string) "default model" "local-model" cfg.Provider.model_id;
          (match cfg.Provider.provider with
-          | Provider.OpenAICompat { base_url; path; _ } ->
-            Alcotest.(check string) "base_url" "http://127.0.0.1:8000" base_url;
-            Alcotest.(check string) "path" "/v1/chat/completions" path
-          | _ -> Alcotest.fail "expected OpenAICompat")
+          | Provider.Custom_registered { name } ->
+            Alcotest.(check string) "provider id" "vllm-local" name
+          | _ -> Alcotest.fail "expected registered provider")
        | _ -> Alcotest.fail "expected catalog provider")
 ;;
 
@@ -295,7 +320,7 @@ let test_resolve_execution_non_mock_has_provider_cfg () =
     Alcotest.(check bool) "has provider cfg" true (Option.is_some res.provider_cfg);
     Alcotest.(check (option string))
       "resolved provider"
-      (Some "provider_a")
+      (Some "agent_llm_a")
       res.resolved_provider
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
@@ -380,7 +405,7 @@ let () =
             `Quick
             test_provider_runtime_name_provider_a
         ; Alcotest.test_case
-            "OpenAICompat provider"
+            "unmatched OpenAI-compatible adapter"
             `Quick
             test_provider_runtime_name_openai_compat
         ; Alcotest.test_case
@@ -400,15 +425,29 @@ let () =
             `Quick
             test_resolve_provider_local
         ; Alcotest.test_case
-            "sonnet returns Anthropic"
+            "sonnet returns registered Anthropic provider"
             `Quick
             test_resolve_provider_sonnet
-        ; Alcotest.test_case "haiku returns Anthropic" `Quick test_resolve_provider_haiku
-        ; Alcotest.test_case "opus returns Anthropic" `Quick test_resolve_provider_opus
         ; Alcotest.test_case
-            "provider_o_router returns OpenAICompat"
+            "haiku returns registered Anthropic provider"
+            `Quick
+            test_resolve_provider_haiku
+        ; Alcotest.test_case
+            "opus returns registered Anthropic provider"
+            `Quick
+            test_resolve_provider_opus
+        ; Alcotest.test_case
+            "provider_o_router returns registered provider"
             `Quick
             test_resolve_provider_openrouter
+        ; Alcotest.test_case
+            "provider_a alias returns registered provider"
+            `Quick
+            test_resolve_provider_alias_provider_a
+        ; Alcotest.test_case
+            "openai_compat kind is not a provider"
+            `Quick
+            test_resolve_provider_openai_compat_kind_is_not_provider
         ; Alcotest.test_case
             "unknown returns UnsupportedProvider error"
             `Quick
