@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.9](https://github.com/jeong-sik/oas/compare/v0.200.8...v0.200.9) (2026-06-02)
+
+
+### Bug Fixes
+
+* **runtime:** centralize provider identity resolution ([#1831](https://github.com/jeong-sik/oas/issues/1831)) ([c05e3bd](https://github.com/jeong-sik/oas/commit/c05e3bdaff51e5487054786cab5d3c358edafee5))
+
 ## [0.200.8](https://github.com/jeong-sik/oas/compare/v0.200.7...v0.200.8) (2026-06-01)
 
 
