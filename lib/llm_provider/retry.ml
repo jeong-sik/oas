@@ -112,7 +112,7 @@ let malformed_json_indicators =
 (** Substrings inside the extracted [error.message] text indicating the 429
     is a hard account-level quota exhaustion (not a transient throttle).
     Retrying will never succeed without operator action (recharge / new
-    key).  Treat these as non-retryable so cascades fall through to the
+    key).  Treat these as non-retryable so callers fall through to the
     next provider immediately instead of burning [max_retries] wasted
     calls per turn.
 

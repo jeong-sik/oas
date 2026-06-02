@@ -56,7 +56,7 @@ let build_request
 
      We default to -1 (permanent) so the caller's pinned model stays
      resident. Resolution order:
-     1. [config.keep_alive] (cascade profile / per-call override; the
+     1. [config.keep_alive] (routing profile / per-call override; the
         first-class SSOT a TOML editor reaches for)
      2. [OAS_OLLAMA_KEEP_ALIVE] env var (operator-wide default)
      3. SDK default ["-1"] (permanent residency)
@@ -151,8 +151,8 @@ let build_request
    | None -> ());
   (* num_ctx: per-request KV cache allocation in tokens. Honored by Ollama
      only. [None] omits the field so Ollama uses its own default
-     (Modelfile-declared or 4096). Cascade-level setting; non-positive
-     values are treated as "unset" to keep cascade authoring forgiving. *)
+     (Modelfile-declared or 4096). Profile-level setting; non-positive
+     values are treated as "unset" to keep profile authoring forgiving. *)
   (match config.num_ctx with
    | Some n when n > 0 -> options := ("num_ctx", `Int n) :: !options
    | _ -> ());

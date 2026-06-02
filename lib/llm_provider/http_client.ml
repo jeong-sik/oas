@@ -51,7 +51,7 @@ type timeout_phase =
 
 (* Provider-internal terminal condition reported via structured exit
    (see .mli for the rationale and the @since note).  Adding a new
-   variant rather than overloading [NetworkError] keeps cascades from
+   variant rather than overloading [NetworkError] keeps callers from
    counting a provider's own [max_turns] hit as a flaky network. *)
 type provider_terminal_kind =
   | Max_turns of
@@ -101,7 +101,7 @@ type http_error =
      CLI subprocess transport for
      [Cli_tool_d]/[Cli_tool_a]/[Cli_tool_b]/[Cli_tool_c])
      but the caller did not wire one.  Distinct from [NetworkError] so
-     cascades can skip the candidate without counting it as a flaky
+     callers can skip the candidate without counting it as a flaky
      network failure, and so callers see a clear "configuration/wiring
      bug" rather than a cohttp [Unknown scheme None]. *)
   | ProviderTerminal of

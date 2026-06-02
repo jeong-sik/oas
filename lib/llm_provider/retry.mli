@@ -50,7 +50,7 @@ val is_context_overflow_message : string -> bool
 
     Only [RateLimited] messages are inspected; other variants return [false].
 
-    Consumers (e.g. cascade health trackers) use this to apply an immediate
+    Consumers (e.g. health trackers) use this to apply an immediate
     long cooldown instead of transient backoff.
 
     @since 0.156.0 *)

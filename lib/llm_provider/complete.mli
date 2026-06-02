@@ -84,7 +84,7 @@ val complete
     Requires [clock]; without one the wrapper is skipped and behaviour
     matches versions < 0.195.0. On expiry the result is
     [Error (TimeoutError { phase = Non_streaming_body; _ })] with a
-    message that identifies the body deadline so cascade/retry treats it
+    message that identifies the body deadline so retry treats it
     as retryable while operators retain attribution.
 
     Mirror of {!complete_stream}'s [?body_timeout_s], adapted for the
@@ -153,7 +153,7 @@ val complete_with_retry
     [TimeoutError { phase = Stream_idle state; _ }], where [state]
     records whether the stream was waiting for the first event, answer
     deltas, thinking deltas, tool-call deltas, heartbeat/substrate, or
-    completion. Cascade/retry layers treat this as retryable while
+    completion. Retry layers treat this as retryable while
     downstream policy can distinguish streaming/thinking idleness from
     total-call deadlines. Non-HTTP transports (CLI subprocess) ignore
     [stream_idle_timeout_s]. *)
@@ -182,6 +182,6 @@ val complete_stream
     skipped and behaviour matches versions < 0.181.0.  On expiry the
     result is [Error (TimeoutError { phase = Stream_body; _ })] with a
     message that identifies the body deadline (vs inter-line idle), so
-    cascade/retry treats it as retryable while operators retain
+    retry treats it as retryable while operators retain
     attribution.  Non-HTTP transports (CLI subprocess) ignore
     [body_timeout_s].  @since 0.181.0 *)

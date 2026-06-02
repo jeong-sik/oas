@@ -1,5 +1,5 @@
 (** Tests for llm_provider sub-library modules:
-    complete, cascade_config, api_common, backend_provider_f,
+    complete, api_common, backend_provider_f,
     capability_filter, capabilities.
 
     Focuses on pure functions and data construction only. *)
@@ -226,11 +226,6 @@ let test_default_retry_config () =
   Alcotest.(check (float 0.01)) "max_delay" 30.0 c.max_delay_sec;
   Alcotest.(check (float 0.01)) "backoff" 2.0 c.backoff_multiplier
 ;;
-
-(* NOTE: Cascade_config (parse_model_string, load_profile, etc.) was removed
-   from OAS in 0.144.0 as part of the MASC migration (boundary-allow). Multi-provider cascade
-   configuration and group orchestration are now MASC-owned (boundary-allow). Tests for that
-   module have been archived. *)
 
 (* ═══════════════════════════════════════════════════
    2. Api_common — constants, helpers, content block JSON

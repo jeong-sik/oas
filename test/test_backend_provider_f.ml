@@ -523,9 +523,6 @@ let test_provider_f_stream_finish () =
   | None -> fail "expected Some chunk"
 ;;
 
-(* NOTE: test_cascade_provider_f_kind was removed — Cascade_config.parse_model_string
-   was deleted from OAS in 0.144.0 as part of the MASC migration (boundary-allow). *)
-
 let test_gemini_capabilities_named () =
   let caps = Capabilities.gemini_capabilities in
   check bool "tools" true caps.supports_tools;

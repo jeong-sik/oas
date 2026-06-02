@@ -37,7 +37,7 @@ val shared_retry_config_of_complete : retry_config -> Retry.retry_config
       (e.g. cli_tool_d internal max_turns); retry would re-trigger
       the same deterministic exit.
     - [ProviderFailure] — provider/runtime failures are semantic
-      cascade inputs, not local retry inputs; retrying the same
+      routing inputs, not local retry inputs; retrying the same
       lane would hide the typed reason from downstream policy. *)
 val classify_retry_error : Http_client.http_error -> Retry.api_error option
 

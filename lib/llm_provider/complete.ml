@@ -655,7 +655,7 @@ let complete_http
              deadline available on the non-streaming path.
            - No silent failure: on expiry we return a structured
              [TimeoutError { phase = Non_streaming_body }] whose message
-             identifies the body deadline, so cascade/retry layers treat it
+             identifies the body deadline, so retry layers treat it
              as retryable with operator-visible attribution. *)
         let post_response =
           match clock, body_timeout_s with
@@ -1554,7 +1554,7 @@ let complete_stream_http
                No silent failure: on expiry we raise an inner [Error]
                whose message carries the configured deadline, and the
                outer match below promotes it to
-               [TimeoutError { phase = Stream_body }] so the cascade/retry
+               [TimeoutError { phase = Stream_body }] so the retry
                layer treats it as retryable. *)
             match clock, body_timeout_s with
             | Some clk, Some timeout_s ->

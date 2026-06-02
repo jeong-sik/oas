@@ -412,7 +412,7 @@ let%test "accumulate_event SSEError records error" =
 
 (* SSEParseFailed and SSEUnknownEventType replace the previous silent [None]
    discard in [parse_sse_event]. They MUST mark [sse_error] so that
-   [finalize_stream_acc] yields [Error _] and the cascade layer can route to
+   [finalize_stream_acc] yields [Error _] and the caller can route to
    another provider instead of presenting a phantom completion (a partial
    response with no MessageStop, treated as success by downstream consumers). *)
 

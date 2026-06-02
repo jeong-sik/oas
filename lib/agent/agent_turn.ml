@@ -420,7 +420,7 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
           { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
         | None ->
           (* Record only the first unpriced model so the eventual error
-             message stays stable across many cascade fallbacks. *)
+             message stays stable across many provider fallbacks. *)
           let unpriced_model =
             match base.unpriced_model with
             | Some _ as already -> already
