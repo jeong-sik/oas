@@ -486,5 +486,5 @@ let provider_name_of_config (config : Provider_config.t) =
           && String.equal (String.trim entry.defaults.request_path) request_path)
       with
       | Some entry -> entry.name
-      | None -> "provider_d")
+      | None -> "openai_compat")
 ;;

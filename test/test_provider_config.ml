@@ -533,6 +533,21 @@ let test_provider_name_of_config_openrouter () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
+let test_provider_name_of_config_unmatched_openai_compat () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"unlisted-model"
+      ~base_url:"https://unlisted.example/v1"
+      ~request_path:"/chat/completions"
+      ()
+  in
+  check_string
+    "unmatched openai compat"
+    "openai_compat"
+    (Provider_registry.provider_name_of_config cfg)
+;;
+
 (* ── provider_kind_of_string ─────────────────────────── *)
 
 (** Check a raw string parses to the expected variant. Compared via
@@ -989,6 +1004,10 @@ let () =
             "provider_o_router"
             `Quick
             test_provider_name_of_config_openrouter
+        ; Alcotest.test_case
+            "unmatched openai_compat"
+            `Quick
+            test_provider_name_of_config_unmatched_openai_compat
         ] )
     ; ( "kind_of_string"
       , [ Alcotest.test_case "roundtrip all variants" `Quick test_kind_roundtrip

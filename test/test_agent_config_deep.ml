@@ -325,20 +325,20 @@ let test_resolve_provider_a () =
     Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "provider_a" None
   in
   match cfg.provider with
-  | Provider.Anthropic ->
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "provider id" "agent_llm_a" name;
     Alcotest.(check string) "model_id" "agent_llm_a-sonnet" cfg.model_id;
     Alcotest.(check string) "api_key_env" "PROVIDER_A_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected Anthropic"
+  | _ -> Alcotest.fail "expected registered provider"
 ;;
 
 let test_resolve_provider_d () =
   let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d" None in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; auth_header; _ } ->
-    Alcotest.(check string) "base_url" "https://api.provider_d.com" base_url;
-    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header;
-    Alcotest.(check string) "api_key_env" "PROVIDER_D_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected OpenAICompat"
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "not a built-in provider id" "provider_d" name;
+    Alcotest.(check string) "api_key_env preserves selector" "provider_d" cfg.api_key_env
+  | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
 let test_resolve_provider_d_custom_url () =
@@ -358,10 +358,10 @@ let test_resolve_provider_d_custom_url () =
 let test_resolve_other () =
   let cfg = Agent_config.resolve_provider ~model_id:"m1" "MY_CUSTOM_KEY" None in
   match cfg.provider with
-  | Provider.OpenAICompat { auth_header; _ } ->
-    Alcotest.(check string) "api_key_env" "MY_CUSTOM_KEY" cfg.api_key_env;
-    Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header
-  | _ -> Alcotest.fail "expected OpenAICompat"
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "provider id" "my_custom_key" name;
+    Alcotest.(check string) "api_key_env" "MY_CUSTOM_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
 let test_resolve_other_custom_url () =
@@ -457,22 +457,12 @@ let test_resolve_provider_f_preserves_kind () =
 (* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
 
 let test_resolve_openai_compat_ssot () =
-  (* "openai_compat" is the canonical string emitted by
-     Provider_kind.to_string OpenAI_compat. Before the parser dispatch,
-     it fell through to the registry fallback and ended up with
-     api_key_env = "openai_compat" — a meaningless value. *)
   let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "openai_compat" None in
   match cfg.provider with
-  | Provider.OpenAICompat { base_url; _ } ->
-    Alcotest.(check string)
-      "canonical form reaches provider_d branch"
-      "https://api.provider_d.com"
-      base_url;
-    Alcotest.(check string)
-      "api_key_env is PROVIDER_D_API_KEY"
-      "PROVIDER_D_API_KEY"
-      cfg.api_key_env
-  | _ -> Alcotest.fail "expected OpenAICompat for openai_compat"
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "kind string is not provider id" "openai_compat" name;
+    Alcotest.(check string) "api_key_env preserves input" "openai_compat" cfg.api_key_env
+  | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
 let test_resolve_provider_a_case_insensitive () =
@@ -484,12 +474,16 @@ let test_resolve_provider_a_case_insensitive () =
          Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" input None
        in
        match cfg.provider with
-       | Provider.Anthropic ->
+       | Provider.Custom_registered { name } ->
+         Alcotest.(check string)
+           (Printf.sprintf "provider id for %S" input)
+           "agent_llm_a"
+           name;
          Alcotest.(check string)
            (Printf.sprintf "api_key_env for %S" input)
            "PROVIDER_A_API_KEY"
            cfg.api_key_env
-       | _ -> Alcotest.failf "expected Anthropic for %S" input)
+       | _ -> Alcotest.failf "expected registered provider for %S" input)
     [ "Anthropic"; " PROVIDER_A "; "provider_a" ]
 ;;
 
@@ -502,26 +496,25 @@ let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
     Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "agent_llm_a" None
   in
   match cfg.provider with
-  | Provider.Anthropic ->
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "provider id" "agent_llm_a" name;
     Alcotest.(check string)
-      "api_key_env routed to Anthropic"
+      "api_key_env routed to registered provider"
       "PROVIDER_A_API_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected Anthropic for agent_llm_a alias"
+  | _ -> Alcotest.fail "expected registered provider for agent_llm_a alias"
 ;;
 
 let test_resolve_unknown_still_goes_to_registry_fallback () =
-  (* Non-canonical non-alias input should continue to flow through the
-     registry-or-fallback path. This guards against over-eager parser
-     capture when we add more kinds. *)
   let cfg = Agent_config.resolve_provider ~model_id:"m1" "TOTALLY_BOGUS_KEY" None in
   match cfg.provider with
-  | Provider.OpenAICompat _ ->
+  | Provider.Custom_registered { name } ->
+    Alcotest.(check string) "provider id" "totally_bogus_key" name;
     Alcotest.(check string)
       "api_key_env preserves input"
       "TOTALLY_BOGUS_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected registry fallback OpenAICompat"
+  | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
 let test_resolve_ollama_custom_url_stays_no_auth () =
@@ -628,8 +621,8 @@ let () =
       , [ tc "local" test_resolve_local
         ; tc "local custom url" test_resolve_local_custom_url
         ; tc "provider_a" test_resolve_provider_a
-        ; tc "provider_d" test_resolve_provider_d
-        ; tc "provider_d custom url" test_resolve_provider_d_custom_url
+        ; tc "provider_d is not built in" test_resolve_provider_d
+        ; tc "explicit provider_d custom url" test_resolve_provider_d_custom_url
         ; tc "other" test_resolve_other
         ; tc "other custom url" test_resolve_other_custom_url
         ; tc "other OpenAI /v1 base url" test_resolve_other_openai_v1_base_url
@@ -637,13 +630,13 @@ let () =
         ; tc "provider_i custom url" test_resolve_provider_i_custom_url
         ; tc "provider_g" test_resolve_provider_g
         ; tc "provider_f preserves kind (#1003)" test_resolve_provider_f_preserves_kind
-        ; tc "openai_compat SSOT string" test_resolve_openai_compat_ssot
+        ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
         ; tc "provider_a case-insensitive" test_resolve_provider_a_case_insensitive
         ; tc
             "agent_llm_a alias routes to Anthropic"
             test_resolve_agent_llm_a_alias_routes_to_provider_a
         ; tc
-            "unknown still goes to registry fallback"
+            "unknown stays unresolved provider id"
             test_resolve_unknown_still_goes_to_registry_fallback
         ; tc
             "ollama custom url stays no-auth"
