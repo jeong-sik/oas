@@ -1,8 +1,7 @@
 (** Runtime protocol server: reads NDJSON from stdin, dispatches requests.
 
-    Entry point for the oas_runtime binary. Integrates with
-    {!Runtime_server_types} and {!Runtime_server_resolve}
-    for request handling.
+    Library entry point for stdio runtime serving. Integrates with
+    {!Runtime_server_types} and {!Runtime_server_resolve} for request handling.
 
     @stability Internal
     @since 0.93.1 *)

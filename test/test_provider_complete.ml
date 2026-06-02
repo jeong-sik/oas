@@ -506,7 +506,6 @@ let test_provider_c_direct_tool_result_uses_text_blocks () =
   let open Yojson.Safe.Util in
   let replay = json |> member "messages" |> index 1 in
   let block = replay |> member "content" |> index 0 in
-  let content_blocks = block |> member "content" |> to_list in
   Alcotest.(check string)
     "tool result role serialized as user"
     "user"
@@ -519,15 +518,10 @@ let test_provider_c_direct_tool_result_uses_text_blocks () =
     "tool_use id preserved"
     "tool_1"
     (block |> member "tool_use_id" |> to_string);
-  Alcotest.(check int) "tool_result content block count" 1 (List.length content_blocks);
   Alcotest.(check string)
-    "nested text block type"
-    "text"
-    (List.hd content_blocks |> member "type" |> to_string);
-  Alcotest.(check string)
-    "nested text block content"
+    "tool_result content"
     "5"
-    (List.hd content_blocks |> member "text" |> to_string)
+    (block |> member "content" |> to_string)
 ;;
 
 let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
@@ -606,7 +600,7 @@ let test_config_default_paths () =
   let anth = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "provider_a path" "/v1/messages" anth.request_path;
   let provider_c = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "provider_c path" "/v1/messages" provider_c.request_path;
+  Alcotest.(check string) "provider_c path" "/v1/chat/completions" provider_c.request_path;
   let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "provider_d path" "/v1/chat/completions" oai.request_path
 ;;
@@ -1050,7 +1044,7 @@ let () =
             `Quick
             test_provider_c_direct_with_tools_and_thinking
         ; test_case
-            "provider_c direct tool_result uses text blocks"
+            "provider_c direct tool_result uses scalar text"
             `Quick
             test_provider_c_direct_tool_result_uses_text_blocks
         ; test_case "stream flag" `Quick test_provider_d_stream_flag

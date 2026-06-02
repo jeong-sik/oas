@@ -16,6 +16,17 @@ let with_env name value f =
     f
 ;;
 
+let check_no_header label name headers =
+  Alcotest.(check (option string)) label None (List.assoc_opt name headers)
+;;
+
+let check_auth_headers label expected (pc : Llm_provider.Provider_config.t) =
+  Alcotest.(check (list (pair string string)))
+    label
+    expected
+    (Provider.auth_headers_only_for_kind ~kind:pc.kind ~api_key:pc.api_key)
+;;
+
 let test_missing_env_var () =
   (* Anthropic provider checks env var; nonexistent key -> Error *)
   let cfg : Provider.config =
@@ -101,8 +112,13 @@ let test_openai_compat_resolve_success () =
   | Ok (base_url, api_key, headers) ->
     Alcotest.(check string) "base_url" "https://openrouter.ai/api/v1" base_url;
     Alcotest.(check string) "api_key" "or-test-key" api_key;
-    let auth = List.assoc "Authorization" headers in
-    Alcotest.(check string) "bearer token" "Bearer or-test-key" auth
+    check_no_header "auth omitted from resolve headers" "Authorization" headers;
+    Alcotest.(check (list (pair string string)))
+      "auth header derived"
+      [ "Authorization", "Bearer or-test-key" ]
+      (Provider.auth_headers_only_for_kind
+         ~kind:Llm_provider.Provider_config.OpenAI_compat
+         ~api_key)
   | Error e -> Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
 ;;
 
@@ -120,14 +136,15 @@ let test_openai_compat_resolve_missing_key () =
     }
   in
   match Provider.resolve cfg with
-  | Error (Error.Config (MissingEnvVar { var_name })) ->
-    Alcotest.(check string)
-      "error mentions env var"
-      "AGENT_SDK_TEST_NONEXISTENT_COMPAT_KEY_z0z0"
-      var_name
+  | Ok (_base_url, api_key, headers) ->
+    Alcotest.(check string) "empty key" "" api_key;
+    Alcotest.(check (list (pair string string)))
+      "non-auth headers"
+      [ "Content-Type", "application/json" ]
+      headers
   | Error e ->
-    Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
-  | Ok _ -> Alcotest.fail "should fail when env var missing"
+    Alcotest.fail
+      (Printf.sprintf "missing OpenAI-compatible key is allowed: %s" (Error.to_string e))
 ;;
 
 let test_provider_a_headers () =
@@ -137,9 +154,14 @@ let test_provider_a_headers () =
     { provider = Anthropic; model_id = "test"; api_key_env = env_var }
   in
   match Provider.resolve cfg with
-  | Ok (_, _, headers) ->
-    let xkey = List.assoc "x-api-key" headers in
-    Alcotest.(check string) "x-api-key header" "sk-ant-hdr-test" xkey;
+  | Ok (_, api_key, headers) ->
+    check_no_header "x-api-key omitted from resolve headers" "x-api-key" headers;
+    Alcotest.(check (list (pair string string)))
+      "auth header derived"
+      [ "x-api-key", "sk-ant-hdr-test" ]
+      (Provider.auth_headers_only_for_kind
+         ~kind:Llm_provider.Provider_config.Anthropic
+         ~api_key);
     let version = List.assoc "provider_a-version" headers in
     Alcotest.(check string) "provider_a-version" "2023-06-01" version;
     let ct = List.assoc "Content-Type" headers in
@@ -523,8 +545,13 @@ let test_openai_compat_static_token () =
   match Provider.resolve cfg with
   | Ok (_, key, headers) ->
     Alcotest.(check string) "static key" "static-key-123" key;
-    let auth = List.assoc "Authorization" headers in
-    Alcotest.(check string) "bearer" "Bearer static-key-123" auth
+    check_no_header "auth omitted from resolve headers" "Authorization" headers;
+    Alcotest.(check (list (pair string string)))
+      "auth header derived"
+      [ "Authorization", "Bearer static-key-123" ]
+      (Provider.auth_headers_only_for_kind
+         ~kind:Llm_provider.Provider_config.OpenAI_compat
+         ~api_key:key)
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -590,10 +617,11 @@ let test_provider_config_of_agent_provider_a () =
     Alcotest.(check string) "model_id" "agent_llm_a-sonnet-4-20250514" pc.model_id;
     Alcotest.(check string) "api_key" "sk-ant-adapter-test" pc.api_key;
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
-    Alcotest.(check bool)
-      "x-api-key header present"
-      true
-      (List.mem ("x-api-key", "sk-ant-adapter-test") pc.headers);
+    check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
+    check_auth_headers
+      "x-api-key auth header derived"
+      [ "x-api-key", "sk-ant-adapter-test" ]
+      pc;
     Alcotest.(check bool)
       "provider_a-version header present"
       true
@@ -640,10 +668,11 @@ let test_provider_config_of_agent_openai_compat_collapses () =
       "https://generativelanguage.googleapis.com/v1beta/provider_d"
       pc.base_url;
     Alcotest.(check string) "request_path preserved" "/chat/completions" pc.request_path;
-    Alcotest.(check bool)
-      "authorization header preserved"
-      true
-      (List.mem ("Authorization", "Bearer sk-oai-adapter-test") pc.headers);
+    check_no_header "authorization omitted from config headers" "Authorization" pc.headers;
+    check_auth_headers
+      "authorization auth header derived"
+      [ "Authorization", "Bearer sk-oai-adapter-test" ]
+      pc;
     Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
@@ -689,10 +718,11 @@ let test_provider_config_of_agent_none_fallback () =
       "https://api.provider_a.com"
       pc.base_url;
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
-    Alcotest.(check bool)
-      "x-api-key header present"
-      true
-      (List.mem ("x-api-key", "sk-ant-default-fallback") pc.headers)
+    check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
+    check_auth_headers
+      "x-api-key auth header derived"
+      [ "x-api-key", "sk-ant-default-fallback" ]
+      pc
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -766,10 +796,11 @@ let test_provider_config_of_agent_custom_registered_provider_c_preserves_headers
       true
       (pc.kind = Llm_provider.Provider_config.Kimi);
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
-    Alcotest.(check bool)
-      "x-api-key header present"
-      true
-      (List.mem ("x-api-key", "provider_c-provider-test-key") pc.headers);
+    check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
+    check_auth_headers
+      "x-api-key auth header derived"
+      [ "x-api-key", "provider_c-provider-test-key" ]
+      pc;
     Alcotest.(check bool)
       "provider_a-version header present"
       true
@@ -801,10 +832,14 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
           "uses cloud-specific key first"
           "ollama-cloud-provider-test-key"
           pc.api_key;
-        Alcotest.(check bool)
-          "Authorization header present"
-          true
-          (List.mem ("Authorization", "Bearer ollama-cloud-provider-test-key") pc.headers)
+        check_no_header
+          "authorization omitted from config headers"
+          "Authorization"
+          pc.headers;
+        check_auth_headers
+          "authorization auth header derived"
+          [ "Authorization", "Bearer ollama-cloud-provider-test-key" ]
+          pc
       | Error e ->
         Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
 ;;
@@ -827,10 +862,14 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
           "uses OLLAMA_API_KEY fallback"
           "ollama-api-fallback-key"
           pc.api_key;
-        Alcotest.(check bool)
-          "Authorization header present"
-          true
-          (List.mem ("Authorization", "Bearer ollama-api-fallback-key") pc.headers)
+        check_no_header
+          "authorization omitted from config headers"
+          "Authorization"
+          pc.headers;
+        check_auth_headers
+          "authorization auth header derived"
+          [ "Authorization", "Bearer ollama-api-fallback-key" ]
+          pc
       | Error e ->
         Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
 ;;

@@ -589,7 +589,7 @@ let test_complete_transport_http_metrics_ok () =
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
       (match !status_calls with
-       | [ ("provider_d", "model-d-4", 200) ] -> Eio.Switch.fail sw Exit
+       | [ ("openai_compat", "model-d-4", 200) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, code) ] -> fail (Printf.sprintf "expected 200, got %d" code)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected Ok"
@@ -620,7 +620,7 @@ let test_complete_transport_http_metrics_error () =
     | Error (Http_client.HttpError { code; _ }) ->
       check int "status 429" 429 code;
       (match !status_calls with
-       | [ ("provider_d", "model-d-4", 429) ] -> Eio.Switch.fail sw Exit
+       | [ ("openai_compat", "model-d-4", 429) ] -> Eio.Switch.fail sw Exit
        | [ (_, _, seen) ] -> fail (Printf.sprintf "expected 429, got %d" seen)
        | _ -> fail "expected exactly one transport status call")
     | Error _ -> fail "expected HttpError"
@@ -628,7 +628,7 @@ let test_complete_transport_http_metrics_error () =
   | Exit -> ()
 ;;
 
-let test_complete_transport_cli_does_not_emit_status () =
+let test_complete_transport_mock_emits_status () =
   Eio_main.run
   @@ fun env ->
   try
@@ -650,7 +650,7 @@ let test_complete_transport_cli_does_not_emit_status () =
     let transport = make_transport (Ok (mock_transport_response "cli ok")) in
     match Complete.complete ~sw ~net:env#net ~transport ~config ~messages ~metrics () with
     | Ok _ ->
-      check int "cli transport emits no status" 0 !hits;
+      check int "mock transport emits status" 1 !hits;
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
   with
@@ -829,14 +829,14 @@ let test_complete_stream_metrics () =
       check int "first chunk count" 1 (List.length !first_chunks);
       (match !first_chunks with
        | [ (provider, model_id, ttfrc_ms) ] ->
-         check string "provider" "provider_a" provider;
+         check string "provider" "anthropic" provider;
          check string "model_id" "test-model" model_id;
          check bool "ttfrc non-negative" true (ttfrc_ms >= 0.0)
        | _ -> fail "expected one first chunk");
       check bool "inter chunk metrics" true (List.length !inter_chunks > 0);
       List.iter
         (fun (provider, model_id, chunk_index, inter_chunk_ms) ->
-           check string "inter provider" "provider_a" provider;
+           check string "inter provider" "anthropic" provider;
            check string "inter model_id" "test-model" model_id;
            check bool "chunk_index non-negative" true (chunk_index >= 0);
            check bool "inter chunk non-negative" true (inter_chunk_ms >= 0.0))
@@ -970,9 +970,9 @@ let () =
             `Quick
             test_complete_transport_http_metrics_error
         ; test_case
-            "transport cli stays silent"
+            "transport mock emits status"
             `Quick
-            test_complete_transport_cli_does_not_emit_status
+            test_complete_transport_mock_emits_status
         ; test_case "global default is noop" `Quick test_metrics_global_default_is_noop
         ; test_case "global set and get" `Quick test_metrics_global_set_and_get
         ; test_case

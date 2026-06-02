@@ -142,8 +142,8 @@ let test_provider_c_custom_registered_becomes_provider_c_provider_config () =
            (Agent_sdk.Error.to_string e))
     | Ok cfg ->
       Alcotest.(check string)
-        "kind becomes provider_c"
-        "provider_c"
+        "kind becomes kimi"
+        "kimi"
         (Llm_provider.Provider_config.string_of_provider_kind cfg.kind);
       Alcotest.(check string) "auto model" "provider_c-for-coding" cfg.model_id;
       Alcotest.(check string) "path" "/v1/messages" cfg.request_path)
@@ -159,12 +159,12 @@ let test_provider_a_auto_and_explicit_models () =
       let explicit = { auto with model_id = "agent_llm_a-explicit" } in
       (match Agent_sdk.Provider_bridge.to_provider_config auto with
        | Ok cfg ->
-         check_kind "provider_a kind" "provider_a" cfg;
+         check_kind "anthropic kind" "anthropic" cfg;
          Alcotest.(check string) "auto model" "agent_llm_a-test-default" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       match Agent_sdk.Provider_bridge.to_provider_config explicit with
       | Ok cfg ->
-        check_kind "provider_a explicit kind" "provider_a" cfg;
+        check_kind "anthropic explicit kind" "anthropic" cfg;
         Alcotest.(check string) "explicit model" "agent_llm_a-explicit" cfg.model_id
       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
 ;;
@@ -195,12 +195,12 @@ let test_openai_compat_auto_model_branches () =
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
        | Ok cfg ->
-         check_kind "provider_f kind" "provider_f" cfg;
+         check_kind "gemini kind" "gemini" cfg;
          Alcotest.(check string) "provider_f prefixed" "provider_f-auto" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       match Agent_sdk.Provider_bridge.to_provider_config provider_f_explicit with
       | Ok cfg ->
-        check_kind "provider_f explicit kind" "provider_f" cfg;
+        check_kind "gemini explicit kind" "gemini" cfg;
         Alcotest.(check string) "provider_f explicit" "provider_f-2.5-pro" cfg.model_id
       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
 ;;
@@ -217,7 +217,7 @@ let test_provider_c_explicit_model_and_non_coding_base_url () =
       in
       match Agent_sdk.Provider_bridge.to_provider_config non_coding with
       | Ok cfg ->
-        check_kind "non-coding base routes as provider_a" "provider_a" cfg;
+        check_kind "non-coding base routes as anthropic" "anthropic" cfg;
         Alcotest.(check string) "explicit provider_c model" "provider_c-k2" cfg.model_id
       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
 ;;
