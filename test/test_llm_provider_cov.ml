@@ -761,6 +761,12 @@ let test_constants_inference_profiles () =
     Alcotest.(check (option (float 0.001))) (label ^ " min_p") None profile.min_p
   in
   check_profile "coordinator" 0.3 500 Constants.Inference_profile.coordinator_default;
+  check_profile "cascade alias" 0.3 500 Constants.Inference_profile.cascade_default;
+  Alcotest.(check bool)
+    "cascade_default aliases coordinator_default"
+    true
+    (Constants.Inference_profile.cascade_default
+     = Constants.Inference_profile.coordinator_default);
   check_profile "agent" 0.7 16_384 Constants.Inference_profile.agent_default;
   check_profile "low_variance" 0.1 2048 Constants.Inference_profile.low_variance;
   check_profile "worker" 0.2 16_384 Constants.Inference_profile.worker_default;
