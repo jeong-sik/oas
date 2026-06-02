@@ -26,7 +26,7 @@ end
     temperature / max_tokens defaults used by both the SDK and
     downstream coordinators.
 
-    - [cascade_default]: lightweight coordinator calls (health, routing).
+    - [coordinator_default]: lightweight coordinator calls (health, routing).
     - [agent_default]: full agent turn execution.
     - [low_variance]: evaluation, judging, deterministic extraction. *)
 module Inference_profile = struct
@@ -54,7 +54,7 @@ module Inference_profile = struct
     { temperature = 0.0; max_tokens = 0; top_p = None; top_k = None; min_p = None }
   ;;
 
-  let cascade_default = { no_sampling_overrides with temperature = 0.3; max_tokens = 500 }
+  let coordinator_default = { no_sampling_overrides with temperature = 0.3; max_tokens = 500 }
 
   let agent_default =
     { no_sampling_overrides with temperature = 0.7; max_tokens = 16_384 }

@@ -765,7 +765,7 @@ let test_constants_inference_profiles () =
     Alcotest.(check (option int)) (label ^ " top_k") None profile.top_k;
     Alcotest.(check (option (float 0.001))) (label ^ " min_p") None profile.min_p
   in
-  check_profile "cascade" 0.3 500 Constants.Inference_profile.cascade_default;
+  check_profile "coordinator" 0.3 500 Constants.Inference_profile.coordinator_default;
   check_profile "agent" 0.7 16_384 Constants.Inference_profile.agent_default;
   check_profile "low_variance" 0.1 2048 Constants.Inference_profile.low_variance;
   check_profile "worker" 0.2 16_384 Constants.Inference_profile.worker_default;

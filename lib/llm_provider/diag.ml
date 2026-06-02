@@ -20,7 +20,7 @@ let env_bool name =
      | _ -> false)
 ;;
 
-let debug_enabled = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_DIAG"
+let debug_enabled = env_bool "OAS_LLM_PROVIDER_DEBUG"
 
 let default_sink (lvl : level) ~ctx msg =
   match lvl with

@@ -35,7 +35,7 @@ val set_sink : (level -> ctx:string -> string -> unit) -> unit
 val with_sink : (level -> ctx:string -> string -> unit) -> (unit -> 'a) -> 'a
 
 (** Emit diagnostics at the given level.
-    [ctx] is the module/subsystem name (e.g. "cascade_executor"). *)
+    [ctx] is the module/subsystem name (e.g. "llm_provider"). *)
 val debug : string -> ('a, unit, string, unit) format4 -> 'a
 
 val info : string -> ('a, unit, string, unit) format4 -> 'a
