@@ -467,13 +467,6 @@
 ; them into the rest of the suite.
 
 (test
- (name test_complete_cascade)
- (modules test_complete_cascade)
- (libraries agent_sdk alcotest eio_main)
- (action
-  (run %{test})))
-
-(test
  (name test_streaming)
  (modules test_streaming)
  (libraries agent_sdk alcotest))

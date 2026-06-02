@@ -1056,9 +1056,9 @@ let complete
 (* ── Retry ───────────────────────────────────────────── *)
 
 (* Retry policy classification moved to {!Retry_classify}; re-exports
-   below preserve the public surface that [Complete_cascade] and
-   [test_complete_ext] import as [Complete.retry_config] /
-   [Complete.is_retryable] etc.  Type re-export is non-private so
+   below preserve the public surface that [test_complete_ext] imports
+   as [Complete.retry_config] / [Complete.is_retryable] etc.  Type
+   re-export is non-private so
    record literals built against [Complete.retry_config] continue to
    match [Retry_classify.retry_config]. *)
 type retry_config = Retry_classify.retry_config =
