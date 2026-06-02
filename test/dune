@@ -516,7 +516,6 @@
  (modules test_builder)
  (libraries agent_sdk alcotest eio_main))
 
-
 (test
  (name test_full_pipeline_cov)
  (modules test_full_pipeline_cov)
@@ -536,3 +535,8 @@
  (name test_agent_cancellation_tla_parity)
  (modules test_agent_cancellation_tla_parity)
  (libraries agent_sdk alcotest))
+
+(test
+ (name test_runtime_server_resolve)
+ (modules test_runtime_server_resolve)
+ (libraries agent_sdk alcotest unix))

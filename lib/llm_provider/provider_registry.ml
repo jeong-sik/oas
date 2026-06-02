@@ -82,9 +82,7 @@ let command_in_path ?path name =
 
 let catalog_command_available (entry : Provider_catalog.entry) =
   match entry.transport with
-  | Provider_catalog.Http
-  | Provider_catalog.Managed
-  -> true
+  | Provider_catalog.Http | Provider_catalog.Managed -> true
 ;;
 
 let catalog_auth_available (entry : Provider_catalog.entry) =
@@ -404,9 +402,7 @@ let default () =
     { name = "provider_c"
     ; defaults = provider_c_defaults
     ; max_context =
-        max_context_from_capabilities
-          ~default:262_144
-          Capabilities.kimi_capabilities
+        max_context_from_capabilities ~default:262_144 Capabilities.kimi_capabilities
     ; capabilities = Capabilities.kimi_capabilities
     ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
     };
@@ -490,5 +486,5 @@ let provider_name_of_config (config : Provider_config.t) =
           && String.equal (String.trim entry.defaults.request_path) request_path)
       with
       | Some entry -> entry.name
-      | None -> "provider_d")
+      | None -> "openai_compat")
 ;;

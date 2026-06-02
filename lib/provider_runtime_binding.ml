@@ -170,6 +170,38 @@ let catalog_names entries =
 
 let sort_bindings bindings = List.sort (fun a b -> String.compare a.id b.id) bindings
 
+let builtin_provider_aliases =
+  [ "anthropic", "agent_llm_a"
+  ; "claude", "agent_llm_a"
+  ; "provider_a", "agent_llm_a"
+  ; "moonshot", "provider_c"
+  ; "kimi", "provider_c"
+  ; "gemini", "provider_f"
+  ; "glm", "provider_k"
+  ; "zai", "provider_k"
+  ; "zhipu", "provider_k"
+  ; "glm-coding", "provider_k-coding"
+  ; "zai-coding", "provider_k-coding"
+  ; "zhipu-coding", "provider_k-coding"
+  ; "openrouter", "provider_o_router"
+  ; "deepseek", "provider_g"
+  ; "groq", "provider_i"
+  ; "dashscope", "provider_h"
+  ; "qwen", "provider_h"
+  ]
+;;
+
+let builtin_alias_target label = List.assoc_opt (normalize label) builtin_provider_aliases
+
+let binding_by_exact_label registry normalized =
+  match PC.global () with
+  | Some catalog ->
+    (match PC.lookup catalog normalized with
+     | Some entry -> Some (binding_of_catalog_entry registry entry)
+     | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
+  | None -> Option.map binding_of_registry_entry (PR.find registry normalized)
+;;
+
 let all () =
   let registry = PR.default () in
   let catalog = catalog_entries () in
@@ -190,12 +222,22 @@ let find label =
   then None
   else (
     let registry = PR.default () in
-    match PC.global () with
-    | Some catalog ->
-      (match PC.lookup catalog normalized with
-       | Some entry -> Some (binding_of_catalog_entry registry entry)
-       | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
-    | None -> Option.map binding_of_registry_entry (PR.find registry normalized))
+    match binding_by_exact_label registry normalized with
+    | Some _ as binding -> binding
+    | None ->
+      (match builtin_alias_target normalized with
+       | Some target -> binding_by_exact_label registry target
+       | None -> None))
+;;
+
+let known_labels () =
+  let binding_labels =
+    all ()
+    |> List.concat_map (fun binding -> binding.id :: binding.aliases)
+    |> List.map normalize
+  in
+  let alias_labels = List.map fst builtin_provider_aliases in
+  List.sort_uniq String.compare (binding_labels @ alias_labels)
 ;;
 
 let normalize_endpoint_url value =
@@ -254,10 +296,33 @@ let binding_for_provider_config (cfg : PConfig.t) =
   let registry = PR.default () in
   match catalog_binding_for_provider_config registry cfg with
   | Some binding -> Some binding
-  | None ->
-    (match registry_binding_for_provider_config registry cfg with
-     | Some binding -> Some binding
-     | None -> PR.provider_name_of_config cfg |> find)
+  | None -> registry_binding_for_provider_config registry cfg
+;;
+
+let provider_id_of_provider_config cfg =
+  match binding_for_provider_config cfg with
+  | Some binding -> binding.id
+  | None -> PR.provider_name_of_config cfg
+;;
+
+let provider_id_of_legacy_config (cfg : Provider.config) =
+  match cfg.provider with
+  | Provider.Local _ -> "local"
+  | Provider.Anthropic -> "agent_llm_a"
+  | Provider.Custom_registered { name } ->
+    (match find name with
+     | Some binding -> binding.id
+     | None -> normalize name)
+  | Provider.OpenAICompat { base_url; path; _ } ->
+    let provider_config =
+      PConfig.make
+        ~kind:PConfig.OpenAI_compat
+        ~model_id:cfg.model_id
+        ~base_url
+        ~request_path:path
+        ()
+    in
+    provider_id_of_provider_config provider_config
 ;;
 
 let base_capabilities_of_kind = function

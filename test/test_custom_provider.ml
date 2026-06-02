@@ -183,7 +183,7 @@ let test_model_spec_registered () =
 let test_lifecycle_runtime_name () =
   let cfg : Provider.config = Provider.custom_provider ~name:"life-test" () in
   let name = Agent_lifecycle.provider_runtime_name (Some cfg) in
-  Alcotest.(check (option string)) "runtime name" (Some "custom:life-test") name
+  Alcotest.(check (option string)) "runtime name" (Some "life-test") name
 ;;
 
 (* ── Test runner ────────────────────────────────────────── *)
