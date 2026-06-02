@@ -91,9 +91,8 @@ type t =
       {"30m"}, {"24h"}). [None] falls back to the
       [OAS_OLLAMA_KEEP_ALIVE] env var, then to the SDK default
       ({"-1"}, permanent). Honored only by the Ollama backend; ignored
-      by other kinds. Cascade configs may surface this so a profile
-      can declare its own residency policy without a global env
-      variable.
+      by other kinds. Profiles may surface this field to declare
+      their own residency policy without a global env variable.
       @since 0.171.0 *)
   ; internal_model_rotation_count : int option
     (** Number of model attempts the subprocess CLI is configured to
@@ -105,9 +104,9 @@ type t =
       through 5 candidate models per [agent_code exec] invocation and
       returns only the final attempt's outcome. Without this hint a
       single CLI call appears as one provider attempt to the
-      downstream cascade observer, even though it can take ~180s
+      downstream observer, even though it can take ~180s
       worst-case (5 model retries with internal backoff). Consumers
-      that want to render the rotation in cascade traces or apply
+      that want to render the rotation in traces or apply
       a per-attempt timeout budget can read this hint instead of
       hard-coding a Agent_code-specific constant.
 
@@ -123,8 +122,8 @@ type t =
       in tokens. Drives KV cache RAM allocation. [None] leaves the
       field unset so Ollama uses its own default (Modelfile or 4096).
       Honored only by the Ollama backend; ignored by other kinds.
-      Cascade configs may surface this so a small-model profile can
-      pick a smaller window than a long-context profile.
+      Profiles may surface this field so small-model configurations
+      can pick a smaller window than long-context configurations.
       @since 0.171.0 *)
   ; seed : int option
     (** Deterministic seed for providers that support it. When [Some n],
@@ -232,7 +231,7 @@ val max_turns_hard_cap : provider_kind -> int option
 val clamp_max_turns : provider_kind -> int -> int
 
 (** Provider-specific wall-clock budget hint for one provider attempt.
-    This is advisory metadata for cascade/orchestration layers; transports
+    This is advisory metadata for orchestration layers; transports
     still apply their own lower-level connect/body/idle timeouts. Ollama has
     no default hard attempt timeout because local model load/generation can
     legitimately exceed fixed cloud-style budgets. *)

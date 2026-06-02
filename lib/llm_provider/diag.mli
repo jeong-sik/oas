@@ -5,8 +5,9 @@
     own structured logging pipeline.
 
     Debug-level messages are gated by [OAS_LLM_PROVIDER_DEBUG=1]
-    when using the default sink. Consumer sinks receive all levels
-    and apply their own filtering.
+    or the compatibility alias [OAS_CASCADE_DIAG=1] when using the
+    default sink. Consumer sinks receive all levels and apply their
+    own filtering.
 
     @since 0.131.0 *)
 
@@ -35,7 +36,7 @@ val set_sink : (level -> ctx:string -> string -> unit) -> unit
 val with_sink : (level -> ctx:string -> string -> unit) -> (unit -> 'a) -> 'a
 
 (** Emit diagnostics at the given level.
-    [ctx] is the module/subsystem name (e.g. "cascade_executor"). *)
+    [ctx] is the module/subsystem name (e.g. "llm_provider"). *)
 val debug : string -> ('a, unit, string, unit) format4 -> 'a
 
 val info : string -> ('a, unit, string, unit) format4 -> 'a

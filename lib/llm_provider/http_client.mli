@@ -47,7 +47,7 @@ type stream_idle_state =
     {!TimeoutError} with one of these phases so downstream policy can
     distinguish admission checks, scheduler queueing, first-token wait,
     streaming idleness, whole-call wall clocks, capacity backpressure,
-    transport/body deadlines, cascade attempt budgets, CLI stdout idleness,
+    transport/body deadlines, CLI stdout idleness,
     and generic caller budgets. *)
 type timeout_phase =
   | Admission
@@ -79,7 +79,7 @@ type timeout_phase =
     Distinct from {!network_error_kind}: the subprocess/API ran to
     completion and emitted a structured stop reason on stdout.  Burying
     these as [NetworkError] loses the information that downstream
-    cascades and per-provider budgets need to handle the condition
+    callers and per-provider budgets need to handle the condition
     gracefully (e.g. [Max_turns] should checkpoint and resume on the
     next cycle rather than fall back to another provider).
 
@@ -103,7 +103,7 @@ type provider_terminal_kind =
 (** Scope attached to provider failure classifications.
 
     This is deliberately about the failed lane, not about retry policy.
-    Retry/cascade policy lives above this transport layer. *)
+    Retry policy lives above this transport layer. *)
 type provider_failure_scope =
   | Failure_scope_model
   | Failure_scope_account
@@ -149,14 +149,14 @@ type http_error =
   | AcceptRejected of { reason : string }
   (** Provider kind requires a non-HTTP transport (CLI subprocess)
           but the caller did not inject one.  Distinct from
-          {!NetworkError} so cascades can treat it as a configuration
+          {!NetworkError} so callers can treat it as a configuration
           bug rather than a transient failure. *)
   | ProviderTerminal of
       { kind : provider_terminal_kind
       ; message : string
       }
   (** Provider reported a structured terminal condition on its
-          completion stream.  Distinct from {!NetworkError} so cascades
+          completion stream.  Distinct from {!NetworkError} so callers
           and the agent runtime can map it to the right semantic
           ({!Error.MaxTurnsExceeded}, {!Retry.InvalidRequest}, …)
           rather than treat it as a transient network failure.

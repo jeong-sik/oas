@@ -655,7 +655,7 @@ let complete_http
              deadline available on the non-streaming path.
            - No silent failure: on expiry we return a structured
              [TimeoutError { phase = Non_streaming_body }] whose message
-             identifies the body deadline, so cascade/retry layers treat it
+             identifies the body deadline, so retry layers treat it
              as retryable with operator-visible attribution. *)
         let post_response =
           match clock, body_timeout_s with
@@ -1056,9 +1056,9 @@ let complete
 (* ── Retry ───────────────────────────────────────────── *)
 
 (* Retry policy classification moved to {!Retry_classify}; re-exports
-   below preserve the public surface that [Complete_cascade] and
-   [test_complete_ext] import as [Complete.retry_config] /
-   [Complete.is_retryable] etc.  Type re-export is non-private so
+   below preserve the public surface that [test_complete_ext] imports
+   as [Complete.retry_config] / [Complete.is_retryable] etc.  Type
+   re-export is non-private so
    record literals built against [Complete.retry_config] continue to
    match [Retry_classify.retry_config]. *)
 type retry_config = Retry_classify.retry_config =
@@ -1554,7 +1554,7 @@ let complete_stream_http
                No silent failure: on expiry we raise an inner [Error]
                whose message carries the configured deadline, and the
                outer match below promotes it to
-               [TimeoutError { phase = Stream_body }] so the cascade/retry
+               [TimeoutError { phase = Stream_body }] so the retry
                layer treats it as retryable. *)
             match clock, body_timeout_s with
             | Some clk, Some timeout_s ->

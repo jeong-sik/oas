@@ -67,7 +67,7 @@ type options =
         deadline alone. Requires [clock] to be supplied; without a
         clock the wrapper is skipped and behaviour matches earlier
         versions. A timeout surfaces as
-        [TimeoutError { phase = Stream_body; _ }] which the cascade/retry
+        [TimeoutError { phase = Stream_body; _ }] which the retry
         layer treats as retryable.
         @since 0.181.0 *)
   ; execution_idle_timeout_s : float option

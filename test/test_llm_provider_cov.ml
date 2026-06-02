@@ -1,5 +1,5 @@
 (** Tests for llm_provider sub-library modules:
-    complete, cascade_config, api_common, backend_provider_f,
+    complete, api_common, backend_provider_f,
     capability_filter, capabilities.
 
     Focuses on pure functions and data construction only. *)
@@ -226,11 +226,6 @@ let test_default_retry_config () =
   Alcotest.(check (float 0.01)) "max_delay" 30.0 c.max_delay_sec;
   Alcotest.(check (float 0.01)) "backoff" 2.0 c.backoff_multiplier
 ;;
-
-(* NOTE: Cascade_config (parse_model_string, load_profile, etc.) was removed
-   from OAS in 0.144.0 as part of the MASC migration (boundary-allow). Multi-provider cascade
-   configuration and group orchestration are now MASC-owned (boundary-allow). Tests for that
-   module have been archived. *)
 
 (* ═══════════════════════════════════════════════════
    2. Api_common — constants, helpers, content block JSON
@@ -765,7 +760,13 @@ let test_constants_inference_profiles () =
     Alcotest.(check (option int)) (label ^ " top_k") None profile.top_k;
     Alcotest.(check (option (float 0.001))) (label ^ " min_p") None profile.min_p
   in
-  check_profile "cascade" 0.3 500 Constants.Inference_profile.cascade_default;
+  check_profile "coordinator" 0.3 500 Constants.Inference_profile.coordinator_default;
+  check_profile "cascade alias" 0.3 500 Constants.Inference_profile.cascade_default;
+  Alcotest.(check bool)
+    "cascade_default aliases coordinator_default"
+    true
+    (Constants.Inference_profile.cascade_default
+     = Constants.Inference_profile.coordinator_default);
   check_profile "agent" 0.7 16_384 Constants.Inference_profile.agent_default;
   check_profile "low_variance" 0.1 2048 Constants.Inference_profile.low_variance;
   check_profile "worker" 0.2 16_384 Constants.Inference_profile.worker_default;

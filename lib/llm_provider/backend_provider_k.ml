@@ -29,12 +29,12 @@ type provider_k_error =
 (** Classify Glm error by code first, message fallback.
     Code mapping from docs.z.ai/api-reference/api-code:
     - 1000-1004,1100-1120: auth/account
-    - 1200-1261: parameter/request (non-cascadeable)
+    - 1200-1261: parameter/request (terminal)
     - 1113: account arrears (quota)
-    - 1300: policy block (non-cascadeable)
-    - 1301: unsafe content (non-cascadeable)
-    - 1302,1303,1305,1312: transient rate/load limit (cascadeable+retryable)
-    - 1304,1308,1310: quota exhausted (cascadeable, not retryable)
+    - 1300: policy block (terminal)
+    - 1301: unsafe content (terminal)
+    - 1302,1303,1305,1312: transient rate/load limit (retryable)
+    - 1304,1308,1310: quota exhausted (not retryable)
     - 1309,1311,1313: subscription/plan (quota)
     - 1230,1234,500: server error *)
 let classify_provider_k_error ~code ~message : provider_k_error_class * bool =
