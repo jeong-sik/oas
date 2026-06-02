@@ -1165,8 +1165,11 @@ let%test "for_model_id_static qwen-3-7b prefix variant resolves" =
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-5-turbo has GLM-5 thinking limits" =
-  match for_model_id "provider_k-5-turbo" with
+(* GLM family tests use the static lookup for the same reason as the qwen3
+   tests above: they assert the built-in prefix table, not ambient runtime
+   manifest overrides. *)
+let%test "for_model_id_static provider_k-5-turbo has GLM-5 thinking limits" =
+  match for_model_id_static "provider_k-5-turbo" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1175,8 +1178,8 @@ let%test "for_model_id provider_k-5-turbo has GLM-5 thinking limits" =
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id "provider_k-5.1" with
+let%test "for_model_id_static provider_k-5.1 full model (reasoning + extended thinking)" =
+  match for_model_id_static "provider_k-5.1" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1184,8 +1187,8 @@ let%test "for_model_id provider_k-5.1 full model (reasoning + extended thinking)
   | None -> false
 ;;
 
-let%test "for_model_id bare glm-5 full model (reasoning + extended thinking)" =
-  match for_model_id "glm-5" with
+let%test "for_model_id_static bare glm-5 full model (reasoning + extended thinking)" =
+  match for_model_id_static "glm-5" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1193,8 +1196,8 @@ let%test "for_model_id bare glm-5 full model (reasoning + extended thinking)" =
   | None -> false
 ;;
 
-let%test "for_model_id bare glm-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id "glm-5.1" with
+let%test "for_model_id_static bare glm-5.1 full model (reasoning + extended thinking)" =
+  match for_model_id_static "glm-5.1" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1202,8 +1205,8 @@ let%test "for_model_id bare glm-5.1 full model (reasoning + extended thinking)" 
   | None -> false
 ;;
 
-let%test "for_model_id bare glm-5-turbo has GLM-5 thinking limits" =
-  match for_model_id "glm-5-turbo" with
+let%test "for_model_id_static bare glm-5-turbo has GLM-5 thinking limits" =
+  match for_model_id_static "glm-5-turbo" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1322,12 +1325,13 @@ let%test "capabilities_for_provider_label: provider_l" =
 (* ── Prefix ordering invariant ──────────────────── *)
 
 (* Each case is a model_id and the expected capability fingerprint.
-   If [for_model_id] reorders its prefix checks incorrectly, these
+   If [for_model_id_static] reorders its prefix checks incorrectly, these
    specific models would be matched by a more general prefix and
    return wrong capabilities. The test catches that. *)
-let%test "for_model_id: specific model IDs get correct (not shadowed) capabilities" =
+let%test "for_model_id_static: specific model IDs get correct (not shadowed) capabilities"
+  =
   let check model_id expected =
-    match for_model_id model_id with
+    match for_model_id_static model_id with
     | Some c -> expected c
     | None -> false
   in

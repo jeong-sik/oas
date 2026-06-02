@@ -42,13 +42,6 @@ jobs:
       - name: Test
         env:
           ALCOTEST_QUICK_TESTS: "1"
-          # Test stanzas wired in `test/dune` may exercise `Transport.find_runtime`,
-          # which searches `_build/default/bin/oas_runtime.exe` relative to the test's
-          # cwd. Under `dune runtest` each binary runs from a sandbox dir whose cwd
-          # is NOT the repo root, so the relative search misses the freshly-built
-          # runtime. Pin an absolute path so wired runtime/transport/sdk tests can
-          # locate the binary regardless of sandbox cwd.
-          OAS_RUNTIME_PATH: ${{ github.workspace }}/_build/default/bin/oas_runtime.exe
         run: opam exec -- dune runtest
 
       - name: Coverage report
@@ -62,10 +55,6 @@ jobs:
           # io_uring_queue_init under bisect eventually returns ENOMEM and
           # fails the step.
           EIO_BACKEND: "posix"
-          # See note on the Test step: dune sandbox cwd is not the repo root,
-          # so `Transport.find_runtime` cannot resolve the runtime via the
-          # default relative search. Pin the absolute path here too.
-          OAS_RUNTIME_PATH: ${{ github.workspace }}/_build/default/bin/oas_runtime.exe
         run: |
           mkdir -p _coverage
           # Pin coverage file location outside dune's per-test sandboxes.
@@ -76,11 +65,6 @@ jobs:
           # library to write files at a stable absolute prefix instead.
           export BISECT_FILE="$PWD/_coverage/bisect"
           opam exec -- dune clean
-          # Rebuild the runtime binary up-front so test stanzas that use
-          # `Transport.find_runtime` via `OAS_RUNTIME_PATH` find it. Without
-          # this explicit build, the runtest step below only rebuilds
-          # test-reachable targets and the bin/oas_runtime.exe path is empty.
-          opam exec -- dune build bin/oas_runtime.exe
           # `--instrument-with bisect_ppx` activates the
           # `(instrumentation (backend bisect_ppx))` stanza declared in
           # lib/dune. Without this flag dune ignores the stanza and no
@@ -173,7 +157,14 @@ jobs:
           # (24098/29746) after Stage G maintained provider bridge,
           # sessions, memory, and runtime evidence coverage. Raise the
           # floor to floor(81.01 - 1) = 80 per #1175 ratchet policy.
-          THRESHOLD=80
+          #
+          # 2026-06-02: after the provider/runtime hard cut removed the
+          # stale stdio runtime binary target, PR #1833 re-registered the
+          # surviving runtime orphan suites and local bisect measured
+          # 77.55% (21220/27362). Reset the ratchet floor to
+          # floor(77.55 - 1) = 76 until the removed binary/CLI-era
+          # coverage surface is replaced by in-process runtime coverage.
+          THRESHOLD=76
           if [ "$(echo "$COVERAGE < $THRESHOLD" | bc -l)" -eq 1 ]; then
             echo "::error::Coverage ${COVERAGE}% is below threshold ${THRESHOLD}%"
             exit 1
