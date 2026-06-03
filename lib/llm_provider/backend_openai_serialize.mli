@@ -11,6 +11,17 @@ val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val provider_k_messages_of_message : Types.message -> Yojson.Safe.t list
 val ollama_messages_of_message : ?model_id:string -> Types.message -> Yojson.Safe.t list
 val tool_choice_to_provider_d_json : Types.tool_choice -> Yojson.Safe.t
+
+(** [parallel_tool_calls_fields ~disable_parallel ~tools_present] returns the
+    OpenAI-compatible [parallel_tool_calls] body field: [("parallel_tool_calls",
+    `Bool false)] in a singleton list when parallel calls are disabled and tools
+    are present, else the empty list. Shared by the low-level request builder and
+    the agent-state-aware API layer so the wire shape is defined once. *)
+val parallel_tool_calls_fields
+  :  disable_parallel:bool
+  -> tools_present:bool
+  -> (string * Yojson.Safe.t) list
+
 val build_provider_d_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 
 (** Remove ToolResult blocks whose tool_use_id has no matching ToolUse

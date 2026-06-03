@@ -37,8 +37,7 @@ let warn_capability_drop ~model_id ~field =
 let effective_tool_choice (config : Provider_config.t) =
   match config.tool_choice with
   | Some None_ -> None
-  | Some choice ->
-    Some (Backend_openai_serialize.tool_choice_to_provider_d_json choice)
+  | Some choice -> Some (Backend_openai_serialize.tool_choice_to_provider_d_json choice)
   | None -> None
 ;;
 
@@ -129,8 +128,7 @@ let build_request
       | Provider_config.OpenAI_compat
       | Provider_config.Ollama
       | Provider_config.DashScope
-      | Provider_config.Gemini ->
-        Backend_openai_serialize.openai_messages_of_message
+      | Provider_config.Gemini -> Backend_openai_serialize.openai_messages_of_message
     in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -291,14 +289,14 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      ( "tools"
-      , `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts) )
+      ("tools", `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts))
       :: body
   in
   let body =
-    if config.disable_parallel_tool_use && tools <> []
-    then ("parallel_tool_calls", `Bool false) :: body
-    else body
+    Backend_openai_serialize.parallel_tool_calls_fields
+      ~disable_parallel:config.disable_parallel_tool_use
+      ~tools_present:(tools <> [])
+    @ body
   in
   let body =
     match response_format_of_config config with

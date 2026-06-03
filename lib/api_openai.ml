@@ -111,9 +111,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | Some top_k when capabilities.supports_top_k -> ("top_k", `Int top_k) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-      Llm_provider.Backend_openai.warn_capability_drop
-        ~model_id:model_str
-        ~field:"top_k";
+      Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"top_k";
       body_assoc
   in
   let body_assoc =
@@ -121,9 +119,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | Some min_p when capabilities.supports_min_p -> ("min_p", `Float min_p) :: body_assoc
     | None -> body_assoc
     | Some _ ->
-      Llm_provider.Backend_openai.warn_capability_drop
-        ~model_id:model_str
-        ~field:"min_p";
+      Llm_provider.Backend_openai.warn_capability_drop ~model_id:model_str ~field:"min_p";
       body_assoc
   in
   let body_assoc =
@@ -192,9 +188,10 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | None -> body_assoc
   in
   let body_assoc =
-    if config.config.disable_parallel_tool_use && capabilities.supports_tools
-    then ("parallel_tool_calls", `Bool false) :: body_assoc
-    else body_assoc
+    Llm_provider.Backend_openai_serialize.parallel_tool_calls_fields
+      ~disable_parallel:config.config.disable_parallel_tool_use
+      ~tools_present:capabilities.supports_tools
+    @ body_assoc
   in
   let body_assoc =
     match config.config.response_format with
