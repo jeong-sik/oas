@@ -1,6 +1,7 @@
 (** Turn pipeline: 6-stage decomposition of agent turn execution.
 
-    [Input] -> [Parse] -> [Route] -> [Execute] -> [Collect] -> [Output]
+    [Input] -> [Parse] -> [Route] -> [Collect] -> [Output]
+    (Execute runs inside Output on StopToolUse.)
 
     Each stage is a well-defined function.  The pipeline coordinates
     them, threading agent state through mutable updates.  This module
