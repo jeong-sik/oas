@@ -167,8 +167,15 @@ let llama_rr_counter = Atomic.make 0
 let next_llama_endpoint () =
   let endpoints = Atomic.get llama_endpoints_ref in
   let n = Array.length endpoints in
-  let idx = Atomic.fetch_and_add llama_rr_counter 1 mod n in
-  endpoints.(idx)
+  (* Guard n = 0 like the sibling [current_llama_endpoint]: without it [_ mod n]
+     raises Division_by_zero. The array is non-empty for every reachable call
+     today (initial_llama_endpoints falls back to a singleton), so this only
+     makes the degenerate case total and consistent with the peer. *)
+  if n = 0
+  then ""
+  else (
+    let idx = Atomic.fetch_and_add llama_rr_counter 1 mod n in
+    endpoints.(idx))
 ;;
 
 (** Peek at the current llama endpoint without advancing the round-robin.
