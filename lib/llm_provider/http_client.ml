@@ -830,13 +830,10 @@ let inject_stream_param body_str =
 let inject_stream_options_include_usage body_str =
   match Yojson.Safe.from_string body_str with
   | `Assoc fields ->
-    let without_existing =
-      List.filter (fun (k, _) -> k <> "stream_options") fields
-    in
+    let without_existing = List.filter (fun (k, _) -> k <> "stream_options") fields in
     Yojson.Safe.to_string
       (`Assoc
-          (("stream_options", `Assoc [ "include_usage", `Bool true ])
-           :: without_existing))
+          (("stream_options", `Assoc [ "include_usage", `Bool true ]) :: without_existing))
   | other -> Yojson.Safe.to_string other
   | exception Yojson.Json_error _ -> body_str
 ;;
