@@ -1903,7 +1903,7 @@ let%test "gemini_url sync no api_key" =
     }
   in
   let url = gemini_url ~config ~stream:false in
-  url = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:generateContent"
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 ;;
 
 let%test "gemini_url sync with api_key" =
@@ -1939,7 +1939,7 @@ let%test "gemini_url sync with api_key" =
   in
   let url = gemini_url ~config ~stream:false in
   url
-  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:generateContent?key=mykey"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
 ;;
 
 let%test "gemini_url stream with api_key" =
@@ -1975,7 +1975,7 @@ let%test "gemini_url stream with api_key" =
   in
   let url = gemini_url ~config ~stream:true in
   url
-  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
 ;;
 
 let%test "gemini_url stream no api_key" =
@@ -2011,7 +2011,7 @@ let%test "gemini_url stream no api_key" =
   in
   let url = gemini_url ~config ~stream:true in
   url
-  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:streamGenerateContent?alt=sse"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
 ;;
 
 let%test "is_retryable 200 not retryable" =
