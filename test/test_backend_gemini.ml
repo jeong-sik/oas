@@ -586,6 +586,24 @@ let test_tool_choice_mapping () =
   test_choice Types.None_ "NONE"
 ;;
 
+let test_tool_choice_tool_name () =
+  (* tool_choice = Tool "name" forces a function-call (mode ANY) restricted to
+     that named function via allowedFunctionNames. *)
+  let config =
+    { (provider_f_config ()) with tool_choice = Some (Types.Tool "get_weather") }
+  in
+  let tools =
+    [ `Assoc [ "name", `String "get_weather"; "description", `String "Get weather" ] ]
+  in
+  let messages = [ Types.user_msg "What's the weather?" ] in
+  let body = Backend_gemini.build_request ~config ~messages ~tools () in
+  let json = parse_body body in
+  let fcc = json |> member "toolConfig" |> member "functionCallingConfig" in
+  check string "mode" "ANY" (fcc |> member "mode" |> to_string);
+  let allowed = fcc |> member "allowedFunctionNames" |> to_list |> List.map to_string in
+  check (list string) "allowedFunctionNames" [ "get_weather" ] allowed
+;;
+
 let test_thinking_part_roundtrip () =
   (* Test that Thinking content blocks become thought:true parts *)
   let config = provider_f_config () in
@@ -776,6 +794,7 @@ let () =
         ; test_case "output schema" `Quick test_output_schema
         ; test_case "role mapping" `Quick test_role_mapping
         ; test_case "tool choice" `Quick test_tool_choice_mapping
+        ; test_case "tool choice tool name" `Quick test_tool_choice_tool_name
         ; test_case "thinking part roundtrip" `Quick test_thinking_part_roundtrip
         ] )
     ; ( "parse_response"
