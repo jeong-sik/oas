@@ -163,7 +163,11 @@ let suspend _t state ~reason =
   match state with
   | InProgress { current_step; journal; _ } ->
     Suspended { at_step = current_step; journal; reason }
-  | _ -> state
+  (* Only a running execution can be suspended; the other states are already
+     terminal or not-yet-running, so they pass through unchanged. Enumerated
+     explicitly (no [_] catch-all) so a future execution_state variant forces
+     a suspend decision at compile time. *)
+  | NotStarted | Suspended _ | Completed _ | Failed _ -> state
 ;;
 
 (* ── Serialization ────────────────────────────────── *)
