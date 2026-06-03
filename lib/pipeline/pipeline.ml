@@ -1183,11 +1183,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
           attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1))
       | other -> other
     in
-    let api_result =
-      match validate_requested_tool_choice_visibility agent prep with
-      | Ok () -> attempt_route ~prep ~compact_attempts:0
-      | Error _ as err -> err
-    in
+    let api_result = attempt_route ~prep ~compact_attempts:0 in
     (* Stage 4+5+6: Collect, Execute/Output *)
     (match api_result with
      | Error e ->
@@ -1202,38 +1198,28 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        Ref: Samchon harness Layer 1 (dev.to/samchon, DashScope 2025). *)
        let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
        let response = Tool_use_recovery.recover_response ~valid_tool_names raw_response in
-       let* missing_tool_action =
-         handle_missing_required_tool_use
-           ?raw_trace_run
-           agent
-           ~original_config
-           ~valid_tool_names
-           response
-         |> tag_error "missing_required_tool_use"
-       in
-       (match missing_tool_action with
-        | `Retried -> Ok ToolsExecuted
-        | `Proceed ->
+       (* RFC-OAS-025 Option A: forced-tool-use enforcement removed.
+          [tool_choice] is enforced server-side by the provider, so the SDK no
+          longer validates the response against a completion contract nor retries
+          to coerce a tool call (the former
+          [handle_missing_required_tool_use]/[validate_completion_contract]
+          pass). *)
+       (* Stage 3.5: Async output validation *)
+       (match Guardrails_async.run_output async_guard.output_validators response with
+        | Guardrails_async.Fail { validator_name; reason } ->
+          update_state agent (fun s -> { s with config = original_config });
+          Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
+        | Guardrails_async.Pass ->
           let* () =
-            validate_completion_contract agent response |> tag_error "route_contract"
+            stage_collect ?raw_trace_run agent ~original_config response
+            |> tag_error "collect"
           in
-          (* Stage 3.5: Async output validation *)
-          (match Guardrails_async.run_output async_guard.output_validators response with
-           | Guardrails_async.Fail { validator_name; reason } ->
-             update_state agent (fun s -> { s with config = original_config });
-             Error
-               (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
-           | Guardrails_async.Pass ->
-             let* () =
-               stage_collect ?raw_trace_run agent ~original_config response
-               |> tag_error "collect"
-             in
-             stage_output
-               ?raw_trace_run
-               agent
-               ~effective_guardrails:prep.effective_guardrails
-               response
-             |> tag_error "output")))
+          stage_output
+            ?raw_trace_run
+            agent
+            ~effective_guardrails:prep.effective_guardrails
+            response
+          |> tag_error "output"))
 ;;
 
 [@@@coverage off]
