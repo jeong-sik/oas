@@ -1459,9 +1459,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.thinking_control_format = cb.thinking_control_format
     | _ -> false
   in
-  let alias_pairs =
-    [ "provider_d", "openai_chat"; "provider_k", "provider_k-coding" ]
-  in
+  let alias_pairs = [ "provider_d", "openai_chat"; "provider_k", "provider_k-coding" ] in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
   && Option.is_some (resolve "anthropic")
   && Option.is_some (resolve "provider_f")
@@ -1495,9 +1493,7 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
 let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
-  let non_aliased =
-    [ "anthropic"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
-  in
+  let non_aliased = [ "anthropic"; "provider_f"; "ollama"; "provider_c"; "provider_l" ] in
   let fingerprints =
     List.filter_map
       (fun l ->

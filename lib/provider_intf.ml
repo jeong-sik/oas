@@ -83,12 +83,7 @@ let of_config (provider_cfg : Provider.config) : provider_module =
         | Provider.Anthropic_messages ->
           Yojson.Safe.to_string
             (`Assoc
-                (Api_anthropic.build_body_assoc
-                   ~config
-                   ~messages
-                   ?tools
-                   ~stream:false
-                   ()))
+                (Api_anthropic.build_body_assoc ~config ~messages ?tools ~stream:false ()))
         | Provider.Openai_chat_completions ->
           Api_openai.build_openai_body
             ~provider_config:provider_cfg

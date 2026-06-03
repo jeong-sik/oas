@@ -539,8 +539,7 @@ let complete_http
           -> Backend_openai.build_request ~config ~messages ~tools ()
         | Provider_config.Gemini ->
           Backend_gemini.build_request ~config ~messages ~tools ()
-        | Provider_config.Glm ->
-          Backend_glm.build_request ~config ~messages ~tools ()
+        | Provider_config.Glm -> Backend_glm.build_request ~config ~messages ~tools ()
       in
       let url =
         match config.kind with
@@ -697,9 +696,7 @@ let complete_http
                 | Provider_config.OpenAI_compat
                 | Provider_config.DashScope
                 | Provider_config.Kimi ->
-                  (match
-                     Backend_openai_parse.parse_openai_response_result body
-                   with
+                  (match Backend_openai_parse.parse_openai_response_result body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
                 | Provider_config.Gemini ->
