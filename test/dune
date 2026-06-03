@@ -54,6 +54,7 @@
   test_bug_hunt
   test_builder_coverage
   test_cache
+  test_canonical_tool
   test_capabilities_wiring
   test_capability_filter
   test_checkpoint
@@ -264,6 +265,7 @@
   test_bug_hunt
   test_builder_coverage
   test_cache
+  test_canonical_tool
   test_capabilities_wiring
   test_capability_filter
   test_checkpoint

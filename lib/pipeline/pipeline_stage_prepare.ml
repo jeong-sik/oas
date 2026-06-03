@@ -79,6 +79,20 @@ let stage_input ?raw_trace_run agent =
   | _ -> Ok ()
 ;;
 
+(* Lower a canonical tool-result projection to the [Types.tool_result] the
+   [before_turn_params] hook and disclosure resolver consume. [is_error]
+   selects the Error/Ok branch; [content] is the canonical string payload.
+   [structured_content]/[content_blocks] from the projection are not needed by
+   these local consumers but are surfaced by the projection for a downstream
+   external consumer (RFC-OAS-024). *)
+let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_result)
+  : Types.tool_result
+  =
+  if proj.is_error
+  then Error { Types.message = proj.content; recoverable = true; error_class = None }
+  else Ok { Types.content = proj.content }
+;;
+
 let last_tool_results_from messages =
   let extract_results msg =
     if msg.role <> User
@@ -86,22 +100,8 @@ let last_tool_results_from messages =
     else
       List.filter_map
         (fun (block : content_block) ->
-           match block with
-           | ToolResult { content; is_error; _ } ->
-             if is_error
-             then
-               Some
-                 (Error
-                    { Types.message = content; recoverable = true; error_class = None }
-                  : Types.tool_result)
-             else Some (Ok { Types.content } : Types.tool_result)
-           | Text _
-           | Thinking _
-           | RedactedThinking _
-           | ToolUse _
-           | Image _
-           | Document _
-           | Audio _ -> None)
+           Llm_provider.Canonical_tool.tool_result_of_block block
+           |> Option.map tool_result_of_projection)
         msg.content
   in
   List.fold_left
@@ -111,6 +111,44 @@ let last_tool_results_from messages =
        | results -> results)
     []
     messages
+;;
+
+(* Wiring coverage (RFC-OAS-024 WP8 Inc1): the consumed [last_tool_results_from]
+   path routes [ToolResult] blocks through
+   [Canonical_tool.tool_result_of_block] and lowers the projection back to
+   [Types.tool_result]. A result carrying a [json] (WP4 structured) payload
+   must still lower to [Ok {content}] — the projection surfaces
+   [structured_content] without disturbing the existing string contract. *)
+let%test "last_tool_results_from routes through canonical projection (with json)" =
+  let msgs =
+    [ { role = User
+      ; content =
+          [ ToolResult
+              { tool_use_id = "t1"
+              ; content = "ok payload"
+              ; is_error = false
+              ; json = Some (`Assoc [ "rows", `Int 2 ])
+              ; content_blocks = None
+              }
+          ; ToolResult
+              { tool_use_id = "t2"
+              ; content = "boom"
+              ; is_error = true
+              ; json = None
+              ; content_blocks = None
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  match last_tool_results_from msgs with
+  | [ Ok { content = "ok payload" }
+    ; Error { message = "boom"; recoverable = true; error_class = None }
+    ] -> true
+  | _ -> false
 ;;
 
 let resolve_disclosure_level agent =
