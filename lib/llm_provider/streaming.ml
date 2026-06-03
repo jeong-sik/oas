@@ -683,20 +683,29 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> [])
       | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> []
     in
-    (* Token-count usage. Ollama only emits these on the done chunk. *)
+    (* Token-count usage. Ollama only emits these on the done chunk.
+       When both counts are zero we return None, matching the
+       non-streaming path in [Backend_ollama.parse_ollama_response]
+       so that downstream (MASC usage-trust classification) sees
+       [Usage_missing] instead of [zero_token_usage_reported]. *)
     let oll_usage =
       let input = json |> member "prompt_eval_count" |> to_int_option in
       let output = json |> member "eval_count" |> to_int_option in
       match input, output with
       | None, None -> None
       | Some _, None | None, Some _ | Some _, Some _ ->
-        Some
-          { input_tokens = Option.value ~default:0 input
-          ; output_tokens = Option.value ~default:0 output
-          ; cache_creation_input_tokens = 0
-          ; cache_read_input_tokens = 0
-          ; cost_usd = None
-          }
+        let input_tokens = Option.value ~default:0 input in
+        let output_tokens = Option.value ~default:0 output in
+        if input_tokens = 0 && output_tokens = 0
+        then None
+        else
+          Some
+            { input_tokens
+            ; output_tokens
+            ; cache_creation_input_tokens = 0
+            ; cache_read_input_tokens = 0
+            ; cost_usd = None
+            }
     in
     (* inference_timings: same wire-format the non-streaming
        Backend_ollama.parse_ollama_response builds, so downstream
@@ -956,6 +965,17 @@ let%test "parse_ollama_ndjson_chunk: malformed json → None" =
   parse_ollama_ndjson_chunk "{not valid" = None
 ;;
 
+let%test "parse_ollama_ndjson_chunk: done with zero token counts → None" =
+  let line =
+    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":""},
+       "done_reason":"stop","done":true,
+       "prompt_eval_count":0,"eval_count":0}|}
+  in
+  match parse_ollama_ndjson_chunk line with
+  | None -> false
+  | Some c -> c.oll_is_done && c.oll_usage = None
+;;
+
 (* ── ollama_chunk_to_events tests ─────────────────────────── *)
 
 let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
@@ -1028,6 +1048,27 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
   match events with
   | [ MessageDelta { stop_reason = Some EndTurn; usage = Some u } ] ->
     u.input_tokens = 10 && u.output_tokens = 20
+  | unexpected_events ->
+    let (_ : sse_event list) = unexpected_events in
+    false
+;;
+
+let%test "ollama_chunk_to_events: done with zero usage → usage=None" =
+  let state = create_openai_stream_state () in
+  let chunk =
+    { oll_model = "provider_h-3:8b"
+    ; oll_delta_content = None
+    ; oll_delta_thinking = None
+    ; oll_tool_calls = []
+    ; oll_done_reason = Some "stop"
+    ; oll_is_done = true
+    ; oll_usage = None
+    ; oll_timings = None
+    }
+  in
+  let events, _tel = ollama_chunk_to_events state chunk in
+  match events with
+  | [ MessageDelta { stop_reason = Some EndTurn; usage = None } ] -> true
   | unexpected_events ->
     let (_ : sse_event list) = unexpected_events in
     false
