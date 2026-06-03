@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.14](https://github.com/jeong-sik/oas/compare/v0.200.13...v0.200.14) (2026-06-03)
+
+
+### Features
+
+* **pipeline:** remove forced-tool-use enforcement (RFC-OAS-025 Option A, stage 1) ([#1864](https://github.com/jeong-sik/oas/issues/1864)) ([81f97b8](https://github.com/jeong-sik/oas/commit/81f97b8441b807b78572fa219d0c935ee87e0f15))
+
 ## [0.200.13](https://github.com/jeong-sik/oas/compare/v0.200.12...v0.200.13) (2026-06-03)
 
 
