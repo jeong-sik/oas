@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.10](https://github.com/jeong-sik/oas/compare/v0.200.9...v0.200.10) (2026-06-03)
+
+
+### Features
+
+* **gemini:** surface unsupported disable_parallel_tool_use (WP9 gap) ([#1840](https://github.com/jeong-sik/oas/issues/1840)) ([7ba14b4](https://github.com/jeong-sik/oas/commit/7ba14b44da70a2fb714a6ac10ae2f27ffd5b2601))
+* **provider:** per-function strict mode on tool_schema (WP2) ([#1837](https://github.com/jeong-sik/oas/issues/1837)) ([61755b2](https://github.com/jeong-sik/oas/commit/61755b286d356ff3ffb11a031c0ed27cb5d5e8d3))
+* **provider:** structured tool_result content blocks (WP4) ([#1839](https://github.com/jeong-sik/oas/issues/1839)) ([95f74ec](https://github.com/jeong-sik/oas/commit/95f74ece5c7ed9c06b7231f2e6e6d208d91e3248))
+* **provider:** tool calling 현대화 기반 — backend rename + stop_reason (WP0/WP1) ([#1835](https://github.com/jeong-sik/oas/issues/1835)) ([a1d6b4d](https://github.com/jeong-sik/oas/commit/a1d6b4db64a6e2c7890e5fcb67b9040fd68ff503))
+
 ## [0.200.9](https://github.com/jeong-sik/oas/compare/v0.200.8...v0.200.9) (2026-06-02)
 
 
