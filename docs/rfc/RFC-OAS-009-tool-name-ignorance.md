@@ -93,7 +93,7 @@ $ rg -n "Cdal_proof|Mode_enforcer|Risk_contract|Execution_mode|Proof_capture|Aud
 
 검증:
 - `lib/completion_contract.mli` 미존재 — *gold-standard CDAL 7개* (cdal_proof, execution_mode, mode_resolver, proof_capture, proof_store, risk_class, risk_contract)에 안 들어감.
-- `lib/completion_contract.ml`: `type t = Completion_contract_id.t = ...` — base의 variant를 re-export + satisfaction predicate (`required_tool_satisfaction`, `any_tool_call_satisfies`, `effectful_tool_satisfies`).
+- `lib/completion_contract.ml`: `type t = Completion_contract_id.t = ...` — base의 variant를 re-export + satisfaction predicate extension point (`required_tool_satisfaction`, 기본 `any_tool_call_satisfies`).
 - CDAL import: 0건 (검증: `rg -n "Cdal_proof|Mode_enforcer|Risk_contract|Execution_mode|Proof_capture|Proof_store|Audit\b|Autonomy_" lib/completion_contract.ml`).
 - 의존: `Types`, `Log`, `Tool`, `Yojson`, `Completion_contract_id` — 모두 base/core.
 
