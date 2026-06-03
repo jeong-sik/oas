@@ -20,17 +20,19 @@ let find_handoff_in_messages messages =
          | Some _ -> acc
          | None ->
            (match block with
-            | ToolUse { id; name; input } when Handoff.is_handoff_tool name ->
-              let target_name = Handoff.target_name_of_tool name in
-              let prompt =
-                match input with
-                | `Assoc pairs ->
-                  (match List.assoc_opt "prompt" pairs with
-                   | Some (`String s) -> s
-                   | _ -> "Continue the conversation.")
-                | _ -> "Continue the conversation."
-              in
-              Some (id, target_name, prompt)
+            | ToolUse { id; name; input } ->
+              (match Handoff.target_name_of_tool name with
+               | Some target_name ->
+                 let prompt =
+                   match input with
+                   | `Assoc pairs ->
+                     (match List.assoc_opt "prompt" pairs with
+                      | Some (`String s) -> s
+                      | _ -> "Continue the conversation.")
+                   | _ -> "Continue the conversation."
+                 in
+                 Some (id, target_name, prompt)
+               | None -> None)
             | _ -> None))
       None
       assistant_message.content
