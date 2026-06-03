@@ -255,7 +255,43 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Mcp_tool_list_failed _
   | `Mcp_tool_call_failed _
   | `Mcp_http_failed _ -> true
-  | _ -> false
+  (* Non-retryable: enumerated explicitly (no [_] catch-all) so a future
+     sdk_error_poly tag triggers a partial-match compiler warning instead of
+     being silently treated as non-retryable. error_domain.mli's purpose is to
+     eliminate defensive catch-alls; this matches the exhaustive sibling
+     Error.is_retryable. *)
+  | `Auth_error _
+  | `Invalid_request _
+  | `Not_found _
+  | `Context_overflow _
+  | `Tool_exec_failed _
+  | `Tool_timeout _
+  | `Max_turns_exceeded _
+  | `Token_budget_exceeded _
+  | `Cost_budget_exceeded
+  | `Cost_budget_unenforceable _
+  | `Idle_detected _
+  | `Tool_retry_exhausted _
+  | `Agent_execution_timeout _
+  | `Agent_execution_idle_timeout _
+  | `Guardrail_violation _
+  | `Tripwire_violation _
+  | `Input_required _
+  | `Unrecognized_stop_reason _
+  | `Exit_condition_met _
+  | `Missing_env_var _
+  | `Unsupported_provider _
+  | `Invalid_config _
+  | `Mcp_server_start_failed _
+  | `Serialization _
+  | `Io _
+  | `Orchestration _
+  | `A2a_task_not_found _
+  | `A2a_invalid_transition _
+  | `A2a_message_send_failed _
+  | `A2a_protocol_error _
+  | `A2a_store_capacity_exceeded _
+  | `Internal _ -> false
 ;;
 
 let ctx_to_string (ctx : error_ctx) : string =
