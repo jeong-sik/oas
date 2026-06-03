@@ -101,14 +101,14 @@ let validate_descriptor_opt = function
 (** Create a tool with a simple handler *)
 let create ?descriptor ~name ~description ~parameters handler =
   validate_descriptor_opt descriptor;
-  let schema = { name; description; parameters } in
+  let schema = { name; description; parameters; strict = None } in
   { schema; descriptor; handler = Simple handler }
 ;;
 
 (** Create a tool with a context-aware handler *)
 let create_with_context ?descriptor ~name ~description ~parameters handler =
   validate_descriptor_opt descriptor;
-  let schema = { name; description; parameters } in
+  let schema = { name; description; parameters; strict = None } in
   { schema; descriptor; handler = WithContext handler }
 ;;
 

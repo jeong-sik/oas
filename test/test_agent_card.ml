@@ -20,6 +20,7 @@ let base_info : Agent_card.agent_info =
               ; required = true
               }
             ]
+        ; strict = None
         }
       ]
   ; provider = None

@@ -467,14 +467,24 @@ let build_provider_d_tool_json = function
          | Some schema -> schema
          | None -> `Assoc [])
     in
+    (* Per-function strict mode (OpenAI / DeepSeek Beta / Kimi / MiMo): forward
+       it into the function object only when the tool carried [strict], so a
+       tool without it keeps the provider default. *)
+    let strict_field =
+      match List.assoc_opt "strict" fields with
+      | Some (`Bool b) -> [ "strict", `Bool b ]
+      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Null)
+      | None -> []
+    in
     `Assoc
       [ "type", `String "function"
       ; ( "function"
         , `Assoc
-            [ "name", `String name
-            ; "description", `String description
-            ; "parameters", parameters
-            ] )
+            ([ "name", `String name
+             ; "description", `String description
+             ; "parameters", parameters
+             ]
+             @ strict_field) )
       ]
   | other -> other
 ;;

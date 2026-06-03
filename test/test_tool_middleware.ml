@@ -65,7 +65,9 @@ let shell_descriptor
 (* ── validate_and_coerce ─────────────────────────────────── *)
 
 let test_pass_no_params () =
-  let schema : Types.tool_schema = { name = "noop"; description = ""; parameters = [] } in
+  let schema : Types.tool_schema =
+    { name = "noop"; description = ""; parameters = []; strict = None }
+  in
   match Tool_middleware.validate_and_coerce ~tool_name:"noop" ~schema `Null with
   | Tool_middleware.Pass -> ()
   | _ -> Alcotest.fail "empty params should Pass"

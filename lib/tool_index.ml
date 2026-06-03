@@ -574,7 +574,7 @@ let%test "retrieve_within excludes confiscated tools" =
 let _dummy_handler : Tool.tool_handler = fun _args -> Ok { Types.content = "ok" }
 
 let _mk_tool name desc : Tool.t =
-  { schema = { name; description = desc; parameters = [] }
+  { schema = { name; description = desc; parameters = []; strict = None }
   ; descriptor = None
   ; handler = Simple _dummy_handler
   }

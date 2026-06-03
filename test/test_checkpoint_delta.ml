@@ -75,7 +75,7 @@ let tool_param_gen =
 let tool_schema_gen =
   let open QCheck.Gen in
   map3
-    (fun name description parameters -> { name; description; parameters })
+    (fun name description parameters -> { name; description; parameters; strict = None })
     small_string_gen
     small_string_gen
     (list_size (int_range 0 2) tool_param_gen)
@@ -245,6 +245,7 @@ let sample_tool_schema =
   ; description = "Lookup a value"
   ; parameters =
       [ { name = "key"; description = "Key"; param_type = String; required = true } ]
+  ; strict = None
   }
 ;;
 

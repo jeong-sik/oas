@@ -88,7 +88,7 @@ let intersect_filters a b =
 [@@@coverage off]
 (* === Inline tests === *)
 
-let _ts name : tool_schema = { name; description = ""; parameters = [] }
+let _ts name : tool_schema = { name; description = ""; parameters = []; strict = None }
 
 let%test "intersect AllowAll with AllowList yields AllowList" =
   match intersect_filters AllowAll (AllowList [ "a"; "b" ]) with

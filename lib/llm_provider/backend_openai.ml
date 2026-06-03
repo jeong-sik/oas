@@ -668,6 +668,33 @@ let%test "build_provider_d_tool_json with parameters field" =
   = "object"
 ;;
 
+let%test "build_provider_d_tool_json forwards strict into the function object" =
+  let tool_json =
+    `Assoc
+      [ "name", `String "my_fn"
+      ; "description", `String "does stuff"
+      ; "parameters", `Assoc [ "type", `String "object" ]
+      ; "strict", `Bool true
+      ]
+  in
+  let result = build_provider_d_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  (result |> member "function" |> member "strict") = `Bool true
+;;
+
+let%test "build_provider_d_tool_json omits strict when the tool did not set it" =
+  let tool_json =
+    `Assoc
+      [ "name", `String "my_fn"
+      ; "description", `String "does stuff"
+      ; "parameters", `Assoc [ "type", `String "object" ]
+      ]
+  in
+  let result = build_provider_d_tool_json tool_json in
+  let open Yojson.Safe.Util in
+  (result |> member "function" |> member "strict") = `Null
+;;
+
 let%test "build_provider_d_tool_json converts legacy parameter list to json schema" =
   let tool_json =
     `Assoc
