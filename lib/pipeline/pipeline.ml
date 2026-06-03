@@ -6,7 +6,12 @@
     3. Route   — provider selection, API call dispatch (sync/stream)
     4. Collect — usage accumulation, AfterTurn hook, events, message append
     5. Execute — tool execution on StopToolUse (idle detection, guardrails)
-    6. Output  — stop reason → turn_outcome *)
+    6. Output  — stop reason → turn_outcome
+
+    [Output] ([stage_output]) dispatches [Execute] ([stage_execute]) internally
+    on StopToolUse, so Execute is a sub-step of Output, not a stage that runs
+    between Collect and Output. This matches the dataflow diagram in
+    pipeline.mli: [Input] -> [Parse] -> [Route] -> [Collect] -> [Output]. *)
 
 module Retry = Llm_provider.Retry
 open Types
