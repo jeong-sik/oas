@@ -1,9 +1,10 @@
 (** Eval Metrics OTel Bridge — emit [Eval.run_metrics] as OTel span events.
 
-    OAS's [Otel_tracer] is span-based (no native counter/gauge API).
-    This bridge records eval metrics as a dedicated span with structured
-    attributes following the [oas.eval.*] namespace convention from
-    RFC-OAS-002.
+    [Otel_tracer] exposes a native counter/gauge/histogram metric API
+    ([Otel_tracer.inst_record_metric]). This bridge records eval metrics
+    through that API and, in addition, encodes them as a dedicated span
+    with structured attributes following the [oas.eval.*] namespace
+    convention from RFC-OAS-002.
 
     Metric data is encoded as span attributes so OTel collectors can
     extract counters/gauges via attribute-based rules.  The bridge also
