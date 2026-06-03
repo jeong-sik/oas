@@ -493,6 +493,7 @@ let test_provider_c_direct_tool_result_uses_text_blocks () =
               ; content = "5"
               ; is_error = false
               ; json = Some (`Int 5)
+              ; content_blocks = None
               }
           ]
       ; name = None
@@ -558,6 +559,7 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
               ; content = "{\"value\":4}"
               ; is_error = false
               ; json = Some (`Assoc [ "value", `Int 4 ])
+              ; content_blocks = None
               }
           ]
       ; name = None

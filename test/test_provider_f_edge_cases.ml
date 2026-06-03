@@ -56,9 +56,7 @@ let test_cache_system_prompt () =
       ~system_prompt:"Be helpful."
       ()
   in
-  let body =
-    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "hi" ] ()
-  in
+  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let si = json |> member "systemInstruction" in
@@ -178,6 +176,7 @@ let test_tool_use_id_roundtrip () =
               ; content = "Sunny 25C"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None

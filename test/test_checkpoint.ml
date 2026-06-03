@@ -242,6 +242,7 @@ let () =
                         ; content = "Sunny 22C"
                         ; is_error = false
                         ; json = None
+                        ; content_blocks = None
                         }
                     ]
                 ; name = None
@@ -285,6 +286,7 @@ let () =
                         ; content = "found it"
                         ; is_error = false
                         ; json = None
+                        ; content_blocks = None
                         }
                     ]
                 ; name = None

@@ -87,6 +87,7 @@ let content_block_of_json json =
          ; content
          ; is_error = Cli_common_json.member_bool "is_error" json
          ; json = parsed_json
+         ; content_blocks = None
          })
   | _ -> None
 ;;

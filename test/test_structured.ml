@@ -339,6 +339,7 @@ let test_extract_ignores_tool_result () =
         ; content = "previous result"
         ; is_error = false
         ; json = None
+        ; content_blocks = None
         }
     ; ToolUse { id = "tu_r"; name = "extract_person"; input = input_json }
     ]
@@ -475,7 +476,13 @@ let test_retry_message_construction () =
     let retry_msg =
       { role = User
       ; content =
-          [ ToolResult { tool_use_id; content = error_msg; is_error = true; json = None }
+          [ ToolResult
+              { tool_use_id
+              ; content = error_msg
+              ; is_error = true
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None

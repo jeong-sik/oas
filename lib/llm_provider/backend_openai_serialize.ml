@@ -149,12 +149,21 @@ let messages_of_message_with
     let tool_msgs =
       msg.content
       |> List.filter_map (function
-        | ToolResult { tool_use_id; content; _ } ->
+        | ToolResult { tool_use_id; content; content_blocks; _ } ->
+          let content_str =
+            match content_blocks with
+            | Some blocks ->
+              (* OpenAI tool messages accept string content only; encode the
+                 structured blocks as a JSON string so the result is not lost. *)
+              Yojson.Safe.to_string
+                (`List (List.map Api_common.content_block_to_json blocks))
+            | None -> Utf8_sanitize.sanitize content
+          in
           Some
             (`Assoc
                 [ "role", `String "tool"
                 ; "tool_call_id", `String tool_use_id
-                ; "content", `String (Utf8_sanitize.sanitize content)
+                ; "content", `String content_str
                 ])
         | Text _
         | Thinking _

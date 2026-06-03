@@ -36,7 +36,14 @@ let tool_result_msg id content =
   Types.
     { role = User
     ; content =
-        [ ToolResult { tool_use_id = id; content; is_error = false; json = None } ]
+        [ ToolResult
+            { tool_use_id = id
+            ; content
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
     ; name = None
     ; tool_call_id = None
     ; metadata = []

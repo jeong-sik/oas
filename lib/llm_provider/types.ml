@@ -237,6 +237,10 @@ type content_block =
         (** Parsed JSON payload when available. Consumers
                         should prefer [json] over [content] for structured access.
                         [content] remains the canonical string for API serialization. *)
+      ; content_blocks : content_block list option
+        (** Structured multi-block result (e.g. text + image). When [Some],
+                        providers that accept an array tool_result content serialize
+                        the blocks; [content] stays the canonical string fallback. *)
       }
   | Image of
       { media_type : string
@@ -276,10 +280,10 @@ type stop_reason =
   | StopToolUse
   | MaxTokens
   | StopSequence
-  | Refusal                     (** Policy refusal (Anthropic, OpenAI, Gemini SAFETY). *)
-  | PauseTurn                   (** Anthropic long-running turn pause. *)
-  | Compaction                  (** Anthropic context compaction. *)
-  | ContextWindowExceeded       (** Anthropic context window exceeded. *)
+  | Refusal (** Policy refusal (Anthropic, OpenAI, Gemini SAFETY). *)
+  | PauseTurn (** Anthropic long-running turn pause. *)
+  | Compaction (** Anthropic context compaction. *)
+  | ContextWindowExceeded (** Anthropic context window exceeded. *)
   | Unknown of string
 [@@deriving show]
 
@@ -432,7 +436,7 @@ let tool_result_msg ~tool_use_id ~content ?(is_error = false) ?json () =
   make_message
     ~tool_call_id:tool_use_id
     ~role:Tool
-    [ ToolResult { tool_use_id; content; is_error; json } ]
+    [ ToolResult { tool_use_id; content; is_error; json; content_blocks = None } ]
 ;;
 
 (** {1 Tool Result Validation}

@@ -490,7 +490,13 @@ let test_strip_no_orphans () =
     [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
     ; mk_msg
         User
-        [ ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None }
+        [ ToolResult
+            { tool_use_id = "t1"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ]
     ]
   in
@@ -511,6 +517,7 @@ let test_strip_removes_orphan () =
             ; content = "stale"
             ; is_error = false
             ; json = None
+            ; content_blocks = None
             }
         ]
     ]
@@ -532,11 +539,27 @@ let test_strip_preserves_matched () =
         ]
     ; mk_msg
         User
-        [ ToolResult { tool_use_id = "t1"; content = "ok"; is_error = false; json = None }
+        [ ToolResult
+            { tool_use_id = "t1"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ; ToolResult
-            { tool_use_id = "orphan"; content = "bad"; is_error = true; json = None }
+            { tool_use_id = "orphan"
+            ; content = "bad"
+            ; is_error = true
+            ; json = None
+            ; content_blocks = None
+            }
         ; ToolResult
-            { tool_use_id = "t2"; content = "ok2"; is_error = false; json = None }
+            { tool_use_id = "t2"
+            ; content = "ok2"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ]
     ]
   in

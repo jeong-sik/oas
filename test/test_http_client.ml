@@ -270,7 +270,12 @@ let test_api_common_content_block_roundtrip () =
       [ Text "hello"
       ; ToolUse { id = "t1"; name = "calc"; input = `Assoc [ "x", `Int 1 ] }
       ; ToolResult
-          { tool_use_id = "t1"; content = "result"; is_error = false; json = None }
+          { tool_use_id = "t1"
+          ; content = "result"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
       ]
   in
   List.iter

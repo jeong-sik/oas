@@ -131,7 +131,12 @@ let test_validate_response_flags_unknown_tool_and_stop_reason () =
       ; T.Thinking { thinking_type = "visible"; content = "reason" }
       ; T.RedactedThinking "redacted"
       ; T.ToolResult
-          { tool_use_id = "call-2"; content = "ok"; is_error = false; json = None }
+          { tool_use_id = "call-2"
+          ; content = "ok"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
       ; T.Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
       ; T.Document { media_type = "text/plain"; data = "doc"; source_type = "base64" }
       ; T.Audio { media_type = "audio/wav"; data = "audio"; source_type = "base64" }

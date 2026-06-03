@@ -134,7 +134,12 @@ let test_synthetic_events_media_blocks () =
         ; Audio { media_type = "wav"; data = "YXVkaW8="; source_type = "base64" }
         ; RedactedThinking "hidden"
         ; ToolResult
-            { tool_use_id = "call-1"; content = "ok"; is_error = false; json = None }
+            { tool_use_id = "call-1"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ]
     }
   in
@@ -161,9 +166,7 @@ let test_provider_d_parse_edge_shapes () =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":"bad"},{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}],"usage":{"prompt_tokens":4,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3}}}|}
   in
   let chunk =
-    require_some
-      "provider_d mixed tool calls"
-      (S.parse_openai_sse_chunk mixed_tool_calls)
+    require_some "provider_d mixed tool calls" (S.parse_openai_sse_chunk mixed_tool_calls)
   in
   check int "only valid tool call retained" 1 (List.length chunk.delta_tool_calls);
   (match chunk.chunk_usage with
@@ -321,7 +324,7 @@ let test_provider_f_event_edge_branches () =
       (provider_f_chunk ~finish_reason:"SAFETY" ())
   in
   match unknown_events with
-  | [ MessageDelta { stop_reason = Some (Refusal); _ } ] -> ()
+  | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
   | _ -> fail "expected provider_f unknown finish"
 ;;
 

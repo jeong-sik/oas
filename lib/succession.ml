@@ -275,6 +275,7 @@ let normalize_for_model (msgs : message list) ~(target_model : string) : message
                            Printf.sprintf "[truncated: %s result unavailable]" name
                        ; is_error = true
                        ; json = None
+                       ; content_blocks = None
                        }
                    ]
                ; name = None

@@ -347,7 +347,12 @@ let test_extract_mixed_blocks () =
     [ Text "preamble"
     ; Thinking { thinking_type = "s"; content = "reasoning" }
     ; ToolResult
-        { tool_use_id = "old"; content = "old result"; is_error = false; json = None }
+        { tool_use_id = "old"
+        ; content = "old result"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
     ; ToolUse { id = "tu_mix"; name = "wrong_tool"; input = `Null }
     ; ToolUse { id = "tu_right"; name = "extract_person"; input = input_json }

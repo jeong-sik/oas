@@ -207,6 +207,7 @@ let heal_tool_call
                            enriched_message
                      ; is_error = true
                      ; json = None
+                     ; content_blocks = None
                      }
                  ]
              ; name = None

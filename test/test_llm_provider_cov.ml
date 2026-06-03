@@ -354,7 +354,13 @@ let test_content_block_to_json_tool_use () =
 let test_content_block_to_json_tool_result () =
   let json =
     Api_common.content_block_to_json
-      (ToolResult { tool_use_id = "tu1"; content = "done"; is_error = true; json = None })
+      (ToolResult
+         { tool_use_id = "tu1"
+         ; content = "done"
+         ; is_error = true
+         ; json = None
+         ; content_blocks = None
+         })
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "tool_result" (json |> member "type" |> to_string);
@@ -610,7 +616,12 @@ let test_contents_of_messages_tool_use () =
     ; { role = Tool
       ; content =
           [ ToolResult
-              { tool_use_id = "tu1"; content = "result42"; is_error = false; json = None }
+              { tool_use_id = "tu1"
+              ; content = "result42"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None
@@ -651,9 +662,7 @@ let test_build_request_basic () =
       ~temperature:0.5
       ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] ()
-  in
+  let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] () in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   (* Check contents exist *)
@@ -674,9 +683,7 @@ let test_build_request_with_system_prompt () =
       ~system_prompt:"be helpful"
       ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] ()
-  in
+  let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] () in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   match json |> member "systemInstruction" with
@@ -999,9 +1006,7 @@ let test_build_request_tool_choice_none () =
   let config =
     make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:None_ ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] ()
-  in
+  let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   let tc = json |> member "toolConfig" |> member "functionCallingConfig" in
@@ -1016,9 +1021,7 @@ let test_build_request_tool_choice_specific () =
       ~tool_choice:(Tool "get_weather")
       ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] ()
-  in
+  let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   let tc = json |> member "toolConfig" |> member "functionCallingConfig" in
@@ -1038,9 +1041,7 @@ let test_build_request_top_p_top_k () =
       ~top_k:40
       ()
   in
-  let body_str =
-    Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] ()
-  in
+  let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
   let gc = json |> member "generationConfig" in
