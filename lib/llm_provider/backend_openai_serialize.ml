@@ -388,6 +388,18 @@ let tool_choice_to_provider_d_json = function
   | None_ -> `String "none"
 ;;
 
+(* Single source of truth for the OpenAI-compatible parallel-tool-call control.
+   Two layers decide *whether* to disable parallel calls (low-level
+   [Backend_openai_request] guards on [tools <> []]; agent-state-aware
+   [Api_openai] guards on [capabilities.supports_tools]); both serialize the
+   field through here so the wire shape lives in one place. OpenAI defaults to
+   parallel calls, so the field is emitted only to turn them off. *)
+let parallel_tool_calls_fields ~disable_parallel ~tools_present
+  : (string * Yojson.Safe.t) list
+  =
+  if disable_parallel && tools_present then [ "parallel_tool_calls", `Bool false ] else []
+;;
+
 let legacy_parameters_to_json_schema params =
   let properties, required =
     List.fold_left

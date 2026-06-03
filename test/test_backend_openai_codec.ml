@@ -500,6 +500,26 @@ let test_strip_helpers_cover_non_tool_variants () =
   check_int "non-thinking blocks preserved" 6 (List.length (List.hd no_thinking).content)
 ;;
 
+let test_parallel_tool_calls_fields () =
+  (* SSOT for the parallel-tool-call wire field: emitted only to disable, and
+     only when tools are present. *)
+  let fields ~disable ~tools =
+    Serialize.parallel_tool_calls_fields ~disable_parallel:disable ~tools_present:tools
+  in
+  check_int
+    "disable + tools -> one field"
+    1
+    (List.length (fields ~disable:true ~tools:true));
+  check_int
+    "disable + no tools -> empty"
+    0
+    (List.length (fields ~disable:true ~tools:false));
+  check_int "not disabled -> empty" 0 (List.length (fields ~disable:false ~tools:true));
+  match fields ~disable:true ~tools:true with
+  | [ ("parallel_tool_calls", `Bool false) ] -> ()
+  | _ -> Alcotest.fail "expected parallel_tool_calls:false singleton"
+;;
+
 let test_tool_schema_defaults_and_legacy_edge_params () =
   let defaulted =
     Serialize.build_provider_d_tool_json
@@ -802,6 +822,10 @@ let () =
             "tool schema defaults and legacy edge params"
             `Quick
             test_tool_schema_defaults_and_legacy_edge_params
+        ; Alcotest.test_case
+            "parallel_tool_calls fields SSOT"
+            `Quick
+            test_parallel_tool_calls_fields
         ] )
     ; ( "parse"
       , [ Alcotest.test_case
