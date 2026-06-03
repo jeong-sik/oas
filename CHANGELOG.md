@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.16](https://github.com/jeong-sik/oas/compare/v0.200.15...v0.200.16) (2026-06-03)
+
+
+### Bug Fixes
+
+* **streaming:** drop empty-choices chunk without usage + repair fmt drift (main red after [#1866](https://github.com/jeong-sik/oas/issues/1866)) ([#1869](https://github.com/jeong-sik/oas/issues/1869)) ([91dcc47](https://github.com/jeong-sik/oas/commit/91dcc4761e0eb48d438ca64d030a1ed24dadb994))
+
 ## [0.200.15](https://github.com/jeong-sik/oas/compare/v0.200.14...v0.200.15) (2026-06-03)
 
 
