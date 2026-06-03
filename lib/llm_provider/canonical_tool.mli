@@ -8,7 +8,7 @@
     Boundary (RFC-OAS-024 §1): this module is OAS-owned provider
     canonicalization only. It depends solely on [{Types; Provider_kind;
     Yojson}] and references no execution, policy, or coordinator concept.
-    MASC appears only as a named external consumer in prose.
+    The downstream consumer is referred to only as an unnamed external role.
 
     Lane A (Keystone K, RESOLVED): there is no [id_origin] field or type.
     A coordinator deduplicates on [call_id] equality regardless of whether

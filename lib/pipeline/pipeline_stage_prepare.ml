@@ -83,8 +83,8 @@ let stage_input ?raw_trace_run agent =
    [before_turn_params] hook and disclosure resolver consume. [is_error]
    selects the Error/Ok branch; [content] is the canonical string payload.
    [structured_content]/[content_blocks] from the projection are not needed by
-   these local consumers but are surfaced by the projection for downstream
-   (RFC-OAS-024 named MASC consumer). *)
+   these local consumers but are surfaced by the projection for a downstream
+   external consumer (RFC-OAS-024). *)
 let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_result)
   : Types.tool_result
   =
