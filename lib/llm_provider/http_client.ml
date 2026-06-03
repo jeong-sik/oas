@@ -568,6 +568,10 @@ let drain_response_body resp_body =
   | Sys_error _ -> ()
   | Failure _ -> ()
   | Invalid_argument _ -> ()
+  (* Re-raise cancellation so a fiber cancelled mid-drain unwinds instead of
+     being absorbed by the catch-all below (structured concurrency). Mirrors the
+     transport-close handler in this module. *)
+  | Eio.Cancel.Cancelled _ as e -> raise e
   | drain_failure ->
     let (_ : exn) = drain_failure in
     ()
