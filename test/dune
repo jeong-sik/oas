@@ -63,8 +63,6 @@
   test_code_snippet_eval
   test_clone
   test_complete_ext
-  test_completion_contract_tool_use_calls
-  test_completion_contract_violation
   test_consumer
   test_content_replacement_event_bridge
   test_context
@@ -274,8 +272,6 @@
   test_code_snippet_eval
   test_clone
   test_complete_ext
-  test_completion_contract_tool_use_calls
-  test_completion_contract_violation
   test_consumer
   test_content_replacement_event_bridge
   test_context

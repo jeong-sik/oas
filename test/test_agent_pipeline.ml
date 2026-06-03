@@ -82,7 +82,6 @@ let make_agent
       ?context_reducer
       ?guardrails
       ?tool_retry_policy
-      ?required_tool_satisfaction
       ?tool_choice
       ?runtime_mcp_policy
       ?(model_id = "mock-model")
@@ -109,10 +108,6 @@ let make_agent
          | None -> Guardrails.default)
     ; tool_retry_policy
     ; runtime_mcp_policy
-    ; required_tool_satisfaction =
-        Option.value
-          required_tool_satisfaction
-          ~default:Completion_contract.any_tool_call_satisfies
     }
   in
   Agent.create ~net ~config ~tools ~options ()

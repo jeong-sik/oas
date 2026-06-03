@@ -87,22 +87,6 @@ let test_agent_stop_reason () =
     (Error.to_string err)
 ;;
 
-let test_agent_completion_contract_violation () =
-  let err =
-    Error.Agent
-      (CompletionContractViolation
-         { contract = Completion_contract.Require_tool_use
-         ; reason = "no ToolUse block"
-         ; violation_detail = None
-         })
-  in
-  check
-    string
-    "completion contract"
-    "Completion contract [require_tool_use] violated: no ToolUse block"
-    (Error.to_string err)
-;;
-
 let test_mcp_server_start () =
   let err = Error.Mcp (ServerStartFailed { command = "npx"; detail = "not found" }) in
   check
@@ -278,10 +262,6 @@ let () =
         ; test_case "Agent MaxTurnsExceeded" `Quick test_agent_max_turns
         ; test_case "Agent TokenBudgetExceeded" `Quick test_agent_token_budget
         ; test_case "Agent AgentExecutionTimeout" `Quick test_agent_execution_timeout
-        ; test_case
-            "Agent CompletionContractViolation"
-            `Quick
-            test_agent_completion_contract_violation
         ; test_case "Agent UnrecognizedStopReason" `Quick test_agent_stop_reason
         ; test_case "Mcp ServerStartFailed" `Quick test_mcp_server_start
         ; test_case "Mcp InitializeFailed" `Quick test_mcp_init_failed

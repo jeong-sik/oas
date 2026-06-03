@@ -75,11 +75,6 @@ type agent_error =
           is seen only at turn boundaries, so a long single turn can trip
           this without the run being hung.
           @since 0.201.0 *)
-  | CompletionContractViolation of
-      { contract : Completion_contract_id.t
-      ; reason : string
-      ; violation_detail : Completion_contract_violation_detail.t option
-      }
   | GuardrailViolation of
       { validator : string
       ; reason : string

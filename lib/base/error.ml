@@ -73,11 +73,6 @@ type agent_error =
           is seen only at turn boundaries, so a long single turn can trip
           this without the run being hung.
           @since 0.201.0 *)
-  | CompletionContractViolation of
-      { contract : Completion_contract_id.t
-      ; reason : string
-      ; violation_detail : Completion_contract_violation_detail.t option
-      }
   | GuardrailViolation of
       { validator : string
       ; reason : string
@@ -220,11 +215,6 @@ let agent_error_to_string = function
       r.idle_timeout_sec
       r.turn_count
       r.max_turns
-  | CompletionContractViolation r ->
-    Printf.sprintf
-      "Completion contract [%s] violated: %s"
-      (Completion_contract_id.to_string r.contract)
-      r.reason
   | GuardrailViolation r ->
     Printf.sprintf "Guardrail violation [%s]: %s" r.validator r.reason
   | TripwireViolation r ->

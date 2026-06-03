@@ -55,9 +55,6 @@ type agent_error =
     (** elapsed_sec, timeout_sec, turn_count, max_turns *)
   | `Agent_execution_idle_timeout of float * float * int * int
     (** idle_sec, idle_timeout_sec, turn_count, max_turns *)
-  | `Completion_contract_violation of
-      Completion_contract_id.t * string * Completion_contract_violation_detail.t option
-    (** contract, reason, violation detail *)
   | `Guardrail_violation of string * string (** validator, reason *)
   | `Tripwire_violation of string * string (** tripwire, reason *)
   | `Input_required of string * string (** request_id, question *)
