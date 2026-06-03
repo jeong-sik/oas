@@ -42,12 +42,12 @@ let test_aggregating_on_token_usage () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
   hooks.on_token_usage
-    ~provider:"provider_a"
+    ~provider:"anthropic"
     ~model_id:"agent_llm_a-3"
     ~input_tokens:100
     ~output_tokens:50;
   hooks.on_token_usage
-    ~provider:"provider_a"
+    ~provider:"anthropic"
     ~model_id:"agent_llm_a-3"
     ~input_tokens:200
     ~output_tokens:75;
@@ -130,23 +130,23 @@ let test_aggregating_on_streaming_latency () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
   hooks.on_streaming_first_chunk
-    ~provider:"provider_a"
+    ~provider:"anthropic"
     ~model_id:"agent_llm_a"
     ~ttfrc_ms:12.5;
   hooks.on_streaming_chunk
-    ~provider:"provider_a"
+    ~provider:"anthropic"
     ~model_id:"agent_llm_a"
     ~chunk_index:1
     ~inter_chunk_ms:4.25;
   hooks.on_streaming_chunk
-    ~provider:"provider_a"
+    ~provider:"anthropic"
     ~model_id:"agent_llm_a"
     ~chunk_index:2
     ~inter_chunk_ms:5.75;
   let snap = Agg.snapshot agg in
   check int "one entry" 1 (List.length snap);
   let entry = List.hd snap in
-  check string "provider" "provider_a" entry.M.provider;
+  check string "provider" "anthropic" entry.M.provider;
   check string "model_id" "agent_llm_a" entry.M.model_id;
   check (float 0.001) "ttfrc_ms_sum" 12.5 entry.M.ttfrc_ms_sum;
   check int "ttfrc_ms_count" 1 entry.M.ttfrc_ms_count;
@@ -173,7 +173,7 @@ let test_aggregating_multiple_providers () =
   let hooks = Agg.to_hooks agg in
   hooks.on_retry ~provider:"provider_d" ~model_id:"model-d-4" ~attempt:1;
   hooks.on_token_usage
-    ~provider:"provider_a"
+    ~provider:"anthropic"
     ~model_id:"agent_llm_a"
     ~input_tokens:50
     ~output_tokens:25;

@@ -417,7 +417,7 @@ let test_with_context () =
 let test_with_provider () =
   with_net
   @@ fun net ->
-  let provider = Provider.provider_a_haiku () in
+  let provider = Provider.anthropic_haiku () in
   let agent =
     Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_provider provider
@@ -1036,7 +1036,7 @@ let test_build_minimal_required_only () =
   Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check string)
     "base_url"
-    "https://api.provider_a.com"
+    "https://api.anthropic.com"
     (Agent.options agent).base_url
 ;;
 

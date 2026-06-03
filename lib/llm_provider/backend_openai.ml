@@ -1,66 +1,66 @@
-(** Provider_d-compatible API response parsing, message serialization,
+(** OpenAI-compatible API response parsing, message serialization,
     and request building.
 
     Pure functions operating on {!Llm_provider.Types}.
     {!build_request} uses {!Provider_config.t} (no agent_sdk coupling).
 
-    @since 0.92.0 decomposed into Backend_provider_d_serialize,
-    Backend_provider_d_parse *)
+    @since 0.92.0 decomposed into Backend_openai_serialize,
+    Backend_openai_parse *)
 
 open Types
 
 (* ── Re-exports from serialization ─────────────────────── *)
 
-let tool_calls_to_provider_d_json =
-  Backend_provider_d_serialize.tool_calls_to_provider_d_json
+let tool_calls_to_openai_json =
+  Backend_openai_serialize.tool_calls_to_openai_json
 ;;
 
-let provider_d_content_parts_of_blocks =
-  Backend_provider_d_serialize.provider_d_content_parts_of_blocks
+let openai_content_parts_of_blocks =
+  Backend_openai_serialize.openai_content_parts_of_blocks
 ;;
 
-let provider_d_messages_of_message =
-  Backend_provider_d_serialize.provider_d_messages_of_message
+let openai_messages_of_message =
+  Backend_openai_serialize.openai_messages_of_message
 ;;
 
 let provider_k_messages_of_message =
-  Backend_provider_d_serialize.provider_k_messages_of_message
+  Backend_openai_serialize.provider_k_messages_of_message
 ;;
 
 let tool_choice_to_provider_d_json =
-  Backend_provider_d_serialize.tool_choice_to_provider_d_json
+  Backend_openai_serialize.tool_choice_to_provider_d_json
 ;;
 
-let build_provider_d_tool_json = Backend_provider_d_serialize.build_provider_d_tool_json
-let strip_orphaned_tool_results = Backend_provider_d_serialize.strip_orphaned_tool_results
-let strip_thinking_blocks = Backend_provider_d_serialize.strip_thinking_blocks
+let build_provider_d_tool_json = Backend_openai_serialize.build_provider_d_tool_json
+let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
+let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
-let strip_json_markdown_fences = Backend_provider_d_parse.strip_json_markdown_fences
-let usage_of_provider_d_json = Backend_provider_d_parse.usage_of_provider_d_json
+let strip_json_markdown_fences = Backend_openai_parse.strip_json_markdown_fences
+let usage_of_provider_d_json = Backend_openai_parse.usage_of_provider_d_json
 
-let parse_provider_d_response_result =
-  Backend_provider_d_parse.parse_provider_d_response_result
+let parse_openai_response_result =
+  Backend_openai_parse.parse_openai_response_result
 ;;
 
 (* ── Re-exports from request building ─────────────────── *)
 
-let warn_capability_drop = Backend_provider_d_request.warn_capability_drop
-let effective_tool_choice = Backend_provider_d_request.effective_tool_choice
-let effective_tools = Backend_provider_d_request.effective_tools
-let structured_schema_of_config = Backend_provider_d_request.structured_schema_of_config
+let warn_capability_drop = Backend_openai_request.warn_capability_drop
+let effective_tool_choice = Backend_openai_request.effective_tool_choice
+let effective_tools = Backend_openai_request.effective_tools
+let structured_schema_of_config = Backend_openai_request.structured_schema_of_config
 
-let provider_d_json_schema_payload =
-  Backend_provider_d_request.provider_d_json_schema_payload
+let openai_json_schema_payload =
+  Backend_openai_request.openai_json_schema_payload
 ;;
 
 let response_format_to_provider_d_json =
-  Backend_provider_d_request.response_format_to_provider_d_json
+  Backend_openai_request.response_format_to_provider_d_json
 ;;
 
-let response_format_of_config = Backend_provider_d_request.response_format_of_config
-let build_request = Backend_provider_d_request.build_request
+let response_format_of_config = Backend_openai_request.response_format_of_config
+let build_request = Backend_openai_request.build_request
 
 [@@@coverage off]
 (* === Inline tests === *)
@@ -155,7 +155,7 @@ let%test "provider_k drops tools when tool_choice none" =
 let%test "provider_k drops min_p when model does not support it" =
   (* Glm's glm_capabilities inherits supports_min_p = false from
      default_capabilities.  Even when the caller sets min_p explicitly
-     (via higher-level config inheritance or agent default), backend_provider_d must
+     (via higher-level config inheritance or agent default), backend_openai must
      omit it from the wire body — ZAI rejects the request with
      "property 'min_p' is unsupported". *)
   let cfg =
@@ -222,26 +222,26 @@ let%test "strip_json_markdown_fences short string unchanged" =
   strip_json_markdown_fences "hi" = "hi"
 ;;
 
-let%test "tool_calls_to_provider_d_json extracts ToolUse blocks" =
+let%test "tool_calls_to_openai_json extracts ToolUse blocks" =
   let blocks =
     [ Text "hello"; ToolUse { id = "tc1"; name = "fn1"; input = `Assoc [ "x", `Int 1 ] } ]
   in
-  let result = tool_calls_to_provider_d_json blocks in
+  let result = tool_calls_to_openai_json blocks in
   List.length result = 1
 ;;
 
-let%test "tool_calls_to_provider_d_json empty for no tool_use" =
-  tool_calls_to_provider_d_json [ Text "no tools" ] = []
+let%test "tool_calls_to_openai_json empty for no tool_use" =
+  tool_calls_to_openai_json [ Text "no tools" ] = []
 ;;
 
-let%test "provider_d_content_parts_of_blocks filters text and image" =
+let%test "openai_content_parts_of_blocks filters text and image" =
   let blocks =
     [ Text "hello"
     ; Thinking { thinking_type = "reasoning"; content = "..." }
     ; ToolUse { id = "tc1"; name = "fn"; input = `Null }
     ]
   in
-  let result = provider_d_content_parts_of_blocks blocks in
+  let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
 ;;
 
@@ -304,7 +304,7 @@ let%test "usage_of_provider_d_json with cached_tokens" =
   | None -> false
 ;;
 
-let%test "parse_provider_d_response_result basic text response" =
+let%test "parse_openai_response_result basic text response" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -319,13 +319,13 @@ let%test "parse_provider_d_response_result basic text response" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp ->
     resp.id = "chatcmpl-1" && resp.model = "model-d-4" && resp.stop_reason = EndTurn
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result tool calls" =
+let%test "parse_openai_response_result tool calls" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -355,12 +355,12 @@ let%test "parse_provider_d_response_result tool calls" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp -> resp.stop_reason = StopToolUse
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result max_tokens stop reason" =
+let%test "parse_openai_response_result max_tokens stop reason" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -375,22 +375,22 @@ let%test "parse_provider_d_response_result max_tokens stop reason" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp -> resp.stop_reason = MaxTokens
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result error returns Error" =
+let%test "parse_openai_response_result error returns Error" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc [ "error", `Assoc [ "message", `String "rate limited" ] ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Error msg -> msg = "rate limited"
   | Ok _ -> false
 ;;
 
-let%test "provider_d_messages_of_message user text" =
+let%test "openai_messages_of_message user text" =
   let msg =
     { role = User
     ; content = [ Text "hello" ]
@@ -399,11 +399,11 @@ let%test "provider_d_messages_of_message user text" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
 ;;
 
-let%test "provider_d_messages_of_message user with tool_result" =
+let%test "openai_messages_of_message user with tool_result" =
   let msg =
     { role = User
     ; content =
@@ -416,7 +416,7 @@ let%test "provider_d_messages_of_message user with tool_result" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 2
 ;;
 
@@ -462,7 +462,7 @@ let%test "build_request strips orphaned tool results from wire messages" =
   roles = [ "assistant"; "user" ]
 ;;
 
-let%test "provider_d_messages_of_message assistant with tool_calls" =
+let%test "openai_messages_of_message assistant with tool_calls" =
   let msg =
     { role = Assistant
     ; content = [ ToolUse { id = "tc1"; name = "fn"; input = `Assoc [] } ]
@@ -471,11 +471,11 @@ let%test "provider_d_messages_of_message assistant with tool_calls" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
 ;;
 
-let%test "provider_d_messages_of_message system" =
+let%test "openai_messages_of_message system" =
   let msg =
     { role = System
     ; content = [ Text "system prompt" ]
@@ -484,19 +484,19 @@ let%test "provider_d_messages_of_message system" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
 ;;
 
-let%test "provider_d_messages_of_message user empty content" =
+let%test "openai_messages_of_message user empty content" =
   let msg =
     { role = User; content = []; name = None; tool_call_id = None; metadata = [] }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   result = []
 ;;
 
-let%test "provider_d_messages_of_message user with image" =
+let%test "openai_messages_of_message user with image" =
   let msg =
     { role = User
     ; content =
@@ -508,11 +508,11 @@ let%test "provider_d_messages_of_message user with image" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
 ;;
 
-let%test "provider_d_messages_of_message user with document" =
+let%test "openai_messages_of_message user with document" =
   let msg =
     { role = User
     ; content =
@@ -524,11 +524,11 @@ let%test "provider_d_messages_of_message user with document" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
 ;;
 
-let%test "provider_d_messages_of_message user with audio" =
+let%test "openai_messages_of_message user with audio" =
   let msg =
     { role = User
     ; content =
@@ -538,11 +538,11 @@ let%test "provider_d_messages_of_message user with audio" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
 ;;
 
-let%test "provider_d_messages_of_message assistant text only" =
+let%test "openai_messages_of_message assistant text only" =
   let msg =
     { role = Assistant
     ; content = [ Text "hello" ]
@@ -551,13 +551,13 @@ let%test "provider_d_messages_of_message assistant text only" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = "hello"
 ;;
 
-let%test "provider_d_messages_of_message assistant excludes reasoning from content" =
+let%test "openai_messages_of_message assistant excludes reasoning from content" =
   let msg =
     { role = Assistant
     ; content =
@@ -569,7 +569,7 @@ let%test "provider_d_messages_of_message assistant excludes reasoning from conte
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = "final answer"
@@ -596,7 +596,7 @@ let%test "provider_k_messages_of_message preserves reasoning_content separately"
   && json |> member "tool_calls" |> to_list |> List.length = 1
 ;;
 
-let%test "provider_d_messages_of_message assistant blank text with tool_calls" =
+let%test "openai_messages_of_message assistant blank text with tool_calls" =
   let msg =
     { role = Assistant
     ; content = [ Text ""; ToolUse { id = "tc1"; name = "fn"; input = `Assoc [] } ]
@@ -605,13 +605,13 @@ let%test "provider_d_messages_of_message assistant blank text with tool_calls" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "content" = `Null
 ;;
 
-let%test "provider_d_messages_of_message Tool role with ToolResult" =
+let%test "openai_messages_of_message Tool role with ToolResult" =
   let msg =
     { role = Tool
     ; content =
@@ -627,7 +627,7 @@ let%test "provider_d_messages_of_message Tool role with ToolResult" =
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   List.length result = 1
   &&
   let json = List.hd result in
@@ -635,7 +635,7 @@ let%test "provider_d_messages_of_message Tool role with ToolResult" =
   json |> member "role" |> to_string = "tool"
 ;;
 
-let%test "provider_d_messages_of_message Tool role without ToolResult fallback to user" =
+let%test "openai_messages_of_message Tool role without ToolResult fallback to user" =
   let msg =
     { role = Tool
     ; content = [ Text "fallback" ]
@@ -644,7 +644,7 @@ let%test "provider_d_messages_of_message Tool role without ToolResult fallback t
     ; metadata = []
     }
   in
-  let result = provider_d_messages_of_message msg in
+  let result = openai_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "role" |> to_string = "user"
@@ -807,7 +807,7 @@ let%test "strip_json_markdown_fences no closing fence" =
 
 let%test "strip_json_markdown_fences empty content" = strip_json_markdown_fences "" = ""
 
-let%test "parse_provider_d_response_result unknown finish_reason" =
+let%test "parse_openai_response_result unknown finish_reason" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -822,12 +822,12 @@ let%test "parse_provider_d_response_result unknown finish_reason" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp -> resp.stop_reason = Unknown "something_new"
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result end_turn finish_reason" =
+let%test "parse_openai_response_result end_turn finish_reason" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -842,12 +842,12 @@ let%test "parse_provider_d_response_result end_turn finish_reason" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp -> resp.stop_reason = EndTurn
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result null content" =
+let%test "parse_openai_response_result null content" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -862,12 +862,12 @@ let%test "parse_provider_d_response_result null content" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp -> resp.stop_reason = EndTurn
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result list content" =
+let%test "parse_openai_response_result list content" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -883,7 +883,7 @@ let%test "parse_provider_d_response_result list content" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp ->
     (match resp.content with
      | [ Text t ] -> String.length t > 0
@@ -891,7 +891,7 @@ let%test "parse_provider_d_response_result list content" =
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result list content with assoc text blocks" =
+let%test "parse_openai_response_result list content with assoc text blocks" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -913,7 +913,7 @@ let%test "parse_provider_d_response_result list content with assoc text blocks" 
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp ->
     (match resp.content with
      | [ Text t ] -> t = "block1block2"
@@ -921,7 +921,7 @@ let%test "parse_provider_d_response_result list content with assoc text blocks" 
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result with reasoning_content" =
+let%test "parse_openai_response_result with reasoning_content" =
   let json_str =
     Yojson.Safe.to_string
       (`Assoc
@@ -940,9 +940,9 @@ let%test "parse_provider_d_response_result with reasoning_content" =
                 ] )
           ])
   in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp ->
-    (* N-of-M followup to PR #1525 (backend_provider_f.has_tool_use). Same
+    (* N-of-M followup to PR #1525 (backend_gemini.has_tool_use). Same
        content_block catch-all family — enumerate every variant so a
        future block type can't silently inherit "no thinking". *)
     List.exists
@@ -960,7 +960,7 @@ let%test "parse_provider_d_response_result with reasoning_content" =
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result JSON list wrapping" =
+let%test "parse_openai_response_result JSON list wrapping" =
   let inner =
     `Assoc
       [ "id", `String "c1"
@@ -975,14 +975,14 @@ let%test "parse_provider_d_response_result JSON list wrapping" =
       ]
   in
   let json_str = Yojson.Safe.to_string (`List [ inner ]) in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Ok resp -> resp.id = "c1"
   | Error _ -> false
 ;;
 
-let%test "parse_provider_d_response_result error without message" =
+let%test "parse_openai_response_result error without message" =
   let json_str = Yojson.Safe.to_string (`Assoc [ "error", `Assoc [] ]) in
-  match parse_provider_d_response_result json_str with
+  match parse_openai_response_result json_str with
   | Error msg -> msg = "Unknown API error"
   | Ok _ -> false
 ;;
@@ -1003,42 +1003,42 @@ let%test "usage_of_provider_d_json prompt_tokens_details null" =
   | None -> false
 ;;
 
-let%test "provider_d_content_parts_of_blocks image block" =
+let%test "openai_content_parts_of_blocks image block" =
   let blocks =
     [ Image { media_type = "image/png"; data = "abc"; source_type = "base64" } ]
   in
-  let result = provider_d_content_parts_of_blocks blocks in
+  let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
 ;;
 
-let%test "provider_d_content_parts_of_blocks document block" =
+let%test "openai_content_parts_of_blocks document block" =
   let blocks =
     [ Document { media_type = "application/pdf"; data = "abc"; source_type = "base64" } ]
   in
-  let result = provider_d_content_parts_of_blocks blocks in
+  let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
 ;;
 
-let%test "provider_d_content_parts_of_blocks audio block" =
+let%test "openai_content_parts_of_blocks audio block" =
   let blocks =
     [ Audio { media_type = "audio/wav"; data = "abc"; source_type = "base64" } ]
   in
-  let result = provider_d_content_parts_of_blocks blocks in
+  let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
 ;;
 
-let%test "provider_d_content_parts_of_blocks redacted thinking filtered" =
+let%test "openai_content_parts_of_blocks redacted thinking filtered" =
   let blocks = [ RedactedThinking "secret"; Text "visible" ] in
-  let result = provider_d_content_parts_of_blocks blocks in
+  let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
 ;;
 
-let%test "provider_d_content_parts_of_blocks tool_result filtered" =
+let%test "openai_content_parts_of_blocks tool_result filtered" =
   let blocks =
     [ ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None }
     ]
   in
-  provider_d_content_parts_of_blocks blocks = []
+  openai_content_parts_of_blocks blocks = []
 ;;
 
 let%test "build_request includes tool_choice for model with supports_tool_choice=true" =
@@ -1327,7 +1327,7 @@ let%test "build_request emits enable_thinking for DashScope provider kind" =
 ;;
 
 let%test "build_request omits thinking params for No_thinking_control" =
-  (* Generic unknown Provider_d-compatible model ids fall back to
+  (* Generic unknown OpenAI-compatible model ids fall back to
      No_thinking_control and must not emit any provider-specific thinking
      parameter. *)
   let config =

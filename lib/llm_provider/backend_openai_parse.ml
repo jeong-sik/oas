@@ -1,9 +1,9 @@
-(** Provider_d-compatible response parsing.
+(** OpenAI-compatible response parsing.
 
     Parses JSON responses from Provider_d Chat Completions API into
     agent_sdk Types (api_response, api_usage).
 
-    @since 0.92.0 extracted from Backend_provider_d *)
+    @since 0.92.0 extracted from Backend_openai *)
 
 open Types
 
@@ -236,9 +236,9 @@ let telemetry_of_provider_d_json json =
     }
 ;;
 
-(** Parse an Provider_d-compatible JSON response string into an [api_response].
+(** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
-let parse_provider_d_response_result json_str =
+let parse_openai_response_result json_str =
   let open Yojson.Safe.Util in
   let raw_json = Yojson.Safe.from_string json_str in
   let json =
@@ -309,6 +309,7 @@ let parse_provider_d_response_result json_str =
       | "tool_calls" when tool_blocks <> [] -> StopToolUse
       | "length" -> MaxTokens
       | "stop" | "end_turn" -> EndTurn
+      | "refusal" -> Refusal
       | _other when tool_blocks <> [] -> StopToolUse
       | other -> Unknown other
     in

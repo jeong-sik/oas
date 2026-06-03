@@ -67,26 +67,26 @@ let string_contains ~needle haystack =
 (* Internal: static pricing table lookup on a pre-normalised model ID.
    Called by [pricing_for_model_opt] when no dynamic override matches.
    Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-   Newer Provider_d text models expose cached input at 0.1x input.
+   Newer OpenAI text models expose cached input at 0.1x input.
    Local/free models keep no-op cache multipliers. *)
 let static_pricing_opt_normalized normalized =
-  let provider_a_cache = 1.25, 0.1 in
-  let provider_d_cached_input = 1.0, 0.1 in
+  let anthropic_cache = 1.25, 0.1 in
+  let openai_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
     if string_contains ~needle:"opus-4-6" normalized
-    then Some ((15.0, 75.0), provider_a_cache)
+    then Some ((15.0, 75.0), anthropic_cache)
     else if string_contains ~needle:"opus-4-5" normalized
-    then Some ((15.0, 75.0), provider_a_cache)
+    then Some ((15.0, 75.0), anthropic_cache)
     else if string_contains ~needle:"sonnet-4-6" normalized
-    then Some ((3.0, 15.0), provider_a_cache)
+    then Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"sonnet-4" normalized
-    then Some ((3.0, 15.0), provider_a_cache)
+    then Some ((3.0, 15.0), anthropic_cache)
     else if string_contains ~needle:"haiku-4-5" normalized
-    then Some ((0.8, 4.0), provider_a_cache)
+    then Some ((0.8, 4.0), anthropic_cache)
     else if string_contains ~needle:"agent_llm_a-3-7-sonnet" normalized
     then
-      Some ((3.0, 15.0), provider_a_cache)
+      Some ((3.0, 15.0), anthropic_cache)
       (* cli_tool_d provider alias fallback. The Agent_llm_a Code transport
        surfaces telemetry.model_used as the alias (e.g. "cli_tool_d:auto",
        "cc:default") instead of the canonical model id returned by the
@@ -98,22 +98,22 @@ let static_pricing_opt_normalized normalized =
       string_contains ~needle:"cli_tool_d" normalized
       || string_contains ~needle:"cc:" normalized
     then
-      Some ((3.0, 15.0), provider_a_cache)
-      (* Provider_d API text-token pricing, confirmed from official model docs
+      Some ((3.0, 15.0), anthropic_cache)
+      (* OpenAI API text-token pricing, confirmed from official model docs
        2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
        its Agent_code rate card labels it research preview with non-final rates. *)
     else if string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
     then None
     else if string_contains ~needle:"model-d-5.5" normalized
-    then Some ((5.0, 30.0), provider_d_cached_input)
+    then Some ((5.0, 30.0), openai_cached_input)
     else if string_contains ~needle:"model-d-5.4-mini" normalized
-    then Some ((0.75, 4.5), provider_d_cached_input)
+    then Some ((0.75, 4.5), openai_cached_input)
     else if string_contains ~needle:"model-d-5.4" normalized
-    then Some ((2.5, 15.0), provider_d_cached_input)
+    then Some ((2.5, 15.0), openai_cached_input)
     else if string_contains ~needle:"model-d-5.3-agent_code" normalized
-    then Some ((1.75, 14.0), provider_d_cached_input)
+    then Some ((1.75, 14.0), openai_cached_input)
     else if string_contains ~needle:"model-d-5.2" normalized
-    then Some ((1.75, 14.0), provider_d_cached_input)
+    then Some ((1.75, 14.0), openai_cached_input)
     else if string_contains ~needle:"model-d-4.1" normalized
     then Some ((2.0, 8.0), no_cache)
     else if string_contains ~needle:"model-d-mini" normalized
@@ -132,17 +132,17 @@ let static_pricing_opt_normalized normalized =
     else if string_contains ~needle:"provider_g-v4-flash" normalized
     then
       Some ((0.14, 0.28), (1.0, 0.02))
-      (* Gemini 3-계 preview. Source: ai.google.dev/provider_f-api/docs/pricing,
+      (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
        confirmed 2026-04-16. Google also exposes context caching with a
        per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the
        pricing record cannot represent time-based storage, so we keep
        cache multipliers at no_cache and rely on provider-reported
        cost_usd for exact billing. Estimates here are an upper bound on
        input/output token cost only. *)
-    else if string_contains ~needle:"provider_f-3-flash-preview" normalized
+    else if string_contains ~needle:"gemini-3-flash-preview" normalized
     then Some ((0.50, 3.0), no_cache)
     else if
-      string_contains ~needle:"provider_f-3.1-pro-preview" normalized
+      string_contains ~needle:"gemini-3.1-pro-preview" normalized
       || string_contains ~needle:"provider_f-3.1-pro" normalized
     then
       (* Standard tier (input <= 200k tokens). Above 200k Google charges
@@ -594,13 +594,13 @@ let%test "pricing o3-mini" =
 
 (* --- pricing_for_model: Gemini 3-계 preview (2026-04-16) --- *)
 
-let%test "pricing provider_f-3-flash-preview" =
-  let p = pricing_for_model "provider_f-3-flash-preview" in
+let%test "pricing gemini-3-flash-preview" =
+  let p = pricing_for_model "gemini-3-flash-preview" in
   close_enough p.input_per_million 0.50 && close_enough p.output_per_million 3.0
 ;;
 
 let%test "pricing provider_f-3.1-pro-preview" =
-  let p = pricing_for_model "provider_f-3.1-pro-preview" in
+  let p = pricing_for_model "gemini-3.1-pro-preview" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
@@ -709,8 +709,8 @@ let%test "pricing cc: short alias falls back to sonnet-4-6 rates" =
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
-let%test "pricing_for_model_opt returns Some for provider_f-3-flash-preview" =
-  match pricing_for_model_opt "provider_f-3-flash-preview" with
+let%test "pricing_for_model_opt returns Some for gemini-3-flash-preview" =
+  match pricing_for_model_opt "gemini-3-flash-preview" with
   | Some p -> p.input_per_million > 0.0
   | None -> false
 ;;

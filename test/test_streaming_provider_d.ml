@@ -1,15 +1,15 @@
-(** Unit tests for Provider_d-compatible SSE streaming parser. *)
+(** Unit tests for OpenAI-compatible SSE streaming parser. *)
 
 open Llm_provider.Types
 module S = Llm_provider.Streaming
 
-(* ── parse_provider_d_sse_chunk ─────────────────────────────── *)
+(* ── parse_openai_sse_chunk ─────────────────────────────── *)
 
 let test_parse_text_chunk () =
   let data =
     {|{"id":"chatcmpl-abc","object":"chat.completion.chunk","model":"model-d-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check string) "id" "chatcmpl-abc" chunk.chunk_id;
     Alcotest.(check string) "model" "model-d-4" chunk.chunk_model;
@@ -20,7 +20,7 @@ let test_parse_text_chunk () =
 ;;
 
 let test_parse_done_sentinel () =
-  match S.parse_provider_d_sse_chunk "[DONE]" with
+  match S.parse_openai_sse_chunk "[DONE]" with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for [DONE]"
 ;;
@@ -29,7 +29,7 @@ let test_parse_finish_reason () =
   let data =
     {|{"id":"c-1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check (option string)) "finish" (Some "stop") chunk.finish_reason;
     Alcotest.(check (option string)) "no content" None chunk.delta_content
@@ -40,7 +40,7 @@ let test_parse_tool_call_start () =
   let data =
     {|{"id":"c-2","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check int) "1 tool_call" 1 (List.length chunk.delta_tool_calls);
     let tc = List.hd chunk.delta_tool_calls in
@@ -55,7 +55,7 @@ let test_parse_tool_call_args () =
   let data =
     {|{"id":"c-3","model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"loc"}}]},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     let tc = List.hd chunk.delta_tool_calls in
     Alcotest.(check (option string)) "args" (Some {|{"loc|}) tc.tc_arguments;
@@ -68,7 +68,7 @@ let test_parse_usage () =
   let data =
     {|{"id":"c-4","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     (match chunk.chunk_usage with
      | Some u ->
@@ -79,22 +79,22 @@ let test_parse_usage () =
 ;;
 
 let test_parse_invalid_json () =
-  match S.parse_provider_d_sse_chunk "not json" with
+  match S.parse_openai_sse_chunk "not json" with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for invalid JSON"
 ;;
 
 let test_parse_empty_choices () =
   let data = {|{"id":"c-5","model":"m","choices":[]}|} in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | None -> ()
   | Some _ -> Alcotest.fail "expected None for empty choices"
 ;;
 
-(* ── provider_d_chunk_to_events ─────────────────────────────── *)
+(* ── openai_chunk_to_events ─────────────────────────────── *)
 
 let test_events_text_first_chunk () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let chunk : S.provider_d_chunk =
     { chunk_id = "c"
     ; chunk_model = "m"
@@ -105,7 +105,7 @@ let test_events_text_first_chunk () =
     ; chunk_usage = None
     }
   in
-  let events, _tel = S.provider_d_chunk_to_events state chunk in
+  let events, _tel = S.openai_chunk_to_events state chunk in
   Alcotest.(check int) "2 events" 2 (List.length events);
   (match List.nth events 0 with
    | ContentBlockStart { index = 0; content_type; _ } ->
@@ -118,10 +118,10 @@ let test_events_text_first_chunk () =
 ;;
 
 let test_events_text_subsequent () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   (* First chunk starts the block *)
   let _ =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -134,7 +134,7 @@ let test_events_text_subsequent () =
   in
   (* Second chunk: no ContentBlockStart *)
   let events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -152,7 +152,7 @@ let test_events_text_subsequent () =
 ;;
 
 let test_events_tool_call () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let tc : S.provider_d_tool_call_delta =
     { tc_index = 0
     ; tc_id = Some "call_1"
@@ -161,7 +161,7 @@ let test_events_tool_call () =
     }
   in
   let events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -186,9 +186,9 @@ let test_events_tool_call () =
 ;;
 
 let test_events_finish_reason () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -206,9 +206,9 @@ let test_events_finish_reason () =
 ;;
 
 let test_events_tool_calls_finish () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -225,9 +225,9 @@ let test_events_tool_calls_finish () =
 ;;
 
 let test_events_length_finish () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -244,9 +244,9 @@ let test_events_length_finish () =
 ;;
 
 let test_events_empty_content_ignored () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -264,7 +264,7 @@ let test_parse_reasoning_chunk () =
   let data =
     {|{"id":"c-r","model":"provider_h","choices":[{"index":0,"delta":{"reasoning_content":"Let me think"},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check (option string))
       "reasoning"
@@ -279,7 +279,7 @@ let test_parse_ollama_reasoning_fallback () =
   let data =
     {|{"id":"c-ollama","model":"provider_h-3.5:35b","choices":[{"index":0,"delta":{"reasoning":"Ollama thinking"},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check (option string))
       "reasoning fallback"
@@ -294,7 +294,7 @@ let test_parse_reasoning_content_preferred () =
   let data =
     {|{"id":"c-both","model":"provider_h","choices":[{"index":0,"delta":{"reasoning_content":"preferred","reasoning":"fallback"},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check (option string))
       "reasoning_content wins"
@@ -308,7 +308,7 @@ let test_parse_blank_reasoning_content_falls_back () =
   let data =
     {|{"id":"c-blank","model":"provider_h","choices":[{"index":0,"delta":{"reasoning_content":"  ","reasoning":"actual thinking"},"finish_reason":null}]}|}
   in
-  match S.parse_provider_d_sse_chunk data with
+  match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check (option string))
       "blank falls back"
@@ -318,9 +318,9 @@ let test_parse_blank_reasoning_content_falls_back () =
 ;;
 
 let test_events_reasoning_then_text () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   let r_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -341,7 +341,7 @@ let test_events_reasoning_then_text () =
      Alcotest.(check string) "thinking text" "thinking..." s
    | _ -> Alcotest.fail "expected ThinkingDelta at index 0");
   let t_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -366,10 +366,10 @@ let test_events_reasoning_then_text () =
 (** Regression test for issue #332: thinking delta index must match
     the assigned block index across multiple streaming chunks. *)
 let test_events_reasoning_delta_index_multi_chunk () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   (* First reasoning chunk: starts block at index 0 *)
   let r1, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -392,7 +392,7 @@ let test_events_reasoning_delta_index_multi_chunk () =
    | _ -> Alcotest.fail "expected ThinkingDelta");
   (* Second reasoning chunk: must still use the same block index *)
   let r2, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -411,7 +411,7 @@ let test_events_reasoning_delta_index_multi_chunk () =
    | _ -> Alcotest.fail "expected ThinkingDelta at index 0");
   (* Text after thinking: must get index 1, not 0 *)
   let t_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -431,7 +431,7 @@ let test_events_reasoning_delta_index_multi_chunk () =
 (** Regression test for issue #333: tool-first stream must assign correct
     text block index when text arrives after tool calls. *)
 let test_events_tool_first_then_text () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   (* Step 1: tool call arrives first, gets block index 0 *)
   let tc : S.provider_d_tool_call_delta =
     { tc_index = 0
@@ -441,7 +441,7 @@ let test_events_tool_first_then_text () =
     }
   in
   let tool_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -464,7 +464,7 @@ let test_events_tool_first_then_text () =
    | _ -> Alcotest.fail "expected InputJsonDelta at index 0");
   (* Step 2: text arrives — must get index 1, not 0 *)
   let text_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -488,7 +488,7 @@ let test_events_tool_first_then_text () =
    | _ -> Alcotest.fail "expected TextDelta at index 1");
   (* Step 3: subsequent text must reuse the same block index *)
   let text2_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -509,7 +509,7 @@ let test_events_tool_first_then_text () =
 
 (** Regression test for issue #333: multiple tool calls then text. *)
 let test_events_multi_tool_then_text () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   (* Two tool calls: indices 0 and 1 *)
   let tc0 : S.provider_d_tool_call_delta =
     { tc_index = 0
@@ -526,7 +526,7 @@ let test_events_multi_tool_then_text () =
     }
   in
   let _ =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -540,7 +540,7 @@ let test_events_multi_tool_then_text () =
   Alcotest.(check int) "next_block_index after 2 tools" 2 state.next_block_index;
   (* Text must get index 2 *)
   let text_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -563,10 +563,10 @@ let test_events_multi_tool_then_text () =
 
 (** Regression test for issue #333: tool between thinking and text. *)
 let test_events_thinking_tool_text () =
-  let state = S.create_provider_d_stream_state () in
+  let state = S.create_openai_stream_state () in
   (* Thinking: gets index 0 *)
   let _ =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -587,7 +587,7 @@ let test_events_thinking_tool_text () =
     }
   in
   let _ =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -601,7 +601,7 @@ let test_events_thinking_tool_text () =
   Alcotest.(check int) "next after tool" 2 state.next_block_index;
   (* Text: must get index 2 *)
   let text_events, _tel =
-    S.provider_d_chunk_to_events
+    S.openai_chunk_to_events
       state
       { chunk_id = "c"
       ; chunk_model = "m"
@@ -627,7 +627,7 @@ let () =
   let open Alcotest in
   run
     "streaming_provider_d"
-    [ ( "parse_provider_d_sse_chunk"
+    [ ( "parse_openai_sse_chunk"
       , [ test_case "text chunk" `Quick test_parse_text_chunk
         ; test_case "[DONE] sentinel" `Quick test_parse_done_sentinel
         ; test_case "finish_reason" `Quick test_parse_finish_reason
@@ -650,7 +650,7 @@ let () =
             `Quick
             test_parse_blank_reasoning_content_falls_back
         ] )
-    ; ( "provider_d_chunk_to_events"
+    ; ( "openai_chunk_to_events"
       , [ test_case "text first chunk" `Quick test_events_text_first_chunk
         ; test_case "text subsequent" `Quick test_events_text_subsequent
         ; test_case "tool_call" `Quick test_events_tool_call

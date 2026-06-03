@@ -1,5 +1,5 @@
 open Alcotest
-module K = Llm_provider.Backend_provider_k
+module K = Llm_provider.Backend_glm
 module PC = Llm_provider.Provider_config
 module T = Llm_provider.Types
 
@@ -221,7 +221,7 @@ let test_parse_stream_chunk_delegates_reasoning_delta () =
 
 let () =
   run
-    "backend_provider_k_coverage"
+    "backend_glm_coverage"
     [ ( "classification"
       , [ test_case "error classification matrix" `Quick test_classification_matrix
         ; test_case "http status mapping" `Quick test_http_status_mapping

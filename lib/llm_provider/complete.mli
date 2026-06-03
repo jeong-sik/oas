@@ -16,7 +16,7 @@
 
 (** Construct Gemini API URL with model_id in path and optional key param.
     Exposed for testing. *)
-val provider_f_url : config:Provider_config.t -> stream:bool -> string
+val gemini_url : config:Provider_config.t -> stream:bool -> string
 
 (** {1 Provider Sampling Defaults} *)
 
@@ -139,13 +139,13 @@ val complete_with_retry
     Each SSE event is passed to [on_event] as it arrives.
     Returns the final assembled {!Types.api_response} after the stream ends.
 
-    Supports both Anthropic native SSE and Provider_d-compatible SSE formats,
+    Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
 
     [clock] and [stream_idle_timeout_s] together bound inter-line idle
     on every HTTP streaming path: Ollama native NDJSON
     (see {!Http_client.read_ndjson}) and the SSE format used by
-    Anthropic, Provider_d-compatible, Gemini, and Glm
+    Anthropic, OpenAI-compatible, Gemini, and Glm
     (see {!Http_client.read_sse}). The deadline resets after each
     successful line, so this does not cap total stream duration.
     SSE keepalive comments reset the deadline like any other line.

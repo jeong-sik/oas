@@ -55,7 +55,7 @@ let test_present_env_var () =
   in
   match Provider.resolve cfg with
   | Ok (base_url, api_key, _headers) ->
-    Alcotest.(check string) "base_url" "https://api.provider_a.com" base_url;
+    Alcotest.(check string) "base_url" "https://api.anthropic.com" base_url;
     Alcotest.(check string) "api_key" "test-api-key-value" api_key
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
@@ -87,7 +87,7 @@ let test_provider_a_provider () =
   in
   match Provider.resolve cfg with
   | Ok (base_url, api_key, _headers) ->
-    Alcotest.(check string) "provider_a base_url" "https://api.provider_a.com" base_url;
+    Alcotest.(check string) "provider_a base_url" "https://api.anthropic.com" base_url;
     Alcotest.(check string) "api_key" "sk-ant-test-key" api_key
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
@@ -104,7 +104,7 @@ let test_openai_compat_resolve_success () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_a/agent_llm_a-sonnet-4-6"
+    ; model_id = "anthropic/agent_llm_a-sonnet-4-6"
     ; api_key_env = env_var
     }
   in
@@ -162,8 +162,8 @@ let test_provider_a_headers () =
       (Provider.auth_headers_only_for_kind
          ~kind:Llm_provider.Provider_config.Anthropic
          ~api_key);
-    let version = List.assoc "provider_a-version" headers in
-    Alcotest.(check string) "provider_a-version" "2023-06-01" version;
+    let version = List.assoc "anthropic-version" headers in
+    Alcotest.(check string) "anthropic-version" "2023-06-01" version;
     let ct = List.assoc "Content-Type" headers in
     Alcotest.(check string) "content-type" "application/json" ct
   | Error e -> Alcotest.fail (Printf.sprintf "should succeed: %s" (Error.to_string e))
@@ -189,7 +189,7 @@ let test_model_spec_local_llm_capabilities () =
 ;;
 
 let test_model_spec_openrouter_capabilities () =
-  let cfg = Provider.provider_o_router ~model_id:"provider_a/agent_llm_a-sonnet-4-6" () in
+  let cfg = Provider.provider_o_router ~model_id:"anthropic/agent_llm_a-sonnet-4-6" () in
   let spec = Provider.model_spec_of_config cfg in
   let contract = Provider.inference_contract_of_config cfg in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
@@ -208,7 +208,7 @@ let test_model_spec_openrouter_capabilities () =
 ;;
 
 let test_inference_contract_provider_a_multimodal () =
-  let contract = Provider.inference_contract_of_config (Provider.provider_a_sonnet ()) in
+  let contract = Provider.inference_contract_of_config (Provider.anthropic_sonnet ()) in
   Alcotest.(check string)
     "modality"
     "multimodal"
@@ -241,7 +241,7 @@ let test_inference_contract_task_image_generation () =
           ; path = "/images/generations"
           ; static_token = None
           }
-    ; model_id = "provider_k-image"
+    ; model_id = "glm-image"
     ; api_key_env = ""
     }
   in
@@ -363,9 +363,9 @@ let test_anthropic_capabilities_consults_for_model_id () =
      Llm_provider.Capabilities.for_model_id. Opus 4 / Sonnet 4 advertise
      a 1M window in that table; this test pins that the config path
      now picks them up. *)
-  let opus = Provider.provider_a_opus () in
-  let sonnet = Provider.provider_a_sonnet () in
-  let haiku = Provider.provider_a_haiku () in
+  let opus = Provider.anthropic_opus () in
+  let sonnet = Provider.anthropic_sonnet () in
+  let haiku = Provider.anthropic_haiku () in
   let opus_caps = Provider.capabilities_for_config opus in
   let sonnet_caps = Provider.capabilities_for_config sonnet in
   let haiku_caps = Provider.capabilities_for_config haiku in
@@ -398,7 +398,7 @@ let test_anthropic_capabilities_unknown_model_id_falls_back () =
   let cfg : Provider.config =
     { provider = Anthropic
     ; model_id = "agent_llm_a-nonexistent-future-model"
-    ; api_key_env = "PROVIDER_A_API_KEY"
+    ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in
   let caps = Provider.capabilities_for_config cfg in
@@ -606,7 +606,7 @@ let test_provider_config_of_agent_provider_a () =
   match
     Provider.provider_config_of_agent
       ~state
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       (Some cfg)
   with
   | Ok pc ->
@@ -623,9 +623,9 @@ let test_provider_config_of_agent_provider_a () =
       [ "x-api-key", "sk-ant-adapter-test" ]
       pc;
     Alcotest.(check bool)
-      "provider_a-version header present"
+      "anthropic-version header present"
       true
-      (List.mem ("provider_a-version", "2023-06-01") pc.headers);
+      (List.mem ("anthropic-version", "2023-06-01") pc.headers);
     Alcotest.(check (option int)) "max_tokens" (Some 4096) pc.max_tokens;
     Alcotest.(check (option (float 0.001))) "temperature" (Some 0.7) pc.temperature;
     Alcotest.(check (option (float 0.001))) "top_p" (Some 0.9) pc.top_p;
@@ -650,7 +650,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; api_key_env = env_var
     }
   in
@@ -673,7 +673,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
       "authorization auth header derived"
       [ "Authorization", "Bearer sk-oai-adapter-test" ]
       pc;
-    Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
+    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -688,7 +688,7 @@ let test_provider_config_of_agent_missing_env () =
   match
     Provider.provider_config_of_agent
       ~state
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       (Some cfg)
   with
   | Error (Error.Config (MissingEnvVar { var_name })) ->
@@ -701,11 +701,11 @@ let test_provider_config_of_agent_missing_env () =
 ;;
 
 let test_provider_config_of_agent_none_fallback () =
-  (* None provider with PROVIDER_A_API_KEY present = Anthropic default *)
-  Unix.putenv "PROVIDER_A_API_KEY" "sk-ant-default-fallback";
+  (* None provider with ANTHROPIC_API_KEY present = Anthropic default *)
+  Unix.putenv "ANTHROPIC_API_KEY" "sk-ant-default-fallback";
   let state = agent_state_with_params () in
   match
-    Provider.provider_config_of_agent ~state ~base_url:"https://api.provider_a.com" None
+    Provider.provider_config_of_agent ~state ~base_url:"https://api.anthropic.com" None
   with
   | Ok pc ->
     Alcotest.(check string)
@@ -715,7 +715,7 @@ let test_provider_config_of_agent_none_fallback () =
     Alcotest.(check string) "uses fallback key" "sk-ant-default-fallback" pc.api_key;
     Alcotest.(check string)
       "preserves caller base_url"
-      "https://api.provider_a.com"
+      "https://api.anthropic.com"
       pc.base_url;
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
     check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
@@ -759,7 +759,7 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
      Gemini base URL. *)
   let cfg : Provider.config =
     { provider = Custom_registered { name = "provider_f" }
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; api_key_env = "PROVIDER_F_API_KEY"
     }
   in
@@ -773,7 +773,7 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
       "kind preserves Gemini"
       true
       (pc.kind = Llm_provider.Provider_config.Gemini);
-    Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
+    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
@@ -802,9 +802,9 @@ let test_provider_config_of_agent_custom_registered_provider_c_preserves_headers
       [ "x-api-key", "provider_c-provider-test-key" ]
       pc;
     Alcotest.(check bool)
-      "provider_a-version header present"
+      "anthropic-version header present"
       true
-      (List.mem ("provider_a-version", "2023-06-01") pc.headers)
+      (List.mem ("anthropic-version", "2023-06-01") pc.headers)
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
@@ -1006,7 +1006,7 @@ let () =
             `Quick
             test_provider_config_of_agent_missing_env
         ; Alcotest.test_case
-            "none falls back to PROVIDER_A_API_KEY"
+            "none falls back to ANTHROPIC_API_KEY"
             `Quick
             test_provider_config_of_agent_none_fallback
         ; Alcotest.test_case

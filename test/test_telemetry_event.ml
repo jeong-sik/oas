@@ -43,7 +43,7 @@ let test_streaming_first_chunk () =
 let test_streaming_chunk_n () =
   let ev =
     Telemetry_event.Streaming_chunk_n
-      { provider = "provider_a"
+      { provider = "anthropic"
       ; model = "agent_llm_a-3"
       ; chunk_index = 5
       ; inter_chunk_ms = 42.0
@@ -51,7 +51,7 @@ let test_streaming_chunk_n () =
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_chunk_n r ->
-    check string "provider" "provider_a" r.provider;
+    check string "provider" "anthropic" r.provider;
     check string "model" "agent_llm_a-3" r.model;
     check int "chunk_index" 5 r.chunk_index;
     check_float "inter_chunk_ms" 42.0 r.inter_chunk_ms

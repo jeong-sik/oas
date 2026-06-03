@@ -20,7 +20,7 @@ let mk_session
   ; phase = Runtime.Running
   ; created_at = 1.0
   ; updated_at
-  ; provider = Some "provider_a"
+  ; provider = Some "anthropic"
   ; model = Some "agent_llm_a"
   ; system_prompt = None
   ; max_turns = 10
@@ -86,14 +86,14 @@ let all_event_kinds () =
       { participant_name = "alice"
       ; role = Some "worker"
       ; prompt = "do work"
-      ; provider = Some "provider_a"
+      ; provider = Some "anthropic"
       ; model = Some "agent_llm_a"
       ; permission_mode = Some "safe"
       }
   ; Agent_became_live
       (participant_event
          ~summary:"ready"
-         ~provider:"provider_a"
+         ~provider:"anthropic"
          ~model:"agent_llm_a"
          ~raw_trace_run_id:"raw-1"
          ~stop_reason:"end_turn"
@@ -106,7 +106,7 @@ let all_event_kinds () =
            (Runtime_evidence.append_dropped_output_deltas_summary
               ~summary:"done"
               ~dropped_output_deltas:2)
-         ~provider:"provider_a"
+         ~provider:"anthropic"
          ~model:"agent_llm_a"
          ~raw_trace_run_id:"raw-2"
          ~stop_reason:"stop"

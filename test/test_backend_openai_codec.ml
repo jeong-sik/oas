@@ -1,7 +1,7 @@
 open Llm_provider
 open Types
-module Parse = Backend_provider_d_parse
-module Serialize = Backend_provider_d_serialize
+module Parse = Backend_openai_parse
+module Serialize = Backend_openai_serialize
 
 let check_string = Alcotest.(check string)
 let check_int = Alcotest.(check int)
@@ -47,14 +47,14 @@ let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_f
 ;;
 
 let parse_ok json =
-  match Parse.parse_provider_d_response_result (Yojson.Safe.to_string json) with
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
   | Ok response -> response
   | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
 ;;
 
 let test_content_parts_cover_modalities () =
   let parts =
-    Serialize.provider_d_content_parts_of_blocks
+    Serialize.openai_content_parts_of_blocks
       [ Text "hello"
       ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
       ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
@@ -97,7 +97,7 @@ let test_provider_d_user_messages_text_tool_and_empty () =
           { tool_use_id = "call-1"; content = "42"; is_error = false; json = None }
       ]
   in
-  let messages = Serialize.provider_d_messages_of_message user in
+  let messages = Serialize.openai_messages_of_message user in
   check_int "user + tool messages" 2 (List.length messages);
   let user_json = List.nth messages 0 in
   check_string "user role" "user" (member "role" user_json |> to_string);
@@ -107,7 +107,7 @@ let test_provider_d_user_messages_text_tool_and_empty () =
   check_string "tool id" "call-1" (member "tool_call_id" tool_json |> to_string);
   check_string "tool content" "42" (member "content" tool_json |> to_string);
   let empty_user =
-    Serialize.provider_d_messages_of_message
+    Serialize.openai_messages_of_message
       (msg User [ Thinking { thinking_type = ""; content = "x" } ])
   in
   check_int "empty user drops message" 0 (List.length empty_user)
@@ -120,7 +120,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     ]
   in
   let provider_d =
-    Serialize.provider_d_messages_of_message (msg User content) |> only "provider_d"
+    Serialize.openai_messages_of_message (msg User content) |> only "provider_d"
   in
   let provider_d_parts = member "content" provider_d |> as_list "provider_d content" in
   check_string
@@ -147,7 +147,7 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
       [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [ "q", `String "x" ] } ]
   in
   let provider_d =
-    Serialize.provider_d_messages_of_message assistant |> only "provider_d"
+    Serialize.openai_messages_of_message assistant |> only "provider_d"
   in
   check_string "assistant role" "assistant" (member "role" provider_d |> to_string);
   Alcotest.(check bool)
@@ -183,12 +183,12 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
 
 let test_system_and_tool_role_messages () =
   let system =
-    Serialize.provider_d_messages_of_message (msg System [ Text "sys" ]) |> only "system"
+    Serialize.openai_messages_of_message (msg System [ Text "sys" ]) |> only "system"
   in
   check_string "system role" "system" (member "role" system |> to_string);
   check_string "system content" "sys" (member "content" system |> to_string);
   let tool =
-    Serialize.provider_d_messages_of_message
+    Serialize.openai_messages_of_message
       (msg
          Tool
          [ ToolResult
@@ -199,7 +199,7 @@ let test_system_and_tool_role_messages () =
   check_string "tool role" "tool" (member "role" tool |> to_string);
   check_string "tool call id" "call-2" (member "tool_call_id" tool |> to_string);
   let fallback =
-    Serialize.provider_d_messages_of_message (msg Tool [ Text "plain fallback" ])
+    Serialize.openai_messages_of_message (msg Tool [ Text "plain fallback" ])
     |> only "fallback"
   in
   check_string "fallback role" "user" (member "role" fallback |> to_string);
@@ -339,7 +339,7 @@ let test_serializer_ignored_block_variants () =
   check_int
     "provider_d tool_calls ignores non-tool blocks"
     0
-    (Serialize.tool_calls_to_provider_d_json ignored_blocks |> List.length);
+    (Serialize.tool_calls_to_openai_json ignored_blocks |> List.length);
   let ollama =
     Serialize.ollama_messages_of_message (msg Assistant ignored_blocks) |> only "ollama"
   in
@@ -348,7 +348,7 @@ let test_serializer_ignored_block_variants () =
     true
     (member "tool_calls" ollama = `Null);
   let assistant =
-    Serialize.provider_d_messages_of_message (msg Assistant ignored_blocks)
+    Serialize.openai_messages_of_message (msg Assistant ignored_blocks)
     |> only "assistant"
   in
   check_string "assistant content is empty" "" (member "content" assistant |> to_string);
@@ -374,7 +374,7 @@ let test_serializer_ignored_block_variants () =
     ]
   in
   let tool_fallback =
-    Serialize.provider_d_messages_of_message (msg Tool tool_fallback_blocks)
+    Serialize.openai_messages_of_message (msg Tool tool_fallback_blocks)
     |> only "tool fallback"
   in
   check_string "tool fallback role" "user" (member "role" tool_fallback |> to_string)
@@ -622,7 +622,7 @@ let test_parse_tool_calls_filters_malformed_and_sets_stop_reason () =
 
 let test_parse_error_default_message () =
   let json = `Assoc [ "error", `Assoc [] ] |> Yojson.Safe.to_string in
-  match Parse.parse_provider_d_response_result json with
+  match Parse.parse_openai_response_result json with
   | Error msg -> check_string "default error" "Unknown API error" msg
   | Ok _ -> Alcotest.fail "expected API error"
 ;;
@@ -678,7 +678,7 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
 
 let () =
   Alcotest.run
-    "backend_provider_d_codec"
+    "backend_openai_codec"
     [ ( "serialize"
       , [ Alcotest.test_case
             "content parts cover modalities"

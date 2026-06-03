@@ -359,8 +359,8 @@ let test_context_identity () =
 (* ── Suite ──────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Context_Flow_Proof"

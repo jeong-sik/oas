@@ -486,7 +486,7 @@ let test_catalog_overlay_adds_provider_and_alias () =
           "request_path": "/v1/chat/completions",
           "auth": {"type": "none"},
           "default_model": "local-model",
-          "capabilities_base": "provider_d_chat",
+          "capabilities_base": "openai_chat",
           "capabilities": {
             "max_context_tokens": 131072,
             "supports_tools": true,
@@ -522,7 +522,7 @@ let test_catalog_overlay_replaces_seed_provider () =
           "base_url": "https://example.test/provider_o_router",
           "request_path": "/chat/completions",
           "auth": {"type": "api_key_env", "env": "OPENROUTER_API_KEY"},
-          "capabilities_base": "provider_d_chat"
+          "capabilities_base": "openai_chat"
         }
       ]
     }|}
@@ -549,7 +549,7 @@ let test_catalog_overlay_normalizes_provider_id () =
           "transport": "http",
           "base_url": "https://acme.example/v1",
           "auth": {"type": "none"},
-          "capabilities_base": "provider_d_chat"
+          "capabilities_base": "openai_chat"
         }
       ]
     }|}
@@ -846,7 +846,7 @@ let test_catalog_api_key_env_availability () =
             "transport": "http",
             "base_url": "https://cloud-api.example/v1",
             "auth": {"type": "api_key_env", "env": "%s"},
-            "capabilities_base": "provider_d_chat"
+            "capabilities_base": "openai_chat"
           }
         ]
       }|}

@@ -62,7 +62,7 @@ let part_of_content_block id_to_name = function
       | Some n -> n
       | None ->
         Diag.warn
-          "backend_provider_f"
+          "backend_gemini"
           "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
            using UUID as functionResponse name (Gemini API requires name). This usually \
            means the ToolUse block was in a conversation turn that was compacted or \
@@ -343,8 +343,8 @@ let parse_response json =
         match String.uppercase_ascii finish_reason with
         | "STOP" -> EndTurn
         | "MAX_TOKENS" -> MaxTokens
-        | "SAFETY" -> Unknown "safety"
-        | "RECITATION" -> Unknown "recitation"
+        | "SAFETY" -> Refusal
+        | "RECITATION" -> Refusal
         | other -> Unknown other)
     in
     let usage =

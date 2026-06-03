@@ -24,7 +24,7 @@ val make_https
   -> (Uri.t -> [> `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t -> Tls_eio.t)
        option
 
-(** {1 Re-exports from Api_provider_a} *)
+(** {1 Re-exports from Api_anthropic} *)
 
 val parse_response : Yojson.Safe.t -> Types.api_response
 
@@ -36,14 +36,14 @@ val build_body_assoc
   -> unit
   -> (string * Yojson.Safe.t) list
 
-(** {1 Re-exports from Api_provider_d} *)
+(** {1 Re-exports from Api_openai} *)
 
-val provider_d_messages_of_message : Types.message -> Yojson.Safe.t list
-val provider_d_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
+val openai_messages_of_message : Types.message -> Yojson.Safe.t list
+val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 
-(** Parse an Provider_d-compatible JSON response.
+(** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
-val build_provider_d_body
+val build_openai_body
   :  ?provider_config:Provider.config
   -> config:Types.agent_state
   -> messages:Types.message list
@@ -52,9 +52,9 @@ val build_provider_d_body
   -> unit
   -> string
 
-(** Parse an Provider_d-compatible JSON response.
+(** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
-val parse_provider_d_response_result : string -> (Types.api_response, string) result
+val parse_openai_response_result : string -> (Types.api_response, string) result
 
 (** {1 Non-streaming request} *)
 

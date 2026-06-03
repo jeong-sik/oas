@@ -240,8 +240,8 @@ let llama_defaults =
 
 let agent_llm_a_defaults =
   { kind = Anthropic
-  ; base_url = "https://api.provider_a.com"
-  ; api_key_env = "PROVIDER_A_API_KEY"
+  ; base_url = "https://api.anthropic.com"
+  ; api_key_env = "ANTHROPIC_API_KEY"
   ; request_path = "/v1/messages"
   }
 ;;

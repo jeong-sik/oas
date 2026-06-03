@@ -29,14 +29,14 @@ let test_disable_parallel () =
   let config =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~disable_parallel_tool_use:true
       ()
   in
   let tools = [ `Assoc [ "name", `String "t1"; "description", `String "d" ] ] in
   let body =
-    Backend_provider_f.build_request ~config ~messages:[ Types.user_msg "hi" ] ~tools ()
+    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "hi" ] ~tools ()
   in
   let json = Yojson.Safe.from_string body in
   ignore json;
@@ -50,14 +50,14 @@ let test_cache_system_prompt () =
   let config =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~cache_system_prompt:true
       ~system_prompt:"Be helpful."
       ()
   in
   let body =
-    Backend_provider_f.build_request ~config ~messages:[ Types.user_msg "hi" ] ()
+    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "hi" ] ()
   in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
@@ -73,17 +73,17 @@ let test_vertex_ai_url () =
   let config =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://us-central1-aiplatform.googleapis.com/v1beta1"
       ~api_key:""
       ()
   in
-  let url = Complete.provider_f_url ~config ~stream:false in
+  let url = Complete.gemini_url ~config ~stream:false in
   check "no ?key= in URL" (not (string_has url "key="));
   check "has :generateContent" (string_has url ":generateContent");
-  check "has model in path" (string_has url "provider_f-2.5-flash");
+  check "has model in path" (string_has url "gemini-2.5-flash");
   Printf.printf "  URL: %s\n" url;
-  let stream_url = Complete.provider_f_url ~config ~stream:true in
+  let stream_url = Complete.gemini_url ~config ~stream:true in
   check
     "stream has :streamGenerateContent"
     (string_has stream_url ":streamGenerateContent");
@@ -96,14 +96,14 @@ let test_vertex_ai_url () =
 let test_sse_function_call () =
   Printf.printf "=== SSE streaming functionCall ===\n";
   let chunk_data =
-    {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"Seoul"}},"thoughtSignature":"abc123"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":44,"candidatesTokenCount":15},"modelVersion":"provider_f-2.5-flash"}|}
+    {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"Seoul"}},"thoughtSignature":"abc123"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":44,"candidatesTokenCount":15},"modelVersion":"gemini-2.5-flash"}|}
   in
   match Streaming.parse_provider_f_sse_chunk chunk_data with
   | Some chunk ->
     check "parsed chunk" true;
     check "has parts" (List.length chunk.gem_parts > 0);
     check "finish reason STOP" (chunk.gem_finish_reason = Some "STOP");
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_openai_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_tool_start =
       List.exists
@@ -145,7 +145,7 @@ let test_tool_use_id_roundtrip () =
     "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 5}
   }|}
   in
-  let resp = Backend_provider_f.parse_response response_json in
+  let resp = Backend_gemini.parse_response response_json in
   let tu_id, tu_name, tu_input =
     match List.hd resp.content with
     | Types.ToolUse { id; name; input } -> id, name, input
@@ -159,7 +159,7 @@ let test_tool_use_id_roundtrip () =
   let config =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ()
   in
@@ -186,7 +186,7 @@ let test_tool_use_id_roundtrip () =
       }
     ]
   in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let contents = json |> member "contents" |> to_list in

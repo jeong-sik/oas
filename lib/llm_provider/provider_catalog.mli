@@ -55,7 +55,7 @@ type t = entry list
             "base_url": "http://127.0.0.1:8000",
             "request_path": "/v1/chat/completions",
             "auth": {"type": "none"},
-            "capabilities_base": "provider_d_chat",
+            "capabilities_base": "openai_chat",
             "capabilities": {"supports_tools": true}
           }
         ]

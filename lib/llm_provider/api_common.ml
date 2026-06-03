@@ -5,7 +5,7 @@
 
 open Types
 
-let default_base_url = "https://api.provider_a.com"
+let default_base_url = "https://api.anthropic.com"
 let api_version = "2023-06-01"
 
 (** Maximum HTTP response body size (10 MB).

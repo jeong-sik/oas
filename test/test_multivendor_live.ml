@@ -3,10 +3,10 @@
     Runs the golden Event_bus lifecycle transcript against whatever
     providers are reachable in the current environment:
 
-    - Anthropic      if [PROVIDER_A_API_KEY] is set
+    - Anthropic      if [ANTHROPIC_API_KEY] is set
     - Provider_d         if [PROVIDER_D_API_KEY] is set
     - Gemini         if [PROVIDER_F_API_KEY] is set
-    - Provider_d-compat  for every healthy endpoint in [LLM_ENDPOINTS]
+    - OpenAI-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
     Each provider case is [Quick] but skips gracefully (logs +
@@ -115,9 +115,9 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
 (* ── Anthropic ────────────────────────────────────────────────── *)
 
 let test_provider_a () =
-  match Sys.getenv_opt "PROVIDER_A_API_KEY" with
+  match Sys.getenv_opt "ANTHROPIC_API_KEY" with
   | None | Some "" | Some "test-mock-key" ->
-    skip_note "provider_a" "PROVIDER_A_API_KEY not set"
+    skip_note "anthropic" "ANTHROPIC_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
@@ -126,15 +126,15 @@ let test_provider_a () =
     let provider : Provider.config =
       { provider = Provider.Anthropic
       ; model_id = "agent_llm_a-haiku-4-5"
-      ; api_key_env = "PROVIDER_A_API_KEY"
+      ; api_key_env = "ANTHROPIC_API_KEY"
       }
     in
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"provider_a"
+      ~provider_label:"anthropic"
       ~provider
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       ~model:"agent_llm_a-haiku-4-5"
 ;;
 
@@ -170,7 +170,7 @@ let test_provider_d () =
       ~model:"model-d-mini"
 ;;
 
-(* ── Gemini (via Provider_d-compat endpoint) ──────────────────────── *)
+(* ── Gemini (via OpenAI-compat endpoint) ──────────────────────── *)
 
 let test_provider_f () =
   match Sys.getenv_opt "PROVIDER_F_API_KEY" with
@@ -180,7 +180,7 @@ let test_provider_f () =
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    (* Google's Provider_d-compatible endpoint for Gemini. *)
+    (* Google's OpenAI-compatible endpoint for Gemini. *)
     let base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d" in
     let provider : Provider.config =
       { provider =
@@ -203,7 +203,7 @@ let test_provider_f () =
       ~model:"provider_f-2.0-flash"
 ;;
 
-(* ── Local Provider_d-compatible (llama-server, Ollama, vLLM, ...) ─ *)
+(* ── Local OpenAI-compatible (llama-server, Ollama, vLLM, ...) ─ *)
 
 let test_local_compat () =
   Eio_main.run
@@ -250,14 +250,14 @@ let () =
      [use_default ()] is a no-op if already initialized. *)
   Mirage_crypto_rng_unix.use_default ();
   (* Mock key for providers that read env defensively even when unused. *)
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   Printf.printf "\n=== Multi-vendor live smoke test ===\n";
   Printf.printf "  Each case runs if its prerequisite is present; otherwise skips.\n\n";
   run
     "Multivendor_live"
     [ ( "golden_transcript"
-      , [ test_case "provider_a" `Quick test_provider_a
+      , [ test_case "anthropic" `Quick test_provider_a
         ; test_case "provider_d" `Quick test_provider_d
         ; test_case "provider_f" `Quick test_provider_f
         ; test_case "local openai-compat" `Quick test_local_compat

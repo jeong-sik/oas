@@ -88,7 +88,7 @@ let test_provider_runtime_name_provider_a () =
   Alcotest.(check string)
     "agent_llm_a"
     "agent_llm_a"
-    (Runtime_server_resolve.provider_runtime_name "provider_a" cfg)
+    (Runtime_server_resolve.provider_runtime_name "anthropic" cfg)
 ;;
 
 let test_provider_runtime_name_openai_compat () =
@@ -195,7 +195,7 @@ let test_resolve_provider_openrouter () =
 ;;
 
 let test_resolve_provider_alias_provider_a () =
-  match Runtime_server_resolve.resolve_provider ~provider:"provider_a" () with
+  match Runtime_server_resolve.resolve_provider ~provider:"anthropic" () with
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.Custom_registered { name } ->
@@ -265,7 +265,7 @@ let test_resolve_provider_catalog_entry () =
           "request_path": "/v1/chat/completions",
           "auth": {"type": "none"},
           "default_model": "local-model",
-          "capabilities_base": "provider_d_chat"
+          "capabilities_base": "openai_chat"
         }
       ]
     }|}

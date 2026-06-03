@@ -92,7 +92,7 @@ let test_make_with_all_options () =
     Provider_config.make
       ~kind:Anthropic
       ~model_id:"agent_llm_a-opus"
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       ~api_key:"sk-test"
       ~headers:[ "X-Custom", "val" ]
       ~max_tokens:2048
@@ -442,7 +442,7 @@ let test_reasoning_effort_of_config () =
     Provider_config.make
       ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet"
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       ~enable_thinking:true
       ~thinking_budget:2048
       ()
@@ -678,7 +678,7 @@ let test_of_yojson_rejects_unknown_string () =
 
 let test_of_yojson_rejects_non_string () =
   let cases : (string * Yojson.Safe.t) list =
-    [ "null", `Null; "int", `Int 1; "assoc", `Assoc [ "kind", `String "provider_a" ] ]
+    [ "null", `Null; "int", `Int 1; "assoc", `Assoc [ "kind", `String "anthropic" ] ]
   in
   List.iter
     (fun (label, json) ->
@@ -751,7 +751,7 @@ let test_wire_kind_lowercase () =
 let test_wire_kind_none_roundtrip () =
   let t = telemetry_with_kind None in
   let encoded = Yojson.Safe.to_string (Types.inference_telemetry_to_yojson t) in
-  (* None should not produce "provider_a" / "ollama" / any kind string. *)
+  (* None should not produce "anthropic" / "ollama" / any kind string. *)
   List.iter
     (fun s ->
        Alcotest.(check bool)
@@ -858,7 +858,7 @@ let test_default_api_key_env_known () =
 ;;
 
 let test_default_api_key_env_none_for_others () =
-  (* Local / transport-mediated / Provider_d-compatible share: OAS does not
+  (* Local / transport-mediated / OpenAI-compatible share: OAS does not
      dictate a single env var; callers supply their own. *)
   List.iter
     (fun (label, k) ->
@@ -895,7 +895,7 @@ let () =
         ; Alcotest.test_case "default headers" `Quick test_default_headers
         ] )
     ; ( "request_path"
-      , [ Alcotest.test_case "provider_a" `Quick test_request_path_provider_a
+      , [ Alcotest.test_case "anthropic" `Quick test_request_path_provider_a
         ; Alcotest.test_case "provider_c" `Quick test_request_path_provider_c
         ; Alcotest.test_case "provider_d" `Quick test_request_path_provider_d
         ; Alcotest.test_case "provider_f" `Quick test_request_path_provider_f

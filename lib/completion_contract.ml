@@ -184,14 +184,19 @@ let unsatisfied_calls_message calls errors =
    [CompletionContractViolation] in that case is misleading — the caller can
    continue the turn (or raise max_tokens) instead. Observed on Anthropic
    Haiku 4.5 where extended thinking consumes the 8192 output budget before
-   a ToolUse block emits: Anthropic returns [pause_turn] which currently
-   parses to [Unknown "pause_turn"] since it is not yet a first-class
-   [stop_reason] variant. *)
+   a ToolUse block emits: Anthropic returns [pause_turn], now a first-class
+   [PauseTurn] variant (parsed by [Types.stop_reason_of_string]).
+
+   [ContextWindowExceeded] is NOT resumable: the turn cannot continue without
+   the caller shrinking context first, so re-requesting with the same context
+   loops into the same wall. Treating it as resumable would silently swallow a
+   hard failure. *)
 let stop_reason_is_resumable (sr : stop_reason) : bool =
   match sr with
   | MaxTokens -> true
-  | Unknown "pause_turn" -> true
-  | EndTurn | StopToolUse | StopSequence | Unknown _ -> false
+  | PauseTurn -> true
+  | EndTurn | StopToolUse | StopSequence | Refusal | Compaction
+  | ContextWindowExceeded | Unknown _ -> false
 ;;
 
 let validate_response
@@ -586,13 +591,13 @@ let%test "Require_tool_use accepts no-ToolUse response when stop_reason is MaxTo
 ;;
 
 let%test
-    "Require_tool_use accepts no-ToolUse response when stop_reason is Unknown pause_turn"
+    "Require_tool_use accepts no-ToolUse response when stop_reason is PauseTurn"
   =
   validate_response
     ~contract:Require_tool_use
     { id = "r"
     ; model = "agent_llm_a-haiku-4-5-20251001"
-    ; stop_reason = Unknown "pause_turn"
+    ; stop_reason = PauseTurn
     ; content = [ Text "thinking..." ]
     ; usage = None
     ; telemetry = None
@@ -670,10 +675,12 @@ let%test
 
 let%test "stop_reason_is_resumable classification" =
   stop_reason_is_resumable MaxTokens
-  && stop_reason_is_resumable (Unknown "pause_turn")
+  && stop_reason_is_resumable PauseTurn
   && (not (stop_reason_is_resumable EndTurn))
   && (not (stop_reason_is_resumable StopToolUse))
   && (not (stop_reason_is_resumable StopSequence))
-  && (not (stop_reason_is_resumable (Unknown "refusal")))
-  && not (stop_reason_is_resumable (Unknown "anything-else"))
+  && (not (stop_reason_is_resumable Refusal))
+  && (not (stop_reason_is_resumable Compaction))
+  && (not (stop_reason_is_resumable ContextWindowExceeded))
+  && (not (stop_reason_is_resumable (Unknown "anything-else")))
 ;;

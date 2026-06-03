@@ -10,7 +10,7 @@ let check_string_list = Alcotest.(check (list string))
 
 let provider_d_config : Provider.config =
   { provider = Local { base_url = "http://127.0.0.1:65535" }
-  ; model_id = "provider_d_chat"
+  ; model_id = "openai_chat"
   ; api_key_env = "DUMMY_KEY"
   }
 ;;
@@ -33,7 +33,7 @@ let echo_tool =
 
 let text_response ?(content = [ Types.Text "ok" ]) () : Types.api_response =
   { id = "resp-1"
-  ; model = "provider_d_chat"
+  ; model = "openai_chat"
   ; stop_reason = EndTurn
   ; content
   ; usage = None
@@ -95,7 +95,7 @@ let test_agent_type_checkpoint_stage_labels () =
 
 let test_agent_type_accessors_card_and_state_mutators () =
   let config =
-    { Types.default_config with name = "coverage-agent"; model = "provider_d_chat" }
+    { Types.default_config with name = "coverage-agent"; model = "openai_chat" }
   in
   let options =
     { Internal_agent.default_options with

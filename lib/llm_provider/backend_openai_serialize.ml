@@ -1,13 +1,13 @@
-(** Provider_d-compatible request serialization.
+(** OpenAI-compatible request serialization.
 
     Converts agent_sdk Types (content blocks, messages, tools) into
     Provider_d Chat Completions API JSON format.
 
-    @since 0.92.0 extracted from Backend_provider_d *)
+    @since 0.92.0 extracted from Backend_openai *)
 
 open Types
 
-let tool_calls_to_provider_d_json blocks =
+let tool_calls_to_openai_json blocks =
   blocks
   |> List.filter_map (function
     | ToolUse { id; name; input } ->
@@ -52,7 +52,7 @@ let tool_calls_to_ollama_json blocks =
     | Audio _ -> None)
 ;;
 
-let provider_d_content_parts_of_blocks blocks =
+let openai_content_parts_of_blocks blocks =
   blocks
   |> List.filter_map (function
     | Text s ->
@@ -115,7 +115,7 @@ let assistant_reasoning_content_of_blocks blocks =
 ;;
 
 let messages_of_message_with
-      ?(tool_calls_fn = tool_calls_to_provider_d_json)
+      ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(include_reasoning_content = false)
       ?(modality_priority = Modality.Preserve_input_order)
       (msg : message)
@@ -129,7 +129,7 @@ let messages_of_message_with
        has_multimodal inspects the input list (pre-reorder) — the boolean
        is invariant under reordering, so either input is correct. *)
     let ordered_content = Modality.reorder modality_priority msg.content in
-    let content_parts = provider_d_content_parts_of_blocks ordered_content in
+    let content_parts = openai_content_parts_of_blocks ordered_content in
     let has_multimodal =
       List.exists
         (function
@@ -218,13 +218,13 @@ let messages_of_message_with
      | tool_msgs -> tool_msgs)
 ;;
 
-let provider_d_messages_of_message msg =
-  messages_of_message_with ~tool_calls_fn:tool_calls_to_provider_d_json msg
+let openai_messages_of_message msg =
+  messages_of_message_with ~tool_calls_fn:tool_calls_to_openai_json msg
 ;;
 
 let provider_k_messages_of_message msg =
   messages_of_message_with
-    ~tool_calls_fn:tool_calls_to_provider_d_json
+    ~tool_calls_fn:tool_calls_to_openai_json
     ~include_reasoning_content:true
     msg
 ;;
@@ -247,7 +247,7 @@ let ollama_messages_of_message ?(model_id = "") msg =
     compaction drops or reorders a ToolUse while the corresponding
     ToolResult survives.
 
-    Provider_d-compatible APIs reject orphaned tool_call_ids; the Anthropic
+    OpenAI-compatible APIs reject orphaned tool_call_ids; the Anthropic
     API has its own dangling-tool-call repair, so this is Provider_d-path only.
 
     Pure function — no I/O, no mutation. *)

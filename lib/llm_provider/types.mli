@@ -148,6 +148,10 @@ type stop_reason =
   | StopToolUse
   | MaxTokens
   | StopSequence
+  | Refusal
+  | PauseTurn
+  | Compaction
+  | ContextWindowExceeded
   | Unknown of string
 [@@deriving show]
 
@@ -187,7 +191,7 @@ type inference_telemetry =
   ; provider_kind : Provider_kind.t option
     (** Set by the inference pipeline to record which provider produced the
         response. The on-wire JSON form stays the lowercase canonical string
-        (["ollama"], ["provider_a"], ["openai_compat"], …) via
+        (["ollama"], ["anthropic"], ["openai_compat"], …) via
         {!Provider_kind.to_yojson}. *)
   ; reasoning_effort : string option
     (** e.g. "none", "low", "medium", "high" — as sent to provider *)

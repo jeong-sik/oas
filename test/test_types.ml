@@ -18,7 +18,26 @@ let test_known_stop_reasons () =
   Alcotest.(check string)
     "stop_sequence"
     "Types.StopSequence"
-    (Types.show_stop_reason (Types.stop_reason_of_string "stop_sequence"))
+    (Types.show_stop_reason (Types.stop_reason_of_string "stop_sequence"));
+  (* 2025-2026 first-class variants: assert the exact wire strings parse,
+     so a typo in a string literal cannot pass silently. *)
+  Alcotest.(check string)
+    "refusal"
+    "Types.Refusal"
+    (Types.show_stop_reason (Types.stop_reason_of_string "refusal"));
+  Alcotest.(check string)
+    "pause_turn"
+    "Types.PauseTurn"
+    (Types.show_stop_reason (Types.stop_reason_of_string "pause_turn"));
+  Alcotest.(check string)
+    "compaction"
+    "Types.Compaction"
+    (Types.show_stop_reason (Types.stop_reason_of_string "compaction"));
+  Alcotest.(check string)
+    "model_context_window_exceeded"
+    "Types.ContextWindowExceeded"
+    (Types.show_stop_reason
+       (Types.stop_reason_of_string "model_context_window_exceeded"))
 ;;
 
 let test_unknown_stop_reason () =

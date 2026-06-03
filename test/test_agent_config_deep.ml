@@ -322,13 +322,13 @@ let test_resolve_local_custom_url () =
 
 let test_resolve_provider_a () =
   let cfg =
-    Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "provider_a" None
+    Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "anthropic" None
   in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "provider id" "agent_llm_a" name;
     Alcotest.(check string) "model_id" "agent_llm_a-sonnet" cfg.model_id;
-    Alcotest.(check string) "api_key_env" "PROVIDER_A_API_KEY" cfg.api_key_env
+    Alcotest.(check string) "api_key_env" "ANTHROPIC_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected registered provider"
 ;;
 
@@ -444,13 +444,13 @@ let test_resolve_provider_f_preserves_kind () =
      returned OpenAICompat, flattening kind to OpenAI_compat and
      producing 404 against the Gemini endpoint. *)
   let cfg =
-    Agent_config.resolve_provider ~model_id:"provider_f-2.5-flash" "provider_f" None
+    Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "provider_f" None
   in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "provider_f name" "provider_f" name;
     Alcotest.(check string) "provider_f api_key_env" "PROVIDER_F_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "provider_f model_id" "provider_f-2.5-flash" cfg.model_id
+    Alcotest.(check string) "provider_f model_id" "gemini-2.5-flash" cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for provider_f (registered)"
 ;;
 
@@ -465,8 +465,8 @@ let test_resolve_openai_compat_ssot () =
   | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
-let test_resolve_provider_a_case_insensitive () =
-  (* The parser trims and lowercases; ["Anthropic"] and [" PROVIDER_A "]
+let test_resolve_anthropic_case_insensitive () =
+  (* The parser trims and lowercases; ["Anthropic"] and [" ANTHROPIC "]
      both land on the Anthropic branch, not the registry fallback. *)
   List.iter
     (fun input ->
@@ -481,10 +481,10 @@ let test_resolve_provider_a_case_insensitive () =
            name;
          Alcotest.(check string)
            (Printf.sprintf "api_key_env for %S" input)
-           "PROVIDER_A_API_KEY"
+           "ANTHROPIC_API_KEY"
            cfg.api_key_env
        | _ -> Alcotest.failf "expected registered provider for %S" input)
-    [ "Anthropic"; " PROVIDER_A "; "provider_a" ]
+    [ "Anthropic"; " ANTHROPIC "; "anthropic" ]
 ;;
 
 let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
@@ -500,7 +500,7 @@ let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
     Alcotest.(check string) "provider id" "agent_llm_a" name;
     Alcotest.(check string)
       "api_key_env routed to registered provider"
-      "PROVIDER_A_API_KEY"
+      "ANTHROPIC_API_KEY"
       cfg.api_key_env
   | _ -> Alcotest.fail "expected registered provider for agent_llm_a alias"
 ;;
@@ -620,7 +620,7 @@ let () =
     ; ( "resolve_provider"
       , [ tc "local" test_resolve_local
         ; tc "local custom url" test_resolve_local_custom_url
-        ; tc "provider_a" test_resolve_provider_a
+        ; tc "anthropic" test_resolve_provider_a
         ; tc "provider_d is not built in" test_resolve_provider_d
         ; tc "explicit provider_d custom url" test_resolve_provider_d_custom_url
         ; tc "other" test_resolve_other
@@ -631,7 +631,7 @@ let () =
         ; tc "provider_g" test_resolve_provider_g
         ; tc "provider_f preserves kind (#1003)" test_resolve_provider_f_preserves_kind
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
-        ; tc "provider_a case-insensitive" test_resolve_provider_a_case_insensitive
+        ; tc "provider_a case-insensitive" test_resolve_anthropic_case_insensitive
         ; tc
             "agent_llm_a alias routes to Anthropic"
             test_resolve_agent_llm_a_alias_routes_to_provider_a

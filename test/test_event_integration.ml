@@ -11,7 +11,7 @@ open Agent_sdk
 
 (* ── A. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
-(* Reuse the same mock wire format as test_handoff: Provider_d-compatible
+(* Reuse the same mock wire format as test_handoff: OpenAI-compatible
    chat.completions that responds with a transfer_to_* tool call on the
    first request and a plain text response on the second. *)
 
@@ -226,8 +226,8 @@ let test_on_context_compacted_default_hooks_none () =
 (* ── Entry point ──────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run
     "Event_integration"
     [ ( "handoff_lifecycle"

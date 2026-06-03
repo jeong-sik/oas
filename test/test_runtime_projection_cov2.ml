@@ -21,7 +21,7 @@ let mk_start_request ?(goal = "test") ?(participants = []) () : Runtime.start_re
   { session_id = None
   ; goal
   ; participants
-  ; provider = Some "provider_a"
+  ; provider = Some "anthropic"
   ; model = Some "sonnet-4-6"
   ; permission_mode = None
   ; system_prompt = Some "sys prompt"
@@ -51,7 +51,7 @@ let mk_session
   ; phase
   ; created_at = 100.0
   ; updated_at = 200.0
-  ; provider = Some "provider_a"
+  ; provider = Some "anthropic"
   ; model = Some "sonnet-4-6"
   ; system_prompt = Some "sys"
   ; max_turns = 10
@@ -102,7 +102,7 @@ let test_initial_session_basic () =
   Alcotest.(check int) "2 participants" 2 (List.length session.participants);
   Alcotest.(check bool) "phase Bootstrapping" true (session.phase = Runtime.Bootstrapping);
   Alcotest.(check int) "max_turns" 5 session.max_turns;
-  Alcotest.(check (option string)) "provider" (Some "provider_a") session.provider;
+  Alcotest.(check (option string)) "provider" (Some "anthropic") session.provider;
   Alcotest.(check int) "turn_count 0" 0 session.turn_count;
   Alcotest.(check int) "last_seq 0" 0 session.last_seq
 ;;
@@ -341,7 +341,7 @@ let test_apply_agent_became_live () =
       (Agent_became_live
          { participant_name = "alice"
          ; summary = Some "ready"
-         ; provider = Some "provider_a"
+         ; provider = Some "anthropic"
          ; model = Some "haiku"
          ; error = None
          ; raw_trace_run_id = None
@@ -709,7 +709,7 @@ let test_apply_event_sequence () =
         (Agent_became_live
            { participant_name = "alice"
            ; summary = None
-           ; provider = Some "provider_a"
+           ; provider = Some "anthropic"
            ; model = Some "sonnet"
            ; error = None
            ; raw_trace_run_id = None

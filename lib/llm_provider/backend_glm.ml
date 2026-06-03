@@ -96,7 +96,7 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let base_body = Backend_provider_d.build_request ~stream ~config ~messages ~tools () in
+  let base_body = Backend_openai.build_request ~stream ~config ~messages ~tools () in
   match Yojson.Safe.from_string base_body with
   | `Assoc fields ->
     let fields =
@@ -186,7 +186,7 @@ let parse_response body =
   | Some err -> raise (Glm_api_error err)
   | None ->
     (try
-       match Backend_provider_d_parse.parse_provider_d_response_result body with
+       match Backend_openai_parse.parse_openai_response_result body with
        | Error msg -> raise (provider_k_parse_error msg)
        | Ok resp -> extract_reasoning_content resp body
      with
@@ -200,7 +200,7 @@ let parse_response body =
 (** Parse Glm SSE chunk.  Glm uses Provider_d SSE format but adds
     [delta.reasoning_content] for thinking. We parse this as
     [delta_reasoning] in the provider_d_chunk type. *)
-let parse_stream_chunk = Streaming.parse_provider_d_sse_chunk
+let parse_stream_chunk = Streaming.parse_openai_sse_chunk
 
 (* ── Inline tests ────────────────────────────────── *)
 

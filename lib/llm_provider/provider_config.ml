@@ -211,7 +211,7 @@ let default_reasoning_effort () =
     When [thinking_budget] is [None] and thinking is enabled, the default
     effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
     (fallback: "medium").
-    Shared by Ollama backends and api_provider_d request building.
+    Shared by Ollama backends and api_openai request building.
     @since 0.114.0 *)
 let effort_of_thinking_config
       ~(enable_thinking : bool option)
@@ -301,7 +301,7 @@ let provider_d_host_supports_output_schema base_url =
     Callers can build a [Provider_config.t] directly with [response_format =
     JsonSchema _] and [output_schema = None]; gating only on [output_schema]
     would let that path skip provider/host validation and still emit
-    [response_format.type=json_schema] in [backend_provider_d]. *)
+    [response_format.type=json_schema] in [backend_openai]. *)
 let structured_schema_requested (config : t) : bool =
   match config.output_schema, config.response_format with
   | Some _, _ -> true
@@ -378,7 +378,7 @@ let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
     make
       ~kind:Anthropic
       ~model_id:"agent_llm_a-4"
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       ~min_p:0.05
       ()
   in

@@ -162,7 +162,7 @@ let test_provider_config_for_judge_preserves_provider_response_format () =
     PC.make
       ~kind:PC.Anthropic
       ~model_id:"agent_llm_a-sonnet-4-6"
-      ~base_url:"https://api.provider_a.com"
+      ~base_url:"https://api.anthropic.com"
       ~response_format:(LT.JsonSchema judge_output_schema)
       ()
   in

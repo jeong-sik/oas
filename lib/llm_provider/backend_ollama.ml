@@ -30,7 +30,7 @@ let build_request
        ]
      | _ -> [])
     @ List.concat_map
-        (Backend_provider_d_serialize.ollama_messages_of_message
+        (Backend_openai_serialize.ollama_messages_of_message
            ~model_id:config.model_id)
         messages
   in
@@ -105,7 +105,7 @@ let build_request
     | [] -> body
     | ts ->
       ( "tools"
-      , `List (List.map Backend_provider_d_serialize.build_provider_d_tool_json ts) )
+      , `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts) )
       :: body
   in
   (* Sampling parameters go inside Ollama's "options" object.
@@ -122,7 +122,7 @@ let build_request
      behaviour is byte-identical for the common path. The gate only
      fires when an operator explicitly sets [supports_min_p = false]
      or [supports_top_k = false] for a specific Ollama variant — at
-     which point the one-shot WARN from Backend_provider_d also fires. *)
+     which point the one-shot WARN from Backend_openai also fires. *)
   let caps =
     match Capabilities.for_model_id config.model_id with
     | Some c -> c
@@ -142,12 +142,12 @@ let build_request
   (match config.top_k with
    | Some k when caps.supports_top_k -> options := ("top_k", `Int k) :: !options
    | Some _ ->
-     Backend_provider_d.warn_capability_drop ~model_id:config.model_id ~field:"top_k"
+     Backend_openai.warn_capability_drop ~model_id:config.model_id ~field:"top_k"
    | None -> ());
   (match config.min_p with
    | Some p when caps.supports_min_p -> options := ("min_p", `Float p) :: !options
    | Some _ ->
-     Backend_provider_d.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
+     Backend_openai.warn_capability_drop ~model_id:config.model_id ~field:"min_p"
    | None -> ());
   (* num_ctx: per-request KV cache allocation in tokens. Honored by Ollama
      only. [None] omits the field so Ollama uses its own default
@@ -728,8 +728,8 @@ let%test
   (* Pins the supported path: default Ollama capabilities have
      supports_top_k=true, so the serializer threads top_k into options.
      The capability-gated drop path (supports_top_k=false ->
-     warn_capability_drop) is covered by the Provider_d-compat tests in
-     backend_provider_d.ml; Ollama uses the same gate via shared helpers. *)
+     warn_capability_drop) is covered by the OpenAI-compat tests in
+     backend_openai.ml; Ollama uses the same gate via shared helpers. *)
   with_keep_alive_env "" (fun () ->
     let config =
       Provider_config.make

@@ -187,7 +187,8 @@ let schema_tool_call_check schema_lookup = function
 
 let stop_reason_matches_tool_calls ~has_tool_calls = function
   | StopToolUse -> has_tool_calls
-  | EndTurn | MaxTokens | StopSequence -> not has_tool_calls
+  | EndTurn | MaxTokens | StopSequence | Refusal | PauseTurn | Compaction
+  | ContextWindowExceeded -> not has_tool_calls
   | Unknown _ -> false
 ;;
 
@@ -326,17 +327,17 @@ let format_violations_feedback (tc : tool_call_check) : string =
 ;;
 
 let validate_provider_a_response ~declared_tools json =
-  validate_response ~declared_tools (Backend_provider_a.parse_response json)
+  validate_response ~declared_tools (Backend_anthropic.parse_response json)
 ;;
 
 let validate_provider_f_response ~declared_tools json =
-  validate_response ~declared_tools (Backend_provider_f.parse_response json)
+  validate_response ~declared_tools (Backend_gemini.parse_response json)
 ;;
 
 let validate_provider_d_response ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
   let parsed =
-    try Backend_provider_d_parse.parse_provider_d_response_result json_str with
+    try Backend_openai_parse.parse_openai_response_result json_str with
     | exn -> Error (Printexc.to_string exn)
   in
   match parsed with

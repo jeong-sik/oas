@@ -154,7 +154,7 @@ let test_provider_d_usage_with_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_provider_d_response_result json_str with
+    match Agent_sdk.Api.parse_openai_response_result json_str with
     | Ok r -> r
     | Error msg -> failwith msg
   in
@@ -184,7 +184,7 @@ let test_provider_d_usage_without_cached_tokens () =
   }|}
   in
   let resp =
-    match Agent_sdk.Api.parse_provider_d_response_result json_str with
+    match Agent_sdk.Api.parse_openai_response_result json_str with
     | Ok r -> r
     | Error msg -> failwith msg
   in

@@ -15,7 +15,7 @@ let provider_f_config
   ignore tools;
   Provider_config.make
     ~kind:Gemini
-    ~model_id:"provider_f-2.5-flash"
+    ~model_id:"gemini-2.5-flash"
     ~base_url:"https://generativelanguage.googleapis.com/v1beta"
     ~api_key:"test-key"
     ~request_path:""
@@ -41,7 +41,7 @@ let to_bool json = Yojson.Safe.Util.to_bool json
 let test_basic_request () =
   let config = provider_f_config () in
   let messages = [ Types.user_msg "Hello" ] in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let contents = json |> member "contents" |> to_list in
   check int "one content" 1 (List.length contents);
@@ -63,7 +63,7 @@ let test_basic_request () =
 let test_system_instruction () =
   let config = provider_f_config ~system:"You are helpful." () in
   let messages = [ Types.user_msg "Hi" ] in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let si = json |> member "systemInstruction" in
   check bool "has systemInstruction" true (si <> `Null);
@@ -79,7 +79,7 @@ let test_system_instruction () =
 let test_system_from_messages () =
   let config = provider_f_config () in
   let messages = [ Types.system_msg "Be concise."; Types.user_msg "Hello" ] in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   (* System message should be in systemInstruction, not in contents *)
   let si = json |> member "systemInstruction" in
@@ -92,7 +92,7 @@ let test_system_from_messages () =
 let test_thinking_config () =
   let config = provider_f_config ~thinking:true ~budget:8000 () in
   let messages = [ Types.user_msg "Think about this." ] in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let gen = json |> member "generationConfig" in
   let tc = gen |> member "thinkingConfig" in
@@ -116,7 +116,7 @@ let test_tools () =
         ]
     ]
   in
-  let body = Backend_provider_f.build_request ~config ~messages ~tools () in
+  let body = Backend_gemini.build_request ~config ~messages ~tools () in
   let json = parse_body body in
   let tools_arr = json |> member "tools" |> to_list in
   check int "one tool group" 1 (List.length tools_arr);
@@ -156,7 +156,7 @@ let test_tool_result () =
       }
     ]
   in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let contents = json |> member "contents" |> to_list in
   check int "three contents" 3 (List.length contents);
@@ -172,7 +172,7 @@ let test_tool_result () =
 let test_json_mode () =
   let config = provider_f_config ~json_mode:true () in
   let messages = [ Types.user_msg "Return JSON." ] in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let gen = json |> member "generationConfig" in
   check
@@ -192,7 +192,7 @@ let test_output_schema () =
   in
   let config = provider_f_config ~output_schema:schema () in
   let messages = [ Types.user_msg "Return structured JSON." ] in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let gen = json |> member "generationConfig" in
   check
@@ -208,7 +208,7 @@ let test_role_mapping () =
   let messages =
     [ Types.user_msg "Hi"; Types.assistant_msg "Hello"; Types.user_msg "How are you?" ]
   in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let contents = json |> member "contents" |> to_list in
   check int "three contents" 3 (List.length contents);
@@ -234,11 +234,11 @@ let test_parse_text_response () =
       "promptTokenCount": 10,
       "candidatesTokenCount": 5
     },
-    "modelVersion": "provider_f-2.5-flash"
+    "modelVersion": "gemini-2.5-flash"
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
-  check string "model" "provider_f-2.5-flash" resp.model;
+  let resp = Backend_gemini.parse_response json in
+  check string "model" "gemini-2.5-flash" resp.model;
   (match resp.stop_reason with
    | Types.EndTurn -> ()
    | _ -> fail "expected EndTurn");
@@ -270,7 +270,7 @@ let test_parse_thinking_response () =
     "usageMetadata": {"promptTokenCount": 5, "candidatesTokenCount": 20}
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   check int "two content blocks" 2 (List.length resp.content);
   (match List.hd resp.content with
    | Types.Thinking { content; _ } -> check string "thinking" "Let me think..." content
@@ -299,7 +299,7 @@ let test_parse_function_call () =
     "usageMetadata": {"promptTokenCount": 15, "candidatesTokenCount": 8}
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   check int "one content block" 1 (List.length resp.content);
   (match List.hd resp.content with
    | Types.ToolUse { name; input; _ } ->
@@ -330,7 +330,7 @@ let test_parse_usage () =
     }
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.usage with
   | Some u ->
     check int "input" 100 u.input_tokens;
@@ -352,7 +352,7 @@ let test_parse_stop_reasons () =
     }|}
            finish)
     in
-    let resp = Backend_provider_f.parse_response json in
+    let resp = Backend_gemini.parse_response json in
     check
       bool
       (Printf.sprintf "stop_reason for %s" finish)
@@ -361,7 +361,7 @@ let test_parse_stop_reasons () =
   in
   test_reason "STOP" Types.EndTurn;
   test_reason "MAX_TOKENS" Types.MaxTokens;
-  test_reason "SAFETY" (Types.Unknown "safety")
+  test_reason "SAFETY" Types.Refusal
 ;;
 
 let test_parse_error () =
@@ -375,8 +375,8 @@ let test_parse_error () =
     }
   }|}
   in
-  match Backend_provider_f.parse_response json with
-  | exception Backend_provider_f.Gemini_api_error msg ->
+  match Backend_gemini.parse_response json with
+  | exception Backend_gemini.Gemini_api_error msg ->
     check bool "error contains message" true (String.length msg > 0)
   | _ -> fail "expected Gemini_api_error"
 ;;
@@ -385,14 +385,14 @@ let test_parse_error () =
 
 let test_contents_system_extraction () =
   let messages = [ Types.system_msg "Be brief."; Types.user_msg "Hi" ] in
-  let contents, sys_instr = Backend_provider_f.contents_of_messages messages in
+  let contents, sys_instr = Backend_gemini.contents_of_messages messages in
   check int "one content" 1 (List.length contents);
   check bool "has system" true (Option.is_some sys_instr)
 ;;
 
 let test_contents_role_mapping () =
   let messages = [ Types.user_msg "A"; Types.assistant_msg "B"; Types.user_msg "C" ] in
-  let contents, sys_instr = Backend_provider_f.contents_of_messages messages in
+  let contents, sys_instr = Backend_gemini.contents_of_messages messages in
   check int "three contents" 3 (List.length contents);
   check bool "no system" true (Option.is_none sys_instr);
   check string "first role" "user" (List.nth contents 0 |> member "role" |> to_string);
@@ -413,7 +413,7 @@ let test_contents_multimodal () =
       }
     ]
   in
-  let contents, _ = Backend_provider_f.contents_of_messages messages in
+  let contents, _ = Backend_gemini.contents_of_messages messages in
   check int "one content" 1 (List.length contents);
   let parts = List.hd contents |> member "parts" |> to_list in
   check int "two parts" 2 (List.length parts);
@@ -438,7 +438,7 @@ let test_provider_f_stream_text () =
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
     check int "one part" 1 (List.length chunk.gem_parts);
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_openai_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     check bool "has events" true (List.length events > 0)
   | None -> fail "expected Some chunk"
@@ -457,7 +457,7 @@ let test_provider_f_stream_thinking () =
   in
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_openai_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_thinking =
       List.exists
@@ -485,7 +485,7 @@ let test_provider_f_stream_function_call () =
   in
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_openai_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_tool =
       List.exists
@@ -510,7 +510,7 @@ let test_provider_f_stream_finish () =
   in
   match Streaming.parse_provider_f_sse_chunk data with
   | Some chunk ->
-    let state = Streaming.create_provider_d_stream_state () in
+    let state = Streaming.create_openai_stream_state () in
     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
     let has_delta =
       List.exists
@@ -543,7 +543,7 @@ let test_tool_choice_mapping () =
       [ `Assoc [ "name", `String "test_tool"; "description", `String "A test tool" ] ]
     in
     let messages = [ Types.user_msg "test" ] in
-    let body = Backend_provider_f.build_request ~config ~messages ~tools () in
+    let body = Backend_gemini.build_request ~config ~messages ~tools () in
     let json = parse_body body in
     let tc = json |> member "toolConfig" in
     let fcc = tc |> member "functionCallingConfig" in
@@ -575,7 +575,7 @@ let test_thinking_part_roundtrip () =
     ; Types.user_msg "Thanks"
     ]
   in
-  let body = Backend_provider_f.build_request ~config ~messages () in
+  let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
   let contents = json |> member "contents" |> to_list in
   let first = List.hd contents in
@@ -604,7 +604,7 @@ let test_provider_f_stream_thinking_delta_index () =
     }]
   }|}
   in
-  let state = Streaming.create_provider_d_stream_state () in
+  let state = Streaming.create_openai_stream_state () in
   (match Streaming.parse_provider_f_sse_chunk data1 with
    | Some chunk ->
      let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
@@ -663,7 +663,7 @@ let test_provider_f_stream_thinking_delta_index () =
 (** Regression test for issue #333: function call before text in Gemini
     must not collide block indices. *)
 let test_provider_f_stream_tool_first_then_text () =
-  let state = Streaming.create_provider_d_stream_state () in
+  let state = Streaming.create_openai_stream_state () in
   (* Chunk 1: functionCall — gets block index 0 *)
   let data1 =
     {|{
@@ -733,7 +733,7 @@ let test_provider_f_stream_tool_first_then_text () =
 
 let () =
   run
-    "backend_provider_f"
+    "backend_gemini"
     [ ( "build_request"
       , [ test_case "basic" `Quick test_basic_request
         ; test_case "system instruction from config" `Quick test_system_instruction

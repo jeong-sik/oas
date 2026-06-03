@@ -20,10 +20,10 @@ let check_kind label expected (cfg : Llm_provider.Provider_config.t) =
 ;;
 
 let test_provider_a_bridge () =
-  let legacy = Agent_sdk.Provider.provider_a_sonnet () in
+  let legacy = Agent_sdk.Provider.anthropic_sonnet () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
   | Error _ ->
-    (* Expected in test env without PROVIDER_A_API_KEY *)
+    (* Expected in test env without ANTHROPIC_API_KEY *)
     Alcotest.(check pass) "missing key = expected in test" () ()
   | Ok cfg ->
     Alcotest.(check string) "model" "agent_llm_a-sonnet-4-6" cfg.model_id;
@@ -67,7 +67,7 @@ let test_non_zai_glm_stays_openai_compat () =
       "openai_compat"
       (match cfg.kind with
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
-       | Anthropic -> "provider_a"
+       | Anthropic -> "anthropic"
        | Kimi -> "provider_c"
        | Gemini -> "provider_f"
        | Glm -> "provider_k"
@@ -96,7 +96,7 @@ let test_zai_glm_becomes_glm_provider_config () =
       "provider_k"
       (match cfg.kind with
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
-       | Anthropic -> "provider_a"
+       | Anthropic -> "anthropic"
        | Kimi -> "provider_c"
        | Gemini -> "provider_f"
        | Glm -> "provider_k"
@@ -240,7 +240,7 @@ let () =
   run
     "provider_bridge"
     [ ( "to_provider_config"
-      , [ test_case "provider_a" `Quick test_provider_a_bridge
+      , [ test_case "anthropic" `Quick test_provider_a_bridge
         ; test_case "provider_d compat" `Quick test_openai_compat_bridge
         ; test_case "local" `Quick test_local_provider_bridge
         ; test_case

@@ -157,8 +157,8 @@ let test_tool_use () =
 
 let () =
   (* Agent.create resolves api_key_env even for Local provider; set a dummy *)
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   let open Alcotest in
   run
     "Agent Integration"

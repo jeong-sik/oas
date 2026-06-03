@@ -22,7 +22,7 @@ let catalog_json =
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
       "default_model": "local-model",
-      "capabilities_base": "provider_d_chat",
+      "capabilities_base": "openai_chat",
       "capabilities": {"supports_tools": true},
       "credential_scope": "test runtime"
     }
@@ -45,32 +45,32 @@ let catalog_variants_json =
       "request_path": "/chat/completions",
       "auth": {"type": "setup_token_env", "env": "RICH_SETUP_TOKEN"},
       "default_model": "rich-default",
-      "capabilities_base": "provider_d_chat"
+      "capabilities_base": "openai_chat"
     },
     {
       "id": "managed-oauth",
       "kind": "openai_compat",
       "transport": "managed",
       "auth": {"type": "oauth_cached_login"},
-      "capabilities_base": "provider_d_chat"
+      "capabilities_base": "openai_chat"
     },
         {
           "id": "file-auth",
           "kind": "openai_compat",
           "auth": {"type": "file", "path": "/tmp/provider-token"},
-      "capabilities_base": "provider_d_chat"
+      "capabilities_base": "openai_chat"
     },
     {
       "id": "exec-auth",
       "kind": "openai_compat",
       "auth": {"type": "exec", "command": "op read token"},
-      "capabilities_base": "provider_d_chat"
+      "capabilities_base": "openai_chat"
     },
     {
       "id": "api-key-auth",
       "kind": "openai_compat",
       "auth": {"type": "api_key_env", "env": "API_KEY_AUTH"},
-      "capabilities_base": "provider_d_chat"
+      "capabilities_base": "openai_chat"
     }
   ]
 }
@@ -260,7 +260,7 @@ let test_builtin_binding_resolves () =
 
 let test_builtin_aliases_are_canonicalized () =
   let cases =
-    [ "provider_a", "agent_llm_a"
+    [ "anthropic", "agent_llm_a"
     ; "anthropic", "agent_llm_a"
     ; "kimi", "provider_c"
     ; "gemini", "provider_f"

@@ -348,9 +348,9 @@ let test_all_timeout_is_per_agent () =
 (* ── Test suite ──────────────────────────────────────────────────── *)
 
 let () =
-  (* Ensure PROVIDER_A_API_KEY is set for mock server tests *)
-  if Sys.getenv_opt "PROVIDER_A_API_KEY" = None
-  then Unix.putenv "PROVIDER_A_API_KEY" "test-mock-key";
+  (* Ensure ANTHROPIC_API_KEY is set for mock server tests *)
+  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
+  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
   run
     "async_agent"
     [ ( "spawn"

@@ -64,9 +64,9 @@ let resolve_auto_model_id
   let open Llm_provider.Provider_config in
   match kind with
   | Ollama | OpenAI_compat | DashScope ->
-    (* Local llama-server and Provider_d-compatible endpoints share the
+    (* Local llama-server and OpenAI-compatible endpoints share the
          "auto" -> discovery -> OLLAMA_DEFAULT_MODEL fallback. Cloud-only
-         Provider_d-compatible backends still traverse this branch. *)
+         OpenAI-compatible backends still traverse this branch. *)
     if model_id = "auto"
     then (
       match Llm_provider.Discovery.first_discovered_model_id () with
@@ -79,7 +79,7 @@ let resolve_auto_model_id
     else resolve_glm_model_id model_id
   | Gemini ->
     if model_id = "auto"
-    then Util.env_or "provider_f-2.5-flash" "PROVIDER_F_DEFAULT_MODEL"
+    then Util.env_or "gemini-2.5-flash" "PROVIDER_F_DEFAULT_MODEL"
     else model_id
   | Kimi ->
     if model_id = "auto"

@@ -168,7 +168,7 @@ let test_build_body_basic () =
 let test_build_body_with_thinking_budget () =
   (* Thinking is gated on [enable_thinking = Some true]; a budget
      without enable_thinking must NOT emit a thinking block.
-     Matches backend_provider_a.build_request semantics. *)
+     Matches backend_anthropic.build_request semantics. *)
   let config = make_state ~enable_thinking:true ~thinking_budget:1024 () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
@@ -181,7 +181,7 @@ let test_build_body_with_thinking_budget () =
 let test_build_body_with_enable_thinking_default_budget () =
   (* enable_thinking = true without an explicit budget should still
      emit a thinking block, using the 10_000-token default budget
-     that matches backend_provider_a. Regression for the old gate
+     that matches backend_anthropic. Regression for the old gate
      that required thinking_budget = Some _ to activate. *)
   let config = make_state ~enable_thinking:true () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
@@ -242,7 +242,7 @@ let test_build_body_with_tools () =
   check int "1 tool" 1 (List.length tools)
 ;;
 
-let test_build_provider_d_body_with_json_schema () =
+let test_build_openai_body_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -261,7 +261,7 @@ let test_build_provider_d_body_with_json_schema () =
     }
   in
   let json =
-    Api.build_provider_d_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   let response_format = json |> member "response_format" in
@@ -326,7 +326,7 @@ let test_build_body_sampling_params_omitted_when_none () =
   check bool "no min_p key" false (List.exists (fun (k, _) -> k = "min_p") assoc)
 ;;
 
-let test_build_provider_d_body_with_provider_m_sampling () =
+let test_build_openai_body_with_provider_m_sampling () =
   let state =
     { Types.config =
         { Types.default_config with
@@ -343,7 +343,7 @@ let test_build_provider_d_body_with_provider_m_sampling () =
     }
   in
   let json =
-    Api.build_provider_d_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   check
@@ -364,9 +364,9 @@ let test_build_provider_d_body_with_provider_m_sampling () =
     (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
 ;;
 
-let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat () =
+let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
   let provider_config =
-    Provider.provider_o_router ~model_id:"provider_a/agent_llm_a-sonnet-4-6" ()
+    Provider.provider_o_router ~model_id:"anthropic/agent_llm_a-sonnet-4-6" ()
   in
   let state =
     { Types.config =
@@ -392,7 +392,7 @@ let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat (
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_openai_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -423,7 +423,7 @@ let test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat (
   check bool "tools preserved" true (List.mem_assoc "tools" assoc)
 ;;
 
-let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
+let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -456,7 +456,7 @@ let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_openai_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -479,7 +479,7 @@ let test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice () =
     (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
+let test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -512,7 +512,7 @@ let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_openai_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -535,7 +535,7 @@ let test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice () =
     (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_provider_d_body_glm_preserves_reasoning_content () =
+let test_build_openai_body_glm_preserves_reasoning_content () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -577,7 +577,7 @@ let test_build_provider_d_body_glm_preserves_reasoning_content () =
     }
   in
   let json =
-    Api.build_provider_d_body ~provider_config ~config:state ~messages ()
+    Api.build_openai_body ~provider_config ~config:state ~messages ()
     |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
@@ -591,7 +591,7 @@ let test_build_provider_d_body_glm_preserves_reasoning_content () =
   check string "tool choice still auto" "auto" (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
+let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -624,7 +624,7 @@ let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_openai_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -649,7 +649,7 @@ let test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm () =
   | _ -> fail "non-zai provider_k tool_choice should preserve named function form"
 ;;
 
-let test_build_provider_d_body_glm_tool_choice_none_omits_tools () =
+let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -681,7 +681,7 @@ let test_build_provider_d_body_glm_tool_choice_none_omits_tools () =
       ]
   in
   let json =
-    Api.build_provider_d_body
+    Api.build_openai_body
       ~provider_config
       ~config:state
       ~messages:[]
@@ -785,7 +785,7 @@ let test_parse_provider_d_response_strips_fenced_json () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
@@ -814,7 +814,7 @@ let test_parse_provider_d_response_reasoning_content () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
@@ -851,7 +851,7 @@ let test_parse_provider_d_response_reasoning_with_tools () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
@@ -883,7 +883,7 @@ let test_parse_provider_d_response_blank_reasoning () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "1 content block (blank reasoning filtered)" 1 (List.length resp.content);
@@ -907,7 +907,7 @@ let test_parse_provider_d_response_no_reasoning () =
     }]
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "1 content block" 1 (List.length resp.content);
@@ -933,7 +933,7 @@ let test_parse_provider_d_response_ollama_reasoning () =
     "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     check int "2 content blocks (thinking + text)" 2 (List.length resp.content);
@@ -974,7 +974,7 @@ let test_parse_provider_d_response_reasoning_content_preferred () =
     "usage": {"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10}
   }|}
   in
-  match Api.parse_provider_d_response_result json_str with
+  match Api.parse_openai_response_result json_str with
   | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
   | Ok resp ->
     (match resp.content with
@@ -1295,7 +1295,7 @@ let test_message_to_json_assistant () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* provider_d_messages_of_message: multimodal user content                  *)
+(* openai_messages_of_message: multimodal user content                  *)
 (* ------------------------------------------------------------------ *)
 
 let test_provider_d_messages_text_only () =
@@ -1307,7 +1307,7 @@ let test_provider_d_messages_text_only () =
     ; metadata = []
     }
   in
-  let msgs = Api.provider_d_messages_of_message msg in
+  let msgs = Api.openai_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
   let content = List.hd msgs |> member "content" in
@@ -1328,7 +1328,7 @@ let test_provider_d_messages_with_image () =
     ; metadata = []
     }
   in
-  let msgs = Api.provider_d_messages_of_message msg in
+  let msgs = Api.openai_messages_of_message msg in
   check int "1 message" 1 (List.length msgs);
   let open Yojson.Safe.Util in
   let content = List.hd msgs |> member "content" |> to_list in
@@ -1347,14 +1347,14 @@ let test_provider_d_api_error_returns_error () =
   let error_json =
     {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|}
   in
-  match Api.parse_provider_d_response_result error_json with
+  match Api.parse_openai_response_result error_json with
   | Error msg -> check string "error message" "Invalid API key" msg
   | Ok _ -> Alcotest.fail "expected Error on API error"
 ;;
 
 let test_provider_d_api_error_unknown_message () =
   let error_json = {|{"error":{}}|} in
-  match Api.parse_provider_d_response_result error_json with
+  match Api.parse_openai_response_result error_json with
   | Error msg -> check string "unknown error" "Unknown API error" msg
   | Ok _ -> Alcotest.fail "expected Error on empty error"
 ;;
@@ -1365,7 +1365,7 @@ let test_provider_d_api_error_unknown_message () =
 
 let test_provider_d_error_returns_result () =
   let error_json = {|{"error":{"message":"bad request"}}|} in
-  match Api.parse_provider_d_response_result error_json with
+  match Api.parse_openai_response_result error_json with
   | Error msg -> check string "error msg" "bad request" msg
   | Ok _ -> Alcotest.fail "expected Error result"
 ;;
@@ -1461,7 +1461,7 @@ let () =
         ; test_case
             "provider_d json schema"
             `Quick
-            test_build_provider_d_body_with_json_schema
+            test_build_openai_body_with_json_schema
         ; test_case
             "provider_a sampling params serialized"
             `Quick
@@ -1473,31 +1473,31 @@ let () =
         ; test_case
             "with provider_h sampling"
             `Quick
-            test_build_provider_d_body_with_provider_m_sampling
+            test_build_openai_body_with_provider_m_sampling
         ; test_case
             "generic compat omits provider_h-only fields"
             `Quick
-            test_build_provider_d_body_omits_provider_m_only_fields_for_generic_compat
+            test_build_openai_body_omits_provider_m_only_fields_for_generic_compat
         ; test_case
             "provider_k thinking + auto tool choice"
             `Quick
-            test_build_provider_d_body_uses_glm_thinking_and_auto_tool_choice
+            test_build_openai_body_uses_glm_thinking_and_auto_tool_choice
         ; test_case
             "bare glm thinking + auto tool choice"
             `Quick
-            test_build_provider_d_body_uses_bare_glm_thinking_and_auto_tool_choice
+            test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice
         ; test_case
             "provider_k preserved reasoning replay"
             `Quick
-            test_build_provider_d_body_glm_preserves_reasoning_content
+            test_build_openai_body_glm_preserves_reasoning_content
         ; test_case
             "non-zai provider_k avoids provider_k path"
             `Quick
-            test_build_provider_d_body_does_not_treat_non_zai_glm_as_glm
+            test_build_openai_body_does_not_treat_non_zai_glm_as_glm
         ; test_case
             "provider_k none tool_choice omits tools"
             `Quick
-            test_build_provider_d_body_glm_tool_choice_none_omits_tools
+            test_build_openai_body_glm_tool_choice_none_omits_tools
         ; test_case "with cache_system_prompt" `Quick test_build_body_with_cache
         ; test_case
             "tools cache_control with flag"

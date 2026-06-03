@@ -106,19 +106,19 @@ let%test "model-d-4.1 is cloud" =
 ;;
 
 let%test "provider_f-2.5-flash has 1M context" =
-  let m = for_model_id "provider_f-2.5-flash" in
+  let m = for_model_id "gemini-2.5-flash" in
   m.context_window = 1_000_000
 ;;
 
-let%test "provider_f-3-flash-preview has 1M context via provider_f-3 prefix" =
-  let m = for_model_id "provider_f-3-flash-preview" in
+let%test "gemini-3-flash-preview has 1M context via provider_f-3 prefix" =
+  let m = for_model_id "gemini-3-flash-preview" in
   m.context_window = 1_000_000
   && m.capabilities.supports_tools
   && m.capabilities.supports_parallel_tool_calls
 ;;
 
 let%test "provider_f-3.1-pro-preview has 1M context via provider_f-3 prefix" =
-  let m = for_model_id "provider_f-3.1-pro-preview" in
+  let m = for_model_id "gemini-3.1-pro-preview" in
   m.context_window = 1_000_000 && m.capabilities.supports_tools
 ;;
 

@@ -7,7 +7,7 @@ module Retry = Llm_provider.Retry
 (* ── Module type satisfaction ────────────────────────────── *)
 
 let test_of_config_provider_a () =
-  let config = Provider.provider_a_sonnet () in
+  let config = Provider.anthropic_sonnet () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   (* Module was constructed — type check passed at compile time.
      We can't call create_message without a real network, but the
@@ -24,7 +24,7 @@ let test_of_config_provider_d () =
 (* ── supports_streaming ──────────────────────────────────── *)
 
 let test_provider_a_supports_streaming () =
-  let config = Provider.provider_a_sonnet () in
+  let config = Provider.anthropic_sonnet () in
   Alcotest.(check bool)
     "provider_a streams"
     true
@@ -34,7 +34,7 @@ let test_provider_a_supports_streaming () =
 (* ── of_config_streaming ─────────────────────────────────── *)
 
 let test_streaming_provider_some () =
-  let config = Provider.provider_a_sonnet () in
+  let config = Provider.anthropic_sonnet () in
   match Provider_intf.of_config_streaming config with
   | Some (module SP : Provider_intf.STREAMING_PROVIDER) ->
     ignore (module SP : Provider_intf.STREAMING_PROVIDER)
