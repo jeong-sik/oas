@@ -426,10 +426,15 @@ let openai_chunk_to_events
   (match chunk.finish_reason with
    | Some reason ->
      let stop_reason =
+       (* OpenAI wire vocabulary -> stop_reason. Kept in sync with the
+          non-streaming parser (Backend_openai_parse): "refusal" -> Refusal.
+          "content_filter" stays Unknown — it is a moderation cutoff, not a
+          model refusal. *)
        match String.lowercase_ascii reason with
        | "stop" -> EndTurn
        | "tool_calls" -> StopToolUse
        | "length" -> MaxTokens
+       | "refusal" -> Refusal
        | other -> Unknown other
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
@@ -589,9 +594,13 @@ let provider_f_chunk_to_events
   (match chunk.gem_finish_reason with
    | Some reason ->
      let stop_reason =
+       (* Gemini wire vocabulary -> stop_reason. Kept in sync with the
+          non-streaming parser (Backend_gemini.parse_response): SAFETY and
+          RECITATION both surface as Refusal. *)
        match String.uppercase_ascii reason with
        | "STOP" -> EndTurn
        | "MAX_TOKENS" -> MaxTokens
+       | "SAFETY" | "RECITATION" -> Refusal
        | other -> Unknown other
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.gem_usage })

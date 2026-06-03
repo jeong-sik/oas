@@ -343,8 +343,8 @@ let parse_response json =
         match String.uppercase_ascii finish_reason with
         | "STOP" -> EndTurn
         | "MAX_TOKENS" -> MaxTokens
-        | "SAFETY" -> Unknown "safety"
-        | "RECITATION" -> Unknown "recitation"
+        | "SAFETY" -> Refusal
+        | "RECITATION" -> Refusal
         | other -> Unknown other)
     in
     let usage =

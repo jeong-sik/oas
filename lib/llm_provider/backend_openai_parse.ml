@@ -309,6 +309,7 @@ let parse_openai_response_result json_str =
       | "tool_calls" when tool_blocks <> [] -> StopToolUse
       | "length" -> MaxTokens
       | "stop" | "end_turn" -> EndTurn
+      | "refusal" -> Refusal
       | _other when tool_blocks <> [] -> StopToolUse
       | other -> Unknown other
     in

@@ -56,7 +56,7 @@ let run_live_test () =
        | Types.StopToolUse -> "tool_use"
        | Types.MaxTokens -> "max_tokens"
        | Types.StopSequence -> "stop_sequence"
-       | Types.Unknown s -> s);
+       | Types.Refusal -> "refusal" | Types.PauseTurn -> "pause_turn" | Types.Compaction -> "compaction" | Types.ContextWindowExceeded -> "model_context_window_exceeded" | Types.Unknown s -> s);
     List.iter
       (fun block ->
          match block with

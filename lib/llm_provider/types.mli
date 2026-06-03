@@ -148,6 +148,10 @@ type stop_reason =
   | StopToolUse
   | MaxTokens
   | StopSequence
+  | Refusal
+  | PauseTurn
+  | Compaction
+  | ContextWindowExceeded
   | Unknown of string
 [@@deriving show]
 

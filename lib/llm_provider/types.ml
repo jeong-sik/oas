@@ -258,12 +258,17 @@ type message =
 
 (** {1 Response Types} *)
 
-(** Stop reason from API *)
+(** Stop reason from API.
+    2025-2026 extended: Refusal, PauseTurn, Compaction, ContextWindowExceeded. *)
 type stop_reason =
   | EndTurn
   | StopToolUse
   | MaxTokens
   | StopSequence
+  | Refusal                     (** Policy refusal (Anthropic, OpenAI, Gemini SAFETY). *)
+  | PauseTurn                   (** Anthropic long-running turn pause. *)
+  | Compaction                  (** Anthropic context compaction. *)
+  | ContextWindowExceeded       (** Anthropic context window exceeded. *)
   | Unknown of string
 [@@deriving show]
 
@@ -272,6 +277,10 @@ let stop_reason_of_string = function
   | "tool_use" -> StopToolUse
   | "max_tokens" -> MaxTokens
   | "stop_sequence" -> StopSequence
+  | "refusal" -> Refusal
+  | "pause_turn" -> PauseTurn
+  | "compaction" -> Compaction
+  | "model_context_window_exceeded" -> ContextWindowExceeded
   | other -> Unknown other
 ;;
 

@@ -114,6 +114,10 @@ let stop_reason_label : Types.stop_reason -> string = function
   | StopToolUse -> "stop_tool_use"
   | MaxTokens -> "max_tokens"
   | StopSequence -> "stop_sequence"
+  | Refusal -> "refusal"
+  | PauseTurn -> "pause_turn"
+  | Compaction -> "compaction"
+  | ContextWindowExceeded -> "model_context_window_exceeded"
   | Unknown s -> "unknown:" ^ s
 ;;
 

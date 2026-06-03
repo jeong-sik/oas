@@ -96,17 +96,18 @@ let stop_reason_to_string = function
   | Types.StopToolUse -> "tool_use"
   | Types.MaxTokens -> "max_tokens"
   | Types.StopSequence -> "stop_sequence"
+  | Types.Refusal -> "refusal"
+  | Types.PauseTurn -> "pause_turn"
+  | Types.Compaction -> "compaction"
+  | Types.ContextWindowExceeded -> "model_context_window_exceeded"
   | Types.Unknown s -> s
 ;;
 
-let stop_reason_of_string = function
-  | "end_turn" -> Types.EndTurn
-  | "tool_use" -> Types.StopToolUse
-  | "max_tokens" -> Types.MaxTokens
-  | "stop_sequence" -> Types.StopSequence
-  | s -> Types.Unknown s
-;;
-
+(* Cache replay routes through [Types.stop_reason_of_string] so that a cached
+   response parses identically to a live one. A local copy here previously
+   diverged from the canonical parser (it never learned pause_turn/refusal/
+   compaction/model_context_window_exceeded), so a cached PauseTurn replayed as
+   [Unknown "pause_turn"]. *)
 let response_to_json (resp : Types.api_response) : Yojson.Safe.t =
   let usage_json =
     match resp.usage with
@@ -159,7 +160,8 @@ let response_of_json (json : Yojson.Safe.t) : Types.api_response option =
       Some
         { Types.id = json |> member "id" |> to_string
         ; model = json |> member "model" |> to_string
-        ; stop_reason = json |> member "stop_reason" |> to_string |> stop_reason_of_string
+        ; stop_reason =
+            json |> member "stop_reason" |> to_string |> Types.stop_reason_of_string
         ; content
         ; usage
         ; telemetry = None

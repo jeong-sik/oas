@@ -40,6 +40,10 @@ let stop_reason_to_string = function
   | StopToolUse -> "tool_use"
   | MaxTokens -> "max_tokens"
   | StopSequence -> "stop_sequence"
+  | Refusal -> "refusal"
+  | PauseTurn -> "pause_turn"
+  | Compaction -> "compaction"
+  | ContextWindowExceeded -> "model_context_window_exceeded"
   | Unknown s -> s
 ;;
 

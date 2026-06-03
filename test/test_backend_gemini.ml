@@ -361,7 +361,7 @@ let test_parse_stop_reasons () =
   in
   test_reason "STOP" Types.EndTurn;
   test_reason "MAX_TOKENS" Types.MaxTokens;
-  test_reason "SAFETY" (Types.Unknown "safety")
+  test_reason "SAFETY" Types.Refusal
 ;;
 
 let test_parse_error () =

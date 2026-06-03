@@ -1155,8 +1155,8 @@ let test_parse_response_safety () =
   in
   let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
-  | Types.Unknown "safety" -> ()
-  | _ -> Alcotest.fail "expected Unknown safety"
+  | Types.Refusal -> ()
+  | _ -> Alcotest.fail "expected Refusal"
 ;;
 
 let test_parse_response_recitation () =
@@ -1171,8 +1171,8 @@ let test_parse_response_recitation () =
   in
   let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
-  | Types.Unknown "recitation" -> ()
-  | _ -> Alcotest.fail "expected Unknown recitation"
+  | Types.Refusal -> ()
+  | _ -> Alcotest.fail "expected Refusal"
 ;;
 
 let test_parse_response_unknown_reason () =

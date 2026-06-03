@@ -733,7 +733,8 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        (* on_idle hook returned Skip: stop gracefully with the current response *)
        Ok (Complete response)
      | other -> other)
-  | EndTurn | MaxTokens | StopSequence ->
+  | EndTurn | MaxTokens | StopSequence | Refusal | PauseTurn | Compaction
+  | ContextWindowExceeded ->
     Tool_retry_policy.clear_context_retry_count agent.context;
     let _stop =
       invoke_hook_with_trace

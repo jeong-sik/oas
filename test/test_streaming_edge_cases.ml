@@ -224,15 +224,14 @@ let test_provider_d_event_edge_branches () =
       (provider_d_chunk ~delta_tool_calls:[ tc_none ] ())
   in
   check_event_count "same tool index without args emits nothing" 0 reused_tool_events;
-  let unknown_finish_events, _ =
+  let refusal_finish_events, _ =
     S.openai_chunk_to_events
       tool_state
-      (provider_d_chunk ~finish_reason:"safety_filter" ~chunk_usage:(usage ()) ())
+      (provider_d_chunk ~finish_reason:"refusal" ~chunk_usage:(usage ()) ())
   in
-  match unknown_finish_events with
-  | [ MessageDelta { stop_reason = Some (Unknown "safety_filter"); usage = Some _ } ] ->
-    ()
-  | _ -> fail "expected unknown finish reason"
+  match refusal_finish_events with
+  | [ MessageDelta { stop_reason = Some Refusal; usage = Some _ } ] -> ()
+  | _ -> fail "expected refusal finish reason to map to Refusal"
 ;;
 
 let test_provider_f_parse_edge_shapes () =
@@ -322,7 +321,7 @@ let test_provider_f_event_edge_branches () =
       (provider_f_chunk ~finish_reason:"SAFETY" ())
   in
   match unknown_events with
-  | [ MessageDelta { stop_reason = Some (Unknown "SAFETY"); _ } ] -> ()
+  | [ MessageDelta { stop_reason = Some (Refusal); _ } ] -> ()
   | _ -> fail "expected provider_f unknown finish"
 ;;
 
