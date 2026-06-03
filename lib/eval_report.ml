@@ -19,8 +19,8 @@ type t =
 
 (** Generate a report from a baseline comparison and run metrics. *)
 let generate ?baseline (runs : Eval.run_metrics list) : t =
-  if runs = []
-  then
+  match runs with
+  | [] ->
     { agent_name = "unknown"
     ; run_count = 0
     ; evaluated_runs = 0
@@ -30,8 +30,7 @@ let generate ?baseline (runs : Eval.run_metrics list) : t =
     ; verdict = `Fail
     ; summary = "No runs to evaluate"
     }
-  else (
-    let first = List.hd runs in
+  | first :: _ ->
     let evaluated_runs =
       List.length
         (List.filter (fun (rm : Eval.run_metrics) -> rm.harness_verdicts <> []) runs)
@@ -87,7 +86,7 @@ let generate ?baseline (runs : Eval.run_metrics list) : t =
     ; comparison
     ; verdict
     ; summary
-    })
+    }
 ;;
 
 (** Serialize report to JSON. *)
