@@ -52,6 +52,49 @@ let parse_ok json =
   | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
 ;;
 
+let test_parse_reasoning_content_and_tool_calls_coexist () =
+  (* 2025-2026 providers (DeepSeek, Kimi, Qwen, MiMo) return reasoning_content
+     alongside tool_calls. Both must survive parsing into [content]: the
+     reasoning as a Thinking block and the call as a ToolUse block. *)
+  let json =
+    response_json
+      ~content:(`String "")
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ "reasoning_content", `String "think step by step"
+        ; ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-1"
+                  ; "type", `String "function"
+                  ; ( "function"
+                    , `Assoc
+                        [ "name", `String "search"; "arguments", `String {|{"q":"x"}|} ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  let response = parse_ok json in
+  let has_thinking =
+    List.exists
+      (function
+        | Thinking { content; _ } -> content = "think step by step"
+        | _ -> false)
+      response.content
+  in
+  let has_tool =
+    List.exists
+      (function
+        | ToolUse { name; _ } -> name = "search"
+        | _ -> false)
+      response.content
+  in
+  check_bool "reasoning_content -> Thinking" true has_thinking;
+  check_bool "tool_calls -> ToolUse" true has_tool;
+  check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
+;;
+
 let test_content_parts_cover_modalities () =
   let parts =
     Serialize.openai_content_parts_of_blocks
@@ -740,6 +783,10 @@ let () =
             "tool calls filter malformed"
             `Quick
             test_parse_tool_calls_filters_malformed_and_sets_stop_reason
+        ; Alcotest.test_case
+            "reasoning_content and tool_calls coexist"
+            `Quick
+            test_parse_reasoning_content_and_tool_calls_coexist
         ; Alcotest.test_case
             "error default message"
             `Quick
