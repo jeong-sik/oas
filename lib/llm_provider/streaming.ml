@@ -260,53 +260,60 @@ let parse_openai_sse_chunk data_str : provider_d_chunk option =
         | `List l -> l
         | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
       in
-      (match choices with
-       | [] ->
-         (* Usage-only final chunk: no delta, no finish_reason. *)
-         Some
-           { chunk_id
-           ; chunk_model
-           ; delta_content = None
-           ; delta_reasoning = None
-           ; delta_tool_calls = []
-           ; finish_reason = None
-           ; chunk_usage
-           }
-       | choice :: _ ->
-         let delta = choice |> member "delta" in
-         let delta_content = delta |> member "content" |> to_string_option in
-         let delta_reasoning =
-           match delta |> member "reasoning_content" |> to_string_option with
-           | Some s when String.trim s <> "" -> Some s
-           | Some _ | None -> delta |> member "reasoning" |> to_string_option
-         in
-         let delta_tool_calls =
-           match delta |> member "tool_calls" with
-           | `List calls ->
-             List.filter_map
-               (fun tc ->
-                  try
-                    let tc_index = tc |> member "index" |> to_int in
-                    let tc_id = tc |> member "id" |> to_string_option in
-                    let fn = tc |> member "function" in
-                    let tc_name = fn |> member "name" |> to_string_option in
-                    let tc_arguments = fn |> member "arguments" |> to_string_option in
-                    Some { tc_index; tc_id; tc_name; tc_arguments }
-                  with
-                  | Yojson.Safe.Util.Type_error _ | Not_found -> None)
-               calls
-           | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
-         in
-         let finish_reason = choice |> member "finish_reason" |> to_string_option in
-         Some
-           { chunk_id
-           ; chunk_model
-           ; delta_content
-           ; delta_reasoning
-           ; delta_tool_calls
-           ; finish_reason
-           ; chunk_usage
-           })
+      match choices with
+      | [] ->
+        (* Usage-only final chunk: no delta, no finish_reason. Surface it only
+            when it actually carries [usage] (the stream_options.include_usage
+            final chunk). A [choices = []] chunk with no usage carries nothing,
+            so drop it (None) — this keeps non-usage empty chunks from producing
+            an eventless Some. *)
+        (match chunk_usage with
+         | Some _ ->
+           Some
+             { chunk_id
+             ; chunk_model
+             ; delta_content = None
+             ; delta_reasoning = None
+             ; delta_tool_calls = []
+             ; finish_reason = None
+             ; chunk_usage
+             }
+         | None -> None)
+      | choice :: _ ->
+        let delta = choice |> member "delta" in
+        let delta_content = delta |> member "content" |> to_string_option in
+        let delta_reasoning =
+          match delta |> member "reasoning_content" |> to_string_option with
+          | Some s when String.trim s <> "" -> Some s
+          | Some _ | None -> delta |> member "reasoning" |> to_string_option
+        in
+        let delta_tool_calls =
+          match delta |> member "tool_calls" with
+          | `List calls ->
+            List.filter_map
+              (fun tc ->
+                 try
+                   let tc_index = tc |> member "index" |> to_int in
+                   let tc_id = tc |> member "id" |> to_string_option in
+                   let fn = tc |> member "function" in
+                   let tc_name = fn |> member "name" |> to_string_option in
+                   let tc_arguments = fn |> member "arguments" |> to_string_option in
+                   Some { tc_index; tc_id; tc_name; tc_arguments }
+                 with
+                 | Yojson.Safe.Util.Type_error _ | Not_found -> None)
+              calls
+          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+        in
+        let finish_reason = choice |> member "finish_reason" |> to_string_option in
+        Some
+          { chunk_id
+          ; chunk_model
+          ; delta_content
+          ; delta_reasoning
+          ; delta_tool_calls
+          ; finish_reason
+          ; chunk_usage
+          }
     with
     | Yojson.Safe.Util.Type_error _
     | Yojson.Safe.Util.Undefined _
