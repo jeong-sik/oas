@@ -118,6 +118,10 @@ type content_block =
       ; content : string
       ; is_error : bool
       ; json : Yojson.Safe.t option (** Structured payload when parseable. *)
+      ; content_blocks : content_block list option
+        (** Structured multi-block result (e.g. text + image). When [Some],
+            providers that accept an array tool_result content serialize the
+            blocks; [content] stays the canonical string fallback. *)
       }
   | Image of
       { media_type : string

@@ -1238,6 +1238,7 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
                 ; content = String.make 2000 'x'
                 ; is_error = false
                 ; json = None
+                ; content_blocks = None
                 }
             ]
         ; name = None
@@ -1365,6 +1366,7 @@ let test_agent_run_tiered_memory_triggers_proactive_compaction () =
                 ; content = String.make 1000 'x'
                 ; is_error = false
                 ; json = None
+                ; content_blocks = None
                 }
             ]
         ; name = None

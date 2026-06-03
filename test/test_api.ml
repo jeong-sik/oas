@@ -56,6 +56,7 @@ let test_tool_result_round_trip () =
       ; content = "4"
       ; is_error = false
       ; json = Types.try_parse_json "4"
+      ; content_blocks = None
       }
   in
   let json = Api.content_block_to_json block in
@@ -67,7 +68,12 @@ let test_tool_result_round_trip () =
 let test_tool_result_error_round_trip () =
   let block =
     Types.ToolResult
-      { tool_use_id = "tu_002"; content = "failed"; is_error = true; json = None }
+      { tool_use_id = "tu_002"
+      ; content = "failed"
+      ; is_error = true
+      ; json = None
+      ; content_blocks = None
+      }
   in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
@@ -112,6 +118,7 @@ let test_provider_c_message_to_json_tool_result_uses_text_blocks () =
             ; content = "5"
             ; is_error = false
             ; json = Some (`Int 5)
+            ; content_blocks = None
             }
         ]
     ; name = None
@@ -1381,7 +1388,12 @@ let test_text_blocks_to_string () =
     ; Types.RedactedThinking "r"
     ; Types.ToolUse { id = "t"; name = "n"; input = `Null }
     ; Types.ToolResult
-        { tool_use_id = "t"; content = "ok"; is_error = false; json = None }
+        { tool_use_id = "t"
+        ; content = "ok"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ; Types.Image { media_type = "image/png"; data = ""; source_type = "base64" }
     ; Types.Text "world"
     ]

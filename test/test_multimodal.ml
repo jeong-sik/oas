@@ -176,6 +176,54 @@ let test_document_json_structure () =
 ;;
 
 (* ------------------------------------------------------------------ *)
+(* ToolResult structured content_blocks (WP4)                           *)
+(* ------------------------------------------------------------------ *)
+
+let test_tool_result_content_blocks_serialize () =
+  let open Yojson.Safe.Util in
+  (* content_blocks = None keeps the canonical string content. *)
+  let tr_string =
+    Types.ToolResult
+      { tool_use_id = "t1"
+      ; content = "plain"
+      ; is_error = false
+      ; json = None
+      ; content_blocks = None
+      }
+  in
+  Alcotest.(check string)
+    "string content"
+    "plain"
+    (Api.content_block_to_json tr_string |> member "content" |> to_string);
+  (* content_blocks = Some emits the blocks as the content array. *)
+  let tr_blocks =
+    Types.ToolResult
+      { tool_use_id = "t2"
+      ; content = "fallback"
+      ; is_error = false
+      ; json = None
+      ; content_blocks =
+          Some
+            [ Types.Text "hi"
+            ; Types.Image { media_type = "image/png"; data = "d"; source_type = "base64" }
+            ]
+      }
+  in
+  let content = Api.content_block_to_json tr_blocks |> member "content" in
+  (match content with
+   | `List items -> Alcotest.(check int) "two blocks" 2 (List.length items)
+   | _ -> Alcotest.fail "expected content array");
+  Alcotest.(check string)
+    "first block is text"
+    "text"
+    (content |> index 0 |> member "type" |> to_string);
+  Alcotest.(check string)
+    "second block is image"
+    "image"
+    (content |> index 1 |> member "type" |> to_string)
+;;
+
+(* ------------------------------------------------------------------ *)
 (* Test runner                                                          *)
 (* ------------------------------------------------------------------ *)
 
@@ -212,6 +260,12 @@ let () =
     ; ( "json_structure"
       , [ Alcotest.test_case "image json structure" `Quick test_image_json_structure
         ; Alcotest.test_case "document json structure" `Quick test_document_json_structure
+        ] )
+    ; ( "tool_result"
+      , [ Alcotest.test_case
+            "content_blocks serialize"
+            `Quick
+            test_tool_result_content_blocks_serialize
         ] )
     ]
 ;;

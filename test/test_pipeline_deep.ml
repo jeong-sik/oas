@@ -316,6 +316,7 @@ let test_resolve_params_with_tool_results () =
               ; content = "found it"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None
@@ -373,6 +374,7 @@ let test_resolve_params_error_tool_results () =
               ; content = "permission denied"
               ; is_error = true
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None

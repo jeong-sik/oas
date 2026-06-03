@@ -49,7 +49,8 @@ type tool_result_content_style =
   | Tool_result_content_text_blocks
 
 (** Content block <-> JSON *)
-let content_block_to_json_with ~(tool_result_content_style : tool_result_content_style)
+let rec content_block_to_json_with
+          ~(tool_result_content_style : tool_result_content_style)
   = function
   | Text s ->
     `Assoc [ "type", `String "text"; "text", `String (Utf8_sanitize.sanitize s) ]
@@ -68,15 +69,23 @@ let content_block_to_json_with ~(tool_result_content_style : tool_result_content
       ; "name", `String name
       ; "input", input
       ]
-  | ToolResult { tool_use_id; content; is_error; _ } ->
+  | ToolResult { tool_use_id; content; is_error; content_blocks; _ } ->
     let content_json =
-      match tool_result_content_style with
-      | Tool_result_content_string -> `String (Utf8_sanitize.sanitize content)
-      | Tool_result_content_text_blocks ->
-        `List
-          [ `Assoc
-              [ "type", `String "text"; "text", `String (Utf8_sanitize.sanitize content) ]
-          ]
+      match content_blocks with
+      | Some blocks ->
+        (* Structured result: emit the blocks (text/image/...) as the
+           tool_result content array. *)
+        `List (List.map (content_block_to_json_with ~tool_result_content_style) blocks)
+      | None ->
+        (match tool_result_content_style with
+         | Tool_result_content_string -> `String (Utf8_sanitize.sanitize content)
+         | Tool_result_content_text_blocks ->
+           `List
+             [ `Assoc
+                 [ "type", `String "text"
+                 ; "text", `String (Utf8_sanitize.sanitize content)
+                 ]
+             ])
     in
     `Assoc
       [ "type", `String "tool_result"
@@ -143,7 +152,7 @@ let content_block_of_json json =
     let content = json |> member "content" |> to_string in
     let is_error = Cli_common_json.member_bool "is_error" json in
     let json = Types.try_parse_json content in
-    Some (ToolResult { tool_use_id; content; is_error; json })
+    Some (ToolResult { tool_use_id; content; is_error; json; content_blocks = None })
   | Some "image" ->
     let source = json |> member "source" in
     let source_type = source |> member "type" |> to_string in

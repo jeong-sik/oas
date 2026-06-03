@@ -924,7 +924,12 @@ let test_tool_result_assistant_block_summary () =
        active
        ~block_index:0
        (Types.ToolResult
-          { tool_use_id = "tool-1"; content = "ok"; is_error = false; json = None }));
+          { tool_use_id = "tool-1"
+          ; content = "ok"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }));
   ignore
     (unwrap
        (Raw_trace.finish_run

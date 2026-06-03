@@ -368,7 +368,13 @@ let%test "cap_message_tokens: oversized message with Text blocks is truncated" =
   let text_blocks = List.init 50 (fun _ -> Text (String.make 400 'x')) in
   let blocks =
     text_blocks
-    @ [ ToolResult { tool_use_id = "keep"; content = "r"; is_error = false; json = None }
+    @ [ ToolResult
+          { tool_use_id = "keep"
+          ; content = "r"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
       ]
   in
   let msg =
@@ -395,7 +401,14 @@ let%test "cap_message_tokens: truncation marker present when text dropped" =
   let text_blocks = List.init 20 (fun _ -> Text (String.make 400 'x')) in
   let blocks =
     text_blocks
-    @ [ ToolResult { tool_use_id = "t0"; content = "r"; is_error = false; json = None } ]
+    @ [ ToolResult
+          { tool_use_id = "t0"
+          ; content = "r"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
+      ]
   in
   let msg =
     { role = User; content = blocks; name = None; tool_call_id = None; metadata = [] }
@@ -437,6 +450,7 @@ let%test
         ; content = String.make 400 'x'
         ; is_error = false
         ; json = None
+        ; content_blocks = None
         })
   in
   let msg =
@@ -455,6 +469,7 @@ let%test "cap_message_tokens: recent turns are not modified" =
         ; content = String.make 400 'x'
         ; is_error = false
         ; json = None
+        ; content_blocks = None
         })
   in
   let msg =
@@ -476,6 +491,7 @@ let%test "cap_message_tokens: monotonicity — never increases tokens" =
           ; content = String.make 500 'x'
           ; is_error = false
           ; json = None
+          ; content_blocks = None
           })
   in
   let msg =
@@ -587,6 +603,7 @@ let%test "estimate_block_tokens ToolResult uses CJK-aware estimation" =
       ; content = "\xEA\xB2\xB0\xEA\xB3\xBC\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4"
       ; is_error = false
       ; json = None
+      ; content_blocks = None
       }
   in
   let tokens = estimate_block_tokens block in

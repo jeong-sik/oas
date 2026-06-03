@@ -148,6 +148,7 @@ let test_tool_result () =
               ; content = "Sunny, 25C"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None

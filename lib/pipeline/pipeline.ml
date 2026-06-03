@@ -733,7 +733,12 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        (* on_idle hook returned Skip: stop gracefully with the current response *)
        Ok (Complete response)
      | other -> other)
-  | EndTurn | MaxTokens | StopSequence | Refusal | PauseTurn | Compaction
+  | EndTurn
+  | MaxTokens
+  | StopSequence
+  | Refusal
+  | PauseTurn
+  | Compaction
   | ContextWindowExceeded ->
     Tool_retry_policy.clear_context_retry_count agent.context;
     let _stop =
@@ -1255,9 +1260,19 @@ let%test "last_tool_results_from finds tool results in last user message" =
     ; { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t1"; content = "result1"; is_error = false; json = None }
+              { tool_use_id = "t1"
+              ; content = "result1"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ; ToolResult
-              { tool_use_id = "t2"; content = "error msg"; is_error = true; json = None }
+              { tool_use_id = "t2"
+              ; content = "error msg"
+              ; is_error = true
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None
@@ -1277,7 +1292,12 @@ let%test "last_tool_results_from skips non-tool user messages" =
     [ { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t1"; content = "first"; is_error = false; json = None }
+              { tool_use_id = "t1"
+              ; content = "first"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None
@@ -1342,7 +1362,12 @@ let%test "last_tool_results_from picks last user with tool results" =
     [ { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t1"; content = "first"; is_error = false; json = None }
+              { tool_use_id = "t1"
+              ; content = "first"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None
@@ -1357,7 +1382,12 @@ let%test "last_tool_results_from picks last user with tool results" =
     ; { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t2"; content = "second"; is_error = false; json = None }
+              { tool_use_id = "t2"
+              ; content = "second"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None
@@ -1376,7 +1406,12 @@ let%test "last_tool_results_from mixed content in user message" =
       ; content =
           [ Text "some text"
           ; ToolResult
-              { tool_use_id = "t1"; content = "ok"; is_error = false; json = None }
+              { tool_use_id = "t1"
+              ; content = "ok"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ; Text "more text"
           ]
       ; name = None
@@ -1395,7 +1430,12 @@ let%test "last_tool_results_from error tool result" =
     [ { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t1"; content = "fail msg"; is_error = true; json = None }
+              { tool_use_id = "t1"
+              ; content = "fail msg"
+              ; is_error = true
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None
@@ -1450,11 +1490,26 @@ let%test "last_tool_results_from multiple tool results in one message" =
     [ { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t1"; content = "r1"; is_error = false; json = None }
+              { tool_use_id = "t1"
+              ; content = "r1"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ; ToolResult
-              { tool_use_id = "t2"; content = "r2"; is_error = false; json = None }
+              { tool_use_id = "t2"
+              ; content = "r2"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ; ToolResult
-              { tool_use_id = "t3"; content = "r3"; is_error = true; json = None }
+              { tool_use_id = "t3"
+              ; content = "r3"
+              ; is_error = true
+              ; json = None
+              ; content_blocks = None
+              }
           ]
       ; name = None
       ; tool_call_id = None

@@ -66,7 +66,14 @@ let apply_frozen t blocks =
            then (
              (* Frozen: apply cached replacement or keep *)
              match Hashtbl.find_opt t.replacements tool_use_id with
-             | Some r -> ToolResult { tool_use_id; content = r.preview; is_error; json }
+             | Some r ->
+               ToolResult
+                 { tool_use_id
+                 ; content = r.preview
+                 ; is_error
+                 ; json
+                 ; content_blocks = None
+                 }
              | None ->
                (* Was kept (not replaced) — send full content *)
                block)
@@ -209,11 +216,26 @@ let%test "apply_frozen: replaces frozen, collects fresh" =
   record_kept t "t2";
   let blocks =
     [ ToolResult
-        { tool_use_id = "t1"; content = "long content"; is_error = false; json = None }
+        { tool_use_id = "t1"
+        ; content = "long content"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ; ToolResult
-        { tool_use_id = "t2"; content = "kept content"; is_error = false; json = None }
+        { tool_use_id = "t2"
+        ; content = "kept content"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ; ToolResult
-        { tool_use_id = "t3"; content = "new content"; is_error = false; json = None }
+        { tool_use_id = "t3"
+        ; content = "new content"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ]
   in
   let modified, fresh = apply_frozen t blocks in
@@ -236,7 +258,12 @@ let%test "apply_frozen: idempotent" =
   record_replacement t { tool_use_id = "t1"; preview = "p"; original_chars = 100 };
   let blocks =
     [ ToolResult
-        { tool_use_id = "t1"; content = "original"; is_error = false; json = None }
+        { tool_use_id = "t1"
+        ; content = "original"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ]
   in
   let first_pass, _ = apply_frozen t blocks in

@@ -11,17 +11,13 @@ open Types
 
 (* ── Re-exports from serialization ─────────────────────── *)
 
-let tool_calls_to_openai_json =
-  Backend_openai_serialize.tool_calls_to_openai_json
-;;
+let tool_calls_to_openai_json = Backend_openai_serialize.tool_calls_to_openai_json
 
 let openai_content_parts_of_blocks =
   Backend_openai_serialize.openai_content_parts_of_blocks
 ;;
 
-let openai_messages_of_message =
-  Backend_openai_serialize.openai_messages_of_message
-;;
+let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
 
 let provider_k_messages_of_message =
   Backend_openai_serialize.provider_k_messages_of_message
@@ -39,10 +35,7 @@ let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 let strip_json_markdown_fences = Backend_openai_parse.strip_json_markdown_fences
 let usage_of_provider_d_json = Backend_openai_parse.usage_of_provider_d_json
-
-let parse_openai_response_result =
-  Backend_openai_parse.parse_openai_response_result
-;;
+let parse_openai_response_result = Backend_openai_parse.parse_openai_response_result
 
 (* ── Re-exports from request building ─────────────────── *)
 
@@ -50,10 +43,7 @@ let warn_capability_drop = Backend_openai_request.warn_capability_drop
 let effective_tool_choice = Backend_openai_request.effective_tool_choice
 let effective_tools = Backend_openai_request.effective_tools
 let structured_schema_of_config = Backend_openai_request.structured_schema_of_config
-
-let openai_json_schema_payload =
-  Backend_openai_request.openai_json_schema_payload
-;;
+let openai_json_schema_payload = Backend_openai_request.openai_json_schema_payload
 
 let response_format_to_provider_d_json =
   Backend_openai_request.response_format_to_provider_d_json
@@ -409,7 +399,12 @@ let%test "openai_messages_of_message user with tool_result" =
     ; content =
         [ Text "follow up"
         ; ToolResult
-            { tool_use_id = "tc1"; content = "result"; is_error = false; json = None }
+            { tool_use_id = "tc1"
+            ; content = "result"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ]
     ; name = None
     ; tool_call_id = None
@@ -443,6 +438,7 @@ let%test "build_request strips orphaned tool results from wire messages" =
               ; content = "stale"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None
@@ -620,6 +616,7 @@ let%test "openai_messages_of_message Tool role with ToolResult" =
             ; content = "result data"
             ; is_error = false
             ; json = None
+            ; content_blocks = None
             }
         ]
     ; name = None
@@ -679,7 +676,7 @@ let%test "build_provider_d_tool_json forwards strict into the function object" =
   in
   let result = build_provider_d_tool_json tool_json in
   let open Yojson.Safe.Util in
-  (result |> member "function" |> member "strict") = `Bool true
+  result |> member "function" |> member "strict" = `Bool true
 ;;
 
 let%test "build_provider_d_tool_json omits strict when the tool did not set it" =
@@ -692,7 +689,7 @@ let%test "build_provider_d_tool_json omits strict when the tool did not set it" 
   in
   let result = build_provider_d_tool_json tool_json in
   let open Yojson.Safe.Util in
-  (result |> member "function" |> member "strict") = `Null
+  result |> member "function" |> member "strict" = `Null
 ;;
 
 let%test "build_provider_d_tool_json converts legacy parameter list to json schema" =
@@ -1062,7 +1059,13 @@ let%test "openai_content_parts_of_blocks redacted thinking filtered" =
 
 let%test "openai_content_parts_of_blocks tool_result filtered" =
   let blocks =
-    [ ToolResult { tool_use_id = "t1"; content = "result"; is_error = false; json = None }
+    [ ToolResult
+        { tool_use_id = "t1"
+        ; content = "result"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ]
   in
   openai_content_parts_of_blocks blocks = []

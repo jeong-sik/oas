@@ -144,6 +144,7 @@ let finalize_stream_acc (acc : stream_acc) =
                   ; content = text
                   ; is_error
                   ; json = (if is_error then None else Types.try_parse_json text)
+                  ; content_blocks = None
                   })
            | _ -> None)
         indices

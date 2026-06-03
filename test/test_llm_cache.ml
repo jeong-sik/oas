@@ -157,7 +157,12 @@ let test_roundtrip_tool_result () =
   let resp =
     simple_response
       [ ToolResult
-          { tool_use_id = "tu_1"; content = "result data"; is_error = false; json = None }
+          { tool_use_id = "tu_1"
+          ; content = "result data"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
       ]
   in
   let json = Cache.response_to_json resp in
@@ -176,7 +181,12 @@ let test_roundtrip_tool_result_error () =
   let resp =
     simple_response
       [ ToolResult
-          { tool_use_id = "tu_2"; content = "failed"; is_error = true; json = None }
+          { tool_use_id = "tu_2"
+          ; content = "failed"
+          ; is_error = true
+          ; json = None
+          ; content_blocks = None
+          }
       ]
   in
   let json = Cache.response_to_json resp in

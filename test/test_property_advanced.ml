@@ -24,7 +24,12 @@ let content_block_gen =
     ; QCheck.Gen.map3
         (fun id content is_error ->
            ToolResult
-             { tool_use_id = id; content; is_error; json = Types.try_parse_json content })
+             { tool_use_id = id
+             ; content
+             ; is_error
+             ; json = Types.try_parse_json content
+             ; content_blocks = None
+             })
         QCheck.Gen.string_printable
         QCheck.Gen.string_printable
         QCheck.Gen.bool

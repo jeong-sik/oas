@@ -147,6 +147,7 @@ let test_replace_existing () =
               ; content = "old result"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None
@@ -202,12 +203,18 @@ let test_replace_preserves_other_results () =
     [ { role = User
       ; content =
           [ ToolResult
-              { tool_use_id = "t1"; content = "keep"; is_error = false; json = None }
+              { tool_use_id = "t1"
+              ; content = "keep"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ; ToolResult
               { tool_use_id = "t2"
               ; content = "replace me"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None

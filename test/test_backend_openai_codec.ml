@@ -137,7 +137,12 @@ let test_provider_d_user_messages_text_tool_and_empty () =
       [ Text "first"
       ; Text "second"
       ; ToolResult
-          { tool_use_id = "call-1"; content = "42"; is_error = false; json = None }
+          { tool_use_id = "call-1"
+          ; content = "42"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
       ]
   in
   let messages = Serialize.openai_messages_of_message user in
@@ -189,9 +194,7 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
       Assistant
       [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [ "q", `String "x" ] } ]
   in
-  let provider_d =
-    Serialize.openai_messages_of_message assistant |> only "provider_d"
-  in
+  let provider_d = Serialize.openai_messages_of_message assistant |> only "provider_d" in
   check_string "assistant role" "assistant" (member "role" provider_d |> to_string);
   Alcotest.(check bool)
     "provider_d content null"
@@ -235,7 +238,12 @@ let test_system_and_tool_role_messages () =
       (msg
          Tool
          [ ToolResult
-             { tool_use_id = "call-2"; content = "ok"; is_error = false; json = None }
+             { tool_use_id = "call-2"
+             ; content = "ok"
+             ; is_error = false
+             ; json = None
+             ; content_blocks = None
+             }
          ])
     |> only "tool"
   in
@@ -259,17 +267,37 @@ let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
     ; msg
         User
         [ ToolResult
-            { tool_use_id = "call-1"; content = "first"; is_error = false; json = None }
+            { tool_use_id = "call-1"
+            ; content = "first"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ; ToolResult
-            { tool_use_id = "call-1"; content = "dupe"; is_error = false; json = None }
+            { tool_use_id = "call-1"
+            ; content = "dupe"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ; ToolResult
-            { tool_use_id = "orphan"; content = "bad"; is_error = true; json = None }
+            { tool_use_id = "orphan"
+            ; content = "bad"
+            ; is_error = true
+            ; json = None
+            ; content_blocks = None
+            }
         ; Text "kept"
         ]
     ; msg
         User
         [ ToolResult
-            { tool_use_id = "orphan-2"; content = "drop"; is_error = false; json = None }
+            { tool_use_id = "orphan-2"
+            ; content = "drop"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ]
     ; msg Assistant [ Text "done" ]
     ]
@@ -371,7 +399,12 @@ let ignored_blocks : content_block list =
   [ Thinking { thinking_type = "reasoning"; content = "   " }
   ; RedactedThinking "hidden"
   ; ToolResult
-      { tool_use_id = "call-x"; content = "ignored"; is_error = false; json = None }
+      { tool_use_id = "call-x"
+      ; content = "ignored"
+      ; is_error = false
+      ; json = None
+      ; content_blocks = None
+      }
   ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
   ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
   ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
@@ -451,7 +484,12 @@ let test_strip_helpers_cover_non_tool_variants () =
           [ RedactedThinking "hidden"
           ; ToolUse { id = "call"; name = "lookup"; input = `Null }
           ; ToolResult
-              { tool_use_id = "call"; content = "ok"; is_error = false; json = None }
+              { tool_use_id = "call"
+              ; content = "ok"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
           ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
           ; Document
               { media_type = "application/pdf"; data = "doc"; source_type = "base64" }

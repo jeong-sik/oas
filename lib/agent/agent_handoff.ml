@@ -44,7 +44,8 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
     List.map
       (function
         | ToolResult { tool_use_id = id; _ } when id = tool_id ->
-          ToolResult { tool_use_id = id; content; is_error; json = None }
+          ToolResult
+            { tool_use_id = id; content; is_error; json = None; content_blocks = None }
         | block -> block)
       blocks
   in
@@ -56,7 +57,14 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
         acc
         { role = User
         ; content =
-            [ ToolResult { tool_use_id = tool_id; content; is_error; json = None } ]
+            [ ToolResult
+                { tool_use_id = tool_id
+                ; content
+                ; is_error
+                ; json = None
+                ; content_blocks = None
+                }
+            ]
         ; name = None
         ; tool_call_id = None
         ; metadata = []

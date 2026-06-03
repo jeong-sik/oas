@@ -709,6 +709,7 @@ let make_tool_results
            ; content
            ; is_error = result.is_error
            ; json = None
+           ; content_blocks = None
            })
       results
   | Some (store, crs) ->
@@ -859,7 +860,8 @@ let make_tool_results
                max_result_chars)
            else content
          in
-         ToolResult { tool_use_id = tid; content; is_error; json = None })
+         ToolResult
+           { tool_use_id = tid; content; is_error; json = None; content_blocks = None })
       phase1
 ;;
 

@@ -36,7 +36,14 @@ let tool_result_msg id content =
   Types.
     { role = User
     ; content =
-        [ ToolResult { tool_use_id = id; content; is_error = false; json = None } ]
+        [ ToolResult
+            { tool_use_id = id
+            ; content
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
     ; name = None
     ; tool_call_id = None
     ; metadata = []
@@ -217,6 +224,7 @@ let test_estimate_tool_result () =
               ; content = "result text"
               ; is_error = false
               ; json = None
+              ; content_blocks = None
               }
           ]
       ; name = None
@@ -474,7 +482,12 @@ let test_cap_preserves_tool_result () =
   let mixed_content =
     [ big_text_block ()
     ; Types.ToolResult
-        { tool_use_id = "call_keep"; content = "r"; is_error = false; json = None }
+        { tool_use_id = "call_keep"
+        ; content = "r"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ; big_text_block ()
     ]
   in
@@ -1020,6 +1033,7 @@ let test_clear_tool_results_error_marker () =
                 ; content = String.make 100 'E'
                 ; is_error = true
                 ; json = None
+                ; content_blocks = None
                 }
             ]
         ; name = None
@@ -1348,9 +1362,19 @@ let test_orphaned_results_mixed () =
         { role = User
         ; content =
             [ ToolResult
-                { tool_use_id = "t1"; content = "ok"; is_error = false; json = None }
+                { tool_use_id = "t1"
+                ; content = "ok"
+                ; is_error = false
+                ; json = None
+                ; content_blocks = None
+                }
             ; ToolResult
-                { tool_use_id = "t2"; content = "orphan"; is_error = false; json = None }
+                { tool_use_id = "t2"
+                ; content = "orphan"
+                ; is_error = false
+                ; json = None
+                ; content_blocks = None
+                }
             ]
         ; name = None
         ; tool_call_id = None

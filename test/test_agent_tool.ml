@@ -42,6 +42,7 @@ let structured_runner prompt : (Types.api_response, Error.sdk_error) result =
             ; content = {|{"ok":true}|}
             ; is_error = false
             ; json = Some (`Assoc [ "ok", `Bool true ])
+            ; content_blocks = None
             }
         ]
     ; usage =

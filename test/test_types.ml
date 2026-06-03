@@ -36,8 +36,7 @@ let test_known_stop_reasons () =
   Alcotest.(check string)
     "model_context_window_exceeded"
     "Types.ContextWindowExceeded"
-    (Types.show_stop_reason
-       (Types.stop_reason_of_string "model_context_window_exceeded"))
+    (Types.show_stop_reason (Types.stop_reason_of_string "model_context_window_exceeded"))
 ;;
 
 let test_unknown_stop_reason () =
@@ -298,7 +297,12 @@ let test_show_content_block_variants () =
     ; Types.RedactedThinking "redacted"
     ; Types.ToolUse { id = "tu1"; name = "read"; input = `Null }
     ; Types.ToolResult
-        { tool_use_id = "tu1"; content = "ok"; is_error = false; json = None }
+        { tool_use_id = "tu1"
+        ; content = "ok"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ; Types.Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
     ; Types.Document
         { media_type = "application/pdf"; data = "pdf"; source_type = "base64" }
@@ -431,7 +435,8 @@ let test_tool_param_manual_json_helpers () =
     true
     (Yojson.Safe.Util.(member "strict" strict_json) = `Bool true);
   match Types.tool_schema_of_json strict_json with
-  | Ok decoded -> Alcotest.(check bool) "strict round-trips" true (decoded.strict = Some true)
+  | Ok decoded ->
+    Alcotest.(check bool) "strict round-trips" true (decoded.strict = Some true)
   | Error msg -> Alcotest.fail msg
 ;;
 
@@ -665,7 +670,12 @@ let test_text_of_content_mixed () =
 let test_text_of_content_tool_result () =
   let content =
     [ Types.ToolResult
-        { tool_use_id = "tu1"; content = "result text"; is_error = false; json = None }
+        { tool_use_id = "tu1"
+        ; content = "result text"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
     ]
   in
   Alcotest.(check string)
@@ -706,7 +716,12 @@ let test_text_of_response_and_usage_helpers () =
     ; content =
         [ Types.Text "hello"
         ; Types.ToolResult
-            { tool_use_id = "tu"; content = "tool text"; is_error = false; json = None }
+            { tool_use_id = "tu"
+            ; content = "tool text"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
         ; Types.Thinking { thinking_type = "sig"; content = "hidden" }
         ]
     ; usage = Some usage
@@ -731,6 +746,7 @@ let test_validate_tool_result_shape () =
       ; content = {|{"ok":true}|}
       ; is_error = false
       ; json = Some (`Assoc [ "ok", `Bool true ])
+      ; content_blocks = None
       }
   in
   let array_result =
@@ -739,15 +755,26 @@ let test_validate_tool_result_shape () =
       ; content = "[1,2]"
       ; is_error = false
       ; json = Some (`List [ `Int 1; `Int 2 ])
+      ; content_blocks = None
       }
   in
   let invalid_json_result =
     Types.ToolResult
-      { tool_use_id = "bad"; content = "not-json"; is_error = false; json = None }
+      { tool_use_id = "bad"
+      ; content = "not-json"
+      ; is_error = false
+      ; json = None
+      ; content_blocks = None
+      }
   in
   let empty_result =
     Types.ToolResult
-      { tool_use_id = "empty"; content = " "; is_error = false; json = None }
+      { tool_use_id = "empty"
+      ; content = " "
+      ; is_error = false
+      ; json = None
+      ; content_blocks = None
+      }
   in
   Alcotest.(check bool)
     "object ok"

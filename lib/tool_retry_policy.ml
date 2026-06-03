@@ -143,6 +143,7 @@ let structured_feedback_block ~tool_use_id ~retry_count ~max_retries ~summary =
     ; content = retry_feedback_text ~retry_count ~max_retries ~summary
     ; is_error = true
     ; json = None
+    ; content_blocks = None
     }
 ;;
 

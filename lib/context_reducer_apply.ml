@@ -18,7 +18,12 @@ let apply_prune_tool_outputs ~max_output_len messages =
                   Printf.sprintf "\n[truncated: %d chars]" (String.length content)
                 in
                 ToolResult
-                  { tool_use_id; content = truncated ^ marker; is_error; json = None }
+                  { tool_use_id
+                  ; content = truncated ^ marker
+                  ; is_error
+                  ; json = None
+                  ; content_blocks = None
+                  }
               | other -> other)
            msg.content
        in
@@ -121,6 +126,7 @@ let synthetic_tool_result_message id =
                tool call had no matching ToolResult."
           ; is_error = true
           ; json = None
+          ; content_blocks = None
           }
       ]
   ; name = None
@@ -342,7 +348,13 @@ let apply_clear_tool_results ~keep_recent messages =
                             "[tool result cleared: %d chars]"
                             (String.length content)
                       in
-                      ToolResult { tool_use_id; content = summary; is_error; json = None }
+                      ToolResult
+                        { tool_use_id
+                        ; content = summary
+                        ; is_error
+                        ; json = None
+                        ; content_blocks = None
+                        }
                     | other -> other)
                  msg.content
              in
@@ -406,7 +418,13 @@ let apply_stub_tool_results ~keep_recent messages =
                           line_count
                           status
                       in
-                      ToolResult { tool_use_id; content = stub; is_error; json = None }
+                      ToolResult
+                        { tool_use_id
+                        ; content = stub
+                        ; is_error
+                        ; json = None
+                        ; content_blocks = None
+                        }
                     | other -> other)
                  msg.content
              in
