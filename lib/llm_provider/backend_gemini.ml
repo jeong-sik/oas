@@ -11,6 +11,27 @@ exception Gemini_api_error of string
 
 (* ── Helpers ────────────────────────────────────────── *)
 
+(* The Gemini API has no parallel-function-call disable. [functionCallingConfig]
+   supports only [mode] (AUTO/ANY/VALIDATED/NONE) and [allowedFunctionNames] --
+   there is no equivalent of OpenAI [parallel_tool_calls:false] or Anthropic
+   [tool_choice.disable_parallel_tool_use]. A caller's [disable_parallel_tool_use]
+   therefore cannot be honored on the wire and is dropped; we surface that
+   asymmetry once per model rather than ignoring it silently. Verified 2026-06-03
+   against ai.google.dev/gemini-api/docs/function-calling. *)
+let parallel_disable_warned : (string, unit) Hashtbl.t = Hashtbl.create 8
+
+let warn_parallel_disable_unsupported ~model_id =
+  if not (Hashtbl.mem parallel_disable_warned model_id)
+  then (
+    Hashtbl.replace parallel_disable_warned model_id ();
+    Diag.warn
+      "backend_gemini"
+      "disable_parallel_tool_use requested for model %s but the Gemini API has no \
+       parallel-disable option (functionCallingConfig supports only mode and \
+       allowedFunctionNames); ignoring."
+      model_id)
+;;
+
 let provider_f_role_of_oas = function
   | User | System | Tool -> "user"
   | Assistant -> "model"
@@ -246,6 +267,8 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
+      if config.disable_parallel_tool_use
+      then warn_parallel_disable_unsupported ~model_id:config.model_id;
       let func_decls = List.map build_function_declaration ts in
       ("tools", `List [ `Assoc [ "functionDeclarations", `List func_decls ] ]) :: body
   in

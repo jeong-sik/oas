@@ -125,6 +125,32 @@ let test_tools () =
   check string "tool name" "get_weather" (List.hd func_decls |> member "name" |> to_string)
 ;;
 
+let test_disable_parallel_tool_use_dropped () =
+  (* The Gemini API has no parallel-disable; the request must omit it entirely
+     even when the caller sets disable_parallel_tool_use. *)
+  let config = { (provider_f_config ()) with disable_parallel_tool_use = true } in
+  let messages = [ Types.user_msg "What's the weather?" ] in
+  let tools =
+    [ `Assoc
+        [ "name", `String "get_weather"
+        ; "description", `String "Get weather"
+        ; "input_schema", `Assoc [ "type", `String "object" ]
+        ]
+    ]
+  in
+  let body = Backend_gemini.build_request ~config ~messages ~tools () in
+  let contains needle =
+    let nl = String.length needle
+    and hl = String.length body in
+    let rec go i = i + nl <= hl && (String.sub body i nl = needle || go (i + 1)) in
+    nl = 0 || go 0
+  in
+  check bool "no parallel_tool_calls on the wire" false (contains "parallel_tool_calls");
+  check bool "no disable_parallel on the wire" false (contains "disable_parallel");
+  let json = parse_body body in
+  check int "tools still present" 1 (json |> member "tools" |> to_list |> List.length)
+;;
+
 let test_tool_result () =
   let config = provider_f_config () in
   let messages =
@@ -741,6 +767,10 @@ let () =
         ; test_case "system from messages" `Quick test_system_from_messages
         ; test_case "thinking config" `Quick test_thinking_config
         ; test_case "tools" `Quick test_tools
+        ; test_case
+            "disable_parallel dropped"
+            `Quick
+            test_disable_parallel_tool_use_dropped
         ; test_case "tool result" `Quick test_tool_result
         ; test_case "json mode" `Quick test_json_mode
         ; test_case "output schema" `Quick test_output_schema
