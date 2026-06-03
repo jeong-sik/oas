@@ -561,7 +561,11 @@ let pricing_for_model model_id =
 let pricing_for_provider ~(provider : provider) ~(model_id : string) =
   match provider with
   | Local _ -> zero_pricing
-  | _ -> pricing_for_model model_id
+  (* Cloud providers are priced by model id. Enumerated explicitly (no [_]
+     catch-all) so a future provider variant forces a pricing decision at
+     compile time rather than silently inheriting model-id pricing — e.g. a
+     new local-like backend that should be zero-priced. *)
+  | Anthropic | OpenAICompat _ | Custom_registered _ -> pricing_for_model model_id
 ;;
 
 let estimate_cost
