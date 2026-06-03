@@ -226,41 +226,6 @@ let test_agent_type_clone_variants () =
     (Context.get (Internal_agent.context agent) "marker" = Some (`String "copied"))
 ;;
 
-let test_validate_completion_contract_accepts_default_text () =
-  with_agent (fun agent ->
-    match Pipeline_common.validate_completion_contract agent (text_response ()) with
-    | Ok () -> ()
-    | Error err -> Alcotest.failf "unexpected contract error: %s" (Error.to_string err))
-;;
-
-let test_validate_completion_contract_rejects_missing_tool () =
-  let config = { Types.default_config with tool_choice = Some Types.Any } in
-  let options =
-    { Internal_agent.default_options with provider = Some provider_d_config }
-  in
-  with_agent ~config ~options (fun agent ->
-    match Pipeline_common.validate_completion_contract agent (text_response ()) with
-    | Error (Error.Agent (CompletionContractViolation _)) -> ()
-    | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
-    | Ok () -> Alcotest.fail "expected missing tool-use violation")
-;;
-
-let test_validate_completion_contract_accepts_tool_use () =
-  let config = { Types.default_config with tool_choice = Some Types.Any } in
-  let options =
-    { Internal_agent.default_options with provider = Some provider_d_config }
-  in
-  let response =
-    text_response
-      ~content:[ Types.ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [] } ]
-      ()
-  in
-  with_agent ~config ~options (fun agent ->
-    match Pipeline_common.validate_completion_contract agent response with
-    | Ok () -> ()
-    | Error err -> Alcotest.failf "unexpected contract error: %s" (Error.to_string err))
-;;
-
 let test_event_envelope_falls_back_without_trace () =
   with_agent (fun agent ->
     let envelope = Pipeline_common.event_envelope agent in
@@ -352,20 +317,6 @@ let () =
             `Quick
             test_agent_type_lifecycle_rejects_invalid_transition
         ; Alcotest.test_case "agent clone variants" `Quick test_agent_type_clone_variants
-        ] )
-    ; ( "contract"
-      , [ Alcotest.test_case
-            "default text accepted"
-            `Quick
-            test_validate_completion_contract_accepts_default_text
-        ; Alcotest.test_case
-            "missing required tool rejected"
-            `Quick
-            test_validate_completion_contract_rejects_missing_tool
-        ; Alcotest.test_case
-            "tool use accepted"
-            `Quick
-            test_validate_completion_contract_accepts_tool_use
         ] )
     ; ( "envelope"
       , [ Alcotest.test_case

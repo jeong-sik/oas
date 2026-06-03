@@ -29,30 +29,6 @@ type turn_outcome =
   | ToolsExecuted
   | IdleSkipped
 
-let validate_completion_contract agent (response : Types.api_response) =
-  let supports_tool_choice =
-    match agent.options.provider with
-    | Some cfg -> (Provider.capabilities_for_config cfg).supports_tool_choice
-    | None -> false
-  in
-  let contract =
-    Completion_contract.of_tool_choice
-      ~supports_tool_choice
-      agent.state.config.tool_choice
-  in
-  match
-    Completion_contract.validate_response_with_detail
-      ~tools:(Tool_set.to_list agent.tools)
-      ~required_tool_satisfaction:agent.options.required_tool_satisfaction
-      ~contract
-      response
-  with
-  | Ok () -> Ok ()
-  | Error (reason, violation_detail) ->
-    Error
-      (Error.Agent (CompletionContractViolation { contract; reason; violation_detail }))
-;;
-
 let event_envelope agent : Event_bus.envelope =
   let session_id = Option.bind agent.options.raw_trace Raw_trace.session_id in
   let worker_run_id =

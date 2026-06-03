@@ -4,9 +4,10 @@
 
     Motivated by Glm / Ollama providers that receive [tool_choice]
     parameters but emit the call as JSON inside a Text block (often
-    wrapped in Markdown fences). Without recovery,
-    [validate_completion_contract] raises [require_tool_use] even though
-    the model's intent was correct.
+    wrapped in Markdown fences). Without recovery, downstream tool
+    execution never fires because the call is buried in text rather than
+    surfaced as a ToolUse block, even though the model's intent was
+    correct.
 
     Pure module: takes a response and a list of valid tool names,
     returns either the original response (unchanged) or a response with

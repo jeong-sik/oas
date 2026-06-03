@@ -97,12 +97,6 @@ val with_missing_approval_callback_policy
   -> t
 
 val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
-
-val with_required_tool_satisfaction
-  :  Completion_contract.required_tool_satisfaction
-  -> t
-  -> t
-
 val with_context_reducer : Context_reducer.t -> t -> t
 val with_tiered_memory : Agent.tiered_memory -> t -> t
 

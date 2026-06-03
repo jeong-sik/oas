@@ -1590,9 +1590,9 @@ let test_glm_capabilities () =
   Alcotest.(check bool) "supports_tools" true c.supports_tools;
   (* Pin the empirical Glm tool_choice semantics: Glm does not reliably
      honor tool_choice=required (returns text-only).  This capability must
-     remain [false] so [Completion_contract.of_tool_choice] relaxes any
-     tool_choice contract to [Allow_text_or_tool] and a text response is
-     accepted instead of raising [CompletionContractViolation].
+     remain [false] so the request builder does not send a [tool_choice]
+     field that Glm would ignore, and a text-only response is accepted as
+     normal output.
      Regression guard added after 2026-04-18 incident (8+ violations in
      a single MASC session against provider_k-5-turbo / provider_k-4.7 / provider_k-5.1) (boundary-allow). *)
   Alcotest.(check bool) "supports_tool_choice relaxed" false c.supports_tool_choice;
