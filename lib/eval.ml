@@ -389,33 +389,37 @@ let check_thresholds (rm : run_metrics) (thresholds : threshold list) : Harness.
          match List.find_opt (fun (m : metric) -> m.name = th.metric_name) rm.metrics with
          | None -> None
          | Some m ->
-           let violates_max =
+           (* Build each violation message where the threshold value is in
+              scope (parse, don't validate): the [Some v when violated]
+              guard carries [v] directly, eliminating the [Option.get] that
+              previously re-extracted it from [th.max_value]/[th.min_value]
+              under the invariant that the bool guard implied [Some]. Max
+              takes priority over min, as before. *)
+           let max_violation =
              match th.max_value with
-             | None -> false
-             | Some max_v -> numeric_threshold_violated ~compare:( > ) m.value max_v
+             | Some max_v when numeric_threshold_violated ~compare:( > ) m.value max_v ->
+               Some
+                 (Printf.sprintf
+                    "%s=%s exceeds max %s"
+                    th.metric_name
+                    (show_metric_value m.value)
+                    (show_metric_value max_v))
+             | _ -> None
            in
-           let violates_min =
+           let min_violation =
              match th.min_value with
-             | None -> false
-             | Some min_v -> numeric_threshold_violated ~compare:( < ) m.value min_v
+             | Some min_v when numeric_threshold_violated ~compare:( < ) m.value min_v ->
+               Some
+                 (Printf.sprintf
+                    "%s=%s below min %s"
+                    th.metric_name
+                    (show_metric_value m.value)
+                    (show_metric_value min_v))
+             | _ -> None
            in
-           if violates_max
-           then
-             Some
-               (Printf.sprintf
-                  "%s=%s exceeds max %s"
-                  th.metric_name
-                  (show_metric_value m.value)
-                  (show_metric_value (Option.get th.max_value)))
-           else if violates_min
-           then
-             Some
-               (Printf.sprintf
-                  "%s=%s below min %s"
-                  th.metric_name
-                  (show_metric_value m.value)
-                  (show_metric_value (Option.get th.min_value)))
-           else None)
+           (match max_violation with
+            | Some _ -> max_violation
+            | None -> min_violation))
       thresholds
   in
   let passed = violations = [] in
