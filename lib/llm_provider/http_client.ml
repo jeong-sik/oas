@@ -818,6 +818,29 @@ let inject_stream_param body_str =
   | exception Yojson.Json_error _ -> body_str
 ;;
 
+(* OpenAI streaming omits the [usage] object on every chunk unless the
+   request sets [stream_options.include_usage = true], at which point the
+   provider sends a final SSE chunk carrying [usage] with an empty
+   [choices] array. Without this flag, OpenAI-compatible streaming turns
+   report zero token usage. Anthropic/Ollama/Gemini carry usage natively
+   and must NOT receive this field. Mirrors [inject_stream_param]'s
+   JSON-manipulation style: drop any caller-supplied [stream_options]
+   before re-adding so the flag cannot be double-injected, and leave a
+   malformed/non-object body untouched. *)
+let inject_stream_options_include_usage body_str =
+  match Yojson.Safe.from_string body_str with
+  | `Assoc fields ->
+    let without_existing =
+      List.filter (fun (k, _) -> k <> "stream_options") fields
+    in
+    Yojson.Safe.to_string
+      (`Assoc
+          (("stream_options", `Assoc [ "include_usage", `Bool true ])
+           :: without_existing))
+  | other -> Yojson.Safe.to_string other
+  | exception Yojson.Json_error _ -> body_str
+;;
+
 [@@@coverage off]
 (* ── catch_network tests ─────────────────────────────── *)
 

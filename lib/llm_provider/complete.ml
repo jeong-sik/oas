@@ -1211,8 +1211,14 @@ let complete_stream_http
       let body_with_stream =
         match config.kind with
         | Provider_config.Gemini -> body_str
-        | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
+        | Anthropic | Ollama -> Http_client.inject_stream_param body_str
+        | OpenAI_compat | Kimi | Glm | DashScope ->
+          (* OpenAI-compatible streaming returns token usage only when the
+             request also sets stream_options.include_usage. Anthropic and
+             Ollama carry usage natively (message_start/message_delta and the
+             NDJSON done-chunk respectively), so they keep stream:true only. *)
           Http_client.inject_stream_param body_str
+          |> Http_client.inject_stream_options_include_usage
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in

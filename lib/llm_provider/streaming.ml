@@ -230,32 +230,10 @@ let parse_openai_sse_chunk data_str : provider_d_chunk option =
       let json = Yojson.Safe.from_string data_str in
       let chunk_id = Cli_common_json.member_str "id" json in
       let chunk_model = Cli_common_json.member_str "model" json in
-      let choice = json |> member "choices" |> index 0 in
-      let delta = choice |> member "delta" in
-      let delta_content = delta |> member "content" |> to_string_option in
-      let delta_reasoning =
-        match delta |> member "reasoning_content" |> to_string_option with
-        | Some s when String.trim s <> "" -> Some s
-        | Some _ | None -> delta |> member "reasoning" |> to_string_option
-      in
-      let delta_tool_calls =
-        match delta |> member "tool_calls" with
-        | `List calls ->
-          List.filter_map
-            (fun tc ->
-               try
-                 let tc_index = tc |> member "index" |> to_int in
-                 let tc_id = tc |> member "id" |> to_string_option in
-                 let fn = tc |> member "function" in
-                 let tc_name = fn |> member "name" |> to_string_option in
-                 let tc_arguments = fn |> member "arguments" |> to_string_option in
-                 Some { tc_index; tc_id; tc_name; tc_arguments }
-               with
-               | Yojson.Safe.Util.Type_error _ | Not_found -> None)
-            calls
-        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
-      in
-      let finish_reason = choice |> member "finish_reason" |> to_string_option in
+      (* [usage] is top-level, not under a choice, so it is read regardless of
+         whether [choices] is populated. With stream_options.include_usage the
+         provider sends a final chunk carrying [usage] with an empty [choices]
+         array; this is the only chunk that reports token totals. *)
       let chunk_usage =
         let u = json |> member "usage" in
         if u = `Null
@@ -273,15 +251,62 @@ let parse_openai_sse_chunk data_str : provider_d_chunk option =
             ; cost_usd = None
             })
       in
-      Some
-        { chunk_id
-        ; chunk_model
-        ; delta_content
-        ; delta_reasoning
-        ; delta_tool_calls
-        ; finish_reason
-        ; chunk_usage
-        }
+      (* Match the choices list directly rather than [index 0] / [to_list]:
+         both raise [Type_error] on a [`Null] or empty array, which the outer
+         handler would turn into a dropped chunk. The usage-only final chunk
+         has [choices = []] and must still surface its [chunk_usage]. *)
+      let choices =
+        match json |> member "choices" with
+        | `List l -> l
+        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+      in
+      (match choices with
+       | [] ->
+         (* Usage-only final chunk: no delta, no finish_reason. *)
+         Some
+           { chunk_id
+           ; chunk_model
+           ; delta_content = None
+           ; delta_reasoning = None
+           ; delta_tool_calls = []
+           ; finish_reason = None
+           ; chunk_usage
+           }
+       | choice :: _ ->
+         let delta = choice |> member "delta" in
+         let delta_content = delta |> member "content" |> to_string_option in
+         let delta_reasoning =
+           match delta |> member "reasoning_content" |> to_string_option with
+           | Some s when String.trim s <> "" -> Some s
+           | Some _ | None -> delta |> member "reasoning" |> to_string_option
+         in
+         let delta_tool_calls =
+           match delta |> member "tool_calls" with
+           | `List calls ->
+             List.filter_map
+               (fun tc ->
+                  try
+                    let tc_index = tc |> member "index" |> to_int in
+                    let tc_id = tc |> member "id" |> to_string_option in
+                    let fn = tc |> member "function" in
+                    let tc_name = fn |> member "name" |> to_string_option in
+                    let tc_arguments = fn |> member "arguments" |> to_string_option in
+                    Some { tc_index; tc_id; tc_name; tc_arguments }
+                  with
+                  | Yojson.Safe.Util.Type_error _ | Not_found -> None)
+               calls
+           | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+         in
+         let finish_reason = choice |> member "finish_reason" |> to_string_option in
+         Some
+           { chunk_id
+           ; chunk_model
+           ; delta_content
+           ; delta_reasoning
+           ; delta_tool_calls
+           ; finish_reason
+           ; chunk_usage
+           })
     with
     | Yojson.Safe.Util.Type_error _
     | Yojson.Safe.Util.Undefined _
@@ -436,7 +461,16 @@ let openai_chunk_to_events (state : provider_d_stream_state) (chunk : provider_d
        | other -> Unknown other
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
-   | None -> ());
+   | None ->
+     (* With stream_options.include_usage the provider sends token totals in a
+        separate final chunk that has no finish_reason and an empty choices
+        array (hence no content/tool deltas). Emit a MessageDelta carrying only
+        the usage so the accumulator records it. The finish_reason branch above
+        already forwards usage when a stop arrives in the same chunk, so the two
+        paths are mutually exclusive and usage is never emitted twice. *)
+     (match chunk.chunk_usage with
+      | Some _ -> emit (MessageDelta { stop_reason = None; usage = chunk.chunk_usage })
+      | None -> ()));
   List.rev !events, !telemetry_event
 ;;
 

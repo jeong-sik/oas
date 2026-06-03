@@ -307,3 +307,12 @@ val is_local_resource_exhaustion : http_error -> bool
 
 (** Inject ["stream": true] into a JSON body string. *)
 val inject_stream_param : string -> string
+
+(** Inject [{"stream_options": {"include_usage": true}}] into a JSON body
+    string. OpenAI-compatible providers omit token usage from streaming
+    responses unless this flag is set. Use only for OpenAI-compatible
+    kinds; native-usage providers (Anthropic, Ollama, Gemini) must not
+    receive it. Any caller-supplied [stream_options] is replaced to avoid
+    double-injection; a non-object or unparseable body is returned
+    unchanged. *)
+val inject_stream_options_include_usage : string -> string
