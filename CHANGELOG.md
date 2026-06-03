@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.13](https://github.com/jeong-sik/oas/compare/v0.200.12...v0.200.13) (2026-06-03)
+
+
+### Bug Fixes
+
+* restore green main (ocamlformat drift + SDK independence) ([#1852](https://github.com/jeong-sik/oas/issues/1852)) ([5a7ea9e](https://github.com/jeong-sik/oas/commit/5a7ea9e4d4e8dd9a1839143aad58a6a6d204c672))
+
 ## [0.200.12](https://github.com/jeong-sik/oas/compare/v0.200.11...v0.200.12) (2026-06-03)
 
 
