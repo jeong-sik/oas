@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.15](https://github.com/jeong-sik/oas/compare/v0.200.14...v0.200.15) (2026-06-03)
+
+
+### Bug Fixes
+
+* **streaming:** request + parse stream_options.include_usage so OpenAI-compatible streaming returns token usage ([#1866](https://github.com/jeong-sik/oas/issues/1866)) ([8f74ef1](https://github.com/jeong-sik/oas/commit/8f74ef155198f928572f15975b981bd8a8f39170))
+
 ## [0.200.14](https://github.com/jeong-sik/oas/compare/v0.200.13...v0.200.14) (2026-06-03)
 
 
