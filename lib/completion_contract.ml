@@ -61,28 +61,6 @@ let violation_detail_to_string (detail : violation_detail) : string =
 
 let any_tool_call_satisfies (_call : tool_call) = Ok ()
 
-let effectful_tool_satisfies (call : tool_call) =
-  match call.tool with
-  | None ->
-    Error
-      (Printf.sprintf
-         "tool '%s' has no registered descriptor for strict required-tool validation"
-         call.name)
-  | Some tool ->
-    (match Tool.permission tool with
-     | Some Tool.ReadOnly ->
-       Error
-         (Printf.sprintf
-            "tool '%s' is read-only and cannot satisfy a required-tool contract"
-            call.name)
-     | Some (Tool.Write | Tool.Destructive) -> Ok ()
-     | None ->
-       Error
-         (Printf.sprintf
-            "tool '%s' has no permission metadata for strict required-tool validation"
-            call.name))
-;;
-
 let requested_of_tool_choice choice =
   match choice with
   | Some Any -> Require_tool_use
@@ -195,8 +173,13 @@ let stop_reason_is_resumable (sr : stop_reason) : bool =
   match sr with
   | MaxTokens -> true
   | PauseTurn -> true
-  | EndTurn | StopToolUse | StopSequence | Refusal | Compaction
-  | ContextWindowExceeded | Unknown _ -> false
+  | EndTurn
+  | StopToolUse
+  | StopSequence
+  | Refusal
+  | Compaction
+  | ContextWindowExceeded
+  | Unknown _ -> false
 ;;
 
 let validate_response
@@ -447,30 +430,21 @@ let%test "validate_response accepts matching ToolUse for Require_specific_tool" 
 ;;
 
 let%test "validate_response preserves first-match tool descriptor semantics" =
-  let descriptor perm =
-    Tool.
-      { kind = None
-      ; mutation_class = None
-      ; concurrency_class = None
-      ; permission = Some perm
-      ; evidence_role = None
-      ; shell = None
-      ; notes = []
-      ; examples = []
-      }
+  let tool content =
+    Tool.create ~name:"status" ~description:content ~parameters:[] (fun _ ->
+      Ok { content })
   in
-  let tool permission content =
-    Tool.create
-      ~descriptor:(descriptor permission)
-      ~name:"status"
-      ~description:content
-      ~parameters:[]
-      (fun _ -> Ok { content })
+  let first_match_only call =
+    match call.tool with
+    | Some tool when String.equal tool.schema.description "first descriptor" ->
+      Error "first descriptor used"
+    | Some _ -> Ok ()
+    | None -> Error "missing descriptor"
   in
   match
     validate_response
-      ~tools:[ tool Tool.ReadOnly "read-only first"; tool Tool.Write "write second" ]
-      ~required_tool_satisfaction:effectful_tool_satisfies
+      ~tools:[ tool "first descriptor"; tool "second descriptor" ]
+      ~required_tool_satisfaction:first_match_only
       ~contract:Require_tool_use
       { id = "r"
       ; model = "m"
@@ -482,7 +456,9 @@ let%test "validate_response preserves first-match tool descriptor semantics" =
   with
   | Error msg ->
     (try
-       let (_ : int) = Str.search_forward (Str.regexp_string "read-only") msg 0 in
+       let (_ : int) =
+         Str.search_forward (Str.regexp_string "first descriptor used") msg 0
+       in
        true
      with
      | Not_found -> false)
@@ -590,9 +566,7 @@ let%test "Require_tool_use accepts no-ToolUse response when stop_reason is MaxTo
   = Ok ()
 ;;
 
-let%test
-    "Require_tool_use accepts no-ToolUse response when stop_reason is PauseTurn"
-  =
+let%test "Require_tool_use accepts no-ToolUse response when stop_reason is PauseTurn" =
   validate_response
     ~contract:Require_tool_use
     { id = "r"
@@ -682,5 +656,5 @@ let%test "stop_reason_is_resumable classification" =
   && (not (stop_reason_is_resumable Refusal))
   && (not (stop_reason_is_resumable Compaction))
   && (not (stop_reason_is_resumable ContextWindowExceeded))
-  && (not (stop_reason_is_resumable (Unknown "anything-else")))
+  && not (stop_reason_is_resumable (Unknown "anything-else"))
 ;;

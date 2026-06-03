@@ -659,7 +659,13 @@ let test_agent_run_rejects_tool_use_when_tool_choice_is_none () =
   | Exit -> ()
 ;;
 
-let test_agent_run_strict_required_tool_rejects_read_only_tool () =
+let reject_status_call (call : Completion_contract.tool_call) =
+  if String.equal call.name "status"
+  then Error "custom predicate rejected status"
+  else Ok ()
+;;
+
+let test_agent_run_custom_required_tool_predicate_rejects_status_tool () =
   Eio_main.run
   @@ fun env ->
   try
@@ -674,7 +680,6 @@ let test_agent_run_strict_required_tool_rejects_read_only_tool () =
     in
     let status_tool =
       Tool.create
-        ~descriptor:(descriptor Tool.ReadOnly)
         ~name:"status"
         ~description:"Read current status"
         ~parameters:[]
@@ -684,26 +689,26 @@ let test_agent_run_strict_required_tool_rejects_read_only_tool () =
       make_agent
         ~net:env#net
         ~tools:[ status_tool ]
-        ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+        ~required_tool_satisfaction:reject_status_call
         ~tool_choice:Types.Any
         url
     in
-    match Agent.run ~sw agent "must use a productive tool" with
-    | Ok _ -> fail "expected read-only tool contract failure"
+    match Agent.run ~sw agent "must use a tool that passes the custom predicate" with
+    | Ok _ -> fail "expected custom predicate contract failure"
     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check bool "contract" true (contract = Completion_contract.Require_tool_use);
       check
         bool
-        "reason mentions read-only"
+        "reason mentions custom predicate"
         true
-        (contains_substring ~needle:"read-only" reason);
+        (contains_substring ~needle:"custom predicate rejected status" reason);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
   | Exit -> ()
 ;;
 
-let test_agent_run_strict_required_tool_allows_write_tool () =
+let test_agent_run_custom_required_tool_predicate_allows_other_tool () =
   let write_tool =
     Tool.create
       ~descriptor:(descriptor Tool.Write)
@@ -725,7 +730,7 @@ let test_agent_run_strict_required_tool_allows_write_tool () =
   match
     Completion_contract.validate_response
       ~tools:[ write_tool ]
-      ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+      ~required_tool_satisfaction:reject_status_call
       ~contract:Completion_contract.Require_tool_use
       response
   with
@@ -733,7 +738,7 @@ let test_agent_run_strict_required_tool_allows_write_tool () =
   | Error e -> fail e
 ;;
 
-let test_agent_run_strict_specific_tool_rejects_read_only_match () =
+let test_agent_run_custom_specific_tool_predicate_rejects_match () =
   Eio_main.run
   @@ fun env ->
   try
@@ -748,7 +753,6 @@ let test_agent_run_strict_specific_tool_rejects_read_only_match () =
     in
     let status_tool =
       Tool.create
-        ~descriptor:(descriptor Tool.ReadOnly)
         ~name:"status"
         ~description:"Read current status"
         ~parameters:[]
@@ -758,12 +762,12 @@ let test_agent_run_strict_specific_tool_rejects_read_only_match () =
       make_agent
         ~net:env#net
         ~tools:[ status_tool ]
-        ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+        ~required_tool_satisfaction:reject_status_call
         ~tool_choice:(Types.Tool "status")
         url
     in
     match Agent.run ~sw agent "must use status" with
-    | Ok _ -> fail "expected read-only specific-tool contract failure"
+    | Ok _ -> fail "expected custom predicate specific-tool contract failure"
     | Error (Error.Agent (Error.CompletionContractViolation { contract; reason; _ })) ->
       check
         bool
@@ -774,7 +778,7 @@ let test_agent_run_strict_specific_tool_rejects_read_only_match () =
         bool
         "reason mentions predicate"
         true
-        (contains_substring ~needle:"predicate" reason);
+        (contains_substring ~needle:"custom predicate rejected status" reason);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -1490,17 +1494,17 @@ let () =
             `Quick
             test_agent_run_rejects_tool_use_when_tool_choice_is_none
         ; test_case
-            "strict tool_choice any rejects read-only tool"
+            "custom required predicate rejects matching tool"
             `Quick
-            test_agent_run_strict_required_tool_rejects_read_only_tool
+            test_agent_run_custom_required_tool_predicate_rejects_status_tool
         ; test_case
-            "strict tool_choice any allows write tool"
+            "custom required predicate allows other tool"
             `Quick
-            test_agent_run_strict_required_tool_allows_write_tool
+            test_agent_run_custom_required_tool_predicate_allows_other_tool
         ; test_case
-            "strict tool_choice tool rejects read-only match"
+            "custom specific-tool predicate rejects match"
             `Quick
-            test_agent_run_strict_specific_tool_rejects_read_only_match
+            test_agent_run_custom_specific_tool_predicate_rejects_match
         ; test_case "tool error" `Quick test_agent_run_tool_error
         ; test_case
             "validation retry success"

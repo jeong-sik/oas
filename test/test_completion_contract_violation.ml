@@ -23,22 +23,6 @@ let make_tool name =
   Tool.create ~name ~description:("desc:" ^ name) ~parameters:[] noop_handler
 ;;
 
-let read_only_tool name =
-  let descriptor =
-    Tool.
-      { kind = None
-      ; mutation_class = None
-      ; concurrency_class = None
-      ; permission = Some ReadOnly
-      ; evidence_role = None
-      ; shell = None
-      ; notes = []
-      ; examples = []
-      }
-  in
-  Tool.create ~descriptor ~name ~description:("desc:" ^ name) ~parameters:[] noop_handler
-;;
-
 (* --- violation_detail_to_string --- *)
 
 let test_to_string_with_satisfying_tools () =
@@ -46,7 +30,7 @@ let test_to_string_with_satisfying_tools () =
     Completion_contract.
       { called_tools = [ "search" ]
       ; satisfying_tools = [ "keeper_bash"; "keeper_write" ]
-      ; rejection_reasons = [ "search", "read-only and cannot satisfy" ]
+      ; rejection_reasons = [ "search", "custom predicate rejected search" ]
       }
   in
   let s = Completion_contract.violation_detail_to_string detail in
@@ -190,7 +174,12 @@ let test_detail_on_failure_no_calls () =
 ;;
 
 let test_detail_with_rejected_calls () =
-  let tool = read_only_tool "search" in
+  let reject_search_call (call : Completion_contract.tool_call) =
+    if String.equal call.name "search"
+    then Error "custom predicate rejected search"
+    else Ok ()
+  in
+  let tool = make_tool "search" in
   let response =
     make_response
       ~content:[ Lp.ToolUse { id = "c1"; name = "search"; input = `Assoc [] } ]
@@ -198,7 +187,7 @@ let test_detail_with_rejected_calls () =
   match
     Completion_contract.violation_detail_of_response
       ~tools:[ tool ]
-      ~required_tool_satisfaction:Completion_contract.effectful_tool_satisfies
+      ~required_tool_satisfaction:reject_search_call
       ~satisfying_tools:[ "keeper_bash" ]
       ~contract:Completion_contract.Require_tool_use
       response
@@ -208,14 +197,18 @@ let test_detail_with_rejected_calls () =
     Alcotest.(check int) "satisfying_tools has 1" 1 (List.length detail.satisfying_tools);
     (match detail.rejection_reasons with
      | [ ("search", reason) ] ->
-       let has_readonly =
+       let has_custom_reason =
          try
-           ignore (Str.search_forward (Str.regexp_string "read-only") reason 0);
+           ignore
+             (Str.search_forward
+                (Str.regexp_string "custom predicate rejected search")
+                reason
+                0);
            true
          with
          | Not_found -> false
        in
-       Alcotest.(check bool) "reason mentions read-only" true has_readonly
+       Alcotest.(check bool) "reason mentions custom predicate" true has_custom_reason
      | _ -> Alcotest.fail "expected single rejection reason for 'search'")
   | Ok () -> Alcotest.fail "expected Error"
 ;;
