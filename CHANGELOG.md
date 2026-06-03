@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.11](https://github.com/jeong-sik/oas/compare/v0.200.10...v0.200.11) (2026-06-03)
+
+
+### Features
+
+* **provider:** canonical tool projection wired into turn pipeline (WP8 Inc1, RFC-OAS-024) ([#1846](https://github.com/jeong-sik/oas/issues/1846)) ([a04e0b4](https://github.com/jeong-sik/oas/commit/a04e0b45e13195cab4f59f11d22e0c2dcf31fdde))
+
 ## [0.200.10](https://github.com/jeong-sik/oas/compare/v0.200.9...v0.200.10) (2026-06-03)
 
 
