@@ -3,7 +3,7 @@
 open Agent_sdk
 
 let make_schema params : Types.tool_schema =
-  { name = "test_tool"; description = "test"; parameters = params }
+  { name = "test_tool"; description = "test"; parameters = params; strict = None }
 ;;
 
 let int_param name required : Types.tool_param =

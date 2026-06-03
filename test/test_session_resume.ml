@@ -94,6 +94,7 @@ let sample_tool_schema : Types.tool_schema =
         ; required = true
         }
       ]
+  ; strict = None
   }
 ;;
 

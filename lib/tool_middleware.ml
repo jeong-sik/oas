@@ -106,7 +106,7 @@ let validate_shell_constraints ~tool_name ~(descriptor : Tool.descriptor) args =
 
 let tool_schema_of_json ~name ?(description = "") json_schema : Types.tool_schema =
   let parameters = Mcp_schema.json_schema_to_params json_schema in
-  { name; description; parameters }
+  { name; description; parameters; strict = None }
 ;;
 
 (* ── Hook factory ─────────────────────────────────────────── *)

@@ -70,6 +70,10 @@ type tool_schema =
   { name : string
   ; description : string
   ; parameters : tool_param list
+  ; strict : bool option
+    (** Per-function JSON Schema strict validation. [Some true] opts the tool
+        into strict mode (OpenAI, DeepSeek Beta, Kimi, MiMo); [None] omits the
+        field so providers apply their default. *)
   }
 [@@deriving yojson, show]
 

@@ -140,15 +140,25 @@ type tool_schema =
   { name : string
   ; description : string
   ; parameters : tool_param list
+  ; strict : bool option
+    (** Per-function JSON Schema strict validation. [Some true] opts the tool
+        into strict mode (OpenAI, DeepSeek Beta, Kimi, MiMo); [None] omits the
+        field so providers apply their default. *)
   }
 [@@deriving yojson, show]
 
 let tool_schema_to_json (s : tool_schema) : Yojson.Safe.t =
   `Assoc
-    [ "name", `String s.name
-    ; "description", `String s.description
-    ; "parameters", `List (List.map tool_param_to_json s.parameters)
-    ]
+    ([ "name", `String s.name
+     ; "description", `String s.description
+     ; "parameters", `List (List.map tool_param_to_json s.parameters)
+     ]
+     (* Emit "strict" only when set so [None] round-trips to an absent field
+        and providers keep their own default. *)
+     @
+     match s.strict with
+     | Some b -> [ "strict", `Bool b ]
+     | None -> [])
 ;;
 
 let result_all items =
@@ -171,6 +181,7 @@ let tool_schema_of_json (json : Yojson.Safe.t) : (tool_schema, string) result =
       { name = json |> member "name" |> to_string
       ; description = json |> member "description" |> to_string
       ; parameters
+      ; strict = json |> member "strict" |> to_bool_option
       }
 ;;
 

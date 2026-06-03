@@ -411,11 +411,27 @@ let test_tool_param_manual_json_helpers () =
        (Agent_sdk.Util.contains_substring_ci ~haystack:msg ~needle:"param_type")
    | Ok _ -> Alcotest.fail "expected bad param type");
   let tool_schema =
-    { Types.name = "search"; description = "Search"; parameters = params }
+    { Types.name = "search"; description = "Search"; parameters = params; strict = None }
   in
   let manual_json = Types.tool_schema_to_json tool_schema in
-  match Types.tool_schema_of_json manual_json with
-  | Ok decoded -> Alcotest.(check int) "params" 2 (List.length decoded.parameters)
+  (* strict = None must not emit the field, and must round-trip back to None. *)
+  Alcotest.(check bool)
+    "strict omitted when None"
+    false
+    (List.mem_assoc "strict" (Yojson.Safe.Util.to_assoc manual_json));
+  (match Types.tool_schema_of_json manual_json with
+   | Ok decoded ->
+     Alcotest.(check int) "params" 2 (List.length decoded.parameters);
+     Alcotest.(check bool) "strict stays None" true (decoded.strict = None)
+   | Error msg -> Alcotest.fail msg);
+  (* strict = Some true must emit "strict": true and round-trip to Some true. *)
+  let strict_json = Types.tool_schema_to_json { tool_schema with strict = Some true } in
+  Alcotest.(check bool)
+    "strict emitted when Some"
+    true
+    (Yojson.Safe.Util.(member "strict" strict_json) = `Bool true);
+  match Types.tool_schema_of_json strict_json with
+  | Ok decoded -> Alcotest.(check bool) "strict round-trips" true (decoded.strict = Some true)
   | Error msg -> Alcotest.fail msg
 ;;
 
@@ -895,6 +911,7 @@ let () =
                     ; required = false
                     }
                   ]
+              ; strict = None
               }
             in
             let json = Types.tool_schema_to_yojson schema in

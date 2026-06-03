@@ -26,13 +26,17 @@ let check_descriptor = function
 
 let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
   check_descriptor descriptor;
-  let schema : Types.tool_schema = { name; description; parameters = params } in
+  let schema : Types.tool_schema =
+    { name; description; parameters = params; strict = None }
+  in
   { schema; descriptor; parse; handler = Simple handler; encode }
 ;;
 
 let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
   check_descriptor descriptor;
-  let schema : Types.tool_schema = { name; description; parameters = params } in
+  let schema : Types.tool_schema =
+    { name; description; parameters = params; strict = None }
+  in
   { schema; descriptor; parse; handler = WithContext handler; encode }
 ;;
 

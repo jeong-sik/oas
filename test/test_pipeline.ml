@@ -303,7 +303,7 @@ let test_mock_to_provider_config () =
 let test_guardrails_allow_all () =
   let g = Guardrails.permissive in
   let schema : Types.tool_schema =
-    { name = "test"; description = "test"; parameters = [] }
+    { name = "test"; description = "test"; parameters = []; strict = None }
   in
   Alcotest.(check bool) "allow all" true (Guardrails.is_allowed g schema)
 ;;
@@ -314,8 +314,12 @@ let test_guardrails_allow_list () =
     ; max_tool_calls_per_turn = None
     }
   in
-  let s1 : Types.tool_schema = { name = "search"; description = ""; parameters = [] } in
-  let s2 : Types.tool_schema = { name = "unknown"; description = ""; parameters = [] } in
+  let s1 : Types.tool_schema =
+    { name = "search"; description = ""; parameters = []; strict = None }
+  in
+  let s2 : Types.tool_schema =
+    { name = "unknown"; description = ""; parameters = []; strict = None }
+  in
   Alcotest.(check bool) "search allowed" true (Guardrails.is_allowed g s1);
   Alcotest.(check bool) "unknown denied" false (Guardrails.is_allowed g s2)
 ;;
@@ -324,9 +328,11 @@ let test_guardrails_deny_list () =
   let g =
     { Guardrails.tool_filter = DenyList [ "dangerous" ]; max_tool_calls_per_turn = None }
   in
-  let s1 : Types.tool_schema = { name = "safe"; description = ""; parameters = [] } in
+  let s1 : Types.tool_schema =
+    { name = "safe"; description = ""; parameters = []; strict = None }
+  in
   let s2 : Types.tool_schema =
-    { name = "dangerous"; description = ""; parameters = [] }
+    { name = "dangerous"; description = ""; parameters = []; strict = None }
   in
   Alcotest.(check bool) "safe allowed" true (Guardrails.is_allowed g s1);
   Alcotest.(check bool) "dangerous denied" false (Guardrails.is_allowed g s2)

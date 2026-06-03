@@ -8,7 +8,7 @@ let make_param ?(required = true) ~param_type name =
 ;;
 
 let make_schema params =
-  { Types.name = "test_tool"; description = "test"; parameters = params }
+  { Types.name = "test_tool"; description = "test"; parameters = params; strict = None }
 ;;
 
 (* ── Required field tests ──────────────────────────────── *)
