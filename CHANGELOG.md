@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.12](https://github.com/jeong-sik/oas/compare/v0.200.11...v0.200.12) (2026-06-03)
+
+
+### Bug Fixes
+
+* **llm_provider:** align Ollama streaming zero usage with non-streaming path ([#1848](https://github.com/jeong-sik/oas/issues/1848)) ([392902c](https://github.com/jeong-sik/oas/commit/392902c145cca0d8a481dccf0d05cd8e8c80e068))
+
 ## [0.200.11](https://github.com/jeong-sik/oas/compare/v0.200.10...v0.200.11) (2026-06-03)
 
 
