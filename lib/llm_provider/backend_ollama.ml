@@ -30,8 +30,7 @@ let build_request
        ]
      | _ -> [])
     @ List.concat_map
-        (Backend_openai_serialize.ollama_messages_of_message
-           ~model_id:config.model_id)
+        (Backend_openai_serialize.ollama_messages_of_message ~model_id:config.model_id)
         messages
   in
   let body = [ "model", `String config.model_id; "messages", `List provider_messages ] in
@@ -104,8 +103,7 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      ( "tools"
-      , `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts) )
+      ("tools", `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts))
       :: body
   in
   (* Sampling parameters go inside Ollama's "options" object.

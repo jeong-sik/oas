@@ -173,8 +173,7 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_d_4_1 -> Format.fprintf ppf "Provider_d_4_1"
   | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
   | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
-  | Capabilities.Gemini family ->
-    Format.fprintf ppf "Gemini(%a)" pp_gemini_family family
+  | Capabilities.Gemini family -> Format.fprintf ppf "Gemini(%a)" pp_gemini_family family
   | Capabilities.Kimi_for_coding -> Format.fprintf ppf "Kimi_for_coding"
   | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
   | Capabilities.DashScope_3 -> Format.fprintf ppf "DashScope_3"
@@ -269,11 +268,7 @@ let test_gemini_family_drives_capabilities () =
     "provider_f-3.1-pro-preview ctx"
     (Some 1_000_000)
     (ctx "gemini-3.1-pro-preview");
-  check
-    (option int)
-    "provider_f-2.5-flash ctx"
-    (Some 1_000_000)
-    (ctx "gemini-2.5-flash")
+  check (option int) "provider_f-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
 ;;
 
 let test_static_model_route_normalizes_cloud_suffix () =
@@ -731,8 +726,7 @@ let test_dashscope_capabilities () =
 
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
-    [ ( "openai_chat_extended"
-      , Some Capabilities.openai_compat_chat_extended_capabilities )
+    [ "openai_chat_extended", Some Capabilities.openai_compat_chat_extended_capabilities
     ; "provider_c", Some Capabilities.kimi_capabilities
     ; "provider_h", Some Capabilities.dashscope_capabilities
     ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"

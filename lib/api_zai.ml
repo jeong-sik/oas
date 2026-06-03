@@ -410,8 +410,7 @@ let%test "parse_image_generation rejects malformed json" =
 
 let%test "parse_async_submit handles basic body" =
   match
-    parse_async_submit
-      {|{"model":"glm-image","id":"job-1","task_status":"PROCESSING"}|}
+    parse_async_submit {|{"model":"glm-image","id":"job-1","task_status":"PROCESSING"}|}
   with
   | Ok result -> result.id = "job-1" && result.task_status = Processing
   | Error _ -> false
@@ -472,10 +471,7 @@ let%test "parse_transcription handles sync response" =
 
 let%test "multipart_body reports missing file path" =
   match
-    multipart_body
-      ~model:"glm-asr-2512"
-      ~source:(File_path "/nonexistent/file.wav")
-      ()
+    multipart_body ~model:"glm-asr-2512" ~source:(File_path "/nonexistent/file.wav") ()
   with
   | Error _ -> true
   | Ok _ -> false

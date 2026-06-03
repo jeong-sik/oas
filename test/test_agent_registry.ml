@@ -209,7 +209,11 @@ let test_list_by_tool () =
     ; supported_interfaces = []
     ; capabilities = [ Tools ]
     ; tools =
-        [ { name = "get_weather"; description = "Weather"; parameters = []; strict = None }
+        [ { name = "get_weather"
+          ; description = "Weather"
+          ; parameters = []
+          ; strict = None
+          }
         ]
     ; skills = []
     ; supported_providers = []

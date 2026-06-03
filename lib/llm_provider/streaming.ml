@@ -323,9 +323,7 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
 (** Convert a parsed {!provider_d_chunk} into {!sse_event} list.
     Synthesizes [ContentBlockStart] events on first occurrence of
     text content or each new tool_call index. *)
-let openai_chunk_to_events
-      (state : provider_d_stream_state)
-      (chunk : provider_d_chunk)
+let openai_chunk_to_events (state : provider_d_stream_state) (chunk : provider_d_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let events = ref [] in
@@ -686,7 +684,7 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
     (* Token-count usage. Ollama only emits these on the done chunk.
        When both counts are zero we return None, matching the
        non-streaming path in [Backend_ollama.parse_ollama_response]
-       so that downstream (MASC usage-trust classification) sees
+       so that a downstream consumer's usage-trust classification sees
        [Usage_missing] instead of [zero_token_usage_reported]. *)
     let oll_usage =
       let input = json |> member "prompt_eval_count" |> to_int_option in

@@ -187,7 +187,12 @@ let schema_tool_call_check schema_lookup = function
 
 let stop_reason_matches_tool_calls ~has_tool_calls = function
   | StopToolUse -> has_tool_calls
-  | EndTurn | MaxTokens | StopSequence | Refusal | PauseTurn | Compaction
+  | EndTurn
+  | MaxTokens
+  | StopSequence
+  | Refusal
+  | PauseTurn
+  | Compaction
   | ContextWindowExceeded -> not has_tool_calls
   | Unknown _ -> false
 ;;
