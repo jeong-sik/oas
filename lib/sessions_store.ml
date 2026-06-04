@@ -263,9 +263,14 @@ let get_tool_catalog ?session_root ~session_id () =
         ~artifact_id:artifact.artifact_id
         ()
     in
-    let* json = parse_json_string raw in
-    let open Yojson.Safe.Util in
-    Ok (json |> to_list |> List.map tool_contract_of_json)
+    (* decode_json_with parses [raw] (Json_error -> Error) and runs the decoder
+       under a Type_error guard, so a malformed catalog (non-list JSON, or a tool
+       object missing a required field) surfaces as Error instead of escaping
+       this function's result contract via an uncaught Type_error. Matches the
+       convention used by the telemetry/evidence decoders above. *)
+    decode_json_with
+      (fun json -> Yojson.Safe.Util.(json |> to_list |> List.map tool_contract_of_json))
+      raw
 ;;
 
 let get_raw_trace_runs ?session_root ~session_id () =
