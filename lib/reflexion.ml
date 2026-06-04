@@ -23,12 +23,11 @@ type evaluator = Types.api_response -> verdict
 type config =
   { max_attempts : int
   ; evaluator : evaluator
-  ; memory_prefix : string
   ; include_critique : bool
   }
 
 let default_config ~evaluator =
-  { max_attempts = 3; evaluator; memory_prefix = "reflexion"; include_critique = true }
+  { max_attempts = 3; evaluator; include_critique = true }
 ;;
 
 (** {1 Result} *)
@@ -65,30 +64,6 @@ let format_reflection ~attempt_number verdict =
     String.concat "\n" [ header; diag; critique_section ]
 ;;
 
-(** {1 Episodic memory integration} *)
-
-(** Store a reflection as an episodic memory entry. *)
-let store_reflection_episode
-      (memory : Memory.t)
-      ~(prefix : string)
-      ~(attempt_number : int)
-      ~(reflection : string)
-  =
-  let id = Printf.sprintf "%s:attempt_%d" prefix attempt_number in
-  let episode : Memory.episode =
-    { id
-    ; timestamp = Unix.gettimeofday ()
-    ; participants = [ "reflexion_loop" ]
-    ; action = Printf.sprintf "Attempt %d failed — reflection stored" attempt_number
-    ; outcome = Memory.Failure reflection
-    ; salience = 0.8
-    ; (* high salience for recent failures *)
-      metadata = [ "attempt", `Int attempt_number; "type", `String "reflexion" ]
-    }
-  in
-  Memory.store_episode memory episode
-;;
-
 (** {1 Core loop} *)
 
 let make_run_result acc response passed =
@@ -97,7 +72,7 @@ let make_run_result acc response passed =
     { final_response = response; attempts; passed; total_attempts = List.length attempts }
 ;;
 
-let run ~config ?memory ~run_agent () =
+let run ~config ~run_agent () =
   let max = max 1 config.max_attempts in
   let rec loop attempt_number reflections acc =
     if attempt_number > max
@@ -120,14 +95,6 @@ let run ~config ?memory ~run_agent () =
           | Pass -> None
           | Fail _ ->
             let text = format_reflection ~attempt_number verdict in
-            (match memory with
-             | Some mem ->
-               store_reflection_episode
-                 mem
-                 ~prefix:config.memory_prefix
-                 ~attempt_number
-                 ~reflection:text
-             | None -> ());
             Some text
         in
         let attempt = { attempt_number; response; verdict; reflection_text } in

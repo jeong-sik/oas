@@ -165,7 +165,6 @@ let prepare_turn_for_agent agent ~turn_params =
     ~tools:agent.tools
     ~messages:agent.state.messages
     ~context_reducer:agent.options.context_reducer
-    ~tiered_memory:agent.options.tiered_memory
     ~turn_params
     ?tool_selector:agent.options.tool_selector
     ?disclosure_level:(resolve_disclosure_level agent)

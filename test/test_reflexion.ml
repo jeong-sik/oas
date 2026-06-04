@@ -6,8 +6,6 @@ open Agent_sdk
 (* ── String helpers ────────────────────────────────── *)
 
 let contains_sub ~affix s = Util.string_contains ~needle:affix s
-let starts_with_sub ~affix s = String.starts_with ~prefix:affix s
-
 (* ── Helpers ──────────────────────────────────────── *)
 
 let make_response ?(content = [ Types.Text "ok" ]) () : Types.api_response =
@@ -148,25 +146,6 @@ let test_run_single_attempt () =
   | Error _ -> fail "unexpected error"
 ;;
 
-(* ── run: memory integration ──────────────────────── *)
-
-let test_run_stores_in_memory () =
-  let evaluator = counting_evaluator ~fail_until:2 in
-  let config = Reflexion.default_config ~evaluator in
-  let memory = Memory.create () in
-  let run_agent ~reflections:_ = Ok (make_response ()) in
-  match Reflexion.run ~config ~memory ~run_agent () with
-  | Ok r ->
-    check bool "passed" true r.passed;
-    check int "2 attempts" 2 r.total_attempts;
-    (* Check that reflection was stored in episodic memory *)
-    let episodes = Memory.recall_episodes memory ~min_salience:0.0 () in
-    check bool "has episodic entry" true (List.length episodes >= 1);
-    let ep = List.hd episodes in
-    check bool "id has reflexion prefix" true (starts_with_sub ~affix:"reflexion:" ep.id)
-  | Error _ -> fail "unexpected error"
-;;
-
 (* ── on_stop_evaluator ────────────────────────────── *)
 
 let test_on_stop_evaluator () =
@@ -214,7 +193,6 @@ let () =
         ; test_case "exhausted" `Quick test_run_exhausted
         ; test_case "agent error" `Quick test_run_agent_error
         ; test_case "single attempt" `Quick test_run_single_attempt
-        ; test_case "stores in memory" `Quick test_run_stores_in_memory
         ; test_case "no critique toggle" `Quick test_no_critique_in_reflections
         ] )
     ; "hook", [ test_case "on_stop_evaluator" `Quick test_on_stop_evaluator ]

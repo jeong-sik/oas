@@ -24,11 +24,6 @@ type decision_point =
       ; resource : string
       ; amount : float
       }
-  | BeforeMemoryWrite of
-      { agent_name : string
-      ; tier : string
-      ; key : string
-      }
   | Custom of
       { name : string
       ; detail : string
@@ -115,8 +110,6 @@ let decision_point_to_string = function
       agent_name
       resource
       amount
-  | BeforeMemoryWrite { agent_name; tier; key } ->
-    Printf.sprintf "BeforeMemoryWrite(agent=%s, tier=%s, key=%s)" agent_name tier key
   | Custom { name; detail } -> Printf.sprintf "Custom(%s: %s)" name detail
 ;;
 

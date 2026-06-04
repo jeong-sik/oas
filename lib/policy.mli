@@ -31,11 +31,6 @@ type decision_point =
       ; resource : string
       ; amount : float
       }
-  | BeforeMemoryWrite of
-      { agent_name : string
-      ; tier : string
-      ; key : string
-      }
   | Custom of
       { name : string
       ; detail : string

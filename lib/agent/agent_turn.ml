@@ -68,12 +68,6 @@ let is_idle ?(granularity = Exact) (prev : tool_call_fingerprint list option) cu
 
 (* ── Turn preparation ─────────────────────────────────────────── *)
 
-type tiered_memory = Types.tiered_memory =
-  { long_term : string option
-  ; mid_term : string option
-  ; short_term : string option
-  }
-
 type turn_preparation =
   { tools_json : Yojson.Safe.t list option
   ; effective_messages : message list
@@ -190,112 +184,13 @@ let prepare_tools
   tools_json, visible_tool_names, effective_guardrails
 ;;
 
-let normalize_tier_content = function
-  | None -> None
-  | Some text ->
-    let trimmed = String.trim text in
-    if trimmed = "" then None else Some trimmed
-;;
-
-let render_tiered_memory_message = function
-  | None -> None
-  | Some (tiered_memory : tiered_memory) ->
-    let sections =
-      List.filter_map
-        (fun (header, content) -> Option.map (fun text -> header ^ "\n" ^ text) content)
-        [ "[LONG-TERM MEMORY]", normalize_tier_content tiered_memory.long_term
-        ; "[MID-TERM MEMORY]", normalize_tier_content tiered_memory.mid_term
-        ; "[SHORT-TERM MEMORY]", normalize_tier_content tiered_memory.short_term
-        ]
-    in
-    (match sections with
-     | [] -> None
-     | _ :: _ ->
-       Some
-         { role = User
-         ; content = [ Text (String.concat "\n\n" sections) ]
-         ; name = None
-         ; tool_call_id = None
-         ; metadata = []
-         })
-;;
-
-let tiered_memory_tokens tiered_memory =
-  match render_tiered_memory_message tiered_memory with
-  | None -> 0
-  | Some recall -> Context_reducer.estimate_message_tokens recall
-;;
-
-let rec reserve_strategy_budget ~reserved_tokens (strategy : Context_reducer.strategy) =
-  match strategy with
-  | Token_budget budget ->
-    Context_reducer.Token_budget (Int.max 0 (budget - reserved_tokens))
-  | Compose strategies ->
-    Context_reducer.Compose
-      (List.map (reserve_strategy_budget ~reserved_tokens) strategies)
-  | Dynamic selector ->
-    Context_reducer.Dynamic
-      (fun ~turn ~messages ->
-        reserve_strategy_budget ~reserved_tokens (selector ~turn ~messages))
-  (* Enumerate every other [strategy] variant so the compiler flags any
-     new constructor here. A new strategy that *does* carry a token budget
-     (e.g. a future [Hard_token_cap]) would silently inherit identity
-     passthrough under the previous [other -> other] catch-all, defeating
-     the per-call budget-reservation contract. *)
-  | ( Keep_last_n _
-    | Prune_tool_outputs _
-    | Prune_tool_args _
-    | Repair_dangling_tool_calls
-    | Repair_orphaned_tool_results
-    | Merge_contiguous
-    | Drop_thinking
-    | Keep_first_and_last _
-    | Prune_by_role _
-    | Summarize_old _
-    | Clear_tool_results _
-    | Stub_tool_results _
-    | Cap_message_tokens _
-    | Cache_alignment _
-    | Relocate_tool_results _
-    | Custom _ ) as s -> s
-;;
-
-let reserve_context_reducer ~tiered_memory = function
-  | None -> None
-  | Some reducer as original ->
-    let reserved_tokens = tiered_memory_tokens tiered_memory in
-    if reserved_tokens <= 0
-    then original
-    else (
-      let reserved_strategy =
-        reserve_strategy_budget ~reserved_tokens reducer.Context_reducer.strategy
-      in
-      Some { Context_reducer.strategy = reserved_strategy })
-;;
-
-let apply_context_reducer ~messages ~context_reducer ~tiered_memory =
-  match reserve_context_reducer ~tiered_memory context_reducer with
+let apply_context_reducer ~messages ~context_reducer =
+  match context_reducer with
   | None -> messages
   | Some reducer -> Context_reducer.reduce reducer messages
 ;;
 
-let split_leading_system_messages messages =
-  let rec loop leading = function
-    | ({ role = System; _ } as msg) :: rest -> loop (msg :: leading) rest
-    | rest -> List.rev leading, rest
-  in
-  loop [] messages
-;;
-
-let inject_tiered_memory_message ~tiered_memory messages =
-  match render_tiered_memory_message tiered_memory with
-  | None -> messages
-  | Some recall ->
-    let leading_system, rest = split_leading_system_messages messages in
-    leading_system @ (recall :: rest)
-;;
-
-let prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_params () =
+let prepare_messages ?config ~messages ~context_reducer ~turn_params () =
   (* Apply call-time stubbing: older tool results are replaced with
      short stubs before sending to the LLM.  This is done here (not in
      state.messages) so the stored conversation prefix stays byte-identical
@@ -319,10 +214,7 @@ let prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_par
       ]
   in
   let pruned = Context_reducer.reduce call_time_pruner messages in
-  let effective =
-    apply_context_reducer ~messages:pruned ~context_reducer ~tiered_memory
-  in
-  let effective = inject_tiered_memory_message ~tiered_memory effective in
+  let effective = apply_context_reducer ~messages:pruned ~context_reducer in
   match turn_params.Hooks.extra_system_context with
   | None -> effective
   | Some ctx ->
@@ -351,7 +243,6 @@ let prepare_turn
       ~tools
       ~messages
       ~context_reducer
-      ~tiered_memory
       ~turn_params
       ?tool_selector
       ?disclosure_level
@@ -369,9 +260,7 @@ let prepare_turn
       ~messages
       ()
   in
-  let effective_messages =
-    prepare_messages ?config ~messages ~context_reducer ~tiered_memory ~turn_params ()
-  in
+  let effective_messages = prepare_messages ?config ~messages ~context_reducer ~turn_params () in
   { tools_json
   ; effective_messages
   ; effective_guardrails

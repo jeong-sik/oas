@@ -308,36 +308,7 @@ let test_with_context_reducer () =
     (Option.is_some (Agent.options agent).context_reducer)
 ;;
 
-(* --- 13b. with_tiered_memory --- *)
-
-let test_with_tiered_memory () =
-  with_net
-  @@ fun net ->
-  let tiered_memory : Agent.tiered_memory =
-    { long_term = Some "Knows the operator preferences."
-    ; mid_term = None
-    ; short_term = Some "Working on context compaction."
-    }
-  in
-  let agent =
-    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
-    |> Builder.with_tiered_memory tiered_memory
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  let opts = Agent.options agent in
-  Alcotest.(check bool) "tiered_memory set" true (Option.is_some opts.tiered_memory);
-  match opts.tiered_memory with
-  | Some actual ->
-    Alcotest.(check (option string)) "long_term" tiered_memory.long_term actual.long_term;
-    Alcotest.(check (option string))
-      "short_term"
-      tiered_memory.short_term
-      actual.short_term
-  | None -> Alcotest.fail "expected tiered_memory"
-;;
-
-(* --- 13c. with_summarizer --- *)
+(* --- 13b. with_summarizer --- *)
 
 let test_with_summarizer () =
   with_net
@@ -1064,7 +1035,6 @@ let () =
             test_with_missing_approval_callback_policy
         ; Alcotest.test_case "tool retry policy" `Quick test_with_tool_retry_policy
         ; Alcotest.test_case "context_reducer" `Quick test_with_context_reducer
-        ; Alcotest.test_case "tiered_memory" `Quick test_with_tiered_memory
         ; Alcotest.test_case "summarizer" `Quick test_with_summarizer
         ; Alcotest.test_case "transport" `Quick test_with_transport
         ; Alcotest.test_case "context" `Quick test_with_context

@@ -40,7 +40,7 @@ The intended shape is:
 1. Use `Autonomy_exec` to run an isolated evaluator or code mutation command.
 2. Parse the resulting metric with `Metric_contract`.
 3. Validate candidate diffs with `Autonomy_diff_guard`.
-4. On failure, store the lesson with `Lesson_memory`.
+4. On failure, store the lesson in consumer-owned state.
 5. On the next attempt, inject retrieved lesson text via
    `Hooks.BeforeTurnParams.extra_system_context` or `Append_instruction`.
 

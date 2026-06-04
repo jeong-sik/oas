@@ -88,11 +88,8 @@ let event_envelope agent : Event_bus.envelope =
 ;;
 
 let total_prompt_tokens_for_agent agent messages =
-  let raw_tokens =
-    List.fold_left
-      (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
-      0
-      messages
-  in
-  raw_tokens + Agent_turn.tiered_memory_tokens agent.options.tiered_memory
+  List.fold_left
+    (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
+    0
+    messages
 ;;

@@ -14,12 +14,6 @@ type periodic_callback = Agent_types.periodic_callback =
   ; callback : unit -> unit
   }
 
-type tiered_memory = Types.tiered_memory =
-  { long_term : string option
-  ; mid_term : string option
-  ; short_term : string option
-  }
-
 type checkpoint_stage = Agent_types.checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
@@ -54,7 +48,6 @@ type options = Agent_types.options =
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
   ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
-  ; tiered_memory : tiered_memory option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -64,7 +57,6 @@ type options = Agent_types.options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; memory : Memory.t option
   ; allowed_paths : string list
   ; operator_policy : Guardrails.tool_filter option
   ; policy_channel : Policy_channel.t option
@@ -103,7 +95,6 @@ val context : t -> Context.t
 val options : t -> options
 val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val description : t -> string option
-val memory : t -> Memory.t option
 val allowed_paths : t -> string list
 
 (** {1 Defaults} *)

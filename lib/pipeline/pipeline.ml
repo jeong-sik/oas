@@ -122,13 +122,10 @@ let last_tool_results_from = Pipeline_stage_prepare.last_tool_results_from
 let prepare_turn_for_agent = Pipeline_stage_prepare.prepare_turn_for_agent
 
 let total_prompt_tokens_for_agent agent messages =
-  let raw_tokens =
-    List.fold_left
-      (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
-      0
-      messages
-  in
-  raw_tokens + Agent_turn.tiered_memory_tokens agent.options.tiered_memory
+  List.fold_left
+    (fun acc msg -> acc + Context_reducer.estimate_message_tokens msg)
+    0
+    messages
 ;;
 
 (** Invoke BeforeTurnParams hook, apply turn params, prepare tools.
@@ -587,7 +584,6 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
         Agent_turn.apply_context_reducer
           ~messages:reduced
           ~context_reducer:agent.options.context_reducer
-          ~tiered_memory:agent.options.tiered_memory
       in
       let after_tokens = total_prompt_tokens_for_agent agent reduced in
       if after_tokens >= est_tokens
@@ -682,7 +678,6 @@ let emergency_compact ?raw_trace_run agent ?limit () =
       Agent_turn.apply_context_reducer
         ~messages:reduced
         ~context_reducer:agent.options.context_reducer
-        ~tiered_memory:agent.options.tiered_memory
     in
     let after_tokens = total_prompt_tokens_for_agent agent reduced in
     if after_tokens >= est_tokens

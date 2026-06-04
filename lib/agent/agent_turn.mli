@@ -52,12 +52,6 @@ val is_idle
 
 (** {1 Turn preparation} *)
 
-type tiered_memory = Types.tiered_memory =
-  { long_term : string option
-  ; mid_term : string option
-  ; short_term : string option
-  }
-
 (** Pre-processed inputs for an LLM turn. *)
 type turn_preparation =
   { tools_json : Yojson.Safe.t list option
@@ -123,19 +117,16 @@ val prepare_tools
     @since 0.162.0 third tuple element added (visible_tool_names) *)
 
 (** Reduce messages and inject extra system context. *)
-val tiered_memory_tokens : tiered_memory option -> int
 
 val apply_context_reducer
   :  messages:Types.message list
   -> context_reducer:Context_reducer.t option
-  -> tiered_memory:tiered_memory option
   -> Types.message list
 
 val prepare_messages
   :  ?config:Types.agent_config
   -> messages:Types.message list
   -> context_reducer:Context_reducer.t option
-  -> tiered_memory:tiered_memory option
   -> turn_params:Hooks.turn_params
   -> unit
   -> Types.message list
@@ -156,7 +147,6 @@ val prepare_turn
   -> tools:Tool_set.t
   -> messages:Types.message list
   -> context_reducer:Context_reducer.t option
-  -> tiered_memory:tiered_memory option
   -> turn_params:Hooks.turn_params
   -> ?tool_selector:Tool_selector.strategy
   -> ?disclosure_level:Tool.disclosure_level

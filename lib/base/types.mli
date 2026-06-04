@@ -31,12 +31,6 @@ type model = string [@@deriving yojson, show]
 (** Resolve a model alias to its canonical API model ID. *)
 val model_to_string : model -> string
 
-type tiered_memory =
-  { long_term : string option
-  ; mid_term : string option
-  ; short_term : string option
-  }
-
 (** Agent configuration *)
 type agent_config =
   { name : string

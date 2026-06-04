@@ -44,7 +44,6 @@ type t =
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
   ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
-  ; tiered_memory : Agent.tiered_memory option
   ; context_compact_ratio : float option
   ; context_prepare_ratio : float option
   ; context_handoff_ratio : float option
@@ -57,7 +56,6 @@ type t =
   ; description : string option
   ; periodic_callbacks : Agent.periodic_callback list
   ; contract : Contract.t
-  ; memory : Memory.t option
   ; allowed_paths : string list
   ; progressive_tools : Progressive_tools.disclosure_strategy option
   ; operator_policy : Guardrails.tool_filter option
@@ -119,7 +117,6 @@ let create ~net ~model =
   ; missing_approval_callback_policy = Hooks.Execute_without_callback
   ; tool_retry_policy = None
   ; context_reducer = None
-  ; tiered_memory = None
   ; context_compact_ratio = None
   ; context_prepare_ratio = None
   ; context_handoff_ratio = None
@@ -132,7 +129,6 @@ let create ~net ~model =
   ; description = None
   ; periodic_callbacks = []
   ; contract = Contract.empty
-  ; memory = None
   ; allowed_paths = []
   ; progressive_tools = None
   ; operator_policy = None
@@ -214,7 +210,6 @@ let with_tool_retry_policy tool_retry_policy b =
 ;;
 
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
-let with_tiered_memory tiered_memory b = { b with tiered_memory = Some tiered_memory }
 
 let with_auto_context_overflow_retry auto_context_overflow_retry b =
   { b with auto_context_overflow_retry }
@@ -318,7 +313,6 @@ let with_disclosure_resolver f b = { b with disclosure_resolver = Some f }
 let with_policy_channel ch b = { b with policy_channel = Some ch }
 let with_elicitation cb b = { b with elicitation = Some cb }
 let with_description desc b = { b with description = Some desc }
-let with_memory mem b = { b with memory = Some mem }
 let with_allowed_paths paths b = { b with allowed_paths = paths }
 
 let with_periodic_callback cb b =
@@ -429,7 +423,6 @@ let build b =
     ; missing_approval_callback_policy = b.missing_approval_callback_policy
     ; tool_retry_policy = b.tool_retry_policy
     ; context_reducer = b.context_reducer
-    ; tiered_memory = b.tiered_memory
     ; context_injector = b.context_injector
     ; mcp_clients
     ; event_bus = b.event_bus
@@ -437,7 +430,6 @@ let build b =
     ; elicitation = b.elicitation
     ; description = b.description
     ; periodic_callbacks = b.periodic_callbacks
-    ; memory = b.memory
     ; allowed_paths = b.allowed_paths
     ; operator_policy = b.operator_policy
     ; policy_channel = b.policy_channel

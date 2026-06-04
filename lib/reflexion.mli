@@ -3,11 +3,10 @@
     Implements the separated-concerns Reflexion pattern (MAR, Shinn et al.):
     1. Act — run the agent
     2. Evaluate — assess the output against a criterion
-    3. Reflect — on failure, store a diagnosis in Episodic memory
+    3. Reflect — on failure, produce a diagnosis for retry context
     4. Retry — re-run with reflection context appended
 
-    Integrates with {!Memory.t} Episodic tier for reflection storage
-    and {!Hooks} for optional hook-based integration.
+    Integrates with {!Hooks} for optional hook-based integration.
 
     @since 0.89.0
 
@@ -37,11 +36,10 @@ type evaluator = Types.api_response -> verdict
 type config =
   { max_attempts : int (** Maximum number of attempts (including first). >= 1. *)
   ; evaluator : evaluator (** How to judge each attempt *)
-  ; memory_prefix : string (** Key prefix for episodic memory entries *)
   ; include_critique : bool (** Whether to include critique list in reflection *)
   }
 
-(** Default config: max 3 attempts, memory prefix "reflexion", include critique. *)
+(** Default config: max 3 attempts, include critique. *)
 val default_config : evaluator:evaluator -> config
 
 (** {1 Result} *)
@@ -73,12 +71,11 @@ val format_reflection : attempt_number:int -> verdict -> string
 
     [run_agent] is called with a list of prior reflections (empty on first
     attempt) and returns the agent's response.  On failure, a reflection is
-    stored in [memory] (if provided) and appended to the next attempt.
+    appended to the next attempt.
 
     Returns [Ok run_result] with all attempts, or [Error] if [run_agent] fails. *)
 val run
   :  config:config
-  -> ?memory:Memory.t
   -> run_agent:(reflections:string list -> (Types.api_response, Error.sdk_error) result)
   -> unit
   -> (run_result, Error.sdk_error) result

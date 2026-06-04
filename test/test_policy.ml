@@ -242,11 +242,6 @@ let test_decision_point_to_string () =
       (ResourceRequest { agent_name = "a"; resource = "gpu"; amount = 1.0 })
   in
   check bool "contains ResourceRequest" true (String.length s4 > 0);
-  let s5 =
-    Policy.decision_point_to_string
-      (BeforeMemoryWrite { agent_name = "a"; tier = "working"; key = "k" })
-  in
-  check bool "contains BeforeMemoryWrite" true (String.length s5 > 0);
   let s6 = Policy.decision_point_to_string (Custom { name = "custom"; detail = "d" }) in
   check bool "contains Custom" true (String.length s6 > 0)
 ;;
