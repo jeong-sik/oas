@@ -137,24 +137,6 @@ type orchestration_error =
       ; detail : string
       }
 
-(** A2A protocol errors. *)
-type a2a_error =
-  | TaskNotFound of { task_id : string }
-  | InvalidTransition of
-      { task_id : string
-      ; from_state : string
-      ; to_state : string
-      }
-  | MessageSendFailed of
-      { task_id : string
-      ; detail : string
-      }
-  | ProtocolError of { detail : string }
-  | StoreCapacityExceeded of
-      { current : int
-      ; max : int
-      }
-
 (** {1 Top-level error} *)
 
 type sdk_error =
@@ -166,7 +148,6 @@ type sdk_error =
   | Serialization of serialization_error
   | Io of io_error
   | Orchestration of orchestration_error
-  | A2a of a2a_error
   | Internal of string
 
 (** {1 Operations} *)
@@ -176,17 +157,3 @@ val to_string : sdk_error -> string
 
 (** Whether the error is transient and the operation can be retried. *)
 val is_retryable : sdk_error -> bool
-
-(** {1 A2A convenience constructors} *)
-
-val a2a_protocol : string -> sdk_error
-val a2a_task_not_found : string -> sdk_error
-
-val a2a_invalid_transition
-  :  task_id:string
-  -> from_state:string
-  -> to_state:string
-  -> sdk_error
-
-val a2a_message_send_failed : task_id:string -> detail:string -> sdk_error
-val a2a_store_capacity_exceeded : current:int -> max:int -> sdk_error

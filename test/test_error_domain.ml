@@ -169,11 +169,6 @@ let test_to_string_each_variant () =
     ; `Serialization "bad json"
     ; `Io "file missing"
     ; `Orchestration "routing failed"
-    ; `A2a_task_not_found "tid"
-    ; `A2a_invalid_transition ("tid", "s1", "s2")
-    ; `A2a_message_send_failed ("tid", "err")
-    ; `A2a_protocol_error "proto"
-    ; `A2a_store_capacity_exceeded (100, 50)
     ; `Internal "bug"
     ]
   in
@@ -213,11 +208,6 @@ let test_all_variants_convert () =
     ; `Serialization "x"
     ; `Io "x"
     ; `Orchestration "x"
-    ; `A2a_task_not_found "t1"
-    ; `A2a_invalid_transition ("t1", "working", "submitted")
-    ; `A2a_message_send_failed ("t1", "timeout")
-    ; `A2a_protocol_error "bad request"
-    ; `A2a_store_capacity_exceeded (100, 100)
     ; `Internal "x"
     ]
   in
@@ -484,18 +474,6 @@ let test_roundtrip_orchestration () =
   | _ -> Alcotest.fail "roundtrip mismatch for Orchestration"
 ;;
 
-let test_roundtrip_a2a () =
-  let orig = Error.A2a (Error.ProtocolError { detail = "protocol error" }) in
-  let poly = Error_domain.of_sdk_error orig in
-  (match poly with
-   | `A2a_protocol_error "protocol error" -> ()
-   | _ -> Alcotest.fail "expected A2a_protocol_error");
-  let back = Error_domain.to_sdk_error poly in
-  match back with
-  | Error.A2a (Error.ProtocolError _) -> ()
-  | _ -> Alcotest.fail "roundtrip mismatch for A2a"
-;;
-
 (* ── is_retryable: cover remaining branches ─────────────── *)
 
 let test_retryable_overloaded () =
@@ -619,13 +597,6 @@ let test_retryable_orchestration () =
     "orchestration not retryable"
     false
     (Error_domain.is_retryable (`Orchestration "x"))
-;;
-
-let test_retryable_a2a () =
-  Alcotest.(check bool)
-    "a2a not retryable"
-    false
-    (Error_domain.is_retryable (`A2a_protocol_error "x"))
 ;;
 
 let test_retryable_internal () =
@@ -780,7 +751,6 @@ let () =
         ; Alcotest.test_case "serialization" `Quick test_roundtrip_serialization
         ; Alcotest.test_case "io" `Quick test_roundtrip_io
         ; Alcotest.test_case "orchestration" `Quick test_roundtrip_orchestration
-        ; Alcotest.test_case "a2a" `Quick test_roundtrip_a2a
         ; Alcotest.test_case "internal" `Quick test_roundtrip_internal
         ] )
     ; ( "retryable"
@@ -812,7 +782,6 @@ let () =
         ; Alcotest.test_case "serialization" `Quick test_retryable_serialization
         ; Alcotest.test_case "io" `Quick test_retryable_io
         ; Alcotest.test_case "orchestration" `Quick test_retryable_orchestration
-        ; Alcotest.test_case "a2a" `Quick test_retryable_a2a
         ; Alcotest.test_case "internal" `Quick test_retryable_internal
         ] )
     ; ( "context"
