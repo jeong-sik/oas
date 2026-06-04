@@ -16,7 +16,7 @@ type t =
   }
 
 (** Extract concatenated text content from a {!Sdk_types.tool_result}. *)
-let output_token_budget () = Defaults.int_env_or 25_000 "OAS_MCP_OUTPUT_MAX_TOKENS"
+let output_token_budget () = Util.int_env_or 25_000 "OAS_MCP_OUTPUT_MAX_TOKENS"
 
 (** Scan backward from [at] to the nearest UTF-8 codepoint boundary so a
     byte-offset truncation never cuts the middle of a multi-byte character.
@@ -39,7 +39,7 @@ let utf8_safe_boundary text at =
 (** Truncate [text] when its estimated token count exceeds
     [output_token_budget ()].
 
-    Delegates token estimation to {!Context_reducer.estimate_char_tokens}
+    Delegates token estimation to {!Llm_provider.Text_estimate.estimate_char_tokens}
     so CJK / emoji content is counted on par with ASCII rather than
     through the previous "1 token ~= 4 bytes" byte-count approximation
     — the old formula over-truncated Korean/Japanese/Chinese tool output
@@ -55,7 +55,7 @@ let utf8_safe_boundary text at =
     instead of [~budget * 1.33 chars but cut mid-codepoint]. *)
 let truncate_output text =
   let budget = output_token_budget () in
-  if Context_reducer.estimate_char_tokens text <= budget
+  if Llm_provider.Text_estimate.estimate_char_tokens text <= budget
   then text
   else (
     (* Binary search the largest byte offset whose prefix fits in
@@ -66,7 +66,7 @@ let truncate_output text =
     let fits k =
       let safe_k = utf8_safe_boundary text k in
       let prefix = String.sub text 0 safe_k in
-      Context_reducer.estimate_char_tokens prefix <= budget
+      Llm_provider.Text_estimate.estimate_char_tokens prefix <= budget
     in
     let rec search lo hi =
       if lo >= hi

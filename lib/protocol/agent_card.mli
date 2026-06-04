@@ -36,6 +36,12 @@ type supported_interface =
   ; tenant : string option
   }
 
+type skill_meta =
+  { name : string
+  ; description : string option
+  }
+[@@deriving show]
+
 type agent_card =
   { name : string
   ; description : string option
@@ -46,7 +52,7 @@ type agent_card =
   ; supported_interfaces : supported_interface list
   ; capabilities : capability list
   ; tools : Types.tool_schema list
-  ; skills : Skill.t list
+  ; skills : skill_meta list
   ; supported_providers : string list
   ; metadata : (string * Yojson.Safe.t) list
   }
@@ -64,16 +70,12 @@ type agent_info =
   ; version : string
   ; config : Types.agent_config
   ; tool_schemas : Types.tool_schema list
-  ; provider : Provider.config option
+  ; supported_providers : string list
   ; mcp_clients_count : int
   ; has_elicitation : bool
-  ; skill_registry : Skill_registry.t option
-    (** Discovery-only skill source.  When present, skills from the
-          registry are listed in the generated agent card.  These skills
-          are {b not} composed into the system prompt. *)
+  ; skills : skill_meta list
   }
 
-val provider_name : Provider.config -> string
 val of_info : agent_info -> agent_card
 
 (** {1 Queries} *)
@@ -81,3 +83,4 @@ val of_info : agent_info -> agent_card
 val has_capability : agent_card -> capability -> bool
 val can_handle_tool : agent_card -> string -> bool
 val has_skill : agent_card -> string -> bool
+
