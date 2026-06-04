@@ -45,12 +45,30 @@ let text_only_handler _conn _req body =
   Cohttp_eio.Server.respond_string ~status:`OK ~body:(text_body "ok") ()
 ;;
 
-let with_mock_server ~port handler f =
+(* Bind to port 0 so the OS assigns a free port, avoiding EADDRINUSE flakes
+   when test executables run in parallel (fixed ports here collided with the
+   same hardcoded range in test_context_flow_proof.ml). Mirrors the fresh_port
+   helper in test_provider_intf.ml. *)
+let fresh_port () =
+  let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
+  Unix.setsockopt s Unix.SO_REUSEADDR true;
+  Unix.bind s (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
+  let port =
+    match Unix.getsockname s with
+    | Unix.ADDR_INET (_, p) -> p
+    | _ -> Alcotest.fail "expected inet socket"
+  in
+  Unix.close s;
+  port
+;;
+
+let with_mock_server ?port handler f =
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
+    let port = Option.value ~default:(fresh_port ()) port in
     let socket =
       Eio.Net.listen
         env#net
@@ -80,7 +98,6 @@ let test_deny_list_hides_tool () =
   let tools_seen = ref 0 in
   let tool_calls = ref 0 in
   with_mock_server
-    ~port:18201
     (tracking_handler ~tool_use_count:tool_calls ~tools_seen_count:tools_seen)
     (fun ~sw ~net ~base_url ->
        let tools = [ make_tool "a"; make_tool "b"; make_tool "c" ] in
@@ -101,7 +118,6 @@ let test_allow_list_filters () =
   let tools_seen = ref 0 in
   let tool_calls = ref 0 in
   with_mock_server
-    ~port:18202
     (tracking_handler ~tool_use_count:tool_calls ~tools_seen_count:tools_seen)
     (fun ~sw ~net ~base_url ->
        let tools = [ make_tool "a"; make_tool "b"; make_tool "c" ] in
@@ -122,7 +138,6 @@ let test_custom_prefix_filter () =
   let tools_seen = ref 0 in
   let tool_calls = ref 0 in
   with_mock_server
-    ~port:18203
     (tracking_handler ~tool_use_count:tool_calls ~tools_seen_count:tools_seen)
     (fun ~sw ~net ~base_url ->
        let tools =
@@ -180,7 +195,7 @@ let test_limit_blocks_multi_tool_response () =
     in
     Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
   in
-  with_mock_server ~port:18204 multi_tool_handler (fun ~sw ~net ~base_url ->
+  with_mock_server multi_tool_handler (fun ~sw ~net ~base_url ->
     let tool_calls = ref 0 in
     let tool =
       Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun _input ->
@@ -205,7 +220,6 @@ let test_no_limit_allows_all () =
   let tool_use_count = ref 3 in
   let tools_seen = ref 0 in
   with_mock_server
-    ~port:18205
     (tracking_handler ~tool_use_count ~tools_seen_count:tools_seen)
     (fun ~sw ~net ~base_url ->
        let tool_calls = ref 0 in
@@ -225,7 +239,7 @@ let test_no_limit_allows_all () =
 (* ── edge case tests ─────────────────────────────────── *)
 
 let test_empty_tools_no_crash () =
-  with_mock_server ~port:18206 text_only_handler (fun ~sw ~net ~base_url ->
+  with_mock_server text_only_handler (fun ~sw ~net ~base_url ->
     let options =
       { Agent.default_options with
         base_url
@@ -242,7 +256,7 @@ let test_empty_tools_no_crash () =
 ;;
 
 let test_guardrails_default_with_agent () =
-  with_mock_server ~port:18207 text_only_handler (fun ~sw ~net ~base_url ->
+  with_mock_server text_only_handler (fun ~sw ~net ~base_url ->
     let options = { Agent.default_options with base_url } in
     let tools = [ make_tool "a"; make_tool "b" ] in
     let agent = Agent.create ~net ~options ~tools () in
