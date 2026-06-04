@@ -10,14 +10,9 @@ open Agent_trace
 
 let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
 
-let safe_publish bus event =
-  try Event_bus.publish bus event with
-  | exn ->
-    Log.warn
-      _stage_log
-      "Event_bus.publish failed"
-      [ Log.S ("error", Printexc.to_string exn) ]
-;;
+(* Shared with Pipeline via Pipeline_common (re-raises Eio cancellation);
+   the thin wrapper keeps this module's log label. *)
+let safe_publish bus event = Pipeline_common.safe_publish ~log:_stage_log bus event
 
 let stage_input ?raw_trace_run agent =
   let ts = Unix.gettimeofday () in
