@@ -20,11 +20,9 @@ open Agent_trace
 
 let _log = Log.create ~module_name:"pipeline" ()
 
-let safe_publish bus event =
-  try Event_bus.publish bus event with
-  | exn ->
-    Log.warn _log "Event_bus.publish failed" [ Log.S ("error", Printexc.to_string exn) ]
-;;
+(* Shared with Pipeline_stage_prepare via Pipeline_common (re-raises Eio
+   cancellation); the thin wrapper keeps this module's log label. *)
+let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
 
 (* ── Context compaction watermark ───────────────────── *)
 
