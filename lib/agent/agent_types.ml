@@ -261,8 +261,7 @@ let card t =
     match t.options.skill_registry with
     | Some reg ->
       List.map
-        (fun (s : Skill.t) ->
-           { Agent_card.name = s.name; description = s.description })
+        (fun (s : Skill.t) -> { Agent_card.name = s.name; description = s.description })
         (Skill_registry.list reg)
     | None -> []
   in
