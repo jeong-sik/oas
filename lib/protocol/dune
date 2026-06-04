@@ -5,12 +5,12 @@
  (public_name agent_sdk.protocol)
  (wrapped true)
  (libraries
-   agent_sdk.base
-   yojson
-   eio
-   mcp_protocol
-   mcp_protocol.eio
-   mcp_protocol.http)
+  agent_sdk.base
+  yojson
+  eio
+  mcp_protocol
+  mcp_protocol.eio
+  mcp_protocol.http)
  (flags
   (:standard -open Agent_sdk_base))
  (inline_tests)
