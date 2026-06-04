@@ -23,10 +23,10 @@ let base_info : Agent_card.agent_info =
         ; strict = None
         }
       ]
-  ; provider = None
+  ; supported_providers = []
   ; mcp_clients_count = 0
   ; has_elicitation = false
-  ; skill_registry = None
+  ; skills = []
   }
 ;;
 
@@ -123,20 +123,7 @@ let test_providers_default () =
 ;;
 
 let test_providers_custom () =
-  let provider =
-    Provider.
-      { provider =
-          OpenAICompat
-            { base_url = "http://localhost:8085"
-            ; auth_header = None
-            ; path = "/v1/chat/completions"
-            ; static_token = None
-            }
-      ; model_id = "provider_h-3.5"
-      ; api_key_env = ""
-      }
-  in
-  let info = { base_info with provider = Some provider } in
+  let info = { base_info with supported_providers = [ "openai-compat" ] } in
   let card = Agent_card.of_info info in
   Alcotest.(check (list string))
     "openai-compat provider"
@@ -145,10 +132,8 @@ let test_providers_custom () =
 ;;
 
 let test_skills_from_registry () =
-  let reg = Skill_registry.create () in
-  let skill = Skill.of_markdown "---\nname: greet\n---\nHello" in
-  Skill_registry.register reg skill;
-  let info = { base_info with skill_registry = Some reg } in
+  let skill : Agent_card.skill_meta = { name = "greet"; description = Some "Hello" } in
+  let info = { base_info with skills = [ skill ] } in
   let card = Agent_card.of_info info in
   Alcotest.(check int) "1 skill" 1 (List.length card.skills);
   Alcotest.(check bool) "has greet" true (Agent_card.has_skill card "greet")
@@ -338,28 +323,6 @@ let test_json_auth_no_credentials () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
-(* ── provider_name ──────────────────────────────────────── *)
-
-let test_provider_name_local () =
-  let cfg : Provider.config =
-    { provider = Local { base_url = "http://localhost:8085" }
-    ; model_id = "local"
-    ; api_key_env = "DUMMY"
-    }
-  in
-  Alcotest.(check string) "local" "local" (Agent_card.provider_name cfg)
-;;
-
-let test_provider_name_custom () =
-  let cfg : Provider.config =
-    { provider = Custom_registered { name = "myengine" }
-    ; model_id = "x"
-    ; api_key_env = "DUMMY"
-    }
-  in
-  Alcotest.(check string) "custom" "myengine" (Agent_card.provider_name cfg)
-;;
-
 (* ── has_capability / has_skill ─────────────────────────── *)
 
 let test_has_capability_false () =
@@ -386,8 +349,8 @@ let test_to_json_with_skills () =
     ; capabilities = []
     ; tools = []
     ; skills =
-        [ Skill.of_markdown "---\nname: greet\ndescription: Say hi\n---\nHello"
-        ; Skill.of_markdown "---\nname: deploy\n---\nDeploy"
+        [ { Agent_card.name = "greet"; description = Some "Say hi" }
+        ; { Agent_card.name = "deploy"; description = None }
         ]
     ; supported_providers = []
     ; metadata = []
@@ -492,10 +455,6 @@ let () =
             "interface protocol version inherits card version"
             `Quick
             test_interface_protocol_version_inherits_card_version
-        ] )
-    ; ( "provider_name"
-      , [ test_case "local" `Quick test_provider_name_local
-        ; test_case "custom" `Quick test_provider_name_custom
         ] )
     ]
 ;;

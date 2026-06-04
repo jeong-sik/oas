@@ -36,6 +36,12 @@ type supported_interface =
   ; tenant : string option
   }
 
+type skill_meta =
+  { name : string
+  ; description : string option
+  }
+[@@deriving show]
+
 type agent_card =
   { name : string
   ; description : string option
@@ -46,7 +52,7 @@ type agent_card =
   ; supported_interfaces : supported_interface list
   ; capabilities : capability list
   ; tools : Types.tool_schema list
-  ; skills : Skill.t list
+  ; skills : skill_meta list
   ; supported_providers : string list
   ; metadata : (string * Yojson.Safe.t) list
   }
@@ -138,7 +144,7 @@ let to_json (card : agent_card) : Yojson.Safe.t =
        ; ( "skills"
          , `List
              (List.map
-                (fun (s : Skill.t) ->
+                (fun (s : skill_meta) ->
                    `Assoc
                      ([ "name", `String s.name ]
                       @
@@ -277,24 +283,16 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
 
 (* ── Construct from agent_info (decoupled from Agent.t) ── *)
 
-let provider_name (cfg : Provider.config) =
-  match cfg.provider with
-  | Provider.Anthropic -> "anthropic"
-  | Provider.OpenAICompat _ -> "openai-compat"
-  | Provider.Local _ -> "local"
-  | Provider.Custom_registered { name } -> name
-;;
-
 type agent_info =
   { agent_name : string
   ; agent_description : string option
   ; version : string
   ; config : Types.agent_config
   ; tool_schemas : Types.tool_schema list
-  ; provider : Provider.config option
+  ; supported_providers : string list
   ; mcp_clients_count : int
   ; has_elicitation : bool
-  ; skill_registry : Skill_registry.t option
+  ; skills : skill_meta list
   }
 
 let of_info (info : agent_info) : agent_card =
@@ -308,16 +306,11 @@ let of_info (info : agent_info) : agent_card =
   if info.mcp_clients_count > 0 then add MCP;
   if info.has_elicitation then add Elicitation;
   let providers =
-    match info.provider with
-    | Some cfg -> [ provider_name cfg ]
-    | None -> [ "anthropic" ]
+    match info.supported_providers with
+    | [] -> [ "anthropic" ]
+    | lst -> lst
   in
   let all_providers = List.sort_uniq String.compare providers in
-  let skills =
-    match info.skill_registry with
-    | Some reg -> Skill_registry.list reg
-    | None -> []
-  in
   { name = info.agent_name
   ; description = info.agent_description
   ; protocol_version = "1.0"
@@ -327,7 +320,7 @@ let of_info (info : agent_info) : agent_card =
   ; supported_interfaces = []
   ; capabilities = List.rev !caps
   ; tools = info.tool_schemas
-  ; skills
+  ; skills = info.skills
   ; supported_providers = all_providers
   ; metadata = []
   }
@@ -344,5 +337,5 @@ let can_handle_tool (card : agent_card) tool_name =
 ;;
 
 let has_skill (card : agent_card) skill_name =
-  List.exists (fun (s : Skill.t) -> s.name = skill_name) card.skills
+  List.exists (fun (s : skill_meta) -> s.name = skill_name) card.skills
 ;;

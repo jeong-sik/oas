@@ -243,7 +243,29 @@ let memory t = t.options.memory
 let allowed_paths t = t.options.allowed_paths
 let sdk_version = Sdk_version.version
 
+let provider_name (cfg : Provider.config) =
+  match cfg.provider with
+  | Provider.Anthropic -> "anthropic"
+  | Provider.OpenAICompat _ -> "openai-compat"
+  | Provider.Local _ -> "local"
+  | Provider.Custom_registered { name } -> name
+;;
+
 let card t =
+  let supported_providers =
+    match t.options.provider with
+    | Some p -> [ provider_name p ]
+    | None -> [ "anthropic" ]
+  in
+  let skills =
+    match t.options.skill_registry with
+    | Some reg ->
+      List.map
+        (fun (s : Skill.t) ->
+           { Agent_card.name = s.name; description = s.description })
+        (Skill_registry.list reg)
+    | None -> []
+  in
   Agent_card.of_info
     { agent_name = t.state.config.name
     ; agent_description = t.options.description
@@ -251,10 +273,10 @@ let card t =
     ; config = t.state.config
     ; tool_schemas =
         List.map (fun (tool : Tool.t) -> tool.schema) (Tool_set.to_list t.tools)
-    ; provider = t.options.provider
+    ; supported_providers
     ; mcp_clients_count = List.length t.options.mcp_clients
     ; has_elicitation = Option.is_some t.options.elicitation
-    ; skill_registry = t.options.skill_registry
+    ; skills
     }
 ;;
 
