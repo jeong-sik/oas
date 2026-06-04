@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.18](https://github.com/jeong-sik/oas/compare/v0.200.17...v0.200.18) (2026-06-04)
+
+
+### Bug Fixes
+
+* **pipeline:** propagate Eio.Cancel.Cancelled from safe_publish ([#1881](https://github.com/jeong-sik/oas/issues/1881)) ([adc8312](https://github.com/jeong-sik/oas/commit/adc8312bc03e8fb76023df84d3558d3eb9d36fca))
+
 ## [0.200.17](https://github.com/jeong-sik/oas/compare/v0.200.16...v0.200.17) (2026-06-03)
 
 
