@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.202.0](https://github.com/jeong-sik/oas/compare/v0.201.0...v0.202.0) (2026-06-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* Memory, lesson-memory, and memory-tool modules are removed from the public SDK surface. Host applications that need durable memory should own it outside `agent_sdk` and project only the data they need into OAS turns.
+
+### Features
+
+* remove memory API surface ([#1926](https://github.com/jeong-sik/oas/issues/1926)) ([e705946](https://github.com/jeong-sik/oas/commit/e7059466a07a017472208c75b8a72257f5863871))
+
 ## [0.201.0](https://github.com/jeong-sik/oas/compare/v0.200.19...v0.201.0) (2026-06-04)
 
 
