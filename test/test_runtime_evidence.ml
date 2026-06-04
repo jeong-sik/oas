@@ -699,6 +699,33 @@ let test_sessions_store_decodes_runtime_artifacts () =
        | None -> fail "expected shell constraints")
 ;;
 
+let test_get_tool_catalog_malformed_returns_error () =
+  with_temp_root "oas-tool-catalog-malformed"
+  @@ fun root ->
+  let store = Runtime_store.create ~root () |> Result.get_ok in
+  let session_id = "sess-tc" in
+  (* Well-formed JSON that is NOT a list: [to_list] (and [tool_contract_of_json])
+     raise Type_error. get_tool_catalog returns a result, so the decode failure
+     must surface as Error rather than escaping as an uncaught exception. The
+     artifact must be attached to the session (via save_session) so the named
+     lookup reaches the decode path rather than failing earlier. *)
+  let artifact =
+    write_artifact
+      store
+      session_id
+      ~artifact_id:"art-tool-catalog"
+      ~name:"tool-catalog"
+      ~kind:"json"
+      ~created_at:1.0
+      {|{"not":"a list"}|}
+  in
+  Runtime_store.save_session store (mk_session ~session_id ~artifacts:[ artifact ] ())
+  |> Result.get_ok;
+  check_error
+    "malformed tool catalog returns Error (not raise)"
+    (Sessions_store.get_tool_catalog ~session_root:root ~session_id ())
+;;
+
 let () =
   Alcotest.run
     "runtime_evidence"
@@ -730,6 +757,10 @@ let () =
             "sessions store artifact decoders"
             `Quick
             test_sessions_store_decodes_runtime_artifacts
+        ; Alcotest.test_case
+            "tool catalog malformed returns error"
+            `Quick
+            test_get_tool_catalog_malformed_returns_error
         ] )
     ]
 ;;
