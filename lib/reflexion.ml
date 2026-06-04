@@ -26,9 +26,7 @@ type config =
   ; include_critique : bool
   }
 
-let default_config ~evaluator =
-  { max_attempts = 3; evaluator; include_critique = true }
-;;
+let default_config ~evaluator = { max_attempts = 3; evaluator; include_critique = true }
 
 (** {1 Result} *)
 

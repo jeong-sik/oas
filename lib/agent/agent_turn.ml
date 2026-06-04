@@ -260,7 +260,9 @@ let prepare_turn
       ~messages
       ()
   in
-  let effective_messages = prepare_messages ?config ~messages ~context_reducer ~turn_params () in
+  let effective_messages =
+    prepare_messages ?config ~messages ~context_reducer ~turn_params ()
+  in
   { tools_json
   ; effective_messages
   ; effective_guardrails

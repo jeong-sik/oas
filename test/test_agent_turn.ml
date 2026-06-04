@@ -163,11 +163,7 @@ let test_prepare_messages_extra_context () =
     { Hooks.default_turn_params with extra_system_context = Some "You are in test mode." }
   in
   let result =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:None
-      ~turn_params
-      ()
+    Agent_turn.prepare_messages ~messages:msgs ~context_reducer:None ~turn_params ()
   in
   Alcotest.(check int) "prepended system msg" 2 (List.length result);
   let first = List.hd result in
@@ -195,11 +191,7 @@ let test_prepare_messages_system_prompt_override_noop () =
     }
   in
   let result =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:None
-      ~turn_params
-      ()
+    Agent_turn.prepare_messages ~messages:msgs ~context_reducer:None ~turn_params ()
   in
   (* system_prompt_override is handled in pipeline stage_parse, not
      in prepare_messages. Message count should remain unchanged. *)
@@ -223,11 +215,7 @@ let test_prepare_messages_both_override_and_extra_context () =
     }
   in
   let result =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:None
-      ~turn_params
-      ()
+    Agent_turn.prepare_messages ~messages:msgs ~context_reducer:None ~turn_params ()
   in
   (* extra_system_context injects a User message; system_prompt_override
      is applied separately in pipeline. So only extra_system_context
