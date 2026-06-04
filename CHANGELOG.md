@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.200.19](https://github.com/jeong-sik/oas/compare/v0.200.18...v0.200.19) (2026-06-04)
+
+
+### Features
+
+* extract agent_sdk.protocol sublibrary and resolve circular dependencies ([#1896](https://github.com/jeong-sik/oas/issues/1896)) ([de16a44](https://github.com/jeong-sik/oas/commit/de16a4497dd76ad3493608c110174f579a20dce8))
+
 ## [0.200.18](https://github.com/jeong-sik/oas/compare/v0.200.17...v0.200.18) (2026-06-04)
 
 
