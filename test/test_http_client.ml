@@ -311,8 +311,6 @@ let test_error_domain_full_roundtrip () =
     ; Agent_sdk.Error.Mcp (ToolCallFailed { tool_name = "fs_read"; detail = "denied" })
     ; Agent_sdk.Error.Mcp
         (HttpTransportFailed { url = "http://x"; detail = "conn refused" })
-    ; Agent_sdk.Error.a2a_task_not_found "task-1"
-    ; Agent_sdk.Error.a2a_protocol "bad version"
     ; Agent_sdk.Error.Internal "something broke"
     ]
   in

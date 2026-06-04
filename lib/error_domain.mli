@@ -89,11 +89,6 @@ type sdk_error_poly =
   | `Serialization of string
   | `Io of string
   | `Orchestration of string
-  | `A2a_task_not_found of string
-  | `A2a_invalid_transition of string * string * string
-  | `A2a_message_send_failed of string * string
-  | `A2a_protocol_error of string
-  | `A2a_store_capacity_exceeded of int * int
   | `Internal of string
   ]
 

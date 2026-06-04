@@ -14,8 +14,6 @@
     [Running -> Ready] supports multi-turn agent loops where each turn
     cycles through [Ready -> Running -> Ready -> ...] before terminating.
 
-    Follows the pattern established by {!A2a_task.transition}.
-
     @stability Evolving
     @since 0.93.1
     @since 0.105.0 transition guards *)
