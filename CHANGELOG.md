@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.201.0](https://github.com/jeong-sik/oas/compare/v0.200.19...v0.201.0) (2026-06-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* Error.A2a and the a2a_* constructors are removed from the public sdk_error API. Consumers matching Error.A2a must drop that arm. masc-mcp consumes agent_sdk via a git pin; its ~20 Error.A2a match arms will be compiler-forced to update when it adopts the new commit (separate follow-up).
+
+### Features
+
+* remove dead A2a error variant from sdk_error ([#1903](https://github.com/jeong-sik/oas/issues/1903)) ([7edc393](https://github.com/jeong-sik/oas/commit/7edc39375d6260943c972bd510be4b51af9c4cc3))
+
 ## [0.200.19](https://github.com/jeong-sik/oas/compare/v0.200.18...v0.200.19) (2026-06-04)
 
 
