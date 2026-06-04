@@ -98,7 +98,6 @@ val with_missing_approval_callback_policy
 
 val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
 val with_context_reducer : Context_reducer.t -> t -> t
-val with_tiered_memory : Agent.tiered_memory -> t -> t
 
 (** Set context reduction thresholds.
     [compact_ratio] determines when to compact (default 0.8).
@@ -178,7 +177,6 @@ val with_max_idle_turns : int -> t -> t
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t
 val with_description : string -> t -> t
-val with_memory : Memory.t -> t -> t
 val with_allowed_paths : string list -> t -> t
 val with_periodic_callback : Agent.periodic_callback -> t -> t
 val with_periodic_callbacks : Agent.periodic_callback list -> t -> t

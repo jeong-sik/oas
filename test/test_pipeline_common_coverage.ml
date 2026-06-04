@@ -121,7 +121,6 @@ let test_agent_type_accessors_card_and_state_mutators () =
     (Some "Coverage agent")
     (Internal_agent.description agent);
   check_string_list "allowed paths" [ "/tmp/oas" ] (Internal_agent.allowed_paths agent);
-  check_bool "memory absent" true (Option.is_none (Internal_agent.memory agent));
   check_bool
     "provider option"
     true
@@ -258,36 +257,6 @@ let test_event_envelope_uses_trace_and_lifecycle () =
   | Unix.Unix_error _ -> ()
 ;;
 
-let test_total_prompt_tokens_for_agent_includes_tiered_memory () =
-  let messages : Types.message list =
-    [ { role = User
-      ; content = [ Text "short request" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let base_tokens =
-    with_agent (fun agent -> Pipeline_common.total_prompt_tokens_for_agent agent messages)
-  in
-  let tiered_memory : Types.tiered_memory =
-    { long_term = Some "long term memory"
-    ; mid_term = Some "mid term memory"
-    ; short_term = Some "short term memory"
-    }
-  in
-  let options =
-    { Internal_agent.default_options with tiered_memory = Some tiered_memory }
-  in
-  let tiered_tokens =
-    with_agent ~options (fun agent ->
-      Pipeline_common.total_prompt_tokens_for_agent agent messages)
-  in
-  check_bool "base tokens positive" true (base_tokens > 0);
-  check_bool "tiered memory adds tokens" true (tiered_tokens > base_tokens)
-;;
-
 let () =
   Alcotest.run
     "Pipeline_common_coverage"
@@ -327,12 +296,6 @@ let () =
             "trace and lifecycle ids"
             `Quick
             test_event_envelope_uses_trace_and_lifecycle
-        ] )
-    ; ( "tokens"
-      , [ Alcotest.test_case
-            "tiered memory counted"
-            `Quick
-            test_total_prompt_tokens_for_agent_includes_tiered_memory
         ] )
     ]
 ;;

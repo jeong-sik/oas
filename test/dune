@@ -127,15 +127,6 @@
   test_mcp_http
   test_mcp_integration
   test_mcp_session
-  test_memory
-  test_memory_access
-  test_memory_coverage
-  test_memory_episodic
-  test_memory_file_backend
-  test_memory_lt_backend
-  test_memory_procedural
-  test_memory_tools
-  test_memory_tools_parse
   test_metric_contract
   test_metrics
   test_model_registry
@@ -336,15 +327,6 @@
   test_mcp_http
   test_mcp_integration
   test_mcp_session
-  test_memory
-  test_memory_access
-  test_memory_coverage
-  test_memory_episodic
-  test_memory_file_backend
-  test_memory_lt_backend
-  test_memory_procedural
-  test_memory_tools
-  test_memory_tools_parse
   test_metric_contract
   test_metrics
   test_model_registry
@@ -442,7 +424,6 @@
  (names
   test_checkpoint_delta
   test_context_properties
-  test_memory_advanced
   test_property
   test_property_advanced
   test_tool_op
@@ -450,7 +431,6 @@
  (modules
   test_checkpoint_delta
   test_context_properties
-  test_memory_advanced
   test_property
   test_property_advanced
   test_tool_op

@@ -170,7 +170,6 @@ let test_agent_turn_preparation () =
       ~tools
       ~messages
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -414,7 +413,6 @@ let test_prepare_turn_no_tools () =
       ~tools:Tool_set.empty
       ~messages
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -456,7 +454,6 @@ let test_prepare_turn_preserves_messages () =
       ~tools:Tool_set.empty
       ~messages
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -750,7 +747,6 @@ let test_prepare_turn_extra_context () =
       ~tools:Tool_set.empty
       ~messages
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params
       ()
   in
@@ -802,7 +798,6 @@ let test_prepare_turn_tool_filter_override () =
       ~tools
       ~messages
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params
       ()
   in

@@ -66,7 +66,6 @@ let test_default_config_keeps_all_short_history () =
     Agent_turn.prepare_messages
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -96,7 +95,6 @@ let test_override_keep_last_trims_more () =
     Agent_turn.prepare_messages
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -111,7 +109,6 @@ let test_override_keep_last_trims_more () =
       ~config:tight_config
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in

@@ -13,7 +13,6 @@ let test_prepare_turn_empty_tools () =
       ~tools:Tool_set.empty
       ~messages:[]
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -42,7 +41,6 @@ let test_prepare_turn_with_tools () =
       ~tools:(Tool_set.of_list [ tool ])
       ~messages:[]
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -74,7 +72,6 @@ let test_prepare_turn_with_guardrails_filter () =
       ~tools:(Tool_set.of_list [ tool_a; tool_b ])
       ~messages:[]
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -102,7 +99,6 @@ let test_prepare_turn_visible_tool_names_empty () =
       ~tools:Tool_set.empty
       ~messages:[]
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -122,7 +118,6 @@ let test_prepare_turn_visible_tool_names_preserves_order () =
       ~tools
       ~messages:[]
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -148,7 +143,6 @@ let test_prepare_messages_no_reducer () =
     Agent_turn.prepare_messages
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params:Hooks.default_turn_params
       ()
   in
@@ -172,7 +166,6 @@ let test_prepare_messages_extra_context () =
     Agent_turn.prepare_messages
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params
       ()
   in
@@ -205,7 +198,6 @@ let test_prepare_messages_system_prompt_override_noop () =
     Agent_turn.prepare_messages
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params
       ()
   in
@@ -234,7 +226,6 @@ let test_prepare_messages_both_override_and_extra_context () =
     Agent_turn.prepare_messages
       ~messages:msgs
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params
       ()
   in
@@ -273,141 +264,6 @@ let message_text_exn (msg : Types.message) =
   match msg.content with
   | [ Types.Text text ] -> text
   | _ -> Alcotest.fail "expected single text message"
-;;
-
-let is_tiered_recall_message msg =
-  starts_with ~prefix:"[LONG-TERM MEMORY]" (message_text_exn msg)
-  || starts_with ~prefix:"[MID-TERM MEMORY]" (message_text_exn msg)
-  || starts_with ~prefix:"[SHORT-TERM MEMORY]" (message_text_exn msg)
-;;
-
-let test_prepare_messages_with_tiered_memory_after_system () =
-  let msgs =
-    [ { Types.role = Types.System
-      ; content = [ Types.Text "obey system prompt" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ; { Types.role = Types.User
-      ; content = [ Types.Text "hello" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let tiered_memory : Agent_turn.tiered_memory =
-    { long_term = Some "User prefers concise answers."
-    ; mid_term = Some "Working on memory architecture."
-    ; short_term = Some "Investigating compaction regressions."
-    }
-  in
-  let result =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:None
-      ~tiered_memory:(Some tiered_memory)
-      ~turn_params:Hooks.default_turn_params
-      ()
-  in
-  Alcotest.(check int) "system + recall + raw" 3 (List.length result);
-  let first = List.nth result 0 in
-  let second = List.nth result 1 in
-  let third = List.nth result 2 in
-  Alcotest.(check bool) "system stays first" true (first.role = Types.System);
-  Alcotest.(check bool) "recall inserted second" true (is_tiered_recall_message second);
-  let recall_text = message_text_exn second in
-  Alcotest.(check bool)
-    "contains long term"
-    true
-    (contains_substring ~needle:"[LONG-TERM MEMORY]" recall_text);
-  Alcotest.(check bool)
-    "contains mid term"
-    true
-    (contains_substring ~needle:"[MID-TERM MEMORY]" recall_text);
-  Alcotest.(check bool)
-    "contains short term"
-    true
-    (contains_substring ~needle:"[SHORT-TERM MEMORY]" recall_text);
-  Alcotest.(check string) "raw message preserved" "hello" (message_text_exn third)
-;;
-
-let test_prepare_messages_omits_blank_tiered_memory () =
-  let msgs =
-    [ { Types.role = Types.User
-      ; content = [ Types.Text "hello" ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let tiered_memory : Agent_turn.tiered_memory =
-    { long_term = Some "   "; mid_term = None; short_term = Some "\n" }
-  in
-  let result =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:None
-      ~tiered_memory:(Some tiered_memory)
-      ~turn_params:Hooks.default_turn_params
-      ()
-  in
-  Alcotest.(check int) "blank recall omitted" 1 (List.length result);
-  Alcotest.(check string)
-    "original message unchanged"
-    "hello"
-    (message_text_exn (List.hd result))
-;;
-
-let test_prepare_messages_tiered_memory_reserves_token_budget () =
-  let mk_user text =
-    { Types.role = Types.User
-    ; content = [ Types.Text text ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  let msgs =
-    [ mk_user (String.make 100 'a')
-    ; mk_user (String.make 100 'b')
-    ; mk_user (String.make 100 'c')
-    ]
-  in
-  let reducer = Some (Context_reducer.token_budget 70) in
-  let baseline =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:reducer
-      ~tiered_memory:None
-      ~turn_params:Hooks.default_turn_params
-      ()
-  in
-  let tiered_memory : Agent_turn.tiered_memory =
-    { long_term = Some (String.make 200 'r'); mid_term = None; short_term = None }
-  in
-  let with_recall =
-    Agent_turn.prepare_messages
-      ~messages:msgs
-      ~context_reducer:reducer
-      ~tiered_memory:(Some tiered_memory)
-      ~turn_params:Hooks.default_turn_params
-      ()
-  in
-  let baseline_raw =
-    List.filter (fun msg -> not (is_tiered_recall_message msg)) baseline
-  in
-  let recall_raw =
-    List.filter (fun msg -> not (is_tiered_recall_message msg)) with_recall
-  in
-  Alcotest.(check int) "baseline keeps two raw turns" 2 (List.length baseline_raw);
-  Alcotest.(check int) "reserved budget keeps one raw turn" 1 (List.length recall_raw);
-  Alcotest.(check bool)
-    "recall message present"
-    true
-    (List.exists is_tiered_recall_message with_recall)
 ;;
 
 (* ── accumulate_usage tests ──────────────────────────────── *)
@@ -723,7 +579,6 @@ let test_prepare_turn_filter_override () =
       ~tools:(Tool_set.of_list [ tool_a; tool_b ])
       ~messages:[]
       ~context_reducer:None
-      ~tiered_memory:None
       ~turn_params
       ()
   in
@@ -1155,18 +1010,6 @@ let () =
             "both override and extra_context"
             `Quick
             test_prepare_messages_both_override_and_extra_context
-        ; Alcotest.test_case
-            "tiered memory after system"
-            `Quick
-            test_prepare_messages_with_tiered_memory_after_system
-        ; Alcotest.test_case
-            "blank tiered memory omitted"
-            `Quick
-            test_prepare_messages_omits_blank_tiered_memory
-        ; Alcotest.test_case
-            "tiered memory reserves token budget"
-            `Quick
-            test_prepare_messages_tiered_memory_reserves_token_budget
         ] )
     ; ( "accumulate_usage"
       , [ Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response

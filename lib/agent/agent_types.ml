@@ -7,12 +7,6 @@ type periodic_callback =
   ; callback : unit -> unit
   }
 
-type tiered_memory = Types.tiered_memory =
-  { long_term : string option
-  ; mid_term : string option
-  ; short_term : string option
-  }
-
 type checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
@@ -51,7 +45,6 @@ type options =
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
   ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
-  ; tiered_memory : tiered_memory option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -59,7 +52,6 @@ type options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; memory : Memory.t option
   ; allowed_paths : string list
   ; operator_policy : Guardrails.tool_filter option
   ; policy_channel : Policy_channel.t option
@@ -171,14 +163,12 @@ let default_options =
   ; missing_approval_callback_policy = Hooks.Execute_without_callback
   ; tool_retry_policy = None
   ; context_reducer = Some Defaults.default_context_reducer
-  ; tiered_memory = None
   ; context_injector = None
   ; mcp_clients = []
   ; event_bus = None
   ; skill_registry = None
   ; elicitation = None
   ; description = None
-  ; memory = None
   ; periodic_callbacks = []
   ; allowed_paths = []
   ; operator_policy = None
@@ -239,7 +229,6 @@ let set_consecutive_idle_turns t n =
 ;;
 
 let description t = t.options.description
-let memory t = t.options.memory
 let allowed_paths t = t.options.allowed_paths
 let sdk_version = Sdk_version.version
 

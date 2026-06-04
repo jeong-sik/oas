@@ -14,12 +14,6 @@ type periodic_callback =
   ; callback : unit -> unit
   }
 
-type tiered_memory = Types.tiered_memory =
-  { long_term : string option
-  ; mid_term : string option
-  ; short_term : string option
-  }
-
 type checkpoint_stage =
   | After_assistant_collected
   | After_tool_results_appended
@@ -107,11 +101,6 @@ type options =
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
   ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
-  ; tiered_memory : tiered_memory option
-    (** Optional pre-computed recall tiers injected into the prompt as a
-        pinned summary block. OAS only assembles and budgets these
-        tiers; generation/persistence is handled by the caller.
-        @since 0.166.0 *)
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list
   ; event_bus : Event_bus.t option
@@ -121,7 +110,6 @@ type options =
   ; elicitation : Hooks.elicitation_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
-  ; memory : Memory.t option
   ; allowed_paths : string list
   ; operator_policy : Guardrails.tool_filter option
     (** Operator-level tool policy.  When [Some], overrides the agent-level
@@ -275,7 +263,6 @@ val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
 val description : t -> string option
-val memory : t -> Memory.t option
 val allowed_paths : t -> string list
 
 (** {1 SDK version} *)

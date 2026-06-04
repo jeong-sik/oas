@@ -5,8 +5,7 @@
     [lib/types.ml:76] documents [Model_registry.resolve_model_id] in
     the public docstring of the [model] type, but the parent
     [Agent_sdk] surface was missing the corresponding re-export.  This
-    PR adds [module Model_registry = Model_registry] (parallel to the
-    [Memory_tools_parse] precedent in #1240) so the documented API is
+    PR adds [module Model_registry = Model_registry] so the documented API is
     actually reachable, then pins each alias arm + the pass-through
     contract.
 

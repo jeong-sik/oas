@@ -4,7 +4,7 @@
     Focuses on:
     - Builder chainable API: with_* methods not yet covered
     - build_safe validation: invalid max_turns, max_tokens, thinking_budget, max_cost_usd
-    - Agent accessors: state, tools, context, options, description, memory
+    - Agent accessors: state, tools, context, options, description
     - Agent.default_options fields
     - Agent.clone *)
 
@@ -200,8 +200,6 @@ let test_agent_accessors () =
     Alcotest.(check bool) "ctx value" true (Context.get c "key" = Some (`String "value"));
     (* description *)
     Alcotest.(check (option string)) "desc" (Some "test desc") (Agent.description agent);
-    (* memory *)
-    Alcotest.(check bool) "no memory" true (Agent.memory agent = None);
     (* net *)
     let _net = Agent.net agent in
     ();
@@ -223,8 +221,6 @@ let test_agent_default_options () =
     (opts.missing_approval_callback_policy = Hooks.Execute_without_callback);
   Alcotest.(check bool) "no event_bus" true (opts.event_bus = None);
   Alcotest.(check bool) "no skill_registry" true (opts.skill_registry = None);
-  Alcotest.(check bool) "no memory" true (opts.memory = None);
-  Alcotest.(check bool) "no tiered_memory" true (opts.tiered_memory = None);
   Alcotest.(check int) "max_idle_turns" 3 opts.max_idle_turns;
   Alcotest.(check int) "empty mcp" 0 (List.length opts.mcp_clients)
 ;;
