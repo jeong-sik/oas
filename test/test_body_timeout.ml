@@ -1,7 +1,7 @@
-(** Unit tests for [body_timeout_s] option (since 0.181.0).
+(** Unit tests for [body_timeout_s] option.
 
     Validates the field flow plus the operator-facing message contract
-    for [TimeoutError { phase = Stream_body; _ }]. *)
+    for non-streaming [TimeoutError { phase = Non_streaming_body; _ }]. *)
 
 open Agent_sdk
 
@@ -35,15 +35,14 @@ let test_options_record_update () =
 
 (* ── Message-prefix contract ────────────────────────────────────────
 
-   The timeout is now typed by [TimeoutError.phase], but the message is
-   still pinned because operators and logs use it to distinguish total
-   body deadlines from inter-line stream idle deadlines. *)
+   The timeout is typed by [TimeoutError.phase], but the message is
+   still pinned because operators and logs use it to distinguish
+   non-streaming body deadlines from streaming idle deadlines. *)
 
 let body_timeout_message timeout_s =
   Printf.sprintf
-    "body_timeout_s deadline exceeded after %.1fs (configured via \
-     Builder.with_body_timeout; total body consumption cap, distinct from \
-     stream_idle_timeout_s)"
+    "body_timeout_s deadline exceeded after %.1fs (Complete.complete \
+     non-streaming path; total HTTP round-trip cap)"
     timeout_s
 ;;
 
@@ -84,18 +83,18 @@ let test_message_includes_configured_value () =
 ;;
 
 let test_message_distinguishes_from_idle_timeout () =
-  (* Operators must be able to tell body deadline from inter-line idle
+  (* Operators must be able to tell sync body deadline from inter-line idle
      deadline by reading the message alone — the two have different
      remediations. *)
   let msg = body_timeout_message 30.0 in
   Alcotest.(check bool)
-    "message names Builder.with_body_timeout setter"
+    "message names Complete.complete path"
     true
-    (contains_substring ~needle:"Builder.with_body_timeout" msg);
+    (contains_substring ~needle:"Complete.complete non-streaming path" msg);
   Alcotest.(check bool)
     "message disambiguates from stream_idle_timeout_s"
     true
-    (contains_substring ~needle:"distinct from stream_idle_timeout_s" msg)
+    (contains_substring ~needle:"Complete.complete non-streaming path" msg)
 ;;
 
 let () =

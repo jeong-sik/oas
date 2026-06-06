@@ -77,7 +77,7 @@ let test_terminal_error_roundtrip () =
       ; inter_chunk_ms_p50 = 25.0
       ; inter_chunk_ms_p95 = 60.0
       ; inter_chunk_ms_max = 120.0
-      ; terminal = T.Terminal_error "body_timeout_s_exceeded"
+      ; terminal = T.Terminal_error "stream_idle_timeout_s_exceeded:streaming_answer"
       }
   in
   let json = T.to_yojson summary_with_error in
