@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.203.1](https://github.com/jeong-sik/oas/compare/v0.203.0...v0.203.1) (2026-06-06)
+
+
+### Bug Fixes
+
+* **oas:** remove streaming body timeout cap ([#1930](https://github.com/jeong-sik/oas/issues/1930)) ([3252c4f](https://github.com/jeong-sik/oas/commit/3252c4fe538b82c9de93e92d3491cf0f042b8e78))
+
 ## [0.203.0](https://github.com/jeong-sik/oas/compare/v0.202.0...v0.203.0) (2026-06-04)
 
 
