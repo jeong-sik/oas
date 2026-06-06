@@ -133,7 +133,6 @@ val with_max_execution_time : float -> t -> t
     @since 0.176.0 *)
 val with_stream_idle_timeout : float -> t -> t
 
-val with_body_timeout : float -> t -> t
 (** Set the total deadline applied to non-streaming HTTP completion body
     consumption. Requires a clock to be provided to the underlying request;
     without one the wrapper is skipped. A timeout surfaces as
@@ -141,6 +140,7 @@ val with_body_timeout : float -> t -> t
     treats as retryable. Streaming requests ignore this knob and rely on
     [with_stream_idle_timeout] for inter-line liveness so active long
     streams are not killed by total duration. @since 0.181.0 *)
+val with_body_timeout : float -> t -> t
 
 (** Set the agent-level inactivity deadline for the entire run. The timer
     resets on execution activity — a streamed token (every [on_event],
@@ -157,7 +157,6 @@ val with_body_timeout : float -> t -> t
 val with_execution_idle_timeout : float -> t -> t
 
 val with_max_idle_turns : int -> t -> t
-
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t
 val with_description : string -> t -> t
