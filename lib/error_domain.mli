@@ -27,6 +27,7 @@ type provider_error =
   | `Server_error of int * string (** status, message *)
   | `Network_error of string
   | `Provider_timeout of string
+  | `Streaming_timeout of Llm_provider.Http_client.timeout_phase * string
   | `Overloaded
   | `Invalid_request of string
   | `Not_found of string

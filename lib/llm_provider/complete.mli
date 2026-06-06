@@ -87,11 +87,10 @@ val complete
     message that identifies the body deadline so retry treats it
     as retryable while operators retain attribution.
 
-    Mirror of {!complete_stream}'s [?body_timeout_s], adapted for the
-    sync (non-streaming) path. Distinct from {!complete_stream}'s
-    [stream_idle_timeout_s] (which has no analogue here — there are no
-    intermediate lines to count). Non-HTTP transports (CLI subprocess,
-    custom registered) ignore [body_timeout_s]. @since 0.195.0 *)
+    Distinct from {!complete_stream}'s [stream_idle_timeout_s] (which
+    has no analogue here — there are no intermediate lines to count).
+    Non-HTTP transports (CLI subprocess, custom registered) ignore
+    [body_timeout_s]. @since 0.195.0 *)
 
 (** {1 Retry} *)
 
@@ -162,7 +161,6 @@ val complete_stream
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> ?stream_idle_timeout_s:float
-  -> ?body_timeout_s:float
   -> ?transport:Llm_transport.t
   -> config:Provider_config.t
   -> messages:Types.message list
@@ -175,13 +173,3 @@ val complete_stream
   -> ?on_telemetry:(Telemetry_event.t -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
-(** [body_timeout_s] caps the total HTTP body consumption time, in
-    seconds.  Distinct from [stream_idle_timeout_s] (which only resets
-    the deadline between successful lines and cannot interrupt a
-    single bulk read).  Requires [clock]; without one the wrapper is
-    skipped and behaviour matches versions < 0.181.0.  On expiry the
-    result is [Error (TimeoutError { phase = Stream_body; _ })] with a
-    message that identifies the body deadline (vs inter-line idle), so
-    retry treats it as retryable while operators retain
-    attribution.  Non-HTTP transports (CLI subprocess) ignore
-    [body_timeout_s].  @since 0.181.0 *)

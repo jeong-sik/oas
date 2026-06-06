@@ -48,6 +48,7 @@ let dispatch_sync
         ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
         ~trace_context
         ?priority:agent.options.priority
+        ?body_timeout_s:agent.options.body_timeout_s
         ()
     | None ->
       Llm_provider.Complete.complete
@@ -60,6 +61,7 @@ let dispatch_sync
         ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
         ~trace_context
         ?priority:agent.options.priority
+        ?body_timeout_s:agent.options.body_timeout_s
         ()
   in
   match call () with
@@ -90,7 +92,6 @@ let dispatch_stream
       ~net:agent.net
       ?clock
       ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
-      ?body_timeout_s:agent.options.body_timeout_s
       ?transport:agent.options.transport
       ~config:pc
       ~messages:prep.Agent_turn.effective_messages

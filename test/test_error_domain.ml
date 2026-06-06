@@ -1,6 +1,7 @@
 (** Error_domain tests — roundtrip conversion and retryability. *)
 
 open Agent_sdk
+module Http_client = Llm_provider.Http_client
 module Retry = Llm_provider.Retry
 
 (* ── Roundtrip: sdk_error -> poly -> sdk_error ───────────── *)
@@ -149,6 +150,7 @@ let test_to_string_each_variant () =
     ; `Server_error (503, "unavailable")
     ; `Network_error "connection refused"
     ; `Provider_timeout "3s elapsed"
+    ; `Streaming_timeout (Http_client.Stream_body, "stream body elapsed")
     ; `Overloaded
     ; `Invalid_request "bad body"
     ; `Tool_exec_failed ("search", "crash")
@@ -188,6 +190,8 @@ let test_all_variants_convert () =
     ; `Server_error (500, "x")
     ; `Network_error "x"
     ; `Provider_timeout "x"
+    ; `Streaming_timeout
+        (Http_client.Stream_idle Http_client.Streaming_thinking, "idle")
     ; `Overloaded
     ; `Invalid_request "x"
     ; `Tool_exec_failed ("t", "d")
@@ -269,6 +273,40 @@ let test_roundtrip_api_timeout () =
   match back with
   | Error.Api (Retry.Timeout _) -> ()
   | _ -> Alcotest.fail "roundtrip mismatch for Timeout"
+;;
+
+let test_roundtrip_provider_streaming_timeout () =
+  let orig =
+    Error.Provider
+      (Llm_provider.Error.Timeout
+         { provider = "provider_d"
+         ; timeout_phase = Some Http_client.Stream_body
+         ; detail = "stream body cap"
+         })
+  in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Streaming_timeout (Http_client.Stream_body, "stream body cap") -> ()
+   | _ -> Alcotest.fail "expected Streaming_timeout");
+  let back = Error_domain.to_sdk_error poly in
+  match back with
+  | Error.Provider
+      (Llm_provider.Error.Timeout
+         { timeout_phase = Some Http_client.Stream_body; detail = "stream body cap"; _ })
+    ->
+    let first_token =
+      Error.Provider
+        (Llm_provider.Error.Timeout
+           { provider = "provider_d"
+           ; timeout_phase = Some Http_client.First_token
+           ; detail = "awaiting first token"
+           })
+      |> Error_domain.of_sdk_error
+    in
+    (match first_token with
+     | `Streaming_timeout (Http_client.First_token, "awaiting first token") -> ()
+     | _ -> Alcotest.fail "expected First_token Streaming_timeout")
+  | _ -> Alcotest.fail "roundtrip mismatch for streaming Timeout"
 ;;
 
 let test_roundtrip_api_overloaded () =
@@ -490,6 +528,14 @@ let test_retryable_provider_timeout () =
     (Error_domain.is_retryable (`Provider_timeout "3s"))
 ;;
 
+let test_retryable_streaming_timeout () =
+  Alcotest.(check bool)
+    "streaming_timeout retryable"
+    true
+    (Error_domain.is_retryable
+       (`Streaming_timeout (Http_client.Stream_idle Http_client.Streaming_answer, "idle")))
+;;
+
 let test_retryable_network_error () =
   Alcotest.(check bool)
     "network_error retryable"
@@ -671,6 +717,7 @@ let test_provider_roundtrip_all_via_to_sdk () =
     ; `Server_error (500, "x")
     ; `Network_error "x"
     ; `Provider_timeout "x"
+    ; `Streaming_timeout (Http_client.Stream_body, "x")
     ; `Overloaded
     ; `Invalid_request "x"
     ]
@@ -680,9 +727,10 @@ let test_provider_roundtrip_all_via_to_sdk () =
        let sdk = Error_domain.to_sdk_error (v :> Error_domain.sdk_error_poly) in
        let s = Error.to_string sdk in
        Alcotest.(check bool) "nonempty to_string" true (String.length s > 0);
-       (* Should map to Api variant *)
-       match sdk with
-       | Error.Api _ -> ()
+       match v, sdk with
+       | `Streaming_timeout _, Error.Provider _ -> ()
+       | `Streaming_timeout _, _ -> Alcotest.fail "expected Provider for streaming_timeout"
+       | _, Error.Api _ -> ()
        | _ -> Alcotest.fail "expected Api for provider_error")
     variants
 ;;
@@ -698,6 +746,10 @@ let () =
         ; Alcotest.test_case "api server_error" `Quick test_roundtrip_api_server_error
         ; Alcotest.test_case "api network_error" `Quick test_roundtrip_api_network_error
         ; Alcotest.test_case "api timeout" `Quick test_roundtrip_api_timeout
+        ; Alcotest.test_case
+            "provider streaming timeout"
+            `Quick
+            test_roundtrip_provider_streaming_timeout
         ; Alcotest.test_case "api overloaded" `Quick test_roundtrip_api_overloaded
         ; Alcotest.test_case
             "api invalid_request"
@@ -758,6 +810,10 @@ let () =
         ; Alcotest.test_case "server_error" `Quick test_retryable_server_error
         ; Alcotest.test_case "overloaded" `Quick test_retryable_overloaded
         ; Alcotest.test_case "provider_timeout" `Quick test_retryable_provider_timeout
+        ; Alcotest.test_case
+            "streaming_timeout"
+            `Quick
+            test_retryable_streaming_timeout
         ; Alcotest.test_case "network_error" `Quick test_retryable_network_error
         ; Alcotest.test_case "auth_error" `Quick test_retryable_auth_error
         ; Alcotest.test_case "invalid_request" `Quick test_retryable_invalid_request

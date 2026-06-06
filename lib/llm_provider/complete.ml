@@ -641,18 +641,14 @@ let complete_http
             ~body:body_str
             ()
         in
-        (* Body-level deadline (since 0.195.0): mirror of [complete_stream]'s
-           [body_timeout_s], adapted for the non-streaming path. Wraps the
-           entire [Http_client.post_sync] in [Eio.Time.with_timeout_exn] so a
-           slow provider (no progress on the wire, or progress slower than
-           caller can tolerate) cannot hang indefinitely.
+        (* Body-level deadline (since 0.195.0): wraps the entire
+           [Http_client.post_sync] in [Eio.Time.with_timeout_exn] so a slow
+           non-streaming provider (no progress on the wire, or progress
+           slower than caller can tolerate) cannot hang indefinitely.
+           Streaming calls deliberately use [stream_idle_timeout_s] instead
+           of a total body deadline.
 
-           Distinct from [complete_stream]'s same-named parameter:
-           - complete_stream covers inter-line silence with
-             [stream_idle_timeout_s] plus the body cap; here there are no
-             intermediate lines to count, so [body_timeout_s] is the only
-             deadline available on the non-streaming path.
-           - No silent failure: on expiry we return a structured
+           No silent failure: on expiry we return a structured
              [TimeoutError { phase = Non_streaming_body }] whose message
              identifies the body deadline, so retry layers treat it
              as retryable with operator-visible attribution. *)
@@ -667,7 +663,7 @@ let complete_http
                         Printf.sprintf
                           "body_timeout_s deadline exceeded after %.1fs \
                            (Complete.complete non-streaming path; total HTTP round-trip \
-                           cap, mirrors complete_stream contract)"
+                           cap)"
                           timeout_s
                     ; phase = Http_client.Non_streaming_body
                     }))
@@ -1159,7 +1155,6 @@ let complete_stream_http
       ~net
       ?clock
       ?stream_idle_timeout_s
-      ?body_timeout_s
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ~(config : Provider_config.t)
@@ -1548,44 +1543,7 @@ let complete_stream_http
                 publish_summary ~terminal:!terminal_state ();
                 result
             in
-            (* Body-level deadline (since 0.181.0). Wraps the entire
-               body callback in [Eio.Time.with_timeout_exn] so a single
-               bulk read that produces no line breaks cannot hang
-               indefinitely — [stream_idle_timeout_s] only resets
-               between lines, leaving in-line silence uncovered.
-
-               No silent failure: on expiry we raise an inner [Error]
-               whose message carries the configured deadline, and the
-               outer match below promotes it to
-               [TimeoutError { phase = Stream_body }] so the retry
-               layer treats it as retryable. *)
-            match clock, body_timeout_s with
-            | Some clk, Some timeout_s ->
-              (try Eio.Time.with_timeout_exn clk timeout_s body_logic with
-               | Eio.Time.Timeout ->
-                 emit_telemetry
-                   (Telemetry_event.Timeout
-                      { provider; model; timeout_type = Telemetry_event.Stream_body });
-                 (* RFC-OAS-019: timeout path also publishes the summary
-                    so operators see the partial stream's distribution. *)
-                 publish_summary
-                   ~terminal:(Telemetry_event.Terminal_error "body_timeout_s_exceeded")
-                   ();
-                 Error
-                   (Http_client.TimeoutError
-                      { message =
-                          Printf.sprintf
-                            "body_timeout_s deadline exceeded after %.1fs (configured \
-                             via Builder.with_body_timeout; total body consumption cap, \
-                             distinct from stream_idle_timeout_s)"
-                            timeout_s
-                      ; phase = Http_client.Stream_body
-                      }))
-            | _, _ ->
-              (* Explicit no-deadline path: caller did not provide a
-                   clock or did not configure body_timeout_s. Behaviour
-                   matches versions < 0.181.0. *)
-              body_logic ())
+            body_logic ())
           ()
       with
       | Error _ as e ->
@@ -1679,7 +1637,6 @@ let complete_stream
       ~net
       ?clock
       ?stream_idle_timeout_s
-      ?body_timeout_s
       ?(transport : Llm_transport.t option)
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
@@ -1724,7 +1681,6 @@ let complete_stream
           ~net
           ?clock
           ?stream_idle_timeout_s
-          ?body_timeout_s
           ?on_telemetry
           ~metrics
           ~config:request_config

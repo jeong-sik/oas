@@ -51,18 +51,17 @@ type options =
         [stdout_idle_timeout_s] knob via the transport's own config.
         @since 0.176.0 *)
   ; body_timeout_s : float option
-    (** Total deadline applied to streaming HTTP body consumption.
-        Wraps the entire body callback passed to
-        {!Llm_provider.Http_client.with_post_stream} in
-        [Eio.Time.with_timeout_exn], complementing
-        [stream_idle_timeout_s] (which only caps inter-line silence).
-        Catches the case where a single bulk read hangs without
-        producing line breaks — uncancellable by the inter-line
-        deadline alone. Requires [clock] to be supplied; without a
-        clock the wrapper is skipped and behaviour matches earlier
-        versions. A timeout surfaces as
-        [TimeoutError { phase = Stream_body; _ }] which the retry
-        layer treats as retryable.
+    (** Total deadline applied to non-streaming HTTP completion body
+        consumption. Threaded through {!Pipeline.stage_route} into
+        {!Llm_provider.Complete.complete} /
+        {!Llm_provider.Complete.complete_with_retry}, where it wraps the
+        synchronous HTTP body read in [Eio.Time.with_timeout_exn].
+        Requires [clock] to be supplied; without a clock the wrapper is
+        skipped. A timeout surfaces as
+        [TimeoutError { phase = Non_streaming_body; _ }] which the retry
+        layer treats as retryable. Streaming requests deliberately ignore
+        this field and use [stream_idle_timeout_s] for inter-line liveness
+        so active long streams are not killed by a total body deadline.
         @since 0.181.0 *)
   ; execution_idle_timeout_s : float option
     (** Agent-level inactivity deadline for the entire run. The timer
