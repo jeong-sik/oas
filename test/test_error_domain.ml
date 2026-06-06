@@ -190,8 +190,7 @@ let test_all_variants_convert () =
     ; `Server_error (500, "x")
     ; `Network_error "x"
     ; `Provider_timeout "x"
-    ; `Streaming_timeout
-        (Http_client.Stream_idle Http_client.Streaming_thinking, "idle")
+    ; `Streaming_timeout (Http_client.Stream_idle Http_client.Streaming_thinking, "idle")
     ; `Overloaded
     ; `Invalid_request "x"
     ; `Tool_exec_failed ("t", "d")
@@ -729,7 +728,8 @@ let test_provider_roundtrip_all_via_to_sdk () =
        Alcotest.(check bool) "nonempty to_string" true (String.length s > 0);
        match v, sdk with
        | `Streaming_timeout _, Error.Provider _ -> ()
-       | `Streaming_timeout _, _ -> Alcotest.fail "expected Provider for streaming_timeout"
+       | `Streaming_timeout _, _ ->
+         Alcotest.fail "expected Provider for streaming_timeout"
        | _, Error.Api _ -> ()
        | _ -> Alcotest.fail "expected Api for provider_error")
     variants
@@ -810,10 +810,7 @@ let () =
         ; Alcotest.test_case "server_error" `Quick test_retryable_server_error
         ; Alcotest.test_case "overloaded" `Quick test_retryable_overloaded
         ; Alcotest.test_case "provider_timeout" `Quick test_retryable_provider_timeout
-        ; Alcotest.test_case
-            "streaming_timeout"
-            `Quick
-            test_retryable_streaming_timeout
+        ; Alcotest.test_case "streaming_timeout" `Quick test_retryable_streaming_timeout
         ; Alcotest.test_case "network_error" `Quick test_retryable_network_error
         ; Alcotest.test_case "auth_error" `Quick test_retryable_auth_error
         ; Alcotest.test_case "invalid_request" `Quick test_retryable_invalid_request

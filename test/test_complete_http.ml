@@ -771,7 +771,8 @@ let provider_a_sse_frame_stop =
   "event: content_block_stop\n\
    data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
    event: message_delta\n\
-   data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n\
+   data: \
+   {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n\
    event: message_stop\n\
    data: {\"type\":\"message_stop\"}\n\n"
 ;;
@@ -787,9 +788,7 @@ let read_http_request flow =
       let content_length =
         if String.starts_with ~prefix:"content-length:" lower
         then (
-          let value =
-            String.sub line 15 (String.length line - 15) |> String.trim
-          in
+          let value = String.sub line 15 (String.length line - 15) |> String.trim in
           match int_of_string_opt value with
           | Some n -> n
           | None -> content_length)
@@ -967,33 +966,33 @@ let test_complete_stream_idle_timeout_still_fires () =
     in
     let config = make_config url in
     let on_event _evt = () in
-    (match
-       Complete.complete_stream
-         ~sw
-         ~net:env#net
-         ~clock:env#clock
-         ~stream_idle_timeout_s:0.03
-         ~config
-         ~messages
-         ~on_event
-         ()
-     with
-     | Error (Http_client.TimeoutError { phase = Http_client.First_token; message }) ->
-       let prefix = "stream_idle_timeout_s deadline exceeded" in
-       check
-         bool
-         "stream idle message"
-         true
-         (String.length message >= String.length prefix
-          && String.equal (String.sub message 0 (String.length prefix)) prefix);
-       Eio.Switch.fail sw Exit
-     | Error (Http_client.TimeoutError { phase; _ }) ->
-       fail
-         (Printf.sprintf
-            "unexpected timeout phase %s"
-            (Http_client.timeout_phase_to_label phase))
-     | Ok _ -> fail "expected stream idle timeout"
-     | Error _ -> fail "expected TimeoutError{phase=First_token}")
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~stream_idle_timeout_s:0.03
+        ~config
+        ~messages
+        ~on_event
+        ()
+    with
+    | Error (Http_client.TimeoutError { phase = Http_client.First_token; message }) ->
+      let prefix = "stream_idle_timeout_s deadline exceeded" in
+      check
+        bool
+        "stream idle message"
+        true
+        (String.length message >= String.length prefix
+         && String.equal (String.sub message 0 (String.length prefix)) prefix);
+      Eio.Switch.fail sw Exit
+    | Error (Http_client.TimeoutError { phase; _ }) ->
+      fail
+        (Printf.sprintf
+           "unexpected timeout phase %s"
+           (Http_client.timeout_phase_to_label phase))
+    | Ok _ -> fail "expected stream idle timeout"
+    | Error _ -> fail "expected TimeoutError{phase=First_token}"
   with
   | Exit -> ()
 ;;

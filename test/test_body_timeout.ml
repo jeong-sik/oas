@@ -41,8 +41,8 @@ let test_options_record_update () =
 
 let body_timeout_message timeout_s =
   Printf.sprintf
-    "body_timeout_s deadline exceeded after %.1fs (Complete.complete \
-     non-streaming path; total HTTP round-trip cap)"
+    "body_timeout_s deadline exceeded after %.1fs (Complete.complete non-streaming path; \
+     total HTTP round-trip cap)"
     timeout_s
 ;;
 
