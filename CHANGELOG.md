@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.203.2](https://github.com/jeong-sik/oas/compare/v0.203.1...v0.203.2) (2026-06-06)
+
+
+### Miscellaneous Chores
+
+* **oas:** format streaming timeout tests ([#1932](https://github.com/jeong-sik/oas/issues/1932)) ([4041753](https://github.com/jeong-sik/oas/commit/4041753b8f5c26b9013c4b7dec9435eea450fdc8))
+
 ## [0.203.1](https://github.com/jeong-sik/oas/compare/v0.203.0...v0.203.1) (2026-06-06)
 
 
