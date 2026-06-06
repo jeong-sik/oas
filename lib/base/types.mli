@@ -58,6 +58,7 @@ type agent_config =
   ; max_total_tokens : int option
   ; initial_messages : message list
   ; max_cost_usd : float option
+    (** Advisory cost telemetry threshold in USD. Never gates execution. *)
   ; context_compact_ratio : float option
   ; context_prepare_ratio : float option
   ; context_handoff_ratio : float option
@@ -81,10 +82,8 @@ val default_config : agent_config
 
     [unpriced_model] is [Some model_id] when at least one accumulated turn
     ran a model with no entry in {!Llm_provider.Pricing.pricing_for_model_opt},
-    so [estimated_cost_usd] silently under-reports.  Only the first such
-    model_id is recorded.  {!Cost_tracker.check_budget} uses this field to
-    refuse enforcement of [max_cost_usd] rather than let the dollar cap be
-    void. *)
+    so [estimated_cost_usd] under-reports.  Only the first such model_id is
+    recorded for stable telemetry; cost thresholds never gate execution. *)
 type usage_stats =
   { total_input_tokens : int
   ; total_output_tokens : int

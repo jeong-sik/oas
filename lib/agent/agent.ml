@@ -61,9 +61,10 @@ let provide_input agent request response =
 
 let check_token_budget = Agent_turn.check_token_budget
 
-(* ── Shared loop guard (max_turns + idle + budget) ─────────── *)
+(* ── Shared loop guard (max_turns + idle + token budget) ─────────── *)
 
-(** Check max_turns, idle detection, and token/cost budget.
+(** Check max_turns, idle detection, and token budget.
+    Cost is telemetry-only and never gates the loop.
     Returns [Some error] when any guard fires, [None] to proceed. *)
 let check_loop_guard agent =
   match agent.state.config.exit_condition with
@@ -83,10 +84,7 @@ let check_loop_guard agent =
       Some
         (Error.Agent
            (Error.IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
-    else (
-      match check_token_budget agent.state.config agent.state.usage with
-      | Some _ as err -> err
-      | None -> Cost_tracker.check_budget agent.state.config agent.state.usage)
+    else check_token_budget agent.state.config agent.state.usage
 ;;
 
 (* ── Unified run loop ────────────────────────────────────────── *)
@@ -176,22 +174,7 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
   (* First turn: caller already holds slot, no resume needed *)
   let rec loop ~is_first_turn =
     match check_loop_guard agent with
-    | Some err ->
-      (match err with
-       | Error.Agent (Error.CostBudgetExceeded { spent_usd; limit_usd }) ->
-         (match agent.options.event_bus with
-          | Some bus ->
-            Telemetry_bus.publish
-              (Telemetry_bus.of_event_bus bus)
-              (Llm_provider.Telemetry_event.Budget_exceeded
-                 { agent_name = agent.state.config.name
-                 ; run_id = Event_bus.fresh_id ()
-                 ; spent_usd
-                 ; limit_usd
-                 })
-          | None -> ())
-       | _ -> ());
-      Error err
+    | Some err -> Error err
     | None ->
       (* Resume slot before LLM turn (skip on first turn) *)
       if yield_enabled && not is_first_turn then do_resume ();

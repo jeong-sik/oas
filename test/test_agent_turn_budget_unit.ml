@@ -88,11 +88,7 @@ let test_denial_reason_strings () =
     "per_extend"
     "per_extend_cap_exceeded"
     (Agent_turn_budget.denial_reason_to_string Per_extend_cap_exceeded);
-  check_string "idle" "agent_idle" (Agent_turn_budget.denial_reason_to_string Agent_idle);
-  check_string
-    "cost"
-    "cost_exceeded"
-    (Agent_turn_budget.denial_reason_to_string Cost_exceeded)
+  check_string "idle" "agent_idle" (Agent_turn_budget.denial_reason_to_string Agent_idle)
 ;;
 
 (* ── stats_json ───────────────────────────────────────── *)

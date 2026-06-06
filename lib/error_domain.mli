@@ -48,8 +48,8 @@ type agent_error =
   | `Token_budget_exceeded of int * int (** used, limit *)
   | `Cost_budget_exceeded
   | `Cost_budget_unenforceable of string * float
-    (** model_id, limit_usd — [max_cost_usd] is set but a turn ran a model
-        with no pricing entry, so the cap cannot be enforced. *)
+    (** model_id, threshold_usd — legacy advisory cost classification.
+        New execution paths must not emit this as a gate. *)
   | `Idle_detected of int (** consecutive_idle_turns *)
   | `Tool_retry_exhausted of int * int * string (** attempts, limit, detail *)
   | `Agent_execution_timeout of float * float * int * int

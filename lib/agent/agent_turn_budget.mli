@@ -7,8 +7,8 @@
     - Per-extension cap (max turns per single request)
     - Total extension count (max number of extend calls)
 
-    Cost and idle checks are delegated to the caller via the
-    agent ref (reads [agent_state.usage] and [consecutive_idle_turns]).
+    Idle checks are delegated to the caller via the agent ref (reads
+    [consecutive_idle_turns]). Cost telemetry never gates extension.
 
     @since 0.78.0
 
@@ -28,7 +28,6 @@ type denial_reason =
   | Extension_limit_reached
   | Per_extend_cap_exceeded
   | Agent_idle
-  | Cost_exceeded
 
 val denial_reason_to_string : denial_reason -> string
 
@@ -61,8 +60,8 @@ val current_max : t -> int
 
 (** Build the [extend_turns] Tool.t.
 
-    The tool reads the agent state via [agent_ref] to check idle turns
-    and cost budget.  The ref is initially [None] and must be set to
+    The tool reads the agent state via [agent_ref] to check idle turns.
+    The ref is initially [None] and must be set to
     [Some agent] after [Agent.create].
 
     @param agent_ref Mutable ref to the agent (set after creation)
