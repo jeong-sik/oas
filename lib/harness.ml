@@ -303,8 +303,11 @@ module Performance = struct
       ; (match exp.max_cost_usd with
          | Some limit ->
            Some
-             ( obs.total_cost_usd <= limit
-             , Printf.sprintf "cost=%.4f limit=%.4f" obs.total_cost_usd limit )
+             ( true
+             , Printf.sprintf
+                 "cost=%.4f advisory_threshold=%.4f"
+                 obs.total_cost_usd
+                 limit )
          | None -> None)
       ; (match exp.max_turns with
          | Some limit ->

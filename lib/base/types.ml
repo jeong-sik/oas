@@ -105,7 +105,7 @@ type agent_config =
   ; initial_messages : message list
     (* Seed conversation with prior history on first run *)
   ; max_cost_usd : float option
-    (* Cost budget: max cumulative estimated cost in USD. @since 0.62.0 *)
+    (* Advisory cost telemetry threshold in USD. Never gates execution. @since 0.62.0 *)
   ; context_compact_ratio : float option
     (** Ratio of context budget at which to compact. Default 0.8 *)
   ; context_prepare_ratio : float option
@@ -164,11 +164,8 @@ let default_config =
 
     [unpriced_model] is [Some model_id] when at least one accumulated turn
     ran a model with no entry in [Pricing.pricing_for_model_opt], so
-    [estimated_cost_usd] silently under-reports.  Only the first such
-    model_id is recorded; subsequent unpriced models do not overwrite it
-    so the error message stays stable.  [Cost_tracker.check_budget] uses
-    this field to refuse enforcement of [max_cost_usd] rather than let
-    the dollar cap be void. *)
+    [estimated_cost_usd] under-reports.  Only the first such model_id is
+    recorded for stable telemetry; cost thresholds never gate execution. *)
 type usage_stats =
   { total_input_tokens : int
   ; total_output_tokens : int

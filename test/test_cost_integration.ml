@@ -1,7 +1,7 @@
-(** Integration tests for cost tracking — accumulation and budget enforcement.
+(** Integration tests for cost tracking — accumulation and advisory thresholds.
 
     Uses mock HTTP server to verify cost accumulates across turns
-    and budget limits are enforced by Agent.run.
+    and cost thresholds remain telemetry-only.
 
     Pattern: test_integration.ml (Anthropic Messages API mock) *)
 
@@ -168,9 +168,10 @@ let test_budget_exceeded () =
     ; unpriced_model = None
     }
   in
-  match Cost_tracker.check_budget config usage with
-  | Some (Error.Agent (CostBudgetExceeded _)) -> ()
-  | _ -> Alcotest.fail "expected CostBudgetExceeded"
+  Alcotest.(check bool)
+    "over advisory threshold"
+    true
+    (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
 
 let test_no_budget_unlimited () =

@@ -283,9 +283,8 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
        (* Resolve a stable model identifier.  When [provider = None] or
           [model_id] is blank, the real problem is "provider/model unknown,"
           not "the model literally named the empty string priced at $0."
-          Use an explicit sentinel so [unpriced_model = Some "<unknown>"]
-          surfaces a readable [CostBudgetUnenforceable] message instead of
-          one quoting an empty string. *)
+          Use an explicit sentinel so cost telemetry can report a stable
+          unpriced model instead of quoting an empty string. *)
        let model_id =
          match provider with
          | Some (cfg : Provider.config) when cfg.model_id <> "" -> cfg.model_id
@@ -293,10 +292,8 @@ let accumulate_usage ~current_usage ~provider ~response_usage =
        in
        (* Use [pricing_for_model_opt] so an unknown model does not silently
           collapse to zero_pricing.  When there is no pricing entry, leave
-          [estimated_cost_usd] unchanged and mark the accumulator incomplete;
-          [Cost_tracker.check_budget] returns [CostBudgetUnenforceable] for
-          hosts that opted in to [max_cost_usd], so the dollar cap fails
-          closed rather than being silently void. *)
+          [estimated_cost_usd] unchanged and mark the accumulator incomplete.
+          Cost thresholds are advisory telemetry only and do not fail closed. *)
        (match Provider.pricing_for_model_opt model_id with
         | Some pricing ->
           let turn_cost =

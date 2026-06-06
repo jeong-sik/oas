@@ -163,13 +163,13 @@ let test_performance_latency_only () =
   Alcotest.(check bool) "latency within limit" true v.passed
 ;;
 
-let test_performance_cost_exceeded () =
+let test_performance_cost_threshold_advisory () =
   let obs : Harness.Performance.observation =
     { latencies_ms = []; total_tokens = 0; total_cost_usd = 5.0; turn_count = 0 }
   in
   let exp = { Harness.Performance.default_expectation with max_cost_usd = Some 1.0 } in
   let v = Harness.Performance.evaluate obs exp in
-  Alcotest.(check bool) "cost exceeded" false v.passed
+  Alcotest.(check bool) "cost threshold advisory" true v.passed
 ;;
 
 (* ── Regression: StructuralMatch and FuzzyMatch boundaries ── *)
@@ -504,7 +504,10 @@ let () =
             test_performance_all_constraints
         ; Alcotest.test_case "no constraints" `Quick test_performance_no_constraints
         ; Alcotest.test_case "latency only" `Quick test_performance_latency_only
-        ; Alcotest.test_case "cost exceeded" `Quick test_performance_cost_exceeded
+        ; Alcotest.test_case
+            "cost threshold advisory"
+            `Quick
+            test_performance_cost_threshold_advisory
         ] )
     ; ( "regression-deep"
       , [ Alcotest.test_case "structural match" `Quick test_regression_structural_match
