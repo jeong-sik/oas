@@ -126,12 +126,50 @@ let make_format_normalization_stage ?(normalize = fun _name s -> String.trim s) 
 
 let format_normalization_stage = make_format_normalization_stage ()
 
+(* ── Stage 4: LLM Format Recovery ───────────────────────── *)
+
+(** LLMs sometimes wrap tool arguments in an extra object layer
+    (e.g. [{"input": {"count": 5}}] instead of [{"count": 5}]).
+    This stage unwraps known wrapper keys when the inner object
+    shares field names with the tool schema. *)
+let llm_format_recovery_apply (schema : Types.tool_schema) (input : Yojson.Safe.t)
+  : Yojson.Safe.t
+  =
+  match input with
+  | `Assoc [ (wrapper_key, (`Assoc _ as inner)) ] ->
+    let schema_param_names =
+      List.map (fun (p : Types.tool_param) -> p.name) schema.parameters
+    in
+    let inner_keys =
+      match inner with
+      | `Assoc fields -> List.map fst fields
+      | _ -> []
+    in
+    let known_wrappers = [ "input"; "params"; "arguments"; "args"; "payload"; "data" ] in
+    let is_known_wrapper = List.mem wrapper_key known_wrappers in
+    let shares_schema_keys =
+      List.exists (fun k -> List.mem k schema_param_names) inner_keys
+    in
+    if is_known_wrapper || shares_schema_keys then inner else input
+  | _ -> input
+;;
+
+let llm_format_recovery_stage =
+  { name = "llm_format_recovery"; apply = llm_format_recovery_apply }
+;;
+
 (* ── Default pipeline ───────────────────────────────────── *)
 
-let default_stages = [ coercion_stage; format_normalization_stage ]
+let default_stages =
+  [ llm_format_recovery_stage; coercion_stage; format_normalization_stage ]
+;;
 
 let zero_default_stages =
-  [ coercion_stage; default_injection_stage; format_normalization_stage ]
+  [ llm_format_recovery_stage
+  ; coercion_stage
+  ; default_injection_stage
+  ; format_normalization_stage
+  ]
 ;;
 
 (* ── Correction tracking ────────────────────────────────── *)

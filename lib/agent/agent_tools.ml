@@ -323,7 +323,7 @@ let find_and_execute_tool_with_index
           ; content = message
           ; is_error = true
           ; failure_kind = Some Validation_error
-          ; error_class = Some Types.Deterministic
+          ; error_class = None
           }
         in
         let emit_post_tool_use_failure ~input message =
