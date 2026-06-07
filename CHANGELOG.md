@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.1](https://github.com/jeong-sik/oas/compare/v0.204.0...v0.204.1) (2026-06-07)
+
+
+### Bug Fixes
+
+* **oas:** correct tool retry policy classification + add LLM format recovery ([#1936](https://github.com/jeong-sik/oas/issues/1936)) ([22b268c](https://github.com/jeong-sik/oas/commit/22b268c68c1c793c26af62036244c521622b3b15))
+
 ## [0.204.0](https://github.com/jeong-sik/oas/compare/v0.203.2...v0.204.0) (2026-06-06)
 
 
