@@ -36,12 +36,16 @@ let create ~max_concurrent ~provider_name =
   }
 ;;
 
-let with_permit_priority ~priority t f =
-  (* RFC-0101 PR-3: compose per-provider permit with process-wide FD
-     throttle hook. Identity default when no embedder registered, so
-     standalone OAS behaviour is unchanged. *)
-  Slot_scheduler.with_permit ~priority t.scheduler (fun () ->
-    Fd_throttle_hook.with_slot f)
+let with_permit_priority ~priority:_ _t f =
+  (* OAS is a stateless adapter; concurrency control is the responsibility
+     of upstream consumers (MASC). Per-provider slot scheduling is bypassed
+     because MASC already has fine-grained per-keeper / per-lane capacity
+     gates (Keeper_turn_capacity, Runtime_lane_capacity). OAS-level slot
+     queueing creates invisible backpressure that MASC cannot observe,
+     leading to liveness timeout mismatches (no_first_token).
+
+     Process-wide FD throttle hook is preserved as a safety net. *)
+  Fd_throttle_hook.with_slot f
 ;;
 
 let with_permit t f = with_permit_priority ~priority:Request_priority.Background t f
