@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.3](https://github.com/jeong-sik/oas/compare/v0.204.2...v0.204.3) (2026-06-08)
+
+
+### Features
+
+* **agent:** add missing tool name aliases for deprecated names ([#18922](https://github.com/jeong-sik/oas/issues/18922)) ([#1943](https://github.com/jeong-sik/oas/issues/1943)) ([95ccbbc](https://github.com/jeong-sik/oas/commit/95ccbbc139ab40797eb1bc6b18350d3e3c75951b))
+
 ## [0.204.2](https://github.com/jeong-sik/oas/compare/v0.204.1...v0.204.2) (2026-06-08)
 
 
