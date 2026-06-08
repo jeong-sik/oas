@@ -47,8 +47,12 @@ val apply_sampling_defaults : Provider_config.t -> Provider_config.t
 
     @since 0.78.0 *)
 val make_http_transport
-  :  sw:Eio.Switch.t
+  :  ?clock:_ Eio.Time.clock
+  -> ?stream_idle_timeout_s:float
+  -> ?body_timeout_s:float
+  -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> unit
   -> Llm_transport.t
 
 (** {1 Sync Completion} *)

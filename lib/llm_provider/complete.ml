@@ -1716,13 +1716,15 @@ let complete_stream
 
 (* ── HTTP Transport constructor ─────────────────────── *)
 
-let make_http_transport ~sw ~net : Llm_transport.t =
+let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net () : Llm_transport.t =
   { complete_sync =
       (fun (req : Llm_transport.completion_request) ->
         let response, latency_ms =
           complete_http
             ~sw
             ~net
+            ?clock
+            ?body_timeout_s
             ~config:req.config
             ~messages:req.messages
             ~tools:req.tools
@@ -1734,6 +1736,8 @@ let make_http_transport ~sw ~net : Llm_transport.t =
         complete_stream_http
           ~sw
           ~net
+          ?clock
+          ?stream_idle_timeout_s
           ~config:req.config
           ~messages:req.messages
           ~tools:req.tools
