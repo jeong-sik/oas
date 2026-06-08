@@ -133,22 +133,14 @@ val with_max_execution_time : float -> t -> t
     @since 0.176.0 *)
 val with_stream_idle_timeout : float -> t -> t
 
-(** Set the per-line idle deadline applied to streaming HTTP responses
-    (Ollama NDJSON, Anthropic / Provider_d / Gemini / Glm SSE). Resets after
-    each successful line, so this caps inter-chunk silence — not total
-    stream duration. A stalled endpoint surfaces as
-    [TimeoutError { phase = Stream_idle state; _ }], preserving whether
-    the stream was waiting for answer/thinking/tool-call progress.
-    @since 0.176.0 *)
+(** Set the total deadline applied to non-streaming HTTP completion body
+    consumption. Requires a clock to be provided to the underlying request;
+    without one the wrapper is skipped. A timeout surfaces as
+    [TimeoutError { phase = Non_streaming_body; _ }] which the retry layer
+    treats as retryable. Streaming requests ignore this knob and rely on
+    [with_stream_idle_timeout] for inter-line liveness so active long
+    streams are not killed by total duration. @since 0.181.0 *)
 val with_body_timeout : float -> t -> t
-(** Set the total deadline applied to streaming HTTP body consumption.
-    Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
-    [with_stream_idle_timeout] (which only caps inter-line silence).
-    Catches the case where a single bulk read hangs without producing
-    line breaks. Requires a clock to be provided to the underlying
-    request; without one the wrapper is skipped. A timeout surfaces as
-    [TimeoutError { phase = Stream_body; _ }] which the retry
-    layer treats as retryable. @since 0.181.0 *)
 
 (** Set the agent-level inactivity deadline for the entire run. The timer
     resets on execution activity — a streamed token (every [on_event],
@@ -164,16 +156,7 @@ val with_body_timeout : float -> t -> t
     is observed only at turn boundaries. @since 0.201.0 *)
 val with_execution_idle_timeout : float -> t -> t
 
-(** Set the total deadline applied to streaming HTTP body consumption.
-    Wraps the body callback in [Eio.Time.with_timeout_exn], complementing
-    [with_stream_idle_timeout] (which only caps inter-line silence).
-    Catches the case where a single bulk read hangs without producing
-    line breaks. Requires a clock to be provided to the underlying
-    request; without one the wrapper is skipped. A timeout surfaces as
-    [TimeoutError { phase = Stream_body; _ }] which the retry
-    layer treats as retryable. @since 0.181.0 *)
 val with_max_idle_turns : int -> t -> t
-
 val with_idle_final_warning_at : int -> t -> t
 val with_elicitation : Hooks.elicitation_callback -> t -> t
 val with_description : string -> t -> t

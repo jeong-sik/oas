@@ -49,7 +49,7 @@ let registry : entry list =
     }
   ; { signal = "Budget_exceeded"
     ; producer_files = [ "lib/agent/agent.ml" ]
-    ; description = "Cost budget exceeded during agent run loop"
+    ; description = "Legacy advisory cost threshold exceeded"
     }
   ; { signal = "Context_window_usage"
     ; producer_files = [ "lib/pipeline/pipeline.ml" ]

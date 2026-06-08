@@ -34,6 +34,7 @@ type metrics_snapshot =
   ; tool_errors_total : int option
   ; api_calls_total : int option
   ; failed_api_calls_total : int option
+  ; cost_usd : float option
   }
 
 (** {1 Extraction} *)

@@ -1,4 +1,4 @@
-(** Per-agent cost tracking and budget enforcement.
+(** Per-agent cost tracking and advisory reporting.
 
     @since 0.62.0
 
@@ -16,10 +16,10 @@ type cost_report =
   ; avg_cost_per_call : float
   }
 
-(** Check whether accumulated cost exceeds [config.max_cost_usd].
+(** Compatibility shim for older callers.
 
-    Returns [Some (Error.Agent (CostBudgetExceeded _))] when over budget,
-    [None] when within budget or no limit is set. *)
+    Cost thresholds are advisory telemetry only. This function returns
+    [None] unconditionally and must not gate execution. *)
 val check_budget : Types.agent_config -> Types.usage_stats -> Error.sdk_error option
 
 (** Generate a structured cost report from usage stats. *)

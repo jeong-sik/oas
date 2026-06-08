@@ -1,6 +1,7 @@
 (** Fine-grained error domains using polymorphic variants. *)
 
 module Retry = Llm_provider.Retry
+module Http_client = Llm_provider.Http_client
 
 type provider_error =
   [ `Rate_limited of float option
@@ -8,6 +9,7 @@ type provider_error =
   | `Server_error of int * string
   | `Network_error of string
   | `Provider_timeout of string
+  | `Streaming_timeout of Http_client.timeout_phase * string
   | `Overloaded
   | `Invalid_request of string
   | `Not_found of string
@@ -76,6 +78,20 @@ let of_api_error (err : Retry.api_error) : provider_error =
   | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
 ;;
 
+let is_streaming_timeout_phase = function
+  | Http_client.First_token | Http_client.Stream_body | Http_client.Stream_idle _ -> true
+  | Http_client.Admission
+  | Http_client.Queue
+  | Http_client.Wall_clock
+  | Http_client.Capacity_backpressure
+  | Http_client.Http_operation
+  | Http_client.Non_streaming_body
+  | Http_client.Provider_step
+  | Http_client.Cli_stdout_idle
+  | Http_client.Caller_budget
+  | Http_client.Unknown_timeout -> false
+;;
+
 let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error =
   match err with
   | Llm_provider.Error.RateLimit r -> `Rate_limited r.retry_after
@@ -83,7 +99,11 @@ let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error
   | Llm_provider.Error.AuthError r -> `Auth_error r.detail
   | Llm_provider.Error.ServerError r -> `Server_error (r.code, r.detail)
   | Llm_provider.Error.NetworkError r -> `Network_error r.detail
-  | Llm_provider.Error.Timeout r -> `Provider_timeout r.detail
+  | Llm_provider.Error.Timeout r ->
+    (match r.timeout_phase with
+     | Some phase when is_streaming_timeout_phase phase ->
+       `Streaming_timeout (phase, r.detail)
+     | Some _ | None -> `Provider_timeout r.detail)
   | Llm_provider.Error.CapacityExhausted _ -> `Overloaded
   | Llm_provider.Error.InvalidRequest r -> `Invalid_request r.reason
   | Llm_provider.Error.NotFound r -> `Not_found r.detail
@@ -136,22 +156,27 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
 
 (* ── Conversion back to Error.sdk_error ─────────────────── *)
 
-let provider_to_api : provider_error -> Retry.api_error = function
+let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Rate_limited after ->
-    Retry.RateLimited { retry_after = after; message = "rate limited" }
-  | `Auth_error msg -> Retry.AuthError { message = msg }
-  | `Server_error (status, msg) -> Retry.ServerError { status; message = msg }
-  | `Network_error msg -> Retry.NetworkError { message = msg; kind = Unknown }
-  | `Provider_timeout msg -> Retry.Timeout { message = msg }
-  | `Overloaded -> Retry.Overloaded { message = "overloaded" }
-  | `Invalid_request msg -> Retry.InvalidRequest { message = msg }
-  | `Not_found msg -> Retry.NotFound { message = msg }
-  | `Context_overflow (msg, limit) -> Retry.ContextOverflow { message = msg; limit }
+    Error.Api (Retry.RateLimited { retry_after = after; message = "rate limited" })
+  | `Auth_error msg -> Error.Api (Retry.AuthError { message = msg })
+  | `Server_error (status, msg) -> Error.Api (Retry.ServerError { status; message = msg })
+  | `Network_error msg -> Error.Api (Retry.NetworkError { message = msg; kind = Unknown })
+  | `Provider_timeout msg -> Error.Api (Retry.Timeout { message = msg })
+  | `Streaming_timeout (phase, msg) ->
+    Error.Provider
+      (Llm_provider.Error.Timeout
+         { provider = "unknown"; timeout_phase = Some phase; detail = msg })
+  | `Overloaded -> Error.Api (Retry.Overloaded { message = "overloaded" })
+  | `Invalid_request msg -> Error.Api (Retry.InvalidRequest { message = msg })
+  | `Not_found msg -> Error.Api (Retry.NotFound { message = msg })
+  | `Context_overflow (msg, limit) ->
+    Error.Api (Retry.ContextOverflow { message = msg; limit })
 ;;
 
 let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   match err with
-  | #provider_error as e -> Error.Api (provider_to_api e)
+  | #provider_error as e -> provider_to_sdk e
   | `Max_turns_exceeded (turns, limit) -> Error.Agent (MaxTurnsExceeded { turns; limit })
   | `Token_budget_exceeded (used, limit) ->
     Error.Agent (TokenBudgetExceeded { kind = "total"; used; limit })
@@ -230,6 +255,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Server_error _
   | `Overloaded
   | `Provider_timeout _
+  | `Streaming_timeout _
   | `Network_error _ -> true
   | `Mcp_init_failed _
   | `Mcp_tool_list_failed _

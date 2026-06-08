@@ -16,14 +16,12 @@ type denial_reason =
   | Extension_limit_reached
   | Per_extend_cap_exceeded
   | Agent_idle
-  | Cost_exceeded
 
 let denial_reason_to_string = function
   | Ceiling_reached -> "ceiling_reached"
   | Extension_limit_reached -> "extension_limit_reached"
   | Per_extend_cap_exceeded -> "per_extend_cap_exceeded"
   | Agent_idle -> "agent_idle"
-  | Cost_exceeded -> "cost_exceeded"
 ;;
 
 (** [history] is the only mutable cell. The previous implementation kept
@@ -86,35 +84,17 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
       try Yojson.Safe.Util.(member "reason" input |> to_string) with
       | Yojson.Safe.Util.Type_error _ | Not_found -> "no reason given"
     in
-    (* Check agent-level guardrails *)
+    (* Check agent-level guardrails. Cost telemetry never denies extension. *)
     let agent_check =
       match !agent_ref with
       | None -> Ok ()
       | Some agent ->
-        let state = Agent_types.state agent in
         (* Idle check: deny if agent has been idle *)
         if
           (Agent_types.options agent).max_idle_turns > 0
           && agent.consecutive_idle_turns >= max_idle_before_extend
         then Error Agent_idle
-        (* Cost check: deny if cost budget exceeded, or if any past turn
-           ran an unpriced model so the dollar cap cannot be enforced. *)
-        else (
-          match state.config.max_cost_usd with
-          | None -> Ok ()
-          | Some max_cost ->
-            if Option.is_some state.usage.unpriced_model
-            then
-              Error Cost_exceeded
-              (* Use strict greater-than to align with
-                 [Cost_tracker.check_budget], which is the SSOT for cost
-                 enforcement (see [lib/cost_tracker.ml]).  Previously this
-                 used [>=], so a run sitting exactly at the cap would have
-                 its extension denied while [check_budget] still allowed the
-                 turn loop to continue -- inconsistent. *)
-            else if state.usage.estimated_cost_usd > max_cost
-            then Error Cost_exceeded
-            else Ok ())
+        else Ok ()
     in
     match agent_check with
     | Error reason_code ->
@@ -165,8 +145,9 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
     ~name:"extend_turns"
     ~description:
       "Request additional turns when you need more time to complete your current task. \
-       The system checks guardrails (cost budget, idle detection, ceiling) before \
-       granting. Call this when you judge you need more steps, not preemptively."
+       The system checks guardrails (idle detection, ceiling, extension limits) before \
+       granting. Cost is reported as telemetry only. Call this when you judge you need \
+       more steps, not preemptively."
     ~parameters:
       [ { name = "additional_turns"
         ; description = "Number of additional turns to request (1-20)"

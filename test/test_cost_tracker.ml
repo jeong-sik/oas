@@ -58,15 +58,14 @@ let test_check_budget_at_limit () =
     (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
 
-let test_check_budget_exceeded () =
+let test_check_budget_exceeded_is_advisory () =
   let config = make_config ~max_cost_usd:1.0 () in
   let usage = make_usage ~cost:1.001 () in
-  match Cost_tracker.check_budget config usage with
-  | Some (Error.Agent (CostBudgetExceeded r)) ->
-    check (float 0.001) "spent" 1.001 r.spent_usd;
-    check (float 0.001) "limit" 1.0 r.limit_usd
-  | Some _ -> fail "expected CostBudgetExceeded"
-  | None -> fail "expected budget exceeded error"
+  check
+    bool
+    "over advisory threshold = no execution error"
+    true
+    (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
 
 let test_check_budget_zero_limit () =
@@ -74,24 +73,22 @@ let test_check_budget_zero_limit () =
   let usage = make_usage ~cost:0.001 () in
   check
     bool
-    "zero limit + any cost = exceeded"
+    "zero limit + any cost = still advisory"
     true
-    (Option.is_some (Cost_tracker.check_budget config usage))
+    (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
 
 (* Regression: unknown model id used to leave estimated_cost_usd at 0
-   so the dollar cap never tripped (silent bypass).  Now accumulate_usage
-   stamps unpriced_model = Some <id>, and check_budget refuses to enforce
-   the cap, returning CostBudgetUnenforceable. *)
-let test_check_budget_unpriced_model_fails_closed () =
+   so cost telemetry under-reported.  accumulate_usage still stamps
+   unpriced_model = Some <id>, but check_budget remains advisory. *)
+let test_check_budget_unpriced_model_is_advisory () =
   let config = make_config ~max_cost_usd:1.0 () in
   let usage = make_usage ~cost:0.0 ~unpriced_model:(Some "mystery-model-7") () in
-  match Cost_tracker.check_budget config usage with
-  | Some (Error.Agent (CostBudgetUnenforceable r)) ->
-    check string "model_id" "mystery-model-7" r.model_id;
-    check (float 0.001) "limit" 1.0 r.limit_usd
-  | Some _ -> fail "expected CostBudgetUnenforceable"
-  | None -> fail "expected unenforceable error (cap is set + model is unpriced)"
+  check
+    bool
+    "unpriced model + cap = no execution error"
+    true
+    (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
 
 let test_check_budget_unpriced_model_no_cap_returns_none () =
@@ -99,7 +96,7 @@ let test_check_budget_unpriced_model_no_cap_returns_none () =
   let usage = make_usage ~cost:0.0 ~unpriced_model:(Some "mystery") () in
   check
     bool
-    "no cap configured + unpriced model = None (no enforcement to do)"
+    "no cap configured + unpriced model = None"
     true
     (Option.is_none (Cost_tracker.check_budget config usage))
 ;;
@@ -243,12 +240,12 @@ let () =
       , [ test_case "no limit" `Quick test_check_budget_no_limit
         ; test_case "under budget" `Quick test_check_budget_under
         ; test_case "at limit" `Quick test_check_budget_at_limit
-        ; test_case "exceeded" `Quick test_check_budget_exceeded
+        ; test_case "exceeded remains advisory" `Quick test_check_budget_exceeded_is_advisory
         ; test_case "zero limit" `Quick test_check_budget_zero_limit
         ; test_case
-            "unpriced model + cap = unenforceable"
+            "unpriced model + cap = advisory"
             `Quick
-            test_check_budget_unpriced_model_fails_closed
+            test_check_budget_unpriced_model_is_advisory
         ; test_case
             "unpriced model + no cap = None"
             `Quick

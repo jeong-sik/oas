@@ -747,6 +747,94 @@ let provider_a_sse_response text =
     text
 ;;
 
+let provider_a_sse_frame_message_start =
+  "event: message_start\n\
+   data: \
+   {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\n"
+;;
+
+let provider_a_sse_frame_content_block_start =
+  "event: content_block_start\n\
+   data: \
+   {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+;;
+
+let provider_a_sse_frame_delta text =
+  Printf.sprintf
+    "event: content_block_delta\n\
+     data: \
+     {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"%s\"}}\n\n"
+    text
+;;
+
+let provider_a_sse_frame_stop =
+  "event: content_block_stop\n\
+   data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+   event: message_delta\n\
+   data: \
+   {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n\
+   event: message_stop\n\
+   data: {\"type\":\"message_stop\"}\n\n"
+;;
+
+let read_http_request flow =
+  let reader = Eio.Buf_read.of_flow flow ~max_size:8192 in
+  let _request_line = Eio.Buf_read.line reader in
+  let rec read_headers content_length =
+    match Eio.Buf_read.line reader with
+    | "" -> content_length
+    | line ->
+      let lower = String.lowercase_ascii line in
+      let content_length =
+        if String.starts_with ~prefix:"content-length:" lower
+        then (
+          let value = String.sub line 15 (String.length line - 15) |> String.trim in
+          match int_of_string_opt value with
+          | Some n -> n
+          | None -> content_length)
+        else content_length
+      in
+      read_headers content_length
+    | exception End_of_file -> content_length
+  in
+  let content_length = read_headers 0 in
+  if content_length > 0 then ignore (Eio.Buf_read.take content_length reader : string)
+;;
+
+let start_raw_sse_server ~sw ~net ~clock delayed_frames =
+  let port = fresh_port () in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Net.accept_fork
+      ~sw
+      socket
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         try
+           read_http_request flow;
+           Eio.Flow.copy_string
+             "HTTP/1.1 200 OK\r\n\
+              Content-Type: text/event-stream\r\n\
+              Connection: close\r\n\
+              \r\n"
+             flow;
+           List.iter
+             (fun (delay_sec, frame) ->
+                if delay_sec > 0.0 then Eio.Time.sleep clock delay_sec;
+                Eio.Flow.copy_string frame flow)
+             delayed_frames
+         with
+         | _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
 let start_sse_server ~sw ~net response_body =
   let port = fresh_port () in
   let handler _conn _req body =
@@ -794,6 +882,117 @@ let test_complete_stream_ok () =
       check bool "events received" true (List.length !events > 0);
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
+let text_of_response (resp : Types.api_response) =
+  List.filter_map
+    (function
+      | Types.Text s -> Some s
+      | _ -> None)
+    resp.content
+  |> String.concat ""
+;;
+
+let test_complete_stream_active_chunks_can_exceed_idle_timeout_total () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_raw_sse_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        [ 0.0, provider_a_sse_frame_message_start
+        ; 0.03, provider_a_sse_frame_content_block_start
+        ; 0.03, provider_a_sse_frame_delta "active "
+        ; 0.03, provider_a_sse_frame_delta "long "
+        ; 0.03, provider_a_sse_frame_delta "stream"
+        ; 0.03, provider_a_sse_frame_stop
+        ]
+    in
+    let config = make_config url in
+    let events = ref [] in
+    let on_event evt = events := evt :: !events in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~stream_idle_timeout_s:0.08
+        ~config
+        ~messages
+        ~on_event
+        ()
+    with
+    | Ok resp ->
+      check string "text" "active long stream" (text_of_response resp);
+      check bool "events received" true (List.length !events > 0);
+      Eio.Switch.fail sw Exit
+    | Error err ->
+      fail
+        (Printf.sprintf
+           "expected active stream to complete, got %s"
+           (match err with
+            | Http_client.NetworkError { message; _ }
+            | Http_client.TimeoutError { message; _ } -> message
+            | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
+            | Http_client.AcceptRejected { reason } -> reason
+            | Http_client.ProviderTerminal { message; _ } -> message
+            | Http_client.ProviderFailure { message; _ } -> message))
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_idle_timeout_still_fires () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_raw_sse_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        [ 0.12, provider_a_sse_frame_message_start
+        ; 0.0, provider_a_sse_frame_content_block_start
+        ; 0.0, provider_a_sse_frame_delta "late"
+        ; 0.0, provider_a_sse_frame_stop
+        ]
+    in
+    let config = make_config url in
+    let on_event _evt = () in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~stream_idle_timeout_s:0.03
+        ~config
+        ~messages
+        ~on_event
+        ()
+    with
+    | Error (Http_client.TimeoutError { phase = Http_client.First_token; message }) ->
+      let prefix = "stream_idle_timeout_s deadline exceeded" in
+      check
+        bool
+        "stream idle message"
+        true
+        (String.length message >= String.length prefix
+         && String.equal (String.sub message 0 (String.length prefix)) prefix);
+      Eio.Switch.fail sw Exit
+    | Error (Http_client.TimeoutError { phase; _ }) ->
+      fail
+        (Printf.sprintf
+           "unexpected timeout phase %s"
+           (Http_client.timeout_phase_to_label phase))
+    | Ok _ -> fail "expected stream idle timeout"
+    | Error _ -> fail "expected TimeoutError{phase=First_token}"
   with
   | Exit -> ()
 ;;
@@ -983,6 +1182,14 @@ let () =
     ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "active chunks exceed idle total"
+            `Quick
+            test_complete_stream_active_chunks_can_exceed_idle_timeout_total
+        ; test_case
+            "stream idle timeout still fires"
+            `Quick
+            test_complete_stream_idle_timeout_still_fires
         ; test_case "streaming metrics" `Quick test_complete_stream_metrics
         ] )
     ]

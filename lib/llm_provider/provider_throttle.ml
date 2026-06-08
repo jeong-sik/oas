@@ -4,6 +4,8 @@
 
     @since 0.84.0 *)
 
+open Request_priority
+
 type capacity_source =
   | Discovered
   | Fallback

@@ -114,7 +114,9 @@ let resolve ~requested ~input =
   | "Read" -> Some ("ReadFile", normalize_read_input input)
   | "Grep" | "Search" | "Find" -> Some ("SearchFiles", normalize_search_input input)
   (* boundary-allow *)
-  | "Bash" | "Shell" | "execute_command" | "masc_code_shell" ->
+  | "Bash" | "Shell" | "execute_command" | "masc_code_shell" | "keeper_bash" ->
     Some ("Execute", normalize_execute_input input)
+  | "masc_tasks_list" -> Some ("masc_tasks", input)
+  | "masc_code_search" -> Some ("SearchFiles", normalize_search_input input)
   | _ -> None
 ;;

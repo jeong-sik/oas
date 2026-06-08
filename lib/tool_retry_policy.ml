@@ -28,7 +28,7 @@ type error_class = Types.tool_error_class =
   | Unknown
 
 let classify = function
-  | Validation_error -> Deterministic
+  | Validation_error -> Transient
   | Recoverable_tool_error -> Transient
 ;;
 
@@ -82,12 +82,12 @@ let clear_context_retry_count (context : Context.t) =
 ;;
 
 let failure_enabled (policy : t) (failure : failure) =
-  match failure.kind with
-  | Validation_error -> policy.retry_on_validation_error
-  | Recoverable_tool_error ->
-    (match failure.error_class with
-     | Deterministic -> false
-     | Transient | Unknown -> policy.retry_on_recoverable_tool_error)
+  match failure.error_class with
+  | Deterministic -> false
+  | Transient | Unknown ->
+    (match failure.kind with
+     | Validation_error -> policy.retry_on_validation_error
+     | Recoverable_tool_error -> policy.retry_on_recoverable_tool_error)
 ;;
 
 let dedup_preserve_order xs =
