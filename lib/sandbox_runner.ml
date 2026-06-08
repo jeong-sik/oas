@@ -202,6 +202,7 @@ let run ~config ~agent_name ~model ~prompt ~run_fn =
     collector
     { name = "success"; value = Bool_val success; unit_ = None; tags = [] };
   let metrics = Eval.finalize collector in
+  Eval_otel_bridge.emit_run_metrics (Otel_tracer.create_instance ()) metrics;
   (* Generate verdicts *)
   let verdicts =
     let budget_ok = state.tool_call_count <= config.max_tool_calls in
