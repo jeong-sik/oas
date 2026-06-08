@@ -29,6 +29,7 @@ type metrics_snapshot =
   ; tool_errors_total : int option
   ; api_calls_total : int option
   ; failed_api_calls_total : int option
+  ; cost_usd : float option
   }
 
 (* ── Extraction ────────────────────────────────────────────────── *)
@@ -58,6 +59,11 @@ let extract (rm : Eval.run_metrics) : metrics_snapshot =
       , Some s.api_calls
       , Some s.failed_api_calls )
   in
+  let cost_usd =
+    match List.find_opt (fun (m : Eval.metric) -> m.name = "cost_usd") rm.metrics with
+    | Some m -> Eval.metric_value_to_float m.value
+    | None -> None
+  in
   { agent_name = rm.agent_name
   ; run_id = rm.run_id
   ; verdict_passed_total = passed
@@ -68,6 +74,7 @@ let extract (rm : Eval.run_metrics) : metrics_snapshot =
   ; tool_errors_total
   ; api_calls_total
   ; failed_api_calls_total
+  ; cost_usd
   }
 ;;
 
@@ -124,6 +131,13 @@ let to_metric_list (snap : metrics_snapshot) : otel_metric list =
              ; metric_type = "counter"
              })
           snap.failed_api_calls_total
+      ; Option.map
+          (fun v ->
+             { name = "oas.eval.cost_usd"
+             ; value = v
+             ; metric_type = "gauge"
+             })
+          snap.cost_usd
       ]
   in
   required @ optional
