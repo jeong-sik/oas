@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.5](https://github.com/jeong-sik/oas/compare/v0.204.4...v0.204.5) (2026-06-08)
+
+
+### Features
+
+* **streaming:** add Connected and Timeout constructors to sse_event ([#1947](https://github.com/jeong-sik/oas/issues/1947)) ([e66bdcb](https://github.com/jeong-sik/oas/commit/e66bdcb9d9e35c9e9ad0758c3bc5a198873e14cf))
+
 ## [0.204.4](https://github.com/jeong-sik/oas/compare/v0.204.3...v0.204.4) (2026-06-08)
 
 
