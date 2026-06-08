@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.4](https://github.com/jeong-sik/oas/compare/v0.204.3...v0.204.4) (2026-06-08)
+
+
+### Features
+
+* **streaming:** propagate Connected and Timeout events down the callback line and clean dune-project ([#1945](https://github.com/jeong-sik/oas/issues/1945)) ([3555e34](https://github.com/jeong-sik/oas/commit/3555e342d990d8b8063e41b1fafbb6fb1272e361))
+
 ## [0.204.3](https://github.com/jeong-sik/oas/compare/v0.204.2...v0.204.3) (2026-06-08)
 
 
