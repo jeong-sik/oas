@@ -65,7 +65,7 @@ let merge_config ~(transport_cfg : config) (req_cfg : Provider_config.t)
 ;;
 
 let create ~sw ~net ~(config : config) : Llm_transport.t =
-  let http_transport = Complete.make_http_transport ~sw ~net in
+  let http_transport = Complete.make_http_transport ~sw ~net () in
   { complete_sync =
       (fun (req : Llm_transport.completion_request) ->
         let merged = merge_config ~transport_cfg:config req.config in

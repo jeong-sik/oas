@@ -1,14 +1,6 @@
 (lang dune 3.22)
 (name agent_sdk)
 (version 0.204.3) ; x-release-please-version
-(lang dune 3.22)
-(name agent_sdk)
-(version 0.204.3) ; x-release-please-version
-||||||| parent of b38a7dd2 (chore(release): bump version to 0.204.2)
-(version 0.204.3) ; x-release-please-version
-=======
-(version 0.204.3) ; x-release-please-version
->>>>>>> b38a7dd2 (chore(release): bump version to 0.204.2)
 
 (generate_opam_files true)
 
