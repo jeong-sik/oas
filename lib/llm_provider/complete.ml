@@ -1281,6 +1281,8 @@ let complete_stream_http
         | Types.Ping -> `Heartbeat
         | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _ ->
           `Wire_error
+        | Types.Connected -> `Skip
+        | Types.Timeout _ -> `Wire_error
       in
       let percentiles () =
         match !inter_chunk_samples with
@@ -1344,6 +1346,7 @@ let complete_stream_http
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
           ~body:body_with_stream
           ~f:(fun reader ->
+            on_event Types.Connected;
             let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
               let provider_d_state = ref None in
@@ -1506,6 +1509,12 @@ let complete_stream_http
                   let phase =
                     Http_client.timeout_phase_of_stream_idle_state !stream_idle_state
                   in
+                  let message =
+                    Printf.sprintf
+                      "stream_idle_timeout_s deadline exceeded while %s"
+                      (Http_client.stream_idle_state_to_label !stream_idle_state)
+                  in
+                  on_event (Types.Timeout message);
                   emit_telemetry
                     (Telemetry_event.Timeout
                        { provider
@@ -1521,10 +1530,7 @@ let complete_stream_http
                     ();
                   Error
                     (Http_client.TimeoutError
-                       { message =
-                           Printf.sprintf
-                             "stream_idle_timeout_s deadline exceeded while %s"
-                             (Http_client.stream_idle_state_to_label !stream_idle_state)
+                       { message
                        ; phase
                        })
               in
@@ -1563,6 +1569,14 @@ let complete_stream_http
             | Some clk, Some timeout_s ->
               (try Eio.Time.with_timeout_exn clk timeout_s body_logic with
                | Eio.Time.Timeout ->
+                 let message =
+                   Printf.sprintf
+                     "body_timeout_s deadline exceeded after %.1fs (configured \
+                      via Builder.with_body_timeout; total body consumption cap, \
+                      distinct from stream_idle_timeout_s)"
+                     timeout_s
+                 in
+                 on_event (Types.Timeout message);
                  emit_telemetry
                    (Telemetry_event.Timeout
                       { provider; model; timeout_type = Telemetry_event.Stream_body });
@@ -1573,12 +1587,7 @@ let complete_stream_http
                    ();
                  Error
                    (Http_client.TimeoutError
-                      { message =
-                          Printf.sprintf
-                            "body_timeout_s deadline exceeded after %.1fs (configured \
-                             via Builder.with_body_timeout; total body consumption cap, \
-                             distinct from stream_idle_timeout_s)"
-                            timeout_s
+                      { message
                       ; phase = Http_client.Stream_body
                       }))
             | _, _ ->

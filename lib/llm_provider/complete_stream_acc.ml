@@ -100,7 +100,8 @@ let accumulate_event (acc : stream_acc) = function
     in
     acc.sse_error
     := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
-  | Types.MessageStop | Types.Ping -> ()
+  | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
+
 ;;
 
 let finalize_stream_acc (acc : stream_acc) =

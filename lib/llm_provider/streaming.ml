@@ -138,7 +138,9 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | Ping
   | SSEError _
   | SSEParseFailed _
-  | SSEUnknownEventType _ -> false
+  | SSEUnknownEventType _
+  | Connected
+  | Timeout _ -> false
 ;;
 
 (** Emit synthetic SSE events from a complete [api_response].

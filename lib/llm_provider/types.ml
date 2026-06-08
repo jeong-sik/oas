@@ -391,6 +391,9 @@ type sse_event =
       { event_type : string
       ; raw : string
       }
+  | Connected
+  | Timeout of string
+
 
 (** {1 Convenience Constructors}
 
