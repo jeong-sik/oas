@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.2](https://github.com/jeong-sik/oas/compare/v0.204.1...v0.204.2) (2026-06-08)
+
+
+### Bug Fixes
+
+* **build:** add missing open Request_priority + feat(otel): read OTEL_EXPORTER_OTLP_ENDPOINT from env ([#1941](https://github.com/jeong-sik/oas/issues/1941)) ([3dc60fe](https://github.com/jeong-sik/oas/commit/3dc60fe8089a2237448eb8097590bddfc41b9519))
+
 ## [0.204.1](https://github.com/jeong-sik/oas/compare/v0.204.0...v0.204.1) (2026-06-07)
 
 
