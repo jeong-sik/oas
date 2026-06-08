@@ -271,6 +271,8 @@ type sse_event =
       { event_type : string
       ; raw : string
       }
+  | Connected
+  | Timeout of string
   (** The chunk parsed cleanly but [event_type] did not match any
             documented variant. Likely a provider that added a new event
             type the OAS adapter has not yet learned. Emit explicitly so
