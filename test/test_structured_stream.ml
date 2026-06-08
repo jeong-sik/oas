@@ -165,6 +165,8 @@ let test_on_event_callback_fires () =
       | SSEError _ -> "error"
       | SSEParseFailed _ -> "parse_failed"
       | SSEUnknownEventType _ -> "unknown_event_type"
+      | Connected -> "connected"
+      | Timeout _ -> "timeout"
     in
     event_types := t :: !event_types);
   let types = List.rev !event_types in
