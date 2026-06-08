@@ -55,7 +55,20 @@ let process_events t =
            ; value = Bool_val (Result.is_ok r.result)
            ; unit_ = None
            ; tags = []
-           }
+           };
+         (match r.result with
+          | Ok (response : Types.api_response) ->
+            (match Option.bind response.usage (fun u -> u.cost_usd) with
+             | Some cost ->
+               Eval.record
+                 t.collector
+                 { Eval.name = "cost_usd"
+                 ; value = Float_val cost
+                 ; unit_ = Some "USD"
+                 ; tags = []
+                 }
+             | None -> ())
+          | Error _ -> ())
        | AgentFailed r ->
          (* AgentFailed fires alongside AgentCompleted on error paths; the
          success=false metric is already recorded via AgentCompleted. *)

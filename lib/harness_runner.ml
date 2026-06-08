@@ -310,7 +310,17 @@ let collect_metrics
        ; value = Eval.Int_val usage.output_tokens
        ; unit_ = None
        ; tags = []
-       });
+       };
+     (match usage.cost_usd with
+      | None -> ()
+      | Some cost ->
+        Eval.record
+          collector
+          { name = "cost_usd"
+          ; value = Eval.Float_val cost
+          ; unit_ = Some "USD"
+          ; tags = []
+          }));
   let metrics = Eval.finalize collector in
   Eval_otel_bridge.emit_run_metrics (Otel_tracer.create_instance ()) metrics;
   metrics
