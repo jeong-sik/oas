@@ -967,6 +967,7 @@ let complete
              ; messages
              ; tools
              ; runtime_mcp_policy
+             ; stream_idle_timeout_s = None (* sync path: no streaming idle deadline *)
              }
          | None ->
            let resp, lat =
@@ -1680,7 +1681,14 @@ let complete_stream
         t.complete_stream
           ?on_telemetry:transport_on_telemetry
           ~on_event
-          { Llm_transport.config = request_config; messages; tools; runtime_mcp_policy }
+          { Llm_transport.config = request_config
+          ; messages
+          ; tools
+          ; runtime_mcp_policy
+          ; stream_idle_timeout_s
+            (* RFC-OAS-026: carry the idle deadline through the transport
+               boundary so the [Some t] dispatch can no longer drop it. *)
+          }
       | None ->
         complete_stream_http
           ~sw
@@ -1733,6 +1741,14 @@ let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net (
         { Llm_transport.response; latency_ms = Some latency_ms })
   ; complete_stream =
       (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
+        (* RFC-OAS-026: the request-borne idle deadline is authoritative;
+           fall back to the construction-time value for callers that have not
+           migrated to setting it on the request. *)
+        let stream_idle_timeout_s =
+          match req.stream_idle_timeout_s with
+          | Some _ as v -> v
+          | None -> stream_idle_timeout_s
+        in
         complete_stream_http
           ~sw
           ~net

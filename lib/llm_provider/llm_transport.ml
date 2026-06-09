@@ -30,6 +30,13 @@ type completion_request =
   ; messages : Types.message list
   ; tools : Yojson.Safe.t list
   ; runtime_mcp_policy : runtime_mcp_policy option
+  ; stream_idle_timeout_s : float option
+    (** Inter-chunk idle deadline for streaming reads, in seconds. Bounds the
+        gap between streamed SSE/NDJSON lines, not total stream duration.
+        [None] preserves pre-0.205.0 behaviour (no idle deadline; the read
+        blocks until the provider closes). Armed only when the transport also
+        holds a clock (closed over at construction). Carried on the request so
+        the dispatch cannot silently drop it. See RFC-OAS-026. @since 0.205.0 *)
   }
 
 let empty_runtime_mcp_policy =
