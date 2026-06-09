@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.1](https://github.com/jeong-sik/oas/compare/v0.205.0...v0.205.1) (2026-06-09)
+
+
+### Bug Fixes
+
+* **capabilities:** correct Qwen3 family specs to match official documentation ([cdc274c](https://github.com/jeong-sik/oas/commit/cdc274cb3c815e966fdbacc8cb5612033f80ef7f))
+* **capabilities:** correct Qwen3 family specs to match official documentation ([a4bfdd2](https://github.com/jeong-sik/oas/commit/a4bfdd2c290b11dad43b08e321ff760af7589c56))
+
 ## [0.205.0](https://github.com/jeong-sik/oas/compare/v0.204.11...v0.205.0) (2026-06-09)
 
 
