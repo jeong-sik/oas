@@ -28,6 +28,12 @@ type entry =
   ; supports_seed : bool option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
+  ; thinking_control_format : string option
+    (** Canonical thinking-wire format the model uses (none / thinking_object /
+        thinking_object_only / chat_template_kwargs / reasoning_effort /
+        enable_thinking). Parsed + applied in
+        {!Capabilities.apply_manifest_entry}. Without this field a manifest
+        entry silently dropped the model's thinking knob (RFC-OAS-023). *)
   }
 
 (** A parsed capability manifest. *)
@@ -124,6 +130,7 @@ let parse_entry json =
       ; supports_seed = member_bool "supports_seed" json
       ; supports_computer_use = member_bool "supports_computer_use" json
       ; supports_code_execution = member_bool "supports_code_execution" json
+      ; thinking_control_format = member_string_opt "thinking_control_format" json
       }
 ;;
 

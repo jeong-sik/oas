@@ -70,6 +70,10 @@ type entry =
   ; supports_seed : bool option
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
+  ; thinking_control_format : string option
+    (** Canonical thinking-wire format (none / thinking_object /
+        thinking_object_only / chat_template_kwargs / reasoning_effort /
+        enable_thinking); applied in {!Capabilities.apply_manifest_entry}. *)
   }
 
 (** A parsed capability manifest: an ordered list of model entries.

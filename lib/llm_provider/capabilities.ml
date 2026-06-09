@@ -983,6 +983,22 @@ let with_tool_support caps ~supports_tools = { caps with supports_tools }
     [capabilities_for_provider_label]; defaults to [default_capabilities]
     when absent or unrecognised.  Each [Some] field in [entry] overrides
     the corresponding field of the base; [None] fields are left unchanged. *)
+
+(* Parse the manifest's [thinking_control_format] string into the typed
+   variant. Mirrors {!Provider_catalog.parse_thinking_control_format}; kept
+   local to avoid a Provider_catalog -> Capabilities dependency cycle. An
+   unrecognised value leaves the base format unchanged (handled by the caller). *)
+let thinking_control_format_of_manifest_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "none" -> Some No_thinking_control
+  | "thinking_object" -> Some Thinking_object
+  | "thinking_object_only" -> Some Thinking_object_only
+  | "chat_template_kwargs" -> Some Chat_template_kwargs
+  | "reasoning_effort" -> Some Reasoning_effort
+  | "enable_thinking" -> Some Enable_thinking
+  | _ -> None
+;;
+
 let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   let base =
     match entry.base_label with
@@ -1039,6 +1055,13 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
       override_bool base.supports_computer_use entry.supports_computer_use
   ; supports_code_execution =
       override_bool base.supports_code_execution entry.supports_code_execution
+  ; thinking_control_format =
+      (match entry.thinking_control_format with
+       | Some s ->
+         (match thinking_control_format_of_manifest_string s with
+          | Some t -> t
+          | None -> base.thinking_control_format)
+       | None -> base.thinking_control_format)
   }
 ;;
 
@@ -1049,6 +1072,27 @@ let for_model_id_with_manifest manifest model_id =
   match Capability_manifest.lookup manifest model_id with
   | Some entry -> Some (apply_manifest_entry entry)
   | None -> for_model_id_static model_id
+;;
+
+let%test "apply_manifest_entry applies thinking_control_format (RFC-OAS-023)" =
+  match
+    Capability_manifest.of_json
+      (Yojson.Safe.from_string
+         {|{"schema_version":1,"models":[{"id_prefix":"m","thinking_control_format":"chat_template_kwargs"}]}|})
+  with
+  | Ok [ entry ] ->
+    (apply_manifest_entry entry).thinking_control_format = Chat_template_kwargs
+  | Ok _ | Error _ -> false
+;;
+
+let%test "apply_manifest_entry without thinking_control_format keeps base format" =
+  match
+    Capability_manifest.of_json
+      (Yojson.Safe.from_string {|{"schema_version":1,"models":[{"id_prefix":"m"}]}|})
+  with
+  | Ok [ entry ] ->
+    (apply_manifest_entry entry).thinking_control_format = No_thinking_control
+  | Ok _ | Error _ -> false
 ;;
 
 (** Look up capabilities for [model_id].
