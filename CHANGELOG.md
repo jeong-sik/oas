@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.11](https://github.com/jeong-sik/oas/compare/v0.204.10...v0.204.11) (2026-06-09)
+
+
+### Features
+
+* **capability_manifest:** carry thinking_control_format (RFC-OAS-023) ([1bf68e5](https://github.com/jeong-sik/oas/commit/1bf68e54e08735e470f2a780aaa4fef1e9eb063a))
+* **capability_manifest:** carry thinking_control_format (RFC-OAS-023) ([9a5d6c4](https://github.com/jeong-sik/oas/commit/9a5d6c4aaa57f917ed1c4f676f0a0082c0bacd4b))
+
 ## [0.204.10](https://github.com/jeong-sik/oas/compare/v0.204.9...v0.204.10) (2026-06-09)
 
 
