@@ -5,7 +5,7 @@
 
     - Anthropic      if [PROVIDER_A_API_KEY] is set
     - Provider_d         if [PROVIDER_D_API_KEY] is set
-    - Gemini         if [PROVIDER_F_API_KEY] is set
+    - Gemini         if [GEMINI_API_KEY] is set
     - Provider_d-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
@@ -172,9 +172,9 @@ let test_provider_d () =
 
 (* ── Gemini (via Provider_d-compat endpoint) ──────────────────────── *)
 
-let test_provider_f () =
-  match Sys.getenv_opt "PROVIDER_F_API_KEY" with
-  | None | Some "" -> skip_note "provider_f" "PROVIDER_F_API_KEY not set"
+let test_gemini () =
+  match Sys.getenv_opt "GEMINI_API_KEY" with
+  | None | Some "" -> skip_note "gemini" "GEMINI_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
@@ -190,17 +190,17 @@ let test_provider_f () =
             ; path = "/chat/completions"
             ; static_token = None
             }
-      ; model_id = "provider_f-2.0-flash"
-      ; api_key_env = "PROVIDER_F_API_KEY"
+      ; model_id = "gemini-2.0-flash"
+      ; api_key_env = "GEMINI_API_KEY"
       }
     in
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"provider_f"
+      ~provider_label:"gemini"
       ~provider
       ~base_url
-      ~model:"provider_f-2.0-flash"
+      ~model:"gemini-2.0-flash"
 ;;
 
 (* ── Local Provider_d-compatible (llama-server, Ollama, vLLM, ...) ─ *)
@@ -259,7 +259,7 @@ let () =
     [ ( "golden_transcript"
       , [ test_case "provider_a" `Quick test_provider_a
         ; test_case "provider_d" `Quick test_provider_d
-        ; test_case "provider_f" `Quick test_provider_f
+        ; test_case "gemini" `Quick test_gemini
         ; test_case "local openai-compat" `Quick test_local_compat
         ] )
     ]

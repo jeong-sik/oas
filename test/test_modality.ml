@@ -67,14 +67,14 @@ let test_default_capability_is_preserve () =
 ;;
 
 let test_gemma4_capability_is_visual_first () =
-  match Capabilities.for_model_id "model-f-gemma-4-31b-it" with
-  | None -> Alcotest.fail "model-f-gemma-4-31b-it should have a capability entry"
+  match Capabilities.for_model_id "gemma-4-31b-it" with
+  | None -> Alcotest.fail "gemma-4-31b-it should have a capability entry"
   | Some c ->
     (match c.modality_priority with
      | Modality.Visual_first -> ()
      | Modality.Preserve_input_order ->
        Alcotest.fail
-         "model-f-gemma-4-31b-it should be Visual_first per Gemma 4 best practices")
+         "gemma-4-31b-it should be Visual_first per Gemma 4 best practices")
 ;;
 
 let test_non_gemma_inherits_preserve () =
@@ -113,7 +113,7 @@ let () =
             `Quick
             test_default_capability_is_preserve
         ; test_case
-            "model-f-gemma-4-31b-it = Visual_first"
+            "gemma-4-31b-it = Visual_first"
             `Quick
             test_gemma4_capability_is_visual_first
         ; test_case

@@ -16,7 +16,7 @@
 
 (** Construct Gemini API URL with model_id in path and optional key param.
     Exposed for testing. *)
-val provider_f_url : config:Provider_config.t -> stream:bool -> string
+val gemini_url : config:Provider_config.t -> stream:bool -> string
 
 (** {1 Provider Sampling Defaults} *)
 

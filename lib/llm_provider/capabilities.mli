@@ -100,18 +100,18 @@ val provider_l_capabilities : capabilities
     should switch on this variant rather than re-compare strings.
 
     @since 0.196.3 *)
-type provider_f_family =
-  | Gemini_3_1 (** [provider_f-3.1.*] *)
-  | Gemini_3 (** [provider_f-3.*] but not 3.1 *)
-  | Gemini_2_5 (** [provider_f-2.5.*] (legacy line) *)
+type gemini_family =
+  | Gemini_3_1 (** [gemini-3.1.*] *)
+  | Gemini_3 (** [gemini-3.*] but not 3.1 *)
+  | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
   | Gemini_other of string
-  (** Unknown provider_f id, or non-provider_f id (literal retained). *)
+  (** Unknown gemini id, or non-gemini id (literal retained). *)
 
-(** Classify a model id into a [provider_f_family]. Order: [3.1] before [3] so the
+(** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
     more specific prefix wins. Input is expected lowercased; callers that
     cannot lowercase first should normalize via [String.lowercase_ascii] at
     the boundary. *)
-val provider_f_family_of_id : string -> provider_f_family
+val gemini_family_of_id : string -> gemini_family
 
 (** Typed route selected by the built-in static capability table.
 
@@ -127,7 +127,7 @@ type static_model_route =
   | Provider_d_4_1
   | Provider_d_4o
   | Mimo_v2_5_chat
-  | Gemini of provider_f_family
+  | Gemini of gemini_family
   | Kimi_for_coding
   | Kimi_k2
   | DashScope_3

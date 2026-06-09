@@ -5,7 +5,7 @@ module BA = Llm_provider.Backend_provider_a
 module BO = Llm_provider.Backend_provider_d
 module BGlm = Llm_provider.Backend_provider_k
 module BOL = Llm_provider.Backend_ollama
-module BGemini = Llm_provider.Backend_provider_f
+module BGemini = Llm_provider.Backend_gemini
 open Llm_provider.Types
 
 let contains_substring ~sub text =
@@ -389,7 +389,7 @@ let test_provider_d_with_json_schema () =
      |> to_string)
 ;;
 
-let test_provider_f_with_json_schema () =
+let test_gemini_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -400,7 +400,7 @@ let test_provider_f_with_json_schema () =
   let config =
     PC.make
       ~kind:Gemini
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~api_key:"test-key"
       ~response_format:(JsonSchema schema)
@@ -1067,8 +1067,8 @@ let () =
             `Quick
             test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice
         ] )
-    ; ( "provider_f_build_request"
-      , [ test_case "with json schema" `Quick test_provider_f_with_json_schema ] )
+    ; ( "gemini_build_request"
+      , [ test_case "with json schema" `Quick test_gemini_with_json_schema ] )
     ; ( "provider_config"
       , [ test_case "default paths" `Quick test_config_default_paths
         ; test_case "custom path" `Quick test_config_custom_path

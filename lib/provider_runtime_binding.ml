@@ -176,7 +176,7 @@ let builtin_provider_aliases =
   ; "provider_a", "agent_llm_a"
   ; "moonshot", "provider_c"
   ; "kimi", "provider_c"
-  ; "gemini", "provider_f"
+  ; "gemini", "gemini"
   ; "glm", "provider_k"
   ; "zai", "provider_k"
   ; "zhipu", "provider_k"

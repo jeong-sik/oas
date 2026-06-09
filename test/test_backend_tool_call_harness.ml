@@ -270,7 +270,7 @@ let test_provider_convenience_validators_cover_tool_responses () =
   check bool "provider_a stop reason" true provider_a.stop_reason_correct;
   check bool "provider_a declared tool" true provider_a.all_tools_declared;
   check int "provider_a tool calls" 1 (List.length provider_a.tool_calls_found);
-  let provider_f_json =
+  let gemini_json =
     Yojson.Safe.from_string
       {|{
         "candidates": [{
@@ -284,12 +284,12 @@ let test_provider_convenience_validators_cover_tool_responses () =
         }]
       }|}
   in
-  let provider_f =
-    H.validate_provider_f_response ~declared_tools:[ "lookup" ] provider_f_json
+  let gemini =
+    H.validate_gemini_response ~declared_tools:[ "lookup" ] gemini_json
   in
-  check bool "provider_f stop reason" true provider_f.stop_reason_correct;
-  check bool "provider_f declared tool" true provider_f.all_tools_declared;
-  check int "provider_f tool calls" 1 (List.length provider_f.tool_calls_found)
+  check bool "gemini stop reason" true gemini.stop_reason_correct;
+  check bool "gemini declared tool" true gemini.all_tools_declared;
+  check int "gemini tool calls" 1 (List.length gemini.tool_calls_found)
 ;;
 
 let () =

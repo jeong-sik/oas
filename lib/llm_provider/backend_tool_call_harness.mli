@@ -76,7 +76,7 @@ val validate_provider_a_response
   -> Yojson.Safe.t
   -> validation_result
 
-val validate_provider_f_response
+val validate_gemini_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> validation_result

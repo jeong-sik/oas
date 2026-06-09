@@ -437,21 +437,21 @@ let test_resolve_provider_g () =
   | _ -> Alcotest.fail "expected Custom_registered for provider_g (registered)"
 ;;
 
-let test_resolve_provider_f_preserves_kind () =
+let test_resolve_gemini_preserves_kind () =
   (* Regression for #1003: registered providers with non-Provider_d kind
      (e.g. Gemini) must route through Custom_registered so downstream
      preserves entry.defaults.kind. Previously resolve_provider
      returned OpenAICompat, flattening kind to OpenAI_compat and
      producing 404 against the Gemini endpoint. *)
   let cfg =
-    Agent_config.resolve_provider ~model_id:"provider_f-2.5-flash" "provider_f" None
+    Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "gemini" None
   in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "provider_f name" "provider_f" name;
-    Alcotest.(check string) "provider_f api_key_env" "PROVIDER_F_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "provider_f model_id" "provider_f-2.5-flash" cfg.model_id
-  | _ -> Alcotest.fail "expected Custom_registered for provider_f (registered)"
+    Alcotest.(check string) "gemini name" "gemini" name;
+    Alcotest.(check string) "gemini api_key_env" "GEMINI_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "gemini model_id" "gemini-2.5-flash" cfg.model_id
+  | _ -> Alcotest.fail "expected Custom_registered for gemini (registered)"
 ;;
 
 (* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
@@ -629,7 +629,7 @@ let () =
         ; tc "provider_i" test_resolve_provider_i
         ; tc "provider_i custom url" test_resolve_provider_i_custom_url
         ; tc "provider_g" test_resolve_provider_g
-        ; tc "provider_f preserves kind (#1003)" test_resolve_provider_f_preserves_kind
+        ; tc "gemini preserves kind (#1003)" test_resolve_gemini_preserves_kind
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
         ; tc "provider_a case-insensitive" test_resolve_provider_a_case_insensitive
         ; tc

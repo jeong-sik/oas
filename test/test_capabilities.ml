@@ -144,26 +144,26 @@ let test_lookup_gpt5 () =
   | None -> fail "should match model-d-5"
 ;;
 
-let test_lookup_provider_f () =
-  match Capabilities.for_model_id "provider_f-3.1-pro" with
+let test_lookup_gemini () =
+  match Capabilities.for_model_id "gemini-3.1-pro" with
   | Some c ->
     check bool "audio" true c.supports_audio_input;
     check bool "video" true c.supports_video_input;
     check bool "code execution" true c.supports_code_execution;
     check bool "structured output" true c.supports_structured_output
-  | None -> fail "should match provider_f"
+  | None -> fail "should match gemini"
 ;;
 
-(* ── Typed provider_f_family classifier (root-fix for #968) ─────── *)
+(* ── Typed gemini_family classifier (root-fix for #968) ─────── *)
 
-let pp_provider_f_family ppf = function
+let pp_gemini_family ppf = function
   | Capabilities.Gemini_3_1 -> Format.fprintf ppf "Gemini_3_1"
   | Capabilities.Gemini_3 -> Format.fprintf ppf "Gemini_3"
   | Capabilities.Gemini_2_5 -> Format.fprintf ppf "Gemini_2_5"
   | Capabilities.Gemini_other s -> Format.fprintf ppf "Gemini_other(%s)" s
 ;;
 
-let provider_f_family_testable = Alcotest.testable pp_provider_f_family ( = )
+let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
 
 let pp_static_model_route ppf = function
   | Capabilities.Agent_llm_a_opus_4 -> Format.fprintf ppf "Agent_llm_a_opus_4"
@@ -174,7 +174,7 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
   | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
   | Capabilities.Gemini family ->
-    Format.fprintf ppf "Gemini(%a)" pp_provider_f_family family
+    Format.fprintf ppf "Gemini(%a)" pp_gemini_family family
   | Capabilities.Kimi_for_coding -> Format.fprintf ppf "Kimi_for_coding"
   | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
   | Capabilities.DashScope_3 -> Format.fprintf ppf "DashScope_3"
@@ -207,49 +207,49 @@ let pp_static_model_route ppf = function
 
 let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
 
-let test_provider_f_family_3_1 () =
+let test_gemini_family_3_1 () =
   check
-    provider_f_family_testable
-    "provider_f-3.1-pro-preview classifies as Gemini_3_1"
+    gemini_family_testable
+    "gemini-3.1-pro-preview classifies as Gemini_3_1"
     Capabilities.Gemini_3_1
-    (Capabilities.provider_f_family_of_id "provider_f-3.1-pro-preview")
+    (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
 ;;
 
-let test_provider_f_family_3 () =
+let test_gemini_family_3 () =
   check
-    provider_f_family_testable
-    "provider_f-3-flash-preview classifies as Gemini_3 (not 3.1)"
+    gemini_family_testable
+    "gemini-3-flash-preview classifies as Gemini_3 (not 3.1)"
     Capabilities.Gemini_3
-    (Capabilities.provider_f_family_of_id "provider_f-3-flash-preview")
+    (Capabilities.gemini_family_of_id "gemini-3-flash-preview")
 ;;
 
-let test_provider_f_family_2_5 () =
+let test_gemini_family_2_5 () =
   check
-    provider_f_family_testable
-    "provider_f-2.5-flash classifies as Gemini_2_5"
+    gemini_family_testable
+    "gemini-2.5-flash classifies as Gemini_2_5"
     Capabilities.Gemini_2_5
-    (Capabilities.provider_f_family_of_id "provider_f-2.5-flash")
+    (Capabilities.gemini_family_of_id "gemini-2.5-flash")
 ;;
 
-let test_provider_f_family_other_non_provider_f () =
+let test_gemini_family_other_non_gemini () =
   check
-    provider_f_family_testable
-    "non-provider_f id falls into Gemini_other with literal retained"
+    gemini_family_testable
+    "non-gemini id falls into Gemini_other with literal retained"
     (Capabilities.Gemini_other "agent_llm_a-opus-4")
-    (Capabilities.provider_f_family_of_id "agent_llm_a-opus-4")
+    (Capabilities.gemini_family_of_id "agent_llm_a-opus-4")
 ;;
 
-let test_provider_f_family_other_unknown_provider_f () =
-  (* A future provider_f line not yet classified should land in Gemini_other —
+let test_gemini_family_other_unknown_gemini () =
+  (* A future gemini line not yet classified should land in Gemini_other —
      not be silently absorbed into an existing arm. *)
   check
-    provider_f_family_testable
-    "provider_f-4-foo lands in Gemini_other (no silent fallback)"
-    (Capabilities.Gemini_other "provider_f-4-foo")
-    (Capabilities.provider_f_family_of_id "provider_f-4-foo")
+    gemini_family_testable
+    "gemini-4-foo lands in Gemini_other (no silent fallback)"
+    (Capabilities.Gemini_other "gemini-4-foo")
+    (Capabilities.gemini_family_of_id "gemini-4-foo")
 ;;
 
-let test_provider_f_family_drives_capabilities () =
+let test_gemini_family_drives_capabilities () =
   (* Behavioural cross-check: all three live variants resolve to
      gemini_capabilities (1M context). This is the property the #968 drift
      gate was trying to assert via string-grep; now it is enforced by the
@@ -261,19 +261,19 @@ let test_provider_f_family_drives_capabilities () =
   in
   check
     (option int)
-    "provider_f-3-flash-preview ctx"
+    "gemini-3-flash-preview ctx"
     (Some 1_000_000)
-    (ctx "provider_f-3-flash-preview");
+    (ctx "gemini-3-flash-preview");
   check
     (option int)
-    "provider_f-3.1-pro-preview ctx"
+    "gemini-3.1-pro-preview ctx"
     (Some 1_000_000)
-    (ctx "provider_f-3.1-pro-preview");
+    (ctx "gemini-3.1-pro-preview");
   check
     (option int)
-    "provider_f-2.5-flash ctx"
+    "gemini-2.5-flash ctx"
     (Some 1_000_000)
-    (ctx "provider_f-2.5-flash")
+    (ctx "gemini-2.5-flash")
 ;;
 
 let test_static_model_route_normalizes_cloud_suffix () =
@@ -855,22 +855,22 @@ let () =
       , [ test_case "agent_llm_a opus" `Quick test_lookup_agent_llm_a_opus
         ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
         ; test_case "model-d-5" `Quick test_lookup_gpt5
-        ; test_case "provider_f" `Quick test_lookup_provider_f
-        ; test_case "provider_f_family Gemini_3_1" `Quick test_provider_f_family_3_1
-        ; test_case "provider_f_family Gemini_3" `Quick test_provider_f_family_3
-        ; test_case "provider_f_family Gemini_2_5" `Quick test_provider_f_family_2_5
+        ; test_case "gemini" `Quick test_lookup_gemini
+        ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
+        ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
+        ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
         ; test_case
-            "provider_f_family Gemini_other (non-provider_f)"
+            "gemini_family Gemini_other (non-gemini)"
             `Quick
-            test_provider_f_family_other_non_provider_f
+            test_gemini_family_other_non_gemini
         ; test_case
-            "provider_f_family Gemini_other (unknown provider_f)"
+            "gemini_family Gemini_other (unknown gemini)"
             `Quick
-            test_provider_f_family_other_unknown_provider_f
+            test_gemini_family_other_unknown_gemini
         ; test_case
-            "provider_f_family drives 1M ctx capabilities"
+            "gemini_family drives 1M ctx capabilities"
             `Quick
-            test_provider_f_family_drives_capabilities
+            test_gemini_family_drives_capabilities
         ; test_case
             "static route normalizes cloud suffix"
             `Quick

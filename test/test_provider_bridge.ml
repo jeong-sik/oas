@@ -69,7 +69,7 @@ let test_non_zai_glm_stays_openai_compat () =
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
        | Anthropic -> "provider_a"
        | Kimi -> "provider_c"
-       | Gemini -> "provider_f"
+       | Gemini -> "gemini"
        | Glm -> "provider_k"
        | Ollama -> "ollama"
        | DashScope -> "provider_h")
@@ -98,7 +98,7 @@ let test_zai_glm_becomes_glm_provider_config () =
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
        | Anthropic -> "provider_a"
        | Kimi -> "provider_c"
-       | Gemini -> "provider_f"
+       | Gemini -> "gemini"
        | Glm -> "provider_k"
        | Ollama -> "ollama"
        | DashScope -> "provider_h")
@@ -171,7 +171,7 @@ let test_provider_a_auto_and_explicit_models () =
 
 let test_openai_compat_auto_model_branches () =
   with_env "OLLAMA_DEFAULT_MODEL" "provider-d-env-default" (fun () ->
-    with_env "PROVIDER_F_DEFAULT_MODEL" "provider_f-env-default" (fun () ->
+    with_env "GEMINI_DEFAULT_MODEL" "gemini-env-default" (fun () ->
       let provider_d_auto =
         { Agent_sdk.Provider.provider =
             OpenAICompat
@@ -184,24 +184,24 @@ let test_openai_compat_auto_model_branches () =
         ; api_key_env = ""
         }
       in
-      let provider_f_prefixed = { provider_d_auto with model_id = "provider_f-auto" } in
-      let provider_f_explicit =
-        { provider_d_auto with model_id = "provider_f-2.5-pro" }
+      let gemini_prefixed = { provider_d_auto with model_id = "gemini-auto" } in
+      let gemini_explicit =
+        { provider_d_auto with model_id = "gemini-2.5-pro" }
       in
       (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
        | Ok cfg ->
          check_kind "provider_d compat kind" "openai_compat" cfg;
          Alcotest.(check string) "provider_d auto" "provider-d-env-default" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
-      (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
+      (match Agent_sdk.Provider_bridge.to_provider_config gemini_prefixed with
        | Ok cfg ->
          check_kind "gemini kind" "gemini" cfg;
-         Alcotest.(check string) "provider_f prefixed" "provider_f-auto" cfg.model_id
+         Alcotest.(check string) "gemini prefixed" "gemini-auto" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
-      match Agent_sdk.Provider_bridge.to_provider_config provider_f_explicit with
+      match Agent_sdk.Provider_bridge.to_provider_config gemini_explicit with
       | Ok cfg ->
         check_kind "gemini explicit kind" "gemini" cfg;
-        Alcotest.(check string) "provider_f explicit" "provider_f-2.5-pro" cfg.model_id
+        Alcotest.(check string) "gemini explicit" "gemini-2.5-pro" cfg.model_id
       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
 ;;
 

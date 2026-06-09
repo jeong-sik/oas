@@ -226,9 +226,9 @@ let test_default_has_14 () =
     (Option.is_some (Provider_registry.find reg "agent_llm_a"));
   check
     bool
-    "provider_f exists"
+    "gemini exists"
     true
-    (Option.is_some (Provider_registry.find reg "provider_f"));
+    (Option.is_some (Provider_registry.find reg "gemini"));
   check
     bool
     "provider_k exists"
@@ -321,9 +321,9 @@ let test_default_max_context () =
   (match Provider_registry.find reg "agent_llm_a" with
    | Some e -> check int "agent_llm_a 200K" 200_000 e.max_context
    | None -> fail "agent_llm_a should exist");
-  (match Provider_registry.find reg "provider_f" with
-   | Some e -> check int "provider_f 1M" 1_000_000 e.max_context
-   | None -> fail "provider_f should exist");
+  (match Provider_registry.find reg "gemini" with
+   | Some e -> check int "gemini 1M" 1_000_000 e.max_context
+   | None -> fail "gemini should exist");
   (match Provider_registry.find reg "provider_k" with
    | Some e -> check int "provider_k 200K" 200_000 e.max_context
    | None -> fail "provider_k should exist");
@@ -955,7 +955,7 @@ let mk_config_for_kind kind =
     "provider_c", "provider_n", "ollama", "cli_tool_d", "cli_tool_b", ...). For
     direct-API kinds the lookup silently fell back to
     [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
-    to match direct-API entries ("agent_llm_a" → Anthropic, "provider_f" → Gemini,
+    to match direct-API entries ("agent_llm_a" → Anthropic, "gemini" → Gemini,
     "provider_c" → Kimi) and returned the wrong capability matrix.
 
     Assert here that [provider_name_of_config] is the authoritative key

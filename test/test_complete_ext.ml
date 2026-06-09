@@ -246,11 +246,11 @@ let test_retry_config_backoff () =
 
 (* ── Provider defaults / public helpers ───────────────── *)
 
-let test_provider_f_url_variants () =
+let test_gemini_url_variants () =
   let keyed =
     make_config
       ~kind:Provider_config.Gemini
-      ~model_id:"provider_f-3-flash"
+      ~model_id:"gemini-3-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ~api_key:"secret"
       ()
@@ -258,25 +258,25 @@ let test_provider_f_url_variants () =
   check
     string
     "sync keyed"
-    "https://generativelanguage.googleapis.com/v1beta/models/provider_f-3-flash:generateContent?key=secret"
-    (Complete.provider_f_url ~config:keyed ~stream:false);
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key=secret"
+    (Complete.gemini_url ~config:keyed ~stream:false);
   check
     string
     "stream keyed"
-    "https://generativelanguage.googleapis.com/v1beta/models/provider_f-3-flash:streamGenerateContent?key=secret&alt=sse"
-    (Complete.provider_f_url ~config:keyed ~stream:true);
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent?key=secret&alt=sse"
+    (Complete.gemini_url ~config:keyed ~stream:true);
   let no_key =
     make_config
       ~kind:Provider_config.Gemini
-      ~model_id:"provider_f-3-flash"
+      ~model_id:"gemini-3-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta"
       ()
   in
   check
     string
     "stream no key"
-    "https://generativelanguage.googleapis.com/v1beta/models/provider_f-3-flash:streamGenerateContent?alt=sse"
-    (Complete.provider_f_url ~config:no_key ~stream:true)
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent?alt=sse"
+    (Complete.gemini_url ~config:no_key ~stream:true)
 ;;
 
 let test_sampling_defaults_and_overlay () =
@@ -560,7 +560,7 @@ let () =
         ; test_case "backoff" `Quick test_retry_config_backoff
         ] )
     ; ( "helpers"
-      , [ test_case "provider_f URL variants" `Quick test_provider_f_url_variants
+      , [ test_case "gemini URL variants" `Quick test_gemini_url_variants
         ; test_case
             "sampling defaults and overlay"
             `Quick

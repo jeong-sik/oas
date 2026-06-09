@@ -310,22 +310,22 @@ let glm_capabilities =
 
 (** Typed Gemini model family (root-fix for #968 string-classifier drift gate).
 
-    Centralizes the [String.starts_with ~prefix:"provider_f-..."] dispatch into a
+    Centralizes the [String.starts_with ~prefix:"gemini-..."] dispatch into a
     single classifier with an exhaustive variant. Downstream code switches on
     the variant instead of comparing strings, so a new family member is a
     compile-time obligation rather than a runtime string-match miss.
 
-    The internal use of [starts_with] inside [provider_f_family_of_id] is
+    The internal use of [starts_with] inside [gemini_family_of_id] is
     intentional and bounded: prefix matching is the only signal Google's model
     IDs offer. Concentrating it here keeps the rest of the codebase typed.
 
     @since 0.196.3 *)
-type provider_f_family =
-  | Gemini_3_1 (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
-  | Gemini_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
-  | Gemini_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
+type gemini_family =
+  | Gemini_3_1 (** [gemini-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
+  | Gemini_3 (** [gemini-3.*] but not 3.1 — flash-preview and siblings *)
+  | Gemini_2_5 (** [gemini-2.5.*] — legacy line, kept until removal PR *)
   | Gemini_other of string
-  (** Unknown provider_f id or non-provider_f id. Retains the literal so the
+  (** Unknown gemini id or non-gemini id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
 let strip_suffix ~suffix value =
@@ -334,15 +334,15 @@ let strip_suffix ~suffix value =
   else value
 ;;
 
-(** Classify a model id into a [provider_f_family]. Order matters: [provider_f-3.1]
-    is checked before [provider_f-3] so the more specific prefix wins.
+(** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
+    is checked before [gemini-3] so the more specific prefix wins.
     Input is expected lowercased (callers pass the already-normalized id). *)
-let provider_f_family_of_id (id : string) : provider_f_family =
-  if String.starts_with ~prefix:"provider_f-3.1" id
+let gemini_family_of_id (id : string) : gemini_family =
+  if String.starts_with ~prefix:"gemini-3.1" id
   then Gemini_3_1
-  else if String.starts_with ~prefix:"provider_f-3" id
+  else if String.starts_with ~prefix:"gemini-3" id
   then Gemini_3
-  else if String.starts_with ~prefix:"provider_f-2.5" id
+  else if String.starts_with ~prefix:"gemini-2.5" id
   then Gemini_2_5
   else Gemini_other id
 ;;
@@ -370,8 +370,8 @@ let gemini_capabilities =
   ; supports_code_execution = true
   ; (* Google Gemini's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
-     [backend_provider_f.build_request] serializer already emits it at
-     lib/llm_provider/backend_provider_f.ml:162-164, so the capability
+     [backend_gemini.build_request] serializer already emits it at
+     lib/llm_provider/backend_gemini.ml:162-164, so the capability
      record must match. Same discrepancy story as anthropic_capabilities
      (#832) — Provider_d-compat consumers that route a Gemini config
      through a capability-checking path were silently dropping top_k.
@@ -394,7 +394,7 @@ type static_model_route =
   | Provider_d_4_1
   | Provider_d_4o
   | Mimo_v2_5_chat
-  | Gemini of provider_f_family
+  | Gemini of gemini_family
   | Kimi_for_coding
   | Kimi_k2
   | DashScope_3
@@ -426,8 +426,8 @@ let normalize_static_model_id model_id =
   model_id |> String.trim |> String.lowercase_ascii |> strip_suffix ~suffix:":cloud"
 ;;
 
-let provider_f_gemma_4_has_large_audio model_id =
-  let prefix = "model-f-gemma-4-" in
+let gemma_4_has_large_audio model_id =
+  let prefix = "gemma-4-" in
   let base =
     if String.starts_with ~prefix:"google/" model_id
     then String.sub model_id 7 (String.length model_id - 7)
@@ -470,7 +470,7 @@ let static_model_route_of_id model_id =
   else if m = "mimo-v2.5" || String.starts_with ~prefix:"mimo-v2.5-pro" m
   then Some Mimo_v2_5_chat
   else (
-    match provider_f_family_of_id m with
+    match gemini_family_of_id m with
     | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
     | Gemini_other _ ->
       if String.starts_with ~prefix:"provider_c-for-coding" m
@@ -510,10 +510,10 @@ let static_model_route_of_id model_id =
                  || String.starts_with ~prefix:"provider_l-vl" m
              })
       else if
-        String.starts_with ~prefix:"model-f-gemma-4" m
-        || String.starts_with ~prefix:"google/model-f-gemma-4" m
+        String.starts_with ~prefix:"gemma-4" m
+        || String.starts_with ~prefix:"google/gemma-4" m
       then
-        Some (Gemini_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
+        Some (Gemini_gemma_4 { has_large_audio = gemma_4_has_large_audio m })
       else if starts_with_any m [ "provider_k-4.7-flash"; "glm-4.7-flash" ]
       then Some Glm_4_7_flash
       else if
@@ -953,7 +953,7 @@ let capabilities_for_provider_label label =
     Some openai_compat_chat_capabilities
   | "openai_compat_chat_extended" | "provider_d_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
-  | "gemini" | "provider_f" -> Some gemini_capabilities
+  | "gemini" -> Some gemini_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
   | "glm" | "zhipu" | "provider_k" | "provider_k-coding" -> Some glm_capabilities
   | "dashscope" | "provider_h" -> Some dashscope_capabilities
@@ -1282,8 +1282,8 @@ let%test "for_model_id nvidia/provider_l-core resolves" =
   | None -> false
 ;;
 
-let%test "for_model_id model-f-gemma-4-27b has tools + seed" =
-  match for_model_id "model-f-gemma-4-27b-it" with
+let%test "for_model_id gemma-4-27b has tools + seed" =
+  match for_model_id "gemma-4-27b-it" with
   | Some c ->
     c.supports_tools
     && c.supports_seed
@@ -1292,26 +1292,26 @@ let%test "for_model_id model-f-gemma-4-27b has tools + seed" =
   | None -> false
 ;;
 
-let%test "for_model_id model-f-gemma-4-1b-it has tools, no audio" =
-  match for_model_id "model-f-gemma-4-1b-it" with
+let%test "for_model_id gemma-4-1b-it has tools, no audio" =
+  match for_model_id "gemma-4-1b-it" with
   | Some c -> c.supports_tools && c.supports_image_input && not c.supports_audio_input
   | None -> false
 ;;
 
-let%test "for_model_id google/model-f-gemma-4-1b-it is NOT large" =
-  match for_model_id "google/model-f-gemma-4-1b-it" with
+let%test "for_model_id google/gemma-4-1b-it is NOT large" =
+  match for_model_id "google/gemma-4-1b-it" with
   | Some c -> not c.supports_audio_input
   | None -> false
 ;;
 
-let%test "for_model_id google/model-f-gemma-4-27b-it IS large" =
-  match for_model_id "google/model-f-gemma-4-27b-it" with
+let%test "for_model_id google/gemma-4-27b-it IS large" =
+  match for_model_id "google/gemma-4-27b-it" with
   | Some c -> c.supports_audio_input
   | None -> false
 ;;
 
-let%test "for_model_id model-f-gemma-4-31b IS large" =
-  match for_model_id "model-f-gemma-4-31b-it" with
+let%test "for_model_id gemma-4-31b IS large" =
+  match for_model_id "gemma-4-31b-it" with
   | Some c -> c.supports_audio_input
   | None -> false
 ;;
@@ -1379,13 +1379,13 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
     ; ("provider_l-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
-    ; ( "model-f-gemma-4-27b-it"
+    ; ( "gemma-4-27b-it"
       , fun c ->
           c.supports_tools
           && c.supports_image_input
           && c.supports_seed
           && c.max_context_tokens = Some 262_144 )
-    ; ( "google/model-f-gemma-4-27b-it"
+    ; ( "google/gemma-4-27b-it"
       , fun c -> c.supports_tools && c.supports_image_input )
     ]
 ;;
@@ -1463,7 +1463,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
   in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
   && Option.is_some (resolve "provider_a")
-  && Option.is_some (resolve "provider_f")
+  && Option.is_some (resolve "gemini")
   && Option.is_some (resolve "ollama")
   && Option.is_some (resolve "provider_c")
   && Option.is_some (resolve "provider_l")
@@ -1478,7 +1478,7 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
     ; "provider_d"
     ; "provider_d_chat"
     ; "provider_d_chat_extended"
-    ; "provider_f"
+    ; "gemini"
     ; "ollama"
     ; "provider_k"
     ; "provider_k-coding"
@@ -1495,7 +1495,7 @@ let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
   let non_aliased =
-    [ "provider_a"; "provider_f"; "ollama"; "provider_c"; "provider_l" ]
+    [ "provider_a"; "gemini"; "ollama"; "provider_c"; "provider_l" ]
   in
   let fingerprints =
     List.filter_map

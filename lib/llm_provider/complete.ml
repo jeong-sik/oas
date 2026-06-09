@@ -13,7 +13,7 @@
     Sync: [base_url/models/model_id:generateContent?key=api_key]
     Stream: [base_url/models/model_id:streamGenerateContent?key=api_key&alt=sse]
     When api_key is empty (Gemini cloud), the [?key=] param is omitted. *)
-let provider_f_url ~(config : Provider_config.t) ~stream =
+let gemini_url ~(config : Provider_config.t) ~stream =
   let method_name = if stream then "streamGenerateContent" else "generateContent" in
   let base =
     Printf.sprintf "%s/models/%s:%s" config.base_url config.model_id method_name
@@ -290,7 +290,7 @@ let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Anthropic -> "provider_a"
   | Kimi -> "provider_c"
   | OpenAI_compat -> "provider_d"
-  | Gemini -> "provider_f"
+  | Gemini -> "gemini"
   | Glm -> "provider_k"
 ;;
 
@@ -430,7 +430,7 @@ let%test "http_error_diagnostic_body preserves non-empty provider body" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Gemini
-      ~model_id:"provider_f-3-flash-preview"
+      ~model_id:"gemini-3-flash-preview"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
       ~api_key:"secret"
       ~headers:[]
@@ -438,10 +438,10 @@ let%test "http_error_diagnostic_body preserves non-empty provider body" =
       ()
   in
   http_error_diagnostic_body
-    ~provider_name:"provider_f"
+    ~provider_name:"gemini"
     ~config
     ~url:
-      "https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent?key=secret"
+      "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
     ~code:404
     ~body:"model not found"
   = "model not found"
@@ -451,7 +451,7 @@ let%test "http_error_diagnostic_body enriches empty provider body" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Gemini
-      ~model_id:"provider_f-3-flash-preview"
+      ~model_id:"gemini-3-flash-preview"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
       ~api_key:"secret"
       ~headers:[]
@@ -459,16 +459,16 @@ let%test "http_error_diagnostic_body enriches empty provider body" =
       ()
   in
   http_error_diagnostic_body
-    ~provider_name:"provider_f"
+    ~provider_name:"gemini"
     ~config
     ~url:
-      "https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent?key=secret"
+      "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
     ~code:404
     ~body:""
-  = "empty HTTP 404 response from provider=provider_f model=provider_f-3-flash-preview \
+  = "empty HTTP 404 response from provider=gemini model=gemini-3-flash-preview \
      base_url=https://generativelanguage.googleapis.com/v1beta/provider_d \
      request_path=/v1/chat/completions \
-     url=https://gen.googleapis.com/v1beta/models/provider_f-3-flash-preview:generateContent"
+     url=https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent"
 ;;
 
 let header_name_eq left right =
@@ -538,13 +538,13 @@ let complete_http
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
           -> Backend_provider_d.build_request ~config ~messages ~tools ()
         | Provider_config.Gemini ->
-          Backend_provider_f.build_request ~config ~messages ~tools ()
+          Backend_gemini.build_request ~config ~messages ~tools ()
         | Provider_config.Glm ->
           Backend_provider_k.build_request ~config ~messages ~tools ()
       in
       let url =
         match config.kind with
-        | Provider_config.Gemini -> provider_f_url ~config ~stream:false
+        | Provider_config.Gemini -> gemini_url ~config ~stream:false
         | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
           config.base_url ^ config.request_path
       in
@@ -703,7 +703,7 @@ let complete_http
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
                 | Provider_config.Gemini ->
-                  Ok (Backend_provider_f.parse_response (Yojson.Safe.from_string body))
+                  Ok (Backend_gemini.parse_response (Yojson.Safe.from_string body))
                 | Provider_config.Glm -> Ok (Backend_provider_k.parse_response body)
               with
               | Yojson.Json_error msg ->
@@ -719,7 +719,7 @@ let complete_http
                 Error
                   (Http_client.HttpError
                      { code = 400; body = "JSON undefined field error: " ^ msg })
-              | Backend_provider_f.Gemini_api_error msg ->
+              | Backend_gemini.Gemini_api_error msg ->
                 Diag.error "complete" "Gemini API error: %s" msg;
                 Error
                   (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
@@ -1201,13 +1201,13 @@ let complete_stream_http
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
           -> Backend_provider_d.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Gemini ->
-          Backend_provider_f.build_request ~stream:true ~config ~messages ~tools ()
+          Backend_gemini.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Glm ->
           Backend_provider_k.build_request ~stream:true ~config ~messages ~tools ()
       in
       let url =
         match config.kind with
-        | Provider_config.Gemini -> provider_f_url ~config ~stream:true
+        | Provider_config.Gemini -> gemini_url ~config ~stream:true
         | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
           config.base_url ^ config.request_path
       in
@@ -1483,9 +1483,9 @@ let complete_stream_http
                                 Streaming.provider_d_chunk_to_events (get_state ()) chunk
                               | None -> [], None)
                            | Provider_config.Gemini ->
-                             (match Streaming.parse_provider_f_sse_chunk data with
+                             (match Streaming.parse_gemini_sse_chunk data with
                               | Some chunk ->
-                                Streaming.provider_f_chunk_to_events (get_state ()) chunk
+                                Streaming.gemini_chunk_to_events (get_state ()) chunk
                               | None -> [], None)
                            | Provider_config.Glm ->
                              (match Backend_provider_k.parse_stream_chunk data with
@@ -1847,7 +1847,7 @@ let%test "is_retryable provider capacity failure is false" =
               Http_client.Capacity_exhausted
                 { scope = Http_client.Failure_scope_model
                 ; retry_after = None
-                ; model = Some "provider_f-2.5-pro"
+                ; model = Some "gemini-2.5-pro"
                 }
           ; message = "capacity exhausted"
           }))
@@ -1869,12 +1869,12 @@ let%test "default_retry_config values" =
   && default_retry_config.backoff_multiplier = 2.0
 ;;
 
-(* --- provider_f_url tests --- *)
+(* --- gemini_url tests --- *)
 
-let%test "provider_f_url sync no api_key" =
+let%test "gemini_url sync no api_key" =
   let config : Provider_config.t =
     { kind = Provider_config.Gemini
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = ""
     ; request_path = ""
@@ -1902,14 +1902,14 @@ let%test "provider_f_url sync no api_key" =
     ; seed = None
     }
   in
-  let url = provider_f_url ~config ~stream:false in
-  url = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:generateContent"
+  let url = gemini_url ~config ~stream:false in
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 ;;
 
-let%test "provider_f_url sync with api_key" =
+let%test "gemini_url sync with api_key" =
   let config : Provider_config.t =
     { kind = Gemini
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = "mykey"
     ; request_path = ""
@@ -1937,15 +1937,15 @@ let%test "provider_f_url sync with api_key" =
     ; seed = None
     }
   in
-  let url = provider_f_url ~config ~stream:false in
+  let url = gemini_url ~config ~stream:false in
   url
-  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:generateContent?key=mykey"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
 ;;
 
-let%test "provider_f_url stream with api_key" =
+let%test "gemini_url stream with api_key" =
   let config : Provider_config.t =
     { kind = Gemini
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = "mykey"
     ; request_path = ""
@@ -1973,15 +1973,15 @@ let%test "provider_f_url stream with api_key" =
     ; seed = None
     }
   in
-  let url = provider_f_url ~config ~stream:true in
+  let url = gemini_url ~config ~stream:true in
   url
-  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
 ;;
 
-let%test "provider_f_url stream no api_key" =
+let%test "gemini_url stream no api_key" =
   let config : Provider_config.t =
     { kind = Gemini
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
     ; api_key = ""
     ; request_path = ""
@@ -2009,9 +2009,9 @@ let%test "provider_f_url stream no api_key" =
     ; seed = None
     }
   in
-  let url = provider_f_url ~config ~stream:true in
+  let url = gemini_url ~config ~stream:true in
   url
-  = "https://gen.googleapis.com/v1beta/models/provider_f-2.5-flash:streamGenerateContent?alt=sse"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
 ;;
 
 let%test "is_retryable 200 not retryable" =
@@ -2055,7 +2055,7 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_f-2.5-flash"
+      ~model_id:"gemini-2.5-flash"
       ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
       ()
   in

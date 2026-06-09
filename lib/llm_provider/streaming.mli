@@ -96,18 +96,18 @@ val provider_d_chunk_to_events
     We reuse {!provider_d_stream_state} for block tracking since the
     state management pattern is identical. *)
 
-type provider_f_chunk =
+type gemini_chunk =
   { gem_model : string
   ; gem_parts : Yojson.Safe.t list
   ; gem_finish_reason : string option
   ; gem_usage : api_usage option
   }
 
-val parse_provider_f_sse_chunk : string -> provider_f_chunk option
+val parse_gemini_sse_chunk : string -> gemini_chunk option
 
-val provider_f_chunk_to_events
+val gemini_chunk_to_events
   :  provider_d_stream_state
-  -> provider_f_chunk
+  -> gemini_chunk
   -> sse_event list * Telemetry_event.t option
 
 (** {1 Ollama NDJSON Streaming}

@@ -112,14 +112,14 @@ let test_thinking_complete () =
 let test_timeout_no_response () =
   let ev =
     Telemetry_event.Timeout
-      { provider = "provider_f"
+      { provider = "gemini"
       ; model = "flash"
       ; timeout_type = Telemetry_event.No_response
       }
   in
   match roundtrip ev with
   | Telemetry_event.Timeout r ->
-    check string "provider" "provider_f" r.provider;
+    check string "provider" "gemini" r.provider;
     (match r.timeout_type with
      | Telemetry_event.No_response -> ()
      | _ -> fail "timeout_type mismatch")

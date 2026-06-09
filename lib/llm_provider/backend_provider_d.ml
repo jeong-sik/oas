@@ -942,7 +942,7 @@ let%test "parse_provider_d_response_result with reasoning_content" =
   in
   match parse_provider_d_response_result json_str with
   | Ok resp ->
-    (* N-of-M followup to PR #1525 (backend_provider_f.has_tool_use). Same
+    (* N-of-M followup to PR #1525 (backend_gemini.has_tool_use). Same
        content_block catch-all family — enumerate every variant so a
        future block type can't silently inherit "no thinking". *)
     List.exists

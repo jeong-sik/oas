@@ -443,14 +443,14 @@ let provider_d_chunk_to_events
     JSON payloads: [{candidates: [{content: {parts: [...]}}]}].
     Each chunk may contain text, thought, or functionCall parts. *)
 
-type provider_f_chunk =
+type gemini_chunk =
   { gem_model : string
   ; gem_parts : Yojson.Safe.t list
   ; gem_finish_reason : string option
   ; gem_usage : api_usage option
   }
 
-let parse_provider_f_sse_chunk data_str : provider_f_chunk option =
+let parse_gemini_sse_chunk data_str : gemini_chunk option =
   let open Yojson.Safe.Util in
   try
     let json = Yojson.Safe.from_string data_str in
@@ -490,9 +490,9 @@ let parse_provider_f_sse_chunk data_str : provider_f_chunk option =
   | Invalid_argument _ -> None
 ;;
 
-let provider_f_chunk_to_events
+let gemini_chunk_to_events
       (state : provider_d_stream_state)
-      (chunk : provider_f_chunk)
+      (chunk : gemini_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let open Yojson.Safe.Util in

@@ -329,8 +329,8 @@ let validate_provider_a_response ~declared_tools json =
   validate_response ~declared_tools (Backend_provider_a.parse_response json)
 ;;
 
-let validate_provider_f_response ~declared_tools json =
-  validate_response ~declared_tools (Backend_provider_f.parse_response json)
+let validate_gemini_response ~declared_tools json =
+  validate_response ~declared_tools (Backend_gemini.parse_response json)
 ;;
 
 let validate_provider_d_response ~declared_tools json =
@@ -406,7 +406,7 @@ let%test "provider_a undeclared tool fails validation" =
   result.stop_reason_correct && not result.all_tools_declared
 ;;
 
-let%test "provider_f functionCall response validates correctly" =
+let%test "gemini functionCall response validates correctly" =
   let json =
     `Assoc
       [ ( "candidates"
@@ -430,7 +430,7 @@ let%test "provider_f functionCall response validates correctly" =
             ] )
       ]
   in
-  let result = validate_provider_f_response ~declared_tools:[ "search" ] json in
+  let result = validate_gemini_response ~declared_tools:[ "search" ] json in
   result.stop_reason_correct
   && result.all_tools_declared
   && List.length result.tool_calls_found = 1

@@ -81,11 +81,11 @@ let test_capacity_exhausted () =
     string
     "CapacityExhausted format"
     "Provider capacity exhausted (model): model queue saturated \
-     affected=[provider_f-3-pro] (retry_after: 7.000s)"
+     affected=[gemini-3-pro] (retry_after: 7.000s)"
     (Error.to_string
        (Error.CapacityExhausted
           { scope = Error.CapacityModel
-          ; affected = [ "provider_f-3-pro" ]
+          ; affected = [ "gemini-3-pro" ]
           ; retry_after = Some 7.0
           ; detail = "model queue saturated"
           }))
@@ -128,10 +128,10 @@ let test_timeout () =
   check
     string
     "Timeout format"
-    "Provider 'provider_f' timeout: request exceeded budget"
+    "Provider 'gemini' timeout: request exceeded budget"
     (Error.to_string
        (Error.Timeout
-          { provider = "provider_f"
+          { provider = "gemini"
           ; timeout_phase = None
           ; detail = "request exceeded budget"
           }))
@@ -163,9 +163,9 @@ let test_not_found () =
   check
     string
     "NotFound format"
-    "Provider 'provider_f' not found: model not available"
+    "Provider 'gemini' not found: model not available"
     (Error.to_string
-       (Error.NotFound { provider = "provider_f"; detail = "model not available" }))
+       (Error.NotFound { provider = "gemini"; detail = "model not available" }))
 ;;
 
 let test_provider_terminal () =
@@ -233,13 +233,13 @@ let test_retry_overloaded_unknown_provider_mapping () =
 let test_http_capacity_failure_mapping () =
   let err =
     Error.of_http_error
-      ~provider:"provider_f"
+      ~provider:"gemini"
       (Http_client.ProviderFailure
          { kind =
              Http_client.Capacity_exhausted
                { scope = Http_client.Failure_scope_model
                ; retry_after = Some 7.0
-               ; model = Some "provider_f-3-pro"
+               ; model = Some "gemini-3-pro"
                }
          ; message = "model queue saturated"
          })
@@ -247,7 +247,7 @@ let test_http_capacity_failure_mapping () =
   match err with
   | Error.CapacityExhausted { scope; affected; retry_after; detail } ->
     check bool "scope" true (scope = Error.CapacityModel);
-    check (list string) "affected" [ "provider_f-3-pro" ] affected;
+    check (list string) "affected" [ "gemini-3-pro" ] affected;
     check (option (float 0.001)) "retry_after" (Some 7.0) retry_after;
     check string "detail" "model queue saturated" detail
   | _ -> fail "expected CapacityExhausted"
@@ -378,13 +378,13 @@ let test_provider_failure_remaining_variants_mapping () =
   in
   let hard_quota =
     provider_failure
-      ~provider:"provider_f"
+      ~provider:"gemini"
       (Http_client.Hard_quota { retry_after = Some 4.0 })
       "billing"
   in
   (match hard_quota with
    | Error.HardQuota { provider; retry_after; detail } ->
-     check string "hard quota provider" "provider_f" provider;
+     check string "hard quota provider" "gemini" provider;
      check (option (float 0.001)) "hard quota retry after" (Some 4.0) retry_after;
      check string "hard quota detail" "billing" detail
    | _ -> fail "expected HardQuota");

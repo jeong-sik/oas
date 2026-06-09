@@ -79,7 +79,7 @@ let resolve_auto_model_id
     else resolve_glm_model_id model_id
   | Gemini ->
     if model_id = "auto"
-    then Util.env_or "provider_f-2.5-flash" "PROVIDER_F_DEFAULT_MODEL"
+    then Util.env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
     else model_id
   | Kimi ->
     if model_id = "auto"
@@ -98,7 +98,7 @@ let to_provider_config (legacy : Provider.config)
   | Error e -> Error e
   | Ok (base_url, api_key, headers) ->
     let m_lower = String.lowercase_ascii legacy.model_id in
-    let is_provider_f_model = String.starts_with ~prefix:"provider_f" m_lower in
+    let is_gemini_model = String.starts_with ~prefix:"gemini" m_lower in
     let is_glm_model = is_glm_model_or_alias m_lower in
     let is_zai_provider = Llm_provider.Zai_catalog.is_zai_base_url base_url in
     let is_provider_c_provider = is_provider_c_coding_base_url base_url in
@@ -109,7 +109,7 @@ let to_provider_config (legacy : Provider.config)
         then Llm_provider.Provider_config.Kimi
         else Llm_provider.Provider_config.Anthropic
       | Provider.Openai_chat_completions | Provider.Custom _ ->
-        if is_provider_f_model
+        if is_gemini_model
         then Llm_provider.Provider_config.Gemini
         else if is_zai_provider && is_glm_model
         then Llm_provider.Provider_config.Glm

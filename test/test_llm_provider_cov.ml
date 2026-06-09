@@ -1,5 +1,5 @@
 (** Tests for llm_provider sub-library modules:
-    complete, api_common, backend_provider_f,
+    complete, api_common, backend_gemini,
     capability_filter, capabilities.
 
     Focuses on pure functions and data construction only. *)
@@ -57,14 +57,14 @@ let system_msg s : Types.message =
   { role = System; content = [ Text s ]; name = None; tool_call_id = None; metadata = [] }
 ;;
 
-let provider_f25_flash_model = "provider_f-2.5-flash"
+let gemini25_flash_model = "gemini-2.5-flash"
 
-let provider_f25_url ?api_key ~stream () =
+let gemini25_url ?api_key ~stream () =
   let action = if stream then "streamGenerateContent" else "generateContent" in
   let base =
     Printf.sprintf
       "https://gen.googleapis.com/v1beta/models/%s:%s"
-      provider_f25_flash_model
+      gemini25_flash_model
       action
   in
   match api_key, stream with
@@ -87,65 +87,65 @@ let mk_response
 ;;
 
 (* ═══════════════════════════════════════════════════
-   1. Complete — provider_f_url, is_retryable, default_retry_config
+   1. Complete — gemini_url, is_retryable, default_retry_config
    ═══════════════════════════════════════════════════ *)
 
-let test_provider_f_url_sync_no_key () =
+let test_gemini_url_sync_no_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
       ()
   in
-  let url = Complete.provider_f_url ~config ~stream:false in
-  Alcotest.(check string) "sync no key" (provider_f25_url ~stream:false ()) url
+  let url = Complete.gemini_url ~config ~stream:false in
+  Alcotest.(check string) "sync no key" (gemini25_url ~stream:false ()) url
 ;;
 
-let test_provider_f_url_sync_with_key () =
+let test_gemini_url_sync_with_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
       ()
   in
-  let url = Complete.provider_f_url ~config ~stream:false in
+  let url = Complete.gemini_url ~config ~stream:false in
   Alcotest.(check string)
     "sync with key"
-    (provider_f25_url ~api_key:"mykey" ~stream:false ())
+    (gemini25_url ~api_key:"mykey" ~stream:false ())
     url
 ;;
 
-let test_provider_f_url_stream_with_key () =
+let test_gemini_url_stream_with_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
       ()
   in
-  let url = Complete.provider_f_url ~config ~stream:true in
+  let url = Complete.gemini_url ~config ~stream:true in
   Alcotest.(check string)
     "stream with key"
-    (provider_f25_url ~api_key:"mykey" ~stream:true ())
+    (gemini25_url ~api_key:"mykey" ~stream:true ())
     url
 ;;
 
-let test_provider_f_url_stream_no_key () =
+let test_gemini_url_stream_no_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
       ()
   in
-  let url = Complete.provider_f_url ~config ~stream:true in
-  Alcotest.(check string) "stream no key" (provider_f25_url ~stream:true ()) url
+  let url = Complete.gemini_url ~config ~stream:true in
+  Alcotest.(check string) "stream no key" (gemini25_url ~stream:true ()) url
 ;;
 
 let test_is_retryable_429 () =
@@ -570,20 +570,20 @@ let test_message_to_json_tool () =
 ;;
 
 (* ═══════════════════════════════════════════════════
-   4. Backend_provider_f — build_request, parse_response,
+   4. Backend_gemini — build_request, parse_response,
       contents_of_messages
    ═══════════════════════════════════════════════════ *)
 
 let test_contents_of_messages_user () =
   let msgs = [ user_msg "hello" ] in
-  let contents, sys = Backend_provider_f.contents_of_messages msgs in
+  let contents, sys = Backend_gemini.contents_of_messages msgs in
   Alcotest.(check int) "1 content" 1 (List.length contents);
   Alcotest.(check bool) "no system" true (sys = None)
 ;;
 
 let test_contents_of_messages_system () =
   let msgs = [ system_msg "you are helpful"; user_msg "hi" ] in
-  let contents, sys = Backend_provider_f.contents_of_messages msgs in
+  let contents, sys = Backend_gemini.contents_of_messages msgs in
   Alcotest.(check int) "1 user content" 1 (List.length contents);
   Alcotest.(check bool) "has system" true (sys <> None)
 ;;
@@ -592,7 +592,7 @@ let test_contents_of_messages_mixed () =
   let msgs =
     [ system_msg "system prompt"; user_msg "user question"; assistant_msg "model answer" ]
   in
-  let contents, sys = Backend_provider_f.contents_of_messages msgs in
+  let contents, sys = Backend_gemini.contents_of_messages msgs in
   Alcotest.(check int) "user + model contents" 2 (List.length contents);
   Alcotest.(check bool) "has system" true (sys <> None)
 ;;
@@ -618,7 +618,7 @@ let test_contents_of_messages_tool_use () =
       }
     ]
   in
-  let contents, _sys = Backend_provider_f.contents_of_messages msgs in
+  let contents, _sys = Backend_gemini.contents_of_messages msgs in
   (* Should have 3 content entries: user, assistant with functionCall, tool with functionResponse *)
   Alcotest.(check int) "3 contents" 3 (List.length contents)
 ;;
@@ -633,7 +633,7 @@ let test_contents_of_messages_redacted_filtered () =
       }
     ]
   in
-  let contents, _sys = Backend_provider_f.contents_of_messages msgs in
+  let contents, _sys = Backend_gemini.contents_of_messages msgs in
   Alcotest.(check int) "1 content" 1 (List.length contents);
   (* The redacted thinking should be filtered out, leaving only text *)
   let open Yojson.Safe.Util in
@@ -646,13 +646,13 @@ let test_build_request_basic () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~max_tokens:100
       ~temperature:0.5
       ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "hello" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -670,12 +670,12 @@ let test_build_request_with_system_prompt () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~system_prompt:"be helpful"
       ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "hello" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -692,13 +692,13 @@ let test_build_request_with_thinking () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~enable_thinking:true
       ~thinking_budget:5000
       ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "reason about this" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "reason about this" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -710,10 +710,10 @@ let test_build_request_with_thinking () =
 
 let test_build_request_with_thinking_default_budget () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~enable_thinking:true ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~enable_thinking:true ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "reason" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -721,7 +721,7 @@ let test_build_request_with_thinking_default_budget () =
   let tc = gc |> member "thinkingConfig" in
   Alcotest.(check int)
     "default thinkingBudget"
-    (Constants.Thinking.provider_f_budget ())
+    (Constants.Thinking.gemini_budget ())
     (tc |> member "thinkingBudget" |> to_int)
 ;;
 
@@ -823,8 +823,8 @@ let test_constants_env_helpers () =
       "anthropic override"
       2048
       (Constants.Thinking.provider_a_budget ()));
-  with_env "OAS_PROVIDER_F_THINKING_BUDGET" (Some "3072") (fun () ->
-    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.provider_f_budget ()));
+  with_env "OAS_GEMINI_THINKING_BUDGET" (Some "3072") (fun () ->
+    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()));
   Alcotest.(check int)
     "anthropic cache min chars"
     3500
@@ -914,12 +914,12 @@ let test_build_request_json_mode () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~response_format_json:true
       ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "json pls" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "json pls" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -931,7 +931,7 @@ let test_build_request_json_mode () =
 ;;
 
 let test_build_request_with_tools () =
-  let config = make_config ~kind:Gemini ~model_id:provider_f25_flash_model () in
+  let config = make_config ~kind:Gemini ~model_id:gemini25_flash_model () in
   let tool_schema =
     `Assoc
       [ "name", `String "get_weather"
@@ -944,7 +944,7 @@ let test_build_request_with_tools () =
       ]
   in
   let body_str =
-    Backend_provider_f.build_request
+    Backend_gemini.build_request
       ~config
       ~messages:[ user_msg "weather" ]
       ~tools:[ tool_schema ]
@@ -963,10 +963,10 @@ let test_build_request_with_tools () =
 
 let test_build_request_tool_choice_auto () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:Auto ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:Auto ()
   in
   let body_str =
-    Backend_provider_f.build_request
+    Backend_gemini.build_request
       ~config
       ~messages:[ user_msg "hi" ]
       ~tools:[ `Assoc [ "name", `String "t" ] ]
@@ -980,10 +980,10 @@ let test_build_request_tool_choice_auto () =
 
 let test_build_request_tool_choice_any () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:Any ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:Any ()
   in
   let body_str =
-    Backend_provider_f.build_request
+    Backend_gemini.build_request
       ~config
       ~messages:[ user_msg "hi" ]
       ~tools:[ `Assoc [ "name", `String "t" ] ]
@@ -997,10 +997,10 @@ let test_build_request_tool_choice_any () =
 
 let test_build_request_tool_choice_none () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:None_ ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:None_ ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -1012,12 +1012,12 @@ let test_build_request_tool_choice_specific () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~tool_choice:(Tool "get_weather")
       ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -1032,14 +1032,14 @@ let test_build_request_top_p_top_k () =
   let config : Provider_config.t =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:""
       ~top_p:0.9
       ~top_k:40
       ()
   in
   let body_str =
-    Backend_provider_f.build_request ~config ~messages:[ user_msg "hi" ] ()
+    Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] ()
   in
   let json = Yojson.Safe.from_string body_str in
   let open Yojson.Safe.Util in
@@ -1067,10 +1067,10 @@ let test_parse_response_basic () =
     },
     "modelVersion": "%s"
   }|}
-         provider_f25_flash_model)
+         gemini25_flash_model)
   in
-  let resp = Backend_provider_f.parse_response json in
-  Alcotest.(check string) "model" provider_f25_flash_model resp.model;
+  let resp = Backend_gemini.parse_response json in
+  Alcotest.(check string) "model" gemini25_flash_model resp.model;
   (match resp.content with
    | [ Text "Hello world" ] -> ()
    | _ -> Alcotest.fail "expected text block");
@@ -1094,7 +1094,7 @@ let test_parse_response_with_thinking () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   Alcotest.(check int) "2 blocks" 2 (List.length resp.content);
   match List.hd resp.content with
   | Types.Thinking { content = "let me think"; _ } -> ()
@@ -1118,7 +1118,7 @@ let test_parse_response_function_call () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   (match resp.content with
    | [ Types.ToolUse { name = "get_weather"; _ } ] -> ()
    | _ -> Alcotest.fail "expected ToolUse");
@@ -1137,7 +1137,7 @@ let test_parse_response_max_tokens () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
   | Types.MaxTokens -> ()
   | _ -> Alcotest.fail "expected MaxTokens"
@@ -1153,7 +1153,7 @@ let test_parse_response_safety () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
   | Types.Unknown "safety" -> ()
   | _ -> Alcotest.fail "expected Unknown safety"
@@ -1169,7 +1169,7 @@ let test_parse_response_recitation () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
   | Types.Unknown "recitation" -> ()
   | _ -> Alcotest.fail "expected Unknown recitation"
@@ -1185,7 +1185,7 @@ let test_parse_response_unknown_reason () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
   | Types.Unknown "BLOCKLIST" -> ()
   | _ -> Alcotest.fail "expected Unknown BLOCKLIST"
@@ -1200,7 +1200,7 @@ let test_parse_response_no_finish_reason () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
   | Types.EndTurn -> () (* default is STOP -> EndTurn *)
   | _ -> Alcotest.fail "expected EndTurn default"
@@ -1216,7 +1216,7 @@ let test_parse_response_no_usage () =
     }]
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   Alcotest.(check bool) "no usage" true (resp.usage = None)
 ;;
 
@@ -1228,10 +1228,10 @@ let test_parse_response_error () =
   }|}
   in
   try
-    let _ = Backend_provider_f.parse_response json in
+    let _ = Backend_gemini.parse_response json in
     Alcotest.fail "expected exception"
   with
-  | Backend_provider_f.Gemini_api_error msg ->
+  | Backend_gemini.Gemini_api_error msg ->
     Alcotest.(check string) "error msg" "model not found" msg
 ;;
 
@@ -1243,10 +1243,10 @@ let test_parse_response_error_no_message () =
   }|}
   in
   try
-    let _ = Backend_provider_f.parse_response json in
+    let _ = Backend_gemini.parse_response json in
     Alcotest.fail "expected exception"
   with
-  | Backend_provider_f.Gemini_api_error msg ->
+  | Backend_gemini.Gemini_api_error msg ->
     Alcotest.(check string) "default msg" "Unknown Gemini API error" msg
 ;;
 
@@ -1259,7 +1259,7 @@ let test_parse_response_no_candidates () =
     "finishReason": "STOP"
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.content with
   | [ Text "fallback" ] -> ()
   | _ -> Alcotest.fail "expected fallback parse"
@@ -1280,7 +1280,7 @@ let test_parse_response_usage_with_cache () =
     }
   }|}
   in
-  let resp = Backend_provider_f.parse_response json in
+  let resp = Backend_gemini.parse_response json in
   match resp.usage with
   | Some u ->
     Alcotest.(check int) "input" 100 u.input_tokens;
@@ -1646,16 +1646,16 @@ let test_for_model_id_gpt4o () =
   | None -> Alcotest.fail "expected Some for model-d"
 ;;
 
-let test_for_model_id_provider_f25 () =
-  match Capabilities.for_model_id provider_f25_flash_model with
+let test_for_model_id_gemini25 () =
+  match Capabilities.for_model_id gemini25_flash_model with
   | Some c -> Alcotest.(check bool) "code_execution" true c.supports_code_execution
-  | None -> Alcotest.fail "expected Some for legacy provider_f"
+  | None -> Alcotest.fail "expected Some for legacy gemini"
 ;;
 
 let test_for_model_id_gemini3 () =
-  match Capabilities.for_model_id "provider_f-3-pro" with
+  match Capabilities.for_model_id "gemini-3-pro" with
   | Some _ -> ()
-  | None -> Alcotest.fail "expected Some for provider_f-3"
+  | None -> Alcotest.fail "expected Some for gemini-3"
 ;;
 
 let test_for_model_id_qwen3 () =
@@ -1789,11 +1789,11 @@ let test_with_context_size_overrides () =
 let () =
   Alcotest.run
     "llm_provider_cov"
-    [ ( "complete.provider_f_url"
-      , [ Alcotest.test_case "sync no key" `Quick test_provider_f_url_sync_no_key
-        ; Alcotest.test_case "sync with key" `Quick test_provider_f_url_sync_with_key
-        ; Alcotest.test_case "stream with key" `Quick test_provider_f_url_stream_with_key
-        ; Alcotest.test_case "stream no key" `Quick test_provider_f_url_stream_no_key
+    [ ( "complete.gemini_url"
+      , [ Alcotest.test_case "sync no key" `Quick test_gemini_url_sync_no_key
+        ; Alcotest.test_case "sync with key" `Quick test_gemini_url_sync_with_key
+        ; Alcotest.test_case "stream with key" `Quick test_gemini_url_stream_with_key
+        ; Alcotest.test_case "stream no key" `Quick test_gemini_url_stream_no_key
         ] )
     ; ( "complete.is_retryable"
       , [ Alcotest.test_case "429" `Quick test_is_retryable_429
@@ -1875,7 +1875,7 @@ let () =
         ; Alcotest.test_case "system" `Quick test_message_to_json_system
         ; Alcotest.test_case "tool" `Quick test_message_to_json_tool
         ] )
-    ; ( "backend_provider_f.contents_of_messages"
+    ; ( "backend_gemini.contents_of_messages"
       , [ Alcotest.test_case "user" `Quick test_contents_of_messages_user
         ; Alcotest.test_case "system" `Quick test_contents_of_messages_system
         ; Alcotest.test_case "mixed" `Quick test_contents_of_messages_mixed
@@ -1885,7 +1885,7 @@ let () =
             `Quick
             test_contents_of_messages_redacted_filtered
         ] )
-    ; ( "backend_provider_f.build_request"
+    ; ( "backend_gemini.build_request"
       , [ Alcotest.test_case "basic" `Quick test_build_request_basic
         ; Alcotest.test_case
             "with system_prompt"
@@ -1923,7 +1923,7 @@ let () =
             `Quick
             test_llm_transport_runtime_mcp_policy_json
         ] )
-    ; ( "backend_provider_f.parse_response"
+    ; ( "backend_gemini.parse_response"
       , [ Alcotest.test_case "basic" `Quick test_parse_response_basic
         ; Alcotest.test_case "with thinking" `Quick test_parse_response_with_thinking
         ; Alcotest.test_case "function call" `Quick test_parse_response_function_call
@@ -1988,7 +1988,7 @@ let () =
             "provider_d_chat_extended"
             `Quick
             test_openai_compat_chat_extended_capabilities
-        ; Alcotest.test_case "provider_f" `Quick test_gemini_capabilities
+        ; Alcotest.test_case "gemini" `Quick test_gemini_capabilities
         ; Alcotest.test_case "provider_k" `Quick test_glm_capabilities
         ] )
     ; ( "capabilities.for_model_id"
@@ -2007,8 +2007,8 @@ let () =
         ; Alcotest.test_case "model-d-5" `Quick test_for_model_id_gpt5
         ; Alcotest.test_case "model-d-4.1" `Quick test_for_model_id_gpt41
         ; Alcotest.test_case "model-d" `Quick test_for_model_id_gpt4o
-        ; Alcotest.test_case "provider_f legacy" `Quick test_for_model_id_provider_f25
-        ; Alcotest.test_case "provider_f-3" `Quick test_for_model_id_gemini3
+        ; Alcotest.test_case "gemini legacy" `Quick test_for_model_id_gemini25
+        ; Alcotest.test_case "gemini-3" `Quick test_for_model_id_gemini3
         ; Alcotest.test_case "provider_h-3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "model-n-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt

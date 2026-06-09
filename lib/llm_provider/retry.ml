@@ -648,7 +648,7 @@ let%test "RateLimited provider_d exceeded quota is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_f resource exhausted is NOT retryable" =
+let%test "RateLimited gemini resource exhausted is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -657,7 +657,7 @@ let%test "RateLimited provider_f resource exhausted is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_f resource_exhausted snake_case is NOT retryable" =
+let%test "RateLimited gemini resource_exhausted snake_case is NOT retryable" =
   not
     (is_retryable
        (RateLimited

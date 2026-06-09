@@ -11,7 +11,7 @@ exception Gemini_api_error of string
 
 (* ── Helpers ────────────────────────────────────────── *)
 
-let provider_f_role_of_oas = function
+let gemini_role_of_oas = function
   | User | System | Tool -> "user"
   | Assistant -> "model"
 ;;
@@ -62,7 +62,7 @@ let part_of_content_block id_to_name = function
       | Some n -> n
       | None ->
         Diag.warn
-          "backend_provider_f"
+          "backend_gemini"
           "ToolResult tool_use_id '%s' has no matching ToolUse in %d-entry lookup table; \
            using UUID as functionResponse name (Gemini API requires name). This usually \
            means the ToolUse block was in a conversation turn that was compacted or \
@@ -101,7 +101,7 @@ let contents_of_messages (messages : message list) =
          then
            contents
            := `Assoc
-                [ "role", `String (provider_f_role_of_oas msg.role)
+                [ "role", `String (gemini_role_of_oas msg.role)
                 ; "parts", `List parts
                 ]
               :: !contents)
@@ -217,7 +217,7 @@ let build_request
      let budget =
        match config.thinking_budget with
        | Some b -> b
-       | None -> Constants.Thinking.provider_f_budget ()
+       | None -> Constants.Thinking.gemini_budget ()
      in
      gen_config
      := ( "thinkingConfig"

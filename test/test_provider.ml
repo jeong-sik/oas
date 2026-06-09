@@ -650,7 +650,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_f-2.5-flash"
+    ; model_id = "gemini-2.5-flash"
     ; api_key_env = env_var
     }
   in
@@ -673,7 +673,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
       "authorization auth header derived"
       [ "Authorization", "Bearer sk-oai-adapter-test" ]
       pc;
-    Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
+    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -758,13 +758,13 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
      through the Provider_d wire format and produce 404 against the
      Gemini base URL. *)
   let cfg : Provider.config =
-    { provider = Custom_registered { name = "provider_f" }
-    ; model_id = "provider_f-2.5-flash"
-    ; api_key_env = "PROVIDER_F_API_KEY"
+    { provider = Custom_registered { name = "gemini" }
+    ; model_id = "gemini-2.5-flash"
+    ; api_key_env = "GEMINI_API_KEY"
     }
   in
   let state = agent_state_with_params () in
-  Unix.putenv "PROVIDER_F_API_KEY" "fake-provider_f-key";
+  Unix.putenv "GEMINI_API_KEY" "fake-gemini-key";
   match
     Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
   with
@@ -773,7 +773,7 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
       "kind preserves Gemini"
       true
       (pc.kind = Llm_provider.Provider_config.Gemini);
-    Alcotest.(check string) "model_id" "provider_f-2.5-flash" pc.model_id
+    Alcotest.(check string) "model_id" "gemini-2.5-flash" pc.model_id
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 

@@ -263,7 +263,7 @@ let test_builtin_aliases_are_canonicalized () =
     [ "provider_a", "agent_llm_a"
     ; "anthropic", "agent_llm_a"
     ; "kimi", "provider_c"
-    ; "gemini", "provider_f"
+    ; "gemini", "gemini"
     ; "glm", "provider_k"
     ; "dashscope", "provider_h"
     ]

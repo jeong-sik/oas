@@ -132,18 +132,18 @@ let static_pricing_opt_normalized normalized =
     else if string_contains ~needle:"provider_g-v4-flash" normalized
     then
       Some ((0.14, 0.28), (1.0, 0.02))
-      (* Gemini 3-계 preview. Source: ai.google.dev/provider_f-api/docs/pricing,
+      (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
        confirmed 2026-04-16. Google also exposes context caching with a
        per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the
        pricing record cannot represent time-based storage, so we keep
        cache multipliers at no_cache and rely on provider-reported
        cost_usd for exact billing. Estimates here are an upper bound on
        input/output token cost only. *)
-    else if string_contains ~needle:"provider_f-3-flash-preview" normalized
+    else if string_contains ~needle:"gemini-3-flash-preview" normalized
     then Some ((0.50, 3.0), no_cache)
     else if
-      string_contains ~needle:"provider_f-3.1-pro-preview" normalized
-      || string_contains ~needle:"provider_f-3.1-pro" normalized
+      string_contains ~needle:"gemini-3.1-pro-preview" normalized
+      || string_contains ~needle:"gemini-3.1-pro" normalized
     then
       (* Standard tier (input <= 200k tokens). Above 200k Google charges
          2x ($4 input / $18 output). The pricing record has no context
@@ -151,8 +151,8 @@ let static_pricing_opt_normalized normalized =
          by 2x. Follow-up: extend the record with tiered pricing. *)
       Some ((2.0, 12.0), no_cache)
     else if
-      string_contains ~needle:"provider_f-3.1-flash-lite-preview" normalized
-      || string_contains ~needle:"provider_f-3.1-flash-lite" normalized
+      string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
+      || string_contains ~needle:"gemini-3.1-flash-lite" normalized
     then
       Some ((0.25, 1.5), no_cache)
       (* Glm (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
@@ -187,7 +187,7 @@ let static_pricing_opt_normalized normalized =
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
     else if
       normalized = "auto"
-      || normalized = "provider_f"
+      || normalized = "gemini"
       || normalized = "provider_c"
       || normalized = "agent_code"
       || normalized = "cli_tool_d"
@@ -594,23 +594,23 @@ let%test "pricing o3-mini" =
 
 (* --- pricing_for_model: Gemini 3-계 preview (2026-04-16) --- *)
 
-let%test "pricing provider_f-3-flash-preview" =
-  let p = pricing_for_model "provider_f-3-flash-preview" in
+let%test "pricing gemini-3-flash-preview" =
+  let p = pricing_for_model "gemini-3-flash-preview" in
   close_enough p.input_per_million 0.50 && close_enough p.output_per_million 3.0
 ;;
 
-let%test "pricing provider_f-3.1-pro-preview" =
-  let p = pricing_for_model "provider_f-3.1-pro-preview" in
+let%test "pricing gemini-3.1-pro-preview" =
+  let p = pricing_for_model "gemini-3.1-pro-preview" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
-let%test "pricing provider_f-3.1-pro (bare id)" =
-  let p = pricing_for_model "provider_f-3.1-pro" in
+let%test "pricing gemini-3.1-pro (bare id)" =
+  let p = pricing_for_model "gemini-3.1-pro" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
-let%test "pricing provider_f-3.1-flash-lite-preview" =
-  let p = pricing_for_model "provider_f-3.1-flash-lite-preview" in
+let%test "pricing gemini-3.1-flash-lite-preview" =
+  let p = pricing_for_model "gemini-3.1-flash-lite-preview" in
   close_enough p.input_per_million 0.25 && close_enough p.output_per_million 1.5
 ;;
 
@@ -709,8 +709,8 @@ let%test "pricing cc: short alias falls back to sonnet-4-6 rates" =
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
-let%test "pricing_for_model_opt returns Some for provider_f-3-flash-preview" =
-  match pricing_for_model_opt "provider_f-3-flash-preview" with
+let%test "pricing_for_model_opt returns Some for gemini-3-flash-preview" =
+  match pricing_for_model_opt "gemini-3-flash-preview" with
   | Some p -> p.input_per_million > 0.0
   | None -> false
 ;;

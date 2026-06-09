@@ -252,11 +252,11 @@ let env_or_default env_name default_url =
   | None -> default_url
 ;;
 
-let provider_f_defaults =
+let gemini_defaults =
   { kind = Gemini
   ; base_url =
       env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
-  ; api_key_env = "PROVIDER_F_API_KEY"
+  ; api_key_env = "GEMINI_API_KEY"
   ; request_path = ""
   }
 ;;
@@ -387,8 +387,8 @@ let default () =
     ~max_context:200_000
     Capabilities.anthropic_capabilities;
   reg
-    "provider_f"
-    provider_f_defaults
+    "gemini"
+    gemini_defaults
     ~max_context:1_000_000
     Capabilities.gemini_capabilities;
   reg "provider_k" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
@@ -458,7 +458,7 @@ let provider_name_of_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic -> "agent_llm_a"
   | Kimi -> "provider_c"
-  | Gemini -> "provider_f"
+  | Gemini -> "gemini"
   | Glm ->
     if Zai_catalog.is_coding_base_url config.base_url
     then "provider_k-coding"

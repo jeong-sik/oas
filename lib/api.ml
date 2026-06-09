@@ -237,7 +237,7 @@ let create_message
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
       | Unix.Unix_error _ as exn ->
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
-      (* Backend_provider_f.Gemini_api_error and Backend_provider_k.Glm_api_error
+      (* Backend_gemini.Gemini_api_error and Backend_provider_k.Glm_api_error
        are intentionally NOT caught here: this function only
        dispatches [Anthropic_messages | Openai_chat_completions |
        Custom] (see the match on [kind] above), so the Gemini/Glm
