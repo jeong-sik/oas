@@ -9,7 +9,7 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object
-  (** Provider_g-style: top-level [thinking] object plus [reasoning_effort]. *)
+  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
   | Thinking_object_only
   (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
@@ -132,8 +132,8 @@ type static_model_route =
   | Kimi_k2
   | DashScope_3
   | Provider_n_4
-  | Provider_g_v4_flash
-  | Provider_g_v4_pro
+  | Deepseek_v4_flash
+  | Deepseek_v4_pro
   | Provider_j_large
   | Provider_j_small
   | Provider_m_command

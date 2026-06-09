@@ -127,9 +127,13 @@ let static_pricing_opt_normalized normalized =
        Promotional 75%% discount until 2026-05-31.
        Cache read rate: flash $0.0028/M (2%% of input), pro $0.003625/M.
        Cache write is billed at standard input rate (no surcharge). *)
-    else if string_contains ~needle:"provider_g-v4-pro" normalized
+    else if
+      string_contains ~needle:"deepseek-v4-pro" normalized
+      || string_contains ~needle:"provider_g-v4-pro" normalized
     then Some ((0.435, 0.87), (1.0, 0.008333333333333333))
-    else if string_contains ~needle:"provider_g-v4-flash" normalized
+    else if
+      string_contains ~needle:"deepseek-v4-flash" normalized
+      || string_contains ~needle:"provider_g-v4-flash" normalized
     then
       Some ((0.14, 0.28), (1.0, 0.02))
       (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,

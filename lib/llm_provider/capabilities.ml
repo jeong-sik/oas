@@ -15,7 +15,7 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object
-  (** Provider_g-style: top-level [thinking] object plus [reasoning_effort]. *)
+  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
   | Thinking_object_only
   (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
@@ -400,8 +400,8 @@ type static_model_route =
   | Kimi_k2
   | DashScope_3
   | Provider_n_4
-  | Provider_g_v4_flash
-  | Provider_g_v4_pro
+  | Deepseek_v4_flash
+  | Deepseek_v4_pro
   | Provider_j_large
   | Provider_j_small
   | Provider_m_command
@@ -486,10 +486,10 @@ let static_model_route_of_id model_id =
       else if
         String.starts_with ~prefix:"model-n-4" m || String.starts_with ~prefix:"llama4" m
       then Some Provider_n_4
-      else if String.starts_with ~prefix:"provider_g-v4-flash" m
-      then Some Provider_g_v4_flash
-      else if String.starts_with ~prefix:"provider_g-v4-pro" m
-      then Some Provider_g_v4_pro
+      else if starts_with_any m [ "deepseek-v4-flash"; "provider_g-v4-flash" ]
+      then Some Deepseek_v4_flash
+      else if starts_with_any m [ "deepseek-v4-pro"; "provider_g-v4-pro" ]
+      then Some Deepseek_v4_pro
       else if String.starts_with ~prefix:"provider_j-large" m
       then Some Provider_j_large
       else if String.starts_with ~prefix:"provider_j-small" m
@@ -630,7 +630,7 @@ let capabilities_of_static_model_route = function
       ; supports_image_input = true
       ; supports_native_streaming = true
       }
-  | Provider_g_v4_flash ->
+  | Deepseek_v4_flash ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -647,7 +647,7 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-  | Provider_g_v4_pro ->
+  | Deepseek_v4_pro ->
     Some
       { default_capabilities with
         max_context_tokens = Some 1_000_000
@@ -1372,7 +1372,31 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
     ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
     ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
-    ; ("provider_g-v4-flash-test", fun c -> c.thinking_control_format = Thinking_object)
+      (* RFC-OAS-023: the real fleet model ids ([deepseek-v4-flash],
+         [deepseek-v4-pro]) must resolve to the DeepSeek capability route.
+         Before the de-anonymization these matched only the anon
+         [provider_g-v4-*] prefixes, so the live fleet missed the static
+         table and silently fell back to provider-default capabilities. The
+         anon prefixes are retained as aliases and asserted here too. The
+         fingerprint ([Thinking_object] + [384_000] output cap) is specific
+         to the DeepSeek record, so a fall-through to defaults fails the
+         test. *)
+    ; ( "deepseek-v4-flash"
+      , fun c ->
+          c.thinking_control_format = Thinking_object
+          && c.max_output_tokens = Some 384_000 )
+    ; ( "provider_g-v4-flash-test"
+      , fun c ->
+          c.thinking_control_format = Thinking_object
+          && c.max_output_tokens = Some 384_000 )
+    ; ( "deepseek-v4-pro"
+      , fun c ->
+          c.thinking_control_format = Thinking_object
+          && c.max_output_tokens = Some 384_000 )
+    ; ( "provider_g-v4-pro-test"
+      , fun c ->
+          c.thinking_control_format = Thinking_object
+          && c.max_output_tokens = Some 384_000 )
     ; ( "provider_l-ultra-253b"
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
