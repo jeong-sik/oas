@@ -126,72 +126,7 @@ let test_default_null_input () =
   | Still_invalid _ -> () (* also acceptable if required fields missing *)
 ;;
 
-(* ── Stage 3: LLM Format Recovery ───────────────────────── *)
-
-let test_llm_format_recovery_known_wrapper () =
-  let schema = make_schema [ int_param "count" true; str_param "label" false ] in
-  let input = `Assoc [ "input", `Assoc [ "count", `Int 5 ] ] in
-  match Correction_pipeline.run ~schema input with
-  | Fixed { corrected; corrections } ->
-    let count = Yojson.Safe.Util.(corrected |> member "count" |> to_int) in
-    Alcotest.(check int) "unwrapped count" 5 count;
-    Alcotest.(check bool)
-      "logged recovery"
-      true
-      (List.exists
-         (fun c -> c.Correction_pipeline.stage = "llm_format_recovery")
-         corrections)
-  | Still_invalid _ -> Alcotest.fail "expected Fixed after unwrap"
-;;
-
-let test_llm_format_recovery_schema_key_match () =
-  (* Wrapper is not a known keyword, but inner keys match schema names. *)
-  let schema = make_schema [ str_param "query" true ] in
-  let input = `Assoc [ "wrapped", `Assoc [ "query", `String "find repos" ] ] in
-  match Correction_pipeline.run ~schema input with
-  | Fixed { corrected; _ } ->
-    let query = Yojson.Safe.Util.(corrected |> member "query" |> to_string) in
-    Alcotest.(check string) "unwrapped query" "find repos" query
-  | Still_invalid _ -> Alcotest.fail "expected Fixed after unwrap by schema match"
-;;
-
-let test_llm_format_recovery_no_match_preserved () =
-  (* Unknown wrapper + no schema key overlap = preserve original. *)
-  let schema = make_schema [ str_param "name" true ] in
-  let input = `Assoc [ "foreign", `Assoc [ "other", `Int 42 ] ] in
-  match Correction_pipeline.run ~schema input with
-  | Fixed _ -> Alcotest.fail "expected Still_invalid — foreign wrapper preserved"
-  | Still_invalid { attempted; _ } ->
-    (* llm_format_recovery ran but decided not to unwrap, so no corrections *)
-    Alcotest.(check bool)
-      "no recovery correction"
-      false
-      (List.exists
-         (fun c -> c.Correction_pipeline.stage = "llm_format_recovery")
-         attempted)
-;;
-
-let test_llm_format_recovery_before_coercion () =
-  (* Unwrap happens first, then coercion can fix the unwrapped fields. *)
-  let schema = make_schema [ int_param "count" true ] in
-  let input = `Assoc [ "args", `Assoc [ "count", `String "99" ] ] in
-  match Correction_pipeline.run ~schema input with
-  | Fixed { corrected; corrections } ->
-    let count = Yojson.Safe.Util.(corrected |> member "count" |> to_int) in
-    Alcotest.(check int) "unwrapped then coerced" 99 count;
-    (* Should have corrections from BOTH stages *)
-    Alcotest.(check bool)
-      "has recovery correction"
-      true
-      (List.exists (fun c -> c.Correction_pipeline.stage = "llm_format_recovery") corrections);
-    Alcotest.(check bool)
-      "has coercion correction"
-      true
-      (List.exists (fun c -> c.Correction_pipeline.stage = "coercion") corrections)
-  | Still_invalid _ -> Alcotest.fail "expected Fixed"
-;;
-
-(* ── Stage 4: Format Normalization ──────────────────────── *)
+(* ── Stage 3: Format Normalization ──────────────────────── *)
 
 let test_format_trim_whitespace () =
   let schema = make_schema [ str_param "msg" true ] in
@@ -336,21 +271,6 @@ let () =
             `Quick
             test_default_no_inject_if_present
         ; Alcotest.test_case "null input" `Quick test_default_null_input
-        ] )
-    ; ( "llm_format_recovery"
-      , [ Alcotest.test_case "known wrapper" `Quick test_llm_format_recovery_known_wrapper
-        ; Alcotest.test_case
-            "schema key match"
-            `Quick
-            test_llm_format_recovery_schema_key_match
-        ; Alcotest.test_case
-            "no match preserved"
-            `Quick
-            test_llm_format_recovery_no_match_preserved
-        ; Alcotest.test_case
-            "before coercion"
-            `Quick
-            test_llm_format_recovery_before_coercion
         ] )
     ; ( "format_normalization"
       , [ Alcotest.test_case "trim whitespace" `Quick test_format_trim_whitespace ] )

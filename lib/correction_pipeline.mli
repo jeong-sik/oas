@@ -5,10 +5,8 @@
     {!build_nondet_feedback} requires errors from a failed deterministic run.
 
     Default stage ordering (most specific first):
-    1. LLM format recovery — unwraps extra object nesting
-       (e.g. [{"input": {"count": 5}}] → [{"count": 5}])
-    2. Type coercion — delegates to {!Tool_input_validation.try_coerce}
-    3. Format normalization — trims whitespace from string values
+    1. Type coercion — delegates to {!Tool_input_validation.try_coerce}
+    2. Format normalization — trims whitespace from string values
 
     Zero-default injection remains available as an explicit stage for callers
     that own a closed input shape. It is not part of the default pipeline
@@ -55,7 +53,6 @@ type stage =
 val coercion_stage : stage
 val default_injection_stage : stage
 val format_normalization_stage : stage
-val llm_format_recovery_stage : stage
 
 (** Zero-value default for a param_type (e.g. String → [""], Integer → [0]). *)
 val zero_default : Types.param_type -> Yojson.Safe.t
@@ -76,14 +73,14 @@ val make_format_normalization_stage
   -> stage
 
 (** The default pipeline:
-    [llm_format_recovery; coercion; format_normalization].
+    [coercion; format_normalization].
 
     Missing optional fields remain absent unless the caller opts into
     {!zero_default_stages} or passes {!default_injection_stage} explicitly. *)
 val default_stages : stage list
 
 (** Legacy zero-value pipeline:
-    [llm_format_recovery; coercion; default_injection; format_normalization].
+    [coercion; default_injection; format_normalization].
 
     Use only when absent optional fields are semantically equivalent to zero
     values for the target tool. *)
