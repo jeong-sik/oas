@@ -389,10 +389,16 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
            | Tool_retry_policy.Retry { retry_count; summary } ->
              Tool_retry_policy.set_context_retry_count agent.context retry_count;
              Ok (retry_feedback_blocks ~policy ~retry_count ~summary ~tool_results)
-           | Tool_retry_policy.Exhausted { attempts; limit; summary } ->
+           | Tool_retry_policy.Exhausted { attempts = _; limit = _; summary = _ } ->
+             (* A tool failure is never turn-fatal. When the retry budget is
+                exhausted, return the tool results (which carry the error) to
+                the model so the turn loop self-corrects on the next turn — the
+                standard agent-loop contract. Previously this raised
+                [Error (ToolRetryExhausted ...)], turning a tool failure into a
+                turn-fatal error that accumulated to keeper crash via N
+                consecutive turn failures. *)
              Tool_retry_policy.clear_context_retry_count agent.context;
-             Error
-               (Error.Agent (ToolRetryExhausted { attempts; limit; detail = summary })))
+             Ok tool_results)
       in
       (* Anti-repetition hint: append warning to tool feedback when idle detected
        but not already handled by Nudge or Skip. Nudge injects its own message
