@@ -1046,6 +1046,55 @@ let test_complete_stream_metrics () =
   | Exit -> ()
 ;;
 
+(* RFC-OAS-026: drive the [Some t] transport dispatch arm with a transport that
+   has NO construction-time idle deadline. The high-level [stream_idle_timeout_s]
+   must reach [read_sse] via the request-borne carrier field on
+   [Llm_transport.completion_request]; pre-F1 the dispatch dropped it and a
+   first-token stall hung until an external watchdog. The sibling idle-timeout
+   tests above call [complete_stream] WITHOUT [~transport] (the [None] arm,
+   which always armed idle), so they pass even with the dispatch drop — this one
+   guards the transport arm specifically. *)
+let test_complete_stream_transport_arm_idle_timeout () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_raw_sse_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        [ 0.15, provider_a_sse_frame_message_start
+        ; 0.0, provider_a_sse_frame_content_block_start
+        ; 0.0, provider_a_sse_frame_delta "late"
+        ; 0.0, provider_a_sse_frame_stop
+        ]
+    in
+    let config = make_config url in
+    (* No construction-time idle (omit [?stream_idle_timeout_s]); only the
+       request-borne deadline carried through the dispatch can arm read_sse. *)
+    let transport = Complete.make_http_transport ~clock:env#clock ~sw ~net:env#net () in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~stream_idle_timeout_s:0.03
+        ~transport
+        ~config
+        ~messages
+        ~on_event:(fun _ -> ())
+        ()
+    with
+    | Error (Http_client.TimeoutError { phase = Http_client.First_token; _ }) ->
+      Eio.Switch.fail sw Exit
+    | Ok _ -> fail "expected idle timeout via the Some-t dispatch — carrier dropped?"
+    | Error _ -> fail "expected TimeoutError{phase=First_token} via the transport arm"
+  with
+  | Exit -> ()
+;;
+
 (* ── complete: body_timeout_s ─────────────────────────── *)
 
 let test_complete_body_timeout_fires () =
@@ -1191,6 +1240,10 @@ let () =
             `Quick
             test_complete_stream_idle_timeout_still_fires
         ; test_case "streaming metrics" `Quick test_complete_stream_metrics
+        ; test_case
+            "transport arm idle timeout (RFC-OAS-026)"
+            `Quick
+            test_complete_stream_transport_arm_idle_timeout
         ] )
     ]
 ;;
