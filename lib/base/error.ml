@@ -47,11 +47,6 @@ type agent_error =
       }
   | UnrecognizedStopReason of { reason : string }
   | IdleDetected of { consecutive_idle_turns : int }
-  | ToolRetryExhausted of
-      { attempts : int
-      ; limit : int
-      ; detail : string
-      }
   | AgentExecutionTimeout of
       { elapsed_sec : float
       ; timeout_sec : float
@@ -176,12 +171,6 @@ let agent_error_to_string = function
     Printf.sprintf
       "Idle detected: %d consecutive identical tool call turns"
       r.consecutive_idle_turns
-  | ToolRetryExhausted r ->
-    Printf.sprintf
-      "Tool retry budget exhausted after %d/%d retries: %s"
-      r.attempts
-      r.limit
-      r.detail
   | AgentExecutionTimeout r ->
     Printf.sprintf
       "Agent execution timed out after %.1fs (max_execution_time_s=%.1fs, turns=%d/%d)"

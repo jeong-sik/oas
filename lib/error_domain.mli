@@ -51,7 +51,6 @@ type agent_error =
     (** model_id, threshold_usd — legacy advisory cost classification.
         New execution paths must not emit this as a gate. *)
   | `Idle_detected of int (** consecutive_idle_turns *)
-  | `Tool_retry_exhausted of int * int * string (** attempts, limit, detail *)
   | `Agent_execution_timeout of float * float * int * int
     (** elapsed_sec, timeout_sec, turn_count, max_turns *)
   | `Agent_execution_idle_timeout of float * float * int * int

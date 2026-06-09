@@ -488,15 +488,11 @@ let test_agent_run_validation_retry_exhausted () =
         url
     in
     match Agent.run ~sw agent "what time is it?" with
-    | Ok _ -> fail "expected retry exhaustion error"
-    | Error (Error.Agent (Error.ToolRetryExhausted { attempts; limit; detail })) ->
-      check int "attempts" 1 attempts;
-      check int "limit" 1 limit;
-      check
-        bool
-        "detail mentions tool"
-        true
-        (contains_substring ~needle:"get_time" detail);
+    | Ok _ ->
+      (* Retry budget exhaustion is no longer turn-fatal. The repeated tool
+         failure is returned to the model as a tool_result, the turn loop
+         proceeds to the next response (text), and the run completes normally
+         instead of raising ToolRetryExhausted (purged). *)
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
