@@ -119,10 +119,15 @@ let build_request
   let sanitized_messages =
     Backend_openai_serialize.strip_orphaned_tool_results messages
   in
+  let is_deepseek_model model_id =
+    String.starts_with ~prefix:"deepseek" model_id
+  in
   let provider_messages =
     let message_serializer =
       match config.kind with
       | Provider_config.Glm -> Backend_openai_serialize.provider_k_messages_of_message
+      | Provider_config.OpenAI_compat when is_deepseek_model config.model_id ->
+          Backend_openai_serialize.provider_k_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat
