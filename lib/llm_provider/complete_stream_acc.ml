@@ -15,6 +15,13 @@ type stream_acc =
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; sse_error : Types.stream_error option ref
+  ; saw_terminal : bool ref
+    (** Set once the provider signals end-of-response: a [MessageStop] or a
+        [MessageDelta] carrying [stop_reason = Some _] (which every backend's
+        terminal maps to — Anthropic message_stop / message_delta, OpenAI-compat
+        & GLM finish_reason, Gemini finishReason, Ollama done). Stays [false]
+        when the socket closes mid-stream with no terminal, which the consumer
+        treats as a truncated (phantom) completion rather than a clean [Ok]. *)
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
@@ -30,6 +37,7 @@ let create_stream_acc () =
   ; cache_read = ref 0
   ; stop_reason = ref Types.EndTurn
   ; sse_error = ref None
+  ; saw_terminal = ref false
   ; block_texts = Hashtbl.create 4
   ; block_types = Hashtbl.create 4
   ; block_tool_ids = Hashtbl.create 4
@@ -71,7 +79,13 @@ let accumulate_event (acc : stream_acc) = function
   | Types.ContentBlockStop _ -> ()
   | Types.MessageDelta { stop_reason; usage } ->
     (match stop_reason with
-     | Some sr -> acc.stop_reason := sr
+     | Some sr ->
+       acc.stop_reason := sr;
+       (* A [stop_reason]-bearing message_delta is every backend's normalized
+          end-of-response signal (finish_reason / finishReason / done /
+          Anthropic message_delta). A usage-only final chunk carries
+          [stop_reason = None] and must NOT mark the stream terminal. *)
+       acc.saw_terminal := true
      | None -> ());
     (match usage with
      | Some u ->
@@ -93,8 +107,15 @@ let accumulate_event (acc : stream_acc) = function
     acc.sse_error := Some (Types.Stream_parse_failed { reason; raw })
   | Types.SSEUnknownEventType { event_type; raw } ->
     acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
-  | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
+  | Types.MessageStop -> acc.saw_terminal := true
+  | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
+
+(** [true] once the stream observed a provider end-of-response signal
+    ([MessageStop] or a [MessageDelta] with [stop_reason = Some _]). The consumer
+    uses this to distinguish a clean completion from a socket that closed
+    mid-stream (which would otherwise finalize as a phantom [Ok]). *)
+let saw_terminal (acc : stream_acc) = !(acc.saw_terminal)
 
 let finalize_stream_acc (acc : stream_acc) =
   match !(acc.sse_error) with

@@ -19,6 +19,10 @@ type stream_acc =
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; sse_error : Types.stream_error option ref
+  ; saw_terminal : bool ref
+    (** Set once a provider end-of-response signal is seen ([MessageStop] or a
+        [MessageDelta] with [stop_reason = Some _]). [false] at finalize means
+        the stream closed mid-response (truncation / phantom completion). *)
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
@@ -31,6 +35,12 @@ val create_stream_acc : unit -> stream_acc
 (** Feed a single SSE event into the accumulator.
     Updates id, model, tokens, content blocks in-place. *)
 val accumulate_event : stream_acc -> Types.sse_event -> unit
+
+(** [true] once the stream observed a provider end-of-response signal
+    ([MessageStop] or a [MessageDelta] with [stop_reason = Some _]). The consumer
+    uses this to reject a socket that closed mid-stream as a truncated
+    completion instead of presenting a phantom [Ok]. *)
+val saw_terminal : stream_acc -> bool
 
 (** Produce the final {!Types.api_response} from the accumulated state.
     Returns [Error stream_error] if an SSE error was recorded during the stream

@@ -1268,6 +1268,146 @@ let%test "openai_compat_error_event returns None for a normal content chunk" =
        {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|})
 ;;
 
+(* Map the stream accumulator to a result, rejecting a phantom completion. A
+   stream whose socket closed mid-response — no [MessageStop] and no
+   [stop_reason]-bearing [MessageDelta] (finish_reason / done / finishReason) —
+   would otherwise finalize as [Ok] with the default [stop_reason = EndTurn],
+   indistinguishable from a real completion, and the caller would consume a
+   truncated turn. Surface that as a retryable [NetworkError {kind =
+   End_of_file}] so the caller retries. A recorded SSE error still wins (it is
+   the more specific cause and is returned by [finalize_stream_acc] itself). *)
+let result_of_finalize (acc : Complete_stream_acc.stream_acc)
+  : (Types.api_response, Http_client.http_error) result
+  =
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error serr -> Error (http_error_of_stream_error serr)
+  | Ok resp ->
+    if Complete_stream_acc.saw_terminal acc
+    then Ok resp
+    else
+      Error
+        (Http_client.NetworkError
+           { message =
+               "SSE stream closed before a terminal event (no finish_reason / \
+                message_stop / done): truncated response"
+           ; kind = Http_client.End_of_file
+           })
+;;
+
+let%test "result_of_finalize: content without a terminal -> truncated End_of_file" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "text"; tool_id = None; tool_name = None });
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "partial" });
+  (* No MessageStop and no stop_reason-bearing MessageDelta => phantom completion. *)
+  match result_of_finalize acc with
+  | Error (Http_client.NetworkError { kind = Http_client.End_of_file; _ }) -> true
+  | _ -> false
+;;
+
+let%test "result_of_finalize: MessageStop terminal -> Ok (Anthropic)" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  Complete_stream_acc.accumulate_event acc Types.MessageStop;
+  match result_of_finalize acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "result_of_finalize: stop_reason-bearing MessageDelta -> Ok (universal terminal)"
+  =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match result_of_finalize acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "result_of_finalize: usage-only MessageDelta (stop_reason=None) is NOT terminal" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = None; usage = None });
+  not (Complete_stream_acc.saw_terminal acc)
+;;
+
+let%test "result_of_finalize: a recorded SSE error wins over the truncation check" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.SSEError
+       { message = "rate limited"; error_type = Some "rate_limit_exceeded"; raw = "{}" });
+  match result_of_finalize acc with
+  | Error (Http_client.HttpError { code = 429; _ }) -> true
+  | _ -> false
+;;
+
+(* Per-provider clean-stream regression guards: each backend's real wire
+   terminal, run through its actual parser + converter, MUST set [saw_terminal]
+   so a clean stream finalizes [Ok] (never a false truncation). The
+   OpenAI-compat case is the trap: its "[DONE]" sentinel parses to [None], so
+   the signal is the finish_reason MessageDelta, not [DONE]. *)
+let accumulate_all acc evts = List.iter (Complete_stream_acc.accumulate_event acc) evts
+
+let%test "clean stream Ok: OpenAI-compat finish_reason (also covers GLM/Kimi/DashScope)" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  (match
+     Streaming.parse_openai_sse_chunk
+       {|{"choices":[{"delta":{},"finish_reason":"stop"}]}|}
+   with
+   | Some chunk ->
+     let evts, _ = Streaming.openai_chunk_to_events st chunk in
+     accumulate_all acc evts
+   | None -> ());
+  Complete_stream_acc.saw_terminal acc
+  &&
+  match result_of_finalize acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "clean stream Ok: Anthropic message_stop" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  (match Streaming.parse_sse_event (Some "message_stop") "{}" with
+   | Some evt -> Complete_stream_acc.accumulate_event acc evt
+   | None -> ());
+  Complete_stream_acc.saw_terminal acc
+;;
+
+let%test "clean stream Ok: Gemini finishReason" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"gemini" ~model:"m" () in
+  (match
+     Streaming.parse_provider_f_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}|}
+   with
+   | Some chunk ->
+     let evts, _ = Streaming.provider_f_chunk_to_events st chunk in
+     accumulate_all acc evts
+   | None -> ());
+  Complete_stream_acc.saw_terminal acc
+;;
+
+let%test "clean stream Ok: Ollama done:true" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"ollama" ~model:"m" () in
+  (match
+     Streaming.parse_ollama_ndjson_chunk
+       {|{"model":"m","done":true,"done_reason":"stop","message":{"role":"assistant","content":""}}|}
+   with
+   | Some chunk ->
+     let evts, _ = Streaming.ollama_chunk_to_events st chunk in
+     accumulate_all acc evts
+   | None -> ());
+  Complete_stream_acc.saw_terminal acc
+;;
+
 let complete_stream_http
       ~sw:_
       ~net
@@ -1658,11 +1798,11 @@ let complete_stream_http
               match stream_read_result with
               | Error _ as err -> err
               | Ok () ->
-                let result =
-                  match Complete_stream_acc.finalize_stream_acc acc with
-                  | Ok _ as ok -> ok
-                  | Error serr -> Error (http_error_of_stream_error serr)
-                in
+                (* The read loop returned normally, which includes a silent EOF
+                   mid-stream. [result_of_finalize] rejects a completion that
+                   never saw a terminal event (truncation) instead of returning
+                   a phantom [Ok]. *)
+                let result = result_of_finalize acc in
                 (* RFC-OAS-019: emit one [Streaming_summary] at stream
                    finalize on the normal path. terminal_state defaults to
                    [Terminal_done]; wire errors during dispatch upgrade it
