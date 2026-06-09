@@ -8,6 +8,20 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.9](https://github.com/jeong-sik/oas/compare/v0.204.8...v0.204.9) (2026-06-09)
+
+
+### Bug Fixes
+
+* **backend_glm:** restore GLM thinking overlay + dedup (un-break regression) ([d162563](https://github.com/jeong-sik/oas/commit/d1625639e87ad972e65139f5ccfc0e6add0377f6))
+* **backend_glm:** use glm-5.1 instead of provider_k-5.1 in tests ([e44a452](https://github.com/jeong-sik/oas/commit/e44a4527fe1b57ce8313fe8accb26168f3d47d06))
+* **provider:** RFC-OAS-023 per-model wire correctness (DeepSeek [#20198](https://github.com/jeong-sik/oas/issues/20198) / Qwen3 thinking / GLM tool_stream) ([f665020](https://github.com/jeong-sik/oas/commit/f665020bdba682054fbeea7e3588df5a1590ad1d))
+* **streaming:** plug corner cases in streaming.ml duplicate accumulator ([942f1b2](https://github.com/jeong-sik/oas/commit/942f1b2d713d969d19dfc829ccc7e7c8e5c10b21))
+* **streaming:** prevent phantom completion and preserve error state ([06f6f03](https://github.com/jeong-sik/oas/commit/06f6f0310d50408f5d41f86a4a262665c8ec77b4))
+* **streaming:** prevent phantom completion and preserve HTTP error state ([4d6348e](https://github.com/jeong-sik/oas/commit/4d6348e9f6388da9b68f572b16969c131049f6ab))
+* **test:** repair test/dune after provider de-anon renames (un-break main test build) ([ac2fe98](https://github.com/jeong-sik/oas/commit/ac2fe982db0bfcaf23f51761054a5bf74bc994a8))
+* **test:** repair test/dune after provider de-anon renames (un-break main test build) ([148024d](https://github.com/jeong-sik/oas/commit/148024d98ea8fc46f28d0d300d1e8279b89db61a))
+
 ## [0.204.8](https://github.com/jeong-sik/oas/compare/v0.204.7...v0.204.8) (2026-06-09)
 
 
