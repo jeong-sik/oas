@@ -1114,6 +1114,14 @@ let complete_with_retry
          if attempt >= rc.max_retries
          then Error err
          else (
+           Diag.warn
+             "complete"
+             "retrying provider %s model %s (attempt %d/%d) after error: %s"
+             provider
+             model_id
+             (attempt + 1)
+             rc.max_retries
+             (Retry.error_message api_err);
            m.on_retry ~provider ~model_id ~attempt:(attempt + 1);
            let delay =
              match api_err with
@@ -1987,6 +1995,14 @@ let complete_stream_with_retry
          if attempt >= rc.max_retries
          then Error err
          else (
+           Diag.warn
+             "complete"
+             "retrying stream provider %s model %s (attempt %d/%d) after error: %s"
+             provider
+             model_id
+             (attempt + 1)
+             rc.max_retries
+             (Retry.error_message api_err);
            m.on_retry ~provider ~model_id ~attempt:(attempt + 1);
            let delay =
              match api_err with
