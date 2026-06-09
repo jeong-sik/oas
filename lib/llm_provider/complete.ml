@@ -1571,7 +1571,14 @@ let complete_stream_http
                        ~reader
                        ~on_line:(fun line ->
                          match Streaming.parse_ollama_ndjson_chunk line with
-                         | None -> ()
+                         | None ->
+                           dispatch
+                             ( [ Types.SSEParseFailed
+                                   { raw = line
+                                   ; reason = "ollama_ndjson_chunk_parse_failure"
+                                   }
+                               ]
+                             , None )
                          | Some chunk ->
                            (match chunk.oll_timings with
                             | Some _ as t -> ollama_timings := t

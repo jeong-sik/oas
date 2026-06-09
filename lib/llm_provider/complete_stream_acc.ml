@@ -109,8 +109,7 @@ let finalize_stream_acc (acc : stream_acc) =
        sse_parser) or the provider sends no stop_reason.  Without this
        check the default EndTurn would make a truncated stream look like
        a successful completion (phantom completion). *)
-    Error "stream_terminated_without_stop_reason"
-  | None ->
+    Error (Types.Stream_parse_failed { reason = "stream_terminated_without_stop_reason"; raw = "" })
   | None ->
     let indices =
       Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types [] |> List.sort compare
@@ -587,10 +586,10 @@ let%test "finalize_stream_acc returns Error when stream has no stop_reason" =
   Hashtbl.replace acc.block_texts 0 buf;
   (* No accumulate_event with MessageDelta { stop_reason = Some _; _ } *)
   match finalize_stream_acc acc with
-  | Error msg ->
-    String.length msg > 0
-    && String.sub msg 0 (String.length "stream_terminated") = "stream_terminated"
-  | Ok _ -> false
+  | Error (Types.Stream_parse_failed { reason; _ }) ->
+    String.length reason > 0
+    && String.sub reason 0 (String.length "stream_terminated") = "stream_terminated"
+  | Error _ | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc returns Ok after proper stop_reason received" =
