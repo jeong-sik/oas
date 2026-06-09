@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.10](https://github.com/jeong-sik/oas/compare/v0.204.9...v0.204.10) (2026-06-09)
+
+
+### Bug Fixes
+
+* **discovery:** correct de-anon leftover in contains_case_insensitive tests ([1186634](https://github.com/jeong-sik/oas/commit/1186634c0680b265dad00d1812c5155d483de35e))
+
 ## [0.204.9](https://github.com/jeong-sik/oas/compare/v0.204.8...v0.204.9) (2026-06-09)
 
 
