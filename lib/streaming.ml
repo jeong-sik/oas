@@ -274,9 +274,7 @@ let create_message_stream
                     | None ->
                       let evt =
                         SSEParseFailed
-                          { raw = data
-                          ; reason = "anthropic_sse_chunk_parse_failure"
-                          }
+                          { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
                       in
                       on_event evt;
                       accumulate_event acc evt
@@ -284,8 +282,7 @@ let create_message_stream
                       on_event evt;
                       accumulate_event acc evt))
                 ();
-              (if !(acc.stop_reason_received)
-               then on_event MessageStop);
+              if !(acc.stop_reason_received) then on_event MessageStop;
               finalize_stream_acc acc)
             ()
         with
@@ -339,9 +336,7 @@ let create_message_stream
                     | None ->
                       let evt =
                         SSEParseFailed
-                          { raw = data
-                          ; reason = "openai_sse_chunk_parse_failure"
-                          }
+                          { raw = data; reason = "openai_sse_chunk_parse_failure" }
                       in
                       on_event evt;
                       accumulate_event acc evt
@@ -367,8 +362,7 @@ let create_message_stream
                            accumulate_event acc evt)
                         evs))
                 ();
-              (if !(acc.stop_reason_received)
-               then on_event MessageStop);
+              if !(acc.stop_reason_received) then on_event MessageStop;
               finalize_stream_acc acc)
             ()
         with

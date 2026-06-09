@@ -397,19 +397,13 @@ let test_resolve_provider_i () =
      entry.defaults (url, path, api_key_env) are carried via the
      registry, not embedded in the Provider.config variant. *)
   let cfg =
-    Agent_config.resolve_provider
-      ~model_id:"dashscope/provider_h_3-32b"
-      "groq"
-      None
+    Agent_config.resolve_provider ~model_id:"dashscope/provider_h_3-32b" "groq" None
   in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "groq name" "groq" name;
     Alcotest.(check string) "groq api_key_env" "GROQ_API_KEY" cfg.api_key_env;
-    Alcotest.(check string)
-      "groq model_id"
-      "dashscope/provider_h_3-32b"
-      cfg.model_id
+    Alcotest.(check string) "groq model_id" "dashscope/provider_h_3-32b" cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for groq (registered)"
 ;;
 
@@ -443,9 +437,7 @@ let test_resolve_provider_f_preserves_kind () =
      preserves entry.defaults.kind. Previously resolve_provider
      returned OpenAICompat, flattening kind to OpenAI_compat and
      producing 404 against the Gemini endpoint. *)
-  let cfg =
-    Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "gemini" None
-  in
+  let cfg = Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "gemini" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "gemini name" "gemini" name;

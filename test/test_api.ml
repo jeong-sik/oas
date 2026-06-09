@@ -479,11 +479,7 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
     "clear_thinking default true"
     true
     (thinking |> member "clear_thinking" |> to_bool);
-  check
-    string
-    "glm tool choice coerced"
-    "auto"
-    (json |> member "tool_choice" |> to_string)
+  check string "glm tool choice coerced" "auto" (json |> member "tool_choice" |> to_string)
 ;;
 
 let test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice () =
@@ -641,11 +637,7 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   in
   let open Yojson.Safe.Util in
   let assoc = to_assoc json in
-  check
-    bool
-    "thinking omitted for non-zai glm"
-    false
-    (List.mem_assoc "thinking" assoc);
+  check bool "thinking omitted for non-zai glm" false (List.mem_assoc "thinking" assoc);
   check
     bool
     "chat_template_kwargs omitted for non-zai glm"
@@ -698,11 +690,7 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   in
   let open Yojson.Safe.Util in
   let assoc = to_assoc json in
-  check
-    bool
-    "tool_choice omitted for glm none"
-    false
-    (List.mem_assoc "tool_choice" assoc);
+  check bool "tool_choice omitted for glm none" false (List.mem_assoc "tool_choice" assoc);
   check bool "tools omitted for glm none" false (List.mem_assoc "tools" assoc)
 ;;
 
@@ -1472,10 +1460,7 @@ let () =
         ; test_case "without thinking" `Quick test_build_body_without_thinking
         ; test_case "with tool_choice" `Quick test_build_body_with_tool_choice
         ; test_case "with tools" `Quick test_build_body_with_tools
-        ; test_case
-            "openai json schema"
-            `Quick
-            test_build_openai_body_with_json_schema
+        ; test_case "openai json schema" `Quick test_build_openai_body_with_json_schema
         ; test_case
             "anthropic sampling params serialized"
             `Quick

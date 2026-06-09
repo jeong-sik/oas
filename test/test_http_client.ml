@@ -215,8 +215,7 @@ let test_provider_failure_string_helpers () =
     ; ( Http_client.Cli_policy_invalid { tool_name = None; rule = None }
       , "cli_policy_invalid" )
     ; Http_client.Cli_startup_failed { reason = "missing" }, "cli_startup_failed"
-    ; ( Http_client.Provider_parse_error { parser = Some "glm" }
-      , "provider_parse_error:glm" )
+    ; Http_client.Provider_parse_error { parser = Some "glm" }, "provider_parse_error:glm"
     ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
     ; ( Http_client.Unknown_provider_failure { reason = Some "exit_status" }
       , "unknown_provider_failure:exit_status" )

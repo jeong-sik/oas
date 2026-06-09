@@ -484,10 +484,7 @@ let test_provider_name_of_config_glm_general () =
       ~base_url:Zai_catalog.general_base_url
       ()
   in
-  check_string
-    "glm general"
-    "glm"
-    (Provider_registry.provider_name_of_config cfg)
+  check_string "glm general" "glm" (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_glm_coding () =
@@ -498,10 +495,7 @@ let test_provider_name_of_config_glm_coding () =
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
-  check_string
-    "glm coding"
-    "glm-coding"
-    (Provider_registry.provider_name_of_config cfg)
+  check_string "glm coding" "glm-coding" (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_local_openai_compat () =
@@ -527,10 +521,7 @@ let test_provider_name_of_config_openrouter () =
       ~request_path:"/chat/completions"
       ()
   in
-  check_string
-    "openrouter"
-    "openrouter"
-    (Provider_registry.provider_name_of_config cfg)
+  check_string "openrouter" "openrouter" (Provider_registry.provider_name_of_config cfg)
 ;;
 
 let test_provider_name_of_config_unmatched_openai_compat () =
@@ -988,22 +979,13 @@ let () =
             test_structured_output_name_of_schema
         ] )
     ; ( "provider_name"
-      , [ Alcotest.test_case
-            "glm general"
-            `Quick
-            test_provider_name_of_config_glm_general
-        ; Alcotest.test_case
-            "glm coding"
-            `Quick
-            test_provider_name_of_config_glm_coding
+      , [ Alcotest.test_case "glm general" `Quick test_provider_name_of_config_glm_general
+        ; Alcotest.test_case "glm coding" `Quick test_provider_name_of_config_glm_coding
         ; Alcotest.test_case
             "local openai compat"
             `Quick
             test_provider_name_of_config_local_openai_compat
-        ; Alcotest.test_case
-            "openrouter"
-            `Quick
-            test_provider_name_of_config_openrouter
+        ; Alcotest.test_case "openrouter" `Quick test_provider_name_of_config_openrouter
         ; Alcotest.test_case
             "unmatched openai_compat"
             `Quick

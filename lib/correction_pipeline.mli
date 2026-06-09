@@ -51,6 +51,7 @@ type stage =
 
 (** Built-in stages. *)
 val coercion_stage : stage
+
 val default_injection_stage : stage
 val format_normalization_stage : stage
 

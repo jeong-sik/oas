@@ -1259,9 +1259,7 @@ let%test "find_context_length prefers general.context_length over model-specific
 let%test "find_context_length takes max of model-specific keys" =
   let mi =
     `Assoc
-      [ "nous.context_length", `Int 8192
-      ; "provider_h_3_5.context_length", `Int 262144
-      ]
+      [ "nous.context_length", `Int 8192; "provider_h_3_5.context_length", `Int 262144 ]
   in
   find_context_length mi = 262144
 ;;

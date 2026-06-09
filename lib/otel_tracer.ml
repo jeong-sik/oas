@@ -58,7 +58,7 @@ type config =
 let default_config =
   let endpoint = Sys.getenv_opt "OTEL_EXPORTER_OTLP_ENDPOINT" in
   { service_name = "agent-sdk"; endpoint }
-
+;;
 
 (* -- Metric types ----------------------------------------------------- *)
 

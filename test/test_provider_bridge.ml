@@ -121,8 +121,7 @@ let test_zai_coding_auto_uses_coding_default_model () =
       in
       match Agent_sdk.Provider_bridge.to_provider_config legacy with
       | Error _ -> Alcotest.fail "z.ai coding provider should resolve without env var"
-      | Ok cfg ->
-        Alcotest.(check string) "coding auto model" "glm-4.5-air" cfg.model_id))
+      | Ok cfg -> Alcotest.(check string) "coding auto model" "glm-4.5-air" cfg.model_id))
 ;;
 
 let test_provider_c_custom_registered_becomes_provider_c_provider_config () =
@@ -185,9 +184,7 @@ let test_openai_compat_auto_model_branches () =
         }
       in
       let provider_f_prefixed = { provider_d_auto with model_id = "gemini-auto" } in
-      let provider_f_explicit =
-        { provider_d_auto with model_id = "gemini-2.5-pro" }
-      in
+      let provider_f_explicit = { provider_d_auto with model_id = "gemini-2.5-pro" } in
       (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
        | Ok cfg ->
          check_kind "openai compat kind" "openai_compat" cfg;
@@ -226,12 +223,7 @@ let test_zai_coding_auto_models_default_order () =
   with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
     Alcotest.(check (list string))
       "coding auto order"
-      [ "glm-5.1"
-      ; "glm-5"
-      ; "glm-5-turbo"
-      ; "glm-4.7"
-      ; "glm-4.5-air"
-      ]
+      [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
       (Llm_provider.Zai_catalog.provider_k_coding_auto_models ()))
 ;;
 
@@ -247,10 +239,7 @@ let () =
             "non-zai glm stays openai compat"
             `Quick
             test_non_zai_glm_stays_openai_compat
-        ; test_case
-            "zai glm becomes glm"
-            `Quick
-            test_zai_glm_becomes_glm_provider_config
+        ; test_case "zai glm becomes glm" `Quick test_zai_glm_becomes_glm_provider_config
         ; test_case
             "zai coding auto uses coding default model"
             `Quick

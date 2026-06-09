@@ -167,9 +167,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     ; Image { media_type = "image/jpeg"; data = "jpeg"; source_type = "base64" }
     ]
   in
-  let openai =
-    Serialize.openai_messages_of_message (msg User content) |> only "openai"
-  in
+  let openai = Serialize.openai_messages_of_message (msg User content) |> only "openai" in
   let provider_d_parts = member "content" openai |> as_list "openai content" in
   check_string
     "openai preserves text first"
@@ -196,10 +194,7 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
   in
   let openai = Serialize.openai_messages_of_message assistant |> only "openai" in
   check_string "assistant role" "assistant" (member "role" openai |> to_string);
-  Alcotest.(check bool)
-    "openai content null"
-    true
-    (member "content" openai = `Null);
+  Alcotest.(check bool) "openai content null" true (member "content" openai = `Null);
   let call = member "tool_calls" openai |> as_list "tool_calls" |> only "tool_call" in
   check_string
     "openai arguments string"
@@ -221,10 +216,7 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
     |> only "glm"
   in
   check_string "glm content" "answer" (member "content" glm |> to_string);
-  check_string
-    "glm reasoning"
-    "because"
-    (member "reasoning_content" glm |> to_string)
+  check_string "glm reasoning" "because" (member "reasoning_content" glm |> to_string)
 ;;
 
 let test_system_and_tool_role_messages () =
@@ -433,8 +425,7 @@ let test_serializer_ignored_block_variants () =
     true
     (member "tool_calls" assistant = `Null);
   let glm =
-    Serialize.provider_k_messages_of_message (msg Assistant ignored_blocks)
-    |> only "glm"
+    Serialize.provider_k_messages_of_message (msg Assistant ignored_blocks) |> only "glm"
   in
   Alcotest.(check bool)
     "blank reasoning omitted"

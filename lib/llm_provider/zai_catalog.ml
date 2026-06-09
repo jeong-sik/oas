@@ -10,9 +10,7 @@ let provider_a_base_url = "https://api.z.ai/api/anthropic"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
-  m = "glm"
-  || String.starts_with ~prefix:"glm-" m
-  || String.starts_with ~prefix:"glm-" m
+  m = "glm" || String.starts_with ~prefix:"glm-" m || String.starts_with ~prefix:"glm-" m
 ;;
 
 let has_prefix value prefix =
@@ -85,20 +83,13 @@ let split_csv = Cli_common_env.split_on_char_trim ','
 let provider_k_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with
   | Some models -> models
-  | None ->
-    [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
+  | None -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
 ;;
 
 let provider_k_coding_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
   | Some models -> models
-  | None ->
-    [ "glm-5.1"
-    ; "glm-5"
-    ; "glm-5-turbo"
-    ; "glm-4.7"
-    ; "glm-4.5-air"
-    ]
+  | None -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
 ;;
 
 let resolve_glm_alias ~default_model model_id =
@@ -203,8 +194,7 @@ let%test "resolve_glm_alias covers common aliases" =
   && resolve_glm_alias ~default_model:"glm-5.1" "flash" = "glm-4.7-flashx"
   && resolve_glm_alias ~default_model:"glm-5.1" "vf" = "glm-4.6v-flashx"
   && resolve_glm_alias ~default_model:"glm-5.1" "air" = "glm-4.5-air"
-  && resolve_glm_alias ~default_model:"glm-5.1" "glm-5-turbo"
-     = "glm-5-turbo"
+  && resolve_glm_alias ~default_model:"glm-5.1" "glm-5-turbo" = "glm-5-turbo"
 ;;
 
 let%test "general_concurrency_for_model hits key glm families" =
@@ -220,8 +210,7 @@ let%test "general_concurrency_for_model hits key glm families" =
 let%test "throttle_key_for_chat separates coding and general plans" =
   throttle_key_for_chat ~base_url:general_base_url ~model_id:" glm-5 "
   = "zai/general/chat/glm-5"
-  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"glm-5"
-     = "zai/coding/chat"
+  && throttle_key_for_chat ~base_url:coding_base_url ~model_id:"glm-5" = "zai/coding/chat"
 ;;
 
 let%test "is_zai_base_url rejects untrusted host lookalikes" =

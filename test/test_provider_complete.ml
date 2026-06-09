@@ -452,10 +452,7 @@ let test_provider_c_direct_with_tools_and_thinking () =
   let open Yojson.Safe.Util in
   let tools = json |> member "tools" |> to_list in
   let thinking = json |> member "thinking" in
-  Alcotest.(check string)
-    "model"
-    "kimi-for-coding"
-    (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "kimi-for-coding" (json |> member "model" |> to_string);
   Alcotest.(check int) "tool count" 1 (List.length tools);
   Alcotest.(check string)
     "thinking type"

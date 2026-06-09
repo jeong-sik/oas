@@ -84,9 +84,8 @@ let test_aggregating_on_circuit_state () =
     ~provider_key:"model-d-4@https://api.openai.com"
     ~state:M.Circuit_open;
   (match !observed with
-   | Some
-       ("openai", "model-d-4", "model-d-4@https://api.openai.com", M.Circuit_open)
-     -> ()
+   | Some ("openai", "model-d-4", "model-d-4@https://api.openai.com", M.Circuit_open) ->
+     ()
    | Some _ -> fail "unexpected circuit state callback"
    | None -> fail "missing circuit state callback");
   check int "state value" 1 (M.circuit_state_to_int M.Circuit_open);

@@ -525,8 +525,7 @@ let test_config_of_provider_config_provider_c_uses_custom_provider () =
   | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
     Alcotest.(check string) "provider name" "kimi" name;
     Alcotest.(check string) "api_key_env" "KIMI_API_KEY" api_key_env
-  | _ ->
-    Alcotest.fail "expected kimi config to round-trip through Custom_registered"
+  | _ -> Alcotest.fail "expected kimi config to round-trip through Custom_registered"
 ;;
 
 let test_openai_compat_static_token () =

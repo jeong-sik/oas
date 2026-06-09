@@ -336,8 +336,7 @@ let validate_output_schema_request (config : t) =
        else
          Error
            (Printf.sprintf
-              "native structured output is only wired for official Openai hosts, got \
-               %s"
+              "native structured output is only wired for official Openai hosts, got %s"
               config.base_url))
 ;;
 

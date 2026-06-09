@@ -26,7 +26,6 @@ type cost_report =
     set, accumulated cost is above the threshold, or usage includes an
     unpriced model. *)
 let check_budget (_config : Types.agent_config) (_usage : Types.usage_stats) = None
-;;
 
 (** Generate a cost report from accumulated usage stats. *)
 let report (usage : Types.usage_stats) : cost_report =

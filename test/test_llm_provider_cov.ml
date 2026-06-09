@@ -1297,10 +1297,7 @@ let test_parse_response_usage_with_cache () =
 
 let test_requires_tools () =
   let caps = Capabilities.anthropic_capabilities in
-  Alcotest.(check bool)
-    "anthropic has tools"
-    true
-    (Capability_filter.requires_tools caps);
+  Alcotest.(check bool) "anthropic has tools" true (Capability_filter.requires_tools caps);
   Alcotest.(check bool)
     "default no tools"
     false
@@ -2017,10 +2014,7 @@ let () =
             "deepseek-v4-flash"
             `Quick
             test_for_model_id_provider_g_v4_flash
-        ; Alcotest.test_case
-            "deepseek-v4-pro"
-            `Quick
-            test_for_model_id_provider_g_v4_pro
+        ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_provider_g_v4_pro
         ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_provider_j_large
         ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_provider_j_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command

@@ -240,7 +240,10 @@ let () =
       , [ test_case "no limit" `Quick test_check_budget_no_limit
         ; test_case "under budget" `Quick test_check_budget_under
         ; test_case "at limit" `Quick test_check_budget_at_limit
-        ; test_case "exceeded remains advisory" `Quick test_check_budget_exceeded_is_advisory
+        ; test_case
+            "exceeded remains advisory"
+            `Quick
+            test_check_budget_exceeded_is_advisory
         ; test_case "zero limit" `Quick test_check_budget_zero_limit
         ; test_case
             "unpriced model + cap = advisory"

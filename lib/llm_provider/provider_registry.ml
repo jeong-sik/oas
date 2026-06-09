@@ -393,17 +393,9 @@ let default () =
     agent_llm_a_defaults
     ~max_context:200_000
     Capabilities.anthropic_capabilities;
-  reg
-    "gemini"
-    provider_f_defaults
-    ~max_context:1_000_000
-    Capabilities.gemini_capabilities;
+  reg "gemini" provider_f_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
   reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
-  reg
-    "glm-coding"
-    glm_coding_defaults
-    ~max_context:128_000
-    Capabilities.glm_capabilities;
+  reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
   register
     t
     { name = "kimi"
@@ -466,10 +458,7 @@ let provider_name_of_config (config : Provider_config.t) =
   | Anthropic -> "agent_llm_a"
   | Kimi -> "kimi"
   | Gemini -> "gemini"
-  | Glm ->
-    if Zai_catalog.is_coding_base_url config.base_url
-    then "glm-coding"
-    else "glm"
+  | Glm -> if Zai_catalog.is_coding_base_url config.base_url then "glm-coding" else "glm"
   | Ollama ->
     if
       String.equal
