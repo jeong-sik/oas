@@ -1938,6 +1938,76 @@ let complete_stream
       result
 ;;
 
+let complete_stream_with_retry
+      ~sw
+      ~net
+      ?transport
+      ~clock
+      ~(config : Provider_config.t)
+      ~(messages : Types.message list)
+      ?(tools = [])
+      ?runtime_mcp_policy
+      ?trace_context
+      ?(retry_config = default_retry_config)
+      ~on_event
+      ?metrics
+      ?priority
+      ?stream_idle_timeout_s
+      ?on_telemetry
+      ()
+  =
+  let m = Option.value metrics ~default:(Metrics.get_global ()) in
+  let rc = shared_retry_config_of_complete retry_config in
+  let provider = Provider_registry.provider_name_of_config config in
+  let model_id = config.model_id in
+  let f () =
+    complete_stream
+      ~sw
+      ~net
+      ~clock
+      ?transport
+      ~config
+      ~messages
+      ~tools
+      ?runtime_mcp_policy
+      ?trace_context
+      ~on_event
+      ~metrics:m
+      ?priority
+      ?stream_idle_timeout_s
+      ?on_telemetry
+      ()
+  in
+  let rec loop attempt =
+    match f () with
+    | Ok _ as success -> success
+    | Error err ->
+      (match classify_retry_error err with
+       | Some api_err when Retry.is_retryable api_err ->
+         if attempt >= rc.max_retries
+         then Error err
+         else (
+           m.on_retry ~provider ~model_id ~attempt:(attempt + 1);
+           let delay =
+             match api_err with
+             | Retry.RateLimited { retry_after = Some ra; _ } -> ra
+             | Retry.RateLimited { retry_after = None; _ }
+             | Retry.Overloaded _
+             | Retry.ServerError _
+             | Retry.AuthError _
+             | Retry.InvalidRequest _
+             | Retry.NotFound _
+             | Retry.ContextOverflow _
+             | Retry.NetworkError _
+             | Retry.Timeout _ -> Retry.calculate_delay rc attempt
+           in
+           Eio.Time.sleep clock delay;
+           loop (attempt + 1))
+       | Some _ | None -> Error err)
+  in
+  loop 0
+;;
+
 (* ── HTTP Transport constructor ─────────────────────── *)
 
 let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net ()
