@@ -1185,7 +1185,7 @@ let () =
   run
     "complete_http"
     [ ( "complete"
-      , [ test_case "provider_a ok" `Quick test_complete_provider_a_ok
+      , [ test_case "anthropic ok" `Quick test_complete_provider_a_ok
         ; test_case "http error" `Quick test_complete_http_error
         ; test_case
             "empty http error body has context"

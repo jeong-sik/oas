@@ -1298,7 +1298,7 @@ let test_parse_response_usage_with_cache () =
 let test_requires_tools () =
   let caps = Capabilities.anthropic_capabilities in
   Alcotest.(check bool)
-    "provider_a has tools"
+    "anthropic has tools"
     true
     (Capability_filter.requires_tools caps);
   Alcotest.(check bool)
@@ -1309,7 +1309,7 @@ let test_requires_tools () =
 
 let test_requires_streaming () =
   Alcotest.(check bool)
-    "provider_a streaming"
+    "anthropic streaming"
     true
     (Capability_filter.requires_streaming Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
@@ -1320,7 +1320,7 @@ let test_requires_streaming () =
 
 let test_requires_reasoning () =
   Alcotest.(check bool)
-    "provider_a reasoning"
+    "anthropic reasoning"
     true
     (Capability_filter.requires_reasoning Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
@@ -1331,7 +1331,7 @@ let test_requires_reasoning () =
 
 let test_requires_multimodal () =
   Alcotest.(check bool)
-    "provider_a multimodal"
+    "anthropic multimodal"
     true
     (Capability_filter.requires_multimodal Capabilities.anthropic_capabilities)
 ;;
@@ -1349,14 +1349,14 @@ let test_requires_json_format () =
 
 let test_requires_parallel_tools () =
   Alcotest.(check bool)
-    "provider_a parallel tools"
+    "anthropic parallel tools"
     true
     (Capability_filter.requires_parallel_tools Capabilities.anthropic_capabilities)
 ;;
 
 let test_requires_thinking () =
   Alcotest.(check bool)
-    "provider_a thinking"
+    "anthropic thinking"
     true
     (Capability_filter.requires_thinking Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
@@ -1379,7 +1379,7 @@ let test_requires_structured_output () =
 
 let test_requires_caching () =
   Alcotest.(check bool)
-    "provider_a caching"
+    "anthropic caching"
     true
     (Capability_filter.requires_caching Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
@@ -1390,7 +1390,7 @@ let test_requires_caching () =
 
 let test_requires_vision () =
   Alcotest.(check bool)
-    "provider_a vision"
+    "anthropic vision"
     true
     (Capability_filter.requires_vision Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
@@ -1401,7 +1401,7 @@ let test_requires_vision () =
 
 let test_requires_computer_use () =
   Alcotest.(check bool)
-    "provider_a computer_use"
+    "anthropic computer_use"
     true
     (Capability_filter.requires_computer_use Capabilities.anthropic_capabilities);
   Alcotest.(check bool)
@@ -1511,7 +1511,7 @@ let test_requires_all () =
     Capability_filter.requires_all
       [ Capability_filter.requires_tools; requires_code_execution ]
   in
-  (* provider_a does not have code_execution *)
+  (* anthropic does not have code_execution *)
   Alcotest.(check bool) "not all satisfied" false (pred2 caps)
 ;;
 
@@ -1706,19 +1706,19 @@ let test_for_model_id_provider_g_v4_pro () =
 ;;
 
 let test_for_model_id_provider_j_large () =
-  match Capabilities.for_model_id "provider_j-large-2025" with
+  match Capabilities.for_model_id "mistral-large-2025" with
   | Some c ->
     Alcotest.(check bool) "structured" true c.supports_structured_output;
     Alcotest.(check (option int)) "260K context" (Some 260_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for provider_j-large"
+  | None -> Alcotest.fail "expected Some for mistral-large"
 ;;
 
 let test_for_model_id_provider_j_small () =
-  match Capabilities.for_model_id "provider_j-small-latest" with
+  match Capabilities.for_model_id "mistral-small-latest" with
   | Some c ->
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check (option int)) "256K context" (Some 256_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for provider_j-small"
+  | None -> Alcotest.fail "expected Some for mistral-small"
 ;;
 
 let test_for_model_id_command () =
@@ -2021,8 +2021,8 @@ let () =
             "deepseek-v4-pro"
             `Quick
             test_for_model_id_provider_g_v4_pro
-        ; Alcotest.test_case "provider_j-large" `Quick test_for_model_id_provider_j_large
-        ; Alcotest.test_case "provider_j-small" `Quick test_for_model_id_provider_j_small
+        ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_provider_j_large
+        ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_provider_j_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command
         ; Alcotest.test_case "provider_e_grok" `Quick test_for_model_id_grok
         ; Alcotest.test_case "glm" `Quick test_for_model_id_glm

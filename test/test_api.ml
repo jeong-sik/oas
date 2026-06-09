@@ -1477,11 +1477,11 @@ let () =
             `Quick
             test_build_openai_body_with_json_schema
         ; test_case
-            "provider_a sampling params serialized"
+            "anthropic sampling params serialized"
             `Quick
             test_build_body_sampling_params_provider_a
         ; test_case
-            "provider_a sampling params omitted when None"
+            "anthropic sampling params omitted when None"
             `Quick
             test_build_body_sampling_params_omitted_when_none
         ; test_case

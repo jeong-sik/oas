@@ -26,7 +26,7 @@ let test_of_config_provider_d () =
 let test_provider_a_supports_streaming () =
   let config = Provider.anthropic_sonnet () in
   Alcotest.(check bool)
-    "provider_a streams"
+    "anthropic streams"
     true
     (Provider_intf.supports_streaming config)
 ;;
@@ -38,7 +38,7 @@ let test_streaming_provider_some () =
   match Provider_intf.of_config_streaming config with
   | Some (module SP : Provider_intf.STREAMING_PROVIDER) ->
     ignore (module SP : Provider_intf.STREAMING_PROVIDER)
-  | None -> Alcotest.fail "expected Some for provider_a"
+  | None -> Alcotest.fail "expected Some for anthropic"
 ;;
 
 (* ── HTTP dispatch ───────────────────────────────────────── *)
@@ -265,7 +265,7 @@ let () =
     "Provider_intf"
     [ ( "of_config"
       , [ Alcotest.test_case
-            "provider_a satisfies PROVIDER"
+            "anthropic satisfies PROVIDER"
             `Quick
             test_of_config_provider_a
         ; Alcotest.test_case
@@ -275,7 +275,7 @@ let () =
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case
-            "provider_a supports streaming"
+            "anthropic supports streaming"
             `Quick
             test_provider_a_supports_streaming
         ; Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_some

@@ -518,8 +518,8 @@ let test_manifest_base_label_provider_a () =
   match Capabilities.for_model_id_with_manifest m "my-agent_llm_a-custom" with
   | Some c ->
     check (option int) "custom ctx 512K" (Some 512000) c.max_context_tokens;
-    check bool "provider_a base: caching" true c.supports_caching;
-    check bool "provider_a base: extended thinking" true c.supports_extended_thinking
+    check bool "anthropic base: caching" true c.supports_caching;
+    check bool "anthropic base: extended thinking" true c.supports_extended_thinking
   | None -> fail "expected Some"
 ;;
 
@@ -895,7 +895,7 @@ let () =
         ; test_case "fallback to static" `Quick test_manifest_fallback_to_static
         ; test_case "unknown model → None" `Quick test_manifest_unknown_model_still_none
         ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
-        ; test_case "base provider_a" `Quick test_manifest_base_label_provider_a
+        ; test_case "base anthropic" `Quick test_manifest_base_label_provider_a
         ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
         ; test_case
             "manifest prefix wins"

@@ -287,7 +287,7 @@ let test_sampling_defaults_and_overlay () =
     (Some Constants.Sampling.openai_compat_min_p)
     defaults.default_min_p;
   let no_defaults = Complete.provider_sampling_defaults Provider_config.Anthropic in
-  check (option (float 0.001)) "provider_a min_p" None no_defaults.default_min_p;
+  check (option (float 0.001)) "anthropic min_p" None no_defaults.default_min_p;
   let local = make_config () in
   let local_defaulted = Complete.apply_sampling_defaults local in
   check

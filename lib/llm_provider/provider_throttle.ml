@@ -247,7 +247,7 @@ let%test "default_for_kind local" =
   t.max_concurrent = 4
 ;;
 
-let%test "default_for_kind provider_a" =
+let%test "default_for_kind anthropic" =
   let t = default_for_kind Provider_config.Anthropic in
   t.max_concurrent = 5
 ;;

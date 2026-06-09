@@ -202,7 +202,7 @@ let static_pricing_opt_normalized normalized =
     else if
       string_contains ~needle:"ollama" normalized
       || string_contains ~needle:"dashscope" normalized
-      || string_contains ~needle:"provider_n" normalized
+      || string_contains ~needle:"nous" normalized
     then Some ((0.0, 0.0), no_cache)
     else None
   in

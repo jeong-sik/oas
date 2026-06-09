@@ -144,7 +144,7 @@ let find_context_length (model_info : Yojson.Safe.t) : int =
 
 (** Detect tool-calling support from a chat template string.
     Checks for tool-related keywords and special tokens used by
-    various model families (DashScope, Llama, Provider_j, etc.). *)
+    various model families (DashScope, Llama, Mistral, etc.). *)
 let template_has_tool_support (template : string) : bool =
   let has_tool_keyword =
     Retry.contains_case_insensitive ~haystack:template ~needle:"tools"
@@ -846,7 +846,7 @@ let%test "parse_models valid" =
       [ ( "data"
         , `List
             [ `Assoc [ "id", `String "dashscope-3.5-35b"; "owned_by", `String "local" ]
-            ; `Assoc [ "id", `String "model-n-4-scout"; "owned_by", `String "provider_n" ]
+            ; `Assoc [ "id", `String "model-n-4-scout"; "owned_by", `String "nous" ]
             ] )
       ]
   in
@@ -976,7 +976,7 @@ let%test "contains_case_insensitive case insensitive match" =
 ;;
 
 let%test "contains_case_insensitive no match" =
-  Retry.contains_case_insensitive ~haystack:"provider_n" ~needle:"dashscope" = false
+  Retry.contains_case_insensitive ~haystack:"nous" ~needle:"dashscope" = false
 ;;
 
 let%test "contains_case_insensitive needle longer than haystack" =
@@ -1260,7 +1260,7 @@ let%test "find_context_length prefers general.context_length over model-specific
 let%test "find_context_length takes max of model-specific keys" =
   let mi =
     `Assoc
-      [ "provider_n.context_length", `Int 8192
+      [ "nous.context_length", `Int 8192
       ; "provider_h_3_5.context_length", `Int 262144
       ]
   in
@@ -1268,7 +1268,7 @@ let%test "find_context_length takes max of model-specific keys" =
 ;;
 
 let%test "find_context_length with float value" =
-  let mi = `Assoc [ "provider_n.context_length", `Float 131072.0 ] in
+  let mi = `Assoc [ "nous.context_length", `Float 131072.0 ] in
   find_context_length mi = 131072
 ;;
 

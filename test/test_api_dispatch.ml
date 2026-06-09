@@ -341,7 +341,7 @@ let () =
         ; test_case "cache cost calculation" `Quick test_cache_cost_calculation
         ; test_case "cache cost zero default" `Quick test_cache_cost_no_cache_tokens
         ; test_case
-            "non-provider_a cache multipliers"
+            "non-anthropic cache multipliers"
             `Quick
             test_cache_multipliers_for_non_provider_a
         ] )

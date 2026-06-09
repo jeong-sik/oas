@@ -269,12 +269,12 @@ let test_provider_convenience_validators_cover_tool_responses () =
             ] )
       ]
   in
-  let provider_a =
+  let anthropic =
     H.validate_provider_a_response ~declared_tools:[ "lookup" ] provider_a_json
   in
-  check bool "provider_a stop reason" true provider_a.stop_reason_correct;
-  check bool "provider_a declared tool" true provider_a.all_tools_declared;
-  check int "provider_a tool calls" 1 (List.length provider_a.tool_calls_found);
+  check bool "anthropic stop reason" true anthropic.stop_reason_correct;
+  check bool "anthropic declared tool" true anthropic.all_tools_declared;
+  check int "anthropic tool calls" 1 (List.length anthropic.tool_calls_found);
   let provider_f_json =
     Yojson.Safe.from_string
       {|{
