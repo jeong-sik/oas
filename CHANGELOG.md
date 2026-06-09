@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.6](https://github.com/jeong-sik/oas/compare/v0.204.5...v0.204.6) (2026-06-09)
+
+
+### Features
+
+* **transport:** carry stream_idle_timeout_s on completion_request (RFC-OAS-026, F1 step 1) ([e29c62b](https://github.com/jeong-sik/oas/commit/e29c62b92ab0087ddbadf718d7b38836638fc3af))
+* **transport:** carry stream_idle_timeout_s on completion_request (RFC-OAS-026) ([95ba8a7](https://github.com/jeong-sik/oas/commit/95ba8a71c8a45bc4f588d9884d210a7cb4814aeb))
+
 ## [0.204.5](https://github.com/jeong-sik/oas/compare/v0.204.4...v0.204.5) (2026-06-08)
 
 
