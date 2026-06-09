@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.8](https://github.com/jeong-sik/oas/compare/v0.204.7...v0.204.8) (2026-06-09)
+
+
+### Bug Fixes
+
+* **llm_provider:** preserve typed provider errors across SSE stream finalize ([b4fe665](https://github.com/jeong-sik/oas/commit/b4fe66520f81d85c427a4fdc0d20d7880826e368))
+* **llm_provider:** preserve typed provider errors across SSE stream finalize ([4d4e127](https://github.com/jeong-sik/oas/commit/4d4e12713c8c3f377f21d1882c9b0921324d7e94))
+
 ## [0.204.7](https://github.com/jeong-sik/oas/compare/v0.204.6...v0.204.7) (2026-06-09)
 
 
