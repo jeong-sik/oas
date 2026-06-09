@@ -22,6 +22,7 @@ type stream_acc =
   ; cache_creation : int ref
   ; cache_read : int ref
   ; stop_reason : stop_reason ref
+  ; stop_reason_received : bool ref
   ; sse_error : string option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
@@ -37,6 +38,7 @@ let create_stream_acc () =
   ; cache_creation = ref 0
   ; cache_read = ref 0
   ; stop_reason = ref EndTurn
+  ; stop_reason_received = ref false
   ; sse_error = ref None
   ; block_texts = Hashtbl.create 4
   ; block_types = Hashtbl.create 4
@@ -77,7 +79,9 @@ let accumulate_event (acc : stream_acc) = function
      | TextDelta s | ThinkingDelta s | InputJsonDelta s -> Buffer.add_string buf s)
   | MessageDelta { stop_reason = sr; usage } ->
     (match sr with
-     | Some r -> acc.stop_reason := r
+     | Some r ->
+       acc.stop_reason := r;
+       acc.stop_reason_received := true
      | None -> ());
     (match usage with
      | Some u ->
@@ -106,12 +110,15 @@ let accumulate_event (acc : stream_acc) = function
     in
     acc.sse_error
     := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
-  | MessageStop | Ping | ContentBlockStop _ | Connected | Timeout _ -> ()
+  | MessageStop -> acc.stop_reason_received := true
+  | Ping | ContentBlockStop _ | Connected | Timeout _ -> ()
 ;;
 
 let finalize_stream_acc (acc : stream_acc) =
   match !(acc.sse_error) with
   | Some msg -> Error msg
+  | None when not !(acc.stop_reason_received) ->
+    Error "stream_terminated_without_stop_reason"
   | None ->
     let content =
       Hashtbl.fold
@@ -264,12 +271,21 @@ let create_message_stream
                   if data <> "[DONE]"
                   then (
                     match parse_sse_event event_type data with
-                    | None -> ()
+                    | None ->
+                      let evt =
+                        SSEParseFailed
+                          { raw = data
+                          ; reason = "anthropic_sse_chunk_parse_failure"
+                          }
+                      in
+                      on_event evt;
+                      accumulate_event acc evt
                     | Some evt ->
                       on_event evt;
                       accumulate_event acc evt))
                 ();
-              on_event MessageStop;
+              (if !(acc.stop_reason_received)
+               then on_event MessageStop);
               finalize_stream_acc acc)
             ()
         with
@@ -277,9 +293,14 @@ let create_message_stream
         | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
         | Ok (Error msg) ->
           Error
-            (Error.Api
-               (Retry.NetworkError
-                  { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
+            (Error.Provider
+               (Llm_provider.Error.of_http_error
+                  (Llm_provider.Http_client.ProviderFailure
+                     { kind =
+                         Llm_provider.Http_client.Provider_parse_error
+                           { parser = Some "sse_stream_accumulator" }
+                     ; message = Printf.sprintf "SSE stream error: %s" msg
+                     }))))
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
        let headers =
@@ -315,7 +336,15 @@ let create_message_stream
                   then ()
                   else (
                     match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                    | None -> ()
+                    | None ->
+                      let evt =
+                        SSEParseFailed
+                          { raw = data
+                          ; reason = "openai_sse_chunk_parse_failure"
+                          }
+                      in
+                      on_event evt;
+                      accumulate_event acc evt
                     | Some chunk ->
                       if not !msg_started
                       then (
@@ -338,7 +367,8 @@ let create_message_stream
                            accumulate_event acc evt)
                         evs))
                 ();
-              on_event MessageStop;
+              (if !(acc.stop_reason_received)
+               then on_event MessageStop);
               finalize_stream_acc acc)
             ()
         with
@@ -346,9 +376,14 @@ let create_message_stream
         | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
         | Ok (Error msg) ->
           Error
-            (Error.Api
-               (Retry.NetworkError
-                  { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
+            (Error.Provider
+               (Llm_provider.Error.of_http_error
+                  (Llm_provider.Http_client.ProviderFailure
+                     { kind =
+                         Llm_provider.Http_client.Provider_parse_error
+                           { parser = Some "sse_stream_accumulator" }
+                     ; message = Printf.sprintf "SSE stream error: %s" msg
+                     }))))
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match
