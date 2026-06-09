@@ -547,3 +547,17 @@
  (name test_streaming_cut_cleanup)
  (modules test_streaming_cut_cleanup)
  (libraries agent_sdk llm_provider alcotest eio eio_main))
+
+(test
+ (name test_tls_cancellability)
+ (modules test_tls_cancellability)
+ (libraries
+  alcotest
+  eio
+  eio_main
+  tls
+  tls-eio
+  x509
+  mirage-crypto-rng.unix
+  domain-name
+  ptime))
