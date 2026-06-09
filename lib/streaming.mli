@@ -62,6 +62,8 @@ val map_http_error : Llm_provider.Http_client.http_error -> Error.sdk_error
 val create_message_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?idle_timeout:float
   -> ?base_url:string
   -> ?provider:Provider.config
   -> config:Types.agent_state
