@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.3](https://github.com/jeong-sik/oas/compare/v0.205.2...v0.205.3) (2026-06-09)
+
+
+### Features
+
+* **llm_provider:** externalize all hardcoded model specifications to TOML catalog ([b056d26](https://github.com/jeong-sik/oas/commit/b056d261c416e51240fa4a54068a49f4c1b93e33))
+* **llm_provider:** externalize all hardcoded model specifications to TOML catalog ([1f5dc59](https://github.com/jeong-sik/oas/commit/1f5dc591eed11477e01b21b68f1521c7e335fd30))
+
 ## [0.205.2](https://github.com/jeong-sik/oas/compare/v0.205.1...v0.205.2) (2026-06-09)
 
 
