@@ -185,6 +185,27 @@ let test_provider_d_parse_edge_shapes () =
   check int "non-list tool calls ignored" 0 (List.length chunk.delta_tool_calls)
 ;;
 
+let test_provider_d_object_arguments () =
+  (* llama.cpp / llama-server (#20198) streams tool-call [arguments] as a
+     JSON object rather than a serialized string. [to_string_option] returns
+     None for an object, which silently dropped the args (ToolUse with empty
+     input). The parser must serialize the object to a string instead. *)
+  let object_args =
+    {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"f","arguments":{"x":1}}}]},"finish_reason":null}]}|}
+  in
+  let chunk =
+    require_some "provider_d object args" (S.parse_openai_sse_chunk object_args)
+  in
+  match chunk.delta_tool_calls with
+  | [ tc ] ->
+    check
+      (option string)
+      "object arguments serialized (not dropped to None)"
+      (Some {|{"x":1}|})
+      tc.tc_arguments
+  | _ -> fail "expected exactly one tool call"
+;;
+
 let test_provider_d_event_edge_branches () =
   let state = S.create_openai_stream_state ~provider:"p" ~model:"m" () in
   ignore
@@ -458,6 +479,7 @@ let () =
         ] )
     ; ( "provider_d_sse"
       , [ test_case "parse edge shapes" `Quick test_provider_d_parse_edge_shapes
+        ; test_case "object-form tool arguments" `Quick test_provider_d_object_arguments
         ; test_case "event edge branches" `Quick test_provider_d_event_edge_branches
         ] )
     ; ( "provider_f_sse"

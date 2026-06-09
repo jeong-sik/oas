@@ -99,21 +99,33 @@ let build_request
   let base_body = Backend_openai.build_request ~stream ~config ~messages ~tools () in
   match Yojson.Safe.from_string base_body with
   | `Assoc fields ->
+    (* [thinking] single-owner normalization. The shared request builder's
+       ZAI/GLM branch may already have emitted a [thinking] field (it fires for
+       api.z.ai base URLs); strip it so Backend_glm is the authoritative owner
+       and the key is never duplicated for [kind:Glm] (mirrors the response-path
+       dedup at [extract_reasoning_content]). Bare GLM via [kind:OpenAI_compat]
+       does not pass through here and is covered by that shared branch instead.
+       The capability-driven unification of both emitters via
+       [Glm_enable_thinking] is deferred to the RFC-OAS-023 axis reshape, which
+       needs model-based [capabilities_of_config] resolution. *)
+    let fields = List.filter (fun (k, _) -> k <> "thinking") fields in
     let fields =
       match config.enable_thinking with
       | Some true ->
         let clear_thinking = Option.value ~default:true config.clear_thinking in
-        let thinking =
-          `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ]
-        in
-        ("thinking", thinking) :: fields
-      | Some false ->
-        let thinking = `Assoc [ "type", `String "disabled" ] in
-        ("thinking", thinking) :: fields
+        ( "thinking"
+        , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
+        :: fields
+      | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: fields
       | None -> fields
     in
     let fields =
-      if stream && config.tool_stream
+      (* GLM streams tool-call arguments incrementally only when both
+         [stream] and [tool_stream] are set; [config.tool_stream] defaults
+         false, so a streaming request carrying tools would otherwise buffer
+         tool args. Default [tool_stream] on when tools are present
+         (RFC-OAS-023). *)
+      if stream && (config.tool_stream || tools <> [])
       then ("tool_stream", `Bool true) :: fields
       else fields
     in
@@ -280,6 +292,36 @@ let%test "build_request can preserve reasoning on demand" =
   json |> member "thinking" |> member "clear_thinking" |> to_bool = false
 ;;
 
+let%test "build_request emits exactly one thinking key for ZAI GLM (RFC-OAS-023)" =
+  (* Regression guard for the duplicate-[thinking]-key bug: before the fix,
+     both Backend_glm.build_request (overlay) and the shared OpenAI-compat
+     builder (No_thinking_control + is_zai_glm workaround) emitted a [thinking]
+     field, producing a duplicate JSON key. The fix routes GLM thinking through
+     the single [Glm_enable_thinking] capability path. Yojson [member] is blind
+     to duplicates, so count the keys directly on the assoc list. *)
+  let config =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"glm-5"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~enable_thinking:true
+      ()
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text "reason" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  match Yojson.Safe.from_string body with
+  | `Assoc fields -> List.length (List.filter (fun (k, _) -> k = "thinking") fields) = 1
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> false
+;;
+
 let%test "build_request with thinking=false injects disabled" =
   let config =
     Provider_config.make
@@ -439,6 +481,41 @@ let%test "build_request adds tool_stream when enabled" =
       ~tool_stream:true
       ()
   in
+  let messages =
+    [ { role = User
+      ; content = [ Text "weather" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body =
+    build_request
+      ~stream:true
+      ~config
+      ~messages
+      ~tools:[ `Assoc [ "name", `String "weather" ] ]
+      ()
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_stream" |> to_bool
+;;
+
+let%test "build_request defaults tool_stream on for streaming + tools (RFC-OAS-023)" =
+  (* GLM streams tool-call args incrementally only when both [stream] and
+     [tool_stream] are set, but [config.tool_stream] defaults false. A
+     streaming request carrying tools now defaults [tool_stream] on so the
+     args arrive incrementally instead of buffered. *)
+  let config =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"glm-5.1"
+      ~base_url:"https://api.z.ai/api/paas/v4"
+      ()
+  in
+  let () = assert (not config.tool_stream) in
   let messages =
     [ { role = User
       ; content = [ Text "weather" ]

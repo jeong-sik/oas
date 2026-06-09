@@ -305,7 +305,18 @@ let parse_openai_sse_chunk data_str : provider_d_chunk option =
                    let tc_id = tc |> member "id" |> to_string_option in
                    let fn = tc |> member "function" in
                    let tc_name = fn |> member "name" |> to_string_option in
-                   let tc_arguments = fn |> member "arguments" |> to_string_option in
+                   let tc_arguments =
+                     (* llama.cpp/llama-server (#20198) streams tool-call
+                        arguments as a JSON object/array, not a serialized
+                        string; serialize so the string-fragment accumulator
+                        does not silently drop them (the Ollama NDJSON path
+                        already handles this shape). *)
+                     match fn |> member "arguments" with
+                     | `Null -> None
+                     | (`Assoc _ | `List _) as v -> Some (Yojson.Safe.to_string v)
+                     | `String s -> Some s
+                     | other -> Some (Yojson.Safe.to_string other)
+                   in
                    Some { tc_index; tc_id; tc_name; tc_arguments }
                  with
                  | Yojson.Safe.Util.Type_error _ | Not_found -> None)
