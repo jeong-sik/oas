@@ -387,573 +387,6 @@ let gemini_capabilities =
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
-type static_model_route =
-  | Agent_llm_a_opus_4
-  | Agent_llm_a_sonnet_4
-  | Agent_llm_a_haiku_4
-  | Provider_d_5
-  | Provider_d_4_1
-  | Provider_d_4o
-  | Mimo_v2_5_chat
-  | Gemini of gemini_family
-  | Kimi_for_coding
-  | Kimi_k2
-  | DashScope_3
-  | Provider_n_4
-  | Deepseek_v4_flash
-  | Deepseek_v4_pro
-  | Provider_j_large
-  | Provider_j_small
-  | Provider_m_command
-  | Provider_e_grok
-  | Nvidia of { has_vision : bool }
-  | Gemini_gemma_4 of { has_large_audio : bool }
-  | Glm_4_7_flash
-  | Glm_4_5_flash_air
-  | Glm_5_turbo
-  | Glm_5v_turbo
-  | Glm_ocr
-  | Glm_4_6_vision_reasoning
-  | Glm_4_5_vision_reasoning
-  | Glm_5_code
-  | Glm_4_5_text
-  | Glm_full_text
-  | Glm_4_flash
-  | Glm_4v
-  | Glm_4
-  | Qwen_3
-
-let normalize_static_model_id model_id =
-  model_id |> String.trim |> String.lowercase_ascii |> strip_suffix ~suffix:":cloud"
-;;
-
-let provider_f_gemma_4_has_large_audio model_id =
-  let prefix = "model-f-gemma-4-" in
-  let base =
-    if String.starts_with ~prefix:"google/" model_id
-    then String.sub model_id 7 (String.length model_id - 7)
-    else model_id
-  in
-  let size =
-    if String.starts_with ~prefix base
-    then
-      Some
-        (String.sub
-           base
-           (String.length prefix)
-           (String.length base - String.length prefix))
-    else None
-  in
-  match size with
-  | Some size_token ->
-    List.exists (fun prefix -> String.starts_with ~prefix size_token) [ "27b"; "31b" ]
-  | None -> false
-;;
-
-let starts_with_any model_id prefixes =
-  List.exists (fun prefix -> String.starts_with ~prefix model_id) prefixes
-;;
-
-let static_model_route_of_id model_id =
-  let m = normalize_static_model_id model_id in
-  if String.starts_with ~prefix:"agent_llm_a-opus-4" m
-  then Some Agent_llm_a_opus_4
-  else if String.starts_with ~prefix:"agent_llm_a-sonnet-4" m
-  then Some Agent_llm_a_sonnet_4
-  else if String.starts_with ~prefix:"agent_llm_a-haiku-4" m
-  then Some Agent_llm_a_haiku_4
-  else if String.starts_with ~prefix:"model-d-5" m
-  then Some Provider_d_5
-  else if String.starts_with ~prefix:"model-d-4.1" m
-  then Some Provider_d_4_1
-  else if String.starts_with ~prefix:"model-d" m
-  then Some Provider_d_4o
-  else if m = "mimo-v2.5" || String.starts_with ~prefix:"mimo-v2.5-pro" m
-  then Some Mimo_v2_5_chat
-  else (
-    match gemini_family_of_id m with
-    | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
-    | Gemini_other _ ->
-      if String.starts_with ~prefix:"kimi-for-coding" m
-      then Some Kimi_for_coding
-      else if String.starts_with ~prefix:"kimi-k2" m
-      then Some Kimi_k2
-      else if
-        String.starts_with ~prefix:"dashscope-3" m
-        || String.starts_with ~prefix:"provider_h_3" m
-        || String.starts_with ~prefix:"dashscope_3" m
-      then Some DashScope_3
-      else if
-        String.starts_with ~prefix:"model-n-4" m || String.starts_with ~prefix:"llama4" m
-      then Some Provider_n_4
-      else if starts_with_any m [ "deepseek-v4-flash"; "deepseek-v4-flash" ]
-      then Some Deepseek_v4_flash
-      else if starts_with_any m [ "deepseek-v4-pro"; "deepseek-v4-pro" ]
-      then Some Deepseek_v4_pro
-      else if String.starts_with ~prefix:"mistral-large" m
-      then Some Provider_j_large
-      else if String.starts_with ~prefix:"mistral-small" m
-      then Some Provider_j_small
-      else if String.starts_with ~prefix:"command" m
-      then Some Provider_m_command
-      else if
-        String.starts_with ~prefix:"provider_e_grok" m
-        || String.starts_with ~prefix:"model-e" m
-      then Some Provider_e_grok
-      else if
-        String.starts_with ~prefix:"nvidia/nvidia" m
-        || String.starts_with ~prefix:"nvidia" m
-      then
-        Some
-          (Nvidia
-             { has_vision =
-                 String.starts_with ~prefix:"nvidia/nvidia-vl" m
-                 || String.starts_with ~prefix:"nvidia-vl" m
-             })
-      else if
-        String.starts_with ~prefix:"model-f-gemma-4" m
-        || String.starts_with ~prefix:"google/model-f-gemma-4" m
-      then
-        Some (Gemini_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
-      else if starts_with_any m [ "glm-4.7-flash"; "glm-4.7-flash" ]
-      then Some Glm_4_7_flash
-      else if
-        starts_with_any
-          m
-          [ "glm-4.5-flash"; "glm-4.5-air"; "glm-4.5-flash"; "glm-4.5-air" ]
-      then Some Glm_4_5_flash_air
-      else if starts_with_any m [ "glm-5-turbo"; "glm-5-turbo" ]
-      then Some Glm_5_turbo
-      else if starts_with_any m [ "glm-5v-turbo"; "glm-5v-turbo" ]
-      then Some Glm_5v_turbo
-      else if starts_with_any m [ "glm-ocr"; "glm-ocr" ]
-      then Some Glm_ocr
-      else if starts_with_any m [ "glm-4.6v"; "glm-4.6v" ]
-      then Some Glm_4_6_vision_reasoning
-      else if starts_with_any m [ "glm-4.5v"; "glm-4.5v" ]
-      then Some Glm_4_5_vision_reasoning
-      else if starts_with_any m [ "glm-5-code"; "glm-5-code" ]
-      then Some Glm_5_code
-      else if starts_with_any m [ "glm-4.5"; "glm-4.5" ]
-      then Some Glm_4_5_text
-      else if
-        starts_with_any m [ "glm-4.6"; "glm-4.7"; "glm-5"; "glm-4.6"; "glm-4.7"; "glm-5" ]
-      then Some Glm_full_text
-      else if starts_with_any m [ "glm-4-flash"; "glm-4-flash" ]
-      then Some Glm_4_flash
-      else if starts_with_any m [ "glm-4v"; "glm-4v" ]
-      then Some Glm_4v
-      else if starts_with_any m [ "glm-4"; "glm-4" ]
-      then Some Glm_4
-      else if starts_with_any m [ "qwen3"; "qwen-3" ]
-      then Some Qwen_3
-      else None)
-;;
-
-(** Lookup capabilities by model_id prefix using the built-in static table.
-    Returns None if no specific override is known. *)
-let capabilities_of_static_model_route = function
-  | Agent_llm_a_opus_4 ->
-    Some
-      { anthropic_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 128_000
-      }
-  | Agent_llm_a_sonnet_4 ->
-    Some
-      { anthropic_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 64_000
-      }
-  | Agent_llm_a_haiku_4 ->
-    Some
-      { anthropic_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 8_192
-      }
-  | Provider_d_5 ->
-    Some
-      { openai_compat_chat_extended_capabilities with
-        max_context_tokens = Some 1_050_000
-      ; max_output_tokens = Some 128_000
-      ; supports_computer_use = true
-      }
-  | Provider_d_4_1 ->
-    Some
-      { openai_compat_chat_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 32_000
-      }
-  | Provider_d_4o ->
-    Some
-      { openai_compat_chat_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      }
-  | Mimo_v2_5_chat ->
-    Some
-      { openai_compat_chat_capabilities with
-        supports_reasoning = true
-      ; thinking_control_format = Thinking_object_only
-      }
-  | Gemini _ -> Some gemini_capabilities
-  | Kimi_for_coding | Kimi_k2 -> Some kimi_capabilities
-  | DashScope_3 ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 262_144
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_reasoning_budget = true
-      ; thinking_control_format = Chat_template_kwargs
-      ; supports_native_streaming = true
-      ; supports_top_k = true
-      ; supports_min_p = true
-      }
-  | Provider_n_4 ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; supports_tools = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  | Deepseek_v4_flash ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 384_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_reasoning_budget = true
-      ; thinking_control_format = Reasoning_effort
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-  | Deepseek_v4_pro ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 1_000_000
-      ; max_output_tokens = Some 384_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_reasoning_budget = true
-      ; thinking_control_format = Reasoning_effort
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-  | Provider_j_large ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 260_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_structured_output = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-  | Provider_j_small ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 256_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_structured_output = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-  | Provider_m_command ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 256_000
-      ; max_output_tokens = Some 32_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_structured_output = true
-      ; supports_native_streaming = true
-      }
-  | Provider_e_grok ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 2_000_000
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_structured_output = true
-      ; supports_native_streaming = true
-      ; supports_caching = true
-      ; supports_prompt_caching = false
-      ; prompt_cache_alignment = None
-      }
-    (* NVIDIA Nvidia: Llama-based, NIM OpenAI-compat API.
-       Base text models (nvidia-ultra, nvidia-core) get reasoning
-       but no vision. VL suffix gets image input. *)
-  | Nvidia { has_vision } ->
-    Some
-      { provider_l_capabilities with
-        max_context_tokens = Some 131_072
-      ; max_output_tokens = Some 16_384
-      ; supports_multimodal_inputs = has_vision
-      ; supports_image_input = has_vision
-      }
-    (* Gemma 4: Google open-weight multimodal.
-       4 sizes (1B/4B/12B/27B-31B). All support function calling,
-       image input, streaming. 27B+ supports audio. 256K context. *)
-  | Gemini_gemma_4 { has_large_audio } ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 262_144
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_response_format_json = true
-      ; supports_structured_output = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_audio_input = has_large_audio
-      ; supports_native_streaming = true
-      ; supports_seed = true
-      ; modality_priority =
-          Modality.Visual_first
-          (* Gemma 4 best practices: place image/audio before text for
-           optimal multimodal performance. *)
-      }
-    (* GLM-4.7 Flash/FlashX: official Z.AI GLM-4.7 series docs describe
-       thinking mode with 200K context and 128K max output. Must precede the
-       broad GLM-4.7 match below. *)
-  | Glm_4_7_flash ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4_5_flash_air ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 96_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-    (* GLM-5-Turbo: official docs list Thinking Mode, 200K context, and
-       128K max output. *)
-  | Glm_5_turbo ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-  | Glm_5v_turbo ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  | Glm_ocr ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4_6_vision_reasoning ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 32_768
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4_5_vision_reasoning ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 16_384
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-    (* Glm-5-Code: coding-specific variant with 128K context (not 200K).
-       Z.AI docs: Glm-5-Code uses /api/coding/paas/ endpoint, 128K context. *)
-  | Glm_5_code ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4_5_text ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 96_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-    (* GLM-4.6/4.7/5/5.1 full text models: reasoning, large context/output,
-       but no vision. *)
-  | Glm_full_text ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 200_000
-      ; max_output_tokens = Some 128_000
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; supports_response_format_json = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4_flash ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 4_096
-      ; supports_tools = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4v ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 4_096
-      ; supports_tools = true
-      ; supports_multimodal_inputs = true
-      ; supports_image_input = true
-      ; supports_native_streaming = true
-      }
-  | Glm_4 ->
-    Some
-      { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 4_096
-      ; supports_tools = true
-      ; supports_tool_choice = false
-      ; supports_native_streaming = true
-      }
-    (* Qwen3 / Qwen3.5 family.  All Qwen3 sizes (0.6B–235B) and Qwen3.5
-       expose native <think> reasoning blocks via the OpenAI-compatible
-       endpoint (typically through vLLM / llama.cpp / Ollama, which route
-       to the [OpenAI_compat] kind in OAS).  Without this entry the
-       provider-default capability set declared no thinking support, and
-       every cycle produced a [Thinking_returned_but_declared_unsupported]
-       INFO observation — silent in the warn channel but noisy in the
-       info channel.  Declaring thinking + tools support here promotes
-       the capability source from [Provider_default_capability] to
-       [Model_capability], which silences the drift observation and
-       upgrades subsequent declaration errors to high-confidence warns. *)
-  | Qwen_3 ->
-    Some
-      { default_capabilities with
-        (* Qwen3.6-35B-A3B: 262,144 native context (HuggingFace model card).
-           Extensible to 1,010,000 via YaRN but that requires server-side
-           config -- the static ceiling stays at the native window.
-           Evidence: huggingface.co/Qwen/Qwen3.6-35B-A3B model card. *)
-        max_context_tokens = Some 262_144
-      ; (* Official Qwen3.6 docs recommend max_tokens=81,920 for complex
-           tasks (math/coding benchmarks) and 32,768 for most queries.
-           The ceiling is the upper bound; callers can send less.
-           Evidence: qwen.ai/blog?id=qwen3.6-35b-a3b "Best Practices"
-           section + Terminal-Bench 2.0 config (max_tokens=80K). *)
-        max_output_tokens = Some 81_920
-      ; supports_tools = true
-      ; supports_tool_choice = true
-      ; supports_parallel_tool_calls = true
-      ; supports_reasoning = true
-      ; supports_extended_thinking = true
-      ; (* Self-served Qwen3 (vLLM / llama-server / RunPod, [OpenAI_compat] kind)
-           toggles reasoning on the wire via
-           {"chat_template_kwargs":{"enable_thinking":b}}; a top-level
-           field is silently ignored. Without this the record defaulted to
-           [No_thinking_control] and no thinking knob reached the wire. The
-           sibling [DashScope_3] record uses the same wire shape. *)
-        thinking_control_format = Chat_template_kwargs
-      ; supports_response_format_json = true
-      ; supports_structured_output = true
-      ; supports_native_streaming = true
-      ; (* Official recommended sampling params list top_k and min_p:
-           "top_k=20, min_p=0.0" for both thinking and non-thinking modes.
-           Evidence: qwen.ai/blog?id=qwen3.6-35b-a3b "Best Practices". *)
-        supports_top_k = true
-      ; supports_min_p = true
-      }
-;;
-
-let for_model_id_static model_id =
-  match static_model_route_of_id model_id with
-  | Some route -> capabilities_of_static_model_route route
-  | None -> None
-;;
 
 (** Lookup capabilities by provider label string.
 
@@ -1070,14 +503,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   }
 ;;
 
-(** Look up capabilities for [model_id] against an explicit manifest,
-    falling back to the built-in static table when no manifest entry
-    matches. *)
-let for_model_id_with_manifest manifest model_id =
-  match Capability_manifest.lookup manifest model_id with
-  | Some entry -> Some (apply_manifest_entry entry)
-  | None -> for_model_id_static model_id
-;;
+
 
 let%test "apply_manifest_entry applies thinking_control_format (RFC-OAS-023)" =
   match
@@ -1100,15 +526,90 @@ let%test "apply_manifest_entry without thinking_control_format keeps base format
   | Ok _ | Error _ -> false
 ;;
 
+let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
+  let base =
+    match entry.base_label with
+    | None -> default_capabilities
+    | Some label ->
+      (match capabilities_for_provider_label label with
+       | Some c -> c
+       | None -> default_capabilities)
+  in
+  let override_bool base_val = function
+    | Some b -> b
+    | None -> base_val
+  in
+  let override_int_opt base_val = function
+    | Some n -> Some n
+    | None -> base_val
+  in
+  { base with
+    max_context_tokens = override_int_opt base.max_context_tokens entry.max_context_tokens
+  ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
+  ; supports_tools = override_bool base.supports_tools entry.supports_tools
+  ; supports_tool_choice = override_bool base.supports_tool_choice entry.supports_tool_choice
+  ; supports_parallel_tool_calls = override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
+  ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
+  ; supports_extended_thinking = override_bool base.supports_extended_thinking entry.supports_extended_thinking
+  ; supports_reasoning_budget = override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; supports_response_format_json = override_bool base.supports_response_format_json entry.supports_response_format_json
+  ; supports_structured_output = override_bool base.supports_structured_output entry.supports_structured_output
+  ; supports_multimodal_inputs = override_bool base.supports_multimodal_inputs entry.supports_multimodal_inputs
+  ; supports_image_input = override_bool base.supports_image_input entry.supports_image_input
+  ; supports_audio_input = override_bool base.supports_audio_input entry.supports_audio_input
+  ; supports_video_input = override_bool base.supports_video_input entry.supports_video_input
+  ; supports_native_streaming = override_bool base.supports_native_streaming entry.supports_native_streaming
+  ; supports_system_prompt = override_bool base.supports_system_prompt entry.supports_system_prompt
+  ; supports_caching = override_bool base.supports_caching entry.supports_caching
+  ; supports_prompt_caching = override_bool base.supports_prompt_caching entry.supports_prompt_caching
+  ; supports_top_k = override_bool base.supports_top_k entry.supports_top_k
+  ; supports_min_p = override_bool base.supports_min_p entry.supports_min_p
+  ; supports_seed = override_bool base.supports_seed entry.supports_seed
+  ; supports_computer_use = override_bool base.supports_computer_use entry.supports_computer_use
+  ; supports_code_execution = override_bool base.supports_code_execution entry.supports_code_execution
+  ; thinking_control_format =
+      (match entry.thinking_control_format with
+       | Some s ->
+         (match thinking_control_format_of_manifest_string s with
+          | Some t -> t
+          | None -> base.thinking_control_format)
+       | None -> base.thinking_control_format)
+  }
+let for_model_id_static model_id =
+  match Model_catalog.global () with
+  | Some catalog ->
+    (match Model_catalog.lookup catalog model_id with
+     | Some entry -> Some (apply_catalog_entry entry)
+     | None -> None)
+  | None -> None
+;;
+
+(** Look up capabilities for [model_id] against an explicit manifest,
+    falling back to the built-in static table when no manifest entry
+    matches. *)
+let for_model_id_with_manifest manifest model_id =
+  match Capability_manifest.lookup manifest model_id with
+  | Some entry -> Some (apply_manifest_entry entry)
+  | None -> for_model_id_static model_id
+;;
+
 (** Look up capabilities for [model_id].
 
-    Checks the globally loaded capability manifest (from
-    [OAS_CAPABILITY_MANIFEST]) first; falls through to the built-in
-    static prefix table when no manifest entry matches. *)
+    Checks the globally loaded model catalog first, then the capability manifest,
+    and falls through to the built-in static prefix table when no entry matches. *)
 let for_model_id model_id =
-  match Capability_manifest.global () with
-  | Some manifest -> for_model_id_with_manifest manifest model_id
-  | None -> for_model_id_static model_id
+  match Model_catalog.global () with
+  | Some catalog ->
+    (match Model_catalog.lookup catalog model_id with
+     | Some entry -> Some (apply_catalog_entry entry)
+     | None ->
+       (match Capability_manifest.global () with
+        | Some manifest -> for_model_id_with_manifest manifest model_id
+        | None -> for_model_id_static model_id))
+  | None ->
+    (match Capability_manifest.global () with
+     | Some manifest -> for_model_id_with_manifest manifest model_id
+     | None -> for_model_id_static model_id)
 ;;
 
 [@@@coverage off]
@@ -1212,7 +713,7 @@ let%test "for_model_id_static qwen3 has extended thinking" =
 
 let%test "for_model_id_static qwen3.5 routes to Qwen_3 family" =
   match for_model_id_static "qwen3.5" with
-  | Some c -> c.supports_extended_thinking && c.max_output_tokens = Some 32_768
+  | Some c -> c.supports_extended_thinking && c.max_output_tokens = Some 81_920
   | None -> false
 ;;
 

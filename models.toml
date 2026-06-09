@@ -1,0 +1,958 @@
+# Unified Model Catalog Configuration
+
+# Anthropic Models
+[[models]]
+id_prefix = "opus-4-6"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 15.0
+output_per_million = 75.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "opus-4-5"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 15.0
+output_per_million = 75.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "sonnet-4-6"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "sonnet-4"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "haiku-4-5"
+base = "anthropic"
+max_context_tokens = 200000
+max_output_tokens = 8192
+input_per_million = 0.8
+output_per_million = 4.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+# Fallbacks for Cli Tool / CC
+[[models]]
+id_prefix = "agent_llm_a-3-7-sonnet"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "cli_tool_d"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "cc:"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+# OpenAI Models
+[[models]]
+id_prefix = "model-d-5.5"
+base = "openai_chat_extended"
+max_context_tokens = 1050000
+max_output_tokens = 128000
+supports_computer_use = true
+input_per_million = 5.0
+output_per_million = 30.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-5.4-mini"
+base = "openai_chat_extended"
+max_context_tokens = 1050000
+max_output_tokens = 128000
+supports_computer_use = true
+input_per_million = 0.75
+output_per_million = 4.5
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-5.4"
+base = "openai_chat_extended"
+max_context_tokens = 1050000
+max_output_tokens = 128000
+supports_computer_use = true
+input_per_million = 2.5
+output_per_million = 15.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-5.3-agent_code"
+base = "openai_chat_extended"
+max_context_tokens = 1050000
+max_output_tokens = 128000
+supports_computer_use = true
+input_per_million = 1.75
+output_per_million = 14.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-5"
+base = "openai_chat_extended"
+max_context_tokens = 1050000
+max_output_tokens = 128000
+supports_computer_use = true
+input_per_million = 5.0
+output_per_million = 30.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-5.2"
+base = "openai_chat"
+max_context_tokens = 1000000
+max_output_tokens = 32000
+input_per_million = 1.75
+output_per_million = 14.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-4.1"
+base = "openai_chat"
+max_context_tokens = 1000000
+max_output_tokens = 32000
+input_per_million = 2.0
+output_per_million = 8.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "model-d-mini"
+base = "openai_chat"
+max_context_tokens = 128000
+max_output_tokens = 16384
+input_per_million = 0.15
+output_per_million = 0.6
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "model-d"
+base = "openai_chat"
+max_context_tokens = 128000
+max_output_tokens = 16384
+input_per_million = 2.5
+output_per_million = 10.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+# DeepSeek Models
+[[models]]
+id_prefix = "deepseek-v4-pro"
+base = "openai_chat"
+max_context_tokens = 1000000
+max_output_tokens = 384000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_response_format_json = true
+supports_native_streaming = true
+supports_caching = true
+supports_prompt_caching = false
+input_per_million = 0.435
+output_per_million = 0.87
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.008333333333333333
+
+[[models]]
+id_prefix = "deepseek-v4-flash"
+base = "openai_chat"
+max_context_tokens = 1000000
+max_output_tokens = 384000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_response_format_json = true
+supports_native_streaming = true
+supports_caching = true
+supports_prompt_caching = false
+input_per_million = 0.14
+output_per_million = 0.28
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.02
+
+# Gemini Models
+[[models]]
+id_prefix = "gemini-2.5"
+base = "gemini"
+max_context_tokens = 1000000
+
+[[models]]
+id_prefix = "gemini-3-flash-preview"
+base = "gemini"
+max_context_tokens = 1000000
+input_per_million = 0.50
+output_per_million = 3.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gemini-3.1-pro-preview"
+base = "gemini"
+max_context_tokens = 1000000
+input_per_million = 2.0
+output_per_million = 12.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gemini-3.1-pro"
+base = "gemini"
+max_context_tokens = 1000000
+input_per_million = 2.0
+output_per_million = 12.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gemini-3.1-flash-lite-preview"
+base = "gemini"
+max_context_tokens = 1000000
+input_per_million = 0.25
+output_per_million = 1.5
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gemini-3.1-flash-lite"
+base = "gemini"
+max_context_tokens = 1000000
+input_per_million = 0.25
+output_per_million = 1.5
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gemini-3"
+base = "gemini"
+max_context_tokens = 1000000
+input_per_million = 0.50
+output_per_million = 3.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+# GLM Models
+[[models]]
+id_prefix = "glm-5.1"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.4
+output_per_million = 4.4
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.18571428571428572
+
+[[models]]
+id_prefix = "glm-5-turbo"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.2
+output_per_million = 4.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "glm-5v-turbo"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+input_per_million = 1.2
+output_per_million = 4.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "glm-ocr"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 16384
+supports_tools = false
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+input_per_million = 0.0
+output_per_million = 0.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "glm-4.7-flashx"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.07
+output_per_million = 0.4
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.14285714285714285
+
+[[models]]
+id_prefix = "glm-4.7-flash"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.0
+output_per_million = 0.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "glm-4.5-x"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 2.2
+output_per_million = 8.9
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.20454545454545455
+
+[[models]]
+id_prefix = "glm-4.5-airx"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.1
+output_per_million = 4.5
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "glm-4.5-air"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 96000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.2
+output_per_million = 1.1
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.15
+
+[[models]]
+id_prefix = "glm-4.5-flash"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 96000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.0
+output_per_million = 0.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "glm-5-code"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.0
+output_per_million = 3.2
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "glm-5"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.0
+output_per_million = 3.2
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "glm-4.6"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.6
+output_per_million = 2.2
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.18333333333333332
+
+[[models]]
+id_prefix = "glm-4.7"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.6
+output_per_million = 2.2
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.18333333333333332
+
+[[models]]
+id_prefix = "glm-4.5"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 96000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 0.6
+output_per_million = 2.2
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.18333333333333332
+
+[[models]]
+id_prefix = "glm-4-flash"
+max_context_tokens = 128000
+max_output_tokens = 4096
+supports_tools = true
+supports_native_streaming = true
+
+[[models]]
+id_prefix = "glm-4v"
+max_context_tokens = 128000
+max_output_tokens = 4096
+supports_tools = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+
+[[models]]
+id_prefix = "glm-4"
+max_context_tokens = 128000
+max_output_tokens = 4096
+supports_tools = true
+supports_tool_choice = false
+supports_native_streaming = true
+
+# Kimi Models
+[[models]]
+id_prefix = "kimi-for-coding"
+base = "kimi"
+max_context_tokens = 262144
+input_per_million = 0.0
+output_per_million = 0.0
+
+[[models]]
+id_prefix = "kimi-k2"
+base = "kimi"
+max_context_tokens = 262144
+input_per_million = 0.0
+output_per_million = 0.0
+
+# DashScope / Alibaba Models
+[[models]]
+id_prefix = "dashscope-3"
+base = "dashscope"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "chat_template_kwargs"
+supports_native_streaming = true
+supports_top_k = true
+supports_min_p = true
+input_per_million = 0.0
+output_per_million = 0.0
+
+[[models]]
+id_prefix = "provider_h_3"
+base = "dashscope"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "chat_template_kwargs"
+supports_native_streaming = true
+supports_top_k = true
+supports_min_p = true
+input_per_million = 0.0
+output_per_million = 0.0
+
+[[models]]
+id_prefix = "dashscope_3"
+base = "dashscope"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "chat_template_kwargs"
+supports_native_streaming = true
+supports_top_k = true
+supports_min_p = true
+input_per_million = 0.0
+output_per_million = 0.0
+
+# Qwen Models
+[[models]]
+id_prefix = "qwen3"
+base = "openai_chat"
+max_context_tokens = 262144
+max_output_tokens = 81920
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
+supports_top_k = true
+supports_min_p = true
+
+[[models]]
+id_prefix = "qwen-3"
+base = "openai_chat"
+max_context_tokens = 262144
+max_output_tokens = 81920
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
+supports_top_k = true
+supports_min_p = true
+
+# Llama Models
+[[models]]
+id_prefix = "model-n-4"
+base = "openai_chat"
+max_context_tokens = 1000000
+supports_tools = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+
+[[models]]
+id_prefix = "llama4"
+base = "openai_chat"
+max_context_tokens = 1000000
+supports_tools = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+
+# Mimo Models
+[[models]]
+id_prefix = "mimo-v2.5"
+base = "openai_chat"
+supports_reasoning = true
+thinking_control_format = "thinking_object_only"
+
+# Nvidia Models
+[[models]]
+id_prefix = "nvidia/nvidia-vl"
+base = "nvidia"
+max_context_tokens = 131072
+max_output_tokens = 16384
+supports_multimodal_inputs = true
+supports_image_input = true
+
+[[models]]
+id_prefix = "nvidia-vl"
+base = "nvidia"
+max_context_tokens = 131072
+max_output_tokens = 16384
+supports_multimodal_inputs = true
+supports_image_input = true
+
+[[models]]
+id_prefix = "nvidia/nvidia"
+base = "nvidia"
+max_context_tokens = 131072
+max_output_tokens = 16384
+
+[[models]]
+id_prefix = "nvidia"
+base = "nvidia"
+max_context_tokens = 131072
+max_output_tokens = 16384
+
+# Gemma Models
+[[models]]
+id_prefix = "model-f-gemma-4"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "google/model-f-gemma-4"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+supports_seed = true
+
+# Generic/Ollama/Other Fallbacks
+[[models]]
+id_prefix = "ollama"
+base = "ollama"
+input_per_million = 0.0
+output_per_million = 0.0
+
+[[models]]
+id_prefix = "nous"
+base = "openai_chat"
+input_per_million = 0.0
+output_per_million = 0.0
+
+# Extra Aliased and Specific Model Rules
+[[models]]
+id_prefix = "agent_llm_a-opus-4-6"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 15.0
+output_per_million = 75.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "agent_llm_a-opus-4-5"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 15.0
+output_per_million = 75.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "agent_llm_a-opus-4"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 128000
+input_per_million = 15.0
+output_per_million = 75.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "agent_llm_a-sonnet-4-6"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "agent_llm_a-sonnet-4"
+base = "anthropic"
+max_context_tokens = 1000000
+max_output_tokens = 64000
+input_per_million = 3.0
+output_per_million = 15.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "agent_llm_a-haiku-4-5"
+base = "anthropic"
+max_context_tokens = 200000
+max_output_tokens = 8192
+input_per_million = 0.8
+output_per_million = 4.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "agent_llm_a-haiku-4"
+base = "anthropic"
+max_context_tokens = 200000
+max_output_tokens = 8192
+input_per_million = 0.8
+output_per_million = 4.0
+cache_write_multiplier = 1.25
+cache_read_multiplier = 0.1
+
+[[models]]
+id_prefix = "model-d-5.3-agent_code-spark"
+base = "openai_chat_extended"
+max_context_tokens = 1050000
+max_output_tokens = 128000
+supports_computer_use = true
+
+[[models]]
+id_prefix = "o3-mini"
+base = "openai_chat"
+max_context_tokens = 200000
+max_output_tokens = 100000
+input_per_million = 1.1
+output_per_million = 4.4
+
+[[models]]
+id_prefix = "glm-coding-plan:glm-5-turbo"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.2
+output_per_million = 4.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "glm-coding-plan:glm-5.1"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.4
+output_per_million = 4.4
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.18571428571428572
+
+[[models]]
+id_prefix = "glm-coding-plan:glm-5"
+base = "glm"
+max_context_tokens = 200000
+max_output_tokens = 128000
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_response_format_json = true
+supports_native_streaming = true
+input_per_million = 1.0
+output_per_million = 3.2
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.2
+
+[[models]]
+id_prefix = "model-f-gemma-4-27b"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "google/model-f-gemma-4-27b"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "model-f-gemma-4-31b"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "google/model-f-gemma-4-31b"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "glm-4.6v"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 32768
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+
+[[models]]
+id_prefix = "glm-4.5v"
+base = "glm"
+max_context_tokens = 128000
+max_output_tokens = 16384
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
