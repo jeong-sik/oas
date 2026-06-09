@@ -915,14 +915,23 @@ let capabilities_of_static_model_route = function
   | Qwen_3 ->
     Some
       { default_capabilities with
-        max_context_tokens = Some 128_000
-      ; max_output_tokens = Some 32_768
+        (* Qwen3.6-35B-A3B: 262,144 native context (HuggingFace model card).
+           Extensible to 1,010,000 via YaRN but that requires server-side
+           config -- the static ceiling stays at the native window.
+           Evidence: huggingface.co/Qwen/Qwen3.6-35B-A3B model card. *)
+        max_context_tokens = Some 262_144
+      ; (* Official Qwen3.6 docs recommend max_tokens=81,920 for complex
+           tasks (math/coding benchmarks) and 32,768 for most queries.
+           The ceiling is the upper bound; callers can send less.
+           Evidence: qwen.ai/blog?id=qwen3.6-35b-a3b "Best Practices"
+           section + Terminal-Bench 2.0 config (max_tokens=80K). *)
+        max_output_tokens = Some 81_920
       ; supports_tools = true
       ; supports_tool_choice = true
       ; supports_parallel_tool_calls = true
       ; supports_reasoning = true
       ; supports_extended_thinking = true
-      ; (* Self-served Qwen3 (vLLM / llama-server, [OpenAI_compat] kind)
+      ; (* Self-served Qwen3 (vLLM / llama-server / RunPod, [OpenAI_compat] kind)
            toggles reasoning on the wire via
            {"chat_template_kwargs":{"enable_thinking":b}}; a top-level
            field is silently ignored. Without this the record defaulted to
@@ -932,6 +941,11 @@ let capabilities_of_static_model_route = function
       ; supports_response_format_json = true
       ; supports_structured_output = true
       ; supports_native_streaming = true
+      ; (* Official recommended sampling params list top_k and min_p:
+           "top_k=20, min_p=0.0" for both thinking and non-thinking modes.
+           Evidence: qwen.ai/blog?id=qwen3.6-35b-a3b "Best Practices". *)
+        supports_top_k = true
+      ; supports_min_p = true
       }
 ;;
 
