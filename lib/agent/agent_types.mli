@@ -98,7 +98,6 @@ type options =
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
-  ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
   ; context_injector : Hooks.context_injector option
   ; mcp_clients : Mcp.managed list

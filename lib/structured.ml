@@ -288,13 +288,6 @@ let extract_with_retry
     ; metadata = []
     }
   in
-  let retry_policy =
-    { Tool_retry_policy.max_retries
-    ; retry_on_validation_error = true
-    ; retry_on_recoverable_tool_error = false
-    ; feedback_style = Tool_retry_policy.Plain_error_text
-    }
-  in
   let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
   let rec attempt n acc_usage messages =
     let* response =
@@ -313,40 +306,34 @@ let extract_with_retry
     | Ok v -> Ok { value = v; total_usage = total; attempts = n + 1 }
     | Error e ->
       let error_msg = Error.to_string e in
-      let decision =
-        Tool_retry_policy.decide
-          ~policy:retry_policy
-          ~prior_retries:n
-          [ { Tool_retry_policy.tool_name = schema.name
-            ; detail = error_msg
-            ; kind = Tool_retry_policy.Validation_error
-            ; error_class = Tool_retry_policy.Deterministic
-            }
-          ]
-      in
-      (match decision with
-       | Tool_retry_policy.Retry { retry_count; summary } ->
-         (match on_validation_error with
-          | Some cb -> cb retry_count error_msg
-          | None -> ());
-         let retry_messages =
-           messages
-           @ [ { role = Assistant
-               ; content = response.content
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               }
-             ; { role = User
-               ; content = [ Text (validation_feedback_message ~summary ~error_msg) ]
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               }
-             ]
-         in
-         attempt retry_count total retry_messages
-       | Tool_retry_policy.Exhausted _ | Tool_retry_policy.No_retry -> Error e)
+      (* Bounded re-prompt loop for structured-output validation failures. This
+         is a standalone library helper with no agent loop guard, so [max_retries]
+         is its own backpressure (not the removed shared Tool_retry_policy). *)
+      if n >= max_retries
+      then Error e
+      else (
+        let retry_count = n + 1 in
+        (match on_validation_error with
+         | Some cb -> cb retry_count error_msg
+         | None -> ());
+        let summary = Printf.sprintf "- %s: %s" schema.name error_msg in
+        let retry_messages =
+          messages
+          @ [ { role = Assistant
+              ; content = response.content
+              ; name = None
+              ; tool_call_id = None
+              ; metadata = []
+              }
+            ; { role = User
+              ; content = [ Text (validation_feedback_message ~summary ~error_msg) ]
+              ; name = None
+              ; tool_call_id = None
+              ; metadata = []
+              }
+            ]
+        in
+        attempt retry_count total retry_messages)
   in
   let initial_messages = [ initial_message ] in
   attempt 0 empty_usage initial_messages

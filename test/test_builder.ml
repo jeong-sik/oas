@@ -264,32 +264,6 @@ let test_with_missing_approval_callback_policy () =
      = Hooks.Reject_without_callback)
 ;;
 
-(* --- 12. with_tool_retry_policy --- *)
-
-let test_with_tool_retry_policy () =
-  with_net
-  @@ fun net ->
-  let policy =
-    { Agent_sdk.Tool_retry_policy.max_retries = 2
-    ; retry_on_validation_error = true
-    ; retry_on_recoverable_tool_error = false
-    ; feedback_style = Agent_sdk.Tool_retry_policy.Structured_tool_result
-    }
-  in
-  let agent =
-    Builder.create ~net ~model:"agent_llm_a-sonnet-4-6"
-    |> Builder.with_tool_retry_policy policy
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "tool_retry_policy set"
-    true
-    (match (Agent.options agent).tool_retry_policy with
-     | Some actual -> actual.Agent_sdk.Tool_retry_policy.max_retries = 2
-     | None -> false)
-;;
-
 (* --- 13. with_context_reducer --- *)
 
 let test_with_context_reducer () =
@@ -1033,7 +1007,6 @@ let () =
             "missing approval callback policy"
             `Quick
             test_with_missing_approval_callback_policy
-        ; Alcotest.test_case "tool retry policy" `Quick test_with_tool_retry_policy
         ; Alcotest.test_case "context_reducer" `Quick test_with_context_reducer
         ; Alcotest.test_case "summarizer" `Quick test_with_summarizer
         ; Alcotest.test_case "transport" `Quick test_with_transport
