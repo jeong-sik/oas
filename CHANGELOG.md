@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.204.7](https://github.com/jeong-sik/oas/compare/v0.204.6...v0.204.7) (2026-06-09)
+
+
+### Bug Fixes
+
+* **capabilities:** de-anonymize DeepSeek route + fix live model-id mismatch ([0a90990](https://github.com/jeong-sik/oas/commit/0a90990c543cf58558543725a8a4ef18ee94d01a))
+* **capabilities:** RFC-OAS-023 de-anon increment 1 — DeepSeek route + live model-id fix ([2591770](https://github.com/jeong-sik/oas/commit/25917708fd5617a6851aa48f8d38f1f258f6ca28))
+
 ## [0.204.6](https://github.com/jeong-sik/oas/compare/v0.204.5...v0.204.6) (2026-06-09)
 
 
