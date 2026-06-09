@@ -112,52 +112,7 @@ type gemini_family =
     the boundary. *)
 val gemini_family_of_id : string -> gemini_family
 
-(** Typed route selected by the built-in static capability table.
-
-    This is the closed-sum replacement for the former monolithic
-    [for_model_id_static] string ladder. Prefix/string normalization stays
-    inside {!static_model_route_of_id}; capability construction switches on this
-    variant so adding or removing a model family is an exhaustive code change. *)
-type static_model_route =
-  | Agent_llm_a_opus_4
-  | Agent_llm_a_sonnet_4
-  | Agent_llm_a_haiku_4
-  | Provider_d_5
-  | Provider_d_4_1
-  | Provider_d_4o
-  | Mimo_v2_5_chat
-  | Gemini of gemini_family
-  | Kimi_for_coding
-  | Kimi_k2
-  | DashScope_3
-  | Provider_n_4
-  | Deepseek_v4_flash
-  | Deepseek_v4_pro
-  | Provider_j_large
-  | Provider_j_small
-  | Provider_m_command
-  | Provider_e_grok
-  | Nvidia of { has_vision : bool }
-  | Gemini_gemma_4 of { has_large_audio : bool }
-  | Glm_4_7_flash
-  | Glm_4_5_flash_air
-  | Glm_5_turbo
-  | Glm_5v_turbo
-  | Glm_ocr
-  | Glm_4_6_vision_reasoning
-  | Glm_4_5_vision_reasoning
-  | Glm_5_code
-  | Glm_4_5_text
-  | Glm_full_text
-  | Glm_4_flash
-  | Glm_4v
-  | Glm_4
-  | Qwen_3
-
-(** Resolve a raw model id to the static capability-table route.
-    Input is case-insensitive and trims the Ollama Cloud [":cloud"] suffix
-    before family classification. *)
-val static_model_route_of_id : string -> static_model_route option
+val for_model_id_static : string -> capabilities option
 
 (** Lookup capabilities for a known model_id.
     Returns [None] if the model is not in the built-in table. *)

@@ -65,131 +65,11 @@ let string_contains ~needle haystack =
 ;;
 
 (* Internal: static pricing table lookup on a pre-normalised model ID.
-   Called by [pricing_for_model_opt] when no dynamic override matches.
-   Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-   Newer OpenAI text models expose cached input at 0.1x input.
-   Local/free models keep no-op cache multipliers. *)
+   Called by [pricing_for_model_opt] when no dynamic override matches. *)
 let static_pricing_opt_normalized normalized =
-  let anthropic_cache = 1.25, 0.1 in
-  let openai_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
   let result =
-    if string_contains ~needle:"opus-4-6" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
-    else if string_contains ~needle:"opus-4-5" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
-    else if string_contains ~needle:"sonnet-4-6" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
-    else if string_contains ~needle:"sonnet-4" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
-    else if string_contains ~needle:"haiku-4-5" normalized
-    then Some ((0.8, 4.0), anthropic_cache)
-    else if string_contains ~needle:"agent_llm_a-3-7-sonnet" normalized
-    then
-      Some ((3.0, 15.0), anthropic_cache)
-      (* cli_tool_d provider alias fallback. The Agent_llm_a Code transport
-       surfaces telemetry.model_used as the alias (e.g. "cli_tool_d:auto",
-       "cc:default") instead of the canonical model id returned by the
-       Anthropic response, so substring matches against opus/sonnet/haiku
-       above never fire. Estimate at sonnet-4-6 rates as the modal
-       Anthropic backend; per-call accuracy is a follow-up that should
-       resolve the canonical id from the API response. *)
-    else if
-      string_contains ~needle:"cli_tool_d" normalized
-      || string_contains ~needle:"cc:" normalized
-    then
-      Some ((3.0, 15.0), anthropic_cache)
-      (* OpenAI API text-token pricing, confirmed from official model docs
-       2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
-       its Agent_code rate card labels it research preview with non-final rates. *)
-    else if string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
-    then None
-    else if string_contains ~needle:"model-d-5.5" normalized
-    then Some ((5.0, 30.0), openai_cached_input)
-    else if string_contains ~needle:"model-d-5.4-mini" normalized
-    then Some ((0.75, 4.5), openai_cached_input)
-    else if string_contains ~needle:"model-d-5.4" normalized
-    then Some ((2.5, 15.0), openai_cached_input)
-    else if string_contains ~needle:"model-d-5.3-agent_code" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
-    else if string_contains ~needle:"model-d-5.2" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
-    else if string_contains ~needle:"model-d-4.1" normalized
-    then Some ((2.0, 8.0), no_cache)
-    else if string_contains ~needle:"model-d-mini" normalized
-    then Some ((0.15, 0.6), no_cache)
-    else if string_contains ~needle:"model-d" normalized
-    then Some ((2.5, 10.0), no_cache)
-    else if string_contains ~needle:"o3-mini" normalized
-    then
-      Some ((1.1, 4.4), no_cache)
-      (* Deepseek v4. Source: api-docs.deepseek.com, confirmed 2026-04-29.
-       Promotional 75%% discount until 2026-05-31.
-       Cache read rate: flash $0.0028/M (2%% of input), pro $0.003625/M.
-       Cache write is billed at standard input rate (no surcharge). *)
-    else if
-      string_contains ~needle:"deepseek-v4-pro" normalized
-      || string_contains ~needle:"deepseek-v4-pro" normalized
-    then Some ((0.435, 0.87), (1.0, 0.008333333333333333))
-    else if
-      string_contains ~needle:"deepseek-v4-flash" normalized
-      || string_contains ~needle:"deepseek-v4-flash" normalized
-    then
-      Some ((0.14, 0.28), (1.0, 0.02))
-      (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
-       confirmed 2026-04-16. Google also exposes context caching with a
-       per-hour storage surcharge ($1.00/h flash, $4.50/h pro); the
-       pricing record cannot represent time-based storage, so we keep
-       cache multipliers at no_cache and rely on provider-reported
-       cost_usd for exact billing. Estimates here are an upper bound on
-       input/output token cost only. *)
-    else if string_contains ~needle:"gemini-3-flash-preview" normalized
-    then Some ((0.50, 3.0), no_cache)
-    else if
-      string_contains ~needle:"gemini-3.1-pro-preview" normalized
-      || string_contains ~needle:"gemini-3.1-pro" normalized
-    then
-      (* Standard tier (input <= 200k tokens). Above 200k Google charges
-         2x ($4 input / $18 output). The pricing record has no context
-         window size field, so cost for >200k inputs is underestimated
-         by 2x. Follow-up: extend the record with tiered pricing. *)
-      Some ((2.0, 12.0), no_cache)
-    else if
-      string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
-      || string_contains ~needle:"gemini-3.1-flash-lite" normalized
-    then
-      Some ((0.25, 1.5), no_cache)
-      (* Glm (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
-         2026-05-01. Cache write at standard input rate (no surcharge).
-         Cache read multiplier = cached_input_price / input_price.
-         Free models: glm-4.7-flash, glm-4.5-flash.
-         Ordering: more-specific needles before less-specific (substring
-         match) — glm-5.1 before glm-5, glm-4.7-flashx before glm-4.7. *)
-    else if string_contains ~needle:"glm-5.1" normalized
-    then Some ((1.4, 4.4), (1.0, 0.18571428571428572))
-    else if string_contains ~needle:"glm-5-turbo" normalized
-    then Some ((1.2, 4.0), (1.0, 0.2))
-    else if string_contains ~needle:"glm-4.7-flashx" normalized
-    then Some ((0.07, 0.4), (1.0, 0.14285714285714285))
-    else if string_contains ~needle:"glm-4.7-flash" normalized
-    then Some ((0.0, 0.0), no_cache)
-    else if string_contains ~needle:"glm-4.5-x" normalized
-    then Some ((2.2, 8.9), (1.0, 0.20454545454545455))
-    else if string_contains ~needle:"glm-4.5-airx" normalized
-    then Some ((1.1, 4.5), (1.0, 0.2))
-    else if string_contains ~needle:"glm-4.5-air" normalized
-    then Some ((0.2, 1.1), (1.0, 0.15))
-    else if string_contains ~needle:"glm-4.5-flash" normalized
-    then Some ((0.0, 0.0), no_cache)
-    else if string_contains ~needle:"glm-5" normalized
-    then Some ((1.0, 3.2), (1.0, 0.2))
-    else if string_contains ~needle:"glm-4.6" normalized
-    then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if string_contains ~needle:"glm-4.7" normalized
-    then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if string_contains ~needle:"glm-4.5" normalized
-    then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if
+    if
       normalized = "auto"
       || normalized = "gemini"
       || normalized = "kimi"
@@ -198,9 +78,7 @@ let static_pricing_opt_normalized normalized =
       || normalized = "cli_tool_b"
       || normalized = "cli_tool_c"
       || normalized = "cli_tool_a"
-    then Some ((0.0, 0.0), no_cache)
-    else if
-      string_contains ~needle:"ollama" normalized
+      || string_contains ~needle:"ollama" normalized
       || string_contains ~needle:"dashscope" normalized
       || string_contains ~needle:"nous" normalized
     then Some ((0.0, 0.0), no_cache)
@@ -236,7 +114,21 @@ let pricing_for_model_opt model_id =
        ; cache_read_multiplier = e.cache_read_multiplier
        }
        : pricing)
-  | None -> static_pricing_opt_normalized normalized
+  | None ->
+    (* Check dynamic model catalog next *)
+    (match Model_catalog.global () with
+     | Some catalog ->
+       (match Model_catalog.lookup catalog model_id with
+        | Some entry when Option.is_some entry.input_per_million && Option.is_some entry.output_per_million ->
+          Some
+            ({ input_per_million = Option.get entry.input_per_million
+             ; output_per_million = Option.get entry.output_per_million
+             ; cache_write_multiplier = Option.value entry.cache_write_multiplier ~default:1.0
+             ; cache_read_multiplier = Option.value entry.cache_read_multiplier ~default:1.0
+             }
+             : pricing)
+        | _ -> static_pricing_opt_normalized normalized)
+     | None -> static_pricing_opt_normalized normalized)
 ;;
 
 let zero_pricing : pricing =

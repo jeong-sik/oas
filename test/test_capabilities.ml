@@ -165,46 +165,7 @@ let pp_gemini_family ppf = function
 
 let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
 
-let pp_static_model_route ppf = function
-  | Capabilities.Agent_llm_a_opus_4 -> Format.fprintf ppf "Agent_llm_a_opus_4"
-  | Capabilities.Agent_llm_a_sonnet_4 -> Format.fprintf ppf "Agent_llm_a_sonnet_4"
-  | Capabilities.Agent_llm_a_haiku_4 -> Format.fprintf ppf "Agent_llm_a_haiku_4"
-  | Capabilities.Provider_d_5 -> Format.fprintf ppf "Provider_d_5"
-  | Capabilities.Provider_d_4_1 -> Format.fprintf ppf "Provider_d_4_1"
-  | Capabilities.Provider_d_4o -> Format.fprintf ppf "Provider_d_4o"
-  | Capabilities.Mimo_v2_5_chat -> Format.fprintf ppf "Mimo_v2_5_chat"
-  | Capabilities.Gemini family -> Format.fprintf ppf "Gemini(%a)" pp_gemini_family family
-  | Capabilities.Kimi_for_coding -> Format.fprintf ppf "Kimi_for_coding"
-  | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
-  | Capabilities.DashScope_3 -> Format.fprintf ppf "DashScope_3"
-  | Capabilities.Provider_n_4 -> Format.fprintf ppf "Provider_n_4"
-  | Capabilities.Deepseek_v4_flash -> Format.fprintf ppf "Deepseek_v4_flash"
-  | Capabilities.Deepseek_v4_pro -> Format.fprintf ppf "Deepseek_v4_pro"
-  | Capabilities.Provider_j_large -> Format.fprintf ppf "Provider_j_large"
-  | Capabilities.Provider_j_small -> Format.fprintf ppf "Provider_j_small"
-  | Capabilities.Provider_m_command -> Format.fprintf ppf "Provider_m_command"
-  | Capabilities.Provider_e_grok -> Format.fprintf ppf "Provider_e_grok"
-  | Capabilities.Nvidia { has_vision } ->
-    Format.fprintf ppf "Nvidia(has_vision=%b)" has_vision
-  | Capabilities.Gemini_gemma_4 { has_large_audio } ->
-    Format.fprintf ppf "Gemini_gemma_4(has_large_audio=%b)" has_large_audio
-  | Capabilities.Glm_4_7_flash -> Format.fprintf ppf "Glm_4_7_flash"
-  | Capabilities.Glm_4_5_flash_air -> Format.fprintf ppf "Glm_4_5_flash_air"
-  | Capabilities.Glm_5_turbo -> Format.fprintf ppf "Glm_5_turbo"
-  | Capabilities.Glm_5v_turbo -> Format.fprintf ppf "Glm_5v_turbo"
-  | Capabilities.Glm_ocr -> Format.fprintf ppf "Glm_ocr"
-  | Capabilities.Glm_4_6_vision_reasoning -> Format.fprintf ppf "Glm_4_6_vision_reasoning"
-  | Capabilities.Glm_4_5_vision_reasoning -> Format.fprintf ppf "Glm_4_5_vision_reasoning"
-  | Capabilities.Glm_5_code -> Format.fprintf ppf "Glm_5_code"
-  | Capabilities.Glm_4_5_text -> Format.fprintf ppf "Glm_4_5_text"
-  | Capabilities.Glm_full_text -> Format.fprintf ppf "Glm_full_text"
-  | Capabilities.Glm_4_flash -> Format.fprintf ppf "Glm_4_flash"
-  | Capabilities.Glm_4v -> Format.fprintf ppf "Glm_4v"
-  | Capabilities.Glm_4 -> Format.fprintf ppf "Glm_4"
-  | Capabilities.Qwen_3 -> Format.fprintf ppf "Qwen_3"
-;;
 
-let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
 
 let test_gemini_family_3_1 () =
   check
@@ -271,29 +232,7 @@ let test_gemini_family_drives_capabilities () =
   check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
 ;;
 
-let test_static_model_route_normalizes_cloud_suffix () =
-  check
-    (option static_model_route_testable)
-    "kimi-k2 cloud route"
-    (Some Capabilities.Kimi_k2)
-    (Capabilities.static_model_route_of_id " kimi-k2.6:cloud ");
-  check
-    (option static_model_route_testable)
-    "deepseek anon-alias cloud route"
-    (Some Capabilities.Deepseek_v4_pro)
-    (Capabilities.static_model_route_of_id "deepseek-v4-pro:cloud");
-  (* RFC-OAS-023: the real fleet id must also route post-de-anonymization. *)
-  check
-    (option static_model_route_testable)
-    "deepseek real-id cloud route"
-    (Some Capabilities.Deepseek_v4_pro)
-    (Capabilities.static_model_route_of_id "deepseek-v4-pro:cloud");
-  check
-    (option static_model_route_testable)
-    "glm cloud route"
-    (Some Capabilities.Glm_full_text)
-    (Capabilities.static_model_route_of_id "glm-5.1:cloud")
-;;
+
 
 let test_lookup_provider_c_k2_cloud () =
   match Capabilities.for_model_id "kimi-k2.6:cloud" with
@@ -904,10 +843,7 @@ let () =
             "gemini_family drives 1M ctx capabilities"
             `Quick
             test_gemini_family_drives_capabilities
-        ; test_case
-            "static route normalizes cloud suffix"
-            `Quick
-            test_static_model_route_normalizes_cloud_suffix
+
         ; test_case "kimi-k2 cloud" `Quick test_lookup_provider_c_k2_cloud
         ; test_case "dashscope" `Quick test_lookup_provider_m
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
