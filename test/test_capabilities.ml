@@ -178,8 +178,8 @@ let pp_static_model_route ppf = function
   | Capabilities.Kimi_k2 -> Format.fprintf ppf "Kimi_k2"
   | Capabilities.DashScope_3 -> Format.fprintf ppf "DashScope_3"
   | Capabilities.Provider_n_4 -> Format.fprintf ppf "Provider_n_4"
-  | Capabilities.Provider_g_v4_flash -> Format.fprintf ppf "Provider_g_v4_flash"
-  | Capabilities.Provider_g_v4_pro -> Format.fprintf ppf "Provider_g_v4_pro"
+  | Capabilities.Deepseek_v4_flash -> Format.fprintf ppf "Deepseek_v4_flash"
+  | Capabilities.Deepseek_v4_pro -> Format.fprintf ppf "Deepseek_v4_pro"
   | Capabilities.Provider_j_large -> Format.fprintf ppf "Provider_j_large"
   | Capabilities.Provider_j_small -> Format.fprintf ppf "Provider_j_small"
   | Capabilities.Provider_m_command -> Format.fprintf ppf "Provider_m_command"
@@ -279,9 +279,15 @@ let test_static_model_route_normalizes_cloud_suffix () =
     (Capabilities.static_model_route_of_id " provider_c-k2.6:cloud ");
   check
     (option static_model_route_testable)
-    "provider_g cloud route"
-    (Some Capabilities.Provider_g_v4_pro)
+    "deepseek anon-alias cloud route"
+    (Some Capabilities.Deepseek_v4_pro)
     (Capabilities.static_model_route_of_id "provider_g-v4-pro:cloud");
+  (* RFC-OAS-023: the real fleet id must also route post-de-anonymization. *)
+  check
+    (option static_model_route_testable)
+    "deepseek real-id cloud route"
+    (Some Capabilities.Deepseek_v4_pro)
+    (Capabilities.static_model_route_of_id "deepseek-v4-pro:cloud");
   check
     (option static_model_route_testable)
     "provider_k cloud route"
