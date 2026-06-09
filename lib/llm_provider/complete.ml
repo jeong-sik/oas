@@ -1268,6 +1268,90 @@ let%test "openai_compat_error_event returns None for a normal content chunk" =
        {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|})
 ;;
 
+(* Per-provider clean-stream regression guards for the phantom-completion check
+   (finalize returns Error when no terminal [stop_reason] was seen -- see
+   [Complete_stream_acc.finalize_stream_acc]). Each backend's REAL wire terminal,
+   run through its actual parser + converter, must set the terminal flag so a
+   clean stream finalizes [Ok] -- never a false truncation. The OpenAI-compat
+   case is the trap: its "[DONE]" sentinel parses to [None], so the signal is the
+   finish_reason MessageDelta, not [DONE]. *)
+let accumulate_events acc events =
+  List.iter (Complete_stream_acc.accumulate_event acc) events
+;;
+
+let%test
+    "clean stream finalizes Ok: OpenAI-compat finish_reason (covers GLM/Kimi/DashScope)"
+  =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  (match
+     Streaming.parse_openai_sse_chunk
+       {|{"choices":[{"delta":{},"finish_reason":"stop"}]}|}
+   with
+   | Some chunk -> accumulate_events acc (fst (Streaming.openai_chunk_to_events st chunk))
+   | None -> ());
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "clean stream finalizes Ok: Anthropic message_delta stop_reason" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  (match
+     Streaming.parse_sse_event
+       (Some "message_delta")
+       {|{"delta":{"stop_reason":"end_turn"}}|}
+   with
+   | Some evt -> Complete_stream_acc.accumulate_event acc evt
+   | None -> ());
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "clean stream finalizes Ok: Gemini finishReason" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"gemini" ~model:"m" () in
+  (match
+     Streaming.parse_provider_f_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}|}
+   with
+   | Some chunk ->
+     accumulate_events acc (fst (Streaming.provider_f_chunk_to_events st chunk))
+   | None -> ());
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "clean stream finalizes Ok: Ollama done:true" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"ollama" ~model:"m" () in
+  (match
+     Streaming.parse_ollama_ndjson_chunk
+       {|{"model":"m","done":true,"done_reason":"stop","message":{"role":"assistant","content":""}}|}
+   with
+   | Some chunk -> accumulate_events acc (fst (Streaming.ollama_chunk_to_events st chunk))
+   | None -> ());
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Ok _ -> true
+  | Error _ -> false
+;;
+
+let%test "truncated stream (no terminal stop_reason) finalizes Error, not phantom Ok" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "text"; tool_id = None; tool_name = None });
+  Complete_stream_acc.accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "partial" });
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
 let complete_stream_http
       ~sw:_
       ~net
