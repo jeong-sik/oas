@@ -10,7 +10,7 @@ let run_live_test () =
   @@ fun sw ->
   let provider : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:8085" }
-    ; model_id = "provider_h-3.5-35b-a3b-ud-q8-xl"
+    ; model_id = "dashscope-3.5-35b-a3b-ud-q8-xl"
     ; api_key_env = "DUMMY_KEY"
     }
   in

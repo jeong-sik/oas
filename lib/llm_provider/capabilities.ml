@@ -21,9 +21,9 @@ type thinking_control_format =
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** Provider_d-style top-level [reasoning_effort] string field. The set of
+  (** Openai-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
+      see {!Provider_config.effort_of_thinking_config}. (Openai's spec
       also accepts ["minimal"], but no current OAS request builder emits
       it.) Ollama's OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
@@ -76,7 +76,7 @@ type capabilities =
     (** Whether the provider respects [seed] deterministically when
       image inputs are present.  Local providers (Ollama, llama-server)
       achieve near-perfect determinism on identical hardware; cloud
-      providers (Provider_d, Gemini) do not guarantee deterministic output
+      providers (Openai, Gemini) do not guarantee deterministic output
       when images are in the prompt. *)
   ; (* ── Advanced modalities ───────────────────────────── *)
     supports_computer_use : bool
@@ -243,10 +243,10 @@ let openai_compat_chat_extended_capabilities =
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
    the Agent_llm_a Agent SDK sidesteps by being single-provider. *)
-(* NVIDIA NIM Provider_l: Llama-based OpenAI-compatible endpoint.
+(* NVIDIA NIM Nvidia: Llama-based OpenAI-compatible endpoint.
    Thinking uses chat_template_kwargs (same wire format as Ollama's
    llama-server backend). VL variants add image input.
-   Ref: build.nvidia.com/nvidia docs, Provider_l model cards. *)
+   Ref: build.nvidia.com/nvidia docs, Nvidia model cards. *)
 let provider_l_capabilities =
   { openai_compat_chat_extended_capabilities with
     supports_tool_choice = true
@@ -279,7 +279,7 @@ let glm_capabilities =
      higher value here causes server-side rejection with
      "Invalid request: `max_tokens` must be less than or equal to `40960`".
      Empirical upper bound observed on 2026-04-12 during automated
-     turns against provider_k-coding:provider_k-5.1 and provider_k:provider_k-5.1. *)
+     turns against glm-coding:glm-5.1 and glm:glm-5.1. *)
     max_output_tokens = Some 40_960
   ; supports_tools = true
   ; (* Z.AI's function-calling docs currently document [tool_choice]
@@ -297,7 +297,7 @@ let glm_capabilities =
   ; (* Z.AI's current official docs describe JSON mode via
      response_format={"type":"json_object"} plus prompt/schema-in-text
      guidance, but do not document a native JSON-schema request field
-     equivalent to Provider_d's json_schema response_format. OAS therefore
+     equivalent to Openai's json_schema response_format. OAS therefore
      treats Glm as JSON-mode-only: supports_response_format_json=true
      but supports_structured_output=false. validate_output_schema_request
      rejects output_schema for Glm configs to prevent silent pass-through
@@ -310,7 +310,7 @@ let glm_capabilities =
 
 (** Typed Gemini model family (root-fix for #968 string-classifier drift gate).
 
-    Centralizes the [String.starts_with ~prefix:"provider_f-..."] dispatch into a
+    Centralizes the [String.starts_with ~prefix:"gemini-..."] dispatch into a
     single classifier with an exhaustive variant. Downstream code switches on
     the variant instead of comparing strings, so a new family member is a
     compile-time obligation rather than a runtime string-match miss.
@@ -321,11 +321,11 @@ let glm_capabilities =
 
     @since 0.196.3 *)
 type gemini_family =
-  | Gemini_3_1 (** [provider_f-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
-  | Gemini_3 (** [provider_f-3.*] but not 3.1 — flash-preview and siblings *)
-  | Gemini_2_5 (** [provider_f-2.5.*] — legacy line, kept until removal PR *)
+  | Gemini_3_1 (** [gemini-3.1.*] — 3.1 line (pro-preview, flash-lite-preview, …) *)
+  | Gemini_3 (** [gemini-3.*] but not 3.1 — flash-preview and siblings *)
+  | Gemini_2_5 (** [gemini-2.5.*] — legacy line, kept until removal PR *)
   | Gemini_other of string
-  (** Unknown provider_f id or non-provider_f id. Retains the literal so the
+  (** Unknown gemini id or non-gemini id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
 let strip_suffix ~suffix value =
@@ -335,15 +335,15 @@ let strip_suffix ~suffix value =
 ;;
 
 (** Classify a model id into a [gemini_family]. Order matters: [gemini-3.1]
-    is checked before [provider_f-3] so the more specific prefix wins.
+    is checked before [gemini-3] so the more specific prefix wins.
     Input is expected lowercased (callers pass the already-normalized id). *)
 let gemini_family_of_id (id : string) : gemini_family =
   let starts p = String.starts_with ~prefix:p id in
-  if starts "gemini-3.1" || starts "provider_f-3.1"
+  if starts "gemini-3.1" || starts "gemini-3.1"
   then Gemini_3_1
-  else if starts "gemini-3" || starts "provider_f-3"
+  else if starts "gemini-3" || starts "gemini-3"
   then Gemini_3
-  else if starts "gemini-2.5" || starts "provider_f-2.5"
+  else if starts "gemini-2.5" || starts "gemini-2.5"
   then Gemini_2_5
   else Gemini_other id
 ;;
@@ -406,7 +406,7 @@ type static_model_route =
   | Provider_j_small
   | Provider_m_command
   | Provider_e_grok
-  | Provider_l of { has_vision : bool }
+  | Nvidia of { has_vision : bool }
   | Gemini_gemma_4 of { has_large_audio : bool }
   | Glm_4_7_flash
   | Glm_4_5_flash_air
@@ -474,21 +474,21 @@ let static_model_route_of_id model_id =
     match gemini_family_of_id m with
     | (Gemini_3 | Gemini_3_1 | Gemini_2_5) as family -> Some (Gemini family)
     | Gemini_other _ ->
-      if String.starts_with ~prefix:"provider_c-for-coding" m
+      if String.starts_with ~prefix:"kimi-for-coding" m
       then Some Kimi_for_coding
-      else if String.starts_with ~prefix:"provider_c-k2" m
+      else if String.starts_with ~prefix:"kimi-k2" m
       then Some Kimi_k2
       else if
-        String.starts_with ~prefix:"provider_h-3" m
+        String.starts_with ~prefix:"dashscope-3" m
         || String.starts_with ~prefix:"provider_h_3" m
         || String.starts_with ~prefix:"dashscope_3" m
       then Some DashScope_3
       else if
         String.starts_with ~prefix:"model-n-4" m || String.starts_with ~prefix:"llama4" m
       then Some Provider_n_4
-      else if starts_with_any m [ "deepseek-v4-flash"; "provider_g-v4-flash" ]
+      else if starts_with_any m [ "deepseek-v4-flash"; "deepseek-v4-flash" ]
       then Some Deepseek_v4_flash
-      else if starts_with_any m [ "deepseek-v4-pro"; "provider_g-v4-pro" ]
+      else if starts_with_any m [ "deepseek-v4-pro"; "deepseek-v4-pro" ]
       then Some Deepseek_v4_pro
       else if String.starts_with ~prefix:"provider_j-large" m
       then Some Provider_j_large
@@ -501,57 +501,57 @@ let static_model_route_of_id model_id =
         || String.starts_with ~prefix:"model-e" m
       then Some Provider_e_grok
       else if
-        String.starts_with ~prefix:"nvidia/provider_l" m
-        || String.starts_with ~prefix:"provider_l" m
+        String.starts_with ~prefix:"nvidia/nvidia" m
+        || String.starts_with ~prefix:"nvidia" m
       then
         Some
-          (Provider_l
+          (Nvidia
              { has_vision =
-                 String.starts_with ~prefix:"nvidia/provider_l-vl" m
-                 || String.starts_with ~prefix:"provider_l-vl" m
+                 String.starts_with ~prefix:"nvidia/nvidia-vl" m
+                 || String.starts_with ~prefix:"nvidia-vl" m
              })
       else if
         String.starts_with ~prefix:"model-f-gemma-4" m
         || String.starts_with ~prefix:"google/model-f-gemma-4" m
       then
         Some (Gemini_gemma_4 { has_large_audio = provider_f_gemma_4_has_large_audio m })
-      else if starts_with_any m [ "provider_k-4.7-flash"; "glm-4.7-flash" ]
+      else if starts_with_any m [ "glm-4.7-flash"; "glm-4.7-flash" ]
       then Some Glm_4_7_flash
       else if
         starts_with_any
           m
-          [ "provider_k-4.5-flash"; "provider_k-4.5-air"; "glm-4.5-flash"; "glm-4.5-air" ]
+          [ "glm-4.5-flash"; "glm-4.5-air"; "glm-4.5-flash"; "glm-4.5-air" ]
       then Some Glm_4_5_flash_air
-      else if starts_with_any m [ "provider_k-5-turbo"; "glm-5-turbo" ]
+      else if starts_with_any m [ "glm-5-turbo"; "glm-5-turbo" ]
       then Some Glm_5_turbo
-      else if starts_with_any m [ "provider_k-5v-turbo"; "glm-5v-turbo" ]
+      else if starts_with_any m [ "glm-5v-turbo"; "glm-5v-turbo" ]
       then Some Glm_5v_turbo
-      else if starts_with_any m [ "provider_k-ocr"; "glm-ocr" ]
+      else if starts_with_any m [ "glm-ocr"; "glm-ocr" ]
       then Some Glm_ocr
-      else if starts_with_any m [ "provider_k-4.6v"; "glm-4.6v" ]
+      else if starts_with_any m [ "glm-4.6v"; "glm-4.6v" ]
       then Some Glm_4_6_vision_reasoning
-      else if starts_with_any m [ "provider_k-4.5v"; "glm-4.5v" ]
+      else if starts_with_any m [ "glm-4.5v"; "glm-4.5v" ]
       then Some Glm_4_5_vision_reasoning
-      else if starts_with_any m [ "provider_k-5-code"; "glm-5-code" ]
+      else if starts_with_any m [ "glm-5-code"; "glm-5-code" ]
       then Some Glm_5_code
-      else if starts_with_any m [ "provider_k-4.5"; "glm-4.5" ]
+      else if starts_with_any m [ "glm-4.5"; "glm-4.5" ]
       then Some Glm_4_5_text
       else if
         starts_with_any
           m
-          [ "provider_k-4.6"
-          ; "provider_k-4.7"
-          ; "provider_k-5"
+          [ "glm-4.6"
+          ; "glm-4.7"
+          ; "glm-5"
           ; "glm-4.6"
           ; "glm-4.7"
           ; "glm-5"
           ]
       then Some Glm_full_text
-      else if starts_with_any m [ "provider_k-4-flash"; "glm-4-flash" ]
+      else if starts_with_any m [ "glm-4-flash"; "glm-4-flash" ]
       then Some Glm_4_flash
-      else if starts_with_any m [ "provider_k-4v"; "glm-4v" ]
+      else if starts_with_any m [ "glm-4v"; "glm-4v" ]
       then Some Glm_4v
-      else if starts_with_any m [ "provider_k-4"; "glm-4" ]
+      else if starts_with_any m [ "glm-4"; "glm-4" ]
       then Some Glm_4
       else if starts_with_any m [ "qwen3"; "qwen-3" ]
       then Some Qwen_3
@@ -720,10 +720,10 @@ let capabilities_of_static_model_route = function
       ; supports_prompt_caching = false
       ; prompt_cache_alignment = None
       }
-    (* NVIDIA Provider_l: Llama-based, NIM OpenAI-compat API.
-       Base text models (provider_l-ultra, provider_l-core) get reasoning
+    (* NVIDIA Nvidia: Llama-based, NIM OpenAI-compat API.
+       Base text models (nvidia-ultra, nvidia-core) get reasoning
        but no vision. VL suffix gets image input. *)
-  | Provider_l { has_vision } ->
+  | Nvidia { has_vision } ->
     Some
       { provider_l_capabilities with
         max_context_tokens = Some 131_072
@@ -950,16 +950,16 @@ let for_model_id_static model_id =
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
   | "anthropic" | "claude" -> Some anthropic_capabilities
-  | "openai_compat" | "openai" | "provider_d" | "openai_chat" ->
+  | "openai_compat" | "openai" | "openai_chat" ->
     Some openai_compat_chat_capabilities
   | "openai_compat_chat_extended" | "openai_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
-  | "gemini" | "provider_f" -> Some gemini_capabilities
+  | "gemini" -> Some gemini_capabilities
   | "ollama" | "ollama_cloud" -> Some ollama_capabilities
-  | "glm" | "zhipu" | "provider_k" | "provider_k-coding" -> Some glm_capabilities
-  | "dashscope" | "provider_h" -> Some dashscope_capabilities
-  | "provider_l" -> Some provider_l_capabilities
-  | "kimi" | "provider_c" -> Some kimi_capabilities
+  | "glm" | "zhipu" | "glm-coding" -> Some glm_capabilities
+  | "dashscope" -> Some dashscope_capabilities
+  | "nvidia" -> Some provider_l_capabilities
+  | "kimi" -> Some kimi_capabilities
   | _ -> None
 ;;
 
@@ -1057,8 +1057,8 @@ let for_model_id model_id =
 
 [@@@coverage off]
 
-let%test "for_model_id provider_k-4.5 has reasoning" =
-  match for_model_id "provider_k-4.5" with
+let%test "for_model_id glm-4.5 has reasoning" =
+  match for_model_id "glm-4.5" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1067,52 +1067,52 @@ let%test "for_model_id provider_k-4.5 has reasoning" =
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4 no reasoning" =
-  match for_model_id "provider_k-4-chat" with
+let%test "for_model_id glm-4 no reasoning" =
+  match for_model_id "glm-4-chat" with
   | Some c -> (not c.supports_reasoning) && c.max_context_tokens = Some 128_000
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4v has vision" =
-  match for_model_id "provider_k-4v-flash" with
+let%test "for_model_id glm-4v has vision" =
+  match for_model_id "glm-4v-flash" with
   | Some c -> c.supports_image_input && c.supports_multimodal_inputs
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4-flash basic" =
-  match for_model_id "provider_k-4-flash" with
+let%test "for_model_id glm-4-flash basic" =
+  match for_model_id "glm-4-flash" with
   | Some c -> c.supports_tools && c.max_output_tokens = Some 4_096
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-5 is text only" =
-  match for_model_id "provider_k-5" with
+let%test "for_model_id glm-5 is text only" =
+  match for_model_id "glm-5" with
   | Some c -> c.supports_reasoning && not c.supports_image_input
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-5v has vision" =
-  match for_model_id "provider_k-5v-turbo" with
+let%test "for_model_id glm-5v has vision" =
+  match for_model_id "glm-5v-turbo" with
   | Some c -> c.supports_reasoning && c.supports_image_input
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.6v stays vision-capable" =
-  match for_model_id "provider_k-4.6v" with
+let%test "for_model_id glm-4.6v stays vision-capable" =
+  match for_model_id "glm-4.6v" with
   | Some c ->
     c.supports_reasoning && c.supports_image_input && c.max_output_tokens = Some 32_768
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.5v stays vision-capable" =
-  match for_model_id "provider_k-4.5v" with
+let%test "for_model_id glm-4.5v stays vision-capable" =
+  match for_model_id "glm-4.5v" with
   | Some c ->
     c.supports_reasoning && c.supports_image_input && c.max_output_tokens = Some 16_384
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.7-flashx has GLM-4.7 thinking limits" =
-  match for_model_id "provider_k-4.7-flashx" with
+let%test "for_model_id glm-4.7-flashx has GLM-4.7 thinking limits" =
+  match for_model_id "glm-4.7-flashx" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1122,14 +1122,14 @@ let%test "for_model_id provider_k-4.7-flashx has GLM-4.7 thinking limits" =
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.7-flash has thinking" =
-  match for_model_id "provider_k-4.7-flash" with
+let%test "for_model_id glm-4.7-flash has thinking" =
+  match for_model_id "glm-4.7-flash" with
   | Some c -> c.supports_reasoning && c.max_output_tokens = Some 128_000
   | None -> false
 ;;
 
-let%test "for_model_id provider_k-4.5-flash has GLM-4.5 thinking limits" =
-  match for_model_id "provider_k-4.5-flash" with
+let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
+  match for_model_id "glm-4.5-flash" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1169,8 +1169,8 @@ let%test "for_model_id_static qwen-3-7b prefix variant resolves" =
 (* GLM family tests use the static lookup for the same reason as the qwen3
    tests above: they assert the built-in prefix table, not ambient runtime
    manifest overrides. *)
-let%test "for_model_id_static provider_k-5-turbo has GLM-5 thinking limits" =
-  match for_model_id_static "provider_k-5-turbo" with
+let%test "for_model_id_static glm-5-turbo has GLM-5 thinking limits" =
+  match for_model_id_static "glm-5-turbo" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1179,8 +1179,8 @@ let%test "for_model_id_static provider_k-5-turbo has GLM-5 thinking limits" =
   | None -> false
 ;;
 
-let%test "for_model_id_static provider_k-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id_static "provider_k-5.1" with
+let%test "for_model_id_static glm-5.1 full model (reasoning + extended thinking)" =
+  match for_model_id_static "glm-5.1" with
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
@@ -1234,34 +1234,34 @@ let%test "capabilities_for_provider_label: anthropic" =
   | None -> false
 ;;
 
-let%test "capabilities_for_provider_label: provider_d alias" =
-  Option.is_some (capabilities_for_provider_label "provider_d")
+let%test "capabilities_for_provider_label: openai alias" =
+  Option.is_some (capabilities_for_provider_label "openai")
   && Option.is_some (capabilities_for_provider_label "openai_chat")
 ;;
 
-let%test "capabilities_for_provider_label: provider_k alias" =
-  Option.is_some (capabilities_for_provider_label "provider_k")
-  && Option.is_some (capabilities_for_provider_label "provider_k-coding")
+let%test "capabilities_for_provider_label: glm alias" =
+  Option.is_some (capabilities_for_provider_label "glm")
+  && Option.is_some (capabilities_for_provider_label "glm-coding")
 ;;
 
 let%test "capabilities_for_provider_label: unknown returns None" =
   Option.is_none (capabilities_for_provider_label "not_a_real_provider_xyz")
 ;;
 
-(* --- Provider_l / Gemma 4 --- *)
+(* --- Nvidia / Gemma 4 --- *)
 
 let%test "provider_l_capabilities has chat_template_kwargs thinking" =
   provider_l_capabilities.thinking_control_format = Chat_template_kwargs
 ;;
 
-let%test "for_model_id provider_l-ultra has reasoning" =
-  match for_model_id "provider_l-ultra-253b" with
+let%test "for_model_id nvidia-ultra has reasoning" =
+  match for_model_id "nvidia-ultra-253b" with
   | Some c -> c.supports_reasoning && c.supports_tool_choice
   | None -> false
 ;;
 
-let%test "for_model_id provider_l-vl has image input" =
-  match for_model_id "provider_l-vl" with
+let%test "for_model_id nvidia-vl has image input" =
+  match for_model_id "nvidia-vl" with
   | Some c -> c.supports_image_input && c.supports_multimodal_inputs
   | None -> false
 ;;
@@ -1271,14 +1271,14 @@ let%test "for_model_id provider_h_3 has chat_template_kwargs thinking control" =
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
      format, [supports_extended_thinking = true] never reaches the wire. *)
-  match for_model_id "provider_h-3.5" with
+  match for_model_id "dashscope-3.5" with
   | Some c ->
     c.supports_reasoning_budget && c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
 
-let%test "for_model_id nvidia/provider_l-core resolves" =
-  match for_model_id "nvidia/provider_l-core" with
+let%test "for_model_id nvidia/nvidia-core resolves" =
+  match for_model_id "nvidia/nvidia-core" with
   | Some c -> c.supports_reasoning
   | None -> false
 ;;
@@ -1317,8 +1317,8 @@ let%test "for_model_id model-f-gemma-4-31b IS large" =
   | None -> false
 ;;
 
-let%test "capabilities_for_provider_label: provider_l" =
-  match capabilities_for_provider_label "provider_l" with
+let%test "capabilities_for_provider_label: nvidia" =
+  match capabilities_for_provider_label "nvidia" with
   | Some c -> c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
@@ -1338,27 +1338,27 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
   in
   List.for_all
     (fun (m, e) -> check m e)
-    [ ( "provider_k-4.7-flash-turbo"
+    [ ( "glm-4.7-flash-turbo"
       , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
-    ; ( "provider_k-4.5-flash-test"
+    ; ( "glm-4.5-flash-test"
       , fun c -> c.max_output_tokens = Some 96_000 && c.supports_extended_thinking )
-    ; ( "provider_k-5-turbo-latest"
+    ; ( "glm-5-turbo-latest"
       , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
     ; ( "glm-5-turbo-latest"
       , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
-    ; ("provider_k-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
-    ; ( "provider_k-4.7-flash-test"
+    ; ("glm-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
+    ; ( "glm-4.7-flash-test"
       , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
     ; ( "glm-4.7-flashx"
       , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
-    ; ( "provider_k-4-flash-mini"
+    ; ( "glm-4-flash-mini"
       , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
-    ; ("provider_k-4v-plus", fun c -> c.supports_image_input)
-    ; ( "provider_k-4.5-air-test"
+    ; ("glm-4v-plus", fun c -> c.supports_image_input)
+    ; ( "glm-4.5-air-test"
       , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
     ; ( "glm-4.5-air-test"
       , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
-    ; ( "provider_k-5v-turbo-latest"
+    ; ( "glm-5v-turbo-latest"
       , fun c ->
           c.supports_image_input
           && c.supports_reasoning
@@ -1368,14 +1368,14 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 128_000 )
-    ; ("provider_k-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
+    ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
     ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
       (* RFC-OAS-023: the real fleet model ids ([deepseek-v4-flash],
          [deepseek-v4-pro]) must resolve to the DeepSeek capability route.
          Before the de-anonymization these matched only the anon
-         [provider_g-v4-*] prefixes, so the live fleet missed the static
+         [deepseek-v4-*] prefixes, so the live fleet missed the static
          table and silently fell back to provider-default capabilities. The
          anon prefixes are retained as aliases and asserted here too. The
          fingerprint ([Thinking_object] + [384_000] output cap) is specific
@@ -1385,7 +1385,7 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
       , fun c ->
           c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
-    ; ( "provider_g-v4-flash-test"
+    ; ( "deepseek-v4-flash-test"
       , fun c ->
           c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
@@ -1393,17 +1393,17 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
       , fun c ->
           c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
-    ; ( "provider_g-v4-pro-test"
+    ; ( "deepseek-v4-pro-test"
       , fun c ->
           c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
-    ; ( "provider_l-ultra-253b"
+    ; ( "nvidia-ultra-253b"
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
-    ; ( "nvidia/provider_l-ultra-253b"
+    ; ( "nvidia/nvidia-ultra-253b"
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
-    ; ("provider_l-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
+    ; ("nvidia-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
     ; ( "model-f-gemma-4-27b-it"
       , fun c ->
           c.supports_tools
@@ -1483,13 +1483,13 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.thinking_control_format = cb.thinking_control_format
     | _ -> false
   in
-  let alias_pairs = [ "provider_d", "openai_chat"; "provider_k", "provider_k-coding" ] in
+  let alias_pairs = [ "openai", "openai_chat"; "glm", "glm-coding" ] in
   List.for_all (fun (a, b) -> same_base a b) alias_pairs
   && Option.is_some (resolve "anthropic")
-  && Option.is_some (resolve "provider_f")
+  && Option.is_some (resolve "gemini")
   && Option.is_some (resolve "ollama")
-  && Option.is_some (resolve "provider_c")
-  && Option.is_some (resolve "provider_l")
+  && Option.is_some (resolve "kimi")
+  && Option.is_some (resolve "nvidia")
 ;;
 
 (* Every declared label is reachable — no dead branches in the match.
@@ -1498,15 +1498,15 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
 let%test "capabilities_for_provider_label: all declared labels resolve" =
   let labels =
     [ "anthropic"
-    ; "provider_d"
+    ; "openai"
     ; "openai_chat"
     ; "openai_chat_extended"
-    ; "provider_f"
+    ; "gemini"
     ; "ollama"
-    ; "provider_k"
-    ; "provider_k-coding"
-    ; "provider_l"
-    ; "provider_c"
+    ; "glm"
+    ; "glm-coding"
+    ; "nvidia"
+    ; "kimi"
     ]
   in
   List.for_all (fun l -> Option.is_some (capabilities_for_provider_label l)) labels
@@ -1517,7 +1517,7 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
 let%test
     "capabilities_for_provider_label: no accidental aliasing across distinct providers"
   =
-  let non_aliased = [ "anthropic"; "provider_f"; "ollama"; "provider_c"; "provider_l" ] in
+  let non_aliased = [ "anthropic"; "gemini"; "ollama"; "kimi"; "nvidia" ] in
   let fingerprints =
     List.filter_map
       (fun l ->

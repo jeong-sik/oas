@@ -1,6 +1,6 @@
 (** OpenAI-compatible response parsing.
 
-    Parses JSON responses from Provider_d Chat Completions API into
+    Parses JSON responses from Openai Chat Completions API into
     agent_sdk Types (api_response, api_usage).
 
     @since 0.92.0 extracted from Backend_openai *)
@@ -293,7 +293,7 @@ let parse_openai_response_result json_str =
       | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
     in
     let thinking_blocks =
-      (* Ollama uses "reasoning" field; Provider_d/Provider_g use "reasoning_content".
+      (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
            Check both, preferring reasoning_content. *)
       let reasoning_text =
         match non_blank_json_string (msg |> member "reasoning_content") with

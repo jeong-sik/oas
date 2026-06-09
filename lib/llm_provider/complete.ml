@@ -286,12 +286,12 @@ let patch_telemetry
     Kept in sync with the log tag used by the [WARN Complete] line. *)
 let provider_name_of_kind : Provider_config.provider_kind -> string = function
   | Ollama -> "ollama"
-  | DashScope -> "provider_h"
+  | DashScope -> "dashscope"
   | Anthropic -> "anthropic"
-  | Kimi -> "provider_c"
-  | OpenAI_compat -> "provider_d"
-  | Gemini -> "provider_f"
-  | Glm -> "provider_k"
+  | Kimi -> "kimi"
+  | OpenAI_compat -> "openai"
+  | Gemini -> "gemini"
+  | Glm -> "glm"
 ;;
 
 let tool_use_count (content : Types.content_block list) =
@@ -431,14 +431,14 @@ let%test "http_error_diagnostic_body preserves non-empty provider body" =
     Provider_config.make
       ~kind:Provider_config.Gemini
       ~model_id:"gemini-3-flash-preview"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
       ~api_key:"secret"
       ~headers:[]
       ~request_path:"/v1/chat/completions?api_key=secret"
       ()
   in
   http_error_diagnostic_body
-    ~provider_name:"provider_f"
+    ~provider_name:"gemini"
     ~config
     ~url:
       "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
@@ -452,21 +452,21 @@ let%test "http_error_diagnostic_body enriches empty provider body" =
     Provider_config.make
       ~kind:Provider_config.Gemini
       ~model_id:"gemini-3-flash-preview"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
       ~api_key:"secret"
       ~headers:[]
       ~request_path:"/v1/chat/completions?api_key=secret"
       ()
   in
   http_error_diagnostic_body
-    ~provider_name:"provider_f"
+    ~provider_name:"gemini"
     ~config
     ~url:
       "https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=secret"
     ~code:404
     ~body:""
-  = "empty HTTP 404 response from provider=provider_f model=gemini-3-flash-preview \
-     base_url=https://generativelanguage.googleapis.com/v1beta/provider_d \
+  = "empty HTTP 404 response from provider=gemini model=gemini-3-flash-preview \
+     base_url=https://generativelanguage.googleapis.com/v1beta/openai \
      request_path=/v1/chat/completions \
      url=https://gen.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent"
 ;;
@@ -754,7 +754,7 @@ let complete_http
                 in
                 (* Mask api_key to a short fingerprint so log lines distinguish
                same-provider calls that use different keys (e.g.
-               ZAI_API_KEY vs ZAI_API_KEY_SB for provider_k vs provider_k-coding).
+               ZAI_API_KEY vs ZAI_API_KEY_SB for glm vs glm-coding).
                Empty key renders as "-"; short keys render as "<len:N>"
                since they cannot be safely sampled. *)
                 let api_key_tag =
@@ -1954,7 +1954,7 @@ let%test "is_retryable provider capacity failure is false" =
               Http_client.Capacity_exhausted
                 { scope = Http_client.Failure_scope_model
                 ; retry_after = None
-                ; model = Some "provider_f-2.5-pro"
+                ; model = Some "gemini-2.5-pro"
                 }
           ; message = "capacity exhausted"
           }))
@@ -2163,18 +2163,18 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"gemini-2.5-flash"
-      ~base_url:"https://generativelanguage.googleapis.com/v1beta/provider_d"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta/openai"
       ()
   in
   let applied = apply_sampling_defaults config in
   applied.min_p = None
 ;;
 
-let%test "apply_sampling_defaults OpenAI_compat provider_h model keeps min_p default" =
+let%test "apply_sampling_defaults OpenAI_compat dashscope model keeps min_p default" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_h-3.5-35b"
+      ~model_id:"dashscope-3.5-35b"
       ~base_url:"https://api.example.com/v1"
       ()
   in
@@ -2239,7 +2239,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
   let config =
     Provider_config.make
       ~kind:Ollama
-      ~model_id:"provider_h-3.5:9b"
+      ~model_id:"dashscope-3.5:9b"
       ~base_url:"http://localhost:11434"
       ()
   in
@@ -2275,7 +2275,7 @@ let%test "patch_telemetry fills latency and provider on existing telemetry" =
     && t.reasoning_tokens = Some 10
     && t.provider_kind = Some Provider_config.Ollama
     && t.reasoning_effort = Some "none"
-    && t.canonical_model_id = Some "provider_h-3.5:9b"
+    && t.canonical_model_id = Some "dashscope-3.5:9b"
     && t.effective_context_window = Some 262_144
     && t.provider_internal_action_count = None
     && t.ttfrc_ms = None
@@ -2288,7 +2288,7 @@ let%test "patch_telemetry creates telemetry when None" =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-4"
-      ~base_url:"https://api.provider_d.com"
+      ~base_url:"https://api.openai.com"
       ()
   in
   let resp =
@@ -2318,7 +2318,7 @@ let%test "patch_telemetry preserves ttfrc_ms/prefill_ms when optional args omitt
   let config =
     Provider_config.make
       ~kind:Ollama
-      ~model_id:"provider_h-3.5:9b"
+      ~model_id:"dashscope-3.5:9b"
       ~base_url:"http://localhost:11434"
       ()
   in
@@ -2356,7 +2356,7 @@ let%test "patch_telemetry overrides ttfrc_ms/prefill_ms when passed as Some" =
   let config =
     Provider_config.make
       ~kind:Ollama
-      ~model_id:"provider_h-3.5:9b"
+      ~model_id:"dashscope-3.5:9b"
       ~base_url:"http://localhost:11434"
       ()
   in
@@ -2397,7 +2397,7 @@ let%test "patch_telemetry fills blank response model" =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-5.4-mini"
-      ~base_url:"https://api.provider_d.com"
+      ~base_url:"https://api.openai.com"
       ()
   in
   let resp =

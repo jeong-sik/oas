@@ -41,7 +41,7 @@ let ollama_chunk
       ()
   : S.ollama_chunk
   =
-  { oll_model = "provider_h-3:8b"
+  { oll_model = "dashscope-3:8b"
   ; oll_delta_content = delta_content
   ; oll_delta_thinking = delta_thinking
   ; oll_tool_calls = tool_calls
@@ -166,7 +166,7 @@ let test_provider_d_parse_edge_shapes () =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":"bad"},{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}],"usage":{"prompt_tokens":4,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3}}}|}
   in
   let chunk =
-    require_some "provider_d mixed tool calls" (S.parse_openai_sse_chunk mixed_tool_calls)
+    require_some "openai mixed tool calls" (S.parse_openai_sse_chunk mixed_tool_calls)
   in
   check int "only valid tool call retained" 1 (List.length chunk.delta_tool_calls);
   (match chunk.chunk_usage with
@@ -179,7 +179,7 @@ let test_provider_d_parse_edge_shapes () =
   in
   let chunk =
     require_some
-      "provider_d non-list tool calls"
+      "openai non-list tool calls"
       (S.parse_openai_sse_chunk non_list_tool_calls)
   in
   check int "non-list tool calls ignored" 0 (List.length chunk.delta_tool_calls)
@@ -259,11 +259,11 @@ let test_provider_f_parse_edge_shapes () =
   check int "non-list parts ignored" 0 (List.length non_list_parts.gem_parts);
   match S.parse_provider_f_sse_chunk "{not-json" with
   | None -> ()
-  | Some _ -> fail "invalid provider_f json should return None"
+  | Some _ -> fail "invalid gemini json should return None"
 ;;
 
 let provider_f_chunk ?(parts = []) ?finish_reason ?usage () : S.provider_f_chunk =
-  { gem_model = "provider_f-test"
+  { gem_model = "gemini-test"
   ; gem_parts = parts
   ; gem_finish_reason = finish_reason
   ; gem_usage = usage
@@ -271,7 +271,7 @@ let provider_f_chunk ?(parts = []) ?finish_reason ?usage () : S.provider_f_chunk
 ;;
 
 let test_provider_f_event_edge_branches () =
-  let state = S.create_openai_stream_state ~provider:"provider_f" ~model:"gem" () in
+  let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
   let thought_part = `Assoc [ "thought", `Bool true; "text", `String "plan" ] in
   ignore
     (S.provider_f_chunk_to_events state (provider_f_chunk ~parts:[ thought_part ] ()));
@@ -281,8 +281,8 @@ let test_provider_f_event_edge_branches () =
   check_event_count "no-thought chunk emits no events" 0 no_thought_events;
   (match telemetry with
    | Some (Llm_provider.Telemetry_event.Thinking_complete r) ->
-     check string "provider" "provider_f" r.provider
-   | _ -> fail "expected provider_f thinking completion telemetry");
+     check string "provider" "gemini" r.provider
+   | _ -> fail "expected gemini thinking completion telemetry");
   state.thinking_state <- S.Thinking_done;
   let restarted_events, _ =
     S.provider_f_chunk_to_events state (provider_f_chunk ~parts:[ thought_part ] ())
@@ -317,7 +317,7 @@ let test_provider_f_event_edge_branches () =
   in
   (match max_tokens_events with
    | [ MessageDelta { stop_reason = Some MaxTokens; usage = Some _ } ] -> ()
-   | _ -> fail "expected provider_f max-tokens finish");
+   | _ -> fail "expected gemini max-tokens finish");
   let unknown_events, _ =
     S.provider_f_chunk_to_events
       (S.create_openai_stream_state ())
@@ -325,7 +325,7 @@ let test_provider_f_event_edge_branches () =
   in
   match unknown_events with
   | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
-  | _ -> fail "expected provider_f unknown finish"
+  | _ -> fail "expected gemini unknown finish"
 ;;
 
 let test_ollama_parse_edge_shapes () =

@@ -1,6 +1,6 @@
 (** ZhipuAI Glm native backend.
 
-    Provider_d wire format with Glm-specific extensions:
+    Openai wire format with Glm-specific extensions:
     - [thinking] parameter: [{"type":"enabled","clear_thinking":true}]
     - [reasoning_content] in response message and streaming delta
     - String error codes (e.g., ["1305"])
@@ -125,7 +125,7 @@ let build_request
 
 (** Glm error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
-    Standard Provider_d uses numeric HTTP codes. *)
+    Standard Openai uses numeric HTTP codes. *)
 let check_glm_error body : provider_k_error option =
   try
     let json = Yojson.Safe.from_string body in
@@ -197,7 +197,7 @@ let parse_response body =
 
 (* ── Streaming ───────────────────────────────────── *)
 
-(** Parse Glm SSE chunk.  Glm uses Provider_d SSE format but adds
+(** Parse Glm SSE chunk.  Glm uses Openai SSE format but adds
     [delta.reasoning_content] for thinking. We parse this as
     [delta_reasoning] in the provider_d_chunk type. *)
 let parse_stream_chunk = Streaming.parse_openai_sse_chunk
@@ -210,7 +210,7 @@ let%test "build_request without thinking is passthrough" =
   let config =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-4.7"
+      ~model_id:"glm-4.7"
       ~base_url:"https://open.bigmodel.cn/api/paas/v4"
       ()
   in
@@ -233,7 +233,7 @@ let%test "build_request with thinking injects correct format" =
   let config =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-4.5"
+      ~model_id:"glm-4.5"
       ~base_url:"https://open.bigmodel.cn/api/paas/v4"
       ~enable_thinking:true
       ()
@@ -259,7 +259,7 @@ let%test "build_request can preserve reasoning on demand" =
   let config =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~enable_thinking:true
       ~clear_thinking:false
@@ -284,7 +284,7 @@ let%test "build_request with thinking=false injects disabled" =
   let config =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-4.5"
+      ~model_id:"glm-4.5"
       ~base_url:"https://open.bigmodel.cn/api/paas/v4"
       ~enable_thinking:false
       ()
@@ -367,7 +367,7 @@ let%test "http_code auth maps to 401" =
 let%test "extract_reasoning_content prepends thinking block" =
   let resp =
     { id = "x"
-    ; model = "provider_k-4.7"
+    ; model = "glm-4.7"
     ; stop_reason = EndTurn
     ; content = [ Text "answer" ]
     ; usage = None
@@ -386,7 +386,7 @@ let%test "extract_reasoning_content prepends thinking block" =
 let%test "extract_reasoning_content skips empty reasoning" =
   let resp =
     { id = "x"
-    ; model = "provider_k-4.7"
+    ; model = "glm-4.7"
     ; stop_reason = EndTurn
     ; content = [ Text "answer" ]
     ; usage = None
@@ -398,7 +398,7 @@ let%test "extract_reasoning_content skips empty reasoning" =
   List.length result.content = 1
 ;;
 
-let%test "parse_stream_chunk delegates to provider_d" =
+let%test "parse_stream_chunk delegates to openai" =
   let data = {|{"id":"x","choices":[{"delta":{"content":"hi"},"index":0}]}|} in
   match parse_stream_chunk data with
   | Some chunk -> chunk.delta_content = Some "hi"
@@ -409,7 +409,7 @@ let%test "build_request strips chat_template_kwargs from Glm body" =
   let config =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~enable_thinking:true
       ()
@@ -434,7 +434,7 @@ let%test "build_request adds tool_stream when enabled" =
   let config =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:"https://api.z.ai/api/paas/v4"
       ~tool_stream:true
       ()

@@ -293,7 +293,7 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
 
 let provider_d_host_supports_output_schema base_url =
   match Uri.of_string base_url |> Uri.host with
-  | Some host -> String.lowercase_ascii host = "api.provider_d.com"
+  | Some host -> String.lowercase_ascii host = "api.openai.com"
   | None -> false
 ;;
 
@@ -336,7 +336,7 @@ let validate_output_schema_request (config : t) =
        else
          Error
            (Printf.sprintf
-              "native structured output is only wired for official Provider_d hosts, got \
+              "native structured output is only wired for official Openai hosts, got \
                %s"
               config.base_url))
 ;;

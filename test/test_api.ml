@@ -337,7 +337,7 @@ let test_build_openai_body_with_provider_m_sampling () =
   let state =
     { Types.config =
         { Types.default_config with
-          model = "provider_h-3.5-35b-a3b-ud-q8-xl"
+          model = "dashscope-3.5-35b-a3b-ud-q8-xl"
         ; temperature = Some 0.6
         ; top_p = Some 0.95
         ; top_k = Some 20
@@ -373,7 +373,7 @@ let test_build_openai_body_with_provider_m_sampling () =
 
 let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
   let provider_config =
-    Provider.provider_o_router ~model_id:"anthropic/agent_llm_a-sonnet-4-6" ()
+    Provider.openrouter ~model_id:"anthropic/agent_llm_a-sonnet-4-6" ()
   in
   let state =
     { Types.config =
@@ -439,7 +439,7 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
@@ -481,7 +481,7 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
     (thinking |> member "clear_thinking" |> to_bool);
   check
     string
-    "provider_k tool choice coerced"
+    "glm tool choice coerced"
     "auto"
     (json |> member "tool_choice" |> to_string)
 ;;
@@ -551,7 +551,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
@@ -607,7 +607,7 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
@@ -643,17 +643,17 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   let assoc = to_assoc json in
   check
     bool
-    "thinking omitted for non-zai provider_k"
+    "thinking omitted for non-zai glm"
     false
     (List.mem_assoc "thinking" assoc);
   check
     bool
-    "chat_template_kwargs omitted for non-zai provider_k"
+    "chat_template_kwargs omitted for non-zai glm"
     false
     (List.mem_assoc "chat_template_kwargs" assoc);
   match json |> member "tool_choice" with
   | `Assoc _ -> ()
-  | _ -> fail "non-zai provider_k tool_choice should preserve named function form"
+  | _ -> fail "non-zai glm tool_choice should preserve named function form"
 ;;
 
 let test_build_openai_body_glm_tool_choice_none_omits_tools () =
@@ -665,7 +665,7 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
@@ -700,10 +700,10 @@ let test_build_openai_body_glm_tool_choice_none_omits_tools () =
   let assoc = to_assoc json in
   check
     bool
-    "tool_choice omitted for provider_k none"
+    "tool_choice omitted for glm none"
     false
     (List.mem_assoc "tool_choice" assoc);
-  check bool "tools omitted for provider_k none" false (List.mem_assoc "tools" assoc)
+  check bool "tools omitted for glm none" false (List.mem_assoc "tools" assoc)
 ;;
 
 (* ------------------------------------------------------------------ *)
@@ -781,7 +781,7 @@ let test_parse_provider_d_response_strips_fenced_json () =
   let json_str =
     {|{
     "id": "chatcmpl_test",
-    "model": "provider_h",
+    "model": "dashscope",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -808,7 +808,7 @@ let test_parse_provider_d_response_reasoning_content () =
   let json_str =
     {|{
     "id": "chatcmpl_think",
-    "model": "provider_h-3.5-35b",
+    "model": "dashscope-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -841,7 +841,7 @@ let test_parse_provider_d_response_reasoning_with_tools () =
   let json_str =
     {|{
     "id": "chatcmpl_think_tool",
-    "model": "provider_h-3.5-35b",
+    "model": "dashscope-3.5-35b",
     "choices": [{
       "finish_reason": "tool_calls",
       "index": 0,
@@ -878,7 +878,7 @@ let test_parse_provider_d_response_blank_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_blank",
-    "model": "provider_h-3.5-35b",
+    "model": "dashscope-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -903,7 +903,7 @@ let test_parse_provider_d_response_no_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_no_think",
-    "model": "provider_h-3.5-35b",
+    "model": "dashscope-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -927,7 +927,7 @@ let test_parse_provider_d_response_ollama_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_ollama",
-    "model": "provider_h-3.5:35b-a3b-nvfp4",
+    "model": "dashscope-3.5:35b-a3b-nvfp4",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -967,7 +967,7 @@ let test_parse_provider_d_response_reasoning_content_preferred () =
   let json_str =
     {|{
     "id": "chatcmpl_both",
-    "model": "provider_h-3.5-35b",
+    "model": "dashscope-3.5-35b",
     "choices": [{
       "finish_reason": "stop",
       "index": 0,
@@ -1349,7 +1349,7 @@ let test_provider_d_messages_with_image () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* F1: Provider_d API error → Openai_api_error exception                    *)
+(* F1: Openai API error → Openai_api_error exception                    *)
 (* ------------------------------------------------------------------ *)
 
 let test_provider_d_api_error_returns_error () =
@@ -1369,7 +1369,7 @@ let test_provider_d_api_error_unknown_message () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* F2: Provider_d error returns structured Error, not exception              *)
+(* F2: Openai error returns structured Error, not exception              *)
 (* ------------------------------------------------------------------ *)
 
 let test_provider_d_error_returns_result () =
@@ -1473,7 +1473,7 @@ let () =
         ; test_case "with tool_choice" `Quick test_build_body_with_tool_choice
         ; test_case "with tools" `Quick test_build_body_with_tools
         ; test_case
-            "provider_d json schema"
+            "openai json schema"
             `Quick
             test_build_openai_body_with_json_schema
         ; test_case
@@ -1485,15 +1485,15 @@ let () =
             `Quick
             test_build_body_sampling_params_omitted_when_none
         ; test_case
-            "with provider_h sampling"
+            "with dashscope sampling"
             `Quick
             test_build_openai_body_with_provider_m_sampling
         ; test_case
-            "generic compat omits provider_h-only fields"
+            "generic compat omits dashscope-only fields"
             `Quick
             test_build_openai_body_omits_provider_m_only_fields_for_generic_compat
         ; test_case
-            "provider_k thinking + auto tool choice"
+            "glm thinking + auto tool choice"
             `Quick
             test_build_openai_body_uses_glm_thinking_and_auto_tool_choice
         ; test_case
@@ -1501,15 +1501,15 @@ let () =
             `Quick
             test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice
         ; test_case
-            "provider_k preserved reasoning replay"
+            "glm preserved reasoning replay"
             `Quick
             test_build_openai_body_glm_preserves_reasoning_content
         ; test_case
-            "non-zai provider_k avoids provider_k path"
+            "non-zai glm avoids glm path"
             `Quick
             test_build_openai_body_does_not_treat_non_zai_glm_as_glm
         ; test_case
-            "provider_k none tool_choice omits tools"
+            "glm none tool_choice omits tools"
             `Quick
             test_build_openai_body_glm_tool_choice_none_omits_tools
         ; test_case "with cache_system_prompt" `Quick test_build_body_with_cache
@@ -1559,15 +1559,15 @@ let () =
         ] )
     ; ( "error_handling"
       , [ test_case
-            "provider_d api error returns Error"
+            "openai api error returns Error"
             `Quick
             test_provider_d_api_error_returns_error
         ; test_case
-            "provider_d api error unknown message"
+            "openai api error unknown message"
             `Quick
             test_provider_d_api_error_unknown_message
         ; test_case
-            "provider_d error returns result"
+            "openai error returns result"
             `Quick
             test_provider_d_error_returns_result
         ] )
@@ -1611,7 +1611,7 @@ let () =
             `Quick
             test_json_of_string_or_raw_invalid
         ; test_case
-            "provider_c tool_result uses text blocks"
+            "kimi tool_result uses text blocks"
             `Quick
             test_provider_c_message_to_json_tool_result_uses_text_blocks
         ; test_case "disable_parallel_tool_use" `Quick test_build_body_disable_parallel

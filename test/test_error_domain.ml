@@ -278,7 +278,7 @@ let test_roundtrip_provider_streaming_timeout () =
   let orig =
     Error.Provider
       (Llm_provider.Error.Timeout
-         { provider = "provider_d"
+         { provider = "openai"
          ; timeout_phase = Some Http_client.Stream_body
          ; detail = "stream body cap"
          })
@@ -296,7 +296,7 @@ let test_roundtrip_provider_streaming_timeout () =
     let first_token =
       Error.Provider
         (Llm_provider.Error.Timeout
-           { provider = "provider_d"
+           { provider = "openai"
            ; timeout_phase = Some Http_client.First_token
            ; detail = "awaiting first token"
            })

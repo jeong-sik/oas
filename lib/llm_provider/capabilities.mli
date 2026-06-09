@@ -15,9 +15,9 @@ type thinking_control_format =
   | Chat_template_kwargs
   (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
   | Reasoning_effort
-  (** Provider_d-style top-level [reasoning_effort] string field. The set of
+  (** Openai-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (Provider_d's spec
+      see {!Provider_config.effort_of_thinking_config}. (Openai's spec
       also accepts ["minimal"], but no current OAS request builder emits
       it.) Ollama's OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
@@ -63,7 +63,7 @@ type capabilities =
   ; supports_seed_with_images : bool
     (** Whether seed determinism is maintained when image inputs are present.
       Local providers (Ollama) achieve near-perfect reproducibility; cloud
-      providers (Provider_d, Gemini) do not guarantee it.
+      providers (Openai, Gemini) do not guarantee it.
       @since 0.185.0 *)
   ; (* Advanced modalities *)
     supports_computer_use : bool
@@ -91,7 +91,7 @@ val ollama_capabilities : capabilities
 val dashscope_capabilities : capabilities
 val glm_capabilities : capabilities
 
-(** NVIDIA NIM Provider_l capabilities: Llama-based, chat_template_kwargs thinking.
+(** NVIDIA NIM Nvidia capabilities: Llama-based, chat_template_kwargs thinking.
     @since 0.185.0 *)
 val provider_l_capabilities : capabilities
 
@@ -101,11 +101,11 @@ val provider_l_capabilities : capabilities
 
     @since 0.196.3 *)
 type gemini_family =
-  | Gemini_3_1 (** [provider_f-3.1.*] *)
-  | Gemini_3 (** [provider_f-3.*] but not 3.1 *)
-  | Gemini_2_5 (** [provider_f-2.5.*] (legacy line) *)
+  | Gemini_3_1 (** [gemini-3.1.*] *)
+  | Gemini_3 (** [gemini-3.*] but not 3.1 *)
+  | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
   | Gemini_other of string
-  (** Unknown provider_f id, or non-provider_f id (literal retained). *)
+  (** Unknown gemini id, or non-gemini id (literal retained). *)
 
 (** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
     more specific prefix wins. Input is expected lowercased; callers that
@@ -138,7 +138,7 @@ type static_model_route =
   | Provider_j_small
   | Provider_m_command
   | Provider_e_grok
-  | Provider_l of { has_vision : bool }
+  | Nvidia of { has_vision : bool }
   | Gemini_gemma_4 of { has_large_audio : bool }
   | Glm_4_7_flash
   | Glm_4_5_flash_air
@@ -168,7 +168,7 @@ val for_model_id : string -> capabilities option
 
     Recognized labels (case-insensitive, whitespace trimmed):
     [anthropic] / [claude], [openai_compat] / [openai],
-    [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope], [provider_l].
+    [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope], [nvidia].
 
     Returns [None] for labels outside this set. Intended for adapter
     layers that track provider kind as a string (e.g. config loaders,

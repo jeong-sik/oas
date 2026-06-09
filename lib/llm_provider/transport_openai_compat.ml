@@ -1,4 +1,4 @@
-(** Provider_d Chat Completions HTTP transport.
+(** Openai Chat Completions HTTP transport.
 
     @since 0.86.0 *)
 
@@ -119,14 +119,14 @@ let%test "merge_config preserves req base_url when present" =
 ;;
 
 let%test "merge_config uses transport model_id when req empty" =
-  let transport_cfg = { default_config with model_id = "provider_h-3.5-35b" } in
+  let transport_cfg = { default_config with model_id = "dashscope-3.5-35b" } in
   let req_cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"" ~base_url:"" () in
   let merged = merge_config ~transport_cfg req_cfg in
-  merged.model_id = "provider_h-3.5-35b"
+  merged.model_id = "dashscope-3.5-35b"
 ;;
 
 let%test "merge_config preserves req model_id when present" =
-  let transport_cfg = { default_config with model_id = "provider_h-3.5-35b" } in
+  let transport_cfg = { default_config with model_id = "dashscope-3.5-35b" } in
   let req_cfg =
     Provider_config.make ~kind:OpenAI_compat ~model_id:"model-d" ~base_url:"" ()
   in

@@ -333,11 +333,11 @@ let test_resolve_provider_a () =
 ;;
 
 let test_resolve_provider_d () =
-  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "provider_d" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "openai" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "not a built-in provider id" "provider_d" name;
-    Alcotest.(check string) "api_key_env preserves selector" "provider_d" cfg.api_key_env
+    Alcotest.(check string) "not a built-in provider id" "openai" name;
+    Alcotest.(check string) "api_key_env preserves selector" "openai" cfg.api_key_env
   | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
@@ -345,7 +345,7 @@ let test_resolve_provider_d_custom_url () =
   let cfg =
     Agent_config.resolve_provider
       ~model_id:"model-d-4"
-      "provider_d"
+      "openai"
       (Some "http://custom:4000")
   in
   match cfg.provider with
@@ -398,60 +398,60 @@ let test_resolve_provider_i () =
      registry, not embedded in the Provider.config variant. *)
   let cfg =
     Agent_config.resolve_provider
-      ~model_id:"provider_h/provider_h_3-32b"
-      "provider_i"
+      ~model_id:"dashscope/provider_h_3-32b"
+      "groq"
       None
   in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "provider_i name" "provider_i" name;
-    Alcotest.(check string) "provider_i api_key_env" "GROQ_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "groq name" "groq" name;
+    Alcotest.(check string) "groq api_key_env" "GROQ_API_KEY" cfg.api_key_env;
     Alcotest.(check string)
-      "provider_i model_id"
-      "provider_h/provider_h_3-32b"
+      "groq model_id"
+      "dashscope/provider_h_3-32b"
       cfg.model_id
-  | _ -> Alcotest.fail "expected Custom_registered for provider_i (registered)"
+  | _ -> Alcotest.fail "expected Custom_registered for groq (registered)"
 ;;
 
 let test_resolve_provider_i_custom_url () =
   let cfg =
     Agent_config.resolve_provider
-      ~model_id:"provider_h/provider_h_3-32b"
-      "provider_i"
+      ~model_id:"dashscope/provider_h_3-32b"
+      "groq"
       (Some "http://proxy:8080")
   in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; auth_header; _ } ->
     Alcotest.(check string) "overridden url" "http://proxy:8080" base_url;
     Alcotest.(check (option string)) "auth header" (Some "Authorization") auth_header
-  | _ -> Alcotest.fail "expected OpenAICompat for provider_i custom url"
+  | _ -> Alcotest.fail "expected OpenAICompat for groq custom url"
 ;;
 
 let test_resolve_provider_g () =
   (* base_url=None: Custom_registered preserves kind lookup via registry. *)
-  let cfg = Agent_config.resolve_provider ~model_id:"provider_g-chat" "provider_g" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"deepseek-chat" "deepseek" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "provider_g name" "provider_g" name;
-    Alcotest.(check string) "provider_g api_key_env" "PROVIDER_G_API_KEY" cfg.api_key_env
-  | _ -> Alcotest.fail "expected Custom_registered for provider_g (registered)"
+    Alcotest.(check string) "deepseek name" "deepseek" name;
+    Alcotest.(check string) "deepseek api_key_env" "PROVIDER_G_API_KEY" cfg.api_key_env
+  | _ -> Alcotest.fail "expected Custom_registered for deepseek (registered)"
 ;;
 
 let test_resolve_provider_f_preserves_kind () =
-  (* Regression for #1003: registered providers with non-Provider_d kind
+  (* Regression for #1003: registered providers with non-Openai kind
      (e.g. Gemini) must route through Custom_registered so downstream
      preserves entry.defaults.kind. Previously resolve_provider
      returned OpenAICompat, flattening kind to OpenAI_compat and
      producing 404 against the Gemini endpoint. *)
   let cfg =
-    Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "provider_f" None
+    Agent_config.resolve_provider ~model_id:"gemini-2.5-flash" "gemini" None
   in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "provider_f name" "provider_f" name;
-    Alcotest.(check string) "provider_f api_key_env" "PROVIDER_F_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "provider_f model_id" "gemini-2.5-flash" cfg.model_id
-  | _ -> Alcotest.fail "expected Custom_registered for provider_f (registered)"
+    Alcotest.(check string) "gemini name" "gemini" name;
+    Alcotest.(check string) "gemini api_key_env" "PROVIDER_F_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "gemini model_id" "gemini-2.5-flash" cfg.model_id
+  | _ -> Alcotest.fail "expected Custom_registered for gemini (registered)"
 ;;
 
 (* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
@@ -621,15 +621,15 @@ let () =
       , [ tc "local" test_resolve_local
         ; tc "local custom url" test_resolve_local_custom_url
         ; tc "anthropic" test_resolve_provider_a
-        ; tc "provider_d is not built in" test_resolve_provider_d
-        ; tc "explicit provider_d custom url" test_resolve_provider_d_custom_url
+        ; tc "openai is not built in" test_resolve_provider_d
+        ; tc "explicit openai custom url" test_resolve_provider_d_custom_url
         ; tc "other" test_resolve_other
         ; tc "other custom url" test_resolve_other_custom_url
         ; tc "other OpenAI /v1 base url" test_resolve_other_openai_v1_base_url
-        ; tc "provider_i" test_resolve_provider_i
-        ; tc "provider_i custom url" test_resolve_provider_i_custom_url
-        ; tc "provider_g" test_resolve_provider_g
-        ; tc "provider_f preserves kind (#1003)" test_resolve_provider_f_preserves_kind
+        ; tc "groq" test_resolve_provider_i
+        ; tc "groq custom url" test_resolve_provider_i_custom_url
+        ; tc "deepseek" test_resolve_provider_g
+        ; tc "gemini preserves kind (#1003)" test_resolve_provider_f_preserves_kind
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
         ; tc "provider_a case-insensitive" test_resolve_anthropic_case_insensitive
         ; tc

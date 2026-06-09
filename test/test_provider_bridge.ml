@@ -31,7 +31,7 @@ let test_provider_a_bridge () =
 ;;
 
 let test_openai_compat_bridge () =
-  let legacy = Agent_sdk.Provider.provider_o_router () in
+  let legacy = Agent_sdk.Provider.openrouter () in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
   | Error _ -> Alcotest.(check pass) "missing key = expected in test" () ()
   | Ok cfg -> Alcotest.(check string) "path" "/chat/completions" cfg.request_path
@@ -55,24 +55,24 @@ let test_non_zai_glm_stays_openai_compat () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
-  | Error _ -> Alcotest.fail "custom provider_d compat provider should not need env var"
+  | Error _ -> Alcotest.fail "custom openai compat provider should not need env var"
   | Ok cfg ->
     Alcotest.(check string)
-      "kind remains provider_d compat"
+      "kind remains openai compat"
       "openai_compat"
       (match cfg.kind with
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
        | Anthropic -> "anthropic"
-       | Kimi -> "provider_c"
-       | Gemini -> "provider_f"
-       | Glm -> "provider_k"
+       | Kimi -> "kimi"
+       | Gemini -> "gemini"
+       | Glm -> "glm"
        | Ollama -> "ollama"
-       | DashScope -> "provider_h")
+       | DashScope -> "dashscope")
 ;;
 
 let test_zai_glm_becomes_glm_provider_config () =
@@ -84,29 +84,29 @@ let test_zai_glm_becomes_glm_provider_config () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
   match Agent_sdk.Provider_bridge.to_provider_config legacy with
-  | Error _ -> Alcotest.fail "z.ai provider_k provider should resolve without env var"
+  | Error _ -> Alcotest.fail "z.ai glm provider should resolve without env var"
   | Ok cfg ->
     Alcotest.(check string)
-      "kind becomes provider_k"
-      "provider_k"
+      "kind becomes glm"
+      "glm"
       (match cfg.kind with
        | Llm_provider.Provider_config.OpenAI_compat -> "openai_compat"
        | Anthropic -> "anthropic"
-       | Kimi -> "provider_c"
-       | Gemini -> "provider_f"
-       | Glm -> "provider_k"
+       | Kimi -> "kimi"
+       | Gemini -> "gemini"
+       | Glm -> "glm"
        | Ollama -> "ollama"
-       | DashScope -> "provider_h")
+       | DashScope -> "dashscope")
 ;;
 
 let test_zai_coding_auto_uses_coding_default_model () =
-  with_env "ZAI_DEFAULT_MODEL" "provider_k-5.1" (fun () ->
-    with_env "ZAI_CODING_DEFAULT_MODEL" "provider_k-4.5-air" (fun () ->
+  with_env "ZAI_DEFAULT_MODEL" "glm-5.1" (fun () ->
+    with_env "ZAI_CODING_DEFAULT_MODEL" "glm-4.5-air" (fun () ->
       let legacy =
         { Agent_sdk.Provider.provider =
             OpenAICompat
@@ -122,14 +122,14 @@ let test_zai_coding_auto_uses_coding_default_model () =
       match Agent_sdk.Provider_bridge.to_provider_config legacy with
       | Error _ -> Alcotest.fail "z.ai coding provider should resolve without env var"
       | Ok cfg ->
-        Alcotest.(check string) "coding auto model" "provider_k-4.5-air" cfg.model_id))
+        Alcotest.(check string) "coding auto model" "glm-4.5-air" cfg.model_id))
 ;;
 
 let test_provider_c_custom_registered_becomes_provider_c_provider_config () =
   let env_var = "KIMI_PROVIDER_BRIDGE_TEST_KEY" in
-  with_env env_var "provider_c-test-key" (fun () ->
+  with_env env_var "kimi-test-key" (fun () ->
     let legacy =
-      { Agent_sdk.Provider.provider = Custom_registered { name = "provider_c" }
+      { Agent_sdk.Provider.provider = Custom_registered { name = "kimi" }
       ; model_id = "auto"
       ; api_key_env = env_var
       }
@@ -138,14 +138,14 @@ let test_provider_c_custom_registered_becomes_provider_c_provider_config () =
     | Error e ->
       Alcotest.fail
         (Printf.sprintf
-           "provider_c custom provider should resolve: %s"
+           "kimi custom provider should resolve: %s"
            (Agent_sdk.Error.to_string e))
     | Ok cfg ->
       Alcotest.(check string)
         "kind becomes kimi"
         "kimi"
         (Llm_provider.Provider_config.string_of_provider_kind cfg.kind);
-      Alcotest.(check string) "auto model" "provider_c-for-coding" cfg.model_id;
+      Alcotest.(check string) "auto model" "kimi-for-coding" cfg.model_id;
       Alcotest.(check string) "path" "/v1/messages" cfg.request_path)
 ;;
 
@@ -171,7 +171,7 @@ let test_provider_a_auto_and_explicit_models () =
 
 let test_openai_compat_auto_model_branches () =
   with_env "OLLAMA_DEFAULT_MODEL" "provider-d-env-default" (fun () ->
-    with_env "PROVIDER_F_DEFAULT_MODEL" "provider_f-env-default" (fun () ->
+    with_env "PROVIDER_F_DEFAULT_MODEL" "gemini-env-default" (fun () ->
       let provider_d_auto =
         { Agent_sdk.Provider.provider =
             OpenAICompat
@@ -184,41 +184,41 @@ let test_openai_compat_auto_model_branches () =
         ; api_key_env = ""
         }
       in
-      let provider_f_prefixed = { provider_d_auto with model_id = "provider_f-auto" } in
+      let provider_f_prefixed = { provider_d_auto with model_id = "gemini-auto" } in
       let provider_f_explicit =
-        { provider_d_auto with model_id = "provider_f-2.5-pro" }
+        { provider_d_auto with model_id = "gemini-2.5-pro" }
       in
       (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
        | Ok cfg ->
-         check_kind "provider_d compat kind" "openai_compat" cfg;
-         Alcotest.(check string) "provider_d auto" "provider-d-env-default" cfg.model_id
+         check_kind "openai compat kind" "openai_compat" cfg;
+         Alcotest.(check string) "openai auto" "provider-d-env-default" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
        | Ok cfg ->
          check_kind "gemini kind" "gemini" cfg;
-         Alcotest.(check string) "provider_f prefixed" "provider_f-auto" cfg.model_id
+         Alcotest.(check string) "gemini prefixed" "gemini-auto" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
       match Agent_sdk.Provider_bridge.to_provider_config provider_f_explicit with
       | Ok cfg ->
         check_kind "gemini explicit kind" "gemini" cfg;
-        Alcotest.(check string) "provider_f explicit" "provider_f-2.5-pro" cfg.model_id
+        Alcotest.(check string) "gemini explicit" "gemini-2.5-pro" cfg.model_id
       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
 ;;
 
 let test_provider_c_explicit_model_and_non_coding_base_url () =
   let api_key_env = "PROVIDER_C_BRIDGE_TEST_KEY" in
   with_env api_key_env "provider-c-test-key" (fun () ->
-    with_env "PROVIDER_C_BASE_URL" "https://api.provider_c.com/messages" (fun () ->
+    with_env "PROVIDER_C_BASE_URL" "https://api.kimi.com/messages" (fun () ->
       let non_coding =
-        { Agent_sdk.Provider.provider = Custom_registered { name = "provider_c" }
-        ; model_id = "provider_c-k2"
+        { Agent_sdk.Provider.provider = Custom_registered { name = "kimi" }
+        ; model_id = "kimi-k2"
         ; api_key_env
         }
       in
       match Agent_sdk.Provider_bridge.to_provider_config non_coding with
       | Ok cfg ->
         check_kind "non-coding base routes as anthropic" "anthropic" cfg;
-        Alcotest.(check string) "explicit provider_c model" "provider_c-k2" cfg.model_id
+        Alcotest.(check string) "explicit kimi model" "kimi-k2" cfg.model_id
       | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err)))
 ;;
 
@@ -226,11 +226,11 @@ let test_zai_coding_auto_models_default_order () =
   with_env "ZAI_CODING_AUTO_MODELS" "" (fun () ->
     Alcotest.(check (list string))
       "coding auto order"
-      [ "provider_k-5.1"
-      ; "provider_k-5"
-      ; "provider_k-5-turbo"
-      ; "provider_k-4.7"
-      ; "provider_k-4.5-air"
+      [ "glm-5.1"
+      ; "glm-5"
+      ; "glm-5-turbo"
+      ; "glm-4.7"
+      ; "glm-4.5-air"
       ]
       (Llm_provider.Zai_catalog.provider_k_coding_auto_models ()))
 ;;
@@ -241,14 +241,14 @@ let () =
     "provider_bridge"
     [ ( "to_provider_config"
       , [ test_case "anthropic" `Quick test_provider_a_bridge
-        ; test_case "provider_d compat" `Quick test_openai_compat_bridge
+        ; test_case "openai compat" `Quick test_openai_compat_bridge
         ; test_case "local" `Quick test_local_provider_bridge
         ; test_case
-            "non-zai provider_k stays provider_d compat"
+            "non-zai glm stays openai compat"
             `Quick
             test_non_zai_glm_stays_openai_compat
         ; test_case
-            "zai provider_k becomes provider_k"
+            "zai glm becomes glm"
             `Quick
             test_zai_glm_becomes_glm_provider_config
         ; test_case
@@ -256,7 +256,7 @@ let () =
             `Quick
             test_zai_coding_auto_uses_coding_default_model
         ; test_case
-            "provider_c custom provider becomes provider_c"
+            "kimi custom provider becomes kimi"
             `Quick
             test_provider_c_custom_registered_becomes_provider_c_provider_config
         ; test_case
@@ -268,7 +268,7 @@ let () =
             `Quick
             test_openai_compat_auto_model_branches
         ; test_case
-            "provider_c explicit model and non-coding base url"
+            "kimi explicit model and non-coding base url"
             `Quick
             test_provider_c_explicit_model_and_non_coding_base_url
         ; test_case

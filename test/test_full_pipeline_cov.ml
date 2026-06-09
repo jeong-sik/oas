@@ -554,7 +554,7 @@ let test_openai_compat () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi ~sw ~net:env#net ~port:21014 [ provider_d_response "provider_d hello" ]
+      start_multi ~sw ~net:env#net ~port:21014 [ provider_d_response "openai hello" ]
     in
     let provider : Provider.config =
       { provider =
@@ -564,18 +564,18 @@ let test_openai_compat () =
             ; path = "/v1/chat/completions"
             ; static_token = None
             }
-      ; model_id = "mock-provider_d"
+      ; model_id = "mock-openai"
       ; api_key_env = ""
       }
     in
-    let config = { Types.default_config with name = "provider_d-agent"; max_turns = 1 } in
+    let config = { Types.default_config with name = "openai-agent"; max_turns = 1 } in
     let options =
       { Agent.default_options with base_url = url; provider = Some provider }
     in
     let a = Agent.create ~net:env#net ~config ~options () in
     match Agent.run ~sw a "hello" with
     | Ok resp ->
-      check string "text" "provider_d hello" (extract_text resp);
+      check string "text" "openai hello" (extract_text resp);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
   with
@@ -739,7 +739,7 @@ let () =
     "full_pipeline_cov"
     [ ( "basic"
       , [ test_case "text completion" `Quick test_basic_text
-        ; test_case "provider_d compat" `Quick test_openai_compat
+        ; test_case "openai compat" `Quick test_openai_compat
         ; test_case "agent clone" `Quick test_agent_clone_run
         ; test_case "agent card" `Quick test_agent_card
         ] )

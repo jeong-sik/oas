@@ -10,7 +10,7 @@ let to_string json = Yojson.Safe.Util.to_string json
 let provider_k_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
   PC.make
     ~kind:PC.Glm
-    ~model_id:"provider_k-5.1"
+    ~model_id:"glm-5.1"
     ~base_url:"https://api.z.ai/api/paas/v4"
     ?enable_thinking
     ?clear_thinking
@@ -37,7 +37,7 @@ let response_json ?(reasoning = Some "step by step") ?(content = "answer") () =
   Yojson.Safe.to_string
     (`Assoc
         [ "id", `String "chatcmpl-provider-k"
-        ; "model", `String "provider_k-5.1"
+        ; "model", `String "glm-5.1"
         ; ( "choices"
           , `List
               [ `Assoc
@@ -139,7 +139,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
 let test_parse_response_extracts_reasoning_and_usage () =
   let resp = K.parse_response (response_json ()) in
   check string "id" "chatcmpl-provider-k" resp.id;
-  check string "model" "provider_k-5.1" resp.model;
+  check string "model" "glm-5.1" resp.model;
   (match resp.content with
    | [ T.Thinking { content = "step by step"; _ }; T.Text "answer" ] -> ()
    | _ -> fail "expected reasoning block followed by answer text");
@@ -191,7 +191,7 @@ let test_parse_response_wraps_provider_d_parse_errors () =
 let test_extract_reasoning_handles_empty_and_malformed_bodies () =
   let resp =
     { T.id = "resp"
-    ; model = "provider_k-5.1"
+    ; model = "glm-5.1"
     ; stop_reason = T.EndTurn
     ; content = [ T.Text "answer" ]
     ; usage = None
@@ -210,7 +210,7 @@ let test_extract_reasoning_handles_empty_and_malformed_bodies () =
 
 let test_parse_stream_chunk_delegates_reasoning_delta () =
   let data =
-    {|{"id":"chunk-1","model":"provider_k-5.1","choices":[{"delta":{"reasoning_content":"thinking","content":"token"},"index":0}]}|}
+    {|{"id":"chunk-1","model":"glm-5.1","choices":[{"delta":{"reasoning_content":"thinking","content":"token"},"index":0}]}|}
   in
   match K.parse_stream_chunk data with
   | Some chunk ->
@@ -238,11 +238,11 @@ let () =
             `Quick
             test_parse_response_extracts_reasoning_and_usage
         ; test_case
-            "provider_k error classes"
+            "glm error classes"
             `Quick
             test_parse_response_classifies_provider_k_errors
         ; test_case
-            "provider_d parse errors"
+            "openai parse errors"
             `Quick
             test_parse_response_wraps_provider_d_parse_errors
         ; test_case

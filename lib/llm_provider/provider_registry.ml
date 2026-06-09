@@ -286,7 +286,7 @@ let glm_coding_defaults =
 
 let provider_c_defaults =
   { kind = Kimi
-  ; base_url = env_or_default "PROVIDER_C_BASE_URL" "https://api.provider_c.com/coding"
+  ; base_url = env_or_default "PROVIDER_C_BASE_URL" "https://api.kimi.com/coding"
   ; api_key_env = "PROVIDER_C_API_KEY"
   ; request_path = "/v1/messages"
   }
@@ -318,7 +318,7 @@ let openrouter_defaults =
 
 let provider_i_defaults =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "GROQ_BASE_URL" "https://api.provider_i.com/provider_d/v1"
+  ; base_url = env_or_default "GROQ_BASE_URL" "https://api.groq.com/openai/v1"
   ; api_key_env = "GROQ_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -326,7 +326,7 @@ let provider_i_defaults =
 
 let provider_g_defaults =
   { kind = OpenAI_compat
-  ; base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.provider_g.com"
+  ; base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.deepseek.com"
   ; api_key_env = "PROVIDER_G_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -337,7 +337,7 @@ let provider_h_defaults =
   ; base_url =
       env_or_default
         "DASHSCOPE_BASE_URL"
-        "https://provider_h-intl.aliyuncs.com/compatible-mode/v1"
+        "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
   ; api_key_env = "PROVIDER_H_API_KEY"
   ; request_path = "/chat/completions"
   }
@@ -394,19 +394,19 @@ let default () =
     ~max_context:200_000
     Capabilities.anthropic_capabilities;
   reg
-    "provider_f"
+    "gemini"
     provider_f_defaults
     ~max_context:1_000_000
     Capabilities.gemini_capabilities;
-  reg "provider_k" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
+  reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
   reg
-    "provider_k-coding"
+    "glm-coding"
     glm_coding_defaults
     ~max_context:128_000
     Capabilities.glm_capabilities;
   register
     t
-    { name = "provider_c"
+    { name = "kimi"
     ; defaults = provider_c_defaults
     ; max_context =
         max_context_from_capabilities ~default:262_144 Capabilities.kimi_capabilities
@@ -414,23 +414,23 @@ let default () =
     ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
     };
   reg
-    "provider_o_router"
+    "openrouter"
     openrouter_defaults
     ~max_context:128_000
     Capabilities.openai_compat_chat_extended_capabilities;
   reg
-    "provider_i"
+    "groq"
     provider_i_defaults
     ~max_context:131_072
     Capabilities.openai_compat_chat_capabilities;
-  (* Provider_g v4 series (flash / pro). 1M context, reasoning, tools. *)
+  (* Deepseek v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
-    "provider_g"
+    "deepseek"
     provider_g_defaults
     ~max_context:1_000_000
     Capabilities.openai_compat_chat_capabilities;
   reg
-    "provider_h"
+    "dashscope"
     provider_h_defaults
     ~max_context:131_072
     Capabilities.dashscope_capabilities;
@@ -464,12 +464,12 @@ let default () =
 let provider_name_of_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic -> "agent_llm_a"
-  | Kimi -> "provider_c"
-  | Gemini -> "provider_f"
+  | Kimi -> "kimi"
+  | Gemini -> "gemini"
   | Glm ->
     if Zai_catalog.is_coding_base_url config.base_url
-    then "provider_k-coding"
-    else "provider_k"
+    then "glm-coding"
+    else "glm"
   | Ollama ->
     if
       String.equal
@@ -477,7 +477,7 @@ let provider_name_of_config (config : Provider_config.t) =
         (normalize_url ollama_cloud_defaults.base_url)
     then "ollama_cloud"
     else "ollama"
-  | DashScope -> "provider_h"
+  | DashScope -> "dashscope"
   | OpenAI_compat ->
     if Provider_config.is_local config
     then "provider_n"

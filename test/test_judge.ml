@@ -133,7 +133,7 @@ let test_provider_config_for_judge_sets_schema_contract () =
     PC.make
       ~kind:PC.OpenAI_compat
       ~model_id:"model-d-mini"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~response_format:LT.JsonMode
       ()
   in

@@ -30,7 +30,7 @@ let provider_d_mlx_vlm_response text =
 ;;
 
 let ollama_tool_call_response () =
-  {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
+  {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
      "message":{"role":"assistant","content":"",
        "tool_calls":[
          {"function":{"index":0,"name":"get_temperature","arguments":{"city":"New York"}}},
@@ -228,7 +228,7 @@ let test_complete_http_empty_error_body_has_context () =
   | Exit -> ()
 ;;
 
-(* ── complete: Provider_d compat ─────────────────────────── *)
+(* ── complete: Openai compat ─────────────────────────── *)
 
 let test_complete_provider_d_ok () =
   Eio_main.run
@@ -237,7 +237,7 @@ let test_complete_provider_d_ok () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_mock_server ~sw ~net:env#net (provider_d_response "provider_d reply")
+      start_mock_server ~sw ~net:env#net (provider_d_response "openai reply")
     in
     let config = make_provider_d_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
@@ -250,9 +250,9 @@ let test_complete_provider_d_ok () =
           resp.content
         |> String.concat ""
       in
-      check string "text" "provider_d reply" text;
+      check string "text" "openai reply" text;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok for provider_d"
+    | Error _ -> fail "expected Ok for openai"
   with
   | Exit -> ()
 ;;
@@ -355,7 +355,7 @@ let test_complete_provider_d_mlx_vlm_telemetry () =
           | None -> fail "expected timings")
        | None -> fail "expected telemetry");
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected Ok for mlx-vlm provider_d compat"
+    | Error _ -> fail "expected Ok for mlx-vlm openai compat"
   with
   | Exit -> ()
 ;;
@@ -453,7 +453,7 @@ let test_complete_tool_call_metrics () =
     let config =
       Provider_config.make
         ~kind:Provider_config.Ollama
-        ~model_id:"provider_h-3:8b"
+        ~model_id:"dashscope-3:8b"
         ~base_url:url
         ~request_path:"/api/chat"
         ~temperature:0.0
@@ -474,7 +474,7 @@ let test_complete_tool_call_metrics () =
       (match !tool_calls with
        | [ (provider, model_id, count) ] ->
          check string "provider" "ollama" provider;
-         check string "model" "provider_h-3:8b" model_id;
+         check string "model" "dashscope-3:8b" model_id;
          check int "tool call count" 2 count
        | _ -> fail "expected one tool-call metric");
       Eio.Switch.fail sw Exit
@@ -687,7 +687,7 @@ let test_metrics_global_set_and_get () =
        Metrics.set_global custom;
        let g = Metrics.get_global () in
        g.on_http_status ~provider:"ollama" ~model_id:"m" ~status:429;
-       g.on_http_status ~provider:"provider_k" ~model_id:"m" ~status:429;
+       g.on_http_status ~provider:"glm" ~model_id:"m" ~status:429;
        check int "global metric fired twice" 2 !hits)
 ;;
 
@@ -1191,9 +1191,9 @@ let () =
             "empty http error body has context"
             `Quick
             test_complete_http_empty_error_body_has_context
-        ; test_case "provider_d ok" `Quick test_complete_provider_d_ok
+        ; test_case "openai ok" `Quick test_complete_provider_d_ok
         ; test_case
-            "provider_d mlx-vlm telemetry"
+            "openai mlx-vlm telemetry"
             `Quick
             test_complete_provider_d_mlx_vlm_telemetry
         ; test_case "trace context headers" `Quick test_complete_trace_context_headers

@@ -1,7 +1,7 @@
 (** OpenAI-compatible request serialization.
 
     Converts agent_sdk Types (content blocks, messages, tools) into
-    Provider_d Chat Completions API JSON format.
+    Openai Chat Completions API JSON format.
 
     @since 0.92.0 extracted from Backend_openai *)
 
@@ -257,7 +257,7 @@ let ollama_messages_of_message ?(model_id = "") msg =
     ToolResult survives.
 
     OpenAI-compatible APIs reject orphaned tool_call_ids; the Anthropic
-    API has its own dangling-tool-call repair, so this is Provider_d-path only.
+    API has its own dangling-tool-call repair, so this is Openai-path only.
 
     Pure function — no I/O, no mutation. *)
 let strip_orphaned_tool_results (messages : message list) : message list =
@@ -353,7 +353,7 @@ let strip_orphaned_tool_results (messages : message list) : message list =
 ;;
 
 (** Strip Thinking blocks from all messages.
-    Provider_g-compatible APIs reject [reasoning_content] in request
+    Deepseek-compatible APIs reject [reasoning_content] in request
     messages — it is response-only. Occurs before serialization so
     theThinking blocks do not leak into the wire format.
 

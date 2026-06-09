@@ -8,7 +8,7 @@ open Alcotest
 
 (* ── Mock server: stateful, multi-response ──────────── *)
 
-(* Provider_d Chat Completions format — Local provider routes through this since PR #308 *)
+(* Openai Chat Completions format — Local provider routes through this since PR #308 *)
 let provider_d_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}

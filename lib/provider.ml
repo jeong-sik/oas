@@ -48,10 +48,10 @@ type model_spec =
   }
 
 (** Check if a model needs extended OpenAI capabilities
-    (reasoning, top_k, min_p). Currently triggers on provider_h family models. *)
+    (reasoning, top_k, min_p). Currently triggers on dashscope family models. *)
 let needs_extended_capabilities model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
-  Util.string_contains ~needle:"provider_h" normalized
+  Util.string_contains ~needle:"dashscope" normalized
 ;;
 
 let default_openai_compat_capabilities model_id =
@@ -196,7 +196,7 @@ let first_present_env env_names =
 let provider_c_direct_base_url () =
   match Util.get "PROVIDER_C_BASE_URL" with
   | Some url -> url
-  | None -> "https://api.provider_c.com/coding"
+  | None -> "https://api.kimi.com/coding"
 ;;
 
 let provider_c_direct_request_path = "/v1/messages"
@@ -209,7 +209,7 @@ let provider_c_direct_headers _key =
 ;;
 
 let provider_c_provider_impl : provider_impl =
-  { name = "provider_c"
+  { name = "kimi"
   ; request_kind = Anthropic_messages
   ; request_path = provider_c_direct_request_path
   ; capabilities = Llm_provider.Capabilities.kimi_capabilities
@@ -466,7 +466,7 @@ let anthropic_opus () =
   }
 ;;
 
-let provider_o_router ?(model_id = "anthropic/agent_llm_a-sonnet-4-6") () =
+let openrouter ?(model_id = "anthropic/agent_llm_a-sonnet-4-6") () =
   { provider =
       OpenAICompat
         { base_url = "https://openrouter.ai/api/v1"
@@ -684,7 +684,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
   let provider =
     match pc.kind with
     | Anthropic -> Anthropic
-    | Kimi -> Custom_registered { name = "provider_c" }
+    | Kimi -> Custom_registered { name = "kimi" }
     | Gemini ->
       OpenAICompat
         { base_url = pc.base_url; auth_header; path = pc.request_path; static_token }

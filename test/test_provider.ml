@@ -189,7 +189,7 @@ let test_model_spec_local_llm_capabilities () =
 ;;
 
 let test_model_spec_openrouter_capabilities () =
-  let cfg = Provider.provider_o_router ~model_id:"anthropic/agent_llm_a-sonnet-4-6" () in
+  let cfg = Provider.openrouter ~model_id:"anthropic/agent_llm_a-sonnet-4-6" () in
   let spec = Provider.model_spec_of_config cfg in
   let contract = Provider.inference_contract_of_config cfg in
   Alcotest.(check string) "request path" "/chat/completions" spec.request_path;
@@ -219,7 +219,7 @@ let test_inference_contract_task_transcription () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "https://api.provider_d.com/v1"
+          { base_url = "https://api.openai.com/v1"
           ; auth_header = Some "Authorization"
           ; path = "/audio/transcriptions"
           ; static_token = None
@@ -275,7 +275,7 @@ let test_zai_glm5v_capabilities_include_image_input () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5v-turbo"
+    ; model_id = "glm-5v-turbo"
     ; api_key_env = ""
     }
   in
@@ -296,7 +296,7 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
           ; path = "/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_k-5"
+    ; model_id = "glm-5"
     ; api_key_env = ""
     }
   in
@@ -311,7 +311,7 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:8085" }
-    ; model_id = "provider_h-3.5-35b-a3b-ud-q8-xl"
+    ; model_id = "dashscope-3.5-35b-a3b-ud-q8-xl"
     ; api_key_env = "DUMMY_KEY"
     }
   in
@@ -331,7 +331,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
     Alcotest.(check string) "field" "modality" field;
     Alcotest.(check string)
       "detail"
-      "Model 'provider_h-3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support \
+      "Model 'dashscope-3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support \
        modality 'image'"
       detail
   | Error e ->
@@ -349,7 +349,7 @@ let test_extended_provider_d_capabilities () =
            ; path = "/chat/completions"
            ; static_token = None
            })
-      ~model_id:"provider_h-3.5-35b-a3b-ud-q8-xl"
+      ~model_id:"dashscope-3.5-35b-a3b-ud-q8-xl"
   in
   Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
   Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
@@ -431,7 +431,7 @@ let test_pricing_local () =
   let p =
     Provider.pricing_for_provider
       ~provider:(Local { base_url = "http://127.0.0.1:8085" })
-      ~model_id:"provider_h-3.5-35b-a3b"
+      ~model_id:"dashscope-3.5-35b-a3b"
   in
   Alcotest.(check (float 0.001)) "free" 0.0 p.input_per_million;
   Alcotest.(check (float 0.001)) "free output" 0.0 p.output_per_million
@@ -517,16 +517,16 @@ let test_config_of_provider_config_provider_c_uses_custom_provider () =
   let cfg =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.Kimi
-      ~model_id:"provider_c-for-coding"
-      ~base_url:"https://api.provider_c.com/coding"
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding"
       ()
   in
   match Provider.config_of_provider_config cfg with
   | { provider = Provider.Custom_registered { name }; api_key_env; _ } ->
-    Alcotest.(check string) "provider name" "provider_c" name;
+    Alcotest.(check string) "provider name" "kimi" name;
     Alcotest.(check string) "api_key_env" "KIMI_API_KEY" api_key_env
   | _ ->
-    Alcotest.fail "expected provider_c config to round-trip through Custom_registered"
+    Alcotest.fail "expected kimi config to round-trip through Custom_registered"
 ;;
 
 let test_openai_compat_static_token () =
@@ -645,7 +645,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
   let cfg : Provider.config =
     { provider =
         OpenAICompat
-          { base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d"
+          { base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
           ; auth_header = Some "Authorization"
           ; path = "/chat/completions"
           ; static_token = None
@@ -665,7 +665,7 @@ let test_provider_config_of_agent_openai_compat_collapses () =
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string)
       "base_url from resolve"
-      "https://generativelanguage.googleapis.com/v1beta/provider_d"
+      "https://generativelanguage.googleapis.com/v1beta/openai"
       pc.base_url;
     Alcotest.(check string) "request_path preserved" "/chat/completions" pc.request_path;
     check_no_header "authorization omitted from config headers" "Authorization" pc.headers;
@@ -729,7 +729,7 @@ let test_provider_config_of_agent_none_fallback () =
 let test_provider_config_of_agent_local_strips_dummy_key () =
   let cfg : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:11434" }
-    ; model_id = "provider_h-3.5"
+    ; model_id = "dashscope-3.5"
     ; api_key_env = "IGNORED"
     }
   in
@@ -755,16 +755,16 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
   (* Regression for #1003: Custom_registered must preserve the
      registry-declared provider_kind (e.g. Gemini) rather than
      flattening to OpenAI_compat, which would route Gemini requests
-     through the Provider_d wire format and produce 404 against the
+     through the Openai wire format and produce 404 against the
      Gemini base URL. *)
   let cfg : Provider.config =
-    { provider = Custom_registered { name = "provider_f" }
+    { provider = Custom_registered { name = "gemini" }
     ; model_id = "gemini-2.5-flash"
     ; api_key_env = "PROVIDER_F_API_KEY"
     }
   in
   let state = agent_state_with_params () in
-  Unix.putenv "PROVIDER_F_API_KEY" "fake-provider_f-key";
+  Unix.putenv "PROVIDER_F_API_KEY" "fake-gemini-key";
   match
     Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
   with
@@ -779,10 +779,10 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
 
 let test_provider_config_of_agent_custom_registered_provider_c_preserves_headers () =
   let env_var = "KIMI_PROVIDER_TEST_KEY" in
-  Unix.putenv env_var "provider_c-provider-test-key";
+  Unix.putenv env_var "kimi-provider-test-key";
   let cfg : Provider.config =
-    { provider = Custom_registered { name = "provider_c" }
-    ; model_id = "provider_c-for-coding"
+    { provider = Custom_registered { name = "kimi" }
+    ; model_id = "kimi-for-coding"
     ; api_key_env = env_var
     }
   in
@@ -799,7 +799,7 @@ let test_provider_config_of_agent_custom_registered_provider_c_preserves_headers
     check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
     check_auth_headers
       "x-api-key auth header derived"
-      [ "x-api-key", "provider_c-provider-test-key" ]
+      [ "x-api-key", "kimi-provider-test-key" ]
       pc;
     Alcotest.(check bool)
       "anthropic-version header present"
@@ -813,7 +813,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
     with_env "OLLAMA_API_KEY" (Some "fallback-ollama-api-key") (fun () ->
       let cfg : Provider.config =
         { provider = Custom_registered { name = "ollama_cloud" }
-        ; model_id = "provider_k-5.1:cloud"
+        ; model_id = "glm-5.1:cloud"
         ; api_key_env = "OLLAMA_CLOUD_API_KEY"
         }
       in
@@ -849,7 +849,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
     with_env "OLLAMA_API_KEY" (Some "ollama-api-fallback-key") (fun () ->
       let cfg : Provider.config =
         { provider = Custom_registered { name = "ollama_cloud" }
-        ; model_id = "provider_g-v4-pro:cloud"
+        ; model_id = "deepseek-v4-pro:cloud"
         ; api_key_env = "OLLAMA_CLOUD_API_KEY"
         }
       in
@@ -904,11 +904,11 @@ let () =
         ; Alcotest.test_case "local skips env var" `Quick test_local_skips_env_var
         ; Alcotest.test_case "provider_a provider" `Quick test_provider_a_provider
         ; Alcotest.test_case
-            "provider_d compat success"
+            "openai compat success"
             `Quick
             test_openai_compat_resolve_success
         ; Alcotest.test_case
-            "provider_d compat missing key"
+            "openai compat missing key"
             `Quick
             test_openai_compat_resolve_missing_key
         ; Alcotest.test_case "provider_a headers" `Quick test_provider_a_headers
@@ -917,7 +917,7 @@ let () =
             `Quick
             test_model_spec_local_llm_capabilities
         ; Alcotest.test_case
-            "provider_o_router model spec capabilities"
+            "openrouter model spec capabilities"
             `Quick
             test_model_spec_openrouter_capabilities
         ; Alcotest.test_case
@@ -937,11 +937,11 @@ let () =
             `Quick
             test_inference_contract_task_video_generation
         ; Alcotest.test_case
-            "zai provider_k-5v image capabilities"
+            "zai glm-5v image capabilities"
             `Quick
             test_zai_glm5v_capabilities_include_image_input
         ; Alcotest.test_case
-            "non-zai provider_k stays provider_d compat"
+            "non-zai glm stays openai compat"
             `Quick
             test_non_zai_glm_capabilities_stay_openai_compat
         ; Alcotest.test_case
@@ -949,7 +949,7 @@ let () =
             `Quick
             test_validate_inference_contract_rejects_unsupported_modality
         ; Alcotest.test_case
-            "extended provider_d capabilities"
+            "extended openai capabilities"
             `Quick
             test_extended_provider_d_capabilities
         ; Alcotest.test_case
@@ -984,7 +984,7 @@ let () =
             `Quick
             test_config_of_provider_config_localhost_query_delegates_to_ssot
         ; Alcotest.test_case
-            "provider_config provider_c custom"
+            "provider_config kimi custom"
             `Quick
             test_config_of_provider_config_provider_c_uses_custom_provider
         ] )
@@ -1018,7 +1018,7 @@ let () =
             `Quick
             test_provider_config_of_agent_custom_registered_preserves_kind
         ; Alcotest.test_case
-            "custom registered provider_c preserves headers"
+            "custom registered kimi preserves headers"
             `Quick
             test_provider_config_of_agent_custom_registered_provider_c_preserves_headers
         ; Alcotest.test_case

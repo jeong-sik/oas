@@ -78,7 +78,7 @@ let test_extract_provider_d_arguments_object () =
 ;;
 
 let test_extract_double_stringified () =
-  (* Provider_d-style: arguments value is a JSON-encoded string *)
+  (* Openai-style: arguments value is a JSON-encoded string *)
   let json = `Assoc [ "name", `String "tool"; "arguments", `String "{\"x\":42}" ] in
   match TUR.extract_name_and_input json with
   | Some (_, input) ->
@@ -176,7 +176,7 @@ let () =
     ; ( "extract_name_and_input"
       , [ test_case "provider_a style" `Quick test_extract_provider_a_style
         ; test_case
-            "provider_d arguments object"
+            "openai arguments object"
             `Quick
             test_extract_provider_d_arguments_object
         ; test_case "double stringified" `Quick test_extract_double_stringified

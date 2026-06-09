@@ -50,17 +50,17 @@ let test_request_path_provider_c () =
 
 let test_request_path_provider_d () =
   let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
-  check_string "provider_d path" "/v1/chat/completions" cfg.request_path
+  check_string "openai path" "/v1/chat/completions" cfg.request_path
 ;;
 
 let test_request_path_provider_f () =
   let cfg = Provider_config.make ~kind:Gemini ~model_id:"m" ~base_url:"" () in
-  check_string "provider_f path" "" cfg.request_path
+  check_string "gemini path" "" cfg.request_path
 ;;
 
 let test_request_path_glm () =
   let cfg = Provider_config.make ~kind:Glm ~model_id:"m" ~base_url:"" () in
-  check_string "provider_k path" "/chat/completions" cfg.request_path
+  check_string "glm path" "/chat/completions" cfg.request_path
 ;;
 
 let test_request_path_ollama () =
@@ -70,7 +70,7 @@ let test_request_path_ollama () =
 
 let test_request_path_provider_h () =
   let cfg = Provider_config.make ~kind:DashScope ~model_id:"m" ~base_url:"" () in
-  check_string "provider_h path" "/chat/completions" cfg.request_path
+  check_string "dashscope path" "/chat/completions" cfg.request_path
 ;;
 
 let test_request_path_override () =
@@ -137,7 +137,7 @@ let test_make_response_format_json_mode () =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~response_format_json:true
       ()
   in
@@ -176,12 +176,12 @@ let test_validate_output_schema_provider_d_official () =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "official provider_d accepted"
+    "official openai accepted"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -205,13 +205,13 @@ let test_validate_output_schema_glm_rejected () =
   let cfg =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "provider_k rejected"
+    "glm rejected"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -220,13 +220,13 @@ let test_validate_output_schema_provider_h_accepted () =
   let cfg =
     Provider_config.make
       ~kind:DashScope
-      ~model_id:"provider_h-max"
-      ~base_url:"https://provider_h-intl.aliyuncs.com/compatible-mode/v1"
+      ~model_id:"dashscope-max"
+      ~base_url:"https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "provider_h accepted"
+    "dashscope accepted"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -235,13 +235,13 @@ let test_validate_output_schema_provider_c_rejected () =
   let cfg =
     Provider_config.make
       ~kind:Kimi
-      ~model_id:"provider_c-for-coding"
-      ~base_url:"https://api.provider_c.com/coding"
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
   check_bool
-    "provider_c rejected"
+    "kimi rejected"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -250,8 +250,8 @@ let test_validate_output_schema_unrequested_ok () =
   let cfg =
     Provider_config.make
       ~kind:Kimi
-      ~model_id:"provider_c-for-coding"
-      ~base_url:"https://api.provider_c.com/coding"
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding"
       ()
   in
   check_bool
@@ -303,7 +303,7 @@ let test_validate_output_schema_capability_rejected () =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"unknown-model-without-schema-capability"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
   in
@@ -480,13 +480,13 @@ let test_provider_name_of_config_glm_general () =
   let cfg =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
       ()
   in
   check_string
-    "provider_k general"
-    "provider_k"
+    "glm general"
+    "glm"
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
@@ -494,13 +494,13 @@ let test_provider_name_of_config_glm_coding () =
   let cfg =
     Provider_config.make
       ~kind:Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
   check_string
-    "provider_k coding"
-    "provider_k-coding"
+    "glm coding"
+    "glm-coding"
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
@@ -513,7 +513,7 @@ let test_provider_name_of_config_local_openai_compat () =
       ()
   in
   check_string
-    "local provider_d compat resolves to llama"
+    "local openai compat resolves to llama"
     "provider_n"
     (Provider_registry.provider_name_of_config cfg)
 ;;
@@ -522,14 +522,14 @@ let test_provider_name_of_config_openrouter () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_d/gpt-oss-20b"
+      ~model_id:"openai/gpt-oss-20b"
       ~base_url:"https://openrouter.ai/api/v1"
       ~request_path:"/chat/completions"
       ()
   in
   check_string
-    "provider_o_router"
-    "provider_o_router"
+    "openrouter"
+    "openrouter"
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
@@ -582,7 +582,7 @@ let test_kind_aliases_rejected () =
          ("alias rejected " ^ input)
          true
          (Option.is_none (Provider_config.provider_kind_of_string input)))
-    [ "agent_llm_a"; "provider_d"; "provider_n"; "claude"; "openai"; "llama"; "zhipu" ]
+    [ "agent_llm_a"; "openai"; "provider_n"; "claude"; "openai"; "llama"; "zhipu" ]
 ;;
 
 let test_kind_case_insensitive () =
@@ -607,9 +607,9 @@ let test_kind_unknown_returns_none () =
     true
     (Option.is_none (Provider_config.provider_kind_of_string "anthrpic"));
   check_bool
-    "bare provider_o_router"
+    "bare openrouter"
     true
-    (Option.is_none (Provider_config.provider_kind_of_string "provider_o_router"));
+    (Option.is_none (Provider_config.provider_kind_of_string "openrouter"));
   check_bool
     "json-ish"
     true
@@ -666,7 +666,7 @@ let test_of_yojson_rejects_aliases () =
        match Provider_config.provider_kind_of_yojson json with
        | Ok _ -> Alcotest.failf "of_yojson alias %S should fail" input
        | Error _ -> ())
-    [ "agent_llm_a"; "provider_d"; "provider_n" ]
+    [ "agent_llm_a"; "openai"; "provider_n" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -848,7 +848,7 @@ let test_default_api_key_env_known () =
     (Some "GEMINI_API_KEY")
     (Provider_config.default_api_key_env Gemini);
   Alcotest.(check (option string))
-    "provider_k"
+    "glm"
     (Some "ZAI_API_KEY")
     (Provider_config.default_api_key_env Glm);
   Alcotest.(check (option string))
@@ -896,12 +896,12 @@ let () =
         ] )
     ; ( "request_path"
       , [ Alcotest.test_case "anthropic" `Quick test_request_path_provider_a
-        ; Alcotest.test_case "provider_c" `Quick test_request_path_provider_c
-        ; Alcotest.test_case "provider_d" `Quick test_request_path_provider_d
-        ; Alcotest.test_case "provider_f" `Quick test_request_path_provider_f
-        ; Alcotest.test_case "provider_k" `Quick test_request_path_glm
+        ; Alcotest.test_case "kimi" `Quick test_request_path_provider_c
+        ; Alcotest.test_case "openai" `Quick test_request_path_provider_d
+        ; Alcotest.test_case "gemini" `Quick test_request_path_provider_f
+        ; Alcotest.test_case "glm" `Quick test_request_path_glm
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
-        ; Alcotest.test_case "provider_h" `Quick test_request_path_provider_h
+        ; Alcotest.test_case "dashscope" `Quick test_request_path_provider_h
         ; Alcotest.test_case "override" `Quick test_request_path_override
         ] )
     ; ( "explicit_values"
@@ -918,7 +918,7 @@ let () =
         ] )
     ; ( "output_schema"
       , [ Alcotest.test_case
-            "official provider_d"
+            "official openai"
             `Quick
             test_validate_output_schema_provider_d_official
         ; Alcotest.test_case
@@ -926,15 +926,15 @@ let () =
             `Quick
             test_validate_output_schema_openai_compat_rejected
         ; Alcotest.test_case
-            "provider_k rejected"
+            "glm rejected"
             `Quick
             test_validate_output_schema_glm_rejected
         ; Alcotest.test_case
-            "provider_c rejected"
+            "kimi rejected"
             `Quick
             test_validate_output_schema_provider_c_rejected
         ; Alcotest.test_case
-            "provider_h accepted"
+            "dashscope accepted"
             `Quick
             test_validate_output_schema_provider_h_accepted
         ; Alcotest.test_case
@@ -946,11 +946,11 @@ let () =
             `Quick
             test_validate_output_schema_direct_response_format_record
         ; Alcotest.test_case
-            "supported non-provider_d providers"
+            "supported non-openai providers"
             `Quick
             test_validate_output_schema_supported_non_provider_d
         ; Alcotest.test_case
-            "provider_d capability rejection"
+            "openai capability rejection"
             `Quick
             test_validate_output_schema_capability_rejected
         ] )
@@ -989,19 +989,19 @@ let () =
         ] )
     ; ( "provider_name"
       , [ Alcotest.test_case
-            "provider_k general"
+            "glm general"
             `Quick
             test_provider_name_of_config_glm_general
         ; Alcotest.test_case
-            "provider_k coding"
+            "glm coding"
             `Quick
             test_provider_name_of_config_glm_coding
         ; Alcotest.test_case
-            "local provider_d compat"
+            "local openai compat"
             `Quick
             test_provider_name_of_config_local_openai_compat
         ; Alcotest.test_case
-            "provider_o_router"
+            "openrouter"
             `Quick
             test_provider_name_of_config_openrouter
         ; Alcotest.test_case

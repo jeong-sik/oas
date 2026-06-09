@@ -39,7 +39,7 @@ let test_provider_timeout_phase () =
   let err =
     Error.Provider
       (Llm_provider.Error.Timeout
-         { provider = "provider_d"
+         { provider = "openai"
          ; timeout_phase =
              Some
                (Llm_provider.Http_client.Stream_idle
@@ -50,7 +50,7 @@ let test_provider_timeout_phase () =
   check
     string
     "provider timeout"
-    "Provider 'provider_d' timeout phase=stream_idle:streaming_thinking: stream stalled"
+    "Provider 'openai' timeout phase=stream_idle:streaming_thinking: stream stalled"
     (Error.to_string err)
 ;;
 
@@ -207,7 +207,7 @@ let test_retryable_provider_timeout () =
   let err =
     Error.Provider
       (Llm_provider.Error.Timeout
-         { provider = "provider_d"
+         { provider = "openai"
          ; timeout_phase =
              Some
                (Llm_provider.Http_client.Stream_idle

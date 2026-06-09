@@ -130,7 +130,7 @@ let test_with_provider_m_sampling () =
   with_net
   @@ fun net ->
   let agent =
-    Builder.create ~net ~model:"provider_h-3.5-35b-a3b-ud-q8-xl"
+    Builder.create ~net ~model:"dashscope-3.5-35b-a3b-ud-q8-xl"
     |> Builder.with_top_p 0.95
     |> Builder.with_top_k 20
     |> Builder.with_min_p 0.01
@@ -1023,7 +1023,7 @@ let () =
         ; Alcotest.test_case "max_tokens" `Quick test_with_max_tokens
         ; Alcotest.test_case "max_turns" `Quick test_with_max_turns
         ; Alcotest.test_case "temperature" `Quick test_with_temperature
-        ; Alcotest.test_case "provider_h sampling" `Quick test_with_provider_m_sampling
+        ; Alcotest.test_case "dashscope sampling" `Quick test_with_provider_m_sampling
         ; Alcotest.test_case "tools replaces" `Quick test_with_tools_replaces
         ; Alcotest.test_case "tool appends" `Quick test_with_tool_appends
         ; Alcotest.test_case "hooks" `Quick test_with_hooks

@@ -30,7 +30,7 @@ val build_provider_d_tool_json : Yojson.Safe.t -> Yojson.Safe.t
     after context compaction.  @since 0.103.0 *)
 val strip_orphaned_tool_results : Types.message list -> Types.message list
 
-(** Remove Thinking blocks from all messages. Provider_g-compatible APIs
+(** Remove Thinking blocks from all messages. Deepseek-compatible APIs
     reject [reasoning_content] in request messages — it is response-only.
     Call before serializing messages for OpenAI-compatible APIs.
     @since 0.184.0 *)

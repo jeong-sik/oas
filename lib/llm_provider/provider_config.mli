@@ -251,7 +251,7 @@ val effort_of_thinking_config
 val reasoning_effort_of_config : t -> string option
 
 (** Derive a provider-safe schema name for native structured-output APIs
-    that require one (for example Provider_d's [json_schema.name]). *)
+    that require one (for example Openai's [json_schema.name]). *)
 val structured_output_name_of_schema : Yojson.Safe.t -> string
 
 (** Validate whether [output_schema] can be sent natively for this config.
@@ -261,7 +261,7 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [OpenAI_compat] is accepted only for official Provider_d hosts with a
+    - [OpenAI_compat] is accepted only for official Openai hosts with a
       model capability record that reports [supports_structured_output].
     - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
       DashScope (DashScope) exposes [response_format.json_schema] on its

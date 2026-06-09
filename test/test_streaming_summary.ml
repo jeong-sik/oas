@@ -27,7 +27,7 @@ let sample_breakdown : T.streaming_kind_breakdown =
 let sample_summary : T.t =
   T.Streaming_summary
     { provider = "openai_compat"
-    ; model = "provider_k-5.1"
+    ; model = "glm-5.1"
     ; chunk_count = 314
     ; kind_breakdown = sample_breakdown
     ; ttft_ms = Some 250.0
@@ -59,7 +59,7 @@ let test_terminal_error_roundtrip () =
   let summary_with_error : T.t =
     T.Streaming_summary
       { provider = "openai_compat"
-      ; model = "provider_k-5.1"
+      ; model = "glm-5.1"
       ; chunk_count = 12
       ; kind_breakdown =
           { thinking = 0

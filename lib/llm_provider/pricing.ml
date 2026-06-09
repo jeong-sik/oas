@@ -123,17 +123,17 @@ let static_pricing_opt_normalized normalized =
     else if string_contains ~needle:"o3-mini" normalized
     then
       Some ((1.1, 4.4), no_cache)
-      (* Provider_g v4. Source: api-docs.provider_g.com, confirmed 2026-04-29.
+      (* Deepseek v4. Source: api-docs.deepseek.com, confirmed 2026-04-29.
        Promotional 75%% discount until 2026-05-31.
        Cache read rate: flash $0.0028/M (2%% of input), pro $0.003625/M.
        Cache write is billed at standard input rate (no surcharge). *)
     else if
       string_contains ~needle:"deepseek-v4-pro" normalized
-      || string_contains ~needle:"provider_g-v4-pro" normalized
+      || string_contains ~needle:"deepseek-v4-pro" normalized
     then Some ((0.435, 0.87), (1.0, 0.008333333333333333))
     else if
       string_contains ~needle:"deepseek-v4-flash" normalized
-      || string_contains ~needle:"provider_g-v4-flash" normalized
+      || string_contains ~needle:"deepseek-v4-flash" normalized
     then
       Some ((0.14, 0.28), (1.0, 0.02))
       (* Gemini 3-계 preview. Source: ai.google.dev/gemini-api/docs/pricing,
@@ -147,7 +147,7 @@ let static_pricing_opt_normalized normalized =
     then Some ((0.50, 3.0), no_cache)
     else if
       string_contains ~needle:"gemini-3.1-pro-preview" normalized
-      || string_contains ~needle:"provider_f-3.1-pro" normalized
+      || string_contains ~needle:"gemini-3.1-pro" normalized
     then
       (* Standard tier (input <= 200k tokens). Above 200k Google charges
          2x ($4 input / $18 output). The pricing record has no context
@@ -155,44 +155,44 @@ let static_pricing_opt_normalized normalized =
          by 2x. Follow-up: extend the record with tiered pricing. *)
       Some ((2.0, 12.0), no_cache)
     else if
-      string_contains ~needle:"provider_f-3.1-flash-lite-preview" normalized
-      || string_contains ~needle:"provider_f-3.1-flash-lite" normalized
+      string_contains ~needle:"gemini-3.1-flash-lite-preview" normalized
+      || string_contains ~needle:"gemini-3.1-flash-lite" normalized
     then
       Some ((0.25, 1.5), no_cache)
       (* Glm (Z.ai). Source: docs.z.ai/guides/overview/pricing, confirmed
          2026-05-01. Cache write at standard input rate (no surcharge).
          Cache read multiplier = cached_input_price / input_price.
-         Free models: provider_k-4.7-flash, provider_k-4.5-flash.
+         Free models: glm-4.7-flash, glm-4.5-flash.
          Ordering: more-specific needles before less-specific (substring
-         match) — provider_k-5.1 before provider_k-5, provider_k-4.7-flashx before provider_k-4.7. *)
-    else if string_contains ~needle:"provider_k-5.1" normalized
+         match) — glm-5.1 before glm-5, glm-4.7-flashx before glm-4.7. *)
+    else if string_contains ~needle:"glm-5.1" normalized
     then Some ((1.4, 4.4), (1.0, 0.18571428571428572))
-    else if string_contains ~needle:"provider_k-5-turbo" normalized
+    else if string_contains ~needle:"glm-5-turbo" normalized
     then Some ((1.2, 4.0), (1.0, 0.2))
-    else if string_contains ~needle:"provider_k-4.7-flashx" normalized
+    else if string_contains ~needle:"glm-4.7-flashx" normalized
     then Some ((0.07, 0.4), (1.0, 0.14285714285714285))
-    else if string_contains ~needle:"provider_k-4.7-flash" normalized
+    else if string_contains ~needle:"glm-4.7-flash" normalized
     then Some ((0.0, 0.0), no_cache)
-    else if string_contains ~needle:"provider_k-4.5-x" normalized
+    else if string_contains ~needle:"glm-4.5-x" normalized
     then Some ((2.2, 8.9), (1.0, 0.20454545454545455))
-    else if string_contains ~needle:"provider_k-4.5-airx" normalized
+    else if string_contains ~needle:"glm-4.5-airx" normalized
     then Some ((1.1, 4.5), (1.0, 0.2))
-    else if string_contains ~needle:"provider_k-4.5-air" normalized
+    else if string_contains ~needle:"glm-4.5-air" normalized
     then Some ((0.2, 1.1), (1.0, 0.15))
-    else if string_contains ~needle:"provider_k-4.5-flash" normalized
+    else if string_contains ~needle:"glm-4.5-flash" normalized
     then Some ((0.0, 0.0), no_cache)
-    else if string_contains ~needle:"provider_k-5" normalized
+    else if string_contains ~needle:"glm-5" normalized
     then Some ((1.0, 3.2), (1.0, 0.2))
-    else if string_contains ~needle:"provider_k-4.6" normalized
+    else if string_contains ~needle:"glm-4.6" normalized
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if string_contains ~needle:"provider_k-4.7" normalized
+    else if string_contains ~needle:"glm-4.7" normalized
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
-    else if string_contains ~needle:"provider_k-4.5" normalized
+    else if string_contains ~needle:"glm-4.5" normalized
     then Some ((0.6, 2.2), (1.0, 0.18333333333333332))
     else if
       normalized = "auto"
-      || normalized = "provider_f"
-      || normalized = "provider_c"
+      || normalized = "gemini"
+      || normalized = "kimi"
       || normalized = "agent_code"
       || normalized = "cli_tool_d"
       || normalized = "cli_tool_b"
@@ -201,7 +201,7 @@ let static_pricing_opt_normalized normalized =
     then Some ((0.0, 0.0), no_cache)
     else if
       string_contains ~needle:"ollama" normalized
-      || string_contains ~needle:"provider_h" normalized
+      || string_contains ~needle:"dashscope" normalized
       || string_contains ~needle:"provider_n" normalized
     then Some ((0.0, 0.0), no_cache)
     else None
@@ -530,7 +530,7 @@ let%test "pricing agent_llm_a-3-7-sonnet" =
   && close_enough p.cache_write_multiplier 1.25
 ;;
 
-(* --- pricing_for_model: Provider_d models --- *)
+(* --- pricing_for_model: Openai models --- *)
 
 let%test "pricing model-d-mini" =
   let p = pricing_for_model "model-d-mini" in
@@ -603,95 +603,95 @@ let%test "pricing gemini-3-flash-preview" =
   close_enough p.input_per_million 0.50 && close_enough p.output_per_million 3.0
 ;;
 
-let%test "pricing provider_f-3.1-pro-preview" =
+let%test "pricing gemini-3.1-pro-preview" =
   let p = pricing_for_model "gemini-3.1-pro-preview" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
-let%test "pricing provider_f-3.1-pro (bare id)" =
-  let p = pricing_for_model "provider_f-3.1-pro" in
+let%test "pricing gemini-3.1-pro (bare id)" =
+  let p = pricing_for_model "gemini-3.1-pro" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 12.0
 ;;
 
-let%test "pricing provider_f-3.1-flash-lite-preview" =
-  let p = pricing_for_model "provider_f-3.1-flash-lite-preview" in
+let%test "pricing gemini-3.1-flash-lite-preview" =
+  let p = pricing_for_model "gemini-3.1-flash-lite-preview" in
   close_enough p.input_per_million 0.25 && close_enough p.output_per_million 1.5
 ;;
 
 (* --- pricing_for_model: Glm (Z.ai) --- *)
 
-let%test "pricing provider_k-5.1" =
-  let p = pricing_for_model "provider_k-5.1" in
+let%test "pricing glm-5.1" =
+  let p = pricing_for_model "glm-5.1" in
   close_enough p.input_per_million 1.4
   && close_enough p.output_per_million 4.4
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier (0.26 /. 1.4)
 ;;
 
-let%test "pricing provider_k-5-turbo" =
-  let p = pricing_for_model "provider_k-5-turbo" in
+let%test "pricing glm-5-turbo" =
+  let p = pricing_for_model "glm-5-turbo" in
   close_enough p.input_per_million 1.2
   && close_enough p.output_per_million 4.0
   && close_enough p.cache_read_multiplier 0.2
 ;;
 
-let%test "pricing provider_k-5 (generic)" =
-  let p = pricing_for_model "provider_k-5" in
+let%test "pricing glm-5 (generic)" =
+  let p = pricing_for_model "glm-5" in
   close_enough p.input_per_million 1.0 && close_enough p.output_per_million 3.2
 ;;
 
-let%test "pricing provider_k-4.7-flashx (paid)" =
-  let p = pricing_for_model "provider_k-4.7-flashx" in
+let%test "pricing glm-4.7-flashx (paid)" =
+  let p = pricing_for_model "glm-4.7-flashx" in
   close_enough p.input_per_million 0.07 && close_enough p.output_per_million 0.4
 ;;
 
-let%test "pricing provider_k-4.7-flash (free)" =
-  let p = pricing_for_model "provider_k-4.7-flash" in
+let%test "pricing glm-4.7-flash (free)" =
+  let p = pricing_for_model "glm-4.7-flash" in
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
-let%test "pricing provider_k-4.5-x" =
-  let p = pricing_for_model "provider_k-4.5-x" in
+let%test "pricing glm-4.5-x" =
+  let p = pricing_for_model "glm-4.5-x" in
   close_enough p.input_per_million 2.2 && close_enough p.output_per_million 8.9
 ;;
 
-let%test "pricing provider_k-4.5-airx" =
-  let p = pricing_for_model "provider_k-4.5-airx" in
+let%test "pricing glm-4.5-airx" =
+  let p = pricing_for_model "glm-4.5-airx" in
   close_enough p.input_per_million 1.1 && close_enough p.output_per_million 4.5
 ;;
 
-let%test "pricing provider_k-4.5-air" =
-  let p = pricing_for_model "provider_k-4.5-air" in
+let%test "pricing glm-4.5-air" =
+  let p = pricing_for_model "glm-4.5-air" in
   close_enough p.input_per_million 0.2 && close_enough p.output_per_million 1.1
 ;;
 
-let%test "pricing provider_k-4.5-flash (free)" =
-  let p = pricing_for_model "provider_k-4.5-flash" in
+let%test "pricing glm-4.5-flash (free)" =
+  let p = pricing_for_model "glm-4.5-flash" in
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
-let%test "pricing provider_k-4.7 (generic)" =
-  let p = pricing_for_model "provider_k-4.7" in
+let%test "pricing glm-4.7 (generic)" =
+  let p = pricing_for_model "glm-4.7" in
   close_enough p.input_per_million 0.6 && close_enough p.output_per_million 2.2
 ;;
 
-let%test "pricing provider_k-4.5 (generic)" =
-  let p = pricing_for_model "provider_k-4.5" in
+let%test "pricing glm-4.5 (generic)" =
+  let p = pricing_for_model "glm-4.5" in
   close_enough p.input_per_million 0.6 && close_enough p.output_per_million 2.2
 ;;
 
-let%test "pricing provider_k-coding-plan:provider_k-5-turbo (prefixed variant)" =
-  let p = pricing_for_model "provider_k-coding-plan:provider_k-5-turbo" in
+let%test "pricing glm-coding-plan:glm-5-turbo (prefixed variant)" =
+  let p = pricing_for_model "glm-coding-plan:glm-5-turbo" in
   close_enough p.input_per_million 1.2 && close_enough p.output_per_million 4.0
 ;;
 
-let%test "pricing provider_k-coding-plan:provider_k-5.1 (prefixed variant)" =
-  let p = pricing_for_model "provider_k-coding-plan:provider_k-5.1" in
+let%test "pricing glm-coding-plan:glm-5.1 (prefixed variant)" =
+  let p = pricing_for_model "glm-coding-plan:glm-5.1" in
   close_enough p.input_per_million 1.4 && close_enough p.output_per_million 4.4
 ;;
 
-let%test "pricing_for_model_opt: provider_k unknown returns None" =
-  match pricing_for_model_opt "provider_k-future-99" with
+let%test "pricing_for_model_opt: glm unknown returns None" =
+  match pricing_for_model_opt "glm-future-99" with
   | None -> true
   | Some _ -> false
 ;;
@@ -726,8 +726,8 @@ let%test "pricing ollama is free" =
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
-let%test "pricing provider_h is free" =
-  let p = pricing_for_model "provider_h-3.5-35b" in
+let%test "pricing dashscope is free" =
+  let p = pricing_for_model "dashscope-3.5-35b" in
   close_enough p.input_per_million 0.0
 ;;
 
@@ -755,8 +755,8 @@ let%test "pricing_for_model_opt: known local model returns Some with zero pricin
   | None -> false
 ;;
 
-let%test "pricing_for_model_opt: provider_h returns Some" =
-  match pricing_for_model_opt "provider_h-3.5-35b" with
+let%test "pricing_for_model_opt: dashscope returns Some" =
+  match pricing_for_model_opt "dashscope-3.5-35b" with
   | Some _ -> true
   | None -> false
 ;;
@@ -861,7 +861,7 @@ let%test "estimate_cost: regular_input clamped to zero when cache exceeds total"
 ;;
 
 let%test "estimate_cost: free model is always zero" =
-  let p = pricing_for_model "provider_h-3.5" in
+  let p = pricing_for_model "dashscope-3.5" in
   let cost =
     estimate_cost
       ~pricing:p
@@ -911,7 +911,7 @@ let%test "annotate_usage_cost fills zero cost for known free model" =
     ; cost_usd = None
     }
   in
-  match annotate_usage_cost ~model_id:"provider_h-3.5-35b" usage with
+  match annotate_usage_cost ~model_id:"dashscope-3.5-35b" usage with
   | { cost_usd = Some cost; _ } -> close_enough cost 0.0
   | _ -> false
 ;;

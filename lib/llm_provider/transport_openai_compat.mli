@@ -1,7 +1,7 @@
-(** Provider_d Chat Completions HTTP transport.
+(** Openai Chat Completions HTTP transport.
 
     Implements {!Llm_transport.t} for any OpenAI-compatible API endpoint:
-    llama-server, Glm, Provider_o_router, vLLM, Ollama, LiteLLM, etc.
+    llama-server, Glm, Openrouter, vLLM, Ollama, LiteLLM, etc.
 
     Thin wrapper around the HTTP completion pipeline in {!Complete}.
     Callers get a simplified config instead of constructing
@@ -22,7 +22,7 @@ type config =
   ; max_tokens : int (** Maximum tokens in the response. Default [4096]. *)
   ; extra_headers : (string * string) list
     (** Additional HTTP headers (e.g. [("HTTP-Referer", "...")]
-        for Provider_o_router). Default empty. *)
+        for Openrouter). Default empty. *)
   }
 
 (** Default config for local llama-server on port 8085. *)
@@ -31,7 +31,7 @@ val default_config : config
 (** Create an OpenAI-compatible HTTP transport.
 
     The returned {!Llm_transport.t} sends requests to the configured
-    endpoint using the Provider_d Chat Completions wire format.
+    endpoint using the Openai Chat Completions wire format.
 
     Per-request overrides from {!Llm_transport.completion_request.config}
     (temperature, system_prompt, tools, etc.) are respected. The

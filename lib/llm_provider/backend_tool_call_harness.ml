@@ -210,7 +210,7 @@ let is_dropped_content_block = function
 ;;
 
 (** Extract parameter schema from a tool definition JSON.
-    Handles both "input_schema" (Anthropic) and "parameters" (Provider_d). *)
+    Handles both "input_schema" (Anthropic) and "parameters" (Openai). *)
 let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
   let open Yojson.Safe.Util in
   match schema_if_present (tool_def |> member "input_schema") with
@@ -219,7 +219,7 @@ let extract_tool_schema (tool_def : Yojson.Safe.t) : Yojson.Safe.t option =
     (match schema_if_present (tool_def |> member "parameters") with
      | Some schema -> Some schema
      | None ->
-       (* Provider_d wraps in "function" *)
+       (* Openai wraps in "function" *)
        (match tool_def |> member "function" with
         | `Assoc func -> schema_if_present (`Assoc func |> member "parameters")
         | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None))
@@ -348,7 +348,7 @@ let validate_provider_d_response ~declared_tools json =
   match parsed with
   | Ok resp -> Ok (validate_response ~declared_tools resp)
   | Error response_parse_error ->
-    Error { response_backend = "provider_d"; response_parse_error }
+    Error { response_backend = "openai"; response_parse_error }
 ;;
 
 (* ── Inline Tests ─────────────────────────────────────── *)
@@ -412,7 +412,7 @@ let%test "provider_a undeclared tool fails validation" =
   result.stop_reason_correct && not result.all_tools_declared
 ;;
 
-let%test "provider_f functionCall response validates correctly" =
+let%test "gemini functionCall response validates correctly" =
   let json =
     `Assoc
       [ ( "candidates"
@@ -442,7 +442,7 @@ let%test "provider_f functionCall response validates correctly" =
   && List.length result.tool_calls_found = 1
 ;;
 
-let%test "provider_d tool_calls response validates correctly" =
+let%test "openai tool_calls response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-123"

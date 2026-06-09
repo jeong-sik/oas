@@ -28,13 +28,13 @@ let test_aggregating_on_request_start () =
 let test_aggregating_on_retry () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_retry ~provider:"provider_d" ~model_id:"model-d-4" ~attempt:1;
-  hooks.on_retry ~provider:"provider_d" ~model_id:"model-d-4" ~attempt:2;
+  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4" ~attempt:1;
+  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4" ~attempt:2;
   let snap = Agg.snapshot agg in
   check int "one entry" 1 (List.length snap);
   let entry = List.hd snap in
   check int "retry_total" 2 entry.M.retry_total;
-  check string "provider" "provider_d" entry.M.provider;
+  check string "provider" "openai" entry.M.provider;
   check string "model_id" "model-d-4" entry.M.model_id
 ;;
 
@@ -60,8 +60,8 @@ let test_aggregating_on_token_usage () =
 let test_aggregating_on_tool_calls () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_tool_calls ~provider:"ollama" ~model_id:"provider_h-3:8b" ~count:2;
-  hooks.on_tool_calls ~provider:"ollama" ~model_id:"provider_h-3:8b" ~count:3;
+  hooks.on_tool_calls ~provider:"ollama" ~model_id:"dashscope-3:8b" ~count:2;
+  hooks.on_tool_calls ~provider:"ollama" ~model_id:"dashscope-3:8b" ~count:3;
   let snap = Agg.snapshot agg in
   let entry = List.hd snap in
   check int "tool_call_total" 5 entry.M.tool_call_total
@@ -79,13 +79,13 @@ let test_aggregating_on_circuit_state () =
   let agg = Agg.create ~inner () in
   let hooks = Agg.to_hooks agg in
   hooks.on_circuit_state
-    ~provider:"provider_d"
+    ~provider:"openai"
     ~model_id:"model-d-4"
-    ~provider_key:"model-d-4@https://api.provider_d.com"
+    ~provider_key:"model-d-4@https://api.openai.com"
     ~state:M.Circuit_open;
   (match !observed with
    | Some
-       ("provider_d", "model-d-4", "model-d-4@https://api.provider_d.com", M.Circuit_open)
+       ("openai", "model-d-4", "model-d-4@https://api.openai.com", M.Circuit_open)
      -> ()
    | Some _ -> fail "unexpected circuit state callback"
    | None -> fail "missing circuit state callback");
@@ -171,7 +171,7 @@ let test_aggregating_key () =
 let test_aggregating_multiple_providers () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_retry ~provider:"provider_d" ~model_id:"model-d-4" ~attempt:1;
+  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4" ~attempt:1;
   hooks.on_token_usage
     ~provider:"anthropic"
     ~model_id:"agent_llm_a"
@@ -184,7 +184,7 @@ let test_aggregating_multiple_providers () =
 
 let test_provider_snapshot_to_yojson () =
   let snapshot : M.provider_snapshot =
-    { provider = "provider_d"
+    { provider = "openai"
     ; model_id = "model-d-4.1"
     ; request_total = 3
     ; error_total = 1
@@ -206,7 +206,7 @@ let test_provider_snapshot_to_yojson () =
     check
       (option string)
       "provider"
-      (Some "provider_d")
+      (Some "openai")
       (List.assoc_opt "provider" fields |> Option.map Yojson.Safe.Util.to_string);
     check
       (option int)
@@ -291,9 +291,9 @@ let test_provider_snapshots_to_yojson_is_stable () =
 let test_aggregating_save_snapshot_json () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_retry ~provider:"provider_d" ~model_id:"model-d-4.1" ~attempt:1;
+  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4.1" ~attempt:1;
   hooks.on_token_usage
-    ~provider:"provider_d"
+    ~provider:"openai"
     ~model_id:"model-d-4.1"
     ~input_tokens:10
     ~output_tokens:4;
@@ -321,7 +321,7 @@ let test_aggregating_save_snapshot_json () =
                check
                  string
                  "provider"
-                 "provider_d"
+                 "openai"
                  (List.assoc "provider" provider |> Yojson.Safe.Util.to_string);
                check
                  int
