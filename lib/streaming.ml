@@ -216,6 +216,8 @@ let map_http_error = function
 let create_message_stream
       ~sw
       ~net
+      ?clock
+      ?idle_timeout
       ?(base_url = Api.default_base_url)
       ?provider
       ~config
@@ -259,6 +261,7 @@ let create_message_stream
        let url = base_url ^ "/v1/messages" in
        (match
           Llm_provider.Http_client.with_post_stream
+            ?clock
             ~net
             ~url
             ~headers
@@ -266,6 +269,8 @@ let create_message_stream
             ~f:(fun reader ->
               let acc = create_stream_acc () in
               Llm_provider.Http_client.read_sse
+                ?clock
+                ?idle_timeout
                 ~reader
                 ~on_data:(fun ~event_type data ->
                   if data <> "[DONE]"
@@ -318,6 +323,7 @@ let create_message_stream
        let url = base_url ^ stream_path in
        (match
           Llm_provider.Http_client.with_post_stream
+            ?clock
             ~net
             ~url
             ~headers
@@ -327,6 +333,8 @@ let create_message_stream
               let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
               let msg_started = ref false in
               Llm_provider.Http_client.read_sse
+                ?clock
+                ?idle_timeout
                 ~reader
                 ~on_data:(fun ~event_type:_ data ->
                   if data = "[DONE]"

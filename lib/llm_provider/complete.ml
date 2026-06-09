@@ -1373,6 +1373,11 @@ let complete_stream_http
       ~(on_event : Types.sse_event -> unit)
       ()
   =
+  let stream_idle_timeout_s =
+    match stream_idle_timeout_s with
+    | Some _ as v -> v
+    | None -> Some 60.0
+  in
   match validate_all config with
   | Error err -> Error err
   | Ok () ->

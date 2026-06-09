@@ -25,6 +25,8 @@ module type STREAMING_PROVIDER = sig
   val create_message_stream
     :  sw:Eio.Switch.t
     -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> ?clock:_ Eio.Time.clock
+    -> ?idle_timeout:float
     -> config:Types.agent_state
     -> messages:Types.message list
     -> ?tools:Yojson.Safe.t list

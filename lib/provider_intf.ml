@@ -49,6 +49,8 @@ module type STREAMING_PROVIDER = sig
   val create_message_stream
     :  sw:Eio.Switch.t
     -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+    -> ?clock:_ Eio.Time.clock
+    -> ?idle_timeout:float
     -> config:Types.agent_state
     -> messages:Types.message list
     -> ?tools:Yojson.Safe.t list
@@ -165,10 +167,12 @@ let of_config_streaming (provider_cfg : Provider.config)
     let module SP = struct
       include Base
 
-      let create_message_stream ~sw ~net ~config ~messages ?tools ~on_event () =
+      let create_message_stream ~sw ~net ?clock ?idle_timeout ~config ~messages ?tools ~on_event () =
         Streaming.create_message_stream
           ~sw
           ~net
+          ?clock
+          ?idle_timeout
           ~base_url
           ~provider:provider_cfg
           ~config
