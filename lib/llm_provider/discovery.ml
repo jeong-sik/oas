@@ -971,8 +971,7 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
 (* --- contains_case_insensitive (via Retry SSOT) --- *)
 
 let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"Provider_H_3.5-35B" ~needle:"dashscope"
-  = true
+  Retry.contains_case_insensitive ~haystack:"DashScope_3.5-35B" ~needle:"dashscope" = true
 ;;
 
 let%test "contains_case_insensitive no match" =
@@ -988,7 +987,7 @@ let%test "contains_case_insensitive empty needle" =
 ;;
 
 let%test "contains_case_insensitive exact match" =
-  Retry.contains_case_insensitive ~haystack:"PROVIDER_H" ~needle:"dashscope" = true
+  Retry.contains_case_insensitive ~haystack:"DASHSCOPE" ~needle:"dashscope" = true
 ;;
 
 (* --- infer_capabilities --- *)
