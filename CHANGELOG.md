@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.2](https://github.com/jeong-sik/oas/compare/v0.205.1...v0.205.2) (2026-06-09)
+
+
+### Bug Fixes
+
+* **streaming:** default stream idle timeout to 60s and support clock ([0df3219](https://github.com/jeong-sik/oas/commit/0df32193d7c2d9499cbe9282d6c3d4d64b8595af))
+* **streaming:** default stream idle timeout to 60s and support clock parameter ([e505e59](https://github.com/jeong-sik/oas/commit/e505e5987e5a58843129050a7226ce679f16d584))
+
 ## [0.205.1](https://github.com/jeong-sik/oas/compare/v0.205.0...v0.205.1) (2026-06-09)
 
 
