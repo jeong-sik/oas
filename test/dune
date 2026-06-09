@@ -542,3 +542,8 @@
  (libraries agent_sdk alcotest eio eio_main unix yojson)
  (action
   (run %{test})))
+
+(test
+ (name test_streaming_cut_cleanup)
+ (modules test_streaming_cut_cleanup)
+ (libraries agent_sdk llm_provider alcotest eio eio_main))
