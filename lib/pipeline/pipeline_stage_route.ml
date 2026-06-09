@@ -86,23 +86,41 @@ let dispatch_stream
       ~base_url:agent.options.base_url
       agent.options.provider
   in
-  match
-    Llm_provider.Complete.complete_stream
-      ~sw
-      ~net:agent.net
-      ?clock
-      ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
-      ?transport:agent.options.transport
-      ~config:pc
-      ~messages:prep.Agent_turn.effective_messages
-      ~tools
-      ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
-      ~trace_context
-      ~on_event
-      ?on_telemetry
-      ?priority:agent.options.priority
-      ()
-  with
+  let call () =
+    match clock with
+    | Some clock ->
+      Llm_provider.Complete.complete_stream_with_retry
+        ~sw
+        ~net:agent.net
+        ?transport:agent.options.transport
+        ~clock
+        ~config:pc
+        ~messages:prep.Agent_turn.effective_messages
+        ~tools
+        ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
+        ~trace_context
+        ~on_event
+        ?on_telemetry
+        ?priority:agent.options.priority
+        ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+        ()
+    | None ->
+      Llm_provider.Complete.complete_stream
+        ~sw
+        ~net:agent.net
+        ?transport:agent.options.transport
+        ~config:pc
+        ~messages:prep.Agent_turn.effective_messages
+        ~tools
+        ?runtime_mcp_policy:prep.Agent_turn.runtime_mcp_policy
+        ~trace_context
+        ~on_event
+        ?on_telemetry
+        ?priority:agent.options.priority
+        ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+        ()
+  in
+  match call () with
   | Ok resp -> Ok resp
   | Error err -> Error (sdk_error_of_http_error err)
 ;;
