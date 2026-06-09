@@ -113,7 +113,12 @@ let build_request
       | None -> fields
     in
     let fields =
-      if stream && config.tool_stream
+      (* GLM streams tool-call arguments incrementally only when both
+         [stream] and [tool_stream] are set; [config.tool_stream] defaults
+         false, so a streaming request carrying tools would otherwise buffer
+         tool args. Default [tool_stream] on when tools are present
+         (RFC-OAS-023). *)
+      if stream && (config.tool_stream || tools <> [])
       then ("tool_stream", `Bool true) :: fields
       else fields
     in
@@ -439,6 +444,41 @@ let%test "build_request adds tool_stream when enabled" =
       ~tool_stream:true
       ()
   in
+  let messages =
+    [ { role = User
+      ; content = [ Text "weather" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body =
+    build_request
+      ~stream:true
+      ~config
+      ~messages
+      ~tools:[ `Assoc [ "name", `String "weather" ] ]
+      ()
+  in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "tool_stream" |> to_bool
+;;
+
+let%test "build_request defaults tool_stream on for streaming + tools (RFC-OAS-023)" =
+  (* GLM streams tool-call args incrementally only when both [stream] and
+     [tool_stream] are set, but [config.tool_stream] defaults false. A
+     streaming request carrying tools now defaults [tool_stream] on so the
+     args arrive incrementally instead of buffered. *)
+  let config =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"provider_k-5.1"
+      ~base_url:"https://api.z.ai/api/paas/v4"
+      ()
+  in
+  let () = assert (not config.tool_stream) in
   let messages =
     [ { role = User
       ; content = [ Text "weather" ]

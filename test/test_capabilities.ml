@@ -369,6 +369,39 @@ let test_lookup_grok () =
   | None -> fail "should match grok"
 ;;
 
+let test_lookup_qwen3_thinking_control () =
+  (* RFC-OAS-023: self-served Qwen3 (vLLM / llama-server, OpenAI_compat kind)
+     toggles reasoning on the wire via
+     {"chat_template_kwargs":{"enable_thinking":b}}. Without an explicit
+     thinking_control_format the Qwen_3 record defaulted to
+     No_thinking_control and [supports_extended_thinking=true] never reached
+     the wire.
+
+     This asserts the built-in static table. [for_model_id] consults the
+     ambient OAS_CAPABILITY_MANIFEST first, and that manifest may carry a
+     generic [qwen] entry that the [apply_manifest_entry] codec resolves
+     WITHOUT a thinking_control_format (the manifest schema has no such
+     field). We pin the static fallback by routing through
+     [for_model_id_with_manifest] with a non-matching manifest, mirroring
+     [test_manifest_fallback_to_static]. *)
+  let non_matching =
+    match
+      Capability_manifest.of_json
+        (Yojson.Safe.from_string {|{"schema_version":1,"models":[]}|})
+    with
+    | Ok m -> m
+    | Error e -> Alcotest.failf "manifest parse error: %s" e
+  in
+  match Capabilities.for_model_id_with_manifest non_matching "qwen3-32b" with
+  | Some c ->
+    check bool "supports reasoning" true c.supports_reasoning;
+    check_thinking_control
+      "qwen3 uses chat_template_kwargs"
+      Capabilities.Chat_template_kwargs
+      c.thinking_control_format
+  | None -> fail "should match qwen3"
+;;
+
 let test_lookup_unknown () =
   check
     bool
@@ -886,6 +919,7 @@ let () =
         ; test_case "provider_k-4.6v vision" `Quick test_lookup_glm46v_vision
         ; test_case "provider_k-ocr vision" `Quick test_lookup_glm_ocr
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
+        ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive
         ] )

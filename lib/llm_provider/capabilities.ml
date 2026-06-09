@@ -930,6 +930,13 @@ let capabilities_of_static_model_route = function
       ; supports_parallel_tool_calls = true
       ; supports_reasoning = true
       ; supports_extended_thinking = true
+      ; (* Self-served Qwen3 (vLLM / llama-server, [OpenAI_compat] kind)
+           toggles reasoning on the wire via
+           {"chat_template_kwargs":{"enable_thinking":b}}; a top-level
+           field is silently ignored. Without this the record defaulted to
+           [No_thinking_control] and no thinking knob reached the wire. The
+           sibling [DashScope_3] record uses the same wire shape. *)
+        thinking_control_format = Chat_template_kwargs
       ; supports_response_format_json = true
       ; supports_structured_output = true
       ; supports_native_streaming = true
