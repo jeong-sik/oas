@@ -86,7 +86,14 @@ let accumulate_event (acc : stream_acc) = function
        then acc.cache_creation := u.cache_creation_input_tokens;
        if u.cache_read_input_tokens > 0 then acc.cache_read := u.cache_read_input_tokens
      | None -> ())
-  | SSEError msg -> acc.sse_error := Some msg
+  (* WORKAROUND: this secondary streaming surface ([create_message_stream] via
+     [provider_intf], used by examples + e2e) keeps its own string [sse_error]
+     carrier and still collapses to [NetworkError {Unknown}] at finalize. The
+     typed-carrier fix landed on the primary completion path
+     ([Complete.complete_stream] / [Complete_stream_acc]). Root fix: unify this
+     duplicate accumulator onto [Complete_stream_acc] (follow-on). Here we only
+     destructure the enriched [SSEError] payload to keep compiling. *)
+  | SSEError { message; _ } -> acc.sse_error := Some message
   | SSEParseFailed { raw; reason } ->
     let preview =
       if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw

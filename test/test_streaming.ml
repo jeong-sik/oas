@@ -102,9 +102,10 @@ let test_sse_ping () =
 ;;
 
 let test_sse_error () =
-  let evt = SSEError "overloaded" in
+  let evt = SSEError { message = "overloaded"; error_type = None; raw = "overloaded" } in
   match evt with
-  | SSEError msg -> Alcotest.(check string) "error message" "overloaded" msg
+  | SSEError { message; _ } ->
+    Alcotest.(check string) "error message" "overloaded" message
   | _ -> Alcotest.fail "expected SSEError"
 ;;
 
@@ -218,7 +219,9 @@ let test_parse_error_event () =
     {|{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}|}
   in
   match Agent_sdk.Streaming.parse_sse_event None data with
-  | Some (SSEError msg) -> Alcotest.(check string) "error message" "Overloaded" msg
+  | Some (SSEError { message; error_type; _ }) ->
+    Alcotest.(check string) "error message" "Overloaded" message;
+    Alcotest.(check (option string)) "error type" (Some "overloaded_error") error_type
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
 ;;

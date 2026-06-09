@@ -244,7 +244,9 @@ let test_acc_ignores_message_stop () =
 
 let test_acc_sse_error_propagated () =
   let acc = Streaming.create_stream_acc () in
-  Streaming.accumulate_event acc (SSEError "overloaded");
+  Streaming.accumulate_event
+    acc
+    (SSEError { message = "overloaded"; error_type = None; raw = "overloaded" });
   match Streaming.finalize_stream_acc acc with
   | Error msg -> check_string "error msg" "overloaded" msg
   | Ok _ -> Alcotest.fail "expected Error from SSEError"

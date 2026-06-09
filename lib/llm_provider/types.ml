@@ -382,7 +382,19 @@ type sse_event =
       }
   | MessageStop
   | Ping
-  | SSEError of string
+  | SSEError of
+      { message : string
+      ; error_type : string option
+        (** Provider error-object [type] (e.g. ["rate_limit_exceeded"]),
+                the streaming-time discriminator. Lets a mid-stream error
+                converge onto the same classification path as an initial HTTP
+                error instead of collapsing to [NetworkError {Unknown}].
+                [None] when the provider omits it. *)
+      ; raw : string
+        (** Original error payload JSON, carried verbatim so the consumer
+                can feed it to [Retry.classify_error] (retry_after, hard-quota
+                detection) exactly as the non-streaming path does. *)
+      }
   | SSEParseFailed of
       { raw : string
       ; reason : string
@@ -393,6 +405,30 @@ type sse_event =
       }
   | Connected
   | Timeout of string
+
+(** Terminal error captured while accumulating an SSE stream.
+
+    The accumulator stores this typed value (not a flattened string) so the
+    consumer can route a provider-reported error through the same
+    [Http_client.HttpError {code; body}] -> [Retry.classify_error] path the
+    non-streaming boundary uses, while a genuine wire/parse failure stays an
+    unclassifiable network error. Replaces the prior [string] carrier that
+    collapsed rate-limit / auth / server errors into one [NetworkError
+    {Unknown}] bucket. *)
+type stream_error =
+  | Stream_provider_error of
+      { message : string
+      ; error_type : string option
+      ; raw : string
+      }
+  | Stream_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+  | Stream_unknown_event of
+      { event_type : string
+      ; raw : string
+      }
 
 (** {1 Convenience Constructors}
 

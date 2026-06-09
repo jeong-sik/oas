@@ -73,6 +73,16 @@ val contains_case_insensitive : haystack:string -> needle:string -> bool
 
 val classify_error : status:int -> body:string -> api_error
 
+(** HTTP status that a provider error condition carries as an initial response,
+    keyed on the error-object [type] string emitted mid-stream (where no HTTP
+    status is available). Lets a mid-stream SSE error converge onto the same
+    [Http_client.HttpError {code; body}] -> {!classify_error} path as a
+    non-streaming error. [None] for an unrecognized [type] (caller keeps it as
+    an unclassifiable network error rather than guessing).
+
+    @since 0.205.0 *)
+val status_of_provider_error_type : string -> int option
+
 (** {1 Retry execution} *)
 
 val calculate_delay : retry_config -> int -> float
