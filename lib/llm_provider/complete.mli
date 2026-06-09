@@ -177,3 +177,24 @@ val complete_stream
   -> ?on_telemetry:(Telemetry_event.t -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
+
+(** Streaming completion with exponential backoff retry.
+    Passes [transport] and [metrics] through to each attempt. *)
+val complete_stream_with_retry
+  :  sw:Eio.Switch.t
+  -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> ?transport:Llm_transport.t
+  -> clock:_ Eio.Time.clock
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
+  -> ?trace_context:(string * string) list
+  -> ?retry_config:retry_config
+  -> on_event:(Types.sse_event -> unit)
+  -> ?metrics:Metrics.t
+  -> ?priority:Request_priority.t
+  -> ?stream_idle_timeout_s:float
+  -> ?on_telemetry:(Telemetry_event.t -> unit)
+  -> unit
+  -> (Types.api_response, Http_client.http_error) result

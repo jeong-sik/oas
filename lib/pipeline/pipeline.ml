@@ -369,8 +369,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          is_error tool_results; the model self-corrects on a subsequent turn.
          There is no separate retry-count gate — runaway is bounded by the
          shared loop guard (max_turns + idle detection + token budget), the real
-         backpressure. A premature count cap (formerly 2/2) killed models that
-         converge on a later try. *)
+         backpressure. (origin/main reached the same "tool failure is never
+         turn-fatal" outcome by neutering the Exhausted branch; this removes the
+         Tool_retry_policy mechanism entirely, which subsumes that change.) *)
       let tool_feedback = tool_results in
       (* Anti-repetition hint: append warning to tool feedback when idle detected
        but not already handled by Nudge or Skip. Nudge injects its own message

@@ -23,7 +23,12 @@ let scripted_transport scripted_responses request_count : Llm_transport.t =
         | [] -> failwith "scripted transport exhausted")
   ; complete_stream =
       (fun ?on_telemetry:_ ~on_event:_ _req ->
-        failwith "stream transport not used in this test")
+        incr request_count;
+        match !responses with
+        | next :: rest ->
+          responses := rest;
+          next
+        | [] -> failwith "scripted transport exhausted")
   }
 ;;
 
@@ -152,6 +157,89 @@ let test_complete_with_retry_retries_malformed_json_400 () =
   | Exit -> ()
 ;;
 
+let test_complete_stream_with_retry_stops_on_hard_quota_429 () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let transport =
+      scripted_transport
+        [ Error (Http_client.HttpError { code = 429; body = hard_quota_body }) ]
+        request_count
+    in
+    let config = make_config "http://unused.test" in
+    let on_event _ = () in
+    match
+      Complete.complete_stream_with_retry
+        ~sw
+        ~net:env#net
+        ~transport
+        ~clock
+        ~config
+        ~messages
+        ~retry_config:fast_retry_config
+        ~on_event
+        ()
+    with
+    | Ok _ -> fail "expected hard quota failure"
+    | Error (Http_client.HttpError { code; _ }) ->
+      check int "status" 429 code;
+      check int "single request" 1 !request_count;
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected HttpError"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_with_retry_retries_malformed_json_400 () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let transport =
+      scripted_transport
+        [ Error (Http_client.HttpError { code = 400; body = malformed_json_body })
+        ; Ok (mock_response "recovered after retry")
+        ]
+        request_count
+    in
+    let config = make_config "http://unused.test" in
+    let on_event _ = () in
+    match
+      Complete.complete_stream_with_retry
+        ~sw
+        ~net:env#net
+        ~transport
+        ~clock
+        ~config
+        ~messages
+        ~retry_config:fast_retry_config
+        ~on_event
+        ()
+    with
+    | Ok resp ->
+      let text =
+        List.filter_map
+          (function
+            | Types.Text s -> Some s
+            | _ -> None)
+          resp.content
+        |> String.concat ""
+      in
+      check string "response text" "recovered after retry" text;
+      check int "two requests" 2 !request_count;
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected recovery after malformed json"
+  with
+  | Exit -> ()
+;;
+
 let () =
   run
     "complete_retry"
@@ -168,6 +256,14 @@ let () =
             "malformed json retries same provider"
             `Quick
             test_complete_with_retry_retries_malformed_json_400
+        ; test_case
+            "stream hard quota stops immediately"
+            `Quick
+            test_complete_stream_with_retry_stops_on_hard_quota_429
+        ; test_case
+            "stream malformed json retries same provider"
+            `Quick
+            test_complete_stream_with_retry_retries_malformed_json_400
         ] )
     ]
 ;;
