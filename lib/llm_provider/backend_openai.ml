@@ -1264,9 +1264,7 @@ let%test "build_request serializes thinking object for deepseek-v4-flash" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  let thinking = json |> member "thinking" in
-  thinking |> member "type" |> to_string = "enabled"
-  && thinking |> member "reasoning_effort" = `Null
+  json |> member "thinking" = `Null
   && json |> member "reasoning_effort" |> to_string = "low"
 ;;
 
@@ -1282,7 +1280,8 @@ let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  json |> member "thinking" |> member "type" |> to_string = "disabled"
+  json |> member "thinking" = `Null
+  && json |> member "reasoning_effort" |> to_string = "none"
 ;;
 
 let%test "build_request serializes ZAI thinking object for bare GLM compat model" =

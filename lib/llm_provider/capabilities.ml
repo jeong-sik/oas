@@ -640,7 +640,7 @@ let capabilities_of_static_model_route = function
       ; supports_reasoning = true
       ; supports_extended_thinking = true
       ; supports_reasoning_budget = true
-      ; thinking_control_format = Thinking_object
+      ; thinking_control_format = Reasoning_effort
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
@@ -657,7 +657,7 @@ let capabilities_of_static_model_route = function
       ; supports_reasoning = true
       ; supports_extended_thinking = true
       ; supports_reasoning_budget = true
-      ; thinking_control_format = Thinking_object
+      ; thinking_control_format = Reasoning_effort
       ; supports_response_format_json = true
       ; supports_native_streaming = true
       ; supports_caching = true
@@ -1434,19 +1434,19 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
          test. *)
     ; ( "deepseek-v4-flash"
       , fun c ->
-          c.thinking_control_format = Thinking_object
+          c.thinking_control_format = Reasoning_effort
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-v4-flash-test"
       , fun c ->
-          c.thinking_control_format = Thinking_object
+          c.thinking_control_format = Reasoning_effort
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-v4-pro"
       , fun c ->
-          c.thinking_control_format = Thinking_object
+          c.thinking_control_format = Reasoning_effort
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-v4-pro-test"
       , fun c ->
-          c.thinking_control_format = Thinking_object
+          c.thinking_control_format = Reasoning_effort
           && c.max_output_tokens = Some 384_000 )
     ; ( "nvidia-ultra-253b"
       , fun c ->
