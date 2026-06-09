@@ -353,9 +353,15 @@ let strip_orphaned_tool_results (messages : message list) : message list =
 ;;
 
 (** Strip Thinking blocks from all messages.
-    Deepseek-compatible APIs reject [reasoning_content] in request
-    messages — it is response-only. Occurs before serialization so
-    theThinking blocks do not leak into the wire format.
+
+    Some OpenAI-compatible providers emit [reasoning_content] in
+    responses but do not accept it in request messages.  DeepSeek is
+    an exception — it *requires* [reasoning_content] round-tripping
+    for tool-call turns (see DeepSeek API docs).  The caller is
+    responsible for choosing the correct serializer (see
+    {!Backend_openai_request.is_deepseek_model}) so that DeepSeek
+    requests use [provider_k_messages_of_message] which preserves
+    [reasoning_content].
 
     Pure function — no I/O, no mutation. *)
 let strip_thinking_blocks (messages : message list) : message list =
