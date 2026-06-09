@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.4](https://github.com/jeong-sik/oas/compare/v0.205.3...v0.205.4) (2026-06-09)
+
+
+### Bug Fixes
+
+* **provider:** round-trip reasoning_content for DeepSeek models ([9ef2e19](https://github.com/jeong-sik/oas/commit/9ef2e19d44e8b4348d08e40581e6ce3e6b1e7c29))
+* **provider:** round-trip reasoning_content for DeepSeek models ([1ce9ea6](https://github.com/jeong-sik/oas/commit/1ce9ea625cf549c0ad4efb62148f3305ed2b6f15))
+
 ## [0.205.3](https://github.com/jeong-sik/oas/compare/v0.205.2...v0.205.3) (2026-06-09)
 
 
