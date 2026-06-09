@@ -362,6 +362,34 @@ let classify_error ~status ~body : api_error =
     InvalidRequest { message }
 ;;
 
+(* The HTTP status a provider error condition carries as an initial response,
+   keyed on the error-object [type] string a provider emits mid-stream (where no
+   HTTP status is available — the 200 OK already returned). This is the
+   streaming analog of the [status] match in [classify_error]: it parses the
+   wire's own typed discriminator (an enumerated [type] field), NOT a flattened
+   message blob, so a mid-stream error converges onto the same
+   [HttpError {code; body}] -> [classify_error] path as a non-streaming error.
+
+   [None] for an unrecognized [type]: the caller keeps the error as an
+   unclassifiable network error rather than guessing a status — preserving the
+   pre-existing [NetworkError {Unknown}] behavior for unknown shapes (no
+   regression) while typing the known ones. The catch-all is required because
+   the input is an open provider string, not a closed sum. *)
+let status_of_provider_error_type = function
+  | "rate_limit_exceeded" | "rate_limit_error" | "insufficient_quota" | "quota_exceeded"
+    -> Some 429
+  | "authentication_error" | "invalid_api_key" | "permission_error" | "permission_denied"
+    -> Some 401
+  | "invalid_request_error"
+  | "invalid_request"
+  | "context_length_exceeded"
+  | "context_window_exceeded" -> Some 400
+  | "overloaded_error" -> Some 529
+  | "not_found_error" | "model_not_found" -> Some 404
+  | "api_error" | "server_error" | "internal_server_error" -> Some 500
+  | _unrecognized_provider_error_type -> None
+;;
+
 (** Calculate delay for attempt n with jitter.
     Returns a value in the range [base * 0.5, base * 1.5] where base is
     capped at max_delay. *)

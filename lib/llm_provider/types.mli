@@ -255,7 +255,16 @@ type sse_event =
       }
   | MessageStop
   | Ping
-  | SSEError of string
+  | SSEError of
+      { message : string
+      ; error_type : string option
+      ; raw : string
+      }
+  (** A provider-reported error delivered mid-stream. [error_type] is the
+            provider's error-object [type] discriminator (e.g.
+            ["rate_limit_exceeded"]) and [raw] the original error JSON, so the
+            consumer can converge onto the same classification path as an
+            initial HTTP error instead of collapsing to [NetworkError {Unknown}]. *)
   | SSEParseFailed of
       { raw : string
       ; reason : string
@@ -278,6 +287,26 @@ type sse_event =
             type the OAS adapter has not yet learned. Emit explicitly so
             the consumer can decide (log + skip vs fail-fast) instead of
             silent data loss. *)
+
+(** Terminal error captured while accumulating an SSE stream. The accumulator
+    stores this typed value (not a flattened string) so a provider-reported
+    error routes through the same [Http_client.HttpError {code; body}] ->
+    [Retry.classify_error] path the non-streaming boundary uses, while a wire /
+    parse failure stays an unclassifiable network error. *)
+type stream_error =
+  | Stream_provider_error of
+      { message : string
+      ; error_type : string option
+      ; raw : string
+      }
+  | Stream_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+  | Stream_unknown_event of
+      { event_type : string
+      ; raw : string
+      }
 
 (** {1 Convenience Constructors} *)
 

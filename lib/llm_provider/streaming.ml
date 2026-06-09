@@ -110,8 +110,14 @@ let parse_sse_event event_type data_str =
     | "message_stop" -> Some MessageStop
     | "ping" -> Some Ping
     | "error" ->
-      let msg = json |> member "error" |> member "message" |> to_string in
-      Some (SSEError msg)
+      let err = json |> member "error" in
+      let message =
+        match err |> member "message" |> to_string_option with
+        | Some m -> m
+        | None -> data_str
+      in
+      let error_type = err |> member "type" |> to_string_option in
+      Some (SSEError { message; error_type; raw = data_str })
     | other -> Some (SSEUnknownEventType { event_type = other; raw = data_str })
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
@@ -321,6 +327,35 @@ let parse_openai_sse_chunk data_str : provider_d_chunk option =
     | Yojson.Safe.Util.Undefined _
     | Yojson.Json_error _
     | Invalid_argument _ -> None
+;;
+
+(** Detect an OpenAI-compatible mid-stream error object
+    ([{"error": {"type"; "message"; ...}}]) in a payload that
+    [parse_openai_sse_chunk] turned into [None] (such a chunk has no [choices]
+    and would otherwise be dropped, letting the stream finalize as a phantom
+    completion). Surfaces a typed [SSEError] carrying the provider [type] and
+    raw JSON so the accumulator marks the stream failed and the consumer routes
+    it through the typed classification path. [None] for the [DONE] sentinel,
+    empty/usage-only chunks, and malformed data. *)
+let openai_compat_error_event data_str : sse_event option =
+  match Yojson.Safe.from_string data_str with
+  | exception Yojson.Json_error _ -> None
+  | json ->
+    let open Yojson.Safe.Util in
+    (match json with
+     | `Assoc _ ->
+       (match json |> member "error" with
+        | `Assoc _ as err ->
+          let message =
+            match err |> member "message" |> to_string_option with
+            | Some m -> m
+            | None -> data_str
+          in
+          let error_type = err |> member "type" |> to_string_option in
+          Some (SSEError { message; error_type; raw = data_str })
+        | `String s -> Some (SSEError { message = s; error_type = None; raw = data_str })
+        | _non_error_object -> None)
+     | _non_object_payload -> None)
 ;;
 
 (** Mutable state for converting Provider_d flat deltas to block-based events. *)

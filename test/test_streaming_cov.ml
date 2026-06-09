@@ -176,7 +176,9 @@ let test_accumulate_other_events () =
   Streaming.accumulate_event acc (Types.ContentBlockStop { index = 0 });
   Streaming.accumulate_event acc Types.MessageStop;
   Streaming.accumulate_event acc Types.Ping;
-  Streaming.accumulate_event acc (Types.SSEError "test error");
+  Streaming.accumulate_event
+    acc
+    (Types.SSEError { message = "test error"; error_type = None; raw = "test error" });
   Alcotest.(check string) "id unchanged" "" !(acc.msg_id)
 ;;
 

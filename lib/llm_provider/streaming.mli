@@ -67,6 +67,16 @@ type provider_d_stream_state =
 
 val parse_openai_sse_chunk : string -> provider_d_chunk option
 
+(** Surface an OpenAI-compatible mid-stream error object
+    ([{"error": {"type"; "message"; ...}}]) as a typed [SSEError]. Call this
+    on a payload that {!parse_openai_sse_chunk} returned [None] for: such a
+    chunk has no [choices] and would otherwise be dropped, letting the stream
+    finalize as a phantom completion. Returns [None] for the [DONE] sentinel,
+    empty/usage-only chunks, and malformed data.
+
+    @since 0.205.0 *)
+val openai_compat_error_event : string -> sse_event option
+
 (** RFC-OAS-020: [true] when the chunk carries either a non-empty
     [delta_content] or a non-empty [delta_reasoning] or any
     [delta_tool_calls] — that is, the consumer would surface a

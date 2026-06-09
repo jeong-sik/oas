@@ -14,7 +14,7 @@ type stream_acc =
   ; cache_creation : int ref
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
-  ; sse_error : string option ref
+  ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
@@ -87,25 +87,18 @@ let accumulate_event (acc : stream_acc) = function
        acc.input_tokens := !(acc.input_tokens) + u.input_tokens;
        acc.output_tokens := !(acc.output_tokens) + u.output_tokens
      | None -> ())
-  | Types.SSEError msg -> acc.sse_error := Some msg
+  | Types.SSEError { message; error_type; raw } ->
+    acc.sse_error := Some (Types.Stream_provider_error { message; error_type; raw })
   | Types.SSEParseFailed { raw; reason } ->
-    let preview =
-      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
-    in
-    acc.sse_error
-    := Some (Printf.sprintf "sse_parse_failed: %s | chunk: %s" reason preview)
+    acc.sse_error := Some (Types.Stream_parse_failed { reason; raw })
   | Types.SSEUnknownEventType { event_type; raw } ->
-    let preview =
-      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
-    in
-    acc.sse_error
-    := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
+    acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
   | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
 
 let finalize_stream_acc (acc : stream_acc) =
   match !(acc.sse_error) with
-  | Some msg -> Error msg
+  | Some serr -> Error serr
   | None ->
     let indices =
       Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types [] |> List.sort compare
@@ -416,10 +409,16 @@ let%test "accumulate_event Ping is no-op" =
   !(acc.id) = ""
 ;;
 
-let%test "accumulate_event SSEError records error" =
+let%test "accumulate_event SSEError records typed provider error" =
   let acc = create_stream_acc () in
-  accumulate_event acc (Types.SSEError "bad");
-  !(acc.sse_error) = Some "bad"
+  accumulate_event
+    acc
+    (Types.SSEError
+       { message = "bad"; error_type = Some "rate_limit_exceeded"; raw = "{}" });
+  match !(acc.sse_error) with
+  | Some (Types.Stream_provider_error { message; error_type; _ }) ->
+    message = "bad" && error_type = Some "rate_limit_exceeded"
+  | Some (Types.Stream_parse_failed _ | Types.Stream_unknown_event _) | None -> false
 ;;
 
 (* SSEParseFailed and SSEUnknownEventType replace the previous silent [None]
@@ -428,53 +427,39 @@ let%test "accumulate_event SSEError records error" =
    another provider instead of presenting a phantom completion (a partial
    response with no MessageStop, treated as success by downstream consumers). *)
 
-let%test "accumulate_event SSEParseFailed marks stream error with reason" =
+let%test "accumulate_event SSEParseFailed marks typed parse failure with reason" =
   let acc = create_stream_acc () in
   accumulate_event
     acc
     (Types.SSEParseFailed { raw = "{not json"; reason = "json_error: Line 1, bytes 0-9" });
   match !(acc.sse_error) with
-  | Some msg ->
-    let starts s prefix =
-      String.length s >= String.length prefix
-      && String.sub s 0 (String.length prefix) = prefix
-    in
-    starts msg "sse_parse_failed:"
-  | None -> false
+  | Some (Types.Stream_parse_failed { reason; raw }) ->
+    reason = "json_error: Line 1, bytes 0-9" && raw = "{not json"
+  | Some (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | None -> false
 ;;
 
-let%test "accumulate_event SSEUnknownEventType marks stream error with type" =
+let%test "accumulate_event SSEUnknownEventType marks typed unknown event with type" =
   let acc = create_stream_acc () in
   accumulate_event
     acc
     (Types.SSEUnknownEventType
        { event_type = "future_event_v3"; raw = "{\"type\":\"future_event_v3\"}" });
   match !(acc.sse_error) with
-  | Some msg ->
-    let contains s sub =
-      let n = String.length s in
-      let m = String.length sub in
-      let rec loop i = i + m <= n && (String.sub s i m = sub || loop (i + 1)) in
-      m <= n && loop 0
-    in
-    contains msg "future_event_v3"
-  | None -> false
+  | Some (Types.Stream_unknown_event { event_type; _ }) -> event_type = "future_event_v3"
+  | Some (Types.Stream_provider_error _ | Types.Stream_parse_failed _) | None -> false
 ;;
 
-let%test "accumulate_event SSEParseFailed truncates large raw chunks" =
+let%test
+    "accumulate_event SSEParseFailed carries raw chunk verbatim (no lossy truncation)"
+  =
   let acc = create_stream_acc () in
   let big = String.make 5000 'x' in
   accumulate_event acc (Types.SSEParseFailed { raw = big; reason = "test" });
+  (* The typed carrier preserves [raw] whole; any truncation is a display-layer
+     concern, not a data-loss point in the accumulator. *)
   match !(acc.sse_error) with
-  | Some msg ->
-    let contains s sub =
-      let n = String.length s in
-      let m = String.length sub in
-      let rec loop i = i + m <= n && (String.sub s i m = sub || loop (i + 1)) in
-      m <= n && loop 0
-    in
-    String.length msg < 5000 && contains msg "truncated"
-  | None -> false
+  | Some (Types.Stream_parse_failed { raw; _ }) -> String.length raw = 5000
+  | Some (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | None -> false
 ;;
 
 (* --- finalize_stream_acc edge cases --- *)
@@ -565,10 +550,16 @@ let%test "finalize_stream_acc returns Error when sse_error is set" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "partial content";
   Hashtbl.replace acc.block_texts 0 buf;
-  acc.sse_error := Some "server overloaded";
+  acc.sse_error
+  := Some
+       (Types.Stream_provider_error
+          { message = "server overloaded"
+          ; error_type = Some "overloaded_error"
+          ; raw = "{}"
+          });
   match finalize_stream_acc acc with
-  | Error msg -> msg = "server overloaded"
-  | Ok _ -> false
+  | Error (Types.Stream_provider_error { message; _ }) -> message = "server overloaded"
+  | Error (Types.Stream_parse_failed _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
 let%test "accumulate_event multiple MessageDelta accumulates tokens" =

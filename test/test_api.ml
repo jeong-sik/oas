@@ -1258,9 +1258,11 @@ let test_parse_sse_ping () =
 ;;
 
 let test_parse_sse_error () =
-  let data = {|{"error":{"message":"rate limited"}}|} in
+  let data = {|{"error":{"message":"rate limited","type":"rate_limit_exceeded"}}|} in
   match Streaming.parse_sse_event (Some "error") data with
-  | Some (Types.SSEError msg) -> check string "error msg" "rate limited" msg
+  | Some (Types.SSEError { message; error_type; _ }) ->
+    check string "error msg" "rate limited" message;
+    check (option string) "error type" (Some "rate_limit_exceeded") error_type
   | _ -> fail "expected SSEError"
 ;;
 

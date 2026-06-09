@@ -198,7 +198,9 @@ let test_accumulate_ignores_ping () =
   Streaming.accumulate_event acc Ping;
   Streaming.accumulate_event acc MessageStop;
   Streaming.accumulate_event acc (ContentBlockStop { index = 0 });
-  Streaming.accumulate_event acc (SSEError "oops");
+  Streaming.accumulate_event
+    acc
+    (SSEError { message = "oops"; error_type = None; raw = "oops" });
   Alcotest.(check string) "state unchanged" "" !(acc.msg_id)
 ;;
 

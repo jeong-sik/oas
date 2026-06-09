@@ -18,7 +18,7 @@ type stream_acc =
   ; cache_creation : int ref
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
-  ; sse_error : string option ref
+  ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
@@ -33,6 +33,8 @@ val create_stream_acc : unit -> stream_acc
 val accumulate_event : stream_acc -> Types.sse_event -> unit
 
 (** Produce the final {!Types.api_response} from the accumulated state.
-    Returns [Error msg] if an SSE error was recorded during the stream;
-    content blocks are ordered by their stream index. *)
-val finalize_stream_acc : stream_acc -> (Types.api_response, string) result
+    Returns [Error stream_error] if an SSE error was recorded during the stream
+    (typed so the consumer can route a provider-reported error through the same
+    classification path as a non-streaming error); content blocks are ordered by
+    their stream index. *)
+val finalize_stream_acc : stream_acc -> (Types.api_response, Types.stream_error) result

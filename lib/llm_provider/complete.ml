@@ -1151,6 +1151,123 @@ let record_streaming_metrics (metrics : Metrics.t) = function
 ;;
 
 (* Internal: HTTP-specific streaming implementation. *)
+(* Converge a stream-finalize error onto the same [Http_client.HttpError {code;
+   body}] representation the non-streaming path produces, so the downstream
+   [Pipeline_stage_route.sdk_error_of_http_error] -> [Retry.classify_error]
+   classifies a streamed rate-limit / auth / server error identically to an
+   initial HTTP error. A provider-reported error with a recognized [type]
+   becomes [HttpError]; an unrecognized type or a wire/parse failure stays an
+   unclassifiable [NetworkError {Unknown}] (the prior behavior for every stream
+   error) rather than guessing a classification. *)
+let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_error =
+  match serr with
+  | Types.Stream_provider_error { message; error_type; raw } ->
+    (match Option.bind error_type Retry.status_of_provider_error_type with
+     | Some code -> Http_client.HttpError { code; body = raw }
+     | None ->
+       Http_client.NetworkError
+         { message = Printf.sprintf "SSE stream error: %s" message
+         ; kind = Http_client.Unknown
+         })
+  | Types.Stream_parse_failed { reason; _ } ->
+    Http_client.NetworkError
+      { message = Printf.sprintf "SSE parse failed: %s" reason
+      ; kind = Http_client.Unknown
+      }
+  | Types.Stream_unknown_event { event_type; _ } ->
+    Http_client.NetworkError
+      { message = Printf.sprintf "SSE unknown event type: %s" event_type
+      ; kind = Http_client.Unknown
+      }
+;;
+
+let%test "stream rate-limit converges to typed RateLimited (not NetworkError Unknown)" =
+  (* The whole point of the typed carrier: a mid-stream provider rate-limit must
+     reach the consumer as the SAME typed error an initial 429 would, so a
+     retrying consumer backs off instead of treating it as a generic network
+     blip. *)
+  match
+    http_error_of_stream_error
+      (Types.Stream_provider_error
+         { message = "Rate limit reached"
+         ; error_type = Some "rate_limit_exceeded"
+         ; raw =
+             {|{"error":{"type":"rate_limit_exceeded","message":"Rate limit reached"}}|}
+         })
+  with
+  | Http_client.HttpError { code; body } ->
+    (match Retry.classify_error ~status:code ~body with
+     | Retry.RateLimited _ -> true
+     | Retry.Overloaded _
+     | Retry.ServerError _
+     | Retry.AuthError _
+     | Retry.InvalidRequest _
+     | Retry.NotFound _
+     | Retry.ContextOverflow _
+     | Retry.NetworkError _
+     | Retry.Timeout _ -> false)
+  | Http_client.NetworkError _
+  | Http_client.TimeoutError _
+  | Http_client.AcceptRejected _
+  | Http_client.ProviderTerminal _
+  | Http_client.ProviderFailure _ -> false
+;;
+
+let%test "stream auth error converges to typed AuthError" =
+  match
+    http_error_of_stream_error
+      (Types.Stream_provider_error
+         { message = "bad key"; error_type = Some "authentication_error"; raw = "{}" })
+  with
+  | Http_client.HttpError { code = 401; _ } -> true
+  | _ -> false
+;;
+
+let%test
+    "stream unknown error type stays unclassifiable NetworkError Unknown (no guessing)"
+  =
+  match
+    http_error_of_stream_error
+      (Types.Stream_provider_error
+         { message = "weird"; error_type = Some "totally_unknown_type"; raw = "{}" })
+  with
+  | Http_client.NetworkError { kind = Http_client.Unknown; _ } -> true
+  | _ -> false
+;;
+
+let%test "stream parse failure stays NetworkError Unknown (genuine wire failure)" =
+  match
+    http_error_of_stream_error
+      (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+  with
+  | Http_client.NetworkError { kind = Http_client.Unknown; _ } -> true
+  | _ -> false
+;;
+
+let%test "openai_compat_error_event surfaces a typed SSEError from an error chunk" =
+  match
+    Streaming.openai_compat_error_event
+      {|{"error":{"type":"rate_limit_exceeded","message":"slow down"}}|}
+  with
+  | Some (Types.SSEError { message; error_type; _ }) ->
+    String.equal message "slow down"
+    &&
+      (match error_type with
+      | Some "rate_limit_exceeded" -> true
+      | Some _ | None -> false)
+  | Some _ | None -> false
+;;
+
+let%test "openai_compat_error_event returns None for the DONE sentinel" =
+  Option.is_none (Streaming.openai_compat_error_event "[DONE]")
+;;
+
+let%test "openai_compat_error_event returns None for a normal content chunk" =
+  Option.is_none
+    (Streaming.openai_compat_error_event
+       {|{"id":"c","choices":[{"delta":{"content":"hi"}}]}|})
+;;
+
 let complete_stream_http
       ~sw:_
       ~net
@@ -1483,7 +1600,16 @@ let complete_stream_http
                              (match Streaming.parse_openai_sse_chunk data with
                               | Some chunk ->
                                 Streaming.openai_chunk_to_events (get_state ()) chunk
-                              | None -> [], None)
+                              | None ->
+                                (* A [None] from the chunk parser is the [DONE]
+                                   sentinel, a usage-only/empty chunk, OR a
+                                   provider error object ([{"error": ...}]) that
+                                   has no [choices]. Surface the last as a typed
+                                   [SSEError] so the stream finalizes as [Error]
+                                   instead of a phantom completion. *)
+                                (match Streaming.openai_compat_error_event data with
+                                 | Some evt -> [ evt ], None
+                                 | None -> [], None))
                            | Provider_config.Gemini ->
                              (match Streaming.parse_provider_f_sse_chunk data with
                               | Some chunk ->
@@ -1493,7 +1619,10 @@ let complete_stream_http
                              (match Backend_glm.parse_stream_chunk data with
                               | Some chunk ->
                                 Streaming.openai_chunk_to_events (get_state ()) chunk
-                              | None -> [], None)
+                              | None ->
+                                (match Streaming.openai_compat_error_event data with
+                                 | Some evt -> [ evt ], None
+                                 | None -> [], None))
                            | Provider_config.Ollama ->
                              [], None (* unreachable: handled above *)
                          in
@@ -1524,11 +1653,7 @@ let complete_stream_http
                             "stream_idle_timeout_s_exceeded:%s"
                             (Http_client.stream_idle_state_to_label !stream_idle_state)))
                     ();
-                  Error
-                    (Http_client.TimeoutError
-                       { message
-                       ; phase
-                       })
+                  Error (Http_client.TimeoutError { message; phase })
               in
               match stream_read_result with
               | Error _ as err -> err
@@ -1536,12 +1661,7 @@ let complete_stream_http
                 let result =
                   match Complete_stream_acc.finalize_stream_acc acc with
                   | Ok _ as ok -> ok
-                  | Error msg ->
-                    Error
-                      (Http_client.NetworkError
-                         { message = Printf.sprintf "SSE stream error: %s" msg
-                         ; kind = Unknown
-                         })
+                  | Error serr -> Error (http_error_of_stream_error serr)
                 in
                 (* RFC-OAS-019: emit one [Streaming_summary] at stream
                    finalize on the normal path. terminal_state defaults to
@@ -1724,7 +1844,9 @@ let complete_stream
 
 (* ── HTTP Transport constructor ─────────────────────── *)
 
-let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net () : Llm_transport.t =
+let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net ()
+  : Llm_transport.t
+  =
   { complete_sync =
       (fun (req : Llm_transport.completion_request) ->
         let response, latency_ms =
