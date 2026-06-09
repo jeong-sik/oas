@@ -74,11 +74,11 @@ let%test "tool_choice_to_provider_d_json Tool name" =
   && result |> member "function" |> member "name" |> to_string = "my_tool"
 ;;
 
-let%test "provider_k passes named tool_choice through (no coerce)" =
+let%test "glm passes named tool_choice through (no coerce)" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:Zai_catalog.general_base_url
       ~tool_choice:(Tool "calculator")
       ()
@@ -91,11 +91,11 @@ let%test "provider_k passes named tool_choice through (no coerce)" =
           ])
 ;;
 
-let%test "provider_k passes tool_choice any through (no coerce)" =
+let%test "glm passes tool_choice any through (no coerce)" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:Zai_catalog.general_base_url
       ~tool_choice:Any
       ()
@@ -103,11 +103,11 @@ let%test "provider_k passes tool_choice any through (no coerce)" =
   effective_tool_choice cfg = Some (`String "required")
 ;;
 
-let%test "provider_k drops tool_choice none" =
+let%test "glm drops tool_choice none" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:Zai_catalog.general_base_url
       ~tool_choice:None_
       ()
@@ -115,11 +115,11 @@ let%test "provider_k drops tool_choice none" =
   effective_tool_choice cfg = None
 ;;
 
-let%test "provider_k drops tools when tool_choice none" =
+let%test "glm drops tools when tool_choice none" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:Zai_catalog.general_base_url
       ~tool_choice:None_
       ()
@@ -142,7 +142,7 @@ let%test "provider_k drops tools when tool_choice none" =
 
 (* === Capability-gated sampling param tests (oas#827) === *)
 
-let%test "provider_k drops min_p when model does not support it" =
+let%test "glm drops min_p when model does not support it" =
   (* Glm's glm_capabilities inherits supports_min_p = false from
      default_capabilities.  Even when the caller sets min_p explicitly
      (via higher-level config inheritance or agent default), backend_openai must
@@ -151,7 +151,7 @@ let%test "provider_k drops min_p when model does not support it" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
       ~min_p:0.05
       ()
@@ -161,11 +161,11 @@ let%test "provider_k drops min_p when model does not support it" =
   not (List.mem_assoc "min_p" (to_assoc json))
 ;;
 
-let%test "provider_k drops top_k when model does not support it" =
+let%test "glm drops top_k when model does not support it" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
       ~top_k:40
       ()
@@ -182,7 +182,7 @@ let%test "ollama preserves min_p (llama.cpp supports it)" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Ollama
-      ~model_id:"provider_h-3.5:35b-a3b-nvfp4"
+      ~model_id:"dashscope-3.5:35b-a3b-nvfp4"
       ~base_url:"http://127.0.0.1:11434"
       ~min_p:0.05
       ()
@@ -419,7 +419,7 @@ let%test "build_request strips orphaned tool results from wire messages" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
       ()
   in
@@ -950,7 +950,7 @@ let%test "parse_openai_response_result with reasoning_content" =
     Yojson.Safe.to_string
       (`Assoc
           [ "id", `String "c1"
-          ; "model", `String "provider_g-r1"
+          ; "model", `String "deepseek-r1"
           ; ( "choices"
             , `List
                 [ `Assoc
@@ -1116,11 +1116,11 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   | _ -> false
 ;;
 
-let%test "provider_k build_request drops tool_choice when unsupported" =
+let%test "glm build_request drops tool_choice when unsupported" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.coding_base_url
       ~tool_choice:(Tool "calc")
       ()
@@ -1133,12 +1133,12 @@ let%test "provider_k build_request drops tool_choice when unsupported" =
 ;;
 
 let%test
-    "provider_k build_request replays reasoning_content without leaking it into content"
+    "glm build_request replays reasoning_content without leaking it into content"
   =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.coding_base_url
       ()
   in
@@ -1175,7 +1175,7 @@ let%test "build_request uses json_schema response_format when output_schema is s
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~output_schema:schema
       ()
   in
@@ -1202,7 +1202,7 @@ let%test "build_request prefers output_schema over json_object mode" =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~response_format_json:true
       ~output_schema:schema
       ()
@@ -1251,12 +1251,12 @@ let%test
   json |> member "tool_choice" |> to_string = "required"
 ;;
 
-let%test "build_request serializes thinking object for provider_g-v4-flash" =
+let%test "build_request serializes thinking object for deepseek-v4-flash" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_g-v4-flash"
-      ~base_url:"https://api.provider_g.com"
+      ~model_id:"deepseek-v4-flash"
+      ~base_url:"https://api.deepseek.com"
       ~enable_thinking:true
       ~thinking_budget:2048
       ()
@@ -1270,12 +1270,12 @@ let%test "build_request serializes thinking object for provider_g-v4-flash" =
   && json |> member "reasoning_effort" |> to_string = "low"
 ;;
 
-let%test "build_request serializes disabled thinking for provider_g-v4-pro" =
+let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_g-v4-pro"
-      ~base_url:"https://api.provider_g.com"
+      ~model_id:"deepseek-v4-pro"
+      ~base_url:"https://api.deepseek.com"
       ~enable_thinking:false
       ()
   in
@@ -1303,12 +1303,12 @@ let%test "build_request serializes ZAI thinking object for bare GLM compat model
   && json |> member "reasoning_effort" = `Null
 ;;
 
-let%test "build_request emits reasoning_effort for Provider_d reasoning models" =
+let%test "build_request emits reasoning_effort for Openai reasoning models" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-5.1"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~enable_thinking:true
       ~thinking_budget:2048
       ()
@@ -1325,7 +1325,7 @@ let%test "build_request emits thinking object only for Kimi K2.5" =
   let config =
     Provider_config.make
       ~kind:Kimi
-      ~model_id:"provider_c-k2.5"
+      ~model_id:"kimi-k2.5"
       ~base_url:"https://api.provider_b.ai/v1"
       ~enable_thinking:false
       ()
@@ -1342,8 +1342,8 @@ let%test "build_request emits enable_thinking for DashScope provider kind" =
   let config =
     Provider_config.make
       ~kind:DashScope
-      ~model_id:"provider_h-plus"
-      ~base_url:"https://provider_h.aliyuncs.com/compatible-mode/v1"
+      ~model_id:"dashscope-plus"
+      ~base_url:"https://dashscope.aliyuncs.com/compatible-mode/v1"
       ~enable_thinking:true
       ~thinking_budget:50
       ()
@@ -1377,13 +1377,13 @@ let%test "build_request omits thinking params for No_thinking_control" =
 ;;
 
 let%test "max_tokens clamped to capability ceiling when caller exceeds cap" =
-  (* provider_k-4-flash has max_output_tokens = Some 4_096 in for_model_id.
+  (* glm-4-flash has max_output_tokens = Some 4_096 in for_model_id.
      When caller requests 8_000, backend must clamp to 4_096 to
      avoid server 400 rejection. Regression guard for S07. *)
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-4-flash"
+      ~model_id:"glm-4-flash"
       ~base_url:Zai_catalog.general_base_url
       ~max_tokens:8_000
       ()
@@ -1398,7 +1398,7 @@ let%test "max_tokens passed through when within capability cap" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-4-flash"
+      ~model_id:"glm-4-flash"
       ~base_url:Zai_catalog.general_base_url
       ~max_tokens:2_000
       ()
@@ -1409,8 +1409,8 @@ let%test "max_tokens passed through when within capability cap" =
   json |> member "max_tokens" |> to_int = 2_000
 ;;
 
-let%test "build_request emits chat_template_kwargs for provider_l (Chat_template_kwargs)" =
-  (* provider_l-ultra-253b resolves to provider_l_capabilities which has
+let%test "build_request emits chat_template_kwargs for nvidia (Chat_template_kwargs)" =
+  (* nvidia-ultra-253b resolves to provider_l_capabilities which has
      thinking_control_format = Chat_template_kwargs. The serializer
      must emit {"chat_template_kwargs": {"enable_thinking": true}}
      when enable_thinking is set. This is the only thinking branch
@@ -1419,7 +1419,7 @@ let%test "build_request emits chat_template_kwargs for provider_l (Chat_template
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_l-ultra-253b"
+      ~model_id:"nvidia-ultra-253b"
       ~base_url:"https://integrate.api.nvidia.com"
       ~enable_thinking:true
       ()
@@ -1435,7 +1435,7 @@ let%test "build_request emits chat_template_kwargs for provider_h_3" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_h-3.5-35b-a3b"
+      ~model_id:"dashscope-3.5-35b-a3b"
       ~base_url:"http://localhost"
       ~enable_thinking:true
       ()
@@ -1448,13 +1448,13 @@ let%test "build_request emits chat_template_kwargs for provider_h_3" =
 ;;
 
 let%test "build_request omits seed when model does not support it" =
-  (* provider_k-5.1 inherits default_capabilities.supports_seed = false.
+  (* glm-5.1 inherits default_capabilities.supports_seed = false.
      The capability gate must exclude the "seed" field from the
      wire body — Glm rejects unknown params. *)
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.general_base_url
       ()
   in

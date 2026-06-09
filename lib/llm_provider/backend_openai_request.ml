@@ -77,7 +77,7 @@ let response_format_to_provider_d_json = function
           ])
 ;;
 
-(** Build Provider_d Chat Completions request body from {!Provider_config.t}.
+(** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let response_format_of_config (config : Provider_config.t) =
   match structured_schema_of_config config with
@@ -106,7 +106,7 @@ let is_zai_glm_request (config : Provider_config.t) =
   && Zai_catalog.is_glm_model_id config.model_id
 ;;
 
-(** Build Provider_d Chat Completions request body from {!Provider_config.t}.
+(** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
       ?(stream = false)
@@ -258,7 +258,7 @@ let build_request
   in
   (* tool_choice uses a DIFFERENT unknown-model default than top_k /
      min_p above: unknown -> assume supported (true). Two reasons:
-       (1) [tool_choice] is a standard Provider_d Chat Completions body
+       (1) [tool_choice] is a standard Openai Chat Completions body
            param and virtually every OpenAI-compat server accepts it,
            so conservatively dropping it on unknown models would
            regress every agent that uses a model Capabilities does

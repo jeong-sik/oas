@@ -15,7 +15,7 @@ module Http = struct
   (** HTTP status codes that downstream coordinators may use when deciding
       whether to hand work to another provider. OAS exposes the codes;
       orchestration lives outside the SDK. Superset of [retryable_codes]:
-      includes auth/forbidden errors that are not retryable. 498 = Provider_i
+      includes auth/forbidden errors that are not retryable. 498 = Groq
       Flex tier capacity exceeded. *)
   let cascadable_codes = [ 401; 403; 429; 498; 500; 502; 503; 529 ]
 end

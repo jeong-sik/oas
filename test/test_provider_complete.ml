@@ -177,14 +177,14 @@ let test_provider_a_parse_response_initializes_telemetry () =
   | None -> Alcotest.fail "expected telemetry placeholder"
 ;;
 
-(* ── Provider_d build_request ────────────────────────────── *)
+(* ── Openai build_request ────────────────────────────── *)
 
 let test_provider_d_basic_body () =
   let config =
     PC.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-4"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~max_tokens:2048
       ()
   in
@@ -257,7 +257,7 @@ let test_ollama_output_schema () =
   let config =
     PC.make
       ~kind:Ollama
-      ~model_id:"provider_h-3.5:9b"
+      ~model_id:"dashscope-3.5:9b"
       ~base_url:"http://localhost:11434"
       ~output_schema:schema
       ()
@@ -270,7 +270,7 @@ let test_ollama_output_schema () =
 
 let test_ollama_parse_parallel_tool_calls_object_arguments () =
   let body =
-    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[
            {"function":{"index":0,"name":"get_temperature","arguments":{"city":"New York"}}},
@@ -299,7 +299,7 @@ let test_ollama_parse_parallel_tool_calls_object_arguments () =
 
 let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
   let body =
-    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[
            {"id":"call_explicit","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}
@@ -321,7 +321,7 @@ let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
 
 let test_ollama_parse_warns_on_malformed_tool_call () =
   let body =
-    {|{"model":"provider_h-3:8b","done":true,"done_reason":"tool_calls",
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
          "tool_calls":[
            {"function":{"name":"ok_tool","arguments":{"city":"Seoul"}}},
@@ -363,7 +363,7 @@ let test_provider_d_with_json_schema () =
     PC.make
       ~kind:OpenAI_compat
       ~model_id:"model-d-mini"
-      ~base_url:"https://api.provider_d.com/v1"
+      ~base_url:"https://api.openai.com/v1"
       ~response_format:(JsonSchema schema)
       ()
   in
@@ -433,8 +433,8 @@ let test_provider_c_direct_with_tools_and_thinking () =
   let config =
     PC.make
       ~kind:Kimi
-      ~model_id:"provider_c-for-coding"
-      ~base_url:"https://api.provider_c.com/coding"
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding"
       ~enable_thinking:true
       ()
   in
@@ -454,7 +454,7 @@ let test_provider_c_direct_with_tools_and_thinking () =
   let thinking = json |> member "thinking" in
   Alcotest.(check string)
     "model"
-    "provider_c-for-coding"
+    "kimi-for-coding"
     (json |> member "model" |> to_string);
   Alcotest.(check int) "tool count" 1 (List.length tools);
   Alcotest.(check string)
@@ -467,8 +467,8 @@ let test_provider_c_direct_tool_result_uses_text_blocks () =
   let config =
     PC.make
       ~kind:Kimi
-      ~model_id:"provider_c-for-coding"
-      ~base_url:"https://api.provider_c.com/coding"
+      ~model_id:"kimi-for-coding"
+      ~base_url:"https://api.kimi.com/coding"
       ()
   in
   let messages =
@@ -529,7 +529,7 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
   let config =
     PC.make
       ~kind:Glm
-      ~model_id:"provider_k-5.1"
+      ~model_id:"glm-5.1"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~enable_thinking:true
       ~clear_thinking:false
@@ -573,7 +573,7 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
   let open Yojson.Safe.Util in
   let assistant = json |> member "messages" |> index 0 in
   Alcotest.(check bool)
-    "provider_k unsupported tool_choice dropped"
+    "glm unsupported tool_choice dropped"
     true
     (match json with
      | `Assoc fields -> not (List.mem_assoc "tool_choice" fields)
@@ -601,10 +601,10 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
 let test_config_default_paths () =
   let anth = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   Alcotest.(check string) "provider_a path" "/v1/messages" anth.request_path;
-  let provider_c = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "provider_c path" "/v1/chat/completions" provider_c.request_path;
+  let kimi = PC.make ~kind:Kimi ~model_id:"m" ~base_url:"" () in
+  Alcotest.(check string) "kimi path" "/v1/chat/completions" kimi.request_path;
   let oai = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
-  Alcotest.(check string) "provider_d path" "/v1/chat/completions" oai.request_path
+  Alcotest.(check string) "openai path" "/v1/chat/completions" oai.request_path
 ;;
 
 let test_config_custom_path () =
@@ -739,7 +739,7 @@ let test_model_capability_thinking_drift_remains_warn () =
   let config =
     PC.make
       ~kind:OpenAI_compat
-      ~model_id:"provider_k-4-flash"
+      ~model_id:"glm-4-flash"
       ~base_url:"https://example.invalid/v1"
       ()
   in
@@ -786,7 +786,7 @@ let test_complete_rejects_output_schema_for_glm () =
   let config =
     PC.make
       ~kind:Glm
-      ~model_id:"provider_k-5"
+      ~model_id:"glm-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
@@ -796,11 +796,11 @@ let test_complete_rejects_output_schema_for_glm () =
   with
   | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
     Alcotest.(check bool)
-      "mentions provider_k json mode"
+      "mentions glm json mode"
       true
       (contains_substring ~sub:"json mode" (String.lowercase_ascii reason))
-  | Ok _ -> Alcotest.fail "expected AcceptRejected for provider_k output_schema"
-  | Error _ -> Alcotest.fail "expected AcceptRejected for provider_k output_schema"
+  | Ok _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
+  | Error _ -> Alcotest.fail "expected AcceptRejected for glm output_schema"
 ;;
 
 let test_annotate_response_cost () =
@@ -1042,11 +1042,11 @@ let () =
         ; test_case "with system" `Quick test_provider_d_with_system
         ; test_case "with tools" `Quick test_provider_d_with_tools
         ; test_case
-            "provider_c direct tools + thinking"
+            "kimi direct tools + thinking"
             `Quick
             test_provider_c_direct_with_tools_and_thinking
         ; test_case
-            "provider_c direct tool_result uses scalar text"
+            "kimi direct tool_result uses scalar text"
             `Quick
             test_provider_c_direct_tool_result_uses_text_blocks
         ; test_case "stream flag" `Quick test_provider_d_stream_flag
@@ -1065,7 +1065,7 @@ let () =
             `Quick
             test_ollama_parse_warns_on_malformed_tool_call
         ; test_case
-            "provider_k preserved reasoning replay"
+            "glm preserved reasoning replay"
             `Quick
             test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice
         ] )
@@ -1081,7 +1081,7 @@ let () =
         ] )
     ; ( "cli_transport_guard"
       , [ test_case
-            "provider_k output schema rejected before request"
+            "glm output schema rejected before request"
             `Quick
             test_complete_rejects_output_schema_for_glm
         ] )

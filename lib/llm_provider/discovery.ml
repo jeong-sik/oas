@@ -305,7 +305,7 @@ let infer_capabilities ~uses_reasoning_effort models props =
         let needs_extended =
           List.exists
             (fun (m : model_info) ->
-               Retry.contains_case_insensitive ~haystack:m.id ~needle:"provider_h")
+               Retry.contains_case_insensitive ~haystack:m.id ~needle:"dashscope")
             models
         in
         if needs_extended
@@ -845,13 +845,13 @@ let%test "parse_models valid" =
     `Assoc
       [ ( "data"
         , `List
-            [ `Assoc [ "id", `String "provider_h-3.5-35b"; "owned_by", `String "local" ]
+            [ `Assoc [ "id", `String "dashscope-3.5-35b"; "owned_by", `String "local" ]
             ; `Assoc [ "id", `String "model-n-4-scout"; "owned_by", `String "provider_n" ]
             ] )
       ]
   in
   let models = parse_models json in
-  List.length models = 2 && (List.hd models).id = "provider_h-3.5-35b"
+  List.length models = 2 && (List.hd models).id = "dashscope-3.5-35b"
 ;;
 
 let%test "parse_models empty data" =
@@ -887,11 +887,11 @@ let%test "parse_props valid" =
     `Assoc
       [ "total_slots", `Int 4
       ; ( "default_generation_settings"
-        , `Assoc [ "n_ctx", `Int 8192; "model", `String "provider_h-3.5" ] )
+        , `Assoc [ "n_ctx", `Int 8192; "model", `String "dashscope-3.5" ] )
       ]
   in
   match parse_props json with
-  | Some p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "provider_h-3.5"
+  | Some p -> p.total_slots = 4 && p.ctx_size = 8192 && p.model = "dashscope-3.5"
   | None -> false
 ;;
 
@@ -971,12 +971,12 @@ let%test "parse_slots neither is_processing nor state defaults to idle" =
 (* --- contains_case_insensitive (via Retry SSOT) --- *)
 
 let%test "contains_case_insensitive case insensitive match" =
-  Retry.contains_case_insensitive ~haystack:"Provider_H_3.5-35B" ~needle:"provider_h"
+  Retry.contains_case_insensitive ~haystack:"Provider_H_3.5-35B" ~needle:"dashscope"
   = true
 ;;
 
 let%test "contains_case_insensitive no match" =
-  Retry.contains_case_insensitive ~haystack:"provider_n" ~needle:"provider_h" = false
+  Retry.contains_case_insensitive ~haystack:"provider_n" ~needle:"dashscope" = false
 ;;
 
 let%test "contains_case_insensitive needle longer than haystack" =
@@ -988,12 +988,12 @@ let%test "contains_case_insensitive empty needle" =
 ;;
 
 let%test "contains_case_insensitive exact match" =
-  Retry.contains_case_insensitive ~haystack:"PROVIDER_H" ~needle:"provider_h" = true
+  Retry.contains_case_insensitive ~haystack:"PROVIDER_H" ~needle:"dashscope" = true
 ;;
 
 (* --- infer_capabilities --- *)
 
-let%test "infer_capabilities provider_h model gets extended" =
+let%test "infer_capabilities dashscope model gets extended" =
   let models = [ { id = "DashScope_3.5-35B-A3B"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_reasoning = true
@@ -1001,7 +1001,7 @@ let%test "infer_capabilities provider_h model gets extended" =
   && caps.supports_min_p = true
 ;;
 
-let%test "infer_capabilities unknown model gets basic provider_d" =
+let%test "infer_capabilities unknown model gets basic openai" =
   let models = [ { id = "my-custom-model"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_tools = true && caps.supports_reasoning = false
@@ -1039,7 +1039,7 @@ let%test "model_info_to_json" =
 let%test "server_props_to_json" =
   let json =
     server_props_to_json
-      { total_slots = 4; ctx_size = 8192; model = "provider_h"; supports_tools = None }
+      { total_slots = 4; ctx_size = 8192; model = "dashscope"; supports_tools = None }
   in
   let open Yojson.Safe.Util in
   json |> member "total_slots" |> to_int = 4 && json |> member "ctx_size" |> to_int = 8192
@@ -1287,12 +1287,12 @@ let%test "find_context_length bare key without prefix" =
 (* --- probe_ollama_context parser (unit, no network) --- *)
 
 let%test "infer_capabilities uses ollama context when props present" =
-  let models = [ { id = "provider_h-3.5-35b"; owned_by = "ollama" } ] in
+  let models = [ { id = "dashscope-3.5-35b"; owned_by = "ollama" } ] in
   let props =
     Some
       { total_slots = 1
       ; ctx_size = 8192
-      ; model = "provider_h-3.5:latest"
+      ; model = "dashscope-3.5:latest"
       ; supports_tools = None
       }
   in
@@ -1300,8 +1300,8 @@ let%test "infer_capabilities uses ollama context when props present" =
   caps.max_context_tokens = Some 8192
 ;;
 
-let%test "infer_capabilities defaults to 262K when no props for provider_h" =
-  let models = [ { id = "provider_h-3.5-35b"; owned_by = "ollama" } ] in
+let%test "infer_capabilities defaults to 262K when no props for dashscope" =
+  let models = [ { id = "dashscope-3.5-35b"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:true models None in
   caps.max_context_tokens = Some 262_144
 ;;
@@ -1337,11 +1337,11 @@ let%test
     "infer_capabilities ollama known model lookup preserves context and overlays ollama \
      flags"
   =
-  (* provider_h-3.5-35b is in for_model_id with 262K context and supports_reasoning.
+  (* dashscope-3.5-35b is in for_model_id with 262K context and supports_reasoning.
      On a reasoning_effort wire-format endpoint, the overlay should add
      seed support + thinking_control_format = Reasoning_effort while
      preserving the model-specific context window and reasoning fields. *)
-  let models = [ { id = "provider_h-3.5-35b"; owned_by = "ollama" } ] in
+  let models = [ { id = "dashscope-3.5-35b"; owned_by = "ollama" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:true models None in
   caps.thinking_control_format = Capabilities.Reasoning_effort
   && caps.supports_seed = true
@@ -1468,10 +1468,10 @@ let%test "endpoint_for_model returns url when model is indexed" =
        Atomic.set
          _discovered_ctx
          { endpoint_ctxs = [ "http://a:8085", 32768 ]
-         ; model_endpoints = [ "provider_h-3.5-9b", "http://a:8085" ]
+         ; model_endpoints = [ "dashscope-3.5-9b", "http://a:8085" ]
          ; per_slot_ctx = Some 32768
          };
-       endpoint_for_model "provider_h-3.5-9b" = Some "http://a:8085")
+       endpoint_for_model "dashscope-3.5-9b" = Some "http://a:8085")
 ;;
 
 let%test "endpoint_for_model returns None for unknown model" =
@@ -1482,7 +1482,7 @@ let%test "endpoint_for_model returns None for unknown model" =
        Atomic.set
          _discovered_ctx
          { endpoint_ctxs = [ "http://a:8085", 32768 ]
-         ; model_endpoints = [ "provider_h-3.5-9b", "http://a:8085" ]
+         ; model_endpoints = [ "dashscope-3.5-9b", "http://a:8085" ]
          ; per_slot_ctx = Some 32768
          };
        endpoint_for_model "nonexistent" = None)
@@ -1583,16 +1583,16 @@ let%test "first_discovered_model_id_for_url prevents cross-provider" =
          _discovered_ctx
          { endpoint_ctxs = []
          ; model_endpoints =
-             [ "provider_h-3.5-9b-local", "http://127.0.0.1:8085"
-             ; "provider_h-3.5:9b-nvfp4", "http://127.0.0.1:11434"
+             [ "dashscope-3.5-9b-local", "http://127.0.0.1:8085"
+             ; "dashscope-3.5:9b-nvfp4", "http://127.0.0.1:11434"
              ]
          ; per_slot_ctx = None
          };
        (* ollama endpoint must NOT return the llama-server model *)
        first_discovered_model_id_for_url "http://127.0.0.1:8085"
-       = Some "provider_h-3.5-9b-local"
+       = Some "dashscope-3.5-9b-local"
        && first_discovered_model_id_for_url "http://127.0.0.1:11434"
-          = Some "provider_h-3.5:9b-nvfp4")
+          = Some "dashscope-3.5:9b-nvfp4")
 ;;
 
 (* --- template_has_tool_support tests --- *)

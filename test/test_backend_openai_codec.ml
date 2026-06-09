@@ -167,12 +167,12 @@ let test_user_multimodal_preserve_and_visual_first () =
     ; Image { media_type = "image/jpeg"; data = "jpeg"; source_type = "base64" }
     ]
   in
-  let provider_d =
-    Serialize.openai_messages_of_message (msg User content) |> only "provider_d"
+  let openai =
+    Serialize.openai_messages_of_message (msg User content) |> only "openai"
   in
-  let provider_d_parts = member "content" provider_d |> as_list "provider_d content" in
+  let provider_d_parts = member "content" openai |> as_list "openai content" in
   check_string
-    "provider_d preserves text first"
+    "openai preserves text first"
     "text"
     (List.nth provider_d_parts 0 |> member "type" |> to_string);
   let visual_first =
@@ -194,15 +194,15 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
       Assistant
       [ ToolUse { id = "call-1"; name = "lookup"; input = `Assoc [ "q", `String "x" ] } ]
   in
-  let provider_d = Serialize.openai_messages_of_message assistant |> only "provider_d" in
-  check_string "assistant role" "assistant" (member "role" provider_d |> to_string);
+  let openai = Serialize.openai_messages_of_message assistant |> only "openai" in
+  check_string "assistant role" "assistant" (member "role" openai |> to_string);
   Alcotest.(check bool)
-    "provider_d content null"
+    "openai content null"
     true
-    (member "content" provider_d = `Null);
-  let call = member "tool_calls" provider_d |> as_list "tool_calls" |> only "tool_call" in
+    (member "content" openai = `Null);
+  let call = member "tool_calls" openai |> as_list "tool_calls" |> only "tool_call" in
   check_string
-    "provider_d arguments string"
+    "openai arguments string"
     {|{"q":"x"}|}
     (member "function" call |> member "arguments" |> to_string);
   let ollama = Serialize.ollama_messages_of_message assistant |> only "ollama" in
@@ -213,18 +213,18 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
     "ollama arguments raw json"
     "x"
     (member "function" ollama_call |> member "arguments" |> member "q" |> to_string);
-  let provider_k =
+  let glm =
     Serialize.provider_k_messages_of_message
       (msg
          Assistant
          [ Text "answer"; Thinking { thinking_type = "reasoning"; content = "because" } ])
-    |> only "provider_k"
+    |> only "glm"
   in
-  check_string "provider_k content" "answer" (member "content" provider_k |> to_string);
+  check_string "glm content" "answer" (member "content" glm |> to_string);
   check_string
-    "provider_k reasoning"
+    "glm reasoning"
     "because"
-    (member "reasoning_content" provider_k |> to_string)
+    (member "reasoning_content" glm |> to_string)
 ;;
 
 let test_system_and_tool_role_messages () =
@@ -413,7 +413,7 @@ let ignored_blocks : content_block list =
 
 let test_serializer_ignored_block_variants () =
   check_int
-    "provider_d tool_calls ignores non-tool blocks"
+    "openai tool_calls ignores non-tool blocks"
     0
     (Serialize.tool_calls_to_openai_json ignored_blocks |> List.length);
   let ollama =
@@ -432,14 +432,14 @@ let test_serializer_ignored_block_variants () =
     "assistant has no tool_calls"
     true
     (member "tool_calls" assistant = `Null);
-  let provider_k =
+  let glm =
     Serialize.provider_k_messages_of_message (msg Assistant ignored_blocks)
-    |> only "provider_k"
+    |> only "glm"
   in
   Alcotest.(check bool)
     "blank reasoning omitted"
     true
-    (member "reasoning_content" provider_k = `Null);
+    (member "reasoning_content" glm = `Null);
   let tool_fallback_blocks =
     [ Thinking { thinking_type = "reasoning"; content = "   " }
     ; RedactedThinking "hidden"
@@ -786,7 +786,7 @@ let () =
             `Quick
             test_content_parts_cover_modalities
         ; Alcotest.test_case
-            "provider_d user text/tool/empty"
+            "openai user text/tool/empty"
             `Quick
             test_provider_d_user_messages_text_tool_and_empty
         ; Alcotest.test_case

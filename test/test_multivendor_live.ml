@@ -4,7 +4,7 @@
     providers are reachable in the current environment:
 
     - Anthropic      if [ANTHROPIC_API_KEY] is set
-    - Provider_d         if [PROVIDER_D_API_KEY] is set
+    - Openai         if [PROVIDER_D_API_KEY] is set
     - Gemini         if [PROVIDER_F_API_KEY] is set
     - OpenAI-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
@@ -138,17 +138,17 @@ let test_provider_a () =
       ~model:"agent_llm_a-haiku-4-5"
 ;;
 
-(* ── Provider_d (via OpenAICompat) ────────────────────────────────── *)
+(* ── Openai (via OpenAICompat) ────────────────────────────────── *)
 
 let test_provider_d () =
   match Sys.getenv_opt "PROVIDER_D_API_KEY" with
-  | None | Some "" -> skip_note "provider_d" "PROVIDER_D_API_KEY not set"
+  | None | Some "" -> skip_note "openai" "PROVIDER_D_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    let base_url = "https://api.provider_d.com" in
+    let base_url = "https://api.openai.com" in
     let provider : Provider.config =
       { provider =
           Provider.OpenAICompat
@@ -164,7 +164,7 @@ let test_provider_d () =
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"provider_d"
+      ~provider_label:"openai"
       ~provider
       ~base_url
       ~model:"model-d-mini"
@@ -174,14 +174,14 @@ let test_provider_d () =
 
 let test_provider_f () =
   match Sys.getenv_opt "PROVIDER_F_API_KEY" with
-  | None | Some "" -> skip_note "provider_f" "PROVIDER_F_API_KEY not set"
+  | None | Some "" -> skip_note "gemini" "PROVIDER_F_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
     (* Google's OpenAI-compatible endpoint for Gemini. *)
-    let base_url = "https://generativelanguage.googleapis.com/v1beta/provider_d" in
+    let base_url = "https://generativelanguage.googleapis.com/v1beta/openai" in
     let provider : Provider.config =
       { provider =
           Provider.OpenAICompat
@@ -190,17 +190,17 @@ let test_provider_f () =
             ; path = "/chat/completions"
             ; static_token = None
             }
-      ; model_id = "provider_f-2.0-flash"
+      ; model_id = "gemini-2.0-flash"
       ; api_key_env = "PROVIDER_F_API_KEY"
       }
     in
     run_minimal_agent
       ~env
       ~sw
-      ~provider_label:"provider_f"
+      ~provider_label:"gemini"
       ~provider
       ~base_url
-      ~model:"provider_f-2.0-flash"
+      ~model:"gemini-2.0-flash"
 ;;
 
 (* ── Local OpenAI-compatible (llama-server, Ollama, vLLM, ...) ─ *)
@@ -258,8 +258,8 @@ let () =
     "Multivendor_live"
     [ ( "golden_transcript"
       , [ test_case "anthropic" `Quick test_provider_a
-        ; test_case "provider_d" `Quick test_provider_d
-        ; test_case "provider_f" `Quick test_provider_f
+        ; test_case "openai" `Quick test_provider_d
+        ; test_case "gemini" `Quick test_provider_f
         ; test_case "local openai-compat" `Quick test_local_compat
         ] )
     ]

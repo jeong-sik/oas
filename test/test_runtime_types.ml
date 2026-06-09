@@ -282,7 +282,7 @@ let test_spawn_agent_request () =
     ; role = Some "helper"
     ; prompt = "help me"
     ; provider = Some "local"
-    ; model = Some "provider_h"
+    ; model = Some "dashscope"
     ; system_prompt = None
     ; max_turns = Some 3
     }
@@ -391,7 +391,7 @@ let test_event_kind () =
         { participant_name = "sub"
         ; summary = Some "ready"
         ; provider = Some "local"
-        ; model = Some "provider_h"
+        ; model = Some "dashscope"
         ; error = None
         ; raw_trace_run_id = Some "wr-1"
         ; stop_reason = None

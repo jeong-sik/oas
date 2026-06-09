@@ -1338,7 +1338,7 @@ let test_requires_multimodal () =
 
 let test_requires_json_format () =
   Alcotest.(check bool)
-    "provider_d json"
+    "openai json"
     true
     (Capability_filter.requires_json_format Capabilities.openai_compat_chat_capabilities);
   Alcotest.(check bool)
@@ -1367,7 +1367,7 @@ let test_requires_thinking () =
 
 let test_requires_structured_output () =
   Alcotest.(check bool)
-    "provider_d structured"
+    "openai structured"
     true
     (Capability_filter.requires_structured_output
        Capabilities.openai_compat_chat_capabilities);
@@ -1594,7 +1594,7 @@ let test_glm_capabilities () =
      field that Glm would ignore, and a text-only response is accepted as
      normal output.
      Regression guard added after 2026-04-18 incident (8+ violations in
-     a single MASC session against provider_k-5-turbo / provider_k-4.7 / provider_k-5.1) (boundary-allow). *)
+     a single MASC session against glm-5-turbo / glm-4.7 / glm-5.1) (boundary-allow). *)
   Alcotest.(check bool) "supports_tool_choice relaxed" false c.supports_tool_choice;
   Alcotest.(check bool) "structured output disabled" false c.supports_structured_output;
   Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
@@ -1650,17 +1650,17 @@ let test_for_model_id_gpt4o () =
 let test_for_model_id_provider_f25 () =
   match Capabilities.for_model_id provider_f25_flash_model with
   | Some c -> Alcotest.(check bool) "code_execution" true c.supports_code_execution
-  | None -> Alcotest.fail "expected Some for legacy provider_f"
+  | None -> Alcotest.fail "expected Some for legacy gemini"
 ;;
 
 let test_for_model_id_gemini3 () =
-  match Capabilities.for_model_id "provider_f-3-pro" with
+  match Capabilities.for_model_id "gemini-3-pro" with
   | Some _ -> ()
-  | None -> Alcotest.fail "expected Some for provider_f-3"
+  | None -> Alcotest.fail "expected Some for gemini-3"
 ;;
 
 let test_for_model_id_qwen3 () =
-  match Capabilities.for_model_id "provider_h-3.5-35b" with
+  match Capabilities.for_model_id "dashscope-3.5-35b" with
   | Some c ->
     Alcotest.(check bool) "tools" true c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
@@ -1684,25 +1684,25 @@ let test_for_model_id_llama4_alt () =
 ;;
 
 let test_for_model_id_provider_g_v4_flash () =
-  match Capabilities.for_model_id "provider_g-v4-flash" with
+  match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
     Alcotest.(check bool) "tools" true c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check bool) "caching" true c.supports_caching
-  | None -> Alcotest.fail "expected Some for provider_g-v4-flash"
+  | None -> Alcotest.fail "expected Some for deepseek-v4-flash"
 ;;
 
 let test_for_model_id_provider_g_v4_pro () =
-  match Capabilities.for_model_id "provider_g-v4-pro" with
+  match Capabilities.for_model_id "deepseek-v4-pro" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
     Alcotest.(check bool) "tools" true c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check bool) "caching" true c.supports_caching
-  | None -> Alcotest.fail "expected Some for provider_g-v4-pro"
+  | None -> Alcotest.fail "expected Some for deepseek-v4-pro"
 ;;
 
 let test_for_model_id_provider_j_large () =
@@ -1738,22 +1738,22 @@ let test_for_model_id_grok () =
 ;;
 
 let test_for_model_id_glm () =
-  (* provider_k-4.5-flash matches current Z.AI GLM-4.5 thinking limits. *)
-  (match Capabilities.for_model_id "provider_k-4.5-flash" with
+  (* glm-4.5-flash matches current Z.AI GLM-4.5 thinking limits. *)
+  (match Capabilities.for_model_id "glm-4.5-flash" with
    | Some c ->
      Alcotest.(check (option int)) "128K context" (Some 128_000) c.max_context_tokens;
      Alcotest.(check (option int)) "96K output" (Some 96_000) c.max_output_tokens;
      Alcotest.(check bool) "tools" true c.supports_tools;
      Alcotest.(check bool) "reasoning" true c.supports_reasoning;
      Alcotest.(check bool) "thinking" true c.supports_extended_thinking
-   | None -> Alcotest.fail "expected Some for provider_k-4.5-flash");
-  (* provider_k-5.1 should still get full capabilities *)
-  match Capabilities.for_model_id "provider_k-5.1" with
+   | None -> Alcotest.fail "expected Some for glm-4.5-flash");
+  (* glm-5.1 should still get full capabilities *)
+  match Capabilities.for_model_id "glm-5.1" with
   | Some c ->
     Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
     Alcotest.(check (option int)) "128K output" (Some 128_000) c.max_output_tokens;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning
-  | None -> Alcotest.fail "expected Some for provider_k-5.1"
+  | None -> Alcotest.fail "expected Some for glm-5.1"
 ;;
 
 let test_for_model_id_unknown () =
@@ -1989,8 +1989,8 @@ let () =
             "openai_chat_extended"
             `Quick
             test_openai_compat_chat_extended_capabilities
-        ; Alcotest.test_case "provider_f" `Quick test_gemini_capabilities
-        ; Alcotest.test_case "provider_k" `Quick test_glm_capabilities
+        ; Alcotest.test_case "gemini" `Quick test_gemini_capabilities
+        ; Alcotest.test_case "glm" `Quick test_glm_capabilities
         ] )
     ; ( "capabilities.for_model_id"
       , [ Alcotest.test_case
@@ -2008,24 +2008,24 @@ let () =
         ; Alcotest.test_case "model-d-5" `Quick test_for_model_id_gpt5
         ; Alcotest.test_case "model-d-4.1" `Quick test_for_model_id_gpt41
         ; Alcotest.test_case "model-d" `Quick test_for_model_id_gpt4o
-        ; Alcotest.test_case "provider_f legacy" `Quick test_for_model_id_provider_f25
-        ; Alcotest.test_case "provider_f-3" `Quick test_for_model_id_gemini3
-        ; Alcotest.test_case "provider_h-3" `Quick test_for_model_id_qwen3
+        ; Alcotest.test_case "gemini legacy" `Quick test_for_model_id_provider_f25
+        ; Alcotest.test_case "gemini-3" `Quick test_for_model_id_gemini3
+        ; Alcotest.test_case "dashscope-3" `Quick test_for_model_id_qwen3
         ; Alcotest.test_case "model-n-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
         ; Alcotest.test_case
-            "provider_g-v4-flash"
+            "deepseek-v4-flash"
             `Quick
             test_for_model_id_provider_g_v4_flash
         ; Alcotest.test_case
-            "provider_g-v4-pro"
+            "deepseek-v4-pro"
             `Quick
             test_for_model_id_provider_g_v4_pro
         ; Alcotest.test_case "provider_j-large" `Quick test_for_model_id_provider_j_large
         ; Alcotest.test_case "provider_j-small" `Quick test_for_model_id_provider_j_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command
         ; Alcotest.test_case "provider_e_grok" `Quick test_for_model_id_grok
-        ; Alcotest.test_case "provider_k" `Quick test_for_model_id_glm
+        ; Alcotest.test_case "glm" `Quick test_for_model_id_glm
         ; Alcotest.test_case "unknown" `Quick test_for_model_id_unknown
         ; Alcotest.test_case "case insensitive" `Quick test_for_model_id_case_insensitive
         ] )

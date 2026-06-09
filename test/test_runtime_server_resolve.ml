@@ -185,11 +185,11 @@ let test_resolve_provider_opus () =
 ;;
 
 let test_resolve_provider_openrouter () =
-  match Runtime_server_resolve.resolve_provider ~provider:"provider_o_router" () with
+  match Runtime_server_resolve.resolve_provider ~provider:"openrouter" () with
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.Custom_registered { name } ->
-       Alcotest.(check string) "provider id" "provider_o_router" name
+       Alcotest.(check string) "provider id" "openrouter" name
      | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
@@ -437,7 +437,7 @@ let () =
             `Quick
             test_resolve_provider_opus
         ; Alcotest.test_case
-            "provider_o_router returns registered provider"
+            "openrouter returns registered provider"
             `Quick
             test_resolve_provider_openrouter
         ; Alcotest.test_case

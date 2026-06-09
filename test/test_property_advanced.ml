@@ -263,7 +263,7 @@ let test_capabilities_provider_m_reasoning =
     (QCheck.make
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
-          [ QCheck.Gen.return "provider_h-3.5-35b"
+          [ QCheck.Gen.return "dashscope-3.5-35b"
           ; QCheck.Gen.return "provider_h_3.6:27b-coding-nvfp4"
           ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
           ]))

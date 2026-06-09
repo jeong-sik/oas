@@ -1,4 +1,4 @@
-(** SSE event parsing for Anthropic and Provider_d streaming APIs.
+(** SSE event parsing for Anthropic and Openai streaming APIs.
 
     Pure functions — no I/O or agent_sdk coupling.
 
@@ -29,7 +29,7 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
     @stability Internal *)
 val sse_event_is_first_token_signal : sse_event -> bool
 
-(** {1 Provider_d SSE} *)
+(** {1 Openai SSE} *)
 
 type provider_d_tool_call_delta =
   { tc_index : int
@@ -126,7 +126,7 @@ val provider_f_chunk_to_events
     line (newline-delimited JSON, NDJSON). The final line carries
     [done:true] together with [done_reason] and the
     [prompt_eval_count] / [prompt_eval_duration] /
-    [eval_count] / [eval_duration] timing fields that the Provider_d
+    [eval_count] / [eval_duration] timing fields that the Openai
     compat path on [/v1/chat/completions] strips out.
 
     State management reuses {!provider_d_stream_state} since the block

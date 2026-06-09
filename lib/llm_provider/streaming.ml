@@ -186,7 +186,7 @@ let emit_synthetic_events (response : api_response) on_event =
 
 (** {1 OpenAI-compatible SSE Streaming}
 
-    Provider_d Chat Completions streaming uses SSE with flat deltas:
+    Openai Chat Completions streaming uses SSE with flat deltas:
     - Text content arrives as [delta.content] strings
     - Tool calls arrive as [delta.tool_calls] with incremental arguments
     - [finish_reason] signals end of a choice
@@ -227,7 +227,7 @@ let chunk_has_non_empty_delta (c : provider_d_chunk) : bool =
   || c.delta_tool_calls <> []
 ;;
 
-(** Parse a single Provider_d SSE data payload into an {!provider_d_chunk}.
+(** Parse a single Openai SSE data payload into an {!provider_d_chunk}.
     Returns [None] for the "[DONE]" sentinel or unparseable data. *)
 let parse_openai_sse_chunk data_str : provider_d_chunk option =
   if data_str = "[DONE]"
@@ -358,7 +358,7 @@ let openai_compat_error_event data_str : sse_event option =
      | _non_object_payload -> None)
 ;;
 
-(** Mutable state for converting Provider_d flat deltas to block-based events. *)
+(** Mutable state for converting Openai flat deltas to block-based events. *)
 type thinking_state =
   | Not_thinking
   | Thinking_started of float
@@ -690,7 +690,7 @@ let provider_f_chunk_to_events
     line. Non-final lines carry a [message.content] delta; the final
     line has [done:true] together with [done_reason] and the four
     timing fields ([prompt_eval_count] / [prompt_eval_duration] /
-    [eval_count] / [eval_duration]) that the Provider_d compat path on
+    [eval_count] / [eval_duration]) that the Openai compat path on
     [/v1/chat/completions] strips out. *)
 
 type ollama_tool_call_delta =
@@ -957,12 +957,12 @@ let ollama_chunk_to_events (state : provider_d_stream_state) (chunk : ollama_chu
 
 let%test "parse_ollama_ndjson_chunk: content delta line" =
   let line =
-    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":"hi"},"done":false}|}
+    {|{"model":"dashscope-3:8b","message":{"role":"assistant","content":"hi"},"done":false}|}
   in
   match parse_ollama_ndjson_chunk line with
   | None -> false
   | Some c ->
-    c.oll_model = "provider_h-3:8b"
+    c.oll_model = "dashscope-3:8b"
     && c.oll_delta_content = Some "hi"
     && c.oll_delta_thinking = None
     && c.oll_tool_calls = []
@@ -973,7 +973,7 @@ let%test "parse_ollama_ndjson_chunk: content delta line" =
 
 let%test "parse_ollama_ndjson_chunk: done line carries timings + usage" =
   let line =
-    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":""},
+    {|{"model":"dashscope-3:8b","message":{"role":"assistant","content":""},
        "done_reason":"stop","done":true,
        "prompt_eval_count":15,"prompt_eval_duration":300000000,
        "eval_count":50,"eval_duration":1000000000}|}
@@ -1003,7 +1003,7 @@ let%test "parse_ollama_ndjson_chunk: done line carries timings + usage" =
 
 let%test "parse_ollama_ndjson_chunk: zero eval_duration → per_second None" =
   let line =
-    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":""},
+    {|{"model":"dashscope-3:8b","message":{"role":"assistant","content":""},
        "done":true,"eval_count":10,"eval_duration":0}|}
   in
   match parse_ollama_ndjson_chunk line with
@@ -1016,7 +1016,7 @@ let%test "parse_ollama_ndjson_chunk: zero eval_duration → per_second None" =
 
 let%test "parse_ollama_ndjson_chunk: tool_calls fully formed in done line" =
   let line =
-    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":"",
+    {|{"model":"dashscope-3:8b","message":{"role":"assistant","content":"",
        "tool_calls":[{"function":{"name":"foo","arguments":{"x":1}}}]},
        "done":true,"done_reason":"tool_calls"}|}
   in
@@ -1043,7 +1043,7 @@ let%test "parse_ollama_ndjson_chunk: malformed json → None" =
 
 let%test "parse_ollama_ndjson_chunk: done with zero token counts → None" =
   let line =
-    {|{"model":"provider_h-3:8b","message":{"role":"assistant","content":""},
+    {|{"model":"dashscope-3:8b","message":{"role":"assistant","content":""},
        "done_reason":"stop","done":true,
        "prompt_eval_count":0,"eval_count":0}|}
   in
@@ -1057,7 +1057,7 @@ let%test "parse_ollama_ndjson_chunk: done with zero token counts → None" =
 let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
   let state = create_openai_stream_state () in
   let chunk =
-    { oll_model = "provider_h-3:8b"
+    { oll_model = "dashscope-3:8b"
     ; oll_delta_content = Some "hello"
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -1080,7 +1080,7 @@ let%test "ollama_chunk_to_events: content delta emits Start+Delta" =
 let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
   let state = create_openai_stream_state () in
   let mk text =
-    { oll_model = "provider_h-3:8b"
+    { oll_model = "dashscope-3:8b"
     ; oll_delta_content = Some text
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -1103,7 +1103,7 @@ let%test "ollama_chunk_to_events: subsequent content delta reuses block" =
 let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
   let state = create_openai_stream_state () in
   let chunk =
-    { oll_model = "provider_h-3:8b"
+    { oll_model = "dashscope-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -1132,7 +1132,7 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
 let%test "ollama_chunk_to_events: done with zero usage → usage=None" =
   let state = create_openai_stream_state () in
   let chunk =
-    { oll_model = "provider_h-3:8b"
+    { oll_model = "dashscope-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = None
     ; oll_tool_calls = []
@@ -1153,7 +1153,7 @@ let%test "ollama_chunk_to_events: done with zero usage → usage=None" =
 let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
   let state = create_openai_stream_state () in
   let chunk =
-    { oll_model = "provider_h-3:8b"
+    { oll_model = "dashscope-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = None
     ; oll_tool_calls =
@@ -1184,7 +1184,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
 let%test "ollama_chunk_to_events: thinking delta emits thinking block first" =
   let state = create_openai_stream_state () in
   let chunk =
-    { oll_model = "provider_h-3:8b"
+    { oll_model = "dashscope-3:8b"
     ; oll_delta_content = None
     ; oll_delta_thinking = Some "considering"
     ; oll_tool_calls = []

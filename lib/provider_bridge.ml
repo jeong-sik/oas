@@ -21,7 +21,7 @@ let is_provider_c_coding_base_url base_url =
   | uri ->
     let host_matches =
       match Uri.host uri with
-      | Some host -> String.lowercase_ascii host = "api.provider_c.com"
+      | Some host -> String.lowercase_ascii host = "api.kimi.com"
       | None -> false
     in
     let path = Uri.path uri |> String.lowercase_ascii in
@@ -38,13 +38,13 @@ let is_provider_c_coding_base_url base_url =
     for "auto"; cloud providers use environment-variable defaults. *)
 let resolve_glm_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_alias
-    ~default_model:(Util.env_or "provider_k-5.1" "ZAI_DEFAULT_MODEL")
+    ~default_model:(Util.env_or "glm-5.1" "ZAI_DEFAULT_MODEL")
     model_id
 ;;
 
 let resolve_glm_coding_model_id model_id =
   Llm_provider.Zai_catalog.resolve_glm_coding_alias
-    ~default_model:(Util.env_or "provider_k-5.1" "ZAI_CODING_DEFAULT_MODEL")
+    ~default_model:(Util.env_or "glm-5.1" "ZAI_CODING_DEFAULT_MODEL")
     model_id
 ;;
 
@@ -55,7 +55,7 @@ let resolve_glm_coding_model_id model_id =
     for "auto"; cloud providers fall back to environment-variable defaults.
 
     Parse, don't validate: callers hand in the concrete variant so dead
-    branches ([provider_d], [provider_o_router] in the pre-typed version) cannot exist. *)
+    branches ([openai], [openrouter] in the pre-typed version) cannot exist. *)
 let resolve_auto_model_id
       ~base_url
       (kind : Llm_provider.Provider_config.provider_kind)
@@ -83,7 +83,7 @@ let resolve_auto_model_id
     else model_id
   | Kimi ->
     if model_id = "auto"
-    then Util.env_or "provider_c-for-coding" "PROVIDER_C_DEFAULT_MODEL"
+    then Util.env_or "kimi-for-coding" "PROVIDER_C_DEFAULT_MODEL"
     else model_id
   | Anthropic ->
     if model_id = "auto"
@@ -98,7 +98,7 @@ let to_provider_config (legacy : Provider.config)
   | Error e -> Error e
   | Ok (base_url, api_key, headers) ->
     let m_lower = String.lowercase_ascii legacy.model_id in
-    let is_provider_f_model = String.starts_with ~prefix:"provider_f" m_lower in
+    let is_provider_f_model = String.starts_with ~prefix:"gemini" m_lower in
     let is_glm_model = is_glm_model_or_alias m_lower in
     let is_zai_provider = Llm_provider.Zai_catalog.is_zai_base_url base_url in
     let is_provider_c_provider = is_provider_c_coding_base_url base_url in

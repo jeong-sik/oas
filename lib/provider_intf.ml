@@ -204,7 +204,7 @@ let%test "supports_streaming OpenAICompat" =
           ; path = "/v1/chat/completions"
           ; static_token = None
           }
-    ; model_id = "provider_h-3.5"
+    ; model_id = "dashscope-3.5"
     ; api_key_env = ""
     }
   in

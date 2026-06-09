@@ -300,7 +300,7 @@ let test_accumulate_usage_local_pricing () =
   in
   let provider_cfg : Provider.config =
     { provider = Local { base_url = "http://localhost:8085" }
-    ; model_id = "provider_h-3.5"
+    ; model_id = "dashscope-3.5"
     ; api_key_env = "DUMMY"
     }
   in

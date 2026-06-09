@@ -7,7 +7,7 @@ let () =
     "Uncertain"
     [ ( "constructors"
       , [ Alcotest.test_case "from_llm defaults" `Quick (fun () ->
-            let u = Uncertain.from_llm ~model:"provider_h-3.5-9b" "hello" in
+            let u = Uncertain.from_llm ~model:"dashscope-3.5-9b" "hello" in
             Alcotest.(check string) "value" "hello" (Uncertain.value u);
             Alcotest.(check (float 0.01))
               "default confidence"
@@ -126,13 +126,13 @@ let () =
         ] )
     ; ( "json_roundtrip"
       , [ Alcotest.test_case "LLM provenance roundtrip" `Quick (fun () ->
-            let p = Uncertain.LLM { model = "provider_h"; temperature = Some 0.3 } in
+            let p = Uncertain.LLM { model = "dashscope"; temperature = Some 0.3 } in
             let json = Uncertain.provenance_to_yojson p in
             match Uncertain.provenance_of_yojson json with
             | Ok p' ->
               (match p' with
                | LLM { model; temperature } ->
-                 Alcotest.(check string) "model" "provider_h" model;
+                 Alcotest.(check string) "model" "dashscope" model;
                  Alcotest.(check (option (float 0.01))) "temp" (Some 0.3) temperature
                | _ -> Alcotest.fail "wrong provenance variant")
             | Error e -> Alcotest.fail e)

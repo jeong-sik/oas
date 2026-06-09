@@ -124,7 +124,7 @@ let malformed_json_indicators =
     - z.ai / Glm: "Insufficient balance or no resource package. Please
       recharge."
     - Anthropic: "You have insufficient credits"; "billing_hard_limit"
-    - Provider_d: "You exceeded your current quota, please check your plan
+    - Openai: "You exceeded your current quota, please check your plan
       and billing details"
     - Provider account-limit variants: "Your account has exceeded the
       API usage limit"
@@ -204,7 +204,7 @@ let is_hard_quota = function
 (** Extract a human-readable error message from a provider error body.
 
     Supports three common shapes:
-    - Provider_d/Anthropic style: [{"error": {"message": "...", ...}}]
+    - Openai/Anthropic style: [{"error": {"message": "...", ...}}]
     - Ollama/llama.cpp style: [{"error": "..."}] (error is a flat string)
     - ZAI/Glm style with nested code: [{"error": {"code": "1113", "message": "..."}}]
 
@@ -498,7 +498,7 @@ let%test "parse_context_overflow_limit: budget exceeded format" =
   parse_context_overflow_limit "input token budget exceeded: 15000 / 8192" = Some 8192
 ;;
 
-let%test "extract_error_message: nested error.message (Provider_d shape)" =
+let%test "extract_error_message: nested error.message (Openai shape)" =
   extract_error_message {|{"error":{"message":"invalid tool schema","code":400}}|}
   = "invalid tool schema"
 ;;
@@ -638,7 +638,7 @@ let%test "RateLimited transient 429 is retryable" =
 
 (* Provider-specific hard-quota messages: all non-retryable. *)
 
-let%test "RateLimited provider_k insufficient balance (z.ai) is NOT retryable" =
+let%test "RateLimited glm insufficient balance (z.ai) is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -665,7 +665,7 @@ let%test "RateLimited provider_a billing_hard_limit is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_d exceeded quota is NOT retryable" =
+let%test "RateLimited openai exceeded quota is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -676,7 +676,7 @@ let%test "RateLimited provider_d exceeded quota is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_f resource exhausted is NOT retryable" =
+let%test "RateLimited gemini resource exhausted is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -685,7 +685,7 @@ let%test "RateLimited provider_f resource exhausted is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_f resource_exhausted snake_case is NOT retryable" =
+let%test "RateLimited gemini resource_exhausted snake_case is NOT retryable" =
   not
     (is_retryable
        (RateLimited

@@ -145,13 +145,13 @@ let test_lookup_gpt5 () =
 ;;
 
 let test_lookup_provider_f () =
-  match Capabilities.for_model_id "provider_f-3.1-pro" with
+  match Capabilities.for_model_id "gemini-3.1-pro" with
   | Some c ->
     check bool "audio" true c.supports_audio_input;
     check bool "video" true c.supports_video_input;
     check bool "code execution" true c.supports_code_execution;
     check bool "structured output" true c.supports_structured_output
-  | None -> fail "should match provider_f"
+  | None -> fail "should match gemini"
 ;;
 
 (* ── Typed gemini_family classifier (root-fix for #968) ─────── *)
@@ -184,8 +184,8 @@ let pp_static_model_route ppf = function
   | Capabilities.Provider_j_small -> Format.fprintf ppf "Provider_j_small"
   | Capabilities.Provider_m_command -> Format.fprintf ppf "Provider_m_command"
   | Capabilities.Provider_e_grok -> Format.fprintf ppf "Provider_e_grok"
-  | Capabilities.Provider_l { has_vision } ->
-    Format.fprintf ppf "Provider_l(has_vision=%b)" has_vision
+  | Capabilities.Nvidia { has_vision } ->
+    Format.fprintf ppf "Nvidia(has_vision=%b)" has_vision
   | Capabilities.Gemini_gemma_4 { has_large_audio } ->
     Format.fprintf ppf "Gemini_gemma_4(has_large_audio=%b)" has_large_audio
   | Capabilities.Glm_4_7_flash -> Format.fprintf ppf "Glm_4_7_flash"
@@ -209,7 +209,7 @@ let static_model_route_testable = Alcotest.testable pp_static_model_route ( = )
 let test_gemini_family_3_1 () =
   check
     gemini_family_testable
-    "provider_f-3.1-pro-preview classifies as Gemini_3_1"
+    "gemini-3.1-pro-preview classifies as Gemini_3_1"
     Capabilities.Gemini_3_1
     (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
 ;;
@@ -225,7 +225,7 @@ let test_gemini_family_3 () =
 let test_gemini_family_2_5 () =
   check
     gemini_family_testable
-    "provider_f-2.5-flash classifies as Gemini_2_5"
+    "gemini-2.5-flash classifies as Gemini_2_5"
     Capabilities.Gemini_2_5
     (Capabilities.gemini_family_of_id "gemini-2.5-flash")
 ;;
@@ -233,17 +233,17 @@ let test_gemini_family_2_5 () =
 let test_gemini_family_other_non_provider_f () =
   check
     gemini_family_testable
-    "non-provider_f id falls into Gemini_other with literal retained"
+    "non-gemini id falls into Gemini_other with literal retained"
     (Capabilities.Gemini_other "agent_llm_a-opus-4")
     (Capabilities.gemini_family_of_id "agent_llm_a-opus-4")
 ;;
 
 let test_gemini_family_other_unknown_provider_f () =
-  (* A future provider_f line not yet classified should land in Gemini_other —
+  (* A future gemini line not yet classified should land in Gemini_other —
      not be silently absorbed into an existing arm. *)
   check
     gemini_family_testable
-    "provider_f-4-foo lands in Gemini_other (no silent fallback)"
+    "gemini-4-foo lands in Gemini_other (no silent fallback)"
     (Capabilities.Gemini_other "gemini-4-foo")
     (Capabilities.gemini_family_of_id "gemini-4-foo")
 ;;
@@ -265,23 +265,23 @@ let test_gemini_family_drives_capabilities () =
     (ctx "gemini-3-flash-preview");
   check
     (option int)
-    "provider_f-3.1-pro-preview ctx"
+    "gemini-3.1-pro-preview ctx"
     (Some 1_000_000)
     (ctx "gemini-3.1-pro-preview");
-  check (option int) "provider_f-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
+  check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
 ;;
 
 let test_static_model_route_normalizes_cloud_suffix () =
   check
     (option static_model_route_testable)
-    "provider_c-k2 cloud route"
+    "kimi-k2 cloud route"
     (Some Capabilities.Kimi_k2)
-    (Capabilities.static_model_route_of_id " provider_c-k2.6:cloud ");
+    (Capabilities.static_model_route_of_id " kimi-k2.6:cloud ");
   check
     (option static_model_route_testable)
     "deepseek anon-alias cloud route"
     (Some Capabilities.Deepseek_v4_pro)
-    (Capabilities.static_model_route_of_id "provider_g-v4-pro:cloud");
+    (Capabilities.static_model_route_of_id "deepseek-v4-pro:cloud");
   (* RFC-OAS-023: the real fleet id must also route post-de-anonymization. *)
   check
     (option static_model_route_testable)
@@ -290,16 +290,16 @@ let test_static_model_route_normalizes_cloud_suffix () =
     (Capabilities.static_model_route_of_id "deepseek-v4-pro:cloud");
   check
     (option static_model_route_testable)
-    "provider_k cloud route"
+    "glm cloud route"
     (Some Capabilities.Glm_full_text)
-    (Capabilities.static_model_route_of_id "provider_k-5.1:cloud")
+    (Capabilities.static_model_route_of_id "glm-5.1:cloud")
 ;;
 
 let test_lookup_provider_c_k2_cloud () =
-  match Capabilities.for_model_id "provider_c-k2.6:cloud" with
+  match Capabilities.for_model_id "kimi-k2.6:cloud" with
   | Some c ->
     (* Kimi K2.6: 256K context per platform.kimi.ai official docs (2026-05-30
-       verified). Previously 262_144 from the anonymized provider_c era. *)
+       verified). Previously 262_144 from the anonymized kimi era. *)
     check (option int) "context 256K" (Some 256_000) c.max_context_tokens;
     check (option int) "output 32K" (Some 32_768) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
@@ -309,11 +309,11 @@ let test_lookup_provider_c_k2_cloud () =
       Capabilities.Thinking_object_only
       c.thinking_control_format;
     check bool "code execution" true c.supports_code_execution
-  | None -> fail "should match provider_c-k2 cloud route"
+  | None -> fail "should match kimi-k2 cloud route"
 ;;
 
 let test_lookup_provider_m () =
-  match Capabilities.for_model_id "provider_h-3.5-35b-a3b" with
+  match Capabilities.for_model_id "dashscope-3.5-35b-a3b" with
   | Some c ->
     check (option int) "context 262K" (Some 262_144) c.max_context_tokens;
     check bool "tools" true c.supports_tools;
@@ -340,25 +340,25 @@ let test_lookup_provider_m_runpod_name () =
 ;;
 
 let test_lookup_provider_g_v4_flash () =
-  match Capabilities.for_model_id "provider_g-v4-flash" with
+  match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
     check bool "caching" true c.supports_caching
-  | None -> fail "should match provider_g-v4-flash"
+  | None -> fail "should match deepseek-v4-flash"
 ;;
 
 let test_lookup_provider_g_v4_pro () =
-  match Capabilities.for_model_id "provider_g-v4-pro" with
+  match Capabilities.for_model_id "deepseek-v4-pro" with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
     check bool "caching" true c.supports_caching
-  | None -> fail "should match provider_g-v4-pro"
+  | None -> fail "should match deepseek-v4-pro"
 ;;
 
 let test_lookup_grok () =
@@ -386,38 +386,38 @@ let test_lookup_case_insensitive () =
 ;;
 
 let test_lookup_glm5_text_only () =
-  match Capabilities.for_model_id "provider_k-5" with
+  match Capabilities.for_model_id "glm-5" with
   | Some c ->
     check bool "no image input" false c.supports_image_input;
     check bool "reasoning" true c.supports_reasoning;
     check bool "structured output disabled" false c.supports_structured_output
-  | None -> fail "should match provider_k-5"
+  | None -> fail "should match glm-5"
 ;;
 
 let test_lookup_glm5v_vision () =
-  match Capabilities.for_model_id "provider_k-5v-turbo" with
+  match Capabilities.for_model_id "glm-5v-turbo" with
   | Some c ->
     check bool "has image input" true c.supports_image_input;
     check bool "multimodal" true c.supports_multimodal_inputs
-  | None -> fail "should match provider_k-5v"
+  | None -> fail "should match glm-5v"
 ;;
 
 let test_lookup_glm46v_vision () =
-  match Capabilities.for_model_id "provider_k-4.6v-flashx" with
+  match Capabilities.for_model_id "glm-4.6v-flashx" with
   | Some c ->
     check bool "has image input" true c.supports_image_input;
     check bool "multimodal" true c.supports_multimodal_inputs;
     check bool "reasoning" true c.supports_reasoning
-  | None -> fail "should match provider_k-4.6v"
+  | None -> fail "should match glm-4.6v"
 ;;
 
 let test_lookup_glm_ocr () =
-  match Capabilities.for_model_id "provider_k-ocr" with
+  match Capabilities.for_model_id "glm-ocr" with
   | Some c ->
     check bool "has image input" true c.supports_image_input;
     check bool "multimodal" true c.supports_multimodal_inputs;
     check bool "no tools" false c.supports_tools
-  | None -> fail "should match provider_k-ocr"
+  | None -> fail "should match glm-ocr"
 ;;
 
 (* ── with_context_size ───────────────────────────────── *)
@@ -540,15 +540,15 @@ let test_manifest_base_absent_uses_default () =
 ;;
 
 let test_manifest_prefix_wins_over_longer_static_prefix () =
-  (* Manifest entry "provider_h-3" must win over static table "provider_h-3" prefix too,
+  (* Manifest entry "dashscope-3" must win over static table "dashscope-3" prefix too,
      letting operator override even well-known models. *)
   let m =
     make_manifest
       ~base:"openai_chat"
       ~extra_fields:[ "supports_reasoning", "false" ]
-      "provider_h-3"
+      "dashscope-3"
   in
-  match Capabilities.for_model_id_with_manifest m "provider_h-3.5-35b-a3b-q4" with
+  match Capabilities.for_model_id_with_manifest m "dashscope-3.5-35b-a3b-q4" with
   | Some c ->
     check bool "manifest disables reasoning" false c.supports_reasoning;
     check bool "base openai_chat: tools" true c.supports_tools
@@ -733,12 +733,12 @@ let test_dashscope_capabilities () =
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
     [ "openai_chat_extended", Some Capabilities.openai_compat_chat_extended_capabilities
-    ; "provider_c", Some Capabilities.kimi_capabilities
-    ; "provider_h", Some Capabilities.dashscope_capabilities
+    ; "kimi", Some Capabilities.kimi_capabilities
+    ; "dashscope", Some Capabilities.dashscope_capabilities
     ; "mimo-v2.5-pro", Capabilities.for_model_id "mimo-v2.5-pro"
-    ; "provider_h-3.5", Capabilities.for_model_id "provider_h-3.5-35b-a3b"
-    ; "provider_g-v4-flash", Capabilities.for_model_id "provider_g-v4-flash"
-    ; "provider_l-ultra", Capabilities.for_model_id "provider_l-ultra-253b"
+    ; "dashscope-3.5", Capabilities.for_model_id "dashscope-3.5-35b-a3b"
+    ; "deepseek-v4-flash", Capabilities.for_model_id "deepseek-v4-flash"
+    ; "nvidia-ultra", Capabilities.for_model_id "nvidia-ultra-253b"
     ]
   in
   List.iter
@@ -779,42 +779,42 @@ let test_prefix_ordering_invariant () =
      The predicate is true only when the more-specific (longer-prefix)
      branch wins. *)
   let cases =
-    [ (* provider_k-5v-turbo must precede provider_k-5 (inside broad branch).
-         Discriminator: supports_image_input (5v-turbo) vs not (broad provider_k-5). *)
-      ( "provider_k-5v-turbo-x"
-      , "provider_k-5v-turbo must precede broad provider_k-5"
+    [ (* glm-5v-turbo must precede glm-5 (inside broad branch).
+         Discriminator: supports_image_input (5v-turbo) vs not (broad glm-5). *)
+      ( "glm-5v-turbo-x"
+      , "glm-5v-turbo must precede broad glm-5"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input && c.max_output_tokens = Some 128_000 )
-    ; (* provider_k-5-code must precede provider_k-5 (inside broad branch).
-         Discriminator: 128K context (code branch) vs 200K (broad provider_k-5). *)
-      ( "provider_k-5-code-x"
-      , "provider_k-5-code must precede broad provider_k-5"
+    ; (* glm-5-code must precede glm-5 (inside broad branch).
+         Discriminator: 128K context (code branch) vs 200K (broad glm-5). *)
+      ( "glm-5-code-x"
+      , "glm-5-code must precede broad glm-5"
       , fun (c : Capabilities.capabilities) ->
           c.max_context_tokens = Some 128_000 && c.supports_extended_thinking )
-    ; (* provider_k-4.6v must precede provider_k-4.6 (inside broad branch) *)
-      ( "provider_k-4.6v-x"
-      , "provider_k-4.6v must precede broad provider_k-4.6"
+    ; (* glm-4.6v must precede glm-4.6 (inside broad branch) *)
+      ( "glm-4.6v-x"
+      , "glm-4.6v must precede broad glm-4.6"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 32_768 )
-    ; (* provider_k-4.5v must precede provider_k-4.5 (inside broad branch) *)
-      ( "provider_k-4.5v-x"
-      , "provider_k-4.5v must precede broad provider_k-4.5"
+    ; (* glm-4.5v must precede glm-4.5 (inside broad branch) *)
+      ( "glm-4.5v-x"
+      , "glm-4.5v must precede broad glm-4.5"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input
           && c.supports_reasoning
           && c.max_output_tokens = Some 16_384 )
-    ; (* broad provider_k-4.5 branch must precede provider_k-4.
-         Discriminator: supports_reasoning + 96K output (broad) vs neither (provider_k-4). *)
-      ( "provider_k-4.5-latest"
-      , "broad provider_k-4.5 branch must precede provider_k-4"
+    ; (* broad glm-4.5 branch must precede glm-4.
+         Discriminator: supports_reasoning + 96K output (broad) vs neither (glm-4). *)
+      ( "glm-4.5-latest"
+      , "broad glm-4.5 branch must precede glm-4"
       , fun (c : Capabilities.capabilities) ->
           c.supports_reasoning && c.max_output_tokens = Some 96_000 )
-    ; (* provider_k-4v must precede provider_k-4.
-         Discriminator: supports_image_input (provider_k-4v) vs not (provider_k-4). *)
-      ( "provider_k-4v-x"
-      , "provider_k-4v must precede provider_k-4"
+    ; (* glm-4v must precede glm-4.
+         Discriminator: supports_image_input (glm-4v) vs not (glm-4). *)
+      ( "glm-4v-x"
+      , "glm-4v must precede glm-4"
       , fun (c : Capabilities.capabilities) ->
           c.supports_image_input && c.supports_multimodal_inputs )
     ]
@@ -843,11 +843,11 @@ let () =
         ] )
     ; ( "presets"
       , [ test_case "anthropic" `Quick test_anthropic_capabilities
-        ; test_case "provider_d" `Quick test_provider_d_capabilities
-        ; test_case "provider_d extended" `Quick test_provider_d_extended
-        ; test_case "provider_h" `Quick test_dashscope_capabilities
+        ; test_case "openai" `Quick test_provider_d_capabilities
+        ; test_case "openai extended" `Quick test_provider_d_extended
+        ; test_case "dashscope" `Quick test_dashscope_capabilities
         ; test_case
-            "provider_d compat reasoning records have explicit control"
+            "openai compat reasoning records have explicit control"
             `Quick
             test_openai_compat_reasoning_records_have_explicit_control
         ] )
@@ -855,16 +855,16 @@ let () =
       , [ test_case "agent_llm_a opus" `Quick test_lookup_agent_llm_a_opus
         ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
         ; test_case "model-d-5" `Quick test_lookup_gpt5
-        ; test_case "provider_f" `Quick test_lookup_provider_f
+        ; test_case "gemini" `Quick test_lookup_provider_f
         ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
         ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
         ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
         ; test_case
-            "gemini_family Gemini_other (non-provider_f)"
+            "gemini_family Gemini_other (non-gemini)"
             `Quick
             test_gemini_family_other_non_provider_f
         ; test_case
-            "gemini_family Gemini_other (unknown provider_f)"
+            "gemini_family Gemini_other (unknown gemini)"
             `Quick
             test_gemini_family_other_unknown_provider_f
         ; test_case
@@ -875,16 +875,16 @@ let () =
             "static route normalizes cloud suffix"
             `Quick
             test_static_model_route_normalizes_cloud_suffix
-        ; test_case "provider_c-k2 cloud" `Quick test_lookup_provider_c_k2_cloud
-        ; test_case "provider_h" `Quick test_lookup_provider_m
-        ; test_case "provider_h runpod name" `Quick test_lookup_provider_m_runpod_name
-        ; test_case "provider_g v4 flash" `Quick test_lookup_provider_g_v4_flash
-        ; test_case "provider_g v4 pro" `Quick test_lookup_provider_g_v4_pro
+        ; test_case "kimi-k2 cloud" `Quick test_lookup_provider_c_k2_cloud
+        ; test_case "dashscope" `Quick test_lookup_provider_m
+        ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
+        ; test_case "deepseek v4 flash" `Quick test_lookup_provider_g_v4_flash
+        ; test_case "deepseek v4 pro" `Quick test_lookup_provider_g_v4_pro
         ; test_case "grok 2M context" `Quick test_lookup_grok
-        ; test_case "provider_k-5 text only" `Quick test_lookup_glm5_text_only
-        ; test_case "provider_k-5v vision" `Quick test_lookup_glm5v_vision
-        ; test_case "provider_k-4.6v vision" `Quick test_lookup_glm46v_vision
-        ; test_case "provider_k-ocr vision" `Quick test_lookup_glm_ocr
+        ; test_case "glm-5 text only" `Quick test_lookup_glm5_text_only
+        ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision
+        ; test_case "glm-4.6v vision" `Quick test_lookup_glm46v_vision
+        ; test_case "glm-ocr vision" `Quick test_lookup_glm_ocr
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "unknown" `Quick test_lookup_unknown
         ; test_case "case insensitive" `Quick test_lookup_case_insensitive

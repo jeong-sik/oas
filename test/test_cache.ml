@@ -131,7 +131,7 @@ let test_add_usage_cache_accumulation () =
 ;;
 
 (* ------------------------------------------------------------------ *)
-(* Provider_d: cache token parsing from prompt_tokens_details               *)
+(* Openai: cache token parsing from prompt_tokens_details               *)
 (* ------------------------------------------------------------------ *)
 
 let test_provider_d_usage_with_cached_tokens () =

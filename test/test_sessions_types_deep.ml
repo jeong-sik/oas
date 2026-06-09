@@ -97,7 +97,7 @@ let mk_run_summary ?(final_text = Some "Done.") ?(error = None) () : Raw_trace.r
   ; hook_invoked_count = 2
   ; hook_names = [ "pre_tool"; "post_tool" ]
   ; tool_names = [ "bash"; "read_file" ]
-  ; model = Some "provider_k-5.1"
+  ; model = Some "glm-5.1"
   ; tool_choice = Some (Agent_sdk.Types.tool_choice_to_json Agent_sdk.Types.Any)
   ; enable_thinking = Some true
   ; thinking_budget = Some 4096
@@ -444,7 +444,7 @@ let test_record_minimal () =
     ; session_id = None
     ; record_type = Raw_trace.Run_started
     ; prompt = Some "hello"
-    ; model = Some "provider_k-5.1"
+    ; model = Some "glm-5.1"
     ; tool_choice = Some (Agent_sdk.Types.tool_choice_to_json Agent_sdk.Types.Any)
     ; enable_thinking = Some false
     ; thinking_budget = Some 2048

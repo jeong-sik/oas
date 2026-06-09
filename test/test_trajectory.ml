@@ -68,7 +68,7 @@ let test_basic_trajectory () =
         ~agent_name:"test-agent"
         ~record_type:Run_started
         ~prompt:"hello"
-        ~model:"provider_k-5.1"
+        ~model:"glm-5.1"
         ()
     ; make_record
         ~seq:2
@@ -97,7 +97,7 @@ let test_basic_trajectory () =
   in
   let traj = Trajectory.of_raw_trace_records records in
   Alcotest.(check string) "agent_name" "test-agent" traj.agent_name;
-  Alcotest.(check string) "model" "provider_k-5.1" traj.model;
+  Alcotest.(check string) "model" "glm-5.1" traj.model;
   Alcotest.(check string) "prompt" "hello" traj.prompt;
   Alcotest.(check bool) "success" true traj.success;
   let think, _act, _obs, respond = Trajectory.count_steps traj in

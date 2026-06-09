@@ -162,7 +162,7 @@ val local_llm : unit -> config
 val anthropic_sonnet : unit -> config
 val anthropic_haiku : unit -> config
 val anthropic_opus : unit -> config
-val provider_o_router : ?model_id:string -> unit -> config
+val openrouter : ?model_id:string -> unit -> config
 
 (** {2 Pricing: per-model cost estimation} *)
 

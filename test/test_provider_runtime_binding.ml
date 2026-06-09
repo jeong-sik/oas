@@ -262,10 +262,10 @@ let test_builtin_aliases_are_canonicalized () =
   let cases =
     [ "anthropic", "agent_llm_a"
     ; "anthropic", "agent_llm_a"
-    ; "kimi", "provider_c"
-    ; "gemini", "provider_f"
-    ; "glm", "provider_k"
-    ; "dashscope", "provider_h"
+    ; "kimi", "kimi"
+    ; "gemini", "gemini"
+    ; "glm", "glm"
+    ; "dashscope", "dashscope"
     ]
   in
   List.iter

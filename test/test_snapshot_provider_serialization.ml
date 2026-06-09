@@ -101,7 +101,7 @@ let ollama_cfg = cfg ~kind:Ollama ~base_url:"http://127.0.0.1:11434"
    the OpenAI-compat request builder runs the real capability lookup
    ([Capabilities.for_model_id]) instead of the override. The Ollama Cloud
    provider speaks the OpenAI-compat Chat Completions wire
-   (provider_d-http / https://ollama.com/v1), so [OpenAI_compat] is the
+   (openai-http / https://ollama.com/v1), so [OpenAI_compat] is the
    matching kind for the fleet wire. *)
 let deepseek_cfg ~tool_choice =
   Provider_config.make
