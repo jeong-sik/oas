@@ -99,11 +99,26 @@ let build_request
   let base_body = Backend_openai.build_request ~stream ~config ~messages ~tools () in
   match Yojson.Safe.from_string base_body with
   | `Assoc fields ->
-    (* GLM thinking is emitted by the shared OpenAI-compat request builder via
-       the [Glm_enable_thinking] capability (RFC-OAS-023). It is intentionally
-       NOT overlaid here: a GLM model that resolves to a reasoning route already
-       carries [thinking_control_format = Glm_enable_thinking], so emitting it
-       twice would produce a duplicate [thinking] JSON key. *)
+    (* [thinking] single-owner normalization. The shared request builder's
+       ZAI/GLM branch may already have emitted a [thinking] field (it fires for
+       api.z.ai base URLs); strip it so Backend_glm is the authoritative owner
+       and the key is never duplicated for [kind:Glm] (mirrors the response-path
+       dedup at [extract_reasoning_content]). Bare GLM via [kind:OpenAI_compat]
+       does not pass through here and is covered by that shared branch instead.
+       The capability-driven unification of both emitters via
+       [Glm_enable_thinking] is deferred to the RFC-OAS-023 axis reshape, which
+       needs model-based [capabilities_of_config] resolution. *)
+    let fields = List.filter (fun (k, _) -> k <> "thinking") fields in
+    let fields =
+      match config.enable_thinking with
+      | Some true ->
+        let clear_thinking = Option.value ~default:true config.clear_thinking in
+        ( "thinking"
+        , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
+        :: fields
+      | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: fields
+      | None -> fields
+    in
     let fields =
       (* GLM streams tool-call arguments incrementally only when both
          [stream] and [tool_stream] are set; [config.tool_stream] defaults
@@ -303,8 +318,7 @@ let%test "build_request emits exactly one thinking key for ZAI GLM (RFC-OAS-023)
   in
   let body = build_request ~config ~messages () in
   match Yojson.Safe.from_string body with
-  | `Assoc fields ->
-    List.length (List.filter (fun (k, _) -> k = "thinking") fields) = 1
+  | `Assoc fields -> List.length (List.filter (fun (k, _) -> k = "thinking") fields) = 1
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> false
 ;;
 
