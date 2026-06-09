@@ -45,7 +45,7 @@ let test_filter_parallel_tools () =
   in
   check
     bool
-    "provider_a has parallel"
+    "anthropic has parallel"
     true
     (Capability_filter.requires_parallel_tools yes);
   check bool "default lacks parallel" false (Capability_filter.requires_parallel_tools no)

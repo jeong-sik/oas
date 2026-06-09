@@ -156,7 +156,7 @@ let test_event_type_name_mapping () =
     ; (* Custom names pass through verbatim — no "custom." prefix. *)
       Custom ("runtime.session_started", `Null), "runtime.session_started"
     ; Custom ("durable.tool_called", `Null), "durable.tool_called"
-    ; Custom ("provider.provider_a.cache_hit", `Null), "provider.provider_a.cache_hit"
+    ; Custom ("provider.anthropic.cache_hit", `Null), "provider.anthropic.cache_hit"
     ; Custom ("myext.foo", `Null), "myext.foo"
     ]
   in
@@ -267,7 +267,7 @@ let test_reserved_namespace_grammar () =
   let ok_names =
     [ "runtime.session_started"
     ; "durable.tool_called"
-    ; "provider.provider_a.cache_hit"
+    ; "provider.anthropic.cache_hit"
     ; "provider.ollama.slot_busy"
     ; "oas.future"
     ; "myext.subsystem.event"

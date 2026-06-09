@@ -174,7 +174,7 @@ let () =
         ; test_case "none" `Quick test_find_object_none
         ] )
     ; ( "extract_name_and_input"
-      , [ test_case "provider_a style" `Quick test_extract_provider_a_style
+      , [ test_case "anthropic style" `Quick test_extract_provider_a_style
         ; test_case
             "openai arguments object"
             `Quick

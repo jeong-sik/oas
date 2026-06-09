@@ -441,7 +441,7 @@ let () =
             `Quick
             test_resolve_provider_openrouter
         ; Alcotest.test_case
-            "provider_a alias returns registered provider"
+            "anthropic alias returns registered provider"
             `Quick
             test_resolve_provider_alias_provider_a
         ; Alcotest.test_case

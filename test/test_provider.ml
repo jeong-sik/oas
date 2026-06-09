@@ -87,7 +87,7 @@ let test_provider_a_provider () =
   in
   match Provider.resolve cfg with
   | Ok (base_url, api_key, _headers) ->
-    Alcotest.(check string) "provider_a base_url" "https://api.anthropic.com" base_url;
+    Alcotest.(check string) "anthropic base_url" "https://api.anthropic.com" base_url;
     Alcotest.(check string) "api_key" "sk-ant-test-key" api_key
   | Error e ->
     Alcotest.fail (Printf.sprintf "should succeed but got: %s" (Error.to_string e))
@@ -404,7 +404,7 @@ let test_anthropic_capabilities_unknown_model_id_falls_back () =
   let caps = Provider.capabilities_for_config cfg in
   (* Base anthropic_capabilities has max_context_tokens = Some 200_000 *)
   Alcotest.(check (option int))
-    "unknown provider_a model falls back to base 200K"
+    "unknown anthropic model falls back to base 200K"
     (Some 200_000)
     caps.max_context_tokens
 ;;
@@ -902,7 +902,7 @@ let () =
       , [ Alcotest.test_case "missing env var returns Error" `Quick test_missing_env_var
         ; Alcotest.test_case "present env var returns Ok" `Quick test_present_env_var
         ; Alcotest.test_case "local skips env var" `Quick test_local_skips_env_var
-        ; Alcotest.test_case "provider_a provider" `Quick test_provider_a_provider
+        ; Alcotest.test_case "anthropic provider" `Quick test_provider_a_provider
         ; Alcotest.test_case
             "openai compat success"
             `Quick
@@ -911,7 +911,7 @@ let () =
             "openai compat missing key"
             `Quick
             test_openai_compat_resolve_missing_key
-        ; Alcotest.test_case "provider_a headers" `Quick test_provider_a_headers
+        ; Alcotest.test_case "anthropic headers" `Quick test_provider_a_headers
         ; Alcotest.test_case
             "local llm model spec capabilities"
             `Quick
@@ -921,7 +921,7 @@ let () =
             `Quick
             test_model_spec_openrouter_capabilities
         ; Alcotest.test_case
-            "inference contract provider_a multimodal"
+            "inference contract anthropic multimodal"
             `Quick
             test_inference_contract_provider_a_multimodal
         ; Alcotest.test_case
@@ -953,11 +953,11 @@ let () =
             `Quick
             test_extended_provider_d_capabilities
         ; Alcotest.test_case
-            "provider_a consults for_model_id (#824)"
+            "anthropic consults for_model_id (#824)"
             `Quick
             test_anthropic_capabilities_consults_for_model_id
         ; Alcotest.test_case
-            "provider_a unknown model falls back to base"
+            "anthropic unknown model falls back to base"
             `Quick
             test_anthropic_capabilities_unknown_model_id_falls_back
         ] )
@@ -994,7 +994,7 @@ let () =
         ] )
     ; ( "provider_config_of_agent"
       , [ Alcotest.test_case
-            "provider_a maps fields"
+            "anthropic maps fields"
             `Quick
             test_provider_config_of_agent_provider_a
         ; Alcotest.test_case

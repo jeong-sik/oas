@@ -212,7 +212,7 @@ let test_default_has_14 () =
     bool
     "llama exists"
     true
-    (Option.is_some (Provider_registry.find reg "provider_n"));
+    (Option.is_some (Provider_registry.find reg "nous"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
   check
     bool
@@ -279,7 +279,7 @@ let test_default_capabilities () =
      check bool "agent_llm_a has tools" true e.capabilities.supports_tools;
      check bool "agent_llm_a has reasoning" true e.capabilities.supports_reasoning
    | None -> fail "agent_llm_a should exist");
-  match Provider_registry.find reg "provider_n" with
+  match Provider_registry.find reg "nous" with
   | Some e ->
     check bool "llama has tools" true e.capabilities.supports_tools;
     check bool "llama has top_k" true e.capabilities.supports_top_k
@@ -315,7 +315,7 @@ let test_provider_name_of_ollama_cloud_config () =
 
 let test_default_max_context () =
   let reg = Provider_registry.default () in
-  (match Provider_registry.find reg "provider_n" with
+  (match Provider_registry.find reg "nous" with
    | Some e -> check int "llama 128K" 128_000 e.max_context
    | None -> fail "llama should exist");
   (match Provider_registry.find reg "agent_llm_a" with
@@ -936,7 +936,7 @@ let test_requires_any () =
 
 (** Minimal [Provider_config.t] construction for a given kind, using a
     localhost base URL so [is_local = true] for [OpenAI_compat] (resolves
-    to the registry's "provider_n" entry) and a plain (non-coding) URL for
+    to the registry's "nous" entry) and a plain (non-coding) URL for
     [Glm] (resolves to "glm"). *)
 let mk_config_for_kind kind =
   let base_url =
@@ -952,7 +952,7 @@ let mk_config_for_kind kind =
     (masc canonical_name: "agent_llm_a-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
     returned by [Provider_registry.provider_name_of_config] ("agent_llm_a",
-    "kimi", "provider_n", "ollama", "cli_tool_d", "cli_tool_b", ...). For
+    "kimi", "nous", "ollama", "cli_tool_d", "cli_tool_b", ...). For
     direct-API kinds the lookup silently fell back to
     [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
     to match direct-API entries ("agent_llm_a" → Anthropic, "gemini" → Gemini,

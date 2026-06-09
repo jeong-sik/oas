@@ -129,7 +129,7 @@ let malformed_json_indicators =
     - Provider account-limit variants: "Your account has exceeded the
       API usage limit"
     - Google / Gemini: "Resource exhausted"
-    - Provider_j: "insufficient_quota"
+    - Mistral: "insufficient_quota"
     - Together.ai: "insufficient_funds"
     - z.ai CJK: "余额不足" / "额度不足"
     - z.ai / Glm admin disable: "Your usage allocation has been disabled
@@ -647,7 +647,7 @@ let%test "RateLimited glm insufficient balance (z.ai) is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_a insufficient credit is NOT retryable" =
+let%test "RateLimited anthropic insufficient credit is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -656,7 +656,7 @@ let%test "RateLimited provider_a insufficient credit is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_a billing_hard_limit is NOT retryable" =
+let%test "RateLimited anthropic billing_hard_limit is NOT retryable" =
   not
     (is_retryable
        (RateLimited
@@ -694,7 +694,7 @@ let%test "RateLimited gemini resource_exhausted snake_case is NOT retryable" =
           }))
 ;;
 
-let%test "RateLimited provider_j insufficient_quota is NOT retryable" =
+let%test "RateLimited mistral insufficient_quota is NOT retryable" =
   not
     (is_retryable
        (RateLimited

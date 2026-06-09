@@ -40,7 +40,7 @@ let test_make_defaults () =
 
 let test_request_path_provider_a () =
   let cfg = Provider_config.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
-  check_string "provider_a path" "/v1/messages" cfg.request_path
+  check_string "anthropic path" "/v1/messages" cfg.request_path
 ;;
 
 let test_request_path_provider_c () =
@@ -404,11 +404,11 @@ let test_default_attempt_timeout_s () =
 
 let test_max_turns_hard_cap_and_clamp () =
   Alcotest.(check (option int))
-    "provider_a no hard cap"
+    "anthropic no hard cap"
     None
     (Provider_config.max_turns_hard_cap Anthropic);
   check_int
-    "provider_a preserves request"
+    "anthropic preserves request"
     99
     (Provider_config.clamp_max_turns Anthropic 99)
 ;;
@@ -438,7 +438,7 @@ let test_reasoning_effort_of_config () =
       ~thinking_budget:2048
       ()
   in
-  let provider_a =
+  let anthropic =
     Provider_config.make
       ~kind:Anthropic
       ~model_id:"agent_llm_a-sonnet"
@@ -454,7 +454,7 @@ let test_reasoning_effort_of_config () =
   Alcotest.(check (option string))
     "non-ollama has no effort"
     None
-    (Provider_config.reasoning_effort_of_config provider_a)
+    (Provider_config.reasoning_effort_of_config anthropic)
 ;;
 
 let test_structured_output_name_of_schema () =
@@ -514,7 +514,7 @@ let test_provider_name_of_config_local_openai_compat () =
   in
   check_string
     "local openai compat resolves to llama"
-    "provider_n"
+    "nous"
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
@@ -582,7 +582,7 @@ let test_kind_aliases_rejected () =
          ("alias rejected " ^ input)
          true
          (Option.is_none (Provider_config.provider_kind_of_string input)))
-    [ "agent_llm_a"; "openai"; "provider_n"; "claude"; "openai"; "llama"; "zhipu" ]
+    [ "agent_llm_a"; "openai"; "nous"; "claude"; "openai"; "llama"; "zhipu" ]
 ;;
 
 let test_kind_case_insensitive () =
@@ -666,7 +666,7 @@ let test_of_yojson_rejects_aliases () =
        match Provider_config.provider_kind_of_yojson json with
        | Ok _ -> Alcotest.failf "of_yojson alias %S should fail" input
        | Error _ -> ())
-    [ "agent_llm_a"; "openai"; "provider_n" ]
+    [ "agent_llm_a"; "openai"; "nous" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -758,7 +758,7 @@ let test_wire_kind_none_roundtrip () =
          (Printf.sprintf "None telemetry must not contain %S" s)
          false
          (contains_substring ~sub:s encoded))
-    [ "\"provider_a\""; "\"ollama\""; "\"openai_compat\"" ]
+    [ "\"anthropic\""; "\"ollama\""; "\"openai_compat\"" ]
 ;;
 
 let test_wire_unknown_latency_is_null () =

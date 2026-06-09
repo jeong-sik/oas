@@ -103,8 +103,8 @@ let test_resolve_unknown_passes_through () =
   check
     string
     "custom model passes through"
-    "provider_a.agent_llm_a-vendor-tagged"
-    (Model_registry.resolve_model_id "provider_a.agent_llm_a-vendor-tagged")
+    "anthropic.agent_llm_a-vendor-tagged"
+    (Model_registry.resolve_model_id "anthropic.agent_llm_a-vendor-tagged")
 ;;
 
 let test_resolve_full_id_passes_through () =

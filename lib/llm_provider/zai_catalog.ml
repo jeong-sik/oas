@@ -6,7 +6,7 @@ type api_mode =
 
 let general_base_url = "https://api.z.ai/api/paas/v4"
 let coding_base_url = "https://api.z.ai/api/coding/paas/v4"
-let provider_a_base_url = "https://api.z.ai/api/provider_a"
+let provider_a_base_url = "https://api.z.ai/api/anthropic"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
@@ -62,7 +62,7 @@ let is_provider_a_base_url base_url =
   zai_path_prefix_matches
     (configured_base_urls [ provider_a_base_url ] None)
     base_url
-    "/api/provider_a"
+    "/api/anthropic"
 ;;
 
 let is_zai_base_url base_url =
@@ -182,7 +182,7 @@ let%test "is_glm_model_id accepts glm and bare glm prefixes" =
   && not (is_glm_model_id "model-d-5")
 ;;
 
-let%test "base_url classifiers distinguish general coding and provider_a" =
+let%test "base_url classifiers distinguish general coding and anthropic" =
   is_zai_base_url general_base_url
   && is_zai_base_url coding_base_url
   && is_zai_base_url provider_a_base_url
@@ -192,7 +192,7 @@ let%test "base_url classifiers distinguish general coding and provider_a" =
   && not (is_provider_a_base_url general_base_url)
 ;;
 
-let%test "mode_of_base_url maps coding and provider_a to coding plan" =
+let%test "mode_of_base_url maps coding and anthropic to coding plan" =
   mode_of_base_url general_base_url = General_api
   && mode_of_base_url coding_base_url = Coding_plan
   && mode_of_base_url provider_a_base_url = Coding_plan

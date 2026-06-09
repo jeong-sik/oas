@@ -384,7 +384,7 @@ let default () =
       }
   in
   reg
-    "provider_n"
+    "nous"
     llama_defaults
     ~max_context:128_000
     Capabilities.openai_compat_chat_extended_capabilities;
@@ -480,7 +480,7 @@ let provider_name_of_config (config : Provider_config.t) =
   | DashScope -> "dashscope"
   | OpenAI_compat ->
     if Provider_config.is_local config
-    then "provider_n"
+    then "nous"
     else (
       let request_path = String.trim config.request_path in
       let base_url = normalize_url config.base_url in

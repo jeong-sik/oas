@@ -122,7 +122,7 @@ let test_stage_route_passes_trace_context_headers () =
   let transport = mk_header_capture_transport observed_headers in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "provider_n" }
+      { Provider.provider = Provider.Custom_registered { name = "nous" }
       ; model_id = "model-d-4"
       ; api_key_env = ""
       }
@@ -175,7 +175,7 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
   in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "provider_n" }
+      { Provider.provider = Provider.Custom_registered { name = "nous" }
       ; model_id = "model-d-4"
       ; api_key_env = ""
       }

@@ -490,9 +490,9 @@ let static_model_route_of_id model_id =
       then Some Deepseek_v4_flash
       else if starts_with_any m [ "deepseek-v4-pro"; "deepseek-v4-pro" ]
       then Some Deepseek_v4_pro
-      else if String.starts_with ~prefix:"provider_j-large" m
+      else if String.starts_with ~prefix:"mistral-large" m
       then Some Provider_j_large
-      else if String.starts_with ~prefix:"provider_j-small" m
+      else if String.starts_with ~prefix:"mistral-small" m
       then Some Provider_j_small
       else if String.starts_with ~prefix:"command" m
       then Some Provider_m_command
@@ -1220,7 +1220,7 @@ let%test "for_model_id_static bare glm-5-turbo has GLM-5 thinking limits" =
 
 let%test "emits_usage_tokens: default is true" = default_capabilities.emits_usage_tokens
 
-let%test "emits_usage_tokens: provider_a reports usage" =
+let%test "emits_usage_tokens: anthropic reports usage" =
   anthropic_capabilities.emits_usage_tokens
 ;;
 

@@ -828,7 +828,7 @@ let () =
             test_finalize_thinking_empty_content
         ] )
     ; ( "full_sequence"
-      , [ Alcotest.test_case "provider_a stream" `Quick test_full_provider_a_sequence
+      , [ Alcotest.test_case "anthropic stream" `Quick test_full_provider_a_sequence
         ; Alcotest.test_case "tool_use stream" `Quick test_full_tool_use_sequence
         ] )
     ; ( "map_http_error"

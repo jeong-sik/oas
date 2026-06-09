@@ -353,7 +353,7 @@ let validate_provider_d_response ~declared_tools json =
 
 (* ── Inline Tests ─────────────────────────────────────── *)
 
-let%test "provider_a tool_use response validates correctly" =
+let%test "anthropic tool_use response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "msg_123"
@@ -384,7 +384,7 @@ let%test "provider_a tool_use response validates correctly" =
   && (List.hd result.tool_calls_found).name = "get_weather"
 ;;
 
-let%test "provider_a undeclared tool fails validation" =
+let%test "anthropic undeclared tool fails validation" =
   let json =
     `Assoc
       [ "id", `String "msg_456"

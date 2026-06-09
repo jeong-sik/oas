@@ -260,7 +260,7 @@ let () =
             `Quick
             test_provider_c_custom_registered_becomes_provider_c_provider_config
         ; test_case
-            "provider_a auto and explicit models"
+            "anthropic auto and explicit models"
             `Quick
             test_provider_a_auto_and_explicit_models
         ; test_case

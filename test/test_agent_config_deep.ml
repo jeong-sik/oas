@@ -631,7 +631,7 @@ let () =
         ; tc "deepseek" test_resolve_provider_g
         ; tc "gemini preserves kind (#1003)" test_resolve_provider_f_preserves_kind
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
-        ; tc "provider_a case-insensitive" test_resolve_anthropic_case_insensitive
+        ; tc "anthropic case-insensitive" test_resolve_anthropic_case_insensitive
         ; tc
             "agent_llm_a alias routes to Anthropic"
             test_resolve_agent_llm_a_alias_routes_to_provider_a
