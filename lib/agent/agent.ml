@@ -149,7 +149,6 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
     ; metadata = []
     }
   in
-  Tool_retry_policy.clear_context_retry_count agent.context;
   update_state agent (fun s ->
     { s with messages = Util.snoc (base_messages agent) user_msg });
   with_raw_trace_run agent user_prompt
@@ -505,7 +504,6 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
     ; metadata = []
     }
   in
-  Tool_retry_policy.clear_context_retry_count agent_with_handoffs.context;
   update_state agent_with_handoffs (fun s ->
     { s with messages = Util.snoc (base_messages agent_with_handoffs) user_msg });
   with_raw_trace_run agent_with_handoffs user_prompt

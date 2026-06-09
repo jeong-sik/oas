@@ -245,9 +245,6 @@ let stage_collect ?raw_trace_run agent ~original_config response =
   Ok ()
 ;;
 
-let retry_failures_of_results = Pipeline_retry.retry_failures_of_results
-let retry_feedback_blocks = Pipeline_retry.retry_feedback_blocks
-
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution: idle detection, guardrails, context injection. *)
@@ -343,7 +340,6 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     let count = List.length tool_uses in
     match Guardrails.exceeds_limit effective_guardrails count with
     | true ->
-      Tool_retry_policy.clear_context_retry_count agent.context;
       let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
       update_state agent (fun s ->
         { s with messages = Util.snoc s.messages (make_message ~role:User [ Text msg ]) });
@@ -352,9 +348,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
     | false ->
       let results =
         try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
-        | Raw_trace.Trace_error err ->
-          Tool_retry_policy.clear_context_retry_count agent.context;
-          Error err
+        | Raw_trace.Trace_error err -> Error err
       in
       let* results = results in
       let tool_result_event_envelope = Pipeline_common.event_envelope agent in
@@ -371,29 +365,13 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
       (match agent.options.tool_result_relocation with
        | Some (_, crs) -> Content_replacement_state.persist_to_context agent.context crs
        | None -> ());
-      let* tool_feedback =
-        match agent.options.tool_retry_policy with
-        | None ->
-          Tool_retry_policy.clear_context_retry_count agent.context;
-          Ok tool_results
-        | Some policy ->
-          (match
-             Tool_retry_policy.decide
-               ~policy
-               ~prior_retries:(Tool_retry_policy.context_retry_count agent.context)
-               (retry_failures_of_results results)
-           with
-           | Tool_retry_policy.No_retry ->
-             Tool_retry_policy.clear_context_retry_count agent.context;
-             Ok tool_results
-           | Tool_retry_policy.Retry { retry_count; summary } ->
-             Tool_retry_policy.set_context_retry_count agent.context retry_count;
-             Ok (retry_feedback_blocks ~policy ~retry_count ~summary ~tool_results)
-           | Tool_retry_policy.Exhausted { attempts; limit; summary } ->
-             Tool_retry_policy.clear_context_retry_count agent.context;
-             Error
-               (Error.Agent (ToolRetryExhausted { attempts; limit; detail = summary })))
-      in
+      (* Tool-call validation / recoverable errors flow back to the model as
+         is_error tool_results; the model self-corrects on a subsequent turn.
+         There is no separate retry-count gate — runaway is bounded by the
+         shared loop guard (max_turns + idle detection + token budget), the real
+         backpressure. A premature count cap (formerly 2/2) killed models that
+         converge on a later try. *)
+      let tool_feedback = tool_results in
       (* Anti-repetition hint: append warning to tool feedback when idle detected
        but not already handled by Nudge or Skip. Nudge injects its own message
        and injects its own message; Skip causes early return above. *)
@@ -480,7 +458,6 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
   | PauseTurn
   | Compaction
   | ContextWindowExceeded ->
-    Tool_retry_policy.clear_context_retry_count agent.context;
     let _stop =
       invoke_hook_with_trace
         agent

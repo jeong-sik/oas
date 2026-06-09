@@ -42,7 +42,6 @@ type t =
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
-  ; tool_retry_policy : Tool_retry_policy.t option
   ; context_reducer : Context_reducer.t option
   ; context_compact_ratio : float option
   ; context_prepare_ratio : float option
@@ -115,7 +114,6 @@ let create ~net ~model =
   ; raw_trace = None
   ; approval = None
   ; missing_approval_callback_policy = Hooks.Execute_without_callback
-  ; tool_retry_policy = None
   ; context_reducer = None
   ; context_compact_ratio = None
   ; context_prepare_ratio = None
@@ -203,10 +201,6 @@ let with_approval approval b = { b with approval = Some approval }
 
 let with_missing_approval_callback_policy missing_approval_callback_policy b =
   { b with missing_approval_callback_policy }
-;;
-
-let with_tool_retry_policy tool_retry_policy b =
-  { b with tool_retry_policy = Some tool_retry_policy }
 ;;
 
 let with_context_reducer reducer b = { b with context_reducer = Some reducer }
@@ -421,7 +415,6 @@ let build b =
     ; raw_trace = b.raw_trace
     ; approval = b.approval
     ; missing_approval_callback_policy = b.missing_approval_callback_policy
-    ; tool_retry_policy = b.tool_retry_policy
     ; context_reducer = b.context_reducer
     ; context_injector = b.context_injector
     ; mcp_clients

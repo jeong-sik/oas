@@ -27,7 +27,6 @@ type agent_error =
   | `Cost_budget_exceeded
   | `Cost_budget_unenforceable of string * float
   | `Idle_detected of int
-  | `Tool_retry_exhausted of int * int * string
   | `Agent_execution_timeout of float * float * int * int
   | `Agent_execution_idle_timeout of float * float * int * int
   | `Guardrail_violation of string * string
@@ -128,8 +127,6 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Agent (CostBudgetUnenforceable r) ->
     `Cost_budget_unenforceable (r.model_id, r.limit_usd)
   | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
-  | Error.Agent (ToolRetryExhausted r) ->
-    `Tool_retry_exhausted (r.attempts, r.limit, r.detail)
   | Error.Agent (AgentExecutionTimeout r) ->
     `Agent_execution_timeout (r.elapsed_sec, r.timeout_sec, r.turn_count, r.max_turns)
   | Error.Agent (AgentExecutionIdleTimeout r) ->
@@ -185,8 +182,6 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   | `Cost_budget_unenforceable (model_id, limit_usd) ->
     Error.Agent (CostBudgetUnenforceable { model_id; limit_usd })
   | `Idle_detected n -> Error.Agent (IdleDetected { consecutive_idle_turns = n })
-  | `Tool_retry_exhausted (attempts, limit, detail) ->
-    Error.Agent (ToolRetryExhausted { attempts; limit; detail })
   | `Agent_execution_timeout (elapsed_sec, timeout_sec, turn_count, max_turns) ->
     Error.Agent
       (AgentExecutionTimeout { elapsed_sec; timeout_sec; turn_count; max_turns })
@@ -277,7 +272,6 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Cost_budget_exceeded
   | `Cost_budget_unenforceable _
   | `Idle_detected _
-  | `Tool_retry_exhausted _
   | `Agent_execution_timeout _
   | `Agent_execution_idle_timeout _
   | `Guardrail_violation _

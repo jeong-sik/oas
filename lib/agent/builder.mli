@@ -96,7 +96,6 @@ val with_missing_approval_callback_policy
   -> t
   -> t
 
-val with_tool_retry_policy : Tool_retry_policy.t -> t -> t
 val with_context_reducer : Context_reducer.t -> t -> t
 
 (** Set context reduction thresholds.

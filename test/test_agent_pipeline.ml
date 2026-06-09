@@ -81,7 +81,6 @@ let make_agent
       ?hooks
       ?context_reducer
       ?guardrails
-      ?tool_retry_policy
       ?tool_choice
       ?runtime_mcp_policy
       ?(model_id = "mock-model")
@@ -106,19 +105,10 @@ let make_agent
         (match guardrails with
          | Some g -> g
          | None -> Guardrails.default)
-    ; tool_retry_policy
     ; runtime_mcp_policy
     }
   in
   Agent.create ~net ~config ~tools ~options ()
-;;
-
-let required_tool_retry_policy ?(max_retries = 1) () =
-  { Agent_sdk.Tool_retry_policy.max_retries
-  ; retry_on_validation_error = true
-  ; retry_on_recoverable_tool_error = false
-  ; feedback_style = Agent_sdk.Tool_retry_policy.Plain_error_text
-  }
 ;;
 
 let descriptor permission : Tool.descriptor =
@@ -396,113 +386,6 @@ let test_agent_run_tool_error () =
   | Exit -> ()
 ;;
 
-let test_agent_run_validation_retry_success () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let responses =
-      [ provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_tool_use_response "get_time" {|{"timezone":"UTC"}|}
-      ; provider_d_text_response "The time is 12:00 UTC"
-      ]
-    in
-    let url = start_multi_mock ~sw ~net:env#net ~port:20011 responses in
-    let time_tool =
-      Tool.create
-        ~name:"get_time"
-        ~description:"Get current time"
-        ~parameters:
-          [ { name = "timezone"
-            ; param_type = Types.String
-            ; description = "tz"
-            ; required = true
-            }
-          ]
-        (fun _input -> Ok { Types.content = "12:00 UTC" })
-    in
-    let policy =
-      { Agent_sdk.Tool_retry_policy.max_retries = 1
-      ; retry_on_validation_error = true
-      ; retry_on_recoverable_tool_error = false
-      ; feedback_style = Agent_sdk.Tool_retry_policy.Structured_tool_result
-      }
-    in
-    let agent =
-      make_agent
-        ~net:env#net
-        ~tools:[ time_tool ]
-        ~max_turns:5
-        ~tool_retry_policy:policy
-        url
-    in
-    match Agent.run ~sw agent "what time is it?" with
-    | Ok resp ->
-      check string "final text" "The time is 12:00 UTC" (extract_text resp);
-      Eio.Switch.fail sw Exit
-    | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
-let test_agent_run_validation_retry_exhausted () =
-  Eio_main.run
-  @@ fun env ->
-  try
-    Eio.Switch.run
-    @@ fun sw ->
-    let responses =
-      [ provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_tool_use_response "get_time" {|{}|}
-      ; provider_d_text_response "should not happen"
-      ]
-    in
-    let url = start_multi_mock ~sw ~net:env#net ~port:20012 responses in
-    let time_tool =
-      Tool.create
-        ~name:"get_time"
-        ~description:"Get current time"
-        ~parameters:
-          [ { name = "timezone"
-            ; param_type = Types.String
-            ; description = "tz"
-            ; required = true
-            }
-          ]
-        (fun _input -> Ok { Types.content = "12:00 UTC" })
-    in
-    let policy =
-      { Agent_sdk.Tool_retry_policy.max_retries = 1
-      ; retry_on_validation_error = true
-      ; retry_on_recoverable_tool_error = false
-      ; feedback_style = Agent_sdk.Tool_retry_policy.Structured_tool_result
-      }
-    in
-    let agent =
-      make_agent
-        ~net:env#net
-        ~tools:[ time_tool ]
-        ~max_turns:5
-        ~tool_retry_policy:policy
-        url
-    in
-    match Agent.run ~sw agent "what time is it?" with
-    | Ok _ -> fail "expected retry exhaustion error"
-    | Error (Error.Agent (Error.ToolRetryExhausted { attempts; limit; detail })) ->
-      check int "attempts" 1 attempts;
-      check int "limit" 1 limit;
-      check
-        bool
-        "detail mentions tool"
-        true
-        (contains_substring ~needle:"get_time" detail);
-      Eio.Switch.fail sw Exit
-    | Error e -> fail (Error.to_string e)
-  with
-  | Exit -> ()
-;;
-
 (* ── Test 8: PreToolUse hook blocks tool ─────────────── *)
 
 let test_agent_run_pre_tool_hook () =
@@ -735,14 +618,6 @@ let () =
           (* Forced-tool completion-contract tests removed in RFC-OAS-025
              Option A (forced-tool enforcement moved out of the SDK). *)
         ; test_case "tool error" `Quick test_agent_run_tool_error
-        ; test_case
-            "validation retry success"
-            `Quick
-            test_agent_run_validation_retry_success
-        ; test_case
-            "validation retry exhausted"
-            `Quick
-            test_agent_run_validation_retry_exhausted
         ; test_case "pre_tool hook" `Quick test_agent_run_pre_tool_hook
         ] )
     ; "streaming", [ test_case "run_stream" `Quick test_agent_run_stream ]

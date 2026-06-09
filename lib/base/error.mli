@@ -48,11 +48,6 @@ type agent_error =
       and new execution paths must not emit this as a gate. *)
   | UnrecognizedStopReason of { reason : string }
   | IdleDetected of { consecutive_idle_turns : int }
-  | ToolRetryExhausted of
-      { attempts : int
-      ; limit : int
-      ; detail : string
-      }
   | AgentExecutionTimeout of
       { elapsed_sec : float
       ; timeout_sec : float

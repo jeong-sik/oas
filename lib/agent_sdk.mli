@@ -137,7 +137,6 @@ module Reflexion = Reflexion
 module Tool_index = Tool_index
 module Tool_selector = Tool_selector
 module Tool_op = Tool_op
-module Tool_retry_policy = Tool_retry_policy
 module Lenient_json = Llm_provider.Lenient_json
 module Tool_input_validation = Tool_input_validation
 module Tool_middleware = Tool_middleware
