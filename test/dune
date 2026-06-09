@@ -100,7 +100,7 @@
   test_event_forward
   test_schema_surface_index
   test_fs_result
-  test_provider_f_edge_cases
+  test_gemini_edge_cases
   test_guardrail_llm
   test_guardrail_tripwire
   test_guardrails
@@ -181,7 +181,7 @@
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
-  test_streaming_provider_d
+  test_streaming_openai
   test_streaming_summary
   test_structured
   test_structured_coverage
@@ -300,7 +300,7 @@
   test_event_forward
   test_schema_surface_index
   test_fs_result
-  test_provider_f_edge_cases
+  test_gemini_edge_cases
   test_guardrail_llm
   test_guardrail_tripwire
   test_guardrails
@@ -381,7 +381,7 @@
   test_streaming_coverage
   test_streaming_e2e
   test_streaming_keepalive_idle
-  test_streaming_provider_d
+  test_streaming_openai
   test_streaming_summary
   test_structured
   test_structured_coverage
