@@ -277,9 +277,14 @@ let create_message_stream
         | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
         | Ok (Error msg) ->
           Error
-            (Error.Api
-               (Retry.NetworkError
-                  { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
+            (Error.Provider
+               (Llm_provider.Error.of_http_error
+                  (Llm_provider.Http_client.ProviderFailure
+                     { kind =
+                         Llm_provider.Http_client.Provider_parse_error
+                           { parser = Some "sse_stream_accumulator" }
+                     ; message = Printf.sprintf "SSE stream error: %s" msg
+                     }))))
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
        let headers =
@@ -346,9 +351,14 @@ let create_message_stream
         | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
         | Ok (Error msg) ->
           Error
-            (Error.Api
-               (Retry.NetworkError
-                  { message = Printf.sprintf "SSE stream error: %s" msg; kind = Unknown })))
+            (Error.Provider
+               (Llm_provider.Error.of_http_error
+                  (Llm_provider.Http_client.ProviderFailure
+                     { kind =
+                         Llm_provider.Http_client.Provider_parse_error
+                           { parser = Some "sse_stream_accumulator" }
+                     ; message = Printf.sprintf "SSE stream error: %s" msg
+                     }))))
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match

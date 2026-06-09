@@ -18,6 +18,7 @@ type stream_acc =
   ; cache_creation : int ref
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
+  ; stop_reason_received : bool ref
   ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
