@@ -8,6 +8,25 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.0](https://github.com/jeong-sik/oas/compare/v0.204.11...v0.205.0) (2026-06-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **agent:** the public Tool_retry_policy module, the Error.ToolRetryExhausted variant, the agent options.tool_retry_policy field, and Builder.with_tool_retry_policy are removed. Consumers relying on a tool-validation retry cap must rely on the agent loop guard (max_turns / idle / token budget) instead.
+
+### Bug Fixes
+
+* implement complete_stream_with_retry to handle deepseek 500 errors ([e9f00f3](https://github.com/jeong-sik/oas/commit/e9f00f3be9760c0fc9b813c7510493a5dd0c2ac6))
+* **pipeline:** purge ToolRetryExhausted — a tool failure is never turn-fatal ([3a5fea2](https://github.com/jeong-sik/oas/commit/3a5fea20f97c6db92d32ceaae4325e6ee98eeb6d))
+* **pipeline:** purge ToolRetryExhausted — a tool failure is never turn-fatal ([f5d3345](https://github.com/jeong-sik/oas/commit/f5d3345e23c86fbf870cc9ee2aa53fedebb93370))
+* resolve SDK independence failure and apply code formatting ([4aebd4e](https://github.com/jeong-sik/oas/commit/4aebd4e1b441eef59838083c22c7e1e2d844a9e5))
+
+
+### Code Refactoring
+
+* **agent:** remove Tool_retry_policy; defer tool-retry to the loop guard ([bc54125](https://github.com/jeong-sik/oas/commit/bc54125f7ee1643a8f6b46ae6d89ae4a97a6216a))
+
 ## [0.204.11](https://github.com/jeong-sik/oas/compare/v0.204.10...v0.204.11) (2026-06-09)
 
 
