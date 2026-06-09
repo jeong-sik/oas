@@ -236,9 +236,7 @@ let test_complete_provider_d_ok () =
   try
     Eio.Switch.run
     @@ fun sw ->
-    let url =
-      start_mock_server ~sw ~net:env#net (provider_d_response "openai reply")
-    in
+    let url = start_mock_server ~sw ~net:env#net (provider_d_response "openai reply") in
     let config = make_provider_d_config url in
     match Complete.complete ~sw ~net:env#net ~config ~messages () with
     | Ok resp ->

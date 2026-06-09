@@ -208,11 +208,7 @@ let test_default_has_14 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
   check int "14 known providers" 14 (List.length all);
-  check
-    bool
-    "llama exists"
-    true
-    (Option.is_some (Provider_registry.find reg "nous"));
+  check bool "llama exists" true (Option.is_some (Provider_registry.find reg "nous"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
   check
     bool
@@ -224,36 +220,20 @@ let test_default_has_14 () =
     "agent_llm_a exists"
     true
     (Option.is_some (Provider_registry.find reg "agent_llm_a"));
-  check
-    bool
-    "gemini exists"
-    true
-    (Option.is_some (Provider_registry.find reg "gemini"));
-  check
-    bool
-    "glm exists"
-    true
-    (Option.is_some (Provider_registry.find reg "glm"));
+  check bool "gemini exists" true (Option.is_some (Provider_registry.find reg "gemini"));
+  check bool "glm exists" true (Option.is_some (Provider_registry.find reg "glm"));
   check
     bool
     "glm-coding exists"
     true
     (Option.is_some (Provider_registry.find reg "glm-coding"));
-  check
-    bool
-    "kimi exists"
-    true
-    (Option.is_some (Provider_registry.find reg "kimi"));
+  check bool "kimi exists" true (Option.is_some (Provider_registry.find reg "kimi"));
   check
     bool
     "openrouter exists"
     true
     (Option.is_some (Provider_registry.find reg "openrouter"));
-  check
-    bool
-    "groq exists"
-    true
-    (Option.is_some (Provider_registry.find reg "groq"));
+  check bool "groq exists" true (Option.is_some (Provider_registry.find reg "groq"));
   check
     bool
     "deepseek exists"
@@ -370,24 +350,12 @@ let test_default_zai_base_urls () =
    | None -> fail "glm should exist");
   (match Provider_registry.find reg "glm-coding" with
    | Some e ->
-     check
-       string
-       "glm-coding base_url"
-       Zai_catalog.coding_base_url
-       e.defaults.base_url;
-     check
-       string
-       "glm-coding api_key_env"
-       "ZAI_CODING_API_KEY"
-       e.defaults.api_key_env
+     check string "glm-coding base_url" Zai_catalog.coding_base_url e.defaults.base_url;
+     check string "glm-coding api_key_env" "ZAI_CODING_API_KEY" e.defaults.api_key_env
    | None -> fail "glm-coding should exist");
   match Provider_registry.find reg "kimi" with
   | Some e ->
-    check
-      string
-      "kimi base_url"
-      "https://api.kimi.com/coding"
-      e.defaults.base_url;
+    check string "kimi base_url" "https://api.kimi.com/coding" e.defaults.base_url;
     check string "kimi request_path" "/v1/messages" e.defaults.request_path
   | None -> fail "kimi should exist"
 ;;
@@ -530,11 +498,7 @@ let test_catalog_overlay_replaces_seed_provider () =
        let reg = Provider_registry.default () in
        match Provider_registry.find reg "openrouter" with
        | Some e ->
-         check
-           string
-           "catalog wins"
-           "https://example.test/openrouter"
-           e.defaults.base_url
+         check string "catalog wins" "https://example.test/openrouter" e.defaults.base_url
        | None -> fail "openrouter should still exist")
 ;;
 

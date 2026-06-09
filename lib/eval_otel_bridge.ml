@@ -132,11 +132,7 @@ let to_metric_list (snap : metrics_snapshot) : otel_metric list =
              })
           snap.failed_api_calls_total
       ; Option.map
-          (fun v ->
-             { name = "oas.eval.cost_usd"
-             ; value = v
-             ; metric_type = "gauge"
-             })
+          (fun v -> { name = "oas.eval.cost_usd"; value = v; metric_type = "gauge" })
           snap.cost_usd
       ]
   in

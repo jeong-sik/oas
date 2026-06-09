@@ -375,11 +375,7 @@ let test_complete_transport_success_cache_metrics_and_trace_headers () =
      (match resp.telemetry with
       | Some t ->
         check (option int) "latency patched" (Some 42) t.request_latency_ms;
-        check
-          (option string)
-          "canonical model"
-          (Some "openai-test")
-          t.canonical_model_id
+        check (option string) "canonical model" (Some "openai-test") t.canonical_model_id
       | None -> fail "expected telemetry")
    | Error err -> failf "unexpected complete error: %s" (string_of_http_error err));
   let second =

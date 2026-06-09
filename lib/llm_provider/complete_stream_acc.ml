@@ -109,7 +109,9 @@ let finalize_stream_acc (acc : stream_acc) =
        sse_parser) or the provider sends no stop_reason.  Without this
        check the default EndTurn would make a truncated stream look like
        a successful completion (phantom completion). *)
-    Error (Types.Stream_parse_failed { reason = "stream_terminated_without_stop_reason"; raw = "" })
+    Error
+      (Types.Stream_parse_failed
+         { reason = "stream_terminated_without_stop_reason"; raw = "" })
   | None ->
     let indices =
       Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types [] |> List.sort compare
@@ -264,7 +266,10 @@ let%test "finalize_stream_acc assembles text block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "Hello world";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     result.id = "test-id"
@@ -280,7 +285,10 @@ let%test "finalize_stream_acc assembles tool_use block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "{\"key\":\"val\"}";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.content with
@@ -295,7 +303,10 @@ let%test "finalize_stream_acc assembles thinking block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "reasoning...";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.content with
@@ -313,7 +324,10 @@ let%test "finalize_stream_acc multiple blocks ordered by index" =
   Buffer.add_string buf1 "say";
   Hashtbl.replace acc.block_texts 0 buf0;
   Hashtbl.replace acc.block_texts 1 buf1;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result -> List.length result.content = 2
 ;;
@@ -324,7 +338,10 @@ let%test "finalize_stream_acc includes usage" =
   acc.output_tokens := 50;
   acc.cache_creation := 10;
   acc.cache_read := 20;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.usage with
@@ -477,7 +494,10 @@ let%test
 
 let%test "finalize_stream_acc empty produces empty content" =
   let acc = create_stream_acc () in
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result -> result.content = []
 ;;
@@ -488,7 +508,10 @@ let%test "finalize_stream_acc unknown block type filtered out" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "data";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result -> result.content = []
 ;;
@@ -499,7 +522,10 @@ let%test "finalize_stream_acc tool_use with invalid json falls back to empty ass
   let buf = Buffer.create 16 in
   Buffer.add_string buf "not valid json";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.content with
@@ -513,7 +539,10 @@ let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "{}";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.content with
@@ -528,7 +557,10 @@ let%test "finalize_stream_acc assembles tool_result block" =
   let buf = Buffer.create 16 in
   Buffer.add_string buf "{\"ok\":true}";
   Hashtbl.replace acc.block_texts 0 buf;
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.content with
@@ -546,7 +578,10 @@ let%test "finalize_stream_acc block with no text buffer produces empty text" =
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "text";
   (* No buffer added for index 0 *)
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error _ -> false
   | Ok result ->
     (match result.content with
@@ -568,7 +603,10 @@ let%test "finalize_stream_acc returns Error when sse_error is set" =
           ; error_type = Some "overloaded_error"
           ; raw = "{}"
           });
-  match (acc.stop_reason_received := true; finalize_stream_acc acc) with
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
   | Error (Types.Stream_provider_error { message; _ }) -> message = "server overloaded"
   | Error (Types.Stream_parse_failed _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;

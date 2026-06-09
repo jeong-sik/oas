@@ -1714,11 +1714,12 @@ let complete_stream_http
                               | Some chunk ->
                                 Streaming.provider_f_chunk_to_events (get_state ()) chunk
                               | None ->
-                                ([ Types.SSEParseFailed
-                                     { raw = data
-                                     ; reason = "gemini_sse_chunk_parse_failure"
-                                     }
-                                 ], None))
+                                ( [ Types.SSEParseFailed
+                                      { raw = data
+                                      ; reason = "gemini_sse_chunk_parse_failure"
+                                      }
+                                  ]
+                                , None ))
                            | Provider_config.Glm ->
                              (match Backend_glm.parse_stream_chunk data with
                               | Some chunk ->

@@ -537,15 +537,7 @@ let static_model_route_of_id model_id =
       else if starts_with_any m [ "glm-4.5"; "glm-4.5" ]
       then Some Glm_4_5_text
       else if
-        starts_with_any
-          m
-          [ "glm-4.6"
-          ; "glm-4.7"
-          ; "glm-5"
-          ; "glm-4.6"
-          ; "glm-4.7"
-          ; "glm-5"
-          ]
+        starts_with_any m [ "glm-4.6"; "glm-4.7"; "glm-5"; "glm-4.6"; "glm-4.7"; "glm-5" ]
       then Some Glm_full_text
       else if starts_with_any m [ "glm-4-flash"; "glm-4-flash" ]
       then Some Glm_4_flash
@@ -957,8 +949,7 @@ let for_model_id_static model_id =
 let capabilities_for_provider_label label =
   match String.lowercase_ascii (String.trim label) with
   | "anthropic" | "claude" -> Some anthropic_capabilities
-  | "openai_compat" | "openai" | "openai_chat" ->
-    Some openai_compat_chat_capabilities
+  | "openai_compat" | "openai" | "openai_chat" -> Some openai_compat_chat_capabilities
   | "openai_compat_chat_extended" | "openai_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
   | "gemini" -> Some gemini_capabilities

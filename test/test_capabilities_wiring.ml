@@ -43,11 +43,7 @@ let test_filter_parallel_tools () =
   let no =
     { Capabilities.default_capabilities with supports_parallel_tool_calls = false }
   in
-  check
-    bool
-    "anthropic has parallel"
-    true
-    (Capability_filter.requires_parallel_tools yes);
+  check bool "anthropic has parallel" true (Capability_filter.requires_parallel_tools yes);
   check bool "default lacks parallel" false (Capability_filter.requires_parallel_tools no)
 ;;
 
@@ -59,11 +55,7 @@ let test_filter_thinking () =
     "agent_llm_a has thinking"
     true
     (Capability_filter.requires_thinking agent_llm_a);
-  check
-    bool
-    "basic openai no thinking"
-    false
-    (Capability_filter.requires_thinking basic)
+  check bool "basic openai no thinking" false (Capability_filter.requires_thinking basic)
 ;;
 
 let test_filter_fits_context () =

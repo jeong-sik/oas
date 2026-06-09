@@ -40,13 +40,13 @@ let create ~max_concurrent ~provider_name =
 
 let with_permit_priority ~priority:_ _t f =
   (* OAS is a stateless adapter; concurrency control is the responsibility
-     of upstream consumers (MASC). Per-provider slot scheduling is bypassed
-     because MASC already has fine-grained per-keeper / per-lane capacity
-     gates (Keeper_turn_capacity, Runtime_lane_capacity). OAS-level slot
-     queueing creates invisible backpressure that MASC cannot observe,
-     leading to liveness timeout mismatches (no_first_token).
-
-     Process-wide FD throttle hook is preserved as a safety net. *)
+   * of upstream consumers (MASC). Per-provider slot scheduling is bypassed
+   * because MASC already has fine-grained per-keeper / per-lane capacity
+   * gates (Keeper_turn_capacity, Runtime_lane_capacity). OAS-level slot
+   * queueing creates invisible backpressure that MASC cannot observe,
+   * leading to liveness timeout mismatches (no_first_token).
+   *
+   * Process-wide FD throttle hook is preserved as a safety net. *)
   Fd_throttle_hook.with_slot f
 ;;
 

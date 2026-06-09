@@ -80,8 +80,8 @@ let test_capacity_exhausted () =
   check
     string
     "CapacityExhausted format"
-    "Provider capacity exhausted (model): model queue saturated \
-     affected=[gemini-3-pro] (retry_after: 7.000s)"
+    "Provider capacity exhausted (model): model queue saturated affected=[gemini-3-pro] \
+     (retry_after: 7.000s)"
     (Error.to_string
        (Error.CapacityExhausted
           { scope = Error.CapacityModel
@@ -347,9 +347,7 @@ let test_retry_remaining_variants_mapping () =
           ~provider:"openai"
           (Retry.NetworkError { message = "tls"; kind = Http_client.Tls_error })
       , "network" )
-    ; ( Error.of_retry_api_error
-          ~provider:"openai"
-          (Retry.Timeout { message = "slow" })
+    ; ( Error.of_retry_api_error ~provider:"openai" (Retry.Timeout { message = "slow" })
       , "timeout" )
     ]
   in

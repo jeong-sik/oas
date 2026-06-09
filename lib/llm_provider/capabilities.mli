@@ -104,8 +104,7 @@ type gemini_family =
   | Gemini_3_1 (** [gemini-3.1.*] *)
   | Gemini_3 (** [gemini-3.*] but not 3.1 *)
   | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
-  | Gemini_other of string
-  (** Unknown gemini id, or non-gemini id (literal retained). *)
+  | Gemini_other of string (** Unknown gemini id, or non-gemini id (literal retained). *)
 
 (** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
     more specific prefix wins. Input is expected lowercased; callers that

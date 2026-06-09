@@ -25,10 +25,7 @@ let test_of_config_provider_d () =
 
 let test_provider_a_supports_streaming () =
   let config = Provider.anthropic_sonnet () in
-  Alcotest.(check bool)
-    "anthropic streams"
-    true
-    (Provider_intf.supports_streaming config)
+  Alcotest.(check bool) "anthropic streams" true (Provider_intf.supports_streaming config)
 ;;
 
 (* ── of_config_streaming ─────────────────────────────────── *)
@@ -268,10 +265,7 @@ let () =
             "anthropic satisfies PROVIDER"
             `Quick
             test_of_config_provider_a
-        ; Alcotest.test_case
-            "openai satisfies PROVIDER"
-            `Quick
-            test_of_config_provider_d
+        ; Alcotest.test_case "openai satisfies PROVIDER" `Quick test_of_config_provider_d
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case
