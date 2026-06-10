@@ -1,31 +1,11 @@
-(executable
- (name basic_agent)
- (libraries agent_sdk eio eio_main yojson))
-
-(executable
- (name tool_use)
- (libraries agent_sdk eio eio_main yojson))
-
-(executable
- (name streaming)
- (libraries agent_sdk eio eio_main yojson))
-
-(executable
- (name review_agent)
+(executables
+ (names
+  basic_agent
+  tool_use
+  streaming
+  review_agent
+  codegen_agent
+  hooks_and_guardrails
+  error_handling
+  builder_patterns)
  (libraries agent_sdk eio eio_main yojson unix str))
-
-(executable
- (name codegen_agent)
- (libraries agent_sdk eio eio_main yojson unix))
-
-(executable
- (name hooks_and_guardrails)
- (libraries agent_sdk eio eio_main yojson))
-
-(executable
- (name error_handling)
- (libraries agent_sdk eio eio_main yojson))
-
-(executable
- (name builder_patterns)
- (libraries agent_sdk eio eio_main yojson))
