@@ -100,6 +100,78 @@ let test_read_sse_done_marker () =
   Alcotest.(check string) "data is DONE" "[DONE]" (snd (List.hd !events))
 ;;
 
+(* Spec-valid field lines WITHOUT the optional space after ':' used to be
+   silently dropped by the literal "data: " / "event: " prefix match — a
+   provider or proxy omitting the space made the whole stream vanish. *)
+let test_read_sse_no_space_after_colon () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "event:message\ndata:hello\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  Alcotest.(check int) "1 event" 1 (List.length !events);
+  let ev = List.hd !events in
+  Alcotest.(check (option string)) "event type without space" (Some "message") (fst ev);
+  Alcotest.(check string) "data without space" "hello" (snd ev)
+;;
+
+let test_read_sse_ignores_id_and_retry_fields () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "id: 42\nretry: 3000\ndata: payload\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  Alcotest.(check int) "only the data field dispatches" 1 (List.length !events);
+  Alcotest.(check string) "payload intact" "payload" (snd (List.hd !events))
+;;
+
+let test_read_sse_comment_lines_skipped () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = ": keepalive\n: another\ndata: real\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  Alcotest.(check int) "comments are not events" 1 (List.length !events);
+  Alcotest.(check string) "real payload" "real" (snd (List.hd !events))
+;;
+
+(* idle_timeout without clock used to silently disarm the deadline (a
+   stalled stream blocked forever); it is now a loud misconfiguration. *)
+let test_read_sse_idle_without_clock_raises () =
+  Eio_main.run
+  @@ fun _env ->
+  let flow = Eio.Flow.string_source "data: x\n\n" in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  match
+    Http_client.read_sse
+      ~idle_timeout:1.0
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ()
+  with
+  | () -> Alcotest.fail "expected Invalid_argument for idle_timeout without clock"
+  | exception Invalid_argument msg ->
+    Alcotest.(check bool)
+      "message names the disarm hazard"
+      true
+      (Util.contains_substring_ci ~haystack:msg ~needle:"idle_timeout")
+;;
+
 let test_post_stream_invalid_url_returns_network_error () =
   Eio_main.run
   @@ fun env ->
@@ -394,6 +466,22 @@ let () =
       , [ Alcotest.test_case "basic events" `Quick test_read_sse_basic
         ; Alcotest.test_case "empty lines" `Quick test_read_sse_empty_lines
         ; Alcotest.test_case "DONE marker" `Quick test_read_sse_done_marker
+        ; Alcotest.test_case
+            "no space after colon (spec grammar)"
+            `Quick
+            test_read_sse_no_space_after_colon
+        ; Alcotest.test_case
+            "id/retry fields ignored"
+            `Quick
+            test_read_sse_ignores_id_and_retry_fields
+        ; Alcotest.test_case
+            "comment lines skipped"
+            `Quick
+            test_read_sse_comment_lines_skipped
+        ; Alcotest.test_case
+            "idle_timeout without clock raises"
+            `Quick
+            test_read_sse_idle_without_clock_raises
         ; Alcotest.test_case
             "invalid url returns network error"
             `Quick
