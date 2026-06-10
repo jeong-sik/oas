@@ -270,14 +270,14 @@ let%test "with_permit_timeout releases on exception" =
     available t = 2)
 ;;
 
-let%test "with_permit_timeout raises on timeout without leaking permit" =
+let%test "with_permit_timeout raises on body timeout without leaking scheduler state" =
   Eio_main.run (fun env ->
     let clock = Eio.Stdenv.clock env in
     let t = create ~max_concurrent:1 ~provider_name:"test" in
-    (* Pre-acquire to force contention *)
-    with_permit_priority ~priority:Interactive t (fun () ->
-      let timed_out = ref false in
-      (try with_permit_timeout clock ~timeout_sec:0.05 t (fun () -> ()) with
-       | Eio.Time.Timeout -> timed_out := true);
-      !timed_out))
+    let timed_out = ref false in
+    (try
+       with_permit_timeout clock ~timeout_sec:0.1 t (fun () -> Eio.Time.sleep clock 10.0)
+     with
+     | Eio.Time.Timeout -> timed_out := true);
+    !timed_out && available t = 1 && in_use t = 0)
 ;;
