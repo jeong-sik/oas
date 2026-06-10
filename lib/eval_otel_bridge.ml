@@ -186,6 +186,21 @@ let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : uni
   Otel_tracer.inst_end_span inst span ~ok:(snap.verdict_failed_total = 0)
 ;;
 
+let default_otel_instance : Otel_tracer.instance =
+  { config = Otel_tracer.default_config
+  ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+  ; current_spans = []
+  ; completed_spans = []
+  ; metrics = []
+  }
+;;
+
+let default_instance () = default_otel_instance
+
+let emit_run_metrics_default rm =
+  emit_run_metrics default_otel_instance rm
+;;
+
 (* ── JSON export ──────────────────────────────────────────────── *)
 
 let to_metrics_json (snap : metrics_snapshot) : Yojson.Safe.t =
@@ -341,6 +356,27 @@ let%test "emit_run_metrics creates one span" =
   in
   emit_run_metrics inst rm;
   Otel_tracer.inst_completed_count inst = 1
+;;
+
+let%test "emit_run_metrics_default records on shared instance" =
+  let inst = default_instance () in
+  Otel_tracer.inst_clear_metrics inst;
+  ignore (Otel_tracer.inst_flush inst : Otel_tracer.span list);
+  let pass : Harness.verdict =
+    { passed = true; score = None; evidence = []; detail = None }
+  in
+  let rm : Eval.run_metrics =
+    { run_id = "shared"
+    ; agent_name = "eval-agent"
+    ; timestamp = 0.0
+    ; metrics = []
+    ; harness_verdicts = [ pass ]
+    ; trace_summary = None
+    }
+  in
+  emit_run_metrics_default rm;
+  Otel_tracer.inst_get_metrics inst
+  |> List.exists (fun (name, _, _) -> String.equal name "oas.eval.verdict_passed_total")
 ;;
 
 let%test "emit span ok=true when no failures" =
