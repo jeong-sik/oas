@@ -158,11 +158,7 @@ let test_read_sse_idle_without_clock_raises () =
   let flow = Eio.Flow.string_source "data: x\n\n" in
   let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
   match
-    Http_client.read_sse
-      ~idle_timeout:1.0
-      ~reader
-      ~on_data:(fun ~event_type:_ _ -> ())
-      ()
+    Http_client.read_sse ~idle_timeout:1.0 ~reader ~on_data:(fun ~event_type:_ _ -> ()) ()
   with
   | () -> Alcotest.fail "expected Invalid_argument for idle_timeout without clock"
   | exception Invalid_argument msg ->
