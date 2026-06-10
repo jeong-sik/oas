@@ -183,7 +183,10 @@ let env_loaded_catalog : t option Lazy.t =
        ; find_in_parents "models.toml" cwd 10
        ; find_in_parents "oas-models.toml" cwd 10
        ; Option.map (fun h -> Filename.concat h ".config/oas/models.toml") home_opt
-       ; Option.map (fun h -> Filename.concat h ".masc/config/models.toml") home_opt
+         (* Boundary: this SDK is generic and must not know any embedding
+            application's private runtime layout. A consumer points the SDK
+            at its own catalog via [OAS_MODEL_CATALOG]; the SDK only probes
+            its own namespace ([.config/oas]) and the cwd-parent chain. *)
        ]
        |> List.filter_map Fun.id
      in
