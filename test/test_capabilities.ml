@@ -165,8 +165,6 @@ let pp_gemini_family ppf = function
 
 let gemini_family_testable = Alcotest.testable pp_gemini_family ( = )
 
-
-
 let test_gemini_family_3_1 () =
   check
     gemini_family_testable
@@ -231,8 +229,6 @@ let test_gemini_family_drives_capabilities () =
     (ctx "gemini-3.1-pro-preview");
   check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
 ;;
-
-
 
 let test_lookup_provider_c_k2_cloud () =
   match Capabilities.for_model_id "kimi-k2.6:cloud" with
@@ -843,7 +839,6 @@ let () =
             "gemini_family drives 1M ctx capabilities"
             `Quick
             test_gemini_family_drives_capabilities
-
         ; test_case "kimi-k2 cloud" `Quick test_lookup_provider_c_k2_cloud
         ; test_case "dashscope" `Quick test_lookup_provider_m
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name

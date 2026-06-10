@@ -57,12 +57,31 @@ let () =
       check string "agent name tag" "test-agent" agent_name
     | _ -> fail "expected JSON list"
   in
+  let test_default_instance_records_metrics () =
+    let inst = Eval_otel_bridge.default_instance () in
+    Otel_tracer.inst_clear_metrics inst;
+    ignore (Otel_tracer.inst_flush inst : Otel_tracer.span list);
+    let rm = make_run_metrics ~verdicts:[ make_verdict ~passed:true () ] () in
+    Eval_otel_bridge.emit_run_metrics_default rm;
+    let metrics = Otel_tracer.inst_get_metrics inst in
+    check
+      bool
+      "shared instance has eval metric"
+      true
+      (List.exists
+         (fun (name, _, _) -> String.equal name "oas.eval.verdict_passed_total")
+         metrics)
+  in
   run
     "Eval_otel_bridge (external)"
     [ ( "module access"
       , [ test_case "extract accessible" `Quick test_extract_accessible
         ; test_case "metric list count" `Quick test_metric_list_count
         ; test_case "json export" `Quick test_json_export
+        ; test_case
+            "default instance records metrics"
+            `Quick
+            test_default_instance_records_metrics
         ] )
     ]
 ;;

@@ -120,6 +120,6 @@ let finalize t =
     t.collector
     { name = "wall_time_s"; value = Float_val elapsed; unit_ = Some "seconds"; tags = [] };
   let metrics = Eval.finalize t.collector in
-  Eval_otel_bridge.emit_run_metrics (Otel_tracer.create_instance ()) metrics;
+  Eval_otel_bridge.emit_run_metrics_default metrics;
   metrics
 ;;

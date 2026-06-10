@@ -322,7 +322,7 @@ let collect_metrics
           ; tags = []
           }));
   let metrics = Eval.finalize collector in
-  Eval_otel_bridge.emit_run_metrics (Otel_tracer.create_instance ()) metrics;
+  Eval_otel_bridge.emit_run_metrics_default metrics;
   metrics
 ;;
 
@@ -356,7 +356,7 @@ let grade_case
   List.iter (Eval.record collector) metrics.metrics;
   List.iter (Eval.add_verdict collector) verdicts;
   let metrics = Eval.finalize collector in
-  Eval_otel_bridge.emit_run_metrics (Otel_tracer.create_instance ()) metrics;
+  Eval_otel_bridge.emit_run_metrics_default metrics;
   let status, detail =
     match case_.assertions with
     | [] -> Harness_report.Skip, Some "case had no assertions"

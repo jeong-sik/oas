@@ -387,7 +387,6 @@ let gemini_capabilities =
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
-
 (** Lookup capabilities by provider label string.
 
     Returns [None] for labels outside the recognized set so callers can
@@ -503,8 +502,6 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   }
 ;;
 
-
-
 let%test "apply_manifest_entry applies thinking_control_format (RFC-OAS-023)" =
   match
     Capability_manifest.of_json
@@ -547,26 +544,41 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
     max_context_tokens = override_int_opt base.max_context_tokens entry.max_context_tokens
   ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
   ; supports_tools = override_bool base.supports_tools entry.supports_tools
-  ; supports_tool_choice = override_bool base.supports_tool_choice entry.supports_tool_choice
-  ; supports_parallel_tool_calls = override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
+  ; supports_tool_choice =
+      override_bool base.supports_tool_choice entry.supports_tool_choice
+  ; supports_parallel_tool_calls =
+      override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
   ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
-  ; supports_extended_thinking = override_bool base.supports_extended_thinking entry.supports_extended_thinking
-  ; supports_reasoning_budget = override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
-  ; supports_response_format_json = override_bool base.supports_response_format_json entry.supports_response_format_json
-  ; supports_structured_output = override_bool base.supports_structured_output entry.supports_structured_output
-  ; supports_multimodal_inputs = override_bool base.supports_multimodal_inputs entry.supports_multimodal_inputs
-  ; supports_image_input = override_bool base.supports_image_input entry.supports_image_input
-  ; supports_audio_input = override_bool base.supports_audio_input entry.supports_audio_input
-  ; supports_video_input = override_bool base.supports_video_input entry.supports_video_input
-  ; supports_native_streaming = override_bool base.supports_native_streaming entry.supports_native_streaming
-  ; supports_system_prompt = override_bool base.supports_system_prompt entry.supports_system_prompt
+  ; supports_extended_thinking =
+      override_bool base.supports_extended_thinking entry.supports_extended_thinking
+  ; supports_reasoning_budget =
+      override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; supports_response_format_json =
+      override_bool base.supports_response_format_json entry.supports_response_format_json
+  ; supports_structured_output =
+      override_bool base.supports_structured_output entry.supports_structured_output
+  ; supports_multimodal_inputs =
+      override_bool base.supports_multimodal_inputs entry.supports_multimodal_inputs
+  ; supports_image_input =
+      override_bool base.supports_image_input entry.supports_image_input
+  ; supports_audio_input =
+      override_bool base.supports_audio_input entry.supports_audio_input
+  ; supports_video_input =
+      override_bool base.supports_video_input entry.supports_video_input
+  ; supports_native_streaming =
+      override_bool base.supports_native_streaming entry.supports_native_streaming
+  ; supports_system_prompt =
+      override_bool base.supports_system_prompt entry.supports_system_prompt
   ; supports_caching = override_bool base.supports_caching entry.supports_caching
-  ; supports_prompt_caching = override_bool base.supports_prompt_caching entry.supports_prompt_caching
+  ; supports_prompt_caching =
+      override_bool base.supports_prompt_caching entry.supports_prompt_caching
   ; supports_top_k = override_bool base.supports_top_k entry.supports_top_k
   ; supports_min_p = override_bool base.supports_min_p entry.supports_min_p
   ; supports_seed = override_bool base.supports_seed entry.supports_seed
-  ; supports_computer_use = override_bool base.supports_computer_use entry.supports_computer_use
-  ; supports_code_execution = override_bool base.supports_code_execution entry.supports_code_execution
+  ; supports_computer_use =
+      override_bool base.supports_computer_use entry.supports_computer_use
+  ; supports_code_execution =
+      override_bool base.supports_code_execution entry.supports_code_execution
   ; thinking_control_format =
       (match entry.thinking_control_format with
        | Some s ->
@@ -575,6 +587,8 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
           | None -> base.thinking_control_format)
        | None -> base.thinking_control_format)
   }
+;;
+
 let for_model_id_static model_id =
   match Model_catalog.global () with
   | Some catalog ->

@@ -300,6 +300,14 @@ let inst_get_metrics inst =
   @@ fun () -> List.map (fun m -> m.m_name, m.m_value, m.m_type) (List.rev inst.metrics)
 ;;
 
+let inst_drain_metrics inst =
+  inst_with_lock inst
+  @@ fun () ->
+  let metrics = List.rev inst.metrics in
+  inst.metrics <- [];
+  metrics
+;;
+
 let inst_clear_metrics inst = inst_with_lock inst @@ fun () -> inst.metrics <- []
 
 let metric_type_to_string = function

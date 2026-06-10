@@ -23,23 +23,28 @@ val default_export_config : endpoint:string -> export_config
 (** {1 Export result} *)
 
 type export_result =
-  | Exported of { span_count : int }
+  | Exported of
+      { span_count : int
+      ; metric_count : int
+      }
   | Partial_failure of
       { exported : int
       ; dropped : int
+      ; metric_exported : int
+      ; metric_dropped : int
       ; reason : string
       }
   | Failed of { reason : string }
 
 (** {1 One-shot export} *)
 
-(** Flush all completed spans from [instance] and POST them to the
+(** Flush all completed spans and metrics from [instance] and POST them to the
     configured OTLP endpoint. Does not start a background fiber.
 
-    Spans are dequeued from the tracer before export. On partial or
-    total export failure the affected spans are dropped (not re-queued);
+    Spans and metrics are dequeued from the tracer before export. On partial or
+    total export failure the affected data is dropped (not re-queued);
     callers should treat [Partial_failure] and [Failed] as permanent
-    span loss for those batches. *)
+    telemetry loss for those batches. *)
 val flush_to_collector
   :  sw:Eio.Switch.t
   -> clock:_ Eio.Time.clock
@@ -72,13 +77,19 @@ val force_flush
   -> t
   -> export_result
 
-(** Total spans exported since start. *)
+(** Total telemetry items exported since start. *)
 val total_exported : t -> int
 
 (** {1 Testing helpers — exposed for unit tests} *)
 
 (** Build an OTLP JSON body from a list of spans. *)
 val build_otlp_body : service_name:string -> Otel_tracer.span list -> string
+
+(** Build an OTLP JSON body from a list of metrics. *)
+val build_otlp_metrics_body
+  :  service_name:string
+  -> Otel_tracer.metric_entry list
+  -> string
 
 (** Split a span list into batches of at most [max_size]. *)
 val split_batches

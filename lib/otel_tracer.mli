@@ -118,6 +118,9 @@ val inst_record_metric
 (** Retrieve all recorded metrics as [(name, value, type)] triples. *)
 val inst_get_metrics : instance -> (string * float * metric_type) list
 
+(** Drain and clear all recorded metrics from the instance. *)
+val inst_drain_metrics : instance -> metric_entry list
+
 (** Clear all recorded metrics from the instance. *)
 val inst_clear_metrics : instance -> unit
 

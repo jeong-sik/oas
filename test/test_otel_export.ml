@@ -89,6 +89,25 @@ let body_has_service_name expected body =
     attrs
 ;;
 
+let body_has_metric expected body =
+  let open Yojson.Safe.Util in
+  let metrics =
+    body
+    |> Yojson.Safe.from_string
+    |> member "resourceMetrics"
+    |> to_list
+    |> List.hd
+    |> member "scopeMetrics"
+    |> to_list
+    |> List.hd
+    |> member "metrics"
+    |> to_list
+  in
+  List.exists
+    (fun metric -> String.equal (metric |> member "name" |> to_string) expected)
+    metrics
+;;
+
 (* ── Config tests ────────────────────────────────────────────── *)
 
 let test_default_config () =
@@ -217,7 +236,9 @@ let test_flush_empty_instance () =
   let config = default_export_config ~endpoint:"http://localhost:19999/v1/traces" in
   let result = flush_to_collector ~sw ~clock ~net ~config instance in
   match result with
-  | Exported { span_count } -> Alcotest.(check int) "0 spans exported" 0 span_count
+  | Exported { span_count; metric_count } ->
+    Alcotest.(check int) "0 spans exported" 0 span_count;
+    Alcotest.(check int) "0 metrics exported" 0 metric_count
   | _ -> Alcotest.fail "expected Exported for empty flush"
 ;;
 
@@ -244,8 +265,9 @@ let test_flush_to_collector_exports_batches () =
       }
     in
     match flush_to_collector ~sw ~clock ~net ~config instance with
-    | Exported { span_count } ->
+    | Exported { span_count; metric_count } ->
       Alcotest.(check int) "exported spans" 3 span_count;
+      Alcotest.(check int) "exported metrics" 0 metric_count;
       Alcotest.(check int) "two batches posted" 2 !request_count;
       Alcotest.(check int) "spans drained" 0 (Otel_tracer.inst_completed_count instance);
       Alcotest.(check (list string))
@@ -258,6 +280,44 @@ let test_flush_to_collector_exports_batches () =
         (List.exists (body_has_service_name "otel-export-success") !bodies)
     | Partial_failure _ -> Alcotest.fail "expected full export, got partial failure"
     | Failed { reason } -> Alcotest.failf "expected full export, got failure: %s" reason)
+;;
+
+let test_flush_to_collector_exports_metrics () =
+  let request_count = ref 0 in
+  let request_paths = ref [] in
+  let bodies = ref [] in
+  let handler _conn req body =
+    incr request_count;
+    request_paths := Uri.path (Cohttp.Request.uri req) :: !request_paths;
+    bodies := read_request_body body :: !bodies;
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:"{}" ()
+  in
+  with_mock_collector ~port:18356 handler (fun ~sw ~clock ~net ~endpoint ->
+    let instance = make_instance ~service_name:"otel-export-metrics" () in
+    Otel_tracer.inst_record_metric
+      instance
+      ~name:"oas.eval.coverage"
+      ~value:0.75
+      ~metric_type:Otel_tracer.Gauge;
+    let config =
+      { (default_export_config ~endpoint) with max_retries = 0; timeout_sec = 2.0 }
+    in
+    match flush_to_collector ~sw ~clock ~net ~config instance with
+    | Exported { span_count; metric_count } ->
+      Alcotest.(check int) "no spans" 0 span_count;
+      Alcotest.(check int) "one metric" 1 metric_count;
+      Alcotest.(check int) "one request" 1 !request_count;
+      Alcotest.(check (list string)) "metric path" [ "/v1/metrics" ] !request_paths;
+      Alcotest.(check int)
+        "metrics drained"
+        0
+        (List.length (Otel_tracer.inst_get_metrics instance));
+      Alcotest.(check bool)
+        "body carries metric"
+        true
+        (List.exists (body_has_metric "oas.eval.coverage") !bodies)
+    | Partial_failure _ -> Alcotest.fail "expected metric export success"
+    | Failed { reason } -> Alcotest.failf "expected metric export success: %s" reason)
 ;;
 
 let test_flush_to_collector_reports_partial_failure () =
@@ -282,9 +342,11 @@ let test_flush_to_collector_reports_partial_failure () =
       }
     in
     match flush_to_collector ~sw ~clock ~net ~config instance with
-    | Partial_failure { exported; dropped; reason } ->
+    | Partial_failure { exported; dropped; metric_exported; metric_dropped; reason } ->
       Alcotest.(check int) "exported first batch" 2 exported;
       Alcotest.(check int) "dropped failed batch" 1 dropped;
+      Alcotest.(check int) "no metric exported" 0 metric_exported;
+      Alcotest.(check int) "no metric dropped" 0 metric_dropped;
       Alcotest.(check string) "reason" "HTTP 500" reason
     | Exported _ -> Alcotest.fail "expected partial failure"
     | Failed { reason } -> Alcotest.failf "expected partial failure, got %s" reason)
@@ -332,8 +394,9 @@ let test_force_flush_updates_total_exported () =
     let exporter = start_daemon ~sw ~clock ~net ~config instance in
     Alcotest.(check int) "initial total" 0 (total_exported exporter);
     match force_flush ~sw ~clock ~net exporter with
-    | Exported { span_count } ->
+    | Exported { span_count; metric_count } ->
       Alcotest.(check int) "force span count" 2 span_count;
+      Alcotest.(check int) "force metric count" 0 metric_count;
       Alcotest.(check int) "total exported" 2 (total_exported exporter)
     | Partial_failure _ -> Alcotest.fail "expected force flush success"
     | Failed { reason } -> Alcotest.failf "expected force flush success: %s" reason)
@@ -343,16 +406,28 @@ let test_force_flush_updates_total_exported () =
 
 let test_export_result_variants () =
   (* Verify constructors are well-formed *)
-  let e = Exported { span_count = 5 } in
-  let p = Partial_failure { exported = 3; dropped = 2; reason = "timeout" } in
+  let e = Exported { span_count = 5; metric_count = 7 } in
+  let p =
+    Partial_failure
+      { exported = 3
+      ; dropped = 2
+      ; metric_exported = 4
+      ; metric_dropped = 1
+      ; reason = "timeout"
+      }
+  in
   let f = Failed { reason = "connection refused" } in
   (match e with
-   | Exported { span_count } -> Alcotest.(check int) "exported" 5 span_count
+   | Exported { span_count; metric_count } ->
+     Alcotest.(check int) "exported spans" 5 span_count;
+     Alcotest.(check int) "exported metrics" 7 metric_count
    | _ -> ());
   (match p with
-   | Partial_failure { exported; dropped; _ } ->
+   | Partial_failure { exported; dropped; metric_exported; metric_dropped; _ } ->
      Alcotest.(check int) "partial exported" 3 exported;
-     Alcotest.(check int) "partial dropped" 2 dropped
+     Alcotest.(check int) "partial dropped" 2 dropped;
+     Alcotest.(check int) "partial metric exported" 4 metric_exported;
+     Alcotest.(check int) "partial metric dropped" 1 metric_dropped
    | _ -> ());
   match f with
   | Failed { reason } ->
@@ -435,6 +510,10 @@ let () =
             "exports batches"
             `Quick
             test_flush_to_collector_exports_batches
+        ; Alcotest.test_case
+            "exports metrics"
+            `Quick
+            test_flush_to_collector_exports_metrics
         ; Alcotest.test_case
             "partial failure"
             `Quick

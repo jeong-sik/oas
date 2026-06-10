@@ -54,6 +54,13 @@ val otel_metric_type_to_tracer : string -> Otel_tracer.metric_type
     a summary span named ["eval_metrics"] for correlation. *)
 val emit_run_metrics : Otel_tracer.instance -> Eval.run_metrics -> unit
 
+(** Shared eval telemetry instance used by synchronous eval helpers that do
+    not own an Eio network context. Exporters can drain this instance. *)
+val default_instance : unit -> Otel_tracer.instance
+
+(** Emit eval metrics on {!default_instance}. *)
+val emit_run_metrics_default : Eval.run_metrics -> unit
+
 (** {1 JSON export} *)
 
 (** Produce a JSON array of metric objects for external consumption.

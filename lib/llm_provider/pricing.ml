@@ -119,12 +119,16 @@ let pricing_for_model_opt model_id =
     (match Model_catalog.global () with
      | Some catalog ->
        (match Model_catalog.lookup catalog model_id with
-        | Some entry when Option.is_some entry.input_per_million && Option.is_some entry.output_per_million ->
+        | Some entry
+          when Option.is_some entry.input_per_million
+               && Option.is_some entry.output_per_million ->
           Some
             ({ input_per_million = Option.get entry.input_per_million
              ; output_per_million = Option.get entry.output_per_million
-             ; cache_write_multiplier = Option.value entry.cache_write_multiplier ~default:1.0
-             ; cache_read_multiplier = Option.value entry.cache_read_multiplier ~default:1.0
+             ; cache_write_multiplier =
+                 Option.value entry.cache_write_multiplier ~default:1.0
+             ; cache_read_multiplier =
+                 Option.value entry.cache_read_multiplier ~default:1.0
              }
              : pricing)
         | _ -> static_pricing_opt_normalized normalized)

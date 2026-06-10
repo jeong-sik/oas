@@ -84,10 +84,9 @@ let check_loop_guard agent =
       Some
         (Error.Agent
            (Error.IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
-    else (
+    else
       (* dummy for SCA: Telemetry_event.Budget_exceeded *)
       check_token_budget agent.state.config agent.state.usage
-    )
 ;;
 
 (* ── Unified run loop ────────────────────────────────────────── *)

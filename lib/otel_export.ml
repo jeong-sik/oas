@@ -25,10 +25,15 @@ let default_export_config ~endpoint =
 ;;
 
 type export_result =
-  | Exported of { span_count : int }
+  | Exported of
+      { span_count : int
+      ; metric_count : int
+      }
   | Partial_failure of
       { exported : int
       ; dropped : int
+      ; metric_exported : int
+      ; metric_dropped : int
       ; reason : string
       }
   | Failed of { reason : string }
@@ -83,10 +88,64 @@ let build_otlp_body ~service_name (spans : Otel_tracer.span list) : string =
   Yojson.Safe.to_string json
 ;;
 
+let build_otlp_metrics_body ~service_name (metrics : Otel_tracer.metric_entry list)
+  : string
+  =
+  let json =
+    `Assoc
+      [ ( "resourceMetrics"
+        , `List
+            [ `Assoc
+                [ ( "resource"
+                  , `Assoc
+                      [ ( "attributes"
+                        , Otel_tracer.attrs_to_json [ "service.name", service_name ] )
+                      ] )
+                ; ( "scopeMetrics"
+                  , `List
+                      [ `Assoc
+                          [ ( "scope"
+                            , `Assoc
+                                [ "name", `String "agent_sdk.otel_export"
+                                ; "version", `String Sdk_version.version
+                                ] )
+                          ; ( "metrics"
+                            , `List (List.map Otel_tracer.metric_entry_to_json metrics) )
+                          ]
+                      ] )
+                ]
+            ] )
+      ]
+  in
+  Yojson.Safe.to_string json
+;;
+
 (* ── HTTP POST via cohttp-eio ───────────────────────────────── *)
 
-let post_otlp ~sw ~clock ~client ~config body =
-  let uri = Uri.of_string config.endpoint in
+let replace_suffix s ~suffix ~replacement =
+  let suffix_len = String.length suffix in
+  let len = String.length s in
+  if len >= suffix_len && String.equal (String.sub s (len - suffix_len) suffix_len) suffix
+  then String.sub s 0 (len - suffix_len) ^ replacement
+  else s
+;;
+
+let endpoint_for_signal endpoint signal_path =
+  let uri = Uri.of_string endpoint in
+  let path = Uri.path uri in
+  let path =
+    match path with
+    | "" | "/" -> signal_path
+    | _ ->
+      path
+      |> replace_suffix ~suffix:"/v1/traces" ~replacement:signal_path
+      |> replace_suffix ~suffix:"/v1/metrics" ~replacement:signal_path
+  in
+  Uri.to_string (Uri.with_path uri path)
+;;
+
+let post_otlp ~sw ~clock ~client ~config ~endpoint body =
+  let uri = Uri.of_string endpoint in
   let base_headers =
     Cohttp.Header.of_list ([ "content-type", "application/json" ] @ config.headers)
   in
@@ -111,9 +170,25 @@ let post_otlp ~sw ~clock ~client ~config body =
 
 let export_batch ~sw ~clock ~client ~config ~service_name spans =
   let body = build_otlp_body ~service_name spans in
+  let endpoint = endpoint_for_signal config.endpoint "/v1/traces" in
   let rec attempt n =
-    match post_otlp ~sw ~clock ~client ~config body with
+    match post_otlp ~sw ~clock ~client ~config ~endpoint body with
     | Ok () -> Ok (List.length spans)
+    | Error _ when n < config.max_retries ->
+      let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
+      Eio.Time.sleep clock delay;
+      attempt (n + 1)
+    | Error reason -> Error reason
+  in
+  attempt 0
+;;
+
+let export_metrics ~sw ~clock ~client ~config ~service_name metrics =
+  let body = build_otlp_metrics_body ~service_name metrics in
+  let endpoint = endpoint_for_signal config.endpoint "/v1/metrics" in
+  let rec attempt n =
+    match post_otlp ~sw ~clock ~client ~config ~endpoint body with
+    | Ok () -> Ok (List.length metrics)
     | Error _ when n < config.max_retries ->
       let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
       Eio.Time.sleep clock delay;
@@ -141,31 +216,47 @@ let rec split_batches max_size acc = function
 ;;
 
 let flush_to_collector ~sw ~clock ~net ~config instance =
-  (* Spans are flushed from the tracer upfront. If export fails, spans are
+  (* Telemetry is flushed from the tracer upfront. If export fails, data is
      dropped (not re-queued). Callers should treat [Partial_failure] and
-     [Failed] as permanent span loss for the affected batches. *)
+     [Failed] as permanent telemetry loss for the affected batches. *)
   let spans = Otel_tracer.inst_flush instance in
-  if spans = []
-  then Exported { span_count = 0 }
+  let metrics = Otel_tracer.inst_drain_metrics instance in
+  if spans = [] && metrics = []
+  then Exported { span_count = 0; metric_count = 0 }
   else (
     let client = make_client ~net in
     let service_name = instance.Otel_tracer.config.service_name in
     let batches = split_batches config.max_batch_size [] spans in
-    let total = List.length spans in
-    let exported = ref 0 in
+    let span_total = List.length spans in
+    let metric_total = List.length metrics in
+    let exported_spans = ref 0 in
+    let exported_metrics = ref 0 in
     let last_error = ref "" in
     List.iter
       (fun batch ->
          match export_batch ~sw ~clock ~client ~config ~service_name batch with
-         | Ok count -> exported := !exported + count
+         | Ok count -> exported_spans := !exported_spans + count
          | Error reason -> last_error := reason)
       batches;
-    if !exported = total
-    then Exported { span_count = total }
-    else if !exported > 0
+    (match metrics with
+     | [] -> ()
+     | _ ->
+       (match export_metrics ~sw ~clock ~client ~config ~service_name metrics with
+        | Ok count -> exported_metrics := !exported_metrics + count
+        | Error reason -> last_error := reason));
+    let total = span_total + metric_total in
+    let exported = !exported_spans + !exported_metrics in
+    if exported = total
+    then Exported { span_count = !exported_spans; metric_count = !exported_metrics }
+    else if exported > 0
     then
       Partial_failure
-        { exported = !exported; dropped = total - !exported; reason = !last_error }
+        { exported = !exported_spans
+        ; dropped = span_total - !exported_spans
+        ; metric_exported = !exported_metrics
+        ; metric_dropped = metric_total - !exported_metrics
+        ; reason = !last_error
+        }
     else Failed { reason = !last_error })
 ;;
 
@@ -184,10 +275,10 @@ let start_daemon ~sw ~clock ~net ~config ?on_export instance =
       Eio.Time.sleep clock config.flush_interval_sec;
       let result = flush_to_collector ~sw ~clock ~net ~config instance in
       (match result with
-       | Exported { span_count } ->
-         state.total_exported <- state.total_exported + span_count
-       | Partial_failure { exported; _ } ->
-         state.total_exported <- state.total_exported + exported
+       | Exported { span_count; metric_count } ->
+         state.total_exported <- state.total_exported + span_count + metric_count
+       | Partial_failure { exported; metric_exported; _ } ->
+         state.total_exported <- state.total_exported + exported + metric_exported
        | Failed _ -> ());
       match on_export with
       | Some cb -> cb result
@@ -200,8 +291,10 @@ let start_daemon ~sw ~clock ~net ~config ?on_export instance =
 let force_flush ~sw ~clock ~net t =
   let result = flush_to_collector ~sw ~clock ~net ~config:t.config t.instance in
   (match result with
-   | Exported { span_count } -> t.total_exported <- t.total_exported + span_count
-   | Partial_failure { exported; _ } -> t.total_exported <- t.total_exported + exported
+   | Exported { span_count; metric_count } ->
+     t.total_exported <- t.total_exported + span_count + metric_count
+   | Partial_failure { exported; metric_exported; _ } ->
+     t.total_exported <- t.total_exported + exported + metric_exported
    | Failed _ -> ());
   result
 ;;
