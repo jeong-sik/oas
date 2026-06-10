@@ -756,35 +756,94 @@ let with_post_stream
       Error (HttpError { code; body = body_str }))
 ;;
 
+(* One W3C EventSource line, parsed per spec (§9.2.6 event stream
+   interpretation):
+   - empty line: event dispatch boundary
+   - line starting with ':': comment (keepalive)
+   - otherwise "name[:[ ]value]": a field; exactly one leading space is
+     stripped from the value, and a line with no ':' is a field with an
+     empty value.
+   The previous implementation matched the literal prefixes "event: " /
+   "data: " with index arithmetic, silently dropping spec-valid lines
+   like "data:foo" (no space after the colon) — a provider or proxy
+   that omits the optional space would make the whole stream vanish
+   without a trace. *)
+type sse_line =
+  | Sse_blank
+  | Sse_comment
+  | Sse_field of string * string
+
+let parse_sse_line line =
+  if String.length line = 0
+  then Sse_blank
+  else (
+    match String.index_opt line ':' with
+    | Some 0 -> Sse_comment
+    | None -> Sse_field (line, "")
+    | Some i ->
+      let value_start =
+        if String.length line > i + 1 && line.[i + 1] = ' ' then i + 2 else i + 1
+      in
+      Sse_field
+        ( String.sub line 0 i
+        , String.sub line value_start (String.length line - value_start) ))
+;;
+
+let require_clock_when_idle ~site ~clock ~idle_timeout =
+  match clock, idle_timeout with
+  | None, Some _ ->
+    (* Fail-loud contract: a configured idle deadline with no clock used
+       to silently disarm and leave a stalled stream blocking forever
+       (the read_sse idle-disarm bug family). Misconfiguration must fail
+       at the call site, not at 3 a.m. as a hung fiber. *)
+    invalid_arg
+      (site
+       ^ ": idle_timeout is set but no clock was supplied — the idle deadline \
+          would be silently disarmed (pass ?clock, or drop ?idle_timeout)")
+  | Some _, _ | None, None -> ()
+;;
+
 let read_sse ?clock ?idle_timeout ~reader ~on_data () =
-  (* SSE keepalive comments (lines starting with ":" per W3C
-     EventSource) carry no payload. Skipping them inside the SAME
-     [with_timeout_exn] window preserves the idle deadline so a
+  require_clock_when_idle ~site:"read_sse" ~clock ~idle_timeout;
+  (* SSE keepalive comments carry no payload. Skipping them inside the
+     SAME [with_timeout_exn] window preserves the idle deadline so a
      provider that emits only keepalives still trips [idle_timeout]
      when no real event arrives. *)
-  let is_keepalive_comment line = String.length line > 0 && line.[0] = ':' in
   let read_meaningful_line () =
     let rec inner () =
-      let line = Eio.Buf_read.line reader in
-      if is_keepalive_comment line then inner () else line
+      match parse_sse_line (Eio.Buf_read.line reader) with
+      | Sse_comment -> inner ()
+      | (Sse_blank | Sse_field _) as parsed -> parsed
     in
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
-    | Some _, None | None, Some _ | None, None -> inner ()
+    | Some _, None | None, None -> inner ()
+    | None, Some _ ->
+      (* Rejected by [require_clock_when_idle] above. *)
+      assert false
   in
   let current_event_type = ref None in
   let rec loop () =
     match read_meaningful_line () with
-    | line ->
-      let len = String.length line in
-      if len = 0
-      then current_event_type := None
-      else if len > 7 && String.sub line 0 7 = "event: "
-      then current_event_type := Some (String.sub line 7 (len - 7))
-      else if len > 6 && String.sub line 0 6 = "data: "
-      then (
-        let data = String.sub line 6 (len - 6) in
-        on_data ~event_type:!current_event_type data);
+    | Sse_blank ->
+      current_event_type := None;
+      loop ()
+    | Sse_comment ->
+      (* Filtered inside [read_meaningful_line]. *)
+      loop ()
+    | Sse_field ("event", value) ->
+      current_event_type := Some value;
+      loop ()
+    | Sse_field ("data", value) ->
+      (* Empty data is dispatched rather than dropped: the downstream
+         accumulator surfaces unparsable payloads as SSEParseFailed
+         events, which beats making protocol garbage invisible here. *)
+      on_data ~event_type:!current_event_type value;
+      loop ()
+    | Sse_field (_, _) ->
+      (* "id" / "retry" are valid EventSource fields this client
+         deliberately does not use (no reconnect support); unknown
+         field names are ignored per spec. *)
       loop ()
     | exception End_of_file -> ()
   in
@@ -799,10 +858,14 @@ let read_sse ?clock ?idle_timeout ~reader ~on_data () =
     wrapped in [Eio.Time.with_timeout_exn] so a stalled stream raises
     [Eio.Time.Timeout] after [idle_timeout] seconds of silence. *)
 let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
+  require_clock_when_idle ~site:"read_ndjson" ~clock ~idle_timeout;
   let read_line () =
     match clock, idle_timeout with
     | Some c, Some t -> Eio.Time.with_timeout_exn c t (fun () -> Eio.Buf_read.line reader)
-    | Some _, None | None, Some _ | None, None -> Eio.Buf_read.line reader
+    | Some _, None | None, None -> Eio.Buf_read.line reader
+    | None, Some _ ->
+      (* Rejected by [require_clock_when_idle] above. *)
+      assert false
   in
   let rec loop () =
     match read_line () with

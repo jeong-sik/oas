@@ -258,21 +258,31 @@ val with_post_stream
   -> ('a, http_error) result
 
 (** Read SSE-formatted lines from a reader.
-    Strips [data: ] prefixes and passes the payload to [on_data].
-    Tracks [event: ] lines and provides the current event type.
-    Returns normally on [End_of_file].
+
+    Field lines are parsed per the W3C EventSource grammar
+    ("name[:[ ]value]" — at most one leading space stripped from the
+    value), so both [data: x] and [data:x] dispatch. [event:] sets the
+    current event type; [data:] payloads (including empty ones) go to
+    [on_data]; [id]/[retry] and unknown field names are ignored; a
+    blank line resets the event type. Returns normally on
+    [End_of_file].
+
+    [on_data] runs OUTSIDE the idle-timeout window: it must not block —
+    a parked handler silences the idle deadline for the whole stream.
 
     When both [clock] and [idle_timeout] are supplied, raises
     [Eio.Time.Timeout] if no line arrives within [idle_timeout]
     seconds. The deadline resets after each successful meaningful
     line, so this bounds inter-event idle — not total stream
-    duration. SSE keepalive comments (lines starting with [:] per
-    the W3C EventSource spec) are skipped inside the same timeout
-    window — they do NOT reset the deadline, so a stream of pure
-    keepalives still trips [idle_timeout]. Wrapped by
-    {!with_post_stream} the timeout should be caught by the caller and
-    surfaced as [TimeoutError { phase = Stream_idle state; _ }] so
-    downstream policy can see which stream state stalled. *)
+    duration. SSE keepalive comments (lines starting with [:]) are
+    skipped inside the same timeout window — they do NOT reset the
+    deadline, so a stream of pure keepalives still trips
+    [idle_timeout]. Supplying [idle_timeout] WITHOUT [clock] raises
+    [Invalid_argument]: that combination used to silently disarm the
+    deadline. Wrapped by {!with_post_stream} the timeout should be
+    caught by the caller and surfaced as
+    [TimeoutError { phase = Stream_idle state; _ }] so downstream
+    policy can see which stream state stalled. *)
 val read_sse
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
@@ -288,10 +298,11 @@ val read_sse
     When both [clock] and [idle_timeout] are supplied, raises
     [Eio.Time.Timeout] if no line arrives within [idle_timeout]
     seconds. The deadline resets after each successful line, so this
-    bounds inter-line idle — not total stream duration. The raised
-    timeout should be caught by the caller and surfaced as
-    [TimeoutError { phase = Stream_idle state; _ }] so downstream
-    policy can see which stream state stalled. *)
+    bounds inter-line idle — not total stream duration. Supplying
+    [idle_timeout] WITHOUT [clock] raises [Invalid_argument] (silent
+    disarm removed). The raised timeout should be caught by the caller
+    and surfaced as [TimeoutError { phase = Stream_idle state; _ }] so
+    downstream policy can see which stream state stalled. *)
 val read_ndjson
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
