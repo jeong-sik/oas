@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.6](https://github.com/jeong-sik/oas/compare/v0.205.5...v0.205.6) (2026-06-10)
+
+
+### Bug Fixes
+
+* **http_client:** spec-grammar SSE field parsing + fail-loud idle-without-clock ([ee945b4](https://github.com/jeong-sik/oas/commit/ee945b41cf3ef233b285f621a4bf8cc2ebb79a8f))
+* **http_client:** spec-grammar SSE field parsing + fail-loud idle-without-clock ([06e32c8](https://github.com/jeong-sik/oas/commit/06e32c84714cee223abd129a66a0d444d8e901b6))
+
 ## [0.205.5](https://github.com/jeong-sik/oas/compare/v0.205.4...v0.205.5) (2026-06-10)
 
 
