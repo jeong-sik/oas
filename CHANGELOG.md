@@ -8,6 +8,15 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.7](https://github.com/jeong-sik/oas/compare/v0.205.6...v0.205.7) (2026-06-10)
+
+
+### Bug Fixes
+
+* **ci:** restore oas build formatting ([7341e7f](https://github.com/jeong-sik/oas/commit/7341e7ff6e495da552bf40a6b5ab93e456a05dc0))
+* **otel:** export native metrics ([28c8809](https://github.com/jeong-sik/oas/commit/28c88090c1f2064a378288656e8a8dec8aa05379))
+* **otel:** export native metrics ([332c4cf](https://github.com/jeong-sik/oas/commit/332c4cf4f2f8864d31f055bedc8ccc4959764c70))
+
 ## [0.205.6](https://github.com/jeong-sik/oas/compare/v0.205.5...v0.205.6) (2026-06-10)
 
 
