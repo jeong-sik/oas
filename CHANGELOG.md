@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.8](https://github.com/jeong-sik/oas/compare/v0.205.7...v0.205.8) (2026-06-10)
+
+
+### Bug Fixes
+
+* **ci:** align provider throttle timeout test ([f108350](https://github.com/jeong-sik/oas/commit/f1083506dc90986237067f9c497d347540aed18e))
+* **ci:** align provider throttle timeout test ([16073fc](https://github.com/jeong-sik/oas/commit/16073fc6faae779378b6dc345a18b8a83c6d4126))
+
 ## [0.205.7](https://github.com/jeong-sik/oas/compare/v0.205.6...v0.205.7) (2026-06-10)
 
 
