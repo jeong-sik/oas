@@ -798,8 +798,8 @@ let require_clock_when_idle ~site ~clock ~idle_timeout =
        at the call site, not at 3 a.m. as a hung fiber. *)
     invalid_arg
       (site
-       ^ ": idle_timeout is set but no clock was supplied — the idle deadline \
-          would be silently disarmed (pass ?clock, or drop ?idle_timeout)")
+       ^ ": idle_timeout is set but no clock was supplied — the idle deadline would be \
+          silently disarmed (pass ?clock, or drop ?idle_timeout)")
   | Some _, _ | None, None -> ()
 ;;
 
