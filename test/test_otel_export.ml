@@ -300,10 +300,7 @@ let test_flush_to_collector_exports_metrics () =
       ~value:0.75
       ~metric_type:Otel_tracer.Gauge;
     let config =
-      { (default_export_config ~endpoint) with
-        max_retries = 0
-      ; timeout_sec = 2.0
-      }
+      { (default_export_config ~endpoint) with max_retries = 0; timeout_sec = 2.0 }
     in
     match flush_to_collector ~sw ~clock ~net ~config instance with
     | Exported { span_count; metric_count } ->

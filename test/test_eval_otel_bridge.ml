@@ -64,7 +64,8 @@ let () =
     let rm = make_run_metrics ~verdicts:[ make_verdict ~passed:true () ] () in
     Eval_otel_bridge.emit_run_metrics_default rm;
     let metrics = Otel_tracer.inst_get_metrics inst in
-    check bool
+    check
+      bool
       "shared instance has eval metric"
       true
       (List.exists

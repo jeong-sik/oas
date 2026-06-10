@@ -74,17 +74,24 @@ let parse_entry entry_toml =
       ; max_output_tokens = find_int_opt entry_toml [ "max_output_tokens" ]
       ; supports_tools = find_bool_opt entry_toml [ "supports_tools" ]
       ; supports_tool_choice = find_bool_opt entry_toml [ "supports_tool_choice" ]
-      ; supports_parallel_tool_calls = find_bool_opt entry_toml [ "supports_parallel_tool_calls" ]
+      ; supports_parallel_tool_calls =
+          find_bool_opt entry_toml [ "supports_parallel_tool_calls" ]
       ; supports_reasoning = find_bool_opt entry_toml [ "supports_reasoning" ]
-      ; supports_extended_thinking = find_bool_opt entry_toml [ "supports_extended_thinking" ]
-      ; supports_reasoning_budget = find_bool_opt entry_toml [ "supports_reasoning_budget" ]
-      ; supports_response_format_json = find_bool_opt entry_toml [ "supports_response_format_json" ]
-      ; supports_structured_output = find_bool_opt entry_toml [ "supports_structured_output" ]
-      ; supports_multimodal_inputs = find_bool_opt entry_toml [ "supports_multimodal_inputs" ]
+      ; supports_extended_thinking =
+          find_bool_opt entry_toml [ "supports_extended_thinking" ]
+      ; supports_reasoning_budget =
+          find_bool_opt entry_toml [ "supports_reasoning_budget" ]
+      ; supports_response_format_json =
+          find_bool_opt entry_toml [ "supports_response_format_json" ]
+      ; supports_structured_output =
+          find_bool_opt entry_toml [ "supports_structured_output" ]
+      ; supports_multimodal_inputs =
+          find_bool_opt entry_toml [ "supports_multimodal_inputs" ]
       ; supports_image_input = find_bool_opt entry_toml [ "supports_image_input" ]
       ; supports_audio_input = find_bool_opt entry_toml [ "supports_audio_input" ]
       ; supports_video_input = find_bool_opt entry_toml [ "supports_video_input" ]
-      ; supports_native_streaming = find_bool_opt entry_toml [ "supports_native_streaming" ]
+      ; supports_native_streaming =
+          find_bool_opt entry_toml [ "supports_native_streaming" ]
       ; supports_system_prompt = find_bool_opt entry_toml [ "supports_system_prompt" ]
       ; supports_caching = find_bool_opt entry_toml [ "supports_caching" ]
       ; supports_prompt_caching = find_bool_opt entry_toml [ "supports_prompt_caching" ]
@@ -105,8 +112,10 @@ let load_file path =
   let parse_res =
     try Ok (Otoml.Parser.from_file path) with
     | Sys_error msg -> Error (Printf.sprintf "cannot read model catalog %s: %s" path msg)
-    | Otoml.Parse_error (_pos, msg) -> Error (Printf.sprintf "model catalog TOML parse error in %s: %s" path msg)
-    | Failure msg -> Error (Printf.sprintf "model catalog TOML failure in %s: %s" path msg)
+    | Otoml.Parse_error (_pos, msg) ->
+      Error (Printf.sprintf "model catalog TOML parse error in %s: %s" path msg)
+    | Failure msg ->
+      Error (Printf.sprintf "model catalog TOML failure in %s: %s" path msg)
   in
   match parse_res with
   | Error _ as e -> e
@@ -136,11 +145,7 @@ let load_file path =
 let load_runtime_file path =
   match load_file path with
   | Ok catalog ->
-    Diag.info
-      "model_catalog"
-      "loaded %d model entries from %s"
-      (List.length catalog)
-      path;
+    Diag.info "model_catalog" "loaded %d model entries from %s" (List.length catalog) path;
     Some catalog
   | Error msg ->
     Diag.warn "model_catalog" "failed to load %s: %s" path msg;
@@ -163,20 +168,24 @@ let lookup t model_id =
 ;;
 
 let rec find_in_parents filename dir depth =
-  if depth <= 0 then None
-  else
+  if depth <= 0
+  then None
+  else (
     let path = Filename.concat dir filename in
-    if Sys.file_exists path then Some path
-    else
+    if Sys.file_exists path
+    then Some path
+    else (
       let parent = Filename.dirname dir in
-      if parent = dir then None
-      else find_in_parents filename parent (depth - 1)
+      if parent = dir then None else find_in_parents filename parent (depth - 1)))
 ;;
 
 let env_loaded_catalog : t option Lazy.t =
   lazy
     (let env_path = Cli_common_env.get "OAS_MODEL_CATALOG" in
-     let home_opt = try Some (Unix.getenv "HOME") with Not_found -> None in
+     let home_opt =
+       try Some (Unix.getenv "HOME") with
+       | Not_found -> None
+     in
      let cwd = Sys.getcwd () in
      let search_paths =
        [ env_path
@@ -193,9 +202,7 @@ let env_loaded_catalog : t option Lazy.t =
      let rec try_load = function
        | [] -> None
        | path :: rest ->
-         if Sys.file_exists path
-         then load_runtime_file path
-         else try_load rest
+         if Sys.file_exists path then load_runtime_file path else try_load rest
      in
      try_load search_paths)
 ;;

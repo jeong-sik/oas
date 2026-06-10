@@ -89,7 +89,8 @@ let build_otlp_body ~service_name (spans : Otel_tracer.span list) : string =
 ;;
 
 let build_otlp_metrics_body ~service_name (metrics : Otel_tracer.metric_entry list)
-  : string =
+  : string
+  =
   let json =
     `Assoc
       [ ( "resourceMetrics"
@@ -109,8 +110,7 @@ let build_otlp_metrics_body ~service_name (metrics : Otel_tracer.metric_entry li
                                 ; "version", `String Sdk_version.version
                                 ] )
                           ; ( "metrics"
-                            , `List (List.map Otel_tracer.metric_entry_to_json metrics)
-                            )
+                            , `List (List.map Otel_tracer.metric_entry_to_json metrics) )
                           ]
                       ] )
                 ]

@@ -167,7 +167,17 @@ let of_config_streaming (provider_cfg : Provider.config)
     let module SP = struct
       include Base
 
-      let create_message_stream ~sw ~net ?clock ?idle_timeout ~config ~messages ?tools ~on_event () =
+      let create_message_stream
+            ~sw
+            ~net
+            ?clock
+            ?idle_timeout
+            ~config
+            ~messages
+            ?tools
+            ~on_event
+            ()
+        =
         Streaming.create_message_stream
           ~sw
           ~net

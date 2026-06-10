@@ -28,10 +28,7 @@ let outer_budget_s = 5.0
 let bounded_threshold_s = 3.0
 
 let sse_headers =
-  "HTTP/1.1 200 OK\r\n\
-   Content-Type: text/event-stream\r\n\
-   Connection: close\r\n\
-   \r\n"
+  "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n"
 ;;
 
 let drain_request_headers flow =
@@ -59,12 +56,16 @@ let half_close_server ~sw ~net port ~n_lines =
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
   let listening = Eio.Net.listen ~sw ~backlog:5 ~reuse_addr:true net addr in
   Eio.Fiber.fork ~sw (fun () ->
-    Eio.Net.accept_fork ~sw listening ~on_error:(fun _ -> ()) (fun flow _addr ->
-      drain_request_headers flow;
-      send_prelude flow ~n_lines;
-      Eio.Flow.shutdown flow `Send;
-      (* hold the (now half-closed) fd so teardown is the client's job *)
-      Eio_unix.sleep (outer_budget_s +. 1.0)))
+    Eio.Net.accept_fork
+      ~sw
+      listening
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         drain_request_headers flow;
+         send_prelude flow ~n_lines;
+         Eio.Flow.shutdown flow `Send;
+         (* hold the (now half-closed) fd so teardown is the client's job *)
+         Eio_unix.sleep (outer_budget_s +. 1.0)))
 ;;
 
 (* Variant (b): send prelude, then go silent (no FIN) — the inter-event
@@ -73,10 +74,14 @@ let silent_stall_server ~sw ~net port ~n_lines =
   let addr = `Tcp (Eio.Net.Ipaddr.V4.loopback, port) in
   let listening = Eio.Net.listen ~sw ~backlog:5 ~reuse_addr:true net addr in
   Eio.Fiber.fork ~sw (fun () ->
-    Eio.Net.accept_fork ~sw listening ~on_error:(fun _ -> ()) (fun flow _addr ->
-      drain_request_headers flow;
-      send_prelude flow ~n_lines;
-      Eio_unix.sleep (outer_budget_s +. 1.0)))
+    Eio.Net.accept_fork
+      ~sw
+      listening
+      ~on_error:(fun _ -> ())
+      (fun flow _addr ->
+         drain_request_headers flow;
+         send_prelude flow ~n_lines;
+         Eio_unix.sleep (outer_budget_s +. 1.0)))
 ;;
 
 type outcome =
@@ -127,9 +132,9 @@ let assert_bounded ~label ~elapsed ~outcome ~lines ~expect_min_lines =
   if elapsed >= bounded_threshold_s
   then
     Alcotest.failf
-      "[%s] streaming read did not terminate in bounded time: elapsed=%.3fs >= \
-       %.1fs (outcome=%s, lines=%d). The reader hung; the socket would leak in \
-       CLOSE_WAIT until process restart."
+      "[%s] streaming read did not terminate in bounded time: elapsed=%.3fs >= %.1fs \
+       (outcome=%s, lines=%d). The reader hung; the socket would leak in CLOSE_WAIT \
+       until process restart."
       label
       elapsed
       bounded_threshold_s
@@ -149,20 +154,20 @@ let test_half_close_is_bounded () =
   @@ fun env ->
   let net = env#net
   and clock = env#clock in
-  (try
-     Eio.Switch.run (fun sw ->
-       half_close_server ~sw ~net 19751 ~n_lines:3;
-       Eio_unix.sleep 0.2;
-       let outcome, elapsed, lines = run_client ~clock ~net ~port:19751 in
-       assert_bounded
-         ~label:"half-close (FIN mid-stream)"
-         ~elapsed
-         ~outcome
-         ~lines
-         ~expect_min_lines:3;
-       raise Exit)
-   with
-   | Exit -> ())
+  try
+    Eio.Switch.run (fun sw ->
+      half_close_server ~sw ~net 19751 ~n_lines:3;
+      Eio_unix.sleep 0.2;
+      let outcome, elapsed, lines = run_client ~clock ~net ~port:19751 in
+      assert_bounded
+        ~label:"half-close (FIN mid-stream)"
+        ~elapsed
+        ~outcome
+        ~lines
+        ~expect_min_lines:3;
+      raise Exit)
+  with
+  | Exit -> ()
 ;;
 
 let test_silent_stall_is_bounded () =
@@ -170,20 +175,20 @@ let test_silent_stall_is_bounded () =
   @@ fun env ->
   let net = env#net
   and clock = env#clock in
-  (try
-     Eio.Switch.run (fun sw ->
-       silent_stall_server ~sw ~net 19752 ~n_lines:3;
-       Eio_unix.sleep 0.2;
-       let outcome, elapsed, lines = run_client ~clock ~net ~port:19752 in
-       assert_bounded
-         ~label:"silent stall (no FIN)"
-         ~elapsed
-         ~outcome
-         ~lines
-         ~expect_min_lines:3;
-       raise Exit)
-   with
-   | Exit -> ())
+  try
+    Eio.Switch.run (fun sw ->
+      silent_stall_server ~sw ~net 19752 ~n_lines:3;
+      Eio_unix.sleep 0.2;
+      let outcome, elapsed, lines = run_client ~clock ~net ~port:19752 in
+      assert_bounded
+        ~label:"silent stall (no FIN)"
+        ~elapsed
+        ~outcome
+        ~lines
+        ~expect_min_lines:3;
+      raise Exit)
+  with
+  | Exit -> ()
 ;;
 
 let () =
@@ -191,7 +196,10 @@ let () =
   run
     "streaming_cut_cleanup"
     [ ( "bounded_termination"
-      , [ test_case "half-close (FIN) terminates bounded" `Quick test_half_close_is_bounded
+      , [ test_case
+            "half-close (FIN) terminates bounded"
+            `Quick
+            test_half_close_is_bounded
         ; test_case "silent stall terminates bounded" `Quick test_silent_stall_is_bounded
         ] )
     ]

@@ -196,10 +196,7 @@ let default_otel_instance : Otel_tracer.instance =
 ;;
 
 let default_instance () = default_otel_instance
-
-let emit_run_metrics_default rm =
-  emit_run_metrics default_otel_instance rm
-;;
+let emit_run_metrics_default rm = emit_run_metrics default_otel_instance rm
 
 (* ── JSON export ──────────────────────────────────────────────── *)
 

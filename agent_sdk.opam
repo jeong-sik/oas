@@ -19,6 +19,7 @@ depends: [
   "mirage-crypto-rng" {>= "1.0.0"}
   "ca-certs" {>= "1.0.0"}
   "yojson" {>= "3.0.0" & < "4.0.0"}
+  "otoml" {>= "1.0.5"}
   "ppx_deriving_yojson" {>= "3.10.0"}
   "ppx_deriving" {>= "6.1.0" & < "7.0.0"}
   "ppx_let" {>= "v0.17"}
