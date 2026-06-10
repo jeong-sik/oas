@@ -8,11 +8,8 @@
     @since 0.54.0  Optional cache + metrics hooks *)
 
 include Complete_sampling
-
 include Complete_common
-
 include Complete_sync
-
 include Complete_stream
 
 let complete
@@ -551,4 +548,3 @@ let%test "default_retry_config values" =
   && default_retry_config.max_delay_sec = 30.0
   && default_retry_config.backoff_multiplier = 2.0
 ;;
-

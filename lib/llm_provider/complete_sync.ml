@@ -415,4 +415,3 @@ let complete_http
 (* body_balanced else-branch *)
 
 (* ── Sync completion ─────────────────────────────────── *)
-

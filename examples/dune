@@ -1,4 +1,11 @@
 (executables
- (names basic_agent tool_use streaming review_agent codegen_agent
-        hooks_and_guardrails error_handling builder_patterns)
+ (names
+  basic_agent
+  tool_use
+  streaming
+  review_agent
+  codegen_agent
+  hooks_and_guardrails
+  error_handling
+  builder_patterns)
  (libraries agent_sdk eio eio_main yojson unix str))

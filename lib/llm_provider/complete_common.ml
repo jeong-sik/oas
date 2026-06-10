@@ -403,4 +403,3 @@ let config_with_trace_context config trace_context =
         merge_trace_context_headers config.Provider_config.headers trace_context
     }
 ;;
-
