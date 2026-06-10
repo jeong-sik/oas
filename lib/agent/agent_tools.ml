@@ -396,9 +396,18 @@ let find_and_execute_tool_with_index
                 ]);
             Ok corrected
           | Correction_pipeline.Still_invalid { errors; attempted } ->
+            (* attempted = [] means no deterministic correction was applicable
+               (e.g. a missing required field that coercion cannot synthesize),
+               distinct from corrections having run and the input still being
+               invalid. The previous single message implied fixes always ran. *)
+            let summary =
+              match attempted with
+              | [] -> "correction_pipeline: no deterministic correction applicable"
+              | _ :: _ -> "correction_pipeline still invalid after deterministic fixes"
+            in
             Log.warn
               _log
-              "correction_pipeline still invalid after deterministic fixes"
+              summary
               [ Log.S ("tool", name)
               ; Log.I ("error_count", List.length errors)
               ; Log.I ("attempted_corrections", List.length attempted)
