@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.5](https://github.com/jeong-sik/oas/compare/v0.205.4...v0.205.5) (2026-06-10)
+
+
+### Bug Fixes
+
+* **catalog:** drop consumer-specific ~/.masc search path (SDK boundary) ([52f7b41](https://github.com/jeong-sik/oas/commit/52f7b41c3ef4bb7ef51803eba691c3f00eb64d75))
+* **catalog:** drop consumer-specific ~/.masc search path (SDK boundary) ([19bc660](https://github.com/jeong-sik/oas/commit/19bc6608ab241366cb0564cc8283dcc0d63c1401))
+
 ## [0.205.4](https://github.com/jeong-sik/oas/compare/v0.205.3...v0.205.4) (2026-06-09)
 
 
