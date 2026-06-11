@@ -145,12 +145,17 @@ val complete_with_retry
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
 
-    [clock] and [stream_idle_timeout_s] together bound inter-line idle
-    on every HTTP streaming path: Ollama native NDJSON
+    [clock] and [stream_idle_timeout_s] together bound two streaming
+    stalls on every HTTP streaming path: inter-line idle, and
+    thinking-only generation before the first deliverable text/tool
+    signal. The line-idle deadline covers Ollama native NDJSON
     (see {!Http_client.read_ndjson}) and the SSE format used by
     Anthropic, OpenAI-compatible, Gemini, and Glm
     (see {!Http_client.read_sse}). The deadline resets after each
-    successful line, so this does not cap total stream duration.
+    successful line. The thinking-only guard does not reset on hidden
+    reasoning deltas; it is cleared by text or tool-call progress.
+    Together these do not cap total stream duration after answer/tool
+    progress has started.
     SSE keepalive comments reset the deadline like any other line.
     A stalled endpoint surfaces as
     [TimeoutError { phase = Stream_idle state; _ }], where [state]

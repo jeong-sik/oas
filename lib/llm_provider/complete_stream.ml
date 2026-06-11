@@ -307,14 +307,18 @@ let complete_stream_http
       let ttfrc_ref = ref None in
       (* RFC-OAS-020 — TTFT (Time To First Token) capture.
          [first_token_at_ref] fires on the first chunk that carries a
-         non-empty user-visible delta (text / reasoning / tool-call
-         arg). [first_event_at_ref] fires on the very first SSE
+         non-empty generated delta (text / reasoning / tool-call arg).
+         [first_deliverable_at_ref] fires on the first non-reasoning
+         progress signal that downstream applications can act on.
+         [first_event_at_ref] fires on the very first SSE
          event of any kind — used to derive [prefill_ms] when the
          provider exposes a separable prelude marker
          (e.g. Anthropic [MessageStart] arrives before the first
          [ContentBlockDelta]). *)
       let first_token_at_ref : float option ref = ref None in
+      let first_deliverable_at_ref : float option ref = ref None in
       let first_event_at_ref : float option ref = ref None in
+      let thinking_only_started_at_ref : float option ref = ref None in
       (* Ollama-specific side channel: prompt_eval_count / eval_count and
      the four duration fields only appear on the [done:true] line, so
      stream_acc (which only sees content/tool deltas) cannot capture
@@ -448,17 +452,24 @@ let complete_stream_http
                 (* RFC-OAS-020: capture first-event + first-token
                    wall-clock offsets. [first_event_at_ref] fires on
                    ANY first event (prelude or token);
-                   [first_token_at_ref] fires only when the event would
-                   surface a visible token. The two refs together
+                   [first_token_at_ref] fires on generated token events,
+                   including hidden reasoning. The two refs together
                    distinguish prefill from generation latency. *)
+                let now = Unix.gettimeofday () in
                 if events <> [] && Option.is_none !first_event_at_ref
                 then (
-                  first_event_at_ref := Some (Unix.gettimeofday ());
+                  first_event_at_ref := Some now;
                   stream_idle_state := Http_client.Awaiting_first_delta);
                 if
                   Option.is_none !first_token_at_ref
                   && List.exists Streaming.sse_event_is_first_token_signal events
-                then first_token_at_ref := Some (Unix.gettimeofday ());
+                then first_token_at_ref := Some now;
+                if
+                  Option.is_none !first_deliverable_at_ref
+                  && List.exists
+                       Streaming.sse_event_is_deliverable_progress_signal
+                       events
+                then first_deliverable_at_ref := Some now;
                 List.iter
                   (fun evt ->
                      on_event evt;
@@ -472,18 +483,26 @@ let complete_stream_http
                      | `Skip -> ()
                      | `Thinking ->
                        stream_idle_state := Http_client.Streaming_thinking;
+                       if
+                         Option.is_none !first_deliverable_at_ref
+                         && Option.is_none !thinking_only_started_at_ref
+                       then thinking_only_started_at_ref := Some now;
                        incr n_thinking
                      | `Answer ->
                        stream_idle_state := Http_client.Streaming_answer;
+                       thinking_only_started_at_ref := None;
                        incr n_answer
                      | `Tool_call_start ->
                        stream_idle_state := Http_client.Streaming_tool_call;
+                       thinking_only_started_at_ref := None;
                        incr n_tool_call_start
                      | `Tool_call_arg_delta ->
                        stream_idle_state := Http_client.Streaming_tool_call;
+                       thinking_only_started_at_ref := None;
                        incr n_tool_call_arg_delta
                      | `Tool_call_complete ->
                        stream_idle_state := Http_client.Streaming_tool_call;
+                       thinking_only_started_at_ref := None;
                        incr n_tool_call_complete
                      | `Substrate ->
                        stream_idle_state := Http_client.Streaming_substrate;
@@ -498,6 +517,17 @@ let complete_stream_http
                        stream_idle_state := Http_client.Streaming_unknown;
                        terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
                   events;
+                (match
+                   stream_idle_timeout_s, !first_deliverable_at_ref,
+                   !thinking_only_started_at_ref
+                 with
+                 | Some timeout_s, None, Some started_at
+                   when Streaming.thinking_only_timeout_exceeded
+                          ~timeout_s
+                          ~started_at
+                          ~now ->
+                   raise Eio.Time.Timeout
+                 | Some _, _, _ | None, _, _ -> ());
                 if events <> []
                 then
                   if not !first_chunk_seen

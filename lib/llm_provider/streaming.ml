@@ -128,7 +128,7 @@ let parse_sse_event event_type data_str =
 
 (* RFC-OAS-020: TTFT classification — distinguishes Anthropic prelude
    events ([MessageStart], [ContentBlockStart], [Ping]) from the
-   first user-visible token. Capture point in [Complete] uses this
+   first generated token. Capture point in [Complete] uses this
    to fill [Streaming_summary.ttft_ms]. *)
 let sse_event_is_first_token_signal (e : sse_event) : bool =
   let non_empty s = String.length s > 0 in
@@ -147,6 +147,30 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | SSEUnknownEventType _
   | Connected
   | Timeout _ -> false
+;;
+
+let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
+  let non_empty s = String.length s > 0 in
+  match e with
+  | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | ContentBlockStart { content_type = "tool_use"; _ } -> true
+  | ContentBlockDelta { delta = ThinkingDelta _; _ }
+  | MessageStart _
+  | ContentBlockStart _
+  | ContentBlockStop _
+  | MessageDelta _
+  | MessageStop
+  | Ping
+  | SSEError _
+  | SSEParseFailed _
+  | SSEUnknownEventType _
+  | Connected
+  | Timeout _ -> false
+;;
+
+let thinking_only_timeout_exceeded ~timeout_s ~started_at ~now =
+  now -. started_at >= timeout_s
 ;;
 
 (** Emit synthetic SSE events from a complete [api_response].
