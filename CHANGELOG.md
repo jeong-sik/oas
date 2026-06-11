@@ -8,6 +8,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.12](https://github.com/jeong-sik/oas/compare/v0.205.11...v0.205.12) (2026-06-11)
+
+
+### Features
+
+* support DeepSeek runtime API key env ([#2007](https://github.com/jeong-sik/oas/issues/2007)) ([fde579c](https://github.com/jeong-sik/oas/commit/fde579cdfe8c1af8eb6392448c6c317b25f19145))
+
+
+### Bug Fixes
+
+* **streaming:** bound thinking-only streams ([#2011](https://github.com/jeong-sik/oas/issues/2011)) ([0302112](https://github.com/jeong-sik/oas/commit/0302112fb763fe4688e5dc1cd385ab2392c5dbb0))
+
 ## [0.205.11](https://github.com/jeong-sik/oas/compare/v0.205.10...v0.205.11) (2026-06-11)
 
 
