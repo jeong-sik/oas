@@ -43,6 +43,7 @@ type agent_config =
   ; top_k : int option
   ; min_p : float option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option
   ; tool_choice : tool_choice option

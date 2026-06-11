@@ -146,13 +146,14 @@ let test_provider_c_message_to_json_tool_result_uses_text_blocks () =
 (* build_body_assoc                                                     *)
 (* ------------------------------------------------------------------ *)
 
-let make_state ?thinking_budget ?tool_choice ?enable_thinking () =
+let make_state ?thinking_budget ?tool_choice ?enable_thinking ?preserve_thinking () =
   let config =
     { Types.default_config with
       system_prompt = Some "You are helpful."
     ; thinking_budget
     ; tool_choice
     ; enable_thinking
+    ; preserve_thinking
     }
   in
   { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
@@ -369,6 +370,28 @@ let test_build_openai_body_with_provider_m_sampling () =
     "enable_thinking false"
     false
     (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
+;;
+
+let test_build_openai_body_with_qwen_preserve_thinking () =
+  let state =
+    make_state ~enable_thinking:true ~preserve_thinking:true ()
+  in
+  let state =
+    { state with
+      config = { state.config with model = "qwen36-35b-a3b-mtp" }
+    }
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let ctk = json |> member "chat_template_kwargs" in
+  check bool "enable_thinking true" true (ctk |> member "enable_thinking" |> to_bool);
+  check
+    bool
+    "preserve_thinking true"
+    true
+    (ctk |> member "preserve_thinking" |> to_bool)
 ;;
 
 let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
@@ -1473,6 +1496,10 @@ let () =
             "with dashscope sampling"
             `Quick
             test_build_openai_body_with_provider_m_sampling
+        ; test_case
+            "qwen preserve thinking"
+            `Quick
+            test_build_openai_body_with_qwen_preserve_thinking
         ; test_case
             "generic compat omits dashscope-only fields"
             `Quick

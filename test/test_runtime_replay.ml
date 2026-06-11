@@ -82,6 +82,7 @@ let mk_checkpoint ?(messages = []) ?(created_at = 1.0) ?(turn_count = 0) session
   ; top_k = None
   ; min_p = None
   ; enable_thinking = None
+  ; preserve_thinking = None
   ; response_format = Types.Off
   ; thinking_budget = None
   ; cache_system_prompt = false

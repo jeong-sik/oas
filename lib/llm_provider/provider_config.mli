@@ -58,6 +58,12 @@ type t =
   ; min_p : float option
   ; system_prompt : string option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
+    (** Preserve Qwen3.6 thinking traces across historical messages when
+        the provider supports it. Self-hosted OpenAI-compatible endpoints
+        use [chat_template_kwargs.preserve_thinking]; DashScope uses a
+        top-level [preserve_thinking]. Ignored by other wire formats.
+        @since 0.205.12 *)
   ; thinking_budget : int option
   ; clear_thinking : bool option
   ; tool_stream : bool
@@ -153,6 +159,7 @@ val make
   -> ?min_p:float
   -> ?system_prompt:string
   -> ?enable_thinking:bool
+  -> ?preserve_thinking:bool
   -> ?thinking_budget:int
   -> ?clear_thinking:bool
   -> ?tool_stream:bool

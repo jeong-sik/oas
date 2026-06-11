@@ -26,6 +26,7 @@ let test_make_defaults () =
   check_bool "min_p None" true (cfg.min_p = None);
   check_bool "system_prompt None" true (cfg.system_prompt = None);
   check_bool "enable_thinking None" true (cfg.enable_thinking = None);
+  check_bool "preserve_thinking None" true (cfg.preserve_thinking = None);
   check_bool "thinking_budget None" true (cfg.thinking_budget = None);
   check_bool "clear_thinking None" true (cfg.clear_thinking = None);
   check_bool "tool_stream false" false cfg.tool_stream;
@@ -102,6 +103,7 @@ let test_make_with_all_options () =
       ~min_p:0.05
       ~system_prompt:"system"
       ~enable_thinking:true
+      ~preserve_thinking:true
       ~thinking_budget:1000
       ~clear_thinking:false
       ~tool_stream:true
@@ -119,6 +121,7 @@ let test_make_with_all_options () =
   check_bool "min_p" true (cfg.min_p = Some 0.05);
   check_bool "system_prompt" true (cfg.system_prompt = Some "system");
   check_bool "enable_thinking" true (cfg.enable_thinking = Some true);
+  check_bool "preserve_thinking" true (cfg.preserve_thinking = Some true);
   check_bool "thinking_budget" true (cfg.thinking_budget = Some 1000);
   check_bool "clear_thinking" true (cfg.clear_thinking = Some false);
   check_bool "tool_stream" true cfg.tool_stream;

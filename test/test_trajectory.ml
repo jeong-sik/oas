@@ -35,6 +35,7 @@ let make_record
   ; model
   ; tool_choice = None
   ; enable_thinking = None
+  ; preserve_thinking = None
   ; thinking_budget = None
   ; block_index = None
   ; block_kind

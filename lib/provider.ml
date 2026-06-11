@@ -751,6 +751,7 @@ let provider_config_of_agent
          ?top_k:cfg.top_k
          ?min_p:cfg.min_p
          ?enable_thinking:cfg.enable_thinking
+         ?preserve_thinking:cfg.preserve_thinking
          ?thinking_budget:cfg.thinking_budget
          ?tool_choice:cfg.tool_choice
          ?system_prompt:cfg.system_prompt

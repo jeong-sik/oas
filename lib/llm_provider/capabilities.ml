@@ -19,7 +19,8 @@ type thinking_control_format =
   | Thinking_object_only
   (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
-  (** llama-server style: {"chat_template_kwargs":{"enable_thinking":b}} *)
+  (** llama-server/vLLM/SGLang style:
+      [{"chat_template_kwargs":{"enable_thinking":b,"preserve_thinking":b}}] *)
   | Reasoning_effort
   (** Openai-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
@@ -27,8 +28,8 @@ type thinking_control_format =
       also accepts ["minimal"], but no current OAS request builder emits
       it.) Ollama's OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
-  (** DashScope-style top-level [enable_thinking] bool plus optional
-      [thinking_budget]. *)
+  (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
+      plus optional [thinking_budget]. *)
 
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
@@ -736,6 +737,13 @@ let%test "for_model_id_static qwen3 has extended thinking" =
 let%test "for_model_id_static qwen3.5 routes to Qwen_3 family" =
   match for_model_id_static "qwen3.5" with
   | Some c -> c.supports_extended_thinking && c.max_output_tokens = Some 81_920
+  | None -> false
+;;
+
+let%test "for_model_id_static qwen36 runpod alias routes to Qwen_3 family" =
+  match for_model_id_static "qwen36-35b-a3b-mtp" with
+  | Some c ->
+    c.supports_extended_thinking && c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
 

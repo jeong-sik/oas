@@ -149,6 +149,7 @@ let mk_record
   ; model = Some "glm-5.1"
   ; tool_choice = Some (Agent_sdk.Types.tool_choice_to_json Agent_sdk.Types.Any)
   ; enable_thinking = Some false
+  ; preserve_thinking = None
   ; thinking_budget = Some 2048
   ; block_index
   ; block_kind
@@ -293,6 +294,7 @@ let test_record_to_json_all_none_optionals () =
     ; model = None
     ; tool_choice = None
     ; enable_thinking = None
+    ; preserve_thinking = None
     ; thinking_budget = None
     ; block_index = None
     ; block_kind = None
@@ -421,6 +423,7 @@ let test_record_json_all_fields_populated () =
     ; tool_choice =
         Some (Agent_sdk.Types.tool_choice_to_json (Agent_sdk.Types.Tool "complex_tool"))
     ; enable_thinking = Some true
+    ; preserve_thinking = Some true
     ; thinking_budget = Some 8192
     ; block_index = Some 3
     ; block_kind = Some "thinking"

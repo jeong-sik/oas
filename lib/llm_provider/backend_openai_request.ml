@@ -101,6 +101,16 @@ let capabilities_of_config (config : Provider_config.t) =
      | Provider_config.OpenAI_compat -> Capabilities.default_capabilities)
 ;;
 
+let bool_field name = function
+  | Some value -> [ name, `Bool value ]
+  | None -> []
+;;
+
+let chat_template_kwargs_fields (config : Provider_config.t) =
+  bool_field "enable_thinking" config.enable_thinking
+  @ bool_field "preserve_thinking" config.preserve_thinking
+;;
+
 let is_zai_glm_request (config : Provider_config.t) =
   Zai_catalog.is_zai_base_url config.base_url
   && Zai_catalog.is_glm_model_id config.model_id
@@ -208,40 +218,58 @@ let build_request
     | None -> body
   in
   let body =
-    match config.enable_thinking with
-    | Some enabled ->
-      (match caps.thinking_control_format with
-       | Thinking_object ->
-         if enabled
-         then (
-           let effort =
-             Provider_config.effort_of_thinking_config
-               ~enable_thinking:config.enable_thinking
-               ~thinking_budget:config.thinking_budget
-           in
-           ("reasoning_effort", `String effort)
-           :: ("thinking", `Assoc [ "type", `String "enabled" ])
-           :: body)
-         else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
-       | Thinking_object_only ->
-         ( "thinking"
-         , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
-         :: body
-       | Chat_template_kwargs ->
-         ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ]) :: body
-       | Reasoning_effort ->
+    match caps.thinking_control_format with
+    | Chat_template_kwargs ->
+      (match chat_template_kwargs_fields config with
+       | [] -> body
+       | fields -> ("chat_template_kwargs", `Assoc fields) :: body)
+    | Enable_thinking ->
+      let body =
+        match config.enable_thinking with
+        | Some enabled -> ("enable_thinking", `Bool enabled) :: body
+        | None -> body
+      in
+      let body =
+        match config.preserve_thinking with
+        | Some preserve -> ("preserve_thinking", `Bool preserve) :: body
+        | None -> body
+      in
+      (match config.enable_thinking, config.thinking_budget with
+       | Some true, Some budget -> ("thinking_budget", `Int budget) :: body
+       | _ -> body)
+    | Reasoning_effort ->
+      (match config.enable_thinking with
+       | Some _ ->
          let effort =
            Provider_config.effort_of_thinking_config
              ~enable_thinking:config.enable_thinking
              ~thinking_budget:config.thinking_budget
          in
          ("reasoning_effort", `String effort) :: body
-       | Enable_thinking ->
-         let body = ("enable_thinking", `Bool enabled) :: body in
-         (match enabled, config.thinking_budget with
-          | true, Some budget -> ("thinking_budget", `Int budget) :: body
-          | _ -> body)
-       | No_thinking_control when is_zai_glm_request config ->
+       | None -> ("reasoning_effort", `String "none") :: body)
+    | Thinking_object ->
+      (match config.enable_thinking with
+       | Some true ->
+         let effort =
+           Provider_config.effort_of_thinking_config
+             ~enable_thinking:config.enable_thinking
+             ~thinking_budget:config.thinking_budget
+         in
+         ("reasoning_effort", `String effort)
+         :: ("thinking", `Assoc [ "type", `String "enabled" ])
+         :: body
+       | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
+       | None -> body)
+    | Thinking_object_only ->
+      (match config.enable_thinking with
+       | Some enabled ->
+         ( "thinking"
+         , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
+         :: body
+       | None -> body)
+    | No_thinking_control when is_zai_glm_request config ->
+      (match config.enable_thinking with
+       | Some enabled ->
          let thinking =
            if enabled
            then
@@ -253,11 +281,8 @@ let build_request
            else `Assoc [ "type", `String "disabled" ]
          in
          ("thinking", thinking) :: body
-       | No_thinking_control -> body)
-    | None ->
-      (match caps.thinking_control_format with
-       | Reasoning_effort -> ("reasoning_effort", `String "none") :: body
-       | _ -> body)
+       | None -> body)
+    | No_thinking_control -> body
   in
   (* tool_choice uses a DIFFERENT unknown-model default than top_k /
      min_p above: unknown -> assume supported (true). Two reasons:

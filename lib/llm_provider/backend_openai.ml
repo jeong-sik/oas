@@ -1353,6 +1353,24 @@ let%test "build_request emits enable_thinking for DashScope provider kind" =
   && json |> member "chat_template_kwargs" = `Null
 ;;
 
+let%test "build_request emits preserve_thinking for DashScope provider kind" =
+  let config =
+    Provider_config.make
+      ~kind:DashScope
+      ~model_id:"dashscope-plus"
+      ~base_url:"https://dashscope.aliyuncs.com/compatible-mode/v1"
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "enable_thinking" |> to_bool = true
+  && json |> member "preserve_thinking" |> to_bool = true
+  && json |> member "chat_template_kwargs" = `Null
+;;
+
 let%test "build_request omits thinking params for No_thinking_control" =
   (* Generic unknown OpenAI-compatible model ids fall back to
      No_thinking_control and must not emit any provider-specific thinking
@@ -1442,6 +1460,25 @@ let%test "build_request emits chat_template_kwargs for provider_h_3" =
   let open Yojson.Safe.Util in
   let ctk = json |> member "chat_template_kwargs" in
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
+;;
+
+let%test "build_request emits chat_template_kwargs preserve_thinking for provider_h_3" =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"dashscope-3.5-35b-a3b"
+      ~base_url:"http://localhost"
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let ctk = json |> member "chat_template_kwargs" in
+  ctk |> member "enable_thinking" |> to_bool = true
+  && ctk |> member "preserve_thinking" |> to_bool = true
+  && json |> member "thinking" = `Null
 ;;
 
 let%test "build_request omits seed when model does not support it" =

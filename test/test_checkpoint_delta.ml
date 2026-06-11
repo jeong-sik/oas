@@ -142,6 +142,7 @@ let checkpoint_gen =
   let* top_k = option (int_range 1 40) in
   let* min_p = option (map (fun n -> float_of_int n /. 20.0) (int_range 0 20)) in
   let* enable_thinking = option bool in
+  let* preserve_thinking = option bool in
   let* response_format = response_format_gen in
   let* thinking_budget = option (int_range 0 2048) in
   let* cache_system_prompt = bool in
@@ -168,6 +169,7 @@ let checkpoint_gen =
     ; top_k
     ; min_p
     ; enable_thinking
+    ; preserve_thinking
     ; response_format
     ; thinking_budget
     ; cache_system_prompt
@@ -229,6 +231,7 @@ let make_unit_checkpoint
   ; top_k = None
   ; min_p = None
   ; enable_thinking = None
+  ; preserve_thinking = None
   ; response_format = Off
   ; thinking_budget = None
   ; cache_system_prompt = false

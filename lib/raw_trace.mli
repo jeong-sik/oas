@@ -39,6 +39,7 @@ type run_summary =
   ; model : string option
   ; tool_choice : Yojson.Safe.t option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; thinking_block_count : int
   ; text_block_count : int
@@ -98,6 +99,7 @@ type record =
   ; model : string option
   ; tool_choice : Yojson.Safe.t option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; block_index : int option
   ; block_kind : string option
@@ -157,6 +159,7 @@ val start_run
   -> ?model:string
   -> ?tool_choice:Types.tool_choice
   -> ?enable_thinking:bool
+  -> ?preserve_thinking:bool
   -> ?thinking_budget:int
   -> unit
   -> (active_run, Error.sdk_error) result
