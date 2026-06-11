@@ -324,10 +324,10 @@ let provider_i_defaults =
   }
 ;;
 
-let provider_g_defaults =
+let deepseek_defaults =
   { kind = OpenAI_compat
   ; base_url = env_or_default "DEEPSEEK_BASE_URL" "https://api.deepseek.com"
-  ; api_key_env = "PROVIDER_G_API_KEY"
+  ; api_key_env = "DEEPSEEK_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
@@ -418,7 +418,7 @@ let default () =
   (* Deepseek v4 series (flash / pro). 1M context, reasoning, tools. *)
   reg
     "deepseek"
-    provider_g_defaults
+    deepseek_defaults
     ~max_context:1_000_000
     Capabilities.openai_compat_chat_capabilities;
   reg
