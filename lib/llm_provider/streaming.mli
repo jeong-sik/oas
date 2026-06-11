@@ -19,7 +19,7 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
     *first-token* events (which set [ttft_ms]). The capture site
     is [Complete] §publish_summary. *)
 
-(** [true] when the SSE event represents the first user-visible
+(** [true] when the SSE event represents the first generated
     token delta. That means a [ContentBlockDelta] carrying a
     non-empty [TextDelta] / [ThinkingDelta] / [InputJsonDelta]
     payload. Prelude events ([MessageStart], [ContentBlockStart],
@@ -28,6 +28,29 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
 
     @stability Internal *)
 val sse_event_is_first_token_signal : sse_event -> bool
+
+(** [true] when the SSE event represents progress that a downstream
+    application can act on without exposing model-private reasoning:
+    non-empty text, non-empty tool-call JSON, or a tool-use block start.
+    Thinking deltas intentionally return [false]. Complete uses this to
+    distinguish "the model is generating hidden reasoning" from "the
+    stream has produced a deliverable answer/tool signal".
+
+    @stability Internal
+    @since 0.205.12 *)
+val sse_event_is_deliverable_progress_signal : sse_event -> bool
+
+(** [true] when a stream has spent at least [timeout_s] seconds in
+    hidden-reasoning-only generation before any deliverable signal.
+    Pure helper for {!Complete}'s semantic stream timeout guard.
+
+    @stability Internal
+    @since 0.205.12 *)
+val thinking_only_timeout_exceeded
+  :  timeout_s:float
+  -> started_at:float
+  -> now:float
+  -> bool
 
 (** {1 Openai SSE} *)
 

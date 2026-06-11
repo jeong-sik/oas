@@ -120,6 +120,62 @@ let test_first_token_classifier_edges () =
     ]
 ;;
 
+let test_deliverable_progress_classifier_edges () =
+  check
+    bool
+    "text is deliverable"
+    true
+    (S.sse_event_is_deliverable_progress_signal
+       (ContentBlockDelta { index = 0; delta = TextDelta "answer" }));
+  check
+    bool
+    "tool args are deliverable"
+    true
+    (S.sse_event_is_deliverable_progress_signal
+       (ContentBlockDelta { index = 0; delta = InputJsonDelta {|{"x":1}|} }));
+  check
+    bool
+    "tool start is deliverable"
+    true
+    (S.sse_event_is_deliverable_progress_signal
+       (ContentBlockStart
+          { index = 0
+          ; content_type = "tool_use"
+          ; tool_id = Some "call_1"
+          ; tool_name = Some "lookup"
+          }));
+  check
+    bool
+    "thinking is not deliverable"
+    false
+    (S.sse_event_is_deliverable_progress_signal
+       (ContentBlockDelta { index = 0; delta = ThinkingDelta "private reasoning" }));
+  check
+    bool
+    "empty text is not deliverable"
+    false
+    (S.sse_event_is_deliverable_progress_signal
+       (ContentBlockDelta { index = 0; delta = TextDelta "" }))
+;;
+
+let test_thinking_only_timeout_exceeded () =
+  check
+    bool
+    "below timeout"
+    false
+    (S.thinking_only_timeout_exceeded ~timeout_s:120.0 ~started_at:10.0 ~now:129.9);
+  check
+    bool
+    "at timeout"
+    true
+    (S.thinking_only_timeout_exceeded ~timeout_s:120.0 ~started_at:10.0 ~now:130.0);
+  check
+    bool
+    "past timeout"
+    true
+    (S.thinking_only_timeout_exceeded ~timeout_s:120.0 ~started_at:10.0 ~now:131.0)
+;;
+
 let test_synthetic_events_media_blocks () =
   let response : api_response =
     { id = "r1"
@@ -475,6 +531,14 @@ let () =
             "first-token classifier edges"
             `Quick
             test_first_token_classifier_edges
+        ; test_case
+            "deliverable progress classifier edges"
+            `Quick
+            test_deliverable_progress_classifier_edges
+        ; test_case
+            "thinking-only timeout predicate"
+            `Quick
+            test_thinking_only_timeout_exceeded
         ; test_case "synthetic media events" `Quick test_synthetic_events_media_blocks
         ] )
     ; ( "provider_d_sse"
