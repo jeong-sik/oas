@@ -1,6 +1,0 @@
-=== transport_openai_compat callers ===
-=== with_transport callers ===
-test/test_builder.ml:(* --- 13d. n --- *)
-test/test_builder.ml:let test_n () =
-test/test_builder.ml:    |> Builder.n mock_transport
-test/test_builder.ml:        ; Alcotest.test_case "transport" `Quick test_n
