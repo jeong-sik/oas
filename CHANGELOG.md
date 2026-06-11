@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.10](https://github.com/jeong-sik/oas/compare/v0.205.9...v0.205.10) (2026-06-11)
+
+
+### Features
+
+* **tracing:** MASC↔OAS trace boundary linking (Phase 1-3) ([#2003](https://github.com/jeong-sik/oas/issues/2003)) ([f6ac0d0](https://github.com/jeong-sik/oas/commit/f6ac0d0eabe07a3e65f280c5d2d2e047265ff972))
+
 ## [0.205.9](https://github.com/jeong-sik/oas/compare/v0.205.8...v0.205.9) (2026-06-11)
 
 
