@@ -549,6 +549,11 @@
  (libraries agent_sdk llm_provider alcotest eio eio_main))
 
 (test
+ (name test_otel_tracer_fiber)
+ (modules test_otel_tracer_fiber)
+ (libraries agent_sdk alcotest eio_main))
+
+(test
  (name test_tls_cancellability)
  (modules test_tls_cancellability)
  (libraries

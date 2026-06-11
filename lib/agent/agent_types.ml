@@ -40,6 +40,9 @@ type options =
   ; guardrails : Guardrails.t
   ; guardrails_async : Guardrails_async.t
   ; tracer : Tracing.t
+  ; trace_link : (string * string) option
+    (** Optional (trace_id, span_id) of a parent span to link to.
+        Used to connect OAS agent turns to an external trace root. *)
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
@@ -157,6 +160,7 @@ let default_options =
   ; guardrails = Guardrails.default
   ; guardrails_async = Guardrails_async.empty
   ; tracer = Tracing.null
+  ; trace_link = None
   ; raw_trace = None
   ; approval = None
   ; missing_approval_callback_policy = Hooks.Execute_without_callback

@@ -8,7 +8,7 @@ let default_attrs
       ()
   : Tracing.span_attrs
   =
-  { kind; name; agent_name = agent; turn; extra = [] }
+  { kind; name; agent_name = agent; turn; extra = []; links = [] }
 ;;
 
 let with_reset f =

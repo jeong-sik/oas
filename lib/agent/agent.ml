@@ -26,25 +26,35 @@ type api_strategy = Pipeline.api_strategy =
     Converts Pipeline.turn_outcome to the polymorphic variant interface
     expected by run_loop and the public API. *)
 let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
-  let api_strat =
-    match api_strategy with
-    | Sync -> Pipeline.Sync
-    | Stream { on_event; on_telemetry } -> Pipeline.Stream { on_event; on_telemetry }
-  in
-  match Pipeline.run_turn ~sw ?clock ~api_strategy:api_strat ?raw_trace_run agent with
-  | Ok (Pipeline.Complete response) -> Ok (`Complete response)
-  | Ok Pipeline.ToolsExecuted -> Ok `ToolsExecuted
-  | Ok Pipeline.IdleSkipped ->
-    Ok
-      (`Complete
-          { Types.id = "idle-skipped"
-          ; model = ""
-          ; stop_reason = EndTurn
-          ; content = []
-          ; usage = None
-          ; telemetry = None
-          })
-  | Error e -> Error e
+  Tracing.with_span
+    agent.options.tracer
+    { kind = Agent_run
+    ; name = "agent_turn"
+    ; agent_name = agent.state.config.name
+    ; turn = agent.state.turn_count
+    ; extra = []
+    ; links = (match agent.options.trace_link with Some (tid, sid) -> [(tid, sid)] | None -> [])
+    }
+    (fun _tracer ->
+       let api_strat =
+         match api_strategy with
+         | Sync -> Pipeline.Sync
+         | Stream { on_event; on_telemetry } -> Pipeline.Stream { on_event; on_telemetry }
+       in
+       match Pipeline.run_turn ~sw ?clock ~api_strategy:api_strat ?raw_trace_run agent with
+       | Ok (Pipeline.Complete response) -> Ok (`Complete response)
+       | Ok Pipeline.ToolsExecuted -> Ok `ToolsExecuted
+       | Ok Pipeline.IdleSkipped ->
+         Ok
+           (`Complete
+               { Types.id = "idle-skipped"
+               ; model = ""
+               ; stop_reason = EndTurn
+               ; content = []
+               ; usage = None
+               ; telemetry = None
+               })
+       | Error e -> Error e)
 ;;
 
 (* Original run_turn_core implementation removed — now in Pipeline.run_turn.

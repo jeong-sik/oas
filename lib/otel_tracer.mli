@@ -22,6 +22,11 @@ type otel_event =
   ; attributes : (string * string) list
   }
 
+type otel_link =
+  { trace_id : string
+  ; span_id : string
+  }
+
 type span =
   { trace_id : string
   ; span_id : string
@@ -33,6 +38,7 @@ type span =
   ; status : bool option
   ; attributes : (string * string) list
   ; events : otel_event list
+  ; mutable links : otel_link list
   }
 
 type config =
@@ -60,6 +66,7 @@ type mutex_impl =
 type instance =
   { config : config
   ; mu : mutex_impl
+  ; fiber_key : (span list ref) Eio.Fiber.key option
   ; mutable current_spans : span list
   ; mutable completed_spans : span list
   ; mutable metrics : metric_entry list
@@ -86,6 +93,7 @@ val inst_start_span : instance -> Tracing.span_attrs -> span
 val inst_end_span : instance -> span -> ok:bool -> unit
 val inst_add_event : instance -> span -> string -> unit
 val inst_add_attrs : instance -> span -> (string * string) list -> unit
+val inst_add_link : instance -> span -> trace_id:string -> span_id:string -> unit
 val inst_flush : instance -> span list
 val inst_reset : instance -> unit
 val inst_completed_count : instance -> int
@@ -133,6 +141,7 @@ val start_span : Tracing.span_attrs -> span
 val end_span : span -> ok:bool -> unit
 val add_event : span -> string -> unit
 val add_attrs : span -> (string * string) list -> unit
+val add_link : span -> trace_id:string -> span_id:string -> unit
 val flush : unit -> span list
 val reset : unit -> unit
 val completed_count : unit -> int

@@ -17,6 +17,7 @@ type span_attrs =
   ; agent_name : string
   ; turn : int
   ; extra : (string * string) list
+  ; links : (string * string) list
   }
 
 module type TRACER = sig
@@ -26,9 +27,11 @@ module type TRACER = sig
   val end_span : span -> ok:bool -> unit
   val add_event : span -> string -> unit
   val add_attrs : span -> (string * string) list -> unit
+  val add_link : span -> trace_id:string -> span_id:string -> unit
   val trace_id : span -> string option
   val span_id : span -> string option
   val trace_context_headers : unit -> (string * string) list
+  val with_span : span_attrs -> (unit -> 'a) -> 'a
 end
 
 module Null_tracer : TRACER with type span = unit = struct
@@ -38,9 +41,11 @@ module Null_tracer : TRACER with type span = unit = struct
   let end_span () ~ok:_ = ()
   let add_event () _msg = ()
   let add_attrs () _attrs = ()
+  let add_link () ~trace_id:_ ~span_id:_ = ()
   let trace_id () = None
   let span_id () = None
   let trace_context_headers () = []
+  let with_span _attrs f = f ()
 end
 
 module Fmt_tracer : TRACER = struct
@@ -97,9 +102,25 @@ module Fmt_tracer : TRACER = struct
       attrs
   ;;
 
+  let add_link span ~trace_id ~span_id =
+    Format.eprintf
+      "[TRACE] LINK %s/%s -> trace=%s span=%s@."
+      (span_kind_to_string span.attrs.kind)
+      span.attrs.name
+      trace_id
+      span_id
+  ;;
+
   let trace_id _span = None
   let span_id _span = None
   let trace_context_headers () = []
+
+  let with_span attrs f =
+    let span = start_span attrs in
+    match f () with
+    | result -> end_span span ~ok:true; result
+    | exception exn -> end_span span ~ok:false; raise exn
+  ;;
 end
 
 type t = (module TRACER)
@@ -112,16 +133,9 @@ let trace_context_headers (type a) (tracer : t) =
   T.trace_context_headers ()
 ;;
 
-(** Run [f] within a traced span. [end_span] is called on both normal return
-    and exception, with [ok] set accordingly. The exception is re-raised. *)
+(** Run [f] within a traced span. Delegates to [TRACER.with_span] so the
+    tracer can manage fiber-local context around [start_span]/[end_span]. *)
 let with_span (type a) (tracer : t) (attrs : span_attrs) (f : t -> a) : a =
   let module T = (val tracer : TRACER) in
-  let span = T.start_span attrs in
-  match f tracer with
-  | result ->
-    T.end_span span ~ok:true;
-    result
-  | exception exn ->
-    T.end_span span ~ok:false;
-    raise exn
+  T.with_span attrs (fun () -> f tracer)
 ;;

@@ -234,7 +234,7 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
   =
   Tracing.with_span
     tracer
-    { kind = Hook_invoke; name = hook_name; agent_name; turn = turn_count; extra = [] }
+    { kind = Hook_invoke; name = hook_name; agent_name; turn = turn_count; extra = []; links = [] }
     (fun _ ->
        let decision = Hooks.invoke_validated hook_opt event in
        (match on_hook_invoked with
@@ -663,7 +663,7 @@ let execute_scheduled_tool
   let triple =
     Tracing.with_span
       tracer
-      { kind = Tool_exec; name; agent_name; turn = turn_count; extra = [] }
+      { kind = Tool_exec; name; agent_name; turn = turn_count; extra = []; links = [] }
       (fun _tracer ->
          try
            let decision =

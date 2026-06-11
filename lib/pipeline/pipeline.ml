@@ -163,6 +163,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; agent_name = agent.state.config.name
       ; turn = agent.state.turn_count
       ; extra = []
+      ; links = []
       }
       (fun tracer ->
          let trace_context = Tracing.trace_context_headers tracer in
@@ -175,6 +176,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
       ; agent_name = agent.state.config.name
       ; turn = agent.state.turn_count
       ; extra = []
+      ; links = []
       }
       (fun tracer ->
          let trace_context = Tracing.trace_context_headers tracer in
@@ -186,289 +188,319 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
     assistant message, increment turn_count.  Restores original_config. *)
 let stage_collect ?raw_trace_run agent ~original_config response =
-  update_state agent (fun s -> { s with config = original_config });
-  let ts = Unix.gettimeofday () in
-  set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
-  let* () = trace_assistant_blocks raw_trace_run response.content in
-  let usage =
-    Agent_turn.accumulate_usage
-      ~current_usage:agent.state.usage
-      ~provider:agent.options.provider
-      ~response_usage:response.usage
-  in
-  let _after =
-    invoke_hook_with_trace
-      agent
-      ?raw_trace_run
-      ~hook_name:"after_turn"
-      agent.options.hooks.after_turn
-      (Hooks.AfterTurn { turn = agent.state.turn_count; response })
-  in
-  let completed_turn = agent.state.turn_count in
-  let assistant_message = make_message ~role:Assistant response.content in
-  let checkpoint_state =
-    { agent.state with
-      messages = Util.snoc agent.state.messages assistant_message
-    ; turn_count = agent.state.turn_count + 1
-    ; usage
+  Tracing.with_span
+    agent.options.tracer
+    { kind = Hook_invoke
+    ; name = "turn:collect"
+    ; agent_name = agent.state.config.name
+    ; turn = agent.state.turn_count
+    ; extra = []
+    ; links = []
     }
-  in
-  let* () =
-    persist_turn_checkpoint_for_state agent After_assistant_collected checkpoint_state
-  in
-  update_state agent (fun state ->
-    { state with
-      messages = Util.snoc state.messages assistant_message
-    ; turn_count = state.turn_count + 1
-    ; usage
-    });
-  (match agent.options.event_bus with
-   | Some bus ->
-     safe_publish
-       bus
-       { meta = Pipeline_common.event_envelope agent
-       ; payload =
-           TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
-       }
-   | None -> ());
-  (match agent.options.journal with
-   | Some j ->
-     Durable_event.append
-       j
-       (State_transition
-          { from_state = "turn_running"
-          ; to_state = "turn_complete"
-          ; reason = response.stop_reason |> Types.show_stop_reason
-          ; timestamp = Unix.gettimeofday ()
-          })
-   | None -> ());
-  Ok ()
+    (fun _tracer ->
+       update_state agent (fun s -> { s with config = original_config });
+       let ts = Unix.gettimeofday () in
+       set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
+       let* () = trace_assistant_blocks raw_trace_run response.content in
+       let usage =
+         Agent_turn.accumulate_usage
+           ~current_usage:agent.state.usage
+           ~provider:agent.options.provider
+           ~response_usage:response.usage
+       in
+       let _after =
+         invoke_hook_with_trace
+           agent
+           ?raw_trace_run
+           ~hook_name:"after_turn"
+           agent.options.hooks.after_turn
+           (Hooks.AfterTurn { turn = agent.state.turn_count; response })
+       in
+       let completed_turn = agent.state.turn_count in
+       let assistant_message = make_message ~role:Assistant response.content in
+       let checkpoint_state =
+         { agent.state with
+           messages = Util.snoc agent.state.messages assistant_message
+         ; turn_count = agent.state.turn_count + 1
+         ; usage
+         }
+       in
+       let* () =
+         persist_turn_checkpoint_for_state agent After_assistant_collected checkpoint_state
+       in
+       update_state agent (fun state ->
+         { state with
+           messages = Util.snoc state.messages assistant_message
+         ; turn_count = state.turn_count + 1
+         ; usage
+         });
+       (match agent.options.event_bus with
+        | Some bus ->
+          safe_publish
+            bus
+            { meta = Pipeline_common.event_envelope agent
+            ; payload =
+                TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
+            }
+        | None -> ());
+       (match agent.options.journal with
+        | Some j ->
+          Durable_event.append
+            j
+            (State_transition
+               { from_state = "turn_running"
+               ; to_state = "turn_complete"
+               ; reason = response.stop_reason |> Types.show_stop_reason
+               ; timestamp = Unix.gettimeofday ()
+               })
+        | None -> ());
+       Ok ())
 ;;
 
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution: idle detection, guardrails, context injection. *)
 let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
-  let resolved_idle_skip_at =
-    let skip_at = agent.options.max_idle_turns in
-    if skip_at > 0 then Some skip_at else None
-  in
-  let resolved_idle_final_warning_at =
-    match agent.options.idle_final_warning_at, resolved_idle_skip_at with
-    | Some n, _ when n > 0 -> Some n
-    | Some _, _ -> None
-    | None, Some skip_at when skip_at > 1 -> Some (skip_at - 1)
-    | None, _ -> None
-  in
-  let classify_idle_severity consecutive_idle_turns =
-    match resolved_idle_skip_at, resolved_idle_final_warning_at with
-    | Some skip_at, _ when consecutive_idle_turns >= skip_at -> Hooks.Idle_severity.Skip
-    | _, Some final_at when consecutive_idle_turns >= final_at ->
-      Hooks.Idle_severity.Final_warning
-    | _ -> Hooks.Idle_severity.Nudge
-  in
-  let idle_result =
-    Agent_turn.update_idle_detection
-      ~idle_state:
-        { last_tool_calls = agent.last_tool_calls
-        ; consecutive_idle_turns = agent.consecutive_idle_turns
-        }
-      ~tool_uses
-  in
-  Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-    agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
-    agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns);
-  let idle_skip = ref false in
-  let idle_handled = ref false in
-  (* true when Nudge or Skip handled idle *)
-  if idle_result.is_idle
-  then (
-    let tool_names =
-      List.filter_map
-        (fun (block : content_block) ->
-           match block with
-           | ToolUse { name; _ } -> Some name
-           | Text _
-           | Thinking _
-           | RedactedThinking _
-           | ToolResult _
-           | Image _
-           | Document _
-           | Audio _ -> None)
-        tool_uses
-    in
-    let consecutive_idle_turns = agent.consecutive_idle_turns in
-    let idle_decision =
-      match agent.options.hooks.on_idle_escalated with
-      | Some hook ->
-        let severity = classify_idle_severity consecutive_idle_turns in
-        invoke_hook_with_trace
-          agent
-          ?raw_trace_run
-          ~hook_name:"on_idle_escalated"
-          (Some hook)
-          (Hooks.OnIdleEscalated { severity; consecutive_idle_turns; tool_names })
-      | None ->
-        invoke_hook_with_trace
-          agent
-          ?raw_trace_run
-          ~hook_name:"on_idle"
-          agent.options.hooks.on_idle
-          (Hooks.OnIdle { consecutive_idle_turns; tool_names })
-    in
-    match idle_decision with
-    | Hooks.Skip ->
-      idle_skip := true;
-      idle_handled := true
-    | Hooks.Nudge nudge_msg ->
-      (* Inject a nudge message and leave the idle counter unchanged,
-         so repeated idle turns continue to accumulate toward later
-         escalation. With accumulation, repeated idle turns can
-         continue to nudge until the on_idle hook eventually decides
-         to Skip (for example, at a configured threshold). *)
-      update_state agent (fun s ->
-        { s with
-          messages = Util.snoc s.messages (make_message ~role:User [ Text nudge_msg ])
-        });
-      idle_handled := true
-    | _ -> ());
-  (* Early exit: skip tool execution when on_idle hook says Skip.
-     Prevents executing redundant tools and avoids further counter drift. *)
-  if !idle_skip
-  then Ok IdleSkipped
-  else (
-    let count = List.length tool_uses in
-    match Guardrails.exceeds_limit effective_guardrails count with
-    | true ->
-      let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
-      update_state agent (fun s ->
-        { s with messages = Util.snoc s.messages (make_message ~role:User [ Text msg ]) });
-      let* () = persist_turn_checkpoint agent After_tool_results_appended in
-      Ok ToolsExecuted
-    | false ->
-      let results =
-        try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
-        | Raw_trace.Trace_error err -> Error err
-      in
-      let* results = results in
-      let tool_result_event_envelope = Pipeline_common.event_envelope agent in
-      let tool_results =
-        Agent_turn.make_tool_results
-          ?event_bus:agent.options.event_bus
-          ~correlation_id:tool_result_event_envelope.correlation_id
-          ~run_id:tool_result_event_envelope.run_id
-          ?relocation:agent.options.tool_result_relocation
-          results
-      in
-      (* Persist CRS to context after tool result processing so that
-       checkpoint captures the current replacement decisions. *)
-      (match agent.options.tool_result_relocation with
-       | Some (_, crs) -> Content_replacement_state.persist_to_context agent.context crs
-       | None -> ());
-      (* Tool-call validation / recoverable errors flow back to the model as
-         is_error tool_results; the model self-corrects on a subsequent turn.
-         There is no separate retry-count gate — runaway is bounded by the
-         shared loop guard (max_turns + idle detection + token budget), the real
-         backpressure. (origin/main reached the same "tool failure is never
-         turn-fatal" outcome by neutering the Exhausted branch; this removes the
-         Tool_retry_policy mechanism entirely, which subsumes that change.) *)
-      let tool_feedback = tool_results in
-      (* Anti-repetition hint: append warning to tool feedback when idle detected
-       but not already handled by Nudge or Skip. Nudge injects its own message
-       and injects its own message; Skip causes early return above. *)
-      let effective_feedback =
-        if idle_result.is_idle && not !idle_handled
-        then
-          tool_feedback
-          @ [ Text
-                (Printf.sprintf
-                   "[Idle warning: You called the same tool(s) with identical arguments \
-                    %d time(s) in a row. Try a different tool or change your arguments \
-                    to make progress.]"
-                   agent.consecutive_idle_turns)
-            ]
-        else tool_feedback
-      in
-      update_state agent (fun s ->
-        { s with
-          messages = Util.snoc s.messages (make_message ~role:User effective_feedback)
-        });
-      (match agent.options.context_injector with
-       | None -> ()
-       | Some injector ->
-         let new_messages =
-           Agent_turn.apply_context_injection
-             ~context:agent.context
-             ~messages:agent.state.messages
-             ~injector
-             ~tool_uses
-             ~results
+  Tracing.with_span
+    agent.options.tracer
+    { kind = Tool_exec
+    ; name = "turn:execute"
+    ; agent_name = agent.state.config.name
+    ; turn = agent.state.turn_count
+    ; extra = []
+    ; links = []
+    }
+    (fun _tracer ->
+       let resolved_idle_skip_at =
+         let skip_at = agent.options.max_idle_turns in
+         if skip_at > 0 then Some skip_at else None
+       in
+       let resolved_idle_final_warning_at =
+         match agent.options.idle_final_warning_at, resolved_idle_skip_at with
+         | Some n, _ when n > 0 -> Some n
+         | Some _, _ -> None
+         | None, Some skip_at when skip_at > 1 -> Some (skip_at - 1)
+         | None, _ -> None
+       in
+       let classify_idle_severity consecutive_idle_turns =
+         match resolved_idle_skip_at, resolved_idle_final_warning_at with
+         | Some skip_at, _ when consecutive_idle_turns >= skip_at -> Hooks.Idle_severity.Skip
+         | _, Some final_at when consecutive_idle_turns >= final_at ->
+           Hooks.Idle_severity.Final_warning
+         | _ -> Hooks.Idle_severity.Nudge
+       in
+       let idle_result =
+         Agent_turn.update_idle_detection
+           ~idle_state:
+             { last_tool_calls = agent.last_tool_calls
+             ; consecutive_idle_turns = agent.consecutive_idle_turns
+             }
+           ~tool_uses
+       in
+       Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
+         agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
+         agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns);
+       let idle_skip = ref false in
+       let idle_handled = ref false in
+       (* true when Nudge or Skip handled idle *)
+       if idle_result.is_idle
+       then (
+         let tool_names =
+           List.filter_map
+             (fun (block : content_block) ->
+                match block with
+                | ToolUse { name; _ } -> Some name
+                | Text _
+                | Thinking _
+                | RedactedThinking _
+                | ToolResult _
+                | Image _
+                | Document _
+                | Audio _ -> None)
+             tool_uses
          in
-         update_state agent (fun s -> { s with messages = new_messages }));
-      let* () = persist_turn_checkpoint agent After_tool_results_appended in
-      (* Anti-repetition hint is now in effective_feedback above.
-       Removed duplicate User message injection (Copilot review #3). *)
-      ignore idle_handled;
-      (* suppress unused warning after dedup *)
-      (* In-memory message hygiene after each tool execution round.
-       Without this, agent.state.messages grows unbounded across turns —
-       context_reducer only trims before API calls, not in the stored state.
+         let consecutive_idle_turns = agent.consecutive_idle_turns in
+         let idle_decision =
+           match agent.options.hooks.on_idle_escalated with
+           | Some hook ->
+             let severity = classify_idle_severity consecutive_idle_turns in
+             invoke_hook_with_trace
+               agent
+               ?raw_trace_run
+               ~hook_name:"on_idle_escalated"
+               (Some hook)
+               (Hooks.OnIdleEscalated { severity; consecutive_idle_turns; tool_names })
+           | None ->
+             invoke_hook_with_trace
+               agent
+               ?raw_trace_run
+               ~hook_name:"on_idle"
+               agent.options.hooks.on_idle
+               (Hooks.OnIdle { consecutive_idle_turns; tool_names })
+         in
+         match idle_decision with
+         | Hooks.Skip ->
+           idle_skip := true;
+           idle_handled := true
+         | Hooks.Nudge nudge_msg ->
+           (* Inject a nudge message and leave the idle counter unchanged,
+              so repeated idle turns continue to accumulate toward later
+              escalation. With accumulation, repeated idle turns can
+              continue to nudge until the on_idle hook eventually decides
+              to Skip (for example, at a configured threshold). *)
+           update_state agent (fun s ->
+             { s with
+               messages = Util.snoc s.messages (make_message ~role:User [ Text nudge_msg ])
+             });
+           idle_handled := true
+         | _ -> ());
+       (* Early exit: skip tool execution when on_idle hook says Skip.
+          Prevents executing redundant tools and avoids further counter drift. *)
+       if !idle_skip
+       then Ok IdleSkipped
+       else (
+         let count = List.length tool_uses in
+         match Guardrails.exceeds_limit effective_guardrails count with
+         | true ->
+           let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
+           update_state agent (fun s ->
+             { s with messages = Util.snoc s.messages (make_message ~role:User [ Text msg ]) });
+           let* () = persist_turn_checkpoint agent After_tool_results_appended in
+           Ok ToolsExecuted
+         | false ->
+           let results =
+             try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
+             | Raw_trace.Trace_error err -> Error err
+           in
+           let* results = results in
+           let tool_result_event_envelope = Pipeline_common.event_envelope agent in
+           let tool_results =
+             Agent_turn.make_tool_results
+               ?event_bus:agent.options.event_bus
+               ~correlation_id:tool_result_event_envelope.correlation_id
+               ~run_id:tool_result_event_envelope.run_id
+               ?relocation:agent.options.tool_result_relocation
+               results
+           in
+           (* Persist CRS to context after tool result processing so that
+            checkpoint captures the current replacement decisions. *)
+           (match agent.options.tool_result_relocation with
+            | Some (_, crs) -> Content_replacement_state.persist_to_context agent.context crs
+            | None -> ());
+           (* Tool-call validation / recoverable errors flow back to the model as
+              is_error tool_results; the model self-corrects on a subsequent turn.
+              There is no separate retry-count gate — runaway is bounded by the
+              shared loop guard (max_turns + idle detection + token budget), the real
+              backpressure. (origin/main reached the same "tool failure is never
+              turn-fatal" outcome by neutering the Exhausted branch; this removes the
+              Tool_retry_policy mechanism entirely, which subsumes that change.) *)
+           let tool_feedback = tool_results in
+           (* Anti-repetition hint: append warning to tool feedback when idle detected
+            but not already handled by Nudge or Skip. Nudge injects its own message
+            and injects its own message; Skip causes early return above. *)
+           let effective_feedback =
+             if idle_result.is_idle && not !idle_handled
+             then
+               tool_feedback
+               @ [ Text
+                     (Printf.sprintf
+                        "[Idle warning: You called the same tool(s) with identical arguments \
+                         %d time(s) in a row. Try a different tool or change your arguments \
+                         to make progress.]"
+                        agent.consecutive_idle_turns)
+                 ]
+             else tool_feedback
+           in
+           update_state agent (fun s ->
+             { s with
+               messages = Util.snoc s.messages (make_message ~role:User effective_feedback)
+             });
+           (match agent.options.context_injector with
+            | None -> ()
+            | Some injector ->
+              let new_messages =
+                Agent_turn.apply_context_injection
+                  ~context:agent.context
+                  ~messages:agent.state.messages
+                  ~injector
+                  ~tool_uses
+                  ~results
+              in
+              update_state agent (fun s -> { s with messages = new_messages }));
+           let* () = persist_turn_checkpoint agent After_tool_results_appended in
+           (* Anti-repetition hint is now in effective_feedback above.
+            Removed duplicate User message injection (Copilot review #3). *)
+           ignore idle_handled;
+           (* suppress unused warning after dedup *)
+           (* In-memory message hygiene after each tool execution round.
+            Without this, agent.state.messages grows unbounded across turns —
+            context_reducer only trims before API calls, not in the stored state.
 
-       Two-step pruning (Agent_llm_a Code Tier 1 pattern):
-       1. Stub old tool results: keep 2 most recent in full, replace older
-          with short stubs. Tool results are the largest allocation source.
-       2. Hard message cap: keep last 100 messages. Prevents unbounded growth
-          in long-running agents (600+ turns). *)
-      (* Tool-result stubbing and message cap are now applied at call-time
-       in Agent_turn.prepare_messages, not here.  Keeping stored messages
-       unmodified preserves the byte-identical conversation prefix that
-       local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
-      Ok ToolsExecuted)
+            Two-step pruning (Agent_llm_a Code Tier 1 pattern):
+            1. Stub old tool results: keep 2 most recent in full, replace older
+               with short stubs. Tool results are the largest allocation source.
+            2. Hard message cap: keep last 100 messages. Prevents unbounded growth
+               in long-running agents (600+ turns). *)
+           (* Tool-result stubbing and message cap are now applied at call-time
+            in Agent_turn.prepare_messages, not here.  Keeping stored messages
+            unmodified preserves the byte-identical conversation prefix that
+            local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
+           Ok ToolsExecuted))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
 
 (** Map stop_reason to turn_outcome. *)
 let stage_output ?raw_trace_run agent ~effective_guardrails response =
-  match response.stop_reason with
-  | StopToolUse ->
-    let tool_uses =
-      List.filter
-        (fun (block : content_block) ->
-           match block with
-           | ToolUse _ -> true
-           | Text _
-           | Thinking _
-           | RedactedThinking _
-           | ToolResult _
-           | Image _
-           | Document _
-           | Audio _ -> false)
-        response.content
-    in
-    let result = stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses in
-    (match result with
-     | Ok IdleSkipped ->
-       (* on_idle hook returned Skip: stop gracefully with the current response *)
-       Ok (Complete response)
-     | other -> other)
-  | EndTurn
-  | MaxTokens
-  | StopSequence
-  | Refusal
-  | PauseTurn
-  | Compaction
-  | ContextWindowExceeded ->
-    let _stop =
-      invoke_hook_with_trace
-        agent
-        ?raw_trace_run
-        ~hook_name:"on_stop"
-        agent.options.hooks.on_stop
-        (Hooks.OnStop { reason = response.stop_reason; response })
-    in
-    Ok (Complete response)
-  | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason }))
+  Tracing.with_span
+    agent.options.tracer
+    { kind = Hook_invoke
+    ; name = "turn:output"
+    ; agent_name = agent.state.config.name
+    ; turn = agent.state.turn_count
+    ; extra = []
+    ; links = []
+    }
+    (fun _tracer ->
+       match response.stop_reason with
+       | StopToolUse ->
+         let tool_uses =
+           List.filter
+             (fun (block : content_block) ->
+                match block with
+                | ToolUse _ -> true
+                | Text _
+                | Thinking _
+                | RedactedThinking _
+                | ToolResult _
+                | Image _
+                | Document _
+                | Audio _ -> false)
+             response.content
+         in
+         let result = stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses in
+         (match result with
+          | Ok IdleSkipped ->
+            (* on_idle hook returned Skip: stop gracefully with the current response *)
+            Ok (Complete response)
+          | other -> other)
+       | EndTurn
+       | MaxTokens
+       | StopSequence
+       | Refusal
+       | PauseTurn
+       | Compaction
+       | ContextWindowExceeded ->
+         let _stop =
+           invoke_hook_with_trace
+             agent
+             ?raw_trace_run
+             ~hook_name:"on_stop"
+             agent.options.hooks.on_stop
+             (Hooks.OnStop { reason = response.stop_reason; response })
+         in
+         Ok (Complete response)
+       | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
 (* ── Proactive watermark compaction (Phase 2) ───────────── *)
@@ -728,9 +760,31 @@ let tag_error stage result =
 
 let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 1: Input *)
-  let* () = stage_input ?raw_trace_run agent |> tag_error "input" in
+  let* () =
+    Tracing.with_span
+      agent.options.tracer
+      { kind = Hook_invoke
+      ; name = "turn:input"
+      ; agent_name = agent.state.config.name
+      ; turn = agent.state.turn_count
+      ; extra = []
+      ; links = []
+      }
+      (fun _tracer -> stage_input ?raw_trace_run agent |> tag_error "input")
+  in
   (* Stage 2: Parse *)
-  let prep, original_config, turn_params = stage_parse ?raw_trace_run agent in
+  let prep, original_config, turn_params =
+    Tracing.with_span
+      agent.options.tracer
+      { kind = Hook_invoke
+      ; name = "turn:parse"
+      ; agent_name = agent.state.config.name
+      ; turn = agent.state.turn_count
+      ; extra = []
+      ; links = []
+      }
+      (fun _tracer -> stage_parse ?raw_trace_run agent)
+  in
   let context_window = proactive_context_window_tokens agent in
   let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
   publish_context_window_usage

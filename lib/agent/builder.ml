@@ -39,6 +39,7 @@ type t =
   ; guardrails : Guardrails.t
   ; guardrails_async : Guardrails_async.t
   ; tracer : Tracing.t
+  ; trace_link : (string * string) option
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy
@@ -111,6 +112,7 @@ let create ~net ~model =
   ; guardrails = Guardrails.default
   ; guardrails_async = Guardrails_async.empty
   ; tracer = Tracing.null
+  ; trace_link = None
   ; raw_trace = None
   ; approval = None
   ; missing_approval_callback_policy = Hooks.Execute_without_callback
@@ -196,6 +198,7 @@ let with_tools tools b = { b with tools = Tool_set.of_list tools }
 let with_tool tool b = { b with tools = Tool_set.merge b.tools (Tool_set.singleton tool) }
 let with_hooks hooks b = { b with hooks }
 let with_tracer tracer b = { b with tracer }
+let with_trace_link trace_link b = { b with trace_link }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_approval approval b = { b with approval = Some approval }
 
@@ -412,6 +415,7 @@ let build b =
     ; guardrails = b.guardrails
     ; guardrails_async = b.guardrails_async
     ; tracer = b.tracer
+    ; trace_link = b.trace_link
     ; raw_trace = b.raw_trace
     ; approval = b.approval
     ; missing_approval_callback_policy = b.missing_approval_callback_policy
