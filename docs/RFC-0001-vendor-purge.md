@@ -46,7 +46,7 @@ OAS has one external consumer (masc-mcp), under the same operator's control. For
 | `OpenAI_compat` | `Provider_d_compat` |
 | `OpenAI` (if any) | `Provider_d` |
 | `Gemini` | `Provider_f` |
-| `DeepSeek` | `Provider_g` |
+| `DeepSeek` | `DeepSeek` |
 | `DashScope` | `Provider_h` |
 | `Glm` / `GLM` | `Provider_k` |
 | `Claude_code` | `Cli_tool_d` |
@@ -57,7 +57,7 @@ OAS has one external consumer (masc-mcp), under the same operator's control. For
 | `Gemini_3_1`, `Gemini_3`, `Gemini_2_5`, `Gemini_other` (model variants) | `Provider_f_3_1`, etc. |
 | `Claude_opus_4`, `Claude_sonnet_4`, `Claude_haiku_4` | `Agent_llm_a_opus_4`, etc. |
 | `Kimi_for_coding`, `Kimi_k2` | `Provider_c_for_coding`, `Provider_c_k2` |
-| `Deepseek_v4_flash`, `Deepseek_v4_pro` | `Provider_g_v4_flash`, `Provider_g_v4_pro` |
+| `Deepseek_v4_flash`, `Deepseek_v4_pro` | `Deepseek_v4_flash`, `Deepseek_v4_pro` |
 | `Qwen3` (capabilities static_model_route) | `Provider_h_3` |
 | `Mistral_large`, `Mistral_small` | `Provider_j_large`, `Provider_j_small` |
 | `Glm_quota_exceeded`, `Glm_rate_limited`, `Glm_auth_error`, `Glm_server_error`, `Glm_invalid_request` (backend_provider_k error variants) | `Provider_k_quota_exceeded`, `Provider_k_rate_limited`, `Provider_k_auth_error`, `Provider_k_server_error`, `Provider_k_invalid_request` |
@@ -156,7 +156,7 @@ Module references updated repo-wide; `test/dune` test list updated.
 | `KIMI_API_KEY`, `KIMI_BASE_URL`, `KIMI_DEFAULT_MODEL` | `PROVIDER_C_*` |
 | `OPENAI_API_KEY`, `OPENAI_DEFAULT_MODEL` | `PROVIDER_D_*` |
 | `MOONSHOT_API_KEY` | `PROVIDER_B_API_KEY` |
-| `DEEPSEEK_API_KEY` | `PROVIDER_G_API_KEY` |
+| `DEEPSEEK_API_KEY` | `DEEPSEEK_API_KEY` |
 | `GLM_API_KEY` | `PROVIDER_K_API_KEY` |
 | `DASHSCOPE_API_KEY` | `PROVIDER_H_API_KEY` |
 | `CODEX_API_KEY` | `CLI_TOOL_A_API_KEY` |

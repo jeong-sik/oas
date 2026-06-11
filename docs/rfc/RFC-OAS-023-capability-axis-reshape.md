@@ -35,7 +35,7 @@ Moonshot        → Provider_b
 Kimi            → Provider_c
 OpenAI_compat   → Provider_d_compat
 Gemini          → Provider_f
-DeepSeek        → Provider_g
+DeepSeek        → DeepSeek
 DashScope       → Provider_h
 Mistral         → Provider_j
 Glm/GLM         → Provider_k
@@ -271,7 +271,7 @@ type transport_caps = {
 | `Provider_d` | `OpenAI` | model brand |
 | `Provider_d_compat` | `Chat_completions_v1` | **wire protocol** (OpenAI-호환 wire를 의미하므로) |
 | `Provider_f` | `Gemini` | model brand |
-| `Provider_g` | `DeepSeek` | model brand |
+| `DeepSeek` | `DeepSeek` | model brand |
 | `Provider_h` | `DashScope` | model brand |
 | `Provider_h_3` (Qwen family) | `Qwen` | model brand |
 | `Provider_j` | `Mistral` | model brand |
@@ -305,7 +305,7 @@ provider_k_capabilities             → glm_model_default_caps
 | `provider_a_capabilities` | `anthropic_model_caps` |
 | `provider_c_capabilities` | `kimi_model_caps` |
 | `provider_f_capabilities` | `gemini_model_caps` |
-| `provider_g_v4_pro_capabilities` | `deepseek_v4_pro_model_caps` |
+| `deepseek_v4_pro_capabilities` | `deepseek_v4_pro_model_caps` |
 | `provider_h_3_capabilities` | `qwen_3_model_caps` |
 | `provider_j_large_capabilities` | `mistral_large_model_caps` |
 | `provider_k_capabilities` | `glm_model_caps` |
@@ -357,8 +357,8 @@ provider_k_capabilities             → glm_model_default_caps
 | `glm-5.1:cloud` | GLM | Provider_k | — | **MISS** |
 | `qwen3.5` | Qwen | Provider_h_3 | `provider_h-3*` | **MISS** |
 | `kimi-k2.6:cloud` | Kimi | Provider_c | `provider_c-k2*` | **MISS** |
-| `deepseek-v4-pro:cloud` | DeepSeek | Provider_g | `provider_g-v4-pro*` | **MISS** |
-| `deepseek-v4-flash:cloud` | DeepSeek | Provider_g | `provider_g-v4-flash*` | **MISS** |
+| `deepseek-v4-pro:cloud` | DeepSeek | DeepSeek | `deepseek-v4-pro*` | **MISS** |
+| `deepseek-v4-flash:cloud` | DeepSeek | DeepSeek | `deepseek-v4-flash*` | **MISS** |
 | `qwen` | Qwen | Provider_h_3 | `provider_h-3*` | **MISS** |
 | `qwen-local-35b-a3b` | Qwen | Provider_h_3 | `provider_h-3*` | **MISS** |
 
