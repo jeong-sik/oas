@@ -20,6 +20,7 @@ let make_test_span ?(name = "test_span") () : Otel_tracer.span =
   ; status = Some true
   ; attributes = [ "test.key", "test.value" ]
   ; events = []
+  ; links = []
   }
 ;;
 
@@ -34,6 +35,7 @@ let record_span ?(name = "exported_span") ?(turn = 1) instance =
     ; turn
     ; kind = Tracing.Agent_run
     ; extra = [ "test.case", name ]
+    ; links = []
     }
   in
   let span = Otel_tracer.inst_start_span instance attrs in
@@ -447,6 +449,7 @@ let test_instance_flush_clears_spans () =
     ; turn = 1
     ; kind = Tracing.Agent_run
     ; extra = []
+    ; links = []
     }
   in
   let span = Otel_tracer.inst_start_span instance attrs in

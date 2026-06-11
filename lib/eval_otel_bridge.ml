@@ -170,6 +170,7 @@ let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : uni
     ; agent_name = snap.agent_name
     ; turn = 0
     ; extra = [ "oas.run_id", snap.run_id ]
+    ; links = []
     }
   in
   let span = Otel_tracer.inst_start_span inst span_attrs in
@@ -189,6 +190,7 @@ let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : uni
 let default_otel_instance : Otel_tracer.instance =
   { config = Otel_tracer.default_config
   ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+  ; fiber_key = None
   ; current_spans = []
   ; completed_spans = []
   ; metrics = []
@@ -334,6 +336,7 @@ let%test "all metric names start with oas." =
 let _mk_stdlib_inst () : Otel_tracer.instance =
   { config = Otel_tracer.default_config
   ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+  ; fiber_key = None
   ; current_spans = []
   ; completed_spans = []
   ; metrics = []

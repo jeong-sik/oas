@@ -8,7 +8,14 @@
     v0.43.0: Instance-based state — each [create] call returns an
     independent tracer with its own span stack. The global functions
     ([start_span], [flush], etc.) delegate to a shared global instance
-    for backward compatibility. *)
+    for backward compatibility.
+
+    v0.44.0: Fiber-safe Eio instances.  Per-instance [Eio.Fiber.key]
+    stores a [span list ref] so parallel fibers (e.g. tool batches)
+    each have their own active-span stack.  Parent lookups and
+    current-spans mutations are lock-free inside a fiber;
+    [completed_spans] remains mutex-protected because many fibers
+    may finish spans concurrently. *)
 
 (* -- OTel span kind --------------------------------------------------- *)
 
@@ -35,6 +42,11 @@ type otel_event =
   ; attributes : (string * string) list
   }
 
+type otel_link =
+  { trace_id : string
+  ; span_id : string
+  }
+
 type span =
   { trace_id : string
   ; span_id : string
@@ -46,6 +58,7 @@ type span =
   ; status : bool option
   ; attributes : (string * string) list
   ; events : otel_event list
+  ; mutable links : otel_link list
   }
 
 (* -- Config ----------------------------------------------------------- *)
@@ -82,6 +95,7 @@ type mutex_impl =
 type instance =
   { config : config
   ; mu : mutex_impl
+  ; fiber_key : (span list ref) Eio.Fiber.key option
   ; mutable current_spans : span list
   ; mutable completed_spans : span list
   ; mutable metrics : metric_entry list
@@ -157,85 +171,187 @@ let inst_with_lock inst f =
     Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
 ;;
 
+(** Return the fiber-local span-stack ref cell, if we are running inside
+    an Eio fiber that has the instance's [fiber_key] bound. *)
+let get_fiber_stack inst : (span list ref) option =
+  match inst.fiber_key with
+  | None -> None
+  | Some key ->
+    (try
+       match Eio.Fiber.get key with
+       | Some ref -> Some ref
+       | None -> None
+     with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | _ -> None)
+;;
+
 let inst_start_span inst (attrs : Tracing.span_attrs) : span =
   let new_trace_id = gen_trace_id () in
   let span_id = gen_span_id () in
-  inst_with_lock inst
-  @@ fun () ->
-  let parent =
-    match inst.current_spans with
-    | p :: _ -> Some p
-    | [] -> None
-  in
-  let trace_id =
-    match parent with
-    | Some p -> p.trace_id
-    | None -> new_trace_id
-  in
-  let parent_span_id =
-    match parent with
-    | Some p -> Some p.span_id
-    | None -> None
-  in
-  let s =
-    { trace_id
-    ; span_id
-    ; parent_span_id
-    ; name = make_span_name attrs
-    ; kind = map_span_kind attrs.kind
-    ; start_time_ns = now_ns ()
-    ; end_time_ns = None
-    ; status = None
-    ; attributes = semantic_attrs attrs
-    ; events = []
-    }
-  in
-  inst.current_spans <- s :: inst.current_spans;
-  s
+  match get_fiber_stack inst with
+  | Some stack_ref ->
+    let parent =
+      match !stack_ref with
+      | p :: _ -> Some p
+      | [] -> None
+    in
+    let trace_id =
+      match parent with
+      | Some p -> p.trace_id
+      | None -> new_trace_id
+    in
+    let parent_span_id =
+      match parent with
+      | Some p -> Some p.span_id
+      | None -> None
+    in
+    let s =
+      { trace_id
+      ; span_id
+      ; parent_span_id
+      ; name = make_span_name attrs
+      ; kind = map_span_kind attrs.kind
+      ; start_time_ns = now_ns ()
+      ; end_time_ns = None
+      ; status = None
+      ; attributes = semantic_attrs attrs
+      ; events = []
+      ; links = List.map (fun (trace_id, span_id) -> { trace_id; span_id }) attrs.links
+      }
+    in
+    stack_ref := s :: !stack_ref;
+    s
+  | None ->
+    inst_with_lock inst
+    @@ fun () ->
+    let parent =
+      match inst.current_spans with
+      | p :: _ -> Some p
+      | [] -> None
+    in
+    let trace_id =
+      match parent with
+      | Some p -> p.trace_id
+      | None -> new_trace_id
+    in
+    let parent_span_id =
+      match parent with
+      | Some p -> Some p.span_id
+      | None -> None
+    in
+    let s =
+      { trace_id
+      ; span_id
+      ; parent_span_id
+      ; name = make_span_name attrs
+      ; kind = map_span_kind attrs.kind
+      ; start_time_ns = now_ns ()
+      ; end_time_ns = None
+      ; status = None
+      ; attributes = semantic_attrs attrs
+      ; events = []
+      ; links = List.map (fun (trace_id, span_id) -> { trace_id; span_id }) attrs.links
+      }
+    in
+    inst.current_spans <- s :: inst.current_spans;
+    s
 ;;
 
 let inst_end_span inst (s : span) ~ok =
-  inst_with_lock inst
-  @@ fun () ->
-  let target = ref None in
-  inst.current_spans
-  <- List.filter_map
-       (fun sp ->
-          if sp.span_id = s.span_id
-          then (
-            let updated = { sp with end_time_ns = Some (now_ns ()); status = Some ok } in
-            target := Some updated;
-            None)
-          else Some sp)
-       inst.current_spans;
-  match !target with
-  | Some completed -> inst.completed_spans <- completed :: inst.completed_spans
+  let target_opt =
+    match get_fiber_stack inst with
+    | Some stack_ref ->
+      let target = ref None in
+      stack_ref
+        := List.filter_map
+             (fun sp ->
+                if sp.span_id = s.span_id
+                then (
+                  let updated =
+                    { sp with end_time_ns = Some (now_ns ()); status = Some ok }
+                  in
+                  target := Some updated;
+                  None)
+                else Some sp)
+             !stack_ref;
+      !target
+    | None ->
+      inst_with_lock inst
+      @@ fun () ->
+      let target = ref None in
+      inst.current_spans
+      <- List.filter_map
+           (fun sp ->
+              if sp.span_id = s.span_id
+              then (
+                let updated =
+                  { sp with end_time_ns = Some (now_ns ()); status = Some ok }
+                in
+                target := Some updated;
+                None)
+              else Some sp)
+           inst.current_spans;
+      !target
+  in
+  match target_opt with
+  | Some completed ->
+    inst_with_lock inst (fun () ->
+      inst.completed_spans <- completed :: inst.completed_spans)
   | None -> ()
 ;;
 
 let inst_add_event inst (s : span) (msg : string) =
-  inst_with_lock inst
-  @@ fun () ->
-  let evt = { event_name = msg; timestamp_ns = now_ns (); attributes = [] } in
-  inst.current_spans
-  <- List.map
-       (fun sp ->
-          if sp.span_id = s.span_id
-          then { sp with events = Util.snoc sp.events evt }
-          else sp)
-       inst.current_spans
+  let update_spans spans =
+    let evt = { event_name = msg; timestamp_ns = now_ns (); attributes = [] } in
+    List.map
+      (fun sp ->
+         if sp.span_id = s.span_id
+         then { sp with events = Util.snoc sp.events evt }
+         else sp)
+      spans
+  in
+  match get_fiber_stack inst with
+  | Some stack_ref -> stack_ref := update_spans !stack_ref
+  | None ->
+    inst_with_lock inst
+    @@ fun () ->
+    inst.current_spans <- update_spans inst.current_spans
 ;;
 
 let inst_add_attrs inst (s : span) (attrs : (string * string) list) =
-  inst_with_lock inst
-  @@ fun () ->
-  inst.current_spans
-  <- List.map
-       (fun sp ->
-          if sp.span_id = s.span_id
-          then { sp with attributes = Util.snoc_list sp.attributes attrs }
-          else sp)
-       inst.current_spans
+  let update_spans spans =
+    List.map
+      (fun sp ->
+         if sp.span_id = s.span_id
+         then { sp with attributes = Util.snoc_list sp.attributes attrs }
+         else sp)
+      spans
+  in
+  match get_fiber_stack inst with
+  | Some stack_ref -> stack_ref := update_spans !stack_ref
+  | None ->
+    inst_with_lock inst
+    @@ fun () ->
+    inst.current_spans <- update_spans inst.current_spans
+;;
+
+let inst_add_link inst (s : span) ~trace_id ~span_id =
+  let link = { trace_id; span_id } in
+  let update_spans spans =
+    List.map
+      (fun sp ->
+         if sp.span_id = s.span_id
+         then (sp.links <- link :: sp.links; sp)
+         else sp)
+      spans
+  in
+  match get_fiber_stack inst with
+  | Some stack_ref -> stack_ref := update_spans !stack_ref
+  | None ->
+    inst_with_lock inst
+    @@ fun () ->
+    inst.current_spans <- update_spans inst.current_spans
 ;;
 
 let inst_flush inst =
@@ -247,6 +363,9 @@ let inst_flush inst =
 ;;
 
 let inst_reset inst =
+  (match get_fiber_stack inst with
+   | Some stack_ref -> stack_ref := []
+   | None -> ());
   inst_with_lock inst
   @@ fun () ->
   inst.current_spans <- [];
@@ -258,15 +377,23 @@ let inst_completed_count inst =
 ;;
 
 let inst_active_count inst =
-  inst_with_lock inst @@ fun () -> List.length inst.current_spans
+  match get_fiber_stack inst with
+  | Some stack_ref -> List.length !stack_ref
+  | None -> inst_with_lock inst @@ fun () -> List.length inst.current_spans
 ;;
 
 let inst_current_span inst =
-  inst_with_lock inst
-  @@ fun () ->
-  match inst.current_spans with
-  | current :: _ -> Some current
-  | [] -> None
+  match get_fiber_stack inst with
+  | Some stack_ref ->
+    (match !stack_ref with
+     | current :: _ -> Some current
+     | [] -> None)
+  | None ->
+    inst_with_lock inst
+    @@ fun () ->
+    (match inst.current_spans with
+     | current :: _ -> Some current
+     | [] -> None)
 ;;
 
 let traceparent_of_span ?(sampled = true) (span : span) =
@@ -321,6 +448,7 @@ let metric_type_to_string = function
 let _global : instance =
   { config = default_config
   ; mu = Stdlib_mu (Mutex.create ())
+  ; fiber_key = None
   ; current_spans = []
   ; completed_spans = []
   ; metrics = []
@@ -331,6 +459,7 @@ let start_span attrs = inst_start_span _global attrs
 let end_span s ~ok = inst_end_span _global s ~ok
 let add_event s msg = inst_add_event _global s msg
 let add_attrs s attrs = inst_add_attrs _global s attrs
+let add_link s ~trace_id ~span_id = inst_add_link _global s ~trace_id ~span_id
 let flush () = inst_flush _global
 let reset () = inst_reset _global
 let completed_count () = inst_completed_count _global
@@ -370,6 +499,15 @@ let status_to_json (s : span) : Yojson.Safe.t =
 
 (* ERROR *)
 
+let link_to_json (link : otel_link) : Yojson.Safe.t =
+  `Assoc
+    [ "traceId", `String link.trace_id
+    ; "spanId", `String link.span_id
+    ; "attributes", `List []
+    ; "droppedAttributesCount", `Int 0
+    ]
+;;
+
 let span_to_json (s : span) : Yojson.Safe.t =
   let end_ns =
     match s.end_time_ns with
@@ -386,6 +524,7 @@ let span_to_json (s : span) : Yojson.Safe.t =
     ; "status", status_to_json s
     ; "attributes", attrs_to_json s.attributes
     ; "events", `List (List.map event_to_json s.events)
+    ; "links", `List (List.map link_to_json s.links)
     ]
   in
   let with_parent =
@@ -475,7 +614,8 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
 
 let create_instance ?(config = default_config) () : instance =
   { config
-  ; mu = Eio_mu (Eio.Mutex.create ())
+  ; mu = Stdlib_mu (Mutex.create ())
+  ; fiber_key = None
   ; current_spans = []
   ; completed_spans = []
   ; metrics = []
@@ -483,7 +623,13 @@ let create_instance ?(config = default_config) () : instance =
 ;;
 
 let create_instance_eio ?(config = default_config) () : instance =
-  create_instance ~config ()
+  { config
+  ; mu = Eio_mu (Eio.Mutex.create ())
+  ; fiber_key = Some (Eio.Fiber.create_key ())
+  ; current_spans = []
+  ; completed_spans = []
+  ; metrics = []
+  }
 ;;
 
 let tracer_of_instance inst : Tracing.t =
@@ -494,9 +640,37 @@ let tracer_of_instance inst : Tracing.t =
     let end_span = inst_end_span inst
     let add_event = inst_add_event inst
     let add_attrs = inst_add_attrs inst
+    let add_link s ~trace_id ~span_id = inst_add_link inst s ~trace_id ~span_id
     let trace_id s = Some s.trace_id
     let span_id s = Some s.span_id
     let trace_context_headers () = inst_trace_context_headers inst
+
+    let with_span attrs f =
+      match inst.fiber_key with
+      | Some key ->
+        let stack_ref =
+          match Eio.Fiber.get key with
+          | Some ref -> ref
+          | None -> ref []
+        in
+        Eio.Fiber.with_binding key stack_ref (fun () ->
+          let span = inst_start_span inst attrs in
+          match f () with
+          | result ->
+            inst_end_span inst span ~ok:true;
+            result
+          | exception exn ->
+            inst_end_span inst span ~ok:false;
+            raise exn)
+      | None ->
+        let span = inst_start_span inst attrs in
+        match f () with
+        | result ->
+          inst_end_span inst span ~ok:true;
+          result
+        | exception exn ->
+          inst_end_span inst span ~ok:false;
+          raise exn
   end)
 ;;
 

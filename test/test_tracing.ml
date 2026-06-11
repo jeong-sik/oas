@@ -6,7 +6,7 @@ open Agent_sdk
 let test_null_tracer_no_op () =
   let open Tracing.Null_tracer in
   let span =
-    start_span { kind = Agent_run; name = "test"; agent_name = "a"; turn = 0; extra = [] }
+    start_span { kind = Agent_run; name = "test"; agent_name = "a"; turn = 0; extra = []; links = [] }
   in
   add_event span "msg";
   add_attrs span [ "k", "v" ];
@@ -17,7 +17,7 @@ let test_null_tracer_no_op () =
 let test_null_tracer_false_ok () =
   let open Tracing.Null_tracer in
   let span =
-    start_span { kind = Api_call; name = "call"; agent_name = "a"; turn = 1; extra = [] }
+    start_span { kind = Api_call; name = "call"; agent_name = "a"; turn = 1; extra = []; links = [] }
   in
   end_span span ~ok:false;
   check pass "null_tracer end_span ok:false succeeds" () ()
@@ -37,7 +37,7 @@ let test_fmt_tracer_outputs () =
   let module T = (val Tracing.fmt : Tracing.TRACER) in
   let span =
     T.start_span
-      { kind = Tool_exec; name = "grep"; agent_name = "searcher"; turn = 2; extra = [] }
+      { kind = Tool_exec; name = "grep"; agent_name = "searcher"; turn = 2; extra = []; links = [] }
   in
   T.add_event span "found 3 results";
   T.add_attrs span [ "count", "3" ];
@@ -62,7 +62,7 @@ let test_with_span_success () =
   let result =
     Tracing.with_span
       Tracing.null
-      { kind = Agent_run; name = "run"; agent_name = "a"; turn = 0; extra = [] }
+      { kind = Agent_run; name = "run"; agent_name = "a"; turn = 0; extra = []; links = [] }
       (fun _tracer -> 42)
   in
   check int "with_span returns function result" 42 result
@@ -74,7 +74,7 @@ let test_with_span_exception () =
      let _ =
        Tracing.with_span
          Tracing.null
-         { kind = Agent_run; name = "fail"; agent_name = "a"; turn = 0; extra = [] }
+         { kind = Agent_run; name = "fail"; agent_name = "a"; turn = 0; extra = []; links = [] }
          (fun _tracer -> failwith "boom")
      in
      ()
@@ -110,9 +110,19 @@ end = struct
       kvs
   ;;
 
+  let add_link span ~trace_id ~span_id =
+    log := Printf.sprintf "link:%s:%s:%s" span.span_name trace_id span_id :: !log
   let trace_id _span = None
   let span_id _span = None
   let trace_context_headers () = [ "traceparent", "00-test-test-01" ]
+
+  let with_span attrs f =
+    let span = start_span attrs in
+    match f () with
+    | result -> end_span span ~ok:true; result
+    | exception exn -> end_span span ~ok:false; raise exn
+  ;;
+
   let events () = List.rev !log
   let reset () = log := []
 end
@@ -121,7 +131,7 @@ let test_custom_tracer () =
   Recording_tracer.reset ();
   let span =
     Recording_tracer.start_span
-      { kind = Hook_invoke; name = "custom"; agent_name = "x"; turn = 0; extra = [] }
+      { kind = Hook_invoke; name = "custom"; agent_name = "x"; turn = 0; extra = []; links = [] }
   in
   Recording_tracer.add_event span "hi";
   Recording_tracer.add_attrs span [ "a", "1" ];
@@ -159,6 +169,7 @@ let test_span_kind_coverage () =
            ; agent_name = "a"
            ; turn = 0
            ; extra = []
+           ; links = []
            }
            (fun _tracer -> i)
        in
@@ -173,7 +184,7 @@ let test_with_span_exception_ends_span () =
      let _ =
        Tracing.with_span
          tracer
-         { kind = Api_call; name = "err"; agent_name = "a"; turn = 0; extra = [] }
+         { kind = Api_call; name = "err"; agent_name = "a"; turn = 0; extra = []; links = [] }
          (fun _tracer -> failwith "oops")
      in
      ()

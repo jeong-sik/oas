@@ -88,6 +88,7 @@ val with_priority : Llm_provider.Request_priority.t -> t -> t
 val with_slot_id : int -> t -> t
 
 val with_tracer : Tracing.t -> t -> t
+val with_trace_link : (string * string) option -> t -> t
 val with_raw_trace : Raw_trace.t -> t -> t
 val with_approval : Hooks.approval_callback -> t -> t
 

@@ -13,10 +13,11 @@ let default_attrs
       ?(turn = 1)
       ?(kind = Tracing.Agent_run)
       ?(extra = [])
+      ?(links = [])
       ()
   : Tracing.span_attrs
   =
-  { kind; name; agent_name = agent; turn; extra }
+  { kind; name; agent_name = agent; turn; extra; links }
 ;;
 
 let is_hex s =
@@ -400,6 +401,7 @@ let test_record_metric_counter () =
   let inst : Otel_tracer.instance =
     { config = Otel_tracer.default_config
     ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+    ; fiber_key = None
     ; current_spans = []
     ; completed_spans = []
     ; metrics = []
@@ -422,6 +424,7 @@ let test_record_metric_gauge () =
   let inst : Otel_tracer.instance =
     { config = Otel_tracer.default_config
     ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+    ; fiber_key = None
     ; current_spans = []
     ; completed_spans = []
     ; metrics = []
@@ -442,6 +445,7 @@ let test_record_multiple_metrics () =
   let inst : Otel_tracer.instance =
     { config = Otel_tracer.default_config
     ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+    ; fiber_key = None
     ; current_spans = []
     ; completed_spans = []
     ; metrics = []
@@ -468,6 +472,7 @@ let test_clear_metrics () =
   let inst : Otel_tracer.instance =
     { config = Otel_tracer.default_config
     ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
+    ; fiber_key = None
     ; current_spans = []
     ; completed_spans = []
     ; metrics = []

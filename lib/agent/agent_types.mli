@@ -95,6 +95,7 @@ type options =
   ; guardrails : Guardrails.t
   ; guardrails_async : Guardrails_async.t
   ; tracer : Tracing.t
+  ; trace_link : (string * string) option
   ; raw_trace : Raw_trace.t option
   ; approval : Hooks.approval_callback option
   ; missing_approval_callback_policy : Hooks.missing_approval_callback_policy

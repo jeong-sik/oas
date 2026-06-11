@@ -11,10 +11,11 @@ let default_attrs
       ?(agent_name = "agent-a")
       ?(turn = 1)
       ?(extra = [])
+      ?(links = [])
       ()
   : Tracing.span_attrs
   =
-  { kind; name; agent_name; turn; extra }
+  { kind; name; agent_name; turn; extra; links }
 ;;
 
 let with_reset f () =
