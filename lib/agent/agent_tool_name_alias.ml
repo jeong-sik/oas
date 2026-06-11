@@ -109,16 +109,26 @@ let normalize_execute_input = function
   | input -> input
 ;;
 
+(** Mutable registry for consumer-registered aliases.
+    Maps alias -> canonical tool name. *)
+let registry = Hashtbl.create 16
+
+let register_alias ~alias ~canonical =
+  Hashtbl.replace registry alias canonical
+;;
+
+let resolve_alias alias =
+  Hashtbl.find_opt registry alias
+;;
+
 let resolve ~requested ~input =
   match requested with
   | "Read" -> Some ("ReadFile", normalize_read_input input)
   | "Grep" | "Search" | "Find" -> Some ("SearchFiles", normalize_search_input input)
-  (* boundary-allow *)
-  | "Bash" | "Shell" | "execute_command" | "masc_code_shell" | "keeper_bash" ->
+  | "Bash" | "Shell" | "execute_command" ->
     Some ("Execute", normalize_execute_input input)
-  (* boundary-allow *)
-  | "masc_tasks_list" -> Some ("masc_tasks", input)
-  (* boundary-allow *)
-  | "masc_code_search" -> Some ("SearchFiles", normalize_search_input input)
-  | _ -> None
+  | _ ->
+    (match resolve_alias requested with
+     | Some canonical -> Some (canonical, input)
+     | None -> None)
 ;;
