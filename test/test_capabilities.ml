@@ -274,7 +274,7 @@ let test_lookup_provider_m_runpod_name () =
   | None -> fail "should match provider_h_3.6 runpod model id"
 ;;
 
-let test_lookup_provider_g_v4_flash () =
+let test_lookup_deepseek_v4_flash () =
   match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
@@ -285,7 +285,7 @@ let test_lookup_provider_g_v4_flash () =
   | None -> fail "should match deepseek-v4-flash"
 ;;
 
-let test_lookup_provider_g_v4_pro () =
+let test_lookup_deepseek_v4_pro () =
   match Capabilities.for_model_id "deepseek-v4-pro" with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
@@ -842,8 +842,8 @@ let () =
         ; test_case "kimi-k2 cloud" `Quick test_lookup_provider_c_k2_cloud
         ; test_case "dashscope" `Quick test_lookup_provider_m
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
-        ; test_case "deepseek v4 flash" `Quick test_lookup_provider_g_v4_flash
-        ; test_case "deepseek v4 pro" `Quick test_lookup_provider_g_v4_pro
+        ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
+        ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
         ; test_case "grok 2M context" `Quick test_lookup_grok
         ; test_case "glm-5 text only" `Quick test_lookup_glm5_text_only
         ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision

@@ -1680,7 +1680,7 @@ let test_for_model_id_llama4_alt () =
   | None -> Alcotest.fail "expected Some for llama4"
 ;;
 
-let test_for_model_id_provider_g_v4_flash () =
+let test_for_model_id_deepseek_v4_flash () =
   match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
@@ -1691,7 +1691,7 @@ let test_for_model_id_provider_g_v4_flash () =
   | None -> Alcotest.fail "expected Some for deepseek-v4-flash"
 ;;
 
-let test_for_model_id_provider_g_v4_pro () =
+let test_for_model_id_deepseek_v4_pro () =
   match Capabilities.for_model_id "deepseek-v4-pro" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
@@ -2013,8 +2013,8 @@ let () =
         ; Alcotest.test_case
             "deepseek-v4-flash"
             `Quick
-            test_for_model_id_provider_g_v4_flash
-        ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_provider_g_v4_pro
+            test_for_model_id_deepseek_v4_flash
+        ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_deepseek_v4_pro
         ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_provider_j_large
         ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_provider_j_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command

@@ -421,13 +421,13 @@ let test_resolve_provider_i_custom_url () =
   | _ -> Alcotest.fail "expected OpenAICompat for groq custom url"
 ;;
 
-let test_resolve_provider_g () =
+let test_resolve_deepseek () =
   (* base_url=None: Custom_registered preserves kind lookup via registry. *)
   let cfg = Agent_config.resolve_provider ~model_id:"deepseek-chat" "deepseek" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "deepseek name" "deepseek" name;
-    Alcotest.(check string) "deepseek api_key_env" "PROVIDER_G_API_KEY" cfg.api_key_env
+    Alcotest.(check string) "deepseek api_key_env" "DEEPSEEK_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected Custom_registered for deepseek (registered)"
 ;;
 
@@ -620,7 +620,7 @@ let () =
         ; tc "other OpenAI /v1 base url" test_resolve_other_openai_v1_base_url
         ; tc "groq" test_resolve_provider_i
         ; tc "groq custom url" test_resolve_provider_i_custom_url
-        ; tc "deepseek" test_resolve_provider_g
+        ; tc "deepseek" test_resolve_deepseek
         ; tc "gemini preserves kind (#1003)" test_resolve_provider_f_preserves_kind
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
         ; tc "anthropic case-insensitive" test_resolve_anthropic_case_insensitive

@@ -3,6 +3,17 @@
 open Alcotest
 open Llm_provider
 
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  Unix.putenv key value;
+  Fun.protect
+    ~finally:(fun () ->
+      match previous with
+      | Some previous -> Unix.putenv key previous
+      | None -> Unix.putenv key "")
+    f
+;;
+
 (* ── Registry CRUD ──────────────────────────────────── *)
 
 let test_empty_registry () =
@@ -277,6 +288,29 @@ let test_default_ollama_cloud_entry () =
   | None -> fail "ollama_cloud should exist"
 ;;
 
+let test_default_deepseek_entry () =
+  let reg = Provider_registry.default () in
+  match Provider_registry.find reg "deepseek" with
+  | Some e ->
+    check bool "kind is OpenAI_compat" true (e.defaults.kind = Provider_config.OpenAI_compat);
+    check string "base_url" "https://api.deepseek.com" e.defaults.base_url;
+    check string "api_key_env" "DEEPSEEK_API_KEY" e.defaults.api_key_env;
+    check string "request_path" "/chat/completions" e.defaults.request_path
+  | None -> fail "deepseek should exist"
+;;
+
+let test_default_deepseek_api_key_env () =
+  let availability ~deepseek =
+    with_env "DEEPSEEK_API_KEY" deepseek (fun () ->
+      let reg = Provider_registry.default () in
+      match Provider_registry.find reg "deepseek" with
+      | Some e -> e.is_available ()
+      | None -> fail "deepseek should exist")
+  in
+  check bool "no key unavailable" false (availability ~deepseek:"");
+  check bool "documented key available" true (availability ~deepseek:"deepseek-secret")
+;;
+
 let test_provider_name_of_ollama_cloud_config () =
   let cfg =
     Provider_config.make
@@ -427,17 +461,6 @@ let with_provider_catalog json f =
   | Ok catalog ->
     Provider_catalog.set_global catalog;
     Fun.protect ~finally:Provider_catalog.clear_global f
-;;
-
-let with_env key value f =
-  let previous = Sys.getenv_opt key in
-  Unix.putenv key value;
-  Fun.protect
-    ~finally:(fun () ->
-      match previous with
-      | Some previous -> Unix.putenv key previous
-      | None -> Unix.putenv key "")
-    f
 ;;
 
 let test_catalog_overlay_adds_provider_and_alias () =
@@ -990,6 +1013,11 @@ let () =
       , [ test_case "has 14 providers" `Quick test_default_has_14
         ; test_case "correct capabilities" `Quick test_default_capabilities
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
+        ; test_case "deepseek entry" `Quick test_default_deepseek_entry
+        ; test_case
+            "deepseek api key env"
+            `Quick
+            test_default_deepseek_api_key_env
         ; test_case
             "provider_name_of_config returns ollama_cloud"
             `Quick
