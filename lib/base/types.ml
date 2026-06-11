@@ -95,6 +95,7 @@ type agent_config =
   ; enable_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option (* For Agent_llm_a 3.7+ extended thinking *)
+  ; preserve_thinking : bool option
   ; tool_choice : tool_choice option
   ; disable_parallel_tool_use : bool
     (* Anthropic: tool_choice.disable_parallel_tool_use, Openai: parallel_tool_calls=false *)
@@ -138,6 +139,7 @@ let default_config =
   ; top_k = None
   ; min_p = None
   ; enable_thinking = None
+  ; preserve_thinking = None
   ; response_format = Off
   ; thinking_budget = None
   ; tool_choice = None

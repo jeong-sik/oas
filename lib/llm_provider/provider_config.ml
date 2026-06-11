@@ -59,6 +59,7 @@ type t =
   ; system_prompt : string option
   ; enable_thinking : bool option
   ; thinking_budget : int option
+  ; preserve_thinking : bool option
   ; clear_thinking : bool option
   ; tool_stream : bool
   ; tool_choice : Types.tool_choice option
@@ -89,6 +90,7 @@ let make
       ?system_prompt
       ?enable_thinking
       ?thinking_budget
+      ?preserve_thinking
       ?clear_thinking
       ?(tool_stream = false)
       ?tool_choice
@@ -133,6 +135,7 @@ let make
   ; system_prompt
   ; enable_thinking
   ; thinking_budget
+  ; preserve_thinking
   ; clear_thinking
   ; tool_stream
   ; tool_choice

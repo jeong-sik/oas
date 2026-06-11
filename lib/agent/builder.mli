@@ -21,6 +21,7 @@ val with_top_p : float -> t -> t
 val with_top_k : int -> t -> t
 val with_min_p : float -> t -> t
 val with_enable_thinking : bool -> t -> t
+val with_preserve_thinking : bool -> t -> t
 val with_thinking_budget : int -> t -> t
 val with_tool_choice : Types.tool_choice -> t -> t
 val with_response_format : Types.response_format -> t -> t

@@ -1,0 +1,32 @@
+=== bin entry: what drives turns? ===
+=== provider_config_of_agent: how Provider.config -> Provider_config.t (kind) for Custom_registered/provider_c ===
+12:  | Custom_registered of { name : string }
+20:type request_kind =
+72:  | Custom_registered { name } -> "custom:" ^ name
+196:let provider_c_direct_base_url () =
+199:  | None -> "https://api.provider_c.com/coding"
+202:let provider_c_direct_request_path = "/v1/messages"
+207:let provider_c_direct_headers _key =
+211:let provider_c_provider_impl : provider_impl =
+212:  { name = "provider_c"
+213:  ; request_kind = Anthropic_messages
+214:  ; request_path = provider_c_direct_request_path
+223:                 ~message_to_json:Llm_provider.Api_common.provider_c_message_to_json
+238:          Ok (provider_c_direct_base_url (), key, provider_c_direct_headers key)
+249:let builtin_provider_impls = [ provider_c_provider_impl ]
+297:  | Custom_registered { name } ->
+303:let request_kind = function
+306:  | Custom_registered { name } ->
+316:  | Custom_registered { name } ->
+394:    ; request_kind = request_kind cfg.provider
+429:  | Custom_registered { name } ->
+568:  | Anthropic | OpenAICompat _ | Custom_registered _ -> pricing_for_model model_id
+598:(* ── Convenience: create config for a Custom_registered provider ── *)
+601:  { provider = Custom_registered { name }; model_id; api_key_env }
+640:     | Anthropic | Kimi ->
+663:     | Anthropic | Kimi -> [ "x-api-key", key ]
+674:let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
+687:    | Kimi -> Custom_registered { name = "provider_c" }
+723:    [Custom_registered {name}] preserves the registry-declared
+731:    @since 0.161.0 — Custom_registered kind preservation *)
+732:let provider_config_of_agent

@@ -15,6 +15,7 @@ type t =
   ; top_k : int option
   ; min_p : float option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; response_format : response_format
   ; thinking_budget : int option
   ; tool_choice : tool_choice option
@@ -87,6 +88,7 @@ let create ~net ~model =
   ; top_k = default_config.top_k
   ; min_p = default_config.min_p
   ; enable_thinking = default_config.enable_thinking
+  ; preserve_thinking = default_config.preserve_thinking
   ; response_format = default_config.response_format
   ; thinking_budget = default_config.thinking_budget
   ; tool_choice = default_config.tool_choice
@@ -192,6 +194,7 @@ let with_top_p p b = { b with top_p = Some p }
 let with_top_k k b = { b with top_k = Some k }
 let with_min_p p b = { b with min_p = Some p }
 let with_enable_thinking enabled b = { b with enable_thinking = Some enabled }
+let with_preserve_thinking enabled b = { b with preserve_thinking = Some enabled }
 let with_tools tools b = { b with tools = Tool_set.of_list tools }
 let with_tool tool b = { b with tools = Tool_set.merge b.tools (Tool_set.singleton tool) }
 let with_hooks hooks b = { b with hooks }
@@ -347,6 +350,7 @@ let build b =
     ; top_k = b.top_k
     ; min_p = b.min_p
     ; enable_thinking = b.enable_thinking
+    ; preserve_thinking = b.preserve_thinking
     ; response_format = b.response_format
     ; thinking_budget = b.thinking_budget
     ; tool_choice = b.tool_choice

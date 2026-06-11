@@ -59,6 +59,7 @@ type t =
   ; system_prompt : string option
   ; enable_thinking : bool option
   ; thinking_budget : int option
+  ; preserve_thinking : bool option
   ; clear_thinking : bool option
   ; tool_stream : bool
   ; tool_choice : Types.tool_choice option
@@ -154,6 +155,7 @@ val make
   -> ?system_prompt:string
   -> ?enable_thinking:bool
   -> ?thinking_budget:int
+  -> ?preserve_thinking:bool
   -> ?clear_thinking:bool
   -> ?tool_stream:bool
   -> ?tool_choice:Types.tool_choice

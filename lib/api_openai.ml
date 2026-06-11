@@ -151,6 +151,11 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
          :: body_assoc
        | Llm_provider.Capabilities.Enable_thinking ->
          let body_assoc = ("enable_thinking", `Bool enabled) :: body_assoc in
+         let body_assoc =
+           match enabled, config.config.preserve_thinking with
+           | true, Some true -> ("preserve_thinking", `Bool true) :: body_assoc
+           | _ -> body_assoc
+         in
          (match enabled, config.config.thinking_budget with
           | true, Some budget -> ("thinking_budget", `Int budget) :: body_assoc
           | _ -> body_assoc)

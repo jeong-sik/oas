@@ -1,0 +1,19 @@
+=== api_zai callers ===
+=== Api.create_message in test/examples ===
+test/test_api_http_client.ml:    match n ~sw ~net ~clock ~provider ~config:state ~messages () with
+test/test_llm_call.ml:    n
+test/test_pipeline_metrics.ml:    per turn.  Before PR-O2 the legacy [n] path bypassed
+=== Streaming.create_message_stream all ===
+examples/streaming.ml:    n
+test/test_streaming_e2e.ml:    n
+test/test_streaming_e2e.ml:    n
+lib/provider_intf.ml:        n
+=== bin create_message ===
+=== Api_anthropic live callers ===
+lib/api.ml:(* Re-export n *)
+lib/api.ml:let parse_response = n.parse_response
+lib/api.ml:  n.build_body_assoc ~config ~messages ?tools ~stream ()
+lib/provider_intf.ml:                (n.build_body_assoc ~config ~messages ?tools ~stream:false ()))
+lib/provider_intf.ml:           Ok (n.parse_response (Yojson.Safe.from_string body_str))
+lib/provider.ml:              (n.build_body_assoc
+lib/provider.ml:      (fun body_str -> n.parse_response (Yojson.Safe.from_string body_str))
