@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.13](https://github.com/jeong-sik/oas/compare/v0.205.12...v0.205.13) (2026-06-11)
+
+
+### Bug Fixes
+
+* keep alias docs SDK-independent ([#2012](https://github.com/jeong-sik/oas/issues/2012)) ([05548e5](https://github.com/jeong-sik/oas/commit/05548e500c7157f170a844a9771279d30d89cbea))
+
 ## [0.205.12](https://github.com/jeong-sik/oas/compare/v0.205.11...v0.205.12) (2026-06-11)
 
 
