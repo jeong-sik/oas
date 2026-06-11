@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.9](https://github.com/jeong-sik/oas/compare/v0.205.8...v0.205.9) (2026-06-11)
+
+
+### Features
+
+* **agent:** generic tool alias registry, remove masc hardcoding ([#1999](https://github.com/jeong-sik/oas/issues/1999)) ([c8283ac](https://github.com/jeong-sik/oas/commit/c8283ac8a30d6807d48b28780ef2a7821f2471bb))
+
 ## [0.205.8](https://github.com/jeong-sik/oas/compare/v0.205.7...v0.205.8) (2026-06-10)
 
 
