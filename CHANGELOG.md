@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.14](https://github.com/jeong-sik/oas/compare/v0.205.13...v0.205.14) (2026-06-11)
+
+
+### Bug Fixes
+
+* **qwen:** preserve thinking controls ([#2014](https://github.com/jeong-sik/oas/issues/2014)) ([34f1588](https://github.com/jeong-sik/oas/commit/34f1588290a2e19cebff5d9a41e17727d9557d62))
+
 ## [0.205.13](https://github.com/jeong-sik/oas/compare/v0.205.12...v0.205.13) (2026-06-11)
 
 
