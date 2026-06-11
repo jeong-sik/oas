@@ -130,6 +130,14 @@ let default_capabilities =
   }
 ;;
 
+let effective_disable_parallel_tool_use
+      ~caller_disabled
+      ~supports_parallel_tool_calls
+      ~tools_present
+  =
+  caller_disabled || (tools_present && not supports_parallel_tool_calls)
+;;
+
 let anthropic_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000

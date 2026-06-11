@@ -49,7 +49,7 @@ Cloud providers need hardcoded lookup tables keyed by model_id.
 |-------|---------|--------|-----------|
 | `supports_tools` | exists | keep | |
 | `supports_tool_choice` | exists | keep | |
-| `supports_parallel_tool_calls` | missing | add | DeepSeek R1 has no tool calling at all. Cohere supports it. OAS has `disable_parallel_tool_use` but no capability check. |
+| `supports_parallel_tool_calls` | exists | keep | Request builders derive effective `disable_parallel_tool_use` from caller intent plus provider/model capability. |
 | `supports_system_prompt` | missing | add | Most models support it, but some fine-tuned/distilled variants do not. Agent must fold system into first user message. |
 | `supports_reasoning` | exists | **split into 4** | See Thinking Taxonomy below. |
 | `supports_extended_thinking` | missing | add | budget_tokens control. Claude, Gemini, GPT-5.4. |

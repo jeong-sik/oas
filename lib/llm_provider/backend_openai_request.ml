@@ -296,9 +296,16 @@ let build_request
       :: body
   in
   let body =
+    let tools_present = tools <> [] in
+    let disable_parallel =
+      Capabilities.effective_disable_parallel_tool_use
+        ~caller_disabled:config.disable_parallel_tool_use
+        ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
+        ~tools_present
+    in
     Backend_openai_serialize.parallel_tool_calls_fields
-      ~disable_parallel:config.disable_parallel_tool_use
-      ~tools_present:(tools <> [])
+      ~disable_parallel
+      ~tools_present
     @ body
   in
   let body =

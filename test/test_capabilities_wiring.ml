@@ -47,6 +47,36 @@ let test_filter_parallel_tools () =
   check bool "default lacks parallel" false (Capability_filter.requires_parallel_tools no)
 ;;
 
+let test_effective_disable_parallel_tool_use () =
+  let effective =
+    Capabilities.effective_disable_parallel_tool_use
+      ~supports_parallel_tool_calls:false
+  in
+  check
+    bool
+    "explicit caller disable wins without tools"
+    true
+    (effective ~caller_disabled:true ~tools_present:false);
+  check
+    bool
+    "capability disables when tools are present"
+    true
+    (effective ~caller_disabled:false ~tools_present:true);
+  check
+    bool
+    "no tools does not force disable"
+    false
+    (effective ~caller_disabled:false ~tools_present:false);
+  check
+    bool
+    "parallel-capable model stays enabled"
+    false
+    (Capabilities.effective_disable_parallel_tool_use
+       ~caller_disabled:false
+       ~supports_parallel_tool_calls:true
+       ~tools_present:true)
+;;
+
 let test_filter_thinking () =
   let agent_llm_a = Capabilities.anthropic_capabilities in
   let basic = Capabilities.openai_compat_chat_capabilities in
@@ -146,6 +176,10 @@ let () =
         ] )
     ; ( "filter"
       , [ test_case "parallel tools" `Quick test_filter_parallel_tools
+        ; test_case
+            "effective parallel tool disable"
+            `Quick
+            test_effective_disable_parallel_tool_use
         ; test_case "thinking" `Quick test_filter_thinking
         ; test_case "fits context" `Quick test_filter_fits_context
         ; test_case "fits output" `Quick test_filter_fits_output

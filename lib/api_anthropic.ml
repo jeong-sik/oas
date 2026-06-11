@@ -19,6 +19,22 @@ let build_body_assoc
       ()
   =
   let model_str = model_to_string config.config.model in
+  let tools_present =
+    match tools with
+    | Some (_ :: _) -> true
+    | Some [] | None -> false
+  in
+  let capabilities =
+    match Llm_provider.Capabilities.for_model_id model_str with
+    | Some capabilities -> capabilities
+    | None -> Llm_provider.Capabilities.anthropic_capabilities
+  in
+  let disable_parallel_tool_use =
+    Llm_provider.Capabilities.effective_disable_parallel_tool_use
+      ~caller_disabled:config.config.disable_parallel_tool_use
+      ~supports_parallel_tool_calls:capabilities.supports_parallel_tool_calls
+      ~tools_present
+  in
   let body_assoc =
     [ "model", `String model_str
     ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)
@@ -84,7 +100,7 @@ let build_body_assoc
     | Some tc ->
       let tc_json = tool_choice_to_json tc in
       let tc_json =
-        if config.config.disable_parallel_tool_use
+        if disable_parallel_tool_use
         then (
           match tc_json with
           | `Assoc fields -> `Assoc (("disable_parallel_tool_use", `Bool true) :: fields)
@@ -93,7 +109,7 @@ let build_body_assoc
       in
       ("tool_choice", tc_json) :: body_assoc
     | None ->
-      if config.config.disable_parallel_tool_use
+      if disable_parallel_tool_use && tools_present
       then (
         let tc_json =
           `Assoc [ "type", `String "auto"; "disable_parallel_tool_use", `Bool true ]

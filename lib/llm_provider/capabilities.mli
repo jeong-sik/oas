@@ -95,6 +95,18 @@ val glm_capabilities : capabilities
     @since 0.185.0 *)
 val provider_l_capabilities : capabilities
 
+(** Effective request-level parallel tool-use disablement.
+
+    Explicit caller disablement always wins. Otherwise, when a request carries
+    tools and the selected provider/model says it does not support parallel tool
+    calls, callers should serialize the provider-specific "disable parallel
+    tool use" wire field when the provider has one. *)
+val effective_disable_parallel_tool_use
+  :  caller_disabled:bool
+  -> supports_parallel_tool_calls:bool
+  -> tools_present:bool
+  -> bool
+
 (** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code
     should switch on this variant rather than re-compare strings.

@@ -69,6 +69,18 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
+  let caps =
+    match Capabilities.for_model_id config.model_id with
+    | Some caps -> caps
+    | None -> Capabilities.anthropic_capabilities
+  in
+  let tools_present = tools <> [] in
+  let disable_parallel_tool_use =
+    Capabilities.effective_disable_parallel_tool_use
+      ~caller_disabled:config.disable_parallel_tool_use
+      ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
+      ~tools_present
+  in
   let message_to_json = Api_common.message_to_json in
   let msgs_json = List.map message_to_json messages in
   let body =
@@ -187,7 +199,7 @@ let build_request
      already nests correctly. *)
   let tool_choice_json_with_disable choice =
     let base = tool_choice_to_json choice in
-    if config.disable_parallel_tool_use
+    if disable_parallel_tool_use
     then (
       match base with
       | `Assoc fields -> `Assoc (("disable_parallel_tool_use", `Bool true) :: fields)
@@ -198,7 +210,7 @@ let build_request
     match config.tool_choice with
     | Some choice -> ("tool_choice", tool_choice_json_with_disable choice) :: body
     | None ->
-      if config.disable_parallel_tool_use && tools <> []
+      if disable_parallel_tool_use && tools_present
       then (
         (* No explicit tool_choice but caller still wants to disable
            parallel tool use — synthesize an [auto] choice to carry
