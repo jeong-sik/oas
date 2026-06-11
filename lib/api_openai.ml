@@ -81,6 +81,15 @@ let should_include_tools ?provider_config (config : agent_state) =
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
+  let tools_to_send =
+    match tools with
+    | Some entries
+      when entries <> []
+           && capabilities.supports_tools
+           && should_include_tools ?provider_config config ->
+      Some entries
+    | _ -> None
+  in
   let sanitized_messages = strip_orphaned_tool_results messages in
   let provider_messages =
     let message_serializer =
@@ -174,13 +183,9 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | Some _ -> body_assoc
   in
   let body_assoc =
-    match tools with
-    | Some entries
-      when entries <> []
-           && capabilities.supports_tools
-           && should_include_tools ?provider_config config ->
-      ("tools", `List (List.map build_provider_d_tool_json entries)) :: body_assoc
-    | _ -> body_assoc
+    match tools_to_send with
+    | Some entries -> ("tools", `List (List.map build_provider_d_tool_json entries)) :: body_assoc
+    | None -> body_assoc
   in
   let body_assoc =
     match effective_tool_choice_json capabilities ?provider_config config with
@@ -188,9 +193,16 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | None -> body_assoc
   in
   let body_assoc =
+    let tools_present = Option.is_some tools_to_send in
+    let disable_parallel =
+      Llm_provider.Capabilities.effective_disable_parallel_tool_use
+        ~caller_disabled:config.config.disable_parallel_tool_use
+        ~supports_parallel_tool_calls:capabilities.supports_parallel_tool_calls
+        ~tools_present
+    in
     Llm_provider.Backend_openai_serialize.parallel_tool_calls_fields
-      ~disable_parallel:config.config.disable_parallel_tool_use
-      ~tools_present:capabilities.supports_tools
+      ~disable_parallel
+      ~tools_present
     @ body_assoc
   in
   let body_assoc =

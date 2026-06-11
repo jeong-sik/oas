@@ -95,6 +95,19 @@ let gemini_cfg =
 let glm_cfg = cfg ~kind:Glm ~base_url:"https://open.bigmodel.cn/api/paas/v4"
 let ollama_cfg = cfg ~kind:Ollama ~base_url:"http://127.0.0.1:11434"
 
+let openai_no_parallel_capability_cfg =
+  Provider_config.make
+    ~kind:OpenAI_compat
+    ~model_id:"unknown-no-parallel-tools"
+    ~base_url:"https://api.openai.com/v1"
+    ~api_key:"test-key"
+    ~max_tokens:1024
+    ~temperature:0.7
+    ~tool_choice:Any
+    ~disable_parallel_tool_use:false
+    ()
+;;
+
 (* RFC-OAS-023 fixture. Unlike the shared [cfg] above, this one uses the REAL
    fleet model id ([deepseek-v4-flash], the live default in masc
    [runtime.toml]) and deliberately OMITS [supports_tool_choice_override], so
@@ -202,6 +215,21 @@ let test_openai_none () =
   check bool "None_ omits tools field" false (contains ~needle:{|"tools"|} body)
 ;;
 
+let test_openai_parallel_disabled_by_capability () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:openai_no_parallel_capability_cfg
+      ~messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  check
+    bool
+    "parallel_tool_calls:false follows provider capability"
+    true
+    (contains ~needle:{|"parallel_tool_calls":false|} body)
+;;
+
 (* ── DeepSeek via OpenAI-compat (RFC-OAS-023 routing fence) ───
    This fixture pins the CURRENT live-fleet wire for [deepseek-v4-flash]
    through the OpenAI-compat backend. It exercises the REAL capability
@@ -218,7 +246,7 @@ let test_openai_none () =
    get correct (not shadowed) capabilities"] in [capabilities.ml] and in
    [test_capabilities.ml]'s cloud-suffix route checks. *)
 let deepseek_required_expected =
-  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","reasoning_effort":"none","temperature":0.7,"model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
+  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","reasoning_effort":"none","temperature":0.7,"model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":""},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
 ;;
 
 let test_deepseek_required () =
@@ -382,6 +410,10 @@ let () =
       , [ test_case "tool_choice forced(Tool)" `Quick test_openai_forced
         ; test_case "tool_choice required(Any)" `Quick test_openai_required
         ; test_case "tool_choice none(None_)" `Quick test_openai_none
+        ; test_case
+            "parallel disabled by capability"
+            `Quick
+            test_openai_parallel_disabled_by_capability
         ; test_case "deepseek-v4-flash required(Any)" `Quick test_deepseek_required
         ] )
     ; "anthropic", [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced ]
