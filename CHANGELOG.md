@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.11](https://github.com/jeong-sik/oas/compare/v0.205.10...v0.205.11) (2026-06-11)
+
+
+### Bug Fixes
+
+* **provider:** honor parallel tool capability ([#2005](https://github.com/jeong-sik/oas/issues/2005)) ([86527d4](https://github.com/jeong-sik/oas/commit/86527d483e7f7f6a389af2b740d6e6f2172aba7b))
+
 ## [0.205.10](https://github.com/jeong-sik/oas/compare/v0.205.9...v0.205.10) (2026-06-11)
 
 
