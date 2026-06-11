@@ -58,6 +58,7 @@ type t =
   ; min_p : float option
   ; system_prompt : string option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; clear_thinking : bool option
   ; tool_stream : bool
@@ -88,6 +89,7 @@ let make
       ?min_p
       ?system_prompt
       ?enable_thinking
+      ?preserve_thinking
       ?thinking_budget
       ?clear_thinking
       ?(tool_stream = false)
@@ -132,6 +134,7 @@ let make
   ; min_p
   ; system_prompt
   ; enable_thinking
+  ; preserve_thinking
   ; thinking_budget
   ; clear_thinking
   ; tool_stream

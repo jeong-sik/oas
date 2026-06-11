@@ -200,6 +200,7 @@ let create_agent
     ; top_k = default_config.top_k
     ; min_p = default_config.min_p
     ; enable_thinking = default_config.enable_thinking
+    ; preserve_thinking = default_config.preserve_thinking
     ; response_format = default_config.response_format
     ; thinking_budget = default_config.thinking_budget
     ; tool_choice = default_config.tool_choice

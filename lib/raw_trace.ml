@@ -37,6 +37,7 @@ type run_summary =
   ; model : string option
   ; tool_choice : Yojson.Safe.t option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; thinking_block_count : int
   ; text_block_count : int
@@ -96,6 +97,7 @@ type record =
   ; model : string option
   ; tool_choice : Yojson.Safe.t option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; block_index : int option
   ; block_kind : string option
@@ -246,6 +248,7 @@ let record_to_json (record : record) =
      @ option_string "model" record.model
      @ option_json "tool_choice" record.tool_choice
      @ option_bool "enable_thinking" record.enable_thinking
+     @ option_bool "preserve_thinking" record.preserve_thinking
      @ option_int "thinking_budget" record.thinking_budget
      @ option_int "block_index" record.block_index
      @ option_string "block_kind" record.block_kind
@@ -285,6 +288,7 @@ let record_of_json json =
     ; model = json |> member "model" |> to_string_option
     ; tool_choice
     ; enable_thinking = json |> member "enable_thinking" |> to_bool_option
+    ; preserve_thinking = json |> member "preserve_thinking" |> to_bool_option
     ; thinking_budget = json |> member "thinking_budget" |> to_int_option
     ; block_index = json |> member "block_index" |> to_int_option
     ; block_kind = json |> member "block_kind" |> to_string_option
@@ -405,6 +409,7 @@ let append_record
       ?model
       ?tool_choice
       ?enable_thinking
+      ?preserve_thinking
       ?thinking_budget
       ?assistant_block
       ?tool_use_id
@@ -439,6 +444,7 @@ let append_record
       ; model
       ; tool_choice
       ; enable_thinking
+      ; preserve_thinking
       ; thinking_budget
       ; block_index
       ; block_kind
@@ -478,6 +484,7 @@ let start_run
       ?model
       ?tool_choice
       ?enable_thinking
+      ?preserve_thinking
       ?thinking_budget
       ()
   =
@@ -501,6 +508,7 @@ let start_run
       ?model
       ?tool_choice:(tool_choice_to_json_opt tool_choice)
       ?enable_thinking
+      ?preserve_thinking
       ?thinking_budget
       ()
   in

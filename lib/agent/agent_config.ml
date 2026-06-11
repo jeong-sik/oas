@@ -121,6 +121,7 @@ type agent_file_config =
   ; max_tokens : int option
   ; max_turns : int option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; provider : string option
   ; base_url : string option
@@ -238,6 +239,7 @@ let of_json json =
     let max_tokens = json |> member "max_tokens" |> to_int_option in
     let max_turns = json |> member "max_turns" |> to_int_option in
     let enable_thinking = json |> member "enable_thinking" |> to_bool_option in
+    let preserve_thinking = json |> member "preserve_thinking" |> to_bool_option in
     let thinking_budget = json |> member "thinking_budget" |> to_int_option in
     let provider = json |> member "provider" |> to_string_option in
     let base_url = json |> member "base_url" |> to_string_option in
@@ -276,6 +278,7 @@ let of_json json =
       ; max_tokens
       ; max_turns
       ; enable_thinking
+      ; preserve_thinking
       ; thinking_budget
       ; provider
       ; base_url
@@ -414,6 +417,11 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
   let b =
     match cfg.enable_thinking with
     | Some v -> Builder.with_enable_thinking v b
+    | None -> b
+  in
+  let b =
+    match cfg.preserve_thinking with
+    | Some v -> Builder.with_preserve_thinking v b
     | None -> b
   in
   let b =

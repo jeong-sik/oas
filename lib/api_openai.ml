@@ -55,6 +55,16 @@ let is_glm_request ?provider_config (config : agent_state) =
   | None -> Llm_provider.Zai_catalog.is_glm_model_id (model_to_string config.config.model)
 ;;
 
+let bool_field name = function
+  | Some value -> [ name, `Bool value ]
+  | None -> []
+;;
+
+let chat_template_kwargs_fields (config : agent_state) =
+  bool_field "enable_thinking" config.config.enable_thinking
+  @ bool_field "preserve_thinking" config.config.preserve_thinking
+;;
+
 let effective_tool_choice_json
       (capabilities : Provider.capabilities)
       ?provider_config
@@ -132,55 +142,70 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
       body_assoc
   in
   let body_assoc =
-    match config.config.enable_thinking with
-    | Some enabled when capabilities.supports_reasoning ->
-      (match capabilities.thinking_control_format with
-       | Llm_provider.Capabilities.Reasoning_effort ->
-         let effort =
-           Llm_provider.Provider_config.effort_of_thinking_config
-             ~enable_thinking:(Some enabled)
-             ~thinking_budget:config.config.thinking_budget
-         in
-         ("reasoning_effort", `String effort) :: body_assoc
-       | Llm_provider.Capabilities.Thinking_object ->
-         let effort =
-           Llm_provider.Provider_config.effort_of_thinking_config
-             ~enable_thinking:(Some enabled)
-             ~thinking_budget:config.config.thinking_budget
-         in
-         if enabled
-         then
+    if not capabilities.supports_reasoning
+    then body_assoc
+    else (
+      match capabilities.thinking_control_format with
+      | Llm_provider.Capabilities.Chat_template_kwargs ->
+        (match chat_template_kwargs_fields config with
+         | [] -> body_assoc
+         | fields -> ("chat_template_kwargs", `Assoc fields) :: body_assoc)
+      | Llm_provider.Capabilities.Enable_thinking ->
+        let body_assoc =
+          match config.config.enable_thinking with
+          | Some enabled -> ("enable_thinking", `Bool enabled) :: body_assoc
+          | None -> body_assoc
+        in
+        let body_assoc =
+          match config.config.preserve_thinking with
+          | Some preserve -> ("preserve_thinking", `Bool preserve) :: body_assoc
+          | None -> body_assoc
+        in
+        (match config.config.enable_thinking, config.config.thinking_budget with
+         | Some true, Some budget -> ("thinking_budget", `Int budget) :: body_assoc
+         | _ -> body_assoc)
+      | Llm_provider.Capabilities.Reasoning_effort ->
+        (match config.config.enable_thinking with
+         | Some _ ->
+           let effort =
+             Llm_provider.Provider_config.effort_of_thinking_config
+               ~enable_thinking:config.config.enable_thinking
+               ~thinking_budget:config.config.thinking_budget
+           in
+           ("reasoning_effort", `String effort) :: body_assoc
+         | None -> ("reasoning_effort", `String "none") :: body_assoc)
+      | Llm_provider.Capabilities.Thinking_object ->
+        (match config.config.enable_thinking with
+         | Some true ->
+           let effort =
+             Llm_provider.Provider_config.effort_of_thinking_config
+               ~enable_thinking:config.config.enable_thinking
+               ~thinking_budget:config.config.thinking_budget
+           in
            ("reasoning_effort", `String effort)
            :: ("thinking", `Assoc [ "type", `String "enabled" ])
            :: body_assoc
-         else ("thinking", `Assoc [ "type", `String "disabled" ]) :: body_assoc
-       | Llm_provider.Capabilities.Thinking_object_only ->
-         ( "thinking"
-         , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
-         :: body_assoc
-       | Llm_provider.Capabilities.Enable_thinking ->
-         let body_assoc = ("enable_thinking", `Bool enabled) :: body_assoc in
-         (match enabled, config.config.thinking_budget with
-          | true, Some budget -> ("thinking_budget", `Int budget) :: body_assoc
-          | _ -> body_assoc)
-       | Llm_provider.Capabilities.No_thinking_control
-         when is_glm_request ?provider_config config ->
-         let thinking =
-           if enabled
-           then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
-           else `Assoc [ "type", `String "disabled" ]
-         in
-         ("thinking", thinking) :: body_assoc
-       | Llm_provider.Capabilities.Chat_template_kwargs ->
-         ("chat_template_kwargs", `Assoc [ "enable_thinking", `Bool enabled ])
-         :: body_assoc
-       | Llm_provider.Capabilities.No_thinking_control -> body_assoc)
-    | None
-      when capabilities.thinking_control_format
-           = Llm_provider.Capabilities.Reasoning_effort ->
-      ("reasoning_effort", `String "none") :: body_assoc
-    | None -> body_assoc
-    | Some _ -> body_assoc
+         | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: body_assoc
+         | None -> body_assoc)
+      | Llm_provider.Capabilities.Thinking_object_only ->
+        (match config.config.enable_thinking with
+         | Some enabled ->
+           ( "thinking"
+           , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
+           :: body_assoc
+         | None -> body_assoc)
+      | Llm_provider.Capabilities.No_thinking_control
+        when is_glm_request ?provider_config config ->
+        (match config.config.enable_thinking with
+         | Some enabled ->
+           let thinking =
+             if enabled
+             then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
+             else `Assoc [ "type", `String "disabled" ]
+           in
+           ("thinking", thinking) :: body_assoc
+         | None -> body_assoc)
+      | Llm_provider.Capabilities.No_thinking_control -> body_assoc)
   in
   let body_assoc =
     match tools_to_send with

@@ -186,6 +186,7 @@ let checkpoint_to_json cp =
     ; "top_k", Util.json_of_int_opt cp.top_k
     ; "min_p", Util.json_of_float_opt cp.min_p
     ; "enable_thinking", Util.json_of_bool_opt cp.enable_thinking
+    ; "preserve_thinking", Util.json_of_bool_opt cp.preserve_thinking
     ; "response_format", response_format_to_json cp.response_format
     ; "thinking_budget", Util.json_of_int_opt cp.thinking_budget
     ; "disable_parallel_tool_use", `Bool cp.disable_parallel_tool_use
@@ -298,6 +299,7 @@ let delta_to_json (delta : delta) =
         ; "top_k", Util.json_of_int_opt patch.top_k
         ; "min_p", Util.json_of_float_opt patch.min_p
         ; "enable_thinking", Util.json_of_bool_opt patch.enable_thinking
+        ; "preserve_thinking", Util.json_of_bool_opt patch.preserve_thinking
         ; "thinking_budget", Util.json_of_int_opt patch.thinking_budget
         ]
     | Replace_limits patch ->
@@ -393,6 +395,8 @@ let delta_of_json json =
            ; top_k = op_json |> member "top_k" |> to_int_option
            ; min_p = op_json |> member "min_p" |> to_float_option
            ; enable_thinking = op_json |> member "enable_thinking" |> to_bool_option
+           ; preserve_thinking =
+               op_json |> member "preserve_thinking" |> to_bool_option
            ; thinking_budget = op_json |> member "thinking_budget" |> to_int_option
            })
     | "replace_limits" ->
@@ -561,6 +565,8 @@ let of_json json =
              ; top_k = json |> member "top_k" |> to_int_option
              ; min_p = json |> member "min_p" |> to_float_option
              ; enable_thinking = json |> member "enable_thinking" |> to_bool_option
+             ; preserve_thinking =
+                 json |> member "preserve_thinking" |> to_bool_option
              ; response_format
              ; thinking_budget = json |> member "thinking_budget" |> to_int_option
              ; cache_system_prompt =

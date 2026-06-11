@@ -9,6 +9,7 @@ type turn_params =
   { temperature : float option
   ; thinking_budget : int option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; tool_choice : Types.tool_choice option
   ; extra_system_context : string option
   ; system_prompt_override : string option

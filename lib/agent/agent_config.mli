@@ -32,6 +32,7 @@ type agent_file_config =
   ; max_tokens : int option
   ; max_turns : int option
   ; enable_thinking : bool option
+  ; preserve_thinking : bool option
   ; thinking_budget : int option
   ; provider : string option
   ; base_url : string option

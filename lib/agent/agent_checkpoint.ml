@@ -28,6 +28,7 @@ let build_resume ~(checkpoint : Checkpoint.t) ?config ?context () =
     ; top_k = checkpoint.top_k
     ; min_p = checkpoint.min_p
     ; enable_thinking = checkpoint.enable_thinking
+    ; preserve_thinking = checkpoint.preserve_thinking
     ; response_format = checkpoint.response_format
     ; thinking_budget = checkpoint.thinking_budget
     ; tool_choice = checkpoint.tool_choice
@@ -81,6 +82,7 @@ let build_checkpoint
   ; top_k = state.config.top_k
   ; min_p = state.config.min_p
   ; enable_thinking = state.config.enable_thinking
+  ; preserve_thinking = state.config.preserve_thinking
   ; response_format = state.config.response_format
   ; thinking_budget = state.config.thinking_budget
   ; cache_system_prompt = state.config.cache_system_prompt

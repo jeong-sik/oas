@@ -184,6 +184,7 @@ let test_resolve_params_adjust () =
     { temperature = Some 0.7
     ; thinking_budget = Some 1000
     ; enable_thinking = None
+    ; preserve_thinking = None
     ; tool_choice = None
     ; extra_system_context = Some "Debug mode"
     ; system_prompt_override = None

@@ -178,6 +178,7 @@ let with_raw_trace_run agent user_prompt f =
         ~model:agent.state.config.model
         ?tool_choice:agent.state.config.tool_choice
         ?enable_thinking:agent.state.config.enable_thinking
+        ?preserve_thinking:agent.state.config.preserve_thinking
         ?thinking_budget:agent.state.config.thinking_budget
         ()
     in
