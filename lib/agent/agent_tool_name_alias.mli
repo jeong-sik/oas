@@ -1,10 +1,9 @@
 (** Tool name alias resolution.
 
     OAS provides a small set of generic, provider-agnostic aliases
-    (e.g. [Bash] -> [Execute]) built-in.  SDK-specific aliases
-    (e.g. MASC-specific names such as [masc_code_shell]) must be
-    registered by the consumer at initialization time via
-    {!register_alias}.
+    (e.g. [Bash] -> [Execute]) built-in.  Consumer-specific aliases
+    (for example, downstream shell-tool names) must be registered by
+    the consumer at initialization time via {!register_alias}.
 
     @since 0.93.1 *)
 
@@ -12,7 +11,7 @@
     [canonical] in the mutable alias registry.  If [alias] is already
     registered, the previous mapping is overwritten.
 
-    Consumers such as MASC should call this during their own
+    Downstream consumers should call this during their own
     initialization to register SDK-specific tool name aliases. *)
 val register_alias : alias:string -> canonical:string -> unit
 
