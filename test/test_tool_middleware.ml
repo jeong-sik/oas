@@ -573,6 +573,56 @@ let test_strip_empty () =
   Alcotest.(check int) "empty" 0 (List.length result)
 ;;
 
+(* A standalone user Text message (e.g. an idle nudge) between the assistant
+   tool_calls message and the tool results breaks the result span: every tool
+   result of the turn is treated as orphaned, and the results message is
+   dropped entirely. This is why the pipeline delivers idle nudges inside the
+   tool-results message — see the companion test below. *)
+let test_strip_drops_results_after_interleaved_text () =
+  let msgs =
+    [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
+    ; mk_msg User [ Text "nudge: try a different tool" ]
+    ; mk_msg
+        User
+        [ ToolResult
+            { tool_use_id = "t1"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ]
+  in
+  let result = Serialize.strip_orphaned_tool_results msgs in
+  Alcotest.(check int) "results message dropped" 2 (List.length result);
+  match (List.nth result 1).content with
+  | [ Text _ ] -> ()
+  | _ -> Alcotest.fail "expected only the nudge text to survive"
+;;
+
+let test_strip_keeps_results_with_trailing_nudge_text () =
+  let msgs =
+    [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
+    ; mk_msg
+        User
+        [ ToolResult
+            { tool_use_id = "t1"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ; Text "nudge: try a different tool"
+        ]
+    ]
+  in
+  let result = Serialize.strip_orphaned_tool_results msgs in
+  Alcotest.(check int) "same length" 2 (List.length result);
+  let user_msg = List.nth result 1 in
+  Alcotest.(check int) "result and nudge both preserved" 2 (List.length user_msg.content)
+;;
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -639,6 +689,14 @@ let () =
             `Quick
             test_strip_preserves_matched
         ; Alcotest.test_case "empty messages" `Quick test_strip_empty
+        ; Alcotest.test_case
+            "interleaved text drops results"
+            `Quick
+            test_strip_drops_results_after_interleaved_text
+        ; Alcotest.test_case
+            "trailing nudge text keeps results"
+            `Quick
+            test_strip_keeps_results_with_trailing_nudge_text
         ] )
     ]
 ;;

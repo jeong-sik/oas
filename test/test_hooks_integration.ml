@@ -403,6 +403,64 @@ let test_on_idle_escalated_skip_short_circuits_execution () =
     | Error e -> Alcotest.fail (Error.to_string e))
 ;;
 
+(* The nudge must ride the tool-results user message as a trailing Text
+   block. A standalone nudge message between the assistant tool_calls and
+   the tool results makes the OpenAI-compat serializer treat every result
+   of the turn as orphaned and drop it — the model then never sees the
+   outcome of the calls it is being nudged about. *)
+let test_on_idle_nudge_rides_tool_results_message () =
+  let responses =
+    ref
+      [ tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
+      ; tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
+      ; text_body "done"
+      ]
+  in
+  with_mock_server ~port:18113 (sequence_handler responses) (fun ~sw ~net ~base_url ->
+    let tool, _tool_calls = fresh_echo_tool () in
+    let nudge_marker = "OAS_IDLE_NUDGE_MARKER" in
+    let options =
+      { Agent.default_options with
+        base_url
+      ; max_idle_turns = 5
+      ; hooks =
+          { Hooks.empty with on_idle = Some (fun _event -> Hooks.Nudge nudge_marker) }
+      }
+    in
+    let config = { default_config with max_turns = 5 } in
+    let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
+    (match Agent.run ~sw agent "test" with
+     | Ok _ -> ()
+     | Error e -> Alcotest.fail (Error.to_string e));
+    let messages = (Agent.state agent).messages in
+    let is_nudge_text = function
+      | Text t -> t = nudge_marker
+      | _ -> false
+    in
+    let has_tool_result content =
+      List.exists
+        (function
+          | ToolResult _ -> true
+          | _ -> false)
+        content
+    in
+    List.iter
+      (fun (m : Types.message) ->
+         if List.exists is_nudge_text m.content && not (has_tool_result m.content)
+         then Alcotest.fail "nudge must not be a standalone message before tool results")
+      messages;
+    let carried =
+      List.exists
+        (fun (m : Types.message) ->
+           has_tool_result m.content
+           && (match List.rev m.content with
+               | last :: _ -> is_nudge_text last
+               | [] -> false))
+        messages
+    in
+    Alcotest.(check bool) "nudge trails the tool-results message" true carried)
+;;
+
 (* ── multiple hooks test ─────────────────────────────── *)
 
 let test_multiple_hooks_all_fire () =
@@ -504,6 +562,12 @@ let () =
             "skip short-circuits tool execution"
             `Quick
             test_on_idle_escalated_skip_short_circuits_execution
+        ] )
+    ; ( "on_idle"
+      , [ test_case
+            "nudge rides the tool-results message"
+            `Quick
+            test_on_idle_nudge_rides_tool_results_message
         ] )
     ; ( "chaining"
       , [ test_case "multiple hooks all fire" `Quick test_multiple_hooks_all_fire ] )
