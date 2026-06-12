@@ -205,13 +205,14 @@ let test_eval_collector_basic () =
   Event_bus.publish
     bus
     (Event_bus.mk_event
-       (ToolCalled { agent_name = "test"; tool_name = "t1"; input = `Null }));
+       (ToolCalled { agent_name = "test"; tool_name = "t1"; tool_use_id = "tu-test"; input = `Null }));
   Event_bus.publish
     bus
     (Event_bus.mk_event
        (ToolCompleted
           { agent_name = "test"
           ; tool_name = "t1"
+          ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "done" }
           }));
   let rm = Eval_collector.finalize ec in

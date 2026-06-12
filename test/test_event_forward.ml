@@ -21,7 +21,7 @@ let test_event_type_name () =
   let cases =
     [ ev (Event_bus.AgentStarted { agent_name = "a"; task_id = "t" }), "agent.started"
     ; ev (Event_bus.TurnStarted { agent_name = "a"; turn = 0 }), "turn.started"
-    ; ( ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null })
+    ; ( ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null })
       , "tool.called" )
     ; ( ev
           (Event_bus.ContentReplacementKept
@@ -261,20 +261,30 @@ let test_tool_events_payload () =
   let called =
     ev
       (Event_bus.ToolCalled
-         { agent_name = "x"; tool_name = "search"; input = `String "query" })
+         { agent_name = "x"; tool_name = "search"; tool_use_id = "tu-test"; input = `String "query" })
   in
   let completed =
     ev
       (Event_bus.ToolCompleted
          { agent_name = "x"
          ; tool_name = "search"
+         ; tool_use_id = "tu-test"
          ; output = Ok { Types.content = "result" }
          })
   in
   let p1 = Event_forward.event_to_payload called in
   let p2 = Event_forward.event_to_payload completed in
   Alcotest.(check string) "called type" "tool.called" p1.event_type;
-  Alcotest.(check string) "completed type" "tool.completed" p2.event_type
+  Alcotest.(check string) "completed type" "tool.completed" p2.event_type;
+  let open Yojson.Safe.Util in
+  Alcotest.(check string)
+    "called payload carries tool_use_id"
+    "tu-test"
+    (p1.data |> member "tool_use_id" |> to_string);
+  Alcotest.(check string)
+    "completed payload carries tool_use_id"
+    "tu-test"
+    (p2.data |> member "tool_use_id" |> to_string)
 ;;
 
 let test_native_telemetry_payloads () =
@@ -462,6 +472,7 @@ let test_tool_completed_error_payload () =
       (Event_bus.ToolCompleted
          { agent_name = "x"
          ; tool_name = "calc"
+         ; tool_use_id = "tu-test"
          ; output =
              Error { Types.message = "fail"; recoverable = false; error_class = None }
          })
