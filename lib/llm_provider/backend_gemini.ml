@@ -107,6 +107,7 @@ let part_of_content_block id_to_name = function
 (* ── Message list -> (contents, systemInstruction option) ── *)
 
 let contents_of_messages (messages : message list) =
+  let messages = Api_common.merge_tool_result_followup_user_messages messages in
   let id_to_name = build_tool_id_to_name messages in
   let system_parts = ref [] in
   let contents = ref [] in

@@ -174,6 +174,35 @@ let content_block_of_json json =
   | _ -> None
 ;;
 
+let message_has_tool_result (msg : message) =
+  List.exists
+    (function
+      | ToolResult _ -> true
+      | Text _
+      | Thinking _
+      | RedactedThinking _
+      | ToolUse _
+      | Image _
+      | Document _
+      | Audio _ -> false)
+    msg.content
+;;
+
+let merge_tool_result_followup_user_messages messages =
+  let mergeable_followup (msg : message) =
+    msg.role = User && msg.name = None && msg.tool_call_id = None && msg.metadata = []
+  in
+  let rec aux acc = function
+    | ({ role = Tool; _ } as tool_msg) :: (followup : message) :: rest
+      when message_has_tool_result tool_msg && mergeable_followup followup ->
+      let merged = { tool_msg with content = tool_msg.content @ followup.content } in
+      aux (merged :: acc) rest
+    | msg :: rest -> aux (msg :: acc) rest
+    | [] -> List.rev acc
+  in
+  aux [] messages
+;;
+
 let message_to_json (msg : message) =
   let role_str =
     match msg.role with

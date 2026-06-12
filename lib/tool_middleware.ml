@@ -193,7 +193,7 @@ let heal_tool_call
              | _ -> message
            in
            let error_feedback : Types.message =
-             { role = User
+             { role = Tool
              ; content =
                  [ ToolResult
                      { tool_use_id = current_id

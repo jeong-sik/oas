@@ -348,6 +348,20 @@ let test_group_tool_result_stays () =
   Alcotest.(check int) "4 msgs in turn" 4 (List.length (List.nth turns 0))
 ;;
 
+let test_group_tool_role_result_and_nudge_stay () =
+  let msgs =
+    [ user_msg "q"
+    ; tool_use_msg "t1" "calc"
+    ; Types.tool_result_msg ~tool_use_id:"t1" ~content:"42" ()
+    ; user_msg "nudge"
+    ; asst_msg "done"
+    ]
+  in
+  let turns = Context_reducer.group_into_turns msgs in
+  Alcotest.(check int) "1 turn" 1 (List.length turns);
+  Alcotest.(check int) "5 msgs in turn" 5 (List.length (List.nth turns 0))
+;;
+
 let test_group_assistant_first () =
   let msgs = [ asst_msg "orphan"; user_msg "a"; asst_msg "b" ] in
   let turns = Context_reducer.group_into_turns msgs in
@@ -1211,9 +1225,12 @@ let test_repair_single_orphan () =
   let result = Context_reducer.reduce Context_reducer.repair_dangling_tool_calls msgs in
   (* Should insert a synthetic ToolResult after the ToolUse message *)
   Alcotest.(check int) "repaired (+1 msg)" 4 (List.length result);
-  (* The inserted message should be a User message with ToolResult *)
+  (* The inserted message should be a Tool message with ToolResult *)
   match List.nth result 2 with
-  | { Types.content = [ Types.ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+  | { Types.role = Types.Tool
+    ; content = [ Types.ToolResult { tool_use_id; is_error; _ } ]
+    ; _
+    } ->
     Alcotest.(check string) "matches id" "t1" tool_use_id;
     Alcotest.(check bool) "is_error" true is_error
   | _ -> Alcotest.fail "expected synthetic tool result"
@@ -1479,6 +1496,10 @@ let () =
             "tool_result stays in turn"
             `Quick
             test_group_tool_result_stays
+        ; Alcotest.test_case
+            "tool role result and nudge stay in turn"
+            `Quick
+            test_group_tool_role_result_and_nudge_stay
         ; Alcotest.test_case "assistant-first" `Quick test_group_assistant_first
         ] )
     ; "custom", [ Alcotest.test_case "custom fn called" `Quick test_custom ]

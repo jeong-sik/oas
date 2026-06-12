@@ -88,9 +88,14 @@ let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_
   else Ok { Types.content = proj.content }
 ;;
 
+let role_can_carry_tool_results = function
+  | User | Tool -> true
+  | System | Assistant -> false
+;;
+
 let last_tool_results_from messages =
   let extract_results msg =
-    if msg.role <> User
+    if not (role_can_carry_tool_results msg.role)
     then []
     else
       List.filter_map
@@ -116,7 +121,7 @@ let last_tool_results_from messages =
    [structured_content] without disturbing the existing string contract. *)
 let%test "last_tool_results_from routes through canonical projection (with json)" =
   let msgs =
-    [ { role = User
+    [ { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "t1"

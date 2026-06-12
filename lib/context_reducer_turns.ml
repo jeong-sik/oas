@@ -1,27 +1,38 @@
 open Types
 
+let has_tool_result_message (msg : message) =
+  List.exists
+    (fun (block : content_block) ->
+       match block with
+       | ToolResult _ -> true
+       | Text _
+       | Thinking _
+       | RedactedThinking _
+       | ToolUse _
+       | Image _
+       | Document _
+       | Audio _ -> false)
+    msg.content
+;;
+
 let group_into_turns (messages : message list) : message list list =
   let rec aux current_turn acc = function
     | [] ->
       if current_turn = [] then List.rev acc else List.rev (List.rev current_turn :: acc)
     | msg :: rest ->
+      (* A User message starts a new turn unless it carries ToolResult blocks
+         itself (legacy mixed shape), or immediately follows a role:Tool
+         result message. The immediate-follow case covers pipeline-inserted
+         nudges while preserving the old split after legacy User-role
+         ToolResult messages. *)
       if msg.role = User && current_turn <> []
       then (
-        let has_tool_result =
-          List.exists
-            (fun (block : content_block) ->
-               match block with
-               | ToolResult _ -> true
-               | Text _
-               | Thinking _
-               | RedactedThinking _
-               | ToolUse _
-               | Image _
-               | Document _
-               | Audio _ -> false)
-            msg.content
+        let previous_is_tool_result_message =
+          match current_turn with
+          | previous :: _ -> previous.role = Tool && has_tool_result_message previous
+          | [] -> false
         in
-        if has_tool_result
+        if has_tool_result_message msg || previous_is_tool_result_message
         then aux (msg :: current_turn) acc rest
         else aux [ msg ] (List.rev current_turn :: acc) rest)
       else aux (msg :: current_turn) acc rest

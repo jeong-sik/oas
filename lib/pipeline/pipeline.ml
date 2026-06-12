@@ -414,29 +414,30 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               turn-fatal" outcome by neutering the Exhausted branch; this removes the
               Tool_retry_policy mechanism entirely, which subsumes that change.) *)
            let tool_feedback = tool_results in
-           (* Idle feedback rides the same user message as the tool results: a
-              stashed hook Nudge becomes a trailing Text block; when no hook
-              handled the idle turn, the built-in [Idle warning] hint is
-              appended instead. Skip causes early return above. *)
-           let effective_feedback =
+           let followup_text =
              match !pending_nudge with
-             | Some nudge -> tool_feedback @ [ Text nudge ]
+             | Some nudge -> Some nudge
              | None when idle_result.is_idle && not !idle_handled ->
-               tool_feedback
-               @ [ Text
-                     (Printf.sprintf
-                        "[Idle warning: You called the same tool(s) with identical \
-                         arguments %d time(s) in a row. Try a different tool or change \
-                         your arguments to make progress.]"
-                        agent.consecutive_idle_turns)
-                 ]
-             | None -> tool_feedback
+               Some
+                 (Printf.sprintf
+                    "[Idle warning: You called the same tool(s) with identical arguments \
+                     %d time(s) in a row. Try a different tool or change your arguments \
+                     to make progress.]"
+                    agent.consecutive_idle_turns)
+             | None -> None
            in
            update_state agent (fun s ->
-             { s with
-               messages =
-                 Util.snoc s.messages (make_message ~role:User effective_feedback)
-             });
+             let messages =
+               match tool_feedback with
+               | [] -> s.messages
+               | _ -> Util.snoc s.messages (make_message ~role:Tool tool_feedback)
+             in
+             let messages =
+               match followup_text with
+               | None -> messages
+               | Some text -> Util.snoc messages (make_message ~role:User [ Text text ])
+             in
+             { s with messages });
            (match agent.options.context_injector with
             | None -> ()
             | Some injector ->
@@ -450,8 +451,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               in
               update_state agent (fun s -> { s with messages = new_messages }));
            let* () = persist_turn_checkpoint agent After_tool_results_appended in
-           (* Anti-repetition hint is now in effective_feedback above.
-            Removed duplicate User message injection (Copilot review #3). *)
+           (* Anti-repetition hint is appended after the ToolResult message so
+              provider serializers can keep assistant tool_calls and role:tool
+              responses adjacent. *)
            ignore idle_handled;
            (* suppress unused warning after dedup *)
            (* In-memory message hygiene after each tool execution round.
@@ -1029,7 +1031,7 @@ let%test "last_tool_results_from no tool results" =
   last_tool_results_from msgs = []
 ;;
 
-let%test "last_tool_results_from finds tool results in last user message" =
+let%test "last_tool_results_from finds tool results in last tool message" =
   let msgs =
     [ { role = Assistant
       ; content = [ Text "thinking..." ]
@@ -1037,7 +1039,7 @@ let%test "last_tool_results_from finds tool results in last user message" =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "t1"
@@ -1097,8 +1099,8 @@ let%test "last_tool_results_from skips non-tool user messages" =
       }
     ]
   in
-  (* Should find the tool result from the first user message since the last
-     user message has no tool results *)
+  (* Should find the legacy user-role tool result since the last user message
+     has no tool results. *)
   match last_tool_results_from msgs with
   | [ Ok { content = "first" } ] -> true
   | _ -> false
@@ -1137,7 +1139,7 @@ let%test "last_tool_results_from assistant-only messages" =
   last_tool_results_from msgs = []
 ;;
 
-let%test "last_tool_results_from picks last user with tool results" =
+let%test "last_tool_results_from picks last tool-result message" =
   let msgs =
     [ { role = User
       ; content =
@@ -1159,7 +1161,7 @@ let%test "last_tool_results_from picks last user with tool results" =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "t2"
@@ -1207,7 +1209,7 @@ let%test "last_tool_results_from mixed content in user message" =
 
 let%test "last_tool_results_from error tool result" =
   let msgs =
-    [ { role = User
+    [ { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "t1"
@@ -1246,7 +1248,7 @@ let%test "tag_error string result Ok" = tag_error "collect" (Ok "success") = Ok 
 
 (* --- Additional pipeline tests --- *)
 
-let%test "last_tool_results_from only non-user roles" =
+let%test "last_tool_results_from only non-result roles" =
   let msgs =
     [ { role = System
       ; content = [ Text "system" ]
@@ -1267,7 +1269,7 @@ let%test "last_tool_results_from only non-user roles" =
 
 let%test "last_tool_results_from multiple tool results in one message" =
   let msgs =
-    [ { role = User
+    [ { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "t1"

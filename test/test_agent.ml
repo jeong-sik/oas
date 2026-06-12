@@ -164,6 +164,7 @@ let test_replace_existing () =
       ~is_error:false
   in
   let last = List.nth updated (List.length updated - 1) in
+  Alcotest.(check bool) "legacy role preserved" true (last.role = User);
   match last.content with
   | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
     Alcotest.(check string) "id preserved" "t1" tool_use_id;
@@ -190,6 +191,7 @@ let test_replace_missing_appends () =
       ~is_error:true
   in
   let last = List.nth updated (List.length updated - 1) in
+  Alcotest.(check bool) "fallback role" true (last.role = Tool);
   match last.content with
   | [ ToolResult { tool_use_id; content; is_error; _ } ] ->
     Alcotest.(check string) "id" "t99" tool_use_id;

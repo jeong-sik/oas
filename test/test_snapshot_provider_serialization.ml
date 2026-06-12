@@ -70,6 +70,30 @@ let messages =
   ]
 ;;
 
+let nudged_messages =
+  [ msg User [ Text "What's the weather in Seoul?" ]
+  ; msg
+      Assistant
+      [ ToolUse
+          { id = "call_1"
+          ; name = "get_weather"
+          ; input = `Assoc [ "city", `String "Seoul" ]
+          }
+      ]
+  ; msg
+      Tool
+      [ ToolResult
+          { tool_use_id = "call_1"
+          ; content = "Sunny, 25C"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = None
+          }
+      ]
+  ; msg User [ Text "nudge: try a different tool" ]
+  ]
+;;
+
 let cfg ~kind ~base_url ~tool_choice =
   Provider_config.make
     ~kind
@@ -310,6 +334,34 @@ let test_anthropic_forced () =
      && not (contains ~needle:{|"type":"tool"|} body))
 ;;
 
+let test_anthropic_nudged_tool_turn_merges_followup_text () =
+  let body =
+    Backend_anthropic.build_request
+      ~config:(anthropic_cfg ~tool_choice:(Tool "get_weather"))
+      ~messages:nudged_messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  let open Yojson.Safe.Util in
+  let messages_json = Yojson.Safe.from_string body |> member "messages" |> to_list in
+  check int "wire messages" 3 (List.length messages_json);
+  let final_message = List.nth messages_json 2 in
+  check string "final role" "user" (final_message |> member "role" |> to_string);
+  let content = final_message |> member "content" |> to_list in
+  check int "merged content blocks" 2 (List.length content);
+  check
+    string
+    "first block"
+    "tool_result"
+    (List.nth content 0 |> member "type" |> to_string);
+  check string "second block" "text" (List.nth content 1 |> member "type" |> to_string);
+  check
+    string
+    "followup text"
+    "nudge: try a different tool"
+    (List.nth content 1 |> member "text" |> to_string)
+;;
+
 (* ── Gemini ─────────────────────────────────────────── *)
 
 let gemini_any_expected =
@@ -347,6 +399,33 @@ let test_gemini_any () =
     "no disable_parallel on the wire (#1840)"
     false
     (contains ~needle:"disable_parallel" body)
+;;
+
+let test_gemini_nudged_tool_turn_merges_followup_text () =
+  let body =
+    Backend_gemini.build_request
+      ~config:(gemini_cfg ~tool_choice:Any)
+      ~messages:nudged_messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  let open Yojson.Safe.Util in
+  let contents = Yojson.Safe.from_string body |> member "contents" |> to_list in
+  check int "wire contents" 3 (List.length contents);
+  let final_content = List.nth contents 2 in
+  check string "final role" "user" (final_content |> member "role" |> to_string);
+  let parts = final_content |> member "parts" |> to_list in
+  check int "merged parts" 2 (List.length parts);
+  check
+    bool
+    "functionResponse first"
+    true
+    (List.nth parts 0 |> member "functionResponse" <> `Null);
+  check
+    string
+    "text followup"
+    "nudge: try a different tool"
+    (List.nth parts 1 |> member "text" |> to_string)
 ;;
 
 (* ── GLM (OpenAI-compatible wire format) ────────────── *)
@@ -416,8 +495,20 @@ let () =
             test_openai_parallel_disabled_by_capability
         ; test_case "deepseek-v4-flash required(Any)" `Quick test_deepseek_required
         ] )
-    ; "anthropic", [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced ]
-    ; "gemini", [ test_case "tool_choice Any" `Quick test_gemini_any ]
+    ; ( "anthropic"
+      , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced
+        ; test_case
+            "nudged tool turn merges followup text"
+            `Quick
+            test_anthropic_nudged_tool_turn_merges_followup_text
+        ] )
+    ; ( "gemini"
+      , [ test_case "tool_choice Any" `Quick test_gemini_any
+        ; test_case
+            "nudged tool turn merges followup text"
+            `Quick
+            test_gemini_nudged_tool_turn_merges_followup_text
+        ] )
     ; "glm", [ test_case "tool_choice Any" `Quick test_glm_any ]
     ; "ollama", [ test_case "tool_choice Any" `Quick test_ollama_any ]
     ]
