@@ -144,7 +144,7 @@ let test_lookup_gpt5 () =
   | None -> fail "should match model-d-5"
 ;;
 
-let test_lookup_provider_f () =
+let test_lookup_gemini () =
   match Capabilities.for_model_id "gemini-3.1-pro" with
   | Some c ->
     check bool "audio" true c.supports_audio_input;
@@ -189,7 +189,7 @@ let test_gemini_family_2_5 () =
     (Capabilities.gemini_family_of_id "gemini-2.5-flash")
 ;;
 
-let test_gemini_family_other_non_provider_f () =
+let test_gemini_family_other_non_gemini () =
   check
     gemini_family_testable
     "non-gemini id falls into Gemini_other with literal retained"
@@ -197,7 +197,7 @@ let test_gemini_family_other_non_provider_f () =
     (Capabilities.gemini_family_of_id "agent_llm_a-opus-4")
 ;;
 
-let test_gemini_family_other_unknown_provider_f () =
+let test_gemini_family_other_unknown_gemini () =
   (* A future gemini line not yet classified should land in Gemini_other —
      not be silently absorbed into an existing arm. *)
   check
@@ -297,10 +297,12 @@ let test_lookup_deepseek_v4_pro () =
 ;;
 
 let test_lookup_grok () =
-  match Capabilities.for_model_id "model-e" with
+  match Capabilities.for_model_id "grok-4.3" with
   | Some c ->
-    check (option int) "context 2M" (Some 2_000_000) c.max_context_tokens;
-    check bool "structured" true c.supports_structured_output
+    check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
+    check bool "structured" true c.supports_structured_output;
+    check bool "reasoning" true c.supports_reasoning;
+    check bool "image" true c.supports_image_input
   | None -> fail "should match grok"
 ;;
 
@@ -848,18 +850,18 @@ let () =
       , [ test_case "agent_llm_a opus" `Quick test_lookup_agent_llm_a_opus
         ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
         ; test_case "model-d-5" `Quick test_lookup_gpt5
-        ; test_case "gemini" `Quick test_lookup_provider_f
+        ; test_case "gemini" `Quick test_lookup_gemini
         ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
         ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
         ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
         ; test_case
             "gemini_family Gemini_other (non-gemini)"
             `Quick
-            test_gemini_family_other_non_provider_f
+            test_gemini_family_other_non_gemini
         ; test_case
             "gemini_family Gemini_other (unknown gemini)"
             `Quick
-            test_gemini_family_other_unknown_provider_f
+            test_gemini_family_other_unknown_gemini
         ; test_case
             "gemini_family drives 1M ctx capabilities"
             `Quick
@@ -869,7 +871,7 @@ let () =
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
         ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
-        ; test_case "grok 2M context" `Quick test_lookup_grok
+        ; test_case "grok 4.3 1M context" `Quick test_lookup_grok
         ; test_case "glm-5 text only" `Quick test_lookup_glm5_text_only
         ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision
         ; test_case "glm-4.6v vision" `Quick test_lookup_glm46v_vision

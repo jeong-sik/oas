@@ -175,7 +175,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     (List.nth provider_d_parts 0 |> member "type" |> to_string);
   let visual_first =
     Serialize.ollama_messages_of_message
-      ~model_id:"model-f-gemma-4-27b-it"
+      ~model_id:"google/gemma-4-26B-A4B-it"
       (msg User content)
     |> only "ollama"
   in

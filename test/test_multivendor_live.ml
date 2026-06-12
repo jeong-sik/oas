@@ -5,7 +5,7 @@
 
     - Anthropic      if [ANTHROPIC_API_KEY] is set
     - Openai         if [PROVIDER_D_API_KEY] is set
-    - Gemini         if [PROVIDER_F_API_KEY] is set
+    - Gemini         if [GEMINI_API_KEY] or legacy [PROVIDER_F_API_KEY] is set
     - OpenAI-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
@@ -172,10 +172,19 @@ let test_provider_d () =
 
 (* ── Gemini (via OpenAI-compat endpoint) ──────────────────────── *)
 
-let test_provider_f () =
-  match Sys.getenv_opt "PROVIDER_F_API_KEY" with
-  | None | Some "" -> skip_note "gemini" "PROVIDER_F_API_KEY not set"
-  | Some _ ->
+let gemini_api_key_env () =
+  match Sys.getenv_opt "GEMINI_API_KEY" with
+  | Some value when String.trim value <> "" -> Some "GEMINI_API_KEY"
+  | _ ->
+    (match Sys.getenv_opt "PROVIDER_F_API_KEY" with
+     | Some value when String.trim value <> "" -> Some "PROVIDER_F_API_KEY"
+     | _ -> None)
+;;
+
+let test_gemini () =
+  match gemini_api_key_env () with
+  | None -> skip_note "gemini" "GEMINI_API_KEY not set"
+  | Some api_key_env ->
     Eio_main.run
     @@ fun env ->
     Eio.Switch.run
@@ -191,7 +200,7 @@ let test_provider_f () =
             ; static_token = None
             }
       ; model_id = "gemini-2.0-flash"
-      ; api_key_env = "PROVIDER_F_API_KEY"
+      ; api_key_env
       }
     in
     run_minimal_agent
@@ -259,7 +268,7 @@ let () =
     [ ( "golden_transcript"
       , [ test_case "anthropic" `Quick test_provider_a
         ; test_case "openai" `Quick test_provider_d
-        ; test_case "gemini" `Quick test_provider_f
+        ; test_case "gemini" `Quick test_gemini
         ; test_case "local openai-compat" `Quick test_local_compat
         ] )
     ]

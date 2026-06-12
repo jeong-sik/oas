@@ -311,7 +311,7 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:8085" }
-    ; model_id = "dashscope-3.5-35b-a3b-ud-q8-xl"
+    ; model_id = "glm-5"
     ; api_key_env = "DUMMY_KEY"
     }
   in
@@ -331,8 +331,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
     Alcotest.(check string) "field" "modality" field;
     Alcotest.(check string)
       "detail"
-      "Model 'dashscope-3.5-35b-a3b-ud-q8-xl' for provider 'local' does not support \
-       modality 'image'"
+      "Model 'glm-5' for provider 'local' does not support modality 'image'"
       detail
   | Error e ->
     Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
@@ -759,11 +758,11 @@ let test_provider_config_of_agent_custom_registered_preserves_kind () =
   let cfg : Provider.config =
     { provider = Custom_registered { name = "gemini" }
     ; model_id = "gemini-2.5-flash"
-    ; api_key_env = "PROVIDER_F_API_KEY"
+    ; api_key_env = "GEMINI_API_KEY"
     }
   in
   let state = agent_state_with_params () in
-  Unix.putenv "PROVIDER_F_API_KEY" "fake-gemini-key";
+  Unix.putenv "GEMINI_API_KEY" "fake-gemini-key";
   match
     Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
   with

@@ -54,7 +54,7 @@ let test_request_path_provider_d () =
   check_string "openai path" "/v1/chat/completions" cfg.request_path
 ;;
 
-let test_request_path_provider_f () =
+let test_request_path_gemini () =
   let cfg = Provider_config.make ~kind:Gemini ~model_id:"m" ~base_url:"" () in
   check_string "gemini path" "" cfg.request_path
 ;;
@@ -892,7 +892,7 @@ let () =
       , [ Alcotest.test_case "anthropic" `Quick test_request_path_provider_a
         ; Alcotest.test_case "kimi" `Quick test_request_path_provider_c
         ; Alcotest.test_case "openai" `Quick test_request_path_provider_d
-        ; Alcotest.test_case "gemini" `Quick test_request_path_provider_f
+        ; Alcotest.test_case "gemini" `Quick test_request_path_gemini
         ; Alcotest.test_case "glm" `Quick test_request_path_glm
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
         ; Alcotest.test_case "dashscope" `Quick test_request_path_provider_h

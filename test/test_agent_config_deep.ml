@@ -431,7 +431,7 @@ let test_resolve_deepseek () =
   | _ -> Alcotest.fail "expected Custom_registered for deepseek (registered)"
 ;;
 
-let test_resolve_provider_f_preserves_kind () =
+let test_resolve_gemini_preserves_kind () =
   (* Regression for #1003: registered providers with non-Openai kind
      (e.g. Gemini) must route through Custom_registered so downstream
      preserves entry.defaults.kind. Previously resolve_provider
@@ -441,7 +441,7 @@ let test_resolve_provider_f_preserves_kind () =
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "gemini name" "gemini" name;
-    Alcotest.(check string) "gemini api_key_env" "PROVIDER_F_API_KEY" cfg.api_key_env;
+    Alcotest.(check string) "gemini api_key_env" "GEMINI_API_KEY" cfg.api_key_env;
     Alcotest.(check string) "gemini model_id" "gemini-2.5-flash" cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for gemini (registered)"
 ;;
@@ -621,7 +621,7 @@ let () =
         ; tc "groq" test_resolve_provider_i
         ; tc "groq custom url" test_resolve_provider_i_custom_url
         ; tc "deepseek" test_resolve_deepseek
-        ; tc "gemini preserves kind (#1003)" test_resolve_provider_f_preserves_kind
+        ; tc "gemini preserves kind (#1003)" test_resolve_gemini_preserves_kind
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
         ; tc "anthropic case-insensitive" test_resolve_anthropic_case_insensitive
         ; tc
