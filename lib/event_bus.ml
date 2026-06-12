@@ -47,11 +47,13 @@ type payload =
   | ToolCalled of
       { agent_name : string
       ; tool_name : string
+      ; tool_use_id : string
       ; input : Yojson.Safe.t
       }
   | ToolCompleted of
       { agent_name : string
       ; tool_name : string
+      ; tool_use_id : string
       ; output : Types.tool_result
       }
   | TurnStarted of

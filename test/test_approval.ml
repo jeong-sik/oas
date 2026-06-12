@@ -739,9 +739,10 @@ let test_tool_exception_still_publishes_tool_completed () =
       (fun (event : Event_bus.event) -> event.payload)
       (Event_bus.drain subscription)
   with
-  | [ ToolCalled { tool_name = "boom"; _ }
+  | [ ToolCalled { tool_name = "boom"; tool_use_id = called_id; _ }
     ; ToolCompleted
         { tool_name = "boom"
+        ; tool_use_id = completed_id
         ; output = Error { message; recoverable = false; error_class = Some Unknown }
         ; _
         }
@@ -750,7 +751,11 @@ let test_tool_exception_still_publishes_tool_completed () =
       bool
       "completion event reports exception"
       true
-      (contains_substring ~needle:"Tool 'boom' raised" message)
+      (contains_substring ~needle:"Tool 'boom' raised" message);
+    (* Both events carry the provider tool_use id, so subscribers can
+       join called/completed pairs (and hook-side records) on it. *)
+    check string "ToolCalled carries the provider id" "t1" called_id;
+    check string "ToolCompleted carries the provider id" "t1" completed_id
   | _ -> fail "expected ToolCalled followed by ToolCompleted error"
 ;;
 

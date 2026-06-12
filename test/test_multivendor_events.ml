@@ -52,9 +52,9 @@ let test_envelope_preserved_across_variants () =
   let variants : Event_bus.payload list =
     [ AgentStarted { agent_name = "alpha"; task_id = "t1" }
     ; TurnStarted { agent_name = "alpha"; turn = 0 }
-    ; ToolCalled { agent_name = "alpha"; tool_name = "echo"; input = `Null }
+    ; ToolCalled { agent_name = "alpha"; tool_name = "echo"; tool_use_id = "tu-test"; input = `Null }
     ; ToolCompleted
-        { agent_name = "alpha"; tool_name = "echo"; output = stub_tool_result }
+        { agent_name = "alpha"; tool_name = "echo"; tool_use_id = "tu-test"; output = stub_tool_result }
     ; TurnCompleted { agent_name = "alpha"; turn = 0 }
     ; HandoffRequested { from_agent = "alpha"; to_agent = "beta"; reason = "delegate" }
     ; HandoffCompleted { from_agent = "alpha"; to_agent = "beta"; elapsed = 0.5 }
@@ -118,8 +118,8 @@ let test_event_type_name_mapping () =
       , "agent.failed" )
     ; TurnStarted { agent_name = "a"; turn = 0 }, "turn.started"
     ; TurnCompleted { agent_name = "a"; turn = 0 }, "turn.completed"
-    ; ToolCalled { agent_name = "a"; tool_name = "t"; input = `Null }, "tool.called"
-    ; ( ToolCompleted { agent_name = "a"; tool_name = "t"; output = stub_tool_result }
+    ; ToolCalled { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null }, "tool.called"
+    ; ( ToolCompleted { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; output = stub_tool_result }
       , "tool.completed" )
     ; ( HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "r" }
       , "handoff.requested" )
@@ -227,11 +227,11 @@ let test_golden_lifecycle_transcript () =
   Event_bus.publish bus (mk (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
-    (mk (ToolCalled { agent_name = "a"; tool_name = "echo"; input = `Null }));
+    (mk (ToolCalled { agent_name = "a"; tool_name = "echo"; tool_use_id = "tu-test"; input = `Null }));
   Event_bus.publish
     bus
     (mk
-       (ToolCompleted { agent_name = "a"; tool_name = "echo"; output = stub_tool_result }));
+       (ToolCompleted { agent_name = "a"; tool_name = "echo"; tool_use_id = "tu-test"; output = stub_tool_result }));
   Event_bus.publish bus (mk (TurnCompleted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus

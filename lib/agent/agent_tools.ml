@@ -302,7 +302,7 @@ let find_and_execute_tool_with_index
         Event_bus.mk_event
           ?correlation_id
           ?run_id
-          (ToolCalled { agent_name; tool_name = name; input })
+          (ToolCalled { agent_name; tool_name = name; tool_use_id = id; input })
       in
       (try Event_bus.publish bus ev with
        | exn ->
@@ -576,7 +576,7 @@ let find_and_execute_tool_with_index
              ?correlation_id
              ?run_id
              ?caused_by:tool_called_run_id
-             (ToolCompleted { agent_name; tool_name = name; output }))
+             (ToolCompleted { agent_name; tool_name = name; tool_use_id = id; output }))
       with
       | exn ->
         Log.warn

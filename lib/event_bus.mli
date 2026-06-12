@@ -66,11 +66,22 @@ type payload =
   | ToolCalled of
       { agent_name : string
       ; tool_name : string
+      ; tool_use_id : string
+        (** Provider tool-call id (e.g. Anthropic [tool_use.id], OpenAI
+            [tool_call.id]) for the invocation this event describes. The
+            same value reaches {!Hooks.PreToolUse}/{!Hooks.PostToolUse},
+            so subscribers can join bus events with hook-side records
+            deterministically instead of guessing by tool name and
+            timestamp. Empty string when the provider supplied no id.
+            @since 0.207.0 *)
       ; input : Yojson.Safe.t
       }
   | ToolCompleted of
       { agent_name : string
       ; tool_name : string
+      ; tool_use_id : string
+        (** Same id as the matching [ToolCalled]; see its doc.
+            @since 0.207.0 *)
       ; output : Types.tool_result
       }
   | TurnStarted of
