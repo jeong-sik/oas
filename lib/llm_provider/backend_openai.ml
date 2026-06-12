@@ -1300,6 +1300,22 @@ let%test "build_request serializes ZAI thinking object for bare GLM compat model
   && json |> member "reasoning_effort" = `Null
 ;;
 
+let%test "build_request maps preserve_thinking for bare ZAI GLM compat model" =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"glm-5"
+      ~base_url:Zai_catalog.coding_base_url
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let body = build_request ~config ~messages:[] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "thinking" |> member "clear_thinking" |> to_bool = false
+;;
+
 let%test "build_request emits reasoning_effort for Openai reasoning models" =
   let config =
     Provider_config.make
