@@ -1687,6 +1687,10 @@ let test_for_model_id_deepseek_v4_flash () =
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
     Alcotest.(check bool) "tools" true c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
+    Alcotest.(check bool)
+      "thinking object"
+      true
+      (c.thinking_control_format = Capabilities.Thinking_object);
     Alcotest.(check bool) "caching" true c.supports_caching
   | None -> Alcotest.fail "expected Some for deepseek-v4-flash"
 ;;
@@ -1698,6 +1702,10 @@ let test_for_model_id_deepseek_v4_pro () =
     Alcotest.(check (option int)) "384K output" (Some 384_000) c.max_output_tokens;
     Alcotest.(check bool) "tools" true c.supports_tools;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
+    Alcotest.(check bool)
+      "thinking object"
+      true
+      (c.thinking_control_format = Capabilities.Thinking_object);
     Alcotest.(check bool) "caching" true c.supports_caching
   | None -> Alcotest.fail "expected Some for deepseek-v4-pro"
 ;;

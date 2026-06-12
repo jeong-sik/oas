@@ -14,8 +14,7 @@
     @since 0.184.0 *)
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
-  | Thinking_object
-  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
+  | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
   | Thinking_object_only
   (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
@@ -26,10 +25,10 @@ type thinking_control_format =
       into the conversation instead of sending a top-level thinking field. *)
   | Reasoning_effort
   (** Openai-style top-level [reasoning_effort] string field. The set of
-      values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (Openai's spec
-      also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's OpenAI-compatible mode uses this shape. *)
+      non-disabled values this codebase emits is [{"low","medium","high"}] —
+      see {!Provider_config.reasoning_effort_request_value}. Disabled
+      reasoning is represented by omitting the field. Ollama's
+      OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
@@ -1005,34 +1004,34 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
     ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
     ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
     ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
-      (* RFC-OAS-023: the real fleet model ids ([deepseek-v4-flash],
+      (* RFC-OAS-023: the real provider model ids ([deepseek-v4-flash],
          [deepseek-v4-pro]) must resolve to the DeepSeek capability route.
          Before the de-anonymization these matched only the anon
-         [deepseek-v4-*] prefixes, so the live fleet missed the static
-         table and silently fell back to provider-default capabilities. The
+         [deepseek-v4-*] prefixes, so the concrete ids missed the static table
+         and silently fell back to provider-default capabilities. The
          anon prefixes are retained as aliases and asserted here too. The
          fingerprint ([Thinking_object] + [384_000] output cap) is specific
          to the DeepSeek record, so a fall-through to defaults fails the
          test. *)
     ; ( "deepseek-v4-flash"
       , fun c ->
-          c.thinking_control_format = Reasoning_effort
+          c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-v4-flash-test"
       , fun c ->
-          c.thinking_control_format = Reasoning_effort
+          c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-v4-pro"
       , fun c ->
-          c.thinking_control_format = Reasoning_effort
+          c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-ai/DeepSeek-V4-Flash"
       , fun c ->
-          c.thinking_control_format = Reasoning_effort
+          c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
     ; ( "deepseek-ai/DeepSeek-V4-Pro"
       , fun c ->
-          c.thinking_control_format = Reasoning_effort
+          c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
     ; ( "Qwen/Qwen3.6-35B-A3B"
       , fun c ->
@@ -1040,7 +1039,7 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
       )
     ; ( "deepseek-v4-pro-test"
       , fun c ->
-          c.thinking_control_format = Reasoning_effort
+          c.thinking_control_format = Thinking_object
           && c.max_output_tokens = Some 384_000 )
     ; ( "nvidia-ultra-253b"
       , fun c ->

@@ -8,8 +8,7 @@
 
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
-  | Thinking_object
-  (** DeepSeek-style: top-level [thinking] object plus [reasoning_effort]. *)
+  | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
   | Thinking_object_only
   (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
@@ -23,8 +22,8 @@ type thinking_control_format =
   (** Openai-style top-level [reasoning_effort] string field. The set of
       non-disabled values this codebase emits is [{"low","medium","high"}] —
       see {!Provider_config.reasoning_effort_request_value}. Disabled
-      reasoning is represented by omitting the field, because DeepSeek v4
-      rejects ["none"]. Ollama's OpenAI-compatible mode uses this shape. *)
+      reasoning is represented by omitting the field. Ollama's
+      OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
