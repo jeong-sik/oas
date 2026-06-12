@@ -47,9 +47,6 @@ type t =
   | Team_delete
   (* External-effect — HITL *)
   | Ask_user_question
-  (* External-effect — web & research *)
-  | Web_fetch
-  | Web_search
   (* External-effect — browser interaction *)
   | Navigate
   | Computer

@@ -175,9 +175,8 @@ let%test "mcp_tool_of_sdk_tool None description becomes empty" =
 ;;
 
 (* RFC-OAS-009 v2 PR-C: removed 5 inline tests for descriptor_for_builtin_tool.
-   These tests pinned Agent_llm_a Code/Serena/Team builtin names ("read", "web_fetch",
-   "task_create", "ask_user_question", "nonexistent_xyz") into mcp_schema's
-   inline tests, which is the precise layering violation RFC-OAS-009 v2 closes.
+   These tests pinned downstream builtin names into mcp_schema's inline tests,
+   which is the precise layering violation RFC-OAS-009 v2 closes.
    The descriptor_for_builtin_tool alias itself is also removed (line 63).
    Behavior of mcp_tool_to_sdk_tool is now: descriptor=None for every MCP tool —
    consumers supply via Tool.with_descriptor or a post-conversion enrichment. *)

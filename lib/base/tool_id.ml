@@ -29,8 +29,6 @@ type t =
   | Team_create
   | Team_delete
   | Ask_user_question
-  | Web_fetch
-  | Web_search
   | Navigate
   | Computer
   | Find
@@ -82,8 +80,6 @@ let to_string = function
   | Team_create -> "team_create"
   | Team_delete -> "team_delete"
   | Ask_user_question -> "ask_user_question"
-  | Web_fetch -> "web_fetch"
-  | Web_search -> "web_search"
   | Navigate -> "navigate"
   | Computer -> "computer"
   | Find -> "find"
@@ -127,8 +123,6 @@ let all_builtins =
   ; Team_create
   ; Team_delete
   ; Ask_user_question
-  ; Web_fetch
-  ; Web_search
   ; Navigate
   ; Computer
   ; Find
@@ -208,8 +202,6 @@ let of_string raw =
   | "team_create" -> Team_create
   | "team_delete" -> Team_delete
   | "ask_user_question" -> Ask_user_question
-  | "web_fetch" -> Web_fetch
-  | "web_search" -> Web_search
   | "navigate" -> Navigate
   | "computer" -> Computer
   | "find" -> Find
@@ -233,7 +225,7 @@ let%test "of_string_lowercases_builtin" = equal (of_string "READ_FILE") Read_fil
 let%test "of_string_retired_native_tool_names_are_user_tools" =
   List.for_all
     (fun name -> equal (of_string name) (User (String.lowercase_ascii name)))
-    [ "Read"; "Glob"; "Grep"; "Write"; "Edit"; "Bash" ]
+    [ "Read"; "Glob"; "Grep"; "Write"; "Edit"; "Bash"; "web_fetch"; "web_search" ]
 ;;
 
 let%test "of_string_user_lowercases" = equal (of_string "MyTool") (User "mytool")
