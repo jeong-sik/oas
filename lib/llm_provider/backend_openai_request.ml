@@ -88,17 +88,20 @@ let response_format_of_config (config : Provider_config.t) =
 ;;
 
 let capabilities_of_config (config : Provider_config.t) =
-  match Capabilities.for_model_id config.model_id with
-  | Some caps -> caps
-  | None ->
-    (match config.kind with
-     | Provider_config.Ollama -> Capabilities.ollama_capabilities
-     | Provider_config.Kimi -> Capabilities.kimi_capabilities
-     | Provider_config.DashScope -> Capabilities.dashscope_capabilities
-     | Provider_config.Glm -> Capabilities.glm_capabilities
-     | Provider_config.Gemini -> Capabilities.gemini_capabilities
-     | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
-     | Provider_config.OpenAI_compat -> Capabilities.default_capabilities)
+  match config.kind with
+  | Provider_config.DashScope -> Capabilities.dashscope_capabilities
+  | _ ->
+    (match Capabilities.for_model_id config.model_id with
+     | Some caps -> caps
+     | None ->
+       (match config.kind with
+        | Provider_config.Ollama -> Capabilities.ollama_capabilities
+        | Provider_config.Kimi -> Capabilities.kimi_capabilities
+        | Provider_config.Glm -> Capabilities.glm_capabilities
+        | Provider_config.Gemini -> Capabilities.gemini_capabilities
+        | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
+        | Provider_config.OpenAI_compat -> Capabilities.default_capabilities
+        | Provider_config.DashScope -> assert false))
 ;;
 
 let bool_field name = function
