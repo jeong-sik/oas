@@ -316,7 +316,8 @@ val read_ndjson
     provider cannot help — the bottleneck is the local machine. *)
 val is_local_resource_exhaustion : http_error -> bool
 
-(** Inject ["stream": true] into a JSON body string. *)
+(** Inject ["stream": true] into a JSON body string.
+    Any caller-supplied [stream] is replaced to avoid duplicate object keys. *)
 val inject_stream_param : string -> string
 
 (** Inject [{"stream_options": {"include_usage": true}}] into a JSON body
