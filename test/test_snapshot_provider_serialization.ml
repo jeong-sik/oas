@@ -140,7 +140,7 @@ let openai_no_parallel_capability_cfg =
    provider speaks the OpenAI-compat Chat Completions wire
    (openai-http / https://ollama.com/v1), so [OpenAI_compat] is the
    matching kind for the fleet wire. *)
-let deepseek_cfg ~tool_choice =
+let deepseek_cfg ?enable_thinking ?thinking_budget ~tool_choice () =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"deepseek-v4-flash"
@@ -150,6 +150,8 @@ let deepseek_cfg ~tool_choice =
     ~temperature:0.7
     ~tool_choice
     ~disable_parallel_tool_use:true
+    ?enable_thinking
+    ?thinking_budget
     ()
 ;;
 
@@ -261,22 +263,22 @@ let test_openai_parallel_disabled_by_capability () =
    prefix dispatcher fixed in RFC-OAS-023.
 
    It is a regression FENCE, not a discrimination proof: with
-   [enable_thinking=None] and [max_tokens=1024], none of the capability
-   fields the DeepSeek route changes ([thinking_control_format],
-   [max_output_tokens]) alter the OpenAI chat-completions request body,
-   so the wire is byte-identical before/after the de-anonymization. The
+   [enable_thinking=None] and [max_tokens=1024], no [reasoning_effort]
+   field is emitted (DeepSeek rejects "none"; only high/low/medium/max/xhigh
+   are valid), so the wire is byte-identical before/after the
+   de-anonymization. The
    actual proof that [deepseek-v4-flash] resolves to [Deepseek_v4_flash]
    lives in the inline [let%test "for_model_id_static: specific model IDs
    get correct (not shadowed) capabilities"] in [capabilities.ml] and in
    [test_capabilities.ml]'s cloud-suffix route checks. *)
 let deepseek_required_expected =
-  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","reasoning_effort":"none","temperature":0.7,"model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":""},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
+  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","temperature":0.7,"model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":""},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
 ;;
 
 let test_deepseek_required () =
   let body =
     Backend_openai_request.build_request
-      ~config:(deepseek_cfg ~tool_choice:Any)
+      ~config:(deepseek_cfg ~tool_choice:Any ())
       ~messages
       ~tools:[ tool_decl ]
       ()
@@ -295,6 +297,22 @@ let test_deepseek_required () =
     "model id is the real fleet id"
     true
     (contains ~needle:{|"model":"deepseek-v4-flash"|} body)
+;;
+
+let test_deepseek_disabled_reasoning_omits_reasoning_effort () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:
+        (deepseek_cfg ~enable_thinking:false ~thinking_budget:4096 ~tool_choice:Any ())
+      ~messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  check
+    bool
+    {|DeepSeek disabled reasoning omits rejected reasoning_effort:"none"|}
+    false
+    (contains ~needle:{|"reasoning_effort"|} body)
 ;;
 
 (* ── Anthropic ──────────────────────────────────────── *)
@@ -494,6 +512,10 @@ let () =
             `Quick
             test_openai_parallel_disabled_by_capability
         ; test_case "deepseek-v4-flash required(Any)" `Quick test_deepseek_required
+        ; test_case
+            "deepseek-v4-flash disabled reasoning omits reasoning_effort"
+            `Quick
+            test_deepseek_disabled_reasoning_omits_reasoning_effort
         ] )
     ; ( "anthropic"
       , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced

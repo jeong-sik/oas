@@ -248,15 +248,13 @@ let build_request
        | Some true, Some budget -> ("thinking_budget", `Int budget) :: body
        | _ -> body)
     | Reasoning_effort ->
-      (match config.enable_thinking with
-       | Some _ ->
-         let effort =
-           Provider_config.effort_of_thinking_config
-             ~enable_thinking:config.enable_thinking
-             ~thinking_budget:config.thinking_budget
-         in
-         ("reasoning_effort", `String effort) :: body
-       | None -> ("reasoning_effort", `String "none") :: body)
+      (match
+         Provider_config.reasoning_effort_request_value
+           ~enable_thinking:config.enable_thinking
+           ~thinking_budget:config.thinking_budget
+       with
+       | Some effort -> ("reasoning_effort", `String effort) :: body
+       | None -> body)
     | Thinking_object ->
       (match config.enable_thinking with
        | Some true ->
