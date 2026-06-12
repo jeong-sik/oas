@@ -232,6 +232,18 @@ let effort_of_thinking_config
      | None -> default_reasoning_effort ())
 ;;
 
+let reasoning_effort_request_value
+      ~(enable_thinking : bool option)
+      ~(thinking_budget : int option)
+  : string option
+  =
+  match enable_thinking with
+  | Some true ->
+    let effort = effort_of_thinking_config ~enable_thinking ~thinking_budget in
+    if String.equal effort "none" then None else Some effort
+  | Some false | None -> None
+;;
+
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)

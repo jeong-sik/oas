@@ -460,6 +460,19 @@ let test_reasoning_effort_of_config () =
     (Provider_config.reasoning_effort_of_config anthropic)
 ;;
 
+let test_reasoning_effort_request_value () =
+  let check_value label expected enable_thinking thinking_budget =
+    Alcotest.(check (option string))
+      label
+      expected
+      (Provider_config.reasoning_effort_request_value ~enable_thinking ~thinking_budget)
+  in
+  check_value "unset omits field" None None (Some 4096);
+  check_value "disabled omits field" None (Some false) (Some 4096);
+  check_value "zero budget omits field" None (Some true) (Some 0);
+  check_value "enabled maps effort" (Some "low") (Some true) (Some 2048)
+;;
+
 let test_structured_output_name_of_schema () =
   let check_name label expected schema =
     check_string label expected (Provider_config.structured_output_name_of_schema schema)
@@ -976,6 +989,10 @@ let () =
             "reasoning effort by config"
             `Quick
             test_reasoning_effort_of_config
+        ; Alcotest.test_case
+            "reasoning effort request value"
+            `Quick
+            test_reasoning_effort_request_value
         ; Alcotest.test_case
             "structured output names"
             `Quick

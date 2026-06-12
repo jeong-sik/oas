@@ -21,10 +21,10 @@ type thinking_control_format =
       sending a top-level thinking field. *)
   | Reasoning_effort
   (** Openai-style top-level [reasoning_effort] string field. The set of
-      values this codebase emits is [{"none","low","medium","high"}] —
-      see {!Provider_config.effort_of_thinking_config}. (Openai's spec
-      also accepts ["minimal"], but no current OAS request builder emits
-      it.) Ollama's OpenAI-compatible mode uses this shape. *)
+      non-disabled values this codebase emits is [{"low","medium","high"}] —
+      see {!Provider_config.reasoning_effort_request_value}. Disabled
+      reasoning is represented by omitting the field, because DeepSeek v4
+      rejects ["none"]. Ollama's OpenAI-compatible mode uses this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)

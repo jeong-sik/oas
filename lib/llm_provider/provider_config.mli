@@ -252,6 +252,15 @@ val effort_of_thinking_config
   -> thinking_budget:int option
   -> string
 
+(** Provider request body value for OpenAI-compatible [reasoning_effort].
+    Returns [None] when thinking is disabled, unset, or resolved to ["none"],
+    so callers omit the field instead of sending a provider-rejected sentinel.
+    @since 0.206.5 *)
+val reasoning_effort_request_value
+  :  enable_thinking:bool option
+  -> thinking_budget:int option
+  -> string option
+
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)

@@ -165,15 +165,13 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
          | Some true, Some budget -> ("thinking_budget", `Int budget) :: body_assoc
          | _ -> body_assoc)
       | Llm_provider.Capabilities.Reasoning_effort ->
-        (match config.config.enable_thinking with
-         | Some _ ->
-           let effort =
-             Llm_provider.Provider_config.effort_of_thinking_config
-               ~enable_thinking:config.config.enable_thinking
-               ~thinking_budget:config.config.thinking_budget
-           in
-           ("reasoning_effort", `String effort) :: body_assoc
-         | None -> ("reasoning_effort", `String "none") :: body_assoc)
+        (match
+           Llm_provider.Provider_config.reasoning_effort_request_value
+             ~enable_thinking:config.config.enable_thinking
+             ~thinking_budget:config.config.thinking_budget
+         with
+         | Some effort -> ("reasoning_effort", `String effort) :: body_assoc
+         | None -> body_assoc)
       | Llm_provider.Capabilities.Thinking_object ->
         (match config.config.enable_thinking with
          | Some true ->
