@@ -175,6 +175,22 @@ let tool_exception_result ~id ~name exn =
   }
 ;;
 
+let protect_tool_lifecycle_callback ~tool_name ~callback_name f =
+  try f () with
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Sys.Break -> raise Sys.Break
+  | Eio.Cancel.Cancelled _ as ex -> raise ex
+  | exn ->
+    Log.warn
+      _log
+      "tool lifecycle callback raised"
+      [ Log.S ("tool", tool_name)
+      ; Log.S ("callback", callback_name)
+      ; Log.S ("error", Printexc.to_string exn)
+      ]
+;;
+
 let approval_required_without_callback_result ~id ~name =
   let reason = "approval required but no approval callback is registered" in
   { tool_use_id = id
@@ -663,7 +679,9 @@ let execute_scheduled_tool
           })
    | None -> ());
   (match on_tool_execution_started with
-   | Some callback -> callback ~tool_use_id:id ~tool_name:name ~input ~schedule
+   | Some callback ->
+     protect_tool_lifecycle_callback ~tool_name:name ~callback_name:"started" (fun () ->
+       callback ~tool_use_id:id ~tool_name:name ~input ~schedule)
    | None -> ());
   let t0_tool = Unix.gettimeofday () in
   let triple =
@@ -860,11 +878,12 @@ let execute_scheduled_tool
    | None -> ());
   (match on_tool_execution_finished with
    | Some callback ->
-     callback
-       ~tool_use_id:id
-       ~tool_name:name
-       ~content:triple.content
-       ~is_error:triple.is_error
+     protect_tool_lifecycle_callback ~tool_name:name ~callback_name:"finished" (fun () ->
+       callback
+         ~tool_use_id:id
+         ~tool_name:name
+         ~content:triple.content
+         ~is_error:triple.is_error)
    | None -> ());
   index, triple
 ;;

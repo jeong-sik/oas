@@ -141,6 +141,8 @@ val complete_with_retry
 (** Execute a streaming LLM completion.
     Each SSE event is passed to [on_event] as it arrives.
     Returns the final assembled {!Types.api_response} after the stream ends.
+    Non-fatal exceptions raised by [on_event] are logged and do not abort the
+    stream assembly.
 
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.

@@ -156,6 +156,8 @@ val run
   -> string
   -> (Types.api_response, Error.sdk_error) result
 
+(** Stream a full agent run. Non-fatal exceptions raised by [on_event] are
+    logged and do not abort the run. *)
 val run_stream
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock
@@ -166,6 +168,8 @@ val run_stream
   -> string
   -> (Types.api_response, Error.sdk_error) result
 
+(** Stream one agent turn. Non-fatal exceptions raised by [on_event] are
+    logged and do not abort the turn. *)
 val run_turn_stream
   :  sw:Eio.Switch.t
   -> ?clock:_ Eio.Time.clock

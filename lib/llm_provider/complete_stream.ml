@@ -8,6 +8,19 @@
 include Complete_common
 include Complete_sampling
 
+let emit_stream_event on_event evt =
+  try on_event evt with
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Sys.Break -> raise Sys.Break
+  | Eio.Cancel.Cancelled _ as ex -> raise ex
+  | exn ->
+    Diag.warn
+      "complete_stream"
+      "stream event callback raised: %s"
+      (Printexc.to_string exn)
+;;
+
 let record_streaming_metrics (metrics : Metrics.t) = function
   | Telemetry_event.Streaming_first_chunk { provider; model; ttfrc_ms; _ } ->
     metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
@@ -433,7 +446,7 @@ let complete_stream_http
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
           ~body:body_with_stream
           ~f:(fun reader ->
-            on_event Types.Connected;
+            emit_stream_event on_event Types.Connected;
             let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
               let provider_d_state = ref None in
@@ -470,7 +483,7 @@ let complete_stream_http
                 then first_deliverable_at_ref := Some now;
                 List.iter
                   (fun evt ->
-                     on_event evt;
+                     emit_stream_event on_event evt;
                      Complete_stream_acc.accumulate_event acc evt;
                      (* RFC-OAS-019: classify each delta for the
                         [Streaming_summary] kind_breakdown that fires at
@@ -650,7 +663,7 @@ let complete_stream_http
                       "stream_idle_timeout_s deadline exceeded while %s"
                       (Http_client.stream_idle_state_to_label !stream_idle_state)
                   in
-                  on_event (Types.Timeout message);
+                  emit_stream_event on_event (Types.Timeout message);
                   emit_telemetry
                     (Telemetry_event.Timeout
                        { provider
