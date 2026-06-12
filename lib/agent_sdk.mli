@@ -66,6 +66,7 @@ module Agent_lifecycle = Agent_lifecycle
 module Agent_turn = Agent_turn
 module Agent_handoff = Agent_handoff
 module Agent_tools = Agent_tools
+module Agent_tool_name_alias = Agent_tool_name_alias
 module Agent_checkpoint = Agent_checkpoint
 module Agent_turn_budget = Agent_turn_budget
 module Agent = Agent

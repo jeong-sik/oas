@@ -37,6 +37,28 @@ let test_simple_tool () =
   | Error _ -> Alcotest.fail "Tool execution failed"
 ;;
 
+let test_consumer_tool_name_alias_registry () =
+  Agent_sdk.Agent_tool_name_alias.register_alias
+    ~alias:"consumer_web_search_for_test"
+    ~canonical:"WebSearch";
+  Alcotest.(check (option string))
+    "registered alias"
+    (Some "WebSearch")
+    (Agent_sdk.Agent_tool_name_alias.resolve_alias "consumer_web_search_for_test");
+  match
+    Agent_sdk.Agent_tool_name_alias.resolve
+      ~requested:"consumer_web_search_for_test"
+      ~input:(`Assoc [ "query", `String "ocaml" ])
+  with
+  | Some ("WebSearch", `Assoc [ ("query", `String "ocaml") ]) -> ()
+  | Some (name, input) ->
+    Alcotest.failf
+      "unexpected alias resolution: %s %s"
+      name
+      (Yojson.Safe.to_string input)
+  | None -> Alcotest.fail "registered alias did not resolve"
+;;
+
 let test_extract_text () =
   let content =
     [ Text "Hello"; ToolUse { id = "1"; name = "t"; input = `Null }; Text " World" ]
@@ -209,7 +231,13 @@ let () =
         ; test_case "role_string" `Quick test_role_string
         ; test_case "stop_reason" `Quick test_stop_reason
         ] )
-    ; "tool", [ test_case "simple_tool" `Quick test_simple_tool ]
+    ; ( "tool"
+      , [ test_case "simple_tool" `Quick test_simple_tool
+        ; test_case
+            "consumer tool name alias registry"
+            `Quick
+            test_consumer_tool_name_alias_registry
+        ] )
     ; "api", [ test_case "extract_text" `Quick test_extract_text ]
     ; ( "agent"
       , [ test_case "create" `Quick test_agent_create
