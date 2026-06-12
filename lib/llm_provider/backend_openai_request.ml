@@ -111,6 +111,15 @@ let chat_template_kwargs_fields (config : Provider_config.t) =
   @ bool_field "preserve_thinking" config.preserve_thinking
 ;;
 
+let glm_clear_thinking_of_config (config : Provider_config.t) =
+  match config.clear_thinking with
+  | Some clear -> clear
+  | None ->
+    (match config.preserve_thinking with
+     | Some preserve -> not preserve
+     | None -> true)
+;;
+
 let is_zai_glm_request (config : Provider_config.t) =
   Zai_catalog.is_zai_base_url config.base_url
   && Zai_catalog.is_glm_model_id config.model_id
@@ -277,7 +286,7 @@ let build_request
              `Assoc
                [ "type", `String "enabled"
                ; ( "clear_thinking"
-                 , `Bool (Option.value ~default:true config.clear_thinking) )
+                 , `Bool (glm_clear_thinking_of_config config) )
                ]
            else `Assoc [ "type", `String "disabled" ]
          in

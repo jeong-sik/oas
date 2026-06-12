@@ -89,6 +89,15 @@ exception Glm_api_error of provider_k_error
 
 (* ── Request building ────────────────────────────── *)
 
+let clear_thinking_of_config (config : Provider_config.t) =
+  match config.clear_thinking with
+  | Some clear -> clear
+  | None ->
+    (match config.preserve_thinking with
+     | Some preserve -> not preserve
+     | None -> true)
+;;
+
 let build_request
       ?(stream = false)
       ~(config : Provider_config.t)
@@ -112,7 +121,7 @@ let build_request
     let fields =
       match config.enable_thinking with
       | Some true ->
-        let clear_thinking = Option.value ~default:true config.clear_thinking in
+        let clear_thinking = clear_thinking_of_config config in
         ( "thinking"
         , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
         :: fields
@@ -272,9 +281,34 @@ let%test "build_request can preserve reasoning on demand" =
     Provider_config.make
       ~kind:Glm
       ~model_id:"glm-5"
-      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~base_url:Zai_catalog.coding_base_url
       ~enable_thinking:true
       ~clear_thinking:false
+      ()
+  in
+  let messages =
+    [ { role = User
+      ; content = [ Text "reason" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  json |> member "thinking" |> member "clear_thinking" |> to_bool = false
+;;
+
+let%test "build_request maps preserve_thinking to GLM clear_thinking=false" =
+  let config =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"glm-5"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~enable_thinking:true
+      ~preserve_thinking:true
       ()
   in
   let messages =
