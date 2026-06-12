@@ -118,8 +118,12 @@ module Fmt_tracer : TRACER = struct
   let with_span attrs f =
     let span = start_span attrs in
     match f () with
-    | result -> end_span span ~ok:true; result
-    | exception exn -> end_span span ~ok:false; raise exn
+    | result ->
+      end_span span ~ok:true;
+      result
+    | exception exn ->
+      end_span span ~ok:false;
+      raise exn
   ;;
 end
 

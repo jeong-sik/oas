@@ -149,12 +149,18 @@ let test_filter_tools_only () =
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
-    (ev (ToolCalled { agent_name = "a"; tool_name = "calc"; tool_use_id = "tu-test"; input = `Null }));
+    (ev
+       (ToolCalled
+          { agent_name = "a"; tool_name = "calc"; tool_use_id = "tu-test"; input = `Null }));
   Event_bus.publish
     bus
     (ev
        (ToolCompleted
-          { agent_name = "a"; tool_name = "calc"; tool_use_id = "tu-test"; output = Ok { Types.content = "42" } }));
+          { agent_name = "a"
+          ; tool_name = "calc"
+          ; tool_use_id = "tu-test"
+          ; output = Ok { Types.content = "42" }
+          }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
   let events = Event_bus.drain sub in
   check int "only tool events" 2 (List.length events)
@@ -178,7 +184,9 @@ let test_accept_all () =
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
-    (ev (ToolCalled { agent_name = "a"; tool_name = "x"; tool_use_id = "tu-test"; input = `Null }));
+    (ev
+       (ToolCalled
+          { agent_name = "a"; tool_name = "x"; tool_use_id = "tu-test"; input = `Null }));
   Event_bus.publish bus (ev (Custom ("test", `Null)));
   let events = Event_bus.drain sub in
   check int "all three events" 3 (List.length events)
@@ -208,7 +216,8 @@ let test_payload_kind_canonical_labels () =
     ; Event_bus.TurnStarted { agent_name = "a"; turn = 0 }, "turn_started"
     ; Event_bus.TurnReady { agent_name = "a"; turn = 0; tool_names = [] }, "turn_ready"
     ; Event_bus.TurnCompleted { agent_name = "a"; turn = 0 }, "turn_completed"
-    ; ( Event_bus.ToolCalled { agent_name = "a"; tool_name = "f"; tool_use_id = "tu-test"; input = `Null }
+    ; ( Event_bus.ToolCalled
+          { agent_name = "a"; tool_name = "f"; tool_use_id = "tu-test"; input = `Null }
       , "tool_called" )
     ; ( Event_bus.HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "" }
       , "handoff_requested" )
@@ -276,12 +285,18 @@ let test_multiple_event_types () =
   Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
-    (ev (ToolCalled { agent_name = "a"; tool_name = "f"; tool_use_id = "tu-test"; input = `Null }));
+    (ev
+       (ToolCalled
+          { agent_name = "a"; tool_name = "f"; tool_use_id = "tu-test"; input = `Null }));
   Event_bus.publish
     bus
     (ev
        (ToolCompleted
-          { agent_name = "a"; tool_name = "f"; tool_use_id = "tu-test"; output = Ok { Types.content = "ok" } }));
+          { agent_name = "a"
+          ; tool_name = "f"
+          ; tool_use_id = "tu-test"
+          ; output = Ok { Types.content = "ok" }
+          }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
   Event_bus.publish
     bus
@@ -317,7 +332,11 @@ let test_tool_called_fields () =
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe bus in
   let input = `Assoc [ "x", `Int 1 ] in
-  Event_bus.publish bus (ev (ToolCalled { agent_name = "a"; tool_name = "calc"; tool_use_id = "tu-test"; input }));
+  Event_bus.publish
+    bus
+    (ev
+       (ToolCalled
+          { agent_name = "a"; tool_name = "calc"; tool_use_id = "tu-test"; input }));
   match Event_bus.drain sub with
   | [ { payload = ToolCalled r; _ } ] ->
     check string "agent_name" "a" r.agent_name;

@@ -35,16 +35,15 @@ let test_parallel_spans_have_correct_parents () =
                }
              in
              T.with_span child_attrs (fun () ->
-               let child_span = Option.get (Agent_sdk.Otel_tracer.inst_current_span inst) in
+               let child_span =
+                 Option.get (Agent_sdk.Otel_tracer.inst_current_span inst)
+               in
                child_span.Agent_sdk.Otel_tracer.parent_span_id))
           [ 0; 1; 2 ]
       in
       List.iteri
         (fun i ppid ->
-           check
-             (Printf.sprintf "child_%d has correct parent" i)
-             (Some parent_id)
-             ppid)
+           check (Printf.sprintf "child_%d has correct parent" i) (Some parent_id) ppid)
         child_results))
 ;;
 
@@ -79,14 +78,12 @@ let test_parallel_spans_do_not_cross_contaminate () =
              in
              T.with_span sibling_attrs (fun () ->
                let span = Option.get (Agent_sdk.Otel_tracer.inst_current_span inst) in
-               ( span.Agent_sdk.Otel_tracer.name
-               , span.Agent_sdk.Otel_tracer.parent_span_id )))
+               span.Agent_sdk.Otel_tracer.name, span.Agent_sdk.Otel_tracer.parent_span_id))
           [ 0; 1; 2 ]
       in
       (* All three siblings must have the SAME parent: the root span. *)
       let parent_ids =
-        List.filter_map snd _sibling_spans
-        |> List.sort_uniq String.compare
+        List.filter_map snd _sibling_spans |> List.sort_uniq String.compare
       in
       Alcotest.(check int "all siblings share one parent" 1) (List.length parent_ids);
       (* After all siblings finish, the active span must be the root again. *)

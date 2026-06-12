@@ -373,13 +373,9 @@ let test_build_openai_body_with_provider_m_sampling () =
 ;;
 
 let test_build_openai_body_with_qwen_preserve_thinking () =
+  let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
   let state =
-    make_state ~enable_thinking:true ~preserve_thinking:true ()
-  in
-  let state =
-    { state with
-      config = { state.config with model = "qwen36-35b-a3b-mtp" }
-    }
+    { state with config = { state.config with model = "qwen36-35b-a3b-mtp" } }
   in
   let json =
     Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
@@ -387,11 +383,7 @@ let test_build_openai_body_with_qwen_preserve_thinking () =
   let open Yojson.Safe.Util in
   let ctk = json |> member "chat_template_kwargs" in
   check bool "enable_thinking true" true (ctk |> member "enable_thinking" |> to_bool);
-  check
-    bool
-    "preserve_thinking true"
-    true
-    (ctk |> member "preserve_thinking" |> to_bool)
+  check bool "preserve_thinking true" true (ctk |> member "preserve_thinking" |> to_bool)
 ;;
 
 let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =

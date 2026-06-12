@@ -226,7 +226,10 @@ let stage_collect ?raw_trace_run agent ~original_config response =
          }
        in
        let* () =
-         persist_turn_checkpoint_for_state agent After_assistant_collected checkpoint_state
+         persist_turn_checkpoint_for_state
+           agent
+           After_assistant_collected
+           checkpoint_state
        in
        update_state agent (fun state ->
          { state with
@@ -240,7 +243,8 @@ let stage_collect ?raw_trace_run agent ~original_config response =
             bus
             { meta = Pipeline_common.event_envelope agent
             ; payload =
-                TurnCompleted { agent_name = agent.state.config.name; turn = completed_turn }
+                TurnCompleted
+                  { agent_name = agent.state.config.name; turn = completed_turn }
             }
         | None -> ());
        (match agent.options.journal with
@@ -284,7 +288,8 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
        in
        let classify_idle_severity consecutive_idle_turns =
          match resolved_idle_skip_at, resolved_idle_final_warning_at with
-         | Some skip_at, _ when consecutive_idle_turns >= skip_at -> Hooks.Idle_severity.Skip
+         | Some skip_at, _ when consecutive_idle_turns >= skip_at ->
+           Hooks.Idle_severity.Skip
          | _, Some final_at when consecutive_idle_turns >= final_at ->
            Hooks.Idle_severity.Final_warning
          | _ -> Hooks.Idle_severity.Nudge
@@ -368,7 +373,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          let count = List.length tool_uses in
          match Guardrails.exceeds_limit effective_guardrails count with
          | true ->
-           let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
+           let msg =
+             Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count
+           in
            let content =
              match !pending_nudge with
              | Some nudge -> [ Text msg; Text nudge ]
@@ -396,7 +403,8 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
            (* Persist CRS to context after tool result processing so that
             checkpoint captures the current replacement decisions. *)
            (match agent.options.tool_result_relocation with
-            | Some (_, crs) -> Content_replacement_state.persist_to_context agent.context crs
+            | Some (_, crs) ->
+              Content_replacement_state.persist_to_context agent.context crs
             | None -> ());
            (* Tool-call validation / recoverable errors flow back to the model as
               is_error tool_results; the model self-corrects on a subsequent turn.
@@ -417,16 +425,17 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
                tool_feedback
                @ [ Text
                      (Printf.sprintf
-                        "[Idle warning: You called the same tool(s) with identical arguments \
-                         %d time(s) in a row. Try a different tool or change your arguments \
-                         to make progress.]"
+                        "[Idle warning: You called the same tool(s) with identical \
+                         arguments %d time(s) in a row. Try a different tool or change \
+                         your arguments to make progress.]"
                         agent.consecutive_idle_turns)
                  ]
              | None -> tool_feedback
            in
            update_state agent (fun s ->
              { s with
-               messages = Util.snoc s.messages (make_message ~role:User effective_feedback)
+               messages =
+                 Util.snoc s.messages (make_message ~role:User effective_feedback)
              });
            (match agent.options.context_injector with
             | None -> ()
@@ -491,7 +500,9 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                 | Audio _ -> false)
              response.content
          in
-         let result = stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses in
+         let result =
+           stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses
+         in
          (match result with
           | Ok IdleSkipped ->
             (* on_idle hook returned Skip: stop gracefully with the current response *)

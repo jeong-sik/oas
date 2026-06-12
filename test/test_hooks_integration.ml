@@ -453,9 +453,10 @@ let test_on_idle_nudge_rides_tool_results_message () =
       List.exists
         (fun (m : Types.message) ->
            has_tool_result m.content
-           && (match List.rev m.content with
-               | last :: _ -> is_nudge_text last
-               | [] -> false))
+           &&
+           match List.rev m.content with
+           | last :: _ -> is_nudge_text last
+           | [] -> false)
         messages
     in
     Alcotest.(check bool) "nudge trails the tool-results message" true carried)

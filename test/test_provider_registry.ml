@@ -292,7 +292,11 @@ let test_default_deepseek_entry () =
   let reg = Provider_registry.default () in
   match Provider_registry.find reg "deepseek" with
   | Some e ->
-    check bool "kind is OpenAI_compat" true (e.defaults.kind = Provider_config.OpenAI_compat);
+    check
+      bool
+      "kind is OpenAI_compat"
+      true
+      (e.defaults.kind = Provider_config.OpenAI_compat);
     check string "base_url" "https://api.deepseek.com" e.defaults.base_url;
     check string "api_key_env" "DEEPSEEK_API_KEY" e.defaults.api_key_env;
     check string "request_path" "/chat/completions" e.defaults.request_path
@@ -1014,10 +1018,7 @@ let () =
         ; test_case "correct capabilities" `Quick test_default_capabilities
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
         ; test_case "deepseek entry" `Quick test_default_deepseek_entry
-        ; test_case
-            "deepseek api key env"
-            `Quick
-            test_default_deepseek_api_key_env
+        ; test_case "deepseek api key env" `Quick test_default_deepseek_api_key_env
         ; test_case
             "provider_name_of_config returns ollama_cloud"
             `Quick

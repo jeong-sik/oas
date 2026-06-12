@@ -21,7 +21,9 @@ let test_event_type_name () =
   let cases =
     [ ev (Event_bus.AgentStarted { agent_name = "a"; task_id = "t" }), "agent.started"
     ; ev (Event_bus.TurnStarted { agent_name = "a"; turn = 0 }), "turn.started"
-    ; ( ev (Event_bus.ToolCalled { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null })
+    ; ( ev
+          (Event_bus.ToolCalled
+             { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null })
       , "tool.called" )
     ; ( ev
           (Event_bus.ContentReplacementKept
@@ -261,7 +263,11 @@ let test_tool_events_payload () =
   let called =
     ev
       (Event_bus.ToolCalled
-         { agent_name = "x"; tool_name = "search"; tool_use_id = "tu-test"; input = `String "query" })
+         { agent_name = "x"
+         ; tool_name = "search"
+         ; tool_use_id = "tu-test"
+         ; input = `String "query"
+         })
   in
   let completed =
     ev

@@ -285,8 +285,7 @@ let build_request
            then
              `Assoc
                [ "type", `String "enabled"
-               ; ( "clear_thinking"
-                 , `Bool (glm_clear_thinking_of_config config) )
+               ; "clear_thinking", `Bool (glm_clear_thinking_of_config config)
                ]
            else `Assoc [ "type", `String "disabled" ]
          in
