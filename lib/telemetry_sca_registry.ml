@@ -18,18 +18,18 @@ type entry =
 
 let registry : entry list =
   [ { signal = "Streaming_first_chunk"
-    ; producer_files = [ "lib/llm_provider/complete.ml" ]
+    ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "TTFT (time to first chunk) measured at first SSE parse"
     }
   ; { signal = "Streaming_chunk_n"
-    ; producer_files = [ "lib/llm_provider/complete.ml" ]
+    ; producer_files = []
     ; description =
         "Inter-chunk latency for streaming deltas (deprecated by RFC-OAS-019 Phase 1; \
-         variant retained one release window for downstream consumer migration, then \
-         removed)"
+         public telemetry publish removed; variant retained one release window for \
+         downstream consumer migration, then removed)"
     }
   ; { signal = "Streaming_summary"
-    ; producer_files = [ "lib/llm_provider/complete.ml" ]
+    ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description =
         "Stream lifecycle summary published once per completion (RFC-OAS-019): \
          chunk_count, kind_breakdown, TTFT, total_ms, inter_chunk p50/p95/max, terminal \
@@ -40,11 +40,11 @@ let registry : entry list =
     ; description = "Reasoning/thinking token duration from start to empty delta"
     }
   ; { signal = "Timeout"
-    ; producer_files = [ "lib/llm_provider/complete.ml" ]
+    ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "Eio body or idle timeout fired before full response"
     }
   ; { signal = "Prefill_complete"
-    ; producer_files = [ "lib/llm_provider/complete.ml" ]
+    ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "Prompt eval token count and latency from Ollama timings"
     }
   ; { signal = "Budget_exceeded"

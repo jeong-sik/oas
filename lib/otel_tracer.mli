@@ -66,7 +66,7 @@ type mutex_impl =
 type instance =
   { config : config
   ; mu : mutex_impl
-  ; fiber_key : (span list ref) Eio.Fiber.key option
+  ; fiber_key : span list ref Eio.Fiber.key option
   ; mutable current_spans : span list
   ; mutable completed_spans : span list
   ; mutable metrics : metric_entry list

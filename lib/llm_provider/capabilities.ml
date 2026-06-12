@@ -915,7 +915,7 @@ let%test "for_model_id hf.co/unsloth Gemma 4 QAT uses template token thinking" =
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
-    && not c.supports_reasoning_budget
+    && (not c.supports_reasoning_budget)
     && c.thinking_control_format = Chat_template_token
     && c.modality_priority = Modality.Visual_first
   | None -> false
@@ -926,7 +926,7 @@ let%test "for_model_id hf.co/google Gemma 4 QAT uses template token thinking" =
   | Some c ->
     c.supports_reasoning
     && c.supports_extended_thinking
-    && not c.supports_reasoning_budget
+    && (not c.supports_reasoning_budget)
     && c.thinking_control_format = Chat_template_token
   | None -> false
 ;;
@@ -1036,8 +1036,8 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
           && c.max_output_tokens = Some 384_000 )
     ; ( "Qwen/Qwen3.6-35B-A3B"
       , fun c ->
-          c.thinking_control_format = Chat_template_kwargs
-          && c.supports_extended_thinking )
+          c.thinking_control_format = Chat_template_kwargs && c.supports_extended_thinking
+      )
     ; ( "deepseek-v4-pro-test"
       , fun c ->
           c.thinking_control_format = Reasoning_effort
@@ -1057,8 +1057,8 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
           && c.modality_priority = Modality.Visual_first
           && c.max_context_tokens = Some 262_144 )
     ; ( "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
-      , fun c ->
-          c.supports_reasoning && c.thinking_control_format = Chat_template_token )
+      , fun c -> c.supports_reasoning && c.thinking_control_format = Chat_template_token
+      )
     ]
 ;;
 

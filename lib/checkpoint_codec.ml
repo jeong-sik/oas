@@ -395,8 +395,7 @@ let delta_of_json json =
            ; top_k = op_json |> member "top_k" |> to_int_option
            ; min_p = op_json |> member "min_p" |> to_float_option
            ; enable_thinking = op_json |> member "enable_thinking" |> to_bool_option
-           ; preserve_thinking =
-               op_json |> member "preserve_thinking" |> to_bool_option
+           ; preserve_thinking = op_json |> member "preserve_thinking" |> to_bool_option
            ; thinking_budget = op_json |> member "thinking_budget" |> to_int_option
            })
     | "replace_limits" ->
@@ -565,8 +564,7 @@ let of_json json =
              ; top_k = json |> member "top_k" |> to_int_option
              ; min_p = json |> member "min_p" |> to_float_option
              ; enable_thinking = json |> member "enable_thinking" |> to_bool_option
-             ; preserve_thinking =
-                 json |> member "preserve_thinking" |> to_bool_option
+             ; preserve_thinking = json |> member "preserve_thinking" |> to_bool_option
              ; response_format
              ; thinking_budget = json |> member "thinking_budget" |> to_int_option
              ; cache_system_prompt =

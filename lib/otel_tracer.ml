@@ -95,7 +95,7 @@ type mutex_impl =
 type instance =
   { config : config
   ; mu : mutex_impl
-  ; fiber_key : (span list ref) Eio.Fiber.key option
+  ; fiber_key : span list ref Eio.Fiber.key option
   ; mutable current_spans : span list
   ; mutable completed_spans : span list
   ; mutable metrics : metric_entry list
@@ -173,7 +173,7 @@ let inst_with_lock inst f =
 
 (** Return the fiber-local span-stack ref cell, if we are running inside
     an Eio fiber that has the instance's [fiber_key] bound. *)
-let get_fiber_stack inst : (span list ref) option =
+let get_fiber_stack inst : span list ref option =
   match inst.fiber_key with
   | None -> None
   | Some key ->
@@ -264,17 +264,17 @@ let inst_end_span inst (s : span) ~ok =
     | Some stack_ref ->
       let target = ref None in
       stack_ref
-        := List.filter_map
-             (fun sp ->
-                if sp.span_id = s.span_id
-                then (
-                  let updated =
-                    { sp with end_time_ns = Some (now_ns ()); status = Some ok }
-                  in
-                  target := Some updated;
-                  None)
-                else Some sp)
-             !stack_ref;
+      := List.filter_map
+           (fun sp ->
+              if sp.span_id = s.span_id
+              then (
+                let updated =
+                  { sp with end_time_ns = Some (now_ns ()); status = Some ok }
+                in
+                target := Some updated;
+                None)
+              else Some sp)
+           !stack_ref;
       !target
     | None ->
       inst_with_lock inst
@@ -314,9 +314,7 @@ let inst_add_event inst (s : span) (msg : string) =
   match get_fiber_stack inst with
   | Some stack_ref -> stack_ref := update_spans !stack_ref
   | None ->
-    inst_with_lock inst
-    @@ fun () ->
-    inst.current_spans <- update_spans inst.current_spans
+    inst_with_lock inst @@ fun () -> inst.current_spans <- update_spans inst.current_spans
 ;;
 
 let inst_add_attrs inst (s : span) (attrs : (string * string) list) =
@@ -331,9 +329,7 @@ let inst_add_attrs inst (s : span) (attrs : (string * string) list) =
   match get_fiber_stack inst with
   | Some stack_ref -> stack_ref := update_spans !stack_ref
   | None ->
-    inst_with_lock inst
-    @@ fun () ->
-    inst.current_spans <- update_spans inst.current_spans
+    inst_with_lock inst @@ fun () -> inst.current_spans <- update_spans inst.current_spans
 ;;
 
 let inst_add_link inst (s : span) ~trace_id ~span_id =
@@ -342,16 +338,16 @@ let inst_add_link inst (s : span) ~trace_id ~span_id =
     List.map
       (fun sp ->
          if sp.span_id = s.span_id
-         then (sp.links <- link :: sp.links; sp)
+         then (
+           sp.links <- link :: sp.links;
+           sp)
          else sp)
       spans
   in
   match get_fiber_stack inst with
   | Some stack_ref -> stack_ref := update_spans !stack_ref
   | None ->
-    inst_with_lock inst
-    @@ fun () ->
-    inst.current_spans <- update_spans inst.current_spans
+    inst_with_lock inst @@ fun () -> inst.current_spans <- update_spans inst.current_spans
 ;;
 
 let inst_flush inst =
@@ -664,13 +660,14 @@ let tracer_of_instance inst : Tracing.t =
             raise exn)
       | None ->
         let span = inst_start_span inst attrs in
-        match f () with
-        | result ->
-          inst_end_span inst span ~ok:true;
-          result
-        | exception exn ->
-          inst_end_span inst span ~ok:false;
-          raise exn
+        (match f () with
+         | result ->
+           inst_end_span inst span ~ok:true;
+           result
+         | exception exn ->
+           inst_end_span inst span ~ok:false;
+           raise exn)
+    ;;
   end)
 ;;
 

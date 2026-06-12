@@ -234,7 +234,13 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
   =
   Tracing.with_span
     tracer
-    { kind = Hook_invoke; name = hook_name; agent_name; turn = turn_count; extra = []; links = [] }
+    { kind = Hook_invoke
+    ; name = hook_name
+    ; agent_name
+    ; turn = turn_count
+    ; extra = []
+    ; links = []
+    }
     (fun _ ->
        let decision = Hooks.invoke_validated hook_opt event in
        (match on_hook_invoked with

@@ -113,20 +113,14 @@ let normalize_execute_input = function
     Maps alias -> canonical tool name. *)
 let registry = Hashtbl.create 16
 
-let register_alias ~alias ~canonical =
-  Hashtbl.replace registry alias canonical
-;;
-
-let resolve_alias alias =
-  Hashtbl.find_opt registry alias
-;;
+let register_alias ~alias ~canonical = Hashtbl.replace registry alias canonical
+let resolve_alias alias = Hashtbl.find_opt registry alias
 
 let resolve ~requested ~input =
   match requested with
   | "Read" -> Some ("ReadFile", normalize_read_input input)
   | "Grep" | "Search" | "Find" -> Some ("SearchFiles", normalize_search_input input)
-  | "Bash" | "Shell" | "execute_command" ->
-    Some ("Execute", normalize_execute_input input)
+  | "Bash" | "Shell" | "execute_command" -> Some ("Execute", normalize_execute_input input)
   | _ ->
     (match resolve_alias requested with
      | Some canonical -> Some (canonical, input)

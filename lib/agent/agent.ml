@@ -33,7 +33,10 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
     ; agent_name = agent.state.config.name
     ; turn = agent.state.turn_count
     ; extra = []
-    ; links = (match agent.options.trace_link with Some (tid, sid) -> [(tid, sid)] | None -> [])
+    ; links =
+        (match agent.options.trace_link with
+         | Some (tid, sid) -> [ tid, sid ]
+         | None -> [])
     }
     (fun _tracer ->
        let api_strat =
@@ -41,7 +44,9 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
          | Sync -> Pipeline.Sync
          | Stream { on_event; on_telemetry } -> Pipeline.Stream { on_event; on_telemetry }
        in
-       match Pipeline.run_turn ~sw ?clock ~api_strategy:api_strat ?raw_trace_run agent with
+       match
+         Pipeline.run_turn ~sw ?clock ~api_strategy:api_strat ?raw_trace_run agent
+       with
        | Ok (Pipeline.Complete response) -> Ok (`Complete response)
        | Ok Pipeline.ToolsExecuted -> Ok `ToolsExecuted
        | Ok Pipeline.IdleSkipped ->

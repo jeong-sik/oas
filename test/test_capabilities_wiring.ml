@@ -49,8 +49,7 @@ let test_filter_parallel_tools () =
 
 let test_effective_disable_parallel_tool_use () =
   let effective =
-    Capabilities.effective_disable_parallel_tool_use
-      ~supports_parallel_tool_calls:false
+    Capabilities.effective_disable_parallel_tool_use ~supports_parallel_tool_calls:false
   in
   check
     bool

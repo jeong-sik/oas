@@ -466,9 +466,7 @@ let complete_stream_http
                 then first_token_at_ref := Some now;
                 if
                   Option.is_none !first_deliverable_at_ref
-                  && List.exists
-                       Streaming.sse_event_is_deliverable_progress_signal
-                       events
+                  && List.exists Streaming.sse_event_is_deliverable_progress_signal events
                 then first_deliverable_at_ref := Some now;
                 List.iter
                   (fun evt ->
@@ -518,15 +516,15 @@ let complete_stream_http
                        terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
                   events;
                 (match
-                   stream_idle_timeout_s, !first_deliverable_at_ref,
-                   !thinking_only_started_at_ref
+                   ( stream_idle_timeout_s
+                   , !first_deliverable_at_ref
+                   , !thinking_only_started_at_ref )
                  with
                  | Some timeout_s, None, Some started_at
                    when Streaming.thinking_only_timeout_exceeded
                           ~timeout_s
                           ~started_at
-                          ~now ->
-                   raise Eio.Time.Timeout
+                          ~now -> raise Eio.Time.Timeout
                  | Some _, _, _ | None, _, _ -> ());
                 if events <> []
                 then

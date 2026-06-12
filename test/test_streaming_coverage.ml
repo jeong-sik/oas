@@ -16,6 +16,11 @@ let check_bool = Alcotest.(check bool)
 
 (** Unwrap finalize result or fail the test. *)
 let finalize_ok acc =
+  if not !(acc.Streaming.stop_reason_received)
+  then
+    Streaming.accumulate_event
+      acc
+      (MessageDelta { stop_reason = Some EndTurn; usage = None });
   match Streaming.finalize_stream_acc acc with
   | Ok resp -> resp
   | Error msg -> Alcotest.fail ("unexpected SSE error: " ^ msg)

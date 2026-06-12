@@ -205,7 +205,12 @@ let test_eval_collector_basic () =
   Event_bus.publish
     bus
     (Event_bus.mk_event
-       (ToolCalled { agent_name = "test"; tool_name = "t1"; tool_use_id = "tu-test"; input = `Null }));
+       (ToolCalled
+          { agent_name = "test"
+          ; tool_name = "t1"
+          ; tool_use_id = "tu-test"
+          ; input = `Null
+          }));
   Event_bus.publish
     bus
     (Event_bus.mk_event

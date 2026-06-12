@@ -67,6 +67,7 @@ module Mcp_http = Mcp_http
 module Mcp_session = Mcp_session
 module Sse_parser = Llm_provider.Sse_parser
 module Telemetry_event = Llm_provider.Telemetry_event
+module Response_shape = Llm_provider.Response_shape
 module Canonical_tool = Llm_provider.Canonical_tool
 module Guardrails = Agent_sdk_base.Guardrails
 module Tool_set = Tool_set
