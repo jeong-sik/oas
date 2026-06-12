@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.7](https://github.com/jeong-sik/oas/compare/v0.206.6...v0.206.7) (2026-06-12)
+
+
+### Bug Fixes
+
+* **agent:** export tool alias registry ([#2046](https://github.com/jeong-sik/oas/issues/2046)) ([4359533](https://github.com/jeong-sik/oas/commit/435953390ef27c82d7890445dc7952e25035dab9))
+
 ## [0.206.6](https://github.com/jeong-sik/oas/compare/v0.206.5...v0.206.6) (2026-06-12)
 
 
