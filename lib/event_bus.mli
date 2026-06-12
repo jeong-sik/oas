@@ -73,7 +73,7 @@ type payload =
             so subscribers can join bus events with hook-side records
             deterministically instead of guessing by tool name and
             timestamp. Empty string when the provider supplied no id.
-            @since 0.207.0 *)
+            @since 0.206.2 *)
       ; input : Yojson.Safe.t
       }
   | ToolCompleted of
@@ -81,7 +81,7 @@ type payload =
       ; tool_name : string
       ; tool_use_id : string
         (** Same id as the matching [ToolCalled]; see its doc.
-            @since 0.207.0 *)
+            @since 0.206.2 *)
       ; output : Types.tool_result
       }
   | TurnStarted of
