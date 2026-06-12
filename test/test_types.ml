@@ -859,6 +859,102 @@ let test_role_system_tool_strings () =
   Alcotest.(check string) "tool" "tool" (Types.role_to_string Types.Tool)
 ;;
 
+(* ── response shape diagnostics ───────────────────────── *)
+
+let response ?(content = []) ?(stop_reason = Types.EndTurn) () : Types.api_response =
+  { id = "resp-test"
+  ; model = "model-test"
+  ; stop_reason
+  ; content
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let summary_contains ~needle response =
+  let haystack = Response_shape.diagnostic_summary response in
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop i =
+    i + needle_len <= haystack_len
+    && (String.sub haystack i needle_len = needle || loop (i + 1))
+  in
+  needle_len = 0 || loop 0
+;;
+
+let test_response_shape_thinking_only_is_not_deliverable () =
+  let response =
+    response
+      ~content:[ Types.Thinking { thinking_type = "reasoning"; content = "hidden" } ]
+      ()
+  in
+  let shape = Response_shape.summarize response in
+  Alcotest.(check bool)
+    "no deliverable content"
+    false
+    (Response_shape.has_deliverable_content shape);
+  Alcotest.(check bool)
+    "ended without deliverable content"
+    true
+    (Response_shape.ended_without_deliverable_content response);
+  Alcotest.(check string)
+    "shape label"
+    "thinking_only"
+    (Response_shape.content_shape_to_string (Response_shape.content_shape response shape));
+  Alcotest.(check bool)
+    "counts thinking chars without exposing content"
+    true
+    (summary_contains ~needle:"thinking_chars=6" response);
+  Alcotest.(check bool)
+    "does not expose hidden thinking text"
+    false
+    (summary_contains ~needle:"hidden" response)
+;;
+
+let test_response_shape_thinking_plus_text_is_deliverable () =
+  let response =
+    response
+      ~content:
+        [ Types.Thinking { thinking_type = "reasoning"; content = "hidden" }
+        ; Types.Text " final answer "
+        ]
+      ()
+  in
+  let shape = Response_shape.summarize response in
+  Alcotest.(check bool)
+    "deliverable content"
+    true
+    (Response_shape.has_deliverable_content shape);
+  Alcotest.(check bool)
+    "not ended without deliverable content"
+    false
+    (Response_shape.ended_without_deliverable_content response);
+  Alcotest.(check string)
+    "shape label"
+    "has_deliverable_content"
+    (Response_shape.content_shape_to_string (Response_shape.content_shape response shape))
+;;
+
+let test_response_shape_thinking_plus_tool_use_is_deliverable () =
+  let response =
+    response
+      ~content:
+        [ Types.Thinking { thinking_type = "reasoning"; content = "hidden" }
+        ; Types.ToolUse { id = "tool-1"; name = "search"; input = `Assoc [] }
+        ]
+      ()
+  in
+  let shape = Response_shape.summarize response in
+  Alcotest.(check bool)
+    "deliverable tool use"
+    true
+    (Response_shape.has_deliverable_content shape);
+  Alcotest.(check bool)
+    "not ended without deliverable content"
+    false
+    (Response_shape.ended_without_deliverable_content response)
+;;
+
 let () =
   Alcotest.run
     "Types"
@@ -883,6 +979,20 @@ let () =
         ] )
     ; ( "response_format"
       , [ Alcotest.test_case "json helpers" `Quick test_response_format_json_helpers ] )
+    ; ( "response_shape"
+      , [ Alcotest.test_case
+            "thinking-only is not deliverable"
+            `Quick
+            test_response_shape_thinking_only_is_not_deliverable
+        ; Alcotest.test_case
+            "thinking plus text is deliverable"
+            `Quick
+            test_response_shape_thinking_plus_text_is_deliverable
+        ; Alcotest.test_case
+            "thinking plus tool use is deliverable"
+            `Quick
+            test_response_shape_thinking_plus_tool_use_is_deliverable
+        ] )
     ; ( "usage"
       , [ Alcotest.test_case "add_usage" `Quick test_add_usage
         ; Alcotest.test_case "accumulates" `Quick test_add_usage_accumulates
