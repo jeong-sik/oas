@@ -64,6 +64,8 @@ let execute_with_tools_in_env
       ?event_bus
       ?approval
       ?(missing_approval_callback_policy = Hooks.Execute_without_callback)
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
       tool_uses
   =
   let net = Eio.Stdenv.net env in
@@ -88,6 +90,8 @@ let execute_with_tools_in_env
     ~usage:(Agent.state agent).usage
     ~approval:opts.approval
     ~missing_approval_callback_policy:opts.missing_approval_callback_policy
+    ?on_tool_execution_started
+    ?on_tool_execution_finished
     tool_uses
 ;;
 
@@ -98,6 +102,8 @@ let run_execute_with_tools
       ~hooks
       ?approval
       ?missing_approval_callback_policy
+      ?on_tool_execution_started
+      ?on_tool_execution_finished
       tool_uses
   =
   Eio_main.run
@@ -108,6 +114,8 @@ let run_execute_with_tools
     ~hooks
     ?approval
     ?missing_approval_callback_policy
+    ?on_tool_execution_started
+    ?on_tool_execution_finished
     tool_uses
 ;;
 
@@ -134,6 +142,35 @@ let test_approval_required_no_callback () =
   | [ result ] ->
     check string "id" "t1" result.tool_use_id;
     check string "content" {|"hello"|} result.content;
+    check bool "no error" false result.is_error
+  | _ -> fail "expected exactly one result"
+;;
+
+let test_tool_lifecycle_callback_exceptions_are_nonfatal () =
+  let started_calls = ref 0 in
+  let finished_calls = ref 0 in
+  let on_tool_execution_started ~tool_use_id:_ ~tool_name:_ ~input:_ ~schedule:_ =
+    incr started_calls;
+    failwith "started callback boom"
+  in
+  let on_tool_execution_finished ~tool_use_id:_ ~tool_name:_ ~content:_ ~is_error:_ =
+    incr finished_calls;
+    failwith "finished callback boom"
+  in
+  let results =
+    run_execute_with_tools
+      ~tools:[ make_echo_tool "safe" ]
+      ~hooks:Hooks.empty
+      ~on_tool_execution_started
+      ~on_tool_execution_finished
+      [ ToolUse { id = "t1"; name = "safe"; input = `Assoc [ "x", `Int 1 ] } ]
+  in
+  match results with
+  | [ result ] ->
+    check int "started callback called" 1 !started_calls;
+    check int "finished callback called" 1 !finished_calls;
+    check string "id" "t1" result.tool_use_id;
+    check string "content" {|{"x":1}|} result.content;
     check bool "no error" false result.is_error
   | _ -> fail "expected exactly one result"
 ;;
@@ -815,6 +852,12 @@ let () =
             "tool exception still publishes ToolCompleted"
             `Quick
             test_tool_exception_still_publishes_tool_completed
+        ] )
+    ; ( "callbacks"
+      , [ test_case
+            "lifecycle callback exceptions are nonfatal"
+            `Quick
+            test_tool_lifecycle_callback_exceptions_are_nonfatal
         ] )
     ]
 ;;

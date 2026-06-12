@@ -274,6 +274,7 @@ let complete_stream
   match validate_all config with
   | Error err -> Error err
   | Ok () ->
+    let on_event = emit_stream_event on_event in
     let _priority = priority in
     let request_config = config_with_trace_context config trace_context in
     let t0 = Unix.gettimeofday () in

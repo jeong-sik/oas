@@ -13,6 +13,16 @@ open Agent_trace
 
 let _log = Log.create ~module_name:"agent" ()
 
+let protect_stream_callback callback ev =
+  try callback ev with
+  | Out_of_memory -> raise Out_of_memory
+  | Stack_overflow -> raise Stack_overflow
+  | Sys.Break -> raise Sys.Break
+  | Eio.Cancel.Cancelled _ as ex -> raise ex
+  | exn ->
+    Log.warn _log "stream callback raised" [ Log.S ("error", Printexc.to_string exn) ]
+;;
+
 (* ── Unified turn execution (delegated to Pipeline) ──────────── *)
 
 type api_strategy = Pipeline.api_strategy =
@@ -490,7 +500,7 @@ let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
   let caller_on_event = on_event in
   let on_event ev =
     on_activity ();
-    caller_on_event ev
+    protect_stream_callback caller_on_event ev
   in
   with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
     run_loop
@@ -728,7 +738,7 @@ let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
   let caller_on_event = on_event in
   let on_event ev =
     last_activity := now_or_zero clock;
-    caller_on_event ev
+    protect_stream_callback caller_on_event ev
   in
   with_optional_timeout ?clock ~last_activity agent (fun () ->
     run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event; on_telemetry }) agent)

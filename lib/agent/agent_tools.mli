@@ -105,6 +105,10 @@ val find_and_execute_tool
     from canceling siblings (except [Out_of_memory], [Stack_overflow],
     [Sys.Break], and cancellation).
 
+    [on_tool_execution_started] and [on_tool_execution_finished] are
+    best-effort lifecycle observers. Non-fatal exceptions raised by these
+    callbacks are logged and do not change the tool result.
+
     Returns one [tool_execution_result] per [ToolUse] block in the same
     relative order as the input. *)
 val execute_tools

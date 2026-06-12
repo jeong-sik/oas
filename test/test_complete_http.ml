@@ -854,6 +854,15 @@ let start_sse_server ~sw ~net response_body =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
+let text_of_response (resp : Types.api_response) =
+  List.filter_map
+    (function
+      | Types.Text s -> Some s
+      | _ -> None)
+    resp.content
+  |> String.concat ""
+;;
+
 let test_complete_stream_ok () =
   Eio_main.run
   @@ fun env ->
@@ -884,13 +893,58 @@ let test_complete_stream_ok () =
   | Exit -> ()
 ;;
 
-let text_of_response (resp : Types.api_response) =
-  List.filter_map
-    (function
-      | Types.Text s -> Some s
-      | _ -> None)
-    resp.content
-  |> String.concat ""
+let test_complete_stream_on_event_exception_is_nonfatal () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server ~sw ~net:env#net (provider_a_sse_response "streamed text")
+    in
+    let config = make_config url in
+    let calls = ref 0 in
+    let on_event _evt =
+      incr calls;
+      failwith "stream observer failed"
+    in
+    match Complete.complete_stream ~sw ~net:env#net ~config ~messages ~on_event () with
+    | Ok resp ->
+      check string "text" "streamed text" (text_of_response resp);
+      check bool "callback invoked" true (!calls > 0);
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_transport_on_event_exception_is_nonfatal () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let calls = ref 0 in
+  let transport =
+    { (make_transport (Ok (mock_transport_response "transport streamed"))) with
+      complete_stream =
+        (fun ?on_telemetry:_ ~on_event _req ->
+          on_event
+            (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "ignored" });
+          Ok (mock_transport_response "transport streamed"))
+    }
+  in
+  let on_event _evt =
+    incr calls;
+    failwith "transport observer failed"
+  in
+  let config = make_config "http://unused.test" in
+  match
+    Complete.complete_stream ~sw ~net:env#net ~transport ~config ~messages ~on_event ()
+  with
+  | Ok resp ->
+    check string "text" "transport streamed" (text_of_response resp);
+    check int "callback invoked" 1 !calls
+  | Error _ -> fail "expected Ok"
 ;;
 
 let test_complete_stream_active_chunks_can_exceed_idle_timeout_total () =
@@ -1229,6 +1283,14 @@ let () =
     ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "on_event exceptions are nonfatal"
+            `Quick
+            test_complete_stream_on_event_exception_is_nonfatal
+        ; test_case
+            "transport on_event exceptions are nonfatal"
+            `Quick
+            test_complete_stream_transport_on_event_exception_is_nonfatal
         ; test_case
             "active chunks exceed idle total"
             `Quick
