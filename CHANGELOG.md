@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.3](https://github.com/jeong-sik/oas/compare/v0.206.2...v0.206.3) (2026-06-12)
+
+
+### Bug Fixes
+
+* **pipeline:** deliver idle nudge inside the tool-results message ([#2028](https://github.com/jeong-sik/oas/issues/2028)) ([071fd52](https://github.com/jeong-sik/oas/commit/071fd52d841285f6ce4c52f86761231880f2d52f))
+
 ## [0.206.2](https://github.com/jeong-sik/oas/compare/v0.206.1...v0.206.2) (2026-06-12)
 
 
