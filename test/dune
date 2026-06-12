@@ -49,6 +49,7 @@
   test_backend_tool_call_harness
   test_backend_gemini
   test_snapshot_provider_serialization
+  test_thinking_control_dialects
   test_body_timeout
   test_budget_strategy
   test_bug_hunt
@@ -249,6 +250,7 @@
   test_backend_tool_call_harness
   test_backend_gemini
   test_snapshot_provider_serialization
+  test_thinking_control_dialects
   test_body_timeout
   test_budget_strategy
   test_bug_hunt
