@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.2](https://github.com/jeong-sik/oas/compare/v0.206.1...v0.206.2) (2026-06-12)
+
+
+### Features
+
+* **event_bus:** carry provider tool_use_id on ToolCalled/ToolCompleted ([#2025](https://github.com/jeong-sik/oas/issues/2025)) ([4c6ec4c](https://github.com/jeong-sik/oas/commit/4c6ec4cedde339ee62a51265debca54127cf0506))
+
 ## [0.206.1](https://github.com/jeong-sik/oas/compare/v0.206.0...v0.206.1) (2026-06-12)
 
 
