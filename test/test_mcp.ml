@@ -177,11 +177,11 @@ let test_mcp_tool_to_sdk_tool () =
 
 (* RFC-OAS-009 v2 PR-C: removed test_mcp_builtin_tool_descriptor_permission.
    This test pinned the layering violation: it expected mcp_tool_to_sdk_tool
-   to auto-fill descriptors based on builtin tool names ("read_file", "write",
-   "web_fetch") via the CDAL Mode_enforcer.builtin_descriptor registry —
-   precisely the boundary RFC-OAS-009 v2 closes. Per RFC §2.2, descriptor is
-   now consumer-supplied. Completion-contract satisfaction predicates are
-   validated independently of the MCP bridge. *)
+   to auto-fill descriptors based on downstream tool names via the CDAL
+   Mode_enforcer.builtin_descriptor registry — precisely the boundary
+   RFC-OAS-009 v2 closes. Per RFC §2.2, descriptor is now consumer-supplied.
+   Completion-contract satisfaction predicates are validated independently of
+   the MCP bridge. *)
 
 let test_mcp_tool_bridge_error () =
   let mcp_tool : Mcp.mcp_tool =
