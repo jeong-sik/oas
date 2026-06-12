@@ -96,8 +96,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | Some entries
       when entries <> []
            && capabilities.supports_tools
-           && should_include_tools ?provider_config config ->
-      Some entries
+           && should_include_tools ?provider_config config -> Some entries
     | _ -> None
   in
   let sanitized_messages = strip_orphaned_tool_results messages in
@@ -150,6 +149,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
         (match chat_template_kwargs_fields config with
          | [] -> body_assoc
          | fields -> ("chat_template_kwargs", `Assoc fields) :: body_assoc)
+      | Llm_provider.Capabilities.Chat_template_token -> body_assoc
       | Llm_provider.Capabilities.Enable_thinking ->
         let body_assoc =
           match config.config.enable_thinking with
@@ -209,7 +209,8 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   in
   let body_assoc =
     match tools_to_send with
-    | Some entries -> ("tools", `List (List.map build_provider_d_tool_json entries)) :: body_assoc
+    | Some entries ->
+      ("tools", `List (List.map build_provider_d_tool_json entries)) :: body_assoc
     | None -> body_assoc
   in
   let body_assoc =

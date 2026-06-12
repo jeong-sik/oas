@@ -58,6 +58,7 @@ type thinking_control_format = Llm_provider.Capabilities.thinking_control_format
   | Thinking_object
   | Thinking_object_only (** @since 0.196.11 *)
   | Chat_template_kwargs
+  | Chat_template_token
   | Reasoning_effort (** @since 0.195.0 *)
   | Enable_thinking (** @since 0.196.11 *)
 

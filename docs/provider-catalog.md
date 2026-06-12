@@ -172,6 +172,7 @@ Accepted `thinking_control_format` values are:
 - `thinking_object` (top-level `thinking` object plus `reasoning_effort`)
 - `thinking_object_only` (top-level `thinking` object only)
 - `chat_template_kwargs`
+- `chat_template_token` (inject a model-specific thinking token into the chat template)
 - `reasoning_effort`
 - `enable_thinking` (top-level `enable_thinking` plus optional `thinking_budget`)
 

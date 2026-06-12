@@ -1,7 +1,7 @@
 (** Ollama native API backend.
 
     Builds requests for [/api/chat] endpoint with [think] parameter
-    and parses native API responses.
+    except for Gemma 4 chat-template thinking, and parses native API responses.
 
     @since 0.113.0 *)
 
