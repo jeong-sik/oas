@@ -136,7 +136,7 @@ let build_request
   =
   let tools = effective_tools config tools in
   let sanitized_messages =
-    Backend_openai_serialize.strip_orphaned_tool_results messages
+    Backend_openai_serialize.close_tool_message_pairs_for_request messages
   in
   let is_deepseek_model model_id = String.starts_with ~prefix:"deepseek" model_id in
   let provider_messages =

@@ -54,6 +54,7 @@ let build_request
     then Some (with_gemma4_think_token config.system_prompt)
     else config.system_prompt
   in
+  let messages = Tool_message_pairs.close_for_provider_request messages in
   let provider_messages =
     (match system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->

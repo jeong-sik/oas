@@ -196,6 +196,43 @@ let test_tool_result () =
   check string "function name" "get_weather" (fr |> member "name" |> to_string)
 ;;
 
+let test_dangling_tool_use_closed_before_request () =
+  let config = provider_f_config () in
+  let messages =
+    [ Types.user_msg "question"
+    ; { role = Assistant
+      ; content = [ ToolUse { id = "call_1"; name = "lookup"; input = `Null } ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; Types.user_msg "continue"
+    ]
+  in
+  let body = Backend_gemini.build_request ~config ~messages () in
+  let json = parse_body body in
+  let contents = json |> member "contents" |> to_list in
+  check int "synthetic function response inserted" 3 (List.length contents);
+  let roles = List.map (fun content -> content |> member "role" |> to_string) contents in
+  check (list string) "roles" [ "user"; "model"; "user" ] roles;
+  let synthetic = List.nth contents 2 in
+  let synthetic_parts = synthetic |> member "parts" |> to_list in
+  let fr = List.hd synthetic_parts |> member "functionResponse" in
+  check string "function name" "lookup" (fr |> member "name" |> to_string);
+  check
+    bool
+    "synthetic result"
+    true
+    (String.starts_with
+       ~prefix:"OAS synthesized"
+       (fr |> member "response" |> member "result" |> to_string));
+  check
+    string
+    "follow-up text remains after result"
+    "continue"
+    (List.nth synthetic_parts 1 |> member "text" |> to_string)
+;;
+
 let test_json_mode () =
   let config = provider_f_config ~json_mode:true () in
   let messages = [ Types.user_msg "Return JSON." ] in
@@ -790,6 +827,10 @@ let () =
             `Quick
             test_disable_parallel_tool_use_dropped
         ; test_case "tool result" `Quick test_tool_result
+        ; test_case
+            "dangling tool use closed"
+            `Quick
+            test_dangling_tool_use_closed_before_request
         ; test_case "json mode" `Quick test_json_mode
         ; test_case "output schema" `Quick test_output_schema
         ; test_case "role mapping" `Quick test_role_mapping

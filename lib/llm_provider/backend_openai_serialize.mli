@@ -24,11 +24,16 @@ val parallel_tool_calls_fields
 
 val build_provider_d_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 
-(** Remove ToolResult blocks whose tool_use_id has no matching ToolUse
-    in any Assistant message. Call before serializing messages for
-    OpenAI-compatible APIs to prevent orphaned tool_call_id errors
-    after context compaction.  @since 0.103.0 *)
+(** Remove ToolResult blocks outside the immediate result span following their
+    Assistant ToolUse message. Kept for compatibility; provider request builders
+    should normally call {!close_tool_message_pairs_for_request}. @since 0.103.0
+*)
 val strip_orphaned_tool_results : Types.message list -> Types.message list
+
+(** Normalize tool-call pairing before provider request serialization:
+    orphan ToolResult blocks are removed and dangling Assistant ToolUse blocks
+    receive synthetic error ToolResult messages. *)
+val close_tool_message_pairs_for_request : Types.message list -> Types.message list
 
 (** Remove Thinking blocks from all messages. Deepseek-compatible APIs
     reject [reasoning_content] in request messages — it is response-only.
