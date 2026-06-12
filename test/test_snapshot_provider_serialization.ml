@@ -132,19 +132,18 @@ let openai_no_parallel_capability_cfg =
     ()
 ;;
 
-(* RFC-OAS-023 fixture. Unlike the shared [cfg] above, this one uses the REAL
-   fleet model id ([deepseek-v4-flash], the live default in masc
-   [runtime.toml]) and deliberately OMITS [supports_tool_choice_override], so
+(* RFC-OAS-023 fixture. Unlike the shared [cfg] above, this one uses the real
+   provider model id ([deepseek-v4-flash]) and deliberately OMITS
+   [supports_tool_choice_override], so
    the OpenAI-compat request builder runs the real capability lookup
-   ([Capabilities.for_model_id]) instead of the override. The Ollama Cloud
-   provider speaks the OpenAI-compat Chat Completions wire
-   (openai-http / https://ollama.com/v1), so [OpenAI_compat] is the
-   matching kind for the fleet wire. *)
+   ([Capabilities.for_model_id]) instead of the override. DeepSeek's direct API
+   speaks the OpenAI-compatible Chat Completions wire, so [OpenAI_compat] is
+   the matching kind for this provider-contract fixture. *)
 let deepseek_cfg ?enable_thinking ?thinking_budget ~tool_choice () =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"deepseek-v4-flash"
-    ~base_url:"https://ollama.com/v1"
+    ~base_url:"https://api.deepseek.com"
     ~api_key:"test-key"
     ~max_tokens:1024
     ~temperature:0.7
@@ -257,15 +256,14 @@ let test_openai_parallel_disabled_by_capability () =
 ;;
 
 (* ── DeepSeek via OpenAI-compat (RFC-OAS-023 routing fence) ───
-   This fixture pins the CURRENT live-fleet wire for [deepseek-v4-flash]
+   This fixture pins the current provider wire for [deepseek-v4-flash]
    through the OpenAI-compat backend. It exercises the REAL capability
    lookup (no [supports_tool_choice_override]), so it runs through the
    prefix dispatcher fixed in RFC-OAS-023.
 
    It is a regression FENCE, not a discrimination proof: with
-   [enable_thinking=None] and [max_tokens=1024], no [reasoning_effort]
-   field is emitted (DeepSeek rejects "none"; only high/low/medium/max/xhigh
-   are valid), so the wire is byte-identical before/after the
+   [enable_thinking=None] and [max_tokens=1024], no thinking control field is
+   emitted, so the wire is byte-identical before/after the
    de-anonymization. The
    actual proof that [deepseek-v4-flash] resolves to [Deepseek_v4_flash]
    lives in the inline [let%test "for_model_id_static: specific model IDs
@@ -310,7 +308,32 @@ let test_deepseek_disabled_reasoning_omits_reasoning_effort () =
   in
   check
     bool
-    {|DeepSeek disabled reasoning omits rejected reasoning_effort:"none"|}
+    {|DeepSeek disabled reasoning sends thinking.disabled|}
+    true
+    (contains ~needle:{|"thinking":{"type":"disabled"}|} body);
+  check
+    bool
+    "disabled reasoning omits reasoning_effort"
+    false
+    (contains ~needle:{|"reasoning_effort"|} body)
+;;
+
+let test_deepseek_zero_budget_omits_reasoning_effort () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(deepseek_cfg ~enable_thinking:true ~thinking_budget:0 ~tool_choice:Any ())
+      ~messages
+      ~tools:[ tool_decl ]
+      ()
+  in
+  check
+    bool
+    {|DeepSeek enabled thinking sends thinking.enabled|}
+    true
+    (contains ~needle:{|"thinking":{"type":"enabled"}|} body);
+  check
+    bool
+    "zero-budget reasoning omits invalid reasoning_effort"
     false
     (contains ~needle:{|"reasoning_effort"|} body)
 ;;
@@ -516,6 +539,10 @@ let () =
             "deepseek-v4-flash disabled reasoning omits reasoning_effort"
             `Quick
             test_deepseek_disabled_reasoning_omits_reasoning_effort
+        ; test_case
+            "deepseek-v4-flash zero budget omits reasoning_effort"
+            `Quick
+            test_deepseek_zero_budget_omits_reasoning_effort
         ] )
     ; ( "anthropic"
       , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced

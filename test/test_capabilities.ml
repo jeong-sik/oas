@@ -281,6 +281,10 @@ let test_lookup_deepseek_v4_flash () =
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
+    check_thinking_control
+      "uses thinking object"
+      Capabilities.Thinking_object
+      c.thinking_control_format;
     check bool "caching" true c.supports_caching
   | None -> fail "should match deepseek-v4-flash"
 ;;
@@ -292,6 +296,10 @@ let test_lookup_deepseek_v4_pro () =
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
     check bool "reasoning" true c.supports_reasoning;
+    check_thinking_control
+      "uses thinking object"
+      Capabilities.Thinking_object
+      c.thinking_control_format;
     check bool "caching" true c.supports_caching
   | None -> fail "should match deepseek-v4-pro"
 ;;
