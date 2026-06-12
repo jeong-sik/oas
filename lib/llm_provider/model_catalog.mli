@@ -20,6 +20,7 @@ type model_entry =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; modality_priority : string option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option

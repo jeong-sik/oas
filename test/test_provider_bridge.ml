@@ -183,19 +183,19 @@ let test_openai_compat_auto_model_branches () =
         ; api_key_env = ""
         }
       in
-      let provider_f_prefixed = { provider_d_auto with model_id = "gemini-auto" } in
-      let provider_f_explicit = { provider_d_auto with model_id = "gemini-2.5-pro" } in
+      let gemini_prefixed = { provider_d_auto with model_id = "gemini-auto" } in
+      let gemini_explicit = { provider_d_auto with model_id = "gemini-2.5-pro" } in
       (match Agent_sdk.Provider_bridge.to_provider_config provider_d_auto with
        | Ok cfg ->
          check_kind "openai compat kind" "openai_compat" cfg;
          Alcotest.(check string) "openai auto" "provider-d-env-default" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
-      (match Agent_sdk.Provider_bridge.to_provider_config provider_f_prefixed with
+      (match Agent_sdk.Provider_bridge.to_provider_config gemini_prefixed with
        | Ok cfg ->
          check_kind "gemini kind" "gemini" cfg;
          Alcotest.(check string) "gemini prefixed" "gemini-auto" cfg.model_id
        | Error err -> Alcotest.fail (Agent_sdk.Error.to_string err));
-      match Agent_sdk.Provider_bridge.to_provider_config provider_f_explicit with
+      match Agent_sdk.Provider_bridge.to_provider_config gemini_explicit with
       | Ok cfg ->
         check_kind "gemini explicit kind" "gemini" cfg;
         Alcotest.(check string) "gemini explicit" "gemini-2.5-pro" cfg.model_id

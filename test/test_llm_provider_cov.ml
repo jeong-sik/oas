@@ -1727,9 +1727,9 @@ let test_for_model_id_command () =
 ;;
 
 let test_for_model_id_grok () =
-  match Capabilities.for_model_id "model-e" with
+  match Capabilities.for_model_id "grok-4.3" with
   | Some c ->
-    Alcotest.(check (option int)) "2M context" (Some 2_000_000) c.max_context_tokens;
+    Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check bool) "reasoning" true c.supports_reasoning
   | None -> Alcotest.fail "expected Some for grok"
 ;;

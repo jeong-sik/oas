@@ -200,7 +200,47 @@ cache_write_multiplier = 1.0
 cache_read_multiplier = 0.008333333333333333
 
 [[models]]
+id_prefix = "deepseek-ai/deepseek-v4-pro"
+base = "openai_chat"
+max_context_tokens = 1000000
+max_output_tokens = 384000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_response_format_json = true
+supports_native_streaming = true
+supports_caching = true
+supports_prompt_caching = false
+input_per_million = 0.435
+output_per_million = 0.87
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.008333333333333333
+
+[[models]]
 id_prefix = "deepseek-v4-flash"
+base = "openai_chat"
+max_context_tokens = 1000000
+max_output_tokens = 384000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_response_format_json = true
+supports_native_streaming = true
+supports_caching = true
+supports_prompt_caching = false
+input_per_million = 0.14
+output_per_million = 0.28
+cache_write_multiplier = 1.0
+cache_read_multiplier = 0.02
+
+[[models]]
+id_prefix = "deepseek-ai/deepseek-v4-flash"
 base = "openai_chat"
 max_context_tokens = 1000000
 max_output_tokens = 384000
@@ -548,16 +588,102 @@ supports_native_streaming = true
 [[models]]
 id_prefix = "kimi-for-coding"
 base = "kimi"
-max_context_tokens = 262144
+max_context_tokens = 256000
 input_per_million = 0.0
 output_per_million = 0.0
 
 [[models]]
 id_prefix = "kimi-k2"
 base = "kimi"
-max_context_tokens = 262144
+max_context_tokens = 256000
 input_per_million = 0.0
 output_per_million = 0.0
+
+# xAI Grok Models
+[[models]]
+id_prefix = "xai/grok-4.3"
+base = "openai_chat_extended"
+max_context_tokens = 1000000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+supports_caching = true
+
+[[models]]
+id_prefix = "grok-4.3"
+base = "openai_chat_extended"
+max_context_tokens = 1000000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+supports_caching = true
+
+[[models]]
+id_prefix = "grok-latest"
+base = "openai_chat_extended"
+max_context_tokens = 1000000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_native_streaming = true
+supports_caching = true
+
+# Mistral Models
+[[models]]
+id_prefix = "mistral-large"
+base = "openai_chat"
+max_context_tokens = 260000
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
+
+[[models]]
+id_prefix = "mistral-small"
+base = "openai_chat_extended"
+max_context_tokens = 256000
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
+
+# Cohere Command Models
+[[models]]
+id_prefix = "command-r-plus"
+base = "openai_chat"
+max_context_tokens = 256000
+max_output_tokens = 32000
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
 
 # DashScope / Alibaba Models
 [[models]]
@@ -646,6 +772,23 @@ supports_native_streaming = true
 supports_top_k = true
 supports_min_p = true
 
+[[models]]
+id_prefix = "qwen/qwen3.6"
+base = "openai_chat"
+max_context_tokens = 262144
+max_output_tokens = 81920
+supports_tools = true
+supports_tool_choice = true
+supports_parallel_tool_calls = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
+supports_top_k = true
+supports_min_p = true
+
 # Llama Models
 [[models]]
 id_prefix = "model-n-4"
@@ -703,7 +846,7 @@ max_output_tokens = 16384
 
 # Gemma Models
 [[models]]
-id_prefix = "model-f-gemma-4"
+id_prefix = "google/gemma-4"
 base = "openai_chat"
 max_context_tokens = 262144
 supports_tools = true
@@ -712,11 +855,42 @@ supports_response_format_json = true
 supports_structured_output = true
 supports_multimodal_inputs = true
 supports_image_input = true
+modality_priority = "visual_first"
 supports_native_streaming = true
 supports_seed = true
 
 [[models]]
-id_prefix = "google/model-f-gemma-4"
+id_prefix = "google/gemma-4-e2b"
+base = "openai_chat"
+max_context_tokens = 131072
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+modality_priority = "visual_first"
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "google/gemma-4-e4b"
+base = "openai_chat"
+max_context_tokens = 131072
+supports_tools = true
+supports_tool_choice = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_multimodal_inputs = true
+supports_image_input = true
+supports_audio_input = true
+modality_priority = "visual_first"
+supports_native_streaming = true
+supports_seed = true
+
+[[models]]
+id_prefix = "google/gemma-4-12b"
 base = "openai_chat"
 max_context_tokens = 262144
 supports_tools = true
@@ -725,8 +899,28 @@ supports_response_format_json = true
 supports_structured_output = true
 supports_multimodal_inputs = true
 supports_image_input = true
+supports_audio_input = true
+modality_priority = "visual_first"
 supports_native_streaming = true
 supports_seed = true
+
+[[models]]
+id_prefix = "hf.co/google/gemma-4"
+base = "ollama"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = false
+thinking_control_format = "chat_template_token"
+supports_multimodal_inputs = true
+supports_image_input = true
+modality_priority = "visual_first"
+supports_native_streaming = true
+supports_seed = true
+input_per_million = 0.0
+output_per_million = 0.0
 
 [[models]]
 id_prefix = "hf.co/unsloth/gemma-4"
@@ -740,6 +934,7 @@ supports_reasoning_budget = false
 thinking_control_format = "chat_template_token"
 supports_multimodal_inputs = true
 supports_image_input = true
+modality_priority = "visual_first"
 supports_native_streaming = true
 supports_seed = true
 input_per_million = 0.0
@@ -893,7 +1088,7 @@ cache_write_multiplier = 1.0
 cache_read_multiplier = 0.2
 
 [[models]]
-id_prefix = "model-f-gemma-4-27b"
+id_prefix = "google/gemma-4-26b-a4b"
 base = "openai_chat"
 max_context_tokens = 262144
 supports_tools = true
@@ -902,12 +1097,12 @@ supports_response_format_json = true
 supports_structured_output = true
 supports_multimodal_inputs = true
 supports_image_input = true
-supports_audio_input = true
+modality_priority = "visual_first"
 supports_native_streaming = true
 supports_seed = true
 
 [[models]]
-id_prefix = "google/model-f-gemma-4-27b"
+id_prefix = "google/gemma-4-31b"
 base = "openai_chat"
 max_context_tokens = 262144
 supports_tools = true
@@ -916,35 +1111,7 @@ supports_response_format_json = true
 supports_structured_output = true
 supports_multimodal_inputs = true
 supports_image_input = true
-supports_audio_input = true
-supports_native_streaming = true
-supports_seed = true
-
-[[models]]
-id_prefix = "model-f-gemma-4-31b"
-base = "openai_chat"
-max_context_tokens = 262144
-supports_tools = true
-supports_tool_choice = true
-supports_response_format_json = true
-supports_structured_output = true
-supports_multimodal_inputs = true
-supports_image_input = true
-supports_audio_input = true
-supports_native_streaming = true
-supports_seed = true
-
-[[models]]
-id_prefix = "google/model-f-gemma-4-31b"
-base = "openai_chat"
-max_context_tokens = 262144
-supports_tools = true
-supports_tool_choice = true
-supports_response_format_json = true
-supports_structured_output = true
-supports_multimodal_inputs = true
-supports_image_input = true
-supports_audio_input = true
+modality_priority = "visual_first"
 supports_native_streaming = true
 supports_seed = true
 

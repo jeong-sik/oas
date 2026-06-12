@@ -353,7 +353,7 @@ provider_k_capabilities             → glm_model_default_caps
 | `glm-5.1` | GLM | Provider_k | (no `provider_k-*` prefix) | **MISS** |
 | `glm-5-turbo` | GLM | Provider_k | — | **MISS** |
 | `glm-5` | GLM | Provider_k | — | **MISS** |
-| `gemma4:e2b` | Gemma | Provider_f | `google/model-f-gemma-4*` | **MISS** |
+| `gemma4:e2b` | Gemma | legacy Provider_f | `google/gemma-4*` | **MISS** |
 | `glm-5.1:cloud` | GLM | Provider_k | — | **MISS** |
 | `qwen3.5` | Qwen | Provider_h_3 | `provider_h-3*` | **MISS** |
 | `kimi-k2.6:cloud` | Kimi | Provider_c | `provider_c-k2*` | **MISS** |

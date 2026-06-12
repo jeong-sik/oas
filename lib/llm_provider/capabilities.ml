@@ -449,6 +449,14 @@ let thinking_control_format_of_manifest_string raw =
   | _ -> None
 ;;
 
+let modality_priority_of_catalog_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "preserve_input_order" | "preserve-input-order" | "preserve" ->
+    Some Modality.Preserve_input_order
+  | "visual_first" | "visual-first" -> Some Modality.Visual_first
+  | _ -> None
+;;
+
 let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   let base =
     match entry.base_label with
@@ -592,6 +600,13 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
       override_bool base.supports_computer_use entry.supports_computer_use
   ; supports_code_execution =
       override_bool base.supports_code_execution entry.supports_code_execution
+  ; modality_priority =
+      (match entry.modality_priority with
+       | Some s ->
+         (match modality_priority_of_catalog_string s with
+          | Some priority -> priority
+          | None -> base.modality_priority)
+       | None -> base.modality_priority)
   ; thinking_control_format =
       (match entry.thinking_control_format with
        | Some s ->
@@ -874,37 +889,64 @@ let%test "for_model_id nvidia/nvidia-core resolves" =
   | None -> false
 ;;
 
-let%test "for_model_id model-f-gemma-4-27b has tools + seed" =
-  match for_model_id "model-f-gemma-4-27b-it" with
+let%test "for_model_id google/gemma-4-26b-a4b has tools + seed" =
+  match for_model_id "google/gemma-4-26B-A4B-it" with
   | Some c ->
     c.supports_tools
     && c.supports_seed
     && c.supports_image_input
     && c.max_context_tokens = Some 262_144
+    && c.modality_priority = Modality.Visual_first
   | None -> false
 ;;
 
-let%test "for_model_id model-f-gemma-4-1b-it has tools, no audio" =
-  match for_model_id "model-f-gemma-4-1b-it" with
-  | Some c -> c.supports_tools && c.supports_image_input && not c.supports_audio_input
+let%test "for_model_id google/gemma-4-e2b-it has tools, audio, and 128K context" =
+  match for_model_id "google/gemma-4-E2B-it" with
+  | Some c ->
+    c.supports_tools
+    && c.supports_image_input
+    && c.supports_audio_input
+    && c.max_context_tokens = Some 131_072
   | None -> false
 ;;
 
-let%test "for_model_id google/model-f-gemma-4-1b-it is NOT large" =
-  match for_model_id "google/model-f-gemma-4-1b-it" with
-  | Some c -> not c.supports_audio_input
+let%test "for_model_id hf.co/unsloth Gemma 4 QAT uses template token thinking" =
+  match for_model_id "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && not c.supports_reasoning_budget
+    && c.thinking_control_format = Chat_template_token
+    && c.modality_priority = Modality.Visual_first
   | None -> false
 ;;
 
-let%test "for_model_id google/model-f-gemma-4-27b-it IS large" =
-  match for_model_id "google/model-f-gemma-4-27b-it" with
-  | Some c -> c.supports_audio_input
+let%test "for_model_id hf.co/google Gemma 4 QAT uses template token thinking" =
+  match for_model_id "hf.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf" with
+  | Some c ->
+    c.supports_reasoning
+    && c.supports_extended_thinking
+    && not c.supports_reasoning_budget
+    && c.thinking_control_format = Chat_template_token
   | None -> false
 ;;
 
-let%test "for_model_id model-f-gemma-4-31b IS large" =
-  match for_model_id "model-f-gemma-4-31b-it" with
-  | Some c -> c.supports_audio_input
+let%test "for_model_id google/gemma-4-e2b-it is not a 256K model" =
+  match for_model_id "google/gemma-4-E2B-it" with
+  | Some c -> c.max_context_tokens = Some 131_072
+  | None -> false
+;;
+
+let%test "for_model_id google/gemma-4-31b-it resolves" =
+  match for_model_id "google/gemma-4-31B-it" with
+  | Some c -> c.supports_tools && c.supports_image_input
+  | None -> false
+;;
+
+let%test "for_model_id Qwen org-prefixed Qwen3.6 uses chat_template_kwargs" =
+  match for_model_id "Qwen/Qwen3.6-35B-A3B" with
+  | Some c ->
+    c.supports_extended_thinking && c.thinking_control_format = Chat_template_kwargs
   | None -> false
 ;;
 
@@ -984,6 +1026,18 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
       , fun c ->
           c.thinking_control_format = Reasoning_effort
           && c.max_output_tokens = Some 384_000 )
+    ; ( "deepseek-ai/DeepSeek-V4-Flash"
+      , fun c ->
+          c.thinking_control_format = Reasoning_effort
+          && c.max_output_tokens = Some 384_000 )
+    ; ( "deepseek-ai/DeepSeek-V4-Pro"
+      , fun c ->
+          c.thinking_control_format = Reasoning_effort
+          && c.max_output_tokens = Some 384_000 )
+    ; ( "Qwen/Qwen3.6-35B-A3B"
+      , fun c ->
+          c.thinking_control_format = Chat_template_kwargs
+          && c.supports_extended_thinking )
     ; ( "deepseek-v4-pro-test"
       , fun c ->
           c.thinking_control_format = Reasoning_effort
@@ -995,14 +1049,16 @@ let%test "for_model_id_static: specific model IDs get correct (not shadowed) cap
       , fun c ->
           c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
     ; ("nvidia-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
-    ; ( "model-f-gemma-4-27b-it"
+    ; ( "google/gemma-4-26B-A4B-it"
       , fun c ->
           c.supports_tools
           && c.supports_image_input
           && c.supports_seed
+          && c.modality_priority = Modality.Visual_first
           && c.max_context_tokens = Some 262_144 )
-    ; ( "google/model-f-gemma-4-27b-it"
-      , fun c -> c.supports_tools && c.supports_image_input )
+    ; ( "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
+      , fun c ->
+          c.supports_reasoning && c.thinking_control_format = Chat_template_token )
     ]
 ;;
 

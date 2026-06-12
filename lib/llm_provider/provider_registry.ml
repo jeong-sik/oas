@@ -31,6 +31,7 @@ let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 
 let api_key_env_candidates = function
   | "OLLAMA_CLOUD_API_KEY" -> [ "OLLAMA_CLOUD_API_KEY"; "OLLAMA_API_KEY" ]
+  | "GEMINI_API_KEY" -> [ "GEMINI_API_KEY"; "PROVIDER_F_API_KEY" ]
   | env_name -> [ env_name ]
 ;;
 
@@ -259,11 +260,11 @@ let env_or_default env_name default_url =
   | None -> default_url
 ;;
 
-let provider_f_defaults =
+let gemini_defaults =
   { kind = Gemini
   ; base_url =
       env_or_default "GEMINI_BASE_URL" "https://generativelanguage.googleapis.com/v1beta"
-  ; api_key_env = "PROVIDER_F_API_KEY"
+  ; api_key_env = "GEMINI_API_KEY"
   ; request_path = ""
   }
 ;;
@@ -393,7 +394,7 @@ let default () =
     agent_llm_a_defaults
     ~max_context:200_000
     Capabilities.anthropic_capabilities;
-  reg "gemini" provider_f_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
+  reg "gemini" gemini_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
   reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
   reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
   register

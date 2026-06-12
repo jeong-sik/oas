@@ -75,13 +75,14 @@
       "supports_native_streaming": true
     },
     {
-      "_comment": "Gemma 4 E2B — Google. 131K ctx. Native function calling (CORRECTED — prior tools=false was WRONG). Multimodal (image input). https://ai.google.dev/gemma/docs/capabilities/text/function-calling-gemma4",
-      "id_prefix": "gemma4",
+      "_comment": "Gemma 4 E2B — Google. 128K ctx. Native function calling. Multimodal image/audio input. https://huggingface.co/google/gemma-4-26B-A4B-it-qat-q4_0-gguf",
+      "id_prefix": "google/gemma-4-e2b",
       "base_label": "openai_chat",
       "max_context_tokens": 131072,
       "supports_tools": true,
       "supports_reasoning": true,
       "supports_image_input": true,
+      "supports_audio_input": true,
       "supports_native_streaming": true
     },
     {

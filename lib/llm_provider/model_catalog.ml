@@ -17,6 +17,7 @@ type model_entry =
   ; supports_image_input : bool option
   ; supports_audio_input : bool option
   ; supports_video_input : bool option
+  ; modality_priority : string option
   ; supports_native_streaming : bool option
   ; supports_system_prompt : bool option
   ; supports_caching : bool option
@@ -90,6 +91,7 @@ let parse_entry entry_toml =
       ; supports_image_input = find_bool_opt entry_toml [ "supports_image_input" ]
       ; supports_audio_input = find_bool_opt entry_toml [ "supports_audio_input" ]
       ; supports_video_input = find_bool_opt entry_toml [ "supports_video_input" ]
+      ; modality_priority = find_string_opt entry_toml [ "modality_priority" ]
       ; supports_native_streaming =
           find_bool_opt entry_toml [ "supports_native_streaming" ]
       ; supports_system_prompt = find_bool_opt entry_toml [ "supports_system_prompt" ]
