@@ -26,8 +26,6 @@ type t =
   | Task_create
   | Task_update
   | Task_stop
-  | Team_create
-  | Team_delete
   | Ask_user_question
   | Navigate
   | Computer
@@ -77,8 +75,6 @@ let to_string = function
   | Task_create -> "task_create"
   | Task_update -> "task_update"
   | Task_stop -> "task_stop"
-  | Team_create -> "team_create"
-  | Team_delete -> "team_delete"
   | Ask_user_question -> "ask_user_question"
   | Navigate -> "navigate"
   | Computer -> "computer"
@@ -120,8 +116,6 @@ let all_builtins =
   ; Task_create
   ; Task_update
   ; Task_stop
-  ; Team_create
-  ; Team_delete
   ; Ask_user_question
   ; Navigate
   ; Computer
@@ -199,8 +193,6 @@ let of_string raw =
   | "task_create" -> Task_create
   | "task_update" -> Task_update
   | "task_stop" -> Task_stop
-  | "team_create" -> Team_create
-  | "team_delete" -> Team_delete
   | "ask_user_question" -> Ask_user_question
   | "navigate" -> Navigate
   | "computer" -> Computer

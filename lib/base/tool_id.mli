@@ -39,12 +39,10 @@ type t =
   | Insert_before_symbol
   | Replace_symbol_body
   | Notebook_edit
-  (* Local-mutation — task & team management *)
+  (* Local-mutation — task management *)
   | Task_create
   | Task_update
   | Task_stop
-  | Team_create
-  | Team_delete
   (* External-effect — HITL *)
   | Ask_user_question
   (* External-effect — browser interaction *)
