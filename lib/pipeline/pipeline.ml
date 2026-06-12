@@ -303,6 +303,15 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
        let idle_skip = ref false in
        let idle_handled = ref false in
        (* true when Nudge or Skip handled idle *)
+       (* Nudge text is delivered inside the tool-results user message (as a
+          trailing Text block) instead of as a standalone user message snoc'd
+          before tool execution. A standalone message would sit between the
+          assistant tool_calls message and its tool results; the OpenAI-compat
+          serializer's strip_orphaned_tool_results treats that gap as an orphan
+          boundary and drops every tool result of the turn, so the model never
+          sees the outcome of the calls it is being nudged about — locking in
+          the repetition the nudge is meant to break. *)
+       let pending_nudge = ref None in
        if idle_result.is_idle
        then (
          let tool_names =
@@ -343,15 +352,12 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
            idle_skip := true;
            idle_handled := true
          | Hooks.Nudge nudge_msg ->
-           (* Inject a nudge message and leave the idle counter unchanged,
-              so repeated idle turns continue to accumulate toward later
+           (* Stash the nudge and leave the idle counter unchanged, so
+              repeated idle turns continue to accumulate toward later
               escalation. With accumulation, repeated idle turns can
               continue to nudge until the on_idle hook eventually decides
               to Skip (for example, at a configured threshold). *)
-           update_state agent (fun s ->
-             { s with
-               messages = Util.snoc s.messages (make_message ~role:User [ Text nudge_msg ])
-             });
+           pending_nudge := Some nudge_msg;
            idle_handled := true
          | _ -> ());
        (* Early exit: skip tool execution when on_idle hook says Skip.
@@ -363,8 +369,13 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          match Guardrails.exceeds_limit effective_guardrails count with
          | true ->
            let msg = Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count in
+           let content =
+             match !pending_nudge with
+             | Some nudge -> [ Text msg; Text nudge ]
+             | None -> [ Text msg ]
+           in
            update_state agent (fun s ->
-             { s with messages = Util.snoc s.messages (make_message ~role:User [ Text msg ]) });
+             { s with messages = Util.snoc s.messages (make_message ~role:User content) });
            let* () = persist_turn_checkpoint agent After_tool_results_appended in
            Ok ToolsExecuted
          | false ->
@@ -395,12 +406,14 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               turn-fatal" outcome by neutering the Exhausted branch; this removes the
               Tool_retry_policy mechanism entirely, which subsumes that change.) *)
            let tool_feedback = tool_results in
-           (* Anti-repetition hint: append warning to tool feedback when idle detected
-            but not already handled by Nudge or Skip. Nudge injects its own message
-            and injects its own message; Skip causes early return above. *)
+           (* Idle feedback rides the same user message as the tool results: a
+              stashed hook Nudge becomes a trailing Text block; when no hook
+              handled the idle turn, the built-in [Idle warning] hint is
+              appended instead. Skip causes early return above. *)
            let effective_feedback =
-             if idle_result.is_idle && not !idle_handled
-             then
+             match !pending_nudge with
+             | Some nudge -> tool_feedback @ [ Text nudge ]
+             | None when idle_result.is_idle && not !idle_handled ->
                tool_feedback
                @ [ Text
                      (Printf.sprintf
@@ -409,7 +422,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
                          to make progress.]"
                         agent.consecutive_idle_turns)
                  ]
-             else tool_feedback
+             | None -> tool_feedback
            in
            update_state agent (fun s ->
              { s with
