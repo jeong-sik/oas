@@ -507,6 +507,31 @@ let test_manifest_base_absent_uses_default () =
   | None -> fail "expected Some"
 ;;
 
+let test_example_manifest_base_labels_are_canonical () =
+  let path =
+    [ "docs/example-capability-manifest.json"
+    ; "../docs/example-capability-manifest.json"
+    ; "../../docs/example-capability-manifest.json"
+    ]
+    |> List.find_opt Sys.file_exists
+    |> Option.value ~default:"docs/example-capability-manifest.json"
+  in
+  match Capability_manifest.load_file path with
+  | Error msg -> failf "example manifest should parse: %s" msg
+  | Ok entries ->
+    List.iter
+      (fun (entry : Capability_manifest.entry) ->
+         match entry.base_label with
+         | None -> ()
+         | Some label ->
+           check
+             bool
+             (Printf.sprintf "base label resolves for %s: %s" entry.id_prefix label)
+             true
+             (Option.is_some (Capabilities.capabilities_for_provider_label label)))
+      entries
+;;
+
 let test_manifest_prefix_wins_over_longer_static_prefix () =
   (* Manifest entry "dashscope-3" must win over static table "dashscope-3" prefix too,
      letting operator override even well-known models. *)
@@ -862,6 +887,10 @@ let () =
         ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
         ; test_case "base anthropic" `Quick test_manifest_base_label_provider_a
         ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
+        ; test_case
+            "example base labels are canonical"
+            `Quick
+            test_example_manifest_base_labels_are_canonical
         ; test_case
             "manifest prefix wins"
             `Quick
