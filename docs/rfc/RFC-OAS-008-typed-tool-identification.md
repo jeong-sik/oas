@@ -65,7 +65,7 @@ type t =
   | Task_create | Task_update | Task_stop
   | Team_create | Team_delete
   (* external-effect *)
-  | Ask_user_question | Web_fetch | Web_search
+  | Ask_user_question
   | Navigate | Computer | Find | Form_input
   | Javascript_tool | Tabs_create_mcp | Upload_image
   (* shell-dynamic *)
