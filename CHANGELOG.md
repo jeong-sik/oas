@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.6](https://github.com/jeong-sik/oas/compare/v0.206.5...v0.206.6) (2026-06-12)
+
+
+### Bug Fixes
+
+* **openai:** model deepseek thinking control ([#2042](https://github.com/jeong-sik/oas/issues/2042)) ([2c41562](https://github.com/jeong-sik/oas/commit/2c415620475f2436b69141f709499e4e6c23e060))
+
 ## [0.206.5](https://github.com/jeong-sik/oas/compare/v0.206.4...v0.206.5) (2026-06-12)
 
 
