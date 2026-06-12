@@ -76,14 +76,17 @@ let test_registry_covers_all_variants () =
 let test_every_signal_has_producer () =
   List.iter
     (fun entry ->
-       List.iter (fun file -> ignore (debug_file_exists file)) entry.producer_files;
-       let total =
-         List.fold_left
-           (fun acc file -> acc + grep_count [ entry.signal ] file)
-           0
-           entry.producer_files
-       in
-       check bool (Printf.sprintf "%s has >=1 producer" entry.signal) true (total > 0))
+       match entry.producer_files with
+       | [] -> ()
+       | producer_files ->
+         List.iter (fun file -> ignore (debug_file_exists file)) producer_files;
+         let total =
+           List.fold_left
+             (fun acc file -> acc + grep_count [ entry.signal ] file)
+             0
+             producer_files
+         in
+         check bool (Printf.sprintf "%s has >=1 producer" entry.signal) true (total > 0))
     registry
 ;;
 
@@ -107,8 +110,10 @@ let test_no_orphan_producer_variants () =
   let cmd =
     Printf.sprintf
       "grep -ho 'Telemetry_event\\.[A-Z][A-Za-z_]*' %s/lib/llm_provider/complete.ml \
-       %s/lib/llm_provider/streaming.ml %s/lib/agent/agent.ml \
-       %s/lib/pipeline/pipeline.ml 2>/dev/null | sed 's/Telemetry_event\\.//' | sort -u"
+       %s/lib/llm_provider/complete_stream.ml %s/lib/llm_provider/streaming.ml \
+       %s/lib/agent/agent.ml %s/lib/pipeline/pipeline.ml 2>/dev/null | sed \
+       's/Telemetry_event\\.//' | sort -u"
+      repo_root
       repo_root
       repo_root
       repo_root

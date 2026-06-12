@@ -415,6 +415,7 @@
   test_v024_fixes
   test_vcs_graph_snapshot)
  (libraries agent_sdk agent_sdk.llm_provider alcotest)
+ (deps ../docs/example-capability-manifest.json)
  (action
   (run %{test})))
 
