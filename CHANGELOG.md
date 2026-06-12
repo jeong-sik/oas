@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.5](https://github.com/jeong-sik/oas/compare/v0.206.4...v0.206.5) (2026-06-12)
+
+
+### Bug Fixes
+
+* **openai:** omit disabled reasoning effort ([#2039](https://github.com/jeong-sik/oas/issues/2039)) ([b6159dc](https://github.com/jeong-sik/oas/commit/b6159dc3cf6a86b3fb408afa2b43b36832f05ae3))
+* **provider:** close tool message pairs before requests ([#2038](https://github.com/jeong-sik/oas/issues/2038)) ([b4478e0](https://github.com/jeong-sik/oas/commit/b4478e0cfa18501c1f4c8020889b7e07324ed077))
+
 ## [0.206.4](https://github.com/jeong-sik/oas/compare/v0.206.3...v0.206.4) (2026-06-12)
 
 
