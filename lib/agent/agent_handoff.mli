@@ -16,8 +16,8 @@ val find_handoff_in_messages : Types.message list -> (string * string * string) 
 (** {1 Message manipulation} *)
 
 (** Replace the [ToolResult] for a specific [tool_id] in the most recent
-    user message.  Used by handoff interception to overwrite the sentinel
-    handler output with the delegated agent response. *)
+    tool-result message.  Used by handoff interception to overwrite the
+    sentinel handler output with the delegated agent response. *)
 val replace_tool_result
   :  Types.message list
   -> tool_id:string

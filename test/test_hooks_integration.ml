@@ -403,12 +403,10 @@ let test_on_idle_escalated_skip_short_circuits_execution () =
     | Error e -> Alcotest.fail (Error.to_string e))
 ;;
 
-(* The nudge must ride the tool-results user message as a trailing Text
-   block. A standalone nudge message between the assistant tool_calls and
-   the tool results makes the OpenAI-compat serializer treat every result
-   of the turn as orphaned and drop it — the model then never sees the
-   outcome of the calls it is being nudged about. *)
-let test_on_idle_nudge_rides_tool_results_message () =
+(* The nudge must follow the role:Tool result message. It must not be packed
+   into the same message as ToolResult blocks, because that mixed shape is only
+   retained as serializer compatibility for older histories. *)
+let test_on_idle_nudge_follows_tool_results_message () =
   let responses =
     ref
       [ tool_use_body ~tool_name:"echo" ~input_json:{|{"msg":"hi"}|}
@@ -444,22 +442,33 @@ let test_on_idle_nudge_rides_tool_results_message () =
           | _ -> false)
         content
     in
+    let find_index pred =
+      let rec loop idx = function
+        | [] -> None
+        | x :: xs -> if pred x then Some idx else loop (idx + 1) xs
+      in
+      loop 0
+    in
     List.iter
       (fun (m : Types.message) ->
-         if List.exists is_nudge_text m.content && not (has_tool_result m.content)
-         then Alcotest.fail "nudge must not be a standalone message before tool results")
+         if List.exists is_nudge_text m.content && has_tool_result m.content
+         then Alcotest.fail "nudge must not share a message with tool results")
       messages;
-    let carried =
-      List.exists
-        (fun (m : Types.message) ->
-           has_tool_result m.content
-           &&
-           match List.rev m.content with
-           | last :: _ -> is_nudge_text last
-           | [] -> false)
+    let result_index =
+      find_index
+        (fun (m : Types.message) -> m.role = Tool && has_tool_result m.content)
         messages
     in
-    Alcotest.(check bool) "nudge trails the tool-results message" true carried)
+    let nudge_index =
+      find_index
+        (fun (m : Types.message) -> m.role = User && List.exists is_nudge_text m.content)
+        messages
+    in
+    match result_index, nudge_index with
+    | Some result_index, Some nudge_index ->
+      Alcotest.(check bool) "nudge follows tool results" true (result_index < nudge_index)
+    | None, _ -> Alcotest.fail "expected a role:Tool result message"
+    | _, None -> Alcotest.fail "expected a role:User nudge message")
 ;;
 
 (* ── multiple hooks test ─────────────────────────────── *)
@@ -566,9 +575,9 @@ let () =
         ] )
     ; ( "on_idle"
       , [ test_case
-            "nudge rides the tool-results message"
+            "nudge follows the tool-results message"
             `Quick
-            test_on_idle_nudge_rides_tool_results_message
+            test_on_idle_nudge_follows_tool_results_message
         ] )
     ; ( "chaining"
       , [ test_case "multiple hooks all fire" `Quick test_multiple_hooks_all_fire ] )

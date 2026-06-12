@@ -114,6 +114,36 @@ let assistant_reasoning_content_of_blocks blocks =
   |> String.concat ""
 ;;
 
+let openai_tool_message_of_result ~tool_use_id ~content ~content_blocks =
+  let content_str =
+    match content_blocks with
+    | Some blocks ->
+      (* OpenAI tool messages accept string content only; encode structured
+         blocks as a JSON string so the result is not lost. *)
+      Yojson.Safe.to_string (`List (List.map Api_common.content_block_to_json blocks))
+    | None -> Utf8_sanitize.sanitize content
+  in
+  `Assoc
+    [ "role", `String "tool"
+    ; "tool_call_id", `String tool_use_id
+    ; "content", `String content_str
+    ]
+;;
+
+let openai_tool_messages_of_blocks blocks =
+  blocks
+  |> List.filter_map (function
+    | ToolResult { tool_use_id; content; content_blocks; _ } ->
+      Some (openai_tool_message_of_result ~tool_use_id ~content ~content_blocks)
+    | Text _
+    | Thinking _
+    | RedactedThinking _
+    | ToolUse _
+    | Image _
+    | Document _
+    | Audio _ -> None)
+;;
+
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(include_reasoning_content = false)
@@ -146,34 +176,12 @@ let messages_of_message_with
         let text_content = Api_common.text_blocks_to_string msg.content in
         [ `Assoc [ "role", `String "user"; "content", `String text_content ] ])
     in
-    let tool_msgs =
-      msg.content
-      |> List.filter_map (function
-        | ToolResult { tool_use_id; content; content_blocks; _ } ->
-          let content_str =
-            match content_blocks with
-            | Some blocks ->
-              (* OpenAI tool messages accept string content only; encode the
-                 structured blocks as a JSON string so the result is not lost. *)
-              Yojson.Safe.to_string
-                (`List (List.map Api_common.content_block_to_json blocks))
-            | None -> Utf8_sanitize.sanitize content
-          in
-          Some
-            (`Assoc
-                [ "role", `String "tool"
-                ; "tool_call_id", `String tool_use_id
-                ; "content", `String content_str
-                ])
-        | Text _
-        | Thinking _
-        | RedactedThinking _
-        | ToolUse _
-        | Image _
-        | Document _
-        | Audio _ -> None)
-    in
-    user_msgs @ tool_msgs
+    let tool_msgs = openai_tool_messages_of_blocks msg.content in
+    (* Legacy compatibility: older histories may pack ToolResult blocks and
+       user text into one role:User message. Normal pipeline output records
+       ToolResult blocks on role:Tool; this split keeps persisted mixed
+       messages wire-compatible without making the mixed shape the invariant. *)
+    tool_msgs @ user_msgs
   | Assistant ->
     let text_content = assistant_text_content_of_blocks msg.content in
     let reasoning_content =
@@ -205,21 +213,7 @@ let messages_of_message_with
     [ `Assoc [ "role", `String "system"; "content", `String text ] ]
   | Tool ->
     msg.content
-    |> List.filter_map (function
-      | ToolResult { tool_use_id; content; _ } ->
-        Some
-          (`Assoc
-              [ "role", `String "tool"
-              ; "tool_call_id", `String tool_use_id
-              ; "content", `String (Utf8_sanitize.sanitize content)
-              ])
-      | Text _
-      | Thinking _
-      | RedactedThinking _
-      | ToolUse _
-      | Image _
-      | Document _
-      | Audio _ -> None)
+    |> openai_tool_messages_of_blocks
     |> (function
      | [] ->
        let text = Api_common.text_blocks_to_string msg.content in

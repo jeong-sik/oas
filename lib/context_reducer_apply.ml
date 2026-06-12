@@ -117,7 +117,7 @@ let has_tool_result msg = tool_result_ids msg <> []
 type dangling_repair_report = { synthesized_tool_results : int }
 
 let synthetic_tool_result_message id =
-  { role = User
+  { role = Tool
   ; content =
       [ ToolResult
           { tool_use_id = id

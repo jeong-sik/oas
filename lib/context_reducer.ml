@@ -4,9 +4,11 @@
     in agent state. This avoids sending the entire conversation on every
     request, cutting input tokens without losing debuggability.
 
-    Critical constraint: Anthropic API requires that every ToolUse block has
-    a matching ToolResult in the subsequent User message. All strategies
-    respect turn boundaries so ToolUse/ToolResult pairs are never split.
+    Critical constraint: provider APIs require that every ToolUse block has
+    a matching ToolResult in the subsequent tool-result message. Normal
+    histories use role [Tool]; legacy role [User] ToolResult messages remain
+    accepted. All strategies respect turn boundaries so ToolUse/ToolResult
+    pairs are never split.
 
     Token estimation is CJK-aware: ASCII uses a 4-char-per-token heuristic,
     multi-byte characters (CJK, emoji) use ~2/3 token per character. *)

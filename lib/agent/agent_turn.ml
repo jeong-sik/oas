@@ -325,10 +325,14 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
   | None -> Hooks.default_turn_params
   | Some _ ->
     let last_results =
+      let role_can_carry_tool_results = function
+        | User | Tool -> true
+        | System | Assistant -> false
+      in
       let rec find_last = function
         | [] -> []
         | msg :: rest ->
-          if msg.role = User
+          if role_can_carry_tool_results msg.role
           then (
             let results =
               List.filter_map

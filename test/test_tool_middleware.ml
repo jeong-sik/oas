@@ -601,11 +601,11 @@ let test_strip_drops_results_after_interleaved_text () =
   | _ -> Alcotest.fail "expected only the nudge text to survive"
 ;;
 
-let test_strip_keeps_results_with_trailing_nudge_text () =
+let test_strip_keeps_tool_role_results_before_nudge_text () =
   let msgs =
     [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
     ; mk_msg
-        User
+        Tool
         [ ToolResult
             { tool_use_id = "t1"
             ; content = "ok"
@@ -613,14 +613,18 @@ let test_strip_keeps_results_with_trailing_nudge_text () =
             ; json = None
             ; content_blocks = None
             }
-        ; Text "nudge: try a different tool"
         ]
+    ; mk_msg User [ Text "nudge: try a different tool" ]
     ]
   in
   let result = Serialize.strip_orphaned_tool_results msgs in
-  Alcotest.(check int) "same length" 2 (List.length result);
-  let user_msg = List.nth result 1 in
-  Alcotest.(check int) "result and nudge both preserved" 2 (List.length user_msg.content)
+  Alcotest.(check int) "same length" 3 (List.length result);
+  let tool_msg = List.nth result 1 in
+  Alcotest.(check bool) "result role preserved" true (tool_msg.role = Tool);
+  Alcotest.(check int) "result preserved" 1 (List.length tool_msg.content);
+  let nudge_msg = List.nth result 2 in
+  Alcotest.(check bool) "nudge role preserved" true (nudge_msg.role = User);
+  Alcotest.(check int) "nudge preserved" 1 (List.length nudge_msg.content)
 ;;
 
 (* ── Runner ──────────────────────────────────────────────── *)
@@ -694,9 +698,9 @@ let () =
             `Quick
             test_strip_drops_results_after_interleaved_text
         ; Alcotest.test_case
-            "trailing nudge text keeps results"
+            "tool role result before nudge keeps results"
             `Quick
-            test_strip_keeps_results_with_trailing_nudge_text
+            test_strip_keeps_tool_role_results_before_nudge_text
         ] )
     ]
 ;;

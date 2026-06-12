@@ -147,18 +147,48 @@ let test_provider_d_user_messages_text_tool_and_empty () =
   in
   let messages = Serialize.openai_messages_of_message user in
   check_int "user + tool messages" 2 (List.length messages);
-  let user_json = List.nth messages 0 in
-  check_string "user role" "user" (member "role" user_json |> to_string);
-  check_string "user content" "first\nsecond" (member "content" user_json |> to_string);
-  let tool_json = List.nth messages 1 in
+  (* Legacy mixed User messages are split by channel: ToolResult lowers to
+     role:tool and text remains role:user. Normal pipeline output uses a
+     separate role:Tool message instead of this packed shape. *)
+  let tool_json = List.nth messages 0 in
   check_string "tool role" "tool" (member "role" tool_json |> to_string);
   check_string "tool id" "call-1" (member "tool_call_id" tool_json |> to_string);
   check_string "tool content" "42" (member "content" tool_json |> to_string);
+  let user_json = List.nth messages 1 in
+  check_string "user role" "user" (member "role" user_json |> to_string);
+  check_string "user content" "first\nsecond" (member "content" user_json |> to_string);
   let empty_user =
     Serialize.openai_messages_of_message
       (msg User [ Thinking { thinking_type = ""; content = "x" } ])
   in
   check_int "empty user drops message" 0 (List.length empty_user)
+;;
+
+(* Wire-level adjacency for a nudged tool turn: the internal shape is
+   [assistant(tool_calls); tool(ToolResult); user(Text nudge)] and it must
+   serialize without interleaving user text before the tool response. *)
+let test_wire_adjacency_nudged_tool_turn () =
+  let turn =
+    [ msg Assistant [ ToolUse { id = "call-9"; name = "f"; input = `Null } ]
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call-9"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; msg User [ Text "nudge: try a different tool" ]
+    ]
+  in
+  let wire = List.concat_map Serialize.openai_messages_of_message turn in
+  let roles = List.map (fun m -> member "role" m |> to_string) wire in
+  Alcotest.(check (list string))
+    "tool responses stay adjacent to tool_calls"
+    [ "assistant"; "tool"; "user" ]
+    roles
 ;;
 
 let test_user_multimodal_preserve_and_visual_first () =
@@ -780,6 +810,10 @@ let () =
             "openai user text/tool/empty"
             `Quick
             test_provider_d_user_messages_text_tool_and_empty
+        ; Alcotest.test_case
+            "wire adjacency: nudged tool turn"
+            `Quick
+            test_wire_adjacency_nudged_tool_turn
         ; Alcotest.test_case
             "multimodal ordering policies"
             `Quick

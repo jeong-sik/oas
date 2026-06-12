@@ -39,7 +39,7 @@ let find_handoff_in_messages messages =
 ;;
 
 (** Replace the tool result emitted for a specific ToolUse id in the most recent
-    user tool_result message. This lets handoff interception overwrite the
+    tool-result message. This lets handoff interception overwrite the
     sentinel handler output with the delegated agent response. *)
 let replace_tool_result messages ~tool_id ~content ~is_error =
   let replace_in_content blocks =
@@ -57,7 +57,7 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
     | [] ->
       Util.snoc
         acc
-        { role = User
+        { role = Tool
         ; content =
             [ ToolResult
                 { tool_use_id = tool_id
@@ -79,7 +79,12 @@ let replace_tool_result messages ~tool_id ~content ~is_error =
             | _ -> false)
           message.content
       in
-      if message.role = User && has_tool_result
+      let role_can_carry_tool_results =
+        match message.role with
+        | User | Tool -> true
+        | System | Assistant -> false
+      in
+      if role_can_carry_tool_results && has_tool_result
       then
         List.rev_append
           rest
