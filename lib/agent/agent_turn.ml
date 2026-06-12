@@ -18,12 +18,17 @@ type tool_call_fingerprint =
   ; fp_input : string
   }
 
-let compute_fingerprints tool_uses =
+type tool_call_normalizer = name:string -> input:Yojson.Safe.t -> string * Yojson.Safe.t
+
+let identity_tool_call_normalizer ~name ~input = name, input
+
+let compute_fingerprints ?(normalize_tool_call = identity_tool_call_normalizer) tool_uses =
   List.filter_map
     (fun (block : content_block) ->
        match block with
        | ToolUse { name; input; _ } ->
-         Some { fp_name = name; fp_input = Yojson.Safe.to_string input }
+         let fp_name, fp_input = normalize_tool_call ~name ~input in
+         Some { fp_name; fp_input = Yojson.Safe.to_string fp_input }
        | Text _
        | Thinking _
        | RedactedThinking _
@@ -491,14 +496,21 @@ type idle_result =
   ; is_idle : bool
   }
 
-let update_idle_detection ~idle_state ~tool_uses =
-  let current_fps = compute_fingerprints tool_uses in
+let update_idle_detection_with_normalizer ~normalize_tool_call ~idle_state ~tool_uses =
+  let current_fps = compute_fingerprints ~normalize_tool_call tool_uses in
   let idle = is_idle idle_state.last_tool_calls current_fps in
   let new_consecutive = if idle then idle_state.consecutive_idle_turns + 1 else 0 in
   { new_state =
       { last_tool_calls = Some current_fps; consecutive_idle_turns = new_consecutive }
   ; is_idle = idle
   }
+;;
+
+let update_idle_detection ~idle_state ~tool_uses =
+  update_idle_detection_with_normalizer
+    ~normalize_tool_call:identity_tool_call_normalizer
+    ~idle_state
+    ~tool_uses
 ;;
 
 (** Default per-tool-result character cap.

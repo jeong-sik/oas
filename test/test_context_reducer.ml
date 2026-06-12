@@ -738,6 +738,46 @@ let test_drop_thinking_preserves_recent () =
     Alcotest.(check bool) "thinking preserved in recent" true has_thinking
 ;;
 
+let test_drop_thinking_preserves_tool_use_thinking () =
+  let msgs =
+    [ user_msg "q1"
+    ; Types.
+        { role = Assistant
+        ; content =
+            [ Thinking { thinking_type = "thinking"; content = "pick tool" }
+            ; RedactedThinking "encrypted"
+            ; ToolUse { id = "t1"; name = "search"; input = `Assoc [] }
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ; tool_result_msg "t1" "result"
+    ; user_msg "q2"
+    ; asst_msg "done"
+    ]
+  in
+  let result = Context_reducer.reduce Context_reducer.drop_thinking msgs in
+  match List.nth result 1 with
+  | { Types.content; _ } ->
+    let has_thinking =
+      List.exists
+        (function
+          | Types.Thinking _ -> true
+          | _ -> false)
+        content
+    in
+    let has_redacted =
+      List.exists
+        (function
+          | Types.RedactedThinking _ -> true
+          | _ -> false)
+        content
+    in
+    Alcotest.(check bool) "thinking preserved beside tool_use" true has_thinking;
+    Alcotest.(check bool) "redacted thinking preserved beside tool_use" true has_redacted
+;;
+
 (* --- compose --- *)
 
 let test_compose () =
@@ -1530,6 +1570,10 @@ let () =
             "preserves recent thinking"
             `Quick
             test_drop_thinking_preserves_recent
+        ; Alcotest.test_case
+            "preserves tool-use thinking"
+            `Quick
+            test_drop_thinking_preserves_tool_use_thinking
         ] )
     ; "compose", [ Alcotest.test_case "compose strategies" `Quick test_compose ]
     ; ( "keep_first_and_last"

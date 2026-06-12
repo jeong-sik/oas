@@ -553,6 +553,274 @@ let openai_chunk_to_events (state : provider_d_stream_state) (chunk : provider_d
   List.rev !events, !telemetry_event
 ;;
 
+(** {1 OpenAI Responses API SSE Streaming}
+
+    Responses streaming uses item-level event names:
+    - [response.output_text.delta] for assistant text
+    - [response.reasoning_summary_text.delta] / [response.reasoning_text.delta]
+      for reasoning summaries/text
+    - [response.output_item.added] + [response.function_call_arguments.delta]
+      for function calls
+    - [response.completed] / [response.incomplete] / [response.failed] for
+      terminal status and usage.
+
+    Keep this separate from {!parse_openai_sse_chunk}: Responses has no
+    [choices[].delta] envelope. *)
+
+let responses_member_string_opt key json =
+  let open Yojson.Safe.Util in
+  json |> member key |> to_string_option
+;;
+
+let responses_member_int_default key json =
+  let open Yojson.Safe.Util in
+  json |> member key |> to_int_option |> Option.value ~default:0
+;;
+
+let responses_usage_of_response response =
+  let open Yojson.Safe.Util in
+  match response |> member "usage" with
+  | `Assoc _ as usage ->
+    let input_tokens = responses_member_int_default "input_tokens" usage in
+    let output_tokens = responses_member_int_default "output_tokens" usage in
+    let cache_read_input_tokens =
+      match usage |> member "input_tokens_details" with
+      | `Assoc _ as details -> responses_member_int_default "cached_tokens" details
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> 0
+    in
+    Some
+      { input_tokens
+      ; output_tokens
+      ; cache_creation_input_tokens = 0
+      ; cache_read_input_tokens
+      ; cost_usd = None
+      }
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
+;;
+
+let responses_output_has_function_call response =
+  let open Yojson.Safe.Util in
+  match response |> member "output" with
+  | `List items ->
+    List.exists
+      (fun item ->
+         match responses_member_string_opt "type" item with
+         | Some ("function_call" | "custom_tool_call") -> true
+         | Some _ | None -> false)
+      items
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> false
+;;
+
+let responses_stop_reason_of_response response =
+  let open Yojson.Safe.Util in
+  if responses_output_has_function_call response
+  then StopToolUse
+  else (
+    match responses_member_string_opt "status" response with
+    | Some "completed" | None -> EndTurn
+    | Some "incomplete" ->
+      let reason =
+        match response |> member "incomplete_details" with
+        | `Assoc _ as details ->
+          responses_member_string_opt "reason" details
+          |> Option.value ~default:"incomplete"
+        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+          "incomplete"
+      in
+      if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
+    | Some other -> Unknown other)
+;;
+
+let responses_error_message json =
+  let open Yojson.Safe.Util in
+  match json |> member "error" with
+  | `Assoc _ as err ->
+    responses_member_string_opt "message" err |> Option.value ~default:"Responses error"
+  | `String message -> message
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `List _ ->
+    responses_member_string_opt "message" json |> Option.value ~default:"Responses error"
+;;
+
+let responses_error_type json =
+  let open Yojson.Safe.Util in
+  match json |> member "error" with
+  | `Assoc _ as err ->
+    (match responses_member_string_opt "type" err with
+     | Some _ as t -> t
+     | None -> responses_member_string_opt "code" err)
+  | `String _ | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `List _ ->
+    responses_member_string_opt "code" json
+;;
+
+let responses_ensure_thinking_block state emit =
+  (match state.thinking_state with
+   | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
+   | Thinking_started _ | Thinking_done -> ());
+  if not state.thinking_block_started
+  then (
+    state.thinking_block_index <- state.next_block_index;
+    emit
+      (ContentBlockStart
+         { index = state.next_block_index
+         ; content_type = "thinking"
+         ; tool_id = None
+         ; tool_name = None
+         });
+    state.thinking_block_started <- true;
+    state.next_block_index <- state.next_block_index + 1);
+  state.thinking_block_index
+;;
+
+let responses_ensure_text_block state emit =
+  if not state.text_block_started
+  then (
+    state.text_block_index <- state.next_block_index;
+    emit
+      (ContentBlockStart
+         { index = state.next_block_index
+         ; content_type = "text"
+         ; tool_id = None
+         ; tool_name = None
+         });
+    state.text_block_started <- true;
+    state.next_block_index <- state.next_block_index + 1);
+  state.text_block_index
+;;
+
+let responses_tool_id_of_item item =
+  match responses_member_string_opt "call_id" item with
+  | Some id when String.trim id <> "" -> Some id
+  | Some _ | None -> responses_member_string_opt "id" item
+;;
+
+let responses_ensure_tool_block state emit ~output_index ~tool_id ~tool_name =
+  match Hashtbl.find_opt state.tool_block_indices output_index with
+  | Some idx -> idx
+  | None ->
+    let idx = state.next_block_index in
+    Hashtbl.replace state.tool_block_indices output_index idx;
+    emit
+      (ContentBlockStart { index = idx; content_type = "tool_use"; tool_id; tool_name });
+    state.next_block_index <- state.next_block_index + 1;
+    idx
+;;
+
+let responses_sse_to_events (state : provider_d_stream_state) event_type data_str
+  : sse_event list * Telemetry_event.t option
+  =
+  if String.equal data_str "[DONE]"
+  then [], None
+  else (
+    match Yojson.Safe.from_string data_str with
+    | exception Yojson.Json_error msg ->
+      [ SSEParseFailed { raw = data_str; reason = "json_error: " ^ msg } ], None
+    | json ->
+      let open Yojson.Safe.Util in
+      let evt_type =
+        match event_type with
+        | Some t when String.trim t <> "" -> t
+        | Some _ | None -> Cli_common_json.member_str "type" json
+      in
+      let events = ref [] in
+      let emit evt = events := evt :: !events in
+      let emit_terminal response =
+        emit
+          (MessageDelta
+             { stop_reason = Some (responses_stop_reason_of_response response)
+             ; usage = responses_usage_of_response response
+             });
+        emit MessageStop
+      in
+      (match evt_type with
+       | "response.created" ->
+         let response = json |> member "response" in
+         emit
+           (MessageStart
+              { id = Cli_common_json.member_str "id" response
+              ; model = Cli_common_json.member_str "model" response
+              ; usage = responses_usage_of_response response
+              })
+       | "response.output_text.delta" ->
+         (match responses_member_string_opt "delta" json with
+          | Some delta when delta <> "" ->
+            let index = responses_ensure_text_block state emit in
+            emit (ContentBlockDelta { index; delta = TextDelta delta })
+          | Some _ | None -> ())
+       | "response.output_text.done" ->
+         if not state.text_block_started
+         then (
+           match responses_member_string_opt "text" json with
+           | Some text when text <> "" ->
+             let index = responses_ensure_text_block state emit in
+             emit (ContentBlockDelta { index; delta = TextDelta text })
+           | Some _ | None -> ())
+       | "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" ->
+         (match responses_member_string_opt "delta" json with
+          | Some delta when delta <> "" ->
+            let index = responses_ensure_thinking_block state emit in
+            emit (ContentBlockDelta { index; delta = ThinkingDelta delta })
+          | Some _ | None -> ())
+       | "response.reasoning_summary_text.done" | "response.reasoning_text.done" ->
+         if not state.thinking_block_started
+         then (
+           match responses_member_string_opt "text" json with
+           | Some text when text <> "" ->
+             let index = responses_ensure_thinking_block state emit in
+             emit (ContentBlockDelta { index; delta = ThinkingDelta text })
+           | Some _ | None -> ())
+       | "response.output_item.added" ->
+         let output_index = responses_member_int_default "output_index" json in
+         let item = json |> member "item" in
+         (match responses_member_string_opt "type" item with
+          | Some ("function_call" | "custom_tool_call") ->
+            let _idx =
+              responses_ensure_tool_block
+                state
+                emit
+                ~output_index
+                ~tool_id:(responses_tool_id_of_item item)
+                ~tool_name:(responses_member_string_opt "name" item)
+            in
+            ()
+          | Some _ | None -> ())
+       | "response.function_call_arguments.delta" ->
+         (match responses_member_string_opt "delta" json with
+          | Some delta when delta <> "" ->
+            let output_index = responses_member_int_default "output_index" json in
+            let item_id = responses_member_string_opt "item_id" json in
+            let index =
+              responses_ensure_tool_block
+                state
+                emit
+                ~output_index
+                ~tool_id:item_id
+                ~tool_name:None
+            in
+            emit (ContentBlockDelta { index; delta = InputJsonDelta delta })
+          | Some _ | None -> ())
+       | "response.completed" | "response.incomplete" ->
+         emit_terminal (json |> member "response")
+       | "response.failed" | "error" ->
+         emit
+           (SSEError
+              { message = responses_error_message json
+              ; error_type = responses_error_type json
+              ; raw = data_str
+              })
+       | "response.in_progress"
+       | "response.output_item.done"
+       | "response.content_part.added"
+       | "response.content_part.done"
+       | "response.function_call_arguments.done"
+       | "response.reasoning_summary_part.added"
+       | "response.reasoning_summary_part.done"
+       | "response.refusal.delta"
+       | "response.refusal.done"
+       | "response.queued" -> ()
+       | other -> emit (SSEUnknownEventType { event_type = other; raw = data_str }));
+      List.rev !events, None)
+;;
+
 (** {1 Gemini SSE Streaming}
 
     Gemini [streamGenerateContent?alt=sse] emits SSE data lines with

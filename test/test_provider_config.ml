@@ -315,6 +315,38 @@ let test_validate_output_schema_capability_rejected () =
   | Ok () -> Alcotest.fail "expected model capability rejection"
 ;;
 
+let test_validate_responses_request_path_allows_structured_output () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com/v1"
+      ~request_path:"/v1/responses"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "responses structured output accepted at path layer"
+    true
+    (Result.is_ok (Provider_config.validate_request_path cfg))
+;;
+
+let test_validate_responses_request_path_allows_json_mode () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com/v1"
+      ~request_path:"/v1/responses"
+      ~response_format_json:true
+      ()
+  in
+  check_bool
+    "responses json mode accepted at path layer"
+    true
+    (Result.is_ok (Provider_config.validate_request_path cfg))
+;;
+
 (* ── make: headers default ────────────────────────────── *)
 
 let test_default_headers () =
@@ -960,6 +992,14 @@ let () =
             "openai capability rejection"
             `Quick
             test_validate_output_schema_capability_rejected
+        ; Alcotest.test_case
+            "responses structured path accepted"
+            `Quick
+            test_validate_responses_request_path_allows_structured_output
+        ; Alcotest.test_case
+            "responses json mode path accepted"
+            `Quick
+            test_validate_responses_request_path_allows_json_mode
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip

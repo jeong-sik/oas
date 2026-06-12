@@ -79,17 +79,17 @@ let accumulate_event (acc : stream_acc) = function
      | None -> ());
     (match usage with
      | Some u ->
-       (* Additive so prompt-token totals are not lost when they arrive in a
+       (* Additive so token totals are not lost when they arrive in a
           MessageDelta rather than MessageStart. Anthropic carries input_tokens
-          in MessageStart and reports input_tokens = 0 in its message_delta, so
-          [+= 0] preserves that value. OpenAI-compatible streaming has no
-          MessageStart usage and delivers input_tokens only in the final
-          stream_options.include_usage chunk's MessageDelta, so this is the only
-          place those tokens are captured. Cache fields stay sourced from
-          MessageStart (Anthropic) and are left untouched here to avoid
-          double-counting against that prelude. *)
+          in MessageStart and reports input_tokens/cache fields as 0 in its
+          message_delta, so [+= 0] preserves that value. OpenAI-compatible
+          streaming and Responses streaming deliver final usage only in a
+          terminal MessageDelta, so this is the only place those tokens and
+          cached-token fields are captured. *)
        acc.input_tokens := !(acc.input_tokens) + u.input_tokens;
-       acc.output_tokens := !(acc.output_tokens) + u.output_tokens
+       acc.output_tokens := !(acc.output_tokens) + u.output_tokens;
+       acc.cache_creation := !(acc.cache_creation) + u.cache_creation_input_tokens;
+       acc.cache_read := !(acc.cache_read) + u.cache_read_input_tokens
      | None -> ())
   | Types.SSEError { message; error_type; raw } ->
     acc.sse_error := Some (Types.Stream_provider_error { message; error_type; raw })

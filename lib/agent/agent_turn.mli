@@ -18,6 +18,15 @@ type tool_call_fingerprint =
   ; fp_input : string
   }
 
+(** Optional normalizer applied before fingerprinting a tool call.
+
+    Use this when the execution path accepts public aliases or normalizes
+    arguments before dispatch, so idle detection compares the same semantic
+    call the executor will run rather than only the raw model spelling.
+
+    Returning the original [(name, input)] preserves legacy exact behavior. *)
+type tool_call_normalizer = name:string -> input:Yojson.Safe.t -> string * Yojson.Safe.t
+
 (** Granularity at which two fingerprints are considered the "same"
     for idle detection.
 
@@ -38,7 +47,10 @@ type idle_granularity =
   | Name_and_subset of string list
 
 (** Compute fingerprints from content blocks containing [ToolUse]. *)
-val compute_fingerprints : Types.content_block list -> tool_call_fingerprint list
+val compute_fingerprints
+  :  ?normalize_tool_call:tool_call_normalizer
+  -> Types.content_block list
+  -> tool_call_fingerprint list
 
 (** Return [true] when [current] fingerprints match [prev] at the
     given granularity. Default [?granularity] is [Exact] — preserves
@@ -214,6 +226,14 @@ type idle_result =
 (** Update idle detection state after a tool-use turn. *)
 val update_idle_detection
   :  idle_state:idle_state
+  -> tool_uses:Types.content_block list
+  -> idle_result
+
+(** Update idle detection state after a tool-use turn, normalizing each
+    [ToolUse] before fingerprinting. *)
+val update_idle_detection_with_normalizer
+  :  normalize_tool_call:tool_call_normalizer
+  -> idle_state:idle_state
   -> tool_uses:Types.content_block list
   -> idle_result
 

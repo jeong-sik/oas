@@ -380,6 +380,48 @@ let test_idle_different_calls () =
   Alcotest.(check int) "consecutive reset" 0 second.new_state.consecutive_idle_turns
 ;;
 
+let test_idle_normalized_alias_calls () =
+  let normalize_tool_call ~name ~input =
+    match name, input with
+    | "Search", `Assoc fields ->
+      (match List.assoc_opt "query" fields with
+       | Some query -> "Grep", `Assoc [ "pattern", query ]
+       | None -> name, input)
+    | _ -> name, input
+  in
+  let first_raw =
+    Agent_turn.update_idle_detection
+      ~idle_state:{ last_tool_calls = None; consecutive_idle_turns = 0 }
+      ~tool_uses:[ make_tool_use "Grep" {|{"pattern":"needle"}|} ]
+  in
+  let second_raw =
+    Agent_turn.update_idle_detection
+      ~idle_state:first_raw.new_state
+      ~tool_uses:[ make_tool_use "Search" {|{"query":"needle"}|} ]
+  in
+  Alcotest.(check bool)
+    "raw alias spelling is not idle by default"
+    false
+    second_raw.is_idle;
+  let first_normalized =
+    Agent_turn.update_idle_detection_with_normalizer
+      ~normalize_tool_call
+      ~idle_state:{ last_tool_calls = None; consecutive_idle_turns = 0 }
+      ~tool_uses:[ make_tool_use "Grep" {|{"pattern":"needle"}|} ]
+  in
+  let second_normalized =
+    Agent_turn.update_idle_detection_with_normalizer
+      ~normalize_tool_call
+      ~idle_state:first_normalized.new_state
+      ~tool_uses:[ make_tool_use "Search" {|{"query":"needle"}|} ]
+  in
+  Alcotest.(check bool) "normalized alias spelling is idle" true second_normalized.is_idle;
+  Alcotest.(check int)
+    "normalized alias increments idle counter"
+    1
+    second_normalized.new_state.consecutive_idle_turns
+;;
+
 (* ── is_idle ~granularity tests (#896) ───────────────────── *)
 
 let fp name input_str =
@@ -1014,6 +1056,10 @@ let () =
       , [ Alcotest.test_case "first call" `Quick test_idle_first_call
         ; Alcotest.test_case "same calls" `Quick test_idle_same_calls
         ; Alcotest.test_case "different calls" `Quick test_idle_different_calls
+        ; Alcotest.test_case
+            "normalized alias calls"
+            `Quick
+            test_idle_normalized_alias_calls
         ; Alcotest.test_case "multiple tools" `Quick test_idle_multiple_tools
         ; Alcotest.test_case "non-tool ignored" `Quick test_idle_non_tool_use_ignored
         ; Alcotest.test_case

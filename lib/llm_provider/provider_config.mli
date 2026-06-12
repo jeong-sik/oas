@@ -291,6 +291,15 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     @since 0.163.0 *)
 val validate_output_schema_request : t -> (unit, string) result
 
+(** True when [request_path] targets the OpenAI Responses API item-based wire
+    format rather than Chat Completions. *)
+val request_path_targets_responses_api : string -> bool
+
+(** Validate that [request_path] names a wire format implemented by this
+    provider kind. OpenAI Responses API paths require [OpenAI_compat] and use a
+    Responses-specific sync serializer/parser. *)
+val validate_request_path : t -> (unit, string) result
+
 (** Validate that sampling parameters unsupported by CLI subprocess
     transports ([min_p], [top_k]) are not set.
     Returns [Error] with the unsupported parameter names for CLI providers.

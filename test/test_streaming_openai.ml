@@ -623,6 +623,73 @@ let test_events_thinking_tool_text () =
   | _ -> Alcotest.fail "expected TextDelta at index 2"
 ;;
 
+let test_responses_stream_reasoning_tool_and_terminal () =
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
+  in
+  let events1, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.created")
+      {|{"type":"response.created","response":{"id":"resp_1","model":"gpt-5.5","status":"in_progress","usage":null}}|}
+  in
+  (match events1 with
+   | [ MessageStart { id; model; usage } ] ->
+     Alcotest.(check string) "id" "resp_1" id;
+     Alcotest.(check string) "model" "gpt-5.5" model;
+     Alcotest.(check bool) "usage absent" true (Option.is_none usage)
+   | _ -> Alcotest.fail "expected MessageStart");
+  let events2, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.reasoning_summary_text.delta")
+      {|{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Need a lookup."}|}
+  in
+  (match events2 with
+   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
+     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "Need a lookup." }
+     ] -> ()
+   | _ -> Alcotest.fail "expected reasoning start+delta");
+  let events3, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.output_item.added")
+      {|{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":""}}|}
+  in
+  (match events3 with
+   | [ ContentBlockStart
+         { index = 1
+         ; content_type = "tool_use"
+         ; tool_id = Some "call_lookup"
+         ; tool_name = Some "lookup"
+         }
+     ] -> ()
+   | _ -> Alcotest.fail "expected tool start");
+  let events4, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.function_call_arguments.delta")
+      {|{"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","delta":"{\"q\":\"weather\"}"}|}
+  in
+  (match events4 with
+   | [ ContentBlockDelta { index = 1; delta = InputJsonDelta "{\"q\":\"weather\"}" } ] ->
+     ()
+   | _ -> Alcotest.fail "expected function arguments delta");
+  let events5, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.completed")
+      {|{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.5","status":"completed","output":[{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"weather\"}"}],"usage":{"input_tokens":12,"output_tokens":8,"input_tokens_details":{"cached_tokens":2}}}}|}
+  in
+  match events5 with
+  | [ MessageDelta { stop_reason = Some StopToolUse; usage = Some usage }; MessageStop ]
+    ->
+    Alcotest.(check int) "input tokens" 12 usage.input_tokens;
+    Alcotest.(check int) "output tokens" 8 usage.output_tokens;
+    Alcotest.(check int) "cache read" 2 usage.cache_read_input_tokens
+  | _ -> Alcotest.fail "expected terminal StopToolUse with usage"
+;;
+
 let () =
   let open Alcotest in
   run
@@ -666,6 +733,12 @@ let () =
         ; test_case "tool-first then text (#333)" `Quick test_events_tool_first_then_text
         ; test_case "multi-tool then text (#333)" `Quick test_events_multi_tool_then_text
         ; test_case "thinking + tool + text (#333)" `Quick test_events_thinking_tool_text
+        ] )
+    ; ( "responses_sse_to_events"
+      , [ test_case
+            "reasoning tool and terminal"
+            `Quick
+            test_responses_stream_reasoning_tool_and_terminal
         ] )
     ]
 ;;

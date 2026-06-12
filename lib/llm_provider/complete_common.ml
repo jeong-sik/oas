@@ -242,10 +242,19 @@ let validate_cli_sampling_params (config : Provider_config.t) =
   | Error reason -> Error (Http_client.AcceptRejected { reason })
 ;;
 
+let validate_request_path (config : Provider_config.t) =
+  match Provider_config.validate_request_path config with
+  | Ok () -> Ok ()
+  | Error reason -> Error (Http_client.AcceptRejected { reason })
+;;
+
 let validate_all (config : Provider_config.t) =
-  match validate_output_schema_request config with
+  match validate_request_path config with
   | Error _ as e -> e
-  | Ok () -> validate_cli_sampling_params config
+  | Ok () ->
+    (match validate_output_schema_request config with
+     | Error _ as e -> e
+     | Ok () -> validate_cli_sampling_params config)
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in

@@ -324,6 +324,28 @@ let structured_schema_requested (config : t) : bool =
   | None, (Types.JsonMode | Types.Off) -> false
 ;;
 
+let request_path_targets_responses_api request_path =
+  let lower = String.lowercase_ascii (String.trim request_path) in
+  let path =
+    match String.index_opt lower '?' with
+    | Some i -> String.sub lower 0 i
+    | None -> lower
+  in
+  String.equal path "/v1/responses" || String.equal path "/responses"
+;;
+
+let validate_request_path (config : t) =
+  if request_path_targets_responses_api config.request_path
+  then (
+    match config.kind with
+    | OpenAI_compat -> Ok ()
+    | Anthropic | Kimi | Ollama | Gemini | Glm | DashScope ->
+      Error
+        "OpenAI Responses API request_path requires provider kind OpenAI_compat; other \
+         provider kinds use their own wire formats.")
+  else Ok ()
+;;
+
 let validate_output_schema_request (config : t) =
   match structured_schema_requested config with
   | false -> Ok ()
