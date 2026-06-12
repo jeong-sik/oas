@@ -880,7 +880,9 @@ let read_ndjson ?clock ?idle_timeout ~reader ~on_line () =
 
 let inject_stream_param body_str =
   match Yojson.Safe.from_string body_str with
-  | `Assoc fields -> Yojson.Safe.to_string (`Assoc (("stream", `Bool true) :: fields))
+  | `Assoc fields ->
+    let without_existing = List.filter (fun (k, _) -> k <> "stream") fields in
+    Yojson.Safe.to_string (`Assoc (("stream", `Bool true) :: without_existing))
   | other -> Yojson.Safe.to_string other
   | exception Yojson.Json_error _ -> body_str
 ;;

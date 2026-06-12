@@ -19,15 +19,14 @@ let test_inject_stream_param_existing_stream () =
   let body = {|{"stream":false,"model":"test"}|} in
   let result = Http_client.inject_stream_param body in
   let json = Yojson.Safe.from_string result in
-  (* stream=true is prepended; the duplicate "stream":false is still there
-     but the first occurrence wins in most JSON parsers. *)
   let fields =
     match json with
     | `Assoc fs -> fs
     | _ -> []
   in
-  let first_stream = List.assoc "stream" fields in
-  Alcotest.(check bool) "first stream is true" true (first_stream = `Bool true)
+  let stream_fields = List.filter (fun (k, _) -> k = "stream") fields in
+  Alcotest.(check int) "one stream key" 1 (List.length stream_fields);
+  Alcotest.(check bool) "stream is true" true (List.assoc "stream" fields = `Bool true)
 ;;
 
 let test_inject_stream_param_non_json () =
