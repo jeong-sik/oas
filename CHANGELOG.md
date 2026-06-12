@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.1](https://github.com/jeong-sik/oas/compare/v0.206.0...v0.206.1) (2026-06-12)
+
+
+### Bug Fixes
+
+* **glm:** honor preserve thinking in ZAI requests ([#2023](https://github.com/jeong-sik/oas/issues/2023)) ([50d7726](https://github.com/jeong-sik/oas/commit/50d77261fd516a6471a2c8fdbd07748fcc9732bf))
+
 ## [0.206.0](https://github.com/jeong-sik/oas/compare/v0.205.15...v0.206.0) (2026-06-12)
 
 
