@@ -63,7 +63,6 @@ type t =
   | Write | Edit | Create_text_file | Replace_content
   | Rename_symbol | Notebook_edit
   | Task_create | Task_update | Task_stop
-  | Team_create | Team_delete
   (* external-effect *)
   | Ask_user_question
   | Navigate | Computer | Find | Form_input
