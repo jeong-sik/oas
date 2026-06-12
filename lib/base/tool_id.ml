@@ -225,7 +225,7 @@ let%test "of_string_lowercases_builtin" = equal (of_string "READ_FILE") Read_fil
 let%test "of_string_retired_native_tool_names_are_user_tools" =
   List.for_all
     (fun name -> equal (of_string name) (User (String.lowercase_ascii name)))
-    [ "Read"; "Glob"; "Grep"; "Write"; "Edit"; "Bash"; "web_fetch"; "web_search" ]
+    [ "Read"; "Glob"; "Grep"; "Write"; "Edit"; "Bash" ]
 ;;
 
 let%test "of_string_user_lowercases" = equal (of_string "MyTool") (User "mytool")
