@@ -268,6 +268,36 @@ let test_ollama_output_schema () =
   Alcotest.(check bool) "format copied" true (json |> member "format" = schema)
 ;;
 
+let test_ollama_gemma4_thinking_uses_template_token () =
+  let config =
+    PC.make
+      ~kind:Ollama
+      ~model_id:"hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
+      ~base_url:"http://localhost:11434"
+      ~system_prompt:"You are a helpful assistant."
+      ~enable_thinking:true
+      ()
+  in
+  let body = BOL.build_request ~config ~messages:[ user_msg "solve 19*21" ] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool)
+    "omits top-level think for Gemma 4"
+    true
+    (json |> member "think" = `Null);
+  let first_message = json |> member "messages" |> index 0 in
+  Alcotest.(check string)
+    "system role"
+    "system"
+    (first_message |> member "role" |> to_string);
+  Alcotest.(check bool)
+    "system prompt starts with Gemma 4 think token"
+    true
+    (String.starts_with
+       ~prefix:"<|think|>\n"
+       (first_message |> member "content" |> to_string))
+;;
+
 let test_ollama_parse_parallel_tool_calls_object_arguments () =
   let body =
     {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
@@ -1049,6 +1079,10 @@ let () =
         ; test_case "stream flag" `Quick test_provider_d_stream_flag
         ; test_case "with json schema" `Quick test_provider_d_with_json_schema
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
+        ; test_case
+            "ollama gemma4 thinking uses template token"
+            `Quick
+            test_ollama_gemma4_thinking_uses_template_token
         ; test_case
             "ollama parse parallel tool calls object args"
             `Quick

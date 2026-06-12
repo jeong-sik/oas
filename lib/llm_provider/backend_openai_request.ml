@@ -223,6 +223,7 @@ let build_request
       (match chat_template_kwargs_fields config with
        | [] -> body
        | fields -> ("chat_template_kwargs", `Assoc fields) :: body)
+    | Chat_template_token -> body
     | Enable_thinking ->
       let body =
         match config.enable_thinking with
@@ -328,9 +329,7 @@ let build_request
         ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
         ~tools_present
     in
-    Backend_openai_serialize.parallel_tool_calls_fields
-      ~disable_parallel
-      ~tools_present
+    Backend_openai_serialize.parallel_tool_calls_fields ~disable_parallel ~tools_present
     @ body
   in
   let body =

@@ -255,6 +255,11 @@ let test_transport_auth_and_thinking_canonical_matrix () =
             "capabilities": {"thinking_control_format": "enable_thinking"}
           },
           {
+            "id": "template-token",
+            "kind": "ollama",
+            "capabilities": {"thinking_control_format": "chat_template_token"}
+          },
+          {
             "id": "base-entry",
             "kind": "openai_compat",
             "capabilities_base": "openai_chat",
@@ -303,6 +308,13 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "enable thinking"
     true
     (enable.capabilities.thinking_control_format = Capabilities.Enable_thinking);
+  let template_token = require_lookup catalog "template-token" in
+  check
+    bool
+    "template token thinking"
+    true
+    (template_token.capabilities.thinking_control_format
+     = Capabilities.Chat_template_token);
   let base = require_lookup catalog "base-entry" in
   check bool "capabilities_base supports tools" true base.capabilities.supports_tools;
   check
@@ -310,7 +322,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "oversized prompt alignment ignored"
     None
     base.capabilities.prompt_cache_alignment;
-  check int "catalog size" 6 (List.length catalog)
+  check int "catalog size" 7 (List.length catalog)
 ;;
 
 let test_removed_catalog_aliases_are_rejected () =

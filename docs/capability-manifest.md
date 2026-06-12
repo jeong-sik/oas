@@ -97,6 +97,7 @@ for the full JSON Schema (draft-07).
 | `supports_seed` | bool | from base | Deterministic seed. |
 | `supports_computer_use` | bool | from base | Computer-use tools. |
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
+| `thinking_control_format` | string | from base | Thinking wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `reasoning_effort`, `enable_thinking`. |
 
 Unknown fields are silently ignored (forward-compatible).
 

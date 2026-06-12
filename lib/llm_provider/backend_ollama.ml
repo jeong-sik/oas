@@ -1,6 +1,7 @@
 (** Ollama native API request building and response parsing.
 
-    Uses [/api/chat] endpoint with [think] parameter for thinking control,
+    Uses [/api/chat] endpoint with [think] parameter for thinking control
+    except Gemma 4, whose documented thinking control is chat-template based,
     and [options] object for sampling parameters.
 
     @since 0.113.0 *)
@@ -9,9 +10,21 @@ open Types
 
 (* ── Request building ────────────────────────────────── *)
 
+let gemma4_think_token = "<|think|>"
+
+let with_gemma4_think_token = function
+  | Some prompt when not (Api_common.string_is_blank prompt) ->
+    let trimmed = String.trim prompt in
+    if String.starts_with ~prefix:gemma4_think_token trimmed
+    then trimmed
+    else gemma4_think_token ^ "\n" ^ trimmed
+  | _ -> gemma4_think_token
+;;
+
 (** Build Ollama native [/api/chat] request body.
     Key differences from Openai compat:
-    - [think] parameter (boolean) instead of [chat_template_kwargs]
+    - [think] parameter (boolean) instead of [chat_template_kwargs], except
+      Gemma 4 where thinking is triggered by [<|think|>] in the system prompt
     - Sampling params go inside [options] object
     - [num_predict] instead of [max_tokens]
     - No [tool_choice] support *)
@@ -22,8 +35,27 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
+  let think_requested =
+    match config.enable_thinking with
+    | Some true -> true
+    | Some false -> false
+    | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
+  in
+  let caps =
+    match Capabilities.for_model_id config.model_id with
+    | Some c -> c
+    | None -> Capabilities.ollama_capabilities
+  in
+  let gemma4_template_thinking =
+    think_requested && caps.thinking_control_format = Capabilities.Chat_template_token
+  in
+  let system_prompt =
+    if gemma4_template_thinking
+    then Some (with_gemma4_think_token config.system_prompt)
+    else config.system_prompt
+  in
   let provider_messages =
-    (match config.system_prompt with
+    (match system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
        [ `Assoc
            [ "role", `String "system"; "content", `String (Utf8_sanitize.sanitize s) ]
@@ -37,15 +69,16 @@ let build_request
   (* think: false by default for Ollama to prevent thinking models from
      consuming all tokens in reasoning. Only enable when explicitly requested.
      Override with OAS_OLLAMA_THINK_DEFAULT=true to enable thinking for all
-     Ollama requests by default. *)
-  let think =
-    match config.enable_thinking with
-    | Some true -> true
-    | Some false -> false
-    | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
-    (* default false: thinking models consume tokens in reasoning *)
+     Ollama requests by default.
+
+     Gemma 4 is the exception: current Ollama rejects [think:true] for the
+     Unsloth/Google Gemma 4 GGUFs even though the model's documented control is
+     the [<|think|>] chat-template token. For that family we inject the token
+     into the system turn and omit the top-level [think] field so Ollama returns
+     [message.thinking] instead of failing the request. *)
+  let body =
+    if gemma4_template_thinking then body else ("think", `Bool think_requested) :: body
   in
-  let body = ("think", `Bool think) :: body in
   (* Ollama defaults to stream=true, so always send explicit value *)
   let body = ("stream", `Bool stream) :: body in
   (* keep_alive: controls how long the model stays loaded in memory after
@@ -121,11 +154,6 @@ let build_request
      fires when an operator explicitly sets [supports_min_p = false]
      or [supports_top_k = false] for a specific Ollama variant — at
      which point the one-shot WARN from Backend_openai also fires. *)
-  let caps =
-    match Capabilities.for_model_id config.model_id with
-    | Some c -> c
-    | None -> Capabilities.ollama_capabilities
-  in
   let options = ref [] in
   (let mt =
      Option.value ~default:Constants.unknown_model_max_tokens_fallback config.max_tokens

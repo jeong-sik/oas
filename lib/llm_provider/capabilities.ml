@@ -21,6 +21,9 @@ type thinking_control_format =
   | Chat_template_kwargs
   (** llama-server/vLLM/SGLang style:
       [{"chat_template_kwargs":{"enable_thinking":b,"preserve_thinking":b}}] *)
+  | Chat_template_token
+  (** Chat-template control token style: inject a model-specific thinking token
+      into the conversation instead of sending a top-level thinking field. *)
   | Reasoning_effort
   (** Openai-style top-level [reasoning_effort] string field. The set of
       values this codebase emits is [{"none","low","medium","high"}] —
@@ -440,6 +443,7 @@ let thinking_control_format_of_manifest_string raw =
   | "thinking_object" -> Some Thinking_object
   | "thinking_object_only" -> Some Thinking_object_only
   | "chat_template_kwargs" -> Some Chat_template_kwargs
+  | "chat_template_token" -> Some Chat_template_token
   | "reasoning_effort" -> Some Reasoning_effort
   | "enable_thinking" -> Some Enable_thinking
   | _ -> None
