@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.4](https://github.com/jeong-sik/oas/compare/v0.206.3...v0.206.4) (2026-06-12)
+
+
+### Bug Fixes
+
+* **pipeline:** keep tool results on tool role before nudges ([#2030](https://github.com/jeong-sik/oas/issues/2030)) ([3e56fcd](https://github.com/jeong-sik/oas/commit/3e56fcdb10b38f1451a7891ac73d72e516982fca))
+
 ## [0.206.3](https://github.com/jeong-sik/oas/compare/v0.206.2...v0.206.3) (2026-06-12)
 
 
