@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.205.15](https://github.com/jeong-sik/oas/compare/v0.205.14...v0.205.15) (2026-06-12)
+
+
+### Bug Fixes
+
+* **ollama:** support Gemma 4 QAT thinking control token ([#2016](https://github.com/jeong-sik/oas/issues/2016)) ([4ab99a1](https://github.com/jeong-sik/oas/commit/4ab99a1c5d1aaadb0cef8f21cad087413ea9798e))
+
 ## [0.205.14](https://github.com/jeong-sik/oas/compare/v0.205.13...v0.205.14) (2026-06-11)
 
 
