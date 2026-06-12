@@ -28,6 +28,7 @@ let as_list label = function
 let member key json = Yojson.Safe.Util.member key json
 let to_string json = Yojson.Safe.Util.to_string json
 let to_int json = Yojson.Safe.Util.to_int json
+let to_list json = Yojson.Safe.Util.to_list json
 
 let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_fields () =
   let message_fields =
@@ -334,6 +335,89 @@ let test_strip_orphaned_tool_results_dedupes_and_drops_empty () =
     check_string "tool content" "first" content;
     check_string "text" "kept" text
   | _ -> Alcotest.fail "unexpected stripped user content"
+;;
+
+let test_close_tool_message_pairs_repairs_dangling_and_late_results () =
+  let messages =
+    [ msg Assistant [ ToolUse { id = "call-1"; name = "lookup"; input = `Null } ]
+    ; msg User [ Text "interleaving user text" ]
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call-1"
+            ; content = "late result"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ]
+  in
+  let closed = Serialize.close_tool_message_pairs_for_request messages in
+  check_int "synthetic inserted and late result dropped" 3 (List.length closed);
+  (match List.nth closed 1 with
+   | { role = Tool
+     ; content = [ ToolResult { tool_use_id; content; is_error; _ } ]
+     ; metadata
+     ; _
+     } ->
+     check_string "synthetic id" "call-1" tool_use_id;
+     check_bool "synthetic is error" true is_error;
+     check_bool
+       "synthetic content"
+       true
+       (String.starts_with ~prefix:"OAS synthesized" content);
+     Alcotest.(check (option bool))
+       "synthetic metadata"
+       (Some true)
+       (match List.assoc_opt "oas.synthetic_tool_result" metadata with
+        | Some (`Bool value) -> Some value
+        | _ -> None)
+   | _ -> Alcotest.fail "expected adjacent synthetic tool result");
+  let late_survived =
+    List.exists
+      (fun (m : message) ->
+         List.exists
+           (function
+             | ToolResult { content = "late result"; _ } -> true
+             | _ -> false)
+           m.content)
+      closed
+  in
+  check_bool "late result dropped" false late_survived
+;;
+
+let test_openai_build_request_closes_dangling_tool_call () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-4o-mini"
+      ~base_url:"https://example.invalid/v1"
+      ()
+  in
+  let messages =
+    [ msg User [ Text "question" ]
+    ; msg Assistant [ ToolUse { id = "call-missing"; name = "lookup"; input = `Null } ]
+    ; msg User [ Text "continue" ]
+    ]
+  in
+  let body =
+    Backend_openai.build_request ~config ~messages () |> Yojson.Safe.from_string
+  in
+  let wire_messages = body |> member "messages" |> to_list in
+  let roles = List.map (fun json -> json |> member "role" |> to_string) wire_messages in
+  Alcotest.(check (list string))
+    "wire roles"
+    [ "user"; "assistant"; "tool"; "user" ]
+    roles;
+  let tool_msg = List.nth wire_messages 2 in
+  check_string "tool id" "call-missing" (tool_msg |> member "tool_call_id" |> to_string);
+  check_bool
+    "synthetic result body"
+    true
+    (String.starts_with
+       ~prefix:"OAS synthesized"
+       (tool_msg |> member "content" |> to_string))
 ;;
 
 let test_strip_thinking_blocks () =
@@ -830,6 +914,14 @@ let () =
             "strip orphaned tool results"
             `Quick
             test_strip_orphaned_tool_results_dedupes_and_drops_empty
+        ; Alcotest.test_case
+            "close tool message pairs"
+            `Quick
+            test_close_tool_message_pairs_repairs_dangling_and_late_results
+        ; Alcotest.test_case
+            "build_request closes dangling tool call"
+            `Quick
+            test_openai_build_request_closes_dangling_tool_call
         ; Alcotest.test_case "strip thinking blocks" `Quick test_strip_thinking_blocks
         ; Alcotest.test_case
             "tool choice and schema conversion"

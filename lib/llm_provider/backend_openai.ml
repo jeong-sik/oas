@@ -29,6 +29,11 @@ let tool_choice_to_provider_d_json =
 
 let build_provider_d_tool_json = Backend_openai_serialize.build_provider_d_tool_json
 let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
+
+let close_tool_message_pairs_for_request =
+  Backend_openai_serialize.close_tool_message_pairs_for_request
+;;
+
 let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 
 (* ── Re-exports from parsing ──────────────────────────── *)

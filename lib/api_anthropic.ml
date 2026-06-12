@@ -35,6 +35,11 @@ let build_body_assoc
       ~supports_parallel_tool_calls:capabilities.supports_parallel_tool_calls
       ~tools_present
   in
+  let messages =
+    messages
+    |> Llm_provider.Tool_message_pairs.close_for_provider_request
+    |> Llm_provider.Api_common.merge_tool_result_followup_user_messages
+  in
   let body_assoc =
     [ "model", `String model_str
     ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)

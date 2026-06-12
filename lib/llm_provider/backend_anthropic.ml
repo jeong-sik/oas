@@ -81,7 +81,11 @@ let build_request
       ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
       ~tools_present
   in
-  let messages = Api_common.merge_tool_result_followup_user_messages messages in
+  let messages =
+    messages
+    |> Tool_message_pairs.close_for_provider_request
+    |> Api_common.merge_tool_result_followup_user_messages
+  in
   let message_to_json = Api_common.message_to_json in
   let msgs_json = List.map message_to_json messages in
   let body =

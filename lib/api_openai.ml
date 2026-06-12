@@ -99,7 +99,9 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
            && should_include_tools ?provider_config config -> Some entries
     | _ -> None
   in
-  let sanitized_messages = strip_orphaned_tool_results messages in
+  let sanitized_messages =
+    Llm_provider.Backend_openai_serialize.close_tool_message_pairs_for_request messages
+  in
   let provider_messages =
     let message_serializer =
       if is_glm_request ?provider_config config
