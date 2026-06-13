@@ -19,17 +19,26 @@ exception Gemini_api_error of string
    asymmetry once per model rather than ignoring it silently. Verified 2026-06-03
    against ai.google.dev/gemini-api/docs/function-calling. *)
 let parallel_disable_warned : (string, unit) Hashtbl.t = Hashtbl.create 8
+let parallel_disable_warned_mu = Eio.Mutex.create ()
 
 let warn_parallel_disable_unsupported ~model_id =
-  if not (Hashtbl.mem parallel_disable_warned model_id)
+  let already_warned =
+    Eio.Mutex.use_ro parallel_disable_warned_mu
+    @@ fun () -> Hashtbl.mem parallel_disable_warned model_id
+  in
+  if not already_warned
   then (
-    Hashtbl.replace parallel_disable_warned model_id ();
-    Diag.warn
-      "backend_gemini"
-      "disable_parallel_tool_use requested for model %s but the Gemini API has no \
-       parallel-disable option (functionCallingConfig supports only mode and \
-       allowedFunctionNames); ignoring."
-      model_id)
+    Eio.Mutex.use_rw ~protect:true parallel_disable_warned_mu
+    @@ fun () ->
+    if not (Hashtbl.mem parallel_disable_warned model_id)
+    then (
+      Hashtbl.replace parallel_disable_warned model_id ();
+      Diag.warn
+        "backend_gemini"
+        "disable_parallel_tool_use requested for model %s but the Gemini API has no \
+         parallel-disable option (functionCallingConfig supports only mode and \
+         allowedFunctionNames); ignoring."
+        model_id))
 ;;
 
 let provider_f_role_of_oas = function
