@@ -27,6 +27,14 @@ val build_request
 (** Parse a Gemini [generateContent] response JSON into {!Types.api_response}. *)
 val parse_response : Yojson.Safe.t -> Types.api_response
 
+(** Opaque carrier payload for Gemini [thoughtSignature] values attached to
+    function-call parts. Provider request builders can preserve this through
+    {!Types.RedactedThinking} without widening the public [ToolUse] type. *)
+val gemini_thought_signature_payload
+  :  tool_use_id:string
+  -> thought_signature:string
+  -> string
+
 (** Extract [contents] list and optional [systemInstruction] from messages.
     Exposed for unit-testing the OAS-to-Gemini message mapping. *)
 val contents_of_messages : Types.message list -> Yojson.Safe.t list * Yojson.Safe.t option

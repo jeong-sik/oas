@@ -37,6 +37,62 @@ let provider_f_role_of_oas = function
   | Assistant -> "model"
 ;;
 
+let gemini_thought_signature_kind = "gemini_thought_signature"
+
+let string_field_opt key = function
+  | `Assoc fields ->
+    (match List.assoc_opt key fields with
+     | Some (`String s) when not (Api_common.string_is_blank s) -> Some s
+     | Some _ | None -> None)
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let gemini_thought_signature_payload ~tool_use_id ~thought_signature =
+  Yojson.Safe.to_string
+    (`Assoc
+        [ "provider", `String "gemini"
+        ; "kind", `String gemini_thought_signature_kind
+        ; "tool_use_id", `String tool_use_id
+        ; "thoughtSignature", `String thought_signature
+        ])
+;;
+
+let gemini_thought_signature_carrier ~tool_use_id ~thought_signature =
+  RedactedThinking (gemini_thought_signature_payload ~tool_use_id ~thought_signature)
+;;
+
+let gemini_thought_signature_of_redacted data =
+  try
+    let json = Yojson.Safe.from_string data in
+    match string_field_opt "provider" json, string_field_opt "kind" json with
+    | Some "gemini", Some kind when String.equal kind gemini_thought_signature_kind ->
+      (match
+         ( string_field_opt "tool_use_id" json
+         , match string_field_opt "thoughtSignature" json with
+           | Some s -> Some s
+           | None -> string_field_opt "thought_signature" json )
+       with
+       | Some tool_use_id, Some thought_signature -> Some (tool_use_id, thought_signature)
+       | _ -> None)
+    | _ -> None
+  with
+  | Yojson.Json_error _ -> None
+;;
+
+let gemini_tool_signatures_of_blocks blocks =
+  let tbl = Hashtbl.create 8 in
+  List.iter
+    (function
+      | RedactedThinking data ->
+        (match gemini_thought_signature_of_redacted data with
+         | Some (tool_use_id, signature) -> Hashtbl.replace tbl tool_use_id signature
+         | None -> ())
+      | Text _ | Thinking _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
+        ())
+    blocks;
+  tbl
+;;
+
 (** Build a tool_use_id -> tool_name lookup table from message history.
     Gemini's functionResponse requires the function NAME, but OAS
     ToolResult only carries the tool_use_id (a UUID). *)
@@ -55,7 +111,7 @@ let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t
 
 (* ── Content block -> Gemini part ───────────────────── *)
 
-let part_of_content_block id_to_name = function
+let part_of_content_block id_to_name tool_signatures = function
   | Text s -> Some (`Assoc [ "text", `String (Utf8_sanitize.sanitize s) ])
   | Thinking { content; _ } ->
     Some
@@ -75,8 +131,14 @@ let part_of_content_block id_to_name = function
       (`Assoc
           [ "inlineData", `Assoc [ "mimeType", `String media_type; "data", `String data ]
           ])
-  | ToolUse { name; input; _ } ->
-    Some (`Assoc [ "functionCall", `Assoc [ "name", `String name; "args", input ] ])
+  | ToolUse { id; name; input } ->
+    let fields = [ "functionCall", `Assoc [ "name", `String name; "args", input ] ] in
+    let fields =
+      match Hashtbl.find_opt tool_signatures id with
+      | Some signature -> ("thoughtSignature", `String signature) :: fields
+      | None -> fields
+    in
+    Some (`Assoc fields)
   | ToolResult { tool_use_id; content; _ } ->
     let name =
       match Hashtbl.find_opt id_to_name tool_use_id with
@@ -117,12 +179,17 @@ let contents_of_messages (messages : message list) =
   let contents = ref [] in
   List.iter
     (fun (msg : message) ->
+       let tool_signatures = gemini_tool_signatures_of_blocks msg.content in
        match msg.role with
        | System ->
-         let parts = List.filter_map (part_of_content_block id_to_name) msg.content in
+         let parts =
+           List.filter_map (part_of_content_block id_to_name tool_signatures) msg.content
+         in
          system_parts := !system_parts @ parts
        | User | Assistant | Tool ->
-         let parts = List.filter_map (part_of_content_block id_to_name) msg.content in
+         let parts =
+           List.filter_map (part_of_content_block id_to_name tool_signatures) msg.content
+         in
          if parts <> []
          then
            contents
@@ -322,22 +389,29 @@ let parse_response json =
       | _ -> []
     in
     let content =
-      List.filter_map
+      List.concat_map
         (fun part ->
            match part |> member "text" with
            | `String s ->
              let is_thought = Cli_common_json.member_bool "thought" part in
              if is_thought
-             then Some (Thinking { thinking_type = "thinking"; content = s })
-             else Some (Text s)
+             then [ Thinking { thinking_type = "thinking"; content = s } ]
+             else [ Text s ]
            | _ ->
              (match part |> member "functionCall" with
               | `Assoc _ as fc ->
                 let name = fc |> member "name" |> to_string in
                 let args = fc |> member "args" in
                 let id = Api_common.synthesize_tool_use_id ~name args in
-                Some (ToolUse { id; name; input = args })
-              | _ -> None))
+                let tool_use = ToolUse { id; name; input = args } in
+                (match part |> member "thoughtSignature" |> to_string_option with
+                 | Some thought_signature
+                   when not (Api_common.string_is_blank thought_signature) ->
+                   [ gemini_thought_signature_carrier ~tool_use_id:id ~thought_signature
+                   ; tool_use
+                   ]
+                 | Some _ | None -> [ tool_use ])
+              | _ -> []))
         parts
     in
     let finish_reason =

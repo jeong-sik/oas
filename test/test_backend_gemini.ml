@@ -379,6 +379,121 @@ let test_parse_function_call () =
   | _ -> fail "expected StopToolUse"
 ;;
 
+let function_call_with_thought_signature_json () =
+  Yojson.Safe.from_string
+    {|{
+    "candidates": [{
+      "content": {
+        "parts": [{
+          "functionCall": {
+            "name": "search",
+            "args": {"q": "test"}
+          },
+          "thoughtSignature": "sig-gemini-123"
+        }],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }],
+    "usageMetadata": {"promptTokenCount": 15, "candidatesTokenCount": 8},
+    "modelVersion": "gemini-2.5-flash"
+  }|}
+;;
+
+let test_parse_function_call_preserves_thought_signature () =
+  let resp =
+    Backend_gemini.parse_response (function_call_with_thought_signature_json ())
+  in
+  check int "two content blocks" 2 (List.length resp.content);
+  (match resp.content with
+   | [ Types.RedactedThinking raw; Types.ToolUse { id; name; input } ] ->
+     check string "name" "search" name;
+     check string "query arg" "test" (input |> member "q" |> to_string);
+     let carrier = Yojson.Safe.from_string raw in
+     check string "carrier provider" "gemini" (carrier |> member "provider" |> to_string);
+     check
+       string
+       "carrier kind"
+       "gemini_thought_signature"
+       (carrier |> member "kind" |> to_string);
+     check string "carrier tool_use_id" id (carrier |> member "tool_use_id" |> to_string);
+     check
+       string
+       "carrier thoughtSignature"
+       "sig-gemini-123"
+       (carrier |> member "thoughtSignature" |> to_string)
+   | _ -> fail "expected RedactedThinking carrier followed by ToolUse");
+  match resp.stop_reason with
+  | Types.StopToolUse -> ()
+  | _ -> fail "expected StopToolUse"
+;;
+
+let test_thought_signature_roundtrip_request () =
+  let parsed =
+    Backend_gemini.parse_response (function_call_with_thought_signature_json ())
+  in
+  let tool_use_id =
+    match parsed.content with
+    | [ Types.RedactedThinking _; Types.ToolUse { id; _ } ] -> id
+    | _ -> fail "expected parsed signed ToolUse"
+  in
+  let config = provider_f_config () in
+  let messages =
+    [ Types.user_msg "Use the search tool."
+    ; { Types.role = Assistant
+      ; content = parsed.content
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; { role = User
+      ; content =
+          [ ToolResult
+              { tool_use_id
+              ; content = "found"
+              ; is_error = false
+              ; json = None
+              ; content_blocks = None
+              }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = Backend_gemini.build_request ~config ~messages () in
+  let json = parse_body body in
+  let contents = json |> member "contents" |> to_list in
+  check int "three contents" 3 (List.length contents);
+  let assistant_content = List.nth contents 1 in
+  let function_part =
+    assistant_content
+    |> member "parts"
+    |> to_list
+    |> function
+    | [ part ] -> part
+    | _ -> fail "expected one assistant functionCall part"
+  in
+  check
+    string
+    "request thoughtSignature"
+    "sig-gemini-123"
+    (function_part |> member "thoughtSignature" |> to_string);
+  let fc = function_part |> member "functionCall" in
+  check string "function name" "search" (fc |> member "name" |> to_string);
+  check string "function arg" "test" (fc |> member "args" |> member "q" |> to_string);
+  let tool_response_content = List.nth contents 2 in
+  let fr =
+    tool_response_content
+    |> member "parts"
+    |> to_list
+    |> List.hd
+    |> member "functionResponse"
+  in
+  check string "response function name" "search" (fr |> member "name" |> to_string)
+;;
+
 let test_parse_usage () =
   let json =
     Yojson.Safe.from_string
@@ -811,6 +926,80 @@ let test_provider_f_stream_tool_first_then_text () =
   | None -> fail "expected Some chunk"
 ;;
 
+let test_provider_f_stream_function_call_preserves_thought_signature () =
+  let state = Streaming.create_openai_stream_state () in
+  let data =
+    {|{
+    "candidates": [{
+      "content": {
+        "parts": [{
+          "functionCall": {"name": "search", "args": {"q": "test"}},
+          "thoughtSignature": "sig-gemini-stream-123"
+        }],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }]
+  }|}
+  in
+  match Streaming.parse_provider_f_sse_chunk data with
+  | None -> fail "expected Some chunk"
+  | Some chunk ->
+    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    (match events with
+     | [ ContentBlockStart
+           { index = redacted_idx
+           ; content_type = "redacted_thinking"
+           ; tool_id = Some carrier_payload
+           ; tool_name = None
+           }
+       ; ContentBlockStart
+           { index = tool_idx
+           ; content_type = "tool_use"
+           ; tool_id = Some tool_id
+           ; tool_name = Some "search"
+           }
+       ; ContentBlockDelta { index = delta_idx; delta = InputJsonDelta {|{"q":"test"}|} }
+       ; MessageDelta { stop_reason = Some StopToolUse; _ }
+       ] ->
+       check int "redacted index" 0 redacted_idx;
+       check int "tool index" 1 tool_idx;
+       check int "tool delta index" 1 delta_idx;
+       let carrier = Yojson.Safe.from_string carrier_payload in
+       check string "carrier provider" "gemini" (carrier |> member "provider" |> to_string);
+       check
+         string
+         "carrier kind"
+         "gemini_thought_signature"
+         (carrier |> member "kind" |> to_string);
+       check
+         string
+         "carrier tool_use_id"
+         tool_id
+         (carrier |> member "tool_use_id" |> to_string);
+       check
+         string
+         "carrier thoughtSignature"
+         "sig-gemini-stream-123"
+         (carrier |> member "thoughtSignature" |> to_string);
+       let acc = Complete_stream_acc.create_stream_acc () in
+       List.iter (Complete_stream_acc.accumulate_event acc) events;
+       (match Complete_stream_acc.finalize_stream_acc acc with
+        | Error _ -> fail "expected finalized stream response"
+        | Ok response ->
+          (match response.stop_reason with
+           | StopToolUse -> ()
+           | _ -> fail "expected StopToolUse");
+          (match response.content with
+           | [ RedactedThinking raw; ToolUse { id; name; input } ] ->
+             check string "final carrier" carrier_payload raw;
+             check string "final tool id" tool_id id;
+             check string "final tool name" "search" name;
+             check string "final tool input" "test" (input |> member "q" |> to_string)
+           | _ -> fail "expected RedactedThinking carrier followed by ToolUse"))
+     | _ -> fail "expected redacted carrier, tool_use, delta, and terminal event")
+;;
+
 (* ── Suite ────────────────────────────────────────── *)
 
 let () =
@@ -837,11 +1026,19 @@ let () =
         ; test_case "tool choice" `Quick test_tool_choice_mapping
         ; test_case "tool choice tool name" `Quick test_tool_choice_tool_name
         ; test_case "thinking part roundtrip" `Quick test_thinking_part_roundtrip
+        ; test_case
+            "thought signature roundtrip"
+            `Quick
+            test_thought_signature_roundtrip_request
         ] )
     ; ( "parse_response"
       , [ test_case "text" `Quick test_parse_text_response
         ; test_case "thinking parts" `Quick test_parse_thinking_response
         ; test_case "function call" `Quick test_parse_function_call
+        ; test_case
+            "function call thought signature"
+            `Quick
+            test_parse_function_call_preserves_thought_signature
         ; test_case "usage" `Quick test_parse_usage
         ; test_case "stop reasons" `Quick test_parse_stop_reasons
         ; test_case "error" `Quick test_parse_error
@@ -864,6 +1061,10 @@ let () =
             "tool-first then text (#333)"
             `Quick
             test_provider_f_stream_tool_first_then_text
+        ; test_case
+            "function call thought signature"
+            `Quick
+            test_provider_f_stream_function_call_preserves_thought_signature
         ] )
     ; ( "capabilities"
       , [ test_case "gemini capabilities" `Quick test_gemini_capabilities_named ] )

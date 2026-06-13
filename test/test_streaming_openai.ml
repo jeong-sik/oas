@@ -679,15 +679,80 @@ let test_responses_stream_reasoning_tool_and_terminal () =
     S.responses_sse_to_events
       state
       (Some "response.completed")
-      {|{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.5","status":"completed","output":[{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"weather\"}"}],"usage":{"input_tokens":12,"output_tokens":8,"input_tokens_details":{"cached_tokens":2}}}}|}
+      {|{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.5","status":"completed","output":[{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"Need a lookup."}],"encrypted_content":"enc_reasoning_1"},{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"weather\"}"}],"usage":{"input_tokens":12,"output_tokens":8,"input_tokens_details":{"cached_tokens":2}}}}|}
   in
   match events5 with
-  | [ MessageDelta { stop_reason = Some StopToolUse; usage = Some usage }; MessageStop ]
-    ->
+  | [ ContentBlockStart
+        { index = 0
+        ; content_type = "redacted_thinking"
+        ; tool_id = Some raw_reasoning
+        ; tool_name = None
+        }
+    ; MessageDelta { stop_reason = Some StopToolUse; usage = Some usage }
+    ; MessageStop
+    ] ->
+    let reasoning = Yojson.Safe.from_string raw_reasoning in
+    Alcotest.(check string)
+      "reasoning type"
+      "reasoning"
+      (Yojson.Safe.Util.member "type" reasoning |> Yojson.Safe.Util.to_string);
+    Alcotest.(check string)
+      "encrypted reasoning"
+      "enc_reasoning_1"
+      (Yojson.Safe.Util.member "encrypted_content" reasoning |> Yojson.Safe.Util.to_string);
     Alcotest.(check int) "input tokens" 12 usage.input_tokens;
     Alcotest.(check int) "output tokens" 8 usage.output_tokens;
     Alcotest.(check int) "cache read" 2 usage.cache_read_input_tokens
-  | _ -> Alcotest.fail "expected terminal StopToolUse with usage"
+  | _ -> Alcotest.fail "expected redacted reasoning carrier and terminal StopToolUse"
+;;
+
+let test_responses_stream_hidden_reasoning_before_tool () =
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
+  in
+  let events1, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.output_item.added")
+      {|{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":""}}|}
+  in
+  (match events1 with
+   | [ ContentBlockStart { index = 1; content_type = "tool_use"; _ } ] -> ()
+   | _ -> Alcotest.fail "expected tool block to keep Responses output_index");
+  let events2, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.function_call_arguments.delta")
+      {|{"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","delta":"{\"q\":\"weather\"}"}|}
+  in
+  (match events2 with
+   | [ ContentBlockDelta { index = 1; delta = InputJsonDelta "{\"q\":\"weather\"}" } ] ->
+     ()
+   | _ -> Alcotest.fail "expected function arguments delta at output index 1");
+  let events3, _ =
+    S.responses_sse_to_events
+      state
+      (Some "response.completed")
+      {|{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.5","status":"completed","output":[{"id":"rs_1","type":"reasoning","encrypted_content":"enc_hidden_1"},{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"weather\"}"}],"usage":{"input_tokens":12,"output_tokens":8}}}|}
+  in
+  match events3 with
+  | [ ContentBlockStart
+        { index = 0
+        ; content_type = "redacted_thinking"
+        ; tool_id = Some raw_reasoning
+        ; tool_name = None
+        }
+    ; MessageDelta { stop_reason = Some StopToolUse; usage = Some usage }
+    ; MessageStop
+    ] ->
+    let reasoning = Yojson.Safe.from_string raw_reasoning in
+    Alcotest.(check string)
+      "encrypted reasoning"
+      "enc_hidden_1"
+      (Yojson.Safe.Util.member "encrypted_content" reasoning |> Yojson.Safe.Util.to_string);
+    Alcotest.(check int) "input tokens" 12 usage.input_tokens;
+    Alcotest.(check int) "output tokens" 8 usage.output_tokens
+  | _ -> Alcotest.fail "expected hidden reasoning carrier before terminal"
 ;;
 
 let () =
@@ -739,6 +804,10 @@ let () =
             "reasoning tool and terminal"
             `Quick
             test_responses_stream_reasoning_tool_and_terminal
+        ; test_case
+            "hidden reasoning before tool"
+            `Quick
+            test_responses_stream_hidden_reasoning_before_tool
         ] )
     ]
 ;;

@@ -163,6 +163,29 @@ let test_parse_content_block_delta_thinking () =
   | None -> Alcotest.fail "parse returned None"
 ;;
 
+let test_parse_content_block_delta_signature () =
+  let data =
+    {|{"type":"content_block_delta","index":1,"delta":{"type":"signature_delta","signature":"sig_opaque"}}|}
+  in
+  match Agent_sdk.Streaming.parse_sse_event None data with
+  | Some (ContentBlockDelta { index = 1; delta = ThinkingSignatureDelta s }) ->
+    Alcotest.(check string) "signature" "sig_opaque" s
+  | Some _ -> Alcotest.fail "unexpected event type"
+  | None -> Alcotest.fail "parse returned None"
+;;
+
+let test_parse_redacted_thinking_block_start () =
+  let data =
+    {|{"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque_data"}}|}
+  in
+  match Agent_sdk.Streaming.parse_sse_event None data with
+  | Some (ContentBlockStart { index = 0; content_type; tool_id = Some data; _ }) ->
+    Alcotest.(check string) "content_type" "redacted_thinking" content_type;
+    Alcotest.(check string) "data carrier" "opaque_data" data
+  | Some _ -> Alcotest.fail "unexpected event type"
+  | None -> Alcotest.fail "parse returned None"
+;;
+
 let test_parse_content_block_delta_input_json () =
   let data =
     {|{"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"k\":"}}|}
@@ -427,17 +450,19 @@ let test_synthetic_multi_block () =
     }
   in
   let events = collect_events response in
-  (* For each block: Start+Delta+Stop (Thinking, Text) or Start+Delta+Stop (ToolUse) *)
-  (* + MessageStart + MessageDelta + MessageStop = 3*3 + 3 = 12 *)
-  Alcotest.(check int) "12 events" 12 (List.length events);
+  (* Thinking emits content and signature deltas; other blocks emit one delta. *)
+  Alcotest.(check int) "13 events" 13 (List.length events);
   (* Check index increases *)
   (match List.nth events 1 with
    | ContentBlockStart { index = 0; _ } -> ()
    | _ -> Alcotest.fail "expected index 0");
-  (match List.nth events 4 with
+  (match List.nth events 3 with
+   | ContentBlockDelta { index = 0; delta = ThinkingSignatureDelta "s" } -> ()
+   | _ -> Alcotest.fail "expected thinking signature delta");
+  (match List.nth events 5 with
    | ContentBlockStart { index = 1; _ } -> ()
    | _ -> Alcotest.fail "expected index 1");
-  match List.nth events 7 with
+  match List.nth events 8 with
   | ContentBlockStart { index = 2; _ } -> ()
   | _ -> Alcotest.fail "expected index 2"
 ;;
@@ -499,6 +524,14 @@ let () =
             "content_block_delta_thinking"
             `Quick
             test_parse_content_block_delta_thinking
+        ; test_case
+            "content_block_delta_signature"
+            `Quick
+            test_parse_content_block_delta_signature
+        ; test_case
+            "redacted_thinking_block_start"
+            `Quick
+            test_parse_redacted_thinking_block_start
         ; test_case
             "content_block_delta_input_json"
             `Quick

@@ -28,6 +28,7 @@ type stream_acc =
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
+  ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
   }
 
 let create_stream_acc () =
@@ -44,6 +45,7 @@ let create_stream_acc () =
   ; block_types = Hashtbl.create 4
   ; block_tool_ids = Hashtbl.create 4
   ; block_tool_names = Hashtbl.create 4
+  ; block_thinking_signatures = Hashtbl.create 4
   }
 ;;
 
@@ -76,7 +78,17 @@ let accumulate_event (acc : stream_acc) = function
         b
     in
     (match delta with
-     | TextDelta s | ThinkingDelta s | InputJsonDelta s -> Buffer.add_string buf s)
+     | TextDelta s | ThinkingDelta s | InputJsonDelta s -> Buffer.add_string buf s
+     | ThinkingSignatureDelta s ->
+       let sig_buf =
+         match Hashtbl.find_opt acc.block_thinking_signatures index with
+         | Some b -> b
+         | None ->
+           let b = Buffer.create 256 in
+           Hashtbl.replace acc.block_thinking_signatures index b;
+           b
+       in
+       Buffer.add_string sig_buf s)
   | MessageDelta { stop_reason = sr; usage } ->
     (match sr with
      | Some r ->
@@ -131,7 +143,17 @@ let finalize_stream_acc (acc : stream_acc) =
            let block =
              match ctype with
              | "text" -> Some (Text text)
-             | "thinking" -> Some (Thinking { thinking_type = ""; content = text })
+             | "thinking" ->
+               let thinking_type =
+                 match Hashtbl.find_opt acc.block_thinking_signatures index with
+                 | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
+                 | Some _ | None -> ""
+               in
+               Some (Thinking { thinking_type; content = text })
+             | "redacted_thinking" ->
+               (match Hashtbl.find_opt acc.block_tool_ids index with
+                | Some data when data <> "" -> Some (RedactedThinking data)
+                | Some _ | None -> None)
              | "tool_use" ->
                let tool_id =
                  match Hashtbl.find_opt acc.block_tool_ids index with

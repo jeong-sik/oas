@@ -410,7 +410,9 @@ let openai_responses_sse_tool_call_response () =
    {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"fc_1\",\"delta\":\"{\\\"q\\\":\\\"weather\\\"}\"}\n\n\
    event: response.completed\n\
    data: \
-   {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-stream-1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_lookup\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"weather\\\"}\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n"
+   {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-stream-1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"id\":\"rs_1\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Need \
+   a \
+   lookup.\"}],\"encrypted_content\":\"enc_reasoning_1\"},{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_lookup\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"weather\\\"}\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n"
 ;;
 
 let test_complete_stream_openai_responses_ok () =
@@ -450,8 +452,19 @@ let test_complete_stream_openai_responses_ok () =
       check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
       check bool "events emitted" true (List.length !events >= 5);
       (match resp.content with
-       | [ Types.Thinking { content; _ }; Types.ToolUse { id; name; input } ] ->
-         check string "reasoning" "Need a lookup." content;
+       | [ Types.RedactedThinking raw_reasoning; Types.ToolUse { id; name; input } ] ->
+         let reasoning = Yojson.Safe.from_string raw_reasoning in
+         check
+           string
+           "reasoning type"
+           "reasoning"
+           (Yojson.Safe.Util.member "type" reasoning |> Yojson.Safe.Util.to_string);
+         check
+           string
+           "encrypted reasoning"
+           "enc_reasoning_1"
+           (Yojson.Safe.Util.member "encrypted_content" reasoning
+            |> Yojson.Safe.Util.to_string);
          check string "tool id" "call_lookup" id;
          check string "tool name" "lookup" name;
          check
@@ -459,7 +472,7 @@ let test_complete_stream_openai_responses_ok () =
            "tool arg"
            "weather"
            (Yojson.Safe.Util.member "q" input |> Yojson.Safe.Util.to_string)
-       | _ -> fail "expected reasoning + tool use");
+       | _ -> fail "expected redacted reasoning + tool use");
       (match resp.usage with
        | Some usage ->
          check int "input tokens" 12 usage.input_tokens;
@@ -962,6 +975,37 @@ let provider_a_sse_response text =
     text
 ;;
 
+let provider_a_sse_thinking_signature_tool_response =
+  "event: message_start\n\
+   data: \
+   {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"mock\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}}\n\n\
+   event: content_block_start\n\
+   data: \
+   {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\",\"signature\":\"\"}}\n\n\
+   event: content_block_delta\n\
+   data: \
+   {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"Need \
+   a lookup.\"}}\n\n\
+   event: content_block_delta\n\
+   data: \
+   {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"signature_delta\",\"signature\":\"sig_opaque\"}}\n\n\
+   event: content_block_stop\n\
+   data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+   event: content_block_start\n\
+   data: \
+   {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"tu_1\",\"name\":\"lookup\",\"input\":{}}}\n\n\
+   event: content_block_delta\n\
+   data: \
+   {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"q\\\":\\\"weather\\\"}\"}}\n\n\
+   event: content_block_stop\n\
+   data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+   event: message_delta\n\
+   data: \
+   {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"},\"usage\":{\"output_tokens\":5}}\n\n\
+   event: message_stop\n\
+   data: {\"type\":\"message_stop\"}\n\n"
+;;
+
 let provider_a_sse_frame_message_start =
   "event: message_start\n\
    data: \
@@ -1104,6 +1148,46 @@ let test_complete_stream_ok () =
       in
       check string "text" "streamed text" text;
       check bool "events received" true (List.length !events > 0);
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_preserves_thinking_signature () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server ~sw ~net:env#net provider_a_sse_thinking_signature_tool_response
+    in
+    let config = make_config url in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~config
+        ~messages
+        ~on_event:(fun _ -> ())
+        ()
+    with
+    | Ok resp ->
+      check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
+      (match resp.content with
+       | [ Types.Thinking { thinking_type; content }; Types.ToolUse { id; name; input } ]
+         ->
+         check string "thinking signature" "sig_opaque" thinking_type;
+         check string "thinking content" "Need a lookup." content;
+         check string "tool id" "tu_1" id;
+         check string "tool name" "lookup" name;
+         check
+           string
+           "tool arg"
+           "weather"
+           (Yojson.Safe.Util.member "q" input |> Yojson.Safe.Util.to_string)
+       | _ -> fail "expected thinking + tool use");
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
   with
@@ -1512,6 +1596,10 @@ let () =
     ; "retry", [ test_case "first try ok" `Quick test_retry_first_try ]
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "preserves thinking signature"
+            `Quick
+            test_complete_stream_preserves_thinking_signature
         ; test_case
             "on_event exceptions are nonfatal"
             `Quick

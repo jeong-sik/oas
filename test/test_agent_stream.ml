@@ -82,15 +82,19 @@ let test_emit_thinking () =
     make_response [ Types.Thinking { thinking_type = "sig"; content = "I think..." } ]
   in
   let events = collect_events response in
-  Alcotest.(check int) "6 events" 6 (List.length events);
+  Alcotest.(check int) "7 events" 7 (List.length events);
   (match List.nth events 1 with
    | Types.ContentBlockStart { content_type; _ } ->
      Alcotest.(check string) "content_type" "thinking" content_type
    | _ -> Alcotest.fail "expected ContentBlockStart with thinking");
-  match List.nth events 2 with
-  | Types.ContentBlockDelta { delta = Types.ThinkingDelta s; _ } ->
-    Alcotest.(check string) "thinking content" "I think..." s
-  | _ -> Alcotest.fail "expected ThinkingDelta"
+  (match List.nth events 2 with
+   | Types.ContentBlockDelta { delta = Types.ThinkingDelta s; _ } ->
+     Alcotest.(check string) "thinking content" "I think..." s
+   | _ -> Alcotest.fail "expected ThinkingDelta");
+  match List.nth events 3 with
+  | Types.ContentBlockDelta { delta = Types.ThinkingSignatureDelta s; _ } ->
+    Alcotest.(check string) "thinking signature" "sig" s
+  | _ -> Alcotest.fail "expected ThinkingSignatureDelta"
 ;;
 
 let test_emit_multiple_blocks () =
@@ -333,7 +337,7 @@ let test_roundtrip_mixed_block_count () =
       | Types.ContentBlockDelta _ -> true
       | _ -> false)
   in
-  Alcotest.(check int) "3 deltas for 3 blocks" 3 cbd_count
+  Alcotest.(check int) "4 deltas for 3 blocks plus thinking signature" 4 cbd_count
 ;;
 
 let test_roundtrip_message_start_fields () =
