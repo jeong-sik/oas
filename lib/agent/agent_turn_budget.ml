@@ -52,19 +52,18 @@ let create ~initial ~ceiling ?(max_per_extend = 20) ?(max_extensions = 10) () =
   }
 ;;
 
-let extensions_count t =
-  Eio.Mutex.use_ro t.mutex @@ fun () -> List.length t.history
-;;
+let extensions_count t = Eio.Mutex.use_ro t.mutex @@ fun () -> List.length t.history
 
 let total_extended t =
-  Eio.Mutex.use_ro t.mutex @@ fun () ->
-  List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history
+  Eio.Mutex.use_ro t.mutex
+  @@ fun () -> List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history
 ;;
 
 let current_max t = min (t.initial + total_extended t) t.ceiling
 
 let try_extend t ~additional ~reason =
-  Eio.Mutex.use_rw ~protect:true t.mutex @@ fun () ->
+  Eio.Mutex.use_rw ~protect:true t.mutex
+  @@ fun () ->
   let cur_extensions = List.length t.history in
   if cur_extensions >= t.max_extensions
   then Error Extension_limit_reached
@@ -72,7 +71,11 @@ let try_extend t ~additional ~reason =
   then Error Per_extend_cap_exceeded
   else (
     let additional = max 1 additional in
-    let cur_max = min (t.initial + List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history) t.ceiling in
+    let cur_max =
+      min
+        (t.initial + List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history)
+        t.ceiling
+    in
     let new_max = min (cur_max + additional) t.ceiling in
     let granted = new_max - cur_max in
     if granted <= 0
