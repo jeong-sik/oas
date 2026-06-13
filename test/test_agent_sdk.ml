@@ -52,10 +52,7 @@ let test_consumer_tool_name_alias_registry () =
   with
   | Some ("WebSearch", `Assoc [ ("query", `String "ocaml") ]) -> ()
   | Some (name, input) ->
-    Alcotest.failf
-      "unexpected alias resolution: %s %s"
-      name
-      (Yojson.Safe.to_string input)
+    Alcotest.failf "unexpected alias resolution: %s %s" name (Yojson.Safe.to_string input)
   | None -> Alcotest.fail "registered alias did not resolve"
 ;;
 
