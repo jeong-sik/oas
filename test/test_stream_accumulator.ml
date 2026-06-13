@@ -131,6 +131,19 @@ let test_accumulate_thinking_delta () =
   Alcotest.(check string) "thinking text" "I think" (Buffer.contents buf)
 ;;
 
+let test_accumulate_thinking_signature_delta () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event
+    acc
+    (ContentBlockStart
+       { index = 0; content_type = "thinking"; tool_id = None; tool_name = None });
+  Streaming.accumulate_event
+    acc
+    (ContentBlockDelta { index = 0; delta = ThinkingSignatureDelta "sig_opaque" });
+  let buf = Hashtbl.find acc.block_thinking_signatures 0 in
+  Alcotest.(check string) "signature" "sig_opaque" (Buffer.contents buf)
+;;
+
 let test_accumulate_input_json_delta () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event
@@ -252,6 +265,48 @@ let test_finalize_thinking_block () =
      | Thinking { content; _ } ->
        Alcotest.(check string) "thinking" "reasoning here" content
      | _ -> Alcotest.fail "expected Thinking")
+;;
+
+let test_finalize_thinking_signature_block () =
+  let acc = Streaming.create_stream_acc () in
+  acc_events
+    acc
+    [ MessageStart { id = "m"; model = "m"; usage = None }
+    ; ContentBlockStart
+        { index = 0; content_type = "thinking"; tool_id = None; tool_name = None }
+    ; ContentBlockDelta { index = 0; delta = ThinkingDelta "" }
+    ; ContentBlockDelta { index = 0; delta = ThinkingSignatureDelta "sig_opaque" }
+    ; MessageDelta { stop_reason = Some EndTurn; usage = None }
+    ];
+  match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    (match List.hd resp.content with
+     | Thinking { thinking_type; content } ->
+       Alcotest.(check string) "signature" "sig_opaque" thinking_type;
+       Alcotest.(check string) "omitted thinking text" "" content
+     | _ -> Alcotest.fail "expected Thinking")
+;;
+
+let test_finalize_redacted_thinking_block () =
+  let acc = Streaming.create_stream_acc () in
+  acc_events
+    acc
+    [ MessageStart { id = "m"; model = "m"; usage = None }
+    ; ContentBlockStart
+        { index = 0
+        ; content_type = "redacted_thinking"
+        ; tool_id = Some "opaque_data"
+        ; tool_name = None
+        }
+    ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
+    ];
+  match Streaming.finalize_stream_acc acc with
+  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Ok resp ->
+    (match List.hd resp.content with
+     | RedactedThinking data -> Alcotest.(check string) "data" "opaque_data" data
+     | _ -> Alcotest.fail "expected RedactedThinking")
 ;;
 
 let test_finalize_tool_use () =
@@ -407,6 +462,10 @@ let () =
             `Quick
             test_accumulate_delta_without_start
         ; Alcotest.test_case "thinking delta" `Quick test_accumulate_thinking_delta
+        ; Alcotest.test_case
+            "thinking signature delta"
+            `Quick
+            test_accumulate_thinking_signature_delta
         ; Alcotest.test_case "input_json delta" `Quick test_accumulate_input_json_delta
         ; Alcotest.test_case "message_delta" `Quick test_accumulate_message_delta
         ; Alcotest.test_case
@@ -422,6 +481,14 @@ let () =
     ; ( "finalize"
       , [ Alcotest.test_case "text response" `Quick test_finalize_text_response
         ; Alcotest.test_case "thinking block" `Quick test_finalize_thinking_block
+        ; Alcotest.test_case
+            "thinking signature block"
+            `Quick
+            test_finalize_thinking_signature_block
+        ; Alcotest.test_case
+            "redacted thinking block"
+            `Quick
+            test_finalize_redacted_thinking_block
         ; Alcotest.test_case "tool_use" `Quick test_finalize_tool_use
         ; Alcotest.test_case
             "tool_use invalid json"

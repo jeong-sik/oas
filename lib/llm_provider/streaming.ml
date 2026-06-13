@@ -51,7 +51,11 @@ let parse_sse_event event_type data_str =
       let index = json |> member "index" |> to_int in
       let cb = json |> member "content_block" in
       let content_type = cb |> member "type" |> to_string in
-      let tool_id = cb |> member "id" |> to_string_option in
+      let tool_id =
+        match content_type with
+        | "redacted_thinking" -> cb |> member "data" |> to_string_option
+        | _ -> cb |> member "id" |> to_string_option
+      in
       let tool_name = cb |> member "name" |> to_string_option in
       Some (ContentBlockStart { index; content_type; tool_id; tool_name })
     | "content_block_delta" ->
@@ -62,6 +66,8 @@ let parse_sse_event event_type data_str =
         match delta_type with
         | "text_delta" -> TextDelta (delta_json |> member "text" |> to_string)
         | "thinking_delta" -> ThinkingDelta (delta_json |> member "thinking" |> to_string)
+        | "signature_delta" ->
+          ThinkingSignatureDelta (delta_json |> member "signature" |> to_string)
         | "input_json_delta" ->
           InputJsonDelta (delta_json |> member "partial_json" |> to_string)
         | unknown_delta_type ->
@@ -136,6 +142,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = ThinkingDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ } -> false
   | MessageStart _
   | ContentBlockStart _
   | ContentBlockStop _
@@ -155,6 +162,7 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
   | ContentBlockStart { content_type = "tool_use"; _ } -> true
+  | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ }
   | ContentBlockDelta { delta = ThinkingDelta _; _ }
   | MessageStart _
   | ContentBlockStart _
@@ -188,14 +196,18 @@ let emit_synthetic_events (response : api_response) on_event =
          | Image _ -> "text", None, None
          | Document _ -> "text", None, None
          | Audio _ -> "text", None, None
-         | RedactedThinking _ -> "text", None, None
+         | RedactedThinking data -> "redacted_thinking", Some data, None
          | ToolResult _ -> "text", None, None
        in
        on_event (ContentBlockStart { index; content_type; tool_id; tool_name });
        (match block with
         | Text s -> on_event (ContentBlockDelta { index; delta = TextDelta s })
-        | Thinking { content; _ } ->
-          on_event (ContentBlockDelta { index; delta = ThinkingDelta content })
+        | Thinking { thinking_type; content } ->
+          on_event (ContentBlockDelta { index; delta = ThinkingDelta content });
+          if thinking_type <> ""
+          then
+            on_event
+              (ContentBlockDelta { index; delta = ThinkingSignatureDelta thinking_type })
         | ToolUse { input; _ } ->
           on_event
             (ContentBlockDelta

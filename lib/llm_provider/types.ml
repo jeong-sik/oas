@@ -357,6 +357,7 @@ type api_response =
 type content_delta =
   | TextDelta of string
   | ThinkingDelta of string
+  | ThinkingSignatureDelta of string
   | InputJsonDelta of string
 
 type sse_event =

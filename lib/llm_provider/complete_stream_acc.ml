@@ -20,6 +20,7 @@ type stream_acc =
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
+  ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
   }
 
 let create_stream_acc () =
@@ -36,6 +37,7 @@ let create_stream_acc () =
   ; block_types = Hashtbl.create 4
   ; block_tool_ids = Hashtbl.create 4
   ; block_tool_names = Hashtbl.create 4
+  ; block_thinking_signatures = Hashtbl.create 4
   }
 ;;
 
@@ -69,7 +71,17 @@ let accumulate_event (acc : stream_acc) = function
     in
     (match delta with
      | Types.TextDelta s | Types.ThinkingDelta s | Types.InputJsonDelta s ->
-       Buffer.add_string buf s)
+       Buffer.add_string buf s
+     | Types.ThinkingSignatureDelta s ->
+       let sig_buf =
+         match Hashtbl.find_opt acc.block_thinking_signatures index with
+         | Some b -> b
+         | None ->
+           let b = Buffer.create 256 in
+           Hashtbl.replace acc.block_thinking_signatures index b;
+           b
+       in
+       Buffer.add_string sig_buf s)
   | Types.ContentBlockStop _ -> ()
   | Types.MessageDelta { stop_reason; usage } ->
     (match stop_reason with
@@ -127,7 +139,12 @@ let finalize_stream_acc (acc : stream_acc) =
            match Hashtbl.find_opt acc.block_types idx with
            | Some "text" -> Some (Types.Text text)
            | Some "thinking" ->
-             Some (Types.Thinking { thinking_type = "thinking"; content = text })
+             let thinking_type =
+               match Hashtbl.find_opt acc.block_thinking_signatures idx with
+               | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
+               | Some _ | None -> "thinking"
+             in
+             Some (Types.Thinking { thinking_type; content = text })
            | Some "redacted_thinking" ->
              (match Hashtbl.find_opt acc.block_tool_ids idx with
               | Some data when data <> "" -> Some (Types.RedactedThinking data)
@@ -397,6 +414,56 @@ let%test "accumulate_event ThinkingDelta appends to buffer" =
     (Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta " step2" });
   let buf = Hashtbl.find acc.block_texts 0 in
   Buffer.contents buf = "step1 step2"
+;;
+
+let%test "accumulate_event ThinkingSignatureDelta preserves opaque signature" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "thinking"; tool_id = None; tool_name = None });
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta
+       { index = 0; delta = Types.ThinkingSignatureDelta "sig_opaque" });
+  match Hashtbl.find_opt acc.block_thinking_signatures 0 with
+  | Some buf -> Buffer.contents buf = "sig_opaque"
+  | None -> false
+;;
+
+let%test "finalize_stream_acc preserves omitted thinking signature" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "thinking"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta
+        { index = 0; delta = Types.ThinkingSignatureDelta "sig_opaque" }
+    ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok { content = [ Types.Thinking { thinking_type; content } ]; _ } ->
+    thinking_type = "sig_opaque" && content = ""
+  | Ok _ | Error _ -> false
+;;
+
+let%test "finalize_stream_acc preserves redacted thinking carrier" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0
+        ; content_type = "redacted_thinking"
+        ; tool_id = Some "opaque_data"
+        ; tool_name = None
+        }
+    ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok { content = [ Types.RedactedThinking data ]; _ } -> data = "opaque_data"
+  | Ok _ | Error _ -> false
 ;;
 
 let%test "accumulate_event InputJsonDelta appends to buffer" =

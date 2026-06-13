@@ -319,7 +319,8 @@ let test_extract_after_accumulation () =
       (match delta with
        | InputJsonDelta s -> Buffer.add_string buf s
        | TextDelta s -> Buffer.add_string buf s
-       | ThinkingDelta s -> Buffer.add_string buf s)
+       | ThinkingDelta s -> Buffer.add_string buf s
+       | ThinkingSignatureDelta _ -> ())
     | _ -> ());
   (* Step 2: reconstruct content blocks (same as streaming.ml) *)
   let content =
