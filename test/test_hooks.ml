@@ -520,6 +520,66 @@ let test_invoke_validated_illegal_falls_back () =
   check bool "on_illegal was called" true !called
 ;;
 
+let contains_substring ~needle haystack =
+  let n = String.length needle in
+  let h = String.length haystack in
+  let rec loop i = i + n <= h && (String.sub haystack i n = needle || loop (i + 1)) in
+  n = 0 || loop 0
+;;
+
+(** Pin the Continue coercion for every decision that is illegal at
+    pre_tool_use (AdjustParams / ElicitInput / Nudge): the decision is
+    coerced to Continue and [on_illegal] receives the stage, the
+    rejected decision and a message naming the decision kind. *)
+let test_invoke_validated_pre_tool_use_coercion_pinned () =
+  let illegal =
+    [ Hooks.AdjustParams Hooks.default_turn_params
+    ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }
+    ; Hooks.Nudge "nudge"
+    ]
+  in
+  List.iter
+    (fun decision ->
+       let kind_name = Hooks.decision_kind_to_string (Hooks.classify_decision decision) in
+       let hook _event = decision in
+       let seen = ref None in
+       let on_illegal ~stage ~decision ~msg = seen := Some (stage, decision, msg) in
+       let result =
+         Hooks.invoke_validated
+           ~hook_name:"test_pre_tool_use_hook"
+           ~on_illegal
+           (Some hook)
+           dummy_pre_tool_use
+       in
+       check
+         bool
+         (Printf.sprintf "%s coerced to Continue" kind_name)
+         true
+         (result = Hooks.Continue);
+       match !seen with
+       | None -> fail (Printf.sprintf "on_illegal not called for %s" kind_name)
+       | Some (stage, rejected, msg) ->
+         check string "stage reported" "pre_tool_use" stage;
+         check
+           bool
+           "rejected decision passed through"
+           true
+           (Hooks.classify_decision rejected = Hooks.classify_decision decision);
+         check
+           bool
+           (Printf.sprintf "msg names %s" kind_name)
+           true
+           (contains_substring ~needle:kind_name msg))
+    illegal
+;;
+
+(** hook_name is optional: coercion still returns Continue without it. *)
+let test_invoke_validated_coercion_without_hook_name () =
+  let hook _event = Hooks.Nudge "n" in
+  let result = Hooks.invoke_validated (Some hook) dummy_pre_tool_use in
+  check bool "coerced to Continue without hook_name" true (result = Hooks.Continue)
+;;
+
 (** Test invoke_validated with None hook. *)
 let test_invoke_validated_none () =
   let result = Hooks.invoke_validated None dummy_before_turn in
@@ -638,6 +698,14 @@ let () =
             "observe-only Continue passes"
             `Quick
             test_invoke_validated_observe_only
+        ; test_case
+            "pre_tool_use illegal decisions coerce to Continue"
+            `Quick
+            test_invoke_validated_pre_tool_use_coercion_pinned
+        ; test_case
+            "coercion without hook_name returns Continue"
+            `Quick
+            test_invoke_validated_coercion_without_hook_name
         ] )
     ]
 ;;

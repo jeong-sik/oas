@@ -168,6 +168,29 @@ let test_on_run_complete_failure_is_structured_log () =
     (has_log_message "on_run_complete callback raised" (get_records ()))
 ;;
 
+(* Mirror of the #2036 observer-isolation contract for [on_run_complete]:
+   generic exceptions are contained (test above), but
+   [Eio.Cancel.Cancelled] must propagate so structured cancellation is
+   not absorbed by the finalize callback. *)
+let test_on_run_complete_cancelled_propagates () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let transport = make_transport ~clock ~sleep_s:0.0 () in
+  let agent =
+    make_agent
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~on_run_complete:(fun _ -> raise (Eio.Cancel.Cancelled Exit))
+      ()
+  in
+  match Agent.run ~sw ~clock agent "finish" with
+  | _ -> Alcotest.fail "expected Cancelled to propagate out of run"
+  | exception Eio.Cancel.Cancelled _ -> ()
+;;
+
 let test_periodic_callback_failure_is_structured_log () =
   with_log_capture
   @@ fun get_records ->
@@ -219,6 +242,10 @@ let () =
             "on_run_complete failure uses structured log"
             `Quick
             test_on_run_complete_failure_is_structured_log
+        ; Alcotest.test_case
+            "on_run_complete Cancelled propagates"
+            `Quick
+            test_on_run_complete_cancelled_propagates
         ; Alcotest.test_case
             "periodic callback failure uses structured log"
             `Quick

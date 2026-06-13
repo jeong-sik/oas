@@ -43,7 +43,7 @@ let invoke_hook_with_trace agent ?raw_trace_run ~hook_name hook_opt event =
     ; links = []
     }
     (fun _ ->
-       let decision = Hooks.invoke_validated hook_opt event in
+       let decision = Hooks.invoke_validated ~hook_name hook_opt event in
        record_hook_invocation raw_trace_run ~hook_name ~decision ();
        decision)
 ;;
@@ -140,13 +140,17 @@ let trace_assistant_blocks active_run blocks =
 
 (** Invoke the optional [on_run_complete] callback.
     Exceptions are caught and logged to prevent finalization failures
-    from masking the actual run result. *)
+    from masking the actual run result.  Reserved exceptions
+    ([Out_of_memory], [Stack_overflow], [Sys.Break],
+    [Eio.Cancel.Cancelled]) still propagate; see
+    {!Llm_provider.Reserved_exn}. *)
 let invoke_on_run_complete agent ~ok =
   match agent.options.on_run_complete with
   | None -> ()
   | Some cb ->
     (try cb ok with
      | exn ->
+       Llm_provider.Reserved_exn.reraise_if_reserved exn;
        Log.warn
          _log
          "on_run_complete callback raised"

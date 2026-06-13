@@ -439,11 +439,13 @@ let invoke hook_opt event =
 
 (** Invoke a hook with decision validation.
     If the hook returns an illegal decision for the stage,
-    falls back to [Continue] and calls [on_illegal] (if provided).
+    logs a warning (naming the stage, the rejected decision and, when
+    [hook_name] is given, the hook), falls back to [Continue] and calls
+    [on_illegal] (if provided).
     If the hook raises (non-reserved), the exception is logged and
     [Continue] is returned without invoking [on_illegal] (which is
     reserved for decision-shape errors, not exceptions). *)
-let invoke_validated ?on_illegal hook_opt event =
+let invoke_validated ?hook_name ?on_illegal hook_opt event =
   match hook_opt with
   | None -> Continue
   | Some f ->
@@ -456,6 +458,12 @@ let invoke_validated ?on_illegal hook_opt event =
        (match validate_decision ~stage decision with
         | Ok d -> d
         | Error msg ->
+          Eio.traceln
+            "[warn] [hooks] %s%s -- coercing to Continue"
+            msg
+            (match hook_name with
+             | Some name -> Printf.sprintf " (hook: %s)" name
+             | None -> "");
           (match on_illegal with
            | Some cb -> cb ~stage ~decision ~msg
            | None -> ());
