@@ -568,6 +568,206 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
   | Exit -> ()
 ;;
 
+(* ── Compaction path labels: phase string + checkpoint prefix ── *)
+
+(** History with a large tool result so both Budget_strategy phases
+    (Compact: PruneToolOutputs / Emergency: Summarize_old + prune)
+    actually reduce the estimated token count. *)
+let big_tool_history () =
+  [ { Types.role = User
+    ; content = [ Text "summarize the large result" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  ; { Types.role = Assistant
+    ; content =
+        [ ToolUse
+            { id = "tool_1"; name = "search"; input = `Assoc [ "q", `String "logs" ] }
+        ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  ; { Types.role = User
+    ; content =
+        [ ToolResult
+            { tool_use_id = "tool_1"
+            ; content = String.make 20000 'x'
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  ]
+;;
+
+let compact_checkpoint_ids journal =
+  List.filter_map
+    (function
+      | Durable_event.Checkpoint_saved { checkpoint_id; _ }
+        when String.starts_with ~prefix:"compact-" checkpoint_id -> Some checkpoint_id
+      | _ -> None)
+    (Durable_event.events journal)
+;;
+
+let test_proactive_compaction_phase_and_checkpoint () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_multi_mock
+        ~sw
+        ~net:env#net
+        ~port:20030
+        [ provider_d_text_response "compacted" ]
+    in
+    let provider : Provider.config =
+      { provider = Provider.Local { base_url = url }
+      ; model_id = "mock-model"
+      ; api_key_env = ""
+      }
+    in
+    let post_compacts = ref [] in
+    let hooks =
+      { Hooks.empty with
+        post_compact =
+          Some
+            (function
+              | Hooks.PostCompact { phase; before_tokens; _ } ->
+                post_compacts := (phase, before_tokens) :: !post_compacts;
+                Hooks.Continue
+              | _ -> Hooks.Continue)
+      }
+    in
+    let journal = Durable_event.create () in
+    let config =
+      { Types.default_config with
+        name = "proactive-compact-owner"
+      ; max_turns = 3
+      ; context_compact_ratio = Some 0.01
+      }
+    in
+    let options =
+      { Agent.default_options with
+        base_url = url
+      ; provider = Some provider
+      ; hooks
+      ; journal = Some journal
+      }
+    in
+    let agent = Agent.create ~net:env#net ~config ~options () in
+    Agent.update_state agent (fun state -> { state with messages = big_tool_history () });
+    (match Agent.run ~sw agent "continue" with
+     | Error e -> fail (Error.to_string e)
+     | Ok _ ->
+       let window =
+         Provider.resolve_max_context_tokens ~fallback:128_000 (Some provider)
+       in
+       check bool "post_compact fired" true (!post_compacts <> []);
+       List.iter
+         (fun (phase, before_tokens) ->
+            let expected =
+              Printf.sprintf
+                "proactive(%.0f%%)"
+                (float_of_int before_tokens /. float_of_int window *. 100.0)
+            in
+            check string "proactive phase label" expected phase)
+         !post_compacts;
+       let ids = compact_checkpoint_ids journal in
+       check bool "compaction checkpoint recorded" true (ids <> []);
+       List.iter
+         (fun id ->
+            check
+              bool
+              (Printf.sprintf "checkpoint id %s has proactive prefix" id)
+              true
+              (String.starts_with ~prefix:"compact-proactive-" id))
+         ids);
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_emergency_compaction_phase_and_checkpoint () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let overflow_body =
+      {|{"error":{"message":"This model's maximum context length is 128000 tokens. available context size (128)"}}|}
+    in
+    let url, calls =
+      start_status_mock
+        ~sw
+        ~net:env#net
+        ~port:20031
+        [ `Bad_request, overflow_body; `OK, provider_d_text_response "recovered" ]
+    in
+    let provider : Provider.config =
+      { provider = Provider.Local { base_url = url }
+      ; model_id = "mock-model"
+      ; api_key_env = ""
+      }
+    in
+    let post_compacts = ref [] in
+    let hooks =
+      { Hooks.empty with
+        post_compact =
+          Some
+            (function
+              | Hooks.PostCompact { phase; _ } ->
+                post_compacts := phase :: !post_compacts;
+                Hooks.Continue
+              | _ -> Hooks.Continue)
+      }
+    in
+    let journal = Durable_event.create () in
+    let config =
+      { Types.default_config with name = "emergency-compact-owner"; max_turns = 3 }
+    in
+    let options =
+      { Agent.default_options with
+        base_url = url
+      ; provider = Some provider
+      ; hooks
+      ; journal = Some journal
+      }
+    in
+    (* auto_context_overflow_retry defaults to true: the first 400
+       overflow response triggers emergency compaction + retry. *)
+    let agent = Agent.create ~net:env#net ~config ~options () in
+    Agent.update_state agent (fun state -> { state with messages = big_tool_history () });
+    (match Agent.run ~sw agent "continue" with
+     | Error e -> fail (Error.to_string e)
+     | Ok _ ->
+       check bool "provider retried after compaction" true (Atomic.get calls >= 2);
+       check bool "post_compact fired" true (!post_compacts <> []);
+       List.iter
+         (fun phase -> check string "emergency phase label" "emergency" phase)
+         !post_compacts;
+       let ids = compact_checkpoint_ids journal in
+       check bool "compaction checkpoint recorded" true (ids <> []);
+       List.iter
+         (fun id ->
+            check
+              bool
+              (Printf.sprintf "checkpoint id %s has emergency prefix" id)
+              true
+              (String.starts_with ~prefix:"compact-emergency-" id))
+         ids);
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 (* ── Test 10: Agent with guardrails ──────────────────── *)
 
 let test_agent_run_guardrails () =
@@ -621,6 +821,16 @@ let () =
         ; test_case "pre_tool hook" `Quick test_agent_run_pre_tool_hook
         ] )
     ; "streaming", [ test_case "run_stream" `Quick test_agent_run_stream ]
+    ; ( "compaction"
+      , [ test_case
+            "proactive phase and checkpoint labels"
+            `Quick
+            test_proactive_compaction_phase_and_checkpoint
+        ; test_case
+            "emergency phase and checkpoint labels"
+            `Quick
+            test_emergency_compaction_phase_and_checkpoint
+        ] )
     ; ( "hooks_and_reducers"
       , [ test_case "hooks" `Quick test_agent_run_with_hooks
         ; test_case "context reducer" `Quick test_agent_run_with_reducer
