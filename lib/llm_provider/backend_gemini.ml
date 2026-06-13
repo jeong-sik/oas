@@ -27,7 +27,7 @@ let warn_parallel_disable_unsupported ~model_id =
     @@ fun () -> Hashtbl.mem parallel_disable_warned model_id
   in
   if not already_warned
-  then (
+  then
     Eio.Mutex.use_rw ~protect:true parallel_disable_warned_mu
     @@ fun () ->
     if not (Hashtbl.mem parallel_disable_warned model_id)
@@ -38,7 +38,7 @@ let warn_parallel_disable_unsupported ~model_id =
         "disable_parallel_tool_use requested for model %s but the Gemini API has no \
          parallel-disable option (functionCallingConfig supports only mode and \
          allowedFunctionNames); ignoring."
-        model_id))
+        model_id)
 ;;
 
 let provider_f_role_of_oas = function
