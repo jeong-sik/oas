@@ -476,6 +476,20 @@ let complete_stream_http
                    including hidden reasoning. The two refs together
                    distinguish prefill from generation latency. *)
                 let now = Unix.gettimeofday () in
+                (* Thinking-only cutoff timestamps follow the injected Eio
+                   clock when one is available, so a mock clock controls the
+                   cutoff in tests. The telemetry stamps below stay on
+                   [Unix.gettimeofday] because they are offsets against the
+                   wall-time [t0]. With the default Eio clock both sources
+                   advance identically, so production behaviour is unchanged.
+                   [Unix.gettimeofday] remains only as the clock-less
+                   fallback (clock-less callers have no idle protection
+                   either; see the [stream_idle_timeout_s] default above). *)
+                let cutoff_now =
+                  match clock with
+                  | Some c -> Eio.Time.now c
+                  | None -> now
+                in
                 if events <> [] && Option.is_none !first_event_at_ref
                 then (
                   first_event_at_ref := Some now;
@@ -504,7 +518,7 @@ let complete_stream_http
                        if
                          Option.is_none !first_deliverable_at_ref
                          && Option.is_none !thinking_only_started_at_ref
-                       then thinking_only_started_at_ref := Some now;
+                       then thinking_only_started_at_ref := Some cutoff_now;
                        incr n_thinking
                      | `Answer ->
                        stream_idle_state := Http_client.Streaming_answer;
@@ -544,7 +558,7 @@ let complete_stream_http
                    when Streaming.thinking_only_timeout_exceeded
                           ~timeout_s
                           ~started_at
-                          ~now -> raise Eio.Time.Timeout
+                          ~now:cutoff_now -> raise Eio.Time.Timeout
                  | Some _, _, _ | None, _, _ -> ());
                 if events <> []
                 then

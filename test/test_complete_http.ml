@@ -1036,6 +1036,54 @@ let provider_a_sse_frame_stop =
    data: {\"type\":\"message_stop\"}\n\n"
 ;;
 
+let provider_a_sse_frame_thinking_block_start =
+  "event: content_block_start\n\
+   data: \
+   {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
+;;
+
+let provider_a_sse_frame_thinking_delta text =
+  Printf.sprintf
+    "event: content_block_delta\n\
+     data: \
+     {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"%s\"}}\n\n"
+    text
+;;
+
+(* Thinking-only prelude (block 0) followed by a deliverable text answer
+   (block 1). Used by the mock-clock cutoff tests: the cutoff must fire
+   while still inside the block-0 thinking deltas, and the trailing text
+   answer lets the no-advance control finalize [Ok]. *)
+let provider_a_thinking_then_answer_frames ~frame_gap_s =
+  [ 0.0, provider_a_sse_frame_message_start
+  ; frame_gap_s, provider_a_sse_frame_thinking_block_start
+  ; frame_gap_s, provider_a_sse_frame_thinking_delta "t1"
+  ; frame_gap_s, provider_a_sse_frame_thinking_delta "t2"
+  ; frame_gap_s, provider_a_sse_frame_thinking_delta "t3"
+  ; ( frame_gap_s
+    , "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n"
+    )
+  ; ( frame_gap_s
+    , "event: content_block_start\n\
+       data: \
+       {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+    )
+  ; ( frame_gap_s
+    , "event: content_block_delta\n\
+       data: \
+       {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"text_delta\",\"text\":\"answer\"}}\n\n"
+    )
+  ; ( frame_gap_s
+    , "event: content_block_stop\n\
+       data: {\"type\":\"content_block_stop\",\"index\":1}\n\n\
+       event: message_delta\n\
+       data: \
+       {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":5}}\n\n\
+       event: message_stop\n\
+       data: {\"type\":\"message_stop\"}\n\n" )
+  ]
+;;
+
 let read_http_request flow =
   let reader = Eio.Buf_read.of_flow flow ~max_size:8192 in
   let _request_line = Eio.Buf_read.line reader in
@@ -1350,6 +1398,122 @@ let test_complete_stream_idle_timeout_still_fires () =
   | Exit -> ()
 ;;
 
+(* T12 audit — the thinking-only cutoff (#2011) must read the injected
+   Eio clock, not [Unix.gettimeofday]. A mock clock drives the cutoff:
+   each hidden-reasoning delta advances mock time by 6s. Every
+   inter-event gap (6s) stays under the 10s idle deadline — so the
+   line-idle timer cannot be the thing that fires — but the cumulative
+   thinking-only span crosses 10s on the third delta (mock 12s).
+   Wall-clock time elapsed here is milliseconds, so an implementation
+   still reading [Unix.gettimeofday] never reaches the 10s cutoff and
+   returns [Ok] — which this test rejects. *)
+let test_complete_stream_thinking_only_cutoff_follows_injected_clock () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let mock_clock = Eio_mock.Clock.make () in
+    let url =
+      start_raw_sse_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        (provider_a_thinking_then_answer_frames ~frame_gap_s:0.01)
+    in
+    let config = make_config url in
+    let mock_now = ref 0.0 in
+    let on_event = function
+      | Types.ContentBlockDelta { delta = Types.ThinkingDelta _; _ } ->
+        (* [on_data] in read_sse invokes this outside any
+           [with_timeout_exn] window, so advancing the mock here cannot
+           wake the line-idle timer fiber. *)
+        mock_now := !mock_now +. 6.0;
+        Eio_mock.Clock.set_time mock_clock !mock_now
+      | _ -> ()
+    in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~clock:mock_clock
+        ~stream_idle_timeout_s:10.0
+        ~config
+        ~messages
+        ~on_event
+        ()
+    with
+    | Error
+        (Http_client.TimeoutError
+           { phase = Http_client.Stream_idle Http_client.Streaming_thinking; message }) ->
+      let prefix = "stream_idle_timeout_s deadline exceeded" in
+      check
+        bool
+        "thinking-only cutoff message"
+        true
+        (String.length message >= String.length prefix
+         && String.equal (String.sub message 0 (String.length prefix)) prefix);
+      Eio.Switch.fail sw Exit
+    | Error (Http_client.TimeoutError { phase; _ }) ->
+      fail
+        (Printf.sprintf
+           "unexpected timeout phase %s"
+           (Http_client.timeout_phase_to_label phase))
+    | Ok _ ->
+      fail "expected thinking-only cutoff via mock clock — is the cutoff on wall time?"
+    | Error _ -> fail "expected TimeoutError{phase=Stream_idle Streaming_thinking}"
+  with
+  | Exit -> ()
+;;
+
+(* Control for the test above: same stream, same mock clock, but mock
+   time is never advanced. The cutoff comparison therefore always sees
+   elapsed = 0 and the stream finalizes [Ok] with the block-1 answer,
+   pinning that the cutoff follows ONLY the injected clock. *)
+let test_complete_stream_thinking_only_cutoff_idle_without_clock_advance () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let mock_clock = Eio_mock.Clock.make () in
+    let url =
+      start_raw_sse_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        (provider_a_thinking_then_answer_frames ~frame_gap_s:0.01)
+    in
+    let config = make_config url in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~clock:mock_clock
+        ~stream_idle_timeout_s:10.0
+        ~config
+        ~messages
+        ~on_event:(fun _ -> ())
+        ()
+    with
+    | Ok resp ->
+      check string "text" "answer" (text_of_response resp);
+      Eio.Switch.fail sw Exit
+    | Error err ->
+      fail
+        (Printf.sprintf
+           "expected Ok without clock advance, got %s"
+           (match err with
+            | Http_client.NetworkError { message; _ }
+            | Http_client.TimeoutError { message; _ } -> message
+            | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
+            | Http_client.AcceptRejected { reason } -> reason
+            | Http_client.ProviderTerminal { message; _ } -> message
+            | Http_client.ProviderFailure { message; _ } -> message))
+  with
+  | Exit -> ()
+;;
+
 let test_complete_stream_metrics () =
   Eio_main.run
   @@ fun env ->
@@ -1621,6 +1785,14 @@ let () =
             "transport arm idle timeout (RFC-OAS-026)"
             `Quick
             test_complete_stream_transport_arm_idle_timeout
+        ; test_case
+            "thinking-only cutoff follows injected clock (T12)"
+            `Quick
+            test_complete_stream_thinking_only_cutoff_follows_injected_clock
+        ; test_case
+            "thinking-only cutoff idle without clock advance (T12 control)"
+            `Quick
+            test_complete_stream_thinking_only_cutoff_idle_without_clock_advance
         ] )
     ]
 ;;
