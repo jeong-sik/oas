@@ -65,33 +65,37 @@ type event =
 (* ── Journal ──────────────────────────────────────── *)
 
 type journal =
-  { mutable entries : event list (** Stored in reverse chronological order *)
-  ; mutable size : int
+  { state : (event list * int) Atomic.t
+    (** Stored as [(reversed entries, size)]. Atomic pair so reads and writes
+        are lock-free and safe when the journal is appended from parallel
+        tool-execution fibers (e.g. [Parallel_batch]). *)
   ; on_append : (event -> unit) option
     (** Optional fan-out callback invoked after every append.
         Used to project journal events onto Event_bus or other sinks. *)
-  ; mutex : Eio.Mutex.t
-    (** Guards all reads/writes of [entries] and [size]. The journal may be
-        appended to from parallel tool-execution fibers (e.g. [Parallel_batch]),
-        so every access must be serialized. *)
   }
 
-let create ?on_append () =
-  { entries = []; size = 0; on_append; mutex = Eio.Mutex.create () }
-;;
+let create ?on_append () = { state = Atomic.make ([], 0); on_append }
 
 let append journal event =
-  Eio.Mutex.use_rw ~protect:true journal.mutex @@ fun () ->
-  journal.entries <- event :: journal.entries;
-  journal.size <- journal.size + 1;
-  Option.iter (fun f -> f event) journal.on_append
+  let rec loop () =
+    let old_entries, old_size = Atomic.get journal.state in
+    let new_state = event :: old_entries, old_size + 1 in
+    if Atomic.compare_and_set journal.state (old_entries, old_size) new_state
+    then Option.iter (fun f -> f event) journal.on_append
+    else loop ()
+  in
+  loop ()
 ;;
 
 let events journal =
-  Eio.Mutex.use_ro journal.mutex @@ fun () -> List.rev journal.entries
+  let entries, _size = Atomic.get journal.state in
+  List.rev entries
 ;;
 
-let length journal = Eio.Mutex.use_ro journal.mutex @@ fun () -> journal.size
+let length journal =
+  let _entries, size = Atomic.get journal.state in
+  size
+;;
 
 (* ── Idempotency ──────────────────────────────────── *)
 
@@ -113,14 +117,14 @@ let make_idempotency_key ~tool_name ~input =
 ;;
 
 let find_completed_activity journal key =
-  Eio.Mutex.use_ro journal.mutex @@ fun () ->
+  let entries, _size = Atomic.get journal.state in
   List.find_map
     (fun event ->
        match event with
        | Tool_completed { idempotency_key; output_json; _ } when idempotency_key = key ->
          Some output_json
        | _ -> None)
-    journal.entries (* entries is reversed, so finds most recent first *)
+    entries (* entries is reversed, so finds most recent first *)
 ;;
 
 (* ── Replay ───────────────────────────────────────── *)
@@ -136,8 +140,8 @@ type replay_summary =
 
 (* Fold over entries directly (reverse chronological) — avoids List.rev allocation *)
 let replay_summary journal =
+  let entries, _size = Atomic.get journal.state in
   let acc =
-    Eio.Mutex.use_ro journal.mutex @@ fun () ->
     List.fold_left
       (fun (lt, ct, ls, it, ot, ec) event ->
          match event with
@@ -150,7 +154,7 @@ let replay_summary journal =
          | Error_occurred _ -> lt, ct, ls, it, ot, ec + 1
          | Tool_called _ | Checkpoint_saved _ -> lt, ct, ls, it, ot, ec)
       (0, [], "unknown", 0, 0, 0)
-      journal.entries
+      entries
   in
   let ( last_turn
       , completed_tools_rev
@@ -187,8 +191,8 @@ let events_for_turn journal turn =
 ;;
 
 let last_timestamp journal =
-  Eio.Mutex.use_ro journal.mutex @@ fun () ->
-  match journal.entries with
+  let entries, _size = Atomic.get journal.state in
+  match entries with
   | [] -> None
   | first :: _ ->
     let ts =
@@ -365,9 +369,9 @@ let journal_of_json json =
   let open Yojson.Safe.Util in
   try
     let items = to_list json in
-    (* acc accumulates in reverse — matches journal.entries internal format *)
+    (* acc accumulates in reverse — matches the reversed internal entries format *)
     let rec parse acc count = function
-      | [] -> Ok { entries = acc; size = count; on_append = None; mutex = Eio.Mutex.create () }
+      | [] -> Ok { state = Atomic.make (acc, count); on_append = None }
       | item :: rest ->
         (match event_of_json item with
          | Ok evt -> parse (evt :: acc) (count + 1) rest
@@ -398,7 +402,7 @@ let save_to_file journal path =
 
 let load_from_file path =
   if not (Sys.file_exists path)
-  then Ok { entries = []; size = 0; on_append = None; mutex = Eio.Mutex.create () }
+  then Ok { state = Atomic.make ([], 0); on_append = None }
   else (
     try
       let ic = open_in path in
@@ -423,7 +427,7 @@ let load_from_file path =
                     | Ok evt -> read_lines (evt :: acc) (count + 1) (line_no + 1)
                     | Error e -> Error (Printf.sprintf "line %d: %s" line_no e)))
              | exception End_of_file ->
-               Ok { entries = acc; size = count; on_append = None; mutex = Eio.Mutex.create () }
+               Ok { state = Atomic.make (acc, count); on_append = None }
            in
            read_lines [] 0 1)
     with
