@@ -213,7 +213,12 @@ let test_synthetic_events_media_blocks () =
   check
     (list (pair string (option string)))
     "media-like synthetic starts"
-    [ "text", None; "text", None; "text", None; "text", None; "text", None ]
+    [ "text", None
+    ; "text", None
+    ; "text", None
+    ; "redacted_thinking", Some "hidden"
+    ; "text", None
+    ]
     starts
 ;;
 
