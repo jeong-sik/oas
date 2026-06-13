@@ -410,7 +410,9 @@ let openai_responses_sse_tool_call_response () =
    {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"fc_1\",\"delta\":\"{\\\"q\\\":\\\"weather\\\"}\"}\n\n\
    event: response.completed\n\
    data: \
-   {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-stream-1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_lookup\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"weather\\\"}\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n"
+   {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-stream-1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"id\":\"rs_1\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Need \
+   a \
+   lookup.\"}],\"encrypted_content\":\"enc_reasoning_1\"},{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_lookup\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"weather\\\"}\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n"
 ;;
 
 let test_complete_stream_openai_responses_ok () =
@@ -450,8 +452,19 @@ let test_complete_stream_openai_responses_ok () =
       check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
       check bool "events emitted" true (List.length !events >= 5);
       (match resp.content with
-       | [ Types.Thinking { content; _ }; Types.ToolUse { id; name; input } ] ->
-         check string "reasoning" "Need a lookup." content;
+       | [ Types.RedactedThinking raw_reasoning; Types.ToolUse { id; name; input } ] ->
+         let reasoning = Yojson.Safe.from_string raw_reasoning in
+         check
+           string
+           "reasoning type"
+           "reasoning"
+           (Yojson.Safe.Util.member "type" reasoning |> Yojson.Safe.Util.to_string);
+         check
+           string
+           "encrypted reasoning"
+           "enc_reasoning_1"
+           (Yojson.Safe.Util.member "encrypted_content" reasoning
+            |> Yojson.Safe.Util.to_string);
          check string "tool id" "call_lookup" id;
          check string "tool name" "lookup" name;
          check
@@ -459,7 +472,7 @@ let test_complete_stream_openai_responses_ok () =
            "tool arg"
            "weather"
            (Yojson.Safe.Util.member "q" input |> Yojson.Safe.Util.to_string)
-       | _ -> fail "expected reasoning + tool use");
+       | _ -> fail "expected redacted reasoning + tool use");
       (match resp.usage with
        | Some usage ->
          check int "input tokens" 12 usage.input_tokens;

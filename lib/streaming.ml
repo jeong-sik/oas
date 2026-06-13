@@ -132,6 +132,10 @@ let finalize_stream_acc (acc : stream_acc) =
              match ctype with
              | "text" -> Some (Text text)
              | "thinking" -> Some (Thinking { thinking_type = ""; content = text })
+             | "redacted_thinking" ->
+               (match Hashtbl.find_opt acc.block_tool_ids index with
+                | Some data when data <> "" -> Some (RedactedThinking data)
+                | Some _ | None -> None)
              | "tool_use" ->
                let tool_id =
                  match Hashtbl.find_opt acc.block_tool_ids index with

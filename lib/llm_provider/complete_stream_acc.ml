@@ -128,6 +128,10 @@ let finalize_stream_acc (acc : stream_acc) =
            | Some "text" -> Some (Types.Text text)
            | Some "thinking" ->
              Some (Types.Thinking { thinking_type = "thinking"; content = text })
+           | Some "redacted_thinking" ->
+             (match Hashtbl.find_opt acc.block_tool_ids idx with
+              | Some data when data <> "" -> Some (Types.RedactedThinking data)
+              | Some _ | None -> None)
            | Some "tool_use" ->
              let id =
                match Hashtbl.find_opt acc.block_tool_ids idx with

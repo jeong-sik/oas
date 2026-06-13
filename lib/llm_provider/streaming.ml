@@ -577,6 +577,10 @@ let responses_member_int_default key json =
   json |> member key |> to_int_option |> Option.value ~default:0
 ;;
 
+let responses_advance_next_block_index state index =
+  if index >= state.next_block_index then state.next_block_index <- index + 1
+;;
+
 let responses_usage_of_response response =
   let open Yojson.Safe.Util in
   match response |> member "usage" with
@@ -652,38 +656,34 @@ let responses_error_type json =
     responses_member_string_opt "code" json
 ;;
 
-let responses_ensure_thinking_block state emit =
+let responses_ensure_thinking_block state emit ~output_index =
   (match state.thinking_state with
    | Not_thinking -> state.thinking_state <- Thinking_started (Unix.gettimeofday ())
    | Thinking_started _ | Thinking_done -> ());
   if not state.thinking_block_started
   then (
-    state.thinking_block_index <- state.next_block_index;
+    state.thinking_block_index <- output_index;
     emit
       (ContentBlockStart
-         { index = state.next_block_index
+         { index = output_index
          ; content_type = "thinking"
          ; tool_id = None
          ; tool_name = None
          });
     state.thinking_block_started <- true;
-    state.next_block_index <- state.next_block_index + 1);
+    responses_advance_next_block_index state output_index);
   state.thinking_block_index
 ;;
 
-let responses_ensure_text_block state emit =
+let responses_ensure_text_block state emit ~output_index =
   if not state.text_block_started
   then (
-    state.text_block_index <- state.next_block_index;
+    state.text_block_index <- output_index;
     emit
       (ContentBlockStart
-         { index = state.next_block_index
-         ; content_type = "text"
-         ; tool_id = None
-         ; tool_name = None
-         });
+         { index = output_index; content_type = "text"; tool_id = None; tool_name = None });
     state.text_block_started <- true;
-    state.next_block_index <- state.next_block_index + 1);
+    responses_advance_next_block_index state output_index);
   state.text_block_index
 ;;
 
@@ -697,12 +697,36 @@ let responses_ensure_tool_block state emit ~output_index ~tool_id ~tool_name =
   match Hashtbl.find_opt state.tool_block_indices output_index with
   | Some idx -> idx
   | None ->
-    let idx = state.next_block_index in
+    let idx = output_index in
     Hashtbl.replace state.tool_block_indices output_index idx;
     emit
       (ContentBlockStart { index = idx; content_type = "tool_use"; tool_id; tool_name });
-    state.next_block_index <- state.next_block_index + 1;
+    responses_advance_next_block_index state idx;
     idx
+;;
+
+let responses_emit_redacted_reasoning_outputs state emit response =
+  let open Yojson.Safe.Util in
+  match response |> member "output" with
+  | `List items ->
+    List.iteri
+      (fun output_index item ->
+         match responses_member_string_opt "type" item with
+         | Some "reasoning" ->
+           (match item |> member "encrypted_content" |> to_string_option with
+            | Some encrypted_content when String.trim encrypted_content <> "" ->
+              emit
+                (ContentBlockStart
+                   { index = output_index
+                   ; content_type = "redacted_thinking"
+                   ; tool_id = Some (Yojson.Safe.to_string item)
+                   ; tool_name = None
+                   });
+              responses_advance_next_block_index state output_index
+            | Some _ | None -> ())
+         | Some _ | None -> ())
+      items
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> ()
 ;;
 
 let responses_sse_to_events (state : provider_d_stream_state) event_type data_str
@@ -743,7 +767,8 @@ let responses_sse_to_events (state : provider_d_stream_state) event_type data_st
        | "response.output_text.delta" ->
          (match responses_member_string_opt "delta" json with
           | Some delta when delta <> "" ->
-            let index = responses_ensure_text_block state emit in
+            let output_index = responses_member_int_default "output_index" json in
+            let index = responses_ensure_text_block state emit ~output_index in
             emit (ContentBlockDelta { index; delta = TextDelta delta })
           | Some _ | None -> ())
        | "response.output_text.done" ->
@@ -751,13 +776,15 @@ let responses_sse_to_events (state : provider_d_stream_state) event_type data_st
          then (
            match responses_member_string_opt "text" json with
            | Some text when text <> "" ->
-             let index = responses_ensure_text_block state emit in
+             let output_index = responses_member_int_default "output_index" json in
+             let index = responses_ensure_text_block state emit ~output_index in
              emit (ContentBlockDelta { index; delta = TextDelta text })
            | Some _ | None -> ())
        | "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" ->
          (match responses_member_string_opt "delta" json with
           | Some delta when delta <> "" ->
-            let index = responses_ensure_thinking_block state emit in
+            let output_index = responses_member_int_default "output_index" json in
+            let index = responses_ensure_thinking_block state emit ~output_index in
             emit (ContentBlockDelta { index; delta = ThinkingDelta delta })
           | Some _ | None -> ())
        | "response.reasoning_summary_text.done" | "response.reasoning_text.done" ->
@@ -765,7 +792,8 @@ let responses_sse_to_events (state : provider_d_stream_state) event_type data_st
          then (
            match responses_member_string_opt "text" json with
            | Some text when text <> "" ->
-             let index = responses_ensure_thinking_block state emit in
+             let output_index = responses_member_int_default "output_index" json in
+             let index = responses_ensure_thinking_block state emit ~output_index in
              emit (ContentBlockDelta { index; delta = ThinkingDelta text })
            | Some _ | None -> ())
        | "response.output_item.added" ->
@@ -799,7 +827,9 @@ let responses_sse_to_events (state : provider_d_stream_state) event_type data_st
             emit (ContentBlockDelta { index; delta = InputJsonDelta delta })
           | Some _ | None -> ())
        | "response.completed" | "response.incomplete" ->
-         emit_terminal (json |> member "response")
+         let response = json |> member "response" in
+         responses_emit_redacted_reasoning_outputs state emit response;
+         emit_terminal response
        | "response.failed" | "error" ->
          emit
            (SSEError
@@ -916,7 +946,26 @@ let provider_f_chunk_to_events
            let name = Cli_common_json.member_str "name" fc in
            let args = fc |> member "args" in
            let id = Api_common.synthesize_tool_use_id ~name args in
+           (match part |> member "thoughtSignature" |> to_string_option with
+            | Some thought_signature
+              when not (Api_common.string_is_blank thought_signature) ->
+              let idx = state.next_block_index in
+              let payload =
+                Backend_gemini.gemini_thought_signature_payload
+                  ~tool_use_id:id
+                  ~thought_signature
+              in
+              emit
+                (ContentBlockStart
+                   { index = idx
+                   ; content_type = "redacted_thinking"
+                   ; tool_id = Some payload
+                   ; tool_name = None
+                   });
+              state.next_block_index <- state.next_block_index + 1
+            | Some _ | None -> ());
            let idx = state.next_block_index in
+           Hashtbl.replace state.tool_block_indices idx idx;
            emit
              (ContentBlockStart
                 { index = idx
@@ -977,6 +1026,7 @@ let provider_f_chunk_to_events
           non-streaming parser (Backend_gemini.parse_response): SAFETY and
           RECITATION both surface as Refusal. *)
        match String.uppercase_ascii reason with
+       | "STOP" when Hashtbl.length state.tool_block_indices > 0 -> StopToolUse
        | "STOP" -> EndTurn
        | "MAX_TOKENS" -> MaxTokens
        | "SAFETY" | "RECITATION" -> Refusal
