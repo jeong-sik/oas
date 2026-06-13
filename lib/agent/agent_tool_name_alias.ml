@@ -112,9 +112,14 @@ let normalize_execute_input = function
 (** Mutable registry for consumer-registered aliases.
     Maps alias -> canonical tool name. *)
 let registry = Hashtbl.create 16
+let registry_mu = Eio.Mutex.create ()
 
-let register_alias ~alias ~canonical = Hashtbl.replace registry alias canonical
-let resolve_alias alias = Hashtbl.find_opt registry alias
+let register_alias ~alias ~canonical =
+  Eio.Mutex.use_rw ~protect:true registry_mu
+  @@ fun () -> Hashtbl.replace registry alias canonical
+
+let resolve_alias alias =
+  Eio.Mutex.use_ro registry_mu @@ fun () -> Hashtbl.find_opt registry alias
 
 let resolve ~requested ~input =
   match requested with
