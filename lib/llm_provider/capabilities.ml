@@ -616,7 +616,20 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
   }
 ;;
 
-let for_model_id_static model_id =
+(** Look up capabilities for [model_id] in the loaded model catalog only.
+
+    The catalog itself is resolved by {!Model_catalog.global}, in order:
+    runtime override installed via {!Model_catalog.set_global}, then the
+    [OAS_MODEL_CATALOG] environment variable, then a cwd-parent walk
+    (depth 10) for [models.toml] and then [oas-models.toml], then
+    [~/.config/oas/models.toml]. The ambient discovery (env + cwd walk +
+    XDG path) is sampled lazily once per process.
+
+    Returns [None] when no catalog is available or when the catalog has
+    no entry whose [id_prefix] matches [model_id]. There is no in-code
+    fallback table: the former built-in static table was removed when
+    model specifications were externalized to the TOML catalog. *)
+let for_model_id_catalog model_id =
   match Model_catalog.global () with
   | Some catalog ->
     (match Model_catalog.lookup catalog model_id with
@@ -626,18 +639,19 @@ let for_model_id_static model_id =
 ;;
 
 (** Look up capabilities for [model_id] against an explicit manifest,
-    falling back to the built-in static table when no manifest entry
-    matches. *)
+    falling back to the catalog lookup ({!for_model_id_catalog}) when no
+    manifest entry matches. *)
 let for_model_id_with_manifest manifest model_id =
   match Capability_manifest.lookup manifest model_id with
   | Some entry -> Some (apply_manifest_entry entry)
-  | None -> for_model_id_static model_id
+  | None -> for_model_id_catalog model_id
 ;;
 
 (** Look up capabilities for [model_id].
 
-    Checks the globally loaded model catalog first, then the capability manifest,
-    and falls through to the built-in static prefix table when no entry matches. *)
+    Checks the globally loaded model catalog first, then the capability
+    manifest. Returns [None] when neither source has a matching entry;
+    there is no built-in fallback table. *)
 let for_model_id model_id =
   match Model_catalog.global () with
   | Some catalog ->
@@ -646,11 +660,11 @@ let for_model_id model_id =
      | None ->
        (match Capability_manifest.global () with
         | Some manifest -> for_model_id_with_manifest manifest model_id
-        | None -> for_model_id_static model_id))
+        | None -> for_model_id_catalog model_id))
   | None ->
     (match Capability_manifest.global () with
      | Some manifest -> for_model_id_with_manifest manifest model_id
-     | None -> for_model_id_static model_id)
+     | None -> for_model_id_catalog model_id)
 ;;
 
 [@@@coverage off]
@@ -737,88 +751,292 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
   | None -> false
 ;;
 
-(* qwen3 family tests use [for_model_id_static] rather than [for_model_id]
-   so they remain stable when an ambient [OAS_CAPABILITY_MANIFEST] or
-   an external manifest file overrides the static table — the contract
-   under test here is the static fallback
-   for environments without a manifest. *)
-let%test "for_model_id_static qwen3 has extended thinking" =
-  match for_model_id_static "qwen3-32b" with
-  | Some c ->
-    c.supports_reasoning
-    && c.supports_extended_thinking
-    && c.supports_tools
-    && c.supports_native_streaming
-  | None -> false
+(* [for_model_id_catalog] tests below install an explicit catalog through
+   [Model_catalog.set_global] and restore the override afterwards, so they
+   are insulated from BOTH ambient manifest overrides
+   ([OAS_CAPABILITY_MANIFEST]) and ambient catalog discovery
+   ([OAS_MODEL_CATALOG] / cwd-parent walk / XDG path). Without the explicit
+   override these tests would only pass when the test runner's cwd happens
+   to sit under a directory containing [models.toml].
+
+   [test_catalog_entry] fills every field with [None]; each fixture entry
+   then sets only the capability-relevant fields, mirroring the
+   corresponding [models.toml] entries at the time of writing. The fixture
+   is a deterministic snapshot, not auto-synced with [models.toml]. *)
+let test_catalog_entry id_prefix : Model_catalog.model_entry =
+  { id_prefix
+  ; base_label = None
+  ; max_context_tokens = None
+  ; max_output_tokens = None
+  ; supports_tools = None
+  ; supports_tool_choice = None
+  ; supports_parallel_tool_calls = None
+  ; supports_reasoning = None
+  ; supports_extended_thinking = None
+  ; supports_reasoning_budget = None
+  ; supports_response_format_json = None
+  ; supports_structured_output = None
+  ; supports_multimodal_inputs = None
+  ; supports_image_input = None
+  ; supports_audio_input = None
+  ; supports_video_input = None
+  ; modality_priority = None
+  ; supports_native_streaming = None
+  ; supports_system_prompt = None
+  ; supports_caching = None
+  ; supports_prompt_caching = None
+  ; supports_top_k = None
+  ; supports_min_p = None
+  ; supports_seed = None
+  ; supports_computer_use = None
+  ; supports_code_execution = None
+  ; thinking_control_format = None
+  ; input_per_million = None
+  ; output_per_million = None
+  ; cache_write_multiplier = None
+  ; cache_read_multiplier = None
+  }
 ;;
 
-let%test "for_model_id_static qwen3.5 routes to Qwen_3 family" =
-  match for_model_id_static "qwen3.5" with
-  | Some c -> c.supports_extended_thinking && c.max_output_tokens = Some 81_920
-  | None -> false
+let qwen3_family_test_entry id_prefix : Model_catalog.model_entry =
+  { (test_catalog_entry id_prefix) with
+    base_label = Some "openai_chat"
+  ; max_context_tokens = Some 262_144
+  ; max_output_tokens = Some 81_920
+  ; supports_tools = Some true
+  ; supports_tool_choice = Some true
+  ; supports_reasoning = Some true
+  ; supports_extended_thinking = Some true
+  ; thinking_control_format = Some "chat_template_kwargs"
+  ; supports_native_streaming = Some true
+  }
 ;;
 
-let%test "for_model_id_static qwen36 runpod alias routes to Qwen_3 family" =
-  match for_model_id_static "qwen36-35b-a3b-mtp" with
-  | Some c ->
-    c.supports_extended_thinking && c.thinking_control_format = Chat_template_kwargs
-  | None -> false
+let glm_thinking_test_entry id_prefix ~ctx ~out : Model_catalog.model_entry =
+  { (test_catalog_entry id_prefix) with
+    base_label = Some "glm"
+  ; max_context_tokens = Some ctx
+  ; max_output_tokens = Some out
+  ; supports_tools = Some true
+  ; supports_tool_choice = Some false
+  ; supports_reasoning = Some true
+  ; supports_extended_thinking = Some true
+  ; supports_native_streaming = Some true
+  }
 ;;
 
-let%test "for_model_id_static qwen-3-7b prefix variant resolves" =
-  match for_model_id_static "qwen-3-7b-instruct" with
-  | Some c -> c.supports_extended_thinking
-  | None -> false
+let deepseek_v4_test_entry id_prefix : Model_catalog.model_entry =
+  { (test_catalog_entry id_prefix) with
+    base_label = Some "openai_chat"
+  ; max_context_tokens = Some 1_000_000
+  ; max_output_tokens = Some 384_000
+  ; supports_tools = Some true
+  ; supports_tool_choice = Some true
+  ; supports_reasoning = Some true
+  ; supports_extended_thinking = Some true
+  ; thinking_control_format = Some "thinking_object"
+  ; supports_native_streaming = Some true
+  }
 ;;
 
-(* GLM family tests use the static lookup for the same reason as the qwen3
-   tests above: they assert the built-in prefix table, not ambient runtime
-   manifest overrides. *)
-let%test "for_model_id_static glm-5-turbo has GLM-5 thinking limits" =
-  match for_model_id_static "glm-5-turbo" with
-  | Some c ->
-    c.supports_reasoning
-    && c.supports_extended_thinking
-    && c.max_context_tokens = Some 200_000
-    && c.max_output_tokens = Some 128_000
-  | None -> false
+let gemma4_openai_test_entry id_prefix : Model_catalog.model_entry =
+  { (test_catalog_entry id_prefix) with
+    base_label = Some "openai_chat"
+  ; max_context_tokens = Some 262_144
+  ; supports_tools = Some true
+  ; supports_tool_choice = Some true
+  ; supports_multimodal_inputs = Some true
+  ; supports_image_input = Some true
+  ; modality_priority = Some "visual_first"
+  ; supports_native_streaming = Some true
+  ; supports_seed = Some true
+  }
 ;;
 
-let%test "for_model_id_static glm-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id_static "glm-5.1" with
-  | Some c ->
-    c.supports_reasoning
-    && c.supports_extended_thinking
-    && c.max_output_tokens = Some 128_000
-  | None -> false
+let test_catalog : Model_catalog.t =
+  [ qwen3_family_test_entry "qwen3"
+  ; qwen3_family_test_entry "qwen-3"
+  ; qwen3_family_test_entry "qwen/qwen3.6"
+  ; glm_thinking_test_entry "glm-5.1" ~ctx:200_000 ~out:128_000
+  ; glm_thinking_test_entry "glm-5-turbo" ~ctx:200_000 ~out:128_000
+  ; { (glm_thinking_test_entry "glm-5v-turbo" ~ctx:200_000 ~out:128_000) with
+      supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    }
+  ; { (test_catalog_entry "glm-ocr") with
+      base_label = Some "glm"
+    ; max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 16_384
+    ; supports_tools = Some false
+    ; supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    }
+  ; glm_thinking_test_entry "glm-4.7-flashx" ~ctx:200_000 ~out:128_000
+  ; glm_thinking_test_entry "glm-4.7-flash" ~ctx:200_000 ~out:128_000
+  ; glm_thinking_test_entry "glm-4.5-air" ~ctx:128_000 ~out:96_000
+  ; glm_thinking_test_entry "glm-4.5-flash" ~ctx:128_000 ~out:96_000
+  ; glm_thinking_test_entry "glm-5" ~ctx:200_000 ~out:128_000
+  ; glm_thinking_test_entry "glm-4.6" ~ctx:200_000 ~out:128_000
+  ; glm_thinking_test_entry "glm-4.7" ~ctx:200_000 ~out:128_000
+  ; glm_thinking_test_entry "glm-4.5" ~ctx:128_000 ~out:96_000
+  ; { (glm_thinking_test_entry "glm-4.6v" ~ctx:128_000 ~out:32_768) with
+      supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    }
+  ; { (test_catalog_entry "glm-4-flash") with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 4_096
+    ; supports_tools = Some true
+    }
+  ; { (test_catalog_entry "glm-4v") with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 4_096
+    ; supports_tools = Some true
+    ; supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    }
+  ; { (test_catalog_entry "glm-4") with
+      max_context_tokens = Some 128_000
+    ; max_output_tokens = Some 4_096
+    ; supports_tools = Some true
+    }
+  ; deepseek_v4_test_entry "deepseek-v4-pro"
+  ; deepseek_v4_test_entry "deepseek-ai/deepseek-v4-pro"
+  ; deepseek_v4_test_entry "deepseek-v4-flash"
+  ; deepseek_v4_test_entry "deepseek-ai/deepseek-v4-flash"
+  ; { (test_catalog_entry "nvidia/nvidia-vl") with
+      base_label = Some "nvidia"
+    ; max_context_tokens = Some 131_072
+    ; max_output_tokens = Some 16_384
+    ; supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    }
+  ; { (test_catalog_entry "nvidia-vl") with
+      base_label = Some "nvidia"
+    ; max_context_tokens = Some 131_072
+    ; max_output_tokens = Some 16_384
+    ; supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    }
+  ; { (test_catalog_entry "nvidia/nvidia") with
+      base_label = Some "nvidia"
+    ; max_context_tokens = Some 131_072
+    ; max_output_tokens = Some 16_384
+    }
+  ; { (test_catalog_entry "nvidia") with
+      base_label = Some "nvidia"
+    ; max_context_tokens = Some 131_072
+    ; max_output_tokens = Some 16_384
+    }
+  ; gemma4_openai_test_entry "google/gemma-4"
+  ; gemma4_openai_test_entry "google/gemma-4-26b-a4b"
+  ; { (test_catalog_entry "hf.co/unsloth/gemma-4") with
+      base_label = Some "ollama"
+    ; max_context_tokens = Some 262_144
+    ; supports_tools = Some true
+    ; supports_tool_choice = Some false
+    ; supports_reasoning = Some true
+    ; supports_extended_thinking = Some true
+    ; thinking_control_format = Some "chat_template_token"
+    ; supports_multimodal_inputs = Some true
+    ; supports_image_input = Some true
+    ; modality_priority = Some "visual_first"
+    ; supports_seed = Some true
+    }
+  ; { (test_catalog_entry "agent_llm_a-opus-4") with
+      base_label = Some "anthropic"
+    ; max_context_tokens = Some 1_000_000
+    ; max_output_tokens = Some 128_000
+    }
+  ; { (test_catalog_entry "model-d-4.1") with
+      base_label = Some "openai_chat"
+    ; max_context_tokens = Some 1_000_000
+    ; max_output_tokens = Some 32_000
+    }
+  ]
 ;;
 
-let%test "for_model_id_static bare glm-5 full model (reasoning + extended thinking)" =
-  match for_model_id_static "glm-5" with
-  | Some c ->
-    c.supports_reasoning
-    && c.supports_extended_thinking
-    && c.max_output_tokens = Some 128_000
-  | None -> false
+(* Installs [test_catalog] as the runtime override for the duration of [f],
+   then clears the override (which falls back to ambient discovery, the
+   pre-test state in this runner). *)
+let with_test_catalog f =
+  Model_catalog.set_global test_catalog;
+  Fun.protect ~finally:Model_catalog.clear_global f
 ;;
 
-let%test "for_model_id_static bare glm-5.1 full model (reasoning + extended thinking)" =
-  match for_model_id_static "glm-5.1" with
-  | Some c ->
-    c.supports_reasoning
-    && c.supports_extended_thinking
-    && c.max_output_tokens = Some 128_000
-  | None -> false
+let%test "for_model_id_catalog qwen3 has extended thinking" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "qwen3-32b" with
+    | Some c ->
+      c.supports_reasoning
+      && c.supports_extended_thinking
+      && c.supports_tools
+      && c.supports_native_streaming
+    | None -> false)
 ;;
 
-let%test "for_model_id_static bare glm-5-turbo has GLM-5 thinking limits" =
-  match for_model_id_static "glm-5-turbo" with
-  | Some c ->
-    c.supports_reasoning
-    && c.supports_extended_thinking
-    && c.max_context_tokens = Some 200_000
-    && c.max_output_tokens = Some 128_000
-  | None -> false
+let%test "for_model_id_catalog qwen3.5 routes to Qwen_3 family" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "qwen3.5" with
+    | Some c -> c.supports_extended_thinking && c.max_output_tokens = Some 81_920
+    | None -> false)
+;;
+
+let%test "for_model_id_catalog qwen36 runpod alias routes to Qwen_3 family" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "qwen36-35b-a3b-mtp" with
+    | Some c ->
+      c.supports_extended_thinking && c.thinking_control_format = Chat_template_kwargs
+    | None -> false)
+;;
+
+let%test "for_model_id_catalog qwen-3-7b prefix variant resolves" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "qwen-3-7b-instruct" with
+    | Some c -> c.supports_extended_thinking
+    | None -> false)
+;;
+
+let%test "for_model_id_catalog glm-5-turbo has GLM-5 thinking limits" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "glm-5-turbo" with
+    | Some c ->
+      c.supports_reasoning
+      && c.supports_extended_thinking
+      && c.max_context_tokens = Some 200_000
+      && c.max_output_tokens = Some 128_000
+    | None -> false)
+;;
+
+let%test "for_model_id_catalog glm-5.1 full model (reasoning + extended thinking)" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "glm-5.1" with
+    | Some c ->
+      c.supports_reasoning
+      && c.supports_extended_thinking
+      && c.max_output_tokens = Some 128_000
+    | None -> false)
+;;
+
+let%test "for_model_id_catalog bare glm-5 full model (reasoning + extended thinking)" =
+  with_test_catalog (fun () ->
+    match for_model_id_catalog "glm-5" with
+    | Some c ->
+      c.supports_reasoning
+      && c.supports_extended_thinking
+      && c.max_output_tokens = Some 128_000
+    | None -> false)
+;;
+
+let%test "for_model_id_catalog catalog miss returns None" =
+  with_test_catalog (fun () ->
+    Option.is_none (for_model_id_catalog "totally-unknown-model-id"))
+;;
+
+let%test "for_model_id_catalog empty catalog returns None" =
+  Model_catalog.set_global [];
+  Fun.protect ~finally:Model_catalog.clear_global (fun () ->
+    Option.is_none (for_model_id_catalog "qwen3-32b"))
 ;;
 
 (* --- emits_usage_tokens / capabilities_for_provider_label --- *)
@@ -958,107 +1176,112 @@ let%test "capabilities_for_provider_label: nvidia" =
 (* ── Prefix ordering invariant ──────────────────── *)
 
 (* Each case is a model_id and the expected capability fingerprint.
-   If [for_model_id_static] reorders its prefix checks incorrectly, these
-   specific models would be matched by a more general prefix and
-   return wrong capabilities. The test catches that. *)
-let%test "for_model_id_static: specific model IDs get correct (not shadowed) capabilities"
+   Prefix dispatch now lives in [Model_catalog.lookup], which must pick the
+   LONGEST matching [id_prefix]. If that ordering regressed, these specific
+   models would be matched by a more general prefix (e.g. [glm-4] instead
+   of [glm-4.7-flashx]) and return wrong capabilities. The test catches
+   that against the explicit [test_catalog] fixture, which contains both
+   the general and the specific prefixes. *)
+let%test
+    "for_model_id_catalog: specific model IDs get correct (not shadowed) capabilities"
   =
-  let check model_id expected =
-    match for_model_id_static model_id with
-    | Some c -> expected c
-    | None -> false
-  in
-  List.for_all
-    (fun (m, e) -> check m e)
-    [ ( "glm-4.7-flash-turbo"
-      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
-    ; ( "glm-4.5-flash-test"
-      , fun c -> c.max_output_tokens = Some 96_000 && c.supports_extended_thinking )
-    ; ( "glm-5-turbo-latest"
-      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
-    ; ( "glm-5-turbo-latest"
-      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
-    ; ("glm-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
-    ; ( "glm-4.7-flash-test"
-      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
-    ; ( "glm-4.7-flashx"
-      , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
-    ; ( "glm-4-flash-mini"
-      , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
-    ; ("glm-4v-plus", fun c -> c.supports_image_input)
-    ; ( "glm-4.5-air-test"
-      , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
-    ; ( "glm-4.5-air-test"
-      , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
-    ; ( "glm-5v-turbo-latest"
-      , fun c ->
-          c.supports_image_input
-          && c.supports_reasoning
-          && c.max_output_tokens = Some 128_000 )
-    ; ( "glm-5v-turbo-latest"
-      , fun c ->
-          c.supports_image_input
-          && c.supports_reasoning
-          && c.max_output_tokens = Some 128_000 )
-    ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
-    ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
-    ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
-    ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
-      (* RFC-OAS-023: the real provider model ids ([deepseek-v4-flash],
+  with_test_catalog (fun () ->
+    let check model_id expected =
+      match for_model_id_catalog model_id with
+      | Some c -> expected c
+      | None -> false
+    in
+    List.for_all
+      (fun (m, e) -> check m e)
+      [ ( "glm-4.7-flash-turbo"
+        , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
+      ; ( "glm-4.5-flash-test"
+        , fun c -> c.max_output_tokens = Some 96_000 && c.supports_extended_thinking )
+      ; ( "glm-5-turbo-latest"
+        , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
+      ; ( "glm-5-turbo-latest"
+        , fun c -> c.max_output_tokens = Some 128_000 && c.supports_extended_thinking )
+      ; ("glm-4.6v-plus", fun c -> c.supports_image_input && c.supports_reasoning)
+      ; ( "glm-4.7-flash-test"
+        , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
+      ; ( "glm-4.7-flashx"
+        , fun c -> c.max_output_tokens = Some 128_000 && c.supports_reasoning )
+      ; ( "glm-4-flash-mini"
+        , fun c -> c.max_output_tokens = Some 4_096 && not c.supports_reasoning )
+      ; ("glm-4v-plus", fun c -> c.supports_image_input)
+      ; ( "glm-4.5-air-test"
+        , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
+      ; ( "glm-4.5-air-test"
+        , fun c -> c.max_output_tokens = Some 96_000 && c.supports_reasoning )
+      ; ( "glm-5v-turbo-latest"
+        , fun c ->
+            c.supports_image_input
+            && c.supports_reasoning
+            && c.max_output_tokens = Some 128_000 )
+      ; ( "glm-5v-turbo-latest"
+        , fun c ->
+            c.supports_image_input
+            && c.supports_reasoning
+            && c.max_output_tokens = Some 128_000 )
+      ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
+      ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
+      ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
+      ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
+        (* RFC-OAS-023: the real provider model ids ([deepseek-v4-flash],
          [deepseek-v4-pro]) must resolve to the DeepSeek capability route.
          Before the de-anonymization these matched only the anon
-         [deepseek-v4-*] prefixes, so the concrete ids missed the static table
+         [deepseek-v4-*] prefixes, so the concrete ids missed the lookup
          and silently fell back to provider-default capabilities. The
          anon prefixes are retained as aliases and asserted here too. The
          fingerprint ([Thinking_object] + [384_000] output cap) is specific
          to the DeepSeek record, so a fall-through to defaults fails the
          test. *)
-    ; ( "deepseek-v4-flash"
-      , fun c ->
-          c.thinking_control_format = Thinking_object
-          && c.max_output_tokens = Some 384_000 )
-    ; ( "deepseek-v4-flash-test"
-      , fun c ->
-          c.thinking_control_format = Thinking_object
-          && c.max_output_tokens = Some 384_000 )
-    ; ( "deepseek-v4-pro"
-      , fun c ->
-          c.thinking_control_format = Thinking_object
-          && c.max_output_tokens = Some 384_000 )
-    ; ( "deepseek-ai/DeepSeek-V4-Flash"
-      , fun c ->
-          c.thinking_control_format = Thinking_object
-          && c.max_output_tokens = Some 384_000 )
-    ; ( "deepseek-ai/DeepSeek-V4-Pro"
-      , fun c ->
-          c.thinking_control_format = Thinking_object
-          && c.max_output_tokens = Some 384_000 )
-    ; ( "Qwen/Qwen3.6-35B-A3B"
-      , fun c ->
-          c.thinking_control_format = Chat_template_kwargs && c.supports_extended_thinking
-      )
-    ; ( "deepseek-v4-pro-test"
-      , fun c ->
-          c.thinking_control_format = Thinking_object
-          && c.max_output_tokens = Some 384_000 )
-    ; ( "nvidia-ultra-253b"
-      , fun c ->
-          c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
-    ; ( "nvidia/nvidia-ultra-253b"
-      , fun c ->
-          c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
-    ; ("nvidia-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
-    ; ( "google/gemma-4-26B-A4B-it"
-      , fun c ->
-          c.supports_tools
-          && c.supports_image_input
-          && c.supports_seed
-          && c.modality_priority = Modality.Visual_first
-          && c.max_context_tokens = Some 262_144 )
-    ; ( "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
-      , fun c -> c.supports_reasoning && c.thinking_control_format = Chat_template_token
-      )
-    ]
+      ; ( "deepseek-v4-flash"
+        , fun c ->
+            c.thinking_control_format = Thinking_object
+            && c.max_output_tokens = Some 384_000 )
+      ; ( "deepseek-v4-flash-test"
+        , fun c ->
+            c.thinking_control_format = Thinking_object
+            && c.max_output_tokens = Some 384_000 )
+      ; ( "deepseek-v4-pro"
+        , fun c ->
+            c.thinking_control_format = Thinking_object
+            && c.max_output_tokens = Some 384_000 )
+      ; ( "deepseek-ai/DeepSeek-V4-Flash"
+        , fun c ->
+            c.thinking_control_format = Thinking_object
+            && c.max_output_tokens = Some 384_000 )
+      ; ( "deepseek-ai/DeepSeek-V4-Pro"
+        , fun c ->
+            c.thinking_control_format = Thinking_object
+            && c.max_output_tokens = Some 384_000 )
+      ; ( "Qwen/Qwen3.6-35B-A3B"
+        , fun c ->
+            c.thinking_control_format = Chat_template_kwargs
+            && c.supports_extended_thinking )
+      ; ( "deepseek-v4-pro-test"
+        , fun c ->
+            c.thinking_control_format = Thinking_object
+            && c.max_output_tokens = Some 384_000 )
+      ; ( "nvidia-ultra-253b"
+        , fun c ->
+            c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
+      ; ( "nvidia/nvidia-ultra-253b"
+        , fun c ->
+            c.thinking_control_format = Chat_template_kwargs && c.supports_tool_choice )
+      ; ("nvidia-vl", fun c -> c.supports_image_input && c.supports_multimodal_inputs)
+      ; ( "google/gemma-4-26B-A4B-it"
+        , fun c ->
+            c.supports_tools
+            && c.supports_image_input
+            && c.supports_seed
+            && c.modality_priority = Modality.Visual_first
+            && c.max_context_tokens = Some 262_144 )
+      ; ( "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
+        , fun c -> c.supports_reasoning && c.thinking_control_format = Chat_template_token
+        )
+      ])
 ;;
 
 (* ── Capability drift detection ────────────────────────── *)

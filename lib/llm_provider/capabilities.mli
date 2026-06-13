@@ -128,10 +128,25 @@ type gemini_family =
     the boundary. *)
 val gemini_family_of_id : string -> gemini_family
 
-val for_model_id_static : string -> capabilities option
+(** Look up capabilities for [model_id] in the loaded model catalog only
+    (no manifest consultation).
+
+    The catalog is resolved by {!Model_catalog.global}, in order: runtime
+    override installed via {!Model_catalog.set_global}, the
+    [OAS_MODEL_CATALOG] environment variable, a cwd-parent walk (depth 10)
+    for [models.toml] and then [oas-models.toml], then
+    [~/.config/oas/models.toml]. The ambient discovery (env + cwd walk +
+    XDG path) is sampled lazily once per process.
+
+    Returns [None] when no catalog is available or when no catalog entry
+    prefix-matches [model_id]; there is no in-code fallback table. *)
+val for_model_id_catalog : string -> capabilities option
 
 (** Lookup capabilities for a known model_id.
-    Returns [None] if the model is not in the built-in table. *)
+
+    Checks the globally loaded model catalog first, then the capability
+    manifest. Returns [None] when neither source has a matching entry;
+    there is no built-in fallback table. *)
 val for_model_id : string -> capabilities option
 
 (** Lookup capabilities for a provider label string.
@@ -167,7 +182,8 @@ val with_tool_support : capabilities -> supports_tools:bool -> capabilities
 val apply_manifest_entry : Capability_manifest.entry -> capabilities
 
 (** Look up capabilities for [model_id] against an explicit manifest,
-    falling back to the built-in static prefix table on a miss.
+    falling back to the catalog lookup ({!for_model_id_catalog}) on a
+    miss.
 
     Useful for testing the manifest integration path without relying on
     the [OAS_CAPABILITY_MANIFEST] env var.
