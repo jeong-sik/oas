@@ -261,6 +261,7 @@ val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
+val get_consecutive_idle_turns : t -> int
 val description : t -> string option
 val allowed_paths : t -> string list
 

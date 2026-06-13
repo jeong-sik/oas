@@ -36,29 +36,43 @@ type t =
   ; max_per_extend : int
   ; max_extensions : int
   ; mutable history : (float * int * string) list (* ts, granted, reason *)
+  ; mutex : Eio.Mutex.t
+    (** Guards [history]. [try_extend] may be called from parallel tool-
+        execution fibers (e.g. [Parallel_batch]), so all reads and writes of
+        the mutable history must be serialized. *)
   }
 
 let create ~initial ~ceiling ?(max_per_extend = 20) ?(max_extensions = 10) () =
-  { initial; ceiling = max ceiling initial; max_per_extend; max_extensions; history = [] }
+  { initial
+  ; ceiling = max ceiling initial
+  ; max_per_extend
+  ; max_extensions
+  ; history = []
+  ; mutex = Eio.Mutex.create ()
+  }
 ;;
 
-let extensions_count t = List.length t.history
+let extensions_count t =
+  Eio.Mutex.use_ro t.mutex @@ fun () -> List.length t.history
+;;
 
 let total_extended t =
+  Eio.Mutex.use_ro t.mutex @@ fun () ->
   List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history
 ;;
 
 let current_max t = min (t.initial + total_extended t) t.ceiling
 
 let try_extend t ~additional ~reason =
-  let cur_extensions = extensions_count t in
+  Eio.Mutex.use_rw ~protect:true t.mutex @@ fun () ->
+  let cur_extensions = List.length t.history in
   if cur_extensions >= t.max_extensions
   then Error Extension_limit_reached
   else if additional > t.max_per_extend
   then Error Per_extend_cap_exceeded
   else (
     let additional = max 1 additional in
-    let cur_max = current_max t in
+    let cur_max = min (t.initial + List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history) t.ceiling in
     let new_max = min (cur_max + additional) t.ceiling in
     let granted = new_max - cur_max in
     if granted <= 0
