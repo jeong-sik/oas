@@ -501,9 +501,9 @@ let make_closing_client ~sw ~net ~uri =
          half-close as "keep waiting" and hold the connection in
          CLOSE_WAIT indefinitely. *)
     let tracked_transports
-      : [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t list ref
+      : [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t list Atomic.t
       =
-      ref []
+      Atomic.make []
     in
     let connect ~sw:conn_sw _uri =
       let sock = Eio.Net.connect ~sw:conn_sw net addr in
@@ -513,18 +513,23 @@ let make_closing_client ~sw ~net ~uri =
           (wrap uri sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
         | None -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
       in
-      tracked_transports := transport :: !tracked_transports;
+      let rec push () =
+        let prev = Atomic.get tracked_transports in
+        if Atomic.compare_and_set tracked_transports prev (transport :: prev)
+        then ()
+        else push ()
+      in
+      push ();
       Diag.debug
         "http_client"
         "connect: new transport #%d for %s"
-        (List.length !tracked_transports)
+        (List.length (Atomic.get tracked_transports))
         (Uri.to_string uri);
       transport
     in
     let client = Cohttp_eio.Client.make_generic connect in
     Eio.Switch.on_release sw (fun () ->
-      let transports = !tracked_transports in
-      tracked_transports := [];
+      let transports = Atomic.exchange tracked_transports [] in
       let n = List.length transports in
       if n > 0
       then
