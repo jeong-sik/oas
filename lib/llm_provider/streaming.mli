@@ -122,6 +122,16 @@ val openai_chunk_to_events
   -> provider_d_chunk
   -> sse_event list * Telemetry_event.t option
 
+(** Convert one OpenAI Responses API streaming SSE payload into OAS stream
+    events. Responses streaming is item/event based, not Chat Completions delta
+    based: output text, reasoning summaries, and function call arguments each
+    have their own event family. *)
+val responses_sse_to_events
+  :  provider_d_stream_state
+  -> string option
+  -> string
+  -> sse_event list * Telemetry_event.t option
+
 (** {1 Gemini SSE}
 
     Gemini [streamGenerateContent?alt=sse] emits SSE chunks with

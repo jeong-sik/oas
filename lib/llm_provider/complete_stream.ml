@@ -279,6 +279,9 @@ let complete_stream_http
            })
     else (
       let config = apply_sampling_defaults config in
+      let uses_responses_api =
+        Provider_config.request_path_targets_responses_api config.request_path
+      in
       let body_str =
         match config.kind with
         | Provider_config.Anthropic ->
@@ -291,6 +294,8 @@ let complete_stream_http
            for every streaming caller. NDJSON parser is now in
            Streaming.parse_ollama_ndjson_chunk. *)
           Backend_ollama.build_request ~stream:true ~config ~messages ~tools ()
+        | Provider_config.OpenAI_compat when uses_responses_api ->
+          Backend_openai_responses.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
           -> Backend_openai.build_request ~stream:true ~config ~messages ~tools ()
         | Provider_config.Gemini ->
@@ -308,6 +313,7 @@ let complete_stream_http
         match config.kind with
         | Provider_config.Gemini -> body_str
         | Anthropic | Ollama -> Http_client.inject_stream_param body_str
+        | OpenAI_compat when uses_responses_api -> body_str
         | OpenAI_compat | Kimi | Glm | DashScope ->
           (* OpenAI-compatible streaming returns token usage only when the
              request also sets stream_options.include_usage. Anthropic and
@@ -612,6 +618,11 @@ let complete_stream_http
                              (match Streaming.parse_sse_event event_type data with
                               | Some evt -> [ evt ], None
                               | None -> [], None)
+                           | Provider_config.OpenAI_compat when uses_responses_api ->
+                             Streaming.responses_sse_to_events
+                               (get_state ())
+                               event_type
+                               data
                            | Provider_config.OpenAI_compat
                            | Provider_config.DashScope
                            | Provider_config.Kimi ->

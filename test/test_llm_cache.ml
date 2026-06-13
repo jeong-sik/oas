@@ -98,6 +98,36 @@ let test_fingerprint_message_roles () =
   Alcotest.(check bool) "different roles = different key" true (k1 <> k2)
 ;;
 
+let test_fingerprint_tool_use_blocks () =
+  let config = make_config () in
+  let msg name =
+    { role = Assistant
+    ; content = [ ToolUse { id = "call_1"; name; input = `Assoc [ "q", `String "x" ] } ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  let k1 = Cache.request_fingerprint ~config ~messages:[ msg "search" ] () in
+  let k2 = Cache.request_fingerprint ~config ~messages:[ msg "lookup" ] () in
+  Alcotest.(check bool) "tool_use changes key" true (k1 <> k2)
+;;
+
+let test_fingerprint_redacted_thinking_blocks () =
+  let config = make_config () in
+  let msg data =
+    { role = Assistant
+    ; content = [ RedactedThinking data; Text "visible" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  let k1 = Cache.request_fingerprint ~config ~messages:[ msg "encrypted-a" ] () in
+  let k2 = Cache.request_fingerprint ~config ~messages:[ msg "encrypted-b" ] () in
+  Alcotest.(check bool) "redacted_thinking changes key" true (k1 <> k2)
+;;
+
 (* ── response_to_json / response_of_json roundtrip ───────── *)
 
 let test_roundtrip_text () =
@@ -307,10 +337,20 @@ let test_roundtrip_stop_unknown () =
 let test_roundtrip_redacted_thinking () =
   let resp = simple_response [ RedactedThinking "secret" ] in
   let json = Cache.response_to_json resp in
+  let open Yojson.Safe.Util in
+  (match json |> member "content" |> to_list with
+   | [ block ] ->
+     Alcotest.(check string)
+       "type"
+       "redacted_thinking"
+       (block |> member "type" |> to_string);
+     Alcotest.(check string) "data" "secret" (block |> member "data" |> to_string)
+   | _ -> Alcotest.fail "expected serialized redacted_thinking block");
   match Cache.response_of_json json with
   | Some r ->
-    (* redacted_thinking has no content in JSON, so it is filtered out *)
-    Alcotest.(check int) "redacted filtered" 0 (List.length r.content)
+    (match r.content with
+     | [ RedactedThinking data ] -> Alcotest.(check string) "redacted data" "secret" data
+     | _ -> Alcotest.fail "expected redacted_thinking roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
@@ -504,6 +544,11 @@ let () =
         ; Alcotest.test_case "multiple messages" `Quick test_fingerprint_multiple_messages
         ; Alcotest.test_case "hex format" `Quick test_fingerprint_hex_format
         ; Alcotest.test_case "message roles" `Quick test_fingerprint_message_roles
+        ; Alcotest.test_case "tool_use blocks" `Quick test_fingerprint_tool_use_blocks
+        ; Alcotest.test_case
+            "redacted_thinking blocks"
+            `Quick
+            test_fingerprint_redacted_thinking_blocks
         ] )
     ; ( "roundtrip_content"
       , [ Alcotest.test_case "text" `Quick test_roundtrip_text

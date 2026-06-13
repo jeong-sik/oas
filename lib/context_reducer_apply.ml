@@ -113,6 +113,11 @@ let tool_result_ids (msg : message) =
 ;;
 
 let has_tool_result msg = tool_result_ids msg <> []
+let has_tool_use msg = tool_use_ids msg <> []
+
+let preserve_thinking_for_tool_use_message (msg : message) =
+  msg.role = Assistant && has_tool_use msg
+;;
 
 type dangling_repair_report = { synthesized_tool_results : int }
 
@@ -273,7 +278,7 @@ let apply_drop_thinking messages =
   let total = List.length messages in
   List.filter_map
     (fun (i, (msg : message)) ->
-       if i >= total - 2
+       if i >= total - 2 || preserve_thinking_for_tool_use_message msg
        then Some msg
        else (
          let content =

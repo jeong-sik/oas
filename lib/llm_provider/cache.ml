@@ -10,7 +10,7 @@ type t =
 let message_fingerprint (m : Types.message) : Yojson.Safe.t =
   `Assoc
     [ "role", `String (Types.role_to_string m.role)
-    ; "content", `String (Types.text_of_message m)
+    ; "content", `List (List.map Api_common.content_block_to_json m.content)
     ]
 ;;
 
@@ -44,7 +44,8 @@ let content_block_to_json = function
   | Types.Text s -> `Assoc [ "type", `String "text"; "text", `String s ]
   | Types.Thinking { content; _ } ->
     `Assoc [ "type", `String "thinking"; "text", `String content ]
-  | Types.RedactedThinking _ -> `Assoc [ "type", `String "redacted_thinking" ]
+  | Types.RedactedThinking data ->
+    `Assoc [ "type", `String "redacted_thinking"; "data", `String data ]
   | Types.ToolUse { id; name; input } ->
     `Assoc
       [ "type", `String "tool_use"
@@ -71,6 +72,11 @@ let content_block_of_json json =
     Some
       (Types.Thinking
          { thinking_type = "thinking"; content = json |> member "text" |> to_string })
+  | "redacted_thinking" ->
+    (match json |> member "data" |> to_string_option with
+     | Some data when not (Api_common.string_is_blank data) ->
+       Some (Types.RedactedThinking data)
+     | Some _ | None -> None)
   | "tool_use" ->
     Some
       (Types.ToolUse

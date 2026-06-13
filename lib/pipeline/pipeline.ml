@@ -294,8 +294,22 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
            Hooks.Idle_severity.Final_warning
          | _ -> Hooks.Idle_severity.Nudge
        in
+       let tool_index = Agent_tools.build_index (Tool_set.to_list agent.tools) in
+       let registered_tool name =
+         Option.is_some (Agent_tools.find_in_index tool_index name)
+       in
+       let normalize_tool_call ~name ~input =
+         if registered_tool name
+         then name, input
+         else (
+           match Agent_tool_name_alias.resolve ~requested:name ~input with
+           | Some (canonical_name, canonical_input) when registered_tool canonical_name ->
+             canonical_name, canonical_input
+           | Some _ | None -> name, input)
+       in
        let idle_result =
-         Agent_turn.update_idle_detection
+         Agent_turn.update_idle_detection_with_normalizer
+           ~normalize_tool_call
            ~idle_state:
              { last_tool_calls = agent.last_tool_calls
              ; consecutive_idle_turns = agent.consecutive_idle_turns

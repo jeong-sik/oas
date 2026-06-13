@@ -1,6 +1,7 @@
 open Llm_provider
 open Types
 module Parse = Backend_openai_parse
+module Responses = Backend_openai_responses
 module Serialize = Backend_openai_serialize
 
 let check_string = Alcotest.(check string)
@@ -882,6 +883,314 @@ let test_parse_edge_shapes_for_text_and_telemetry () =
   | _ -> Alcotest.fail "expected telemetry from integer rates"
 ;;
 
+let responses_response_json () =
+  `Assoc
+    [ "id", `String "resp_123"
+    ; "model", `String "gpt-5.5"
+    ; "status", `String "completed"
+    ; ( "output"
+      , `List
+          [ `Assoc
+              [ "id", `String "rs_1"
+              ; "type", `String "reasoning"
+              ; ( "summary"
+                , `List
+                    [ `Assoc
+                        [ "type", `String "summary_text"
+                        ; "text", `String "Need current weather before answering."
+                        ]
+                    ] )
+              ]
+          ; `Assoc
+              [ "id", `String "fc_1"
+              ; "type", `String "function_call"
+              ; "call_id", `String "call_weather"
+              ; "name", `String "get_weather"
+              ; "arguments", `String {|{"city":"Paris"}|}
+              ]
+          ] )
+    ; ( "usage"
+      , `Assoc
+          [ "input_tokens", `Int 12
+          ; "output_tokens", `Int 8
+          ; "output_tokens_details", `Assoc [ "reasoning_tokens", `Int 3 ]
+          ] )
+    ]
+;;
+
+let test_responses_parse_reasoning_and_function_call () =
+  match
+    Responses.parse_response_result (responses_response_json () |> Yojson.Safe.to_string)
+  with
+  | Error msg -> Alcotest.fail ("unexpected responses parse error: " ^ msg)
+  | Ok response ->
+    check_string "id" "resp_123" response.id;
+    check_string "model" "gpt-5.5" response.model;
+    check_bool "stop tool use" true (response.stop_reason = StopToolUse);
+    (match response.content with
+     | [ Thinking { thinking_type; content }; ToolUse { id; name; input } ] ->
+       check_string "thinking type" "reasoning_summary" thinking_type;
+       check_string "thinking content" "Need current weather before answering." content;
+       check_string "tool call_id" "call_weather" id;
+       check_string "tool name" "get_weather" name;
+       check_string "tool arg" "Paris" (member "city" input |> to_string)
+     | _ -> Alcotest.fail "expected reasoning summary followed by function_call");
+    (match response.usage with
+     | Some usage ->
+       check_int "input tokens" 12 usage.input_tokens;
+       check_int "output tokens" 8 usage.output_tokens
+     | None -> Alcotest.fail "expected usage");
+    (match response.telemetry with
+     | Some telemetry ->
+       Alcotest.(check (option int))
+         "reasoning tokens"
+         (Some 3)
+         telemetry.reasoning_tokens
+     | None -> Alcotest.fail "expected telemetry")
+;;
+
+let test_responses_preserves_encrypted_reasoning_item_for_replay () =
+  let encrypted_reasoning_item =
+    `Assoc
+      [ "id", `String "rs_1"
+      ; "type", `String "reasoning"
+      ; "status", `String "completed"
+      ; ( "summary"
+        , `List
+            [ `Assoc
+                [ "type", `String "summary_text"
+                ; "text", `String "Need current weather before answering."
+                ]
+            ] )
+      ; "encrypted_content", `String "enc_reasoning_123"
+      ]
+  in
+  let json =
+    `Assoc
+      [ "id", `String "resp_123"
+      ; "model", `String "gpt-5.5"
+      ; "status", `String "completed"
+      ; ( "output"
+        , `List
+            [ encrypted_reasoning_item
+            ; `Assoc
+                [ "id", `String "fc_1"
+                ; "type", `String "function_call"
+                ; "call_id", `String "call_weather"
+                ; "name", `String "get_weather"
+                ; "arguments", `String {|{"city":"Paris"}|}
+                ]
+            ] )
+      ]
+  in
+  match Responses.parse_response_result (Yojson.Safe.to_string json) with
+  | Error msg -> Alcotest.fail ("unexpected responses parse error: " ^ msg)
+  | Ok response ->
+    (match response.content with
+     | [ RedactedThinking raw; ToolUse { id; name; input } ] ->
+       let raw_json = Yojson.Safe.from_string raw in
+       check_string "raw type" "reasoning" (member "type" raw_json |> to_string);
+       check_string "raw id" "rs_1" (member "id" raw_json |> to_string);
+       check_string
+         "raw encrypted content"
+         "enc_reasoning_123"
+         (member "encrypted_content" raw_json |> to_string);
+       check_string "tool call_id" "call_weather" id;
+       check_string "tool name" "get_weather" name;
+       check_string "tool arg" "Paris" (member "city" input |> to_string)
+     | _ -> Alcotest.fail "expected raw encrypted reasoning followed by function_call");
+    let config =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"gpt-5.5"
+        ~base_url:"https://api.openai.com"
+        ~request_path:"/v1/responses"
+        ~max_tokens:128
+        ()
+    in
+    let body =
+      Responses.build_request
+        ~config
+        ~messages:
+          [ msg User [ Text "weather?" ]
+          ; msg Assistant response.content
+          ; msg
+              Tool
+              [ ToolResult
+                  { tool_use_id = "call_weather"
+                  ; content = {|{"temp_c":12}|}
+                  ; is_error = false
+                  ; json = Some (`Assoc [ "temp_c", `Int 12 ])
+                  ; content_blocks = None
+                  }
+              ]
+          ]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    Alcotest.(check (list string))
+      "include encrypted reasoning"
+      [ "reasoning.encrypted_content" ]
+      (member "include" body |> to_list |> List.map to_string);
+    let input = member "input" body |> to_list in
+    check_int "input items" 4 (List.length input);
+    let reasoning = List.nth input 1 in
+    check_string "replayed type" "reasoning" (member "type" reasoning |> to_string);
+    check_string "replayed id" "rs_1" (member "id" reasoning |> to_string);
+    check_string
+      "replayed encrypted content"
+      "enc_reasoning_123"
+      (member "encrypted_content" reasoning |> to_string);
+    check_string
+      "function call item"
+      "function_call"
+      (List.nth input 2 |> member "type" |> to_string);
+    check_string
+      "function output item"
+      "function_call_output"
+      (List.nth input 3 |> member "type" |> to_string)
+;;
+
+let test_responses_build_request_round_trips_tool_result_items () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~enable_thinking:true
+      ~thinking_budget:4096
+      ~max_tokens:128
+      ()
+  in
+  let tool =
+    `Assoc
+      [ "name", `String "get_weather"
+      ; "description", `String "weather lookup"
+      ; "input_schema", `Assoc [ "type", `String "object" ]
+      ; "strict", `Bool true
+      ]
+  in
+  let body =
+    Responses.build_request
+      ~config
+      ~messages:
+        [ msg User [ Text "weather?" ]
+        ; msg
+            Assistant
+            [ Thinking { thinking_type = "reasoning_summary"; content = "Need a tool." }
+            ; ToolUse
+                { id = "call_weather"
+                ; name = "get_weather"
+                ; input = `Assoc [ "city", `String "Paris" ]
+                }
+            ]
+        ; msg
+            Tool
+            [ ToolResult
+                { tool_use_id = "call_weather"
+                ; content = {|{"temp_c":12}|}
+                ; is_error = false
+                ; json = Some (`Assoc [ "temp_c", `Int 12 ])
+                ; content_blocks = None
+                }
+            ]
+        ]
+      ~tools:[ tool ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  check_string "model" "gpt-5.5" (member "model" body |> to_string);
+  check_int "max output" 128 (member "max_output_tokens" body |> to_int);
+  check_string
+    "reasoning effort"
+    "medium"
+    (member "reasoning" body |> member "effort" |> to_string);
+  Alcotest.(check (list string))
+    "include encrypted reasoning"
+    [ "reasoning.encrypted_content" ]
+    (member "include" body |> to_list |> List.map to_string);
+  let input = member "input" body |> to_list in
+  check_int "input items" 4 (List.length input);
+  check_string "first role" "user" (List.nth input 0 |> member "role" |> to_string);
+  check_string
+    "reasoning item"
+    "reasoning"
+    (List.nth input 1 |> member "type" |> to_string);
+  check_string
+    "function call item"
+    "function_call"
+    (List.nth input 2 |> member "type" |> to_string);
+  check_string
+    "function output item"
+    "function_call_output"
+    (List.nth input 3 |> member "type" |> to_string);
+  check_string
+    "output call id"
+    "call_weather"
+    (List.nth input 3 |> member "call_id" |> to_string);
+  let tool_json = member "tools" body |> to_list |> only "responses tool" in
+  check_string "tool type" "function" (member "type" tool_json |> to_string);
+  check_string "tool name" "get_weather" (member "name" tool_json |> to_string);
+  check_bool "tool strict" true (Yojson.Safe.Util.to_bool (member "strict" tool_json))
+;;
+
+let test_responses_build_request_uses_text_format_json_schema () =
+  let schema =
+    `Assoc
+      [ "title", `String "Weather Answer"
+      ; "type", `String "object"
+      ; ( "properties"
+        , `Assoc
+            [ "city", `Assoc [ "type", `String "string" ]
+            ; "temp_c", `Assoc [ "type", `String "number" ]
+            ] )
+      ; "required", `List [ `String "city"; `String "temp_c" ]
+      ; "additionalProperties", `Bool false
+      ]
+  in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~output_schema:schema
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request ~config ~messages:[ msg User [ Text "weather?" ] ] ()
+    |> Yojson.Safe.from_string
+  in
+  let format = member "text" body |> member "format" in
+  check_string "format type" "json_schema" (member "type" format |> to_string);
+  check_string "format name" "weather_answer" (member "name" format |> to_string);
+  check_bool "format strict" true (Yojson.Safe.Util.to_bool (member "strict" format));
+  Alcotest.(check bool) "format schema" true (member "schema" format = schema)
+;;
+
+let test_responses_build_request_uses_text_format_json_object () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~response_format_json:true
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request ~config ~messages:[ msg User [ Text "json please" ] ] ()
+    |> Yojson.Safe.from_string
+  in
+  check_string
+    "format type"
+    "json_object"
+    (member "text" body |> member "format" |> member "type" |> to_string)
+;;
+
 let () =
   Alcotest.run
     "backend_openai_codec"
@@ -974,6 +1283,28 @@ let () =
             "edge text shapes and telemetry"
             `Quick
             test_parse_edge_shapes_for_text_and_telemetry
+        ] )
+    ; ( "responses"
+      , [ Alcotest.test_case
+            "parse reasoning and function_call items"
+            `Quick
+            test_responses_parse_reasoning_and_function_call
+        ; Alcotest.test_case
+            "preserve encrypted reasoning item for replay"
+            `Quick
+            test_responses_preserves_encrypted_reasoning_item_for_replay
+        ; Alcotest.test_case
+            "build request round-trips tool result items"
+            `Quick
+            test_responses_build_request_round_trips_tool_result_items
+        ; Alcotest.test_case
+            "build request text.format json_schema"
+            `Quick
+            test_responses_build_request_uses_text_format_json_schema
+        ; Alcotest.test_case
+            "build request text.format json_object"
+            `Quick
+            test_responses_build_request_uses_text_format_json_object
         ] )
     ]
 ;;

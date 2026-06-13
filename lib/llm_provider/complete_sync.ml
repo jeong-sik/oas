@@ -42,12 +42,17 @@ let complete_http
         | None -> ()
       in
       let config = apply_sampling_defaults config in
+      let uses_responses_api =
+        Provider_config.request_path_targets_responses_api config.request_path
+      in
       let body_str =
         match config.kind with
         | Provider_config.Anthropic ->
           Backend_anthropic.build_request ~config ~messages ~tools ()
         | Provider_config.Ollama ->
           Backend_ollama.build_request ~config ~messages ~tools ()
+        | Provider_config.OpenAI_compat when uses_responses_api ->
+          Backend_openai_responses.build_request ~config ~messages ~tools ()
         | Provider_config.OpenAI_compat | Provider_config.DashScope | Provider_config.Kimi
           -> Backend_openai.build_request ~config ~messages ~tools ()
         | Provider_config.Gemini ->
@@ -200,6 +205,12 @@ let complete_http
                   Ok (Backend_anthropic.parse_response (Yojson.Safe.from_string body))
                 | Provider_config.Ollama ->
                   (match Backend_ollama.parse_ollama_response body with
+                   | Ok resp -> Ok resp
+                   | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
+                | Provider_config.OpenAI_compat
+                  when Provider_config.request_path_targets_responses_api
+                         config.request_path ->
+                  (match Backend_openai_responses.parse_response_result body with
                    | Ok resp -> Ok resp
                    | Error msg -> Error (Http_client.HttpError { code = 400; body = msg }))
                 | Provider_config.OpenAI_compat

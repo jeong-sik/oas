@@ -29,6 +29,14 @@ let provider_d_mlx_vlm_response text =
     text
 ;;
 
+let openai_responses_tool_call_response () =
+  {|{"id":"resp-1","model":"gpt-5.5","status":"completed","output":[
+      {"id":"rs-1","type":"reasoning","summary":[{"type":"summary_text","text":"Need a lookup."}]},
+      {"id":"fc-1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"weather\"}"}
+    ],
+    "usage":{"input_tokens":12,"output_tokens":8,"output_tokens_details":{"reasoning_tokens":3}}}|}
+;;
+
 let ollama_tool_call_response () =
   {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
      "message":{"role":"assistant","content":"",
@@ -51,10 +59,21 @@ let fresh_port () =
   port
 ;;
 
-let start_mock_server ~sw ~net ?(status = `OK) ?(delay_sec = 0.0) ?clock response_body =
+let start_mock_server
+      ~sw
+      ~net
+      ?(status = `OK)
+      ?(delay_sec = 0.0)
+      ?clock
+      ?capture_body
+      response_body
+  =
   let port = fresh_port () in
   let handler _conn _req body =
-    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    (match capture_body with
+     | Some seen -> seen := Some request_body
+     | None -> ());
     (match clock with
      | Some clk when delay_sec > 0.0 -> Eio.Time.sleep clk delay_sec
      | _ -> ());
@@ -125,6 +144,19 @@ let make_provider_d_config base_url =
 ;;
 
 let messages = [ Types.user_msg "hello" ]
+
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop idx =
+    if idx + sub_len > text_len
+    then false
+    else if String.sub text idx sub_len = sub
+    then true
+    else loop (idx + 1)
+  in
+  sub_len = 0 || loop 0
+;;
 
 let mock_transport_response text =
   { Types.id = "transport-response"
@@ -251,6 +283,191 @@ let test_complete_provider_d_ok () =
       check string "text" "openai reply" text;
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok for openai"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_openai_responses_sync_ok () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_mock_server ~sw ~net:env#net (openai_responses_tool_call_response ())
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.OpenAI_compat
+        ~model_id:"gpt-5.5"
+        ~base_url:url
+        ~request_path:"/v1/responses"
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
+    match Complete.complete ~sw ~net:env#net ~config ~messages () with
+    | Ok resp ->
+      check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
+      (match resp.content with
+       | [ Types.Thinking { content; _ }; Types.ToolUse { id; name; input } ] ->
+         check string "reasoning" "Need a lookup." content;
+         check string "tool id" "call_lookup" id;
+         check string "tool name" "lookup" name;
+         check
+           string
+           "tool arg"
+           "weather"
+           (Yojson.Safe.Util.member "q" input |> Yojson.Safe.Util.to_string)
+       | _ -> fail "expected reasoning + tool use");
+      (match resp.telemetry with
+       | Some telemetry ->
+         check (option int) "reasoning tokens" (Some 3) telemetry.reasoning_tokens
+       | None -> fail "expected telemetry");
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok for OpenAI Responses sync"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_openai_responses_json_mode_body () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let captured = ref None in
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~capture_body:captured
+        (openai_responses_tool_call_response ())
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.OpenAI_compat
+        ~model_id:"gpt-5.5"
+        ~base_url:url
+        ~request_path:"/v1/responses"
+        ~response_format_json:true
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
+    (match Complete.complete ~sw ~net:env#net ~config ~messages () with
+     | Ok _ -> ()
+     | Error _ -> fail "expected Ok for OpenAI Responses JSON mode");
+    match !captured with
+    | Some body ->
+      let json = Yojson.Safe.from_string body in
+      check
+        string
+        "responses text.format"
+        "json_object"
+        Yojson.Safe.Util.(
+          json |> member "text" |> member "format" |> member "type" |> to_string);
+      Eio.Switch.fail sw Exit
+    | None -> fail "server did not capture request body"
+  with
+  | Exit -> ()
+;;
+
+let start_responses_sse_server ~sw ~net response_body =
+  let port = fresh_port () in
+  let handler _conn _req body =
+    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let headers = Cohttp.Header.of_list [ "content-type", "text/event-stream" ] in
+    Cohttp_eio.Server.respond_string ~status:`OK ~headers ~body:response_body ()
+  in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:8
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  let server = Cohttp_eio.Server.make ~callback:handler () in
+  Eio.Fiber.fork ~sw (fun () ->
+    Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+  Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
+let openai_responses_sse_tool_call_response () =
+  "event: response.created\n\
+   data: \
+   {\"type\":\"response.created\",\"response\":{\"id\":\"resp-stream-1\",\"model\":\"gpt-5.5\",\"status\":\"in_progress\",\"usage\":null}}\n\n\
+   event: response.reasoning_summary_text.delta\n\
+   data: \
+   {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"rs_1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"Need \
+   a lookup.\"}\n\n\
+   event: response.output_item.added\n\
+   data: \
+   {\"type\":\"response.output_item.added\",\"output_index\":1,\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_lookup\",\"name\":\"lookup\",\"arguments\":\"\"}}\n\n\
+   event: response.function_call_arguments.delta\n\
+   data: \
+   {\"type\":\"response.function_call_arguments.delta\",\"output_index\":1,\"item_id\":\"fc_1\",\"delta\":\"{\\\"q\\\":\\\"weather\\\"}\"}\n\n\
+   event: response.completed\n\
+   data: \
+   {\"type\":\"response.completed\",\"response\":{\"id\":\"resp-stream-1\",\"model\":\"gpt-5.5\",\"status\":\"completed\",\"output\":[{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_lookup\",\"name\":\"lookup\",\"arguments\":\"{\\\"q\\\":\\\"weather\\\"}\"}],\"usage\":{\"input_tokens\":12,\"output_tokens\":8,\"input_tokens_details\":{\"cached_tokens\":2}}}}\n\n"
+;;
+
+let test_complete_stream_openai_responses_ok () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_responses_sse_server
+        ~sw
+        ~net:env#net
+        (openai_responses_sse_tool_call_response ())
+    in
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.OpenAI_compat
+        ~model_id:"gpt-5.5"
+        ~base_url:url
+        ~request_path:"/v1/responses"
+        ~temperature:0.0
+        ~max_tokens:100
+        ()
+    in
+    let events = ref [] in
+    match
+      Complete.complete_stream
+        ~sw
+        ~net:env#net
+        ~config
+        ~messages
+        ~on_event:(fun evt -> events := evt :: !events)
+        ()
+    with
+    | Ok resp ->
+      check string "stream id" "resp-stream-1" resp.id;
+      check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
+      check bool "events emitted" true (List.length !events >= 5);
+      (match resp.content with
+       | [ Types.Thinking { content; _ }; Types.ToolUse { id; name; input } ] ->
+         check string "reasoning" "Need a lookup." content;
+         check string "tool id" "call_lookup" id;
+         check string "tool name" "lookup" name;
+         check
+           string
+           "tool arg"
+           "weather"
+           (Yojson.Safe.Util.member "q" input |> Yojson.Safe.Util.to_string)
+       | _ -> fail "expected reasoning + tool use");
+      (match resp.usage with
+       | Some usage ->
+         check int "input tokens" 12 usage.input_tokens;
+         check int "output tokens" 8 usage.output_tokens;
+         check int "cached tokens" 2 usage.cache_read_input_tokens
+       | None -> fail "expected usage");
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok for Responses streaming"
   with
   | Exit -> ()
 ;;
@@ -1244,6 +1461,18 @@ let () =
             `Quick
             test_complete_http_empty_error_body_has_context
         ; test_case "openai ok" `Quick test_complete_provider_d_ok
+        ; test_case
+            "openai responses sync ok"
+            `Quick
+            test_complete_openai_responses_sync_ok
+        ; test_case
+            "openai responses json mode body"
+            `Quick
+            test_complete_openai_responses_json_mode_body
+        ; test_case
+            "openai responses stream ok"
+            `Quick
+            test_complete_stream_openai_responses_ok
         ; test_case
             "openai mlx-vlm telemetry"
             `Quick
