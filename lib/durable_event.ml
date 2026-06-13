@@ -70,18 +70,28 @@ type journal =
   ; on_append : (event -> unit) option
     (** Optional fan-out callback invoked after every append.
         Used to project journal events onto Event_bus or other sinks. *)
+  ; mutex : Eio.Mutex.t
+    (** Guards all reads/writes of [entries] and [size]. The journal may be
+        appended to from parallel tool-execution fibers (e.g. [Parallel_batch]),
+        so every access must be serialized. *)
   }
 
-let create ?on_append () = { entries = []; size = 0; on_append }
+let create ?on_append () =
+  { entries = []; size = 0; on_append; mutex = Eio.Mutex.create () }
+;;
 
 let append journal event =
+  Eio.Mutex.use_rw ~protect:true journal.mutex @@ fun () ->
   journal.entries <- event :: journal.entries;
   journal.size <- journal.size + 1;
   Option.iter (fun f -> f event) journal.on_append
 ;;
 
-let events journal = List.rev journal.entries
-let length journal = journal.size
+let events journal =
+  Eio.Mutex.use_ro journal.mutex @@ fun () -> List.rev journal.entries
+;;
+
+let length journal = Eio.Mutex.use_ro journal.mutex @@ fun () -> journal.size
 
 (* ── Idempotency ──────────────────────────────────── *)
 
@@ -103,6 +113,7 @@ let make_idempotency_key ~tool_name ~input =
 ;;
 
 let find_completed_activity journal key =
+  Eio.Mutex.use_ro journal.mutex @@ fun () ->
   List.find_map
     (fun event ->
        match event with
@@ -126,6 +137,7 @@ type replay_summary =
 (* Fold over entries directly (reverse chronological) — avoids List.rev allocation *)
 let replay_summary journal =
   let acc =
+    Eio.Mutex.use_ro journal.mutex @@ fun () ->
     List.fold_left
       (fun (lt, ct, ls, it, ot, ec) event ->
          match event with
@@ -175,6 +187,7 @@ let events_for_turn journal turn =
 ;;
 
 let last_timestamp journal =
+  Eio.Mutex.use_ro journal.mutex @@ fun () ->
   match journal.entries with
   | [] -> None
   | first :: _ ->
@@ -354,7 +367,7 @@ let journal_of_json json =
     let items = to_list json in
     (* acc accumulates in reverse — matches journal.entries internal format *)
     let rec parse acc count = function
-      | [] -> Ok { entries = acc; size = count; on_append = None }
+      | [] -> Ok { entries = acc; size = count; on_append = None; mutex = Eio.Mutex.create () }
       | item :: rest ->
         (match event_of_json item with
          | Ok evt -> parse (evt :: acc) (count + 1) rest
@@ -385,7 +398,7 @@ let save_to_file journal path =
 
 let load_from_file path =
   if not (Sys.file_exists path)
-  then Ok { entries = []; size = 0; on_append = None }
+  then Ok { entries = []; size = 0; on_append = None; mutex = Eio.Mutex.create () }
   else (
     try
       let ic = open_in path in
@@ -410,7 +423,7 @@ let load_from_file path =
                     | Ok evt -> read_lines (evt :: acc) (count + 1) (line_no + 1)
                     | Error e -> Error (Printf.sprintf "line %d: %s" line_no e)))
              | exception End_of_file ->
-               Ok { entries = acc; size = count; on_append = None }
+               Ok { entries = acc; size = count; on_append = None; mutex = Eio.Mutex.create () }
            in
            read_lines [] 0 1)
     with
