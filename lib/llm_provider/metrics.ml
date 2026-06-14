@@ -246,6 +246,9 @@ let empty_state () : aggregate_state =
 
 (** Thread-safe aggregating metrics backend.
     Accumulates per-provider counters in a hash table guarded by a Mutex.
+    The critical sections are pure counter/Hashtbl updates with no I/O or
+    scheduler yield points, so a Stdlib mutex keeps the public snapshot/export
+    API usable from both Eio fibers and ordinary OCaml threads.
     Call {!Aggregating.snapshot} to read all counters as an immutable list.
 
     @since 0.188.0 *)
@@ -255,17 +258,22 @@ module Aggregating = struct
   type t =
     { hooks : hooks
     ; states : (aggregate_key, aggregate_state) Hashtbl.t
-    ; mutex : Eio.Mutex.t
+    ; mutex : Mutex.t
     }
 
   let key ~provider ~model_id = provider ^ "/" ^ model_id
 
   let create ?(inner = noop) () : t =
-    { hooks = inner; states = Hashtbl.create 16; mutex = Eio.Mutex.create () }
+    { hooks = inner; states = Hashtbl.create 16; mutex = Mutex.create () }
+  ;;
+
+  let with_lock agg f =
+    Mutex.lock agg.mutex;
+    Fun.protect ~finally:(fun () -> Mutex.unlock agg.mutex) f
   ;;
 
   let with_state agg key f =
-    Eio.Mutex.use_rw ~protect:true agg.mutex (fun () ->
+    with_lock agg (fun () ->
       let state =
         match Hashtbl.find_opt agg.states key with
         | Some s -> s
@@ -341,7 +349,7 @@ module Aggregating = struct
   ;;
 
   let snapshot (agg : t) : provider_snapshot list =
-    Eio.Mutex.use_rw ~protect:true agg.mutex (fun () ->
+    with_lock agg (fun () ->
       Hashtbl.fold
         (fun (k : aggregate_key) (s : aggregate_state) acc ->
            let provider, model_id =
@@ -376,7 +384,5 @@ module Aggregating = struct
     write_file_atomic path payload
   ;;
 
-  let reset (agg : t) =
-    Eio.Mutex.use_rw ~protect:true agg.mutex (fun () -> Hashtbl.reset agg.states)
-  ;;
+  let reset (agg : t) = with_lock agg (fun () -> Hashtbl.reset agg.states)
 end
