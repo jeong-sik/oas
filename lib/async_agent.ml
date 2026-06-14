@@ -22,7 +22,7 @@ type 'a future =
   { promise : ('a, Error.sdk_error) Result.t Eio.Promise.t
   ; resolver : ('a, Error.sdk_error) Result.t Eio.Promise.u
   ; resolved : bool Atomic.t
-  ; mutable cancel_fn : (unit -> unit) option
+  ; cancel_fn : (unit -> unit) option Atomic.t
   }
 
 (** Resolve the future exactly once. Subsequent calls are no-ops. *)
@@ -53,7 +53,7 @@ let run_agent_result ~sw ?clock agent prompt =
 let spawn ~sw ?clock agent prompt =
   let promise, resolver = Eio.Promise.create () in
   let resolved = Atomic.make false in
-  let future = { promise; resolver; resolved; cancel_fn = None } in
+  let future = { promise; resolver; resolved; cancel_fn = Atomic.make None } in
   Eio.Fiber.fork ~sw (fun () ->
     try
       (* Run agent inside a sub-switch so cancel can terminate the fiber.
@@ -62,8 +62,12 @@ let spawn ~sw ?clock agent prompt =
       let result =
         try
           Eio.Switch.run (fun sub_sw ->
-            future.cancel_fn <- Some (fun () -> Eio.Switch.fail sub_sw Cancelled);
-            Agent.run ~sw:sub_sw ?clock agent prompt)
+            Atomic.set
+              future.cancel_fn
+              (Some (fun () -> Eio.Switch.fail sub_sw Cancelled));
+            Fun.protect
+              (fun () -> Agent.run ~sw:sub_sw ?clock agent prompt)
+              ~finally:(fun () -> Atomic.set future.cancel_fn None))
         with
         | Cancelled -> Error (Error.Internal "cancelled")
         | Eio.Cancel.Cancelled _ as e -> raise e
@@ -94,7 +98,7 @@ let cancel future =
      cancel_fn fails the sub-switch, which causes the fiber to exit
      with Cancelled.  The fiber's own handler calls resolve_once,
      but we call it again as a fallback (idempotent). *)
-  (match future.cancel_fn with
+  (match Atomic.exchange future.cancel_fn None with
    | Some f ->
      (try f () with
       | Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
