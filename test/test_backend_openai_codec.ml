@@ -972,8 +972,7 @@ let responses_incomplete_with_function_call_json () =
               ; "arguments", `String {|{"city":"Par|}
               ]
           ] )
-    ; ( "usage"
-      , `Assoc [ "input_tokens", `Int 12; "output_tokens", `Int 256 ] )
+    ; "usage", `Assoc [ "input_tokens", `Int 12; "output_tokens", `Int 256 ]
     ]
 ;;
 
