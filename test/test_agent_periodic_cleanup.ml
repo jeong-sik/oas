@@ -253,6 +253,52 @@ let test_on_run_complete_cancelled_finishes_raw_trace () =
        records)
 ;;
 
+(* Contract (agent_types.mli): on_run_complete runs *before* the terminal
+   lifecycle transition, so a completion hook observes the pre-terminal run
+   state rather than Completed/Failed. (Codex P2 on #2057.) *)
+let test_on_run_complete_observes_pre_terminal_lifecycle () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let transport = make_transport ~clock ~sleep_s:0.0 () in
+  let agent_ref = ref None in
+  let observed = ref None in
+  let agent =
+    make_agent
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~on_run_complete:(fun _ ->
+        match !agent_ref with
+        | Some a ->
+          observed
+          := Option.map
+               (fun (s : Agent.lifecycle_snapshot) -> s.status)
+               (Agent.lifecycle a)
+        | None -> ())
+      ()
+  in
+  agent_ref := Some agent;
+  (match Agent.run ~sw ~clock agent "finish" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected success: " ^ Error.to_string err));
+  (match !observed with
+   | Some status ->
+     Alcotest.(check bool)
+       "on_run_complete observed pre-terminal lifecycle"
+       false
+       (Agent_lifecycle.is_terminal status)
+   | None -> Alcotest.fail "on_run_complete did not observe a lifecycle snapshot");
+  match Agent.lifecycle agent with
+  | Some snap ->
+    Alcotest.(check bool)
+      "agent ends Completed after the callback"
+      true
+      (snap.status = Agent.Completed)
+  | None -> Alcotest.fail "expected terminal lifecycle after run"
+;;
+
 let test_periodic_callback_failure_is_structured_log () =
   with_log_capture
   @@ fun get_records ->
@@ -312,6 +358,10 @@ let () =
             "on_run_complete Cancelled still finishes raw trace"
             `Quick
             test_on_run_complete_cancelled_finishes_raw_trace
+        ; Alcotest.test_case
+            "on_run_complete observes pre-terminal lifecycle (#2057)"
+            `Quick
+            test_on_run_complete_observes_pre_terminal_lifecycle
         ; Alcotest.test_case
             "periodic callback failure uses structured log"
             `Quick
