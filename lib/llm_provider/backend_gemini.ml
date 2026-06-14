@@ -17,19 +17,29 @@ exception Gemini_api_error of string
    [tool_choice.disable_parallel_tool_use]. A caller's [disable_parallel_tool_use]
    therefore cannot be honored on the wire and is dropped; we surface that
    asymmetry once per model rather than ignoring it silently. Verified 2026-06-03
-   against ai.google.dev/gemini-api/docs/function-calling. *)
-let parallel_disable_warned : (string, unit) Hashtbl.t = Hashtbl.create 8
+   against ai.google.dev/gemini-api/docs/function-calling.
+   Stored as an atomic list so the check works with or without an Eio scheduler. *)
+let parallel_disable_warned : string list Atomic.t = Atomic.make []
 
 let warn_parallel_disable_unsupported ~model_id =
-  if not (Hashtbl.mem parallel_disable_warned model_id)
+  let warned = Atomic.get parallel_disable_warned in
+  if not (List.mem model_id warned)
   then (
-    Hashtbl.replace parallel_disable_warned model_id ();
-    Diag.warn
-      "backend_gemini"
-      "disable_parallel_tool_use requested for model %s but the Gemini API has no \
-       parallel-disable option (functionCallingConfig supports only mode and \
-       allowedFunctionNames); ignoring."
-      model_id)
+    let rec mark () =
+      let old = Atomic.get parallel_disable_warned in
+      if List.mem model_id old
+      then ()
+      else if Atomic.compare_and_set parallel_disable_warned old (model_id :: old)
+      then
+        Diag.warn
+          "backend_gemini"
+          "disable_parallel_tool_use requested for model %s but the Gemini API has no \
+           parallel-disable option (functionCallingConfig supports only mode and \
+           allowedFunctionNames); ignoring."
+          model_id
+      else mark ()
+    in
+    mark ())
 ;;
 
 let provider_f_role_of_oas = function
