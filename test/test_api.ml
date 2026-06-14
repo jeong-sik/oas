@@ -449,6 +449,142 @@ let test_build_openai_body_with_qwen_preserve_thinking () =
   check bool "preserve_thinking true" true (ctk |> member "preserve_thinking" |> to_bool)
 ;;
 
+let test_build_openai_body_qwen_preserve_replays_reasoning () =
+  let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
+  let state =
+    { state with config = { state.config with model = "qwen36-35b-a3b-mtp" } }
+  in
+  let messages =
+    [ { Types.role = Types.Assistant
+      ; content =
+          [ Types.Thinking { thinking_type = "reasoning"; content = "keep this" }
+          ; Types.Text "answer"
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 1 in
+  check
+    string
+    "reasoning_content replayed"
+    "keep this"
+    (assistant |> member "reasoning_content" |> to_string)
+;;
+
+let deepseek_provider_config : Provider.config =
+  { Provider.provider =
+      Provider.OpenAICompat
+        { base_url = "https://api.deepseek.com"
+        ; auth_header = None
+        ; path = "/v1/chat/completions"
+        ; static_token = None
+        }
+  ; model_id = "deepseek-v4-pro"
+  ; api_key_env = ""
+  }
+;;
+
+let test_build_openai_body_deepseek_uses_dialect_controls () =
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = deepseek_provider_config.model_id
+        ; enable_thinking = Some true
+        ; thinking_budget = Some 2048
+        ; temperature = Some 0.7
+        ; top_p = Some 0.9
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body
+      ~provider_config:deepseek_provider_config
+      ~config:state
+      ~messages:[]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check
+    string
+    "thinking enabled"
+    "enabled"
+    (json |> member "thinking" |> member "type" |> to_string);
+  check string "low maps high" "high" (json |> member "reasoning_effort" |> to_string);
+  check bool "temperature omitted" true (json |> member "temperature" = `Null);
+  check bool "top_p omitted" true (json |> member "top_p" = `Null)
+;;
+
+let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
+  let assistant_content tool =
+    if tool
+    then
+      [ Types.Thinking { thinking_type = "reasoning"; content = "call the tool" }
+      ; Types.ToolUse
+          { id = "call_1"; name = "calculator"; input = `Assoc [ "expr", `String "2+2" ] }
+      ]
+    else
+      [ Types.Thinking { thinking_type = "reasoning"; content = "plain thought" }
+      ; Types.Text "answer"
+      ]
+  in
+  let assistant_msg tool =
+    { Types.role = Types.Assistant
+    ; content = assistant_content tool
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  let state =
+    { Types.config =
+        { Types.default_config with model = deepseek_provider_config.model_id }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let plain =
+    Api.build_openai_body
+      ~provider_config:deepseek_provider_config
+      ~config:state
+      ~messages:[ assistant_msg false ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let tool =
+    Api.build_openai_body
+      ~provider_config:deepseek_provider_config
+      ~config:state
+      ~messages:[ assistant_msg true ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let plain_assistant = plain |> member "messages" |> index 0 in
+  let tool_assistant = tool |> member "messages" |> index 0 in
+  check
+    bool
+    "plain reasoning omitted"
+    true
+    (plain_assistant |> member "reasoning_content" = `Null);
+  check
+    string
+    "tool reasoning_content"
+    "call the tool"
+    (tool_assistant |> member "reasoning_content" |> to_string)
+;;
+
 let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
   let provider_config =
     Provider.openrouter ~model_id:"anthropic/agent_llm_a-sonnet-4-6" ()
@@ -1563,6 +1699,18 @@ let () =
             "qwen preserve thinking"
             `Quick
             test_build_openai_body_with_qwen_preserve_thinking
+        ; test_case
+            "qwen preserve replays reasoning"
+            `Quick
+            test_build_openai_body_qwen_preserve_replays_reasoning
+        ; test_case
+            "deepseek dialect controls"
+            `Quick
+            test_build_openai_body_deepseek_uses_dialect_controls
+        ; test_case
+            "deepseek tool reasoning replay"
+            `Quick
+            test_build_openai_body_deepseek_replays_tool_reasoning_only
         ; test_case
             "generic compat omits dashscope-only fields"
             `Quick
