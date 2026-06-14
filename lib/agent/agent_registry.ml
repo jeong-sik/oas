@@ -25,58 +25,73 @@ type agent_entry =
       }
 
 type t =
-  { agents : (string, agent_entry) Hashtbl.t
+  { mu : Mutex.t
+  ; agents : (string, agent_entry) Hashtbl.t
   ; log : Log.t
   }
 
 (* ── Constructor ─────────────────────────────────────────── *)
 
 let create () =
-  { agents = Hashtbl.create 16; log = Log.create ~module_name:"agent_registry" () }
+  { mu = Mutex.create ()
+  ; agents = Hashtbl.create 16
+  ; log = Log.create ~module_name:"agent_registry" ()
+  }
+;;
+
+let with_lock t f =
+  Mutex.lock t.mu;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
 ;;
 
 (* ── Registration ────────────────────────────────────────── *)
 
 let register_local t ~name agent =
   let card = Agent.card agent in
-  Hashtbl.replace t.agents name (Local { agent; card });
+  with_lock t (fun () -> Hashtbl.replace t.agents name (Local { agent; card }));
   Log.info t.log "registered local agent" [ Log.S ("name", name) ]
 ;;
 
 let register_remote t ~name ~url card =
-  Hashtbl.replace t.agents name (Remote { url; card });
+  with_lock t (fun () -> Hashtbl.replace t.agents name (Remote { url; card }));
   Log.info t.log "registered remote agent" [ Log.S ("name", name); Log.S ("url", url) ]
 ;;
 
 (* ── Lookup ──────────────────────────────────────────────── *)
 
-let lookup t name = Hashtbl.find_opt t.agents name
-let list_all t = Hashtbl.fold (fun name entry acc -> (name, entry) :: acc) t.agents []
+let lookup t name = with_lock t (fun () -> Hashtbl.find_opt t.agents name)
+
+let list_all t =
+  with_lock t (fun () ->
+    Hashtbl.fold (fun name entry acc -> (name, entry) :: acc) t.agents [])
+;;
 
 let list_by_capability t (cap : Agent_card.capability) =
-  Hashtbl.fold
-    (fun name entry acc ->
-       let card =
-         match entry with
-         | Local { card; _ } -> card
-         | Remote { card; _ } -> card
-       in
-       if Agent_card.has_capability card cap then (name, entry) :: acc else acc)
-    t.agents
-    []
+  with_lock t (fun () ->
+    Hashtbl.fold
+      (fun name entry acc ->
+         let card =
+           match entry with
+           | Local { card; _ } -> card
+           | Remote { card; _ } -> card
+         in
+         if Agent_card.has_capability card cap then (name, entry) :: acc else acc)
+      t.agents
+      [])
 ;;
 
 let list_by_tool t tool_name =
-  Hashtbl.fold
-    (fun name entry acc ->
-       let card =
-         match entry with
-         | Local { card; _ } -> card
-         | Remote { card; _ } -> card
-       in
-       if Agent_card.can_handle_tool card tool_name then (name, entry) :: acc else acc)
-    t.agents
-    []
+  with_lock t (fun () ->
+    Hashtbl.fold
+      (fun name entry acc ->
+         let card =
+           match entry with
+           | Local { card; _ } -> card
+           | Remote { card; _ } -> card
+         in
+         if Agent_card.can_handle_tool card tool_name then (name, entry) :: acc else acc)
+      t.agents
+      [])
 ;;
 
 (* ── Remote discovery ────────────────────────────────────── *)
@@ -115,14 +130,15 @@ let fetch_remote_card ~sw ~net url =
 (** Discover a remote agent by fetching its card and registering it. *)
 let discover_and_register ~sw ~net t ~name ~url =
   let* card = fetch_remote_card ~sw ~net url in
-  register_remote t ~name ~url card;
+  with_lock t (fun () -> Hashtbl.replace t.agents name (Remote { url; card }));
+  Log.info t.log "registered remote agent" [ Log.S ("name", name); Log.S ("url", url) ];
   Ok ()
 ;;
 
 (* ── Unregister ──────────────────────────────────────────── *)
 
-let unregister t name = Hashtbl.remove t.agents name
-let count t = Hashtbl.length t.agents
+let unregister t name = with_lock t (fun () -> Hashtbl.remove t.agents name)
+let count t = with_lock t (fun () -> Hashtbl.length t.agents)
 
 (* ── Card accessor ───────────────────────────────────────── *)
 
