@@ -203,7 +203,8 @@ let default_reasoning_effort () =
   | Some v ->
     Diag.warn
       "provider_config"
-      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected minimal/low/medium/high/xhigh), using medium"
+      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected minimal/low/medium/high/xhigh), \
+       using medium"
       v;
     "medium"
   | None -> "medium"

@@ -43,8 +43,7 @@ let warn_parallel_disable_unsupported ~model_id =
 ;;
 
 let thinking_level_of_budget ~supports_minimal = function
-  | Some n when n <= 0 ->
-    if supports_minimal then "minimal" else "low"
+  | Some n when n <= 0 -> if supports_minimal then "minimal" else "low"
   | Some n when n <= 2_048 -> "low"
   | Some n when n <= 8_192 -> "medium"
   | Some _ | None -> "high"
@@ -60,9 +59,7 @@ let thinking_config_of_config (config : Provider_config.t) =
        Some (`Assoc [ "thinkingLevel", `String level ])
      | Some true ->
        let level = thinking_level_of_budget ~supports_minimal config.thinking_budget in
-       Some
-         (`Assoc
-             [ "thinkingLevel", `String level; "includeThoughts", `Bool true ])
+       Some (`Assoc [ "thinkingLevel", `String level; "includeThoughts", `Bool true ])
      | None -> None)
   | Capabilities.Gemini_thinking_budget | Capabilities.Gemini_unknown_thinking_control ->
     (match config.enable_thinking with
@@ -73,9 +70,7 @@ let thinking_config_of_config (config : Provider_config.t) =
          | Some b -> b
          | None -> Constants.Thinking.provider_f_budget ()
        in
-       Some
-         (`Assoc
-             [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ])
+       Some (`Assoc [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ])
      | None -> None)
 ;;
 

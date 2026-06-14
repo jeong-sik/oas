@@ -82,7 +82,10 @@ let test_provider_a_with_thinking () =
     "thinking type"
     "adaptive"
     (thinking |> member "type" |> to_string);
-  Alcotest.(check bool) "budget_tokens omitted" true (thinking |> member "budget_tokens" = `Null);
+  Alcotest.(check bool)
+    "budget_tokens omitted"
+    true
+    (thinking |> member "budget_tokens" = `Null);
   Alcotest.(check string)
     "effort"
     "medium"
