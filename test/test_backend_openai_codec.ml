@@ -986,7 +986,18 @@ let test_responses_incomplete_status_wins_over_function_call () =
     check_bool
       "incomplete max_output_tokens maps to MaxTokens, not StopToolUse"
       true
-      (response.stop_reason = MaxTokens)
+      (response.stop_reason = MaxTokens);
+    (* The partial function_call must be dropped from content so the pipeline
+       does not append a dangling ToolUse (which a later turn would repair with a
+       synthetic error ToolResult). Codex P2 follow-up on #2073. *)
+    check_bool
+      "partial function_call suppressed from incomplete response content"
+      false
+      (List.exists
+         (function
+           | ToolUse _ -> true
+           | _ -> false)
+         response.content)
 ;;
 
 let test_responses_preserves_encrypted_reasoning_item_for_replay () =
