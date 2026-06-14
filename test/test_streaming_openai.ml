@@ -801,6 +801,46 @@ let test_responses_stream_incomplete_drops_partial_tool () =
          response.content)
 ;;
 
+(* Companion to the max_output_tokens case: a [response.incomplete] for a
+   non-token reason (content_filter) maps to [Unknown _], not [MaxTokens], yet the
+   partial tool call must still be dropped. This proves the StreamIncomplete
+   carry covers ALL incomplete reasons, not just MaxTokens. (#2073 follow-up.) *)
+let test_responses_stream_incomplete_content_filter_drops_tool () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
+  in
+  let acc = Acc.create_stream_acc () in
+  let feed evt_type data =
+    let events, _ = S.responses_sse_to_events state (Some evt_type) data in
+    List.iter (Acc.accumulate_event acc) events
+  in
+  feed
+    "response.output_item.added"
+    {|{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":""}}|};
+  feed
+    "response.function_call_arguments.delta"
+    {|{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"city\":\"Paris\"}"}|};
+  feed
+    "response.incomplete"
+    {|{"type":"response.incomplete","response":{"id":"resp_1","model":"gpt-5.5","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}],"usage":{"input_tokens":12,"output_tokens":8}}}|};
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected Ok response for incomplete terminal"
+  | Ok response ->
+    Alcotest.(check bool)
+      "content_filter incomplete -> Unknown, not MaxTokens"
+      true
+      (response.stop_reason = Unknown "content_filter");
+    Alcotest.(check bool)
+      "partial function_call dropped for non-token incomplete reason"
+      false
+      (List.exists
+         (function
+           | ToolUse _ -> true
+           | _ -> false)
+         response.content)
+;;
+
 let () =
   let open Alcotest in
   run
@@ -858,6 +898,10 @@ let () =
             "incomplete drops partial tool (#2073)"
             `Quick
             test_responses_stream_incomplete_drops_partial_tool
+        ; test_case
+            "incomplete content_filter drops tool (#2073)"
+            `Quick
+            test_responses_stream_incomplete_content_filter_drops_tool
         ] )
     ]
 ;;

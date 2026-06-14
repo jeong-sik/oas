@@ -15,6 +15,7 @@ type stream_acc =
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; stop_reason_received : bool ref
+  ; terminal_incomplete : bool ref
   ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
@@ -32,6 +33,7 @@ let create_stream_acc () =
   ; cache_read = ref 0
   ; stop_reason = ref Types.EndTurn
   ; stop_reason_received = ref false
+  ; terminal_incomplete = ref false
   ; sse_error = ref None
   ; block_texts = Hashtbl.create 4
   ; block_types = Hashtbl.create 4
@@ -109,6 +111,7 @@ let accumulate_event (acc : stream_acc) = function
     acc.sse_error := Some (Types.Stream_parse_failed { reason; raw })
   | Types.SSEUnknownEventType { event_type; raw } ->
     acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
+  | Types.StreamIncomplete _ -> acc.terminal_incomplete := true
   | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
 
@@ -149,20 +152,26 @@ let finalize_stream_acc (acc : stream_acc) =
              (match Hashtbl.find_opt acc.block_tool_ids idx with
               | Some data when data <> "" -> Some (Types.RedactedThinking data)
               | Some _ | None -> None)
-           | Some "tool_use" when !(acc.stop_reason) = Types.MaxTokens ->
+           | Some "tool_use"
+             when !(acc.terminal_incomplete) || !(acc.stop_reason) = Types.MaxTokens ->
              (* A tool call only belongs to a turn the model finished at a tool
-                boundary. When the turn was truncated (stop_reason = MaxTokens —
-                e.g. an OpenAI Responses [response.incomplete] with reason
-                max_output_tokens), the accumulated tool block is partial: its
-                argument buffer may be empty (cut off before the first delta) or
-                even parse as JSON yet be incomplete. Drop it so the pipeline does
-                not store a dangling assistant ToolUse that a later turn repairs
-                with a synthetic error ToolResult. Status-aware, mirroring the
+                boundary. When the turn was cut off, the accumulated tool block is
+                partial: its argument buffer may be empty (cut off before the first
+                delta) or even parse as JSON yet be incomplete. Drop it so the
+                pipeline does not store a dangling assistant ToolUse that a later
+                turn repairs with a synthetic error ToolResult. Mirrors the
                 non-streaming parser Backend_openai_responses.parse_response_result,
                 which drops ToolUse for incomplete/failed Responses statuses.
+                Two cut-off signals:
+                - [terminal_incomplete]: an OpenAI Responses [response.incomplete]
+                  for ANY reason (max_output_tokens, content_filter, ...), carried
+                  via the [StreamIncomplete] event.
+                - [stop_reason = MaxTokens]: a token-limit truncation from any
+                  provider (e.g. Anthropic/OpenAI streaming) that does not emit a
+                  Responses incomplete terminal.
                 (#2073 streaming follow-up.) [response.failed]/[error] terminals
-                set [sse_error] instead, so finalize returns [Error] before
-                content assembly and never reaches this branch. *)
+                set [sse_error] instead, so finalize returns [Error] before content
+                assembly and never reaches this branch. *)
              None
            | Some "tool_use" ->
              let id =
@@ -632,6 +641,27 @@ let%test "finalize_stream_acc drops tool_use on truncated turn (MaxTokens)" =
   Buffer.add_string buf "{\"city\":\"Paris\"}";
   Hashtbl.replace acc.block_texts 0 buf;
   acc.stop_reason := Types.MaxTokens;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error _ -> false
+  | Ok result -> result.content = []
+;;
+
+let%test "finalize_stream_acc drops tool_use on incomplete non-token reason" =
+  (* A Responses [response.incomplete] for a non-max_output_tokens reason (e.g.
+     content_filter) carries [terminal_incomplete] via StreamIncomplete; the tool
+     block must drop even though stop_reason is not MaxTokens. #2073. *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"city\":\"Paris\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.Unknown "content_filter";
+  acc.terminal_incomplete := true;
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc

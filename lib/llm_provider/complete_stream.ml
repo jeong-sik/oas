@@ -385,6 +385,7 @@ let complete_stream_http
           `Wire_error
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error
+        | Types.StreamIncomplete _ -> `Skip
       in
       let percentiles () =
         match !inter_chunk_samples with

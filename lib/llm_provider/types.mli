@@ -288,6 +288,14 @@ type sse_event =
             type the OAS adapter has not yet learned. Emit explicitly so
             the consumer can decide (log + skip vs fail-fast) instead of
             silent data loss. *)
+  | StreamIncomplete of { reason : string }
+  (** The provider signalled the turn was cut off before a natural stop (an
+      OpenAI Responses [response.incomplete]). Any in-progress tool call is
+      partial, so the accumulator drops tool blocks at finalize rather than
+      surfacing a dangling/executable ToolUse. [reason] is the provider's
+      incomplete reason (e.g. ["max_output_tokens"], ["content_filter"]). This
+      covers incomplete reasons beyond [max_output_tokens], which the
+      [stop_reason = MaxTokens] check alone misses. *)
 
 (** Terminal error captured while accumulating an SSE stream. The accumulator
     stores this typed value (not a flattened string) so a provider-reported
