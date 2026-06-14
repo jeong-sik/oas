@@ -68,16 +68,23 @@ let effort_of_budget = function
 ;;
 
 let effort_for_config mode (config : Provider_config.t) =
-  match mode, config.thinking_budget with
-  | ( ( Capabilities.Anthropic_adaptive_only
-      | Capabilities.Anthropic_adaptive_preferred
-      | Capabilities.Anthropic_always_adaptive )
-    , Some budget ) -> Some (effort_of_budget budget)
-  | Capabilities.Anthropic_manual_budget, _
-  | ( ( Capabilities.Anthropic_adaptive_only
-      | Capabilities.Anthropic_adaptive_preferred
-      | Capabilities.Anthropic_always_adaptive )
-    , None ) -> None
+  (* Gate adaptive effort on thinking being enabled, mirroring
+     [thinking_config_for_config]. Otherwise a turn hook that disables thinking
+     ([enable_thinking = Some false]) while a [thinking_budget] is still set would
+     emit [output_config: {effort}] with no accompanying [thinking] block. *)
+  match config.enable_thinking with
+  | Some false | None -> None
+  | Some true ->
+    (match mode, config.thinking_budget with
+     | ( ( Capabilities.Anthropic_adaptive_only
+         | Capabilities.Anthropic_adaptive_preferred
+         | Capabilities.Anthropic_always_adaptive )
+       , Some budget ) -> Some (effort_of_budget budget)
+     | Capabilities.Anthropic_manual_budget, _
+     | ( ( Capabilities.Anthropic_adaptive_only
+         | Capabilities.Anthropic_adaptive_preferred
+         | Capabilities.Anthropic_always_adaptive )
+       , None ) -> None)
 ;;
 
 let thinking_config_for_config mode (config : Provider_config.t) =
