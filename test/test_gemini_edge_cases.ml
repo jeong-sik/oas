@@ -120,14 +120,14 @@ let test_sse_function_call () =
         events
     in
     check "InputJsonDelta emitted" has_input_delta;
-    let has_end =
+    let has_stop_tool_use =
       List.exists
         (function
-          | Types.MessageDelta { stop_reason = Some Types.EndTurn; _ } -> true
+          | Types.MessageDelta { stop_reason = Some Types.StopToolUse; _ } -> true
           | _ -> false)
         events
     in
-    check "EndTurn MessageDelta emitted" has_end
+    check "StopToolUse MessageDelta emitted" has_stop_tool_use
   | None -> check "parsed chunk" false
 ;;
 
