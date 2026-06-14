@@ -112,7 +112,7 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
         (* Idle check: deny if agent has been idle *)
         if
           (Agent_types.options agent).max_idle_turns > 0
-          && agent.consecutive_idle_turns >= max_idle_before_extend
+          && Agent_types.get_consecutive_idle_turns agent >= max_idle_before_extend
         then Error Agent_idle
         else Ok ()
     in
@@ -143,10 +143,15 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
          (* Apply to agent state *)
          (match !agent_ref with
           | Some agent ->
-            let state = Agent_types.state agent in
-            Agent_types.set_state
-              agent
-              { state with config = { state.config with max_turns = result.new_max } }
+            (* Keep max_turns monotonic even when concurrent handlers win the CAS
+               in an order that makes their per-snapshot [new_max] stale. *)
+            Agent_types.update_state agent (fun state ->
+              { state with
+                config =
+                  { state.config with
+                    max_turns = max state.config.max_turns (current_max budget)
+                  }
+              })
           | None -> ());
          let msg =
            Printf.sprintf
@@ -184,13 +189,20 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
 ;;
 
 let stats_json t =
+  (* Snapshot history once so all derived metrics describe the same state. *)
+  let history = Atomic.get t.history in
+  let total_extended =
+    List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 history
+  in
+  let current_max = min (t.initial + total_extended) t.ceiling in
+  let extensions_count = List.length history in
   `Assoc
     [ "initial", `Int t.initial
-    ; "current_max", `Int (current_max t)
+    ; "current_max", `Int current_max
     ; "ceiling", `Int t.ceiling
-    ; "extensions_count", `Int (extensions_count t)
+    ; "extensions_count", `Int extensions_count
     ; "max_extensions", `Int t.max_extensions
-    ; "total_extended", `Int (total_extended t)
+    ; "total_extended", `Int total_extended
     ; "max_per_extend", `Int t.max_per_extend
     ; ( "history"
       , `List
@@ -198,6 +210,6 @@ let stats_json t =
              (fun (ts, granted, reason) ->
                 `Assoc
                   [ "ts", `Float ts; "granted", `Int granted; "reason", `String reason ])
-             (Atomic.get t.history)) )
+             history) )
     ]
 ;;
