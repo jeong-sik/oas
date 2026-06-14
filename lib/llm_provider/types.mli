@@ -327,7 +327,31 @@ val make_message
   -> content_block list
   -> message
 
+val text_block : string -> content_block
+
+val image_block
+  :  ?source_type:string
+  -> media_type:string
+  -> data:string
+  -> unit
+  -> content_block
+
+val document_block
+  :  ?source_type:string
+  -> media_type:string
+  -> data:string
+  -> unit
+  -> content_block
+
+val audio_block
+  :  ?source_type:string
+  -> media_type:string
+  -> data:string
+  -> unit
+  -> content_block
+
 val text_message : role -> string -> message
+val user_msg_blocks : content_block list -> message
 val system_msg : string -> message
 val user_msg : string -> message
 val assistant_msg : string -> message

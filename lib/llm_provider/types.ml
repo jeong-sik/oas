@@ -442,8 +442,29 @@ let make_message ?name ?tool_call_id ?(metadata = []) ~role content =
   { role; content; name; tool_call_id; metadata }
 ;;
 
+(** Create a text content block. *)
+let text_block text = Text text
+
+(** Create a base64-backed image content block by default. *)
+let image_block ?(source_type = "base64") ~media_type ~data () =
+  Image { media_type; data; source_type }
+;;
+
+(** Create a base64-backed document content block by default. *)
+let document_block ?(source_type = "base64") ~media_type ~data () =
+  Document { media_type; data; source_type }
+;;
+
+(** Create a base64-backed audio content block by default. *)
+let audio_block ?(source_type = "base64") ~media_type ~data () =
+  Audio { media_type; data; source_type }
+;;
+
 (** Create a text-only message. *)
 let text_message role text = make_message ~role [ Text text ]
+
+(** Create a user message from arbitrary content blocks. *)
+let user_msg_blocks blocks = make_message ~role:User blocks
 
 (** Create a system message. *)
 let system_msg text = text_message System text

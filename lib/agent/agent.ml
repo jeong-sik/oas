@@ -120,6 +120,71 @@ let base_messages agent =
   | msgs -> msgs
 ;;
 
+let sanitize_user_input_blocks =
+  List.map (function
+    | Text s -> Text (Llm_provider.Utf8_sanitize.sanitize s)
+    | block -> block)
+;;
+
+let trace_prompt_of_blocks blocks =
+  let parts =
+    blocks
+    |> List.filter_map (function
+      | Text s -> Some (Llm_provider.Utf8_sanitize.sanitize s)
+      | Image { media_type; data; _ } ->
+        Some (Printf.sprintf "[image:%s data_chars=%d]" media_type (String.length data))
+      | Document { media_type; data; _ } ->
+        Some
+          (Printf.sprintf "[document:%s data_chars=%d]" media_type (String.length data))
+      | Audio { media_type; data; _ } ->
+        Some (Printf.sprintf "[audio:%s data_chars=%d]" media_type (String.length data))
+      | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
+  in
+  match String.concat "\n" parts with
+  | "" -> "[multimodal input]"
+  | text -> text
+;;
+
+let validate_user_input_blocks blocks =
+  let unsupported =
+    List.find_map
+      (function
+        | Text _ | Image _ | Document _ | Audio _ -> None
+        | Thinking _ -> Some "Thinking"
+        | RedactedThinking _ -> Some "RedactedThinking"
+        | ToolUse _ -> Some "ToolUse"
+        | ToolResult _ -> Some "ToolResult")
+      blocks
+  in
+  match unsupported with
+  | None -> Ok ()
+  | Some kind ->
+    Error
+      (Error.Config
+         (Error.InvalidConfig
+            { field = "user_blocks"
+            ; detail =
+                Printf.sprintf
+                  "user input blocks may contain only Text, Image, Document, or Audio; \
+                   got %s"
+                  kind
+            }))
+;;
+
+let append_user_input agent user_blocks =
+  let user_msg =
+    { role = User
+    ; content = sanitize_user_input_blocks user_blocks
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  update_state agent (fun s ->
+    { s with messages = Util.snoc (base_messages agent) user_msg });
+  user_msg.content
+;;
+
 (** Per-turn timing observability helper. Emits one structured record
     per turn so operators diagnosing wall-clock budget timeouts can see
     whether the budget was spent on many moderate turns or a single
@@ -158,24 +223,15 @@ let log_turn ~run_start ~turn_start ~turn_index ~max_turns ~model ~stop =
     ]
 ;;
 
-let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent user_prompt =
+let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent user_blocks =
   let bump_activity () =
     match on_activity with
     | Some f -> f ()
     | None -> ()
   in
-  let user_prompt = Llm_provider.Utf8_sanitize.sanitize user_prompt in
-  let user_msg =
-    { role = User
-    ; content = [ Text user_prompt ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  update_state agent (fun s ->
-    { s with messages = Util.snoc (base_messages agent) user_msg });
-  with_raw_trace_run agent user_prompt
+  let user_blocks = append_user_input agent user_blocks in
+  let trace_prompt = trace_prompt_of_blocks user_blocks in
+  with_raw_trace_run agent trace_prompt
   @@ fun raw_trace_run ->
   let yield_enabled = agent.state.config.yield_on_tool in
   let do_yield () =
@@ -464,51 +520,65 @@ let with_periodic_callbacks ~sw:_ ?clock ~last_activity agent f =
        raise exn)
 ;;
 
+let run_blocks ~sw ?clock ?on_yield ?on_resume agent user_blocks =
+  match validate_user_input_blocks user_blocks with
+  | Error _ as err -> err
+  | Ok () ->
+    let last_activity = ref (now_or_zero clock) in
+    let on_activity () = last_activity := now_or_zero clock in
+    with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
+      run_loop
+        ~sw
+        ?clock
+        ~api_strategy:Sync
+        ?on_yield
+        ?on_resume
+        ~on_activity
+        agent
+        user_blocks)
+;;
+
 let run ~sw ?clock ?on_yield ?on_resume agent user_prompt =
-  let last_activity = ref (now_or_zero clock) in
-  let on_activity () = last_activity := now_or_zero clock in
-  with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
-    run_loop
-      ~sw
-      ?clock
-      ~api_strategy:Sync
-      ?on_yield
-      ?on_resume
-      ~on_activity
-      agent
-      user_prompt)
+  run_blocks ~sw ?clock ?on_yield ?on_resume agent [ Text user_prompt ]
+;;
+
+let run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent user_blocks =
+  match validate_user_input_blocks user_blocks with
+  | Error _ as err -> err
+  | Ok () ->
+    let on_telemetry =
+      Option.map
+        (fun bus -> Telemetry_bus.publish (Telemetry_bus.of_event_bus bus))
+        agent.options.event_bus
+    in
+    let last_activity = ref (now_or_zero clock) in
+    let on_activity () = last_activity := now_or_zero clock in
+    (* Every streamed event — including reasoning/thinking deltas, which
+       reach [on_event] as [ContentBlockDelta { delta = ThinkingDelta _ }]
+       (see Llm_provider.Streaming.openai_chunk_to_events) — counts as
+       progress, so a long reasoning burst keeps the idle watchdog from
+       firing. [caller_on_event] is the original callback (bound under a
+       distinct name so the wrapper is not misread as self-recursion); it
+       runs after the activity bump. *)
+    let caller_on_event = on_event in
+    let on_event ev =
+      on_activity ();
+      protect_stream_callback caller_on_event ev
+    in
+    with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
+      run_loop
+        ~sw
+        ?clock
+        ~api_strategy:(Stream { on_event; on_telemetry })
+        ?on_yield
+        ?on_resume
+        ~on_activity
+        agent
+        user_blocks)
 ;;
 
 let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
-  let on_telemetry =
-    Option.map
-      (fun bus -> Telemetry_bus.publish (Telemetry_bus.of_event_bus bus))
-      agent.options.event_bus
-  in
-  let last_activity = ref (now_or_zero clock) in
-  let on_activity () = last_activity := now_or_zero clock in
-  (* Every streamed event — including reasoning/thinking deltas, which
-     reach [on_event] as [ContentBlockDelta { delta = ThinkingDelta _ }]
-     (see Llm_provider.Streaming.openai_chunk_to_events) — counts as
-     progress, so a long reasoning burst keeps the idle watchdog from
-     firing. [caller_on_event] is the original callback (bound under a
-     distinct name so the wrapper is not misread as self-recursion); it
-     runs after the activity bump. *)
-  let caller_on_event = on_event in
-  let on_event ev =
-    on_activity ();
-    protect_stream_callback caller_on_event ev
-  in
-  with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
-    run_loop
-      ~sw
-      ?clock
-      ~api_strategy:(Stream { on_event; on_telemetry })
-      ?on_yield
-      ?on_resume
-      ~on_activity
-      agent
-      user_prompt)
+  run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent [ Text user_prompt ]
 ;;
 
 (* ── Handoff support ─────────────────────────────────────────── *)
@@ -516,21 +586,13 @@ let run_stream ~sw ?clock ~on_event ?on_yield ?on_resume agent user_prompt =
 let find_handoff_in_messages = Agent_handoff.find_handoff_in_messages
 let replace_tool_result = Agent_handoff.replace_tool_result
 
-let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
+let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
   let handoff_tools = List.map Handoff.make_handoff_tool targets in
   let all_tools = Tool_set.merge agent.tools (Tool_set.of_list handoff_tools) in
   let agent_with_handoffs = { agent with tools = all_tools } in
-  let user_msg =
-    { role = User
-    ; content = [ Text user_prompt ]
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  update_state agent_with_handoffs (fun s ->
-    { s with messages = Util.snoc (base_messages agent_with_handoffs) user_msg });
-  with_raw_trace_run agent_with_handoffs user_prompt
+  let user_blocks = append_user_input agent_with_handoffs user_blocks in
+  let trace_prompt = trace_prompt_of_blocks user_blocks in
+  with_raw_trace_run agent_with_handoffs trace_prompt
   @@ fun raw_trace_run ->
   let rec loop () =
     match check_loop_guard agent_with_handoffs with
@@ -664,6 +726,10 @@ let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
           | None -> loop ()))
   in
   loop ()
+;;
+
+let run_with_handoffs ~sw ?clock agent ~targets user_prompt =
+  run_with_handoffs_blocks ~sw ?clock agent ~targets [ Text user_prompt ]
 ;;
 
 (* ── Checkpoint / Resume ─────────────────────────────────────── *)
