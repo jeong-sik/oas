@@ -210,10 +210,19 @@ let test_synthetic_events_media_blocks () =
         | _ -> None)
       events
   in
+  (* Image/Document/Audio/ToolResult flatten to synthetic text blocks, but
+     RedactedThinking is preserved as a [redacted_thinking] block carrying its
+     opaque payload (#2061) so the thinking carrier round-trips for tool loops
+     instead of being silently dropped. *)
   check
     (list (pair string (option string)))
     "media-like synthetic starts"
-    [ "text", None; "text", None; "text", None; "text", None; "text", None ]
+    [ "text", None
+    ; "text", None
+    ; "text", None
+    ; "redacted_thinking", Some "hidden"
+    ; "text", None
+    ]
     starts
 ;;
 
