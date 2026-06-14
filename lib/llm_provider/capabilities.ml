@@ -141,6 +141,30 @@ let effective_disable_parallel_tool_use
   caller_disabled || (tools_present && not supports_parallel_tool_calls)
 ;;
 
+type anthropic_thinking_control =
+  | Anthropic_manual_budget
+  | Anthropic_adaptive_preferred
+  | Anthropic_adaptive_only
+  | Anthropic_always_adaptive
+
+let anthropic_thinking_control_of_id model_id =
+  let id = String.lowercase_ascii (String.trim model_id) in
+  if
+    String.starts_with ~prefix:"claude-fable-5" id
+    || String.starts_with ~prefix:"claude-mythos-5" id
+    || String.starts_with ~prefix:"claude-mythos-preview" id
+  then Anthropic_always_adaptive
+  else if
+    String.starts_with ~prefix:"claude-opus-4-8" id
+    || String.starts_with ~prefix:"claude-opus-4-7" id
+  then Anthropic_adaptive_only
+  else if
+    String.starts_with ~prefix:"claude-opus-4-6" id
+    || String.starts_with ~prefix:"claude-sonnet-4-6" id
+  then Anthropic_adaptive_preferred
+  else Anthropic_manual_budget
+;;
+
 let anthropic_capabilities =
   { default_capabilities with
     max_context_tokens = Some 200_000
@@ -339,6 +363,11 @@ type gemini_family =
   (** Unknown gemini id or non-gemini id. Retains the literal so the
           caller can log / fall through without losing data. *)
 
+type gemini_thinking_control =
+  | Gemini_thinking_budget
+  | Gemini_thinking_level of { supports_minimal : bool }
+  | Gemini_unknown_thinking_control
+
 let strip_suffix ~suffix value =
   if String.ends_with ~suffix value
   then String.sub value 0 (String.length value - String.length suffix)
@@ -350,13 +379,25 @@ let strip_suffix ~suffix value =
     Input is expected lowercased (callers pass the already-normalized id). *)
 let gemini_family_of_id (id : string) : gemini_family =
   let starts p = String.starts_with ~prefix:p id in
-  if starts "gemini-3.1" || starts "gemini-3.1"
+  if starts "gemini-3.1"
   then Gemini_3_1
-  else if starts "gemini-3" || starts "gemini-3"
+  else if starts "gemini-3"
   then Gemini_3
-  else if starts "gemini-2.5" || starts "gemini-2.5"
+  else if starts "gemini-2.5"
   then Gemini_2_5
   else Gemini_other id
+;;
+
+let gemini_thinking_control_of_id id =
+  match gemini_family_of_id id with
+  | Gemini_3_1 ->
+    (* Google documents that Gemini 3.1 Pro does not support the [minimal]
+       thinking level; other Gemini 3.1 families do. *)
+    let supports_minimal = not (String.starts_with ~prefix:"gemini-3.1-pro" id) in
+    Gemini_thinking_level { supports_minimal }
+  | Gemini_3 -> Gemini_thinking_level { supports_minimal = true }
+  | Gemini_2_5 -> Gemini_thinking_budget
+  | Gemini_other _ -> Gemini_unknown_thinking_control
 ;;
 
 let gemini_capabilities =

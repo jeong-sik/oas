@@ -60,6 +60,65 @@ let parse_response json =
   }
 ;;
 
+let effort_of_budget = function
+  | n when n <= 2_048 -> "low"
+  | n when n <= 8_192 -> "medium"
+  | n when n <= 32_768 -> "high"
+  | _ -> "max"
+;;
+
+let effort_for_config mode (config : Provider_config.t) =
+  match mode, config.thinking_budget with
+  | ( ( Capabilities.Anthropic_adaptive_only
+      | Capabilities.Anthropic_adaptive_preferred
+      | Capabilities.Anthropic_always_adaptive )
+    , Some budget ) -> Some (effort_of_budget budget)
+  | Capabilities.Anthropic_manual_budget, _
+  | ( ( Capabilities.Anthropic_adaptive_only
+      | Capabilities.Anthropic_adaptive_preferred
+      | Capabilities.Anthropic_always_adaptive )
+    , None ) -> None
+;;
+
+let thinking_config_for_config mode (config : Provider_config.t) =
+  match config.enable_thinking, mode with
+  | Some true, Capabilities.Anthropic_always_adaptive -> None
+  | ( Some true
+    , (Capabilities.Anthropic_adaptive_only | Capabilities.Anthropic_adaptive_preferred) )
+    -> Some (`Assoc [ "type", `String "adaptive" ])
+  | Some true, Capabilities.Anthropic_manual_budget ->
+    let budget =
+      match config.thinking_budget with
+      | Some b -> b
+      | None -> Constants.Thinking.provider_a_budget ()
+    in
+    Some (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
+  | Some false, _ | None, _ -> None
+;;
+
+let output_config_for_config mode (config : Provider_config.t) =
+  let output_format =
+    match config.output_schema, config.response_format with
+    | Some schema, _ -> Some schema
+    | None, JsonSchema schema -> Some schema
+    | None, JsonMode | None, Off -> None
+  in
+  let fields =
+    match output_format with
+    | Some schema ->
+      [ "format", `Assoc [ "type", `String "json_schema"; "schema", schema ] ]
+    | None -> []
+  in
+  let fields =
+    match effort_for_config mode config with
+    | Some effort -> ("effort", `String effort) :: fields
+    | None -> fields
+  in
+  match fields with
+  | [] -> None
+  | _ :: _ -> Some (`Assoc (List.rev fields))
+;;
+
 (** Build Anthropic Messages API request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request
@@ -81,6 +140,7 @@ let build_request
       ~supports_parallel_tool_calls:caps.supports_parallel_tool_calls
       ~tools_present
   in
+  let thinking_mode = Capabilities.anthropic_thinking_control_of_id config.model_id in
   let messages =
     messages
     |> Tool_message_pairs.close_for_provider_request
@@ -138,29 +198,13 @@ let build_request
     | None -> body
   in
   let body =
-    match config.enable_thinking with
-    | Some true ->
-      let budget =
-        match config.thinking_budget with
-        | Some b -> b
-        | None -> Constants.Thinking.provider_a_budget ()
-      in
-      ("thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
-      :: body
-    | _ -> body
+    match thinking_config_for_config thinking_mode config with
+    | Some thinking -> ("thinking", thinking) :: body
+    | None -> body
   in
   let body =
-    let output_schema =
-      match config.output_schema, config.response_format with
-      | Some schema, _ -> Some schema
-      | None, JsonSchema schema -> Some schema
-      | None, JsonMode | None, Off -> None
-    in
-    match output_schema with
-    | Some schema ->
-      ( "output_config"
-      , `Assoc [ "format", `Assoc [ "type", `String "json_schema"; "schema", schema ] ] )
-      :: body
+    match output_config_for_config thinking_mode config with
+    | Some output_config -> ("output_config", output_config) :: body
     | None -> body
   in
   let body =
