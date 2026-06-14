@@ -255,29 +255,26 @@ module Aggregating = struct
   type t =
     { hooks : hooks
     ; states : (aggregate_key, aggregate_state) Hashtbl.t
-    ; mutex : Mutex.t
+    ; mutex : Eio.Mutex.t
     }
 
   let key ~provider ~model_id = provider ^ "/" ^ model_id
 
   let create ?(inner = noop) () : t =
-    { hooks = inner; states = Hashtbl.create 16; mutex = Mutex.create () }
+    { hooks = inner; states = Hashtbl.create 16; mutex = Eio.Mutex.create () }
   ;;
 
   let with_state agg key f =
-    Mutex.lock agg.mutex;
-    Fun.protect
-      ~finally:(fun () -> Mutex.unlock agg.mutex)
-      (fun () ->
-         let state =
-           match Hashtbl.find_opt agg.states key with
-           | Some s -> s
-           | None ->
-             let s = empty_state () in
-             Hashtbl.replace agg.states key s;
-             s
-         in
-         f state)
+    Eio.Mutex.use_rw ~protect:true agg.mutex (fun () ->
+      let state =
+        match Hashtbl.find_opt agg.states key with
+        | Some s -> s
+        | None ->
+          let s = empty_state () in
+          Hashtbl.replace agg.states key s;
+          s
+      in
+      f state)
   ;;
 
   let to_hooks (agg : t) : hooks =
@@ -344,36 +341,32 @@ module Aggregating = struct
   ;;
 
   let snapshot (agg : t) : provider_snapshot list =
-    Mutex.lock agg.mutex;
-    Fun.protect
-      ~finally:(fun () -> Mutex.unlock agg.mutex)
-      (fun () ->
-         Hashtbl.fold
-           (fun (k : aggregate_key) (s : aggregate_state) acc ->
-              let provider, model_id =
-                match String.index_opt k '/' with
-                | Some i ->
-                  String.sub k 0 i, String.sub k (i + 1) (String.length k - i - 1)
-                | None -> k, ""
-              in
-              { provider
-              ; model_id
-              ; request_total = s.request_total
-              ; error_total = s.error_total
-              ; retry_total = s.retry_total
-              ; input_tokens_total = s.input_tokens_total
-              ; output_tokens_total = s.output_tokens_total
-              ; tool_call_total = s.tool_call_total
-              ; latency_ms_sum = s.latency_ms_sum
-              ; latency_ms_count = s.latency_ms_count
-              ; ttfrc_ms_sum = s.ttfrc_ms_sum
-              ; ttfrc_ms_count = s.ttfrc_ms_count
-              ; inter_chunk_ms_sum = s.inter_chunk_ms_sum
-              ; inter_chunk_ms_count = s.inter_chunk_ms_count
-              }
-              :: acc)
-           agg.states
-           [])
+    Eio.Mutex.use_rw ~protect:true agg.mutex (fun () ->
+      Hashtbl.fold
+        (fun (k : aggregate_key) (s : aggregate_state) acc ->
+           let provider, model_id =
+             match String.index_opt k '/' with
+             | Some i -> String.sub k 0 i, String.sub k (i + 1) (String.length k - i - 1)
+             | None -> k, ""
+           in
+           { provider
+           ; model_id
+           ; request_total = s.request_total
+           ; error_total = s.error_total
+           ; retry_total = s.retry_total
+           ; input_tokens_total = s.input_tokens_total
+           ; output_tokens_total = s.output_tokens_total
+           ; tool_call_total = s.tool_call_total
+           ; latency_ms_sum = s.latency_ms_sum
+           ; latency_ms_count = s.latency_ms_count
+           ; ttfrc_ms_sum = s.ttfrc_ms_sum
+           ; ttfrc_ms_count = s.ttfrc_ms_count
+           ; inter_chunk_ms_sum = s.inter_chunk_ms_sum
+           ; inter_chunk_ms_count = s.inter_chunk_ms_count
+           }
+           :: acc)
+        agg.states
+        [])
   ;;
 
   let snapshot_to_yojson agg = provider_snapshots_to_yojson (snapshot agg)
@@ -384,9 +377,6 @@ module Aggregating = struct
   ;;
 
   let reset (agg : t) =
-    Mutex.lock agg.mutex;
-    Fun.protect
-      ~finally:(fun () -> Mutex.unlock agg.mutex)
-      (fun () -> Hashtbl.reset agg.states)
+    Eio.Mutex.use_rw ~protect:true agg.mutex (fun () -> Hashtbl.reset agg.states)
   ;;
 end
