@@ -372,6 +372,69 @@ let test_build_openai_body_with_provider_m_sampling () =
     (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
 ;;
 
+let test_build_openai_body_deepseek_thinking_drops_sampling () =
+  (* Public agent path must drop temperature/top_p for a DeepSeek (Thinking_object)
+     config while thinking is enabled, matching Backend_openai_request.build_request.
+     Thinking defaults on, so no enable_thinking is set here. *)
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = "deepseek-v4-flash"
+        ; temperature = Some 0.7
+        ; top_p = Some 0.9
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check
+    (option (float 0.001))
+    "temperature dropped while thinking"
+    None
+    (json |> member "temperature" |> to_float_option);
+  check
+    (option (float 0.001))
+    "top_p dropped while thinking"
+    None
+    (json |> member "top_p" |> to_float_option)
+;;
+
+let test_build_openai_body_deepseek_disabled_thinking_keeps_sampling () =
+  (* With thinking explicitly disabled the suppression must not fire. *)
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = "deepseek-v4-flash"
+        ; temperature = Some 0.7
+        ; top_p = Some 0.9
+        ; enable_thinking = Some false
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check
+    (option (float 0.001))
+    "temperature kept when thinking disabled"
+    (Some 0.7)
+    (json |> member "temperature" |> to_float_option);
+  check
+    (option (float 0.001))
+    "top_p kept when thinking disabled"
+    (Some 0.9)
+    (json |> member "top_p" |> to_float_option)
+;;
+
 let test_build_openai_body_with_qwen_preserve_thinking () =
   let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
   let state =
@@ -1488,6 +1551,14 @@ let () =
             "with dashscope sampling"
             `Quick
             test_build_openai_body_with_provider_m_sampling
+        ; test_case
+            "deepseek thinking drops sampling"
+            `Quick
+            test_build_openai_body_deepseek_thinking_drops_sampling
+        ; test_case
+            "deepseek disabled thinking keeps sampling"
+            `Quick
+            test_build_openai_body_deepseek_disabled_thinking_keeps_sampling
         ; test_case
             "qwen preserve thinking"
             `Quick

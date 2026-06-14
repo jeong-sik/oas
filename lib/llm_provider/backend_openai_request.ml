@@ -47,16 +47,18 @@ let warn_dialect_ignored ~model_id ~field =
       model_id)
 ;;
 
-let thinking_enabled_for_dialect (config : Provider_config.t) =
-  match config.enable_thinking with
-  | Some false -> false
-  | Some true | None -> true
-;;
-
-let add_sampling_field dialect config field value body =
+let add_sampling_field
+      ~thinking_control_format
+      (config : Provider_config.t)
+      field
+      value
+      body
+  =
   if
-    thinking_enabled_for_dialect config
-    && List.mem field (Reasoning_dialect.sampling_params_ignored_when_thinking dialect)
+    Reasoning_dialect.sampling_field_ignored_when_thinking
+      ~thinking_control_format
+      ~enable_thinking:config.enable_thinking
+      ~field
   then (
     warn_dialect_ignored ~model_id:config.model_id ~field;
     body)
@@ -228,12 +230,24 @@ let build_request
   in
   let body =
     match config.temperature with
-    | Some t -> add_sampling_field dialect config "temperature" (`Float t) body
+    | Some t ->
+      add_sampling_field
+        ~thinking_control_format:caps.thinking_control_format
+        config
+        "temperature"
+        (`Float t)
+        body
     | None -> body
   in
   let body =
     match config.top_p with
-    | Some p -> add_sampling_field dialect config "top_p" (`Float p) body
+    | Some p ->
+      add_sampling_field
+        ~thinking_control_format:caps.thinking_control_format
+        config
+        "top_p"
+        (`Float p)
+        body
     | None -> body
   in
   (* Silent drops of user-supplied sampling params are a debugging

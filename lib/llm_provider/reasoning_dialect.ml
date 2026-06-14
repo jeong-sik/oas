@@ -143,13 +143,22 @@ let for_provider_config (config : Provider_config.t) =
     ; replay_policy = Drop_without_tool_preserve_with_tool
     ; streaming = Delta_field "thought"
     }
-  | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
+  | Kimi | OpenAI_compat | Ollama | Glm ->
     (match Capabilities.for_model_id config.model_id with
      | Some caps -> of_capabilities caps |> with_preserve_thinking config
      | None ->
        (match provider_capabilities_of_kind config.kind with
         | Some caps -> of_capabilities caps |> with_preserve_thinking config
         | None -> default))
+  | DashScope ->
+    (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
+       the model catalog. Backend_openai_request.capabilities_of_config is
+       provider-first for DashScope (always dashscope_capabilities); resolve it
+       provider-first here too so the reported toggle_wire matches the bytes the
+       request builder sends. Grouping DashScope with the model-catalog-first
+       providers above made a DashScope Qwen config report Chat_template_kwargs
+       while the builder emitted enable_thinking. *)
+    of_capabilities Capabilities.dashscope_capabilities |> with_preserve_thinking config
 ;;
 
 let normalize_effort dialect raw =
@@ -168,6 +177,32 @@ let sampling_params_ignored_when_thinking dialect =
   match dialect.sampling_policy with
   | Sampling_supported -> []
   | Ignored_when_thinking params -> params
+;;
+
+(* Sampling params a wire format ignores while thinking is enabled, keyed purely
+   by the format so both request builders can consult it without a full dialect.
+   Only DeepSeek-style [Thinking_object] suppresses sampling; the constant is the
+   single source of truth, also used by [of_capabilities] above. *)
+let sampling_params_ignored_for_format
+  : Capabilities.thinking_control_format -> string list
+  = function
+  | Capabilities.Thinking_object -> deepseek_ignored_sampling_params
+  | Capabilities.No_thinking_control
+  | Capabilities.Thinking_object_only
+  | Capabilities.Chat_template_kwargs
+  | Capabilities.Chat_template_token
+  | Capabilities.Reasoning_effort
+  | Capabilities.Enable_thinking -> []
+;;
+
+let sampling_field_ignored_when_thinking ~thinking_control_format ~enable_thinking ~field =
+  let thinking_active =
+    match enable_thinking with
+    | Some false -> false
+    | Some true | None -> true
+  in
+  thinking_active
+  && List.mem field (sampling_params_ignored_for_format thinking_control_format)
 ;;
 
 let should_replay_reasoning dialect ~assistant_had_tool_call =

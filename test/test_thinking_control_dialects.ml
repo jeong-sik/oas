@@ -137,6 +137,27 @@ let test_qwen36_dashscope_uses_top_level_enable_thinking () =
   check_member_absent "reasoning_effort" json
 ;;
 
+let test_qwen36_dashscope_dialect_reports_enable_thinking () =
+  (* The reported dialect metadata must match what build_request actually emits
+     for a DashScope Qwen config (top-level enable_thinking, asserted above),
+     not the model catalog's chat_template_kwargs. *)
+  let config =
+    PC.make
+      ~kind:DashScope
+      ~model_id:"Qwen3.6-35B-A3B"
+      ~base_url:"https://dashscope.aliyuncs.com/compatible-mode/v1"
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "enable_thinking"
+    (RD.toggle_wire_to_string dialect.toggle_wire)
+;;
+
 let test_openai_reasoning_dialect_uses_reasoning_effort () =
   let dialect =
     RD.of_capabilities Llm_provider.Capabilities.openai_compat_chat_extended_capabilities
@@ -471,6 +492,10 @@ let () =
             "qwen3.6 dashscope uses top-level enable_thinking"
             `Quick
             test_qwen36_dashscope_uses_top_level_enable_thinking
+        ; test_case
+            "qwen3.6 dashscope dialect reports enable_thinking"
+            `Quick
+            test_qwen36_dashscope_dialect_reports_enable_thinking
         ; test_case
             "openai reasoning dialect uses reasoning_effort"
             `Quick
