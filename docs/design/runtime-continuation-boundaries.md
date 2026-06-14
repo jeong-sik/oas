@@ -6,8 +6,8 @@ Date: 2026-06-14
 
 OAS exposes typed continuation boundaries so hosts can accept user input while
 an agent is busy without inserting it into unsafe positions in the provider
-history. The host, such as MASC, owns the queue and UI. OAS owns the boundary
-policy.
+history. The host (the downstream coordinator) owns the queue and UI. OAS owns
+the boundary policy.
 
 ## Boundaries
 
@@ -32,6 +32,6 @@ cancel/checkpoint/resume the running turn, but it is not a pause or stop command
 - `interrupted`
 - `ignored`
 
-This is deliberately not a runtime lifecycle phase. A busy keeper with queued
+This is deliberately not a runtime lifecycle phase. A busy agent with queued
 input should keep running until it reaches a safe boundary or receives an
 explicit interrupt.
