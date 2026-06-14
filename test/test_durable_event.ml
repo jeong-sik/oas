@@ -28,6 +28,26 @@ let test_append_and_events () =
   | _ -> fail "expected chronological order"
 ;;
 
+let test_parallel_append_preserves_all_events () =
+  let j = Durable_event.create () in
+  let domain_count = 4 in
+  let events_per_domain = 250 in
+  let workers =
+    List.init domain_count (fun domain_idx ->
+      Domain.spawn (fun () ->
+        for idx = 1 to events_per_domain do
+          let turn = (domain_idx * events_per_domain) + idx in
+          Durable_event.append
+            j
+            (Turn_started { turn; timestamp = ts +. float_of_int turn })
+        done))
+  in
+  List.iter (fun worker -> Domain.join worker) workers;
+  let expected = domain_count * events_per_domain in
+  check int "parallel append length" expected (Durable_event.length j);
+  check int "parallel append events" expected (List.length (Durable_event.events j))
+;;
+
 let test_last_timestamp () =
   let j = Durable_event.create () in
   Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
@@ -266,6 +286,19 @@ let test_no_callback_default () =
   check int "still appends" 1 (Durable_event.length j)
 ;;
 
+let test_callback_exception_does_not_rollback_append () =
+  let j =
+    Durable_event.create
+      ~on_append:(fun _event -> failwith "projection sink unavailable")
+      ()
+  in
+  Durable_event.append j (Turn_started { turn = 1; timestamp = ts });
+  check int "journal still records event" 1 (Durable_event.length j);
+  match Durable_event.events j with
+  | [ Durable_event.Turn_started { turn = 1; _ } ] -> ()
+  | _ -> fail "expected appended event to remain visible"
+;;
+
 (* ── Persistence ──────────────────────────────────── *)
 
 let test_save_and_load_roundtrip () =
@@ -327,11 +360,19 @@ let () =
     [ ( "journal"
       , [ test_case "empty" `Quick test_empty_journal
         ; test_case "append and events" `Quick test_append_and_events
+        ; test_case
+            "parallel append preserves all events"
+            `Quick
+            test_parallel_append_preserves_all_events
         ; test_case "last_timestamp" `Quick test_last_timestamp
         ] )
     ; ( "on_append"
       , [ test_case "callback fires" `Quick test_on_append_fires
         ; test_case "no callback default" `Quick test_no_callback_default
+        ; test_case
+            "callback exception does not rollback append"
+            `Quick
+            test_callback_exception_does_not_rollback_append
         ] )
     ; ( "idempotency"
       , [ test_case "deterministic key" `Quick test_idempotency_key_deterministic
