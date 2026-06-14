@@ -116,15 +116,27 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)
     ]
   in
+  (* Mirror Backend_openai_request: drop sampling params the wire format ignores
+     while thinking (e.g. DeepSeek temperature/top_p). The public agent path
+     previously serialized them directly, so a thinking config leaked fields the
+     private path dropped. *)
+  let sampling_field_ignored field =
+    Llm_provider.Reasoning_dialect.sampling_field_ignored_when_thinking
+      ~thinking_control_format:capabilities.thinking_control_format
+      ~enable_thinking:config.config.enable_thinking
+      ~field
+  in
   let body_assoc =
     match config.config.temperature with
-    | Some temp -> ("temperature", `Float temp) :: body_assoc
-    | None -> body_assoc
+    | Some temp when not (sampling_field_ignored "temperature") ->
+      ("temperature", `Float temp) :: body_assoc
+    | Some _ | None -> body_assoc
   in
   let body_assoc =
     match config.config.top_p with
-    | Some top_p -> ("top_p", `Float top_p) :: body_assoc
-    | None -> body_assoc
+    | Some top_p when not (sampling_field_ignored "top_p") ->
+      ("top_p", `Float top_p) :: body_assoc
+    | Some _ | None -> body_assoc
   in
   let body_assoc =
     match config.config.top_k with

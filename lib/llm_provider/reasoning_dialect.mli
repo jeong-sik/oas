@@ -72,6 +72,19 @@ val normalize_effort : t -> string -> string option
 
 val sampling_params_ignored_when_thinking : t -> string list
 
+(** [true] when [field] is a sampling parameter the wire format ignores while
+    thinking is enabled. Thinking defaults on: only an explicit
+    [enable_thinking = Some false] keeps the field. Keyed on
+    {!Capabilities.thinking_control_format} so both the [Provider_config]-based
+    request builder ([Backend_openai_request]) and the agent-state-based one
+    ([Api_openai.build_openai_body]) drop the same parameters; the public path
+    only has the format, not a full {!t}. *)
+val sampling_field_ignored_when_thinking
+  :  thinking_control_format:Capabilities.thinking_control_format
+  -> enable_thinking:bool option
+  -> field:string
+  -> bool
+
 (** Whether an assistant reasoning side-channel should be replayed into a
     subsequent request. [assistant_had_tool_call] is intentionally explicit:
     DeepSeek-style thinking requires replay after tool calls but can drop

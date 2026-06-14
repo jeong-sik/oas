@@ -1267,8 +1267,13 @@ let%test "build_request serializes thinking object for deepseek-v4-flash" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
+  (* thinking_budget 2048 -> raw effort "low", but the DeepSeek dialect
+     (Deepseek_high_or_max) normalizes low/medium/high -> "high" (see
+     test_thinking_control_dialects.ml "low maps high"). This assertion was
+     stale at "low" since #2042 routed reasoning_effort through normalize_effort
+     and was merged red. *)
   json |> member "thinking" |> member "type" |> to_string = "enabled"
-  && json |> member "reasoning_effort" |> to_string = "low"
+  && json |> member "reasoning_effort" |> to_string = "high"
 ;;
 
 let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
