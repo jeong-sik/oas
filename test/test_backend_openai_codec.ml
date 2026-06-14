@@ -949,6 +949,47 @@ let test_responses_parse_reasoning_and_function_call () =
      | None -> Alcotest.fail "expected telemetry")
 ;;
 
+(* Regression for Codex P2 (#2048): a Responses result whose generation was cut
+   off (status="incomplete", incomplete_details.reason="max_output_tokens") can
+   still carry a [function_call] item with truncated arguments. The stop reason
+   must surface the cut-off ([MaxTokens]) rather than [StopToolUse], so the agent
+   does not execute partial/invalid tool arguments. Before the fix,
+   [has_tool_calls] short-circuited to [StopToolUse] before the status was
+   examined. *)
+let responses_incomplete_with_function_call_json () =
+  `Assoc
+    [ "id", `String "resp_inc"
+    ; "model", `String "gpt-5.5"
+    ; "status", `String "incomplete"
+    ; "incomplete_details", `Assoc [ "reason", `String "max_output_tokens" ]
+    ; ( "output"
+      , `List
+          [ `Assoc
+              [ "id", `String "fc_1"
+              ; "type", `String "function_call"
+              ; "call_id", `String "call_weather"
+              ; "name", `String "get_weather"
+              ; "arguments", `String {|{"city":"Par|}
+              ]
+          ] )
+    ; ( "usage"
+      , `Assoc [ "input_tokens", `Int 12; "output_tokens", `Int 256 ] )
+    ]
+;;
+
+let test_responses_incomplete_status_wins_over_function_call () =
+  match
+    Responses.parse_response_result
+      (responses_incomplete_with_function_call_json () |> Yojson.Safe.to_string)
+  with
+  | Error msg -> Alcotest.fail ("unexpected responses parse error: " ^ msg)
+  | Ok response ->
+    check_bool
+      "incomplete max_output_tokens maps to MaxTokens, not StopToolUse"
+      true
+      (response.stop_reason = MaxTokens)
+;;
+
 let test_responses_preserves_encrypted_reasoning_item_for_replay () =
   let encrypted_reasoning_item =
     `Assoc
@@ -1289,6 +1330,10 @@ let () =
             "parse reasoning and function_call items"
             `Quick
             test_responses_parse_reasoning_and_function_call
+        ; Alcotest.test_case
+            "incomplete status wins over function_call (#2048)"
+            `Quick
+            test_responses_incomplete_status_wins_over_function_call
         ; Alcotest.test_case
             "preserve encrypted reasoning item for replay"
             `Quick

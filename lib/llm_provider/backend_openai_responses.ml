@@ -496,30 +496,35 @@ let stop_reason_of_response_json ~has_tool_calls json =
   let status =
     opt_bind (json_assoc_opt "status" json) json_string_opt |> Option.value ~default:""
   in
-  if has_tool_calls
-  then StopToolUse
-  else (
-    match String.lowercase_ascii status with
-    | "completed" | "" -> EndTurn
-    | "incomplete" ->
-      let reason =
-        match json_assoc_opt "incomplete_details" json with
-        | Some details ->
-          opt_bind (json_assoc_opt "reason" details) json_string_opt
-          |> Option.value ~default:"incomplete"
-        | None -> "incomplete"
-      in
-      if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
-    | "failed" ->
-      (match
-         match json_assoc_opt "error" json with
-         | Some error -> json_assoc_opt "message" error
-         | None -> None
-       with
-       | Some (`String message) -> Unknown message
-       | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-       | None -> Unknown status)
-    | other -> Unknown other)
+  (* A terminal [incomplete]/[failed] response status wins over tool-use
+     detection: a Responses result can carry a [function_call] item while the
+     generation was actually cut off (status="incomplete", e.g. max output
+     tokens). Returning [StopToolUse] there would execute partial/invalid tool
+     arguments instead of surfacing MaxTokens/an incomplete response. So we
+     match the cut-off statuses first, then fall back to tool-use, then the
+     normal completion path. (Codex P2, #2048.) *)
+  match String.lowercase_ascii status with
+  | "incomplete" ->
+    let reason =
+      match json_assoc_opt "incomplete_details" json with
+      | Some details ->
+        opt_bind (json_assoc_opt "reason" details) json_string_opt
+        |> Option.value ~default:"incomplete"
+      | None -> "incomplete"
+    in
+    if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
+  | "failed" ->
+    (match
+       match json_assoc_opt "error" json with
+       | Some error -> json_assoc_opt "message" error
+       | None -> None
+     with
+     | Some (`String message) -> Unknown message
+     | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
+     | None -> Unknown status)
+  | _ when has_tool_calls -> StopToolUse
+  | "completed" | "" -> EndTurn
+  | other -> Unknown other
 ;;
 
 let parse_response_result json_str =
