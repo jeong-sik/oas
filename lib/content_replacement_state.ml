@@ -15,99 +15,111 @@ type replacement =
   }
 
 type t =
-  { seen_ids : (string, unit) Hashtbl.t
+  { mu : Mutex.t
+  ; seen_ids : (string, unit) Hashtbl.t
   ; replacements : (string, replacement) Hashtbl.t
   }
 
 (* ── Lifecycle ──────────────────────────────────────────────── *)
 
-let create () = { seen_ids = Hashtbl.create 64; replacements = Hashtbl.create 32 }
+let create () =
+  { mu = Mutex.create (); seen_ids = Hashtbl.create 64; replacements = Hashtbl.create 32 }
+;;
+
+let with_lock t f =
+  Mutex.lock t.mu;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+;;
 
 (* ── Query ──────────────────────────────────────────────────── *)
 
-let seen_count t = Hashtbl.length t.seen_ids
-let is_frozen t id = Hashtbl.mem t.seen_ids id
-let lookup_replacement t id = Hashtbl.find_opt t.replacements id
+let seen_count t = with_lock t (fun () -> Hashtbl.length t.seen_ids)
+let is_frozen t id = with_lock t (fun () -> Hashtbl.mem t.seen_ids id)
+let lookup_replacement t id = with_lock t (fun () -> Hashtbl.find_opt t.replacements id)
 
 (* ── Record decisions ───────────────────────────────────────── *)
 
 let record_replacement t (r : replacement) =
-  if Hashtbl.mem t.seen_ids r.tool_use_id
-  then
-    invalid_arg
-      (Printf.sprintf
-         "Content_replacement_state.record_replacement: tool_use_id %S already frozen"
-         r.tool_use_id)
-  else (
-    Hashtbl.replace t.seen_ids r.tool_use_id ();
-    Hashtbl.replace t.replacements r.tool_use_id r)
+  with_lock t (fun () ->
+    if Hashtbl.mem t.seen_ids r.tool_use_id
+    then
+      invalid_arg
+        (Printf.sprintf
+           "Content_replacement_state.record_replacement: tool_use_id %S already frozen"
+           r.tool_use_id)
+    else (
+      Hashtbl.replace t.seen_ids r.tool_use_id ();
+      Hashtbl.replace t.replacements r.tool_use_id r))
 ;;
 
 let record_kept t id =
-  if Hashtbl.mem t.seen_ids id
-  then
-    invalid_arg
-      (Printf.sprintf
-         "Content_replacement_state.record_kept: tool_use_id %S already frozen"
-         id)
-  else Hashtbl.replace t.seen_ids id ()
+  with_lock t (fun () ->
+    if Hashtbl.mem t.seen_ids id
+    then
+      invalid_arg
+        (Printf.sprintf
+           "Content_replacement_state.record_kept: tool_use_id %S already frozen"
+           id)
+    else Hashtbl.replace t.seen_ids id ())
 ;;
 
 (* ── Apply to messages ──────────────────────────────────────── *)
 
 let apply_frozen t blocks =
-  let fresh = ref [] in
-  let modified =
-    List.map
-      (fun block ->
-         match block with
-         | ToolResult { tool_use_id; is_error; json; _ } ->
-           if Hashtbl.mem t.seen_ids tool_use_id
-           then (
-             (* Frozen: apply cached replacement or keep *)
-             match Hashtbl.find_opt t.replacements tool_use_id with
-             | Some r ->
-               ToolResult
-                 { tool_use_id
-                 ; content = r.preview
-                 ; is_error
-                 ; json
-                 ; content_blocks = None
-                 }
-             | None ->
-               (* Was kept (not replaced) — send full content *)
+  with_lock t (fun () ->
+    let fresh = ref [] in
+    let modified =
+      List.map
+        (fun block ->
+           match block with
+           | ToolResult { tool_use_id; is_error; json; _ } ->
+             if Hashtbl.mem t.seen_ids tool_use_id
+             then (
+               (* Frozen: apply cached replacement or keep *)
+               match Hashtbl.find_opt t.replacements tool_use_id with
+               | Some r ->
+                 ToolResult
+                   { tool_use_id
+                   ; content = r.preview
+                   ; is_error
+                   ; json
+                   ; content_blocks = None
+                   }
+               | None ->
+                 (* Was kept (not replaced) — send full content *)
+                 block)
+             else (
+               (* Fresh: not yet seen *)
+               fresh := tool_use_id :: !fresh;
                block)
-           else (
-             (* Fresh: not yet seen *)
-             fresh := tool_use_id :: !fresh;
-             block)
-         | _ -> block)
-      blocks
-  in
-  modified, List.rev !fresh
+           | _ -> block)
+        blocks
+    in
+    modified, List.rev !fresh)
 ;;
 
 (* ── Serialization ──────────────────────────────────────────── *)
 
 let to_json t =
-  let seen_list = Hashtbl.fold (fun id () acc -> `String id :: acc) t.seen_ids [] in
-  let replacements_list =
-    Hashtbl.fold
-      (fun _id r acc ->
-         `Assoc
-           [ "tool_use_id", `String r.tool_use_id
-           ; "preview", `String r.preview
-           ; "original_chars", `Int r.original_chars
-           ]
-         :: acc)
-      t.replacements
-      []
-  in
-  `Assoc
-    [ "version", `Int 1
-    ; "seen_ids", `List seen_list
-    ; "replacements", `List replacements_list
-    ]
+  with_lock t (fun () ->
+    let seen_list = Hashtbl.fold (fun id () acc -> `String id :: acc) t.seen_ids [] in
+    let replacements_list =
+      Hashtbl.fold
+        (fun _id r acc ->
+           `Assoc
+             [ "tool_use_id", `String r.tool_use_id
+             ; "preview", `String r.preview
+             ; "original_chars", `Int r.original_chars
+             ]
+           :: acc)
+        t.replacements
+        []
+    in
+    `Assoc
+      [ "version", `Int 1
+      ; "seen_ids", `List seen_list
+      ; "replacements", `List replacements_list
+      ])
 ;;
 
 let of_json json =
@@ -116,21 +128,22 @@ let of_json json =
     let seen_list = json |> member "seen_ids" |> to_list in
     let replacements_list = json |> member "replacements" |> to_list in
     let t = create () in
-    List.iter
-      (fun j ->
-         let id = to_string j in
-         Hashtbl.replace t.seen_ids id ())
-      seen_list;
-    List.iter
-      (fun j ->
-         let tool_use_id = j |> member "tool_use_id" |> to_string in
-         let preview = j |> member "preview" |> to_string in
-         let original_chars = j |> member "original_chars" |> to_int in
-         Hashtbl.replace
-           t.replacements
-           tool_use_id
-           { tool_use_id; preview; original_chars })
-      replacements_list;
+    with_lock t (fun () ->
+      List.iter
+        (fun j ->
+           let id = to_string j in
+           Hashtbl.replace t.seen_ids id ())
+        seen_list;
+      List.iter
+        (fun j ->
+           let tool_use_id = j |> member "tool_use_id" |> to_string in
+           let preview = j |> member "preview" |> to_string in
+           let original_chars = j |> member "original_chars" |> to_int in
+           Hashtbl.replace
+             t.replacements
+             tool_use_id
+             { tool_use_id; preview; original_chars })
+        replacements_list);
     Ok t
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
