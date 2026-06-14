@@ -8,6 +8,29 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.8](https://github.com/jeong-sik/oas/compare/v0.206.7...v0.206.8) (2026-06-14)
+
+
+### Bug Fixes
+
+* **agent_registry:** protect hashtbl with mutex ([ac18990](https://github.com/jeong-sik/oas/commit/ac189904e0529a27f2e37af12558f833f1a517b1))
+* **agent:** complete reserved-exception filter and log illegal hook decision coercion ([#2057](https://github.com/jeong-sik/oas/issues/2057)) ([55547d3](https://github.com/jeong-sik/oas/commit/55547d36ae41fd457674a4d10926b9cd7d1ffce5))
+* **agent:** harden tool and reasoning loop handling ([#2048](https://github.com/jeong-sik/oas/issues/2048)) ([561f8b9](https://github.com/jeong-sik/oas/commit/561f8b95a2b6b8bc1621d78d2e174e816e87b5d9))
+* **agent:** serialize tool-name alias registry ([#2053](https://github.com/jeong-sik/oas/issues/2053)) ([9702758](https://github.com/jeong-sik/oas/commit/97027583e4940aa6b2f61b1d9bab5c50750603e8))
+* **agent:** serialize turn-budget history and idle-turn reads ([#2052](https://github.com/jeong-sik/oas/issues/2052)) ([dedc901](https://github.com/jeong-sik/oas/commit/dedc9015aa2e5204bbb6773ba77beb52b74808e7))
+* **async_agent:** make cancel_fn atomic to avoid race and stale switch closure ([88435f8](https://github.com/jeong-sik/oas/commit/88435f8bba1ecc30ed9d011d783d629fefc86f3b))
+* **content_replacement_state:** protect hashtbl pair with mutex ([ddabc61](https://github.com/jeong-sik/oas/commit/ddabc61501fb1fb08c7b900be01b9d8e27e42477))
+* **durable_event:** make journal append lock-free with Atomic.t pair ([45cfffd](https://github.com/jeong-sik/oas/commit/45cfffde8a7f16f37375997c358ac3a6d010ecca))
+* **durable_event:** propagate reserved append callback exceptions ([#2071](https://github.com/jeong-sik/oas/issues/2071)) ([66982d2](https://github.com/jeong-sik/oas/commit/66982d22df858b0f61fd1ecb52842bd6b4776cde))
+* **gemini:** serialize parallel-disable warning dedup table ([#2054](https://github.com/jeong-sik/oas/issues/2054)) ([0811ded](https://github.com/jeong-sik/oas/commit/0811ded725f8ab35a8feb67379bcb2b8795a4ec6))
+* **llm_provider:** make HTTP client tracked-transports list atomic ([#2060](https://github.com/jeong-sik/oas/issues/2060)) ([f2c89e8](https://github.com/jeong-sik/oas/commit/f2c89e84e513f1d857ca7684a672fcae8379d901))
+* **metrics:** use Eio.Mutex in Aggregating to avoid scheduler yield issue ([2212235](https://github.com/jeong-sik/oas/commit/2212235ccc5dd129abc6bd793662fb09094040bf))
+* **provider_registry:** protect entries hashtbl with mutex ([f3defdf](https://github.com/jeong-sik/oas/commit/f3defdf4809e976b31dce88fdd6619ed30f22110))
+* **reasoning:** preserve opaque thinking carriers for tool loops ([#2061](https://github.com/jeong-sik/oas/issues/2061)) ([d1d4e6e](https://github.com/jeong-sik/oas/commit/d1d4e6ebf482a723cfe9457312cbab8c2152d31c))
+* **streaming:** drive thinking-only cutoff from injected Eio clock ([#2056](https://github.com/jeong-sik/oas/issues/2056)) ([adaf147](https://github.com/jeong-sik/oas/commit/adaf147a5f7f3ff7ad4474ade0759d6e943a7c78))
+* **test:** format agent sdk alias assertion ([#2059](https://github.com/jeong-sik/oas/issues/2059)) ([cdcf6d5](https://github.com/jeong-sik/oas/commit/cdcf6d5ea0414b843fbc1b8f6bba51cba12d91fe))
+* **test:** green oas main — preserved redacted-thinking synthetic events + fmt drift ([#2065](https://github.com/jeong-sik/oas/issues/2065)) ([70c320f](https://github.com/jeong-sik/oas/commit/70c320f21630abc5f9433910fbeee0b704f993e0))
+
 ## [0.206.7](https://github.com/jeong-sik/oas/compare/v0.206.6...v0.206.7) (2026-06-12)
 
 
