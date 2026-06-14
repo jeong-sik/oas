@@ -149,18 +149,38 @@ type anthropic_thinking_control =
 
 let anthropic_thinking_control_of_id model_id =
   let id = String.lowercase_ascii (String.trim model_id) in
-  if
-    String.starts_with ~prefix:"claude-fable-5" id
-    || String.starts_with ~prefix:"claude-mythos-5" id
-    || String.starts_with ~prefix:"claude-mythos-preview" id
+  let has_prefix prefixes =
+    List.exists (fun prefix -> String.starts_with ~prefix id) prefixes
+  in
+  if has_prefix
+       [ "claude-fable-5"
+       ; "fable-5"
+       ; "agent_llm_a-fable-5"
+       ; "claude-mythos-5"
+       ; "mythos-5"
+       ; "agent_llm_a-mythos-5"
+       ; "claude-mythos-preview"
+       ; "mythos-preview"
+       ; "agent_llm_a-mythos-preview"
+       ]
   then Anthropic_always_adaptive
-  else if
-    String.starts_with ~prefix:"claude-opus-4-8" id
-    || String.starts_with ~prefix:"claude-opus-4-7" id
+  else if has_prefix
+            [ "claude-opus-4-8"
+            ; "opus-4-8"
+            ; "agent_llm_a-opus-4-8"
+            ; "claude-opus-4-7"
+            ; "opus-4-7"
+            ; "agent_llm_a-opus-4-7"
+            ]
   then Anthropic_adaptive_only
-  else if
-    String.starts_with ~prefix:"claude-opus-4-6" id
-    || String.starts_with ~prefix:"claude-sonnet-4-6" id
+  else if has_prefix
+            [ "claude-opus-4-6"
+            ; "opus-4-6"
+            ; "agent_llm_a-opus-4-6"
+            ; "claude-sonnet-4-6"
+            ; "sonnet-4-6"
+            ; "agent_llm_a-sonnet-4-6"
+            ]
   then Anthropic_adaptive_preferred
   else Anthropic_manual_budget
 ;;

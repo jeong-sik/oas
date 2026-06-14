@@ -521,6 +521,24 @@ let test_anthropic_opus48_uses_adaptive_effort () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
+let test_anthropic_agent_llm_alias_uses_adaptive_effort () =
+  let config =
+    anthropic_config
+      ~enable_thinking:true
+      ~thinking_budget:4096
+      "agent_llm_a-sonnet-4-6-20250514"
+  in
+  let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
+  check_member_absent "budget_tokens" thinking;
+  check
+    string
+    "effort"
+    "medium"
+    (json |> member "output_config" |> member "effort" |> to_string)
+;;
+
 let test_anthropic_sonnet46_defaults_to_adaptive () =
   let config = anthropic_config ~enable_thinking:true "claude-sonnet-4-6" in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -667,6 +685,10 @@ let () =
             "anthropic opus 4.8 uses adaptive effort"
             `Quick
             test_anthropic_opus48_uses_adaptive_effort
+        ; test_case
+            "anthropic agent_llm_a alias uses adaptive effort"
+            `Quick
+            test_anthropic_agent_llm_alias_uses_adaptive_effort
         ; test_case
             "anthropic sonnet 4.6 defaults to adaptive"
             `Quick

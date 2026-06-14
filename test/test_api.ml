@@ -146,10 +146,23 @@ let test_provider_c_message_to_json_tool_result_uses_text_blocks () =
 (* build_body_assoc                                                     *)
 (* ------------------------------------------------------------------ *)
 
-let make_state ?thinking_budget ?tool_choice ?enable_thinking ?preserve_thinking () =
+let make_state
+      ?(model = Types.default_config.model)
+      ?thinking_budget
+      ?tool_choice
+      ?enable_thinking
+      ?preserve_thinking
+      ?response_format
+      ()
+  =
+  let response_format =
+    Option.value response_format ~default:Types.default_config.response_format
+  in
   let config =
     { Types.default_config with
-      system_prompt = Some "You are helpful."
+      model
+    ; response_format
+    ; system_prompt = Some "You are helpful."
     ; thinking_budget
     ; tool_choice
     ; enable_thinking
@@ -157,6 +170,23 @@ let make_state ?thinking_budget ?tool_choice ?enable_thinking ?preserve_thinking
     }
   in
   { Types.config; messages = []; turn_count = 0; usage = Types.empty_usage }
+;;
+
+let make_manual_thinking_state ?thinking_budget ?enable_thinking () =
+  make_state
+    ~model:"agent_llm_a-opus-4-5"
+    ?thinking_budget
+    ?enable_thinking
+    ()
+;;
+
+let make_adaptive_thinking_state ?thinking_budget ?enable_thinking ?response_format () =
+  make_state
+    ~model:"agent_llm_a-sonnet-4-6"
+    ?thinking_budget
+    ?enable_thinking
+    ?response_format
+    ()
 ;;
 
 let test_build_body_basic () =
@@ -177,7 +207,9 @@ let test_build_body_with_thinking_budget () =
   (* Thinking is gated on [enable_thinking = Some true]; a budget
      without enable_thinking must NOT emit a thinking block.
      Matches backend_anthropic.build_request semantics. *)
-  let config = make_state ~enable_thinking:true ~thinking_budget:1024 () in
+  let config =
+    make_manual_thinking_state ~enable_thinking:true ~thinking_budget:1024 ()
+  in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
@@ -188,10 +220,10 @@ let test_build_body_with_thinking_budget () =
 
 let test_build_body_with_enable_thinking_default_budget () =
   (* enable_thinking = true without an explicit budget should still
-     emit a thinking block, using the 10_000-token default budget
-     that matches backend_anthropic. Regression for the old gate
+     emit a thinking block, using the provider default budget for
+     manual-budget Claude models. Regression for the old gate
      that required thinking_budget = Some _ to activate. *)
-  let config = make_state ~enable_thinking:true () in
+  let config = make_manual_thinking_state ~enable_thinking:true () in
   let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
   let json = `Assoc assoc in
   let open Yojson.Safe.Util in
@@ -199,9 +231,56 @@ let test_build_body_with_enable_thinking_default_budget () =
   check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
   check
     int
-    "default budget_tokens 10_000"
-    10_000
+    "default budget_tokens"
+    (Llm_provider.Constants.Thinking.provider_a_budget ())
     (thinking |> member "budget_tokens" |> to_int)
+;;
+
+let test_build_body_adaptive_thinking () =
+  let config =
+    make_adaptive_thinking_state ~enable_thinking:true ~thinking_budget:1024 ()
+  in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
+  check bool "budget_tokens omitted" true (thinking |> member "budget_tokens" = `Null);
+  check
+    string
+    "adaptive effort"
+    "low"
+    (json |> member "output_config" |> member "effort" |> to_string)
+;;
+
+let test_build_body_adaptive_output_config_merges_format_and_effort () =
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
+      ]
+  in
+  let config =
+    make_state
+      ~model:"agent_llm_a-opus-4-8"
+      ~enable_thinking:true
+      ~thinking_budget:50_000
+      ~response_format:(Types.JsonSchema schema)
+      ()
+  in
+  let assoc = Api.build_body_assoc ~config ~messages:[] ~stream:false () in
+  let json = `Assoc assoc in
+  let open Yojson.Safe.Util in
+  let thinking = json |> member "thinking" in
+  let output_config = json |> member "output_config" in
+  check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
+  check bool "budget_tokens omitted" true (thinking |> member "budget_tokens" = `Null);
+  check string "effort" "max" (output_config |> member "effort" |> to_string);
+  check
+    string
+    "format type"
+    "json_schema"
+    (output_config |> member "format" |> member "type" |> to_string)
 ;;
 
 let test_build_body_enable_thinking_false_drops_thinking () =
@@ -1667,6 +1746,14 @@ let () =
             "enable_thinking default budget"
             `Quick
             test_build_body_with_enable_thinking_default_budget
+        ; test_case
+            "adaptive thinking"
+            `Quick
+            test_build_body_adaptive_thinking
+        ; test_case
+            "adaptive output_config merges format and effort"
+            `Quick
+            test_build_body_adaptive_output_config_merges_format_and_effort
         ; test_case
             "enable_thinking false drops thinking"
             `Quick
