@@ -92,6 +92,31 @@ let test_provider_a_with_thinking () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
+let test_provider_a_disabled_thinking_omits_adaptive_effort () =
+  (* A turn hook may disable thinking while a thinking_budget is still set. The
+     adaptive effort must be gated on thinking being enabled, otherwise
+     output_config.effort leaks without an accompanying thinking block. *)
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~base_url:""
+      ~enable_thinking:false
+      ~thinking_budget:5000
+      ()
+  in
+  let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  Alcotest.(check bool) "thinking omitted" true (json |> member "thinking" = `Null);
+  (* With thinking disabled and no output schema, output_config carries no
+     fields, so the whole object is omitted rather than leaking a bare effort. *)
+  Alcotest.(check bool)
+    "output_config omitted (no leaked effort)"
+    true
+    (json |> member "output_config" = `Null)
+;;
+
 let test_provider_a_stream_flag () =
   let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
@@ -1060,6 +1085,10 @@ let () =
       , [ test_case "basic body" `Quick test_provider_a_basic_body
         ; test_case "with system" `Quick test_provider_a_with_system
         ; test_case "with thinking" `Quick test_provider_a_with_thinking
+        ; test_case
+            "disabled thinking omits adaptive effort"
+            `Quick
+            test_provider_a_disabled_thinking_omits_adaptive_effort
         ; test_case "with output schema" `Quick test_provider_a_output_schema
         ; test_case
             "with json schema response_format"
