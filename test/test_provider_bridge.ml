@@ -224,7 +224,7 @@ let test_zai_coding_auto_models_default_order () =
     Alcotest.(check (list string))
       "coding auto order"
       [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
-      (Llm_provider.Zai_catalog.provider_k_coding_auto_models ()))
+      (Llm_provider.Zai_catalog.zai_coding_auto_models ()))
 ;;
 
 let () =

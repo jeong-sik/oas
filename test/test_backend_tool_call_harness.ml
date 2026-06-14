@@ -6,7 +6,7 @@ let malformed_provider_d_response = `Assoc [ "choices", `String "not-a-list" ]
 
 let test_provider_d_parse_error_is_typed () =
   match
-    H.validate_provider_d_response
+    H.validate_openai_response
       ~declared_tools:[ "read_file" ]
       malformed_provider_d_response
   with
@@ -37,7 +37,7 @@ let test_provider_d_text_response_is_ok_empty_validation () =
             ] )
       ]
   in
-  match H.validate_provider_d_response ~declared_tools:[ "read_file" ] json with
+  match H.validate_openai_response ~declared_tools:[ "read_file" ] json with
   | Error err -> fail ("unexpected parse error: " ^ err.response_parse_error)
   | Ok result ->
     check bool "stop reason accepted" true result.stop_reason_correct;
@@ -270,7 +270,7 @@ let test_provider_convenience_validators_cover_tool_responses () =
       ]
   in
   let anthropic =
-    H.validate_provider_a_response ~declared_tools:[ "lookup" ] provider_a_json
+    H.validate_anthropic_response ~declared_tools:[ "lookup" ] provider_a_json
   in
   check bool "anthropic stop reason" true anthropic.stop_reason_correct;
   check bool "anthropic declared tool" true anthropic.all_tools_declared;
@@ -290,7 +290,7 @@ let test_provider_convenience_validators_cover_tool_responses () =
       }|}
   in
   let gemini =
-    H.validate_provider_f_response ~declared_tools:[ "lookup" ] provider_f_json
+    H.validate_gemini_response ~declared_tools:[ "lookup" ] provider_f_json
   in
   check bool "gemini stop reason" true gemini.stop_reason_correct;
   check bool "gemini declared tool" true gemini.all_tools_declared;

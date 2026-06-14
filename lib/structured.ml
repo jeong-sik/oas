@@ -308,7 +308,8 @@ let extract_with_retry
       let error_msg = Error.to_string e in
       (* Bounded re-prompt loop for structured-output validation failures. This
          is a standalone library helper with no agent loop guard, so [max_retries]
-         is its own backpressure (not the removed shared Tool_retry_policy). *)
+         is its own backpressure (the legacy tool-retry policy was removed in
+         favor of the agent loop guard). *)
       if n >= max_retries
       then Error e
       else (

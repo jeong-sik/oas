@@ -6,7 +6,7 @@ type api_mode =
 
 let general_base_url = "https://api.z.ai/api/paas/v4"
 let coding_base_url = "https://api.z.ai/api/coding/paas/v4"
-let provider_a_base_url = "https://api.z.ai/api/anthropic"
+let zai_anthropic_base_url = "https://api.z.ai/api/anthropic"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
@@ -56,9 +56,9 @@ let is_coding_base_url base_url =
     "/api/coding/paas/"
 ;;
 
-let is_provider_a_base_url base_url =
+let is_zai_anthropic_base_url base_url =
   zai_path_prefix_matches
-    (configured_base_urls [ provider_a_base_url ] None)
+    (configured_base_urls [ zai_anthropic_base_url ] None)
     base_url
     "/api/anthropic"
 ;;
@@ -69,24 +69,24 @@ let is_zai_base_url base_url =
     base_url
     "/api/paas/"
   || is_coding_base_url base_url
-  || is_provider_a_base_url base_url
+  || is_zai_anthropic_base_url base_url
 ;;
 
 let mode_of_base_url base_url =
-  if is_coding_base_url base_url || is_provider_a_base_url base_url
+  if is_coding_base_url base_url || is_zai_anthropic_base_url base_url
   then Coding_plan
   else General_api
 ;;
 
 let split_csv = Cli_common_env.split_on_char_trim ','
 
-let provider_k_auto_models () =
+let zai_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_AUTO_MODELS" with
   | Some models -> models
   | None -> [ "glm-5.1"; "glm-5-turbo"; "glm-4.7"; "glm-4.7-flashx" ]
 ;;
 
-let provider_k_coding_auto_models () =
+let zai_coding_auto_models () =
   match Cli_common_env.list ~sep:',' "ZAI_CODING_AUTO_MODELS" with
   | Some models -> models
   | None -> [ "glm-5.1"; "glm-5"; "glm-5-turbo"; "glm-4.7"; "glm-4.5-air" ]
@@ -176,17 +176,17 @@ let%test "is_glm_model_id accepts glm and bare glm prefixes" =
 let%test "base_url classifiers distinguish general coding and anthropic" =
   is_zai_base_url general_base_url
   && is_zai_base_url coding_base_url
-  && is_zai_base_url provider_a_base_url
+  && is_zai_base_url zai_anthropic_base_url
   && is_coding_base_url coding_base_url
   && (not (is_coding_base_url general_base_url))
-  && is_provider_a_base_url provider_a_base_url
-  && not (is_provider_a_base_url general_base_url)
+  && is_zai_anthropic_base_url zai_anthropic_base_url
+  && not (is_zai_anthropic_base_url general_base_url)
 ;;
 
 let%test "mode_of_base_url maps coding and anthropic to coding plan" =
   mode_of_base_url general_base_url = General_api
   && mode_of_base_url coding_base_url = Coding_plan
-  && mode_of_base_url provider_a_base_url = Coding_plan
+  && mode_of_base_url zai_anthropic_base_url = Coding_plan
 ;;
 
 let%test "resolve_glm_alias covers common aliases" =

@@ -71,17 +71,17 @@ val format_violations_feedback : tool_call_check -> string
 
 (** {1 Per-backend convenience} *)
 
-val validate_provider_a_response
+val validate_anthropic_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> validation_result
 
-val validate_provider_f_response
+val validate_gemini_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> validation_result
 
-val validate_provider_d_response
+val validate_openai_response
   :  declared_tools:string list
   -> Yojson.Safe.t
   -> (validation_result, response_parse_error) result
