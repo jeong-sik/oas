@@ -9,6 +9,12 @@ val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val provider_k_messages_of_message : Types.message -> Yojson.Safe.t list
+
+val dialect_messages_of_message
+  :  Reasoning_dialect.t
+  -> Types.message
+  -> Yojson.Safe.t list
+
 val ollama_messages_of_message : ?model_id:string -> Types.message -> Yojson.Safe.t list
 val tool_choice_to_provider_d_json : Types.tool_choice -> Yojson.Safe.t
 

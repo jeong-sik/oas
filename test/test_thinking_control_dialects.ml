@@ -8,6 +8,7 @@
 module PC = Llm_provider.Provider_config
 module BOR = Llm_provider.Backend_openai_request
 module BOL = Llm_provider.Backend_ollama
+module RD = Llm_provider.Reasoning_dialect
 open Alcotest
 open Llm_provider.Types
 open Yojson.Safe.Util
@@ -70,6 +71,52 @@ let test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs () =
   check_member_absent "enable_thinking" json
 ;;
 
+let test_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
+  let config =
+    openai_compat_config
+      ~enable_thinking:false
+      ~preserve_thinking:true
+      "Qwen/Qwen3.6-35B-A3B"
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "chat_template_kwargs"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check string "visibility" "visible_channel" (RD.visibility_to_string dialect.visibility);
+  check
+    string
+    "replay policy"
+    "preserve_always"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    bool
+    "no tool-call replay requirement"
+    false
+    (RD.requires_reasoning_replay_on_tool_call dialect);
+  check
+    (list string)
+    "no ignored sampling params"
+    []
+    (RD.sampling_params_ignored_when_thinking dialect)
+;;
+
+let test_qwen36_reasoning_dialect_without_preserve_drops_reasoning () =
+  let config =
+    openai_compat_config
+      ~enable_thinking:true
+      ~preserve_thinking:false
+      "Qwen/Qwen3.6-35B-A3B"
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "replay policy"
+    "no_replay"
+    (RD.replay_policy_to_string dialect.replay_policy)
+;;
+
 let test_qwen36_dashscope_uses_top_level_enable_thinking () =
   let config =
     PC.make
@@ -88,6 +135,28 @@ let test_qwen36_dashscope_uses_top_level_enable_thinking () =
   check_member_absent "chat_template_kwargs" json;
   check_member_absent "thinking" json;
   check_member_absent "reasoning_effort" json
+;;
+
+let test_openai_reasoning_dialect_uses_reasoning_effort () =
+  let dialect =
+    RD.of_capabilities Llm_provider.Capabilities.openai_compat_chat_extended_capabilities
+  in
+  check
+    string
+    "toggle wire"
+    "reasoning_effort"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "visibility"
+    "side_channel:reasoning"
+    (RD.visibility_to_string dialect.visibility);
+  check
+    string
+    "replay policy"
+    "no_replay"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check (option string) "preserve high" (Some "high") (RD.normalize_effort dialect "high")
 ;;
 
 let test_deepseek_openai_compat_uses_thinking_object () =
@@ -109,6 +178,153 @@ let test_deepseek_openai_compat_uses_thinking_object () =
   check_member_absent "reasoning_effort" json;
   check_member_absent "chat_template_kwargs" json;
   check_member_absent "think" json
+;;
+
+let test_deepseek_reasoning_dialect_semantics () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"deepseek-v4-pro"
+      ~base_url:"https://api.deepseek.com"
+      ~enable_thinking:true
+      ()
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "thinking_object"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "visibility"
+    "side_channel:reasoning_content"
+    (RD.visibility_to_string dialect.visibility);
+  check
+    string
+    "replay policy"
+    "drop_without_tool_preserve_with_tool"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    bool
+    "plain assistant reasoning may be dropped"
+    false
+    (RD.should_replay_reasoning dialect ~assistant_had_tool_call:false);
+  check
+    bool
+    "tool-call assistant reasoning must replay"
+    true
+    (RD.should_replay_reasoning dialect ~assistant_had_tool_call:true);
+  check
+    bool
+    "requires tool-call replay"
+    true
+    (RD.requires_reasoning_replay_on_tool_call dialect);
+  check (option string) "low maps high" (Some "high") (RD.normalize_effort dialect "low");
+  check
+    (option string)
+    "medium maps high"
+    (Some "high")
+    (RD.normalize_effort dialect "medium");
+  check
+    (option string)
+    "xhigh maps max"
+    (Some "max")
+    (RD.normalize_effort dialect "xhigh");
+  check
+    (list string)
+    "ignored sampling params"
+    [ "temperature"; "top_p"; "presence_penalty"; "frequency_penalty" ]
+    (RD.sampling_params_ignored_when_thinking dialect)
+;;
+
+let test_deepseek_sampling_suppressed_in_thinking_mode () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"deepseek-v4-flash"
+      ~base_url:"https://api.deepseek.com"
+      ~temperature:0.7
+      ~top_p:0.9
+      ()
+  in
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  check_member_absent "temperature" json;
+  check_member_absent "top_p" json
+;;
+
+let test_deepseek_disabled_thinking_keeps_sampling () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"deepseek-v4-flash"
+      ~base_url:"https://api.deepseek.com"
+      ~enable_thinking:false
+      ~temperature:0.7
+      ~top_p:0.9
+      ()
+  in
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  check (float 0.001) "temperature" 0.7 (json |> member "temperature" |> to_float);
+  check (float 0.001) "top_p" 0.9 (json |> member "top_p" |> to_float)
+;;
+
+let assistant_with_reasoning ?(tool = false) () =
+  let content =
+    if tool
+    then
+      [ Thinking { thinking_type = "reasoning"; content = "use calculator" }
+      ; ToolUse { id = "call_1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
+      ]
+    else
+      [ Thinking { thinking_type = "reasoning"; content = "plain thought" }
+      ; Text "answer"
+      ]
+  in
+  { role = Assistant; content; name = None; tool_call_id = None; metadata = [] }
+;;
+
+let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"deepseek-v4-flash"
+      ~base_url:"https://api.deepseek.com"
+      ()
+  in
+  let plain =
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+  in
+  let tool =
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning ~tool:true () ] ()
+    |> json_of_body
+  in
+  let plain_assistant = plain |> member "messages" |> index 0 in
+  let tool_assistant = tool |> member "messages" |> index 0 in
+  check_member_absent "reasoning_content" plain_assistant;
+  check
+    string
+    "tool reasoning_content"
+    "use calculator"
+    (tool_assistant |> member "reasoning_content" |> to_string)
+;;
+
+let test_qwen_preserve_replays_reasoning_content () =
+  let config =
+    openai_compat_config
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      "Qwen/Qwen3.6-35B-A3B"
+  in
+  let json =
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+  in
+  let assistant = json |> member "messages" |> index 0 in
+  check
+    string
+    "reasoning_content"
+    "plain thought"
+    (assistant |> member "reasoning_content" |> to_string)
 ;;
 
 let test_ollama_qwen_uses_native_think_bool () =
@@ -159,6 +375,78 @@ let test_ollama_gemma4_disabled_uses_native_think_false () =
     (first_message |> member "content" |> to_string)
 ;;
 
+let test_gemma4_reasoning_dialect_uses_template_parser () =
+  let config =
+    ollama_config
+      ~enable_thinking:true
+      "hf.co/unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL"
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "chat_template_token"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check string "visibility" "visible_channel" (RD.visibility_to_string dialect.visibility);
+  check
+    string
+    "replay policy"
+    "no_replay"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    bool
+    "no tool-call replay requirement"
+    false
+    (RD.requires_reasoning_replay_on_tool_call dialect);
+  check
+    (list string)
+    "no ignored sampling params"
+    []
+    (RD.sampling_params_ignored_when_thinking dialect)
+;;
+
+let test_anthropic_reasoning_dialect_preserves_thinking () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ()
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "anthropic_thinking"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "preserve_always"
+    (RD.replay_policy_to_string dialect.replay_policy)
+;;
+
+let test_gemini_reasoning_dialect_uses_thinking_config () =
+  let config =
+    PC.make
+      ~kind:Gemini
+      ~model_id:"gemini-2.5-flash"
+      ~base_url:"https://generativelanguage.googleapis.com/v1beta"
+      ()
+  in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "gemini_thinking_config"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "drop_without_tool_preserve_with_tool"
+    (RD.replay_policy_to_string dialect.replay_policy)
+;;
+
 let () =
   run
     "thinking_control_dialects"
@@ -172,13 +460,45 @@ let () =
             `Quick
             test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs
         ; test_case
+            "qwen3.6 reasoning dialect uses chat_template_kwargs"
+            `Quick
+            test_qwen36_reasoning_dialect_uses_chat_template_kwargs
+        ; test_case
+            "qwen3.6 reasoning dialect without preserve drops reasoning"
+            `Quick
+            test_qwen36_reasoning_dialect_without_preserve_drops_reasoning
+        ; test_case
             "qwen3.6 dashscope uses top-level enable_thinking"
             `Quick
             test_qwen36_dashscope_uses_top_level_enable_thinking
         ; test_case
+            "openai reasoning dialect uses reasoning_effort"
+            `Quick
+            test_openai_reasoning_dialect_uses_reasoning_effort
+        ; test_case
             "deepseek uses thinking object"
             `Quick
             test_deepseek_openai_compat_uses_thinking_object
+        ; test_case
+            "deepseek reasoning dialect semantics"
+            `Quick
+            test_deepseek_reasoning_dialect_semantics
+        ; test_case
+            "deepseek suppresses ignored sampling in thinking mode"
+            `Quick
+            test_deepseek_sampling_suppressed_in_thinking_mode
+        ; test_case
+            "deepseek disabled thinking keeps sampling"
+            `Quick
+            test_deepseek_disabled_thinking_keeps_sampling
+        ; test_case
+            "deepseek replays reasoning only for tool call turns"
+            `Quick
+            test_deepseek_replays_reasoning_only_for_tool_call_turns
+        ; test_case
+            "qwen preserve replays reasoning_content"
+            `Quick
+            test_qwen_preserve_replays_reasoning_content
         ] )
     ; ( "ollama"
       , [ test_case
@@ -193,6 +513,20 @@ let () =
             "gemma4 disabled uses native think false"
             `Quick
             test_ollama_gemma4_disabled_uses_native_think_false
+        ; test_case
+            "gemma4 reasoning dialect uses template parser"
+            `Quick
+            test_gemma4_reasoning_dialect_uses_template_parser
+        ] )
+    ; ( "native"
+      , [ test_case
+            "anthropic reasoning dialect preserves thinking"
+            `Quick
+            test_anthropic_reasoning_dialect_preserves_thinking
+        ; test_case
+            "gemini reasoning dialect uses thinking config"
+            `Quick
+            test_gemini_reasoning_dialect_uses_thinking_config
         ] )
     ]
 ;;

@@ -16,6 +16,8 @@ open Types
     a race is harmless and only happens once per key. *)
 let capability_drop_warned : (string * string, unit) Hashtbl.t = Hashtbl.create 16
 
+let dialect_ignored_warned : (string * string, unit) Hashtbl.t = Hashtbl.create 16
+
 let warn_capability_drop ~model_id ~field =
   let key = model_id, field in
   if not (Hashtbl.mem capability_drop_warned key)
@@ -30,6 +32,35 @@ let warn_capability_drop ~model_id ~field =
       field
       model_id
       field)
+;;
+
+let warn_dialect_ignored ~model_id ~field =
+  let key = model_id, field in
+  if not (Hashtbl.mem dialect_ignored_warned key)
+  then (
+    Hashtbl.replace dialect_ignored_warned key ();
+    Diag.warn
+      "backend_openai"
+      "dropping request field %s for model %s: the selected reasoning dialect ignores \
+       this sampling parameter while thinking is enabled."
+      field
+      model_id)
+;;
+
+let thinking_enabled_for_dialect (config : Provider_config.t) =
+  match config.enable_thinking with
+  | Some false -> false
+  | Some true | None -> true
+;;
+
+let add_sampling_field dialect config field value body =
+  if
+    thinking_enabled_for_dialect config
+    && List.mem field (Reasoning_dialect.sampling_params_ignored_when_thinking dialect)
+  then (
+    warn_dialect_ignored ~model_id:config.model_id ~field;
+    body)
+  else (field, value) :: body
 ;;
 
 (* ── Request building ──────────────────────────────────── *)
@@ -101,7 +132,7 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.Gemini -> Capabilities.gemini_capabilities
         | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
         | Provider_config.OpenAI_compat -> Capabilities.default_capabilities
-        | Provider_config.DashScope -> assert false))
+        | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 
 let bool_field name = function
@@ -141,19 +172,18 @@ let build_request
   let sanitized_messages =
     Backend_openai_serialize.close_tool_message_pairs_for_request messages
   in
-  let is_deepseek_model model_id = String.starts_with ~prefix:"deepseek" model_id in
+  let dialect = Reasoning_dialect.for_provider_config config in
   let provider_messages =
     let message_serializer =
       match config.kind with
       | Provider_config.Glm -> Backend_openai_serialize.provider_k_messages_of_message
-      | Provider_config.OpenAI_compat when is_deepseek_model config.model_id ->
-        Backend_openai_serialize.provider_k_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat
       | Provider_config.Ollama
       | Provider_config.DashScope
-      | Provider_config.Gemini -> Backend_openai_serialize.openai_messages_of_message
+      | Provider_config.Gemini ->
+        Backend_openai_serialize.dialect_messages_of_message dialect
     in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -198,12 +228,12 @@ let build_request
   in
   let body =
     match config.temperature with
-    | Some t -> ("temperature", `Float t) :: body
+    | Some t -> add_sampling_field dialect config "temperature" (`Float t) body
     | None -> body
   in
   let body =
     match config.top_p with
-    | Some p -> ("top_p", `Float p) :: body
+    | Some p -> add_sampling_field dialect config "top_p" (`Float p) body
     | None -> body
   in
   (* Silent drops of user-supplied sampling params are a debugging
@@ -256,7 +286,10 @@ let build_request
            ~enable_thinking:config.enable_thinking
            ~thinking_budget:config.thinking_budget
        with
-       | Some effort -> ("reasoning_effort", `String effort) :: body
+       | Some effort ->
+         (match Reasoning_dialect.normalize_effort dialect effort with
+          | Some normalized -> ("reasoning_effort", `String normalized) :: body
+          | None -> body)
        | None -> body)
     | Thinking_object ->
       (match config.enable_thinking with
@@ -267,7 +300,10 @@ let build_request
                ~enable_thinking:config.enable_thinking
                ~thinking_budget:config.thinking_budget
            with
-           | Some effort -> ("reasoning_effort", `String effort) :: body
+           | Some effort ->
+             (match Reasoning_dialect.normalize_effort dialect effort with
+              | Some normalized -> ("reasoning_effort", `String normalized) :: body
+              | None -> body)
            | None -> body
          in
          ("thinking", `Assoc [ "type", `String "enabled" ]) :: body
