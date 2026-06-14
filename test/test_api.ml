@@ -173,11 +173,7 @@ let make_state
 ;;
 
 let make_manual_thinking_state ?thinking_budget ?enable_thinking () =
-  make_state
-    ~model:"agent_llm_a-opus-4-5"
-    ?thinking_budget
-    ?enable_thinking
-    ()
+  make_state ~model:"agent_llm_a-opus-4-5" ?thinking_budget ?enable_thinking ()
 ;;
 
 let make_adaptive_thinking_state ?thinking_budget ?enable_thinking ?response_format () =
@@ -1746,10 +1742,7 @@ let () =
             "enable_thinking default budget"
             `Quick
             test_build_body_with_enable_thinking_default_budget
-        ; test_case
-            "adaptive thinking"
-            `Quick
-            test_build_body_adaptive_thinking
+        ; test_case "adaptive thinking" `Quick test_build_body_adaptive_thinking
         ; test_case
             "adaptive output_config merges format and effort"
             `Quick

@@ -29,7 +29,8 @@ let provider_f_config
     ~max_tokens:4096
     ~temperature:0.7
     ?enable_thinking
-    ?thinking_budget:(if thinking || Option.is_some enable_thinking then Some budget else None)
+    ?thinking_budget:
+      (if thinking || Option.is_some enable_thinking then Some budget else None)
     ~response_format_json:json_mode
     ?output_schema
     ?system_prompt:(if system = "" then None else Some system)
@@ -120,11 +121,7 @@ let test_thinking_disabled_uses_budget_zero () =
 
 let test_gemini3_uses_thinking_level () =
   let config =
-    provider_f_config
-      ~model_id:"gemini-3.5-flash"
-      ~enable_thinking:true
-      ~budget:1024
-      ()
+    provider_f_config ~model_id:"gemini-3.5-flash" ~enable_thinking:true ~budget:1024 ()
   in
   let body =
     Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Think." ] ()
@@ -136,24 +133,16 @@ let test_gemini3_uses_thinking_level () =
 ;;
 
 let test_gemini3_disable_uses_minimal_level () =
-  let config =
-    provider_f_config ~model_id:"gemini-3-flash" ~enable_thinking:false ()
-  in
-  let body =
-    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] ()
-  in
+  let config = provider_f_config ~model_id:"gemini-3-flash" ~enable_thinking:false () in
+  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
   check string "thinkingLevel" "minimal" (tc |> member "thinkingLevel" |> to_string);
   check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
 ;;
 
 let test_gemini31_pro_disable_uses_low_level () =
-  let config =
-    provider_f_config ~model_id:"gemini-3.1-pro" ~enable_thinking:false ()
-  in
-  let body =
-    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] ()
-  in
+  let config = provider_f_config ~model_id:"gemini-3.1-pro" ~enable_thinking:false () in
+  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
   check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string)
 ;;
