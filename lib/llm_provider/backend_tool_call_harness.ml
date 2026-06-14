@@ -331,15 +331,15 @@ let format_violations_feedback (tc : tool_call_check) : string =
     (String.concat "\n" violation_lines)
 ;;
 
-let validate_provider_a_response ~declared_tools json =
+let validate_anthropic_response ~declared_tools json =
   validate_response ~declared_tools (Backend_anthropic.parse_response json)
 ;;
 
-let validate_provider_f_response ~declared_tools json =
+let validate_gemini_response ~declared_tools json =
   validate_response ~declared_tools (Backend_gemini.parse_response json)
 ;;
 
-let validate_provider_d_response ~declared_tools json =
+let validate_openai_response ~declared_tools json =
   let json_str = Yojson.Safe.to_string json in
   let parsed =
     try Backend_openai_parse.parse_openai_response_result json_str with
@@ -377,7 +377,7 @@ let%test "anthropic tool_use response validates correctly" =
             ] )
       ]
   in
-  let result = validate_provider_a_response ~declared_tools:[ "get_weather" ] json in
+  let result = validate_anthropic_response ~declared_tools:[ "get_weather" ] json in
   result.stop_reason_correct
   && result.all_tools_declared
   && List.length result.tool_calls_found = 1
@@ -408,7 +408,7 @@ let%test "anthropic undeclared tool fails validation" =
             ] )
       ]
   in
-  let result = validate_provider_a_response ~declared_tools:[ "get_weather" ] json in
+  let result = validate_anthropic_response ~declared_tools:[ "get_weather" ] json in
   result.stop_reason_correct && not result.all_tools_declared
 ;;
 
@@ -436,7 +436,7 @@ let%test "gemini functionCall response validates correctly" =
             ] )
       ]
   in
-  let result = validate_provider_f_response ~declared_tools:[ "search" ] json in
+  let result = validate_gemini_response ~declared_tools:[ "search" ] json in
   result.stop_reason_correct
   && result.all_tools_declared
   && List.length result.tool_calls_found = 1
@@ -478,7 +478,7 @@ let%test "openai tool_calls response validates correctly" =
             ] )
       ]
   in
-  match validate_provider_d_response ~declared_tools:[ "read_file" ] json with
+  match validate_openai_response ~declared_tools:[ "read_file" ] json with
   | Error _ -> false
   | Ok result ->
     result.stop_reason_correct
@@ -511,7 +511,7 @@ let%test "wrong stop_reason for tool calls fails validation" =
             ] )
       ]
   in
-  let result = validate_provider_a_response ~declared_tools:[ "test" ] json in
+  let result = validate_anthropic_response ~declared_tools:[ "test" ] json in
   not result.stop_reason_correct
 ;;
 
@@ -531,6 +531,6 @@ let%test "text-only response passes validation" =
             ] )
       ]
   in
-  let result = validate_provider_a_response ~declared_tools:[] json in
+  let result = validate_anthropic_response ~declared_tools:[] json in
   result.stop_reason_correct && result.all_tools_declared && result.tool_calls_found = []
 ;;

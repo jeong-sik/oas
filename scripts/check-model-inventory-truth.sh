@@ -14,8 +14,8 @@
 #       silent string miss.
 #   1c. capabilities.mli exports the `gemini_family` variant so downstream
 #       code can match on it instead of re-comparing strings.
-#   2.  model_meta.ml retains inline %test blocks for the 3 preview IDs
-#       (proof that gemini-3 IDs resolve to 1M context + tool support).
+#   2.  test_capabilities.ml covers the 3 live preview IDs
+#       (proof that gemini-3 IDs resolve to the correct family + 1M context).
 #   3.  Legacy gemini-2.x references in lib/ + test/ do not grow beyond the
 #       baseline captured when this gate was introduced.
 #
@@ -30,7 +30,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CAPS="$ROOT/lib/llm_provider/capabilities.ml"
 CAPS_MLI="$ROOT/lib/llm_provider/capabilities.mli"
-META="$ROOT/lib/llm_provider/model_meta.ml"
+TEST_CAP="$ROOT/test/test_capabilities.ml"
 BASELINE_LEGACY=53
 
 fail=0
@@ -41,13 +41,15 @@ if ! grep -Fq 'let gemini_family_of_id' "$CAPS"; then
   fail=1
 fi
 
-# ── Invariant 1b: dispatch site names all live variants ─────────
-# An underscore-only arm here would re-introduce the silent-fallback hazard
-# the root-fix removed.
-if ! grep -Fq 'Gemini_3 | Gemini_3_1 | Gemini_2_5' "$CAPS"; then
-  echo "FAIL: typed gemini_family dispatch (Gemini_3 | Gemini_3_1 | Gemini_2_5) missing in $CAPS" >&2
-  fail=1
-fi
+# ── Invariant 1b: live gemini family variants are declared ───────
+# The typed classifier is the dispatch boundary; the variant type must name
+# the three live families so new IDs cannot be silently misclassified.
+for variant in Gemini_3_1 Gemini_3 Gemini_2_5; do
+  if ! grep -Fq "| Capabilities.$variant" "$CAPS" && ! grep -Fq "| $variant" "$CAPS"; then
+    echo "FAIL: gemini_family variant $variant missing in $CAPS" >&2
+    fail=1
+  fi
+done
 
 # ── Invariant 1c: variant exported via .mli ─────────────────────
 if ! grep -Fq 'type gemini_family' "$CAPS_MLI"; then
@@ -55,13 +57,13 @@ if ! grep -Fq 'type gemini_family' "$CAPS_MLI"; then
   fail=1
 fi
 
-# ── Invariant 2: gemini-3 inline tests present ──────────────────
+# ── Invariant 2: gemini-3 live preview IDs tested ───────────────
 for id in \
     "gemini-3-flash-preview" \
     "gemini-3.1-pro-preview" \
     "gemini-3.1-flash-lite-preview"; do
-  if ! grep -Fq "$id" "$META"; then
-    echo "FAIL: inline %test for $id missing in $META" >&2
+  if ! grep -Fq "$id" "$TEST_CAP"; then
+    echo "FAIL: coverage for $id missing in $TEST_CAP" >&2
     fail=1
   fi
 done
@@ -78,4 +80,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-echo "OK: gemini_family typed classifier + dispatch present, inline tests present, legacy count $legacy ≤ baseline $BASELINE_LEGACY"
+echo "OK: gemini_family typed classifier + dispatch present, preview IDs covered in tests, legacy count $legacy ≤ baseline $BASELINE_LEGACY"

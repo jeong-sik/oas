@@ -173,6 +173,14 @@ let test_gemini_family_3_1 () =
     (Capabilities.gemini_family_of_id "gemini-3.1-pro-preview")
 ;;
 
+let test_gemini_family_3_1_flash_lite () =
+  check
+    gemini_family_testable
+    "gemini-3.1-flash-lite-preview classifies as Gemini_3_1"
+    Capabilities.Gemini_3_1
+    (Capabilities.gemini_family_of_id "gemini-3.1-flash-lite-preview")
+;;
+
 let test_gemini_family_3 () =
   check
     gemini_family_testable
@@ -860,6 +868,10 @@ let () =
         ; test_case "model-d-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
         ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
+        ; test_case
+            "gemini_family Gemini_3_1 flash-lite"
+            `Quick
+            test_gemini_family_3_1_flash_lite
         ; test_case "gemini_family Gemini_3" `Quick test_gemini_family_3
         ; test_case "gemini_family Gemini_2_5" `Quick test_gemini_family_2_5
         ; test_case

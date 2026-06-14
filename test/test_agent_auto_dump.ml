@@ -23,7 +23,8 @@ let test_save_journal_writes_jsonl () =
        let agent =
          Builder.create ~net ~model:"test"
          |> Builder.with_journal journal
-         |> Builder.build
+         |> Builder.build_safe
+         |> Result.get_ok
        in
        match Agent.save_journal agent path with
        | Error e -> fail (Printf.sprintf "save_journal failed: %s" e)
@@ -37,7 +38,7 @@ let test_save_journal_no_journal_returns_error () =
   Eio_main.run
   @@ fun env ->
   let net = Eio.Stdenv.net env in
-  let agent = Builder.create ~net ~model:"test" |> Builder.build in
+  let agent = Builder.create ~net ~model:"test" |> Builder.build_safe |> Result.get_ok in
   match Agent.save_journal agent "/tmp/should-never-exist" with
   | Ok () -> fail "expected Error when agent has no journal"
   | Error msg -> check string "error message" "no journal" msg
@@ -56,7 +57,8 @@ let test_auto_dump_installs_callback () =
        let agent =
          Builder.create ~net ~model:"test"
          |> Builder.with_auto_dump_journal ~path
-         |> Builder.build
+         |> Builder.build_safe
+         |> Result.get_ok
        in
        let opts = Agent.options agent in
        check bool "journal attached" true (Option.is_some opts.journal);

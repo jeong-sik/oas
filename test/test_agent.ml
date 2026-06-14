@@ -385,7 +385,8 @@ let () =
             let agent =
               Builder.create ~net ~model:"test"
               |> Builder.with_exit_condition pred
-              |> Builder.build
+              |> Builder.build_safe
+              |> Result.get_ok
             in
             match (Agent.state agent).config.exit_condition with
             | Some f ->

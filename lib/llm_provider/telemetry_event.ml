@@ -50,12 +50,6 @@ type t =
       ; ttfrc_ms : float
       ; requested_at : float
       }
-  | Streaming_chunk_n of
-      { provider : string
-      ; model : string
-      ; chunk_index : int
-      ; inter_chunk_ms : float
-      }
   | Streaming_summary of
       { provider : string
       ; model : string
@@ -103,7 +97,6 @@ type t =
 
 let event_type_name = function
   | Streaming_first_chunk _ -> "streaming_first_chunk"
-  | Streaming_chunk_n _ -> "streaming_chunk_n"
   | Streaming_summary _ -> "streaming_summary"
   | Thinking_complete _ -> "thinking_complete"
   | Timeout _ -> "timeout"

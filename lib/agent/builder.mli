@@ -350,10 +350,6 @@ val with_auto_dump_journal : path:string -> t -> t
 
 (** {2 Build} *)
 
-(** Build the agent. May raise on invalid config.
-    @deprecated Use {!build_safe} for validated construction. *)
-val build : t -> Agent.t
-
 (** Build with validation. Returns [Error] for invalid config
     (e.g. max_turns <= 0, thinking_budget without enable_thinking). *)
 val build_safe : t -> (Agent.t, Error.sdk_error) result

@@ -274,7 +274,8 @@ let test_builder_wires_to_before_turn_params () =
     Builder.create ~net ~model:"test-model"
     |> Builder.with_max_turns 10
     |> Builder.with_progressive_tools strategy
-    |> Builder.build
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let hooks = (Agent.options agent).hooks in
   (* before_turn_params must be Some — that's where disclosure lives *)
@@ -312,7 +313,8 @@ let test_builder_does_not_pollute_pre_tool_use () =
     Builder.create ~net ~model:"test-model"
     |> Builder.with_max_turns 10
     |> Builder.with_progressive_tools strategy
-    |> Builder.build
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let hooks = (Agent.options agent).hooks in
   check_bool "pre_tool_use is None" true (Option.is_none hooks.pre_tool_use)
@@ -337,7 +339,8 @@ let test_builder_composes_with_existing_btp () =
     |> Builder.with_max_turns 10
     |> Builder.with_hooks { Hooks.empty with before_turn_params = Some existing_btp }
     |> Builder.with_progressive_tools strategy
-    |> Builder.build
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let hooks = (Agent.options agent).hooks in
   let btp_hook = Option.get hooks.before_turn_params in

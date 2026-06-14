@@ -40,24 +40,6 @@ let test_streaming_first_chunk () =
   | _ -> fail "variant mismatch"
 ;;
 
-let test_streaming_chunk_n () =
-  let ev =
-    Telemetry_event.Streaming_chunk_n
-      { provider = "anthropic"
-      ; model = "agent_llm_a-3"
-      ; chunk_index = 5
-      ; inter_chunk_ms = 42.0
-      }
-  in
-  match roundtrip ev with
-  | Telemetry_event.Streaming_chunk_n r ->
-    check string "provider" "anthropic" r.provider;
-    check string "model" "agent_llm_a-3" r.model;
-    check int "chunk_index" 5 r.chunk_index;
-    check_float "inter_chunk_ms" 42.0 r.inter_chunk_ms
-  | _ -> fail "variant mismatch"
-;;
-
 let test_streaming_summary () =
   let ev =
     Telemetry_event.Streaming_summary
@@ -198,9 +180,6 @@ let test_event_type_name () =
     [ ( Streaming_first_chunk
           { provider = ""; model = ""; ttfrc_ms = 0.0; requested_at = 0.0 }
       , "streaming_first_chunk" )
-    ; ( Streaming_chunk_n
-          { provider = ""; model = ""; chunk_index = 0; inter_chunk_ms = 0.0 }
-      , "streaming_chunk_n" )
     ; ( Streaming_summary
           { provider = ""
           ; model = ""
@@ -294,7 +273,6 @@ let () =
     "Telemetry_event"
     [ ( "serialization"
       , [ test_case "Streaming_first_chunk roundtrip" `Quick test_streaming_first_chunk
-        ; test_case "Streaming_chunk_n roundtrip" `Quick test_streaming_chunk_n
         ; test_case "Streaming_summary roundtrip" `Quick test_streaming_summary
         ; test_case "Thinking_complete roundtrip" `Quick test_thinking_complete
         ; test_case "Timeout No_response roundtrip" `Quick test_timeout_no_response

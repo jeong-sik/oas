@@ -37,12 +37,6 @@ type t =
       ; ttfrc_ms : float
       ; requested_at : float
       }
-  | Streaming_chunk_n of
-      { provider : string
-      ; model : string
-      ; chunk_index : int
-      ; inter_chunk_ms : float
-      }
   | Streaming_summary of
       { provider : string
       ; model : string

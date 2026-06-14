@@ -426,7 +426,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               shared loop guard (max_turns + idle detection + token budget), the real
               backpressure. (origin/main reached the same "tool failure is never
               turn-fatal" outcome by neutering the Exhausted branch; this removes the
-              Tool_retry_policy mechanism entirely, which subsumes that change.) *)
+              legacy tool-retry mechanism entirely, which subsumes that change.) *)
            let tool_feedback = tool_results in
            let followup_text =
              match !pending_nudge with

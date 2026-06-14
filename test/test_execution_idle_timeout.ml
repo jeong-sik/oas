@@ -53,7 +53,8 @@ let test_builder_setter () =
   let agent =
     Builder.create ~net ~model:"test-model"
     |> Builder.with_execution_idle_timeout 90.0
-    |> Builder.build
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   Alcotest.(check (option (float 0.001)))
     "builder threads execution_idle_timeout_s into options"

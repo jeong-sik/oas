@@ -21,13 +21,6 @@ let registry : entry list =
     ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "TTFT (time to first chunk) measured at first SSE parse"
     }
-  ; { signal = "Streaming_chunk_n"
-    ; producer_files = []
-    ; description =
-        "Inter-chunk latency for streaming deltas (deprecated by RFC-OAS-019 Phase 1; \
-         public telemetry publish removed; variant retained one release window for \
-         downstream consumer migration, then removed)"
-    }
   ; { signal = "Streaming_summary"
     ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description =

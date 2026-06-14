@@ -88,7 +88,8 @@ let test_builder_initial_messages () =
   let agent =
     Builder.create ~net:env#net ~model:"agent_llm_a-sonnet-4-6"
     |> Builder.with_initial_messages history
-    |> Builder.build
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let st = Agent.state agent in
   check int "config has 2 initial messages" 2 (List.length st.config.initial_messages);

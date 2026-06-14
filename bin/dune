@@ -1,2 +1,0 @@
-;; CLI Runtime binaries removed — OAS is now in-process library only.
-;; bin/ directory retained for potential future tooling.
