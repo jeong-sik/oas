@@ -22,24 +22,31 @@ exception Gemini_api_error of string
 let parallel_disable_warned : string list Atomic.t = Atomic.make []
 
 let warn_parallel_disable_unsupported ~model_id =
-  let warned = Atomic.get parallel_disable_warned in
-  if not (List.mem model_id warned)
-  then (
-    let rec mark () =
-      let old = Atomic.get parallel_disable_warned in
-      if List.mem model_id old
-      then ()
-      else if Atomic.compare_and_set parallel_disable_warned old (model_id :: old)
-      then
-        Diag.warn
-          "backend_gemini"
-          "disable_parallel_tool_use requested for model %s but the Gemini API has no \
-           parallel-disable option (functionCallingConfig supports only mode and \
-           allowedFunctionNames); ignoring."
-          model_id
-      else mark ()
-    in
-    mark ())
+  (* Record that we have warned under the atomic CAS first; emit the diagnostic
+     afterwards so a raising sink cannot retry/poison the warning state. *)
+  let should_warn =
+    let warned = Atomic.get parallel_disable_warned in
+    if List.mem model_id warned
+    then false
+    else (
+      let rec mark () =
+        let old = Atomic.get parallel_disable_warned in
+        if List.mem model_id old
+        then false
+        else if Atomic.compare_and_set parallel_disable_warned old (model_id :: old)
+        then true
+        else mark ()
+      in
+      mark ())
+  in
+  if should_warn
+  then
+    Diag.warn
+      "backend_gemini"
+      "disable_parallel_tool_use requested for model %s but the Gemini API has no \
+       parallel-disable option (functionCallingConfig supports only mode and \
+       allowedFunctionNames); ignoring."
+      model_id
 ;;
 
 let provider_f_role_of_oas = function
