@@ -17,13 +17,23 @@ type entry =
   ; is_available : unit -> bool
   }
 
-type t = { entries : (string, entry) Hashtbl.t }
+type t =
+  { mu : Mutex.t
+  ; entries : (string, entry) Hashtbl.t
+  }
 
-let create () = { entries = Hashtbl.create 8 }
-let register t entry = Hashtbl.replace t.entries entry.name entry
-let unregister t name = Hashtbl.remove t.entries name
-let find t name = Hashtbl.find_opt t.entries name
-let all t = Hashtbl.fold (fun _k v acc -> v :: acc) t.entries []
+let create () = { mu = Mutex.create (); entries = Hashtbl.create 8 }
+
+let with_lock t f =
+  Mutex.lock t.mu;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+;;
+
+let register' t entry = Hashtbl.replace t.entries entry.name entry
+let register t entry = with_lock t (fun () -> register' t entry)
+let unregister t name = with_lock t (fun () -> Hashtbl.remove t.entries name)
+let find t name = with_lock t (fun () -> Hashtbl.find_opt t.entries name)
+let all t = with_lock t (fun () -> Hashtbl.fold (fun _k v acc -> v :: acc) t.entries [])
 let available t = all t |> List.filter (fun e -> e.is_available ())
 let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 
@@ -101,40 +111,42 @@ let catalog_entry_available entry =
 ;;
 
 let register_catalog_entry t (entry : Provider_catalog.entry) =
-  let max_context =
-    match entry.max_context, entry.capabilities.Capabilities.max_context_tokens with
-    | Some n, _ when n > 0 -> n
-    | _, Some n when n > 0 -> n
-    | _ -> 128_000
-  in
-  let defaults : provider_defaults =
-    { kind = entry.kind
-    ; base_url = entry.base_url
-    ; api_key_env = entry.api_key_env
-    ; request_path = entry.request_path
-    }
-  in
-  let register_name ~origin name =
-    let normalized = String.lowercase_ascii (String.trim name) in
-    if normalized = ""
-    then
-      Diag.warn
-        "provider_registry"
-        "ignoring empty %s for provider %S in catalog overlay"
-        origin
-        entry.id
-    else
-      register
-        t
-        { name = normalized
-        ; defaults
-        ; max_context
-        ; capabilities = entry.capabilities
-        ; is_available = (fun () -> catalog_entry_available entry)
-        }
-  in
-  register_name ~origin:"id" entry.id;
-  List.iter (register_name ~origin:"alias") entry.aliases
+  with_lock t (fun () ->
+    let max_context =
+      match entry.max_context, entry.capabilities.Capabilities.max_context_tokens with
+      | Some n, _ when n > 0 -> n
+      | _, Some n when n > 0 -> n
+      | _ -> 128_000
+    in
+    let defaults : provider_defaults =
+      { kind = entry.kind
+      ; base_url = entry.base_url
+      ; api_key_env = entry.api_key_env
+      ; request_path = entry.request_path
+      }
+    in
+    let register_name ~origin name =
+      let normalized = String.lowercase_ascii (String.trim name) in
+      if normalized = ""
+      then
+        Diag.warn
+          "provider_registry"
+          "ignoring empty %s for provider %S in catalog overlay"
+          origin
+          entry.id
+      else
+        Hashtbl.replace
+          t.entries
+          normalized
+          { name = normalized
+          ; defaults
+          ; max_context
+          ; capabilities = entry.capabilities
+          ; is_available = (fun () -> catalog_entry_available entry)
+          }
+    in
+    register_name ~origin:"id" entry.id;
+    List.iter (register_name ~origin:"alias") entry.aliases)
 ;;
 
 let overlay_provider_catalog t =
