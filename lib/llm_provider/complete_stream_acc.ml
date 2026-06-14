@@ -160,11 +160,18 @@ let finalize_stream_acc (acc : stream_acc) =
                | Some s -> s
                | None -> ""
              in
-             let input =
-               try Yojson.Safe.from_string text with
-               | Yojson.Json_error _ -> `Assoc []
-             in
-             Some (Types.ToolUse { id; name; input })
+             (* A non-empty argument buffer that does not parse as JSON is a
+                truncated/corrupt tool call (e.g. a stream cut off mid-arguments
+                under MaxTokens). Substituting empty input would fabricate an
+                executable call from garbage, so drop the block instead. An empty
+                buffer is a legitimate no-argument call and keeps empty input.
+                Codex P2, #2073 streaming follow-up. *)
+             (match String.trim text with
+              | "" -> Some (Types.ToolUse { id; name; input = `Assoc [] })
+              | trimmed ->
+                (match Yojson.Safe.from_string trimmed with
+                 | input -> Some (Types.ToolUse { id; name; input })
+                 | exception Yojson.Json_error _ -> None))
            | Some "tool_result" | Some "tool_result_error" ->
              let tool_use_id =
                match Hashtbl.find_opt acc.block_tool_ids idx with
@@ -587,12 +594,28 @@ let%test "finalize_stream_acc unknown block type filtered out" =
   | Ok result -> result.content = []
 ;;
 
-let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
+let%test "finalize_stream_acc drops tool_use with truncated (non-empty unparseable) args" =
+  (* A non-empty argument buffer that fails to parse is a truncated tool call;
+     it must be dropped rather than fabricated as an empty-input ToolUse. #2073. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   let buf = Buffer.create 16 in
-  Buffer.add_string buf "not valid json";
+  Buffer.add_string buf "{\"city\":\"Par";
   Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error _ -> false
+  | Ok result -> result.content = []
+;;
+
+let%test "finalize_stream_acc keeps no-argument tool_use (empty buffer)" =
+  (* An empty argument buffer is a legitimate no-argument call, kept as `Assoc []. *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "no_args";
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc
@@ -600,7 +623,7 @@ let%test "finalize_stream_acc tool_use with invalid json falls back to empty ass
   | Error _ -> false
   | Ok result ->
     (match result.content with
-     | [ Types.ToolUse { input = `Assoc []; _ } ] -> true
+     | [ Types.ToolUse { id = "tool-id-1"; name = "no_args"; input = `Assoc [] } ] -> true
      | _ -> false)
 ;;
 
