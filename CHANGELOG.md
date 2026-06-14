@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.12](https://github.com/jeong-sik/oas/compare/v0.206.11...v0.206.12) (2026-06-14)
+
+
+### Bug Fixes
+
+* **anthropic:** gate adaptive effort on thinking being enabled (Codex P2 on [#2082](https://github.com/jeong-sik/oas/issues/2082)) ([#2087](https://github.com/jeong-sik/oas/issues/2087)) ([2737c0a](https://github.com/jeong-sik/oas/commit/2737c0adf857fd695b6f6dffd9f0873301252c57))
+* restore green main — SDK-independence ([#2080](https://github.com/jeong-sik/oas/issues/2080) doc+mli) + ocamlformat ([#2082](https://github.com/jeong-sik/oas/issues/2082) drift) ([#2084](https://github.com/jeong-sik/oas/issues/2084)) ([c10704e](https://github.com/jeong-sik/oas/commit/c10704e2f8ce271696eb0230da5bd283df63d477))
+
 ## [0.206.11](https://github.com/jeong-sik/oas/compare/v0.206.10...v0.206.11) (2026-06-14)
 
 
