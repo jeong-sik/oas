@@ -78,13 +78,19 @@ let create ?on_append () = { state = Atomic.make ([], 0); on_append }
 
 let append journal event =
   let rec loop () =
-    let old_entries, old_size = Atomic.get journal.state in
+    let old_state = Atomic.get journal.state in
+    let old_entries, old_size = old_state in
     let new_state = event :: old_entries, old_size + 1 in
-    if Atomic.compare_and_set journal.state (old_entries, old_size) new_state
-    then Option.iter (fun f -> f event) journal.on_append
-    else loop ()
+    if not (Atomic.compare_and_set journal.state old_state new_state) then loop ()
   in
-  loop ()
+  loop ();
+  (* Fan-out callbacks must not be able to poison durable state. If a sink
+     raises, the event is already recorded; ignore the projection failure. *)
+  Option.iter
+    (fun f ->
+       try f event with
+       | _ -> ())
+    journal.on_append
 ;;
 
 let events journal =
