@@ -232,6 +232,19 @@ let provider_k_messages_of_message msg =
     msg
 ;;
 
+let dialect_messages_of_message dialect (msg : Types.message) =
+  let tool_calls = tool_calls_to_openai_json msg.content in
+  let include_reasoning_content =
+    Reasoning_dialect.should_replay_reasoning
+      dialect
+      ~assistant_had_tool_call:(tool_calls <> [])
+  in
+  messages_of_message_with
+    ~tool_calls_fn:(fun _ -> tool_calls)
+    ~include_reasoning_content
+    msg
+;;
+
 let modality_priority_for_model_id model_id =
   match Capabilities.for_model_id model_id with
   | Some c -> c.modality_priority
@@ -262,13 +275,11 @@ let close_tool_message_pairs_for_request = Tool_message_pairs.close_for_provider
 (** Strip Thinking blocks from all messages.
 
     Some OpenAI-compatible providers emit [reasoning_content] in
-    responses but do not accept it in request messages.  DeepSeek is
-    an exception — it *requires* [reasoning_content] round-tripping
-    for tool-call turns (see DeepSeek API docs).  The caller is
-    responsible for choosing the correct serializer (see
-    {!Backend_openai_request.is_deepseek_model}) so that DeepSeek
-    requests use [provider_k_messages_of_message] which preserves
-    [reasoning_content].
+    responses but do not accept it in request messages. DeepSeek is an
+    exception for tool-call turns, and Qwen/DashScope can opt into replay
+    with [preserve_thinking]. Callers that need provider-specific replay
+    should use {!dialect_messages_of_message}; this helper remains a blunt
+    compatibility strip.
 
     Pure function — no I/O, no mutation. *)
 let strip_thinking_blocks (messages : message list) : message list =
