@@ -629,22 +629,29 @@ let responses_output_has_function_call response =
 
 let responses_stop_reason_of_response response =
   let open Yojson.Safe.Util in
-  if responses_output_has_function_call response
-  then StopToolUse
-  else (
-    match responses_member_string_opt "status" response with
-    | Some "completed" | None -> EndTurn
-    | Some "incomplete" ->
-      let reason =
-        match response |> member "incomplete_details" with
-        | `Assoc _ as details ->
-          responses_member_string_opt "reason" details
-          |> Option.value ~default:"incomplete"
-        | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
-          "incomplete"
-      in
-      if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
-    | Some other -> Unknown other)
+  (* A cut-off generation ([status="incomplete"]/[status="failed"]) can still
+     carry a partial [function_call] item. The terminal status must win over
+     tool-call detection, otherwise the stream finalizes as [StopToolUse] and the
+     agent executes truncated arguments. Mirrors
+     [Backend_openai_responses.stop_reason_of_response_json] for the non-stream
+     path (Codex P2, #2073 streaming follow-up). [response.failed] events route
+     through [SSEError] before reaching here, but the status is handled for
+     symmetry. *)
+  match responses_member_string_opt "status" response with
+  | Some "incomplete" ->
+    let reason =
+      match response |> member "incomplete_details" with
+      | `Assoc _ as details ->
+        responses_member_string_opt "reason" details |> Option.value ~default:"incomplete"
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+        "incomplete"
+    in
+    if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
+  | Some "failed" -> Unknown "failed"
+  | Some "completed" | None ->
+    if responses_output_has_function_call response then StopToolUse else EndTurn
+  | Some other ->
+    if responses_output_has_function_call response then StopToolUse else Unknown other
 ;;
 
 let responses_error_message json =

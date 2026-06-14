@@ -755,6 +755,52 @@ let test_responses_stream_hidden_reasoning_before_tool () =
   | _ -> Alcotest.fail "expected hidden reasoning carrier before terminal"
 ;;
 
+(* Regression for the Codex P2 streaming follow-up (#2073): a Responses stream
+   that emits a [function_call] whose arguments even parse as JSON, then
+   terminates with [response.incomplete] (max_output_tokens), must finalize as
+   [MaxTokens] with NO ToolUse. The drop is status-aware (keyed on the truncated
+   stop reason), not JSON-parse-based — proving the streaming path
+   (responses_sse_to_events -> accumulator -> finalize) matches the non-streaming
+   parser. *)
+let test_responses_stream_incomplete_drops_partial_tool () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
+  in
+  let acc = Acc.create_stream_acc () in
+  let feed evt_type data =
+    let events, _ = S.responses_sse_to_events state (Some evt_type) data in
+    List.iter (Acc.accumulate_event acc) events
+  in
+  feed
+    "response.created"
+    {|{"type":"response.created","response":{"id":"resp_1","model":"gpt-5.5","status":"in_progress"}}|};
+  feed
+    "response.output_item.added"
+    {|{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":""}}|};
+  feed
+    "response.function_call_arguments.delta"
+    {|{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"city\":\"Paris\"}"}|};
+  feed
+    "response.incomplete"
+    {|{"type":"response.incomplete","response":{"id":"resp_1","model":"gpt-5.5","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}],"usage":{"input_tokens":12,"output_tokens":256}}}|};
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected Ok response for incomplete terminal"
+  | Ok response ->
+    Alcotest.(check bool)
+      "incomplete max_output_tokens -> MaxTokens, not StopToolUse"
+      true
+      (response.stop_reason = MaxTokens);
+    Alcotest.(check bool)
+      "partial function_call dropped from streamed content"
+      false
+      (List.exists
+         (function
+           | ToolUse _ -> true
+           | _ -> false)
+         response.content)
+;;
+
 let () =
   let open Alcotest in
   run
@@ -808,6 +854,10 @@ let () =
             "hidden reasoning before tool"
             `Quick
             test_responses_stream_hidden_reasoning_before_tool
+        ; test_case
+            "incomplete drops partial tool (#2073)"
+            `Quick
+            test_responses_stream_incomplete_drops_partial_tool
         ] )
     ]
 ;;

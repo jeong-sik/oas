@@ -149,6 +149,21 @@ let finalize_stream_acc (acc : stream_acc) =
              (match Hashtbl.find_opt acc.block_tool_ids idx with
               | Some data when data <> "" -> Some (Types.RedactedThinking data)
               | Some _ | None -> None)
+           | Some "tool_use" when !(acc.stop_reason) = Types.MaxTokens ->
+             (* A tool call only belongs to a turn the model finished at a tool
+                boundary. When the turn was truncated (stop_reason = MaxTokens —
+                e.g. an OpenAI Responses [response.incomplete] with reason
+                max_output_tokens), the accumulated tool block is partial: its
+                argument buffer may be empty (cut off before the first delta) or
+                even parse as JSON yet be incomplete. Drop it so the pipeline does
+                not store a dangling assistant ToolUse that a later turn repairs
+                with a synthetic error ToolResult. Status-aware, mirroring the
+                non-streaming parser Backend_openai_responses.parse_response_result,
+                which drops ToolUse for incomplete/failed Responses statuses.
+                (#2073 streaming follow-up.) [response.failed]/[error] terminals
+                set [sse_error] instead, so finalize returns [Error] before
+                content assembly and never reaches this branch. *)
+             None
            | Some "tool_use" ->
              let id =
                match Hashtbl.find_opt acc.block_tool_ids idx with
@@ -588,6 +603,8 @@ let%test "finalize_stream_acc unknown block type filtered out" =
 ;;
 
 let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
+  (* Non-truncated turn: an unparseable buffer still falls back to empty input
+     (existing behavior). Truncation is handled by the MaxTokens guard, below. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   let buf = Buffer.create 16 in
@@ -601,6 +618,49 @@ let%test "finalize_stream_acc tool_use with invalid json falls back to empty ass
   | Ok result ->
     (match result.content with
      | [ Types.ToolUse { input = `Assoc []; _ } ] -> true
+     | _ -> false)
+;;
+
+let%test "finalize_stream_acc drops tool_use on truncated turn (MaxTokens)" =
+  (* A truncated turn (Responses response.incomplete -> MaxTokens) must not surface
+     a partial tool call, even when the arguments happen to parse as JSON. #2073. *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"city\":\"Paris\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.MaxTokens;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error _ -> false
+  | Ok result -> result.content = []
+;;
+
+let%test "finalize_stream_acc keeps tool_use on StopToolUse (no over-drop)" =
+  (* A normal tool-call turn keeps its tool block; the MaxTokens guard must not
+     drop tools from a turn that finished at a tool boundary. *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"city\":\"Paris\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.StopToolUse;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+     | [ Types.ToolUse
+           { name = "get_weather"; input = `Assoc [ ("city", `String "Paris") ]; _ }
+       ] -> true
      | _ -> false)
 ;;
 
