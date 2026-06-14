@@ -576,143 +576,43 @@ let publish_context_window_usage agent ~estimated_tokens ~limit_tokens =
          })
 ;;
 
-(** Apply proactive compaction when context usage exceeds the configured
-    watermark ratio, BEFORE hitting the provider limit.  Uses
-    [Budget_strategy.phase_of_usage_ratio] to pick the lightest phase
-    that matches the current usage.  Fires PreCompact hook; respects
-    Skip.  Returns [true] if messages were actually reduced.
+(** Shared compaction body for {!proactive_compact} and
+    {!emergency_compact}.  Runs the common chain:
 
-    The raw usage ratio is remapped from [watermark, 1.0] → [0.5, 1.0]
-    before being passed to [Budget_strategy], so that crossing the
-    watermark always corresponds to the Compact phase (≥ 0.5) regardless
-    of how low the configured watermark is.
+    PreCompact hook → [Budget_strategy.reduce_for_budget] →
+    [Agent_turn.apply_context_reducer] → after-tokens guard →
+    state update → PostCompact hook → [ContextCompacted] publish →
+    [on_context_compacted] hook → journal [Checkpoint_saved] append.
 
-    @param watermark  Ratio (0.0-1.0) at which to begin compacting.
-                      Typical value: 0.7 (= 70 % of context window).
-    @since Phase 2 — proactive compaction *)
-let proactive_compact ?raw_trace_run agent ~watermark () =
+    The two call sites differ only in:
+    - [strategy_ratio]: usage ratio handed to [Budget_strategy]
+      (watermark-remapped for proactive, [1.0] for emergency);
+    - [budget_tokens]: budget reported in the PreCompact payload;
+    - [phase]: label carried by PostCompact / ContextCompacted /
+      OnContextCompacted;
+    - [checkpoint_prefix]: journal checkpoint id is
+      ["compact-<prefix>-<turn>"].
+
+    Fires PreCompact hook; respects Skip.  Returns [true] if messages
+    were actually reduced. *)
+let compact_messages
+      ?raw_trace_run
+      agent
+      ~strategy_ratio
+      ~budget_tokens
+      ~phase
+      ~checkpoint_prefix
+      ()
+  =
   let messages = agent.state.messages in
   let est_tokens = total_prompt_tokens_for_agent agent messages in
-  let context_window_tokens = proactive_context_window_tokens agent in
-  let usage_ratio = float_of_int est_tokens /. float_of_int context_window_tokens in
-  if usage_ratio < watermark
-  then false
-  else (
-    (* Remap [watermark, 1.0] → [0.5, 1.0] so Budget_strategy always picks
-       at least the Compact phase when the watermark is crossed.  Without
-       this, a watermark < 0.5 would never trigger Budget_strategy because
-       phase_of_usage_ratio returns Full for ratios below 0.5. *)
-    let scaled_ratio =
-      let watermark_range = 1.0 -. watermark in
-      if watermark_range <= 0.0
-      then 1.0
-      else 0.5 +. (0.5 *. (usage_ratio -. watermark) /. watermark_range)
-    in
-    let hook_decision =
-      invoke_hook_with_trace
-        agent
-        ?raw_trace_run
-        ~hook_name:"pre_compact"
-        agent.options.hooks.pre_compact
-        (Hooks.PreCompact
-           { messages
-           ; estimated_tokens = est_tokens
-           ; budget_tokens = context_window_tokens
-           })
-    in
-    match hook_decision with
-    | Hooks.Skip -> false
-    | _ ->
-      let reduced =
-        Budget_strategy.reduce_for_budget
-          ?summarizer:agent.options.summarizer
-          ~usage_ratio:scaled_ratio
-          ~messages
-          ()
-      in
-      let reduced =
-        Agent_turn.apply_context_reducer
-          ~messages:reduced
-          ~context_reducer:agent.options.context_reducer
-      in
-      let after_tokens = total_prompt_tokens_for_agent agent reduced in
-      if after_tokens >= est_tokens
-      then false
-      else (
-        let phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) in
-        update_state agent (fun s -> { s with messages = reduced });
-        ignore
-          (invoke_hook_with_trace
-             agent
-             ?raw_trace_run
-             ~hook_name:"post_compact"
-             agent.options.hooks.post_compact
-             (Hooks.PostCompact
-                { before_messages = messages
-                ; after_messages = reduced
-                ; before_tokens = est_tokens
-                ; after_tokens
-                ; phase
-                }));
-        (match agent.options.event_bus with
-         | Some bus ->
-           safe_publish
-             bus
-             { meta = Pipeline_common.event_envelope agent
-             ; payload =
-                 ContextCompacted
-                   { agent_name = agent.state.config.name
-                   ; before_tokens = est_tokens
-                   ; after_tokens
-                   ; phase
-                   }
-             }
-         | None -> ());
-        let _ : Hooks.hook_decision =
-          Hooks.invoke
-            agent.options.hooks.on_context_compacted
-            (Hooks.OnContextCompacted
-               { agent_name = agent.state.config.name
-               ; before_tokens = est_tokens
-               ; after_tokens
-               ; phase
-               })
-        in
-        (match agent.options.journal with
-         | Some j ->
-           Durable_event.append
-             j
-             (Checkpoint_saved
-                { checkpoint_id =
-                    Printf.sprintf "compact-proactive-%d" agent.state.turn_count
-                ; timestamp = Unix.gettimeofday ()
-                })
-         | None -> ());
-        true))
-;;
-
-(* ── Emergency compaction ────────────────────────────────── *)
-
-(** Apply emergency compaction to stored messages when context overflow
-    is detected. Uses Budget_strategy Emergency phase (Summarize_old +
-    aggressive tool pruning). Fires PreCompact hook; respects Skip.
-    Returns [true] if messages were actually reduced. *)
-let emergency_compact ?raw_trace_run agent ?limit () =
-  let messages = agent.state.messages in
-  let est_tokens = total_prompt_tokens_for_agent agent messages in
-  let budget =
-    match limit with
-    | Some l -> l
-    | None -> est_tokens
-  in
   let hook_decision =
     invoke_hook_with_trace
       agent
       ?raw_trace_run
       ~hook_name:"pre_compact"
       agent.options.hooks.pre_compact
-      (Hooks.PreCompact
-         { messages; estimated_tokens = est_tokens; budget_tokens = budget })
+      (Hooks.PreCompact { messages; estimated_tokens = est_tokens; budget_tokens })
   in
   match hook_decision with
   | Hooks.Skip -> false
@@ -720,7 +620,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
     let reduced =
       Budget_strategy.reduce_for_budget
         ?summarizer:agent.options.summarizer
-        ~usage_ratio:1.0
+        ~usage_ratio:strategy_ratio
         ~messages
         ()
     in
@@ -733,7 +633,6 @@ let emergency_compact ?raw_trace_run agent ?limit () =
     if after_tokens >= est_tokens
     then false
     else (
-      let phase = "emergency" in
       update_state agent (fun s -> { s with messages = reduced });
       ignore
         (invoke_hook_with_trace
@@ -778,11 +677,76 @@ let emergency_compact ?raw_trace_run agent ?limit () =
            j
            (Checkpoint_saved
               { checkpoint_id =
-                  Printf.sprintf "compact-emergency-%d" agent.state.turn_count
+                  Printf.sprintf "compact-%s-%d" checkpoint_prefix agent.state.turn_count
               ; timestamp = Unix.gettimeofday ()
               })
        | None -> ());
       true)
+;;
+
+(** Apply proactive compaction when context usage exceeds the configured
+    watermark ratio, BEFORE hitting the provider limit.  Uses
+    [Budget_strategy.phase_of_usage_ratio] to pick the lightest phase
+    that matches the current usage.  Fires PreCompact hook; respects
+    Skip.  Returns [true] if messages were actually reduced.
+
+    The raw usage ratio is remapped from [watermark, 1.0] → [0.5, 1.0]
+    before being passed to [Budget_strategy], so that crossing the
+    watermark always corresponds to the Compact phase (≥ 0.5) regardless
+    of how low the configured watermark is.
+
+    @param watermark  Ratio (0.0-1.0) at which to begin compacting.
+                      Typical value: 0.7 (= 70 % of context window).
+    @since Phase 2 — proactive compaction *)
+let proactive_compact ?raw_trace_run agent ~watermark () =
+  let messages = agent.state.messages in
+  let est_tokens = total_prompt_tokens_for_agent agent messages in
+  let context_window_tokens = proactive_context_window_tokens agent in
+  let usage_ratio = float_of_int est_tokens /. float_of_int context_window_tokens in
+  if usage_ratio < watermark
+  then false
+  else (
+    (* Remap [watermark, 1.0] → [0.5, 1.0] so Budget_strategy always picks
+       at least the Compact phase when the watermark is crossed.  Without
+       this, a watermark < 0.5 would never trigger Budget_strategy because
+       phase_of_usage_ratio returns Full for ratios below 0.5. *)
+    let scaled_ratio =
+      let watermark_range = 1.0 -. watermark in
+      if watermark_range <= 0.0
+      then 1.0
+      else 0.5 +. (0.5 *. (usage_ratio -. watermark) /. watermark_range)
+    in
+    let phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) in
+    compact_messages
+      ?raw_trace_run
+      agent
+      ~strategy_ratio:scaled_ratio
+      ~budget_tokens:context_window_tokens
+      ~phase
+      ~checkpoint_prefix:"proactive"
+      ())
+;;
+
+(* ── Emergency compaction ────────────────────────────────── *)
+
+(** Apply emergency compaction to stored messages when context overflow
+    is detected. Uses Budget_strategy Emergency phase (Summarize_old +
+    aggressive tool pruning). Fires PreCompact hook; respects Skip.
+    Returns [true] if messages were actually reduced. *)
+let emergency_compact ?raw_trace_run agent ?limit () =
+  let budget_tokens =
+    match limit with
+    | Some l -> l
+    | None -> total_prompt_tokens_for_agent agent agent.state.messages
+  in
+  compact_messages
+    ?raw_trace_run
+    agent
+    ~strategy_ratio:1.0
+    ~budget_tokens
+    ~phase:"emergency"
+    ~checkpoint_prefix:"emergency"
+    ()
 ;;
 
 (* ── Pipeline coordinator ────────────────────────────────── *)
