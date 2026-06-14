@@ -756,10 +756,12 @@ let test_responses_stream_hidden_reasoning_before_tool () =
 ;;
 
 (* Regression for the Codex P2 streaming follow-up (#2073): a Responses stream
-   that emits a partial [function_call] and then terminates with
-   [response.incomplete] (max_output_tokens) must finalize as [MaxTokens] with NO
-   ToolUse — the non-streaming parser was already fixed, this proves the streaming
-   path (responses_sse_to_events -> accumulator -> finalize) matches. *)
+   that emits a [function_call] whose arguments even parse as JSON, then
+   terminates with [response.incomplete] (max_output_tokens), must finalize as
+   [MaxTokens] with NO ToolUse. The drop is status-aware (keyed on the truncated
+   stop reason), not JSON-parse-based — proving the streaming path
+   (responses_sse_to_events -> accumulator -> finalize) matches the non-streaming
+   parser. *)
 let test_responses_stream_incomplete_drops_partial_tool () =
   let module Acc = Llm_provider.Complete_stream_acc in
   let state =
@@ -778,10 +780,10 @@ let test_responses_stream_incomplete_drops_partial_tool () =
     {|{"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":""}}|};
   feed
     "response.function_call_arguments.delta"
-    {|{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"city\":\"Par"}|};
+    {|{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc_1","delta":"{\"city\":\"Paris\"}"}|};
   feed
     "response.incomplete"
-    {|{"type":"response.incomplete","response":{"id":"resp_1","model":"gpt-5.5","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Par"}],"usage":{"input_tokens":12,"output_tokens":256}}}|};
+    {|{"type":"response.incomplete","response":{"id":"resp_1","model":"gpt-5.5","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Paris\"}"}],"usage":{"input_tokens":12,"output_tokens":256}}}|};
   match Acc.finalize_stream_acc acc with
   | Error _ -> Alcotest.fail "expected Ok response for incomplete terminal"
   | Ok response ->

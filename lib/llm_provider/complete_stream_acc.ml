@@ -149,6 +149,21 @@ let finalize_stream_acc (acc : stream_acc) =
              (match Hashtbl.find_opt acc.block_tool_ids idx with
               | Some data when data <> "" -> Some (Types.RedactedThinking data)
               | Some _ | None -> None)
+           | Some "tool_use" when !(acc.stop_reason) = Types.MaxTokens ->
+             (* A tool call only belongs to a turn the model finished at a tool
+                boundary. When the turn was truncated (stop_reason = MaxTokens —
+                e.g. an OpenAI Responses [response.incomplete] with reason
+                max_output_tokens), the accumulated tool block is partial: its
+                argument buffer may be empty (cut off before the first delta) or
+                even parse as JSON yet be incomplete. Drop it so the pipeline does
+                not store a dangling assistant ToolUse that a later turn repairs
+                with a synthetic error ToolResult. Status-aware, mirroring the
+                non-streaming parser Backend_openai_responses.parse_response_result,
+                which drops ToolUse for incomplete/failed Responses statuses.
+                (#2073 streaming follow-up.) [response.failed]/[error] terminals
+                set [sse_error] instead, so finalize returns [Error] before
+                content assembly and never reaches this branch. *)
+             None
            | Some "tool_use" ->
              let id =
                match Hashtbl.find_opt acc.block_tool_ids idx with
@@ -160,18 +175,11 @@ let finalize_stream_acc (acc : stream_acc) =
                | Some s -> s
                | None -> ""
              in
-             (* A non-empty argument buffer that does not parse as JSON is a
-                truncated/corrupt tool call (e.g. a stream cut off mid-arguments
-                under MaxTokens). Substituting empty input would fabricate an
-                executable call from garbage, so drop the block instead. An empty
-                buffer is a legitimate no-argument call and keeps empty input.
-                Codex P2, #2073 streaming follow-up. *)
-             (match String.trim text with
-              | "" -> Some (Types.ToolUse { id; name; input = `Assoc [] })
-              | trimmed ->
-                (match Yojson.Safe.from_string trimmed with
-                 | input -> Some (Types.ToolUse { id; name; input })
-                 | exception Yojson.Json_error _ -> None))
+             let input =
+               try Yojson.Safe.from_string text with
+               | Yojson.Json_error _ -> `Assoc []
+             in
+             Some (Types.ToolUse { id; name; input })
            | Some "tool_result" | Some "tool_result_error" ->
              let tool_use_id =
                match Hashtbl.find_opt acc.block_tool_ids idx with
@@ -594,14 +602,36 @@ let%test "finalize_stream_acc unknown block type filtered out" =
   | Ok result -> result.content = []
 ;;
 
-let%test "finalize_stream_acc drops tool_use with truncated (non-empty unparseable) args" =
-  (* A non-empty argument buffer that fails to parse is a truncated tool call;
-     it must be dropped rather than fabricated as an empty-input ToolUse. #2073. *)
+let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
+  (* Non-truncated turn: an unparseable buffer still falls back to empty input
+     (existing behavior). Truncation is handled by the MaxTokens guard, below. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   let buf = Buffer.create 16 in
-  Buffer.add_string buf "{\"city\":\"Par";
+  Buffer.add_string buf "not valid json";
   Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error _ -> false
+  | Ok result ->
+    (match result.content with
+     | [ Types.ToolUse { input = `Assoc []; _ } ] -> true
+     | _ -> false)
+;;
+
+let%test "finalize_stream_acc drops tool_use on truncated turn (MaxTokens)" =
+  (* A truncated turn (Responses response.incomplete -> MaxTokens) must not surface
+     a partial tool call, even when the arguments happen to parse as JSON. #2073. *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"city\":\"Paris\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.MaxTokens;
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc
@@ -610,12 +640,17 @@ let%test "finalize_stream_acc drops tool_use with truncated (non-empty unparseab
   | Ok result -> result.content = []
 ;;
 
-let%test "finalize_stream_acc keeps no-argument tool_use (empty buffer)" =
-  (* An empty argument buffer is a legitimate no-argument call, kept as `Assoc []. *)
+let%test "finalize_stream_acc keeps tool_use on StopToolUse (no over-drop)" =
+  (* A normal tool-call turn keeps its tool block; the MaxTokens guard must not
+     drop tools from a turn that finished at a tool boundary. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
-  Hashtbl.replace acc.block_tool_names 0 "no_args";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"city\":\"Paris\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.StopToolUse;
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc
@@ -623,7 +658,9 @@ let%test "finalize_stream_acc keeps no-argument tool_use (empty buffer)" =
   | Error _ -> false
   | Ok result ->
     (match result.content with
-     | [ Types.ToolUse { id = "tool-id-1"; name = "no_args"; input = `Assoc [] } ] -> true
+     | [ Types.ToolUse
+           { name = "get_weather"; input = `Assoc [ ("city", `String "Paris") ]; _ }
+       ] -> true
      | _ -> false)
 ;;
 
