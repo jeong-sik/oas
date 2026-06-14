@@ -58,7 +58,6 @@ let test_registry_covers_all_variants () =
   let module Te = Llm_provider.Telemetry_event in
   let variants =
     [ "Streaming_first_chunk"
-    ; "Streaming_chunk_n"
     ; "Streaming_summary"
     ; "Thinking_complete"
     ; "Timeout"

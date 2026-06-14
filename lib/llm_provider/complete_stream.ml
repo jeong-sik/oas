@@ -21,8 +21,6 @@ let emit_stream_event on_event evt =
 let record_streaming_metrics (metrics : Metrics.t) = function
   | Telemetry_event.Streaming_first_chunk { provider; model; ttfrc_ms; _ } ->
     metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
-  | Telemetry_event.Streaming_chunk_n { provider; model; chunk_index; inter_chunk_ms } ->
-    metrics.on_streaming_chunk ~provider ~model_id:model ~chunk_index ~inter_chunk_ms
   | Streaming_summary _
   | Thinking_complete _
   | Timeout _
