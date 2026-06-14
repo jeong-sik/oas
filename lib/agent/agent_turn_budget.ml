@@ -35,43 +35,63 @@ type t =
   ; ceiling : int
   ; max_per_extend : int
   ; max_extensions : int
-  ; mutable history : (float * int * string) list (* ts, granted, reason *)
+  ; history : (float * int * string) list Atomic.t
+    (** Atomic list of (ts, granted, reason). Atomic updates make [try_extend]
+        safe when called from parallel tool-execution fibers (e.g.
+        [Parallel_batch]) without requiring an Eio scheduler. *)
   }
 
 let create ~initial ~ceiling ?(max_per_extend = 20) ?(max_extensions = 10) () =
-  { initial; ceiling = max ceiling initial; max_per_extend; max_extensions; history = [] }
+  { initial
+  ; ceiling = max ceiling initial
+  ; max_per_extend
+  ; max_extensions
+  ; history = Atomic.make []
+  }
 ;;
 
-let extensions_count t = List.length t.history
+let extensions_count t = List.length (Atomic.get t.history)
 
 let total_extended t =
-  List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 t.history
+  List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 (Atomic.get t.history)
 ;;
 
 let current_max t = min (t.initial + total_extended t) t.ceiling
 
 let try_extend t ~additional ~reason =
-  let cur_extensions = extensions_count t in
-  if cur_extensions >= t.max_extensions
-  then Error Extension_limit_reached
-  else if additional > t.max_per_extend
-  then Error Per_extend_cap_exceeded
-  else (
-    let additional = max 1 additional in
-    let cur_max = current_max t in
-    let new_max = min (cur_max + additional) t.ceiling in
-    let granted = new_max - cur_max in
-    if granted <= 0
-    then Error Ceiling_reached
+  let rec loop () =
+    let old_history = Atomic.get t.history in
+    let cur_extensions = List.length old_history in
+    if cur_extensions >= t.max_extensions
+    then Error Extension_limit_reached
+    else if additional > t.max_per_extend
+    then Error Per_extend_cap_exceeded
     else (
-      t.history <- (Unix.gettimeofday (), granted, reason) :: t.history;
-      Ok
-        { granted
-        ; new_max
-        ; ceiling = t.ceiling
-        ; extensions_so_far = cur_extensions + 1
-        ; reason
-        }))
+      let additional = max 1 additional in
+      let cur_max =
+        min
+          (t.initial
+           + List.fold_left (fun acc (_, granted, _) -> acc + granted) 0 old_history)
+          t.ceiling
+      in
+      let new_max = min (cur_max + additional) t.ceiling in
+      let granted = new_max - cur_max in
+      if granted <= 0
+      then Error Ceiling_reached
+      else (
+        let new_history = (Unix.gettimeofday (), granted, reason) :: old_history in
+        if Atomic.compare_and_set t.history old_history new_history
+        then
+          Ok
+            { granted
+            ; new_max
+            ; ceiling = t.ceiling
+            ; extensions_so_far = cur_extensions + 1
+            ; reason
+            }
+        else loop ()))
+  in
+  loop ()
 ;;
 
 let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
@@ -178,6 +198,6 @@ let stats_json t =
              (fun (ts, granted, reason) ->
                 `Assoc
                   [ "ts", `Float ts; "granted", `Int granted; "reason", `String reason ])
-             t.history) )
+             (Atomic.get t.history)) )
     ]
 ;;

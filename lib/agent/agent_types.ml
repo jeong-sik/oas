@@ -230,6 +230,10 @@ let set_consecutive_idle_turns t n =
   Eio.Mutex.use_rw ~protect:true t.mu (fun () -> t.consecutive_idle_turns <- n)
 ;;
 
+let get_consecutive_idle_turns t =
+  Eio.Mutex.use_ro t.mu (fun () -> t.consecutive_idle_turns)
+;;
+
 let description t = t.options.description
 let allowed_paths t = t.options.allowed_paths
 let sdk_version = Sdk_version.version
