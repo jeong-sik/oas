@@ -150,8 +150,8 @@ type hooks = t
 
 (** Thread-safe aggregating metrics backend.
 
-    Accumulates per-provider counters in a hash table guarded by a
-    {!Mutex.t}. Wrap an existing [Metrics.t] via {!Aggregating.create} to
+    Accumulates per-provider counters in a hash table guarded by an
+    {!Eio.Mutex.t}. Wrap an existing [Metrics.t] via {!Aggregating.create} to
     layer counting on top of any other metrics sink. Call
     {!Aggregating.snapshot} to read all counters as an immutable list.
 
