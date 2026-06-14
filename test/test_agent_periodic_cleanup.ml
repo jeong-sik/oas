@@ -35,13 +35,14 @@ let make_transport ~clock ~sleep_s () : Llm_provider.Llm_transport.t =
   }
 ;;
 
-let make_agent ?on_run_complete ~net ~transport ?(periodic_callbacks = []) () =
+let make_agent ?on_run_complete ?raw_trace ~net ~transport ?(periodic_callbacks = []) () =
   let options =
     { Agent.default_options with
       provider = Some provider
     ; transport = Some transport
     ; periodic_callbacks
     ; on_run_complete
+    ; raw_trace
     }
   in
   let config =
@@ -68,6 +69,30 @@ let with_log_capture f =
 
 let has_log_message message records =
   List.exists (fun (record : Log.record) -> String.equal record.message message) records
+;;
+
+let unwrap = function
+  | Ok value -> value
+  | Error err -> Alcotest.fail (Error.to_string err)
+;;
+
+let with_temp_dir prefix f =
+  let dir =
+    Filename.concat
+      (Filename.get_temp_dir_name ())
+      (Printf.sprintf "%s-%d-%06x" prefix (Unix.getpid ()) (Random.bits ()))
+  in
+  Unix.mkdir dir 0o755;
+  let rec rm_rf path =
+    if Sys.file_exists path
+    then
+      if Sys.is_directory path
+      then (
+        Sys.readdir path |> Array.iter (fun name -> rm_rf (Filename.concat path name));
+        Unix.rmdir path)
+      else Sys.remove path
+  in
+  Fun.protect ~finally:(fun () -> rm_rf dir) (fun () -> f dir)
 ;;
 
 let check_callback_loop_stopped ~clock calls =
@@ -168,6 +193,66 @@ let test_on_run_complete_failure_is_structured_log () =
     (has_log_message "on_run_complete callback raised" (get_records ()))
 ;;
 
+(* Mirror of the #2036 observer-isolation contract for [on_run_complete]:
+   generic exceptions are contained (test above), but
+   [Eio.Cancel.Cancelled] must propagate so structured cancellation is
+   not absorbed by the finalize callback. *)
+let test_on_run_complete_cancelled_propagates () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let transport = make_transport ~clock ~sleep_s:0.0 () in
+  let agent =
+    make_agent
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~on_run_complete:(fun _ -> raise (Eio.Cancel.Cancelled Exit))
+      ()
+  in
+  match Agent.run ~sw ~clock agent "finish" with
+  | _ -> Alcotest.fail "expected Cancelled to propagate out of run"
+  | exception Eio.Cancel.Cancelled _ -> ()
+;;
+
+let test_on_run_complete_cancelled_finishes_raw_trace () =
+  Eio_main.run
+  @@ fun env ->
+  with_temp_dir "oas-agent-complete-cancel-raw-trace"
+  @@ fun session_root ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let clock = Eio.Stdenv.clock env in
+  let transport = make_transport ~clock ~sleep_s:0.0 () in
+  let raw_trace =
+    unwrap
+      (Raw_trace.create_for_session
+         ~session_root
+         ~session_id:"callback-cancel"
+         ~agent_name:"periodic-cleanup"
+         ())
+  in
+  let agent =
+    make_agent
+      ~net:(Eio.Stdenv.net env)
+      ~transport
+      ~raw_trace
+      ~on_run_complete:(fun _ -> raise (Eio.Cancel.Cancelled Exit))
+      ()
+  in
+  (match Agent.run ~sw ~clock agent "finish" with
+   | _ -> Alcotest.fail "expected Cancelled to propagate out of raw trace run"
+   | exception Eio.Cancel.Cancelled _ -> ());
+  let records = unwrap (Raw_trace.read_all ~path:(Raw_trace.file_path raw_trace) ()) in
+  Alcotest.(check bool)
+    "raw trace was finished before callback cancellation propagated"
+    true
+    (List.exists
+       (fun (record : Raw_trace.record) -> record.record_type = Raw_trace.Run_finished)
+       records)
+;;
+
 let test_periodic_callback_failure_is_structured_log () =
   with_log_capture
   @@ fun get_records ->
@@ -219,6 +304,14 @@ let () =
             "on_run_complete failure uses structured log"
             `Quick
             test_on_run_complete_failure_is_structured_log
+        ; Alcotest.test_case
+            "on_run_complete Cancelled propagates"
+            `Quick
+            test_on_run_complete_cancelled_propagates
+        ; Alcotest.test_case
+            "on_run_complete Cancelled still finishes raw trace"
+            `Quick
+            test_on_run_complete_cancelled_finishes_raw_trace
         ; Alcotest.test_case
             "periodic callback failure uses structured log"
             `Quick

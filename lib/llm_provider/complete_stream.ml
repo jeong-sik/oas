@@ -10,11 +10,8 @@ include Complete_sampling
 
 let emit_stream_event on_event evt =
   try on_event evt with
-  | Out_of_memory -> raise Out_of_memory
-  | Stack_overflow -> raise Stack_overflow
-  | Sys.Break -> raise Sys.Break
-  | Eio.Cancel.Cancelled _ as ex -> raise ex
   | exn ->
+    Reserved_exn.reraise_if_reserved exn;
     Diag.warn
       "complete_stream"
       "stream event callback raised: %s"

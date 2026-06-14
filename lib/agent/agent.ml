@@ -15,11 +15,8 @@ let _log = Log.create ~module_name:"agent" ()
 
 let protect_stream_callback callback ev =
   try callback ev with
-  | Out_of_memory -> raise Out_of_memory
-  | Stack_overflow -> raise Stack_overflow
-  | Sys.Break -> raise Sys.Break
-  | Eio.Cancel.Cancelled _ as ex -> raise ex
   | exn ->
+    Llm_provider.Reserved_exn.reraise_if_reserved exn;
     Log.warn _log "stream callback raised" [ Log.S ("error", Printexc.to_string exn) ]
 ;;
 

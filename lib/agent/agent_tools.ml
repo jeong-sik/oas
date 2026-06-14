@@ -258,7 +258,7 @@ let invoke_hook ?on_hook_invoked ~tracer ~agent_name ~turn_count ~hook_name hook
     ; links = []
     }
     (fun _ ->
-       let decision = Hooks.invoke_validated hook_opt event in
+       let decision = Hooks.invoke_validated ~hook_name hook_opt event in
        (match on_hook_invoked with
         | Some callback ->
           callback
