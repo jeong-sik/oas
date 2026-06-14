@@ -150,10 +150,12 @@ type hooks = t
 
 (** Thread-safe aggregating metrics backend.
 
-    Accumulates per-provider counters in a hash table guarded by an
-    {!Eio.Mutex.t}. Wrap an existing [Metrics.t] via {!Aggregating.create} to
-    layer counting on top of any other metrics sink. Call
-    {!Aggregating.snapshot} to read all counters as an immutable list.
+    Accumulates per-provider counters in a hash table guarded by a Stdlib
+    mutex. The guarded sections are pure counter updates, so this stays safe
+    for Eio callback paths while preserving the public snapshot/export API for
+    non-Eio exporters and tests. Wrap an existing [Metrics.t] via
+    {!Aggregating.create} to layer counting on top of any other metrics sink.
+    Call {!Aggregating.snapshot} to read all counters as an immutable list.
 
     @since 0.188.0 *)
 module Aggregating : sig

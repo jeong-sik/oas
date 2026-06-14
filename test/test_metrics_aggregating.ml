@@ -352,41 +352,42 @@ let test_aggregating_inner_delegation () =
 ;;
 
 let () =
-  Eio_main.run (fun _ ->
-    run
-      "Metrics.Aggregating"
-      [ "create", [ test_case "empty snapshot" `Quick test_aggregating_create_empty ]
-      ; ( "counters"
-        , [ test_case "on_request_start" `Quick test_aggregating_on_request_start
-          ; test_case "on_retry" `Quick test_aggregating_on_retry
-          ; test_case "on_token_usage" `Quick test_aggregating_on_token_usage
-          ; test_case "on_tool_calls" `Quick test_aggregating_on_tool_calls
-          ; test_case "on_circuit_state" `Quick test_aggregating_on_circuit_state
-          ; test_case "on_error" `Quick test_aggregating_on_error
-          ; test_case
-              "on_request_end latency"
-              `Quick
-              test_aggregating_on_request_end_latency
-          ; test_case
-              "unknown request latency is not sampled"
-              `Quick
-              test_aggregating_unknown_latency_does_not_add_sample
-          ; test_case
-              "streaming latency callbacks"
-              `Quick
-              test_aggregating_on_streaming_latency
-          ] )
-      ; ( "lifecycle"
-        , [ test_case "reset clears all" `Quick test_aggregating_reset
-          ; test_case "key format" `Quick test_aggregating_key
-          ; test_case "multiple providers" `Quick test_aggregating_multiple_providers
-          ; test_case "snapshot to JSON" `Quick test_provider_snapshot_to_yojson
-          ; test_case
-              "snapshot list JSON is stable"
-              `Quick
-              test_provider_snapshots_to_yojson_is_stable
-          ; test_case "save snapshot JSON" `Quick test_aggregating_save_snapshot_json
-          ; test_case "inner delegation" `Quick test_aggregating_inner_delegation
-          ] )
-      ])
+  (* Intentionally not wrapped in Eio_main.run: snapshot/export APIs must work
+     for ordinary periodic exporters and tests that have no Eio scheduler. *)
+  run
+    "Metrics.Aggregating"
+    [ "create", [ test_case "empty snapshot" `Quick test_aggregating_create_empty ]
+    ; ( "counters"
+      , [ test_case "on_request_start" `Quick test_aggregating_on_request_start
+        ; test_case "on_retry" `Quick test_aggregating_on_retry
+        ; test_case "on_token_usage" `Quick test_aggregating_on_token_usage
+        ; test_case "on_tool_calls" `Quick test_aggregating_on_tool_calls
+        ; test_case "on_circuit_state" `Quick test_aggregating_on_circuit_state
+        ; test_case "on_error" `Quick test_aggregating_on_error
+        ; test_case
+            "on_request_end latency"
+            `Quick
+            test_aggregating_on_request_end_latency
+        ; test_case
+            "unknown request latency is not sampled"
+            `Quick
+            test_aggregating_unknown_latency_does_not_add_sample
+        ; test_case
+            "streaming latency callbacks"
+            `Quick
+            test_aggregating_on_streaming_latency
+        ] )
+    ; ( "lifecycle"
+      , [ test_case "reset clears all" `Quick test_aggregating_reset
+        ; test_case "key format" `Quick test_aggregating_key
+        ; test_case "multiple providers" `Quick test_aggregating_multiple_providers
+        ; test_case "snapshot to JSON" `Quick test_provider_snapshot_to_yojson
+        ; test_case
+            "snapshot list JSON is stable"
+            `Quick
+            test_provider_snapshots_to_yojson_is_stable
+        ; test_case "save snapshot JSON" `Quick test_aggregating_save_snapshot_json
+        ; test_case "inner delegation" `Quick test_aggregating_inner_delegation
+        ] )
+    ]
 ;;
