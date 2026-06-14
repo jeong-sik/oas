@@ -65,6 +65,61 @@ let chat_template_kwargs_fields (config : agent_state) =
   @ bool_field "preserve_thinking" config.config.preserve_thinking
 ;;
 
+let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
+  : Llm_provider.Capabilities.capabilities
+  =
+  { max_context_tokens = caps.max_context_tokens
+  ; max_output_tokens = caps.max_output_tokens
+  ; supports_tools = caps.supports_tools
+  ; supports_tool_choice = caps.supports_tool_choice
+  ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
+  ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
+  ; supports_runtime_tool_events = caps.supports_runtime_tool_events
+  ; supports_reasoning = caps.supports_reasoning
+  ; supports_extended_thinking = caps.supports_extended_thinking
+  ; supports_reasoning_budget = caps.supports_reasoning_budget
+  ; thinking_control_format = caps.thinking_control_format
+  ; supports_response_format_json = caps.supports_response_format_json
+  ; supports_structured_output = caps.supports_structured_output
+  ; supports_multimodal_inputs = caps.supports_multimodal_inputs
+  ; supports_image_input = caps.supports_image_input
+  ; supports_audio_input = caps.supports_audio_input
+  ; supports_video_input = caps.supports_video_input
+  ; modality_priority = caps.modality_priority
+  ; supports_native_streaming = caps.supports_native_streaming
+  ; supports_system_prompt = caps.supports_system_prompt
+  ; supports_caching = caps.supports_caching
+  ; supports_prompt_caching = caps.supports_prompt_caching
+  ; prompt_cache_alignment = caps.prompt_cache_alignment
+  ; supports_top_k = caps.supports_top_k
+  ; supports_min_p = caps.supports_min_p
+  ; supports_seed = caps.supports_seed
+  ; supports_seed_with_images = caps.supports_seed_with_images
+  ; supports_computer_use = caps.supports_computer_use
+  ; supports_code_execution = caps.supports_code_execution
+  ; emits_usage_tokens = caps.emits_usage_tokens
+  ; supported_models = caps.supported_models
+  }
+;;
+
+let reasoning_dialect_for_request capabilities (config : agent_state) =
+  capabilities
+  |> llm_capabilities_of_provider_capabilities
+  |> Llm_provider.Reasoning_dialect.of_capabilities
+  |> Llm_provider.Reasoning_dialect.with_preserve_thinking
+       ~preserve_thinking:config.config.preserve_thinking
+;;
+
+let add_sampling_field dialect (config : agent_state) field value body_assoc =
+  if
+    Llm_provider.Reasoning_dialect.ignores_sampling_param
+      dialect
+      ~enable_thinking:config.config.enable_thinking
+      field
+  then body_assoc
+  else (field, value) :: body_assoc
+;;
+
 let effective_tool_choice_json
       (capabilities : Provider.capabilities)
       ?provider_config
@@ -91,6 +146,7 @@ let should_include_tools ?provider_config (config : agent_state) =
 let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
+  let dialect = reasoning_dialect_for_request capabilities config in
   let tools_to_send =
     match tools with
     | Some entries
@@ -106,7 +162,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     let message_serializer =
       if is_glm_request ?provider_config config
       then Llm_provider.Backend_openai_serialize.provider_k_messages_of_message
-      else openai_messages_of_message
+      else Llm_provider.Backend_openai_serialize.dialect_messages_of_message dialect
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
   in
@@ -116,27 +172,16 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     ; "max_tokens", `Int (Option.value ~default:4096 config.config.max_tokens)
     ]
   in
-  (* Mirror Backend_openai_request: drop sampling params the wire format ignores
-     while thinking (e.g. DeepSeek temperature/top_p). The public agent path
-     previously serialized them directly, so a thinking config leaked fields the
-     private path dropped. *)
-  let sampling_field_ignored field =
-    Llm_provider.Reasoning_dialect.sampling_field_ignored_when_thinking
-      ~thinking_control_format:capabilities.thinking_control_format
-      ~enable_thinking:config.config.enable_thinking
-      ~field
-  in
   let body_assoc =
     match config.config.temperature with
-    | Some temp when not (sampling_field_ignored "temperature") ->
-      ("temperature", `Float temp) :: body_assoc
-    | Some _ | None -> body_assoc
+    | Some temp ->
+      add_sampling_field dialect config "temperature" (`Float temp) body_assoc
+    | None -> body_assoc
   in
   let body_assoc =
     match config.config.top_p with
-    | Some top_p when not (sampling_field_ignored "top_p") ->
-      ("top_p", `Float top_p) :: body_assoc
-    | Some _ | None -> body_assoc
+    | Some top_p -> add_sampling_field dialect config "top_p" (`Float top_p) body_assoc
+    | None -> body_assoc
   in
   let body_assoc =
     match config.config.top_k with
@@ -184,7 +229,10 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
              ~enable_thinking:config.config.enable_thinking
              ~thinking_budget:config.config.thinking_budget
          with
-         | Some effort -> ("reasoning_effort", `String effort) :: body_assoc
+         | Some effort ->
+           (match Llm_provider.Reasoning_dialect.normalize_effort dialect effort with
+            | Some normalized -> ("reasoning_effort", `String normalized) :: body_assoc
+            | None -> body_assoc)
          | None -> body_assoc)
       | Llm_provider.Capabilities.Thinking_object ->
         (match config.config.enable_thinking with
@@ -195,7 +243,11 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
                  ~enable_thinking:config.config.enable_thinking
                  ~thinking_budget:config.config.thinking_budget
              with
-             | Some effort -> ("reasoning_effort", `String effort) :: body_assoc
+             | Some effort ->
+               (match Llm_provider.Reasoning_dialect.normalize_effort dialect effort with
+                | Some normalized ->
+                  ("reasoning_effort", `String normalized) :: body_assoc
+                | None -> body_assoc)
              | None -> body_assoc
            in
            ("thinking", `Assoc [ "type", `String "enabled" ]) :: body_assoc

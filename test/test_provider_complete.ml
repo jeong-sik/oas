@@ -80,9 +80,13 @@ let test_provider_a_with_thinking () =
   let thinking = json |> member "thinking" in
   Alcotest.(check string)
     "thinking type"
-    "enabled"
+    "adaptive"
     (thinking |> member "type" |> to_string);
-  Alcotest.(check int) "budget" 5000 (thinking |> member "budget_tokens" |> to_int)
+  Alcotest.(check bool) "budget_tokens omitted" true (thinking |> member "budget_tokens" = `Null);
+  Alcotest.(check string)
+    "effort"
+    "medium"
+    (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
 let test_provider_a_stream_flag () =

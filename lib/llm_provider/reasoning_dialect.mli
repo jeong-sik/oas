@@ -64,6 +64,9 @@ type t =
 val default : t
 val of_capabilities : Capabilities.capabilities -> t
 val for_provider_config : Provider_config.t -> t
+val with_preserve_thinking : preserve_thinking:bool option -> t -> t
+val thinking_enabled : enable_thinking:bool option -> bool
+val ignores_sampling_param : t -> enable_thinking:bool option -> string -> bool
 
 (** Normalize a caller effort for a provider dialect.
 

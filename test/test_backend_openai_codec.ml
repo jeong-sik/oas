@@ -1186,6 +1186,26 @@ let test_responses_build_request_round_trips_tool_result_items () =
   check_bool "tool strict" true (Yojson.Safe.Util.to_bool (member "strict" tool_json))
 ;;
 
+let test_responses_build_request_disabled_reasoning_omits_reasoning_config () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~enable_thinking:false
+      ~thinking_budget:4096
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request ~config ~messages:[ msg User [ Text "short answer" ] ] ()
+    |> Yojson.Safe.from_string
+  in
+  check_bool "reasoning omitted" true (member "reasoning" body = `Null);
+  check_bool "include omitted" true (member "include" body = `Null)
+;;
+
 let test_responses_build_request_uses_text_format_json_schema () =
   let schema =
     `Assoc
@@ -1352,6 +1372,10 @@ let () =
             "build request round-trips tool result items"
             `Quick
             test_responses_build_request_round_trips_tool_result_items
+        ; Alcotest.test_case
+            "build request disabled reasoning omits config"
+            `Quick
+            test_responses_build_request_disabled_reasoning_omits_reasoning_config
         ; Alcotest.test_case
             "build request text.format json_schema"
             `Quick

@@ -111,6 +111,24 @@ val effective_disable_parallel_tool_use
   -> tools_present:bool
   -> bool
 
+(** Anthropic thinking-control protocol for a model family.
+
+    Older/current manual-thinking models accept
+    [thinking: {"type":"enabled","budget_tokens":N}]. Newer adaptive models
+    use [thinking: {"type":"adaptive"}] and optional [output_config.effort].
+    Some models require adaptive thinking, and some always run adaptive
+    thinking without an explicit [thinking] request field. *)
+type anthropic_thinking_control =
+  | Anthropic_manual_budget
+  | Anthropic_adaptive_preferred
+  | Anthropic_adaptive_only
+  | Anthropic_always_adaptive
+
+(** Return the documented thinking-control protocol for an Anthropic model id.
+    Input is expected lowercased, but the function trims and lowercases for
+    callers that pass raw config values. *)
+val anthropic_thinking_control_of_id : string -> anthropic_thinking_control
+
 (** Typed Gemini model family. SSOT for the [gemini-*] prefix dispatch that
     used to live as scattered [String.starts_with] calls. Downstream code
     should switch on this variant rather than re-compare strings.
@@ -122,11 +140,22 @@ type gemini_family =
   | Gemini_2_5 (** [gemini-2.5.*] (legacy line) *)
   | Gemini_other of string (** Unknown gemini id, or non-gemini id (literal retained). *)
 
+(** Gemini thinking-control protocol for a model family. Gemini 3+ uses
+    [thinkingLevel], while Gemini 2.5 uses [thinkingBudget]. *)
+type gemini_thinking_control =
+  | Gemini_thinking_budget
+  | Gemini_thinking_level of { supports_minimal : bool }
+  | Gemini_unknown_thinking_control
+
 (** Classify a model id into a [gemini_family]. Order: [3.1] before [3] so the
     more specific prefix wins. Input is expected lowercased; callers that
     cannot lowercase first should normalize via [String.lowercase_ascii] at
     the boundary. *)
 val gemini_family_of_id : string -> gemini_family
+
+(** Return the documented thinking-control protocol for a Gemini model id.
+    Input is expected lowercased, matching {!gemini_family_of_id}. *)
+val gemini_thinking_control_of_id : string -> gemini_thinking_control
 
 (** Look up capabilities for [model_id] in the loaded model catalog only
     (no manifest consultation).

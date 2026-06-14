@@ -8,6 +8,8 @@
 module PC = Llm_provider.Provider_config
 module BOR = Llm_provider.Backend_openai_request
 module BOL = Llm_provider.Backend_ollama
+module BAN = Llm_provider.Backend_anthropic
+module CM = Llm_provider.Capability_manifest
 module RD = Llm_provider.Reasoning_dialect
 open Alcotest
 open Llm_provider.Types
@@ -15,6 +17,14 @@ open Yojson.Safe.Util
 
 let json_of_body body = Yojson.Safe.from_string body
 let member_is_absent name json = json |> member name = `Null
+
+let with_manifest json f =
+  match CM.of_json (Yojson.Safe.from_string json) with
+  | Error msg -> fail ("manifest parse failed: " ^ msg)
+  | Ok manifest ->
+    CM.set_global manifest;
+    Fun.protect ~finally:CM.clear_global f
+;;
 
 let check_member_absent name json =
   check bool (name ^ " absent") true (member_is_absent name json)
@@ -38,6 +48,18 @@ let ollama_config ?system_prompt ?enable_thinking model_id =
     ~base_url:"http://127.0.0.1:11434"
     ?system_prompt
     ?enable_thinking
+    ()
+;;
+
+let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
+  PC.make
+    ~kind:Anthropic
+    ~model_id
+    ~base_url:"https://api.anthropic.com"
+    ~max_tokens:16_000
+    ?enable_thinking
+    ?thinking_budget
+    ?output_schema
     ()
 ;;
 
@@ -177,7 +199,47 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "replay policy"
     "no_replay"
     (RD.replay_policy_to_string dialect.replay_policy);
-  check (option string) "preserve high" (Some "high") (RD.normalize_effort dialect "high")
+  check
+    (option string)
+    "preserve minimal"
+    (Some "minimal")
+    (RD.normalize_effort dialect "minimal");
+  check
+    (option string)
+    "preserve high"
+    (Some "high")
+    (RD.normalize_effort dialect "high");
+  check
+    (option string)
+    "preserve xhigh"
+    (Some "xhigh")
+    (RD.normalize_effort dialect "xhigh")
+;;
+
+let test_openai_reasoning_request_uses_reasoning_effort () =
+  with_manifest
+    {|{"schema_version":1,"models":[{"id_prefix":"openai-reasoning-test-9fx","base":"openai_chat_extended","thinking_control_format":"reasoning_effort"}]}|}
+    (fun () ->
+       let config =
+         PC.make
+           ~kind:OpenAI_compat
+           ~model_id:"openai-reasoning-test-9fx"
+           ~base_url:"https://api.openai.com/v1"
+           ~enable_thinking:true
+           ~thinking_budget:4096
+           ()
+       in
+       let json =
+         BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
+       in
+       check
+         string
+         "reasoning_effort"
+         "medium"
+         (json |> member "reasoning_effort" |> to_string);
+       check_member_absent "thinking" json;
+       check_member_absent "enable_thinking" json;
+       check_member_absent "chat_template_kwargs" json)
 ;;
 
 let test_deepseek_openai_compat_uses_thinking_object () =
@@ -447,6 +509,83 @@ let test_anthropic_reasoning_dialect_preserves_thinking () =
     (RD.replay_policy_to_string dialect.replay_policy)
 ;;
 
+let test_anthropic_manual_model_uses_budget_tokens () =
+  let config =
+    anthropic_config ~enable_thinking:true ~thinking_budget:4096 "claude-opus-4-5"
+  in
+  let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
+  check int "budget tokens" 4096 (thinking |> member "budget_tokens" |> to_int);
+  check_member_absent "output_config" json
+;;
+
+let test_anthropic_opus48_uses_adaptive_effort () =
+  let config =
+    anthropic_config ~enable_thinking:true ~thinking_budget:4096 "claude-opus-4-8"
+  in
+  let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
+  check_member_absent "budget_tokens" thinking;
+  check
+    string
+    "effort"
+    "medium"
+    (json |> member "output_config" |> member "effort" |> to_string)
+;;
+
+let test_anthropic_agent_llm_alias_uses_adaptive_effort () =
+  let config =
+    anthropic_config
+      ~enable_thinking:true
+      ~thinking_budget:4096
+      "agent_llm_a-sonnet-4-6-20250514"
+  in
+  let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
+  check_member_absent "budget_tokens" thinking;
+  check
+    string
+    "effort"
+    "medium"
+    (json |> member "output_config" |> member "effort" |> to_string)
+;;
+
+let test_anthropic_sonnet46_defaults_to_adaptive () =
+  let config = anthropic_config ~enable_thinking:true "claude-sonnet-4-6" in
+  let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "adaptive" (thinking |> member "type" |> to_string);
+  check_member_absent "budget_tokens" thinking;
+  check_member_absent "output_config" json
+;;
+
+let test_anthropic_output_config_merges_format_and_effort () =
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
+      ]
+  in
+  let config =
+    anthropic_config
+      ~enable_thinking:true
+      ~thinking_budget:50_000
+      ~output_schema:schema
+      "claude-opus-4-8"
+  in
+  let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let output_config = json |> member "output_config" in
+  check string "effort" "max" (output_config |> member "effort" |> to_string);
+  check
+    string
+    "format type"
+    "json_schema"
+    (output_config |> member "format" |> member "type" |> to_string)
+;;
+
 let test_gemini_reasoning_dialect_uses_thinking_config () =
   let config =
     PC.make
@@ -501,6 +640,10 @@ let () =
             `Quick
             test_openai_reasoning_dialect_uses_reasoning_effort
         ; test_case
+            "openai reasoning request uses reasoning_effort"
+            `Quick
+            test_openai_reasoning_request_uses_reasoning_effort
+        ; test_case
             "deepseek uses thinking object"
             `Quick
             test_deepseek_openai_compat_uses_thinking_object
@@ -548,6 +691,26 @@ let () =
             "anthropic reasoning dialect preserves thinking"
             `Quick
             test_anthropic_reasoning_dialect_preserves_thinking
+        ; test_case
+            "anthropic manual model uses budget_tokens"
+            `Quick
+            test_anthropic_manual_model_uses_budget_tokens
+        ; test_case
+            "anthropic opus 4.8 uses adaptive effort"
+            `Quick
+            test_anthropic_opus48_uses_adaptive_effort
+        ; test_case
+            "anthropic agent_llm_a alias uses adaptive effort"
+            `Quick
+            test_anthropic_agent_llm_alias_uses_adaptive_effort
+        ; test_case
+            "anthropic sonnet 4.6 defaults to adaptive"
+            `Quick
+            test_anthropic_sonnet46_defaults_to_adaptive
+        ; test_case
+            "anthropic output_config merges format and effort"
+            `Quick
+            test_anthropic_output_config_merges_format_and_effort
         ; test_case
             "gemini reasoning dialect uses thinking config"
             `Quick

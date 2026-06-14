@@ -4,7 +4,9 @@ open Llm_provider
 (* ── Helpers ────────────────────────────────────────── *)
 
 let provider_f_config
+      ?(model_id = "gemini-2.5-flash")
       ?(thinking = false)
+      ?enable_thinking
       ?(budget = 10000)
       ?(tools = [])
       ?(json_mode = false)
@@ -13,16 +15,21 @@ let provider_f_config
       ()
   =
   ignore tools;
+  let enable_thinking =
+    match enable_thinking with
+    | Some _ as explicit -> explicit
+    | None -> if thinking then Some true else None
+  in
   Provider_config.make
     ~kind:Gemini
-    ~model_id:"gemini-2.5-flash"
+    ~model_id
     ~base_url:"https://generativelanguage.googleapis.com/v1beta"
     ~api_key:"test-key"
     ~request_path:""
     ~max_tokens:4096
     ~temperature:0.7
-    ?enable_thinking:(if thinking then Some true else None)
-    ?thinking_budget:(if thinking then Some budget else None)
+    ?enable_thinking
+    ?thinking_budget:(if thinking || Option.is_some enable_thinking then Some budget else None)
     ~response_format_json:json_mode
     ?output_schema
     ?system_prompt:(if system = "" then None else Some system)
@@ -99,6 +106,56 @@ let test_thinking_config () =
   check bool "has thinkingConfig" true (tc <> `Null);
   check int "thinkingBudget" 8000 (tc |> member "thinkingBudget" |> to_int);
   check bool "includeThoughts" true (tc |> member "includeThoughts" |> to_bool)
+;;
+
+let test_thinking_disabled_uses_budget_zero () =
+  let config = provider_f_config ~enable_thinking:false () in
+  let messages = [ Types.user_msg "Keep it short." ] in
+  let body = Backend_gemini.build_request ~config ~messages () in
+  let json = parse_body body in
+  let tc = json |> member "generationConfig" |> member "thinkingConfig" in
+  check int "thinkingBudget=0" 0 (tc |> member "thinkingBudget" |> to_int);
+  check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
+;;
+
+let test_gemini3_uses_thinking_level () =
+  let config =
+    provider_f_config
+      ~model_id:"gemini-3.5-flash"
+      ~enable_thinking:true
+      ~budget:1024
+      ()
+  in
+  let body =
+    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Think." ] ()
+  in
+  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
+  check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string);
+  check bool "thinkingBudget absent" true (tc |> member "thinkingBudget" = `Null);
+  check bool "includeThoughts true" true (tc |> member "includeThoughts" |> to_bool)
+;;
+
+let test_gemini3_disable_uses_minimal_level () =
+  let config =
+    provider_f_config ~model_id:"gemini-3-flash" ~enable_thinking:false ()
+  in
+  let body =
+    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] ()
+  in
+  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
+  check string "thinkingLevel" "minimal" (tc |> member "thinkingLevel" |> to_string);
+  check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
+;;
+
+let test_gemini31_pro_disable_uses_low_level () =
+  let config =
+    provider_f_config ~model_id:"gemini-3.1-pro" ~enable_thinking:false ()
+  in
+  let body =
+    Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] ()
+  in
+  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
+  check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string)
 ;;
 
 let test_tools () =
@@ -1010,6 +1067,19 @@ let () =
         ; test_case "system instruction from config" `Quick test_system_instruction
         ; test_case "system from messages" `Quick test_system_from_messages
         ; test_case "thinking config" `Quick test_thinking_config
+        ; test_case
+            "thinking disabled uses budget zero"
+            `Quick
+            test_thinking_disabled_uses_budget_zero
+        ; test_case "gemini 3 uses thinkingLevel" `Quick test_gemini3_uses_thinking_level
+        ; test_case
+            "gemini 3 disable uses minimal"
+            `Quick
+            test_gemini3_disable_uses_minimal_level
+        ; test_case
+            "gemini 3.1 pro disable uses low"
+            `Quick
+            test_gemini31_pro_disable_uses_low_level
         ; test_case "tools" `Quick test_tools
         ; test_case
             "disable_parallel dropped"

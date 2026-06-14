@@ -35,6 +35,23 @@ let build_body_assoc
       ~supports_parallel_tool_calls:capabilities.supports_parallel_tool_calls
       ~tools_present
   in
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.Anthropic
+      ~model_id:model_str
+      ~base_url:""
+      ?max_tokens:config.config.max_tokens
+      ?temperature:config.config.temperature
+      ?top_p:config.config.top_p
+      ?top_k:config.config.top_k
+      ?enable_thinking:config.config.enable_thinking
+      ?thinking_budget:config.config.thinking_budget
+      ~response_format:config.config.response_format
+      ()
+  in
+  let thinking_mode =
+    Llm_provider.Capabilities.anthropic_thinking_control_of_id model_str
+  in
   let messages =
     messages
     |> Llm_provider.Tool_message_pairs.close_for_provider_request
@@ -122,30 +139,23 @@ let build_body_assoc
         ("tool_choice", tc_json) :: body_assoc)
       else body_assoc
   in
-  (* Thinking gate keys on [enable_thinking], not on [thinking_budget].
-     Previously the match was on [thinking_budget = Some _], which
-     meant:
-       (a) [enable_thinking = Some true, thinking_budget = None]
-           → no thinking block emitted (wrong — operator asked for
-             thinking, got none)
-       (b) [enable_thinking = Some false, thinking_budget = Some n]
-           → thinking block emitted anyway (wrong — operator disabled
-             thinking but a stray budget turned it back on)
-     Match the llm_provider backend's semantics from
-     lib/llm_provider/backend_anthropic.ml:75-83: gate on
-     [enable_thinking = Some true] and fall back to a 10_000-token
-     default budget if the caller did not specify one. *)
   let body_assoc =
-    match config.config.enable_thinking with
-    | Some true ->
-      let budget =
-        match config.config.thinking_budget with
-        | Some b -> b
-        | None -> 10_000
-      in
-      ("thinking", `Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
-      :: body_assoc
-    | _ -> body_assoc
+    match
+      Llm_provider.Backend_anthropic.thinking_config_for_config
+        thinking_mode
+        provider_config
+    with
+    | Some thinking -> ("thinking", thinking) :: body_assoc
+    | None -> body_assoc
+  in
+  let body_assoc =
+    match
+      Llm_provider.Backend_anthropic.output_config_for_config
+        thinking_mode
+        provider_config
+    with
+    | Some output_config -> ("output_config", output_config) :: body_assoc
+    | None -> body_assoc
   in
   (* Sampling parameters were previously omitted entirely from the
      Anthropic agent_sdk request path — any [temperature], [top_p],

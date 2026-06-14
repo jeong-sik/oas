@@ -275,6 +275,16 @@ let effective_max_output_tokens (config : Provider_config.t) =
   | Some n, _ -> n
 ;;
 
+let add_sampling_field dialect (config : Provider_config.t) field value body =
+  if
+    Reasoning_dialect.ignores_sampling_param
+      dialect
+      ~enable_thinking:config.enable_thinking
+      field
+  then body
+  else (field, value) :: body
+;;
+
 let build_request
       ?(stream = false)
       ~(config : Provider_config.t)
@@ -286,10 +296,15 @@ let build_request
   let sanitized_messages =
     Backend_openai_serialize.close_tool_message_pairs_for_request messages
   in
+  let dialect = Reasoning_dialect.for_provider_config config in
   let reasoning_effort =
-    Provider_config.reasoning_effort_request_value
-      ~enable_thinking:config.enable_thinking
-      ~thinking_budget:config.thinking_budget
+    match
+      Provider_config.reasoning_effort_request_value
+        ~enable_thinking:config.enable_thinking
+        ~thinking_budget:config.thinking_budget
+    with
+    | Some effort -> Reasoning_dialect.normalize_effort dialect effort
+    | None -> None
   in
   let body =
     [ "model", `String config.model_id
@@ -305,12 +320,12 @@ let build_request
   in
   let body =
     match config.temperature with
-    | Some t -> ("temperature", `Float t) :: body
+    | Some t -> add_sampling_field dialect config "temperature" (`Float t) body
     | None -> body
   in
   let body =
     match config.top_p with
-    | Some p -> ("top_p", `Float p) :: body
+    | Some p -> add_sampling_field dialect config "top_p" (`Float p) body
     | None -> body
   in
   let body =

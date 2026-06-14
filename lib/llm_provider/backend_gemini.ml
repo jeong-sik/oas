@@ -42,6 +42,43 @@ let warn_parallel_disable_unsupported ~model_id =
     mark ())
 ;;
 
+let thinking_level_of_budget ~supports_minimal = function
+  | Some n when n <= 0 ->
+    if supports_minimal then "minimal" else "low"
+  | Some n when n <= 2_048 -> "low"
+  | Some n when n <= 8_192 -> "medium"
+  | Some _ | None -> "high"
+;;
+
+let thinking_config_of_config (config : Provider_config.t) =
+  let model_id = String.lowercase_ascii (String.trim config.model_id) in
+  match Capabilities.gemini_thinking_control_of_id model_id with
+  | Capabilities.Gemini_thinking_level { supports_minimal } ->
+    (match config.enable_thinking with
+     | Some false ->
+       let level = if supports_minimal then "minimal" else "low" in
+       Some (`Assoc [ "thinkingLevel", `String level ])
+     | Some true ->
+       let level = thinking_level_of_budget ~supports_minimal config.thinking_budget in
+       Some
+         (`Assoc
+             [ "thinkingLevel", `String level; "includeThoughts", `Bool true ])
+     | None -> None)
+  | Capabilities.Gemini_thinking_budget | Capabilities.Gemini_unknown_thinking_control ->
+    (match config.enable_thinking with
+     | Some false -> Some (`Assoc [ "thinkingBudget", `Int 0 ])
+     | Some true ->
+       let budget =
+         match config.thinking_budget with
+         | Some b -> b
+         | None -> Constants.Thinking.provider_f_budget ()
+       in
+       Some
+         (`Assoc
+             [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ])
+     | None -> None)
+;;
+
 let provider_f_role_of_oas = function
   | User | System | Tool -> "user"
   | Assistant -> "model"
@@ -314,19 +351,11 @@ let build_request
           | None -> Constants.Deterministic.default_seed)
      in
      gen_config := ("seed", `Int seed) :: !gen_config));
-  (* Thinking config *)
-  (match config.enable_thinking with
-   | Some true ->
-     let budget =
-       match config.thinking_budget with
-       | Some b -> b
-       | None -> Constants.Thinking.provider_f_budget ()
-     in
-     gen_config
-     := ( "thinkingConfig"
-        , `Assoc [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ] )
-        :: !gen_config
-   | _ -> ());
+  (* Gemini 3+ uses [thinkingLevel]; Gemini 2.5 uses [thinkingBudget]. *)
+  (match thinking_config_of_config config with
+   | Some thinking_config ->
+     gen_config := ("thinkingConfig", thinking_config) :: !gen_config
+   | None -> ());
   let structured_schema =
     match config.output_schema, config.response_format with
     | Some schema, _ -> Some schema

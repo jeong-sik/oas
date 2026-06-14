@@ -114,11 +114,25 @@ let of_capabilities (caps : Capabilities.capabilities) =
     }
 ;;
 
-let with_preserve_thinking config dialect =
-  match config.Provider_config.preserve_thinking, dialect.toggle_wire with
+let with_preserve_thinking ~preserve_thinking dialect =
+  match preserve_thinking, dialect.toggle_wire with
   | Some true, (Chat_template_kwargs | Enable_thinking) ->
     { dialect with replay_policy = Preserve_always }
   | _ -> dialect
+;;
+
+let thinking_enabled ~enable_thinking =
+  match enable_thinking with
+  | Some false -> false
+  | Some true | None -> true
+;;
+
+let ignores_sampling_param dialect ~enable_thinking field =
+  thinking_enabled ~enable_thinking
+  &&
+  match dialect.sampling_policy with
+  | Sampling_supported -> false
+  | Ignored_when_thinking params -> List.mem field params
 ;;
 
 let provider_capabilities_of_kind kind =
@@ -145,10 +159,14 @@ let for_provider_config (config : Provider_config.t) =
     }
   | Kimi | OpenAI_compat | Ollama | Glm ->
     (match Capabilities.for_model_id config.model_id with
-     | Some caps -> of_capabilities caps |> with_preserve_thinking config
+     | Some caps ->
+       of_capabilities caps
+       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
      | None ->
        (match provider_capabilities_of_kind config.kind with
-        | Some caps -> of_capabilities caps |> with_preserve_thinking config
+        | Some caps ->
+          of_capabilities caps
+          |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
         | None -> default))
   | DashScope ->
     (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
@@ -158,7 +176,8 @@ let for_provider_config (config : Provider_config.t) =
        request builder sends. Grouping DashScope with the model-catalog-first
        providers above made a DashScope Qwen config report Chat_template_kwargs
        while the builder emitted enable_thinking. *)
-    of_capabilities Capabilities.dashscope_capabilities |> with_preserve_thinking config
+    of_capabilities Capabilities.dashscope_capabilities
+    |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
 ;;
 
 let normalize_effort dialect raw =
@@ -167,7 +186,7 @@ let normalize_effort dialect raw =
   | ("none" | "off" | "disabled" | ""), _ -> None
   | ("low" | "medium" | "high"), Deepseek_high_or_max -> Some "high"
   | ("xhigh" | "max"), Deepseek_high_or_max -> Some "max"
-  | ("low" | "medium" | "high"), Preserve_effort -> Some normalized
+  | ("minimal" | "low" | "medium" | "high"), Preserve_effort -> Some normalized
   | "max", Preserve_effort -> Some "max"
   | "xhigh", Preserve_effort -> Some "xhigh"
   | _ -> None
