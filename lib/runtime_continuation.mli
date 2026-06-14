@@ -2,8 +2,8 @@
 
     These types describe when host-provided input may be applied to an active
     agent turn without violating provider/tool ordering. They are provider- and
-    runtime-agnostic: OAS exposes the policy; MASC or another host owns the
-    queue and UI wiring.
+    runtime-agnostic: OAS exposes the policy; the embedding host owns the queue
+    and UI wiring.
 
     @since 0.207.0 *)
 

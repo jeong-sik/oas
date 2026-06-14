@@ -204,11 +204,7 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "preserve minimal"
     (Some "minimal")
     (RD.normalize_effort dialect "minimal");
-  check
-    (option string)
-    "preserve high"
-    (Some "high")
-    (RD.normalize_effort dialect "high");
+  check (option string) "preserve high" (Some "high") (RD.normalize_effort dialect "high");
   check
     (option string)
     "preserve xhigh"
