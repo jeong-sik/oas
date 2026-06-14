@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.11](https://github.com/jeong-sik/oas/compare/v0.206.10...v0.206.11) (2026-06-14)
+
+
+### Bug Fixes
+
+* **reasoning_dialect:** align DashScope dialect + apply sampling drop on public path ([#2078](https://github.com/jeong-sik/oas/issues/2078) Codex P2) ([#2081](https://github.com/jeong-sik/oas/issues/2081)) ([3093300](https://github.com/jeong-sik/oas/commit/30933008e4c6bee3e9ed0870d839cefb507bf48c))
+
 ## [0.206.10](https://github.com/jeong-sik/oas/compare/v0.206.9...v0.206.10) (2026-06-14)
 
 
