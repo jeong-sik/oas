@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.9](https://github.com/jeong-sik/oas/compare/v0.206.8...v0.206.9) (2026-06-14)
+
+
+### Bug Fixes
+
+* **agent,responses:** address open Codex P2 findings (incomplete-before-tooluse + lifecycle ordering) ([#2073](https://github.com/jeong-sik/oas/issues/2073)) ([6563c4a](https://github.com/jeong-sik/oas/commit/6563c4ae6151c07b845d12033b5aa290c28b6fda))
+* **responses:** incomplete status wins over tool-use in streaming path ([#2073](https://github.com/jeong-sik/oas/issues/2073) follow-up) ([#2076](https://github.com/jeong-sik/oas/issues/2076)) ([e2a78f7](https://github.com/jeong-sik/oas/commit/e2a78f75e8dfc585078a88a2817bfffc9dad44f9))
+
 ## [0.206.8](https://github.com/jeong-sik/oas/compare/v0.206.7...v0.206.8) (2026-06-14)
 
 
