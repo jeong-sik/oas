@@ -406,6 +406,7 @@ type sse_event =
       }
   | Connected
   | Timeout of string
+  | StreamIncomplete of { reason : string }
 
 (** Terminal error captured while accumulating an SSE stream.
 

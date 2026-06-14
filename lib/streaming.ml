@@ -123,6 +123,11 @@ let accumulate_event (acc : stream_acc) = function
     acc.sse_error
     := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
   | MessageStop -> acc.stop_reason_received := true
+  (* StreamIncomplete drives the partial-tool drop on the primary
+     [Complete_stream_acc] path; this secondary accumulator (see WORKAROUND
+     above) does not assemble/drop tool blocks here, so it is a no-op pending the
+     same unification. *)
+  | StreamIncomplete _ -> ()
   | Ping | ContentBlockStop _ | Connected | Timeout _ -> ()
 ;;
 

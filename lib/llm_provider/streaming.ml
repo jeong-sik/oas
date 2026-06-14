@@ -153,7 +153,8 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | SSEParseFailed _
   | SSEUnknownEventType _
   | Connected
-  | Timeout _ -> false
+  | Timeout _
+  | StreamIncomplete _ -> false
 ;;
 
 let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
@@ -174,7 +175,8 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   | SSEParseFailed _
   | SSEUnknownEventType _
   | Connected
-  | Timeout _ -> false
+  | Timeout _
+  | StreamIncomplete _ -> false
 ;;
 
 let thinking_only_timeout_exceeded ~timeout_s ~started_at ~now =
@@ -627,8 +629,15 @@ let responses_output_has_function_call response =
   | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> false
 ;;
 
-let responses_stop_reason_of_response response =
+let responses_incomplete_reason response =
   let open Yojson.Safe.Util in
+  match response |> member "incomplete_details" with
+  | `Assoc _ as details ->
+    responses_member_string_opt "reason" details |> Option.value ~default:"incomplete"
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> "incomplete"
+;;
+
+let responses_stop_reason_of_response response =
   (* A cut-off generation ([status="incomplete"]/[status="failed"]) can still
      carry a partial [function_call] item. The terminal status must win over
      tool-call detection, otherwise the stream finalizes as [StopToolUse] and the
@@ -639,14 +648,9 @@ let responses_stop_reason_of_response response =
      symmetry. *)
   match responses_member_string_opt "status" response with
   | Some "incomplete" ->
-    let reason =
-      match response |> member "incomplete_details" with
-      | `Assoc _ as details ->
-        responses_member_string_opt "reason" details |> Option.value ~default:"incomplete"
-      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
-        "incomplete"
-    in
-    if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
+    if String.equal (responses_incomplete_reason response) "max_output_tokens"
+    then MaxTokens
+    else Unknown (responses_incomplete_reason response)
   | Some "failed" -> Unknown "failed"
   | Some "completed" | None ->
     if responses_output_has_function_call response then StopToolUse else EndTurn
@@ -848,6 +852,15 @@ let responses_sse_to_events (state : provider_d_stream_state) event_type data_st
        | "response.completed" | "response.incomplete" ->
          let response = json |> member "response" in
          responses_emit_redacted_reasoning_outputs state emit response;
+         (* A [response.incomplete] terminal means the turn was cut off, so any
+            in-progress tool call is partial. Carry that to the accumulator
+            (which drops partial tool blocks at finalize) for ANY incomplete
+            reason — [stop_reason = MaxTokens] alone only covers
+            max_output_tokens, not e.g. content_filter. (#2073 follow-up.) *)
+         (match responses_member_string_opt "status" response with
+          | Some "incomplete" ->
+            emit (StreamIncomplete { reason = responses_incomplete_reason response })
+          | Some _ | None -> ());
          emit_terminal response
        | "response.failed" | "error" ->
          emit

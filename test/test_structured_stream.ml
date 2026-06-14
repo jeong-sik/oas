@@ -167,6 +167,7 @@ let test_on_event_callback_fires () =
       | SSEUnknownEventType _ -> "unknown_event_type"
       | Connected -> "connected"
       | Timeout _ -> "timeout"
+      | StreamIncomplete _ -> "stream_incomplete"
     in
     event_types := t :: !event_types);
   let types = List.rev !event_types in
