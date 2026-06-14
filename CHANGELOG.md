@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.10](https://github.com/jeong-sik/oas/compare/v0.206.9...v0.206.10) (2026-06-14)
+
+
+### Bug Fixes
+
+* **responses:** drop partial tool blocks for all incomplete reasons, not just MaxTokens ([#2077](https://github.com/jeong-sik/oas/issues/2077)) ([d6f6ece](https://github.com/jeong-sik/oas/commit/d6f6ece4f1432f0cf4d36e4a0e3cc642de81cc40))
+
 ## [0.206.9](https://github.com/jeong-sik/oas/compare/v0.206.8...v0.206.9) (2026-06-14)
 
 
