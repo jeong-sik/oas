@@ -299,6 +299,16 @@ let test_callback_exception_does_not_rollback_append () =
   | _ -> fail "expected appended event to remain visible"
 ;;
 
+let test_callback_cancelled_propagates_after_append () =
+  let j =
+    Durable_event.create ~on_append:(fun _event -> raise (Eio.Cancel.Cancelled Exit)) ()
+  in
+  (match Durable_event.append j (Turn_started { turn = 1; timestamp = ts }) with
+   | () -> fail "expected callback cancellation to propagate"
+   | exception Eio.Cancel.Cancelled _ -> ());
+  check int "journal still records cancelled callback event" 1 (Durable_event.length j)
+;;
+
 (* ── Persistence ──────────────────────────────────── *)
 
 let test_save_and_load_roundtrip () =
@@ -373,6 +383,10 @@ let () =
             "callback exception does not rollback append"
             `Quick
             test_callback_exception_does_not_rollback_append
+        ; test_case
+            "callback cancellation propagates after append"
+            `Quick
+            test_callback_cancelled_propagates_after_append
         ] )
     ; ( "idempotency"
       , [ test_case "deterministic key" `Quick test_idempotency_key_deterministic

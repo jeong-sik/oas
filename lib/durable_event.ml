@@ -76,6 +76,13 @@ type journal =
 
 let create ?on_append () = { state = Atomic.make ([], 0); on_append }
 
+let reraise_if_reserved_callback_exception exn =
+  match exn with
+  | Out_of_memory | Stack_overflow | Sys.Break | Eio.Cancel.Cancelled _ ->
+    Printexc.raise_with_backtrace exn (Printexc.get_raw_backtrace ())
+  | _ -> ()
+;;
+
 let append journal event =
   let rec loop () =
     let old_state = Atomic.get journal.state in
@@ -89,7 +96,7 @@ let append journal event =
   Option.iter
     (fun f ->
        try f event with
-       | _ -> ())
+       | exn -> reraise_if_reserved_callback_exception exn)
     journal.on_append
 ;;
 
