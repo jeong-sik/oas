@@ -224,7 +224,8 @@ let test_builder_with_operator_policy () =
     Builder.create ~net ~model:"test-model"
     |> Builder.with_tools [ make_tool "a"; make_tool "b"; make_tool "c" ]
     |> Builder.with_operator_policy (Guardrails.AllowList [ "a"; "c" ])
-    |> Builder.build_safe |> Result.get_ok
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let opts = Agent.options agent in
   match opts.operator_policy with
@@ -240,7 +241,8 @@ let test_builder_no_operator_policy () =
   let agent =
     Builder.create ~net ~model:"test-model"
     |> Builder.with_tools [ make_tool "a" ]
-    |> Builder.build_safe |> Result.get_ok
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let opts = Agent.options agent in
   check (option reject) "no operator policy" None opts.operator_policy

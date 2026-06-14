@@ -289,9 +289,7 @@ let test_provider_convenience_validators_cover_tool_responses () =
         }]
       }|}
   in
-  let gemini =
-    H.validate_gemini_response ~declared_tools:[ "lookup" ] provider_f_json
-  in
+  let gemini = H.validate_gemini_response ~declared_tools:[ "lookup" ] provider_f_json in
   check bool "gemini stop reason" true gemini.stop_reason_correct;
   check bool "gemini declared tool" true gemini.all_tools_declared;
   check int "gemini tool calls" 1 (List.length gemini.tool_calls_found)

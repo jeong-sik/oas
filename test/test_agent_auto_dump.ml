@@ -23,7 +23,8 @@ let test_save_journal_writes_jsonl () =
        let agent =
          Builder.create ~net ~model:"test"
          |> Builder.with_journal journal
-         |> Builder.build_safe |> Result.get_ok
+         |> Builder.build_safe
+         |> Result.get_ok
        in
        match Agent.save_journal agent path with
        | Error e -> fail (Printf.sprintf "save_journal failed: %s" e)
@@ -56,7 +57,8 @@ let test_auto_dump_installs_callback () =
        let agent =
          Builder.create ~net ~model:"test"
          |> Builder.with_auto_dump_journal ~path
-         |> Builder.build_safe |> Result.get_ok
+         |> Builder.build_safe
+         |> Result.get_ok
        in
        let opts = Agent.options agent in
        check bool "journal attached" true (Option.is_some opts.journal);

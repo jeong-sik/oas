@@ -25,7 +25,8 @@ let demo_minimal () =
   let agent =
     Builder.create ~net:env#net ~model:"test-model"
     |> Builder.with_name "minimal"
-    |> Builder.build_safe |> Result.get_ok
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   Printf.printf
     "  Created agent: %s (model=%s)\n"
@@ -122,7 +123,8 @@ let demo_context () =
     Builder.create ~net:env#net ~model:"test-model"
     |> Builder.with_name "ctx-demo"
     |> Builder.with_context ctx
-    |> Builder.build_safe |> Result.get_ok
+    |> Builder.build_safe
+    |> Result.get_ok
   in
   let agent_ctx = Agent.context agent in
   let value = Context.get agent_ctx "shared_key" in
