@@ -199,7 +199,21 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "replay policy"
     "no_replay"
     (RD.replay_policy_to_string dialect.replay_policy);
-  check (option string) "preserve high" (Some "high") (RD.normalize_effort dialect "high")
+  check
+    (option string)
+    "preserve minimal"
+    (Some "minimal")
+    (RD.normalize_effort dialect "minimal");
+  check
+    (option string)
+    "preserve high"
+    (Some "high")
+    (RD.normalize_effort dialect "high");
+  check
+    (option string)
+    "preserve xhigh"
+    (Some "xhigh")
+    (RD.normalize_effort dialect "xhigh")
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =

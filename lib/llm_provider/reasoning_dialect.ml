@@ -186,7 +186,7 @@ let normalize_effort dialect raw =
   | ("none" | "off" | "disabled" | ""), _ -> None
   | ("low" | "medium" | "high"), Deepseek_high_or_max -> Some "high"
   | ("xhigh" | "max"), Deepseek_high_or_max -> Some "max"
-  | ("low" | "medium" | "high"), Preserve_effort -> Some normalized
+  | ("minimal" | "low" | "medium" | "high"), Preserve_effort -> Some normalized
   | "max", Preserve_effort -> Some "max"
   | "xhigh", Preserve_effort -> Some "xhigh"
   | _ -> None

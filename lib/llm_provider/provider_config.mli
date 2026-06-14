@@ -245,7 +245,9 @@ val clamp_max_turns : provider_kind -> int -> int
 val default_attempt_timeout_s : provider_kind -> float option
 
 (** Map thinking configuration fields to reasoning_effort string.
-    Returns "none", "low", "medium", or "high".
+    Returns ["none"], one of the budget-derived levels ["low" | "medium" |
+    "high"], or a supported [OAS_DEFAULT_REASONING_EFFORT] override
+    ["minimal" | "low" | "medium" | "high" | "xhigh"].
     @since 0.114.0 *)
 val effort_of_thinking_config
   :  enable_thinking:bool option

@@ -194,16 +194,16 @@ let default_attempt_timeout_s = function
 
 (** Default reasoning effort level when thinking is enabled but no budget
     is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
-    Accepted values: "low", "medium", "high". Invalid values fall back to
-    "medium".
+    Accepted values: "minimal", "low", "medium", "high", "xhigh". Invalid
+    values fall back to "medium".
     @since 0.185.0 *)
 let default_reasoning_effort () =
   match Cli_common_env.get "OAS_DEFAULT_REASONING_EFFORT" with
-  | Some (("low" | "medium" | "high") as v) -> v
+  | Some (("minimal" | "low" | "medium" | "high" | "xhigh") as v) -> v
   | Some v ->
     Diag.warn
       "provider_config"
-      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected low/medium/high), using medium"
+      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected minimal/low/medium/high/xhigh), using medium"
       v;
     "medium"
   | None -> "medium"

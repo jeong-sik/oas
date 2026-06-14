@@ -44,9 +44,11 @@ not introduce a second model registry.
   <https://platform.claude.com/docs/en/build-with-claude/extended-thinking>,
   <https://platform.claude.com/docs/en/build-with-claude/effort>, checked
   2026-06-14.
-- OpenAI official docs: reasoning models expose reasoning controls and prior
-  reasoning state can be preserved with `previous_response_id` or by manually
-  passing reasoning items forward. Source:
+- OpenAI official docs: reasoning models expose `reasoning.effort`; currently
+  documented values include `none`, `minimal`, `low`, `medium`, `high`, and
+  `xhigh`, with support/defaults varying by model. Prior reasoning state can
+  be preserved with `previous_response_id` or by manually passing reasoning
+  items forward. Source:
   <https://platform.openai.com/docs/guides/reasoning>, checked 2026-06-14.
 - Gemini official docs: Gemini exposes `thinkingConfig`; Gemini 3+ should use
   `thinkingLevel`, while Gemini 2.5 uses `thinkingBudget`; optional thought
