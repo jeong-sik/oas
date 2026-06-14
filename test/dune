@@ -526,6 +526,7 @@
   test_runtime_evidence
   test_runtime_health
   test_runtime_projection_cov2
+  test_runtime_continuation
   test_runtime_replay
   test_runtime_server_coverage
   test_runtime_server_types
@@ -536,6 +537,7 @@
   test_runtime_evidence
   test_runtime_health
   test_runtime_projection_cov2
+  test_runtime_continuation
   test_runtime_replay
   test_runtime_server_coverage
   test_runtime_server_types
