@@ -157,6 +157,16 @@ let invoke_on_run_complete agent ~ok =
          [ Log.S ("error", Printexc.to_string exn) ])
 ;;
 
+let set_terminal_lifecycle agent = function
+  | Ok _ -> set_lifecycle agent ~finished_at:(Unix.gettimeofday ()) Completed
+  | Error err ->
+    set_lifecycle
+      agent
+      ~finished_at:(Unix.gettimeofday ())
+      ~last_error:(Error.to_string err)
+      Failed
+;;
+
 let with_raw_trace_run agent user_prompt f =
   (* Reset lifecycle so each run() starts fresh — allows agent reuse
      after Completed/Failed without hitting invalid transition. *)
@@ -166,12 +176,8 @@ let with_raw_trace_run agent user_prompt f =
     let ts = Unix.gettimeofday () in
     set_lifecycle agent ~accepted_at:ts ~started_at:ts Accepted;
     let result = f None in
+    set_terminal_lifecycle agent result;
     invoke_on_run_complete agent ~ok:(Result.is_ok result);
-    let ts = Unix.gettimeofday () in
-    (match result with
-     | Ok _ -> set_lifecycle agent ~finished_at:ts Completed
-     | Error err ->
-       set_lifecycle agent ~finished_at:ts ~last_error:(Error.to_string err) Failed);
     result
   | Some sink ->
     let* active =
@@ -194,7 +200,6 @@ let with_raw_trace_run agent user_prompt f =
       ~started_at:ts
       Accepted;
     let finalize result =
-      invoke_on_run_complete agent ~ok:(Result.is_ok result);
       let final_text, stop_reason, error =
         match result with
         | Ok response ->
@@ -206,19 +211,14 @@ let with_raw_trace_run agent user_prompt f =
       in
       match Raw_trace.finish_run active ~final_text ~stop_reason ~error with
       | Ok _ ->
-        let ts = Unix.gettimeofday () in
-        (match result with
-         | Ok _ -> set_lifecycle agent ~finished_at:ts Completed
-         | Error err ->
-           set_lifecycle agent ~finished_at:ts ~last_error:(Error.to_string err) Failed);
+        set_terminal_lifecycle agent result;
+        invoke_on_run_complete agent ~ok:(Result.is_ok result);
         result
       | Error err ->
-        set_lifecycle
-          agent
-          ~finished_at:(Unix.gettimeofday ())
-          ~last_error:(Error.to_string err)
-          Failed;
-        Error err
+        let trace_error = Error err in
+        set_terminal_lifecycle agent trace_error;
+        invoke_on_run_complete agent ~ok:false;
+        trace_error
     in
     (match f (Some active) with
      | result -> finalize result
