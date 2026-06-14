@@ -177,8 +177,13 @@ let with_raw_trace_run agent user_prompt f =
     set_lifecycle agent ~accepted_at:ts ~started_at:ts Accepted;
     let result = f None in
     (* Contract (agent_types.mli): on_run_complete runs *before* lifecycle is
-       updated, so completion hooks observe the pre-terminal run state. *)
-    invoke_on_run_complete agent ~ok:(Result.is_ok result);
+       updated, so completion hooks observe the pre-terminal run state.
+       Reserved exceptions (e.g. Eio.Cancel.Cancelled) still propagate, but the
+       terminal lifecycle transition must not be skipped. *)
+    (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
+     | exn ->
+       set_terminal_lifecycle agent result;
+       raise exn);
     set_terminal_lifecycle agent result;
     result
   | Some sink ->
@@ -216,12 +221,18 @@ let with_raw_trace_run agent user_prompt f =
          the lifecycle transition per the agent_types.mli contract. *)
       match Raw_trace.finish_run active ~final_text ~stop_reason ~error with
       | Ok _ ->
-        invoke_on_run_complete agent ~ok:(Result.is_ok result);
+        (try invoke_on_run_complete agent ~ok:(Result.is_ok result) with
+         | exn ->
+           set_terminal_lifecycle agent result;
+           raise exn);
         set_terminal_lifecycle agent result;
         result
       | Error err ->
         let trace_error = Error err in
-        invoke_on_run_complete agent ~ok:false;
+        (try invoke_on_run_complete agent ~ok:false with
+         | exn ->
+           set_terminal_lifecycle agent trace_error;
+           raise exn);
         set_terminal_lifecycle agent trace_error;
         trace_error
     in

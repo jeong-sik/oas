@@ -520,8 +520,8 @@ let stop_reason_of_response_json ~has_tool_calls json =
        | None -> None
      with
      | Some (`String message) -> Unknown message
-     | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-     | None -> Unknown status)
+     | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
+       -> Unknown status)
   | _ when has_tool_calls -> StopToolUse
   | "completed" | "" -> EndTurn
   | other -> Unknown other
@@ -546,6 +546,23 @@ let parse_response_result json_str =
         | None -> []
       in
       let content = List.concat_map content_blocks_of_output_item output in
+      (* Terminal [incomplete]/[failed] responses may carry a partial [function_call]
+         item; do not expose it as a dangling ToolUse that the pipeline would try to
+         execute or repair. Drop such blocks so the stop reason dominates. *)
+      let status =
+        opt_bind (json_assoc_opt "status" json) json_string_opt
+        |> Option.value ~default:""
+      in
+      let content =
+        match String.lowercase_ascii status with
+        | "incomplete" | "failed" ->
+          List.filter
+            (function
+              | ToolUse _ -> false
+              | _ -> true)
+            content
+        | _ -> content
+      in
       let has_tool_calls =
         List.exists
           (function
