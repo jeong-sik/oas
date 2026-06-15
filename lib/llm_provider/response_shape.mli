@@ -30,7 +30,6 @@ type content_shape =
 val summarize : Types.api_response -> t
 val content_shape : Types.api_response -> t -> content_shape
 val content_shape_to_string : content_shape -> string
-val stop_reason_to_string : Types.stop_reason -> string
 
 (** [true] when the response carries downstream-visible progress: non-blank
     text or a tool call. Hidden thinking, tool results, and media-only blocks
