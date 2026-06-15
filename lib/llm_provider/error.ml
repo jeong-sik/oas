@@ -200,7 +200,11 @@ let of_retry_api_error ?provider err =
     InvalidRequest { provider; reason = Retry.error_message (Retry.ContextOverflow r) }
   | Retry.NetworkError r ->
     NetworkError { provider; kind = r.kind; timeout_phase = None; detail = r.message }
-  | Retry.Timeout r -> Timeout { provider; timeout_phase = None; detail = r.message }
+  (* Preserve the transport phase carried by Retry.Timeout so a retried
+     prefill timeout surfaces as [First_token] (not the default [None]
+     that would collapse every retry-classified timeout into an
+     unclassifiable provider timeout).  See http_client.timeout_phase. *)
+  | Retry.Timeout r -> Timeout { provider; timeout_phase = r.phase; detail = r.message }
 ;;
 
 let capacity_scope_of_http = function

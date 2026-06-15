@@ -406,15 +406,17 @@ let classify_network_exn (e : exn) =
   | Eio.Io _ as exn ->
     let msg = Printexc.to_string exn in
     Some (NetworkError { message = msg; kind = classify_by_message msg })
-  | Sys_error msg ->
-    Some (NetworkError { message = msg; kind = classify_by_message msg })
+  | Sys_error msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })
   | Failure msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })
   | _ -> None
 ;;
 
 let catch_network f =
-  try f () with exn ->
-  (match classify_network_exn exn with Some e -> Error e | None -> raise exn)
+  try f () with
+  | exn ->
+    (match classify_network_exn exn with
+     | Some e -> Error e
+     | None -> raise exn)
 ;;
 
 (* ── classify_network_exn / phase-mapping invariants ─────────── *)
@@ -789,8 +791,7 @@ let with_post_stream
         let body_str =
           try
             Eio.Buf_read.(
-              of_flow ~max_size:Api_common.max_response_body resp_body
-              |> take_all)
+              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
           with
           | exn ->
             drain_response_body resp_body;
@@ -805,15 +806,15 @@ let with_post_stream
      typed [Error] (see [Complete_stream.body_logic] and the Streaming
      callers). A body-phase timeout that [f] lets propagate escapes this
      function as the raw exception. *)
-  (match post_result with
-   | Error e -> Error e
-   | Ok reader ->
-     (* Body consumption. [Eio.Time.Timeout] propagates so the caller
+  match post_result with
+  | Error e -> Error e
+  | Ok reader ->
+    (* Body consumption. [Eio.Time.Timeout] propagates so the caller
         phases it (prefill → [First_token], inter-chunk → [Stream_idle]).
         Other network exceptions classify like {!catch_network} so a
         body-phase I/O failure still surfaces as a typed [NetworkError]
         instead of escaping as a raw exception. *)
-     try Ok (f reader) with
+    (try Ok (f reader) with
      | Eio.Time.Timeout ->
        (* Body-phase timeout. Stream-state-aware callers ([Complete_stream])
           catch this inside [f] and emit the precise [First_token] /
@@ -826,7 +827,10 @@ let with_post_stream
             { message = "stream body timed out (awaiting first token / inter-chunk idle)"
             ; phase = Unknown_timeout
             })
-     | exn -> (match classify_network_exn exn with Some e -> Error e | None -> raise exn))
+     | exn ->
+       (match classify_network_exn exn with
+        | Some e -> Error e
+        | None -> raise exn))
 ;;
 
 (* One W3C EventSource line, parsed per spec (§9.2.6 event stream

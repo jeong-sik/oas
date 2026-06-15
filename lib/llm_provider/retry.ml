@@ -21,7 +21,10 @@ type api_error =
       { message : string
       ; kind : Http_client.network_error_kind
       }
-  | Timeout of { message : string }
+  | Timeout of
+      { message : string
+      ; phase : Http_client.timeout_phase option
+      }
 
 type retry_config =
   { max_retries : int
@@ -788,7 +791,7 @@ let%test "is_hard_quota non-RateLimited variants are false" =
   && (not (is_hard_quota (ServerError { status = 500; message = "quota exceeded" })))
   && (not (is_hard_quota (AuthError { message = "invalid key" })))
   && (not (is_hard_quota (NetworkError { message = "connection reset"; kind = Unknown })))
-  && (not (is_hard_quota (Timeout { message = "deadline exceeded" })))
+  && (not (is_hard_quota (Timeout { message = "deadline exceeded"; phase = None })))
   && (not (is_hard_quota (InvalidRequest { message = "bad input" })))
   && not (is_hard_quota (ContextOverflow { message = "too long"; limit = None }))
 ;;

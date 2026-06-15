@@ -325,6 +325,33 @@ let test_http_timeout_error_mapping () =
   | _ -> fail "expected Timeout"
 ;;
 
+let test_retry_timeout_phase_mapping () =
+  (* Retry.Timeout carries the transport phase that Http_client.TimeoutError
+     attached (complete_stream's local catch sets First_token for prefill).
+     [of_retry_api_error] must preserve it onto Error.Timeout.timeout_phase:
+     a prefill timeout that exhausts retries must still surface as
+     [First_token], not collapse to [None] (which would re-introduce the
+     phase mislabeling that PR #2093 fixed at the transport layer). *)
+  let err =
+    Error.of_retry_api_error
+      ~provider:"ollama"
+      (Retry.Timeout
+         { message = "prefill exceeded first-token budget"
+         ; phase = Some Http_client.First_token
+         })
+  in
+  match err with
+  | Error.Timeout { provider; timeout_phase; detail } ->
+    check string "provider" "ollama" provider;
+    check
+      (option string)
+      "phase"
+      (Some "first_token")
+      (Option.map Http_client.timeout_phase_to_label timeout_phase);
+    check string "detail" "prefill exceeded first-token budget" detail
+  | _ -> fail "expected Timeout"
+;;
+
 let test_retry_remaining_variants_mapping () =
   let cases =
     [ ( Error.of_retry_api_error
@@ -347,7 +374,9 @@ let test_retry_remaining_variants_mapping () =
           ~provider:"openai"
           (Retry.NetworkError { message = "tls"; kind = Http_client.Tls_error })
       , "network" )
-    ; ( Error.of_retry_api_error ~provider:"openai" (Retry.Timeout { message = "slow" })
+    ; ( Error.of_retry_api_error
+          ~provider:"openai"
+          (Retry.Timeout { message = "slow"; phase = None })
       , "timeout" )
     ]
   in
@@ -558,6 +587,10 @@ let () =
         ; test_case "HTTP terminal" `Quick test_http_terminal_mapping
         ; test_case "HTTP network error" `Quick test_http_network_error_mapping
         ; test_case "HTTP timeout error" `Quick test_http_timeout_error_mapping
+        ; test_case
+            "Retry timeout phase preserved"
+            `Quick
+            test_retry_timeout_phase_mapping
         ; test_case
             "Retry remaining variants"
             `Quick

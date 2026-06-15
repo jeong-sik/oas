@@ -263,7 +263,7 @@ let test_roundtrip_api_network_error () =
 ;;
 
 let test_roundtrip_api_timeout () =
-  let orig = Error.Api (Retry.Timeout { message = "3s" }) in
+  let orig = Error.Api (Retry.Timeout { message = "3s"; phase = None }) in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
    | `Provider_timeout "3s" -> ()

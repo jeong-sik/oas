@@ -27,7 +27,8 @@ let classify_retry_error = function
   | Http_client.HttpError { code; body } -> Some (Retry.classify_error ~status:code ~body)
   | Http_client.NetworkError { message; kind; _ } ->
     Some (Retry.NetworkError { message; kind })
-  | Http_client.TimeoutError { message; _ } -> Some (Retry.Timeout { message })
+  | Http_client.TimeoutError { message; phase } ->
+    Some (Retry.Timeout { message; phase = Some phase })
   | Http_client.AcceptRejected _ -> None
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)
