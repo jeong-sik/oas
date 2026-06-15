@@ -417,6 +417,28 @@ let catch_network f =
   (match classify_network_exn exn with Some e -> Error e | None -> raise exn)
 ;;
 
+(* ── classify_network_exn / phase-mapping invariants ─────────── *)
+
+let%test "classify_network_exn: Eio.Time.Timeout is Http_operation" =
+  (* A timeout classified HERE is a connect/headers-phase timeout
+     ([catch_network] wraps only that phase in with_post_stream). Body-phase
+     timeouts are intercepted before this point, so this stays accurate. *)
+  match classify_network_exn Eio.Time.Timeout with
+  | Some (TimeoutError { phase = Http_operation; _ }) -> true
+  | _ -> false
+;;
+
+let%test "classify_network_exn: non-network exn is None (propagates)" =
+  classify_network_exn Not_found = None
+;;
+
+let%test "timeout_phase_of_stream_idle_state: Awaiting_first_* -> First_token" =
+  (* Prefill (no first chunk yet) must surface as [First_token], never
+     [Http_operation]. Guards the phase-accuracy fix. *)
+  timeout_phase_of_stream_idle_state Awaiting_first_event = First_token
+  && timeout_phase_of_stream_idle_state Awaiting_first_delta = First_token
+;;
+
 (** Detect errors caused by local resource exhaustion (port/FD limits).
     Cascading to another provider cannot help — the local machine is
     the bottleneck, not the remote server. *)
