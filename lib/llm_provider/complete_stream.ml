@@ -256,8 +256,7 @@ let complete_stream_http
        signature instead of buried in a silent disarm. *)
     match stream_idle_timeout_s, clock with
     | (Some _ as v), _ -> v
-    | None, Some _ ->
-      Some (Provider_config.default_stream_idle_timeout_s config.kind)
+    | None, Some _ -> Some (Provider_config.default_stream_idle_timeout_s config.kind)
     | None, None -> None
   in
   match validate_all config with
