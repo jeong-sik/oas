@@ -92,7 +92,7 @@ let test_is_retryable () =
     bool
     "timeout retryable"
     true
-    (Retry.is_retryable (Retry.Timeout { message = "" }));
+    (Retry.is_retryable (Retry.Timeout { message = ""; phase = None }));
   check
     bool
     "auth not retryable"
@@ -124,7 +124,7 @@ let test_error_message_all_variants () =
       , "Network error (dns_failure): failed to resolve hostname: api.z.ai" )
     ; ( Retry.NetworkError { message = "reset"; kind = Connection_refused }
       , "Network error (connection_refused): reset" )
-    ; Retry.Timeout { message = "10s" }, "Timeout: 10s"
+    ; Retry.Timeout { message = "10s"; phase = None }, "Timeout: 10s"
     ]
   in
   List.iter

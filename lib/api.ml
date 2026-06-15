@@ -9,10 +9,12 @@ let retry_error_of_http_error = function
   | Llm_provider.Http_client.HttpError { code; body } ->
     Retry.classify_error ~status:code ~body
   | Llm_provider.Http_client.NetworkError
-      { message; kind = Llm_provider.Http_client.Timeout } -> Retry.Timeout { message }
+      { message; kind = Llm_provider.Http_client.Timeout } ->
+    Retry.Timeout { message; phase = None }
   | Llm_provider.Http_client.NetworkError { message; kind } ->
     Retry.NetworkError { message; kind }
-  | Llm_provider.Http_client.TimeoutError { message; _ } -> Retry.Timeout { message }
+  | Llm_provider.Http_client.TimeoutError { message; phase } ->
+    Retry.Timeout { message; phase = Some phase }
   | Llm_provider.Http_client.AcceptRejected { reason } ->
     Retry.InvalidRequest { message = "Response rejected: " ^ reason }
   | Llm_provider.Http_client.ProviderTerminal { message; _ } ->
@@ -232,6 +234,7 @@ let create_message
                  Printf.sprintf
                    "HTTP request exceeded %.1fs wall-clock timeout"
                    request_timeout_s
+             ; phase = None
              })
       | Eio.Io _ as exn ->
         Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
@@ -279,7 +282,8 @@ let%test "default_request_timeout_s is bounded to a reasonable ceiling" =
 
 let%test "Retry.Timeout classifies as retryable" =
   Retry.is_retryable
-    (Retry.Timeout { message = "HTTP request exceeded 60.0s wall-clock timeout" })
+    (Retry.Timeout
+       { message = "HTTP request exceeded 60.0s wall-clock timeout"; phase = None })
 ;;
 
 let%test "re-exported max_response_body is positive" = max_response_body > 0

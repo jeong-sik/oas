@@ -26,7 +26,7 @@ type api_error =
       { message : string
       ; kind : Http_client.network_error_kind
       }
-  | Timeout of { message : string }
+  | Timeout of { message : string; phase : Http_client.timeout_phase option }
 
 type retry_config =
   { max_retries : int

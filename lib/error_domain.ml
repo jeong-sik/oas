@@ -159,7 +159,7 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Auth_error msg -> Error.Api (Retry.AuthError { message = msg })
   | `Server_error (status, msg) -> Error.Api (Retry.ServerError { status; message = msg })
   | `Network_error msg -> Error.Api (Retry.NetworkError { message = msg; kind = Unknown })
-  | `Provider_timeout msg -> Error.Api (Retry.Timeout { message = msg })
+  | `Provider_timeout msg -> Error.Api (Retry.Timeout { message = msg; phase = None })
   | `Streaming_timeout (phase, msg) ->
     Error.Provider
       (Llm_provider.Error.Timeout
