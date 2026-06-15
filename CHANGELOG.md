@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.13](https://github.com/jeong-sik/oas/compare/v0.206.12...v0.206.13) (2026-06-15)
+
+
+### Features
+
+* **agent:** accept multimodal user input blocks ([#2088](https://github.com/jeong-sik/oas/issues/2088)) ([36df900](https://github.com/jeong-sik/oas/commit/36df9004ae7b0d5fa6ae61e15d9a1b08ec474a59))
+
 ## [0.206.12](https://github.com/jeong-sik/oas/compare/v0.206.11...v0.206.12) (2026-06-14)
 
 
