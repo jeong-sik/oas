@@ -139,6 +139,63 @@ let test_mixed_content_serialization () =
     parsed
 ;;
 
+let test_multimodal_constructors () =
+  let image = Types.image_block ~media_type:"image/png" ~data:"img" () in
+  let document = Types.document_block ~media_type:"application/pdf" ~data:"pdf" () in
+  let audio = Types.audio_block ~media_type:"audio/wav" ~data:"wav" () in
+  let msg =
+    Types.user_msg_blocks [ Types.text_block "Describe"; image; document; audio ]
+  in
+  Alcotest.(check string) "role" "user" (Types.role_to_string msg.role);
+  Alcotest.(check int) "blocks" 4 (List.length msg.content);
+  match image, document, audio with
+  | ( Types.Image { source_type = "base64"; media_type = "image/png"; _ }
+    , Types.Document { source_type = "base64"; media_type = "application/pdf"; _ }
+    , Types.Audio { source_type = "base64"; media_type = "audio/wav"; _ } ) -> ()
+  | _ -> Alcotest.fail "unexpected multimodal constructor shape"
+;;
+
+let test_agent_run_blocks_appends_multimodal_input () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let config = { Types.default_config with max_turns = 0 } in
+  let agent = Agent.create ~net:env#net ~config () in
+  let blocks =
+    [ Types.text_block "Inspect this"
+    ; Types.image_block ~media_type:"image/png" ~data:"img" ()
+    ; Types.document_block ~media_type:"application/pdf" ~data:"pdf" ()
+    ; Types.audio_block ~media_type:"audio/wav" ~data:"wav" ()
+    ]
+  in
+  (match Agent.run_blocks ~sw agent blocks with
+   | Error (Error.Agent (Error.MaxTurnsExceeded { turns = 0; limit = 0 })) -> ()
+   | Ok _ -> Alcotest.fail "expected max-turn guard before provider call"
+   | Error err -> Alcotest.fail ("unexpected error: " ^ Error.to_string err));
+  match List.rev (Agent.state agent).messages with
+  | { Types.role = User; content; _ } :: _ ->
+    Alcotest.(check int) "stored blocks" 4 (List.length content);
+    (match List.nth content 1, List.nth content 2, List.nth content 3 with
+     | Types.Image _, Types.Document _, Types.Audio _ -> ()
+     | _ -> Alcotest.fail "stored user input lost multimodal blocks")
+  | _ -> Alcotest.fail "missing appended user message"
+;;
+
+let test_agent_run_blocks_rejects_internal_blocks () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let agent = Agent.create ~net:env#net () in
+  let blocks = [ Types.ToolUse { id = "call-1"; name = "x"; input = `Null } ] in
+  (match Agent.run_blocks ~sw agent blocks with
+   | Error (Error.Config (Error.InvalidConfig { field = "user_blocks"; _ })) -> ()
+   | Ok _ -> Alcotest.fail "expected invalid config"
+   | Error err -> Alcotest.fail ("unexpected error: " ^ Error.to_string err));
+  Alcotest.(check int) "state unchanged" 0 (List.length (Agent.state agent).messages)
+;;
+
 (* ------------------------------------------------------------------ *)
 (* JSON structure verification                                          *)
 (* ------------------------------------------------------------------ *)
@@ -256,6 +313,15 @@ let () =
             "text + image + document"
             `Quick
             test_mixed_content_serialization
+        ; Alcotest.test_case "constructors" `Quick test_multimodal_constructors
+        ; Alcotest.test_case
+            "agent run_blocks appends input"
+            `Quick
+            test_agent_run_blocks_appends_multimodal_input
+        ; Alcotest.test_case
+            "agent run_blocks rejects internal blocks"
+            `Quick
+            test_agent_run_blocks_rejects_internal_blocks
         ] )
     ; ( "json_structure"
       , [ Alcotest.test_case "image json structure" `Quick test_image_json_structure

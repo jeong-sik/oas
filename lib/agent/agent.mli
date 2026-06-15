@@ -156,6 +156,19 @@ val run
   -> string
   -> (Types.api_response, Error.sdk_error) result
 
+(** Run agent to completion with a user-authored content block list.
+    This is the multimodal entrypoint for callers that need to pass text
+    together with images, documents, or audio. Text blocks are UTF-8 sanitized;
+    non-text media payloads are preserved. *)
+val run_blocks
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?on_yield:(unit -> unit)
+  -> ?on_resume:(unit -> unit)
+  -> t
+  -> Types.content_block list
+  -> (Types.api_response, Error.sdk_error) result
+
 (** Stream a full agent run. Non-fatal exceptions raised by [on_event] are
     logged and do not abort the run. *)
 val run_stream
@@ -166,6 +179,18 @@ val run_stream
   -> ?on_resume:(unit -> unit)
   -> t
   -> string
+  -> (Types.api_response, Error.sdk_error) result
+
+(** Stream a full agent run with a user-authored content block list.
+    See {!run_blocks}. *)
+val run_stream_blocks
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> on_event:(Types.sse_event -> unit)
+  -> ?on_yield:(unit -> unit)
+  -> ?on_resume:(unit -> unit)
+  -> t
+  -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
 
 (** Stream one agent turn. Non-fatal exceptions raised by [on_event] are
@@ -192,6 +217,14 @@ val run_with_handoffs
   -> t
   -> targets:Handoff.handoff_target list
   -> string
+  -> (Types.api_response, Error.sdk_error) result
+
+val run_with_handoffs_blocks
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> t
+  -> targets:Handoff.handoff_target list
+  -> Types.content_block list
   -> (Types.api_response, Error.sdk_error) result
 
 (** {1 Checkpoint / Resume} *)
