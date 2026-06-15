@@ -375,8 +375,8 @@ let test_retry_remaining_variants_mapping () =
           (Retry.NetworkError { message = "tls"; kind = Http_client.Tls_error })
       , "network" )
     ; ( Error.of_retry_api_error
-            ~provider:"openai"
-            (Retry.Timeout { message = "slow"; phase = None })
+          ~provider:"openai"
+          (Retry.Timeout { message = "slow"; phase = None })
       , "timeout" )
     ]
   in
