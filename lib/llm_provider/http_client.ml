@@ -387,24 +387,34 @@ let https_init_error_network_kind = function
   | Api_common.Tls_config_unavailable _ -> Tls_error
 ;;
 
-let catch_network f =
-  try f () with
-  | End_of_file -> Error (NetworkError { message = "End_of_file"; kind = End_of_file })
+(** Classify a network/timeout exception into an [http_error]. A timeout
+    is classified as [Http_operation] — accurate for the connect/headers
+    phase; body-phase timeouts are intercepted before this function (see
+    {!with_post_stream}) so the caller can attach a phase-accurate label. *)
+let classify_network_exn (e : exn) =
+  match e with
+  | End_of_file -> Some (NetworkError { message = "End_of_file"; kind = End_of_file })
   | Eio.Time.Timeout ->
-    Error
+    Some
       (TimeoutError
          { message = "HTTP operation exceeded wall-clock timeout"
          ; phase = Http_operation
          })
   | Unix.Unix_error (code, _, _) as exn ->
-    Error
+    Some
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
   | Eio.Io _ as exn ->
     let msg = Printexc.to_string exn in
-    Error (NetworkError { message = msg; kind = classify_by_message msg })
+    Some (NetworkError { message = msg; kind = classify_by_message msg })
   | Sys_error msg ->
-    Error (NetworkError { message = msg; kind = classify_by_message msg })
-  | Failure msg -> Error (NetworkError { message = msg; kind = classify_by_message msg })
+    Some (NetworkError { message = msg; kind = classify_by_message msg })
+  | Failure msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })
+  | _ -> None
+;;
+
+let catch_network f =
+  try f () with exn ->
+  (match classify_network_exn exn with Some e -> Error e | None -> raise exn)
 ;;
 
 (** Detect errors caused by local resource exhaustion (port/FD limits).
@@ -715,50 +725,86 @@ let with_post_stream
       ~f
       ()
   =
-  catch_network (fun () ->
-    Eio.Switch.run
-    @@ fun sw ->
-    let* uri = parse_uri url in
-    let* client = make_closing_client ~sw ~net ~uri in
-    let headers_with_length =
-      ("content-length", string_of_int (String.length body))
-      :: add_connection_close headers
-    in
-    let hdr = Http.Header.of_list headers_with_length in
-    (* Only bound connect + initial response headers.  Body consumption
-       in [f] is the caller's responsibility to timebox. *)
-    let resp, resp_body =
-      with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
-        Cohttp_eio.Client.post
-          ~sw
-          client
-          ~headers:hdr
-          ~body:(Cohttp_eio.Body.of_string body)
-          uri)
-    in
-    match Cohttp.Response.status resp with
-    | `OK ->
-      let reader =
-        Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+  Eio.Switch.run
+  @@ fun sw ->
+  (* Phase 1a: connect + post + response headers, bounded by
+     [connect_timeout_s]. Cohttp_eio.Client.post returns once headers are
+     parsed (body is a lazy flow), so wrapping only this stage in
+     [catch_network] keeps a connect / header-phase stall as
+     [TimeoutError { phase = Http_operation }] without absorbing body-phase
+     timeouts (first-token / prefill wait, inter-chunk idle). *)
+  let post_result =
+    catch_network (fun () ->
+      let* uri = parse_uri url in
+      let* client = make_closing_client ~sw ~net ~uri in
+      let headers_with_length =
+        ("content-length", string_of_int (String.length body))
+        :: add_connection_close headers
       in
-      Ok (f reader)
-    | status ->
-      let code = Cohttp.Code.code_of_status status in
-      profile_headers_on_client_error
-        ~url
-        ~code
-        ~resp_headers:(Cohttp.Response.headers resp)
-        headers_with_length;
-      let body_str =
-        try
-          Eio.Buf_read.(
-            of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-        with
-        | exn ->
-          drain_response_body resp_body;
-          raise exn
+      let hdr = Http.Header.of_list headers_with_length in
+      let resp, resp_body =
+        with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
+          Cohttp_eio.Client.post
+            ~sw
+            client
+            ~headers:hdr
+            ~body:(Cohttp_eio.Body.of_string body)
+            uri)
       in
-      Error (HttpError { code; body = body_str }))
+      match Cohttp.Response.status resp with
+      | `OK ->
+        let reader =
+          Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+        in
+        Ok reader
+      | status ->
+        let code = Cohttp.Code.code_of_status status in
+        profile_headers_on_client_error
+          ~url
+          ~code
+          ~resp_headers:(Cohttp.Response.headers resp)
+          headers_with_length;
+        let body_str =
+          try
+            Eio.Buf_read.(
+              of_flow ~max_size:Api_common.max_response_body resp_body
+              |> take_all)
+          with
+          | exn ->
+            drain_response_body resp_body;
+            raise exn
+        in
+        Error (HttpError { code; body = body_str }))
+  in
+  (* Phase 1b: body consumption. Deliberately OUTSIDE [catch_network]: a
+     body-phase [Eio.Time.Timeout] is phase-distinct from the connect /
+     headers phase and must not be mislabelled [Http_operation]. [f] owns
+     phase-aware timeout handling and must convert [Eio.Time.Timeout] into a
+     typed [Error] (see [Complete_stream.body_logic] and the Streaming
+     callers). A body-phase timeout that [f] lets propagate escapes this
+     function as the raw exception. *)
+  (match post_result with
+   | Error e -> Error e
+   | Ok reader ->
+     (* Body consumption. [Eio.Time.Timeout] propagates so the caller
+        phases it (prefill → [First_token], inter-chunk → [Stream_idle]).
+        Other network exceptions classify like {!catch_network} so a
+        body-phase I/O failure still surfaces as a typed [NetworkError]
+        instead of escaping as a raw exception. *)
+     try Ok (f reader) with
+     | Eio.Time.Timeout ->
+       (* Body-phase timeout. Stream-state-aware callers ([Complete_stream])
+          catch this inside [f] and emit the precise [First_token] /
+          [Stream_idle] phase. Callers that let it propagate (e.g.
+          [Streaming]) get [Unknown_timeout] as a safe default rather
+          than it being mislabelled [Http_operation] (the connect /
+          headers phase, which a body-phase timeout is not). *)
+       Error
+         (TimeoutError
+            { message = "stream body timed out (awaiting first token / inter-chunk idle)"
+            ; phase = Unknown_timeout
+            })
+     | exn -> (match classify_network_exn exn with Some e -> Error e | None -> raise exn))
 ;;
 
 (* One W3C EventSource line, parsed per spec (§9.2.6 event stream

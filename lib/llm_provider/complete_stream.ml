@@ -256,7 +256,8 @@ let complete_stream_http
        signature instead of buried in a silent disarm. *)
     match stream_idle_timeout_s, clock with
     | (Some _ as v), _ -> v
-    | None, Some _ -> Some 60.0
+    | None, Some _ ->
+      Some (Provider_config.default_stream_idle_timeout_s config.kind)
     | None, None -> None
   in
   match validate_all config with
@@ -444,6 +445,7 @@ let complete_stream_http
       match
         Http_client.with_post_stream
           ?clock
+          ~connect_timeout_s:(Provider_config.default_connect_timeout_s config.kind)
           ~net
           ~url
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)

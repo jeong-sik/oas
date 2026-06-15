@@ -245,7 +245,16 @@ val post_stream
     and its fd is released immediately.
 
     [connect_timeout_s] bounds only the connect + initial response
-    headers phase when [clock] is supplied. *)
+    headers phase when [clock] is supplied; a stall there surfaces as
+    [TimeoutError { phase = Http_operation; _ }].
+
+    Body consumption in [f] runs OUTSIDE [catch_network]. A body-phase
+    [Eio.Time.Timeout] (first-token / prefill wait, inter-chunk idle)
+    is therefore NOT mapped to [Http_operation] here. Stream-state-aware
+    callers (see {!Complete_stream.body_logic}) catch it inside [f] and
+    emit the precise phase (prefill → [First_token], inter-chunk →
+    [Stream_idle]); callers that let it propagate get
+    [TimeoutError { phase = Unknown_timeout; _ }] as a safe default. *)
 val with_post_stream
   :  ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float

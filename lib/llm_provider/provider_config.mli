@@ -29,6 +29,10 @@ type provider_kind = Provider_kind.t =
     helper to avoid the two fields drifting out of sync. *)
 val request_path_default_for_kind : provider_kind -> string
 
+val default_connect_timeout_s : provider_kind -> float
+
+val default_stream_idle_timeout_s : provider_kind -> float
+
 (** Derive [output_schema] from a [response_format].
     Returns [Some schema] when [response_format = JsonSchema schema]
     and [None] otherwise. With [?override:(Some s)] the helper

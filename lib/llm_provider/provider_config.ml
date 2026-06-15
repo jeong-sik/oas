@@ -28,6 +28,26 @@ let request_path_default_for_kind = function
   | DashScope -> "/chat/completions"
 ;;
 
+(** Default connect + initial-response-headers wall-clock timeout (seconds)
+    for a provider kind. Ollama is local: a cold model load or a queued
+    request waiting for admission can hold the response headers well past
+    the 60s bound that is reasonable for cloud providers, so it gets a
+    generous default. See RFC-OAS-026 — this bounds the connect/headers
+    phase only, not total stream duration. *)
+let default_connect_timeout_s = function
+  | Ollama -> 600.0
+  | _ -> 60.0
+;;
+
+(** Default inter-chunk idle timeout (seconds) for a provider kind. For
+    Ollama the same generous bound also covers the first-token (prefill)
+    wait on large local models, which routinely exceeds the 60s cloud
+    default. Cloud providers keep 60s as a generation-stall detector. *)
+let default_stream_idle_timeout_s = function
+  | Ollama -> 600.0
+  | _ -> 60.0
+;;
+
 (** [output_schema] derived from [response_format] when no explicit
     schema is supplied. Centralised so [make] and direct record-literal
     callers stay aligned: a config that carries
