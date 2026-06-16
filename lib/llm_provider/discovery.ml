@@ -46,26 +46,6 @@ type endpoint_status =
   ; capabilities : Capabilities.capabilities
   }
 
-(* [OAS_LOCAL_QWEN_URL] was the original model-specific name for this
-   knob. It was superseded by [OAS_LOCAL_LLM_URL] (same shape, neutral
-   name). If a deployment still has the legacy var set we emit a
-   one-time migration warning to stderr at module-init time so the
-   operator sees it on the next process start, but we do not route to
-   the legacy URL — that would couple the public SDK contract to a
-   model name that isn't part of the endpoint's meaning. Operators
-   should rename their env var; the migration is mechanical. *)
-let () =
-  match Cli_common_env.get "OAS_LOCAL_QWEN_URL" with
-  | Some v ->
-    Diag.warn
-      "discovery"
-      "OAS_LOCAL_QWEN_URL is set (%s) but has been removed in favor of \
-       OAS_LOCAL_LLM_URL. The legacy value will be ignored. Rename the env var to \
-       migrate."
-      v
-  | None -> ()
-;;
-
 let default_endpoint =
   match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
   | Some v -> v

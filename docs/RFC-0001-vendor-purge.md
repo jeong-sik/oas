@@ -160,7 +160,6 @@ Module references updated repo-wide; `test/dune` test list updated.
 | `GLM_API_KEY` | `PROVIDER_K_API_KEY` |
 | `DASHSCOPE_API_KEY` | `PROVIDER_H_API_KEY` |
 | `CODEX_API_KEY` | `CLI_TOOL_A_API_KEY` |
-| `OAS_ANTHROPIC_*`, `OAS_GEMINI_*`, `OAS_KIMI_*`, `OAS_OPENAI_*`, `OAS_CLAUDE_*`, `OAS_CODEX_*`, `OAS_DEEPSEEK_*`, `OAS_GLM_*`, `OAS_DASHSCOPE_*`, `OAS_MOONSHOT_*` | `OAS_PROVIDER_{A..K}_*`, `OAS_CLI_TOOL_{A..D}_*` |
 
 **Operator action**: update `.zshenv` to re-export with new names. Old env vars are no longer read.
 
