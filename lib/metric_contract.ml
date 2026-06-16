@@ -16,9 +16,7 @@ let prompt_snippet ?(metric_name = default_metric_name) () =
     metric_name
 ;;
 
-let metric_re =
-  Re.Perl.re "<metric\\s+name=\"([^\"]+)\">([^<]+)</metric>" |> Re.compile
-;;
+let metric_re = Re.Perl.re "<metric\\s+name=\"([^\"]+)\">([^<]+)</metric>" |> Re.compile
 
 let collect_matches text : (string * string) list =
   let rec loop pos acc =

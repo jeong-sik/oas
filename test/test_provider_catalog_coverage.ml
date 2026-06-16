@@ -366,7 +366,10 @@ let test_removed_auth_types_are_rejected () =
       extra_fields
   in
   let check_rejected auth_type extrafields =
-    match Provider_catalog.of_json (Yojson.Safe.from_string (catalog_json auth_type extrafields)) with
+    match
+      Provider_catalog.of_json
+        (Yojson.Safe.from_string (catalog_json auth_type extrafields))
+    with
     | Ok _ -> failf "expected auth type %S to be rejected" auth_type
     | Error msg ->
       check
