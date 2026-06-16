@@ -213,8 +213,8 @@ let resolve_provider ~sw ~net =
 (* ── Main ────────────────────────────────────────────── *)
 
 let () =
-  if Sys.getenv_opt "ANTHROPIC_API_KEY" = None
-  then Unix.putenv "ANTHROPIC_API_KEY" "test-mock-key";
+  (* Do not inject mock credentials. Set ANTHROPIC_API_KEY explicitly or use
+     OAS_MOCK=1 for the built-in mock fallback. *)
   Eio_main.run
   @@ fun env ->
   try

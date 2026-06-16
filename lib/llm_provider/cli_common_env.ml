@@ -83,6 +83,10 @@ let int ?(allow_negative = false) ~default var =
 [@@@coverage off]
 
 let with_env name value f =
+  (* Lightweight test helper. Do not use for production secrets: environment
+     variables are visible to child processes and may be logged. OCaml's Unix
+     module has no portable [unsetenv], so restoring an unset variable means
+     setting it to empty, which [get] above treats the same as unset. *)
   let original = Sys.getenv_opt name in
   let restore () =
     match original with

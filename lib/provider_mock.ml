@@ -138,6 +138,6 @@ let thinking_response
 let to_provider_config () : Provider.config =
   { provider = Provider.Local { base_url = "http://mock:0/v1" }
   ; model_id = "mock-model"
-  ; api_key_env = "MOCK_API_KEY"
+  ; api_key_env = "OAS_TEST_MOCK_API_KEY"
   }
 ;;
