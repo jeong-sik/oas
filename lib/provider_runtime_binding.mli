@@ -19,8 +19,6 @@ type auth =
   | Api_key_env of string
   | Oauth_cached_login
   | Setup_token_env of string
-  | File of string
-  | Exec of string
 
 type t =
   { id : string

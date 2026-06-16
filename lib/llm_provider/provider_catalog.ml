@@ -12,8 +12,6 @@ type auth_mode =
   | Api_key_env of string
   | Oauth_cached_login
   | Setup_token_env of string
-  | File of string
-  | Exec of string
 [@@deriving show]
 
 type entry =
@@ -145,7 +143,7 @@ let default_transport_for_kind _kind = Http
 
 let auth_env = function
   | Api_key_env env | Setup_token_env env -> env
-  | No_auth | Oauth_cached_login | File _ | Exec _ -> ""
+  | No_auth | Oauth_cached_login -> ""
 ;;
 
 let parse_auth json =
@@ -165,13 +163,19 @@ let parse_auth json =
       | "api_key_env" -> Ok (Api_key_env env)
       | "setup_token_env" -> Ok (Setup_token_env env)
       | "oauth_cached_login" -> Ok Oauth_cached_login
-      | "file" -> Ok (File (member_string_default "path" ~default:"" auth_json))
-      | "exec" -> Ok (Exec (member_string_default "command" ~default:"" auth_json))
+      | "file" ->
+        Error
+          "removed provider catalog auth type \"file\"; use api_key_env, \
+           setup_token_env, or oauth_cached_login"
+      | "exec" ->
+        Error
+          "removed provider catalog auth type \"exec\"; use api_key_env, \
+           setup_token_env, or oauth_cached_login"
       | other ->
         Error
           (Printf.sprintf
              "unknown auth type %S (canonical: none, api_key_env, setup_token_env, \
-              oauth_cached_login, file, exec)"
+              oauth_cached_login)"
              other))
   | _ -> Ok No_auth
 ;;

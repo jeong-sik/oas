@@ -102,8 +102,6 @@ let catalog_auth_available (entry : Provider_catalog.entry) =
     has_api_key env
   | Provider_catalog.No_auth -> true
   | Provider_catalog.Oauth_cached_login -> true
-  | Provider_catalog.File path -> String.trim path <> "" && safe_file_exists path
-  | Provider_catalog.Exec command -> String.trim command <> ""
 ;;
 
 let catalog_entry_available entry =
