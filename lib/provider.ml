@@ -481,82 +481,31 @@ let openrouter ?(model_id = "anthropic/agent_llm_a-sonnet-4-6") () =
 
 (* ── Pricing: per-model cost estimation ────────────────────────── *)
 
-type pricing =
+(* Pricing is sourced from the external model catalog (models.toml) through
+   [Llm_provider.Pricing] — the same module the live api/streaming/complete
+   cost-annotation path already uses. This module previously carried a parallel
+   hand-maintained [Util.string_contains] cascade over model-id substrings
+   (RFC-OAS-018 §1 names lib/provider.ml as a "13-literal leak site"). That copy
+   duplicated the catalog's pricing data and diverged from it: because
+   string_contains matches anywhere and the branches were hand-ordered, the bare
+   "model-d" branch shadowed "model-d-4.1", mis-pricing it 2.5/10.0 instead of the
+   catalog's 2.0/8.0. Delegating here deletes the duplicate cascade so models.toml
+   is the single source of truth for pricing, fixes the model-d-4.1 shadow, and
+   makes the agent_turn/structured accumulators consistent with the live cost
+   path. Unknown-model behavior is unchanged: [pricing_for_model_opt] returns
+   [None] for an unrecognized model and [pricing_for_model] still collapses that
+   to [zero_pricing] (the existing $0 contract — RFC-OAS-018 Phase 2 fail-closed
+   is deferred). *)
+type pricing = Llm_provider.Pricing.pricing =
   { input_per_million : float
   ; output_per_million : float
-  ; cache_write_multiplier : float (* cache creation tokens cost input_rate * this *)
-  ; cache_read_multiplier : float (* cache read tokens cost input_rate * this *)
+  ; cache_write_multiplier : float
+  ; cache_read_multiplier : float
   }
 
-let zero_pricing =
-  { input_per_million = 0.0
-  ; output_per_million = 0.0
-  ; cache_write_multiplier = 1.0
-  ; cache_read_multiplier = 1.0
-  }
-;;
-
-let pricing_for_model_opt model_id =
-  let normalized = String.lowercase_ascii (String.trim model_id) in
-  (* Anthropic cache pricing: write = 1.25x input, read = 0.1x input.
-     Newer OpenAI text models expose cached input at 0.1x input.
-     Local/free models keep no-op cache multipliers. *)
-  let anthropic_cache = 1.25, 0.1 in
-  let openai_cached_input = 1.0, 0.1 in
-  let no_cache = 1.0, 1.0 in
-  let result =
-    if Util.string_contains ~needle:"opus-4-6" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
-    else if Util.string_contains ~needle:"opus-4-5" normalized
-    then Some ((15.0, 75.0), anthropic_cache)
-    else if Util.string_contains ~needle:"sonnet-4-6" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
-    else if Util.string_contains ~needle:"sonnet-4" normalized
-    then Some ((3.0, 15.0), anthropic_cache)
-    else if Util.string_contains ~needle:"haiku-4-5" normalized
-    then Some ((0.8, 4.0), anthropic_cache)
-    else if Util.string_contains ~needle:"agent_llm_a-3-7-sonnet" normalized
-    then
-      Some ((3.0, 15.0), anthropic_cache)
-      (* OpenAI API text-token pricing, confirmed from official model docs
-       2026-04-25. GPT-5.3-Agent_code-Spark is intentionally not covered here:
-       its Agent_code rate card labels it research preview with non-final rates. *)
-    else if Util.string_contains ~needle:"model-d-5.3-agent_code-spark" normalized
-    then None
-    else if Util.string_contains ~needle:"model-d-5.5" normalized
-    then Some ((5.0, 30.0), openai_cached_input)
-    else if Util.string_contains ~needle:"model-d-5.4-mini" normalized
-    then Some ((0.75, 4.5), openai_cached_input)
-    else if Util.string_contains ~needle:"model-d-5.4" normalized
-    then Some ((2.5, 15.0), openai_cached_input)
-    else if Util.string_contains ~needle:"model-d-5.3-agent_code" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
-    else if Util.string_contains ~needle:"model-d-5.2" normalized
-    then Some ((1.75, 14.0), openai_cached_input)
-    else if Util.string_contains ~needle:"model-d-mini" normalized
-    then Some ((0.15, 0.6), no_cache)
-    else if Util.string_contains ~needle:"model-d" normalized
-    then Some ((2.5, 10.0), no_cache)
-    else if Util.string_contains ~needle:"model-d-4.1" normalized
-    then Some ((2.0, 8.0), no_cache)
-    else if Util.string_contains ~needle:"o3-mini" normalized
-    then Some ((1.1, 4.4), no_cache)
-    else None
-  in
-  match result with
-  | Some ((input_per_million, output_per_million), (cw, cr)) ->
-    Some
-      { input_per_million
-      ; output_per_million
-      ; cache_write_multiplier = cw
-      ; cache_read_multiplier = cr
-      }
-  | None -> None
-;;
-
-let pricing_for_model model_id =
-  Option.value ~default:zero_pricing (pricing_for_model_opt model_id)
-;;
+let zero_pricing = Llm_provider.Pricing.zero_pricing
+let pricing_for_model_opt = Llm_provider.Pricing.pricing_for_model_opt
+let pricing_for_model = Llm_provider.Pricing.pricing_for_model
 
 let pricing_for_provider ~(provider : provider) ~(model_id : string) =
   match provider with
