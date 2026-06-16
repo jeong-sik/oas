@@ -25,16 +25,12 @@ let check_float msg expected actual = check (float 0.001) msg expected actual
 let test_streaming_first_chunk () =
   let ev =
     Telemetry_event.Streaming_first_chunk
-      { provider = "openai"
-      ; model = "model-d-4"
-      ; ttfrc_ms = 123.456
-      ; requested_at = 1000.0
-      }
+      { provider = "openai"; model = "gpt-4"; ttfrc_ms = 123.456; requested_at = 1000.0 }
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_first_chunk r ->
     check string "provider" "openai" r.provider;
-    check string "model" "model-d-4" r.model;
+    check string "model" "gpt-4" r.model;
     check_float "ttfrc_ms" 123.456 r.ttfrc_ms;
     check_float "requested_at" 1000.0 r.requested_at
   | _ -> fail "variant mismatch"
@@ -44,7 +40,7 @@ let test_streaming_summary () =
   let ev =
     Telemetry_event.Streaming_summary
       { provider = "openai"
-      ; model = "model-d-4"
+      ; model = "gpt-4"
       ; chunk_count = 3
       ; kind_breakdown =
           { thinking = 1
@@ -68,7 +64,7 @@ let test_streaming_summary () =
   match roundtrip ev with
   | Telemetry_event.Streaming_summary r ->
     check string "provider" "openai" r.provider;
-    check string "model" "model-d-4" r.model;
+    check string "model" "gpt-4" r.model;
     check int "chunk_count" 3 r.chunk_count;
     check int "thinking chunks" 1 r.kind_breakdown.thinking;
     check_float "ttft_ms" 12.5 (Option.get r.ttft_ms);

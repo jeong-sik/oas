@@ -6,7 +6,7 @@
     @since 0.93.1 *)
 
 val strip_json_markdown_fences : string -> string
-val usage_of_provider_d_json : Yojson.Safe.t -> Types.api_usage option
+val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 
 (** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)

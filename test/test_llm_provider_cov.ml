@@ -57,14 +57,14 @@ let system_msg s : Types.message =
   { role = System; content = [ Text s ]; name = None; tool_call_id = None; metadata = [] }
 ;;
 
-let provider_f25_flash_model = "gemini-2.5-flash"
+let gemini25_flash_model = "gemini-2.5-flash"
 
-let provider_f25_url ?api_key ~stream () =
+let gemini25_url ?api_key ~stream () =
   let action = if stream then "streamGenerateContent" else "generateContent" in
   let base =
     Printf.sprintf
       "https://gen.googleapis.com/v1beta/models/%s:%s"
-      provider_f25_flash_model
+      gemini25_flash_model
       action
   in
   match api_key, stream with
@@ -94,20 +94,20 @@ let test_gemini_url_sync_no_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
       ()
   in
   let url = Complete.gemini_url ~config ~stream:false in
-  Alcotest.(check string) "sync no key" (provider_f25_url ~stream:false ()) url
+  Alcotest.(check string) "sync no key" (gemini25_url ~stream:false ()) url
 ;;
 
 let test_gemini_url_sync_with_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
       ()
@@ -115,7 +115,7 @@ let test_gemini_url_sync_with_key () =
   let url = Complete.gemini_url ~config ~stream:false in
   Alcotest.(check string)
     "sync with key"
-    (provider_f25_url ~api_key:"mykey" ~stream:false ())
+    (gemini25_url ~api_key:"mykey" ~stream:false ())
     url
 ;;
 
@@ -123,7 +123,7 @@ let test_gemini_url_stream_with_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:"mykey"
       ()
@@ -131,7 +131,7 @@ let test_gemini_url_stream_with_key () =
   let url = Complete.gemini_url ~config ~stream:true in
   Alcotest.(check string)
     "stream with key"
-    (provider_f25_url ~api_key:"mykey" ~stream:true ())
+    (gemini25_url ~api_key:"mykey" ~stream:true ())
     url
 ;;
 
@@ -139,13 +139,13 @@ let test_gemini_url_stream_no_key () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:"https://gen.googleapis.com/v1beta"
       ~api_key:""
       ()
   in
   let url = Complete.gemini_url ~config ~stream:true in
-  Alcotest.(check string) "stream no key" (provider_f25_url ~stream:true ()) url
+  Alcotest.(check string) "stream no key" (gemini25_url ~stream:true ()) url
 ;;
 
 let test_is_retryable_429 () =
@@ -657,7 +657,7 @@ let test_build_request_basic () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~max_tokens:100
       ~temperature:0.5
       ()
@@ -677,11 +677,7 @@ let test_build_request_basic () =
 
 let test_build_request_with_system_prompt () =
   let config =
-    make_config
-      ~kind:Gemini
-      ~model_id:provider_f25_flash_model
-      ~system_prompt:"be helpful"
-      ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~system_prompt:"be helpful" ()
   in
   let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hello" ] () in
   let json = Yojson.Safe.from_string body_str in
@@ -699,7 +695,7 @@ let test_build_request_with_thinking () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~enable_thinking:true
       ~thinking_budget:5000
       ()
@@ -717,7 +713,7 @@ let test_build_request_with_thinking () =
 
 let test_build_request_with_thinking_default_budget () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~enable_thinking:true ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~enable_thinking:true ()
   in
   let body_str =
     Backend_gemini.build_request ~config ~messages:[ user_msg "reason" ] ()
@@ -728,7 +724,7 @@ let test_build_request_with_thinking_default_budget () =
   let tc = gc |> member "thinkingConfig" in
   Alcotest.(check int)
     "default thinkingBudget"
-    (Constants.Thinking.provider_f_budget ())
+    (Constants.Thinking.gemini_budget ())
     (tc |> member "thinkingBudget" |> to_int)
 ;;
 
@@ -825,13 +821,13 @@ let test_constants_env_helpers () =
       "env budget zero invalid"
       None
       (Constants.Thinking.env_budget "OAS_THINKING_BUDGET_DEFAULT"));
-  with_env "OAS_PROVIDER_A_THINKING_BUDGET" (Some "2048") (fun () ->
+  with_env "OAS_ANTHROPIC_THINKING_BUDGET" (Some "2048") (fun () ->
     Alcotest.(check int)
       "anthropic override"
       2048
-      (Constants.Thinking.provider_a_budget ()));
-  with_env "OAS_PROVIDER_F_THINKING_BUDGET" (Some "3072") (fun () ->
-    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.provider_f_budget ()));
+      (Constants.Thinking.anthropic_budget ()));
+  with_env "OAS_GEMINI_THINKING_BUDGET" (Some "3072") (fun () ->
+    Alcotest.(check int) "gemini override" 3072 (Constants.Thinking.gemini_budget ()));
   Alcotest.(check int)
     "anthropic cache min chars"
     3500
@@ -919,11 +915,7 @@ let test_llm_transport_runtime_mcp_policy_json () =
 
 let test_build_request_json_mode () =
   let config =
-    make_config
-      ~kind:Gemini
-      ~model_id:provider_f25_flash_model
-      ~response_format_json:true
-      ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~response_format_json:true ()
   in
   let body_str =
     Backend_gemini.build_request ~config ~messages:[ user_msg "json pls" ] ()
@@ -938,7 +930,7 @@ let test_build_request_json_mode () =
 ;;
 
 let test_build_request_with_tools () =
-  let config = make_config ~kind:Gemini ~model_id:provider_f25_flash_model () in
+  let config = make_config ~kind:Gemini ~model_id:gemini25_flash_model () in
   let tool_schema =
     `Assoc
       [ "name", `String "get_weather"
@@ -970,7 +962,7 @@ let test_build_request_with_tools () =
 
 let test_build_request_tool_choice_auto () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:Auto ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:Auto ()
   in
   let body_str =
     Backend_gemini.build_request
@@ -987,7 +979,7 @@ let test_build_request_tool_choice_auto () =
 
 let test_build_request_tool_choice_any () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:Any ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:Any ()
   in
   let body_str =
     Backend_gemini.build_request
@@ -1004,7 +996,7 @@ let test_build_request_tool_choice_any () =
 
 let test_build_request_tool_choice_none () =
   let config =
-    make_config ~kind:Gemini ~model_id:provider_f25_flash_model ~tool_choice:None_ ()
+    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~tool_choice:None_ ()
   in
   let body_str = Backend_gemini.build_request ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body_str in
@@ -1017,7 +1009,7 @@ let test_build_request_tool_choice_specific () =
   let config =
     make_config
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~tool_choice:(Tool "get_weather")
       ()
   in
@@ -1035,7 +1027,7 @@ let test_build_request_top_p_top_k () =
   let config : Provider_config.t =
     Provider_config.make
       ~kind:Gemini
-      ~model_id:provider_f25_flash_model
+      ~model_id:gemini25_flash_model
       ~base_url:""
       ~top_p:0.9
       ~top_k:40
@@ -1068,10 +1060,10 @@ let test_parse_response_basic () =
     },
     "modelVersion": "%s"
   }|}
-         provider_f25_flash_model)
+         gemini25_flash_model)
   in
   let resp = Backend_gemini.parse_response json in
-  Alcotest.(check string) "model" provider_f25_flash_model resp.model;
+  Alcotest.(check string) "model" gemini25_flash_model resp.model;
   (match resp.content with
    | [ Text "Hello world" ] -> ()
    | _ -> Alcotest.fail "expected text block");
@@ -1598,54 +1590,54 @@ let test_glm_capabilities () =
   Alcotest.(check (option int)) "40960 output cap" (Some 40_960) c.max_output_tokens
 ;;
 
-let test_for_model_id_agent_llm_a_opus_4 () =
-  match Capabilities.for_model_id "agent_llm_a-opus-4-20260101" with
+let test_for_model_id_claude_opus_4 () =
+  match Capabilities.for_model_id "claude-opus-4-20260101" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "128K output" (Some 128_000) c.max_output_tokens
-  | None -> Alcotest.fail "expected Some for agent_llm_a-opus-4"
+  | None -> Alcotest.fail "expected Some for claude-opus-4"
 ;;
 
-let test_for_model_id_agent_llm_a_sonnet_4 () =
-  match Capabilities.for_model_id "agent_llm_a-sonnet-4-latest" with
+let test_for_model_id_claude_sonnet_4 () =
+  match Capabilities.for_model_id "claude-sonnet-4-latest" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check (option int)) "64K output" (Some 64_000) c.max_output_tokens
-  | None -> Alcotest.fail "expected Some for agent_llm_a-sonnet-4"
+  | None -> Alcotest.fail "expected Some for claude-sonnet-4"
 ;;
 
-let test_for_model_id_agent_llm_a_haiku_4 () =
-  match Capabilities.for_model_id "agent_llm_a-haiku-4-2026" with
+let test_for_model_id_claude_haiku_4 () =
+  match Capabilities.for_model_id "claude-haiku-4-2026" with
   | Some c ->
     Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
     Alcotest.(check (option int)) "8K output" (Some 8_192) c.max_output_tokens
-  | None -> Alcotest.fail "expected Some for agent_llm_a-haiku-4"
+  | None -> Alcotest.fail "expected Some for claude-haiku-4"
 ;;
 
 let test_for_model_id_gpt5 () =
-  match Capabilities.for_model_id "model-d-5-latest" with
+  match Capabilities.for_model_id "gpt-5-latest" with
   | Some c ->
     Alcotest.(check bool) "computer_use" true c.supports_computer_use;
     Alcotest.(check (option int)) "1050K context" (Some 1_050_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for model-d-5"
+  | None -> Alcotest.fail "expected Some for gpt-5"
 ;;
 
 let test_for_model_id_gpt41 () =
-  match Capabilities.for_model_id "model-d-4.1-mini" with
+  match Capabilities.for_model_id "gpt-4.1-mini" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for model-d-4.1"
+  | None -> Alcotest.fail "expected Some for gpt-4.1"
 ;;
 
 let test_for_model_id_gpt4o () =
-  match Capabilities.for_model_id "model-d-latest" with
+  match Capabilities.for_model_id "gpt-latest" with
   | Some c ->
     Alcotest.(check (option int)) "128K context" (Some 128_000) c.max_context_tokens
-  | None -> Alcotest.fail "expected Some for model-d"
+  | None -> Alcotest.fail "expected Some for gpt"
 ;;
 
-let test_for_model_id_provider_f25 () =
-  match Capabilities.for_model_id provider_f25_flash_model with
+let test_for_model_id_gemini25 () =
+  match Capabilities.for_model_id gemini25_flash_model with
   | Some c -> Alcotest.(check bool) "code_execution" true c.supports_code_execution
   | None -> Alcotest.fail "expected Some for legacy gemini"
 ;;
@@ -1663,15 +1655,15 @@ let test_for_model_id_qwen3 () =
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
     Alcotest.(check bool) "top_k" true c.supports_top_k;
     Alcotest.(check bool) "min_p" true c.supports_min_p
-  | None -> Alcotest.fail "expected Some for provider_h_3"
+  | None -> Alcotest.fail "expected Some for qwen3"
 ;;
 
 let test_for_model_id_llama4 () =
-  match Capabilities.for_model_id "model-n-4-scout" with
+  match Capabilities.for_model_id "llama-4-scout" with
   | Some c ->
     Alcotest.(check (option int)) "1M context" (Some 1_000_000) c.max_context_tokens;
     Alcotest.(check bool) "multimodal" true c.supports_multimodal_inputs
-  | None -> Alcotest.fail "expected Some for model-n-4"
+  | None -> Alcotest.fail "expected Some for llama-4"
 ;;
 
 let test_for_model_id_llama4_alt () =
@@ -1710,7 +1702,7 @@ let test_for_model_id_deepseek_v4_pro () =
   | None -> Alcotest.fail "expected Some for deepseek-v4-pro"
 ;;
 
-let test_for_model_id_provider_j_large () =
+let test_for_model_id_mistral_large () =
   match Capabilities.for_model_id "mistral-large-2025" with
   | Some c ->
     Alcotest.(check bool) "structured" true c.supports_structured_output;
@@ -1718,7 +1710,7 @@ let test_for_model_id_provider_j_large () =
   | None -> Alcotest.fail "expected Some for mistral-large"
 ;;
 
-let test_for_model_id_provider_j_small () =
+let test_for_model_id_mistral_small () =
   match Capabilities.for_model_id "mistral-small-latest" with
   | Some c ->
     Alcotest.(check bool) "reasoning" true c.supports_reasoning;
@@ -1769,7 +1761,7 @@ let test_for_model_id_unknown () =
 ;;
 
 let test_for_model_id_case_insensitive () =
-  match Capabilities.for_model_id "Agent_llm_a-Opus-4-Latest" with
+  match Capabilities.for_model_id "Claude-Opus-4-Latest" with
   | Some _ -> ()
   | None -> Alcotest.fail "expected case-insensitive match"
 ;;
@@ -1998,35 +1990,26 @@ let () =
         ; Alcotest.test_case "glm" `Quick test_glm_capabilities
         ] )
     ; ( "capabilities.for_model_id"
-      , [ Alcotest.test_case
-            "agent_llm_a-opus-4"
-            `Quick
-            test_for_model_id_agent_llm_a_opus_4
-        ; Alcotest.test_case
-            "agent_llm_a-sonnet-4"
-            `Quick
-            test_for_model_id_agent_llm_a_sonnet_4
-        ; Alcotest.test_case
-            "agent_llm_a-haiku-4"
-            `Quick
-            test_for_model_id_agent_llm_a_haiku_4
-        ; Alcotest.test_case "model-d-5" `Quick test_for_model_id_gpt5
-        ; Alcotest.test_case "model-d-4.1" `Quick test_for_model_id_gpt41
-        ; Alcotest.test_case "model-d" `Quick test_for_model_id_gpt4o
-        ; Alcotest.test_case "gemini legacy" `Quick test_for_model_id_provider_f25
+      , [ Alcotest.test_case "claude-opus-4" `Quick test_for_model_id_claude_opus_4
+        ; Alcotest.test_case "claude-sonnet-4" `Quick test_for_model_id_claude_sonnet_4
+        ; Alcotest.test_case "claude-haiku-4" `Quick test_for_model_id_claude_haiku_4
+        ; Alcotest.test_case "gpt-5" `Quick test_for_model_id_gpt5
+        ; Alcotest.test_case "gpt-4.1" `Quick test_for_model_id_gpt41
+        ; Alcotest.test_case "gpt" `Quick test_for_model_id_gpt4o
+        ; Alcotest.test_case "gemini legacy" `Quick test_for_model_id_gemini25
         ; Alcotest.test_case "gemini-3" `Quick test_for_model_id_gemini3
         ; Alcotest.test_case "dashscope-3" `Quick test_for_model_id_qwen3
-        ; Alcotest.test_case "model-n-4" `Quick test_for_model_id_llama4
+        ; Alcotest.test_case "llama-4" `Quick test_for_model_id_llama4
         ; Alcotest.test_case "llama4" `Quick test_for_model_id_llama4_alt
         ; Alcotest.test_case
             "deepseek-v4-flash"
             `Quick
             test_for_model_id_deepseek_v4_flash
         ; Alcotest.test_case "deepseek-v4-pro" `Quick test_for_model_id_deepseek_v4_pro
-        ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_provider_j_large
-        ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_provider_j_small
+        ; Alcotest.test_case "mistral-large" `Quick test_for_model_id_mistral_large
+        ; Alcotest.test_case "mistral-small" `Quick test_for_model_id_mistral_small
         ; Alcotest.test_case "command" `Quick test_for_model_id_command
-        ; Alcotest.test_case "provider_e_grok" `Quick test_for_model_id_grok
+        ; Alcotest.test_case "grok" `Quick test_for_model_id_grok
         ; Alcotest.test_case "glm" `Quick test_for_model_id_glm
         ; Alcotest.test_case "unknown" `Quick test_for_model_id_unknown
         ; Alcotest.test_case "case insensitive" `Quick test_for_model_id_case_insensitive

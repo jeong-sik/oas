@@ -34,7 +34,7 @@ val shared_retry_config_of_complete : retry_config -> Retry.retry_config
     - [AcceptRejected] — wiring bugs, not
       transient; retry would not summon a missing transport.
     - [ProviderTerminal] — provider hit its own terminal condition
-      (e.g. cli_tool_d internal max_turns); retry would re-trigger
+      (e.g. claude_code internal max_turns); retry would re-trigger
       the same deterministic exit.
     - [ProviderFailure] — provider/runtime failures are semantic
       routing inputs, not local retry inputs; retrying the same

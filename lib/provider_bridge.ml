@@ -15,7 +15,7 @@ let is_glm_model_or_alias model_id =
   | _ -> false
 ;;
 
-let is_provider_c_coding_base_url base_url =
+let is_kimi_coding_base_url base_url =
   match Uri.of_string base_url with
   | exception _ -> false
   | uri ->
@@ -79,15 +79,15 @@ let resolve_auto_model_id
     else resolve_glm_model_id model_id
   | Gemini ->
     if model_id = "auto"
-    then Util.env_or "gemini-2.5-flash" "PROVIDER_F_DEFAULT_MODEL"
+    then Util.env_or "gemini-2.5-flash" "GEMINI_DEFAULT_MODEL"
     else model_id
   | Kimi ->
     if model_id = "auto"
-    then Util.env_or "kimi-for-coding" "PROVIDER_C_DEFAULT_MODEL"
+    then Util.env_or "kimi-for-coding" "KIMI_DEFAULT_MODEL"
     else model_id
   | Anthropic ->
     if model_id = "auto"
-    then Util.env_or "agent_llm_a-sonnet-4-6-20250514" "PROVIDER_A_DEFAULT_MODEL"
+    then Util.env_or "claude-sonnet-4-6-20250514" "ANTHROPIC_DEFAULT_MODEL"
     else model_id
 ;;
 
@@ -101,11 +101,11 @@ let to_provider_config (legacy : Provider.config)
     let is_gemini_model = String.starts_with ~prefix:"gemini" m_lower in
     let is_glm_model = is_glm_model_or_alias m_lower in
     let is_zai_provider = Llm_provider.Zai_catalog.is_zai_base_url base_url in
-    let is_provider_c_provider = is_provider_c_coding_base_url base_url in
+    let is_kimi_provider = is_kimi_coding_base_url base_url in
     let kind =
       match Provider.request_kind legacy.provider with
       | Provider.Anthropic_messages ->
-        if is_provider_c_provider
+        if is_kimi_provider
         then Llm_provider.Provider_config.Kimi
         else Llm_provider.Provider_config.Anthropic
       | Provider.Openai_chat_completions | Provider.Custom _ ->

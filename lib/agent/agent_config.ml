@@ -7,7 +7,7 @@
     {[
       {
         "name": "my-agent",
-        "model": "agent_llm_a-sonnet-4-6",
+        "model": "claude-sonnet-4-6",
         "system_prompt": "You are helpful.",
         "max_tokens": 4096,
         "max_turns": 10,
@@ -233,7 +233,7 @@ let of_json json =
       json
       |> member "model"
       |> to_string_option
-      |> Option.value ~default:"agent_llm_a-sonnet-4-6"
+      |> Option.value ~default:"claude-sonnet-4-6"
     in
     let system_prompt = json |> member "system_prompt" |> to_string_option in
     let max_tokens = json |> member "max_tokens" |> to_int_option in

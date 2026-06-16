@@ -93,7 +93,7 @@ type options =
         @since 0.133.0 *)
   ; transport : Llm_provider.Llm_transport.t option
     (** Optional non-HTTP transport override.  Required for CLI provider
-        kinds ([Cli_tool_d], [Cli_tool_a], [Cli_tool_b], [Cli_tool_c]) which cannot be
+        kinds ([Claude_code], [Codex], [Gemini], [Kimi]) which cannot be
         reached over HTTP.  When [Some t], {!Pipeline.stage_route}
         dispatches via {!Llm_provider.Complete.complete} with this
         transport; when [None], the HTTP path is used.

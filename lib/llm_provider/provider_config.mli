@@ -109,15 +109,15 @@ type t =
       [None] = SDK has no opinion (the default for non-CLI providers
       and CLI providers that do not expose rotation visibility).
 
-      Originally surfaced for [Cli_tool_a], whose vendor binary cycles
-      through 5 candidate models per [agent_code exec] invocation and
+      Originally surfaced for [Codex], whose vendor binary cycles
+      through 5 candidate models per [codex exec] invocation and
       returns only the final attempt's outcome. Without this hint a
       single CLI call appears as one provider attempt to the
       downstream observer, even though it can take ~180s
       worst-case (5 model retries with internal backoff). Consumers
       that want to render the rotation in traces or apply
       a per-attempt timeout budget can read this hint instead of
-      hard-coding a Agent_code-specific constant.
+      hard-coding a Codex-specific constant.
 
       The SDK does not enforce or schedule the rotation; it remains
       the CLI binary's responsibility. This field is purely
@@ -140,7 +140,7 @@ type t =
       {!Capabilities.t.supports_seed} is [true]. [None] = use the
       [OAS_DEFAULT_SEED] env var, then fallback to
       {!Constants.Deterministic.default_seed} (42).
-      Anthropic (Agent_llm_a) does not support seed — the field is silently
+      Anthropic (Claude) does not support seed — the field is silently
       ignored for that provider.
       @since 0.185.0 *)
   }

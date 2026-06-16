@@ -1,4 +1,4 @@
-(** Anthropic Agent_llm_a API response parsing and request building.
+(** Anthropic Claude API response parsing and request building.
 
     Pure functions operating on {!Llm_provider.Types}.
 

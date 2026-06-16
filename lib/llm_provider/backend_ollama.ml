@@ -137,7 +137,7 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      ("tools", `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts))
+      ("tools", `List (List.map Backend_openai_serialize.build_openai_tool_json ts))
       :: body
   in
   (* Sampling parameters go inside Ollama's "options" object.

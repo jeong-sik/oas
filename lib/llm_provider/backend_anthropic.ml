@@ -1,4 +1,4 @@
-(** Anthropic Agent_llm_a API response parsing and request building.
+(** Anthropic Claude API response parsing and request building.
 
     Pure functions operating on {!Llm_provider.Types}.
     {!build_request} uses {!Provider_config.t} (no agent_sdk coupling).
@@ -97,7 +97,7 @@ let thinking_config_for_config mode (config : Provider_config.t) =
     let budget =
       match config.thinking_budget with
       | Some b -> b
-      | None -> Constants.Thinking.provider_a_budget ()
+      | None -> Constants.Thinking.anthropic_budget ()
     in
     Some (`Assoc [ "type", `String "enabled"; "budget_tokens", `Int budget ])
   | Some false, _ | None, _ -> None

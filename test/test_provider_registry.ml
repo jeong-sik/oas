@@ -226,11 +226,7 @@ let test_default_has_14 () =
     "ollama_cloud exists"
     true
     (Option.is_some (Provider_registry.find reg "ollama_cloud"));
-  check
-    bool
-    "agent_llm_a exists"
-    true
-    (Option.is_some (Provider_registry.find reg "agent_llm_a"));
+  check bool "claude exists" true (Option.is_some (Provider_registry.find reg "claude"));
   check bool "gemini exists" true (Option.is_some (Provider_registry.find reg "gemini"));
   check bool "glm exists" true (Option.is_some (Provider_registry.find reg "glm"));
   check
@@ -265,11 +261,11 @@ let test_default_has_14 () =
 
 let test_default_capabilities () =
   let reg = Provider_registry.default () in
-  (match Provider_registry.find reg "agent_llm_a" with
+  (match Provider_registry.find reg "claude" with
    | Some e ->
-     check bool "agent_llm_a has tools" true e.capabilities.supports_tools;
-     check bool "agent_llm_a has reasoning" true e.capabilities.supports_reasoning
-   | None -> fail "agent_llm_a should exist");
+     check bool "claude has tools" true e.capabilities.supports_tools;
+     check bool "claude has reasoning" true e.capabilities.supports_reasoning
+   | None -> fail "claude should exist");
   match Provider_registry.find reg "nous" with
   | Some e ->
     check bool "llama has tools" true e.capabilities.supports_tools;
@@ -336,9 +332,9 @@ let test_default_max_context () =
   (match Provider_registry.find reg "nous" with
    | Some e -> check int "llama 128K" 128_000 e.max_context
    | None -> fail "llama should exist");
-  (match Provider_registry.find reg "agent_llm_a" with
-   | Some e -> check int "agent_llm_a 200K" 200_000 e.max_context
-   | None -> fail "agent_llm_a should exist");
+  (match Provider_registry.find reg "claude" with
+   | Some e -> check int "claude 200K" 200_000 e.max_context
+   | None -> fail "claude should exist");
   (match Provider_registry.find reg "gemini" with
    | Some e -> check int "gemini 1M" 1_000_000 e.max_context
    | None -> fail "gemini should exist");
@@ -940,13 +936,13 @@ let mk_config_for_kind kind =
 
 (** Regression guard for the masc-mcp capability-lookup bug (boundary-allow) fixed in
     masc-mcp#9306 (boundary-allow). That bug passed [Anthropicdapter.string_of_provider_kind]
-    (masc canonical_name: "agent_llm_a-api", ...) (boundary-allow) to
+    (masc canonical_name: "claude-api", ...) (boundary-allow) to
     [Provider_registry.find], but the registry is keyed on the names
-    returned by [Provider_registry.provider_name_of_config] ("agent_llm_a",
-    "kimi", "nous", "ollama", "cli_tool_d", "cli_tool_b", ...). For
+    returned by [Provider_registry.provider_name_of_config] ("claude",
+    "kimi", "nous", "ollama", "claude_code", "gemini", ...). For
     direct-API kinds the lookup silently fell back to
     [default_capabilities]; for CLI kinds the masc vocabulary (boundary-allow) happened
-    to match direct-API entries ("agent_llm_a" → Anthropic, "gemini" → Gemini,
+    to match direct-API entries ("claude" → Anthropic, "gemini" → Gemini,
     "kimi" → Kimi) and returned the wrong capability matrix.
 
     Assert here that [provider_name_of_config] is the authoritative key

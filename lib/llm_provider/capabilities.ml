@@ -156,33 +156,33 @@ let anthropic_thinking_control_of_id model_id =
     has_prefix
       [ "claude-fable-5"
       ; "fable-5"
-      ; "agent_llm_a-fable-5"
+      ; "claude-fable-5"
       ; "claude-mythos-5"
       ; "mythos-5"
-      ; "agent_llm_a-mythos-5"
+      ; "claude-mythos-5"
       ; "claude-mythos-preview"
       ; "mythos-preview"
-      ; "agent_llm_a-mythos-preview"
+      ; "claude-mythos-preview"
       ]
   then Anthropic_always_adaptive
   else if
     has_prefix
       [ "claude-opus-4-8"
       ; "opus-4-8"
-      ; "agent_llm_a-opus-4-8"
+      ; "claude-opus-4-8"
       ; "claude-opus-4-7"
       ; "opus-4-7"
-      ; "agent_llm_a-opus-4-7"
+      ; "claude-opus-4-7"
       ]
   then Anthropic_adaptive_only
   else if
     has_prefix
       [ "claude-opus-4-6"
       ; "opus-4-6"
-      ; "agent_llm_a-opus-4-6"
+      ; "claude-opus-4-6"
       ; "claude-sonnet-4-6"
       ; "sonnet-4-6"
-      ; "agent_llm_a-sonnet-4-6"
+      ; "claude-sonnet-4-6"
       ]
   then Anthropic_adaptive_preferred
   else Anthropic_manual_budget
@@ -245,7 +245,7 @@ let kimi_capabilities =
   ; supports_image_input = true
   ; supports_code_execution =
       true
-      (* Preserved from the pre-rename provider_c_capabilities; dropped by accident
+      (* Preserved from the pre-rename kimi_capabilities; dropped by accident
        in the capability rename. *)
   }
 ;;
@@ -300,7 +300,7 @@ let openai_compat_chat_extended_capabilities =
    chat template) owns that policy. This is stricter than LiteLLM's
    static-table approach, which requires JSON edits + redeploy to
    flip capability, and avoids the fragile model_id pattern match that
-   the Agent_llm_a Agent SDK sidesteps by being single-provider. *)
+   the Claude Agent SDK sidesteps by being single-provider. *)
 (* NVIDIA NIM Nvidia: Llama-based OpenAI-compatible endpoint.
    Thinking uses chat_template_kwargs (same wire format as Ollama's
    llama-server backend). VL variants add image input.
@@ -1007,12 +1007,12 @@ let test_catalog : Model_catalog.t =
     ; modality_priority = Some "visual_first"
     ; supports_seed = Some true
     }
-  ; { (test_catalog_entry "agent_llm_a-opus-4") with
+  ; { (test_catalog_entry "claude-opus-4") with
       base_label = Some "anthropic"
     ; max_context_tokens = Some 1_000_000
     ; max_output_tokens = Some 128_000
     }
-  ; { (test_catalog_entry "model-d-4.1") with
+  ; { (test_catalog_entry "gpt-4.1") with
       base_label = Some "openai_chat"
     ; max_context_tokens = Some 1_000_000
     ; max_output_tokens = Some 32_000
@@ -1153,7 +1153,7 @@ let%test "for_model_id nvidia-vl has image input" =
   | None -> false
 ;;
 
-let%test "for_model_id provider_h_3 has chat_template_kwargs thinking control" =
+let%test "for_model_id qwen3 has chat_template_kwargs thinking control" =
   (* DashScope_3.x OpenAI-compatible llama.cpp/llama-server deployments return
      [reasoning_content] when thinking is enabled through
      {"chat_template_kwargs": {"enable_thinking": bool}}.  Without this
@@ -1289,8 +1289,8 @@ let%test
             && c.max_output_tokens = Some 128_000 )
       ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
       ; ("glm-ocr-test", fun c -> c.supports_image_input && not c.supports_tools)
-      ; ("agent_llm_a-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
-      ; ("model-d-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
+      ; ("claude-opus-4-20250501", fun c -> c.max_output_tokens = Some 128_000)
+      ; ("gpt-4.1-mini", fun c -> c.max_output_tokens = Some 32_000)
         (* RFC-OAS-023: the real provider model ids ([deepseek-v4-flash],
          [deepseek-v4-pro]) must resolve to the DeepSeek capability route.
          Before the de-anonymization these matched only the anon

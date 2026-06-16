@@ -56,13 +56,13 @@ let resolve_from_bindings ~provider_name ?model () =
     let resolved_model = Model_registry.resolve_model_id provider_name in
     if not (String.equal resolved_model provider_name)
     then (
-      match Provider_runtime_binding.find "agent_llm_a" with
+      match Provider_runtime_binding.find "claude" with
       | Some binding ->
         Ok (Some (provider_config_of_binding ~model_id:resolved_model binding))
       | None ->
         unsupported_provider
           "provider alias resolved to an Anthropic model but provider bindings have no \
-           \"agent_llm_a\" entry")
+           \"claude\" entry")
     else
       unsupported_provider
         (Printf.sprintf

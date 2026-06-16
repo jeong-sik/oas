@@ -27,7 +27,7 @@ let test_of_json_minimal () =
   | Error e -> Alcotest.fail ("minimal: " ^ Error.to_string e)
   | Ok cfg ->
     Alcotest.(check string) "default name" "agent" cfg.name;
-    Alcotest.(check string) "default model" "agent_llm_a-sonnet-4-6" cfg.model;
+    Alcotest.(check string) "default model" "claude-sonnet-4-6" cfg.model;
     Alcotest.(check (option string)) "no system_prompt" None cfg.system_prompt;
     Alcotest.(check (option int)) "no max_tokens" None cfg.max_tokens;
     Alcotest.(check (option int)) "no max_turns" None cfg.max_turns;
@@ -44,7 +44,7 @@ let test_of_json_full () =
     Yojson.Safe.from_string
       {|{
     "name": "my-agent",
-    "model": "model-d-4",
+    "model": "gpt-4",
     "system_prompt": "Be concise.",
     "max_tokens": 2048,
     "max_turns": 5,
@@ -58,7 +58,7 @@ let test_of_json_full () =
   | Error e -> Alcotest.fail ("full: " ^ Error.to_string e)
   | Ok cfg ->
     Alcotest.(check string) "name" "my-agent" cfg.name;
-    Alcotest.(check string) "model" "model-d-4" cfg.model;
+    Alcotest.(check string) "model" "gpt-4" cfg.model;
     Alcotest.(check (option string))
       "system_prompt"
       (Some "Be concise.")
@@ -320,20 +320,18 @@ let test_resolve_local_custom_url () =
   | _ -> Alcotest.fail "expected Local"
 ;;
 
-let test_resolve_provider_a () =
-  let cfg =
-    Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "anthropic" None
-  in
+let test_resolve_anthropic () =
+  let cfg = Agent_config.resolve_provider ~model_id:"claude-sonnet" "anthropic" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "provider id" "agent_llm_a" name;
-    Alcotest.(check string) "model_id" "agent_llm_a-sonnet" cfg.model_id;
+    Alcotest.(check string) "provider id" "claude" name;
+    Alcotest.(check string) "model_id" "claude-sonnet" cfg.model_id;
     Alcotest.(check string) "api_key_env" "ANTHROPIC_API_KEY" cfg.api_key_env
   | _ -> Alcotest.fail "expected registered provider"
 ;;
 
-let test_resolve_provider_d () =
-  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "openai" None in
+let test_resolve_openai () =
+  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "openai" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "not a built-in provider id" "openai" name;
@@ -341,12 +339,9 @@ let test_resolve_provider_d () =
   | _ -> Alcotest.fail "expected unresolved registered-provider adapter"
 ;;
 
-let test_resolve_provider_d_custom_url () =
+let test_resolve_openai_custom_url () =
   let cfg =
-    Agent_config.resolve_provider
-      ~model_id:"model-d-4"
-      "openai"
-      (Some "http://custom:4000")
+    Agent_config.resolve_provider ~model_id:"gpt-4" "openai" (Some "http://custom:4000")
   in
   match cfg.provider with
   | Provider.OpenAICompat { base_url; auth_header; _ } ->
@@ -396,21 +391,19 @@ let test_resolve_provider_i () =
      so that downstream can look up the registry-declared kind.
      entry.defaults (url, path, api_key_env) are carried via the
      registry, not embedded in the Provider.config variant. *)
-  let cfg =
-    Agent_config.resolve_provider ~model_id:"dashscope/provider_h_3-32b" "groq" None
-  in
+  let cfg = Agent_config.resolve_provider ~model_id:"dashscope/qwen3-32b" "groq" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "groq name" "groq" name;
     Alcotest.(check string) "groq api_key_env" "GROQ_API_KEY" cfg.api_key_env;
-    Alcotest.(check string) "groq model_id" "dashscope/provider_h_3-32b" cfg.model_id
+    Alcotest.(check string) "groq model_id" "dashscope/qwen3-32b" cfg.model_id
   | _ -> Alcotest.fail "expected Custom_registered for groq (registered)"
 ;;
 
 let test_resolve_provider_i_custom_url () =
   let cfg =
     Agent_config.resolve_provider
-      ~model_id:"dashscope/provider_h_3-32b"
+      ~model_id:"dashscope/qwen3-32b"
       "groq"
       (Some "http://proxy:8080")
   in
@@ -449,7 +442,7 @@ let test_resolve_gemini_preserves_kind () =
 (* ── Provider_kind dispatch (drift-fix regressions) ───────────── *)
 
 let test_resolve_openai_compat_ssot () =
-  let cfg = Agent_config.resolve_provider ~model_id:"model-d-4" "openai_compat" None in
+  let cfg = Agent_config.resolve_provider ~model_id:"gpt-4" "openai_compat" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
     Alcotest.(check string) "kind string is not provider id" "openai_compat" name;
@@ -462,15 +455,10 @@ let test_resolve_anthropic_case_insensitive () =
      both land on the Anthropic branch, not the registry fallback. *)
   List.iter
     (fun input ->
-       let cfg =
-         Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" input None
-       in
+       let cfg = Agent_config.resolve_provider ~model_id:"claude-sonnet" input None in
        match cfg.provider with
        | Provider.Custom_registered { name } ->
-         Alcotest.(check string)
-           (Printf.sprintf "provider id for %S" input)
-           "agent_llm_a"
-           name;
+         Alcotest.(check string) (Printf.sprintf "provider id for %S" input) "claude" name;
          Alcotest.(check string)
            (Printf.sprintf "api_key_env for %S" input)
            "ANTHROPIC_API_KEY"
@@ -479,22 +467,20 @@ let test_resolve_anthropic_case_insensitive () =
     [ "Anthropic"; " ANTHROPIC "; "anthropic" ]
 ;;
 
-let test_resolve_agent_llm_a_alias_routes_to_provider_a () =
-  (* ["agent_llm_a"] is a documented Provider_kind alias for Anthropic. Prior
+let test_resolve_claude_alias_routes_to_anthropic () =
+  (* ["claude"] is a documented Provider_kind alias for Anthropic. Prior
      to this fix it fell to the registry fallback (Provider_registry
-     has no "agent_llm_a" entry) and ended up as OpenAICompat with
-     api_key_env = "agent_llm_a" — broken. *)
-  let cfg =
-    Agent_config.resolve_provider ~model_id:"agent_llm_a-sonnet" "agent_llm_a" None
-  in
+     has no "claude" entry) and ended up as OpenAICompat with
+     api_key_env = "claude" — broken. *)
+  let cfg = Agent_config.resolve_provider ~model_id:"claude-sonnet" "claude" None in
   match cfg.provider with
   | Provider.Custom_registered { name } ->
-    Alcotest.(check string) "provider id" "agent_llm_a" name;
+    Alcotest.(check string) "provider id" "claude" name;
     Alcotest.(check string)
       "api_key_env routed to registered provider"
       "ANTHROPIC_API_KEY"
       cfg.api_key_env
-  | _ -> Alcotest.fail "expected registered provider for agent_llm_a alias"
+  | _ -> Alcotest.fail "expected registered provider for claude alias"
 ;;
 
 let test_resolve_unknown_still_goes_to_registry_fallback () =
@@ -612,9 +598,9 @@ let () =
     ; ( "resolve_provider"
       , [ tc "local" test_resolve_local
         ; tc "local custom url" test_resolve_local_custom_url
-        ; tc "anthropic" test_resolve_provider_a
-        ; tc "openai is not built in" test_resolve_provider_d
-        ; tc "explicit openai custom url" test_resolve_provider_d_custom_url
+        ; tc "anthropic" test_resolve_anthropic
+        ; tc "openai is not built in" test_resolve_openai
+        ; tc "explicit openai custom url" test_resolve_openai_custom_url
         ; tc "other" test_resolve_other
         ; tc "other custom url" test_resolve_other_custom_url
         ; tc "other OpenAI /v1 base url" test_resolve_other_openai_v1_base_url
@@ -625,8 +611,8 @@ let () =
         ; tc "openai_compat is kind string" test_resolve_openai_compat_ssot
         ; tc "anthropic case-insensitive" test_resolve_anthropic_case_insensitive
         ; tc
-            "agent_llm_a alias routes to Anthropic"
-            test_resolve_agent_llm_a_alias_routes_to_provider_a
+            "claude alias routes to Anthropic"
+            test_resolve_claude_alias_routes_to_anthropic
         ; tc
             "unknown stays unresolved provider id"
             test_resolve_unknown_still_goes_to_registry_fallback

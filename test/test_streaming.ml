@@ -60,7 +60,7 @@ let test_sse_message_start () =
   let evt =
     MessageStart
       { id = "msg_abc"
-      ; model = "agent_llm_a-sonnet-4"
+      ; model = "claude-sonnet-4"
       ; usage =
           Some
             { input_tokens = 100
@@ -74,7 +74,7 @@ let test_sse_message_start () =
   match evt with
   | MessageStart { id; model; usage = Some u } ->
     Alcotest.(check string) "id" "msg_abc" id;
-    Alcotest.(check string) "model" "agent_llm_a-sonnet-4" model;
+    Alcotest.(check string) "model" "claude-sonnet-4" model;
     Alcotest.(check int) "input_tokens" 100 u.input_tokens
   | _ -> Alcotest.fail "expected MessageStart"
 ;;
@@ -115,12 +115,12 @@ let test_sse_error () =
 
 let test_parse_message_start () =
   let data =
-    {|{"type":"message_start","message":{"id":"msg_01","model":"agent_llm_a-3-7-sonnet-20250219","usage":{"input_tokens":42}}}|}
+    {|{"type":"message_start","message":{"id":"msg_01","model":"claude-3-7-sonnet-20250219","usage":{"input_tokens":42}}}|}
   in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; model; usage }) ->
     Alcotest.(check string) "id" "msg_01" id;
-    Alcotest.(check string) "model" "agent_llm_a-3-7-sonnet-20250219" model;
+    Alcotest.(check string) "model" "claude-3-7-sonnet-20250219" model;
     (match usage with
      | Some u -> Alcotest.(check int) "input_tokens" 42 u.input_tokens
      | None -> Alcotest.fail "expected Some usage")
@@ -270,7 +270,7 @@ let test_parse_unknown_event_type () =
 
 let test_parse_message_start_with_cache () =
   let data =
-    {|{"type":"message_start","message":{"id":"msg_cache","model":"agent_llm_a-sonnet-4","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":30}}}|}
+    {|{"type":"message_start","message":{"id":"msg_cache","model":"claude-sonnet-4","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":30}}}|}
   in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; usage; _ }) ->
@@ -307,7 +307,7 @@ let test_message_delta_with_cache_usage () =
 let test_message_start_missing_output_tokens () =
   (* Some API responses may omit output_tokens in message_start usage *)
   let data =
-    {|{"type":"message_start","message":{"id":"msg_partial","model":"agent_llm_a-sonnet-4-6","usage":{"input_tokens":500}}}|}
+    {|{"type":"message_start","message":{"id":"msg_partial","model":"claude-sonnet-4-6","usage":{"input_tokens":500}}}|}
   in
   match Agent_sdk.Streaming.parse_sse_event None data with
   | Some (MessageStart { id; usage; _ }) ->
@@ -322,7 +322,7 @@ let test_message_start_missing_output_tokens () =
 let test_parse_with_explicit_event_type () =
   (* event_type parameter overrides the 'type' field in JSON *)
   let data =
-    {|{"message":{"id":"msg_02","model":"agent_llm_a-haiku-4-5-20251001","usage":{"input_tokens":10}}}|}
+    {|{"message":{"id":"msg_02","model":"claude-haiku-4-5-20251001","usage":{"input_tokens":10}}}|}
   in
   match Agent_sdk.Streaming.parse_sse_event (Some "message_start") data with
   | Some (MessageStart { id; _ }) ->

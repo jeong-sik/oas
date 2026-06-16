@@ -73,11 +73,11 @@ let static_pricing_opt_normalized normalized =
       normalized = "auto"
       || normalized = "gemini"
       || normalized = "kimi"
-      || normalized = "agent_code"
-      || normalized = "cli_tool_d"
-      || normalized = "cli_tool_b"
-      || normalized = "cli_tool_c"
-      || normalized = "cli_tool_a"
+      || normalized = "codex"
+      || normalized = "claude_code"
+      || normalized = "gemini"
+      || normalized = "kimi"
+      || normalized = "codex"
       || string_contains ~needle:"ollama" normalized
       || string_contains ~needle:"dashscope" normalized
       || string_contains ~needle:"nous" normalized
@@ -389,7 +389,7 @@ let%test "string_contains: case sensitive" = not (string_contains ~needle:"HELLO
 (* --- pricing_for_model: Anthropic models --- *)
 
 let%test "pricing opus-4-6" =
-  let p = pricing_for_model "agent_llm_a-opus-4-6-20250514" in
+  let p = pricing_for_model "claude-opus-4-6-20250514" in
   close_enough p.input_per_million 15.0
   && close_enough p.output_per_million 75.0
   && close_enough p.cache_write_multiplier 1.25
@@ -397,12 +397,12 @@ let%test "pricing opus-4-6" =
 ;;
 
 let%test "pricing opus-4-5" =
-  let p = pricing_for_model "agent_llm_a-opus-4-5-20251101" in
+  let p = pricing_for_model "claude-opus-4-5-20251101" in
   close_enough p.input_per_million 15.0 && close_enough p.output_per_million 75.0
 ;;
 
 let%test "pricing sonnet-4-6" =
-  let p = pricing_for_model "agent_llm_a-sonnet-4-6-20250514" in
+  let p = pricing_for_model "claude-sonnet-4-6-20250514" in
   close_enough p.input_per_million 3.0
   && close_enough p.output_per_million 15.0
   && close_enough p.cache_write_multiplier 1.25
@@ -410,17 +410,17 @@ let%test "pricing sonnet-4-6" =
 ;;
 
 let%test "pricing sonnet-4 (non-4-6)" =
-  let p = pricing_for_model "agent_llm_a-sonnet-4-20250514" in
+  let p = pricing_for_model "claude-sonnet-4-20250514" in
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
 let%test "pricing haiku-4-5" =
-  let p = pricing_for_model "agent_llm_a-haiku-4-5-20251001" in
+  let p = pricing_for_model "claude-haiku-4-5-20251001" in
   close_enough p.input_per_million 0.8 && close_enough p.output_per_million 4.0
 ;;
 
-let%test "pricing agent_llm_a-3-7-sonnet" =
-  let p = pricing_for_model "agent_llm_a-3-7-sonnet-20250219" in
+let%test "pricing claude-3-7-sonnet" =
+  let p = pricing_for_model "claude-3-7-sonnet-20250219" in
   close_enough p.input_per_million 3.0
   && close_enough p.output_per_million 15.0
   && close_enough p.cache_write_multiplier 1.25
@@ -428,62 +428,62 @@ let%test "pricing agent_llm_a-3-7-sonnet" =
 
 (* --- pricing_for_model: Openai models --- *)
 
-let%test "pricing model-d-mini" =
-  let p = pricing_for_model "model-d-mini" in
+let%test "pricing gpt-mini" =
+  let p = pricing_for_model "gpt-mini" in
   close_enough p.input_per_million 0.15
   && close_enough p.output_per_million 0.6
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 1.0
 ;;
 
-let%test "pricing model-d-5.5" =
-  let p = pricing_for_model "model-d-5.5" in
+let%test "pricing gpt-5.5" =
+  let p = pricing_for_model "gpt-5.5" in
   close_enough p.input_per_million 5.0
   && close_enough p.output_per_million 30.0
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing model-d-5.4-mini" =
-  let p = pricing_for_model "model-d-5.4-mini" in
+let%test "pricing gpt-5.4-mini" =
+  let p = pricing_for_model "gpt-5.4-mini" in
   close_enough p.input_per_million 0.75
   && close_enough p.output_per_million 4.5
   && close_enough p.cache_write_multiplier 1.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing model-d-5.4" =
-  let p = pricing_for_model "model-d-5.4" in
+let%test "pricing gpt-5.4" =
+  let p = pricing_for_model "gpt-5.4" in
   close_enough p.input_per_million 2.5
   && close_enough p.output_per_million 15.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing model-d-5.3-agent_code" =
-  let p = pricing_for_model "model-d-5.3-agent_code" in
+let%test "pricing gpt-5.3-codex" =
+  let p = pricing_for_model "gpt-5.3-codex" in
   close_enough p.input_per_million 1.75
   && close_enough p.output_per_million 14.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing model-d-5.2" =
-  let p = pricing_for_model "model-d-5.2" in
+let%test "pricing gpt-5.2" =
+  let p = pricing_for_model "gpt-5.2" in
   close_enough p.input_per_million 1.75
   && close_enough p.output_per_million 14.0
   && close_enough p.cache_read_multiplier 0.1
 ;;
 
-let%test "pricing model-d-5.3-agent_code-spark remains unknown" =
-  pricing_for_model_opt "model-d-5.3-agent_code-spark" = None
+let%test "pricing gpt-5.3-codex-spark remains unknown" =
+  pricing_for_model_opt "gpt-5.3-codex-spark" = None
 ;;
 
-let%test "pricing model-d (not mini)" =
-  let p = pricing_for_model "model-d" in
+let%test "pricing gpt (not mini)" =
+  let p = pricing_for_model "gpt" in
   close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
 ;;
 
-let%test "pricing model-d-4.1" =
-  let p = pricing_for_model "model-d-4.1-turbo" in
+let%test "pricing gpt-4.1" =
+  let p = pricing_for_model "gpt-4.1-turbo" in
   close_enough p.input_per_million 2.0 && close_enough p.output_per_million 8.0
 ;;
 
@@ -592,15 +592,15 @@ let%test "pricing_for_model_opt: glm unknown returns None" =
   | Some _ -> false
 ;;
 
-(* --- pricing_for_model: cli_tool_d alias fallback --- *)
+(* --- pricing_for_model: claude_code alias fallback --- *)
 
-let%test "pricing cli_tool_d:auto falls back to sonnet-4-6 rates" =
-  let p = pricing_for_model "cli_tool_d:auto" in
+let%test "pricing claude_code:auto falls back to sonnet-4-6 rates" =
+  let p = pricing_for_model "claude_code:auto" in
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
-let%test "pricing cli_tool_d (bare alias)" =
-  let p = pricing_for_model "cli_tool_d" in
+let%test "pricing claude_code (bare alias)" =
+  let p = pricing_for_model "claude_code" in
   close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
 ;;
 
@@ -618,7 +618,7 @@ let%test "pricing_for_model_opt returns Some for gemini-3-flash-preview" =
 (* --- pricing_for_model: local/free models --- *)
 
 let%test "pricing ollama is free" =
-  let p = pricing_for_model "ollama/model-n-3" in
+  let p = pricing_for_model "ollama/llama-3" in
   close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
 ;;
 
@@ -628,7 +628,7 @@ let%test "pricing dashscope is free" =
 ;;
 
 let%test "pricing llama is free" =
-  let p = pricing_for_model "model-n-3.1-70b" in
+  let p = pricing_for_model "llama-3.1-70b" in
   close_enough p.input_per_million 0.0
 ;;
 
@@ -640,13 +640,13 @@ let%test "pricing_for_model: unknown model falls back to zero" =
 (* --- pricing_for_model_opt: distinguishes unknown from free --- *)
 
 let%test "pricing_for_model_opt: known cloud model returns Some" =
-  match pricing_for_model_opt "agent_llm_a-opus-4-6" with
+  match pricing_for_model_opt "claude-opus-4-6" with
   | Some p -> p.input_per_million > 0.0
   | None -> false
 ;;
 
 let%test "pricing_for_model_opt: known local model returns Some with zero pricing" =
-  match pricing_for_model_opt "ollama/model-n-3" with
+  match pricing_for_model_opt "ollama/llama-3" with
   | Some p -> close_enough p.input_per_million 0.0
   | None -> false
 ;;
@@ -672,43 +672,43 @@ let%test "pricing_for_model_opt: cloud-style unknown returns None" =
 (* --- pricing_for_model: case insensitivity --- *)
 
 let%test "pricing case insensitive" =
-  let p = pricing_for_model "Agent_llm_a-Opus-4-6" in
+  let p = pricing_for_model "Claude-Opus-4-6" in
   close_enough p.input_per_million 15.0
 ;;
 
 let%test "pricing whitespace trimmed" =
-  let p = pricing_for_model "  agent_llm_a-sonnet-4-6  " in
+  let p = pricing_for_model "  claude-sonnet-4-6  " in
   close_enough p.input_per_million 3.0
 ;;
 
 (* --- estimate_cost --- *)
 
 let%test "estimate_cost: zero tokens is zero" =
-  let p = pricing_for_model "agent_llm_a-opus-4-6" in
+  let p = pricing_for_model "claude-opus-4-6" in
   close_enough (estimate_cost ~pricing:p ~input_tokens:0 ~output_tokens:0 ()) 0.0
 ;;
 
 let%test "estimate_cost: 1M input tokens opus" =
-  let p = pricing_for_model "agent_llm_a-opus-4-6" in
+  let p = pricing_for_model "claude-opus-4-6" in
   let cost = estimate_cost ~pricing:p ~input_tokens:1_000_000 ~output_tokens:0 () in
   close_enough cost 15.0
 ;;
 
 let%test "estimate_cost: 1M output tokens opus" =
-  let p = pricing_for_model "agent_llm_a-opus-4-6" in
+  let p = pricing_for_model "claude-opus-4-6" in
   let cost = estimate_cost ~pricing:p ~input_tokens:0 ~output_tokens:1_000_000 () in
   close_enough cost 75.0
 ;;
 
 let%test "estimate_cost: mixed input and output" =
-  let p = pricing_for_model "agent_llm_a-sonnet-4-6" in
+  let p = pricing_for_model "claude-sonnet-4-6" in
   let cost = estimate_cost ~pricing:p ~input_tokens:1000 ~output_tokens:500 () in
   (* 1000 * 3.0/1M + 500 * 15.0/1M = 0.003 + 0.0075 = 0.0105 *)
   close_enough cost 0.0105
 ;;
 
 let%test "estimate_cost: with cache write tokens" =
-  let p = pricing_for_model "agent_llm_a-opus-4-6" in
+  let p = pricing_for_model "claude-opus-4-6" in
   (* 1000 input, 500 cache write, 0 cache read, 0 output *)
   (* regular_input = 1000 - 500 - 0 = 500 *)
   (* input_cost = 500 * 15/1M = 0.0075 *)
@@ -725,7 +725,7 @@ let%test "estimate_cost: with cache write tokens" =
 ;;
 
 let%test "estimate_cost: with cache read tokens" =
-  let p = pricing_for_model "agent_llm_a-opus-4-6" in
+  let p = pricing_for_model "claude-opus-4-6" in
   (* 1000 input, 0 cache write, 200 cache read, 0 output *)
   (* regular_input = 1000 - 0 - 200 = 800 *)
   (* input_cost = 800 * 15/1M = 0.012 *)
@@ -742,7 +742,7 @@ let%test "estimate_cost: with cache read tokens" =
 ;;
 
 let%test "estimate_cost: regular_input clamped to zero when cache exceeds total" =
-  let p = pricing_for_model "agent_llm_a-sonnet-4-6" in
+  let p = pricing_for_model "claude-sonnet-4-6" in
   (* input_tokens=100 but cache_creation=200: regular = max 0 (100-200) = 0 *)
   let cost =
     estimate_cost
@@ -779,7 +779,7 @@ let%test "annotate_usage_cost fills missing cost for known model" =
     ; cost_usd = None
     }
   in
-  match annotate_usage_cost ~model_id:"agent_llm_a-sonnet-4-6" usage with
+  match annotate_usage_cost ~model_id:"claude-sonnet-4-6" usage with
   | { cost_usd = Some cost; _ } -> cost > 0.0
   | _ -> false
 ;;
@@ -815,7 +815,7 @@ let%test "annotate_usage_cost fills zero cost for known free model" =
 let%test "annotate_response_cost preserves measured cost" =
   let response : Types.api_response =
     { id = "resp-1"
-    ; model = "agent_llm_a-sonnet-4-6"
+    ; model = "claude-sonnet-4-6"
     ; stop_reason = Types.EndTurn
     ; content = [ Types.Text "ok" ]
     ; usage =
@@ -857,7 +857,7 @@ let%test "install_pricing_overrides: override takes priority over static table" 
 
 let%test "clear_pricing_overrides: restores static table" =
   let entry =
-    { pattern = "agent_llm_a-opus-4-6"
+    { pattern = "claude-opus-4-6"
     ; input_per_million = 999.0
     ; output_per_million = 999.0
     ; cache_write_multiplier = 1.0
@@ -867,7 +867,7 @@ let%test "clear_pricing_overrides: restores static table" =
   install_pricing_overrides [ entry ];
   clear_pricing_overrides ();
   let result =
-    match pricing_for_model_opt "agent_llm_a-opus-4-6" with
+    match pricing_for_model_opt "claude-opus-4-6" with
     | Some p -> close_enough p.input_per_million 15.0
     | None -> false
   in
@@ -876,7 +876,7 @@ let%test "clear_pricing_overrides: restores static table" =
 
 let%test "install_pricing_overrides: overrides shadow static table entry" =
   let entry =
-    { pattern = "agent_llm_a-opus-4-6"
+    { pattern = "claude-opus-4-6"
     ; input_per_million = 20.0
     ; output_per_million = 100.0
     ; cache_write_multiplier = 1.3
@@ -885,7 +885,7 @@ let%test "install_pricing_overrides: overrides shadow static table entry" =
   in
   install_pricing_overrides [ entry ];
   let result =
-    match pricing_for_model_opt "agent_llm_a-opus-4-6" with
+    match pricing_for_model_opt "claude-opus-4-6" with
     | Some p ->
       close_enough p.input_per_million 20.0 && close_enough p.output_per_million 100.0
     | None -> false
@@ -905,7 +905,7 @@ let%test "install_pricing_overrides: unknown model still falls through to static
   in
   install_pricing_overrides [ entry ];
   let result =
-    match pricing_for_model_opt "agent_llm_a-opus-4-6" with
+    match pricing_for_model_opt "claude-opus-4-6" with
     | Some p -> close_enough p.input_per_million 15.0
     | None -> false
   in

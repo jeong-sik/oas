@@ -196,7 +196,7 @@ type hook_event =
       }
 
 (** Elicitation: structured request for user input during agent execution.
-    Inspired by Agent_llm_a SDK MCP Elicitation pattern. *)
+    Inspired by Claude SDK MCP Elicitation pattern. *)
 type elicitation_request =
   { question : string
   ; schema : Yojson.Safe.t option (** JSON Schema for expected answer *)

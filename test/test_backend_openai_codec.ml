@@ -132,7 +132,7 @@ let test_content_parts_cover_modalities () =
     (member "input_audio" audio |> member "format" |> to_string)
 ;;
 
-let test_provider_d_user_messages_text_tool_and_empty () =
+let test_openai_user_messages_text_tool_and_empty () =
   let user =
     msg
       User
@@ -200,11 +200,11 @@ let test_user_multimodal_preserve_and_visual_first () =
     ]
   in
   let openai = Serialize.openai_messages_of_message (msg User content) |> only "openai" in
-  let provider_d_parts = member "content" openai |> as_list "openai content" in
+  let openai_parts = member "content" openai |> as_list "openai content" in
   check_string
     "openai preserves text first"
     "text"
-    (List.nth provider_d_parts 0 |> member "type" |> to_string);
+    (List.nth openai_parts 0 |> member "type" |> to_string);
   let visual_first =
     Serialize.ollama_messages_of_message
       ~model_id:"google/gemma-4-26B-A4B-it"
@@ -218,7 +218,7 @@ let test_user_multimodal_preserve_and_visual_first () =
     (List.nth visual_parts 0 |> member "type" |> to_string)
 ;;
 
-let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
+let test_assistant_tool_calls_openai_ollama_and_glm () =
   let assistant =
     msg
       Assistant
@@ -241,7 +241,7 @@ let test_assistant_tool_calls_provider_d_ollama_and_provider_k () =
     "x"
     (member "function" ollama_call |> member "arguments" |> member "q" |> to_string);
   let glm =
-    Serialize.provider_k_messages_of_message
+    Serialize.glm_messages_of_message
       (msg
          Assistant
          [ Text "answer"; Thinking { thinking_type = "reasoning"; content = "because" } ])
@@ -442,23 +442,23 @@ let test_tool_choice_and_tool_schema_conversion () =
   check_string
     "auto"
     "\"auto\""
-    (Serialize.tool_choice_to_provider_d_json Auto |> Yojson.Safe.to_string);
+    (Serialize.tool_choice_to_openai_json Auto |> Yojson.Safe.to_string);
   check_string
     "required"
     "\"required\""
-    (Serialize.tool_choice_to_provider_d_json Any |> Yojson.Safe.to_string);
+    (Serialize.tool_choice_to_openai_json Any |> Yojson.Safe.to_string);
   check_string
     "none"
     "\"none\""
-    (Serialize.tool_choice_to_provider_d_json None_ |> Yojson.Safe.to_string);
-  let tool_choice = Serialize.tool_choice_to_provider_d_json (Tool "lookup") in
+    (Serialize.tool_choice_to_openai_json None_ |> Yojson.Safe.to_string);
+  let tool_choice = Serialize.tool_choice_to_openai_json (Tool "lookup") in
   check_string
     "tool choice name"
     "lookup"
     (member "function" tool_choice |> member "name" |> to_string);
   let schema = `Assoc [ "type", `String "object" ] in
   let with_input_schema =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_openai_tool_json
       (`Assoc
           [ "name", `String "direct"; "description", `String "d"; "input_schema", schema ])
   in
@@ -470,7 +470,7 @@ let test_tool_choice_and_tool_schema_conversion () =
      |> member "type"
      |> to_string);
   let legacy =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_openai_tool_json
       (`Assoc
           [ "name", `String "legacy"
           ; ( "parameters"
@@ -499,7 +499,7 @@ let test_tool_choice_and_tool_schema_conversion () =
   Alcotest.(check bool)
     "non-object passthrough"
     true
-    (Serialize.build_provider_d_tool_json passthrough = passthrough)
+    (Serialize.build_openai_tool_json passthrough = passthrough)
 ;;
 
 let ignored_blocks : content_block list =
@@ -540,7 +540,7 @@ let test_serializer_ignored_block_variants () =
     true
     (member "tool_calls" assistant = `Null);
   let glm =
-    Serialize.provider_k_messages_of_message (msg Assistant ignored_blocks) |> only "glm"
+    Serialize.glm_messages_of_message (msg Assistant ignored_blocks) |> only "glm"
   in
   Alcotest.(check bool)
     "blank reasoning omitted"
@@ -628,7 +628,7 @@ let test_parallel_tool_calls_fields () =
 
 let test_tool_schema_defaults_and_legacy_edge_params () =
   let defaulted =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_openai_tool_json
       (`Assoc [ "name", `Int 1; "description", `Bool true ])
   in
   check_string
@@ -640,7 +640,7 @@ let test_tool_schema_defaults_and_legacy_edge_params () =
     ""
     (member "function" defaulted |> member "description" |> to_string);
   let legacy =
-    Serialize.build_provider_d_tool_json
+    Serialize.build_openai_tool_json
       (`Assoc
           [ "name", `String "legacy-edge"
           ; ( "parameters"
@@ -683,9 +683,9 @@ let test_strip_json_markdown_fences_variants () =
     (Parse.strip_json_markdown_fences "```\n{\"a\":1}")
 ;;
 
-let test_usage_provider_d_fallbacks () =
+let test_usage_openai_fallbacks () =
   let usage =
-    Parse.usage_of_provider_d_json
+    Parse.usage_of_openai_json
       (`Assoc
           [ ( "usage"
             , `Assoc
@@ -702,7 +702,7 @@ let test_usage_provider_d_fallbacks () =
      check_int "cache read" 4 u.cache_read_input_tokens
    | None -> Alcotest.fail "expected usage");
   let usage =
-    Parse.usage_of_provider_d_json
+    Parse.usage_of_openai_json
       (`Assoc
           [ ( "usage"
             , `Assoc
@@ -1273,7 +1273,7 @@ let () =
         ; Alcotest.test_case
             "openai user text/tool/empty"
             `Quick
-            test_provider_d_user_messages_text_tool_and_empty
+            test_openai_user_messages_text_tool_and_empty
         ; Alcotest.test_case
             "wire adjacency: nudged tool turn"
             `Quick
@@ -1285,7 +1285,7 @@ let () =
         ; Alcotest.test_case
             "assistant tool calls provider variants"
             `Quick
-            test_assistant_tool_calls_provider_d_ollama_and_provider_k
+            test_assistant_tool_calls_openai_ollama_and_glm
         ; Alcotest.test_case
             "system and tool roles"
             `Quick
@@ -1329,7 +1329,7 @@ let () =
             "strip markdown fences variants"
             `Quick
             test_strip_json_markdown_fences_variants
-        ; Alcotest.test_case "usage fallbacks" `Quick test_usage_provider_d_fallbacks
+        ; Alcotest.test_case "usage fallbacks" `Quick test_usage_openai_fallbacks
         ; Alcotest.test_case
             "text list reasoning and reported telemetry"
             `Quick

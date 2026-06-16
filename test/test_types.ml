@@ -70,16 +70,16 @@ let test_empty_stop_reason () =
 let test_model_to_string () =
   Alcotest.(check string)
     "opus 4.6"
-    "agent_llm_a-opus-4-6-20250514"
-    (Types.model_to_string "agent_llm_a-opus-4-6");
+    "claude-opus-4-6-20250514"
+    (Types.model_to_string "claude-opus-4-6");
   Alcotest.(check string)
     "sonnet 4.6"
-    "agent_llm_a-sonnet-4-6-20250514"
-    (Types.model_to_string "agent_llm_a-sonnet-4-6");
+    "claude-sonnet-4-6-20250514"
+    (Types.model_to_string "claude-sonnet-4-6");
   Alcotest.(check string)
     "haiku 4.5"
-    "agent_llm_a-haiku-4-5-20251001"
-    (Types.model_to_string "agent_llm_a-haiku-4-5");
+    "claude-haiku-4-5-20251001"
+    (Types.model_to_string "claude-haiku-4-5");
   Alcotest.(check string) "custom" "my-model" (Types.model_to_string "my-model")
 ;;
 
@@ -217,12 +217,12 @@ let test_default_config () =
 
 let test_model_yojson_roundtrip () =
   let variants =
-    [ "agent_llm_a-opus-4-6"
-    ; "agent_llm_a-sonnet-4-6"
-    ; "agent_llm_a-opus-4-5"
-    ; "agent_llm_a-sonnet-4"
-    ; "agent_llm_a-haiku-4-5"
-    ; "agent_llm_a-3-7-sonnet"
+    [ "claude-opus-4-6"
+    ; "claude-sonnet-4-6"
+    ; "claude-opus-4-5"
+    ; "claude-sonnet-4"
+    ; "claude-haiku-4-5"
+    ; "claude-3-7-sonnet"
     ; "my-model"
     ]
   in
@@ -540,7 +540,7 @@ let test_usage_and_inference_telemetry_yojson_roundtrip () =
     ; peak_memory_gb = Some 4.5
     ; provider_kind = Some Llm_provider.Provider_config.OpenAI_compat
     ; reasoning_effort = Some "medium"
-    ; canonical_model_id = Some "model-d"
+    ; canonical_model_id = Some "gpt"
     ; effective_context_window = Some 8192
     ; provider_internal_action_count = Some 2
     ; ttfrc_ms = Some 10.0

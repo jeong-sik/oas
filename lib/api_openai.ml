@@ -129,11 +129,11 @@ let effective_tool_choice_json
   match config.config.tool_choice with
   | Some Types.None_ when is_glm -> None
   | Some (Types.Auto | Types.Any | Types.Tool _) when is_glm ->
-    Some (tool_choice_to_provider_d_json Types.Auto)
+    Some (tool_choice_to_openai_json Types.Auto)
   | Some Types.Auto when capabilities.supports_tool_choice ->
-    Some (tool_choice_to_provider_d_json Types.Auto)
+    Some (tool_choice_to_openai_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->
-    Some (tool_choice_to_provider_d_json choice)
+    Some (tool_choice_to_openai_json choice)
   | _ -> None
 ;;
 
@@ -161,7 +161,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let provider_messages =
     let message_serializer =
       if is_glm_request ?provider_config config
-      then Llm_provider.Backend_openai_serialize.provider_k_messages_of_message
+      then Llm_provider.Backend_openai_serialize.glm_messages_of_message
       else Llm_provider.Backend_openai_serialize.dialect_messages_of_message dialect
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
@@ -276,7 +276,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let body_assoc =
     match tools_to_send with
     | Some entries ->
-      ("tools", `List (List.map build_provider_d_tool_json entries)) :: body_assoc
+      ("tools", `List (List.map build_openai_tool_json entries)) :: body_assoc
     | None -> body_assoc
   in
   let body_assoc =
@@ -300,11 +300,11 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let body_assoc =
     match config.config.response_format with
     | JsonMode when capabilities.supports_response_format_json ->
-      (match response_format_to_provider_d_json JsonMode with
+      (match response_format_to_openai_json JsonMode with
        | Some response_format -> ("response_format", response_format) :: body_assoc
        | None -> body_assoc)
     | JsonSchema _ when capabilities.supports_structured_output ->
-      (match response_format_to_provider_d_json config.config.response_format with
+      (match response_format_to_openai_json config.config.response_format with
        | Some response_format -> ("response_format", response_format) :: body_assoc
        | None -> body_assoc)
     | JsonSchema _ | JsonMode | Off -> body_assoc

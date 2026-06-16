@@ -55,19 +55,19 @@ val thinking_only_timeout_exceeded
 
 (** {1 Openai SSE} *)
 
-type provider_d_tool_call_delta =
+type openai_tool_call_delta =
   { tc_index : int
   ; tc_id : string option
   ; tc_name : string option
   ; tc_arguments : string option
   }
 
-type provider_d_chunk =
+type openai_chunk =
   { chunk_id : string
   ; chunk_model : string
   ; delta_content : string option
   ; delta_reasoning : string option
-  ; delta_tool_calls : provider_d_tool_call_delta list
+  ; delta_tool_calls : openai_tool_call_delta list
   ; finish_reason : string option
   ; chunk_usage : api_usage option
   }
@@ -77,7 +77,7 @@ type thinking_state =
   | Thinking_started of float
   | Thinking_done
 
-type provider_d_stream_state =
+type openai_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
@@ -89,7 +89,7 @@ type provider_d_stream_state =
   ; model : string
   }
 
-val parse_openai_sse_chunk : string -> provider_d_chunk option
+val parse_openai_sse_chunk : string -> openai_chunk option
 
 (** Surface an OpenAI-compatible mid-stream error object
     ([{"error": {"type"; "message"; ...}}]) as a typed [SSEError]. Call this
@@ -110,17 +110,17 @@ val openai_compat_error_event : string -> sse_event option
     first real token.
 
     @stability Internal *)
-val chunk_has_non_empty_delta : provider_d_chunk -> bool
+val chunk_has_non_empty_delta : openai_chunk -> bool
 
 val create_openai_stream_state
   :  ?provider:string
   -> ?model:string
   -> unit
-  -> provider_d_stream_state
+  -> openai_stream_state
 
 val openai_chunk_to_events
-  :  provider_d_stream_state
-  -> provider_d_chunk
+  :  openai_stream_state
+  -> openai_chunk
   -> sse_event list * Telemetry_event.t option
 
 (** Convert one OpenAI Responses API streaming SSE payload into OAS stream
@@ -128,7 +128,7 @@ val openai_chunk_to_events
     based: output text, reasoning summaries, and function call arguments each
     have their own event family. *)
 val responses_sse_to_events
-  :  provider_d_stream_state
+  :  openai_stream_state
   -> string option
   -> string
   -> sse_event list * Telemetry_event.t option
@@ -137,21 +137,21 @@ val responses_sse_to_events
 
     Gemini [streamGenerateContent?alt=sse] emits SSE chunks with
     [{candidates: [{content: {parts: [...]}}]}] structure per chunk.
-    We reuse {!provider_d_stream_state} for block tracking since the
+    We reuse {!openai_stream_state} for block tracking since the
     state management pattern is identical. *)
 
-type provider_f_chunk =
+type gemini_chunk =
   { gem_model : string
   ; gem_parts : Yojson.Safe.t list
   ; gem_finish_reason : string option
   ; gem_usage : api_usage option
   }
 
-val parse_provider_f_sse_chunk : string -> provider_f_chunk option
+val parse_gemini_sse_chunk : string -> gemini_chunk option
 
-val provider_f_chunk_to_events
-  :  provider_d_stream_state
-  -> provider_f_chunk
+val gemini_chunk_to_events
+  :  openai_stream_state
+  -> gemini_chunk
   -> sse_event list * Telemetry_event.t option
 
 (** {1 Ollama NDJSON Streaming}
@@ -163,7 +163,7 @@ val provider_f_chunk_to_events
     [eval_count] / [eval_duration] timing fields that the Openai
     compat path on [/v1/chat/completions] strips out.
 
-    State management reuses {!provider_d_stream_state} since the block
+    State management reuses {!openai_stream_state} since the block
     tracking pattern is identical. Tool calls in Ollama typically
     arrive fully-formed in the [done:true] line, so the streaming
     consumer treats them as a single delta rather than incremental.
@@ -199,6 +199,6 @@ val parse_ollama_ndjson_chunk : string -> ollama_chunk option
     [done:true] chunk also emits [MessageDelta] carrying the
     stop_reason and any token-count usage. *)
 val ollama_chunk_to_events
-  :  provider_d_stream_state
+  :  openai_stream_state
   -> ollama_chunk
   -> sse_event list * Telemetry_event.t option

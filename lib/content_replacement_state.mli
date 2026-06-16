@@ -1,6 +1,6 @@
 (** Content replacement state for prompt-cache-preserving tool result relocation.
 
-    Implements the "decision freezing" pattern from Agent_llm_a Code's
+    Implements the "decision freezing" pattern from Claude Code's
     [ContentReplacementState]:
 
     - Once a tool_use_id enters [seen_ids], its replacement decision

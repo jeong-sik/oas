@@ -242,7 +242,7 @@ let complete_http
                   (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
               | Backend_glm.Glm_api_error err ->
                 let semantic_code =
-                  Backend_glm.http_code_of_provider_k_error_class err.error_class
+                  Backend_glm.http_code_of_glm_error_class err.error_class
                 in
                 let body = Printf.sprintf "Glm error %s: %s" err.code err.message in
                 Diag.error

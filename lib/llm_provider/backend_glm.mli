@@ -19,33 +19,30 @@ open Types
 
 (** Semantic classification of a Glm API error.
     Determined by error code (structured) with message fallback. *)
-type provider_k_error_class =
+type glm_error_class =
   | Glm_quota_exceeded
   | Glm_rate_limited
   | Glm_auth_error
   | Glm_server_error
   | Glm_invalid_request
 
-type provider_k_error =
+type glm_error =
   { code : string
   ; message : string
-  ; error_class : provider_k_error_class
+  ; error_class : glm_error_class
   ; is_retryable : bool
   }
 
-exception Glm_api_error of provider_k_error
+exception Glm_api_error of glm_error
 
 (** Classify a Glm error code + message into a semantic class.
     Code-based classification takes priority; message keywords are fallback. *)
-val classify_provider_k_error
-  :  code:string
-  -> message:string
-  -> provider_k_error_class * bool
+val classify_glm_error : code:string -> message:string -> glm_error_class * bool
 
 (** Map a Glm error class to the equivalent HTTP status code.
     Used by complete.ml to normalize provider-specific codes
     into the shared HTTP error path. *)
-val http_code_of_provider_k_error_class : provider_k_error_class -> int
+val http_code_of_glm_error_class : glm_error_class -> int
 
 (** Build a Glm chat completion request body.
     Delegates to {!Backend_openai.build_request} and injects
@@ -69,4 +66,4 @@ val extract_reasoning_content : api_response -> string -> api_response
 
 (** Parse a Glm SSE streaming chunk.
     Delegates to {!Streaming.parse_openai_sse_chunk}. *)
-val parse_stream_chunk : string -> Streaming.provider_d_chunk option
+val parse_stream_chunk : string -> Streaming.openai_chunk option

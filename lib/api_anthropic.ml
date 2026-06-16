@@ -1,4 +1,4 @@
-(** Anthropic Agent_llm_a API request building and response parsing.
+(** Anthropic Claude API request building and response parsing.
 
     Response parsing is delegated to {!Llm_provider.Backend_anthropic}.
     Request building remains here due to agent_config/agent_state coupling. *)
@@ -161,7 +161,7 @@ let build_body_assoc
      Anthropic agent_sdk request path — any [temperature], [top_p],
      or [top_k] the caller set on the agent config was silently
      dropped, so Anthropic defaulted to temperature = 1.0 + top_p = 1.
-     Serialise them here so Agent_llm_a agents honour deterministic
+     Serialise them here so Claude agents honour deterministic
      configs (e.g. temperature = 0.0 for coding assistants).
 
      Anthropic Messages API body params (docs.anthropic.com/en/api/

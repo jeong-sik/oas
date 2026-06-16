@@ -7,7 +7,7 @@ let member key json = Yojson.Safe.Util.member key json
 let to_bool json = Yojson.Safe.Util.to_bool json
 let to_string json = Yojson.Safe.Util.to_string json
 
-let provider_k_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
+let glm_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
   PC.make
     ~kind:PC.Glm
     ~model_id:"glm-5.1"
@@ -21,7 +21,7 @@ let provider_k_config ?enable_thinking ?clear_thinking ?(tool_stream = false) ()
 let check_class label expected actual = check bool label true (actual = expected)
 
 let check_classification label code message expected retryable =
-  let actual, retry = K.classify_provider_k_error ~code ~message in
+  let actual, retry = K.classify_glm_error ~code ~message in
   check_class (label ^ " class") expected actual;
   check bool (label ^ " retryable") retryable retry
 ;;
@@ -79,11 +79,11 @@ let test_classification_matrix () =
 ;;
 
 let test_http_status_mapping () =
-  check int "quota" 429 (K.http_code_of_provider_k_error_class K.Glm_quota_exceeded);
-  check int "rate" 429 (K.http_code_of_provider_k_error_class K.Glm_rate_limited);
-  check int "auth" 401 (K.http_code_of_provider_k_error_class K.Glm_auth_error);
-  check int "server" 500 (K.http_code_of_provider_k_error_class K.Glm_server_error);
-  check int "invalid" 400 (K.http_code_of_provider_k_error_class K.Glm_invalid_request)
+  check int "quota" 429 (K.http_code_of_glm_error_class K.Glm_quota_exceeded);
+  check int "rate" 429 (K.http_code_of_glm_error_class K.Glm_rate_limited);
+  check int "auth" 401 (K.http_code_of_glm_error_class K.Glm_auth_error);
+  check int "server" 500 (K.http_code_of_glm_error_class K.Glm_server_error);
+  check int "invalid" 400 (K.http_code_of_glm_error_class K.Glm_invalid_request)
 ;;
 
 let test_build_request_thinking_modes_and_tool_stream () =
@@ -92,11 +92,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
     K.build_request
       ~stream:true
       ~config:
-        (provider_k_config
-           ~enable_thinking:true
-           ~clear_thinking:false
-           ~tool_stream:true
-           ())
+        (glm_config ~enable_thinking:true ~clear_thinking:false ~tool_stream:true ())
       ~messages
       ~tools:[ `Assoc [ "name", `String "calc" ] ]
       ()
@@ -115,7 +111,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
   check bool "tool stream true" true (enabled |> member "tool_stream" |> to_bool);
   let disabled =
     K.build_request
-      ~config:(provider_k_config ~enable_thinking:false ~tool_stream:true ())
+      ~config:(glm_config ~enable_thinking:false ~tool_stream:true ())
       ~messages
       ()
     |> Yojson.Safe.from_string
@@ -131,7 +127,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
     true
     (disabled |> member "tool_stream" = `Null);
   let passthrough =
-    K.build_request ~config:(provider_k_config ()) ~messages () |> Yojson.Safe.from_string
+    K.build_request ~config:(glm_config ()) ~messages () |> Yojson.Safe.from_string
   in
   check bool "thinking omitted" true (passthrough |> member "thinking" = `Null)
 ;;
@@ -150,7 +146,7 @@ let test_parse_response_extracts_reasoning_and_usage () =
   | None -> fail "expected usage"
 ;;
 
-let test_parse_response_classifies_provider_k_errors () =
+let test_parse_response_classifies_glm_errors () =
   let cases =
     [ ( {|{"error":{"code":"1305","message":"service overloaded"}}|}
       , "1305"
@@ -178,7 +174,7 @@ let test_parse_response_classifies_provider_k_errors () =
     cases
 ;;
 
-let test_parse_response_wraps_provider_d_parse_errors () =
+let test_parse_response_wraps_openai_parse_errors () =
   match K.parse_response {|{"choices":"not-a-list"}|} with
   | exception K.Glm_api_error err ->
     check string "parse code" "parse" err.code;
@@ -237,14 +233,11 @@ let () =
             "reasoning content and usage"
             `Quick
             test_parse_response_extracts_reasoning_and_usage
-        ; test_case
-            "glm error classes"
-            `Quick
-            test_parse_response_classifies_provider_k_errors
+        ; test_case "glm error classes" `Quick test_parse_response_classifies_glm_errors
         ; test_case
             "openai parse errors"
             `Quick
-            test_parse_response_wraps_provider_d_parse_errors
+            test_parse_response_wraps_openai_parse_errors
         ; test_case
             "empty and malformed reasoning bodies"
             `Quick

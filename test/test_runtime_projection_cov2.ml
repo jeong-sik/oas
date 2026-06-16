@@ -342,7 +342,7 @@ let test_apply_agent_spawn () =
          ; role = Some "reviewer"
          ; prompt = "review"
          ; provider = Some "openai"
-         ; model = Some "model-d-4"
+         ; model = Some "gpt-4"
          ; permission_mode = None
          })
   in

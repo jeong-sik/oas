@@ -107,7 +107,7 @@ let task_of_model_id model_id =
   else if
     has "imagegen"
     || has "image-gen"
-    || has "model-d-image"
+    || has "gpt-image"
     || has "cogview"
     || has "glm-image"
     || has "seedream"
@@ -193,25 +193,25 @@ let first_present_env env_names =
   loop env_names
 ;;
 
-let provider_c_direct_base_url () =
-  match Util.get "PROVIDER_C_BASE_URL" with
+let kimi_direct_base_url () =
+  match Util.get "KIMI_BASE_URL" with
   | Some url -> url
   | None -> "https://api.kimi.com/coding"
 ;;
 
-let provider_c_direct_request_path = "/v1/messages"
+let kimi_direct_request_path = "/v1/messages"
 
 (** Non-auth headers for openrouter (anthropic-compatible).
     Auth header ("x-api-key") is NOT included — callers merge
     [auth_headers_only_for_kind] at HTTP request time. *)
-let provider_c_direct_headers _key =
+let kimi_direct_headers _key =
   [ "Content-Type", "application/json"; "anthropic-version", "2023-06-01" ]
 ;;
 
-let provider_c_provider_impl : provider_impl =
+let kimi_provider_impl : provider_impl =
   { name = "kimi"
   ; request_kind = Anthropic_messages
-  ; request_path = provider_c_direct_request_path
+  ; request_path = kimi_direct_request_path
   ; capabilities = Llm_provider.Capabilities.kimi_capabilities
   ; build_body =
       (fun ~config ~messages ?tools () ->
@@ -220,7 +220,7 @@ let provider_c_provider_impl : provider_impl =
               (Api_anthropic.build_body_assoc
                  ~config
                  ~messages
-                 ~message_to_json:Llm_provider.Api_common.provider_c_message_to_json
+                 ~message_to_json:Llm_provider.Api_common.kimi_message_to_json
                  ?tools
                  ~stream:false
                  ())))
@@ -230,23 +230,23 @@ let provider_c_provider_impl : provider_impl =
       (fun cfg ->
         let env_names =
           if String.trim cfg.api_key_env <> ""
-          then [ cfg.api_key_env; "PROVIDER_C_API_KEY" ]
-          else [ "PROVIDER_C_API_KEY" ]
+          then [ cfg.api_key_env; "KIMI_API_KEY" ]
+          else [ "KIMI_API_KEY" ]
         in
         match first_present_env env_names with
         | Some (_env_name, key) ->
-          Ok (provider_c_direct_base_url (), key, provider_c_direct_headers key)
+          Ok (kimi_direct_base_url (), key, kimi_direct_headers key)
         | None ->
           let var_name =
             match env_names with
             | preferred :: _ -> preferred
-            | [] -> "PROVIDER_C_API_KEY"
+            | [] -> "KIMI_API_KEY"
           in
           Error (Error.Config (MissingEnvVar { var_name })))
   }
 ;;
 
-let builtin_provider_impls = [ provider_c_provider_impl ]
+let builtin_provider_impls = [ kimi_provider_impl ]
 
 let find_provider name =
   match find_builtin_provider name builtin_provider_impls with
@@ -269,7 +269,7 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   match provider with
   | Anthropic ->
     (* Base [anthropic_capabilities] is a conservative 200K record;
-         the per-model overrides (agent_llm_a-opus-4, agent_llm_a-sonnet-4, etc.)
+         the per-model overrides (claude-opus-4, claude-sonnet-4, etc.)
          live in [Llm_provider.Capabilities.for_model_id] and carry the
          real 1M windows and output-token ceilings. The [Local] and
          [OpenAICompat] branches already consult that table; the
@@ -447,26 +447,26 @@ let local_llm () =
 
 let anthropic_sonnet () =
   { provider = Anthropic
-  ; model_id = "agent_llm_a-sonnet-4-6"
+  ; model_id = "claude-sonnet-4-6"
   ; api_key_env = "ANTHROPIC_API_KEY"
   }
 ;;
 
 let anthropic_haiku () =
   { provider = Anthropic
-  ; model_id = "agent_llm_a-haiku-4-5-20251001"
+  ; model_id = "claude-haiku-4-5-20251001"
   ; api_key_env = "ANTHROPIC_API_KEY"
   }
 ;;
 
 let anthropic_opus () =
   { provider = Anthropic
-  ; model_id = "agent_llm_a-opus-4-6"
+  ; model_id = "claude-opus-4-6"
   ; api_key_env = "ANTHROPIC_API_KEY"
   }
 ;;
 
-let openrouter ?(model_id = "anthropic/agent_llm_a-sonnet-4-6") () =
+let openrouter ?(model_id = "anthropic/claude-sonnet-4-6") () =
   { provider =
       OpenAICompat
         { base_url = "https://openrouter.ai/api/v1"
@@ -488,9 +488,9 @@ let openrouter ?(model_id = "anthropic/agent_llm_a-sonnet-4-6") () =
    (RFC-OAS-018 §1 names lib/provider.ml as a "13-literal leak site"). That copy
    duplicated the catalog's pricing data and diverged from it: because
    string_contains matches anywhere and the branches were hand-ordered, the bare
-   "model-d" branch shadowed "model-d-4.1", mis-pricing it 2.5/10.0 instead of the
+   "gpt" branch shadowed "gpt-4.1", mis-pricing it 2.5/10.0 instead of the
    catalog's 2.0/8.0. Delegating here deletes the duplicate cascade so models.toml
-   is the single source of truth for pricing, fixes the model-d-4.1 shadow, and
+   is the single source of truth for pricing, fixes the gpt-4.1 shadow, and
    makes the agent_turn/structured accumulators consistent with the live cost
    path. Unknown-model behavior is unchanged: [pricing_for_model_opt] returns
    [None] for an unrecognized model and [pricing_for_model] still collapses that
@@ -671,7 +671,7 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
 
     [Custom_registered {name}] preserves the registry-declared
     {!Llm_provider.Provider_config.provider_kind}
-    (Gemini/Glm/Ollama/Cli_tool_d/etc.) by looking [name] up in
+    (Gemini/Glm/Ollama/Claude_code/etc.) by looking [name] up in
     {!Llm_provider.Provider_registry.default} and using
     [entry.defaults.kind] and [entry.defaults.request_path].
     Returns [Error InvalidConfig] when [name] is not registered.
@@ -714,7 +714,7 @@ let provider_config_of_agent
     (match p.provider with
      | Custom_registered { name } ->
        (* Preserve the registry-declared provider_kind
-              (Gemini/Glm/Ollama/Cli_tool_d/etc.) instead of flattening
+              (Gemini/Glm/Ollama/Claude_code/etc.) instead of flattening
               to OpenAI_compat.
 
               Source of truth is {!Llm_provider.Provider_registry.default},

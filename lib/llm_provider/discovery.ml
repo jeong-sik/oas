@@ -111,7 +111,7 @@ let parse_slots = Discovery_parse.parse_slots
 (* ── Ollama fallback ────────────────────────────────────── *)
 
 (** Search for context_length in an Ollama model_info JSON object.
-    Ollama uses model-specific key prefixes (e.g. "provider_h_3_5.context_length")
+    Ollama uses model-specific key prefixes (e.g. "qwen3_5.context_length")
     rather than the generic "general.context_length".  Apply deterministic
     precedence when multiple keys are present: prefer "context_length",
     then "general.context_length", then take the maximum value across any
@@ -782,7 +782,7 @@ let%test "url_is_ollama rejects unrelated port" =
   not (url_is_ollama "http://127.0.0.1:8086")
 ;;
 
-(* Agent_code review #793: confirm false-positive substring matches no longer fire. *)
+(* Codex review #793: confirm false-positive substring matches no longer fire. *)
 let%test "url_is_ollama rejects :11434 in userinfo" =
   not (url_is_ollama "http://user:11434@example.com/v1")
 ;;
@@ -795,7 +795,7 @@ let%test "url_is_ollama rejects :11434 in query" =
   not (url_is_ollama "http://example.com:8080/?next=:11434")
 ;;
 
-(* Agent_code review: cover the bare ":11434 in query" case with no other port. *)
+(* Codex review: cover the bare ":11434 in query" case with no other port. *)
 let%test "url_is_ollama rejects :11434 in query (no other port)" =
   not (url_is_ollama "http://example.com/?next=:11434")
 ;;
@@ -846,7 +846,7 @@ let%test "parse_models valid" =
       [ ( "data"
         , `List
             [ `Assoc [ "id", `String "dashscope-3.5-35b"; "owned_by", `String "local" ]
-            ; `Assoc [ "id", `String "model-n-4-scout"; "owned_by", `String "nous" ]
+            ; `Assoc [ "id", `String "llama-4-scout"; "owned_by", `String "nous" ]
             ] )
       ]
   in
@@ -1007,7 +1007,7 @@ let%test "infer_capabilities unknown model gets basic openai" =
 ;;
 
 let%test "infer_capabilities known model lookup has priority" =
-  let models = [ { id = "agent_llm_a-opus-4-20260320"; owned_by = "anthropic" } ] in
+  let models = [ { id = "claude-opus-4-20260320"; owned_by = "anthropic" } ] in
   let caps = infer_capabilities ~uses_reasoning_effort:false models None in
   caps.supports_caching = true && caps.supports_computer_use = true
 ;;
@@ -1234,9 +1234,7 @@ let%test "find_context_length with general.context_length" =
 let%test "find_context_length with model-specific prefix" =
   let mi =
     `Assoc
-      [ "provider_h_3_5.embedding_length", `Int 3584
-      ; "provider_h_3_5.context_length", `Int 262144
-      ]
+      [ "qwen3_5.embedding_length", `Int 3584; "qwen3_5.context_length", `Int 262144 ]
   in
   find_context_length mi = 262144
 ;;
@@ -1248,18 +1246,14 @@ let%test "find_context_length prefers context_length over general" =
 
 let%test "find_context_length prefers general.context_length over model-specific" =
   let mi =
-    `Assoc
-      [ "provider_h_3_5.context_length", `Int 262144
-      ; "general.context_length", `Int 8192
-      ]
+    `Assoc [ "qwen3_5.context_length", `Int 262144; "general.context_length", `Int 8192 ]
   in
   find_context_length mi = 8192
 ;;
 
 let%test "find_context_length takes max of model-specific keys" =
   let mi =
-    `Assoc
-      [ "nous.context_length", `Int 8192; "provider_h_3_5.context_length", `Int 262144 ]
+    `Assoc [ "nous.context_length", `Int 8192; "qwen3_5.context_length", `Int 262144 ]
   in
   find_context_length mi = 262144
 ;;
@@ -1270,7 +1264,7 @@ let%test "find_context_length with float value" =
 ;;
 
 let%test "find_context_length returns 0 when no matching key" =
-  let mi = `Assoc [ "provider_h_3_5.embedding_length", `Int 3584 ] in
+  let mi = `Assoc [ "qwen3_5.embedding_length", `Int 3584 ] in
   find_context_length mi = 0
 ;;
 

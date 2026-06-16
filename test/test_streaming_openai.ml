@@ -7,12 +7,12 @@ module S = Llm_provider.Streaming
 
 let test_parse_text_chunk () =
   let data =
-    {|{"id":"chatcmpl-abc","object":"chat.completion.chunk","model":"model-d-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|}
+    {|{"id":"chatcmpl-abc","object":"chat.completion.chunk","model":"gpt-4","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}|}
   in
   match S.parse_openai_sse_chunk data with
   | Some chunk ->
     Alcotest.(check string) "id" "chatcmpl-abc" chunk.chunk_id;
-    Alcotest.(check string) "model" "model-d-4" chunk.chunk_model;
+    Alcotest.(check string) "model" "gpt-4" chunk.chunk_model;
     Alcotest.(check (option string)) "content" (Some "Hello") chunk.delta_content;
     Alcotest.(check (option string)) "finish" None chunk.finish_reason;
     Alcotest.(check int) "no tool_calls" 0 (List.length chunk.delta_tool_calls)
@@ -95,7 +95,7 @@ let test_parse_empty_choices () =
 
 let test_events_text_first_chunk () =
   let state = S.create_openai_stream_state () in
-  let chunk : S.provider_d_chunk =
+  let chunk : S.openai_chunk =
     { chunk_id = "c"
     ; chunk_model = "m"
     ; delta_content = Some "Hi"
@@ -153,7 +153,7 @@ let test_events_text_subsequent () =
 
 let test_events_tool_call () =
   let state = S.create_openai_stream_state () in
-  let tc : S.provider_d_tool_call_delta =
+  let tc : S.openai_tool_call_delta =
     { tc_index = 0
     ; tc_id = Some "call_1"
     ; tc_name = Some "calc"
@@ -433,7 +433,7 @@ let test_events_reasoning_delta_index_multi_chunk () =
 let test_events_tool_first_then_text () =
   let state = S.create_openai_stream_state () in
   (* Step 1: tool call arrives first, gets block index 0 *)
-  let tc : S.provider_d_tool_call_delta =
+  let tc : S.openai_tool_call_delta =
     { tc_index = 0
     ; tc_id = Some "call_1"
     ; tc_name = Some "get_weather"
@@ -511,14 +511,14 @@ let test_events_tool_first_then_text () =
 let test_events_multi_tool_then_text () =
   let state = S.create_openai_stream_state () in
   (* Two tool calls: indices 0 and 1 *)
-  let tc0 : S.provider_d_tool_call_delta =
+  let tc0 : S.openai_tool_call_delta =
     { tc_index = 0
     ; tc_id = Some "call_a"
     ; tc_name = Some "fn_a"
     ; tc_arguments = Some "{}"
     }
   in
-  let tc1 : S.provider_d_tool_call_delta =
+  let tc1 : S.openai_tool_call_delta =
     { tc_index = 1
     ; tc_id = Some "call_b"
     ; tc_name = Some "fn_b"
@@ -579,7 +579,7 @@ let test_events_thinking_tool_text () =
   in
   Alcotest.(check int) "next after thinking" 1 state.next_block_index;
   (* Tool call: gets index 1 *)
-  let tc : S.provider_d_tool_call_delta =
+  let tc : S.openai_tool_call_delta =
     { tc_index = 0
     ; tc_id = Some "call_x"
     ; tc_name = Some "search"
@@ -844,7 +844,7 @@ let test_responses_stream_incomplete_content_filter_drops_tool () =
 let () =
   let open Alcotest in
   run
-    "streaming_provider_d"
+    "streaming_openai"
     [ ( "parse_openai_sse_chunk"
       , [ test_case "text chunk" `Quick test_parse_text_chunk
         ; test_case "[DONE] sentinel" `Quick test_parse_done_sentinel

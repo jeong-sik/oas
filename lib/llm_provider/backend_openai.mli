@@ -9,17 +9,17 @@ val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val strip_json_markdown_fences : string -> string
-val tool_choice_to_provider_d_json : Types.tool_choice -> Yojson.Safe.t
-val build_provider_d_tool_json : Yojson.Safe.t -> Yojson.Safe.t
+val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
+val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 val strip_orphaned_tool_results : Types.message list -> Types.message list
 val close_tool_message_pairs_for_request : Types.message list -> Types.message list
-val response_format_to_provider_d_json : Types.response_format -> Yojson.Safe.t option
+val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 
 (** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
 val parse_openai_response_result : string -> (Types.api_response, string) result
 
-val usage_of_provider_d_json : Yojson.Safe.t -> Types.api_usage option
+val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 
 val build_request
   :  ?stream:bool

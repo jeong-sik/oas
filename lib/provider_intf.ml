@@ -203,7 +203,7 @@ let of_config_streaming (provider_cfg : Provider.config)
 let%test "supports_streaming Anthropic" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
-    ; model_id = "agent_llm_a-3-5-sonnet-20241022"
+    ; model_id = "claude-3-5-sonnet-20241022"
     ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in
@@ -230,7 +230,7 @@ let%test "supports_streaming OpenAICompat" =
 let%test "of_config returns a provider_module" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
-    ; model_id = "agent_llm_a-3-5-sonnet-20241022"
+    ; model_id = "claude-3-5-sonnet-20241022"
     ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in
@@ -242,7 +242,7 @@ let%test "of_config returns a provider_module" =
 let%test "of_config_streaming Anthropic returns Some" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
-    ; model_id = "agent_llm_a-3-5-sonnet-20241022"
+    ; model_id = "claude-3-5-sonnet-20241022"
     ; api_key_env = "ANTHROPIC_API_KEY"
     }
   in

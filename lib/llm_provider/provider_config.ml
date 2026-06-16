@@ -327,7 +327,7 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
   if trimmed = "" then default_name else trimmed
 ;;
 
-let provider_d_host_supports_output_schema base_url =
+let openai_host_supports_output_schema base_url =
   match Uri.of_string base_url |> Uri.host with
   | Some host -> String.lowercase_ascii host = "api.openai.com"
   | None -> false
@@ -389,7 +389,7 @@ let validate_output_schema_request (config : t) =
            (Printf.sprintf
               "model %s does not advertise native structured output"
               config.model_id)
-       else if provider_d_host_supports_output_schema config.base_url
+       else if openai_host_supports_output_schema config.base_url
        then Ok ()
        else
          Error
@@ -399,8 +399,8 @@ let validate_output_schema_request (config : t) =
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess
-    transports are not set.  CLI transports (Cli_tool_a, Cli_tool_c,
-    Cli_tool_b, Cli_tool_d) run external binaries and cannot relay
+    transports are not set.  CLI transports (Codex, Kimi,
+    Gemini, Claude_code) run external binaries and cannot relay
     fine-grained sampling parameters like [min_p] or [top_k].
     Detecting these at validation time avoids silent downgrading at the
     transport layer ([warn_unsupported_once]).
@@ -434,7 +434,7 @@ let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
   let config =
     make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-4"
+      ~model_id:"claude-4"
       ~base_url:"https://api.anthropic.com"
       ~min_p:0.05
       ()

@@ -55,7 +55,7 @@ let test_parse_usage_with_cache_tokens () =
   let json_str =
     {|{
     "id": "msg_cache",
-    "model": "agent_llm_a-sonnet-4-20250514",
+    "model": "claude-sonnet-4-20250514",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "Hello"}],
     "usage": {
@@ -81,7 +81,7 @@ let test_parse_usage_without_cache_tokens () =
   let json_str =
     {|{
     "id": "msg_nocache",
-    "model": "agent_llm_a-sonnet-4-20250514",
+    "model": "claude-sonnet-4-20250514",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "Hi"}],
     "usage": {
@@ -134,11 +134,11 @@ let test_add_usage_cache_accumulation () =
 (* Openai: cache token parsing from prompt_tokens_details               *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_usage_with_cached_tokens () =
+let test_openai_usage_with_cached_tokens () =
   let json_str =
     {|{
     "id": "chatcmpl-abc",
-    "model": "model-d",
+    "model": "gpt",
     "choices": [{
       "index": 0,
       "message": {"role": "assistant", "content": "Hello"},
@@ -167,11 +167,11 @@ let test_provider_d_usage_with_cached_tokens () =
   | None -> Alcotest.fail "expected usage"
 ;;
 
-let test_provider_d_usage_without_cached_tokens () =
+let test_openai_usage_without_cached_tokens () =
   let json_str =
     {|{
     "id": "chatcmpl-def",
-    "model": "model-d",
+    "model": "gpt",
     "choices": [{
       "index": 0,
       "message": {"role": "assistant", "content": "Hi"},
@@ -272,15 +272,12 @@ let () =
     ; ( "add_usage"
       , [ test_case "cache token accumulation" `Quick test_add_usage_cache_accumulation ]
       )
-    ; ( "provider_d_cache"
-      , [ test_case
-            "usage with cached_tokens"
-            `Quick
-            test_provider_d_usage_with_cached_tokens
+    ; ( "openai_cache"
+      , [ test_case "usage with cached_tokens" `Quick test_openai_usage_with_cached_tokens
         ; test_case
             "usage without cached_tokens"
             `Quick
-            test_provider_d_usage_without_cached_tokens
+            test_openai_usage_without_cached_tokens
         ] )
     ; ( "streaming_delta_cache"
       , [ test_case

@@ -497,7 +497,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
       peak_memory_gb = None
     ; provider_kind = Some Llm_provider.Provider_config.Anthropic
     ; reasoning_effort = None
-    ; canonical_model_id = Some "agent_llm_a-4-sonnet"
+    ; canonical_model_id = Some "claude-4-sonnet"
     ; effective_context_window = Some 200_000
     ; provider_internal_action_count = None
     ; ttfrc_ms = None
@@ -519,7 +519,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     t.request_latency_ms = Some 1234
     && t.system_fingerprint = Some "fp" (* preserved *)
     && t.reasoning_tokens = Some 10 (* preserved *)
-    && t.canonical_model_id = Some "agent_llm_a-4-sonnet" (* preserved *)
+    && t.canonical_model_id = Some "claude-4-sonnet" (* preserved *)
   | None -> false
 ;;
 

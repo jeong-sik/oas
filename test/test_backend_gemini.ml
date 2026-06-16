@@ -3,7 +3,7 @@ open Llm_provider
 
 (* ── Helpers ────────────────────────────────────────── *)
 
-let provider_f_config
+let gemini_config
       ?(model_id = "gemini-2.5-flash")
       ?(thinking = false)
       ?enable_thinking
@@ -47,7 +47,7 @@ let to_bool json = Yojson.Safe.Util.to_bool json
 (* ── build_request tests ────────────────────────────── *)
 
 let test_basic_request () =
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages = [ Types.user_msg "Hello" ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -69,7 +69,7 @@ let test_basic_request () =
 ;;
 
 let test_system_instruction () =
-  let config = provider_f_config ~system:"You are helpful." () in
+  let config = gemini_config ~system:"You are helpful." () in
   let messages = [ Types.user_msg "Hi" ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -85,7 +85,7 @@ let test_system_instruction () =
 ;;
 
 let test_system_from_messages () =
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages = [ Types.system_msg "Be concise."; Types.user_msg "Hello" ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -98,7 +98,7 @@ let test_system_from_messages () =
 ;;
 
 let test_thinking_config () =
-  let config = provider_f_config ~thinking:true ~budget:8000 () in
+  let config = gemini_config ~thinking:true ~budget:8000 () in
   let messages = [ Types.user_msg "Think about this." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -110,7 +110,7 @@ let test_thinking_config () =
 ;;
 
 let test_thinking_disabled_uses_budget_zero () =
-  let config = provider_f_config ~enable_thinking:false () in
+  let config = gemini_config ~enable_thinking:false () in
   let messages = [ Types.user_msg "Keep it short." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -121,7 +121,7 @@ let test_thinking_disabled_uses_budget_zero () =
 
 let test_gemini3_uses_thinking_level () =
   let config =
-    provider_f_config ~model_id:"gemini-3.5-flash" ~enable_thinking:true ~budget:1024 ()
+    gemini_config ~model_id:"gemini-3.5-flash" ~enable_thinking:true ~budget:1024 ()
   in
   let body =
     Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Think." ] ()
@@ -133,7 +133,7 @@ let test_gemini3_uses_thinking_level () =
 ;;
 
 let test_gemini3_disable_uses_minimal_level () =
-  let config = provider_f_config ~model_id:"gemini-3-flash" ~enable_thinking:false () in
+  let config = gemini_config ~model_id:"gemini-3-flash" ~enable_thinking:false () in
   let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
   check string "thinkingLevel" "minimal" (tc |> member "thinkingLevel" |> to_string);
@@ -141,14 +141,14 @@ let test_gemini3_disable_uses_minimal_level () =
 ;;
 
 let test_gemini31_pro_disable_uses_low_level () =
-  let config = provider_f_config ~model_id:"gemini-3.1-pro" ~enable_thinking:false () in
+  let config = gemini_config ~model_id:"gemini-3.1-pro" ~enable_thinking:false () in
   let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
   check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string)
 ;;
 
 let test_tools () =
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages = [ Types.user_msg "What's the weather?" ] in
   let tools =
     [ `Assoc
@@ -174,7 +174,7 @@ let test_tools () =
 let test_disable_parallel_tool_use_dropped () =
   (* The Gemini API has no parallel-disable; the request must omit it entirely
      even when the caller sets disable_parallel_tool_use. *)
-  let config = { (provider_f_config ()) with disable_parallel_tool_use = true } in
+  let config = { (gemini_config ()) with disable_parallel_tool_use = true } in
   let messages = [ Types.user_msg "What's the weather?" ] in
   let tools =
     [ `Assoc
@@ -198,7 +198,7 @@ let test_disable_parallel_tool_use_dropped () =
 ;;
 
 let test_tool_result () =
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages =
     [ Types.user_msg "What's the weather?"
     ; { role = Assistant
@@ -243,7 +243,7 @@ let test_tool_result () =
 ;;
 
 let test_dangling_tool_use_closed_before_request () =
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages =
     [ Types.user_msg "question"
     ; { role = Assistant
@@ -280,7 +280,7 @@ let test_dangling_tool_use_closed_before_request () =
 ;;
 
 let test_json_mode () =
-  let config = provider_f_config ~json_mode:true () in
+  let config = gemini_config ~json_mode:true () in
   let messages = [ Types.user_msg "Return JSON." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -300,7 +300,7 @@ let test_output_schema () =
       ; "required", `List [ `String "answer" ]
       ]
   in
-  let config = provider_f_config ~output_schema:schema () in
+  let config = gemini_config ~output_schema:schema () in
   let messages = [ Types.user_msg "Return structured JSON." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -314,7 +314,7 @@ let test_output_schema () =
 ;;
 
 let test_role_mapping () =
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages =
     [ Types.user_msg "Hi"; Types.assistant_msg "Hello"; Types.user_msg "How are you?" ]
   in
@@ -483,7 +483,7 @@ let test_thought_signature_roundtrip_request () =
     | [ Types.RedactedThinking _; Types.ToolUse { id; _ } ] -> id
     | _ -> fail "expected parsed signed ToolUse"
   in
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages =
     [ Types.user_msg "Use the search tool."
     ; { Types.role = Assistant
@@ -649,7 +649,7 @@ let test_contents_multimodal () =
 
 (* ── Streaming tests ────────────────────────────────── *)
 
-let test_provider_f_stream_text () =
+let test_gemini_stream_text () =
   let data =
     {|{
     "candidates": [{
@@ -660,16 +660,16 @@ let test_provider_f_stream_text () =
     }]
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data with
+  match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     check int "one part" 1 (List.length chunk.gem_parts);
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     check bool "has events" true (List.length events > 0)
   | None -> fail "expected Some chunk"
 ;;
 
-let test_provider_f_stream_thinking () =
+let test_gemini_stream_thinking () =
   let data =
     {|{
     "candidates": [{
@@ -680,10 +680,10 @@ let test_provider_f_stream_thinking () =
     }]
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data with
+  match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_thinking =
       List.exists
         (function
@@ -695,7 +695,7 @@ let test_provider_f_stream_thinking () =
   | None -> fail "expected Some chunk"
 ;;
 
-let test_provider_f_stream_function_call () =
+let test_gemini_stream_function_call () =
   let data =
     {|{
     "candidates": [{
@@ -708,10 +708,10 @@ let test_provider_f_stream_function_call () =
     }]
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data with
+  match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_tool =
       List.exists
         (function
@@ -723,7 +723,7 @@ let test_provider_f_stream_function_call () =
   | None -> fail "expected Some chunk"
 ;;
 
-let test_provider_f_stream_finish () =
+let test_gemini_stream_finish () =
   let data =
     {|{
     "candidates": [{
@@ -733,10 +733,10 @@ let test_provider_f_stream_finish () =
     "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 3}
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data with
+  match Streaming.parse_gemini_sse_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_delta =
       List.exists
         (function
@@ -763,7 +763,7 @@ let test_gemini_capabilities_named () =
 
 let test_tool_choice_mapping () =
   let test_choice choice expected_mode =
-    let config = { (provider_f_config ()) with tool_choice = Some choice } in
+    let config = { (gemini_config ()) with tool_choice = Some choice } in
     let tools =
       [ `Assoc [ "name", `String "test_tool"; "description", `String "A test tool" ] ]
     in
@@ -788,7 +788,7 @@ let test_tool_choice_tool_name () =
   (* tool_choice = Tool "name" forces a function-call (mode ANY) restricted to
      that named function via allowedFunctionNames. *)
   let config =
-    { (provider_f_config ()) with tool_choice = Some (Types.Tool "get_weather") }
+    { (gemini_config ()) with tool_choice = Some (Types.Tool "get_weather") }
   in
   let tools =
     [ `Assoc [ "name", `String "get_weather"; "description", `String "Get weather" ] ]
@@ -804,7 +804,7 @@ let test_tool_choice_tool_name () =
 
 let test_thinking_part_roundtrip () =
   (* Test that Thinking content blocks become thought:true parts *)
-  let config = provider_f_config () in
+  let config = gemini_config () in
   let messages =
     [ { Types.role = Assistant
       ; content =
@@ -835,7 +835,7 @@ let test_thinking_part_roundtrip () =
 
 (** Regression test for issue #332: Gemini thinking delta must use the
     assigned block index, not hardcoded 0. *)
-let test_provider_f_stream_thinking_delta_index () =
+let test_gemini_stream_thinking_delta_index () =
   (* First chunk: thinking part *)
   let data1 =
     {|{
@@ -848,9 +848,9 @@ let test_provider_f_stream_thinking_delta_index () =
   }|}
   in
   let state = Streaming.create_openai_stream_state () in
-  (match Streaming.parse_provider_f_sse_chunk data1 with
+  (match Streaming.parse_gemini_sse_chunk data1 with
    | Some chunk ->
-     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (* ContentBlockStart at index 0, ContentBlockDelta at index 0 *)
      (match events with
       | [ ContentBlockStart { index = start_idx; content_type = "thinking"; _ }
@@ -871,9 +871,9 @@ let test_provider_f_stream_thinking_delta_index () =
     }]
   }|}
   in
-  (match Streaming.parse_provider_f_sse_chunk data2 with
+  (match Streaming.parse_gemini_sse_chunk data2 with
    | Some chunk ->
-     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockDelta { index; delta = ThinkingDelta _; _ } ] ->
         check int "subsequent thinking index" 0 index
@@ -890,9 +890,9 @@ let test_provider_f_stream_thinking_delta_index () =
     }]
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data3 with
+  match Streaming.parse_gemini_sse_chunk data3 with
   | Some chunk ->
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     (match events with
      | [ ContentBlockStart { index = start_idx; content_type = "text"; _ }
        ; ContentBlockDelta { index = delta_idx; delta = TextDelta "answer"; _ }
@@ -905,7 +905,7 @@ let test_provider_f_stream_thinking_delta_index () =
 
 (** Regression test for issue #333: function call before text in Gemini
     must not collide block indices. *)
-let test_provider_f_stream_tool_first_then_text () =
+let test_gemini_stream_tool_first_then_text () =
   let state = Streaming.create_openai_stream_state () in
   (* Chunk 1: functionCall — gets block index 0 *)
   let data1 =
@@ -918,9 +918,9 @@ let test_provider_f_stream_tool_first_then_text () =
     }]
   }|}
   in
-  (match Streaming.parse_provider_f_sse_chunk data1 with
+  (match Streaming.parse_gemini_sse_chunk data1 with
    | Some chunk ->
-     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockStart { index; content_type = "tool_use"; _ }
         ; ContentBlockDelta { index = d_idx; delta = InputJsonDelta _; _ }
@@ -940,9 +940,9 @@ let test_provider_f_stream_tool_first_then_text () =
     }]
   }|}
   in
-  (match Streaming.parse_provider_f_sse_chunk data2 with
+  (match Streaming.parse_gemini_sse_chunk data2 with
    | Some chunk ->
-     let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockStart { index = s_idx; content_type = "text"; _ }
         ; ContentBlockDelta { index = d_idx; delta = TextDelta "here are the results"; _ }
@@ -962,9 +962,9 @@ let test_provider_f_stream_tool_first_then_text () =
     }]
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data3 with
+  match Streaming.parse_gemini_sse_chunk data3 with
   | Some chunk ->
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     (match events with
      | [ ContentBlockDelta { index; delta = TextDelta " for your query"; _ } ] ->
        check int "subsequent text index" 1 index
@@ -972,7 +972,7 @@ let test_provider_f_stream_tool_first_then_text () =
   | None -> fail "expected Some chunk"
 ;;
 
-let test_provider_f_stream_function_call_preserves_thought_signature () =
+let test_gemini_stream_function_call_preserves_thought_signature () =
   let state = Streaming.create_openai_stream_state () in
   let data =
     {|{
@@ -988,10 +988,10 @@ let test_provider_f_stream_function_call_preserves_thought_signature () =
     }]
   }|}
   in
-  match Streaming.parse_provider_f_sse_chunk data with
+  match Streaming.parse_gemini_sse_chunk data with
   | None -> fail "expected Some chunk"
   | Some chunk ->
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     (match events with
      | [ ContentBlockStart
            { index = redacted_idx
@@ -1108,22 +1108,22 @@ let () =
         ; test_case "multimodal" `Quick test_contents_multimodal
         ] )
     ; ( "streaming"
-      , [ test_case "text chunk" `Quick test_provider_f_stream_text
-        ; test_case "thinking chunk" `Quick test_provider_f_stream_thinking
-        ; test_case "function call chunk" `Quick test_provider_f_stream_function_call
-        ; test_case "finish reason" `Quick test_provider_f_stream_finish
+      , [ test_case "text chunk" `Quick test_gemini_stream_text
+        ; test_case "thinking chunk" `Quick test_gemini_stream_thinking
+        ; test_case "function call chunk" `Quick test_gemini_stream_function_call
+        ; test_case "finish reason" `Quick test_gemini_stream_finish
         ; test_case
             "thinking delta index (#332)"
             `Quick
-            test_provider_f_stream_thinking_delta_index
+            test_gemini_stream_thinking_delta_index
         ; test_case
             "tool-first then text (#333)"
             `Quick
-            test_provider_f_stream_tool_first_then_text
+            test_gemini_stream_tool_first_then_text
         ; test_case
             "function call thought signature"
             `Quick
-            test_provider_f_stream_function_call_preserves_thought_signature
+            test_gemini_stream_function_call_preserves_thought_signature
         ] )
     ; ( "capabilities"
       , [ test_case "gemini capabilities" `Quick test_gemini_capabilities_named ] )

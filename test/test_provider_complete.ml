@@ -23,11 +23,11 @@ let contains_substring ~sub text =
 
 (* ── Anthropic build_request ─────────────────────────── *)
 
-let test_provider_a_basic_body () =
+let test_anthropic_basic_body () =
   let config =
     PC.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:"https://api.anthropic.com"
       ~max_tokens:1024
       ()
@@ -36,21 +36,18 @@ let test_provider_a_basic_body () =
   let body = BA.build_request ~config ~messages:msgs () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  Alcotest.(check string)
-    "model"
-    "agent_llm_a-sonnet-4-6"
-    (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "claude-sonnet-4-6" (json |> member "model" |> to_string);
   Alcotest.(check int) "max_tokens" 1024 (json |> member "max_tokens" |> to_int);
   Alcotest.(check bool) "stream false" false (json |> member "stream" |> to_bool);
   let msgs_json = json |> member "messages" |> to_list in
   Alcotest.(check int) "1 message" 1 (List.length msgs_json)
 ;;
 
-let test_provider_a_with_system () =
+let test_anthropic_with_system () =
   let config =
     PC.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~system_prompt:"You are helpful."
       ()
@@ -64,11 +61,11 @@ let test_provider_a_with_system () =
     (json |> member "system" |> to_string)
 ;;
 
-let test_provider_a_with_thinking () =
+let test_anthropic_with_thinking () =
   let config =
     PC.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:true
       ~thinking_budget:5000
@@ -92,14 +89,14 @@ let test_provider_a_with_thinking () =
     (json |> member "output_config" |> member "effort" |> to_string)
 ;;
 
-let test_provider_a_disabled_thinking_omits_adaptive_effort () =
+let test_anthropic_disabled_thinking_omits_adaptive_effort () =
   (* A turn hook may disable thinking while a thinking_budget is still set. The
      adaptive effort must be gated on thinking being enabled, otherwise
      output_config.effort leaks without an accompanying thinking block. *)
   let config =
     PC.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~enable_thinking:false
       ~thinking_budget:5000
@@ -117,7 +114,7 @@ let test_provider_a_disabled_thinking_omits_adaptive_effort () =
     (json |> member "output_config" = `Null)
 ;;
 
-let test_provider_a_stream_flag () =
+let test_anthropic_stream_flag () =
   let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
@@ -125,7 +122,7 @@ let test_provider_a_stream_flag () =
   Alcotest.(check bool) "stream" true (json |> member "stream" |> to_bool)
 ;;
 
-let test_provider_a_output_schema () =
+let test_anthropic_output_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -136,7 +133,7 @@ let test_provider_a_output_schema () =
   let config =
     PC.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~output_schema:schema
       ()
@@ -154,7 +151,7 @@ let test_provider_a_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
-let test_provider_a_json_schema_response_format_without_output_schema () =
+let test_anthropic_json_schema_response_format_without_output_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -163,7 +160,7 @@ let test_provider_a_json_schema_response_format_without_output_schema () =
       ]
   in
   let config =
-    { (PC.make ~kind:Anthropic ~model_id:"agent_llm_a-sonnet-4-6" ~base_url:"" ()) with
+    { (PC.make ~kind:Anthropic ~model_id:"claude-sonnet-4-6" ~base_url:"" ()) with
       response_format = JsonSchema schema
     ; output_schema = None
     }
@@ -177,12 +174,12 @@ let test_provider_a_json_schema_response_format_without_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
-let test_provider_a_parse_response_initializes_telemetry () =
+let test_anthropic_parse_response_initializes_telemetry () =
   let json =
     Yojson.Safe.from_string
       {|{
     "id": "msg_test",
-    "model": "agent_llm_a-sonnet-4-6-20250514",
+    "model": "claude-sonnet-4-6-20250514",
     "stop_reason": "end_turn",
     "content": [
       {"type": "text", "text": "Hello there."}
@@ -211,11 +208,11 @@ let test_provider_a_parse_response_initializes_telemetry () =
 
 (* ── Openai build_request ────────────────────────────── *)
 
-let test_provider_d_basic_body () =
+let test_openai_basic_body () =
   let config =
     PC.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d-4"
+      ~model_id:"gpt-4"
       ~base_url:"https://api.openai.com/v1"
       ~max_tokens:2048
       ()
@@ -224,17 +221,17 @@ let test_provider_d_basic_body () =
   let body = BO.build_request ~config ~messages:msgs () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  Alcotest.(check string) "model" "model-d-4" (json |> member "model" |> to_string);
+  Alcotest.(check string) "model" "gpt-4" (json |> member "model" |> to_string);
   Alcotest.(check int) "max_tokens" 2048 (json |> member "max_tokens" |> to_int);
   let msgs_json = json |> member "messages" |> to_list in
   Alcotest.(check int) "1 message" 1 (List.length msgs_json)
 ;;
 
-let test_provider_d_with_system () =
+let test_openai_with_system () =
   let config =
     PC.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d-4"
+      ~model_id:"gpt-4"
       ~base_url:""
       ~system_prompt:"Be helpful."
       ()
@@ -252,8 +249,8 @@ let test_provider_d_with_system () =
     (first |> member "content" |> to_string)
 ;;
 
-let test_provider_d_with_tools () =
-  let config = PC.make ~kind:OpenAI_compat ~model_id:"model-d-4" ~base_url:"" () in
+let test_openai_with_tools () =
+  let config = PC.make ~kind:OpenAI_compat ~model_id:"gpt-4" ~base_url:"" () in
   let tool =
     `Assoc
       [ "name", `String "calc"
@@ -270,7 +267,7 @@ let test_provider_d_with_tools () =
   Alcotest.(check int) "1 tool" 1 (List.length tools)
 ;;
 
-let test_provider_d_stream_flag () =
+let test_openai_stream_flag () =
   let config = PC.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   let body = BO.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
   let json = Yojson.Safe.from_string body in
@@ -414,7 +411,7 @@ let test_ollama_parse_warns_on_malformed_tool_call () =
   Alcotest.(check bool) "malformed tool call warning" true has_warning
 ;;
 
-let test_provider_d_with_json_schema () =
+let test_openai_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -424,7 +421,7 @@ let test_provider_d_with_json_schema () =
   let config =
     PC.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d-mini"
+      ~model_id:"gpt-mini"
       ~base_url:"https://api.openai.com/v1"
       ~response_format:(JsonSchema schema)
       ()
@@ -451,7 +448,7 @@ let test_provider_d_with_json_schema () =
      |> to_string)
 ;;
 
-let test_provider_f_with_json_schema () =
+let test_gemini_with_json_schema () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -491,7 +488,7 @@ let test_provider_f_with_json_schema () =
      |> to_string)
 ;;
 
-let test_provider_c_direct_with_tools_and_thinking () =
+let test_kimi_direct_with_tools_and_thinking () =
   let config =
     PC.make
       ~kind:Kimi
@@ -522,7 +519,7 @@ let test_provider_c_direct_with_tools_and_thinking () =
     (thinking |> member "type" |> to_string)
 ;;
 
-let test_provider_c_direct_tool_result_uses_text_blocks () =
+let test_kimi_direct_tool_result_uses_text_blocks () =
   let config =
     PC.make
       ~kind:Kimi
@@ -865,7 +862,7 @@ let test_complete_rejects_output_schema_for_glm () =
 let test_annotate_response_cost () =
   let response : api_response =
     { id = "resp-1"
-    ; model = "agent_llm_a-sonnet-4-6"
+    ; model = "claude-sonnet-4-6"
     ; stop_reason = EndTurn
     ; content = [ Text "ok" ]
     ; usage =
@@ -888,7 +885,7 @@ let test_annotate_response_cost () =
 let test_annotate_response_cost_gpt55 () =
   let response : api_response =
     { id = "resp-gpt55"
-    ; model = "model-d-5.5"
+    ; model = "gpt-5.5"
     ; stop_reason = EndTurn
     ; content = [ Text "ok" ]
     ; usage =
@@ -904,8 +901,8 @@ let test_annotate_response_cost_gpt55 () =
   in
   match Llm_provider.Pricing.annotate_response_cost response with
   | { usage = Some { cost_usd = Some cost; _ }; _ } ->
-    Alcotest.(check (float 0.001)) "model-d-5.5 cost" 35.0 cost
-  | _ -> Alcotest.fail "expected model-d-5.5 annotated response cost"
+    Alcotest.(check (float 0.001)) "gpt-5.5 cost" 35.0 cost
+  | _ -> Alcotest.fail "expected gpt-5.5 annotated response cost"
 ;;
 
 (* ── Stream accumulator ──────────────────────────────── *)
@@ -915,7 +912,7 @@ let test_stream_acc_text () =
   let events =
     [ MessageStart
         { id = "msg_123"
-        ; model = "agent_llm_a-sonnet-4-6"
+        ; model = "claude-sonnet-4-6"
         ; usage =
             Some
               { input_tokens = 10
@@ -955,7 +952,7 @@ let test_stream_acc_text () =
 
 let test_stream_acc_tool_use () =
   let events =
-    [ MessageStart { id = "msg_456"; model = "model-d-4"; usage = None }
+    [ MessageStart { id = "msg_456"; model = "gpt-4"; usage = None }
     ; ContentBlockStart
         { index = 0
         ; content_type = "tool_use"
@@ -985,7 +982,7 @@ let test_cache_system_prompt () =
   let config =
     PC.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:""
       ~system_prompt:long_prompt
       ~cache_system_prompt:true
@@ -1081,39 +1078,39 @@ let () =
   let open Alcotest in
   run
     "provider_complete"
-    [ ( "provider_a_build_request"
-      , [ test_case "basic body" `Quick test_provider_a_basic_body
-        ; test_case "with system" `Quick test_provider_a_with_system
-        ; test_case "with thinking" `Quick test_provider_a_with_thinking
+    [ ( "anthropic_build_request"
+      , [ test_case "basic body" `Quick test_anthropic_basic_body
+        ; test_case "with system" `Quick test_anthropic_with_system
+        ; test_case "with thinking" `Quick test_anthropic_with_thinking
         ; test_case
             "disabled thinking omits adaptive effort"
             `Quick
-            test_provider_a_disabled_thinking_omits_adaptive_effort
-        ; test_case "with output schema" `Quick test_provider_a_output_schema
+            test_anthropic_disabled_thinking_omits_adaptive_effort
+        ; test_case "with output schema" `Quick test_anthropic_output_schema
         ; test_case
             "with json schema response_format"
             `Quick
-            test_provider_a_json_schema_response_format_without_output_schema
-        ; test_case "stream flag" `Quick test_provider_a_stream_flag
+            test_anthropic_json_schema_response_format_without_output_schema
+        ; test_case "stream flag" `Quick test_anthropic_stream_flag
         ; test_case
             "parse response initializes telemetry"
             `Quick
-            test_provider_a_parse_response_initializes_telemetry
+            test_anthropic_parse_response_initializes_telemetry
         ] )
-    ; ( "provider_d_build_request"
-      , [ test_case "basic body" `Quick test_provider_d_basic_body
-        ; test_case "with system" `Quick test_provider_d_with_system
-        ; test_case "with tools" `Quick test_provider_d_with_tools
+    ; ( "openai_build_request"
+      , [ test_case "basic body" `Quick test_openai_basic_body
+        ; test_case "with system" `Quick test_openai_with_system
+        ; test_case "with tools" `Quick test_openai_with_tools
         ; test_case
             "kimi direct tools + thinking"
             `Quick
-            test_provider_c_direct_with_tools_and_thinking
+            test_kimi_direct_with_tools_and_thinking
         ; test_case
             "kimi direct tool_result uses scalar text"
             `Quick
-            test_provider_c_direct_tool_result_uses_text_blocks
-        ; test_case "stream flag" `Quick test_provider_d_stream_flag
-        ; test_case "with json schema" `Quick test_provider_d_with_json_schema
+            test_kimi_direct_tool_result_uses_text_blocks
+        ; test_case "stream flag" `Quick test_openai_stream_flag
+        ; test_case "with json schema" `Quick test_openai_with_json_schema
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
         ; test_case
             "ollama gemma4 thinking uses template token"
@@ -1136,8 +1133,8 @@ let () =
             `Quick
             test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice
         ] )
-    ; ( "provider_f_build_request"
-      , [ test_case "with json schema" `Quick test_provider_f_with_json_schema ] )
+    ; ( "gemini_build_request"
+      , [ test_case "with json schema" `Quick test_gemini_with_json_schema ] )
     ; ( "provider_config"
       , [ test_case "default paths" `Quick test_config_default_paths
         ; test_case "custom path" `Quick test_config_custom_path
@@ -1169,7 +1166,7 @@ let () =
     ; ( "cost"
       , [ test_case "annotate response cost" `Quick test_annotate_response_cost
         ; test_case
-            "annotate model-d-5.5 response cost"
+            "annotate gpt-5.5 response cost"
             `Quick
             test_annotate_response_cost_gpt55
         ] )

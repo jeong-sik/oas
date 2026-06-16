@@ -132,7 +132,7 @@ let test_provider_config_for_judge_sets_schema_contract () =
   let provider =
     PC.make
       ~kind:PC.OpenAI_compat
-      ~model_id:"model-d-mini"
+      ~model_id:"gpt-mini"
       ~base_url:"https://api.openai.com/v1"
       ~response_format:LT.JsonMode
       ()
@@ -161,7 +161,7 @@ let test_provider_config_for_judge_preserves_provider_response_format () =
   let provider =
     PC.make
       ~kind:PC.Anthropic
-      ~model_id:"agent_llm_a-sonnet-4-6"
+      ~model_id:"claude-sonnet-4-6"
       ~base_url:"https://api.anthropic.com"
       ~response_format:(LT.JsonSchema judge_output_schema)
       ()

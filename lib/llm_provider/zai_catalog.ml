@@ -170,7 +170,7 @@ let%test "is_glm_model_id accepts glm and bare glm prefixes" =
   && is_glm_model_id "glm"
   && is_glm_model_id "glm-5"
   && is_glm_model_id "GLM-4.7-Flash"
-  && not (is_glm_model_id "model-d-5")
+  && not (is_glm_model_id "gpt-5")
 ;;
 
 let%test "base_url classifiers distinguish general coding and anthropic" =

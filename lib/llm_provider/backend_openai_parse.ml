@@ -25,7 +25,7 @@ let non_blank_json_string = function
     None
 ;;
 
-let text_of_provider_d_content_block = function
+let text_of_openai_content_block = function
   | `String s -> Some s
   | `Assoc fields ->
     (match List.assoc_opt "text" fields with
@@ -35,11 +35,11 @@ let text_of_provider_d_content_block = function
   | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
-let text_content_of_provider_d_content = function
+let text_content_of_openai_content = function
   | `String s -> s
   | `Null -> ""
   | `List blocks ->
-    blocks |> List.filter_map text_of_provider_d_content_block |> String.concat ""
+    blocks |> List.filter_map text_of_openai_content_block |> String.concat ""
   | `Assoc _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> ""
 ;;
 
@@ -94,7 +94,7 @@ let strip_json_markdown_fences text =
           trimmed))
 ;;
 
-let usage_of_provider_d_json json =
+let usage_of_openai_json json =
   let open Yojson.Safe.Util in
   let usage = json |> member "usage" in
   if usage = `Null
@@ -125,7 +125,7 @@ let usage_of_provider_d_json json =
 (** Extract provider-reported inference telemetry from the raw JSON.
     llama-server populates [timings] and [system_fingerprint];
     cloud providers return [None] for those fields. *)
-let telemetry_of_provider_d_json json =
+let telemetry_of_openai_json json =
   let open Yojson.Safe.Util in
   let usage = json |> member "usage" in
   let usage_int keys = if usage = `Null then None else member_int_fallback usage keys in
@@ -254,7 +254,7 @@ let parse_openai_response_result json_str =
     let finish_reason =
       choice |> member "finish_reason" |> to_string_option |> Option.value ~default:"stop"
     in
-    let text_content = text_content_of_provider_d_content (msg |> member "content") in
+    let text_content = text_content_of_openai_content (msg |> member "content") in
     let text_content =
       let stripped = strip_json_markdown_fences text_content in
       if stripped = text_content
@@ -321,8 +321,8 @@ let parse_openai_response_result json_str =
           thinking_blocks
           @ (if Api_common.string_is_blank text_content then [] else [ Text text_content ])
           @ tool_blocks
-      ; usage = usage_of_provider_d_json json
-      ; telemetry = telemetry_of_provider_d_json json
+      ; usage = usage_of_openai_json json
+      ; telemetry = telemetry_of_openai_json json
       }
   | err ->
     let msg =
@@ -334,7 +334,7 @@ let parse_openai_response_result json_str =
     Error msg
 ;;
 
-let%test "usage_of_provider_d_json supports mlx_vlm input/output token fields" =
+let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =
   let json =
     `Assoc
       [ ( "usage"
@@ -343,12 +343,12 @@ let%test "usage_of_provider_d_json supports mlx_vlm input/output token fields" =
         )
       ]
   in
-  match usage_of_provider_d_json json with
+  match usage_of_openai_json json with
   | Some u -> u.input_tokens = 11 && u.output_tokens = 5
   | None -> false
 ;;
 
-let%test "telemetry_of_provider_d_json synthesizes timings from mlx_vlm usage" =
+let%test "telemetry_of_openai_json synthesizes timings from mlx_vlm usage" =
   let json =
     `Assoc
       [ ( "usage"
@@ -361,7 +361,7 @@ let%test "telemetry_of_provider_d_json synthesizes timings from mlx_vlm usage" =
       ; "peak_memory", `Float 52.66
       ]
   in
-  match telemetry_of_provider_d_json json with
+  match telemetry_of_openai_json json with
   | Some { timings = Some t; peak_memory_gb = Some peak; _ } ->
     t.prompt_n = Some 11
     && t.predicted_n = Some 5
@@ -375,11 +375,11 @@ let%test "telemetry_of_provider_d_json synthesizes timings from mlx_vlm usage" =
   | None -> false
 ;;
 
-let%test "telemetry_of_provider_d_json keeps timings none without timing signals" =
+let%test "telemetry_of_openai_json keeps timings none without timing signals" =
   let json =
     `Assoc [ "usage", `Assoc [ "prompt_tokens", `Int 11; "completion_tokens", `Int 5 ] ]
   in
-  match telemetry_of_provider_d_json json with
+  match telemetry_of_openai_json json with
   | Some { timings = None; peak_memory_gb = None; _ } -> true
   | Some { timings = Some _; _ }
   | Some { timings = None; peak_memory_gb = Some _; _ }

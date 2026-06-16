@@ -56,8 +56,8 @@ val find_capable : t -> (Capabilities.capabilities -> bool) -> entry list
 val command_in_path : ?path:string -> string -> bool
 
 (** Default registry pre-populated with known direct providers plus
-    non-interactive CLI transports ([cli_tool_d], [cli_tool_b],
-    [kimi], [cli_tool_c], [cli_tool_a], and compat alias [cc]).
+    non-interactive CLI transports ([claude_code], [gemini],
+    [kimi], [kimi], [codex], and compat alias [cc]).
     Availability is determined by API-key env vars for direct providers
     and PATH discovery for CLI transports.
 

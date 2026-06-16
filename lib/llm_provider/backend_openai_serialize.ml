@@ -225,7 +225,7 @@ let openai_messages_of_message msg =
   messages_of_message_with ~tool_calls_fn:tool_calls_to_openai_json msg
 ;;
 
-let provider_k_messages_of_message msg =
+let glm_messages_of_message msg =
   messages_of_message_with
     ~tool_calls_fn:tool_calls_to_openai_json
     ~include_reasoning_content:true
@@ -304,7 +304,7 @@ let strip_thinking_blocks (messages : message list) : message list =
     messages
 ;;
 
-let tool_choice_to_provider_d_json = function
+let tool_choice_to_openai_json = function
   | Auto -> `String "auto"
   | Any -> `String "required"
   | Tool name ->
@@ -389,7 +389,7 @@ let legacy_parameters_to_json_schema params =
     ]
 ;;
 
-let build_provider_d_tool_json = function
+let build_openai_tool_json = function
   | `Assoc fields ->
     let name =
       match List.assoc_opt "name" fields with

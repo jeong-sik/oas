@@ -68,7 +68,7 @@ let mk_checkpoint ?(messages = []) ?(created_at = 1.0) ?(turn_count = 0) session
   { version = Checkpoint.checkpoint_version
   ; session_id
   ; agent_name = "runtime-replay-agent"
-  ; model = "agent_llm_a-sonnet-4-6"
+  ; model = "claude-sonnet-4-6"
   ; system_prompt = Some "replay"
   ; messages
   ; usage = Types.empty_usage

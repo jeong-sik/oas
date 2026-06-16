@@ -77,17 +77,17 @@ let test_provider_runtime_name_local () =
     (Runtime_server_resolve.provider_runtime_name "local" cfg)
 ;;
 
-let test_provider_runtime_name_provider_a () =
+let test_provider_runtime_name_anthropic () =
   let cfg =
     Some
       { Provider.provider = Provider.Anthropic
-      ; model_id = "agent_llm_a-sonnet-4-6"
+      ; model_id = "claude-sonnet-4-6"
       ; api_key_env = "K"
       }
   in
   Alcotest.(check string)
-    "agent_llm_a"
-    "agent_llm_a"
+    "claude"
+    "claude"
     (Runtime_server_resolve.provider_runtime_name "anthropic" cfg)
 ;;
 
@@ -101,7 +101,7 @@ let test_provider_runtime_name_openai_compat () =
             ; path = "/v1/chat/completions"
             ; static_token = None
             }
-      ; model_id = "model-d"
+      ; model_id = "gpt"
       ; api_key_env = "K"
       }
   in
@@ -159,7 +159,7 @@ let test_resolve_provider_sonnet () =
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.Custom_registered { name } ->
-       Alcotest.(check string) "provider id" "agent_llm_a" name
+       Alcotest.(check string) "provider id" "claude" name
      | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
@@ -169,7 +169,7 @@ let test_resolve_provider_haiku () =
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.Custom_registered { name } ->
-       Alcotest.(check string) "provider id" "agent_llm_a" name
+       Alcotest.(check string) "provider id" "claude" name
      | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
@@ -179,7 +179,7 @@ let test_resolve_provider_opus () =
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.Custom_registered { name } ->
-       Alcotest.(check string) "provider id" "agent_llm_a" name
+       Alcotest.(check string) "provider id" "claude" name
      | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
@@ -194,12 +194,12 @@ let test_resolve_provider_openrouter () =
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
 
-let test_resolve_provider_alias_provider_a () =
+let test_resolve_provider_alias_anthropic () =
   match Runtime_server_resolve.resolve_provider ~provider:"anthropic" () with
   | Ok (Some cfg) ->
     (match cfg.Provider.provider with
      | Provider.Custom_registered { name } ->
-       Alcotest.(check string) "provider id" "agent_llm_a" name
+       Alcotest.(check string) "provider id" "claude" name
      | _ -> Alcotest.fail "expected registered provider")
   | _ -> Alcotest.fail "expected Ok (Some cfg)"
 ;;
@@ -320,7 +320,7 @@ let test_resolve_execution_non_mock_has_provider_cfg () =
     Alcotest.(check bool) "has provider cfg" true (Option.is_some res.provider_cfg);
     Alcotest.(check (option string))
       "resolved provider"
-      (Some "agent_llm_a")
+      (Some "claude")
       res.resolved_provider
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
@@ -403,7 +403,7 @@ let () =
         ; Alcotest.test_case
             "Anthropic provider"
             `Quick
-            test_provider_runtime_name_provider_a
+            test_provider_runtime_name_anthropic
         ; Alcotest.test_case
             "unmatched OpenAI-compatible adapter"
             `Quick
@@ -443,7 +443,7 @@ let () =
         ; Alcotest.test_case
             "anthropic alias returns registered provider"
             `Quick
-            test_resolve_provider_alias_provider_a
+            test_resolve_provider_alias_anthropic
         ; Alcotest.test_case
             "openai_compat kind is not a provider"
             `Quick

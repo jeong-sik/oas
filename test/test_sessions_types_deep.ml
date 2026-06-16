@@ -284,7 +284,7 @@ let mk_worker_run status : Sessions.worker_run =
   ; requested_model = Some "sonnet-4-6"
   ; requested_policy = Some "default"
   ; resolved_provider = Some "anthropic"
-  ; resolved_model = Some "agent_llm_a-sonnet-4-6-20250514"
+  ; resolved_model = Some "claude-sonnet-4-6-20250514"
   ; status
   ; trace_capability = Sessions.Raw
   ; validated = status = Sessions.Completed
@@ -493,7 +493,7 @@ let mk_runtime_session () : Runtime.session =
   ; created_at = 1.0
   ; updated_at = 2.0
   ; provider = Some "anthropic"
-  ; model = Some "agent_llm_a-sonnet"
+  ; model = Some "claude-sonnet"
   ; system_prompt = Some "system"
   ; max_turns = 3
   ; workdir = Some "/tmp"
@@ -527,7 +527,7 @@ let test_proof_bundle_roundtrip () =
     ; actor = Some "agent"
     ; role = Some "worker"
     ; provider = Some "anthropic"
-    ; model = Some "agent_llm_a-sonnet"
+    ; model = Some "claude-sonnet"
     ; raw_trace_run_id = Some run_ref.worker_run_id
     ; stop_reason = Some "end_turn"
     ; artifact_id = Some "artifact-1"

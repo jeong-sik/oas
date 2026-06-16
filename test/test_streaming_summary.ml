@@ -114,8 +114,8 @@ let test_terminal_cancelled_roundtrip () =
 module Streaming = Llm_provider.Streaming
 module Types = Llm_provider.Types
 
-let make_provider_d_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = []) ()
-  : Streaming.provider_d_chunk
+let make_openai_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = []) ()
+  : Streaming.openai_chunk
   =
   { chunk_id = "c1"
   ; chunk_model = "m"
@@ -128,7 +128,7 @@ let make_provider_d_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = [
 ;;
 
 let test_chunk_has_non_empty_delta_content () =
-  let c = make_provider_d_chunk ~delta_content:"hello" () in
+  let c = make_openai_chunk ~delta_content:"hello" () in
   Alcotest.(check bool)
     "non-empty content is a token signal"
     true
@@ -136,7 +136,7 @@ let test_chunk_has_non_empty_delta_content () =
 ;;
 
 let test_chunk_empty_delta_is_not_token () =
-  let c = make_provider_d_chunk ~delta_content:"" () in
+  let c = make_openai_chunk ~delta_content:"" () in
   Alcotest.(check bool)
     "empty string content is not a token"
     false
@@ -144,7 +144,7 @@ let test_chunk_empty_delta_is_not_token () =
 ;;
 
 let test_chunk_only_reasoning_is_token () =
-  let c = make_provider_d_chunk ~delta_reasoning:"thinking..." () in
+  let c = make_openai_chunk ~delta_reasoning:"thinking..." () in
   Alcotest.(check bool)
     "reasoning-only chunk is a token"
     true
@@ -152,14 +152,14 @@ let test_chunk_only_reasoning_is_token () =
 ;;
 
 let test_chunk_tool_call_is_token () =
-  let tc : Streaming.provider_d_tool_call_delta =
+  let tc : Streaming.openai_tool_call_delta =
     { tc_index = 0
     ; tc_id = Some "call_1"
     ; tc_name = Some "fetch"
     ; tc_arguments = Some "{}"
     }
   in
-  let c = make_provider_d_chunk ~delta_tool_calls:[ tc ] () in
+  let c = make_openai_chunk ~delta_tool_calls:[ tc ] () in
   Alcotest.(check bool)
     "tool_call delta is a token"
     true
@@ -167,7 +167,7 @@ let test_chunk_tool_call_is_token () =
 ;;
 
 let test_chunk_finish_only_is_not_token () =
-  let c = make_provider_d_chunk () in
+  let c = make_openai_chunk () in
   Alcotest.(check bool)
     "finish-only / empty chunk is not a token"
     false

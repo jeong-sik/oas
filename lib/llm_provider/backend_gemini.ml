@@ -68,13 +68,13 @@ let thinking_config_of_config (config : Provider_config.t) =
        let budget =
          match config.thinking_budget with
          | Some b -> b
-         | None -> Constants.Thinking.provider_f_budget ()
+         | None -> Constants.Thinking.gemini_budget ()
        in
        Some (`Assoc [ "thinkingBudget", `Int budget; "includeThoughts", `Bool true ])
      | None -> None)
 ;;
 
-let provider_f_role_of_oas = function
+let gemini_role_of_oas = function
   | User | System | Tool -> "user"
   | Assistant -> "model"
 ;;
@@ -236,9 +236,7 @@ let contents_of_messages (messages : message list) =
          then
            contents
            := `Assoc
-                [ "role", `String (provider_f_role_of_oas msg.role)
-                ; "parts", `List parts
-                ]
+                [ "role", `String (gemini_role_of_oas msg.role); "parts", `List parts ]
               :: !contents)
     messages;
   let system_instruction =

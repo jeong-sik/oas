@@ -64,7 +64,7 @@ let message_has_responses_raw_reasoning (msg : message) =
 ;;
 
 let responses_tool_json tool =
-  match Backend_openai_serialize.build_provider_d_tool_json tool with
+  match Backend_openai_serialize.build_openai_tool_json tool with
   | `Assoc fields ->
     (match List.assoc_opt "function" fields with
      | Some (`Assoc fn_fields) ->

@@ -123,7 +123,7 @@ let test_stage_route_passes_trace_context_headers () =
   let provider =
     Some
       { Provider.provider = Provider.Custom_registered { name = "nous" }
-      ; model_id = "model-d-4"
+      ; model_id = "gpt-4"
       ; api_key_env = ""
       }
   in
@@ -176,7 +176,7 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
   let provider =
     Some
       { Provider.provider = Provider.Custom_registered { name = "nous" }
-      ; model_id = "model-d-4"
+      ; model_id = "gpt-4"
       ; api_key_env = ""
       }
   in

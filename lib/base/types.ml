@@ -73,7 +73,7 @@ let response_format_of_json json =
 
 (** Model identifier — a plain string.
     Use {!Model_registry.resolve_model_id} to resolve aliases like
-    "sonnet" → "agent_llm_a-sonnet-4-6-20250514". *)
+    "sonnet" → "claude-sonnet-4-6-20250514". *)
 type model = string [@@deriving yojson, show]
 
 (** Resolve a model alias to its canonical API model ID.
@@ -95,7 +95,7 @@ type agent_config =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; response_format : response_format
-  ; thinking_budget : int option (* For Agent_llm_a 3.7+ extended thinking *)
+  ; thinking_budget : int option (* For Claude 3.7+ extended thinking *)
   ; tool_choice : tool_choice option
   ; disable_parallel_tool_use : bool
     (* Anthropic: tool_choice.disable_parallel_tool_use, Openai: parallel_tool_calls=false *)
