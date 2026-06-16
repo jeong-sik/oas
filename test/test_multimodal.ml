@@ -196,6 +196,30 @@ let test_agent_run_blocks_rejects_internal_blocks () =
   Alcotest.(check int) "state unchanged" 0 (List.length (Agent.state agent).messages)
 ;;
 
+let test_agent_run_with_handoffs_blocks_rejects_internal_blocks () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let config = { Types.default_config with max_turns = 0 } in
+  let agent = Agent.create ~net:env#net ~config () in
+  let blocks =
+    [ Types.ToolResult
+        { tool_use_id = "call-1"
+        ; content = "internal result"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
+    ]
+  in
+  (match Agent.run_with_handoffs_blocks ~sw agent ~targets:[] blocks with
+   | Error (Error.Config (Error.InvalidConfig { field = "user_blocks"; _ })) -> ()
+   | Ok _ -> Alcotest.fail "expected invalid config"
+   | Error err -> Alcotest.fail ("unexpected error: " ^ Error.to_string err));
+  Alcotest.(check int) "state unchanged" 0 (List.length (Agent.state agent).messages)
+;;
+
 (* ------------------------------------------------------------------ *)
 (* JSON structure verification                                          *)
 (* ------------------------------------------------------------------ *)
@@ -322,6 +346,10 @@ let () =
             "agent run_blocks rejects internal blocks"
             `Quick
             test_agent_run_blocks_rejects_internal_blocks
+        ; Alcotest.test_case
+            "agent run_with_handoffs_blocks rejects internal blocks"
+            `Quick
+            test_agent_run_with_handoffs_blocks_rejects_internal_blocks
         ] )
     ; ( "json_structure"
       , [ Alcotest.test_case "image json structure" `Quick test_image_json_structure
