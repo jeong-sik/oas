@@ -1,7 +1,7 @@
 (** Progressive tool disclosure — reveal tools in phases.
 
     Controls which tools are available to the LLM at each turn,
-    following the Gather-Act-Verify pattern from Agent_llm_a Agent SDK.
+    following the Gather-Act-Verify pattern from Claude Agent SDK.
 
     Integrates with {!Hooks.BeforeTurnParams} hooks via {!as_hook},
     using [tool_filter_override] in [AdjustParams] to restrict

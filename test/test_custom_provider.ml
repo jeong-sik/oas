@@ -88,11 +88,11 @@ let test_custom_provider_config_with_overrides () =
   let cfg =
     Provider.custom_provider
       ~name:"my-tgi"
-      ~model_id:"model-n-70b"
+      ~model_id:"llama-70b"
       ~api_key_env:"TGI_KEY"
       ()
   in
-  Alcotest.(check string) "model_id" "model-n-70b" cfg.model_id;
+  Alcotest.(check string) "model_id" "llama-70b" cfg.model_id;
   Alcotest.(check string) "api_key_env" "TGI_KEY" cfg.api_key_env
 ;;
 

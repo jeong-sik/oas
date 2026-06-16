@@ -39,7 +39,7 @@ let test_make_defaults () =
 
 (* ── make: request_path per kind ──────────────────────── *)
 
-let test_request_path_provider_a () =
+let test_request_path_anthropic () =
   let cfg = Provider_config.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   check_string "anthropic path" "/v1/messages" cfg.request_path
 ;;
@@ -49,7 +49,7 @@ let test_request_path_provider_c () =
   check_string "kimi path" "/v1/chat/completions" cfg.request_path
 ;;
 
-let test_request_path_provider_d () =
+let test_request_path_openai () =
   let cfg = Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"" () in
   check_string "openai path" "/v1/chat/completions" cfg.request_path
 ;;
@@ -69,7 +69,7 @@ let test_request_path_ollama () =
   check_string "ollama path" "/api/chat" cfg.request_path
 ;;
 
-let test_request_path_provider_h () =
+let test_request_path_dashscope () =
   let cfg = Provider_config.make ~kind:DashScope ~model_id:"m" ~base_url:"" () in
   check_string "dashscope path" "/chat/completions" cfg.request_path
 ;;
@@ -92,7 +92,7 @@ let test_make_with_all_options () =
   let cfg =
     Provider_config.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-opus"
+      ~model_id:"claude-opus"
       ~base_url:"https://api.anthropic.com"
       ~api_key:"sk-test"
       ~headers:[ "X-Custom", "val" ]
@@ -139,7 +139,7 @@ let test_make_response_format_json_mode () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
       ~response_format_json:true
       ()
@@ -174,11 +174,11 @@ let test_output_schema_of_response_format () =
        (Provider_config.output_schema_of_response_format ~override:schema Types.JsonMode))
 ;;
 
-let test_validate_output_schema_provider_d_official () =
+let test_validate_output_schema_openai_official () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
@@ -193,7 +193,7 @@ let test_validate_output_schema_openai_compat_rejected () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"https://openrouter.ai/api/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ()
@@ -219,7 +219,7 @@ let test_validate_output_schema_glm_rejected () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_provider_h_accepted () =
+let test_validate_output_schema_dashscope_accepted () =
   let cfg =
     Provider_config.make
       ~kind:DashScope
@@ -234,7 +234,7 @@ let test_validate_output_schema_provider_h_accepted () =
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_provider_c_rejected () =
+let test_validate_output_schema_kimi_rejected () =
   let cfg =
     Provider_config.make
       ~kind:Kimi
@@ -268,7 +268,7 @@ let test_validate_output_schema_direct_response_format_record () =
   let cfg =
     { (Provider_config.make
          ~kind:OpenAI_compat
-         ~model_id:"model-d"
+         ~model_id:"gpt"
          ~base_url:"https://openrouter.ai/api/v1"
          ())
       with
@@ -282,7 +282,7 @@ let test_validate_output_schema_direct_response_format_record () =
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
 
-let test_validate_output_schema_supported_non_provider_d () =
+let test_validate_output_schema_supported_non_openai () =
   let schema = `Assoc [ "type", `String "object" ] in
   List.iter
     (fun kind ->
@@ -476,7 +476,7 @@ let test_reasoning_effort_of_config () =
   let anthropic =
     Provider_config.make
       ~kind:Anthropic
-      ~model_id:"agent_llm_a-sonnet"
+      ~model_id:"claude-sonnet"
       ~base_url:"https://api.anthropic.com"
       ~enable_thinking:true
       ~thinking_budget:2048
@@ -621,7 +621,7 @@ let test_kind_aliases_rejected () =
          ("alias rejected " ^ input)
          true
          (Option.is_none (Provider_config.provider_kind_of_string input)))
-    [ "agent_llm_a"; "openai"; "nous"; "claude"; "openai"; "llama"; "zhipu" ]
+    [ "claude"; "openai"; "nous"; "claude"; "openai"; "llama"; "zhipu" ]
 ;;
 
 let test_kind_case_insensitive () =
@@ -652,7 +652,7 @@ let test_kind_unknown_returns_none () =
   check_bool
     "json-ish"
     true
-    (Option.is_none (Provider_config.provider_kind_of_string "\"agent_llm_a\""))
+    (Option.is_none (Provider_config.provider_kind_of_string "\"claude\""))
 ;;
 
 (* ── provider_kind serializers ───────────────────────── *)
@@ -705,7 +705,7 @@ let test_of_yojson_rejects_aliases () =
        match Provider_config.provider_kind_of_yojson json with
        | Ok _ -> Alcotest.failf "of_yojson alias %S should fail" input
        | Error _ -> ())
-    [ "agent_llm_a"; "openai"; "nous" ]
+    [ "claude"; "openai"; "nous" ]
 ;;
 
 let test_of_yojson_rejects_unknown_string () =
@@ -934,13 +934,13 @@ let () =
         ; Alcotest.test_case "default headers" `Quick test_default_headers
         ] )
     ; ( "request_path"
-      , [ Alcotest.test_case "anthropic" `Quick test_request_path_provider_a
+      , [ Alcotest.test_case "anthropic" `Quick test_request_path_anthropic
         ; Alcotest.test_case "kimi" `Quick test_request_path_provider_c
-        ; Alcotest.test_case "openai" `Quick test_request_path_provider_d
+        ; Alcotest.test_case "openai" `Quick test_request_path_openai
         ; Alcotest.test_case "gemini" `Quick test_request_path_gemini
         ; Alcotest.test_case "glm" `Quick test_request_path_glm
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
-        ; Alcotest.test_case "dashscope" `Quick test_request_path_provider_h
+        ; Alcotest.test_case "dashscope" `Quick test_request_path_dashscope
         ; Alcotest.test_case "override" `Quick test_request_path_override
         ] )
     ; ( "explicit_values"
@@ -959,7 +959,7 @@ let () =
       , [ Alcotest.test_case
             "official openai"
             `Quick
-            test_validate_output_schema_provider_d_official
+            test_validate_output_schema_openai_official
         ; Alcotest.test_case
             "generic compat rejected"
             `Quick
@@ -971,11 +971,11 @@ let () =
         ; Alcotest.test_case
             "kimi rejected"
             `Quick
-            test_validate_output_schema_provider_c_rejected
+            test_validate_output_schema_kimi_rejected
         ; Alcotest.test_case
             "dashscope accepted"
             `Quick
-            test_validate_output_schema_provider_h_accepted
+            test_validate_output_schema_dashscope_accepted
         ; Alcotest.test_case
             "unrequested schema bypasses restrictions"
             `Quick
@@ -987,7 +987,7 @@ let () =
         ; Alcotest.test_case
             "supported non-openai providers"
             `Quick
-            test_validate_output_schema_supported_non_provider_d
+            test_validate_output_schema_supported_non_openai
         ; Alcotest.test_case
             "openai capability rejection"
             `Quick

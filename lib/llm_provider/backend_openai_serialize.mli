@@ -8,7 +8,7 @@
 val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
-val provider_k_messages_of_message : Types.message -> Yojson.Safe.t list
+val glm_messages_of_message : Types.message -> Yojson.Safe.t list
 
 val dialect_messages_of_message
   :  Reasoning_dialect.t
@@ -16,7 +16,7 @@ val dialect_messages_of_message
   -> Yojson.Safe.t list
 
 val ollama_messages_of_message : ?model_id:string -> Types.message -> Yojson.Safe.t list
-val tool_choice_to_provider_d_json : Types.tool_choice -> Yojson.Safe.t
+val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
 
 (** [parallel_tool_calls_fields ~disable_parallel ~tools_present] returns the
     OpenAI-compatible [parallel_tool_calls] body field: [("parallel_tool_calls",
@@ -28,7 +28,7 @@ val parallel_tool_calls_fields
   -> tools_present:bool
   -> (string * Yojson.Safe.t) list
 
-val build_provider_d_tool_json : Yojson.Safe.t -> Yojson.Safe.t
+val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 
 (** Remove ToolResult blocks outside the immediate result span following their
     Assistant ToolUse message. Kept for compatibility; provider request builders

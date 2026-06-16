@@ -4,8 +4,8 @@
     providers are reachable in the current environment:
 
     - Anthropic      if [ANTHROPIC_API_KEY] is set
-    - Openai         if [PROVIDER_D_API_KEY] is set
-    - Gemini         if [GEMINI_API_KEY] or legacy [PROVIDER_F_API_KEY] is set
+    - Openai         if [OPENAI_API_KEY] is set
+    - Gemini         if [GEMINI_API_KEY] or legacy [GEMINI_API_KEY] is set
     - OpenAI-compat  for every healthy endpoint in [LLM_ENDPOINTS]
                      (llama-server, Ollama, vLLM, LM Studio, TGI, ...)
 
@@ -114,7 +114,7 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
 
 (* ── Anthropic ────────────────────────────────────────────────── *)
 
-let test_provider_a () =
+let test_anthropic () =
   match Sys.getenv_opt "ANTHROPIC_API_KEY" with
   | None | Some "" | Some "test-mock-key" ->
     skip_note "anthropic" "ANTHROPIC_API_KEY not set"
@@ -125,7 +125,7 @@ let test_provider_a () =
     @@ fun sw ->
     let provider : Provider.config =
       { provider = Provider.Anthropic
-      ; model_id = "agent_llm_a-haiku-4-5"
+      ; model_id = "claude-haiku-4-5"
       ; api_key_env = "ANTHROPIC_API_KEY"
       }
     in
@@ -135,14 +135,14 @@ let test_provider_a () =
       ~provider_label:"anthropic"
       ~provider
       ~base_url:"https://api.anthropic.com"
-      ~model:"agent_llm_a-haiku-4-5"
+      ~model:"claude-haiku-4-5"
 ;;
 
 (* ── Openai (via OpenAICompat) ────────────────────────────────── *)
 
-let test_provider_d () =
-  match Sys.getenv_opt "PROVIDER_D_API_KEY" with
-  | None | Some "" -> skip_note "openai" "PROVIDER_D_API_KEY not set"
+let test_openai () =
+  match Sys.getenv_opt "OPENAI_API_KEY" with
+  | None | Some "" -> skip_note "openai" "OPENAI_API_KEY not set"
   | Some _ ->
     Eio_main.run
     @@ fun env ->
@@ -157,8 +157,8 @@ let test_provider_d () =
             ; path = "/v1/chat/completions"
             ; static_token = None
             }
-      ; model_id = "model-d-mini"
-      ; api_key_env = "PROVIDER_D_API_KEY"
+      ; model_id = "gpt-mini"
+      ; api_key_env = "OPENAI_API_KEY"
       }
     in
     run_minimal_agent
@@ -167,7 +167,7 @@ let test_provider_d () =
       ~provider_label:"openai"
       ~provider
       ~base_url
-      ~model:"model-d-mini"
+      ~model:"gpt-mini"
 ;;
 
 (* ── Gemini (via OpenAI-compat endpoint) ──────────────────────── *)
@@ -176,8 +176,8 @@ let gemini_api_key_env () =
   match Sys.getenv_opt "GEMINI_API_KEY" with
   | Some value when String.trim value <> "" -> Some "GEMINI_API_KEY"
   | _ ->
-    (match Sys.getenv_opt "PROVIDER_F_API_KEY" with
-     | Some value when String.trim value <> "" -> Some "PROVIDER_F_API_KEY"
+    (match Sys.getenv_opt "GEMINI_API_KEY" with
+     | Some value when String.trim value <> "" -> Some "GEMINI_API_KEY"
      | _ -> None)
 ;;
 
@@ -266,8 +266,8 @@ let () =
   run
     "Multivendor_live"
     [ ( "golden_transcript"
-      , [ test_case "anthropic" `Quick test_provider_a
-        ; test_case "openai" `Quick test_provider_d
+      , [ test_case "anthropic" `Quick test_anthropic
+        ; test_case "openai" `Quick test_openai
         ; test_case "gemini" `Quick test_gemini
         ; test_case "local openai-compat" `Quick test_local_compat
         ] )

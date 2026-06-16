@@ -536,7 +536,7 @@ let test_anthropic_agent_llm_alias_uses_adaptive_effort () =
     anthropic_config
       ~enable_thinking:true
       ~thinking_budget:4096
-      "agent_llm_a-sonnet-4-6-20250514"
+      "claude-sonnet-4-6-20250514"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   let thinking = json |> member "thinking" in
@@ -696,7 +696,7 @@ let () =
             `Quick
             test_anthropic_opus48_uses_adaptive_effort
         ; test_case
-            "anthropic agent_llm_a alias uses adaptive effort"
+            "anthropic claude alias uses adaptive effort"
             `Quick
             test_anthropic_agent_llm_alias_uses_adaptive_effort
         ; test_case

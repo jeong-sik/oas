@@ -4,15 +4,12 @@ open Agent_sdk
 open Llm_provider
 
 let test_inject_stream_param_basic () =
-  let body = {|{"model":"model-d-4","messages":[]}|} in
+  let body = {|{"model":"gpt-4","messages":[]}|} in
   let result = Http_client.inject_stream_param body in
   let json = Yojson.Safe.from_string result in
   let open Yojson.Safe.Util in
   Alcotest.(check bool) "stream present" true (json |> member "stream" |> to_bool);
-  Alcotest.(check string)
-    "model preserved"
-    "model-d-4"
-    (json |> member "model" |> to_string)
+  Alcotest.(check string) "model preserved" "gpt-4" (json |> member "model" |> to_string)
 ;;
 
 let test_inject_stream_param_existing_stream () =

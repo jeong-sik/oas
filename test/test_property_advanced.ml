@@ -81,9 +81,9 @@ let tool_choice_gen =
 
 let model_gen =
   QCheck.Gen.oneof
-    [ QCheck.Gen.return "agent_llm_a-opus-4-6"
-    ; QCheck.Gen.return "agent_llm_a-sonnet-4-6"
-    ; QCheck.Gen.return "agent_llm_a-haiku-4-5"
+    [ QCheck.Gen.return "claude-opus-4-6"
+    ; QCheck.Gen.return "claude-sonnet-4-6"
+    ; QCheck.Gen.return "claude-haiku-4-5"
     ; QCheck.Gen.string_printable
     ]
 ;;
@@ -264,7 +264,7 @@ let test_capabilities_provider_m_reasoning =
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
           [ QCheck.Gen.return "dashscope-3.5-35b"
-          ; QCheck.Gen.return "provider_h_3.6:27b-coding-nvfp4"
+          ; QCheck.Gen.return "qwen3.6:27b-coding-nvfp4"
           ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
           ]))
     (fun model_id ->
@@ -370,7 +370,7 @@ let test_token_budget_exceeds_limit =
 
 (* ── Capabilities Properties ─────────────────────────────────── *)
 
-let test_provider_a_supports_tools =
+let test_anthropic_supports_tools =
   QCheck.Test.make
     ~count:50
     ~name:"Anthropic provider always supports tools"
@@ -379,7 +379,7 @@ let test_provider_a_supports_tools =
        let caps =
          Provider.capabilities_for_model
            ~provider:Provider.Anthropic
-           ~model_id:"agent_llm_a-sonnet-4-6"
+           ~model_id:"claude-sonnet-4-6"
        in
        caps.supports_tools && caps.supports_tool_choice)
 ;;
@@ -414,7 +414,7 @@ let () =
         test_token_budget_within_limit
       ; test_token_budget_exceeds_limit
       ; (* Capabilities *)
-        test_provider_a_supports_tools
+        test_anthropic_supports_tools
       ]
   in
   Alcotest.run "property_advanced" [ "properties", suite ]

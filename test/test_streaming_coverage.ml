@@ -54,10 +54,10 @@ let test_acc_message_start_with_usage () =
   in
   Streaming.accumulate_event
     acc
-    (MessageStart { id = "msg_1"; model = "agent_llm_a-test"; usage });
+    (MessageStart { id = "msg_1"; model = "claude-test"; usage });
   let resp = finalize_ok acc in
   check_string "id" "msg_1" resp.id;
-  check_string "model" "agent_llm_a-test" resp.model;
+  check_string "model" "claude-test" resp.model;
   match resp.usage with
   | Some u ->
     check_int "input" 100 u.input_tokens;
@@ -297,7 +297,7 @@ let test_finalize_multi_block_ordered () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event
     acc
-    (MessageStart { id = "msg_m"; model = "agent_llm_a"; usage = None });
+    (MessageStart { id = "msg_m"; model = "claude"; usage = None });
   (* Block 2 registered before block 0 *)
   Streaming.accumulate_event
     acc
@@ -459,12 +459,12 @@ let test_finalize_usage_only_cache_read () =
 
 (* ── Full sequence simulation ───────────────────────────────────── *)
 
-let test_full_provider_a_sequence () =
+let test_full_anthropic_sequence () =
   let acc = Streaming.create_stream_acc () in
   let events =
     [ MessageStart
         { id = "msg_full"
-        ; model = "agent_llm_a-sonnet-4"
+        ; model = "claude-sonnet-4"
         ; usage =
             Some
               { input_tokens = 50
@@ -500,7 +500,7 @@ let test_full_provider_a_sequence () =
   List.iter (Streaming.accumulate_event acc) events;
   let resp = finalize_ok acc in
   check_string "id" "msg_full" resp.id;
-  check_string "model" "agent_llm_a-sonnet-4" resp.model;
+  check_string "model" "claude-sonnet-4" resp.model;
   check_int "2 content blocks" 2 (List.length resp.content);
   (match resp.content with
    | [ Thinking { content; _ }; Text text ] ->
@@ -522,7 +522,7 @@ let test_full_tool_use_sequence () =
   let events =
     [ MessageStart
         { id = "msg_tu"
-        ; model = "agent_llm_a-sonnet-4"
+        ; model = "claude-sonnet-4"
         ; usage =
             Some
               { input_tokens = 80
@@ -833,7 +833,7 @@ let () =
             test_finalize_thinking_empty_content
         ] )
     ; ( "full_sequence"
-      , [ Alcotest.test_case "anthropic stream" `Quick test_full_provider_a_sequence
+      , [ Alcotest.test_case "anthropic stream" `Quick test_full_anthropic_sequence
         ; Alcotest.test_case "tool_use stream" `Quick test_full_tool_use_sequence
         ] )
     ; ( "map_http_error"

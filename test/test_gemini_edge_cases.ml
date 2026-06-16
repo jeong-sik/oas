@@ -96,13 +96,13 @@ let test_sse_function_call () =
   let chunk_data =
     {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"Seoul"}},"thoughtSignature":"abc123"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":44,"candidatesTokenCount":15},"modelVersion":"gemini-2.5-flash"}|}
   in
-  match Streaming.parse_provider_f_sse_chunk chunk_data with
+  match Streaming.parse_gemini_sse_chunk chunk_data with
   | Some chunk ->
     check "parsed chunk" true;
     check "has parts" (List.length chunk.gem_parts > 0);
     check "finish reason STOP" (chunk.gem_finish_reason = Some "STOP");
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.provider_f_chunk_to_events state chunk in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
     let has_tool_start =
       List.exists
         (function

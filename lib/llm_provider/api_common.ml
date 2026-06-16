@@ -215,7 +215,7 @@ let message_to_json (msg : message) =
     ]
 ;;
 
-let provider_c_message_to_json (msg : message) =
+let kimi_message_to_json (msg : message) =
   let role_str =
     match msg.role with
     | User | System | Tool -> "user"

@@ -56,15 +56,15 @@ let test_histogram_with_labels () =
   in
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "openai"; "gen_ai.request.model", "model-d-5" ]
+    ~labels:[ "gen_ai.system", "openai"; "gen_ai.request.model", "gpt-5" ]
     0.3;
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "openai"; "gen_ai.request.model", "model-d-5" ]
+    ~labels:[ "gen_ai.system", "openai"; "gen_ai.request.model", "gpt-5" ]
     0.9;
   Metrics.observe
     h
-    ~labels:[ "gen_ai.system", "anthropic"; "gen_ai.request.model", "agent_llm_a" ]
+    ~labels:[ "gen_ai.system", "anthropic"; "gen_ai.request.model", "claude" ]
     2.5;
   check int "total count" 3 (Metrics.histogram_count h);
   check
@@ -72,7 +72,7 @@ let test_histogram_with_labels () =
     "openai count"
     2
     (Metrics.histogram_count
-       ~labels:[ "gen_ai.request.model", "model-d-5"; "gen_ai.system", "openai" ]
+       ~labels:[ "gen_ai.request.model", "gpt-5"; "gen_ai.system", "openai" ]
        h);
   check
     int
@@ -222,29 +222,27 @@ let test_register_same_name_same_kind_is_idempotent () =
 let test_prometheus_text_histogram_exports_labeled_series () =
   let m = Metrics.create () in
   let h = Metrics.histogram m ~name:"gen_ai.client.ttfrc" ~buckets:[ 1.0; 2.0 ] in
-  let labels = [ "gen_ai.system", "openai"; "gen_ai.request.model", "model-d-5" ] in
+  let labels = [ "gen_ai.system", "openai"; "gen_ai.request.model", "gpt-5" ] in
   Metrics.observe h ~labels 0.5;
   Metrics.observe h ~labels 3.0;
   let text = Metrics.to_prometheus_text m in
   check_line
     "labeled bucket"
-    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"model-d-5\",gen_ai_system=\"openai\",le=\"1\"} \
+    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\",le=\"1\"} \
      1"
     text;
   check_line
     "labeled +Inf bucket"
-    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"model-d-5\",gen_ai_system=\"openai\",le=\"+Inf\"} \
+    "gen_ai_client_ttfrc_bucket{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\",le=\"+Inf\"} \
      2"
     text;
   check_line
     "labeled sum"
-    "gen_ai_client_ttfrc_sum{gen_ai_request_model=\"model-d-5\",gen_ai_system=\"openai\"} \
-     3.5"
+    "gen_ai_client_ttfrc_sum{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\"} 3.5"
     text;
   check_line
     "labeled count"
-    "gen_ai_client_ttfrc_count{gen_ai_request_model=\"model-d-5\",gen_ai_system=\"openai\"} \
-     2"
+    "gen_ai_client_ttfrc_count{gen_ai_request_model=\"gpt-5\",gen_ai_system=\"openai\"} 2"
     text
 ;;
 

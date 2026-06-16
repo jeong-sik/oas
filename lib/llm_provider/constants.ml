@@ -186,7 +186,7 @@ module Thinking = struct
       Used by Anthropic and Gemini backends.
 
       16000 tokens covers most single-turn reasoning tasks. Models with
-      higher caps (Agent_llm_a Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
+      higher caps (Claude Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
       declared in [Capabilities] so callers can override per-model.
       Override with [OAS_THINKING_BUDGET_DEFAULT] env var.
       @since 0.185.0 — raised from 10000 to 16000 *)
@@ -198,19 +198,19 @@ module Thinking = struct
 
   (** Per-provider thinking budget overrides. Resolution order:
       1. Explicit [~thinking_budget] in request config
-      2. Provider-specific env var ([OAS_PROVIDER_A_THINKING_BUDGET],
-         [OAS_PROVIDER_F_THINKING_BUDGET])
+      2. Provider-specific env var ([OAS_ANTHROPIC_THINKING_BUDGET],
+         [OAS_GEMINI_THINKING_BUDGET])
       3. [OAS_THINKING_BUDGET_DEFAULT] env var
       4. Hardcoded default (16000)
       @since 0.185.0 *)
-  let provider_a_budget () =
-    match env_budget "OAS_PROVIDER_A_THINKING_BUDGET" with
+  let anthropic_budget () =
+    match env_budget "OAS_ANTHROPIC_THINKING_BUDGET" with
     | Some n -> n
     | None -> default_budget
   ;;
 
-  let provider_f_budget () =
-    match env_budget "OAS_PROVIDER_F_THINKING_BUDGET" with
+  let gemini_budget () =
+    match env_budget "OAS_GEMINI_THINKING_BUDGET" with
     | Some n -> n
     | None -> default_budget
   ;;

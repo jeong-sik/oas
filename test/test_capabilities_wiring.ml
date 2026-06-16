@@ -77,13 +77,9 @@ let test_effective_disable_parallel_tool_use () =
 ;;
 
 let test_filter_thinking () =
-  let agent_llm_a = Capabilities.anthropic_capabilities in
+  let claude = Capabilities.anthropic_capabilities in
   let basic = Capabilities.openai_compat_chat_capabilities in
-  check
-    bool
-    "agent_llm_a has thinking"
-    true
-    (Capability_filter.requires_thinking agent_llm_a);
+  check bool "claude has thinking" true (Capability_filter.requires_thinking claude);
   check bool "basic openai no thinking" false (Capability_filter.requires_thinking basic)
 ;;
 
@@ -115,12 +111,12 @@ let test_filter_combined () =
       ; Capability_filter.requires_vision
       ]
   in
-  check bool "agent_llm_a meets all" true (need_all caps);
+  check bool "claude meets all" true (need_all caps);
   let need_audio =
     Capability_filter.requires_all
       [ Capability_filter.requires_tools; (fun c -> c.supports_audio_input) ]
   in
-  check bool "agent_llm_a lacks audio" false (need_audio caps)
+  check bool "claude lacks audio" false (need_audio caps)
 ;;
 
 (* ── Context reducer: from_capabilities ──────────────── *)

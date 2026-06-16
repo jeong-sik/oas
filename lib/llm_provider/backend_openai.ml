@@ -18,16 +18,9 @@ let openai_content_parts_of_blocks =
 ;;
 
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
-
-let provider_k_messages_of_message =
-  Backend_openai_serialize.provider_k_messages_of_message
-;;
-
-let tool_choice_to_provider_d_json =
-  Backend_openai_serialize.tool_choice_to_provider_d_json
-;;
-
-let build_provider_d_tool_json = Backend_openai_serialize.build_provider_d_tool_json
+let glm_messages_of_message = Backend_openai_serialize.glm_messages_of_message
+let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
+let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 let strip_orphaned_tool_results = Backend_openai_serialize.strip_orphaned_tool_results
 
 let close_tool_message_pairs_for_request =
@@ -39,7 +32,7 @@ let strip_thinking_blocks = Backend_openai_serialize.strip_thinking_blocks
 (* ── Re-exports from parsing ──────────────────────────── *)
 
 let strip_json_markdown_fences = Backend_openai_parse.strip_json_markdown_fences
-let usage_of_provider_d_json = Backend_openai_parse.usage_of_provider_d_json
+let usage_of_openai_json = Backend_openai_parse.usage_of_openai_json
 let parse_openai_response_result = Backend_openai_parse.parse_openai_response_result
 
 (* ── Re-exports from request building ─────────────────── *)
@@ -49,31 +42,27 @@ let effective_tool_choice = Backend_openai_request.effective_tool_choice
 let effective_tools = Backend_openai_request.effective_tools
 let structured_schema_of_config = Backend_openai_request.structured_schema_of_config
 let openai_json_schema_payload = Backend_openai_request.openai_json_schema_payload
-
-let response_format_to_provider_d_json =
-  Backend_openai_request.response_format_to_provider_d_json
-;;
-
+let response_format_to_openai_json = Backend_openai_request.response_format_to_openai_json
 let response_format_of_config = Backend_openai_request.response_format_of_config
 let build_request = Backend_openai_request.build_request
 
 [@@@coverage off]
 (* === Inline tests === *)
 
-let%test "tool_choice_to_provider_d_json Auto" =
-  tool_choice_to_provider_d_json Auto = `String "auto"
+let%test "tool_choice_to_openai_json Auto" =
+  tool_choice_to_openai_json Auto = `String "auto"
 ;;
 
-let%test "tool_choice_to_provider_d_json Any" =
-  tool_choice_to_provider_d_json Any = `String "required"
+let%test "tool_choice_to_openai_json Any" =
+  tool_choice_to_openai_json Any = `String "required"
 ;;
 
-let%test "tool_choice_to_provider_d_json None_" =
-  tool_choice_to_provider_d_json None_ = `String "none"
+let%test "tool_choice_to_openai_json None_" =
+  tool_choice_to_openai_json None_ = `String "none"
 ;;
 
-let%test "tool_choice_to_provider_d_json Tool name" =
-  let result = tool_choice_to_provider_d_json (Tool "my_tool") in
+let%test "tool_choice_to_openai_json Tool name" =
+  let result = tool_choice_to_openai_json (Tool "my_tool") in
   let open Yojson.Safe.Util in
   result |> member "type" |> to_string = "function"
   && result |> member "function" |> member "name" |> to_string = "my_tool"
@@ -181,7 +170,7 @@ let%test "glm drops top_k when model does not support it" =
 ;;
 
 let%test "ollama preserves min_p (llama.cpp supports it)" =
-  (* provider_h_3 via Ollama has supports_min_p = true in provider_m_capabilities.
+  (* qwen3 via Ollama has supports_min_p = true in provider_m_capabilities.
      The capability-gated path must still pass min_p through for
      providers that do support it. *)
   let cfg =
@@ -240,7 +229,7 @@ let%test "openai_content_parts_of_blocks filters text and image" =
   List.length result = 1
 ;;
 
-let%test "build_provider_d_tool_json converts input_schema to parameters" =
+let%test "build_openai_tool_json converts input_schema to parameters" =
   let tool_json =
     `Assoc
       [ "name", `String "my_fn"
@@ -248,7 +237,7 @@ let%test "build_provider_d_tool_json converts input_schema to parameters" =
       ; "input_schema", `Assoc [ "type", `String "object" ]
       ]
   in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   result |> member "type" |> to_string = "function"
   && result |> member "function" |> member "name" |> to_string = "my_fn"
@@ -260,30 +249,30 @@ let%test "build_provider_d_tool_json converts input_schema to parameters" =
      = "object"
 ;;
 
-let%test "build_provider_d_tool_json non-assoc passthrough" =
-  build_provider_d_tool_json (`String "bad") = `String "bad"
+let%test "build_openai_tool_json non-assoc passthrough" =
+  build_openai_tool_json (`String "bad") = `String "bad"
 ;;
 
-let%test "usage_of_provider_d_json parses usage" =
+let%test "usage_of_openai_json parses usage" =
   let json =
     `Assoc [ "usage", `Assoc [ "prompt_tokens", `Int 100; "completion_tokens", `Int 50 ] ]
   in
-  match usage_of_provider_d_json json with
+  match usage_of_openai_json json with
   | Some u -> u.input_tokens = 100 && u.output_tokens = 50
   | None -> false
 ;;
 
-let%test "usage_of_provider_d_json null usage returns None" =
+let%test "usage_of_openai_json null usage returns None" =
   let json = `Assoc [ "usage", `Null ] in
-  usage_of_provider_d_json json = None
+  usage_of_openai_json json = None
 ;;
 
-let%test "usage_of_provider_d_json missing usage returns None" =
+let%test "usage_of_openai_json missing usage returns None" =
   let json = `Assoc [] in
-  usage_of_provider_d_json json = None
+  usage_of_openai_json json = None
 ;;
 
-let%test "usage_of_provider_d_json with cached_tokens" =
+let%test "usage_of_openai_json with cached_tokens" =
   let json =
     `Assoc
       [ ( "usage"
@@ -294,7 +283,7 @@ let%test "usage_of_provider_d_json with cached_tokens" =
             ] )
       ]
   in
-  match usage_of_provider_d_json json with
+  match usage_of_openai_json json with
   | Some u -> u.cache_read_input_tokens = 30
   | None -> false
 ;;
@@ -304,7 +293,7 @@ let%test "parse_openai_response_result basic text response" =
     Yojson.Safe.to_string
       (`Assoc
           [ "id", `String "chatcmpl-1"
-          ; "model", `String "model-d-4"
+          ; "model", `String "gpt-4"
           ; ( "choices"
             , `List
                 [ `Assoc
@@ -316,7 +305,7 @@ let%test "parse_openai_response_result basic text response" =
   in
   match parse_openai_response_result json_str with
   | Ok resp ->
-    resp.id = "chatcmpl-1" && resp.model = "model-d-4" && resp.stop_reason = EndTurn
+    resp.id = "chatcmpl-1" && resp.model = "gpt-4" && resp.stop_reason = EndTurn
   | Error _ -> false
 ;;
 
@@ -325,7 +314,7 @@ let%test "parse_openai_response_result tool calls" =
     Yojson.Safe.to_string
       (`Assoc
           [ "id", `String "cmpl-2"
-          ; "model", `String "model-d-4"
+          ; "model", `String "gpt-4"
           ; ( "choices"
             , `List
                 [ `Assoc
@@ -577,7 +566,7 @@ let%test "openai_messages_of_message assistant excludes reasoning from content" 
   && json |> member "reasoning_content" = `Null
 ;;
 
-let%test "provider_k_messages_of_message preserves reasoning_content separately" =
+let%test "glm_messages_of_message preserves reasoning_content separately" =
   let msg =
     { role = Assistant
     ; content =
@@ -589,7 +578,7 @@ let%test "provider_k_messages_of_message preserves reasoning_content separately"
     ; metadata = []
     }
   in
-  let result = provider_k_messages_of_message msg in
+  let result = glm_messages_of_message msg in
   let json = List.hd result in
   let open Yojson.Safe.Util in
   json |> member "content" |> to_string = ""
@@ -652,7 +641,7 @@ let%test "openai_messages_of_message Tool role without ToolResult fallback to us
   json |> member "role" |> to_string = "user"
 ;;
 
-let%test "build_provider_d_tool_json with parameters field" =
+let%test "build_openai_tool_json with parameters field" =
   let tool_json =
     `Assoc
       [ "name", `String "my_fn"
@@ -660,7 +649,7 @@ let%test "build_provider_d_tool_json with parameters field" =
       ; "parameters", `Assoc [ "type", `String "object" ]
       ]
   in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   result
   |> member "function"
@@ -670,7 +659,7 @@ let%test "build_provider_d_tool_json with parameters field" =
   = "object"
 ;;
 
-let%test "build_provider_d_tool_json forwards strict into the function object" =
+let%test "build_openai_tool_json forwards strict into the function object" =
   let tool_json =
     `Assoc
       [ "name", `String "my_fn"
@@ -679,12 +668,12 @@ let%test "build_provider_d_tool_json forwards strict into the function object" =
       ; "strict", `Bool true
       ]
   in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   result |> member "function" |> member "strict" = `Bool true
 ;;
 
-let%test "build_provider_d_tool_json omits strict when the tool did not set it" =
+let%test "build_openai_tool_json omits strict when the tool did not set it" =
   let tool_json =
     `Assoc
       [ "name", `String "my_fn"
@@ -692,12 +681,12 @@ let%test "build_provider_d_tool_json omits strict when the tool did not set it" 
       ; "parameters", `Assoc [ "type", `String "object" ]
       ]
   in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   result |> member "function" |> member "strict" = `Null
 ;;
 
-let%test "build_provider_d_tool_json converts legacy parameter list to json schema" =
+let%test "build_openai_tool_json converts legacy parameter list to json schema" =
   let tool_json =
     `Assoc
       [ "name", `String "my_fn"
@@ -719,7 +708,7 @@ let%test "build_provider_d_tool_json converts legacy parameter list to json sche
             ] )
       ]
   in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   let parameters = result |> member "function" |> member "parameters" in
   parameters |> member "type" |> to_string = "object"
@@ -738,7 +727,7 @@ let%test "build_provider_d_tool_json converts legacy parameter list to json sche
   && List.mem "query" (parameters |> member "required" |> to_list |> List.map to_string)
 ;;
 
-let%test "build_provider_d_tool_json skips malformed legacy parameter entries" =
+let%test "build_openai_tool_json skips malformed legacy parameter entries" =
   let tool_json =
     `Assoc
       [ "name", `String "my_fn"
@@ -757,7 +746,7 @@ let%test "build_provider_d_tool_json skips malformed legacy parameter entries" =
             ] )
       ]
   in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   let parameters = result |> member "function" |> member "parameters" in
   parameters
@@ -770,26 +759,26 @@ let%test "build_provider_d_tool_json skips malformed legacy parameter entries" =
   && List.mem "query" (parameters |> member "required" |> to_list |> List.map to_string)
 ;;
 
-let%test "build_provider_d_tool_json missing all optional fields" =
+let%test "build_openai_tool_json missing all optional fields" =
   let tool_json = `Assoc [] in
-  let result = build_provider_d_tool_json tool_json in
+  let result = build_openai_tool_json tool_json in
   let open Yojson.Safe.Util in
   result |> member "function" |> member "name" |> to_string = "tool"
   && result |> member "function" |> member "description" |> to_string = ""
 ;;
 
-let%test "build_provider_d_tool_json list passthrough" =
-  build_provider_d_tool_json (`List [ `String "bad" ]) = `List [ `String "bad" ]
+let%test "build_openai_tool_json list passthrough" =
+  build_openai_tool_json (`List [ `String "bad" ]) = `List [ `String "bad" ]
 ;;
 
-let%test "response_format_to_provider_d_json wraps raw json schema" =
+let%test "response_format_to_openai_json wraps raw json schema" =
   let schema =
     `Assoc
       [ "type", `String "object"
       ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
       ]
   in
-  match response_format_to_provider_d_json (Types.JsonSchema schema) with
+  match response_format_to_openai_json (Types.JsonSchema schema) with
   | Some json ->
     let open Yojson.Safe.Util in
     json |> member "type" |> to_string = "json_schema"
@@ -803,7 +792,7 @@ let%test "response_format_to_provider_d_json wraps raw json schema" =
   | None -> false
 ;;
 
-let%test "response_format_to_provider_d_json preserves named schema envelope" =
+let%test "response_format_to_openai_json preserves named schema envelope" =
   let schema =
     `Assoc
       [ "name", `String "math_response"
@@ -815,7 +804,7 @@ let%test "response_format_to_provider_d_json preserves named schema envelope" =
             ] )
       ]
   in
-  match response_format_to_provider_d_json (Types.JsonSchema schema) with
+  match response_format_to_openai_json (Types.JsonSchema schema) with
   | Some json ->
     let open Yojson.Safe.Util in
     json |> member "json_schema" |> member "name" |> to_string = "math_response"
@@ -1016,7 +1005,7 @@ let%test "parse_openai_response_result error without message" =
   | Ok _ -> false
 ;;
 
-let%test "usage_of_provider_d_json prompt_tokens_details null" =
+let%test "usage_of_openai_json prompt_tokens_details null" =
   let json =
     `Assoc
       [ ( "usage"
@@ -1027,7 +1016,7 @@ let%test "usage_of_provider_d_json prompt_tokens_details null" =
             ] )
       ]
   in
-  match usage_of_provider_d_json json with
+  match usage_of_openai_json json with
   | Some u -> u.cache_read_input_tokens = 0
   | None -> false
 ;;
@@ -1080,7 +1069,7 @@ let%test "build_request includes tool_choice for model with supports_tool_choice
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"http://localhost"
       ~tool_choice:Any
       ()
@@ -1110,7 +1099,7 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"http://localhost"
       ()
   in
@@ -1177,7 +1166,7 @@ let%test "build_request uses json_schema response_format when output_schema is s
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
       ~output_schema:schema
       ()
@@ -1204,7 +1193,7 @@ let%test "build_request prefers output_schema over json_object mode" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d"
+      ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
       ~response_format_json:true
       ~output_schema:schema
@@ -1330,7 +1319,7 @@ let%test "build_request emits reasoning_effort for Openai reasoning models" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-d-5.1"
+      ~model_id:"gpt-5.1"
       ~base_url:"https://api.openai.com/v1"
       ~enable_thinking:true
       ~thinking_budget:2048
@@ -1349,7 +1338,7 @@ let%test "build_request emits thinking object only for Kimi K2.5" =
     Provider_config.make
       ~kind:Kimi
       ~model_id:"kimi-k2.5"
-      ~base_url:"https://api.provider_b.ai/v1"
+      ~base_url:"https://api.moonshot.ai/v1"
       ~enable_thinking:false
       ()
   in
@@ -1404,7 +1393,7 @@ let%test "build_request omits thinking params for No_thinking_control" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"model-n-3.3-70b"
+      ~model_id:"llama-3.3-70b"
       ~base_url:"http://localhost"
       ~enable_thinking:true
       ()
@@ -1412,7 +1401,7 @@ let%test "build_request omits thinking params for No_thinking_control" =
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
-  (* model-n-3.3-70b resolves to default_capabilities (No_thinking_control),
+  (* llama-3.3-70b resolves to default_capabilities (No_thinking_control),
      so neither thinking nor chat_template_kwargs should appear *)
   json |> member "thinking" = `Null && json |> member "chat_template_kwargs" = `Null
 ;;
@@ -1472,7 +1461,7 @@ let%test "build_request emits chat_template_kwargs for nvidia (Chat_template_kwa
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request emits chat_template_kwargs for provider_h_3" =
+let%test "build_request emits chat_template_kwargs for qwen3" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1488,7 +1477,7 @@ let%test "build_request emits chat_template_kwargs for provider_h_3" =
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request emits chat_template_kwargs preserve_thinking for provider_h_3" =
+let%test "build_request emits chat_template_kwargs preserve_thinking for qwen3" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat

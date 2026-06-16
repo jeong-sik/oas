@@ -514,7 +514,7 @@ let update_idle_detection ~idle_state ~tool_uses =
 ;;
 
 (** Default per-tool-result character cap.
-    Aligned with Agent_llm_a Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
+    Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
     Results exceeding this are truncated with a marker at creation time,
     before entering the conversation.  The downstream
     [Context_reducer.prune_tool_outputs] further reduces during turns.

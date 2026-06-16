@@ -1,4 +1,4 @@
-(** Anthropic Agent_llm_a API request building and response parsing.
+(** Anthropic Claude API request building and response parsing.
 
     @stability Internal
     @since 0.93.1 *)

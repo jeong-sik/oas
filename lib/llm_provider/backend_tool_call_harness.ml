@@ -357,7 +357,7 @@ let%test "anthropic tool_use response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "msg_123"
-      ; "model", `String "agent_llm_a-4-sonnet"
+      ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "tool_use"
       ; ( "content"
         , `List
@@ -388,7 +388,7 @@ let%test "anthropic undeclared tool fails validation" =
   let json =
     `Assoc
       [ "id", `String "msg_456"
-      ; "model", `String "agent_llm_a-4-sonnet"
+      ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "tool_use"
       ; ( "content"
         , `List
@@ -446,7 +446,7 @@ let%test "openai tool_calls response validates correctly" =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-123"
-      ; "model", `String "model-d"
+      ; "model", `String "gpt"
       ; ( "choices"
         , `List
             [ `Assoc
@@ -491,7 +491,7 @@ let%test "wrong stop_reason for tool calls fails validation" =
   let json =
     `Assoc
       [ "id", `String "msg_bad"
-      ; "model", `String "agent_llm_a-4-sonnet"
+      ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "end_turn"
       ; ( "content"
         , `List
@@ -519,7 +519,7 @@ let%test "text-only response passes validation" =
   let json =
     `Assoc
       [ "id", `String "msg_text"
-      ; "model", `String "agent_llm_a-4-sonnet"
+      ; "model", `String "claude-4-sonnet"
       ; "stop_reason", `String "end_turn"
       ; "content", `List [ `Assoc [ "type", `String "text"; "text", `String "Hello" ] ]
       ; ( "usage"

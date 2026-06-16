@@ -78,7 +78,7 @@ let test_parse_models_json () =
       {|{
     "data": [
       {"id": "dashscope-3.5-35b", "owned_by": "llama-server"},
-      {"id": "model-n-3.1-8b", "owned_by": "llama-server"}
+      {"id": "llama-3.1-8b", "owned_by": "llama-server"}
     ]
   }|}
   in
@@ -277,7 +277,7 @@ let test_refresh_and_sync_mock_server_updates_indexes () =
           {
             "data": [
               {"id":"dashscope-3.5-35b","owned_by":"llama-server"},
-              {"id":"model-n-3.1-8b","owned_by":"llama-server"}
+              {"id":"llama-3.1-8b","owned_by":"llama-server"}
             ]
           }
           |}

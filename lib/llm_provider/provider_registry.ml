@@ -41,7 +41,7 @@ let find_capable t pred = all t |> List.filter (fun e -> pred e.capabilities)
 
 let api_key_env_candidates = function
   | "OLLAMA_CLOUD_API_KEY" -> [ "OLLAMA_CLOUD_API_KEY"; "OLLAMA_API_KEY" ]
-  | "GEMINI_API_KEY" -> [ "GEMINI_API_KEY"; "PROVIDER_F_API_KEY" ]
+  | "GEMINI_API_KEY" -> [ "GEMINI_API_KEY"; "GEMINI_API_KEY" ]
   | env_name -> [ env_name ]
 ;;
 
@@ -258,7 +258,7 @@ let llama_defaults =
   }
 ;;
 
-let agent_llm_a_defaults =
+let claude_defaults =
   { kind = Anthropic
   ; base_url = "https://api.anthropic.com"
   ; api_key_env = "ANTHROPIC_API_KEY"
@@ -297,10 +297,10 @@ let glm_coding_defaults =
   }
 ;;
 
-let provider_c_defaults =
+let kimi_defaults =
   { kind = Kimi
-  ; base_url = env_or_default "PROVIDER_C_BASE_URL" "https://api.kimi.com/coding"
-  ; api_key_env = "PROVIDER_C_API_KEY"
+  ; base_url = env_or_default "KIMI_BASE_URL" "https://api.kimi.com/coding"
+  ; api_key_env = "KIMI_API_KEY"
   ; request_path = "/v1/messages"
   }
 ;;
@@ -345,13 +345,13 @@ let deepseek_defaults =
   }
 ;;
 
-let provider_h_defaults =
+let dashscope_defaults =
   { kind = DashScope
   ; base_url =
       env_or_default
         "DASHSCOPE_BASE_URL"
         "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
-  ; api_key_env = "PROVIDER_H_API_KEY"
+  ; api_key_env = "DASHSCOPE_API_KEY"
   ; request_path = "/chat/completions"
   }
 ;;
@@ -401,22 +401,18 @@ let default () =
     llama_defaults
     ~max_context:128_000
     Capabilities.openai_compat_chat_extended_capabilities;
-  reg
-    "agent_llm_a"
-    agent_llm_a_defaults
-    ~max_context:200_000
-    Capabilities.anthropic_capabilities;
+  reg "claude" claude_defaults ~max_context:200_000 Capabilities.anthropic_capabilities;
   reg "gemini" gemini_defaults ~max_context:1_000_000 Capabilities.gemini_capabilities;
   reg "glm" glm_defaults ~max_context:200_000 Capabilities.glm_capabilities;
   reg "glm-coding" glm_coding_defaults ~max_context:128_000 Capabilities.glm_capabilities;
   register
     t
     { name = "kimi"
-    ; defaults = provider_c_defaults
+    ; defaults = kimi_defaults
     ; max_context =
         max_context_from_capabilities ~default:262_144 Capabilities.kimi_capabilities
     ; capabilities = Capabilities.kimi_capabilities
-    ; is_available = (fun () -> has_any_api_key [ "PROVIDER_C_API_KEY" ])
+    ; is_available = (fun () -> has_any_api_key [ "KIMI_API_KEY" ])
     };
   reg
     "openrouter"
@@ -436,12 +432,12 @@ let default () =
     Capabilities.openai_compat_chat_capabilities;
   reg
     "dashscope"
-    provider_h_defaults
+    dashscope_defaults
     ~max_context:131_072
     Capabilities.dashscope_capabilities;
   reg
     "alibaba"
-    provider_h_defaults
+    dashscope_defaults
     ~max_context:131_072
     Capabilities.dashscope_capabilities;
   reg
@@ -468,7 +464,7 @@ let default () =
 
 let provider_name_of_config (config : Provider_config.t) =
   match config.kind with
-  | Anthropic -> "agent_llm_a"
+  | Anthropic -> "claude"
   | Kimi -> "kimi"
   | Gemini -> "gemini"
   | Glm -> if Zai_catalog.is_coding_base_url config.base_url then "glm-coding" else "glm"

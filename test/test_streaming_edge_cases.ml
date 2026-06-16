@@ -11,14 +11,14 @@ let usage ?(input_tokens = 1) ?(output_tokens = 2) () =
   }
 ;;
 
-let provider_d_chunk
+let openai_chunk
       ?delta_content
       ?delta_reasoning
       ?(delta_tool_calls = [])
       ?finish_reason
       ?chunk_usage
       ()
-  : S.provider_d_chunk
+  : S.openai_chunk
   =
   { chunk_id = "chunk-1"
   ; chunk_model = "model-1"
@@ -61,7 +61,7 @@ let require_some label = function
   | None -> fail (label ^ ": expected Some")
 ;;
 
-let test_provider_a_sse_parser_edges () =
+let test_anthropic_sse_parser_edges () =
   (match
      S.parse_sse_event
        (Some "message_start")
@@ -226,7 +226,7 @@ let test_synthetic_events_media_blocks () =
     starts
 ;;
 
-let test_provider_d_parse_edge_shapes () =
+let test_openai_parse_edge_shapes () =
   let mixed_tool_calls =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":"bad"},{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}],"usage":{"prompt_tokens":4,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":3}}}|}
   in
@@ -250,7 +250,7 @@ let test_provider_d_parse_edge_shapes () =
   check int "non-list tool calls ignored" 0 (List.length chunk.delta_tool_calls)
 ;;
 
-let test_provider_d_object_arguments () =
+let test_openai_object_arguments () =
   (* llama.cpp / llama-server (#20198) streams tool-call [arguments] as a
      JSON object rather than a serialized string. [to_string_option] returns
      None for an object, which silently dropped the args (ToolUse with empty
@@ -258,9 +258,7 @@ let test_provider_d_object_arguments () =
   let object_args =
     {|{"id":"c","model":"m","choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"f","arguments":{"x":1}}}]},"finish_reason":null}]}|}
   in
-  let chunk =
-    require_some "provider_d object args" (S.parse_openai_sse_chunk object_args)
-  in
+  let chunk = require_some "openai object args" (S.parse_openai_sse_chunk object_args) in
   match chunk.delta_tool_calls with
   | [ tc ] ->
     check
@@ -271,12 +269,11 @@ let test_provider_d_object_arguments () =
   | _ -> fail "expected exactly one tool call"
 ;;
 
-let test_provider_d_event_edge_branches () =
+let test_openai_event_edge_branches () =
   let state = S.create_openai_stream_state ~provider:"p" ~model:"m" () in
-  ignore
-    (S.openai_chunk_to_events state (provider_d_chunk ~delta_reasoning:"thinking" ()));
+  ignore (S.openai_chunk_to_events state (openai_chunk ~delta_reasoning:"thinking" ()));
   let empty_reasoning_events, telemetry =
-    S.openai_chunk_to_events state (provider_d_chunk ~delta_reasoning:"" ())
+    S.openai_chunk_to_events state (openai_chunk ~delta_reasoning:"" ())
   in
   check_event_count "empty reasoning emits no content event" 0 empty_reasoning_events;
   (match telemetry with
@@ -286,7 +283,7 @@ let test_provider_d_event_edge_branches () =
    | _ -> fail "expected thinking completion telemetry");
   state.thinking_state <- S.Thinking_done;
   let repeat_reasoning_events, _ =
-    S.openai_chunk_to_events state (provider_d_chunk ~delta_reasoning:"again" ())
+    S.openai_chunk_to_events state (openai_chunk ~delta_reasoning:"again" ())
   in
   check_event_count
     "repeat reasoning after done emits delta only"
@@ -302,36 +299,32 @@ let test_provider_d_event_edge_branches () =
   in
   let tc_none = { S.tc_index = 0; tc_id = None; tc_name = None; tc_arguments = None } in
   let first_tool_events, _ =
-    S.openai_chunk_to_events
-      tool_state
-      (provider_d_chunk ~delta_tool_calls:[ tc_empty ] ())
+    S.openai_chunk_to_events tool_state (openai_chunk ~delta_tool_calls:[ tc_empty ] ())
   in
   check_event_count "empty-args tool starts block only" 1 first_tool_events;
   let reused_tool_events, _ =
-    S.openai_chunk_to_events
-      tool_state
-      (provider_d_chunk ~delta_tool_calls:[ tc_none ] ())
+    S.openai_chunk_to_events tool_state (openai_chunk ~delta_tool_calls:[ tc_none ] ())
   in
   check_event_count "same tool index without args emits nothing" 0 reused_tool_events;
   let refusal_finish_events, _ =
     S.openai_chunk_to_events
       tool_state
-      (provider_d_chunk ~finish_reason:"refusal" ~chunk_usage:(usage ()) ())
+      (openai_chunk ~finish_reason:"refusal" ~chunk_usage:(usage ()) ())
   in
   match refusal_finish_events with
   | [ MessageDelta { stop_reason = Some Refusal; usage = Some _ } ] -> ()
   | _ -> fail "expected refusal finish reason to map to Refusal"
 ;;
 
-let test_provider_f_parse_edge_shapes () =
+let test_gemini_parse_edge_shapes () =
   (match
-     S.parse_provider_f_sse_chunk
+     S.parse_gemini_sse_chunk
        {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
    with
    | None -> ()
    | Some _ -> fail "empty candidates should be rejected by missing content");
   (match
-     S.parse_provider_f_sse_chunk
+     S.parse_gemini_sse_chunk
        {|{"modelVersion":"gem","candidates":{"unexpected":true},"usageMetadata":null}|}
    with
    | None -> ()
@@ -339,16 +332,16 @@ let test_provider_f_parse_edge_shapes () =
   let non_list_parts =
     require_some
       "non-list parts"
-      (S.parse_provider_f_sse_chunk
+      (S.parse_gemini_sse_chunk
          {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|})
   in
   check int "non-list parts ignored" 0 (List.length non_list_parts.gem_parts);
-  match S.parse_provider_f_sse_chunk "{not-json" with
+  match S.parse_gemini_sse_chunk "{not-json" with
   | None -> ()
   | Some _ -> fail "invalid gemini json should return None"
 ;;
 
-let provider_f_chunk ?(parts = []) ?finish_reason ?usage () : S.provider_f_chunk =
+let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
   { gem_model = "gemini-test"
   ; gem_parts = parts
   ; gem_finish_reason = finish_reason
@@ -356,13 +349,12 @@ let provider_f_chunk ?(parts = []) ?finish_reason ?usage () : S.provider_f_chunk
   }
 ;;
 
-let test_provider_f_event_edge_branches () =
+let test_gemini_event_edge_branches () =
   let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
   let thought_part = `Assoc [ "thought", `Bool true; "text", `String "plan" ] in
-  ignore
-    (S.provider_f_chunk_to_events state (provider_f_chunk ~parts:[ thought_part ] ()));
+  ignore (S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ()));
   let no_thought_events, telemetry =
-    S.provider_f_chunk_to_events state (provider_f_chunk ~parts:[ `Assoc [] ] ())
+    S.gemini_chunk_to_events state (gemini_chunk ~parts:[ `Assoc [] ] ())
   in
   check_event_count "no-thought chunk emits no events" 0 no_thought_events;
   (match telemetry with
@@ -371,7 +363,7 @@ let test_provider_f_event_edge_branches () =
    | _ -> fail "expected gemini thinking completion telemetry");
   state.thinking_state <- S.Thinking_done;
   let restarted_events, _ =
-    S.provider_f_chunk_to_events state (provider_f_chunk ~parts:[ thought_part ] ())
+    S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ())
   in
   check_event_count "thinking after done restarts and emits delta" 1 restarted_events;
   let empty_text_with_call =
@@ -382,32 +374,32 @@ let test_provider_f_event_edge_branches () =
       ]
   in
   let tool_events, _ =
-    S.provider_f_chunk_to_events
+    S.gemini_chunk_to_events
       (S.create_openai_stream_state ())
-      (provider_f_chunk ~parts:[ empty_text_with_call ] ())
+      (gemini_chunk ~parts:[ empty_text_with_call ] ())
   in
   check_event_count "empty text can still carry function call" 2 tool_events;
   let empty_text_without_call =
     `Assoc [ "text", `String ""; "functionCall", `String "not-an-object" ]
   in
   let ignored_events, _ =
-    S.provider_f_chunk_to_events
+    S.gemini_chunk_to_events
       (S.create_openai_stream_state ())
-      (provider_f_chunk ~parts:[ empty_text_without_call ] ())
+      (gemini_chunk ~parts:[ empty_text_without_call ] ())
   in
   check_event_count "non-object functionCall ignored" 0 ignored_events;
   let max_tokens_events, _ =
-    S.provider_f_chunk_to_events
+    S.gemini_chunk_to_events
       (S.create_openai_stream_state ())
-      (provider_f_chunk ~finish_reason:"MAX_TOKENS" ~usage:(usage ()) ())
+      (gemini_chunk ~finish_reason:"MAX_TOKENS" ~usage:(usage ()) ())
   in
   (match max_tokens_events with
    | [ MessageDelta { stop_reason = Some MaxTokens; usage = Some _ } ] -> ()
    | _ -> fail "expected gemini max-tokens finish");
   let unknown_events, _ =
-    S.provider_f_chunk_to_events
+    S.gemini_chunk_to_events
       (S.create_openai_stream_state ())
-      (provider_f_chunk ~finish_reason:"SAFETY" ())
+      (gemini_chunk ~finish_reason:"SAFETY" ())
   in
   match unknown_events with
   | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
@@ -534,8 +526,8 @@ let test_ollama_event_edge_branches () =
 let () =
   run
     "streaming_edge_cases"
-    [ ( "provider_a_sse"
-      , [ test_case "parser edge cases" `Quick test_provider_a_sse_parser_edges
+    [ ( "anthropic_sse"
+      , [ test_case "parser edge cases" `Quick test_anthropic_sse_parser_edges
         ; test_case
             "first-token classifier edges"
             `Quick
@@ -550,14 +542,14 @@ let () =
             test_thinking_only_timeout_exceeded
         ; test_case "synthetic media events" `Quick test_synthetic_events_media_blocks
         ] )
-    ; ( "provider_d_sse"
-      , [ test_case "parse edge shapes" `Quick test_provider_d_parse_edge_shapes
-        ; test_case "object-form tool arguments" `Quick test_provider_d_object_arguments
-        ; test_case "event edge branches" `Quick test_provider_d_event_edge_branches
+    ; ( "openai_sse"
+      , [ test_case "parse edge shapes" `Quick test_openai_parse_edge_shapes
+        ; test_case "object-form tool arguments" `Quick test_openai_object_arguments
+        ; test_case "event edge branches" `Quick test_openai_event_edge_branches
         ] )
-    ; ( "provider_f_sse"
-      , [ test_case "parse edge shapes" `Quick test_provider_f_parse_edge_shapes
-        ; test_case "event edge branches" `Quick test_provider_f_event_edge_branches
+    ; ( "gemini_sse"
+      , [ test_case "parse edge shapes" `Quick test_gemini_parse_edge_shapes
+        ; test_case "event edge branches" `Quick test_gemini_event_edge_branches
         ] )
     ; ( "ollama_ndjson"
       , [ test_case "parse edge shapes" `Quick test_ollama_parse_edge_shapes

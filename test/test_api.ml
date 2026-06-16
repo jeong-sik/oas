@@ -109,7 +109,7 @@ let test_unknown_type_returns_none () =
   | Some _ -> fail "expected None for unknown type"
 ;;
 
-let test_provider_c_message_to_json_tool_result_uses_text_blocks () =
+let test_kimi_message_to_json_tool_result_uses_text_blocks () =
   let msg =
     { Types.role = Tool
     ; content =
@@ -126,7 +126,7 @@ let test_provider_c_message_to_json_tool_result_uses_text_blocks () =
     ; metadata = []
     }
   in
-  let json = Llm_provider.Api_common.provider_c_message_to_json msg in
+  let json = Llm_provider.Api_common.kimi_message_to_json msg in
   let open Yojson.Safe.Util in
   let block = json |> member "content" |> index 0 in
   let nested = block |> member "content" |> to_list in
@@ -173,12 +173,12 @@ let make_state
 ;;
 
 let make_manual_thinking_state ?thinking_budget ?enable_thinking () =
-  make_state ~model:"agent_llm_a-opus-4-5" ?thinking_budget ?enable_thinking ()
+  make_state ~model:"claude-opus-4-5" ?thinking_budget ?enable_thinking ()
 ;;
 
 let make_adaptive_thinking_state ?thinking_budget ?enable_thinking ?response_format () =
   make_state
-    ~model:"agent_llm_a-sonnet-4-6"
+    ~model:"claude-sonnet-4-6"
     ?thinking_budget
     ?enable_thinking
     ?response_format
@@ -193,7 +193,7 @@ let test_build_body_basic () =
   check
     string
     "model present"
-    "agent_llm_a-sonnet-4-6-20250514"
+    "claude-sonnet-4-6-20250514"
     (json |> member "model" |> to_string);
   check bool "stream false" false (json |> member "stream" |> to_bool);
   check string "system prompt" "You are helpful." (json |> member "system" |> to_string)
@@ -228,7 +228,7 @@ let test_build_body_with_enable_thinking_default_budget () =
   check
     int
     "default budget_tokens"
-    (Llm_provider.Constants.Thinking.provider_a_budget ())
+    (Llm_provider.Constants.Thinking.anthropic_budget ())
     (thinking |> member "budget_tokens" |> to_int)
 ;;
 
@@ -258,7 +258,7 @@ let test_build_body_adaptive_output_config_merges_format_and_effort () =
   in
   let config =
     make_state
-      ~model:"agent_llm_a-opus-4-8"
+      ~model:"claude-opus-4-8"
       ~enable_thinking:true
       ~thinking_budget:50_000
       ~response_format:(Types.JsonSchema schema)
@@ -335,7 +335,7 @@ let test_build_openai_body_with_json_schema () =
   let state =
     { Types.config =
         { Types.default_config with
-          model = "model-d-mini"
+          model = "gpt-mini"
         ; response_format = Types.JsonSchema schema
         }
     ; messages = []
@@ -369,9 +369,9 @@ let test_build_openai_body_with_json_schema () =
      |> to_string)
 ;;
 
-let test_build_body_sampling_params_provider_a () =
+let test_build_body_sampling_params_anthropic () =
   (* Regression: the Anthropic agent_sdk request path previously omitted
-     temperature/top_p/top_k entirely, silently defaulting every Agent_llm_a
+     temperature/top_p/top_k entirely, silently defaulting every Claude
      agent to Anthropic's server-side temperature = 1.0 + top_p = 1. *)
   let state =
     { Types.config =
@@ -661,9 +661,7 @@ let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
 ;;
 
 let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
-  let provider_config =
-    Provider.openrouter ~model_id:"anthropic/agent_llm_a-sonnet-4-6" ()
-  in
+  let provider_config = Provider.openrouter ~model_id:"anthropic/claude-sonnet-4-6" () in
   let state =
     { Types.config =
         { Types.default_config with
@@ -992,7 +990,7 @@ let test_parse_response_complete () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_test",
-    "model": "agent_llm_a-sonnet-4-6-20250514",
+    "model": "claude-sonnet-4-6-20250514",
     "stop_reason": "end_turn",
     "content": [
       {"type": "text", "text": "Hello there."},
@@ -1003,7 +1001,7 @@ let test_parse_response_complete () =
   in
   let resp = Api.parse_response json in
   check string "id" "msg_test" resp.id;
-  check string "model" "agent_llm_a-sonnet-4-6-20250514" resp.model;
+  check string "model" "claude-sonnet-4-6-20250514" resp.model;
   check int "content count" 2 (List.length resp.content);
   (match resp.stop_reason with
    | Types.EndTurn -> ()
@@ -1018,7 +1016,7 @@ let test_parse_response_tool_use () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_tu",
-    "model": "agent_llm_a-sonnet-4-6-20250514",
+    "model": "claude-sonnet-4-6-20250514",
     "stop_reason": "tool_use",
     "content": [
       {"type": "tool_use", "id": "tu_1", "name": "calc", "input": {"x": 1}}
@@ -1042,7 +1040,7 @@ let test_parse_response_unknown_stop () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_unk",
-    "model": "agent_llm_a-sonnet-4-6-20250514",
+    "model": "claude-sonnet-4-6-20250514",
     "stop_reason": "new_future_reason",
     "content": [],
     "usage": null
@@ -1054,7 +1052,7 @@ let test_parse_response_unknown_stop () =
   | sr -> fail (Printf.sprintf "expected Unknown, got %s" (Types.show_stop_reason sr))
 ;;
 
-let test_parse_provider_d_response_strips_fenced_json () =
+let test_parse_openai_response_strips_fenced_json () =
   let json_str =
     {|{
     "id": "chatcmpl_test",
@@ -1081,7 +1079,7 @@ let test_parse_provider_d_response_strips_fenced_json () =
      | _ -> Alcotest.fail "expected stripped text block")
 ;;
 
-let test_parse_provider_d_response_reasoning_content () =
+let test_parse_openai_response_reasoning_content () =
   let json_str =
     {|{
     "id": "chatcmpl_think",
@@ -1114,7 +1112,7 @@ let test_parse_provider_d_response_reasoning_content () =
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
 
-let test_parse_provider_d_response_reasoning_with_tools () =
+let test_parse_openai_response_reasoning_with_tools () =
   let json_str =
     {|{
     "id": "chatcmpl_think_tool",
@@ -1151,7 +1149,7 @@ let test_parse_provider_d_response_reasoning_with_tools () =
          (Printf.sprintf "expected StopToolUse, got %s" (Types.show_stop_reason sr)))
 ;;
 
-let test_parse_provider_d_response_blank_reasoning () =
+let test_parse_openai_response_blank_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_blank",
@@ -1176,7 +1174,7 @@ let test_parse_provider_d_response_blank_reasoning () =
      | _ -> Alcotest.fail "expected [Text] only, blank reasoning should be filtered")
 ;;
 
-let test_parse_provider_d_response_no_reasoning () =
+let test_parse_openai_response_no_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_no_think",
@@ -1200,7 +1198,7 @@ let test_parse_provider_d_response_no_reasoning () =
      | _ -> Alcotest.fail "expected [Text]")
 ;;
 
-let test_parse_provider_d_response_ollama_reasoning () =
+let test_parse_openai_response_ollama_reasoning () =
   let json_str =
     {|{
     "id": "chatcmpl_ollama",
@@ -1240,7 +1238,7 @@ let test_parse_provider_d_response_ollama_reasoning () =
      | _ -> Alcotest.fail "expected [Thinking; Text]")
 ;;
 
-let test_parse_provider_d_response_reasoning_content_preferred () =
+let test_parse_openai_response_reasoning_content_preferred () =
   let json_str =
     {|{
     "id": "chatcmpl_both",
@@ -1430,7 +1428,7 @@ let test_parse_response_with_cache_tokens () =
     Yojson.Safe.from_string
       {|{
     "id": "msg_cache",
-    "model": "agent_llm_a-sonnet-4-6-20250514",
+    "model": "claude-sonnet-4-6-20250514",
     "stop_reason": "end_turn",
     "content": [{"type": "text", "text": "cached"}],
     "usage": {
@@ -1457,12 +1455,12 @@ let test_parse_response_with_cache_tokens () =
 
 let test_parse_sse_message_start () =
   let data =
-    {|{"message":{"id":"msg_1","model":"agent_llm_a-sonnet-4-6","usage":{"input_tokens":10}}}|}
+    {|{"message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":10}}}|}
   in
   match Streaming.parse_sse_event (Some "message_start") data with
   | Some (Types.MessageStart { id; model; usage }) ->
     check string "id" "msg_1" id;
-    check string "model" "agent_llm_a-sonnet-4-6" model;
+    check string "model" "claude-sonnet-4-6" model;
     (match usage with
      | Some u -> check int "input" 10 u.Types.input_tokens
      | None -> fail "expected usage")
@@ -1584,7 +1582,7 @@ let test_message_to_json_assistant () =
 (* openai_messages_of_message: multimodal user content                  *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_messages_text_only () =
+let test_openai_messages_text_only () =
   let msg =
     { Types.role = Types.User
     ; content = [ Types.Text "hello" ]
@@ -1601,7 +1599,7 @@ let test_provider_d_messages_text_only () =
   check string "plain string" "hello" (to_string content)
 ;;
 
-let test_provider_d_messages_with_image () =
+let test_openai_messages_with_image () =
   let msg =
     { Types.role = Types.User
     ; content =
@@ -1629,7 +1627,7 @@ let test_provider_d_messages_with_image () =
 (* F1: Openai API error → Openai_api_error exception                    *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_api_error_returns_error () =
+let test_openai_api_error_returns_error () =
   let error_json =
     {|{"error":{"message":"Invalid API key","type":"invalid_request_error"}}|}
   in
@@ -1638,7 +1636,7 @@ let test_provider_d_api_error_returns_error () =
   | Ok _ -> Alcotest.fail "expected Error on API error"
 ;;
 
-let test_provider_d_api_error_unknown_message () =
+let test_openai_api_error_unknown_message () =
   let error_json = {|{"error":{}}|} in
   match Api.parse_openai_response_result error_json with
   | Error msg -> check string "unknown error" "Unknown API error" msg
@@ -1649,7 +1647,7 @@ let test_provider_d_api_error_unknown_message () =
 (* F2: Openai error returns structured Error, not exception              *)
 (* ------------------------------------------------------------------ *)
 
-let test_provider_d_error_returns_result () =
+let test_openai_error_returns_result () =
   let error_json = {|{"error":{"message":"bad request"}}|} in
   match Api.parse_openai_response_result error_json with
   | Error msg -> check string "error msg" "bad request" msg
@@ -1758,7 +1756,7 @@ let () =
         ; test_case
             "anthropic sampling params serialized"
             `Quick
-            test_build_body_sampling_params_provider_a
+            test_build_body_sampling_params_anthropic
         ; test_case
             "anthropic sampling params omitted when None"
             `Quick
@@ -1833,46 +1831,40 @@ let () =
         ; test_case
             "strip fenced json"
             `Quick
-            test_parse_provider_d_response_strips_fenced_json
+            test_parse_openai_response_strips_fenced_json
         ; test_case "cache tokens in usage" `Quick test_parse_response_with_cache_tokens
         ; test_case
             "reasoning_content"
             `Quick
-            test_parse_provider_d_response_reasoning_content
+            test_parse_openai_response_reasoning_content
         ; test_case
             "reasoning_content with tools"
             `Quick
-            test_parse_provider_d_response_reasoning_with_tools
+            test_parse_openai_response_reasoning_with_tools
         ; test_case
             "blank reasoning_content"
             `Quick
-            test_parse_provider_d_response_blank_reasoning
-        ; test_case
-            "no reasoning_content"
-            `Quick
-            test_parse_provider_d_response_no_reasoning
+            test_parse_openai_response_blank_reasoning
+        ; test_case "no reasoning_content" `Quick test_parse_openai_response_no_reasoning
         ; test_case
             "ollama reasoning field"
             `Quick
-            test_parse_provider_d_response_ollama_reasoning
+            test_parse_openai_response_ollama_reasoning
         ; test_case
             "reasoning_content preferred over reasoning"
             `Quick
-            test_parse_provider_d_response_reasoning_content_preferred
+            test_parse_openai_response_reasoning_content_preferred
         ] )
     ; ( "error_handling"
       , [ test_case
             "openai api error returns Error"
             `Quick
-            test_provider_d_api_error_returns_error
+            test_openai_api_error_returns_error
         ; test_case
             "openai api error unknown message"
             `Quick
-            test_provider_d_api_error_unknown_message
-        ; test_case
-            "openai error returns result"
-            `Quick
-            test_provider_d_error_returns_result
+            test_openai_api_error_unknown_message
+        ; test_case "openai error returns result" `Quick test_openai_error_returns_result
         ] )
     ; ( "parse_sse_event"
       , [ test_case "message_start" `Quick test_parse_sse_message_start
@@ -1901,9 +1893,9 @@ let () =
         ; test_case "ignores metadata" `Quick test_message_to_json_ignores_metadata
         ; test_case "assistant mixed content" `Quick test_message_to_json_assistant
         ] )
-    ; ( "provider_d_messages"
-      , [ test_case "text only user" `Quick test_provider_d_messages_text_only
-        ; test_case "user with image" `Quick test_provider_d_messages_with_image
+    ; ( "openai_messages"
+      , [ test_case "text only user" `Quick test_openai_messages_text_only
+        ; test_case "user with image" `Quick test_openai_messages_with_image
         ] )
     ; ( "api_common_helpers"
       , [ test_case "text_blocks_to_string" `Quick test_text_blocks_to_string
@@ -1916,7 +1908,7 @@ let () =
         ; test_case
             "kimi tool_result uses text blocks"
             `Quick
-            test_provider_c_message_to_json_tool_result_uses_text_blocks
+            test_kimi_message_to_json_tool_result_uses_text_blocks
         ; test_case "disable_parallel_tool_use" `Quick test_build_body_disable_parallel
         ] )
     ]

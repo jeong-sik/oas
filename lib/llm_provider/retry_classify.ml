@@ -32,7 +32,7 @@ let classify_retry_error = function
   | Http_client.AcceptRejected _ -> None
   (* Wiring bug, not transient — retrying cannot summon a missing
      transport. *)
-  (* Provider hit its own terminal condition (e.g. cli_tool_d's
+  (* Provider hit its own terminal condition (e.g. claude_code's
      internal max_turns).  Retry would re-trigger the same
      deterministic exit, so signal non-retryable and let the agent
      runtime checkpoint via [Error.Agent (MaxTurnsExceeded ...)]. *)

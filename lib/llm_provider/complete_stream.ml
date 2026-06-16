@@ -192,11 +192,10 @@ let%test "clean stream finalizes Ok: Gemini finishReason" =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"gemini" ~model:"m" () in
   (match
-     Streaming.parse_provider_f_sse_chunk
+     Streaming.parse_gemini_sse_chunk
        {|{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}|}
    with
-   | Some chunk ->
-     accumulate_events acc (fst (Streaming.provider_f_chunk_to_events st chunk))
+   | Some chunk -> accumulate_events acc (fst (Streaming.gemini_chunk_to_events st chunk))
    | None -> ());
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
@@ -453,16 +452,16 @@ let complete_stream_http
             emit_stream_event on_event Types.Connected;
             let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
-              let provider_d_state = ref None in
+              let openai_state = ref None in
               (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
                  hoisted out of body_logic so publish_summary on
                  exception paths sees consistent state. *)
               let get_state () =
-                match !provider_d_state with
+                match !openai_state with
                 | Some s -> s
                 | None ->
                   let s = Streaming.create_openai_stream_state ~provider ~model () in
-                  provider_d_state := Some s;
+                  openai_state := Some s;
                   s
               in
               let dispatch (events, tel_opt) =
@@ -652,9 +651,9 @@ let complete_stream_http
                                  | Some evt -> [ evt ], None
                                  | None -> [], None))
                            | Provider_config.Gemini ->
-                             (match Streaming.parse_provider_f_sse_chunk data with
+                             (match Streaming.parse_gemini_sse_chunk data with
                               | Some chunk ->
-                                Streaming.provider_f_chunk_to_events (get_state ()) chunk
+                                Streaming.gemini_chunk_to_events (get_state ()) chunk
                               | None ->
                                 ( [ Types.SSEParseFailed
                                       { raw = data

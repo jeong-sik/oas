@@ -14,7 +14,7 @@
     fails CI immediately, instead of silently regressing into 3585s
     keeper hangs in masc-mcp. boundary-allow: cross-repo regression context.
 
-    Cross-ref: planning/agent_llm_a-plans/oas-execution-cancellability.md
+    Cross-ref: planning/claude-plans/oas-execution-cancellability.md
                 (in jeong-sik/me) — falsified self-confession comment in
                 masc-mcp [keeper_llm_bridge.ml:35-39]. boundary-allow.
 

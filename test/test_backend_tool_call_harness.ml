@@ -2,13 +2,11 @@ open Alcotest
 module H = Llm_provider.Backend_tool_call_harness
 module T = Llm_provider.Types
 
-let malformed_provider_d_response = `Assoc [ "choices", `String "not-a-list" ]
+let malformed_openai_response = `Assoc [ "choices", `String "not-a-list" ]
 
-let test_provider_d_parse_error_is_typed () =
+let test_openai_parse_error_is_typed () =
   match
-    H.validate_openai_response
-      ~declared_tools:[ "read_file" ]
-      malformed_provider_d_response
+    H.validate_openai_response ~declared_tools:[ "read_file" ] malformed_openai_response
   with
   | Ok _ -> fail "expected typed parse error"
   | Error err ->
@@ -20,11 +18,11 @@ let test_provider_d_parse_error_is_typed () =
       (String.length err.response_parse_error > 0)
 ;;
 
-let test_provider_d_text_response_is_ok_empty_validation () =
+let test_openai_text_response_is_ok_empty_validation () =
   let json =
     `Assoc
       [ "id", `String "chatcmpl-text"
-      ; "model", `String "model-d"
+      ; "model", `String "gpt"
       ; ( "choices"
         , `List
             [ `Assoc
@@ -105,11 +103,11 @@ let test_schema_validation_reports_nested_violations () =
 ;;
 
 let test_build_schema_map_accepts_provider_shapes () =
-  let provider_a_tool =
+  let anthropic_tool =
     `Assoc
       [ "name", `String "search"; "input_schema", `Assoc [ "type", `String "object" ] ]
   in
-  let provider_d_tool =
+  let openai_tool =
     `Assoc
       [ ( "function"
         , `Assoc
@@ -119,7 +117,7 @@ let test_build_schema_map_accepts_provider_shapes () =
       ]
   in
   let ignored = `Assoc [ "name", `String "noop"; "input_schema", `Null ] in
-  let schemas = H.build_schema_map [ provider_a_tool; provider_d_tool; ignored ] in
+  let schemas = H.build_schema_map [ anthropic_tool; openai_tool; ignored ] in
   check (list string) "names" [ "search"; "write_file" ] (List.map fst schemas)
 ;;
 
@@ -253,10 +251,10 @@ let test_build_schema_map_rejects_missing_name_and_schema () =
 ;;
 
 let test_provider_convenience_validators_cover_tool_responses () =
-  let provider_a_json =
+  let anthropic_json =
     `Assoc
       [ "id", `String "msg_123"
-      ; "model", `String "agent_llm_a-sonnet"
+      ; "model", `String "claude-sonnet"
       ; "stop_reason", `String "tool_use"
       ; ( "content"
         , `List
@@ -270,12 +268,12 @@ let test_provider_convenience_validators_cover_tool_responses () =
       ]
   in
   let anthropic =
-    H.validate_anthropic_response ~declared_tools:[ "lookup" ] provider_a_json
+    H.validate_anthropic_response ~declared_tools:[ "lookup" ] anthropic_json
   in
   check bool "anthropic stop reason" true anthropic.stop_reason_correct;
   check bool "anthropic declared tool" true anthropic.all_tools_declared;
   check int "anthropic tool calls" 1 (List.length anthropic.tool_calls_found);
-  let provider_f_json =
+  let gemini_json =
     Yojson.Safe.from_string
       {|{
         "candidates": [{
@@ -289,7 +287,7 @@ let test_provider_convenience_validators_cover_tool_responses () =
         }]
       }|}
   in
-  let gemini = H.validate_gemini_response ~declared_tools:[ "lookup" ] provider_f_json in
+  let gemini = H.validate_gemini_response ~declared_tools:[ "lookup" ] gemini_json in
   check bool "gemini stop reason" true gemini.stop_reason_correct;
   check bool "gemini declared tool" true gemini.all_tools_declared;
   check int "gemini tool calls" 1 (List.length gemini.tool_calls_found)
@@ -298,15 +296,15 @@ let test_provider_convenience_validators_cover_tool_responses () =
 let () =
   run
     "backend_tool_call_harness"
-    [ ( "provider_d_parse_errors"
+    [ ( "openai_parse_errors"
       , [ test_case
             "typed result surfaces parse error"
             `Quick
-            test_provider_d_parse_error_is_typed
+            test_openai_parse_error_is_typed
         ; test_case
             "valid text response stays Ok with no tool calls"
             `Quick
-            test_provider_d_text_response_is_ok_empty_validation
+            test_openai_text_response_is_ok_empty_validation
         ] )
     ; ( "schema_validation"
       , [ test_case

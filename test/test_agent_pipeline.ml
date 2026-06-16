@@ -9,7 +9,7 @@ open Alcotest
 (* ── Mock server: stateful, multi-response ──────────── *)
 
 (* Openai Chat Completions format — Local provider routes through this since PR #308 *)
-let provider_d_text_response ?(id = "chatcmpl-1") text =
+let openai_text_response ?(id = "chatcmpl-1") text =
   Printf.sprintf
     {|{"id":"%s","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"%s"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}|}
     id
@@ -43,7 +43,7 @@ let contains_substring ~needle haystack =
   loop 0
 ;;
 
-let provider_d_tool_use_response tool_name input_json =
+let openai_tool_use_response tool_name input_json =
   Printf.sprintf
     {|{"id":"chatcmpl-t","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"%s","arguments":"%s"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":15,"completion_tokens":10,"total_tokens":25}}|}
     tool_name
@@ -145,7 +145,7 @@ let test_agent_run_simple () =
         ~sw
         ~net:env#net
         ~port:20001
-        [ provider_d_text_response "hello pipeline" ]
+        [ openai_text_response "hello pipeline" ]
     in
     let agent = make_agent ~net:env#net url in
     match Agent.run ~sw agent "test prompt" with
@@ -167,9 +167,9 @@ let test_agent_run_tool_use () =
     @@ fun sw ->
     let responses =
       [ (* Turn 1: model calls a tool *)
-        provider_d_tool_use_response "get_time" {|{"timezone": "UTC"}|}
+        openai_tool_use_response "get_time" {|{"timezone": "UTC"}|}
       ; (* Turn 2: model responds with text after tool result *)
-        provider_d_text_response "The time is 12:00 UTC"
+        openai_text_response "The time is 12:00 UTC"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20002 responses in
@@ -211,7 +211,7 @@ let test_agent_run_max_turns () =
         ~sw
         ~net:env#net
         ~port:20003
-        [ provider_d_tool_use_response "loop_tool" {|{}|} ]
+        [ openai_tool_use_response "loop_tool" {|{}|} ]
     in
     let loop_tool =
       Tool.create
@@ -242,7 +242,7 @@ let test_agent_run_with_hooks () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20004 [ provider_d_text_response "hooked" ]
+      start_multi_mock ~sw ~net:env#net ~port:20004 [ openai_text_response "hooked" ]
     in
     let before_count = ref 0 in
     let after_count = ref 0 in
@@ -281,7 +281,7 @@ let test_agent_run_with_reducer () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20005 [ provider_d_text_response "reduced" ]
+      start_multi_mock ~sw ~net:env#net ~port:20005 [ openai_text_response "reduced" ]
     in
     let reducer =
       Context_reducer.compose
@@ -299,7 +299,7 @@ let test_agent_run_with_reducer () =
 
 (* ── Test 6: Agent.run_stream ────────────────────────── *)
 
-let provider_d_sse text =
+let openai_sse text =
   Printf.sprintf
     "data: \
      {\"id\":\"chatcmpl-s1\",\"object\":\"chat.completion.chunk\",\"model\":\"mock\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}\n\n\
@@ -338,7 +338,7 @@ let test_agent_run_stream () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_sse_mock ~sw ~net:env#net ~port:20006 (provider_d_sse "stream pipeline")
+      start_sse_mock ~sw ~net:env#net ~port:20006 (openai_sse "stream pipeline")
     in
     let agent = make_agent ~net:env#net url in
     let events = ref [] in
@@ -363,8 +363,8 @@ let test_agent_run_tool_error () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use_response "fail_tool" {|{}|}
-      ; provider_d_text_response "recovered from tool error"
+      [ openai_tool_use_response "fail_tool" {|{}|}
+      ; openai_text_response "recovered from tool error"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20007 responses in
@@ -395,8 +395,8 @@ let test_agent_run_pre_tool_hook () =
     Eio.Switch.run
     @@ fun sw ->
     let responses =
-      [ provider_d_tool_use_response "blocked_tool" {|{}|}
-      ; provider_d_text_response "after block"
+      [ openai_tool_use_response "blocked_tool" {|{}|}
+      ; openai_text_response "after block"
       ]
     in
     let url = start_multi_mock ~sw ~net:env#net ~port:20008 responses in
@@ -495,7 +495,7 @@ let test_agent_run_context_overflow_auto_retry_can_be_disabled () =
         ~sw
         ~net:env#net
         ~port:20020
-        [ `Bad_request, overflow_body; `OK, provider_d_text_response "should not retry" ]
+        [ `Bad_request, overflow_body; `OK, openai_text_response "should not retry" ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }
@@ -622,11 +622,7 @@ let test_proactive_compaction_phase_and_checkpoint () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock
-        ~sw
-        ~net:env#net
-        ~port:20030
-        [ provider_d_text_response "compacted" ]
+      start_multi_mock ~sw ~net:env#net ~port:20030 [ openai_text_response "compacted" ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }
@@ -709,7 +705,7 @@ let test_emergency_compaction_phase_and_checkpoint () =
         ~sw
         ~net:env#net
         ~port:20031
-        [ `Bad_request, overflow_body; `OK, provider_d_text_response "recovered" ]
+        [ `Bad_request, overflow_body; `OK, openai_text_response "recovered" ]
     in
     let provider : Provider.config =
       { provider = Provider.Local { base_url = url }
@@ -777,7 +773,7 @@ let test_agent_run_guardrails () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_multi_mock ~sw ~net:env#net ~port:20010 [ provider_d_text_response "guarded" ]
+      start_multi_mock ~sw ~net:env#net ~port:20010 [ openai_text_response "guarded" ]
     in
     let guardrails =
       { Guardrails.tool_filter = Guardrails.AllowAll; max_tool_calls_per_turn = Some 5 }

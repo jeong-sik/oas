@@ -99,7 +99,7 @@ type http_error =
   | AcceptRejected of { reason : string }
   (* Signals that a provider kind requires a non-HTTP transport (e.g. a
      CLI subprocess transport for
-     [Cli_tool_d]/[Cli_tool_a]/[Cli_tool_b]/[Cli_tool_c])
+     [Claude_code]/[Codex]/[Gemini]/[Kimi])
      but the caller did not wire one.  Distinct from [NetworkError] so
      callers can skip the candidate without counting it as a flaky
      network failure, and so callers see a clear "configuration/wiring

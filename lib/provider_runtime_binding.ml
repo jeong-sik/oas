@@ -171,9 +171,9 @@ let catalog_names entries =
 let sort_bindings bindings = List.sort (fun a b -> String.compare a.id b.id) bindings
 
 let builtin_provider_aliases =
-  [ "anthropic", "agent_llm_a"
-  ; "claude", "agent_llm_a"
-  ; "anthropic", "agent_llm_a"
+  [ "anthropic", "claude"
+  ; "claude", "claude"
+  ; "anthropic", "claude"
   ; "moonshot", "kimi"
   ; "kimi", "kimi"
   ; "gemini", "gemini"
@@ -308,7 +308,7 @@ let provider_id_of_provider_config cfg =
 let provider_id_of_legacy_config (cfg : Provider.config) =
   match cfg.provider with
   | Provider.Local _ -> "local"
-  | Provider.Anthropic -> "agent_llm_a"
+  | Provider.Anthropic -> "claude"
   | Provider.Custom_registered { name } ->
     (match find name with
      | Some binding -> binding.id

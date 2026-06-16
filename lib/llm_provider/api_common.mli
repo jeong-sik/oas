@@ -23,7 +23,7 @@ val content_block_to_json : Types.content_block -> Yojson.Safe.t
 val content_block_of_json : Yojson.Safe.t -> Types.content_block option
 val merge_tool_result_followup_user_messages : Types.message list -> Types.message list
 val message_to_json : Types.message -> Yojson.Safe.t
-val provider_c_message_to_json : Types.message -> Yojson.Safe.t
+val kimi_message_to_json : Types.message -> Yojson.Safe.t
 
 (** {2 TLS} *)
 

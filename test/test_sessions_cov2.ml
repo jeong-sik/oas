@@ -198,7 +198,7 @@ let test_structured_telemetry_step () =
     ; actor = Some "agent-1"
     ; role = Some "executor"
     ; provider = Some "anthropic"
-    ; model = Some "agent_llm_a"
+    ; model = Some "claude"
     ; raw_trace_run_id = Some "wr-1"
     ; stop_reason = Some "end_turn"
     ; artifact_id = Some "art-1"
@@ -414,12 +414,12 @@ let test_worker_run_all_statuses () =
          ; aliases = [ "a"; "b" ]
          ; primary_alias = Some "a"
          ; provider = Some "anthropic"
-         ; model = Some "agent_llm_a"
+         ; model = Some "claude"
          ; requested_provider = Some "rp"
          ; requested_model = Some "rm"
          ; requested_policy = Some "strict"
          ; resolved_provider = Some "anthropic"
-         ; resolved_model = Some "agent_llm_a"
+         ; resolved_model = Some "claude"
          ; status
          ; trace_capability = Sessions.Raw
          ; validated = status = Sessions.Completed

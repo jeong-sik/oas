@@ -78,13 +78,13 @@ let test_anthropic_capabilities () =
   check bool "no audio" false c.supports_audio_input;
   (* Anthropic Messages API accepts top_k per its documented body
      params; pin the field so the #830/#831 capability-gated
-     serializer paths do not silently drop it for agent_llm_a configs. *)
+     serializer paths do not silently drop it for claude configs. *)
   check bool "supports top_k" true c.supports_top_k;
   check bool "no min_p" false c.supports_min_p;
   check bool "context 200K" true (c.max_context_tokens = Some 200_000)
 ;;
 
-let test_provider_d_capabilities () =
+let test_openai_capabilities () =
   let c = Capabilities.openai_compat_chat_capabilities in
   check bool "has structured output" true c.supports_structured_output;
   check bool "has parallel tools" true c.supports_parallel_tool_calls;
@@ -92,7 +92,7 @@ let test_provider_d_capabilities () =
   check bool "context 128K" true (c.max_context_tokens = Some 128_000)
 ;;
 
-let test_provider_d_extended () =
+let test_openai_extended () =
   let c = Capabilities.openai_compat_chat_extended_capabilities in
   check bool "has reasoning" true c.supports_reasoning;
   check_thinking_control
@@ -117,31 +117,31 @@ let test_lookup_mimo_v25_pro () =
 
 (* ── Model lookup ────────────────────────────────────── *)
 
-let test_lookup_agent_llm_a_opus () =
-  match Capabilities.for_model_id "agent_llm_a-opus-4-6" with
+let test_lookup_claude_opus () =
+  match Capabilities.for_model_id "claude-opus-4-6" with
   | Some c ->
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "computer use" true c.supports_computer_use
-  | None -> fail "should match agent_llm_a-opus"
+  | None -> fail "should match claude-opus"
 ;;
 
-let test_lookup_agent_llm_a_sonnet () =
-  match Capabilities.for_model_id "agent_llm_a-sonnet-4-6" with
+let test_lookup_claude_sonnet () =
+  match Capabilities.for_model_id "claude-sonnet-4-6" with
   | Some c ->
     check (option int) "output 64K" (Some 64_000) c.max_output_tokens;
     check bool "parallel tools" true c.supports_parallel_tool_calls
-  | None -> fail "should match agent_llm_a-sonnet"
+  | None -> fail "should match claude-sonnet"
 ;;
 
 let test_lookup_gpt5 () =
-  match Capabilities.for_model_id "model-d-5.4" with
+  match Capabilities.for_model_id "gpt-5.4" with
   | Some c ->
     check (option int) "context 1.05M" (Some 1_050_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "structured output" true c.supports_structured_output;
     check bool "computer use" true c.supports_computer_use
-  | None -> fail "should match model-d-5"
+  | None -> fail "should match gpt-5"
 ;;
 
 let test_lookup_gemini () =
@@ -201,8 +201,8 @@ let test_gemini_family_other_non_gemini () =
   check
     gemini_family_testable
     "non-gemini id falls into Gemini_other with literal retained"
-    (Capabilities.Gemini_other "agent_llm_a-opus-4")
-    (Capabilities.gemini_family_of_id "agent_llm_a-opus-4")
+    (Capabilities.Gemini_other "claude-opus-4")
+    (Capabilities.gemini_family_of_id "claude-opus-4")
 ;;
 
 let test_gemini_family_other_unknown_gemini () =
@@ -238,7 +238,7 @@ let test_gemini_family_drives_capabilities () =
   check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
 ;;
 
-let test_lookup_provider_c_k2_cloud () =
+let test_lookup_kimi_k2_cloud () =
   match Capabilities.for_model_id "kimi-k2.6:cloud" with
   | Some c ->
     (* Kimi K2.6: 256K context per platform.kimi.ai official docs (2026-05-30
@@ -268,7 +268,7 @@ let test_lookup_provider_m () =
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs);
     check bool "top_k" true c.supports_top_k
-  | None -> fail "should match provider_h_3"
+  | None -> fail "should match qwen3"
 ;;
 
 let test_lookup_provider_m_runpod_name () =
@@ -276,10 +276,10 @@ let test_lookup_provider_m_runpod_name () =
   | Some c ->
     check
       bool
-      "runpod provider_h_3.6 uses chat_template_kwargs"
+      "runpod qwen3.6 uses chat_template_kwargs"
       true
       (c.thinking_control_format = Capabilities.Chat_template_kwargs)
-  | None -> fail "should match provider_h_3.6 runpod model id"
+  | None -> fail "should match qwen3.6 runpod model id"
 ;;
 
 let test_lookup_deepseek_v4_flash () =
@@ -364,11 +364,7 @@ let test_lookup_unknown () =
 ;;
 
 let test_lookup_case_insensitive () =
-  check
-    bool
-    "uppercase matches"
-    true
-    (Capabilities.for_model_id "Agent_llm_a-Opus-4-6" <> None)
+  check bool "uppercase matches" true (Capabilities.for_model_id "Claude-Opus-4-6" <> None)
 ;;
 
 let test_lookup_glm5_text_only () =
@@ -439,7 +435,7 @@ let make_manifest ?(base = "default_capabilities") ?(extra_fields = []) prefix =
 ;;
 
 let test_manifest_overrides_static_table () =
-  (* Build a manifest that declares a model with same prefix as agent_llm_a-opus
+  (* Build a manifest that declares a model with same prefix as claude-opus
      but different capabilities — manifest must win. *)
   let m =
     make_manifest
@@ -449,9 +445,9 @@ let test_manifest_overrides_static_table () =
         ; "supports_computer_use", "false"
         ; "supports_tools", "true"
         ]
-      "agent_llm_a-opus-4"
+      "claude-opus-4"
   in
-  match Capabilities.for_model_id_with_manifest m "agent_llm_a-opus-4-6" with
+  match Capabilities.for_model_id_with_manifest m "claude-opus-4-6" with
   | Some c ->
     check (option int) "manifest overrides ctx" (Some 999999) c.max_context_tokens;
     check bool "manifest overrides computer_use" false c.supports_computer_use;
@@ -460,9 +456,9 @@ let test_manifest_overrides_static_table () =
 ;;
 
 let test_manifest_fallback_to_static () =
-  (* Manifest has no entry for agent_llm_a-opus — should fall through to static table. *)
+  (* Manifest has no entry for claude-opus — should fall through to static table. *)
   let m = make_manifest "totally-other-model" in
-  match Capabilities.for_model_id_with_manifest m "agent_llm_a-opus-4-6" with
+  match Capabilities.for_model_id_with_manifest m "claude-opus-4-6" with
   | Some c ->
     check (option int) "fallback ctx 1M" (Some 1_000_000) c.max_context_tokens;
     check bool "fallback computer_use" true c.supports_computer_use
@@ -494,14 +490,14 @@ let test_manifest_base_label_openai_chat () =
   | None -> fail "expected Some"
 ;;
 
-let test_manifest_base_label_provider_a () =
+let test_manifest_base_label_anthropic () =
   let m =
     make_manifest
       ~base:"anthropic"
       ~extra_fields:[ "max_context_tokens", "512000" ]
-      "my-agent_llm_a"
+      "my-claude"
   in
-  match Capabilities.for_model_id_with_manifest m "my-agent_llm_a-custom" with
+  match Capabilities.for_model_id_with_manifest m "my-claude-custom" with
   | Some c ->
     check (option int) "custom ctx 512K" (Some 512000) c.max_context_tokens;
     check bool "anthropic base: caching" true c.supports_caching;
@@ -854,8 +850,8 @@ let () =
         ] )
     ; ( "presets"
       , [ test_case "anthropic" `Quick test_anthropic_capabilities
-        ; test_case "openai" `Quick test_provider_d_capabilities
-        ; test_case "openai extended" `Quick test_provider_d_extended
+        ; test_case "openai" `Quick test_openai_capabilities
+        ; test_case "openai extended" `Quick test_openai_extended
         ; test_case "dashscope" `Quick test_dashscope_capabilities
         ; test_case
             "openai compat reasoning records have explicit control"
@@ -863,9 +859,9 @@ let () =
             test_openai_compat_reasoning_records_have_explicit_control
         ] )
     ; ( "model_lookup"
-      , [ test_case "agent_llm_a opus" `Quick test_lookup_agent_llm_a_opus
-        ; test_case "agent_llm_a sonnet" `Quick test_lookup_agent_llm_a_sonnet
-        ; test_case "model-d-5" `Quick test_lookup_gpt5
+      , [ test_case "claude opus" `Quick test_lookup_claude_opus
+        ; test_case "claude sonnet" `Quick test_lookup_claude_sonnet
+        ; test_case "gpt-5" `Quick test_lookup_gpt5
         ; test_case "gemini" `Quick test_lookup_gemini
         ; test_case "gemini_family Gemini_3_1" `Quick test_gemini_family_3_1
         ; test_case
@@ -886,7 +882,7 @@ let () =
             "gemini_family drives 1M ctx capabilities"
             `Quick
             test_gemini_family_drives_capabilities
-        ; test_case "kimi-k2 cloud" `Quick test_lookup_provider_c_k2_cloud
+        ; test_case "kimi-k2 cloud" `Quick test_lookup_kimi_k2_cloud
         ; test_case "dashscope" `Quick test_lookup_provider_m
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
@@ -907,7 +903,7 @@ let () =
         ; test_case "fallback to static" `Quick test_manifest_fallback_to_static
         ; test_case "unknown model → None" `Quick test_manifest_unknown_model_still_none
         ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
-        ; test_case "base anthropic" `Quick test_manifest_base_label_provider_a
+        ; test_case "base anthropic" `Quick test_manifest_base_label_anthropic
         ; test_case "base absent = default" `Quick test_manifest_base_absent_uses_default
         ; test_case
             "example base labels are canonical"

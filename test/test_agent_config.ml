@@ -10,7 +10,7 @@ let test_minimal_config () =
   match Agent_config.of_json json with
   | Ok cfg ->
     check string "name" "test" cfg.name;
-    check string "model" "agent_llm_a-sonnet-4-6" cfg.model;
+    check string "model" "claude-sonnet-4-6" cfg.model;
     check (option string) "no prompt" None cfg.system_prompt;
     check (option int) "no max_tokens" None cfg.max_tokens;
     check (option int) "no max_turns" None cfg.max_turns;
@@ -23,7 +23,7 @@ let test_full_config () =
   let json =
     `Assoc
       [ "name", `String "full-agent"
-      ; "model", `String "agent_llm_a-opus-4-6"
+      ; "model", `String "claude-opus-4-6"
       ; "system_prompt", `String "You are helpful."
       ; "max_tokens", `Int 8192
       ; "max_turns", `Int 20
@@ -56,7 +56,7 @@ let test_full_config () =
   match Agent_config.of_json json with
   | Ok cfg ->
     check string "name" "full-agent" cfg.name;
-    check string "model" "agent_llm_a-opus-4-6" cfg.model;
+    check string "model" "claude-opus-4-6" cfg.model;
     check (option string) "prompt" (Some "You are helpful.") cfg.system_prompt;
     check (option int) "max_tokens" (Some 8192) cfg.max_tokens;
     check (option int) "max_turns" (Some 20) cfg.max_turns;
@@ -78,7 +78,7 @@ let test_defaults () =
   match Agent_config.of_json json with
   | Ok cfg ->
     check string "default name" "agent" cfg.name;
-    check string "default model" "agent_llm_a-sonnet-4-6" cfg.model
+    check string "default model" "claude-sonnet-4-6" cfg.model
   | Error e -> fail (Error.to_string e)
 ;;
 
@@ -106,7 +106,7 @@ let test_load_invalid_json () =
 let test_load_valid () =
   let path = "/tmp/oas_test_valid.json" in
   Out_channel.with_open_text path (fun oc ->
-    output_string oc {|{"name":"test-agent","model":"agent_llm_a-sonnet-4-6"}|});
+    output_string oc {|{"name":"test-agent","model":"claude-sonnet-4-6"}|});
   match Agent_config.load path with
   | Ok cfg ->
     (try Sys.remove path with
@@ -126,7 +126,7 @@ let test_to_builder () =
   let net = Eio.Stdenv.net env in
   let cfg : Agent_config.agent_file_config =
     { name = "builder-test"
-    ; model = "agent_llm_a-sonnet-4-6"
+    ; model = "claude-sonnet-4-6"
     ; system_prompt = Some "test prompt"
     ; max_tokens = Some 2048
     ; max_turns = Some 5
@@ -153,7 +153,7 @@ let test_to_builder_no_tools () =
   let net = Eio.Stdenv.net env in
   let cfg : Agent_config.agent_file_config =
     { name = "no-tools"
-    ; model = "agent_llm_a-sonnet-4-6"
+    ; model = "claude-sonnet-4-6"
     ; system_prompt = None
     ; max_tokens = None
     ; max_turns = None
@@ -179,12 +179,12 @@ let test_to_builder_all_models () =
   @@ fun env ->
   let net = Eio.Stdenv.net env in
   let models =
-    [ "agent_llm_a-opus-4-6"
-    ; "agent_llm_a-sonnet-4-6"
-    ; "agent_llm_a-opus-4-5"
-    ; "agent_llm_a-sonnet-4"
-    ; "agent_llm_a-haiku-4-5"
-    ; "agent_llm_a-3-7-sonnet"
+    [ "claude-opus-4-6"
+    ; "claude-sonnet-4-6"
+    ; "claude-opus-4-5"
+    ; "claude-sonnet-4"
+    ; "claude-haiku-4-5"
+    ; "claude-3-7-sonnet"
     ; "custom-model"
     ]
   in

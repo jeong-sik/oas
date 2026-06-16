@@ -64,7 +64,7 @@ let add_sampling_field dialect (config : Provider_config.t) field value body =
 let effective_tool_choice (config : Provider_config.t) =
   match config.tool_choice with
   | Some None_ -> None
-  | Some choice -> Some (Backend_openai_serialize.tool_choice_to_provider_d_json choice)
+  | Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
   | None -> None
 ;;
 
@@ -93,7 +93,7 @@ let openai_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =
       ]
 ;;
 
-let response_format_to_provider_d_json = function
+let response_format_to_openai_json = function
   | Types.Off -> None
   | Types.JsonMode -> Some (`Assoc [ "type", `String "json_object" ])
   | Types.JsonSchema schema ->
@@ -108,9 +108,9 @@ let response_format_to_provider_d_json = function
     Returns a JSON string ready for HTTP POST. *)
 let response_format_of_config (config : Provider_config.t) =
   match structured_schema_of_config config with
-  | Some schema -> response_format_to_provider_d_json (Types.JsonSchema schema)
+  | Some schema -> response_format_to_openai_json (Types.JsonSchema schema)
   | None when config.response_format = JsonMode ->
-    response_format_to_provider_d_json Types.JsonMode
+    response_format_to_openai_json Types.JsonMode
   | None -> None
 ;;
 
@@ -172,7 +172,7 @@ let build_request
   let provider_messages =
     let message_serializer =
       match config.kind with
-      | Provider_config.Glm -> Backend_openai_serialize.provider_k_messages_of_message
+      | Provider_config.Glm -> Backend_openai_serialize.glm_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat
@@ -361,7 +361,7 @@ let build_request
     match tools with
     | [] -> body
     | ts ->
-      ("tools", `List (List.map Backend_openai_serialize.build_provider_d_tool_json ts))
+      ("tools", `List (List.map Backend_openai_serialize.build_openai_tool_json ts))
       :: body
   in
   let body =

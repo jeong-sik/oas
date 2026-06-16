@@ -4,9 +4,9 @@ open Types
 
 let test_model_string () =
   Alcotest.(check string)
-    "agent_llm_a_sonnet"
-    "agent_llm_a-sonnet-4-20250514"
-    (model_to_string "agent_llm_a-sonnet-4")
+    "claude_sonnet"
+    "claude-sonnet-4-20250514"
+    (model_to_string "claude-sonnet-4")
 ;;
 
 let test_role_string () =
@@ -101,7 +101,7 @@ let test_build_safe_valid () =
   Eio_main.run
   @@ fun env ->
   let result =
-    Builder.create ~net:env#net ~model:"agent_llm_a-sonnet-4-6"
+    Builder.create ~net:env#net ~model:"claude-sonnet-4-6"
     |> Builder.with_system_prompt "test"
     |> Builder.with_max_turns 5
     |> Builder.with_max_tokens 1024
@@ -114,7 +114,7 @@ let test_build_safe_invalid_turns () =
   Eio_main.run
   @@ fun env ->
   let result =
-    Builder.create ~net:env#net ~model:"agent_llm_a-sonnet-4-6"
+    Builder.create ~net:env#net ~model:"claude-sonnet-4-6"
     |> Builder.with_max_turns 0
     |> Builder.build_safe
   in
@@ -125,7 +125,7 @@ let test_build_safe_thinking_without_enable () =
   Eio_main.run
   @@ fun env ->
   let result =
-    Builder.create ~net:env#net ~model:"agent_llm_a-sonnet-4-6"
+    Builder.create ~net:env#net ~model:"claude-sonnet-4-6"
     |> Builder.with_thinking_budget 1000
     |> Builder.build_safe
   in
@@ -149,7 +149,7 @@ let test_create_agent_with_name_model () =
     Agent_sdk.create_agent
       ~net:env#net
       ~name:"test-agent"
-      ~model:"agent_llm_a-haiku-4-5"
+      ~model:"claude-haiku-4-5"
       ~system_prompt:"You are helpful."
       ~max_tokens:2048
       ~max_turns:5
@@ -157,7 +157,7 @@ let test_create_agent_with_name_model () =
   in
   let config = (Agent.state agent).config in
   Alcotest.(check string) "name" "test-agent" config.name;
-  Alcotest.(check string) "model" "agent_llm_a-haiku-4-5" config.model;
+  Alcotest.(check string) "model" "claude-haiku-4-5" config.model;
   Alcotest.(check (option string)) "prompt" (Some "You are helpful.") config.system_prompt;
   Alcotest.(check (option int)) "max_tokens" (Some 2048) config.max_tokens;
   Alcotest.(check int) "max_turns" 5 config.max_turns

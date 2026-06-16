@@ -33,64 +33,64 @@ let test_default_model_id_non_empty () =
 let test_resolve_opus_4_6_alias () =
   check
     string
-    "agent_llm_a-opus-4-6 → full ID"
-    "agent_llm_a-opus-4-6-20250514"
-    (Model_registry.resolve_model_id "agent_llm_a-opus-4-6");
+    "claude-opus-4-6 → full ID"
+    "claude-opus-4-6-20250514"
+    (Model_registry.resolve_model_id "claude-opus-4-6");
   check
     string
     "opus shorthand → full ID"
-    "agent_llm_a-opus-4-6-20250514"
+    "claude-opus-4-6-20250514"
     (Model_registry.resolve_model_id "opus")
 ;;
 
 let test_resolve_sonnet_4_6_alias () =
   check
     string
-    "agent_llm_a-sonnet-4-6 → full ID"
-    "agent_llm_a-sonnet-4-6-20250514"
-    (Model_registry.resolve_model_id "agent_llm_a-sonnet-4-6");
+    "claude-sonnet-4-6 → full ID"
+    "claude-sonnet-4-6-20250514"
+    (Model_registry.resolve_model_id "claude-sonnet-4-6");
   check
     string
     "sonnet shorthand → full ID"
-    "agent_llm_a-sonnet-4-6-20250514"
+    "claude-sonnet-4-6-20250514"
     (Model_registry.resolve_model_id "sonnet")
 ;;
 
 let test_resolve_opus_4_5_alias () =
   check
     string
-    "agent_llm_a-opus-4-5 → full ID"
-    "agent_llm_a-opus-4-5-20251101"
-    (Model_registry.resolve_model_id "agent_llm_a-opus-4-5")
+    "claude-opus-4-5 → full ID"
+    "claude-opus-4-5-20251101"
+    (Model_registry.resolve_model_id "claude-opus-4-5")
 ;;
 
 let test_resolve_sonnet_4_alias () =
   check
     string
-    "agent_llm_a-sonnet-4 → full ID"
-    "agent_llm_a-sonnet-4-20250514"
-    (Model_registry.resolve_model_id "agent_llm_a-sonnet-4")
+    "claude-sonnet-4 → full ID"
+    "claude-sonnet-4-20250514"
+    (Model_registry.resolve_model_id "claude-sonnet-4")
 ;;
 
 let test_resolve_haiku_4_5_alias () =
   check
     string
-    "agent_llm_a-haiku-4-5 → full ID"
-    "agent_llm_a-haiku-4-5-20251001"
-    (Model_registry.resolve_model_id "agent_llm_a-haiku-4-5");
+    "claude-haiku-4-5 → full ID"
+    "claude-haiku-4-5-20251001"
+    (Model_registry.resolve_model_id "claude-haiku-4-5");
   check
     string
     "haiku shorthand → full ID"
-    "agent_llm_a-haiku-4-5-20251001"
+    "claude-haiku-4-5-20251001"
     (Model_registry.resolve_model_id "haiku")
 ;;
 
 let test_resolve_3_7_alias () =
   check
     string
-    "agent_llm_a-3-7-sonnet → full ID"
-    "agent_llm_a-3-7-sonnet-20250219"
-    (Model_registry.resolve_model_id "agent_llm_a-3-7-sonnet")
+    "claude-3-7-sonnet → full ID"
+    "claude-3-7-sonnet-20250219"
+    (Model_registry.resolve_model_id "claude-3-7-sonnet")
 ;;
 
 (* ── resolve_model_id — pass-through ────────────────── *)
@@ -103,16 +103,16 @@ let test_resolve_unknown_passes_through () =
   check
     string
     "custom model passes through"
-    "anthropic.agent_llm_a-vendor-tagged"
-    (Model_registry.resolve_model_id "anthropic.agent_llm_a-vendor-tagged")
+    "anthropic.claude-vendor-tagged"
+    (Model_registry.resolve_model_id "anthropic.claude-vendor-tagged")
 ;;
 
 let test_resolve_full_id_passes_through () =
   check
     string
     "full ID round-trips"
-    "agent_llm_a-opus-4-6-20250514"
-    (Model_registry.resolve_model_id "agent_llm_a-opus-4-6-20250514")
+    "claude-opus-4-6-20250514"
+    (Model_registry.resolve_model_id "claude-opus-4-6-20250514")
 ;;
 
 let test_resolve_empty_passes_through () =
@@ -130,8 +130,8 @@ let test_resolve_idempotent () =
     [ "opus"
     ; "sonnet"
     ; "haiku"
-    ; "agent_llm_a-opus-4-6"
-    ; "agent_llm_a-3-7-sonnet"
+    ; "claude-opus-4-6"
+    ; "claude-3-7-sonnet"
     ; "custom-model"
     ; ""
     ]

@@ -6,7 +6,7 @@ module Retry = Llm_provider.Retry
 
 (* ── Module type satisfaction ────────────────────────────── *)
 
-let test_of_config_provider_a () =
+let test_of_config_anthropic () =
   let config = Provider.anthropic_sonnet () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   (* Module was constructed — type check passed at compile time.
@@ -15,15 +15,15 @@ let test_of_config_provider_a () =
   ignore (module P : Provider_intf.PROVIDER)
 ;;
 
-let test_of_config_provider_d () =
-  let config = Provider.openrouter ~model_id:"model-d-4" () in
+let test_of_config_openai () =
+  let config = Provider.openrouter ~model_id:"gpt-4" () in
   let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
   ignore (module P : Provider_intf.PROVIDER)
 ;;
 
 (* ── supports_streaming ──────────────────────────────────── *)
 
-let test_provider_a_supports_streaming () =
+let test_anthropic_supports_streaming () =
   let config = Provider.anthropic_sonnet () in
   Alcotest.(check bool) "anthropic streams" true (Provider_intf.supports_streaming config)
 ;;
@@ -40,7 +40,7 @@ let test_streaming_provider_some () =
 
 (* ── HTTP dispatch ───────────────────────────────────────── *)
 
-let provider_d_response =
+let openai_response =
   {|{"id":"chatcmpl-provider-intf","object":"chat.completion","model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2}}|}
 ;;
 
@@ -114,7 +114,7 @@ let test_provider_dispatch_uses_http_client () =
     seen_content_length := Cohttp.Header.get headers "content-length";
     seen_path := Some (Uri.path (Cohttp.Request.uri req));
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
-    Cohttp_eio.Server.respond_string ~status:`OK ~body:provider_d_response ()
+    Cohttp_eio.Server.respond_string ~status:`OK ~body:openai_response ()
   in
   with_mock_server handler (fun ~sw ~net ~base_url ->
     let provider : Provider.config =
@@ -173,7 +173,7 @@ let test_provider_dispatch_maps_server_error () =
     | Ok _ -> Alcotest.fail "expected server error")
 ;;
 
-let test_provider_dispatch_rejects_malformed_provider_d_response () =
+let test_provider_dispatch_rejects_malformed_openai_response () =
   let handler _conn _req body =
     ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
     Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"choices":"not-a-list"}|} ()
@@ -264,14 +264,14 @@ let () =
       , [ Alcotest.test_case
             "anthropic satisfies PROVIDER"
             `Quick
-            test_of_config_provider_a
-        ; Alcotest.test_case "openai satisfies PROVIDER" `Quick test_of_config_provider_d
+            test_of_config_anthropic
+        ; Alcotest.test_case "openai satisfies PROVIDER" `Quick test_of_config_openai
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case
             "anthropic supports streaming"
             `Quick
-            test_provider_a_supports_streaming
+            test_anthropic_supports_streaming
         ; Alcotest.test_case "of_config_streaming" `Quick test_streaming_provider_some
         ] )
     ; ( "http_dispatch"
@@ -286,7 +286,7 @@ let () =
         ; Alcotest.test_case
             "rejects malformed response"
             `Quick
-            test_provider_dispatch_rejects_malformed_provider_d_response
+            test_provider_dispatch_rejects_malformed_openai_response
         ; Alcotest.test_case
             "custom provider dispatch"
             `Quick

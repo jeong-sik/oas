@@ -16,13 +16,13 @@ let () =
             Alcotest.(check bool) "not deterministic" false (Uncertain.is_deterministic u))
         ; Alcotest.test_case "from_llm with params" `Quick (fun () ->
             let u =
-              Uncertain.from_llm ~model:"agent_llm_a" ~temperature:0.7 ~confidence:0.9 42
+              Uncertain.from_llm ~model:"claude" ~temperature:0.7 ~confidence:0.9 42
             in
             Alcotest.(check int) "value" 42 (Uncertain.value u);
             Alcotest.(check (float 0.01)) "confidence" 0.9 (Uncertain.confidence u);
             match Uncertain.provenance_of u with
             | LLM { model; temperature } ->
-              Alcotest.(check string) "model" "agent_llm_a" model;
+              Alcotest.(check string) "model" "claude" model;
               Alcotest.(check (option (float 0.01))) "temp" (Some 0.7) temperature
             | _ -> Alcotest.fail "expected LLM provenance")
         ; Alcotest.test_case "from_heuristic" `Quick (fun () ->

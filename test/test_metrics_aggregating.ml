@@ -28,14 +28,14 @@ let test_aggregating_on_request_start () =
 let test_aggregating_on_retry () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4" ~attempt:1;
-  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4" ~attempt:2;
+  hooks.on_retry ~provider:"openai" ~model_id:"gpt-4" ~attempt:1;
+  hooks.on_retry ~provider:"openai" ~model_id:"gpt-4" ~attempt:2;
   let snap = Agg.snapshot agg in
   check int "one entry" 1 (List.length snap);
   let entry = List.hd snap in
   check int "retry_total" 2 entry.M.retry_total;
   check string "provider" "openai" entry.M.provider;
-  check string "model_id" "model-d-4" entry.M.model_id
+  check string "model_id" "gpt-4" entry.M.model_id
 ;;
 
 let test_aggregating_on_token_usage () =
@@ -43,12 +43,12 @@ let test_aggregating_on_token_usage () =
   let hooks = Agg.to_hooks agg in
   hooks.on_token_usage
     ~provider:"anthropic"
-    ~model_id:"agent_llm_a-3"
+    ~model_id:"claude-3"
     ~input_tokens:100
     ~output_tokens:50;
   hooks.on_token_usage
     ~provider:"anthropic"
-    ~model_id:"agent_llm_a-3"
+    ~model_id:"claude-3"
     ~input_tokens:200
     ~output_tokens:75;
   let snap = Agg.snapshot agg in
@@ -80,12 +80,11 @@ let test_aggregating_on_circuit_state () =
   let hooks = Agg.to_hooks agg in
   hooks.on_circuit_state
     ~provider:"openai"
-    ~model_id:"model-d-4"
-    ~provider_key:"model-d-4@https://api.openai.com"
+    ~model_id:"gpt-4"
+    ~provider_key:"gpt-4@https://api.openai.com"
     ~state:M.Circuit_open;
   (match !observed with
-   | Some ("openai", "model-d-4", "model-d-4@https://api.openai.com", M.Circuit_open) ->
-     ()
+   | Some ("openai", "gpt-4", "gpt-4@https://api.openai.com", M.Circuit_open) -> ()
    | Some _ -> fail "unexpected circuit state callback"
    | None -> fail "missing circuit state callback");
   check int "state value" 1 (M.circuit_state_to_int M.Circuit_open);
@@ -128,25 +127,22 @@ let test_aggregating_unknown_latency_does_not_add_sample () =
 let test_aggregating_on_streaming_latency () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_streaming_first_chunk
-    ~provider:"anthropic"
-    ~model_id:"agent_llm_a"
-    ~ttfrc_ms:12.5;
+  hooks.on_streaming_first_chunk ~provider:"anthropic" ~model_id:"claude" ~ttfrc_ms:12.5;
   hooks.on_streaming_chunk
     ~provider:"anthropic"
-    ~model_id:"agent_llm_a"
+    ~model_id:"claude"
     ~chunk_index:1
     ~inter_chunk_ms:4.25;
   hooks.on_streaming_chunk
     ~provider:"anthropic"
-    ~model_id:"agent_llm_a"
+    ~model_id:"claude"
     ~chunk_index:2
     ~inter_chunk_ms:5.75;
   let snap = Agg.snapshot agg in
   check int "one entry" 1 (List.length snap);
   let entry = List.hd snap in
   check string "provider" "anthropic" entry.M.provider;
-  check string "model_id" "agent_llm_a" entry.M.model_id;
+  check string "model_id" "claude" entry.M.model_id;
   check (float 0.001) "ttfrc_ms_sum" 12.5 entry.M.ttfrc_ms_sum;
   check int "ttfrc_ms_count" 1 entry.M.ttfrc_ms_count;
   check (float 0.001) "inter_chunk_ms_sum" 10.0 entry.M.inter_chunk_ms_sum;
@@ -170,10 +166,10 @@ let test_aggregating_key () =
 let test_aggregating_multiple_providers () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4" ~attempt:1;
+  hooks.on_retry ~provider:"openai" ~model_id:"gpt-4" ~attempt:1;
   hooks.on_token_usage
     ~provider:"anthropic"
-    ~model_id:"agent_llm_a"
+    ~model_id:"claude"
     ~input_tokens:50
     ~output_tokens:25;
   hooks.on_request_start ~model_id:"local";
@@ -184,7 +180,7 @@ let test_aggregating_multiple_providers () =
 let test_provider_snapshot_to_yojson () =
   let snapshot : M.provider_snapshot =
     { provider = "openai"
-    ; model_id = "model-d-4.1"
+    ; model_id = "gpt-4.1"
     ; request_total = 3
     ; error_total = 1
     ; retry_total = 2
@@ -290,10 +286,10 @@ let test_provider_snapshots_to_yojson_is_stable () =
 let test_aggregating_save_snapshot_json () =
   let agg = Agg.create () in
   let hooks = Agg.to_hooks agg in
-  hooks.on_retry ~provider:"openai" ~model_id:"model-d-4.1" ~attempt:1;
+  hooks.on_retry ~provider:"openai" ~model_id:"gpt-4.1" ~attempt:1;
   hooks.on_token_usage
     ~provider:"openai"
-    ~model_id:"model-d-4.1"
+    ~model_id:"gpt-4.1"
     ~input_tokens:10
     ~output_tokens:4;
   let dir =

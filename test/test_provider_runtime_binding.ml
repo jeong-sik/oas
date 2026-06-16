@@ -246,8 +246,8 @@ let test_find_empty_missing_and_provider_config_fallbacks () =
 ;;
 
 let test_builtin_binding_resolves () =
-  let binding = expect_binding "agent_llm_a" in
-  Alcotest.(check string) "builtin id" "agent_llm_a" binding.id;
+  let binding = expect_binding "claude" in
+  Alcotest.(check string) "builtin id" "claude" binding.id;
   Alcotest.(check bool)
     "builtin kind"
     true
@@ -260,8 +260,8 @@ let test_builtin_binding_resolves () =
 
 let test_builtin_aliases_are_canonicalized () =
   let cases =
-    [ "anthropic", "agent_llm_a"
-    ; "anthropic", "agent_llm_a"
+    [ "anthropic", "claude"
+    ; "anthropic", "claude"
     ; "kimi", "kimi"
     ; "gemini", "gemini"
     ; "glm", "glm"
@@ -279,7 +279,7 @@ let test_builtin_aliases_are_canonicalized () =
     (Option.is_none (Provider_runtime_binding.find "openai_compat"))
 ;;
 
-let test_provider_id_fallbacks_do_not_invent_provider_d () =
+let test_provider_id_fallbacks_do_not_invent_openai () =
   let cfg =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -353,7 +353,7 @@ let () =
         ; Alcotest.test_case
             "provider id fallback"
             `Quick
-            test_provider_id_fallbacks_do_not_invent_provider_d
+            test_provider_id_fallbacks_do_not_invent_openai
         ] )
     ]
 ;;

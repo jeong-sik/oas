@@ -12,17 +12,17 @@
 
 open Types
 
-type provider_k_error_class =
+type glm_error_class =
   | Glm_quota_exceeded
   | Glm_rate_limited
   | Glm_auth_error
   | Glm_server_error
   | Glm_invalid_request
 
-type provider_k_error =
+type glm_error =
   { code : string
   ; message : string
-  ; error_class : provider_k_error_class
+  ; error_class : glm_error_class
   ; is_retryable : bool
   }
 
@@ -37,7 +37,7 @@ type provider_k_error =
     - 1304,1308,1310: quota exhausted (not retryable)
     - 1309,1311,1313: subscription/plan (quota)
     - 1230,1234,500: server error *)
-let classify_provider_k_error ~code ~message : provider_k_error_class * bool =
+let classify_glm_error ~code ~message : glm_error_class * bool =
   match code with
   | "1000"
   | "1001"
@@ -77,7 +77,7 @@ let classify_provider_k_error ~code ~message : provider_k_error_class * bool =
     else Glm_invalid_request, false
 ;;
 
-let http_code_of_provider_k_error_class = function
+let http_code_of_glm_error_class = function
   | Glm_quota_exceeded -> 429
   | Glm_rate_limited -> 429
   | Glm_auth_error -> 401
@@ -85,7 +85,7 @@ let http_code_of_provider_k_error_class = function
   | Glm_invalid_request -> 400
 ;;
 
-exception Glm_api_error of provider_k_error
+exception Glm_api_error of glm_error
 
 (* ── Request building ────────────────────────────── *)
 
@@ -147,7 +147,7 @@ let build_request
 (** Glm error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
     Standard Openai uses numeric HTTP codes. *)
-let check_glm_error body : provider_k_error option =
+let check_glm_error body : glm_error option =
   try
     let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
@@ -166,7 +166,7 @@ let check_glm_error body : provider_k_error option =
         |> to_string_option
         |> Option.value ~default:"Unknown Glm API error"
       in
-      let error_class, is_retryable = classify_provider_k_error ~code ~message in
+      let error_class, is_retryable = classify_glm_error ~code ~message in
       Some { code; message; error_class; is_retryable }
   with
   | Yojson.Json_error _ -> None
@@ -197,7 +197,7 @@ let extract_reasoning_content (resp : api_response) body : api_response =
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> resp
 ;;
 
-let provider_k_parse_error message =
+let glm_parse_error message =
   Glm_api_error
     { code = "parse"; message; error_class = Glm_invalid_request; is_retryable = false }
 ;;
@@ -208,19 +208,19 @@ let parse_response body =
   | None ->
     (try
        match Backend_openai_parse.parse_openai_response_result body with
-       | Error msg -> raise (provider_k_parse_error msg)
+       | Error msg -> raise (glm_parse_error msg)
        | Ok resp -> extract_reasoning_content resp body
      with
-     | Yojson.Json_error msg -> raise (provider_k_parse_error msg)
-     | Yojson.Safe.Util.Type_error (msg, _) -> raise (provider_k_parse_error msg)
-     | Yojson.Safe.Util.Undefined (msg, _) -> raise (provider_k_parse_error msg))
+     | Yojson.Json_error msg -> raise (glm_parse_error msg)
+     | Yojson.Safe.Util.Type_error (msg, _) -> raise (glm_parse_error msg)
+     | Yojson.Safe.Util.Undefined (msg, _) -> raise (glm_parse_error msg))
 ;;
 
 (* ── Streaming ───────────────────────────────────── *)
 
 (** Parse Glm SSE chunk.  Glm uses Openai SSE format but adds
     [delta.reasoning_content] for thinking. We parse this as
-    [delta_reasoning] in the provider_d_chunk type. *)
+    [delta_reasoning] in the openai_chunk type. *)
 let parse_stream_chunk = Streaming.parse_openai_sse_chunk
 
 (* ── Inline tests ────────────────────────────────── *)
@@ -402,43 +402,41 @@ let%test "check_glm_error handles int code" =
 ;;
 
 let%test "classify quota exceeded from message" =
-  classify_provider_k_error
+  classify_glm_error
     ~code:"unknown"
     ~message:"You have reached your specified API usage limits"
   = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1113 (arrears)" =
-  classify_provider_k_error ~code:"1113" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_glm_error ~code:"1113" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify auth from code 1001" =
-  classify_provider_k_error ~code:"1001" ~message:"whatever" = (Glm_auth_error, false)
+  classify_glm_error ~code:"1001" ~message:"whatever" = (Glm_auth_error, false)
 ;;
 
 let%test "classify quota from code 1304 (daily limit)" =
-  classify_provider_k_error ~code:"1304" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_glm_error ~code:"1304" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify quota from code 1308 (usage limit)" =
-  classify_provider_k_error ~code:"1308" ~message:"whatever" = (Glm_quota_exceeded, false)
+  classify_glm_error ~code:"1308" ~message:"whatever" = (Glm_quota_exceeded, false)
 ;;
 
 let%test "classify rate limited from code 1305" =
-  classify_provider_k_error ~code:"1305" ~message:"whatever" = (Glm_rate_limited, true)
+  classify_glm_error ~code:"1305" ~message:"whatever" = (Glm_rate_limited, true)
 ;;
 
 let%test "classify invalid request from code 1301 (unsafe content)" =
-  classify_provider_k_error ~code:"1301" ~message:"whatever" = (Glm_invalid_request, false)
+  classify_glm_error ~code:"1301" ~message:"whatever" = (Glm_invalid_request, false)
 ;;
 
 let%test "http_code quota maps to 429" =
-  http_code_of_provider_k_error_class Glm_quota_exceeded = 429
+  http_code_of_glm_error_class Glm_quota_exceeded = 429
 ;;
 
-let%test "http_code auth maps to 401" =
-  http_code_of_provider_k_error_class Glm_auth_error = 401
-;;
+let%test "http_code auth maps to 401" = http_code_of_glm_error_class Glm_auth_error = 401
 
 let%test "extract_reasoning_content prepends thinking block" =
   let resp =

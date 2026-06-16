@@ -11,7 +11,7 @@ let check_response_format label expected actual =
 let make_checkpoint
       ?(session_id = "test-session")
       ?(agent_name = "test-agent")
-      ?(model = "agent_llm_a-sonnet-4-6")
+      ?(model = "claude-sonnet-4-6")
       ?(system_prompt = Some "You are helpful.")
       ?(messages = [])
       ?(usage = Types.empty_usage)
@@ -119,7 +119,7 @@ let () =
                 [ "version", `Int 4
                 ; "session_id", `String "s1"
                 ; "agent_name", `String "a1"
-                ; "model", `String "agent_llm_a-sonnet-4-6"
+                ; "model", `String "claude-sonnet-4-6"
                 ; "system_prompt", `Null
                 ; "messages", `List []
                 ; "usage", Checkpoint.usage_to_json Types.empty_usage
@@ -438,9 +438,9 @@ let () =
         ] )
     ; ( "model"
       , [ test_case "Opus model roundtrip" `Quick (fun () ->
-            let cp = make_checkpoint ~model:"agent_llm_a-opus-4-6" () in
+            let cp = make_checkpoint ~model:"claude-opus-4-6" () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
-            check string "model" "agent_llm_a-opus-4-6" cp2.model)
+            check string "model" "claude-opus-4-6" cp2.model)
         ; test_case "Custom model roundtrip" `Quick (fun () ->
             let cp = make_checkpoint ~model:"my-model-v1" () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -566,7 +566,7 @@ let () =
             let cp =
               make_checkpoint
                 ~agent_name:"resume-agent"
-                ~model:"agent_llm_a-opus-4-6"
+                ~model:"claude-opus-4-6"
                 ~system_prompt:(Some "Be precise.")
                 ~turn_count:3
                 ~context:ctx
@@ -589,7 +589,7 @@ let () =
               (Context.get ctx2 "key" = Some (`String "val")))
         ; test_case "override config takes precedence" `Quick (fun () ->
             let cp =
-              make_checkpoint ~agent_name:"orig-agent" ~model:"agent_llm_a-sonnet-4-6" ()
+              make_checkpoint ~agent_name:"orig-agent" ~model:"claude-sonnet-4-6" ()
             in
             let override =
               { Types.default_config with name = "should-be-ignored"; max_turns = 99 }
