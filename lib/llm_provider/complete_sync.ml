@@ -157,7 +157,7 @@ let complete_http
             ~url
             ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
             ~body:body_str
-            (* Per-kind connect/headers bound (RFC-OAS-026). A cold local Ollama
+              (* Per-kind connect/headers bound (RFC-OAS-026). A cold local Ollama
                model load or an admission-queued request holds the response
                headers well past the 60s that suits cloud providers, so bound
                the op with default_connect_timeout_s (600s Ollama, 60s cloud),
