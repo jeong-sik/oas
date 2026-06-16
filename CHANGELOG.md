@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.206.14](https://github.com/jeong-sik/oas/compare/v0.206.13...v0.206.14) (2026-06-15)
+
+
+### Bug Fixes
+
+* **llm_provider:** preserve timeout phase across retry path ([#2096](https://github.com/jeong-sik/oas/issues/2096)) ([82bcf18](https://github.com/jeong-sik/oas/commit/82bcf186d6e8d20864a374aeee2129e63fc44ca3))
+* **llm_provider:** separate timeout phase from catch scope, add Ollama prefill bounds ([#2093](https://github.com/jeong-sik/oas/issues/2093)) ([bef6395](https://github.com/jeong-sik/oas/commit/bef6395c26d441d31469b624a355a8e07788cd6f))
+
 ## [0.206.13](https://github.com/jeong-sik/oas/compare/v0.206.12...v0.206.13) (2026-06-15)
 
 
