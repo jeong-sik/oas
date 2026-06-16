@@ -159,8 +159,7 @@ let%test "gemini_url sync with api_key" =
     }
   in
   let url = gemini_url ~config ~stream:false in
-  url
-  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+  url = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 ;;
 
 let%test "gemini_url stream with api_key" =
@@ -284,7 +283,7 @@ let%test "gemini_url never leaks api_key even when set" =
   let url_sync = gemini_url ~config ~stream:false in
   let url_stream = gemini_url ~config ~stream:true in
   (not (contains_substring url_sync "mykey"))
-  && (not (contains_substring url_stream "mykey"))
+  && not (contains_substring url_stream "mykey")
 ;;
 
 let%test "gemini_url empty base_url no trailing slash" =

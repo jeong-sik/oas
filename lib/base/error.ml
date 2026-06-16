@@ -104,9 +104,7 @@ type config_error =
       { field : string
       ; detail : string
       }
-  | SensitiveValueInConfig of
-      { detail : string
-      }
+  | SensitiveValueInConfig of { detail : string }
 
 (** Serialization / deserialization errors. *)
 type serialization_error =

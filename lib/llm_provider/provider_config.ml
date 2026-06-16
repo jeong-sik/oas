@@ -192,12 +192,12 @@ let provider_kind_of_yojson = Provider_kind.of_yojson
 let auth_headers_for_config (config : t) : (string * string) list =
   if Secret.is_empty config.api_key
   then []
-  else
-    (match config.kind with
-     | Anthropic | Kimi -> [ "x-api-key", Secret.header_value config.api_key ]
-     | Gemini -> [ "x-goog-api-key", Secret.header_value config.api_key ]
-     | OpenAI_compat | Ollama | Glm | DashScope ->
-       [ "Authorization", "Bearer " ^ Secret.header_value config.api_key ])
+  else (
+    match config.kind with
+    | Anthropic | Kimi -> [ "x-api-key", Secret.header_value config.api_key ]
+    | Gemini -> [ "x-goog-api-key", Secret.header_value config.api_key ]
+    | OpenAI_compat | Ollama | Glm | DashScope ->
+      [ "Authorization", "Bearer " ^ Secret.header_value config.api_key ])
 ;;
 
 (** Same as {!auth_headers_for_config} but takes the provider kind and raw key
@@ -210,7 +210,9 @@ let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
   let secret = Secret.of_string api_key in
   if Secret.is_empty secret
   then []
-  else auth_headers_for_config { (make ~kind ~model_id:"" ~base_url:"" ()) with api_key = secret }
+  else
+    auth_headers_for_config
+      { (make ~kind ~model_id:"" ~base_url:"" ()) with api_key = secret }
 ;;
 
 let max_turns_hard_cap = function

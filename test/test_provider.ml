@@ -24,7 +24,9 @@ let check_auth_headers label expected (pc : Llm_provider.Provider_config.t) =
   Alcotest.(check (list (pair string string)))
     label
     expected
-    (Provider.auth_headers_only_for_kind ~kind:pc.kind ~api_key:((pc.api_key :> string) :> string))
+    (Provider.auth_headers_only_for_kind
+       ~kind:pc.kind
+       ~api_key:((pc.api_key :> string) :> string))
 ;;
 
 let test_missing_env_var () =
@@ -704,7 +706,10 @@ let test_provider_config_of_agent_none_fallback () =
       "defaults to anthropic"
       "anthropic"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
-    Alcotest.(check string) "uses fallback key" "sk-ant-default-fallback" (pc.api_key :> string);
+    Alcotest.(check string)
+      "uses fallback key"
+      "sk-ant-default-fallback"
+      (pc.api_key :> string);
     Alcotest.(check string)
       "preserves caller base_url"
       "https://api.anthropic.com"

@@ -222,7 +222,9 @@ let info_of_json json : (info, Error.sdk_error) result =
         (match Mcp.env_policy_of_string raw with
          | Ok p -> Ok p
          | Error msg ->
-           Error (Error.Serialization (JsonParseError { detail = "Mcp_session.info_of_json: " ^ msg })))
+           Error
+             (Error.Serialization
+                (JsonParseError { detail = "Mcp_session.info_of_json: " ^ msg })))
       | None -> Ok Minimal
     in
     match env_result, http_headers_result, tools_result, env_policy_result with

@@ -270,13 +270,12 @@ let close t =
 (** Default trust boundary for MCP stdio subprocesses. *)
 type env_policy =
   | Minimal
-      (** Start the child with a minimal allow-list ([PATH], [LANG],
+  (** Start the child with a minimal allow-list ([PATH], [LANG],
           [LC_ALL], [TMPDIR]) plus any keys explicitly listed in [spec.env]. *)
   | Inherit
-      (** Inherit the full parent environment and apply [spec.env] overrides.
+  (** Inherit the full parent environment and apply [spec.env] overrides.
           Use only when the MCP server is fully trusted. *)
-  | Explicit
-      (** Pass exactly the variables listed in [spec.env]. *)
+  | Explicit (** Pass exactly the variables listed in [spec.env]. *)
 
 (** Server start specification.
     [command] is the executable, [args] its arguments.
@@ -376,12 +375,32 @@ let build_minimal_env ~policy extras =
 
 let is_shell_meta ch =
   match ch with
-  | ';' | '|' | '&' | '$' | '`' | '(' | ')' | '{' | '}' | '<' | '>' | '*' | '?' | '#' | '!' | '~' | '\\' | '"' | '\'' | '\n' | '\r' | '\t' -> true
+  | ';'
+  | '|'
+  | '&'
+  | '$'
+  | '`'
+  | '('
+  | ')'
+  | '{'
+  | '}'
+  | '<'
+  | '>'
+  | '*'
+  | '?'
+  | '#'
+  | '!'
+  | '~'
+  | '\\'
+  | '"'
+  | '\''
+  | '\n'
+  | '\r'
+  | '\t' -> true
   | _ -> false
 ;;
 
 let has_shell_meta s = String.exists is_shell_meta s
-
 let interpreters = [ "sh"; "bash"; "zsh"; "python"; "python3"; "node"; "ruby"; "perl" ]
 
 let shell_commands_allowed () =
@@ -396,18 +415,13 @@ let validate_command_and_args ~command ~args =
     Error
       (Error.Mcp
          (ServerStartFailed
-            { command
-            ; detail = "MCP command contains shell metacharacters"
-            }))
+            { command; detail = "MCP command contains shell metacharacters" }))
   else if Filename.is_relative command
   then
     Error
       (Error.Mcp
-         (ServerStartFailed
-            { command
-            ; detail = "MCP command must be an absolute path"
-            }))
-  else
+         (ServerStartFailed { command; detail = "MCP command must be an absolute path" }))
+  else (
     let basename = Filename.basename command in
     if (not (shell_commands_allowed ())) && List.mem basename interpreters
     then
@@ -417,11 +431,11 @@ let validate_command_and_args ~command ~args =
               { command
               ; detail =
                   Printf.sprintf
-                    "MCP command is an interpreter (%s); set OAS_MCP_ALLOW_SHELL_COMMANDS=1 \
-                     to allow"
+                    "MCP command is an interpreter (%s); set \
+                     OAS_MCP_ALLOW_SHELL_COMMANDS=1 to allow"
                     basename
               }))
-    else
+    else (
       let resolved =
         try Unix.realpath command with
         | _ -> command
@@ -434,7 +448,7 @@ let validate_command_and_args ~command ~args =
                 { command
                 ; detail = Printf.sprintf "MCP command is not a regular file: %s" resolved
                 }))
-      else
+      else (
         let st = Unix.stat resolved in
         if st.st_perm land 0o022 <> 0
         then
@@ -452,10 +466,8 @@ let validate_command_and_args ~command ~args =
           Error
             (Error.Mcp
                (ServerStartFailed
-                  { command
-                  ; detail = "MCP args contain shell metacharacters"
-                  }))
-        else Ok resolved
+                  { command; detail = "MCP args contain shell metacharacters" }))
+        else Ok resolved)))
 ;;
 
 (** Close a single managed MCP connection (transport-aware). *)
@@ -520,7 +532,10 @@ let connect_and_load ~sw ~mgr spec =
             (Error.Mcp
                (InitializeFailed
                   { detail =
-                      Printf.sprintf "MCP server '%s': %s" spec.name (Printexc.to_string exn)
+                      Printf.sprintf
+                        "MCP server '%s': %s"
+                        spec.name
+                        (Printexc.to_string exn)
                   }))))
 ;;
 

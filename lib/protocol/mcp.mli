@@ -80,8 +80,9 @@ val get_prompt
 
 val output_token_budget : unit -> int
 val truncate_output : string -> string
-val text_of_tool_result : Mcp_schema.Sdk_types.tool_result -> string
+
 (** {1 Managed connections} *)
+val text_of_tool_result : Mcp_schema.Sdk_types.tool_result -> string
 
 type env_policy =
   | Minimal

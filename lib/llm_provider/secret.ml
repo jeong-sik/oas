@@ -10,7 +10,13 @@
 type t = string
 
 let of_string s = s
-let of_env var = match Sys.getenv_opt var with Some s -> Some (of_string s) | None -> None
+
+let of_env var =
+  match Sys.getenv_opt var with
+  | Some s -> Some (of_string s)
+  | None -> None
+;;
+
 let empty = ""
 let is_empty s = String.trim s = ""
 let header_value s = s

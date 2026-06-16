@@ -295,11 +295,11 @@ let complete_http
                   let k = config.api_key in
                   if Secret.is_empty k
                   then "-"
-                  else
+                  else (
                     let len = Secret.length k in
                     if len < 8
                     then Printf.sprintf "len:%d" len
-                    else Printf.sprintf "fp:%s(len:%d)" (Secret.fingerprint k) len
+                    else Printf.sprintf "fp:%s(len:%d)" (Secret.fingerprint k) len)
                 in
                 Diag.warn
                   "complete"

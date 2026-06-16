@@ -101,13 +101,20 @@ let write_file path content =
 let write_file_secret path content =
   try
     let* () = ensure_dir_recursive (Filename.dirname path) in
-    let tmp_path = Filename.temp_file ~temp_dir:(Filename.dirname path) (Filename.basename path ^ ".") ".tmp" in
+    let tmp_path =
+      Filename.temp_file
+        ~temp_dir:(Filename.dirname path)
+        (Filename.basename path ^ ".")
+        ".tmp"
+    in
     let clean_tmp () =
       try Sys.remove tmp_path with
       | Sys_error _ | Unix.Unix_error _ -> ()
     in
     try
-      let fd = Unix.openfile tmp_path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL ] 0o600 in
+      let fd =
+        Unix.openfile tmp_path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL ] 0o600
+      in
       let oc = Unix.out_channel_of_descr fd in
       Fun.protect
         ~finally:(fun () -> close_out_noerr oc)

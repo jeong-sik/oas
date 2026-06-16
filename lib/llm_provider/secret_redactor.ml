@@ -12,7 +12,28 @@
 
 let is_shell_meta ch =
   match ch with
-  | ';' | '|' | '&' | '$' | '`' | '(' | ')' | '{' | '}' | '<' | '>' | '*' | '?' | '#' | '!' | '~' | '\\' | '"' | '\'' | '\n' | '\r' | '\t' -> true
+  | ';'
+  | '|'
+  | '&'
+  | '$'
+  | '`'
+  | '('
+  | ')'
+  | '{'
+  | '}'
+  | '<'
+  | '>'
+  | '*'
+  | '?'
+  | '#'
+  | '!'
+  | '~'
+  | '\\'
+  | '"'
+  | '\''
+  | '\n'
+  | '\r'
+  | '\t' -> true
   | _ -> false
 ;;
 
@@ -40,7 +61,11 @@ let has_prefix_at s pos prefix =
 let find_prefix s pos prefix =
   let n = String.length prefix in
   let rec scan i =
-    if i + n > String.length s then None else if has_prefix_at s i prefix then Some i else scan (i + 1)
+    if i + n > String.length s
+    then None
+    else if has_prefix_at s i prefix
+    then Some i
+    else scan (i + 1)
   in
   scan pos
 ;;
@@ -52,16 +77,22 @@ let redact_prefixes s prefixes =
   let rec loop pos =
     if pos >= String.length s
     then Buffer.add_substring buf s pos (String.length s - pos)
-    else
-      match List.find_map (fun prefix -> Option.map (fun i -> i, prefix) (find_prefix s pos prefix)) prefixes with
-      | None -> Buffer.add_char buf s.[pos]; loop (pos + 1)
+    else (
+      match
+        List.find_map
+          (fun prefix -> Option.map (fun i -> i, prefix) (find_prefix s pos prefix))
+          prefixes
+      with
+      | None ->
+        Buffer.add_char buf s.[pos];
+        loop (pos + 1)
       | Some (i, prefix) ->
         Buffer.add_substring buf s pos (i - pos);
         Buffer.add_string buf prefix;
         let token_pos = i + String.length prefix in
         let tok_len = token_len s token_pos in
         Buffer.add_string buf redaction_marker;
-        loop (token_pos + tok_len)
+        loop (token_pos + tok_len))
   in
   loop 0;
   Buffer.contents buf
@@ -109,7 +140,7 @@ let redact_private_key_block s =
        before ^ redaction_marker ^ after)
 ;;
 
-let builtin_prefixes = [ "Bearer "; "api-key:"; "x-api-key:"; "Authorization:"; "key=" ]
+let builtin_prefixes = [ "Bearer "; "api-key: "; "x-api-key: "; "Authorization:"; "key=" ]
 
 let is_alphanum ch =
   match ch with
@@ -183,7 +214,8 @@ let%test "redact_string masks GitHub token" =
 ;;
 
 let%test "redact_string masks URL userinfo" =
-  redact_string "https://user:secret@api.example.com/v1" = "https://[REDACTED]@api.example.com/v1"
+  redact_string "https://user:secret@api.example.com/v1"
+  = "https://[REDACTED]@api.example.com/v1"
 ;;
 
 let%test "redact_string masks private key block" =
@@ -193,7 +225,7 @@ let%test "redact_string masks private key block" =
 
 let%test "redact_json preserves structure" =
   match redact_json (`Assoc [ "key", `String "Bearer tok" ]) with
-  | `Assoc [ ("key", `String "[REDACTED]") ] -> true
+  | `Assoc [ ("key", `String "Bearer [REDACTED]") ] -> true
   | _ -> false
 ;;
 

@@ -59,7 +59,7 @@ let system_msg s : Types.message =
 
 let gemini25_flash_model = "gemini-2.5-flash"
 
-let gemini25_url ?api_key ~stream () =
+let gemini25_url ?api_key:_ ~stream () =
   let action = if stream then "streamGenerateContent" else "generateContent" in
   let base =
     Printf.sprintf
@@ -67,11 +67,7 @@ let gemini25_url ?api_key ~stream () =
       gemini25_flash_model
       action
   in
-  match api_key, stream with
-  | Some key, true -> Printf.sprintf "%s?key=%s&alt=sse" base key
-  | Some key, false -> Printf.sprintf "%s?key=%s" base key
-  | None, true -> base ^ "?alt=sse"
-  | None, false -> base
+  if stream then base ^ "?alt=sse" else base
 ;;
 
 let mk_response

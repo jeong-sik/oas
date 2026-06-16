@@ -103,9 +103,7 @@ type config_error =
       { field : string
       ; detail : string
       }
-  | SensitiveValueInConfig of
-      { detail : string
-      }
+  | SensitiveValueInConfig of { detail : string }
 
 type serialization_error =
   | JsonParseError of { detail : string }

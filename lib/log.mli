@@ -34,7 +34,7 @@ type field =
   | B of string * bool
   | J of string * Yojson.Safe.t
   | Secret of string * Llm_provider.Secret.t
-    (** Secret field — always renders as [<redacted>] in every sink. *)
+  (** Secret field — always renders as [<redacted>] in every sink. *)
 
 val field_to_json : field -> string * Yojson.Safe.t
 

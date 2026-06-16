@@ -117,8 +117,8 @@ let create_message
         (Error.Config
            (MissingEnvVar
               { var_name =
-                  "provider (Api.create_message no longer falls back to ANTHROPIC_API_KEY; \
-                   pass an explicit provider)"
+                  "provider (Api.create_message no longer falls back to \
+                   ANTHROPIC_API_KEY; pass an explicit provider)"
               }))
   in
   match resolve_result with

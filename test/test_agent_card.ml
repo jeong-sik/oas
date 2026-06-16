@@ -247,7 +247,8 @@ let test_json_with_authentication () =
     ; version = "1.0"
     ; url = Some "http://agent.local:8080"
     ; authentication =
-        Some { schemes = [ "bearer"; "api-key" ]; credential_ref = Env "AGENT_CARD_API_KEY" }
+        Some
+          { schemes = [ "bearer"; "api-key" ]; credential_ref = Env "AGENT_CARD_API_KEY" }
     ; supported_interfaces = [ jsonrpc_interface "http://agent.local:8080" ]
     ; capabilities = [ Tools; Streaming ]
     ; tools = []
@@ -265,7 +266,9 @@ let test_json_with_authentication () =
     (match card2.authentication with
      | Some auth ->
        Alcotest.(check (list string)) "schemes" [ "bearer"; "api-key" ] auth.schemes;
-       Alcotest.(check bool) "credential_ref env" true
+       Alcotest.(check bool)
+         "credential_ref env"
+         true
          (auth.credential_ref = Agent_card.Env "AGENT_CARD_API_KEY")
      | None -> Alcotest.fail "expected auth");
     Alcotest.(check int) "interface count" 1 (List.length card2.supported_interfaces);
@@ -321,7 +324,8 @@ let test_json_rejects_literal_credentials () =
   | Error (Error.Config (SensitiveValueInConfig _)) ->
     Alcotest.(check bool) "rejects literal credentials" true true
   | Error e ->
-    Alcotest.fail (Printf.sprintf "expected SensitiveValueInConfig, got %s" (Error.to_string e))
+    Alcotest.fail
+      (Printf.sprintf "expected SensitiveValueInConfig, got %s" (Error.to_string e))
 ;;
 
 let test_json_auth_no_credentials () =
@@ -345,7 +349,9 @@ let test_json_auth_no_credentials () =
   | Ok card2 ->
     (match card2.authentication with
      | Some auth ->
-       Alcotest.(check bool) "no credential_ref" true
+       Alcotest.(check bool)
+         "no credential_ref"
+         true
          (auth.credential_ref = Agent_card.No_credential)
      | None -> Alcotest.fail "expected auth")
   | Error e -> Alcotest.fail (Error.to_string e)
@@ -474,7 +480,10 @@ let () =
         ; test_case "with auth" `Quick test_json_with_authentication
         ; test_case "no auth no meta" `Quick test_json_no_auth_no_metadata
         ; test_case "auth no creds" `Quick test_json_auth_no_credentials
-        ; test_case "rejects literal credentials" `Quick test_json_rejects_literal_credentials
+        ; test_case
+            "rejects literal credentials"
+            `Quick
+            test_json_rejects_literal_credentials
         ; test_case "with skills" `Quick test_to_json_with_skills
         ; test_case
             "legacy json backfills interfaces"
