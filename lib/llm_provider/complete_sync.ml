@@ -99,12 +99,12 @@ let complete_http
                })
         , 0 ))
       else (
-        (* Request body diagnostic dump.  Controlled by OAS_DEBUG_REQUEST_BODY:
-       "full"    — dump complete body to /tmp/oas-request-<ts>.json + stderr summary
+        (* Request body diagnostic summary.  Controlled by OAS_DEBUG_REQUEST_BODY:
        "summary" — stderr one-liner: provider, model, url, byte count
        unset/""  — silent (default, zero overhead)
-     Useful for diagnosing provider-side parse errors (e.g. Ollama yyjson
-     rejecting a body that Yojson.Safe considers valid). *)
+     The previous "full" mode dumped the complete request body (including
+     API keys, prompts, and tool context) to /tmp without scrubbing and has
+     been removed as a secret-leak risk. *)
         let debug_request_body =
           Sys.getenv_opt "OAS_DEBUG_REQUEST_BODY"
           |> Option.value ~default:""
@@ -112,33 +112,6 @@ let complete_http
         in
         let provider_label = provider_name in
         (match debug_request_body with
-         | "full" ->
-           let ts = Printf.sprintf "%.0f" (Unix.gettimeofday () *. 1000.0) in
-           let dump_path =
-             Printf.sprintf "/tmp/oas-request-%s-%s.json" provider_label ts
-           in
-           (try
-              let oc = open_out dump_path in
-              output_string oc body_str;
-              close_out oc;
-              Diag.debug
-                "complete"
-                "%s %s → %s (%d bytes) dumped to %s"
-                provider_label
-                config.model_id
-                url
-                body_len
-                dump_path
-            with
-            | exn ->
-              Diag.debug
-                "complete"
-                "%s %s → %s (%d bytes) dump failed: %s"
-                provider_label
-                config.model_id
-                url
-                body_len
-                (Printexc.to_string exn))
          | "summary" ->
            Diag.debug
              "complete"
@@ -147,6 +120,12 @@ let complete_http
              config.model_id
              url
              body_len
+         | "full" ->
+           Diag.warn
+             "complete"
+             "OAS_DEBUG_REQUEST_BODY=full is disabled: full request-body dumps to /tmp \
+              have been removed because they leak API keys and prompts. Use 'summary' \
+              or a scrubbing-aware logger instead."
          | _other_debug_mode -> ());
         let t0 = Unix.gettimeofday () in
         let post_sync_call () =
@@ -316,113 +295,10 @@ let complete_http
                   parse_ok
                   (if String.length body <= 200
                    then body
-                   else String.sub body 0 200 ^ "...");
-                (* Dump the rejected body when the failure looks like a JSON
-               parse complaint from the server, or when our own round-trip
-               parse fails.  Bounded: at most one dump per
-               provider+model+minute keeps /tmp from filling during
-               sustained outages. *)
-                let lower_resp = String.lowercase_ascii body in
-                let contains_substring h n =
-                  let nl = String.length n in
-                  let hl = String.length h in
-                  if nl = 0 || nl > hl
-                  then false
-                  else (
-                    let rec scan i =
-                      if i + nl > hl
-                      then false
-                      else if String.sub h i nl = n
-                      then true
-                      else scan (i + 1)
-                    in
-                    scan 0)
+                   else String.sub body 0 200 ^ "..."));
+                let body =
+                  http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
                 in
-                let server_parse_complaint =
-                  List.exists
-                    (fun n -> contains_substring lower_resp n)
-                    [ "closing"
-                    ; "can't find"
-                    ; "cant find"
-                    ; "unterminated"
-                    ; "unexpected character"
-                    ]
-                in
-                (* Any HTTP 5xx is also a strong signal that the request body is
-               worth capturing — the provider accepted the request for
-               parsing but failed to produce a response.  Generic 500s like
-               ZAI's "Operation failed" don't match the parse-complaint
-               substrings above but still indicate content-specific
-               triggers that are only reproducible with the exact payload. *)
-                let server_5xx = code >= 500 && code < 600 in
-                (* Body dumps are gated behind an explicit env var because the
-               serialized request contains the full prompt + tool context +
-               injected memory.  Default OFF — operators must opt in by
-               setting OAS_DEBUG_BODY_DUMP=1 (or any non-empty value).
-               Even then, files are written with mode 0o600 so only the
-               server's UID can read them. *)
-                let dump_enabled =
-                  match Sys.getenv_opt "OAS_DEBUG_BODY_DUMP" with
-                  | Some v when String.trim v <> "" && String.trim v <> "0" -> true
-                  | Some _ | None -> false
-                in
-                if dump_enabled && ((not parse_ok) || server_parse_complaint || server_5xx)
-                then (
-                  let now = Unix.gettimeofday () in
-                  let minute_bucket = int_of_float (now /. 60.0) in
-                  let safe_model =
-                    String.map
-                      (fun c ->
-                         match c with
-                         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' | '_' -> c
-                         | _unsafe_model_char -> '_')
-                      config.model_id
-                  in
-                  let dir =
-                    match Cli_common_env.get "OAS_DEBUG_BODY_DIR" with
-                    | Some v -> v
-                    | None -> Filename.get_temp_dir_name ()
-                  in
-                  let path =
-                    Filename.concat
-                      dir
-                      (Printf.sprintf
-                         "oas-bad-body-%s-%s-%d.json"
-                         provider_name
-                         safe_model
-                         minute_bucket)
-                  in
-                  if not (Sys.file_exists path)
-                  then (
-                    try
-                      (* Open with O_EXCL so a concurrent fiber that won the
-                     TOCTOU race causes us to skip silently rather than
-                     truncate its dump.  Mode 0o600 = owner read/write only.
-                     [Unix.out_channel_of_descr] transfers fd ownership to
-                     the channel, so close_out_noerr alone closes the fd —
-                     calling Unix.close on it as well would double-close
-                     (unix.mli:462). *)
-                      let fd =
-                        Unix.openfile
-                          path
-                          [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_EXCL ]
-                          0o600
-                      in
-                      let oc = Unix.out_channel_of_descr fd in
-                      Fun.protect
-                        ~finally:(fun () -> close_out_noerr oc)
-                        (fun () -> output_string oc body_str);
-                      Diag.warn
-                        "complete"
-                        "dumped rejected request body: %s (%d bytes, mode 0600)"
-                        path
-                        body_len
-                    with
-                    | Unix.Unix_error (Unix.EEXIST, _, _) -> ()
-                    | _dump_error -> ())));
-              let body =
-                http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
-              in
               Error (Http_client.HttpError { code; body }))
         in
         let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in

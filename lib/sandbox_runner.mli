@@ -38,26 +38,34 @@ type sandbox_result =
 
     The [run_fn] is called with the prompt and must return an API response.
     The sandbox enforces:
-    - Wall-clock timeout ([config.timeout_s])
+    - Wall-clock timeout ([config.timeout_s]) when [clock] is provided
     - Maximum turn count ([config.max_turns])
     - Maximum tool call count ([config.max_tool_calls])
 
     On limit violation, the run_fn receives an error on the next call.
     The result contains the captured trajectory, collected metrics,
-    and resource-budget verdicts. *)
+    and resource-budget verdicts.
+
+    @since 0.206.10 [?clock] added. Timeout is only enforced when an Eio
+    clock is supplied; without one the timeout field is checked after the
+    fact (legacy synchronous behaviour). *)
 val run
-  :  config:sandbox_config
+  :  ?clock:_ Eio.Time.clock
+  -> config:sandbox_config
   -> agent_name:string
   -> model:string
   -> prompt:string
   -> run_fn:(string -> (Types.api_response, Error.sdk_error) result)
+  -> unit
   -> sandbox_result
 
 (** Alias for {!run} that makes the single-call semantics explicit. *)
 val run_once
-  :  config:sandbox_config
+  :  ?clock:_ Eio.Time.clock
+  -> config:sandbox_config
   -> agent_name:string
   -> model:string
   -> prompt:string
   -> run_fn:(string -> (Types.api_response, Error.sdk_error) result)
+  -> unit
   -> sandbox_result

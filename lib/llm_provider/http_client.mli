@@ -185,6 +185,9 @@ val default_http_timeout_s : float
 (** GET a URL synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
+    The connection is bound to [sw]; it is closed when [sw] is released.
+    This respects the caller's switch scope and cancellation.
+
     When [clock] is supplied the entire operation (connect + response
     + body read) is bounded by [timeout_s] (default
     {!default_http_timeout_s}); a timeout owned by this wrapper
@@ -202,6 +205,9 @@ val get_sync
 
 (** POST JSON body synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
+
+    The connection is bound to [sw]; it is closed when [sw] is released.
+    This respects the caller's switch scope and cancellation.
 
     When [clock] is supplied the entire operation is bounded by
     [timeout_s] (default {!default_http_timeout_s}); a timeout owned by

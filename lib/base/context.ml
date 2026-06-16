@@ -9,8 +9,12 @@
     (pure Hashtbl ops), so Stdlib.Mutex is safe and sufficient.
     Values are Yojson.Safe.t for flexibility while maintaining serializability. *)
 
+type mutex =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
 type t =
-  { mu : Mutex.t
+  { mu : mutex
   ; tbl : (string, Yojson.Safe.t) Hashtbl.t
   }
 
@@ -27,11 +31,19 @@ type diff =
   ; changed : (string * Yojson.Safe.t) list
   }
 
-let create () : t = { mu = Mutex.create (); tbl = Hashtbl.create 16 }
+let create ?(eio = false) () : t =
+  let mu =
+    if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ())
+  in
+  { mu; tbl = Hashtbl.create 16 }
+;;
 
 let with_lock ctx f =
-  Mutex.lock ctx.mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock ctx.mu)
+  match ctx.mu with
+  | Stdlib_mu mu ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
 ;;
 
 let get (ctx : t) key = with_lock ctx (fun () -> Hashtbl.find_opt ctx.tbl key)
@@ -123,7 +135,7 @@ let of_json (json : Yojson.Safe.t) : t =
 
 let copy (ctx : t) : t =
   with_lock ctx (fun () ->
-    let new_ctx = create () in
+    let new_ctx = create ~eio:(match ctx.mu with Eio_mu _ -> true | _ -> false) () in
     Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
     new_ctx)
 ;;

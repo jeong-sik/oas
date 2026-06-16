@@ -11,11 +11,16 @@ open Runtime_server_types
 
 (** {1 Server entry point} *)
 
-(** Main server loop: reads protocol messages from stdin and processes
-    them until a Shutdown message is received. *)
+(** Main server loop: reads protocol messages from [stdin] and processes
+    them until a Shutdown message is received.
+
+    [stdin] must be an Eio byte flow (e.g. [Eio_unix.Stdenv.stdin env]).
+    Reading is non-blocking and yields to the Eio scheduler, so timeouts
+    and cancellation propagate correctly. *)
 val serve_stdio
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> stdin:_ Eio.Flow.source
   -> unit
   -> unit
 

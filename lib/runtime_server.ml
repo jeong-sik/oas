@@ -1403,47 +1403,56 @@ let handle_request ~sw state request =
   | Shutdown -> Ok Shutdown_ack
 ;;
 
-let serve_stdio ~sw ~net () =
+let max_stdio_line_len = 10 * 1024 * 1024
+
+let serve_stdio ~sw ~net ~stdin () =
   let state = create ~net () in
+  let reader = Eio.Buf_read.of_flow stdin ~max_size:max_stdio_line_len in
   let rec loop () =
-    match input_line stdin with
-    | raw when String.trim raw = "" -> loop ()
-    | exception End_of_file -> ()
+    match Eio.Buf_read.line reader with
     | raw ->
-      (match protocol_message_of_string raw with
-       | Ok (Request_message payload) ->
+      let raw = String.trim raw in
+      if raw = ""
+      then loop ()
+      else handle_raw state raw
+    | exception End_of_file -> ()
+    | exception Eio.Io _ -> ()
+    | exception Eio.Cancel.Cancelled _ -> ()
+  and handle_raw state raw =
+    match protocol_message_of_string raw with
+    | Ok (Request_message payload) ->
+      let response =
+        match handle_request ~sw state payload.request with
+        | Ok response -> response
+        | Error err -> Error_response (Error.to_string err)
+      in
+      write_protocol_message
+        state
+        (Response_message { request_id = payload.request_id; response });
+      (match response with
+       | Shutdown_ack -> ()
+       | _continue_response -> loop ())
+    | Ok _non_request_message -> loop ()
+    | Error _ ->
+      (match request_of_string raw with
+       | Error detail ->
+         write_protocol_message
+           state
+           (Response_message
+              { request_id = "legacy"; response = Error_response detail });
+         loop ()
+       | Ok request ->
          let response =
-           match handle_request ~sw state payload.request with
+           match handle_request ~sw state request with
            | Ok response -> response
            | Error err -> Error_response (Error.to_string err)
          in
          write_protocol_message
            state
-           (Response_message { request_id = payload.request_id; response });
+           (Response_message { request_id = "legacy"; response });
          (match response with
           | Shutdown_ack -> ()
-          | _continue_response -> loop ())
-       | Ok _non_request_message -> loop ()
-       | Error _ ->
-         (match request_of_string raw with
-          | Error detail ->
-            write_protocol_message
-              state
-              (Response_message
-                 { request_id = "legacy"; response = Error_response detail });
-            loop ()
-          | Ok request ->
-            let response =
-              match handle_request ~sw state request with
-              | Ok response -> response
-              | Error err -> Error_response (Error.to_string err)
-            in
-            write_protocol_message
-              state
-              (Response_message { request_id = "legacy"; response });
-            (match response with
-             | Shutdown_ack -> ()
-             | _continue_response -> loop ())))
+          | _continue_response -> loop ()))
   in
   loop ()
 ;;

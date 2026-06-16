@@ -147,10 +147,18 @@ let wrap_run_fn state (run_fn : string -> (Types.api_response, Error.sdk_error) 
 
 (* ── Run ────────────────────────────────────────────────────── *)
 
-let run ~config ~agent_name ~model ~prompt ~run_fn =
+let run ?clock ~config ~agent_name ~model ~prompt ~run_fn () =
   let state = create_state config in
   let wrapped = wrap_run_fn state run_fn in
-  let result = wrapped prompt in
+  let result =
+    match clock with
+    | Some clk ->
+      (try Eio.Time.with_timeout_exn clk config.timeout_s (fun () -> wrapped prompt) with
+       | Eio.Time.Timeout ->
+         state.violation <- Some Timeout;
+         Error (Error.Internal "Sandbox timeout exceeded"))
+    | None -> wrapped prompt
+  in
   let finish_time = Unix.gettimeofday () in
   let elapsed = finish_time -. state.start_time in
   let success = Result.is_ok result in
@@ -235,3 +243,4 @@ let run ~config ~agent_name ~model ~prompt ~run_fn =
 ;;
 
 let run_once = run
+
