@@ -167,7 +167,9 @@ val openrouter : ?model_id:string -> unit -> config
 
 (** {2 Pricing: per-model cost estimation} *)
 
-type pricing =
+(* Re-exported from [Llm_provider.Pricing] so [Provider.pricing] is the same type
+   (pricing is catalog-sourced via that module; see provider.ml). *)
+type pricing = Llm_provider.Pricing.pricing =
   { input_per_million : float
   ; output_per_million : float
   ; cache_write_multiplier : float
