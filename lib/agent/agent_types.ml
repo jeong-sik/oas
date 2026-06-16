@@ -373,9 +373,7 @@ let create
 
 let clone ?(copy_context = false) agent =
   let ctx =
-    if copy_context
-    then Context.copy agent.context
-    else Context.create ~eio:true ()
+    if copy_context then Context.copy agent.context else Context.create ~eio:true ()
   in
   let state =
     { config = agent.state.config

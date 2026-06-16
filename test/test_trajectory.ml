@@ -462,7 +462,8 @@ let test_sandbox_basic () =
       ~agent_name:"sandbox-test"
       ~model:"mock"
       ~prompt:"test prompt"
-      ~run_fn ()
+      ~run_fn
+      ()
   in
   Alcotest.(check bool) "success" true result.trajectory.success;
   Alcotest.(check int) "called once" 1 !call_count;
@@ -489,7 +490,8 @@ let test_sandbox_max_turns () =
       ~agent_name:"limit-test"
       ~model:"mock"
       ~prompt:"test"
-      ~run_fn ()
+      ~run_fn
+      ()
   in
   (* Turn count is 1, max_turns is 1: within limit *)
   Alcotest.(check int) "called once" 1 !call_count;
@@ -520,7 +522,8 @@ let test_sandbox_tool_counting () =
       ~agent_name:"tool-count-test"
       ~model:"mock"
       ~prompt:"run tools"
-      ~run_fn ()
+      ~run_fn
+      ()
   in
   (* 2 tool_use blocks counted *)
   let tool_metric =
@@ -542,7 +545,8 @@ let test_sandbox_trajectory_capture () =
       ~agent_name:"capture-test"
       ~model:"mock"
       ~prompt:"capture me"
-      ~run_fn ()
+      ~run_fn
+      ()
   in
   (* Should have Think (prompt) + Respond steps *)
   let total = List.length result.trajectory.steps in
@@ -561,7 +565,8 @@ let test_sandbox_no_capture () =
       ~agent_name:"no-capture"
       ~model:"mock"
       ~prompt:"silent"
-      ~run_fn ()
+      ~run_fn
+      ()
   in
   (* With capture off, no steps recorded *)
   Alcotest.(check int) "no steps" 0 (List.length result.trajectory.steps)
@@ -576,7 +581,8 @@ let test_sandbox_error_run () =
       ~agent_name:"error-test"
       ~model:"mock"
       ~prompt:"fail"
-      ~run_fn ()
+      ~run_fn
+      ()
   in
   Alcotest.(check bool) "not success" false result.trajectory.success;
   Alcotest.(check bool) "has error" true (Option.is_some result.trajectory.error)
@@ -599,14 +605,21 @@ let test_sandbox_timeout () =
         ~agent_name:"timeout-test"
         ~model:"mock"
         ~prompt:"hang"
-        ~run_fn ()
+        ~run_fn
+        ()
     in
     Alcotest.(check bool) "not success" false result.trajectory.success;
-    Alcotest.(check bool) "timeout verdict failed" false
+    Alcotest.(check bool)
+      "timeout verdict failed"
+      false
       (List.for_all (fun (v : Harness.verdict) -> v.passed) result.verdicts);
-    Alcotest.(check bool) "error mentions timeout" true
-      (Option.fold ~none:false
-         ~some:(fun e -> String.contains e 't' && String.contains e 'i' && String.contains e 'm')
+    Alcotest.(check bool)
+      "error mentions timeout"
+      true
+      (Option.fold
+         ~none:false
+         ~some:(fun e ->
+           String.contains e 't' && String.contains e 'i' && String.contains e 'm')
          result.trajectory.error))
 ;;
 

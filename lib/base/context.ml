@@ -32,9 +32,7 @@ type diff =
   }
 
 let create ?(eio = false) () : t =
-  let mu =
-    if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ())
-  in
+  let mu = if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ()) in
   { mu; tbl = Hashtbl.create 16 }
 ;;
 
@@ -135,7 +133,14 @@ let of_json (json : Yojson.Safe.t) : t =
 
 let copy (ctx : t) : t =
   with_lock ctx (fun () ->
-    let new_ctx = create ~eio:(match ctx.mu with Eio_mu _ -> true | _ -> false) () in
+    let new_ctx =
+      create
+        ~eio:
+          (match ctx.mu with
+           | Eio_mu _ -> true
+           | _ -> false)
+        ()
+    in
     Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
     new_ctx)
 ;;

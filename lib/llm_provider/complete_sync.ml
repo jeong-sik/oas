@@ -124,8 +124,8 @@ let complete_http
            Diag.warn
              "complete"
              "OAS_DEBUG_REQUEST_BODY=full is disabled: full request-body dumps to /tmp \
-              have been removed because they leak API keys and prompts. Use 'summary' \
-              or a scrubbing-aware logger instead."
+              have been removed because they leak API keys and prompts. Use 'summary' or \
+              a scrubbing-aware logger instead."
          | _other_debug_mode -> ());
         let t0 = Unix.gettimeofday () in
         let post_sync_call () =
@@ -296,9 +296,9 @@ let complete_http
                   (if String.length body <= 200
                    then body
                    else String.sub body 0 200 ^ "..."));
-                let body =
-                  http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
-                in
+              let body =
+                http_error_diagnostic_body ~provider_name ~config ~url ~code ~body
+              in
               Error (Http_client.HttpError { code; body }))
         in
         let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in

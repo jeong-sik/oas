@@ -451,7 +451,8 @@ let load_from_file ?fs path =
           in
           parse_lines (String.split_on_char '\n' contents))
       with
-      | Eio.Io _ as e -> Error (Printf.sprintf "load_from_file: %s" (Printexc.to_string e))
+      | Eio.Io _ as e ->
+        Error (Printf.sprintf "load_from_file: %s" (Printexc.to_string e))
       | exn -> Error (Printf.sprintf "load_from_file: %s" (Printexc.to_string exn)))
   | None ->
     if not (Sys.file_exists path)

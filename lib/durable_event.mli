@@ -166,10 +166,7 @@ val save_to_file : journal -> string -> (unit, string) result
     When [~fs] is supplied the load uses Eio non-blocking I/O and is
     bounded by a 50 MB size limit; otherwise a synchronous fallback is
     used for non-Eio callers. *)
-val load_from_file
-  :  ?fs:Eio.Fs.dir_ty Eio.Path.t
-  -> string
-  -> (journal, string) result
+val load_from_file : ?fs:Eio.Fs.dir_ty Eio.Path.t -> string -> (journal, string) result
 
 (** {1 Queries} *)
 

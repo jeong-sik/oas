@@ -651,15 +651,7 @@ let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers
       Ok (code, body_str)))
 ;;
 
-let post_sync
-      ?clock
-      ?(timeout_s = default_http_timeout_s)
-      ~sw
-      ~net
-      ~url
-      ~headers
-      ~body
-      ()
+let post_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ~body ()
   =
   catch_network (fun () ->
     let* uri = parse_uri url in

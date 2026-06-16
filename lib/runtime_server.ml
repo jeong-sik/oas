@@ -1412,9 +1412,7 @@ let serve_stdio ~sw ~net ~stdin () =
     match Eio.Buf_read.line reader with
     | raw ->
       let raw = String.trim raw in
-      if raw = ""
-      then loop ()
-      else handle_raw state raw
+      if raw = "" then loop () else handle_raw state raw
     | exception End_of_file -> ()
     | exception Eio.Io _ -> ()
     | exception Eio.Cancel.Cancelled _ -> ()
@@ -1438,8 +1436,7 @@ let serve_stdio ~sw ~net ~stdin () =
        | Error detail ->
          write_protocol_message
            state
-           (Response_message
-              { request_id = "legacy"; response = Error_response detail });
+           (Response_message { request_id = "legacy"; response = Error_response detail });
          loop ()
        | Ok request ->
          let response =
