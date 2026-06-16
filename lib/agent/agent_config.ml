@@ -361,7 +361,9 @@ let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
            | [] -> None)
         env
     in
-    let spec : Mcp.server_spec = { command; args; env = env_pairs; name } in
+    let spec : Mcp.server_spec =
+      { command; args; env = env_pairs; env_policy = Mcp.Minimal; name }
+    in
     Mcp.connect_and_load ~sw ~mgr spec
   | Http_mcp { url; headers; name } ->
     let spec : Mcp_http.http_spec = { base_url = url; headers; name } in

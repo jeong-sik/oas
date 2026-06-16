@@ -128,6 +128,7 @@ type t =
   ; mutable next_seq : int
   ; mutable run_counter : int
   ; mutable last_run : run_ref option
+  ; redact_secrets : bool
   }
 
 type active_run =
@@ -137,6 +138,7 @@ type active_run =
   ; session_id : string option
   ; mutable start_seq : int
   ; mutable end_seq : int
+  ; redact_secrets : bool
   }
 
 exception Trace_error of Error.sdk_error
@@ -359,7 +361,7 @@ let scan_next_seq path =
   Ok next
 ;;
 
-let create ?session_id ~path () =
+let create ?(redact_secrets = true) ?session_id ~path () =
   let* () = ensure_dir (Filename.dirname path) in
   let* next_seq = scan_next_seq path in
   Ok
@@ -369,10 +371,11 @@ let create ?session_id ~path () =
     ; next_seq
     ; run_counter = 0
     ; last_run = None
+    ; redact_secrets
     }
 ;;
 
-let create_for_session ?session_root ~session_id ~agent_name () =
+let create_for_session ?(redact_secrets = true) ?session_root ~session_id ~agent_name () =
   let* store = Runtime_store.create ?root:session_root () in
   let* () = Runtime_store.ensure_tree store session_id in
   let path =
@@ -380,7 +383,7 @@ let create_for_session ?session_root ~session_id ~agent_name () =
       (Runtime_store.raw_traces_dir store session_id)
       (Printf.sprintf "%s.jsonl" (safe_name agent_name))
   in
-  create ~session_id ~path ()
+  create ~redact_secrets ~session_id ~path ()
 ;;
 
 let file_path trace = trace.path
@@ -432,6 +435,12 @@ let append_record
   =
   Eio.Mutex.use_rw ~protect:true active.sink.lock (fun () ->
     let seq = active.sink.next_seq in
+    let maybe_redact_string =
+      if active.redact_secrets then Llm_provider.Secret_redactor.redact_string else Fun.id
+    in
+    let maybe_redact_json =
+      if active.redact_secrets then Llm_provider.Secret_redactor.redact_json else Fun.id
+    in
     let record =
       { trace_version
       ; worker_run_id = active.worker_run_id
@@ -440,7 +449,7 @@ let append_record
       ; agent_name = active.agent_name
       ; session_id = active.session_id
       ; record_type
-      ; prompt
+      ; prompt = Option.map maybe_redact_string prompt
       ; model
       ; tool_choice
       ; enable_thinking
@@ -448,23 +457,23 @@ let append_record
       ; thinking_budget
       ; block_index
       ; block_kind
-      ; assistant_block
+      ; assistant_block = Option.map maybe_redact_json assistant_block
       ; tool_use_id
       ; tool_name
-      ; tool_input
+      ; tool_input = Option.map maybe_redact_json tool_input
       ; tool_planned_index
       ; tool_batch_index
       ; tool_batch_size
       ; tool_concurrency_class
       ; evidence_role
-      ; tool_result
+      ; tool_result = Option.map maybe_redact_string tool_result
       ; tool_error
       ; hook_name
       ; hook_decision
-      ; hook_detail
-      ; final_text
+      ; hook_detail = Option.map maybe_redact_string hook_detail
+      ; final_text = Option.map maybe_redact_string final_text
       ; stop_reason
-      ; error
+      ; error = Option.map maybe_redact_string error
       }
     in
     let result = append_locked active.sink record in
@@ -498,6 +507,7 @@ let start_run
     ; session_id = sink.session_id
     ; start_seq = 0
     ; end_seq = 0
+    ; redact_secrets = sink.redact_secrets
     }
   in
   let result =

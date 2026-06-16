@@ -16,6 +16,7 @@
   tls
   tls-eio
   ca-certs
+  digestif
   uri)
  (inline_tests)
  (preprocess

@@ -113,22 +113,13 @@ let create_message
        | Ok (url, api_key, headers) -> Ok (p, url, api_key, headers)
        | Error e -> Error e)
     | None ->
-      (match Sys.getenv_opt "ANTHROPIC_API_KEY" with
-       | Some key ->
-         let fallback_provider : Provider.config =
-           { provider = Provider.Anthropic
-           ; model_id = model_to_string config.config.model
-           ; api_key_env = "ANTHROPIC_API_KEY"
-           }
-         in
-         (* Auth header ("x-api-key") is NOT included here.
-            Merged at HTTP request time via auth_headers_only_for_kind. *)
-         Ok
-           ( fallback_provider
-           , base_url
-           , key
-           , [ "Content-Type", "application/json"; "anthropic-version", api_version ] )
-       | None -> Error (Error.Config (MissingEnvVar { var_name = "ANTHROPIC_API_KEY" })))
+      Error
+        (Error.Config
+           (MissingEnvVar
+              { var_name =
+                  "provider (Api.create_message no longer falls back to ANTHROPIC_API_KEY; \
+                   pass an explicit provider)"
+              }))
   in
   match resolve_result with
   | Error e -> Error e
@@ -155,17 +146,18 @@ let create_message
          | None -> Yojson.Safe.to_string (`Assoc []))
     in
     let url = base_url ^ path in
+    let provider_kind_of_request_kind = function
+      | Provider.Anthropic_messages -> Llm_provider.Provider_config.Anthropic
+      | Provider.Openai_chat_completions -> Llm_provider.Provider_config.OpenAI_compat
+      | Provider.Custom _ -> Llm_provider.Provider_config.OpenAI_compat
+    in
     let do_http_call () =
-      (* Merge auth headers at request time so that [header_list] (from
-         [Provider.resolve]) never carries sensitive tokens. *)
+      (* Merge auth headers at request time via Provider_config so that
+         [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
       let auth_hdrs =
-        if api_key = ""
-        then []
-        else (
-          match kind with
-          | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
-          | Provider.Openai_chat_completions | Provider.Custom _ ->
-            [ "Authorization", "Bearer " ^ api_key ])
+        Llm_provider.Provider_config.auth_headers_for_kind_and_key
+          ~kind:(provider_kind_of_request_kind kind)
+          ~api_key
       in
       match
         Llm_provider.Http_client.post_sync

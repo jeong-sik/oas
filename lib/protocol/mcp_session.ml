@@ -33,6 +33,7 @@ type info =
   ; command : string (** For HTTP: "http"; for stdio: the executable *)
   ; args : string list (** For HTTP: [url]; for stdio: command-line args *)
   ; env : (string * string) list
+  ; env_policy : Mcp.env_policy
   ; http_base_url : string option
   ; http_headers : (string * string) list
   ; tool_schemas : tool_schema list
@@ -48,6 +49,7 @@ let capture (m : Mcp.managed) : info =
     ; command = spec.command
     ; args = spec.args
     ; env = spec.env
+    ; env_policy = spec.env_policy
     ; http_base_url = None
     ; http_headers = []
     ; tool_schemas
@@ -58,6 +60,7 @@ let capture (m : Mcp.managed) : info =
     ; command = "http"
     ; args = []
     ; env = []
+    ; env_policy = Minimal
     ; http_base_url = Some base_url
     ; http_headers = headers
     ; tool_schemas
@@ -72,7 +75,12 @@ let capture_all (managed_list : Mcp.managed list) : info list =
 
 (** Convert session info back to a server_spec for reconnection. *)
 let to_server_spec (info : info) : Mcp.server_spec =
-  { command = info.command; args = info.args; env = info.env; name = info.server_name }
+  { command = info.command
+  ; args = info.args
+  ; env = info.env
+  ; env_policy = info.env_policy
+  ; name = info.server_name
+  }
 ;;
 
 let to_http_spec (info : info) : Mcp_http.http_spec option =
@@ -176,6 +184,7 @@ let info_to_json (info : info) : Yojson.Safe.t =
     ; "command", `String info.command
     ; "args", Util.json_of_string_list info.args
     ; "env", `List (List.map env_pair_to_json info.env)
+    ; "env_policy", `String (Mcp.env_policy_to_string info.env_policy)
     ; ( "http_base_url"
       , match info.http_base_url with
         | Some base_url -> `String base_url
@@ -207,8 +216,17 @@ let info_of_json json : (info, Error.sdk_error) result =
       |> List.map tool_schema_of_json
       |> result_all
     in
-    match env_result, http_headers_result, tools_result with
-    | Ok env, Ok http_headers, Ok tool_schemas ->
+    let env_policy_result =
+      match json |> member "env_policy" |> to_string_option with
+      | Some raw ->
+        (match Mcp.env_policy_of_string raw with
+         | Ok p -> Ok p
+         | Error msg ->
+           Error (Error.Serialization (JsonParseError { detail = "Mcp_session.info_of_json: " ^ msg })))
+      | None -> Ok Minimal
+    in
+    match env_result, http_headers_result, tools_result, env_policy_result with
+    | Ok env, Ok http_headers, Ok tool_schemas, Ok env_policy ->
       let transport_kind_result =
         match json |> member "transport_kind" |> to_string_option with
         | Some raw -> transport_kind_of_string raw
@@ -236,14 +254,16 @@ let info_of_json json : (info, Error.sdk_error) result =
               ; command = json |> member "command" |> to_string
               ; args = json |> member "args" |> to_list |> List.map to_string
               ; env
+              ; env_policy
               ; http_base_url
               ; http_headers
               ; tool_schemas
               ; transport_kind
               }))
-    | Error e, _, _ -> Error e
-    | _, Error e, _ -> Error e
-    | _, _, Error e -> Error e
+    | Error e, _, _, _ -> Error e
+    | _, Error e, _, _ -> Error e
+    | _, _, Error e, _ -> Error e
+    | _, _, _, Error e -> Error e
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error

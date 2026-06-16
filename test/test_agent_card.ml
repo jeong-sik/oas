@@ -247,7 +247,7 @@ let test_json_with_authentication () =
     ; version = "1.0"
     ; url = Some "http://agent.local:8080"
     ; authentication =
-        Some { schemes = [ "bearer"; "api-key" ]; credentials = Some "secret" }
+        Some { schemes = [ "bearer"; "api-key" ]; credential_ref = Env "AGENT_CARD_API_KEY" }
     ; supported_interfaces = [ jsonrpc_interface "http://agent.local:8080" ]
     ; capabilities = [ Tools; Streaming ]
     ; tools = []
@@ -265,7 +265,8 @@ let test_json_with_authentication () =
     (match card2.authentication with
      | Some auth ->
        Alcotest.(check (list string)) "schemes" [ "bearer"; "api-key" ] auth.schemes;
-       Alcotest.(check (option string)) "creds" (Some "secret") auth.credentials
+       Alcotest.(check bool) "credential_ref env" true
+         (auth.credential_ref = Agent_card.Env "AGENT_CARD_API_KEY")
      | None -> Alcotest.fail "expected auth");
     Alcotest.(check int) "interface count" 1 (List.length card2.supported_interfaces);
     Alcotest.(check int) "metadata" 1 (List.length card2.metadata)
@@ -298,6 +299,31 @@ let test_json_no_auth_no_metadata () =
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
+let test_json_rejects_literal_credentials () =
+  let json =
+    `Assoc
+      [ "name", `String "bad-agent"
+      ; "protocolVersion", `String "1.0"
+      ; "version", `String "1.0"
+      ; "capabilities", `List []
+      ; "tools", `List []
+      ; "skills", `List []
+      ; "supported_providers", `List []
+      ; ( "authentication"
+        , `Assoc
+            [ "schemes", `List [ `String "bearer" ]
+            ; "credentials", `String "super-secret"
+            ] )
+      ]
+  in
+  match Agent_card.of_json json with
+  | Ok _ -> Alcotest.fail "expected error for literal credentials"
+  | Error (Error.Config (SensitiveValueInConfig _)) ->
+    Alcotest.(check bool) "rejects literal credentials" true true
+  | Error e ->
+    Alcotest.fail (Printf.sprintf "expected SensitiveValueInConfig, got %s" (Error.to_string e))
+;;
+
 let test_json_auth_no_credentials () =
   let card : Agent_card.agent_card =
     { name = "auth-noc"
@@ -305,7 +331,7 @@ let test_json_auth_no_credentials () =
     ; protocol_version = "1.0"
     ; version = "1.0"
     ; url = None
-    ; authentication = Some { schemes = [ "oauth" ]; credentials = None }
+    ; authentication = Some { schemes = [ "oauth" ]; credential_ref = No_credential }
     ; supported_interfaces = []
     ; capabilities = []
     ; tools = []
@@ -318,7 +344,9 @@ let test_json_auth_no_credentials () =
   match Agent_card.of_json json with
   | Ok card2 ->
     (match card2.authentication with
-     | Some auth -> Alcotest.(check (option string)) "no creds" None auth.credentials
+     | Some auth ->
+       Alcotest.(check bool) "no credential_ref" true
+         (auth.credential_ref = Agent_card.No_credential)
      | None -> Alcotest.fail "expected auth")
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
@@ -446,6 +474,7 @@ let () =
         ; test_case "with auth" `Quick test_json_with_authentication
         ; test_case "no auth no meta" `Quick test_json_no_auth_no_metadata
         ; test_case "auth no creds" `Quick test_json_auth_no_credentials
+        ; test_case "rejects literal credentials" `Quick test_json_rejects_literal_credentials
         ; test_case "with skills" `Quick test_to_json_with_skills
         ; test_case
             "legacy json backfills interfaces"

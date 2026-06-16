@@ -136,10 +136,17 @@ val evidence_role_of_string : string -> (evidence_role, Error.sdk_error) result
 val record_evidence_role : record -> evidence_role option
 val record_of_json : Yojson.Safe.t -> (record, Error.sdk_error) result
 val trace_version : int
-val create : ?session_id:string -> path:string -> unit -> (t, Error.sdk_error) result
+
+val create
+  :  ?redact_secrets:bool
+  -> ?session_id:string
+  -> path:string
+  -> unit
+  -> (t, Error.sdk_error) result
 
 val create_for_session
-  :  ?session_root:string
+  :  ?redact_secrets:bool
+  -> ?session_root:string
   -> session_id:string
   -> agent_name:string
   -> unit

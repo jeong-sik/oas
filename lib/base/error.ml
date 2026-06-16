@@ -104,6 +104,9 @@ type config_error =
       { field : string
       ; detail : string
       }
+  | SensitiveValueInConfig of
+      { detail : string
+      }
 
 (** Serialization / deserialization errors. *)
 type serialization_error =
@@ -215,6 +218,7 @@ let config_error_to_string = function
   | MissingEnvVar r -> Printf.sprintf "Missing env var: %s" r.var_name
   | UnsupportedProvider r -> Printf.sprintf "Unsupported provider: %s" r.detail
   | InvalidConfig r -> Printf.sprintf "Invalid config '%s': %s" r.field r.detail
+  | SensitiveValueInConfig r -> Printf.sprintf "Sensitive value in config: %s" r.detail
 ;;
 
 let serialization_error_to_string = function

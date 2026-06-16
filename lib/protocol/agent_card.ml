@@ -24,9 +24,14 @@ type capability =
 
 (* ── Agent Card ─────────────────────────────────────────── *)
 
+type credential_ref =
+  | Env of string
+  | File of string
+  | No_credential
+
 type authentication =
   { schemes : string list
-  ; credentials : string option
+  ; credential_ref : credential_ref
   }
 
 type supported_interface =
@@ -104,13 +109,19 @@ let to_json (card : agent_card) : Yojson.Safe.t =
     match card.authentication with
     | None -> []
     | Some a ->
+      let credential_json =
+        match a.credential_ref with
+        | Env name -> `Assoc [ "type", `String "env"; "name", `String name ]
+        | File path -> `Assoc [ "type", `String "file"; "path", `String path ]
+        | No_credential -> `Null
+      in
       [ ( "authentication"
         , `Assoc
             ([ "schemes", Util.json_of_string_list a.schemes ]
              @
-             match a.credentials with
-             | Some c -> [ "credentials", `String c ]
-             | None -> []) )
+             match a.credential_ref with
+             | No_credential -> []
+             | _ -> [ "credential_ref", credential_json ]) )
       ]
   in
   let interfaces_json =
@@ -248,34 +259,57 @@ let of_json (json : Yojson.Safe.t) : (agent_card, Error.sdk_error) result =
     (* tools and skills contain runtime objects (functions) that cannot
        be fully restored from JSON.  Callers must re-attach them after
        deserializing the card skeleton. *)
-    let authentication =
+    let authentication_result =
       match json |> member "authentication" with
       | `Assoc _ as auth_json ->
         let schemes =
           auth_json |> member "schemes" |> to_list |> Util.string_list_of_json
         in
-        let credentials =
-          match auth_json |> member "credentials" with
-          | `Null -> None
-          | v -> Some (to_string v)
-        in
-        Some { schemes; credentials }
-      | _ -> None
+        (match auth_json |> member "credentials" with
+         | `String _ ->
+           Error
+             (Error.Config
+                (SensitiveValueInConfig
+                   { detail =
+                       "Agent_card authentication contains a literal credential; use \
+                        credential_ref (env/file) instead"
+                   }))
+         | _ ->
+           let credential_ref =
+             match auth_json |> member "credential_ref" with
+             | `Assoc fields ->
+               (match List.assoc_opt "type" fields with
+                | Some (`String "env") ->
+                  (match List.assoc_opt "name" fields with
+                   | Some (`String name) -> Env name
+                   | _ -> No_credential)
+                | Some (`String "file") ->
+                  (match List.assoc_opt "path" fields with
+                   | Some (`String path) -> File path
+                   | _ -> No_credential)
+                | _ -> No_credential)
+             | _ -> No_credential
+           in
+           Ok (Some { schemes; credential_ref }))
+      | _ -> Ok None
     in
-    Ok
-      { name
-      ; description
-      ; protocol_version
-      ; version
-      ; url
-      ; authentication
-      ; supported_interfaces
-      ; capabilities
-      ; tools = []
-      ; skills = []
-      ; supported_providers
-      ; metadata
-      }
+    match authentication_result with
+    | Error e -> Error e
+    | Ok authentication ->
+      Ok
+        { name
+        ; description
+        ; protocol_version
+        ; version
+        ; url
+        ; authentication
+        ; supported_interfaces
+        ; capabilities
+        ; tools = []
+        ; skills = []
+        ; supported_providers
+        ; metadata
+        }
   with
   | Type_error (msg, _) ->
     Error (Error.Internal (Printf.sprintf "Agent_card.of_json: %s" msg))
@@ -316,7 +350,7 @@ let of_info (info : agent_info) : agent_card =
   ; protocol_version = "1.0"
   ; version = info.version
   ; url = None
-  ; authentication = None
+  ; authentication = Some { schemes = []; credential_ref = No_credential }
   ; supported_interfaces = []
   ; capabilities = List.rev !caps
   ; tools = info.tool_schemas

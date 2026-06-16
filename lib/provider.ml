@@ -610,7 +610,7 @@ let auth_headers_only_for_kind
   | key ->
     (match kind with
      | Anthropic | Kimi -> [ "x-api-key", key ]
-     | Gemini -> []
+     | Gemini -> [ "x-goog-api-key", key ]
      | OpenAI_compat | Ollama | Glm | DashScope -> [ "Authorization", "Bearer " ^ key ])
 ;;
 
@@ -627,9 +627,11 @@ let config_of_provider_config (pc : Llm_provider.Provider_config.t) : config =
      a second Sys.getenv_opt lookup (which would fail because the
      value is not an env var name).  When pc.api_key is empty, fall
      back to api_key_env so resolve() can look up the env var. *)
-  let has_key = pc.api_key <> "" in
+  let has_key = not (Llm_provider.Secret.is_empty pc.api_key) in
   let auth_header = if has_key then Some "Authorization" else None in
-  let static_token = if has_key then Some pc.api_key else None in
+  let static_token =
+    if has_key then Some (Llm_provider.Secret.header_value pc.api_key) else None
+  in
   let provider =
     match pc.kind with
     | Anthropic -> Anthropic

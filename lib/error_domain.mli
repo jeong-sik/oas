@@ -68,6 +68,7 @@ type config_error =
   [ `Missing_env_var of string
   | `Unsupported_provider of string
   | `Invalid_config of string * string (** field, detail *)
+  | `Sensitive_value_in_config of string (** detail *)
   ]
 
 type mcp_error =

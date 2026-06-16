@@ -61,6 +61,7 @@ type field =
   | F of string * float
   | B of string * bool
   | J of string * Yojson.Safe.t
+  | Secret of string * Llm_provider.Secret.t
 
 let field_to_json = function
   | S (k, v) -> k, `String v
@@ -68,6 +69,15 @@ let field_to_json = function
   | F (k, v) -> k, `Float v
   | B (k, v) -> k, `Bool v
   | J (k, v) -> k, v
+  | Secret (k, _) -> k, `String "<redacted>"
+;;
+
+let redact = Llm_provider.Secret_redactor.redact_string
+
+let redact_field_value = function
+  | S (k, v) -> S (k, redact v)
+  | J (k, v) -> J (k, Llm_provider.Secret_redactor.redact_json v)
+  | (I _ | F _ | B _ | Secret _) as f -> f
 ;;
 
 (* ── Record ───────────────────────────────────────────────────── *)
@@ -180,6 +190,7 @@ let error t message fields = emit t Error message fields
 
 let json_sink (flow : _ Eio.Flow.sink) : sink =
   fun record ->
+  let record = { record with message = redact record.message; fields = List.map redact_field_value record.fields } in
   let json = record_to_json record in
   let line = Yojson.Safe.to_string json ^ "\n" in
   Eio.Flow.copy_string line flow
@@ -198,8 +209,9 @@ let stderr_sink () : sink =
       t.tm_min
       t.tm_sec
   in
+  let fields = List.map redact_field_value record.fields in
   let fields_str =
-    match record.fields with
+    match fields with
     | [] -> ""
     | fs ->
       let parts =
@@ -216,7 +228,7 @@ let stderr_sink () : sink =
     ts_str
     (level_to_string record.level)
     record.module_name
-    record.message
+    (redact record.message)
     fields_str
 ;;
 

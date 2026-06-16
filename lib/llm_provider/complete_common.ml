@@ -331,7 +331,7 @@ let http_error_diagnostic_body
   =
   let trimmed = String.trim body in
   if trimmed <> ""
-  then body
+  then Secret_redactor.redact_string body
   else
     Printf.sprintf
       "empty HTTP %d response from provider=%s model=%s base_url=%s request_path=%s \

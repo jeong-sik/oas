@@ -25,7 +25,12 @@ let debug_enabled = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_D
 let default_sink (lvl : level) ~ctx msg =
   match lvl with
   | Debug when not debug_enabled -> ()
-  | _ -> Printf.eprintf "[llm_provider] [%s] [%s] %s\n%!" (level_to_string lvl) ctx msg
+  | _ ->
+    Printf.eprintf
+      "[llm_provider] [%s] [%s] %s\n%!"
+      (level_to_string lvl)
+      ctx
+      (Secret_redactor.redact_string msg)
 ;;
 
 let _sink : (level -> ctx:string -> string -> unit) Atomic.t = Atomic.make default_sink

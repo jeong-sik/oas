@@ -6,21 +6,17 @@
     @since 0.205.9 *)
 
 (** Construct the URL for a Gemini API call.
-    Sync: [base_url/models/model_id:generateContent?key=api_key]
-    Stream: [base_url/models/model_id:streamGenerateContent?key=api_key&alt=sse]
-    When api_key is empty (Gemini cloud), the [?key=] param is omitted. *)
+    Sync: [base_url/models/model_id:generateContent]
+    Stream: [base_url/models/model_id:streamGenerateContent?alt=sse]
+
+    The API key is never included in the URL.  Callers must add it to the
+    [x-goog-api-key] header via {!Provider_config.auth_headers_for_config}. *)
 let gemini_url ~(config : Provider_config.t) ~stream =
   let method_name = if stream then "streamGenerateContent" else "generateContent" in
   let base =
     Printf.sprintf "%s/models/%s:%s" config.base_url config.model_id method_name
   in
-  let params =
-    (if config.api_key <> "" then [ Printf.sprintf "key=%s" config.api_key ] else [])
-    @ if stream then [ "alt=sse" ] else []
-  in
-  match params with
-  | [] -> base
-  | ps -> base ^ "?" ^ String.concat "&" ps
+  if stream then base ^ "?alt=sse" else base
 ;;
 
 (** Provider-aware sampling parameter defaults.
@@ -99,7 +95,7 @@ let%test "gemini_url sync no api_key" =
     { kind = Provider_config.Gemini
     ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -135,7 +131,7 @@ let%test "gemini_url sync with api_key" =
     { kind = Gemini
     ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
-    ; api_key = "mykey"
+    ; api_key = Secret.of_string "mykey"
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -164,7 +160,7 @@ let%test "gemini_url sync with api_key" =
   in
   let url = gemini_url ~config ~stream:false in
   url
-  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=mykey"
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 ;;
 
 let%test "gemini_url stream with api_key" =
@@ -172,44 +168,7 @@ let%test "gemini_url stream with api_key" =
     { kind = Gemini
     ; model_id = "gemini-2.5-flash"
     ; base_url = "https://gen.googleapis.com/v1beta"
-    ; api_key = "mykey"
-    ; request_path = ""
-    ; headers = []
-    ; system_prompt = None
-    ; temperature = None
-    ; max_tokens = Some 1024
-    ; max_context = None
-    ; top_p = None
-    ; top_k = None
-    ; min_p = None
-    ; enable_thinking = None
-    ; preserve_thinking = None
-    ; thinking_budget = None
-    ; clear_thinking = None
-    ; tool_stream = false
-    ; tool_choice = None
-    ; disable_parallel_tool_use = false
-    ; response_format = Types.Off
-    ; output_schema = None
-    ; cache_system_prompt = false
-    ; supports_tool_choice_override = None
-    ; keep_alive = None
-    ; internal_model_rotation_count = None
-    ; num_ctx = None
-    ; seed = None
-    }
-  in
-  let url = gemini_url ~config ~stream:true in
-  url
-  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?key=mykey&alt=sse"
-;;
-
-let%test "gemini_url stream no api_key" =
-  let config : Provider_config.t =
-    { kind = Gemini
-    ; model_id = "gemini-2.5-flash"
-    ; base_url = "https://gen.googleapis.com/v1beta"
-    ; api_key = ""
+    ; api_key = Secret.of_string "mykey"
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -241,12 +200,99 @@ let%test "gemini_url stream no api_key" =
   = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
 ;;
 
+let%test "gemini_url stream no api_key" =
+  let config : Provider_config.t =
+    { kind = Gemini
+    ; model_id = "gemini-2.5-flash"
+    ; base_url = "https://gen.googleapis.com/v1beta"
+    ; api_key = Secret.empty
+    ; request_path = ""
+    ; headers = []
+    ; system_prompt = None
+    ; temperature = None
+    ; max_tokens = Some 1024
+    ; max_context = None
+    ; top_p = None
+    ; top_k = None
+    ; min_p = None
+    ; enable_thinking = None
+    ; preserve_thinking = None
+    ; thinking_budget = None
+    ; clear_thinking = None
+    ; tool_stream = false
+    ; tool_choice = None
+    ; disable_parallel_tool_use = false
+    ; response_format = Types.Off
+    ; output_schema = None
+    ; cache_system_prompt = false
+    ; supports_tool_choice_override = None
+    ; keep_alive = None
+    ; internal_model_rotation_count = None
+    ; num_ctx = None
+    ; seed = None
+    }
+  in
+  let url = gemini_url ~config ~stream:true in
+  url
+  = "https://gen.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
+;;
+
+let%test "gemini_url never leaks api_key even when set" =
+  let config : Provider_config.t =
+    { kind = Gemini
+    ; model_id = "gemini-2.5-flash"
+    ; base_url = "https://gen.googleapis.com/v1beta"
+    ; api_key = Secret.of_string "mykey"
+    ; request_path = ""
+    ; headers = []
+    ; system_prompt = None
+    ; temperature = None
+    ; max_tokens = Some 1024
+    ; max_context = None
+    ; top_p = None
+    ; top_k = None
+    ; min_p = None
+    ; enable_thinking = None
+    ; preserve_thinking = None
+    ; thinking_budget = None
+    ; clear_thinking = None
+    ; tool_stream = false
+    ; tool_choice = None
+    ; disable_parallel_tool_use = false
+    ; response_format = Types.Off
+    ; output_schema = None
+    ; cache_system_prompt = false
+    ; supports_tool_choice_override = None
+    ; keep_alive = None
+    ; internal_model_rotation_count = None
+    ; num_ctx = None
+    ; seed = None
+    }
+  in
+  let contains_substring haystack needle =
+    let hlen = String.length haystack in
+    let nlen = String.length needle in
+    let rec scan i =
+      if i + nlen > hlen
+      then false
+      else if String.sub haystack i nlen = needle
+      then true
+      else scan (i + 1)
+    in
+    scan 0
+  in
+  let url_sync = gemini_url ~config ~stream:false in
+  let url_stream = gemini_url ~config ~stream:true in
+  (not (contains_substring url_sync "mykey"))
+  && (not (contains_substring url_stream "mykey"))
+;;
+
 let%test "gemini_url empty base_url no trailing slash" =
   let config : Provider_config.t =
     { kind = Gemini
     ; model_id = "gemini-2.5-flash"
     ; base_url = ""
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -299,7 +345,7 @@ let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
     { kind = OpenAI_compat
     ; model_id = "local-model"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -335,7 +381,7 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
     { kind = OpenAI_compat
     ; model_id = "gemini-2.5-flash"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -371,7 +417,7 @@ let%test "apply_sampling_defaults OpenAI_compat dashscope model keeps min_p defa
     { kind = OpenAI_compat
     ; model_id = "qwen-turbo"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -407,7 +453,7 @@ let%test "apply_sampling_defaults preserves explicit min_p override" =
     { kind = OpenAI_compat
     ; model_id = "local-model"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -443,7 +489,7 @@ let%test "apply_sampling_defaults Anthropic does not set min_p" =
     { kind = Anthropic
     ; model_id = "claude-sonnet-4"
     ; base_url = "https://api.anthropic.com"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -479,7 +525,7 @@ let%test "apply_sampling_defaults preserves all explicit values" =
     { kind = OpenAI_compat
     ; model_id = "local-model"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -519,7 +565,7 @@ let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
     { kind = Anthropic
     ; model_id = "claude-sonnet-4"
     ; base_url = "https://api.anthropic.com"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -555,7 +601,7 @@ let%test "reasoning_effort_of_config Ollama default is none" =
     { kind = Ollama
     ; model_id = "qwq"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -590,7 +636,7 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=4096 is medium"
     { kind = Ollama
     ; model_id = "qwq"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -625,7 +671,7 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=16384 is high" 
     { kind = Ollama
     ; model_id = "qwq"
     ; base_url = "http://localhost:11434"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
@@ -660,7 +706,7 @@ let%test "reasoning_effort_of_config non-Ollama is None" =
     { kind = OpenAI_compat
     ; model_id = "gpt-4o"
     ; base_url = "https://api.openai.com"
-    ; api_key = ""
+    ; api_key = Secret.empty
     ; request_path = ""
     ; headers = []
     ; system_prompt = None
