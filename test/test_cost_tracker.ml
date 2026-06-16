@@ -24,83 +24,6 @@ let make_usage
   }
 ;;
 
-let make_config ?max_cost_usd () : Types.agent_config =
-  { Types.default_config with max_cost_usd }
-;;
-
-let test_check_budget_no_limit () =
-  let config = make_config () in
-  let usage = make_usage ~cost:100.0 () in
-  check
-    bool
-    "no limit = no error"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_check_budget_under () =
-  let config = make_config ~max_cost_usd:1.0 () in
-  let usage = make_usage ~cost:0.5 () in
-  check
-    bool
-    "under budget = no error"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_check_budget_at_limit () =
-  let config = make_config ~max_cost_usd:1.0 () in
-  let usage = make_usage ~cost:1.0 () in
-  check
-    bool
-    "at limit = no error"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_check_budget_exceeded_is_advisory () =
-  let config = make_config ~max_cost_usd:1.0 () in
-  let usage = make_usage ~cost:1.001 () in
-  check
-    bool
-    "over advisory threshold = no execution error"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_check_budget_zero_limit () =
-  let config = make_config ~max_cost_usd:0.0 () in
-  let usage = make_usage ~cost:0.001 () in
-  check
-    bool
-    "zero limit + any cost = still advisory"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-(* Regression: unknown model id used to leave estimated_cost_usd at 0
-   so cost telemetry under-reported.  accumulate_usage still stamps
-   unpriced_model = Some <id>, but check_budget remains advisory. *)
-let test_check_budget_unpriced_model_is_advisory () =
-  let config = make_config ~max_cost_usd:1.0 () in
-  let usage = make_usage ~cost:0.0 ~unpriced_model:(Some "mystery-model-7") () in
-  check
-    bool
-    "unpriced model + cap = no execution error"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_check_budget_unpriced_model_no_cap_returns_none () =
-  let config = make_config () in
-  let usage = make_usage ~cost:0.0 ~unpriced_model:(Some "mystery") () in
-  check
-    bool
-    "no cap configured + unpriced model = None"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
 (* ── Cost Report ───────────────────────────────────── *)
 
 let test_report_basic () =
@@ -236,25 +159,7 @@ let test_offload_special_chars_in_name () =
 let () =
   run
     "cost_and_offload"
-    [ ( "cost_budget"
-      , [ test_case "no limit" `Quick test_check_budget_no_limit
-        ; test_case "under budget" `Quick test_check_budget_under
-        ; test_case "at limit" `Quick test_check_budget_at_limit
-        ; test_case
-            "exceeded remains advisory"
-            `Quick
-            test_check_budget_exceeded_is_advisory
-        ; test_case "zero limit" `Quick test_check_budget_zero_limit
-        ; test_case
-            "unpriced model + cap = advisory"
-            `Quick
-            test_check_budget_unpriced_model_is_advisory
-        ; test_case
-            "unpriced model + no cap = None"
-            `Quick
-            test_check_budget_unpriced_model_no_cap_returns_none
-        ] )
-    ; ( "cost_report"
+    [ ( "cost_report"
       , [ test_case "basic report" `Quick test_report_basic
         ; test_case "zero calls" `Quick test_report_zero_calls
         ; test_case "to_string" `Quick test_report_to_string

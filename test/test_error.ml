@@ -54,17 +54,6 @@ let test_provider_timeout_phase () =
     (Error.to_string err)
 ;;
 
-let test_agent_token_budget () =
-  let err =
-    Error.Agent (TokenBudgetExceeded { kind = "Input"; used = 1500; limit = 1000 })
-  in
-  check
-    string
-    "token budget"
-    "Input token budget exceeded: 1500/1000"
-    (Error.to_string err)
-;;
-
 let test_agent_execution_timeout () =
   let err =
     Error.Agent
@@ -260,7 +249,6 @@ let () =
         ; test_case "Api AuthError" `Quick test_api_auth_error
         ; test_case "Provider timeout phase" `Quick test_provider_timeout_phase
         ; test_case "Agent MaxTurnsExceeded" `Quick test_agent_max_turns
-        ; test_case "Agent TokenBudgetExceeded" `Quick test_agent_token_budget
         ; test_case "Agent AgentExecutionTimeout" `Quick test_agent_execution_timeout
         ; test_case "Agent UnrecognizedStopReason" `Quick test_agent_stop_reason
         ; test_case "Mcp ServerStartFailed" `Quick test_mcp_server_start

@@ -34,8 +34,6 @@ let build_resume ~(checkpoint : Checkpoint.t) ?config ?context () =
     ; tool_choice = checkpoint.tool_choice
     ; disable_parallel_tool_use = checkpoint.disable_parallel_tool_use
     ; cache_system_prompt = checkpoint.cache_system_prompt
-    ; max_input_tokens = checkpoint.max_input_tokens
-    ; max_total_tokens = checkpoint.max_total_tokens
     }
   in
   let state =
@@ -86,8 +84,6 @@ let build_checkpoint
   ; response_format = state.config.response_format
   ; thinking_budget = state.config.thinking_budget
   ; cache_system_prompt = state.config.cache_system_prompt
-  ; max_input_tokens = state.config.max_input_tokens
-  ; max_total_tokens = state.config.max_total_tokens
   ; context = Context.copy context
   ; mcp_sessions = Mcp_session.capture_all mcp_clients
   ; working_context

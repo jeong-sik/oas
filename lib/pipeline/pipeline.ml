@@ -547,11 +547,8 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
 
 (** Context-window size for proactive compaction.
 
-    Do not derive this from [max_total_tokens] or [max_input_tokens]:
-    those are cumulative token budgets, not the model's per-request
-    context-window size.  Until an explicit context-window value is
-    available from configuration or provider/model capabilities, use a
-    conservative default. *)
+    This is the model's per-request context-window size, resolved from
+    provider/model capabilities, with a conservative default fallback. *)
 let proactive_context_window_tokens agent =
   Provider.resolve_max_context_tokens ~fallback:128_000 agent.options.provider
 ;;

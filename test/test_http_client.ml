@@ -361,8 +361,6 @@ let test_error_domain_full_roundtrip () =
     ; Agent_sdk.Error.Api (Retry.AuthError { message = "bad key" })
     ; Agent_sdk.Error.Api (Retry.ServerError { status = 500; message = "internal" })
     ; Agent_sdk.Error.Agent (MaxTurnsExceeded { turns = 5; limit = 3 })
-    ; Agent_sdk.Error.Agent
-        (TokenBudgetExceeded { kind = "total"; used = 1000; limit = 500 })
     ; Agent_sdk.Error.Agent (IdleDetected { consecutive_idle_turns = 3 })
     ; Agent_sdk.Error.Config (MissingEnvVar { var_name = "API_KEY" })
     ; Agent_sdk.Error.Config (UnsupportedProvider { detail = "unknown" })

@@ -101,12 +101,8 @@ type agent_config =
     (* Anthropic: tool_choice.disable_parallel_tool_use, Openai: parallel_tool_calls=false *)
   ; cache_system_prompt : bool (* Wrap system prompt with cache_control ephemeral *)
   ; cache_extended_ttl : bool (* true=1h TTL (2x write cost), false=5min default *)
-  ; max_input_tokens : int option (* Token budget: max cumulative input tokens *)
-  ; max_total_tokens : int option (* Token budget: max cumulative total tokens *)
   ; initial_messages : message list
     (* Seed conversation with prior history on first run *)
-  ; max_cost_usd : float option
-    (* Advisory cost telemetry threshold in USD. Never gates execution. @since 0.62.0 *)
   ; context_compact_ratio : float option
     (** Ratio of context budget at which to compact. Default 0.8 *)
   ; context_prepare_ratio : float option
@@ -146,10 +142,7 @@ let default_config =
   ; disable_parallel_tool_use = false
   ; cache_system_prompt = false
   ; cache_extended_ttl = false
-  ; max_input_tokens = None
-  ; max_total_tokens = None
   ; initial_messages = []
-  ; max_cost_usd = None
   ; context_compact_ratio = None
   ; context_prepare_ratio = None
   ; context_handoff_ratio = None

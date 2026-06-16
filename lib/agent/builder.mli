@@ -26,10 +26,7 @@ val with_thinking_budget : int -> t -> t
 val with_tool_choice : Types.tool_choice -> t -> t
 val with_response_format : Types.response_format -> t -> t
 val with_disable_parallel_tool_use : bool -> t -> t
-val with_max_input_tokens : int -> t -> t
-val with_max_total_tokens : int -> t -> t
 val with_initial_messages : Types.message list -> t -> t
-val with_max_cost_usd : float -> t -> t
 val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
 val with_cache_extended_ttl : bool -> t -> t
@@ -106,7 +103,7 @@ val with_context_reducer : Context_reducer.t -> t -> t
     This is used to estimate available input/context capacity for reduction
     decisions, and is distinct from [with_max_tokens], which controls the
     agent's per-response output token limit.
-    When omitted, derives from [max_input_tokens], then [max_total_tokens],
+    When omitted, derives from the provider's resolved context window,
     then falls back to 200_000.  Values <= 0 are ignored.
     [prepare_ratio] and [handoff_ratio] are stored for future use.
 

@@ -104,9 +104,6 @@ module Performance : sig
 
   type expectation =
     { max_p95_latency_ms : float option
-    ; max_total_tokens : int option
-    ; max_cost_usd : float option
-      (** Advisory telemetry threshold; does not make the verdict fail. *)
     ; max_turns : int option
     }
 

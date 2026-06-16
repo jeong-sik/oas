@@ -263,18 +263,10 @@ module Performance = struct
 
   type expectation =
     { max_p95_latency_ms : float option
-    ; max_total_tokens : int option
-    ; max_cost_usd : float option
     ; max_turns : int option
     }
 
-  let default_expectation =
-    { max_p95_latency_ms = None
-    ; max_total_tokens = None
-    ; max_cost_usd = None
-    ; max_turns = None
-    }
-  ;;
+  let default_expectation = { max_p95_latency_ms = None; max_turns = None }
 
   (** Calculate p95 from a sorted list of latencies. *)
   let p95 latencies =
@@ -293,19 +285,6 @@ module Performance = struct
          | Some limit ->
            let actual = p95 obs.latencies_ms in
            Some (actual <= limit, Printf.sprintf "p95_ms=%.1f limit=%.1f" actual limit)
-         | None -> None)
-      ; (match exp.max_total_tokens with
-         | Some limit ->
-           Some
-             ( obs.total_tokens <= limit
-             , Printf.sprintf "tokens=%d limit=%d" obs.total_tokens limit )
-         | None -> None)
-      ; (match exp.max_cost_usd with
-         | Some limit ->
-           Some
-             ( true
-             , Printf.sprintf "cost=%.4f advisory_threshold=%.4f" obs.total_cost_usd limit
-             )
          | None -> None)
       ; (match exp.max_turns with
          | Some limit ->

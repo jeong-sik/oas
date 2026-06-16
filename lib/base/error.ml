@@ -32,19 +32,6 @@ type agent_error =
       { turns : int
       ; limit : int
       }
-  | TokenBudgetExceeded of
-      { kind : string
-      ; used : int
-      ; limit : int
-      }
-  | CostBudgetExceeded of
-      { spent_usd : float
-      ; limit_usd : float
-      }
-  | CostBudgetUnenforceable of
-      { model_id : string
-      ; limit_usd : float
-      }
   | UnrecognizedStopReason of { reason : string }
   | IdleDetected of { consecutive_idle_turns : int }
   | AgentExecutionTimeout of
@@ -152,19 +139,6 @@ type sdk_error =
 let agent_error_to_string = function
   | MaxTurnsExceeded r ->
     Printf.sprintf "Max turns exceeded (turn %d, limit %d)" r.turns r.limit
-  | TokenBudgetExceeded r ->
-    Printf.sprintf "%s token budget exceeded: %d/%d" r.kind r.used r.limit
-  | CostBudgetExceeded r ->
-    Printf.sprintf
-      "Legacy cost threshold exceeded: $%.4f spent (threshold $%.4f); cost is advisory"
-      r.spent_usd
-      r.limit_usd
-  | CostBudgetUnenforceable r ->
-    Printf.sprintf
-      "Legacy cost threshold ($%.4f) saw unpriced model %S; cost is advisory and does \
-       not gate execution"
-      r.limit_usd
-      r.model_id
   | UnrecognizedStopReason r ->
     Printf.sprintf "Unrecognized stop_reason from API: %s" r.reason
   | IdleDetected r ->

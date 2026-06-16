@@ -25,7 +25,6 @@ let record_streaming_metrics (metrics : Metrics.t) = function
   | Thinking_complete _
   | Timeout _
   | Prefill_complete _
-  | Budget_exceeded _
   | Context_window_usage _ -> ()
 ;;
 

@@ -38,8 +38,6 @@ let make_checkpoint
   ; response_format = Types.Off
   ; thinking_budget = None
   ; cache_system_prompt = false
-  ; max_input_tokens = None
-  ; max_total_tokens = None
   ; context
   ; mcp_sessions = []
   ; working_context = None

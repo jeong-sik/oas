@@ -45,11 +45,6 @@ type tool_error =
 
 type agent_error =
   [ `Max_turns_exceeded of int * int (** turns, limit *)
-  | `Token_budget_exceeded of int * int (** used, limit *)
-  | `Cost_budget_exceeded
-  | `Cost_budget_unenforceable of string * float
-    (** model_id, threshold_usd — legacy advisory cost classification.
-        New execution paths must not emit this as a gate. *)
   | `Idle_detected of int (** consecutive_idle_turns *)
   | `Agent_execution_timeout of float * float * int * int
     (** elapsed_sec, timeout_sec, turn_count, max_turns *)

@@ -191,8 +191,6 @@ let checkpoint_to_json cp =
     ; "thinking_budget", Util.json_of_int_opt cp.thinking_budget
     ; "disable_parallel_tool_use", `Bool cp.disable_parallel_tool_use
     ; "cache_system_prompt", `Bool cp.cache_system_prompt
-    ; "max_input_tokens", Util.json_of_int_opt cp.max_input_tokens
-    ; "max_total_tokens", Util.json_of_int_opt cp.max_total_tokens
     ; "context", Context.to_json cp.context
     ; "mcp_sessions", Mcp_session.info_list_to_json cp.mcp_sessions
     ; "working_context", Option.value ~default:`Null cp.working_context
@@ -308,14 +306,6 @@ let delta_to_json (delta : delta) =
         ; "disable_parallel_tool_use", `Bool patch.disable_parallel_tool_use
         ; "response_format", response_format_to_json patch.response_format
         ; "cache_system_prompt", `Bool patch.cache_system_prompt
-        ; ( "max_input_tokens"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Int value) patch.max_input_tokens) )
-        ; ( "max_total_tokens"
-          , Option.value
-              ~default:`Null
-              (Option.map (fun value -> `Int value) patch.max_total_tokens) )
         ]
     | Patch_context diff ->
       `Assoc [ "kind", `String "patch_context"; "diff", context_diff_to_json diff ]
@@ -414,8 +404,6 @@ let delta_of_json json =
                  op_json |> member "disable_parallel_tool_use" |> to_bool
              ; response_format
              ; cache_system_prompt = op_json |> member "cache_system_prompt" |> to_bool
-             ; max_input_tokens = op_json |> member "max_input_tokens" |> to_int_option
-             ; max_total_tokens = op_json |> member "max_total_tokens" |> to_int_option
              })
         response_format
     | "patch_context" ->
@@ -572,8 +560,6 @@ let of_json json =
                  |> member "cache_system_prompt"
                  |> to_bool_option
                  |> Option.value ~default:false
-             ; max_input_tokens = json |> member "max_input_tokens" |> to_int_option
-             ; max_total_tokens = json |> member "max_total_tokens" |> to_int_option
              ; context
              ; mcp_sessions
              ; working_context

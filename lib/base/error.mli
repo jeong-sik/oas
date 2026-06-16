@@ -31,21 +31,6 @@ type agent_error =
       { turns : int
       ; limit : int
       }
-  | TokenBudgetExceeded of
-      { kind : string
-      ; used : int
-      ; limit : int
-      }
-  | CostBudgetExceeded of
-      { spent_usd : float
-      ; limit_usd : float
-      }
-  | CostBudgetUnenforceable of
-      { model_id : string
-      ; limit_usd : float
-      }
-  (** Legacy compatibility variant. [max_cost_usd] is advisory telemetry only
-      and new execution paths must not emit this as a gate. *)
   | UnrecognizedStopReason of { reason : string }
   | IdleDetected of { consecutive_idle_turns : int }
   | AgentExecutionTimeout of

@@ -344,30 +344,6 @@ let test_lifecycle_show_non_empty =
     (fun status -> String.length (Agent_lifecycle.show_lifecycle_status status) > 0)
 ;;
 
-(* ── Token Budget Properties ─────────────────────────────────── *)
-
-let test_token_budget_within_limit =
-  QCheck.Test.make
-    ~count:200
-    ~name:"token budget passes when within limit"
-    (QCheck.make (QCheck.Gen.int_range 100 10_000) ~print:string_of_int)
-    (fun limit ->
-       let config = { default_config with max_input_tokens = Some limit } in
-       let usage = { empty_usage with total_input_tokens = limit - 1 } in
-       Agent_turn.check_token_budget config usage = None)
-;;
-
-let test_token_budget_exceeds_limit =
-  QCheck.Test.make
-    ~count:200
-    ~name:"token budget fails when exceeding limit"
-    (QCheck.make (QCheck.Gen.int_range 100 10_000) ~print:string_of_int)
-    (fun limit ->
-       let config = { default_config with max_input_tokens = Some limit } in
-       let usage = { empty_usage with total_input_tokens = limit + 1 } in
-       Agent_turn.check_token_budget config usage <> None)
-;;
-
 (* ── Capabilities Properties ─────────────────────────────────── *)
 
 let test_anthropic_supports_tools =
@@ -410,9 +386,6 @@ let () =
       ; test_token_budget_reducer_respects_limit
       ; (* Lifecycle *)
         test_lifecycle_show_non_empty
-      ; (* Token budget *)
-        test_token_budget_within_limit
-      ; test_token_budget_exceeds_limit
       ; (* Capabilities *)
         test_anthropic_supports_tools
       ]

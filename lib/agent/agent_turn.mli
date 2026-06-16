@@ -206,11 +206,6 @@ val apply_context_injection
   -> results:Agent_tools.tool_execution_result list
   -> Types.message list
 
-(** {1 Token budget} *)
-
-(** Check input/total token budgets; return an error if exceeded. *)
-val check_token_budget : Types.agent_config -> Types.usage_stats -> Error.sdk_error option
-
 (** {1 Idle state tracking} *)
 
 type idle_state =

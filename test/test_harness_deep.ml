@@ -122,15 +122,11 @@ let test_performance_all_constraints () =
     }
   in
   let exp : Harness.Performance.expectation =
-    { max_p95_latency_ms = Some 45.0
-    ; max_total_tokens = Some 1500
-    ; max_cost_usd = Some 0.03
-    ; max_turns = Some 5
-    }
+    { max_p95_latency_ms = Some 45.0; max_turns = Some 5 }
   in
   let v = Harness.Performance.evaluate obs exp in
   Alcotest.(check bool) "multiple failures" false v.passed;
-  (* tokens 2000 > 1500, cost 0.05 > 0.03, turns 8 > 5 *)
+  (* p95 50 > 45, turns 8 > 5 *)
   Alcotest.(check bool) "detail lists failures" true (Option.is_some v.detail)
 ;;
 
@@ -161,15 +157,6 @@ let test_performance_latency_only () =
   let v = Harness.Performance.evaluate obs exp in
   (* p95 of [10;20;30] sorted, idx=int(2*0.95)=1 -> 20.0. 20 <= 25 -> pass *)
   Alcotest.(check bool) "latency within limit" true v.passed
-;;
-
-let test_performance_cost_threshold_advisory () =
-  let obs : Harness.Performance.observation =
-    { latencies_ms = []; total_tokens = 0; total_cost_usd = 5.0; turn_count = 0 }
-  in
-  let exp = { Harness.Performance.default_expectation with max_cost_usd = Some 1.0 } in
-  let v = Harness.Performance.evaluate obs exp in
-  Alcotest.(check bool) "cost threshold advisory" true v.passed
 ;;
 
 (* ── Regression: StructuralMatch and FuzzyMatch boundaries ── *)
@@ -504,10 +491,6 @@ let () =
             test_performance_all_constraints
         ; Alcotest.test_case "no constraints" `Quick test_performance_no_constraints
         ; Alcotest.test_case "latency only" `Quick test_performance_latency_only
-        ; Alcotest.test_case
-            "cost threshold advisory"
-            `Quick
-            test_performance_cost_threshold_advisory
         ] )
     ; ( "regression-deep"
       , [ Alcotest.test_case "structural match" `Quick test_regression_structural_match

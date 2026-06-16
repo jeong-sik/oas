@@ -145,8 +145,6 @@ let checkpoint_gen =
   let* response_format = response_format_gen in
   let* thinking_budget = option (int_range 0 2048) in
   let* cache_system_prompt = bool in
-  let* max_input_tokens = option (int_range 0 4096) in
-  let* max_total_tokens = option (int_range 0 4096) in
   let* context = context_gen in
   let* mcp_sessions = list_size (int_range 0 1) mcp_info_gen in
   let* working_context = option yojson_simple_gen in
@@ -172,8 +170,6 @@ let checkpoint_gen =
     ; response_format
     ; thinking_budget
     ; cache_system_prompt
-    ; max_input_tokens
-    ; max_total_tokens
     ; context
     ; mcp_sessions
     ; working_context
@@ -234,8 +230,6 @@ let make_unit_checkpoint
   ; response_format = Off
   ; thinking_budget = None
   ; cache_system_prompt = false
-  ; max_input_tokens = None
-  ; max_total_tokens = None
   ; context
   ; mcp_sessions = []
   ; working_context
@@ -351,8 +345,6 @@ let test_delta_json_all_replacement_ops () =
     ; disable_parallel_tool_use = true
     ; response_format = JsonSchema (`Assoc [ "type", `String "object" ])
     ; cache_system_prompt = true
-    ; max_input_tokens = Some 2048
-    ; max_total_tokens = Some 4096
     ; mcp_sessions = [ sample_mcp_session ]
     ; working_context = Some (`Assoc [ "kind", `String "full_replace" ])
     }
@@ -428,8 +420,6 @@ let test_delta_json_null_and_legacy_limit_paths () =
           ; "response_format", `Null
           ; "response_format_json", `Bool true
           ; "cache_system_prompt", `Bool false
-          ; "max_input_tokens", `Null
-          ; "max_total_tokens", `Null
           ]
       ]
   in

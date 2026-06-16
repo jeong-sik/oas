@@ -36,8 +36,6 @@ type t =
   ; response_format : Types.response_format
   ; thinking_budget : int option
   ; cache_system_prompt : bool
-  ; max_input_tokens : int option
-  ; max_total_tokens : int option
   ; context : Context.t
   ; mcp_sessions : Mcp_session.info list
   ; working_context : Yojson.Safe.t option
@@ -70,8 +68,6 @@ type limits_patch =
   { disable_parallel_tool_use : bool
   ; response_format : Types.response_format
   ; cache_system_prompt : bool
-  ; max_input_tokens : int option
-  ; max_total_tokens : int option
   }
 
 type delta_op =

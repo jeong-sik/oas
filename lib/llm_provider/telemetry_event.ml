@@ -80,12 +80,6 @@ type t =
       ; prompt_eval_ms : float
       ; cache_hit : bool
       }
-  | Budget_exceeded of
-      { agent_name : string
-      ; run_id : string
-      ; spent_usd : float
-      ; limit_usd : float
-      }
   | Context_window_usage of
       { agent_name : string
       ; turn : int
@@ -101,6 +95,5 @@ let event_type_name = function
   | Thinking_complete _ -> "thinking_complete"
   | Timeout _ -> "timeout"
   | Prefill_complete _ -> "prefill_complete"
-  | Budget_exceeded _ -> "budget_exceeded"
   | Context_window_usage _ -> "context_window_usage"
 ;;

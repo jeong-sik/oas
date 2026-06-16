@@ -81,12 +81,10 @@ let provide_input agent request response =
   Agent_elicitation.apply_response agent request response
 ;;
 
-let check_token_budget = Agent_turn.check_token_budget
+(* ── Shared loop guard (max_turns + idle) ─────────── *)
 
-(* ── Shared loop guard (max_turns + idle + token budget) ─────────── *)
-
-(** Check max_turns, idle detection, and token budget.
-    Cost is telemetry-only and never gates the loop.
+(** Check max_turns and idle detection.
+    Token and cost are telemetry-only and never gate the loop.
     Returns [Some error] when any guard fires, [None] to proceed. *)
 let check_loop_guard agent =
   match agent.state.config.exit_condition with
@@ -106,9 +104,7 @@ let check_loop_guard agent =
       Some
         (Error.Agent
            (Error.IdleDetected { consecutive_idle_turns = agent.consecutive_idle_turns }))
-    else
-      (* dummy for SCA: Telemetry_event.Budget_exceeded *)
-      check_token_budget agent.state.config agent.state.usage
+    else None
 ;;
 
 (* ── Unified run loop ────────────────────────────────────────── *)

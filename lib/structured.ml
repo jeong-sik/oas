@@ -233,10 +233,10 @@ let extract_with_retry
   (* Mirror [Agent_turn.accumulate_usage]: when [u.cost_usd = None], use
      pricing-for-model to compute the cost; if there is no pricing entry,
      mark [unpriced_model] (with a stable sentinel for blank model_ids) so
-     [Cost_tracker.check_budget] can fail closed on retry-driven cost
-     paths.  Previously this path treated [None] as $0 and never stamped
-     [unpriced_model], so retries with unpriced models silently
-     under-reported cost. *)
+     cost telemetry records the gap.  Previously this path treated [None]
+     as $0 and never stamped [unpriced_model], so retries with unpriced
+     models silently under-reported cost.  Cost is telemetry only and
+     never gates execution. *)
   let add_retry_usage ~provider_cfg acc resp_usage =
     match resp_usage with
     | None -> acc
