@@ -211,10 +211,7 @@ let create_agent
     ; cache_system_prompt =
         Option.value cache_system_prompt ~default:default_config.cache_system_prompt
     ; cache_extended_ttl = default_config.cache_extended_ttl
-    ; max_input_tokens = default_config.max_input_tokens
-    ; max_total_tokens = default_config.max_total_tokens
     ; initial_messages = default_config.initial_messages
-    ; max_cost_usd = default_config.max_cost_usd
     ; context_compact_ratio = default_config.context_compact_ratio
     ; context_prepare_ratio = default_config.context_prepare_ratio
     ; context_handoff_ratio = default_config.context_handoff_ratio

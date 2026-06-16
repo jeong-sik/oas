@@ -16,12 +16,6 @@ type cost_report =
   ; avg_cost_per_call : float
   }
 
-(** Compatibility shim for older callers.
-
-    Cost thresholds are advisory telemetry only. This function returns
-    [None] unconditionally and must not gate execution. *)
-val check_budget : Types.agent_config -> Types.usage_stats -> Error.sdk_error option
-
 (** Generate a structured cost report from usage stats. *)
 val report : Types.usage_stats -> cost_report
 

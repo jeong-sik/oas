@@ -62,7 +62,6 @@ let test_registry_covers_all_variants () =
     ; "Thinking_complete"
     ; "Timeout"
     ; "Prefill_complete"
-    ; "Budget_exceeded"
     ; "Context_window_usage"
     ]
   in

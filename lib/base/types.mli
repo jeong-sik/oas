@@ -55,11 +55,7 @@ type agent_config =
       Write cost is 2x but the cache persists 12x longer — intended
       for long-running agents that go idle 5+ minutes between turns.
       @since 0.151.0 *)
-  ; max_input_tokens : int option
-  ; max_total_tokens : int option
   ; initial_messages : message list
-  ; max_cost_usd : float option
-    (** Advisory cost telemetry threshold in USD. Never gates execution. *)
   ; context_compact_ratio : float option
   ; context_prepare_ratio : float option
   ; context_handoff_ratio : float option

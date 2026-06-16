@@ -23,9 +23,6 @@ type tool_error =
 
 type agent_error =
   [ `Max_turns_exceeded of int * int
-  | `Token_budget_exceeded of int * int
-  | `Cost_budget_exceeded
-  | `Cost_budget_unenforceable of string * float
   | `Idle_detected of int
   | `Agent_execution_timeout of float * float * int * int
   | `Agent_execution_idle_timeout of float * float * int * int
@@ -122,10 +119,6 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Api err -> (of_api_error err :> sdk_error_poly)
   | Error.Provider err -> (of_provider_error err :> sdk_error_poly)
   | Error.Agent (MaxTurnsExceeded r) -> `Max_turns_exceeded (r.turns, r.limit)
-  | Error.Agent (TokenBudgetExceeded r) -> `Token_budget_exceeded (r.used, r.limit)
-  | Error.Agent (CostBudgetExceeded _) -> `Cost_budget_exceeded
-  | Error.Agent (CostBudgetUnenforceable r) ->
-    `Cost_budget_unenforceable (r.model_id, r.limit_usd)
   | Error.Agent (IdleDetected r) -> `Idle_detected r.consecutive_idle_turns
   | Error.Agent (AgentExecutionTimeout r) ->
     `Agent_execution_timeout (r.elapsed_sec, r.timeout_sec, r.turn_count, r.max_turns)
@@ -175,12 +168,6 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   match err with
   | #provider_error as e -> provider_to_sdk e
   | `Max_turns_exceeded (turns, limit) -> Error.Agent (MaxTurnsExceeded { turns; limit })
-  | `Token_budget_exceeded (used, limit) ->
-    Error.Agent (TokenBudgetExceeded { kind = "total"; used; limit })
-  | `Cost_budget_exceeded ->
-    Error.Agent (CostBudgetExceeded { spent_usd = 0.0; limit_usd = 0.0 })
-  | `Cost_budget_unenforceable (model_id, limit_usd) ->
-    Error.Agent (CostBudgetUnenforceable { model_id; limit_usd })
   | `Idle_detected n -> Error.Agent (IdleDetected { consecutive_idle_turns = n })
   | `Agent_execution_timeout (elapsed_sec, timeout_sec, turn_count, max_turns) ->
     Error.Agent
@@ -268,9 +255,6 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Tool_exec_failed _
   | `Tool_timeout _
   | `Max_turns_exceeded _
-  | `Token_budget_exceeded _
-  | `Cost_budget_exceeded
-  | `Cost_budget_unenforceable _
   | `Idle_detected _
   | `Agent_execution_timeout _
   | `Agent_execution_idle_timeout _

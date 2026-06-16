@@ -135,20 +135,6 @@ let test_prefill_complete () =
   | _ -> fail "variant mismatch"
 ;;
 
-let test_budget_exceeded () =
-  let ev =
-    Telemetry_event.Budget_exceeded
-      { agent_name = "alpha"; run_id = "run-1"; spent_usd = 1.23; limit_usd = 1.00 }
-  in
-  match roundtrip ev with
-  | Telemetry_event.Budget_exceeded r ->
-    check string "agent_name" "alpha" r.agent_name;
-    check string "run_id" "run-1" r.run_id;
-    check_float "spent_usd" 1.23 r.spent_usd;
-    check_float "limit_usd" 1.00 r.limit_usd
-  | _ -> fail "variant mismatch"
-;;
-
 let test_context_window_usage () =
   let ev =
     Telemetry_event.Context_window_usage
@@ -210,8 +196,6 @@ let test_event_type_name () =
           ; cache_hit = false
           }
       , "prefill_complete" )
-    ; ( Budget_exceeded { agent_name = ""; run_id = ""; spent_usd = 0.0; limit_usd = 0.0 }
-      , "budget_exceeded" )
     ; ( Context_window_usage
           { agent_name = ""
           ; turn = 0
@@ -274,7 +258,6 @@ let () =
         ; test_case "Timeout No_response roundtrip" `Quick test_timeout_no_response
         ; test_case "Timeout Ttft_exceeded roundtrip" `Quick test_timeout_ttft_exceeded
         ; test_case "Prefill_complete roundtrip" `Quick test_prefill_complete
-        ; test_case "Budget_exceeded roundtrip" `Quick test_budget_exceeded
         ; test_case "Context_window_usage roundtrip" `Quick test_context_window_usage
         ] )
     ; "event_type_name", [ test_case "all variants" `Quick test_event_type_name ]

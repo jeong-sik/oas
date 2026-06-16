@@ -44,8 +44,6 @@ let make_checkpoint
   ; response_format = Types.Off
   ; thinking_budget = None
   ; cache_system_prompt = false
-  ; max_input_tokens = None
-  ; max_total_tokens = None
   ; context
   ; mcp_sessions
   ; working_context = None
@@ -136,8 +134,6 @@ let () =
                 ; "response_format_json", `Bool true
                 ; "thinking_budget", `Null
                 ; "cache_system_prompt", `Bool false
-                ; "max_input_tokens", `Null
-                ; "max_total_tokens", `Null
                 ; "context", `Assoc []
                 ; "mcp_sessions", `List []
                 ; "working_context", `Null

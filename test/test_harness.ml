@@ -116,10 +116,7 @@ let test_performance_evaluate () =
     }
   in
   let exp =
-    { Harness.Performance.default_expectation with
-      max_total_tokens = Some 1000
-    ; max_turns = Some 5
-    }
+    { Harness.Performance.default_expectation with max_turns = Some 5 }
   in
   let verdict = Harness.Performance.evaluate obs exp in
   Alcotest.(check bool) "within budget" true verdict.passed

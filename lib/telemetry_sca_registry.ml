@@ -40,10 +40,6 @@ let registry : entry list =
     ; producer_files = [ "lib/llm_provider/complete_stream.ml" ]
     ; description = "Prompt eval token count and latency from Ollama timings"
     }
-  ; { signal = "Budget_exceeded"
-    ; producer_files = [ "lib/agent/agent.ml" ]
-    ; description = "Legacy advisory cost threshold exceeded"
-    }
   ; { signal = "Context_window_usage"
     ; producer_files = [ "lib/pipeline/pipeline.ml" ]
     ; description =

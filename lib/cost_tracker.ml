@@ -19,14 +19,6 @@ type cost_report =
   ; avg_cost_per_call : float
   }
 
-(** Compatibility shim for older callers.
-
-    Cost thresholds are advisory telemetry only. This function must never
-    return an execution-stopping error, even when [config.max_cost_usd] is
-    set, accumulated cost is above the threshold, or usage includes an
-    unpriced model. *)
-let check_budget (_config : Types.agent_config) (_usage : Types.usage_stats) = None
-
 (** Generate a cost report from accumulated usage stats. *)
 let report (usage : Types.usage_stats) : cost_report =
   let avg =

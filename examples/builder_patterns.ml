@@ -5,7 +5,7 @@
     - Minimal vs full configuration
     - Validation errors from build_safe
     - with_hooks, with_guardrails, with_provider
-    - with_context, with_initial_messages, with_max_cost_usd
+    - with_context, with_initial_messages
 
     Prerequisites:
     - A running llama-server on port 8085 (or set provider accordingly)
@@ -69,7 +69,6 @@ let demo_full () =
     |> Builder.with_hooks hooks
     |> Builder.with_guardrails
          { tool_filter = AllowList [ "echo" ]; max_tool_calls_per_turn = Some 3 }
-    |> Builder.with_max_cost_usd 0.10
     |> Builder.with_initial_messages
          [ { role = User
            ; content = [ Text "context: this is a demo" ]
@@ -85,11 +84,6 @@ let demo_full () =
     let st = Agent.state agent in
     Printf.printf "  Agent: %s\n" st.config.name;
     Printf.printf "  Max turns: %d\n" st.config.max_turns;
-    Printf.printf
-      "  Max cost: %s USD\n"
-      (match st.config.max_cost_usd with
-       | Some c -> Printf.sprintf "%.2f" c
-       | None -> "unlimited");
     Printf.printf "  Tools: %d\n" (Tool_set.size (Agent.tools agent));
     Printf.printf "  Initial messages: %d\n" (List.length st.config.initial_messages)
   | Error e -> Printf.printf "  Build failed: %s\n" (Error.to_string e)

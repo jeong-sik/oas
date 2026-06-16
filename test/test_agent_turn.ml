@@ -523,39 +523,6 @@ let test_filter_valid_same_role_adjacency () =
   | _ -> Alcotest.fail "expected Assistant"
 ;;
 
-(* ── check_token_budget tests ────────────────────────────── *)
-
-let test_token_budget_within () =
-  let config = { Types.default_config with max_input_tokens = Some 1000 } in
-  let usage = { Types.empty_usage with total_input_tokens = 500 } in
-  Alcotest.(check (option reject))
-    "within budget"
-    None
-    (Agent_turn.check_token_budget config usage)
-;;
-
-let test_token_budget_exceeded () =
-  let config = { Types.default_config with max_input_tokens = Some 100 } in
-  let usage = { Types.empty_usage with total_input_tokens = 200 } in
-  match Agent_turn.check_token_budget config usage with
-  | Some (Error.Agent (TokenBudgetExceeded { kind; used; limit })) ->
-    Alcotest.(check string) "kind" "Input" kind;
-    Alcotest.(check int) "used" 200 used;
-    Alcotest.(check int) "limit" 100 limit
-  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
-;;
-
-let test_token_budget_total_exceeded () =
-  let config = { Types.default_config with max_total_tokens = Some 100 } in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 60; total_output_tokens = 50 }
-  in
-  match Agent_turn.check_token_budget config usage with
-  | Some (Error.Agent (TokenBudgetExceeded { kind; _ })) ->
-    Alcotest.(check string) "kind" "Total" kind
-  | _ -> Alcotest.fail "expected TokenBudgetExceeded for total"
-;;
-
 (* ── make_tool_results tests ─────────────────────────────── *)
 
 let test_make_tool_results () =
@@ -762,43 +729,6 @@ let test_idle_non_tool_use_ignored () =
       ~tool_uses
   in
   Alcotest.(check bool) "first not idle" false r1.is_idle
-;;
-
-(* ── check_token_budget: no limits ──────────────────────── *)
-
-let test_token_budget_no_limits () =
-  let config = Types.default_config in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 999999; total_output_tokens = 999999 }
-  in
-  Alcotest.(check (option reject))
-    "no limits"
-    None
-    (Agent_turn.check_token_budget config usage)
-;;
-
-let test_token_budget_input_priority_over_total () =
-  let config =
-    { Types.default_config with max_input_tokens = Some 100; max_total_tokens = Some 200 }
-  in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 150; total_output_tokens = 50 }
-  in
-  match Agent_turn.check_token_budget config usage with
-  | Some (Error.Agent (TokenBudgetExceeded { kind; _ })) ->
-    Alcotest.(check string) "input takes priority" "Input" kind
-  | _ -> Alcotest.fail "expected input budget error"
-;;
-
-let test_token_budget_total_within () =
-  let config = { Types.default_config with max_total_tokens = Some 500 } in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 200; total_output_tokens = 200 }
-  in
-  Alcotest.(check (option reject))
-    "total within"
-    None
-    (Agent_turn.check_token_budget config usage)
 ;;
 
 (* ── apply_context_injection ─────────────────────────────── *)
@@ -1087,17 +1017,6 @@ let () =
             test_filter_valid_same_role_adjacency
         ; Alcotest.test_case "alternating" `Quick test_filter_valid_alternating
         ; Alcotest.test_case "all same role" `Quick test_filter_valid_all_same_role
-        ] )
-    ; ( "check_token_budget"
-      , [ Alcotest.test_case "within budget" `Quick test_token_budget_within
-        ; Alcotest.test_case "input exceeded" `Quick test_token_budget_exceeded
-        ; Alcotest.test_case "total exceeded" `Quick test_token_budget_total_exceeded
-        ; Alcotest.test_case "no limits" `Quick test_token_budget_no_limits
-        ; Alcotest.test_case
-            "input priority"
-            `Quick
-            test_token_budget_input_priority_over_total
-        ; Alcotest.test_case "total within" `Quick test_token_budget_total_within
         ] )
     ; ( "make_tool_results"
       , [ Alcotest.test_case "tool results" `Quick test_make_tool_results ] )

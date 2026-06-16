@@ -79,12 +79,6 @@ type t =
       ; prompt_eval_ms : float
       ; cache_hit : bool
       }
-  | Budget_exceeded of
-      { agent_name : string
-      ; run_id : string
-      ; spent_usd : float
-      ; limit_usd : float
-      }
   | Context_window_usage of
       { agent_name : string
       ; turn : int

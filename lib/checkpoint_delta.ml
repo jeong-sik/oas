@@ -110,8 +110,6 @@ let limits_patch_changed (before : t) (after : t) =
   before.disable_parallel_tool_use <> after.disable_parallel_tool_use
   || before.response_format <> after.response_format
   || before.cache_system_prompt <> after.cache_system_prompt
-  || before.max_input_tokens <> after.max_input_tokens
-  || before.max_total_tokens <> after.max_total_tokens
 ;;
 
 let delta_version = 2
@@ -201,8 +199,6 @@ let compute_delta (before : t) (after : t) =
          { disable_parallel_tool_use = after.disable_parallel_tool_use
          ; response_format = after.response_format
          ; cache_system_prompt = after.cache_system_prompt
-         ; max_input_tokens = after.max_input_tokens
-         ; max_total_tokens = after.max_total_tokens
          });
   let context_diff = Context.diff before.context after.context in
   if not (context_diff_is_empty context_diff) then push (Patch_context context_diff);
@@ -270,8 +266,6 @@ let apply_delta base delta =
             disable_parallel_tool_use = patch.disable_parallel_tool_use
           ; response_format = patch.response_format
           ; cache_system_prompt = patch.cache_system_prompt
-          ; max_input_tokens = patch.max_input_tokens
-          ; max_total_tokens = patch.max_total_tokens
           }
       | Patch_context diff ->
         Ok { checkpoint with context = apply_context_patch checkpoint.context diff }

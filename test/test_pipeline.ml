@@ -653,75 +653,6 @@ let test_accumulate_usage_cumulative () =
   Alcotest.(check int) "cumulative calls" 2 after2.api_calls
 ;;
 
-(* ── check_token_budget ──────────────────────────────────── *)
-
-let test_token_budget_no_limit () =
-  let config = Types.default_config in
-  let usage = { Types.empty_usage with total_input_tokens = 999999 } in
-  Alcotest.(check bool)
-    "no limit = None"
-    true
-    (Option.is_none (Agent_turn.check_token_budget config usage))
-;;
-
-let test_token_budget_input_under () =
-  let config = { Types.default_config with max_input_tokens = Some 1000 } in
-  let usage = { Types.empty_usage with total_input_tokens = 500 } in
-  Alcotest.(check bool)
-    "under limit"
-    true
-    (Option.is_none (Agent_turn.check_token_budget config usage))
-;;
-
-let test_token_budget_input_exceeded () =
-  let config = { Types.default_config with max_input_tokens = Some 1000 } in
-  let usage = { Types.empty_usage with total_input_tokens = 1500 } in
-  match Agent_turn.check_token_budget config usage with
-  | Some (Error.Agent (TokenBudgetExceeded { kind; used; limit })) ->
-    Alcotest.(check string) "kind" "Input" kind;
-    Alcotest.(check int) "used" 1500 used;
-    Alcotest.(check int) "limit" 1000 limit
-  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
-;;
-
-let test_token_budget_total_exceeded () =
-  let config = { Types.default_config with max_total_tokens = Some 200 } in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 120; total_output_tokens = 100 }
-  in
-  match Agent_turn.check_token_budget config usage with
-  | Some (Error.Agent (TokenBudgetExceeded { kind; used; limit })) ->
-    Alcotest.(check string) "kind" "Total" kind;
-    Alcotest.(check int) "used" 220 used;
-    Alcotest.(check int) "limit" 200 limit
-  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
-;;
-
-let test_token_budget_total_under () =
-  let config = { Types.default_config with max_total_tokens = Some 500 } in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 200; total_output_tokens = 100 }
-  in
-  Alcotest.(check bool)
-    "under total limit"
-    true
-    (Option.is_none (Agent_turn.check_token_budget config usage))
-;;
-
-let test_token_budget_input_takes_precedence () =
-  (* If both input and total are exceeded, input error is returned *)
-  let config =
-    { Types.default_config with max_input_tokens = Some 100; max_total_tokens = Some 200 }
-  in
-  let usage =
-    { Types.empty_usage with total_input_tokens = 150; total_output_tokens = 100 }
-  in
-  match Agent_turn.check_token_budget config usage with
-  | Some (Error.Agent (TokenBudgetExceeded { kind; _ })) ->
-    Alcotest.(check string) "input takes precedence" "Input" kind
-  | _ -> Alcotest.fail "expected TokenBudgetExceeded"
-;;
-
 (* ── prepare_turn: extra_system_context ──────────────────── *)
 
 let test_prepare_turn_extra_context () =
@@ -1099,17 +1030,6 @@ let () =
       , [ Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response
         ; Alcotest.test_case "no response" `Quick test_accumulate_usage_no_response
         ; Alcotest.test_case "cumulative" `Quick test_accumulate_usage_cumulative
-        ] )
-    ; ( "token_budget"
-      , [ Alcotest.test_case "no limit" `Quick test_token_budget_no_limit
-        ; Alcotest.test_case "input under" `Quick test_token_budget_input_under
-        ; Alcotest.test_case "input exceeded" `Quick test_token_budget_input_exceeded
-        ; Alcotest.test_case "total exceeded" `Quick test_token_budget_total_exceeded
-        ; Alcotest.test_case "total under" `Quick test_token_budget_total_under
-        ; Alcotest.test_case
-            "input precedence"
-            `Quick
-            test_token_budget_input_takes_precedence
         ] )
     ; ( "error_domain"
       , [ Alcotest.test_case "of_sdk_error" `Quick test_error_domain_of_sdk_error

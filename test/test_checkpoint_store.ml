@@ -33,8 +33,6 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) ()
   ; response_format = Types.Off
   ; thinking_budget = None
   ; cache_system_prompt = false
-  ; max_input_tokens = None
-  ; max_total_tokens = None
   ; context = Context.create ()
   ; mcp_sessions = []
   ; working_context = None

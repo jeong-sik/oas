@@ -3,7 +3,7 @@
 
     Focuses on:
     - Builder chainable API: with_* methods not yet covered
-    - build_safe validation: invalid max_turns, max_tokens, thinking_budget, max_cost_usd
+    - build_safe validation: invalid max_turns, max_tokens, thinking_budget
     - Agent accessors: state, tools, context, options, description
     - Agent.default_options fields
     - Agent.clone *)
@@ -60,8 +60,6 @@ let test_builder_response_format () =
     Builder.create ~net:env#net ~model:Types.default_config.model
     |> Builder.with_response_format_json true
     |> Builder.with_cache_system_prompt true
-    |> Builder.with_max_input_tokens 50000
-    |> Builder.with_max_total_tokens 100000
     |> Builder.with_disable_parallel_tool_use true
   in
   match Builder.build_safe b with
@@ -92,18 +90,6 @@ let test_builder_initial_messages () =
   let b =
     Builder.create ~net:env#net ~model:Types.default_config.model
     |> Builder.with_initial_messages msgs
-  in
-  match Builder.build_safe b with
-  | Ok _agent -> ()
-  | Error e -> Alcotest.fail (Error.to_string e)
-;;
-
-let test_builder_max_cost () =
-  Eio_main.run
-  @@ fun env ->
-  let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_max_cost_usd 5.0
   in
   match Builder.build_safe b with
   | Ok _agent -> ()
@@ -153,20 +139,6 @@ let test_build_safe_thinking_budget_without_enable () =
     Alcotest.(check string) "field" "thinking_budget" field
   | Error _ -> Alcotest.fail "expected InvalidConfig for thinking_budget"
   | Ok _ -> Alcotest.fail "expected Error for thinking_budget without enable"
-;;
-
-let test_build_safe_negative_max_cost () =
-  Eio_main.run
-  @@ fun env ->
-  let b =
-    Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_max_cost_usd (-1.0)
-  in
-  match Builder.build_safe b with
-  | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
-    Alcotest.(check string) "field" "max_cost_usd" field
-  | Error _ -> Alcotest.fail "expected InvalidConfig for max_cost_usd"
-  | Ok _ -> Alcotest.fail "expected Error for negative max_cost_usd"
 ;;
 
 (* ── Agent accessors ──────────────────────────────────────── *)
@@ -319,7 +291,6 @@ let () =
         ; Alcotest.test_case "response format" `Quick test_builder_response_format
         ; Alcotest.test_case "tool choice" `Quick test_builder_tool_choice
         ; Alcotest.test_case "initial messages" `Quick test_builder_initial_messages
-        ; Alcotest.test_case "max cost" `Quick test_builder_max_cost
         ; Alcotest.test_case "with event_bus" `Quick test_builder_with_event_bus
         ] )
     ; ( "build_safe_validation"
@@ -332,7 +303,6 @@ let () =
             "thinking without enable"
             `Quick
             test_build_safe_thinking_budget_without_enable
-        ; Alcotest.test_case "negative max_cost" `Quick test_build_safe_negative_max_cost
         ] )
     ; ( "agent_accessors"
       , [ Alcotest.test_case "state/tools/context/desc" `Quick test_agent_accessors

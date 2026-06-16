@@ -458,32 +458,6 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
   !current_messages
 ;;
 
-(* ── Token budget check ───────────────────────────────────────── *)
-
-let check_token_budget config usage =
-  let exceeded_input =
-    match config.max_input_tokens with
-    | Some limit when usage.total_input_tokens > limit ->
-      Some
-        (Error.Agent
-           (TokenBudgetExceeded { kind = "Input"; used = usage.total_input_tokens; limit }))
-    | Some _ | None -> None
-  in
-  let exceeded_total =
-    match config.max_total_tokens with
-    | Some limit ->
-      let total = usage.total_input_tokens + usage.total_output_tokens in
-      if total > limit
-      then
-        Some (Error.Agent (TokenBudgetExceeded { kind = "Total"; used = total; limit }))
-      else None
-    | None -> None
-  in
-  match exceeded_input with
-  | Some _ as err -> err
-  | None -> exceeded_total
-;;
-
 (* ── Stop reason handling (tool execution branch) ─────────────── *)
 
 type idle_state =

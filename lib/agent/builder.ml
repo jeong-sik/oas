@@ -22,10 +22,7 @@ type t =
   ; disable_parallel_tool_use : bool
   ; cache_system_prompt : bool
   ; cache_extended_ttl : bool
-  ; max_input_tokens : int option
-  ; max_total_tokens : int option
   ; initial_messages : message list
-  ; max_cost_usd : float option
   ; tools : Tool_set.t
   ; context : Context.t option
   ; base_url : string
@@ -96,10 +93,7 @@ let create ~net ~model =
   ; disable_parallel_tool_use = default_config.disable_parallel_tool_use
   ; cache_system_prompt = default_config.cache_system_prompt
   ; cache_extended_ttl = default_config.cache_extended_ttl
-  ; max_input_tokens = default_config.max_input_tokens
-  ; max_total_tokens = default_config.max_total_tokens
   ; initial_messages = default_config.initial_messages
-  ; max_cost_usd = default_config.max_cost_usd
   ; tools = Tool_set.empty
   ; context = None
   ; base_url = Api.default_base_url
@@ -225,26 +219,18 @@ let with_context_thresholds
   (* Resolution chain for the context window used by the reducer:
      1. explicit [?context_window_tokens] argument (caller knows the
         per-agent override),
-     2. builder's [max_input_tokens] (whole-run input cap),
-     3. builder's [max_total_tokens] (whole-run total cap),
-     4. [Provider.resolve_max_context_tokens] on [b.provider] when set
+     2. [Provider.resolve_max_context_tokens] on [b.provider] when set
         (e.g. a [qwen3*] model_id → 262_144) — this shares the
         "provider → capabilities → max_context_tokens" resolution with
         [Pipeline.proactive_context_window_tokens] so the reducer budget
         and the compaction watermark agree for the same agent.
-     5. conservative 200_000 literal as the final fallback when nothing
+     3. conservative 200_000 literal as the final fallback when nothing
         is known — better to under-report than to assume a giant window
         and skip compaction. *)
   let effective_max =
     match context_window_tokens with
     | Some n when n > 0 -> n
-    | _ ->
-      (match b.max_input_tokens with
-       | Some n when n > 0 -> n
-       | _ ->
-         (match b.max_total_tokens with
-          | Some n when n > 0 -> n
-          | _ -> Provider.resolve_max_context_tokens ~fallback:200_000 b.provider))
+    | _ -> Provider.resolve_max_context_tokens ~fallback:200_000 b.provider
   in
   let reducer =
     Context_reducer.from_context_config ~compact_ratio ~max_tokens:effective_max ()
@@ -284,10 +270,7 @@ let with_tool_choice tc b = { b with tool_choice = Some tc }
 let with_response_format response_format b = { b with response_format }
 let with_disable_parallel_tool_use v b = { b with disable_parallel_tool_use = v }
 let with_thinking_budget n b = { b with thinking_budget = Some n }
-let with_max_input_tokens n b = { b with max_input_tokens = Some n }
-let with_max_total_tokens n b = { b with max_total_tokens = Some n }
 let with_initial_messages msgs b = { b with initial_messages = msgs }
-let with_max_cost_usd v b = { b with max_cost_usd = Some v }
 
 let with_response_format_json v b =
   with_response_format (response_format_of_json_mode v) b
@@ -360,10 +343,7 @@ let build b =
     ; disable_parallel_tool_use = b.disable_parallel_tool_use
     ; cache_system_prompt = b.cache_system_prompt
     ; cache_extended_ttl = b.cache_extended_ttl
-    ; max_input_tokens = b.max_input_tokens
-    ; max_total_tokens = b.max_total_tokens
     ; initial_messages = b.initial_messages
-    ; max_cost_usd = b.max_cost_usd
     ; context_compact_ratio = b.context_compact_ratio
     ; context_prepare_ratio = b.context_prepare_ratio
     ; context_handoff_ratio = b.context_handoff_ratio
@@ -483,14 +463,5 @@ let build_safe b =
                  { field = "thinking_budget"
                  ; detail = "thinking_budget requires enable_thinking = true"
                  }))
-       | _ ->
-         (match b.max_cost_usd with
-          | Some v when v < 0.0 ->
-            Error
-              (Error.Config
-                 (Error.InvalidConfig
-                    { field = "max_cost_usd"
-                    ; detail = Printf.sprintf "must be >= 0.0, got %.4f" v
-                    }))
-          | _ -> Ok (build b))))
+       | _ -> Ok (build b)))
 ;;

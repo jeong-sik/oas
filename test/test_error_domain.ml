@@ -156,7 +156,6 @@ let test_to_string_each_variant () =
     ; `Tool_exec_failed ("search", "crash")
     ; `Tool_timeout ("calc", 30.0)
     ; `Max_turns_exceeded (20, 10)
-    ; `Token_budget_exceeded (5000, 4000)
     ; `Idle_detected 5
     ; `Agent_execution_timeout (12.0, 10.0, 4, 8)
     ; `Unrecognized_stop_reason "weird"
@@ -196,7 +195,6 @@ let test_all_variants_convert () =
     ; `Tool_exec_failed ("t", "d")
     ; `Tool_timeout ("t", 1.0)
     ; `Max_turns_exceeded (1, 2)
-    ; `Token_budget_exceeded (100, 50)
     ; `Idle_detected 3
     ; `Agent_execution_timeout (12.0, 10.0, 4, 8)
     ; `Unrecognized_stop_reason "x"
@@ -363,20 +361,6 @@ let test_retryable_context_overflow () =
     "context_overflow not retryable"
     false
     (Error_domain.is_retryable (`Context_overflow ("overflow", Some 8192)))
-;;
-
-let test_roundtrip_agent_token_budget () =
-  let orig =
-    Error.Agent (TokenBudgetExceeded { kind = "total"; used = 500; limit = 100 })
-  in
-  let poly = Error_domain.of_sdk_error orig in
-  (match poly with
-   | `Token_budget_exceeded (500, 100) -> ()
-   | _ -> Alcotest.fail "expected Token_budget_exceeded");
-  let back = Error_domain.to_sdk_error poly in
-  match back with
-  | Error.Agent (TokenBudgetExceeded { used = 500; limit = 100; _ }) -> ()
-  | _ -> Alcotest.fail "roundtrip mismatch for TokenBudgetExceeded"
 ;;
 
 let test_roundtrip_agent_idle_detected () =
@@ -584,13 +568,6 @@ let test_retryable_tool_timeout () =
     (Error_domain.is_retryable (`Tool_timeout ("t", 1.0)))
 ;;
 
-let test_retryable_token_budget () =
-  Alcotest.(check bool)
-    "token_budget not retryable"
-    false
-    (Error_domain.is_retryable (`Token_budget_exceeded (100, 50)))
-;;
-
 let test_retryable_idle_detected () =
   Alcotest.(check bool)
     "idle_detected not retryable"
@@ -768,7 +745,6 @@ let () =
             "agent execution_timeout"
             `Quick
             test_roundtrip_agent_execution_timeout
-        ; Alcotest.test_case "agent token_budget" `Quick test_roundtrip_agent_token_budget
         ; Alcotest.test_case
             "agent idle_detected"
             `Quick
@@ -816,7 +792,6 @@ let () =
         ; Alcotest.test_case "invalid_request" `Quick test_retryable_invalid_request
         ; Alcotest.test_case "context_overflow" `Quick test_retryable_context_overflow
         ; Alcotest.test_case "max_turns" `Quick test_retryable_max_turns
-        ; Alcotest.test_case "token_budget" `Quick test_retryable_token_budget
         ; Alcotest.test_case "idle_detected" `Quick test_retryable_idle_detected
         ; Alcotest.test_case "unrecognized_stop" `Quick test_retryable_unrecognized_stop
         ; Alcotest.test_case "missing_env_var" `Quick test_retryable_missing_env_var

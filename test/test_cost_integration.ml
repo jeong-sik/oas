@@ -136,62 +136,6 @@ let test_report_format () =
   Alcotest.(check int) "calls" 5 r.api_calls
 ;;
 
-(* ── Budget check tests ──────────────────────────────── *)
-
-let test_budget_under () =
-  let config = { default_config with max_cost_usd = Some 1.0 } in
-  let usage : Types.usage_stats =
-    { total_input_tokens = 0
-    ; total_output_tokens = 0
-    ; total_cache_creation_input_tokens = 0
-    ; total_cache_read_input_tokens = 0
-    ; api_calls = 0
-    ; estimated_cost_usd = 0.5
-    ; unpriced_model = None
-    }
-  in
-  Alcotest.(check bool)
-    "under budget"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_budget_exceeded () =
-  let config = { default_config with max_cost_usd = Some 1.0 } in
-  let usage : Types.usage_stats =
-    { total_input_tokens = 0
-    ; total_output_tokens = 0
-    ; total_cache_creation_input_tokens = 0
-    ; total_cache_read_input_tokens = 0
-    ; api_calls = 0
-    ; estimated_cost_usd = 1.5
-    ; unpriced_model = None
-    }
-  in
-  Alcotest.(check bool)
-    "over advisory threshold"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
-let test_no_budget_unlimited () =
-  let config = { default_config with max_cost_usd = None } in
-  let usage : Types.usage_stats =
-    { total_input_tokens = 0
-    ; total_output_tokens = 0
-    ; total_cache_creation_input_tokens = 0
-    ; total_cache_read_input_tokens = 0
-    ; api_calls = 0
-    ; estimated_cost_usd = 999.0
-    ; unpriced_model = None
-    }
-  in
-  Alcotest.(check bool)
-    "no limit"
-    true
-    (Option.is_none (Cost_tracker.check_budget config usage))
-;;
-
 (* ── Suite ───────────────────────────────────────────── *)
 
 let () =
@@ -207,11 +151,6 @@ let () =
     ; ( "report"
       , [ test_case "zero division safe" `Quick test_report_zero_division
         ; test_case "format" `Quick test_report_format
-        ] )
-    ; ( "budget"
-      , [ test_case "under budget" `Quick test_budget_under
-        ; test_case "exceeded" `Quick test_budget_exceeded
-        ; test_case "no budget unlimited" `Quick test_no_budget_unlimited
         ] )
     ]
 ;;
