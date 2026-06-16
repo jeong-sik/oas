@@ -157,6 +157,14 @@ let complete_http
             ~url
             ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
             ~body:body_str
+            (* Per-kind connect/headers bound (RFC-OAS-026). A cold local Ollama
+               model load holds the response headers well past the 60s that
+               suits cloud providers, so bound the op with
+               default_connect_timeout_s (600s Ollama, 60s cloud). Without this
+               post_sync fell back to the constant default_http_timeout_s = 60.0
+               for every kind, truncating local model loads on the
+               connect/headers phase as a phase=Http_operation timeout. *)
+            ~timeout_s:(Provider_config.default_connect_timeout_s config.kind)
             ()
         in
         (* Body-level deadline (since 0.195.0): wraps the entire
