@@ -646,7 +646,6 @@ let test_with_context_thresholds_explicit () =
     (extract_token_budget reducer)
 ;;
 
-
 (* --- 30. with_context_thresholds: default fallback 200_000 --- *)
 
 let test_with_context_thresholds_default_fallback () =
