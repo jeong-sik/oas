@@ -8,6 +8,22 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.0](https://github.com/jeong-sik/oas/compare/v0.206.14...v0.207.0) (2026-06-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* **catalog:** provider API-key and thinking-budget env var names are renamed (e.g. PROVIDER_C_API_KEY -> KIMI_API_KEY). Deployment configs, .env files, and any masc OAS-spawn env must move to the brand names.
+
+### Bug Fixes
+
+* **provider:** wire per-kind connect timeout in complete_sync post_sync ([#2099](https://github.com/jeong-sik/oas/issues/2099)) ([8b2ef22](https://github.com/jeong-sik/oas/commit/8b2ef22c503e04b062f645bb65482e37e047b4d4))
+
+
+### Code Refactoring
+
+* **catalog:** de-anonymize vendor-purge cipher to brand names ([#2100](https://github.com/jeong-sik/oas/issues/2100)) ([0ae9c32](https://github.com/jeong-sik/oas/commit/0ae9c323f141841504553364a29597341f6031c9))
+
 ## [0.206.14](https://github.com/jeong-sik/oas/compare/v0.206.13...v0.206.14) (2026-06-15)
 
 
