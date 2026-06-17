@@ -456,12 +456,203 @@ let is_local_resource_exhaustion = function
 
 (* ── Public API ────────────────────────────────────────────── *)
 
+type connection = [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t
+
 let add_connection_close headers = ("connection", "close") :: headers
 
-(** Client wrapper that tracks the socket for explicit close.
-    The caller provides the concrete URI so host resolution and TLS
-    availability can be checked up front and reported as typed errors. *)
-let make_closing_client ~sw ~net ~uri =
+let maybe_add_connection_close ?cache headers =
+  match cache with
+  | Some _ -> headers
+  | None -> add_connection_close headers
+;;
+
+(* ── Connection cache ──────────────────────────────────────── *)
+
+(** Host identity for connection reuse. The cache intentionally ignores
+    path, query, and auth: a connection to the same origin can carry
+    requests with different URLs and headers. *)
+module Cache_key = struct
+  type t =
+    { scheme : string
+    ; host : string
+    ; port : int
+    }
+
+  let compare a b =
+    match String.compare a.scheme b.scheme with
+    | 0 ->
+      (match String.compare a.host b.host with
+       | 0 -> Int.compare a.port b.port
+       | n -> n)
+    | n -> n
+  ;;
+
+  let of_uri uri =
+    let scheme = Uri.scheme uri |> Option.value ~default:"http" in
+    let host =
+      match Uri.host uri with
+      | Some "" | None -> "localhost"
+      | Some h -> h
+    in
+    let port =
+      Uri.port uri
+      |> Option.value
+           ~default:
+             (match scheme with
+              | "https" -> 443
+              | _ -> 80)
+    in
+    { scheme; host; port }
+  ;;
+end
+
+module Cache_map = Map.Make (Cache_key)
+
+type cache_entry =
+  { connection : connection
+  ; last_used_at : float
+  }
+
+type cache_stats =
+  { idle_per_host : (string * int) list
+  ; total_idle : int
+  ; reuse_count_total : int
+  ; create_count_total : int
+  }
+
+type cache =
+  { sw : Eio.Switch.t
+  ; mu : Eio.Mutex.t
+  ; max_idle_per_host : int
+  ; idle_ttl_seconds : float
+  ; mutable entries : cache_entry list Cache_map.t
+  ; mutable reuse_count_total : int
+  ; mutable create_count_total : int
+  ; stop : bool Atomic.t
+  }
+
+let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) () : cache
+  =
+  let cache =
+    { sw
+    ; mu = Eio.Mutex.create ()
+    ; max_idle_per_host
+    ; idle_ttl_seconds
+    ; entries = Cache_map.empty
+    ; reuse_count_total = 0
+    ; create_count_total = 0
+    ; stop = Atomic.make false
+    }
+  in
+  Eio.Switch.on_release sw (fun () ->
+    Atomic.set cache.stop true;
+    let leftover =
+      Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
+        let all =
+          Cache_map.fold
+            (fun _ entries acc -> List.rev_append entries acc)
+            cache.entries
+            []
+        in
+        cache.entries <- Cache_map.empty;
+        all)
+    in
+    List.iter
+      (fun e ->
+         try Eio.Resource.close e.connection with
+         | Eio.Cancel.Cancelled _ as exn -> raise exn
+         | _ -> ())
+      leftover);
+  (* Eviction fiber: reap entries past [idle_ttl_seconds] when a clock
+     is supplied. Without a clock the cache still works; stale entries
+     are closed on switch release. *)
+  (match clock with
+   | Some clock ->
+     Eio.Fiber.fork ~sw (fun () ->
+       let rec loop () =
+         if Atomic.get cache.stop
+         then ()
+         else (
+           Eio.Time.sleep clock (cache.idle_ttl_seconds /. 2.0);
+           let now = Eio.Time.now clock in
+           let expired =
+             Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
+               let expired = ref [] in
+               let remaining =
+                 Cache_map.map
+                   (List.filter (fun e ->
+                      if now -. e.last_used_at > cache.idle_ttl_seconds
+                      then (
+                        expired := e :: !expired;
+                        false)
+                      else true))
+                   cache.entries
+               in
+               cache.entries <- remaining;
+               !expired)
+           in
+           List.iter
+             (fun e ->
+                try Eio.Resource.close e.connection with
+                | Eio.Cancel.Cancelled _ as exn -> raise exn
+                | _ -> ())
+             expired;
+           loop ())
+       in
+       loop ())
+   | None -> ());
+  cache
+;;
+
+let cache_stats (cache : cache) : cache_stats =
+  Eio.Mutex.use_ro cache.mu (fun () ->
+    let idle_per_host =
+      Cache_map.bindings cache.entries
+      |> List.map (fun ({ Cache_key.scheme; host; port }, v) ->
+        Printf.sprintf "%s://%s:%d" scheme host port, List.length v)
+    in
+    let total_idle = List.fold_left (fun acc (_, n) -> acc + n) 0 idle_per_host in
+    { idle_per_host
+    ; total_idle
+    ; reuse_count_total = cache.reuse_count_total
+    ; create_count_total = cache.create_count_total
+    })
+;;
+
+(** Find a warm client for [uri] and remove it from the cache so it is
+    owned by the caller. Returns [None] if no entry is available. *)
+let cache_take (cache : cache) uri : cache_entry option =
+  let key = Cache_key.of_uri uri in
+  Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
+    match Cache_map.find_opt key cache.entries with
+    | Some (e :: rest) ->
+      cache.entries <- Cache_map.add key rest cache.entries;
+      cache.reuse_count_total <- cache.reuse_count_total + 1;
+      Some e
+    | _ -> None)
+;;
+
+(** Park a client back into the cache, or close it if the per-host cap
+    is reached. [close] is the entry's own shutdown function. *)
+let cache_return (cache : cache) uri (entry : cache_entry) : unit =
+  let key = Cache_key.of_uri uri in
+  let now = Unix.gettimeofday () in
+  let entry = { entry with last_used_at = now } in
+  let parked =
+    Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
+      let existing = Cache_map.find_opt key cache.entries |> Option.value ~default:[] in
+      if List.length existing < cache.max_idle_per_host
+      then (
+        cache.entries <- Cache_map.add key (entry :: existing) cache.entries;
+        true)
+      else false)
+  in
+  if not parked then Eio.Resource.close entry.connection
+;;
+
+(** Resolve the origin for [uri] and prepare the TLS wrapper if needed.
+    The result is reused by both one-shot clients and cached connections. *)
+let resolve_origin net uri =
   let net = (net :> [ `Generic ] Eio.Net.ty Eio.Resource.t) in
   let https = Api_common.make_https_result () in
   let* host =
@@ -479,7 +670,7 @@ let make_closing_client ~sw ~net ~uri =
     | Some port -> Int.to_string port
     | None -> Uri.scheme uri |> Option.value ~default:"http"
   in
-  let addr =
+  let* addr =
     try
       match Eio.Net.getaddrinfo_stream ~service net host with
       | ip :: _ -> Ok ip
@@ -500,7 +691,7 @@ let make_closing_client ~sw ~net ~uri =
     | Failure msg ->
       Error (NetworkError { message = msg; kind = classify_by_message msg })
   in
-  let tls_wrap =
+  let* tls_wrap =
     match Uri.scheme uri with
     | Some "https" ->
       (match https with
@@ -517,72 +708,132 @@ let make_closing_client ~sw ~net ~uri =
               }))
     | Some "http" | Some _ | None -> Ok None
   in
-  match addr, tls_wrap with
-  | (Error _ as e), _ -> e
-  | _, (Error _ as e) -> e
-  | Ok addr, Ok tls_wrap ->
-    (* Track every transport returned by [connect] so switch release can
-         close all of them — not just the most recent one.  [cohttp_eio]
-         may call [connect] multiple times per client (keep-alive refresh,
-         retry after transient error, etc.), and any socket we stop
-         referencing leaks its fd and leaves the TCP endpoint in
-         CLOSE_WAIT.
+  Ok (net, addr, tls_wrap)
+;;
 
-         We also store the TLS-wrapped resource (not the raw socket) so
-         [Eio.Resource.close] triggers TLS close_notify before the TCP
-         layer closes.  Raw-socket close without TLS shutdown causes the
-         peer (e.g. Glm / Cloudflare-fronted endpoints) to interpret the
-         half-close as "keep waiting" and hold the connection in
-         CLOSE_WAIT indefinitely. *)
-    let tracked_transports
-      : [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t list Atomic.t
-      =
-      Atomic.make []
+(** Build a reusable client with explicit lifetime control.
+    Returns [Ok (client, close)] where [close] shuts down all transports
+    created by this client. The client is NOT bound to any switch; the
+    caller decides when to close it or park it in a cache. *)
+let make_client ~net ~uri =
+  let* net, addr, tls_wrap = resolve_origin net uri in
+  let tracked_transports : connection list Atomic.t = Atomic.make [] in
+  let connect ~sw:conn_sw _uri =
+    let sock = Eio.Net.connect ~sw:conn_sw net addr in
+    let transport : connection =
+      match tls_wrap with
+      | Some wrap -> (wrap uri sock :> connection)
+      | None -> (sock :> connection)
     in
-    let connect ~sw:conn_sw _uri =
-      let sock = Eio.Net.connect ~sw:conn_sw net addr in
-      let transport : [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t =
-        match tls_wrap with
-        | Some wrap ->
-          (wrap uri sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-        | None -> (sock :> [ `Close | `Flow | `R | `Shutdown | `W ] Eio.Resource.t)
-      in
-      let rec push () =
-        let prev = Atomic.get tracked_transports in
-        if Atomic.compare_and_set tracked_transports prev (transport :: prev)
-        then ()
-        else push ()
-      in
-      push ();
+    let rec push () =
+      let prev = Atomic.get tracked_transports in
+      if Atomic.compare_and_set tracked_transports prev (transport :: prev)
+      then ()
+      else push ()
+    in
+    push ();
+    Diag.debug
+      "http_client"
+      "connect: new transport #%d for %s"
+      (List.length (Atomic.get tracked_transports))
+      (Uri.to_string uri);
+    transport
+  in
+  let client = Cohttp_eio.Client.make_generic connect in
+  let close () =
+    let transports = Atomic.exchange tracked_transports [] in
+    let n = List.length transports in
+    if n > 0
+    then
       Diag.debug
         "http_client"
-        "connect: new transport #%d for %s"
-        (List.length (Atomic.get tracked_transports))
+        "close: closing %d transport(s) for %s"
+        n
         (Uri.to_string uri);
-      transport
+    List.iter
+      (fun t ->
+         try
+           Eio.Resource.close t;
+           Diag.debug "http_client" "transport closed for %s" (Uri.to_string uri)
+         with
+         | Eio.Cancel.Cancelled _ as e -> raise e
+         | exn ->
+           log_close_failure ~url:(Uri.to_string uri) ~message:(Printexc.to_string exn))
+      transports
+  in
+  Ok (client, close)
+;;
+
+(** Create a single transport connection bound to [sw]. This is the unit
+    stored in the connection cache and reused across requests. *)
+let make_connection ~sw ~net ~uri : (connection, http_error) result =
+  let* net, addr, tls_wrap = resolve_origin net uri in
+  try
+    let sock = Eio.Net.connect ~sw net addr in
+    let conn : connection =
+      match tls_wrap with
+      | Some wrap -> (wrap uri sock :> connection)
+      | None -> (sock :> connection)
     in
-    let client = Cohttp_eio.Client.make_generic connect in
-    Eio.Switch.on_release sw (fun () ->
-      let transports = Atomic.exchange tracked_transports [] in
-      let n = List.length transports in
-      if n > 0
-      then
-        Diag.debug
-          "http_client"
-          "on_release: closing %d transport(s) for %s"
-          n
-          (Uri.to_string uri);
-      List.iter
-        (fun t ->
-           try
-             Eio.Resource.close t;
-             Diag.debug "http_client" "transport closed for %s" (Uri.to_string uri)
-           with
-           | Eio.Cancel.Cancelled _ as e -> raise e
-           | exn ->
-             log_close_failure ~url:(Uri.to_string uri) ~message:(Printexc.to_string exn))
-        transports);
-    Ok client
+    Diag.debug "http_client" "make_connection: new connection for %s" (Uri.to_string uri);
+    Ok conn
+  with
+  | Eio.Io _ as exn ->
+    let msg = Printexc.to_string exn in
+    Error (NetworkError { message = msg; kind = classify_by_message msg })
+  | Unix.Unix_error (code, _, _) as exn ->
+    Error
+      (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
+  | Failure msg -> Error (NetworkError { message = msg; kind = classify_by_message msg })
+;;
+
+(** Client wrapper that tracks the socket for explicit close.
+    The caller provides the concrete URI so host resolution and TLS
+    availability can be checked up front and reported as typed errors. *)
+let make_closing_client ~sw ~net ~uri =
+  let* client, close = make_client ~net ~uri in
+  Eio.Switch.on_release sw close;
+  Ok client
+;;
+
+(** Run [f client] with a client obtained either from [cache] or created
+    for one request. When [cache] is supplied, a hit reuses a parked
+    connection, a miss creates one and parks it on success, and any error
+    evicts it. When [cache] is omitted the behavior is the existing
+    one-shot behavior.
+
+    [f] must return an [('a, http_error) result]. The wrapper distinguishes
+    [Ok] from [Error] for cache lifecycle decisions; exceptions are treated
+    as fatal for the connection. *)
+let with_client ?cache ~sw ~net ~uri f =
+  match cache with
+  | None ->
+    let* client = make_closing_client ~sw ~net ~uri in
+    f client
+  | Some cache ->
+    let* conn, was_cached =
+      match cache_take cache uri with
+      | Some e -> Ok (e.connection, true)
+      | None ->
+        let* conn = make_connection ~sw:cache.sw ~net ~uri in
+        cache.create_count_total <- cache.create_count_total + 1;
+        Ok (conn, false)
+    in
+    let client =
+      Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
+    in
+    let ok = ref false in
+    Fun.protect
+      ~finally:(fun () ->
+        if !ok
+        then cache_return cache uri { connection = conn; last_used_at = 0.0 }
+        else Eio.Resource.close conn)
+      (fun () ->
+         let result = f client in
+         (match result with
+          | Ok _ -> ok := true
+          | Error _ -> ());
+         result)
 ;;
 
 let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
@@ -631,67 +882,78 @@ let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
     ()
 ;;
 
-let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers () =
-  catch_network (fun () ->
-    let* uri = parse_uri url in
-    let* client = make_closing_client ~sw ~net ~uri in
-    let hdr = Http.Header.of_list (add_connection_close headers) in
-    with_optional_timeout ~clock ~timeout_s (fun () ->
-      let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
-      let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-      let body_str =
-        try
-          Eio.Buf_read.(
-            of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-        with
-        | exn ->
-          drain_response_body ?clock resp_body;
-          raise exn
-      in
-      Ok (code, body_str)))
-;;
-
-let post_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ~body ()
+let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ()
   =
   catch_network (fun () ->
     let* uri = parse_uri url in
-    let* client = make_closing_client ~sw ~net ~uri in
-    (* Explicitly set Content-Length to prevent chunked transfer encoding.
-       Ollama's yyjson parser rejects chunked bodies with
-       "Value looks like object, but can't find closing '}' symbol". *)
-    let headers_with_length =
-      ("content-length", string_of_int (String.length body))
-      :: add_connection_close headers
-    in
-    let hdr = Http.Header.of_list headers_with_length in
-    with_optional_timeout ~clock ~timeout_s (fun () ->
-      let resp, resp_body =
-        Cohttp_eio.Client.post
-          ~sw
-          client
-          ~headers:hdr
-          ~body:(Cohttp_eio.Body.of_string body)
-          uri
+    with_client ?cache ~sw ~net ~uri (fun client ->
+      let hdr = Http.Header.of_list (maybe_add_connection_close ?cache headers) in
+      with_optional_timeout ~clock ~timeout_s (fun () ->
+        let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
+        let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+        let body_str =
+          try
+            Eio.Buf_read.(
+              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
+          with
+          | exn ->
+            drain_response_body ?clock resp_body;
+            raise exn
+        in
+        Ok (code, body_str))))
+;;
+
+let post_sync
+      ?cache
+      ?clock
+      ?(timeout_s = default_http_timeout_s)
+      ~sw
+      ~net
+      ~url
+      ~headers
+      ~body
+      ()
+  =
+  catch_network (fun () ->
+    let* uri = parse_uri url in
+    with_client ?cache ~sw ~net ~uri (fun client ->
+      (* Explicitly set Content-Length to prevent chunked transfer encoding.
+         Ollama's yyjson parser rejects chunked bodies with
+         "Value looks like object, but can't find closing '}' symbol". *)
+      let headers_with_length =
+        ("content-length", string_of_int (String.length body))
+        :: maybe_add_connection_close ?cache headers
       in
-      let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-      profile_headers_on_client_error
-        ~url
-        ~code
-        ~resp_headers:(Cohttp.Response.headers resp)
-        headers_with_length;
-      let body_str =
-        try
-          Eio.Buf_read.(
-            of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-        with
-        | exn ->
-          drain_response_body ?clock resp_body;
-          raise exn
-      in
-      Ok (code, body_str)))
+      let hdr = Http.Header.of_list headers_with_length in
+      with_optional_timeout ~clock ~timeout_s (fun () ->
+        let resp, resp_body =
+          Cohttp_eio.Client.post
+            ~sw
+            client
+            ~headers:hdr
+            ~body:(Cohttp_eio.Body.of_string body)
+            uri
+        in
+        let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
+        profile_headers_on_client_error
+          ~url
+          ~code
+          ~resp_headers:(Cohttp.Response.headers resp)
+          headers_with_length;
+        let body_str =
+          try
+            Eio.Buf_read.(
+              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
+          with
+          | exn ->
+            drain_response_body ?clock resp_body;
+            raise exn
+        in
+        Ok (code, body_str))))
 ;;
 
 let post_stream
+      ?cache
       ?clock
       ?(connect_timeout_s = default_http_timeout_s)
       ~sw
@@ -701,6 +963,11 @@ let post_stream
       ~body
       ()
   =
+  (* Cache is intentionally ignored for the streaming reader variant: the
+     returned [Buf_read.t] outlives this function, so we cannot safely park
+     the client until consumption finishes. Use [with_post_stream] for
+     cache-aware streaming. *)
+  ignore cache;
   catch_network (fun () ->
     let* uri = parse_uri url in
     let* client = make_closing_client ~sw ~net ~uri in
@@ -743,6 +1010,7 @@ let post_stream
 ;;
 
 let with_post_stream
+      ?cache
       ?clock
       ?(connect_timeout_s = default_http_timeout_s)
       ~net
@@ -754,6 +1022,14 @@ let with_post_stream
   =
   Eio.Switch.run
   @@ fun sw ->
+  (* When a cache is active, bind the transport to the cache's long-lived
+     switch so the connection can be reused across requests. Otherwise use
+     the per-call switch for one-shot cleanup. *)
+  let request_sw =
+    match cache with
+    | Some c -> c.sw
+    | None -> sw
+  in
   (* Phase 1a: connect + post + response headers, bounded by
      [connect_timeout_s]. Cohttp_eio.Client.post returns once headers are
      parsed (body is a lazy flow), so wrapping only this stage in
@@ -763,44 +1039,44 @@ let with_post_stream
   let post_result =
     catch_network (fun () ->
       let* uri = parse_uri url in
-      let* client = make_closing_client ~sw ~net ~uri in
-      let headers_with_length =
-        ("content-length", string_of_int (String.length body))
-        :: add_connection_close headers
-      in
-      let hdr = Http.Header.of_list headers_with_length in
-      let resp, resp_body =
-        with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
-          Cohttp_eio.Client.post
-            ~sw
-            client
-            ~headers:hdr
-            ~body:(Cohttp_eio.Body.of_string body)
-            uri)
-      in
-      match Cohttp.Response.status resp with
-      | `OK ->
-        let reader =
-          Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+      with_client ?cache ~sw:request_sw ~net ~uri (fun client ->
+        let headers_with_length =
+          ("content-length", string_of_int (String.length body))
+          :: maybe_add_connection_close ?cache headers
         in
-        Ok reader
-      | status ->
-        let code = Cohttp.Code.code_of_status status in
-        profile_headers_on_client_error
-          ~url
-          ~code
-          ~resp_headers:(Cohttp.Response.headers resp)
-          headers_with_length;
-        let body_str =
-          try
-            Eio.Buf_read.(
-              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-          with
-          | exn ->
-            drain_response_body resp_body;
-            raise exn
+        let hdr = Http.Header.of_list headers_with_length in
+        let resp, resp_body =
+          with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
+            Cohttp_eio.Client.post
+              ~sw:request_sw
+              client
+              ~headers:hdr
+              ~body:(Cohttp_eio.Body.of_string body)
+              uri)
         in
-        Error (HttpError { code; body = body_str }))
+        match Cohttp.Response.status resp with
+        | `OK ->
+          let reader =
+            Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+          in
+          Ok reader
+        | status ->
+          let code = Cohttp.Code.code_of_status status in
+          profile_headers_on_client_error
+            ~url
+            ~code
+            ~resp_headers:(Cohttp.Response.headers resp)
+            headers_with_length;
+          let body_str =
+            try
+              Eio.Buf_read.(
+                of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
+            with
+            | exn ->
+              drain_response_body resp_body;
+              raise exn
+          in
+          Error (HttpError { code; body = body_str })))
   in
   (* Phase 1b: body consumption. Deliberately OUTSIDE [catch_network]: a
      body-phase [Eio.Time.Timeout] is phase-distinct from the connect /

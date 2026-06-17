@@ -15,6 +15,7 @@ let complete_http
       ?(on_http_status :
          (provider:string -> model_id:string -> status:int -> unit) option)
       ?body_timeout_s
+      ?(connection_cache : Http_client.cache option)
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -130,6 +131,7 @@ let complete_http
         let t0 = Unix.gettimeofday () in
         let post_sync_call () =
           Http_client.post_sync
+            ?cache:connection_cache
             ~sw
             ~net
             ?clock
