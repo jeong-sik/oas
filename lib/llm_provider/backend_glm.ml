@@ -152,9 +152,8 @@ let build_request
 (** Glm error responses use string error codes:
     [{"error":{"code":"1305","message":"..."}}]
     Standard Openai uses numeric HTTP codes. *)
-let check_glm_error body : glm_error option =
+let check_glm_error_json (json : Yojson.Safe.t) : glm_error option =
   try
-    let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
     match json |> member "error" with
     | `Null | `Assoc [] -> None
@@ -177,11 +176,15 @@ let check_glm_error body : glm_error option =
   | Yojson.Json_error _ -> None
 ;;
 
+let check_glm_error body : glm_error option =
+  try check_glm_error_json (Yojson.Safe.from_string body)
+  with Yojson.Json_error _ -> None
+;;
+
 (** Extract reasoning_content from Glm response and prepend as Thinking block.
     Glm returns reasoning in [message.reasoning_content] alongside [message.content]. *)
-let extract_reasoning_content (resp : api_response) body : api_response =
+let extract_reasoning_content_json (resp : api_response) (json : Yojson.Safe.t) : api_response =
   try
-    let json = Yojson.Safe.from_string body in
     let open Yojson.Safe.Util in
     let choices = json |> member "choices" in
     match choices with
@@ -202,21 +205,34 @@ let extract_reasoning_content (resp : api_response) body : api_response =
   | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ -> resp
 ;;
 
+let extract_reasoning_content (resp : api_response) body : api_response =
+  try extract_reasoning_content_json resp (Yojson.Safe.from_string body)
+  with Yojson.Json_error _ -> resp
+;;
+
 let glm_parse_error message =
   Glm_api_error
     { code = "parse"; message; error_class = Glm_invalid_request; is_retryable = false }
 ;;
 
 let parse_response body =
-  match check_glm_error body with
+  (* Parse the body once; a malformed body raises glm_parse_error (matching
+     the prior path where check_glm_error swallowed the parse error as None
+     and then parse_openai_response_result re-raised it). The three consumers
+     below all traverse this same [json] instead of each re-parsing the body
+     string -- was 3 full Yojson.Safe.from_string of the response per turn. *)
+  let json =
+    try Yojson.Safe.from_string body with
+    | Yojson.Json_error _ -> raise (glm_parse_error "response body is not valid JSON")
+  in
+  match check_glm_error_json json with
   | Some err -> raise (Glm_api_error err)
   | None ->
     (try
-       match Backend_openai_parse.parse_openai_response_result body with
+       match Backend_openai_parse.parse_openai_response_result_json json with
        | Error msg -> raise (glm_parse_error msg)
-       | Ok resp -> extract_reasoning_content resp body
+       | Ok resp -> extract_reasoning_content_json resp json
      with
-     | Yojson.Json_error msg -> raise (glm_parse_error msg)
      | Yojson.Safe.Util.Type_error (msg, _) -> raise (glm_parse_error msg)
      | Yojson.Safe.Util.Undefined (msg, _) -> raise (glm_parse_error msg))
 ;;

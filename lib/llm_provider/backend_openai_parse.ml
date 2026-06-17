@@ -238,9 +238,8 @@ let telemetry_of_openai_json json =
 
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
-let parse_openai_response_result json_str =
+let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
   let open Yojson.Safe.Util in
-  let raw_json = Yojson.Safe.from_string json_str in
   let json =
     match raw_json with
     | `List (first :: _) -> first
@@ -332,6 +331,15 @@ let parse_openai_response_result json_str =
       |> Option.value ~default:"Unknown API error"
     in
     Error msg
+;;
+
+(** [parse_openai_response_result] parses [json_str] then delegates to
+    {!parse_openai_response_result_json}.  Callers that already hold the
+    parsed [Yojson.Safe.t] (e.g. {!Backend_glm.parse_response}, which also
+    error-checks and reasoning-extracts from the same body) should call
+    {!parse_openai_response_result_json} directly to avoid re-parsing. *)
+let parse_openai_response_result json_str =
+  parse_openai_response_result_json (Yojson.Safe.from_string json_str)
 ;;
 
 let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =
