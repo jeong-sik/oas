@@ -57,12 +57,14 @@ let test_envelope_preserved_across_variants () =
         ; tool_name = "echo"
         ; tool_use_id = "tu-test"
         ; input = `Null
+        ; turn = 0
         }
     ; ToolCompleted
         { agent_name = "alpha"
         ; tool_name = "echo"
         ; tool_use_id = "tu-test"
         ; output = stub_tool_result
+        ; turn = 0
         }
     ; TurnCompleted { agent_name = "alpha"; turn = 0 }
     ; HandoffRequested { from_agent = "alpha"; to_agent = "beta"; reason = "delegate" }
@@ -128,13 +130,19 @@ let test_event_type_name_mapping () =
     ; TurnStarted { agent_name = "a"; turn = 0 }, "turn.started"
     ; TurnCompleted { agent_name = "a"; turn = 0 }, "turn.completed"
     ; ( ToolCalled
-          { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null }
+          { agent_name = "a"
+          ; tool_name = "t"
+          ; tool_use_id = "tu-test"
+          ; input = `Null
+          ; turn = 0
+          }
       , "tool.called" )
     ; ( ToolCompleted
           { agent_name = "a"
           ; tool_name = "t"
           ; tool_use_id = "tu-test"
           ; output = stub_tool_result
+          ; turn = 0
           }
       , "tool.completed" )
     ; ( HandoffRequested { from_agent = "a"; to_agent = "b"; reason = "r" }
@@ -245,7 +253,12 @@ let test_golden_lifecycle_transcript () =
     bus
     (mk
        (ToolCalled
-          { agent_name = "a"; tool_name = "echo"; tool_use_id = "tu-test"; input = `Null }));
+          { agent_name = "a"
+          ; tool_name = "echo"
+          ; tool_use_id = "tu-test"
+          ; input = `Null
+          ; turn = 0
+          }));
   Event_bus.publish
     bus
     (mk
@@ -254,6 +267,7 @@ let test_golden_lifecycle_transcript () =
           ; tool_name = "echo"
           ; tool_use_id = "tu-test"
           ; output = stub_tool_result
+          ; turn = 0
           }));
   Event_bus.publish bus (mk (TurnCompleted { agent_name = "a"; turn = 0 }));
   Event_bus.publish

@@ -23,7 +23,7 @@ let test_event_type_name () =
     ; ev (Event_bus.TurnStarted { agent_name = "a"; turn = 0 }), "turn.started"
     ; ( ev
           (Event_bus.ToolCalled
-             { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null })
+             { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null; turn = 0 })
       , "tool.called" )
     ; ( ev
           (Event_bus.ContentReplacementKept
@@ -267,6 +267,7 @@ let test_tool_events_payload () =
          ; tool_name = "search"
          ; tool_use_id = "tu-test"
          ; input = `String "query"
+         ; turn = 1
          })
   in
   let completed =
@@ -276,6 +277,7 @@ let test_tool_events_payload () =
          ; tool_name = "search"
          ; tool_use_id = "tu-test"
          ; output = Ok { Types.content = "result" }
+         ; turn = 1
          })
   in
   let p1 = Event_forward.event_to_payload called in
@@ -481,6 +483,7 @@ let test_tool_completed_error_payload () =
          ; tool_use_id = "tu-test"
          ; output =
              Error { Types.message = "fail"; recoverable = false; error_class = None }
+         ; turn = 2
          })
   in
   let p = Event_forward.event_to_payload evt in

@@ -210,6 +210,7 @@ let test_eval_collector_basic () =
           ; tool_name = "t1"
           ; tool_use_id = "tu-test"
           ; input = `Null
+          ; turn = 0
           }));
   Event_bus.publish
     bus
@@ -219,6 +220,7 @@ let test_eval_collector_basic () =
           ; tool_name = "t1"
           ; tool_use_id = "tu-test"
           ; output = Ok { Types.content = "done" }
+          ; turn = 0
           }));
   let rm = Eval_collector.finalize ec in
   (* Check auto-collected metrics *)

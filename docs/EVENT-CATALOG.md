@@ -70,8 +70,8 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `TurnStarted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | Start of a single agent turn |
 | `TurnReady` | `pipeline/pipeline_input.ml` | Tool surface visible to the LLM after guardrails, policy, overrides, and selection |
 | `TurnCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_collect.ml` | End of a single agent turn |
-| `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM |
-| `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available |
+| `ToolCalled` | `agent/agent_tools.ml` | Tool invocation requested by LLM; carries `tool_use_id` and `turn` |
+| `ToolCompleted` | `agent/agent_tools.ml` | Tool invocation result available; carries matching `tool_use_id` and `turn` |
 | `HandoffRequested` | `agent/agent_handoff.ml` | Agent delegates control to another agent |
 | `HandoffCompleted` | `agent/agent_handoff.ml` | Handoff target finished |
 | `ElicitationCompleted` | `pipeline/pipeline.ml`, `pipeline/pipeline_input.ml` | User elicitation round completed |
