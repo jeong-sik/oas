@@ -601,8 +601,7 @@ let apply_relocate_tool_results ~state ~keep_recent messages =
 ;;
 
 let apply_cache_alignment ?cache ~size messages =
-  if size <= 0
-  then invalid_arg "apply_cache_alignment: size must be a positive integer";
+  if size <= 0 then invalid_arg "apply_cache_alignment: size must be a positive integer";
   let total_tokens =
     List.fold_left (fun acc msg -> acc + estimate_message_tokens ?cache msg) 0 messages
   in
