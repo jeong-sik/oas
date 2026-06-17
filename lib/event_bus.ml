@@ -217,6 +217,13 @@ let mk_event ?correlation_id ?run_id ?caused_by payload =
 
 type filter = event -> bool
 
+(** Internal filter representation. The [Accept_all] constructor lets the
+    publish fast path skip filter evaluation without relying on physical
+    equality of function values at delivery time. *)
+type internal_filter =
+  | Accept_all
+  | Predicate of filter
+
 type backpressure_policy =
   | Block
   | Drop_oldest
@@ -225,7 +232,7 @@ type backpressure_policy =
 type subscription =
   { id : int
   ; stream : event Eio.Stream.t
-  ; filter : filter
+  ; filter : internal_filter
   ; accepts_all : bool
   ; purpose : string option
   ; published_total : int Atomic.t
@@ -326,13 +333,14 @@ let filter_all (filters : filter list) : filter =
 
 let subscribe ?(filter = accept_all) ?purpose bus =
   let stream = Eio.Stream.create bus.buffer_size in
+  let internal_filter = if filter == accept_all then Accept_all else Predicate filter in
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let id = bus.next_id in
     let sub =
       { id
       ; stream
-      ; filter
-      ; accepts_all = filter == accept_all
+      ; filter = internal_filter
+      ; accepts_all = internal_filter = Accept_all
       ; purpose
       ; published_total = Atomic.make 0
       ; drained_total = Atomic.make 0
@@ -340,12 +348,6 @@ let subscribe ?(filter = accept_all) ?purpose bus =
       ; deliver_mu = Eio.Mutex.create ()
       }
     in
-    (* Increment the published counter before mutating the subscriber list.
-       [publish] reads the counter lock-free to decide whether to take the
-       fast path; both updates happen under [mu], so a publisher that sees a
-       non-zero counter is guaranteed to see the corresponding subscriber(s)
-       once it acquires [mu]. *)
-    ignore (Atomic.fetch_and_add bus.subscriber_count 1);
     bus.subscribers <- sub :: bus.subscribers;
     bus.next_id <- id + 1;
     ignore (Atomic.fetch_and_add bus.subscriber_count 1);
@@ -420,7 +422,14 @@ let publish bus event =
     let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
     List.iter
       (fun sub ->
-         if sub.accepts_all || sub.filter event then deliver_to_sub bus sub event)
+         let matches =
+           sub.accepts_all
+           ||
+           match sub.filter with
+           | Accept_all -> true
+           | Predicate f -> f event
+         in
+         if matches then deliver_to_sub bus sub event)
       subs)
 ;;
 
