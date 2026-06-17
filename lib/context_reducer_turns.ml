@@ -50,7 +50,7 @@ let apply_keep_last_n n messages =
     List.concat kept)
 ;;
 
-let apply_token_budget budget messages =
+let apply_token_budget ?cache budget messages =
   let turns = group_into_turns messages in
   let reversed = List.rev turns in
   let rec take_turns acc remaining = function
@@ -58,7 +58,8 @@ let apply_token_budget budget messages =
     | turn :: rest ->
       let turn_tokens =
         List.fold_left
-          (fun sum msg -> sum + Context_reducer_estimate.estimate_message_tokens msg)
+          (fun sum msg ->
+             sum + Context_reducer_estimate.estimate_message_tokens ?cache msg)
           0
           turn
       in
