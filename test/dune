@@ -153,7 +153,6 @@
   test_provider_intf
   test_provider_runtime_binding
   test_provider_registry
-  test_fd_throttle_hook
   test_raw_trace
   test_raw_trace_deep
   test_reflexion
@@ -354,7 +353,6 @@
   test_provider_intf
   test_provider_runtime_binding
   test_provider_registry
-  test_fd_throttle_hook
   test_raw_trace
   test_raw_trace_deep
   test_reflexion

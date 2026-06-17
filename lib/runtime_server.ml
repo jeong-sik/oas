@@ -42,16 +42,6 @@ type participant_run_failure =
   ; raw_trace_run_id : string option
   }
 
-type paused_participant =
-  { detail : Runtime.spawn_agent_request
-  ; resolution : execution_resolution
-  ; agent : Agent.t
-  ; input_required : Error.input_required
-  ; trace_sink : Raw_trace.t option
-  ; delta_warn_logged : bool ref
-  ; delta_error_count : int ref
-  }
-
 type participant_run_result =
   | Participant_completed of participant_run_success
   | Participant_input_required of Runtime.input_request * paused_participant
@@ -86,23 +76,21 @@ let latest_raw_trace_run_id = function
   | None -> None
 ;;
 
-let paused_inputs_mu = Eio.Mutex.create ()
-let paused_inputs : (string, paused_participant) Hashtbl.t = Hashtbl.create 16
-let paused_input_key session_id request_id = session_id ^ "\000" ^ request_id
+let paused_input_key session_id request_id = session_id, request_id
 
-let store_paused_input session_id (paused : paused_participant) =
-  Eio.Mutex.use_rw ~protect:true paused_inputs_mu (fun () ->
+let store_paused_input state session_id (paused : paused_participant) =
+  Eio.Mutex.use_rw ~protect:true state.paused_inputs_mu (fun () ->
     Hashtbl.replace
-      paused_inputs
+      state.paused_inputs
       (paused_input_key session_id paused.input_required.request_id)
       paused)
 ;;
 
-let take_paused_input session_id request_id =
-  Eio.Mutex.use_rw ~protect:true paused_inputs_mu (fun () ->
+let take_paused_input state session_id request_id =
+  Eio.Mutex.use_rw ~protect:true state.paused_inputs_mu (fun () ->
     let key = paused_input_key session_id request_id in
-    let paused = Hashtbl.find_opt paused_inputs key in
-    Hashtbl.remove paused_inputs key;
+    let paused = Hashtbl.find_opt state.paused_inputs key in
+    Hashtbl.remove state.paused_inputs key;
     paused)
 ;;
 
@@ -853,11 +841,11 @@ let persist_participant_input_required
       ~failure_cause:(Persistence_failure { phase = "input_required_checkpoint"; detail })
       ()
   | Ok () ->
-    store_paused_input session_id paused;
+    store_paused_input state session_id paused;
     (match persist_event store state session_id (Input_required request) with
      | Ok _ -> ()
      | Error err ->
-       ignore (take_paused_input session_id request.request_id);
+       ignore (take_paused_input state session_id request.request_id);
        let detail =
          Printf.sprintf
            "participant requested input but input_required event could not be persisted: \
@@ -1026,7 +1014,7 @@ let start_session state (request : start_request) =
 let finalize_session state store (session : session) reason =
   let session_id = session.session_id in
   (match session.pending_input with
-   | Some pending -> ignore (take_paused_input session_id pending.request_id)
+   | Some pending -> ignore (take_paused_input state session_id pending.request_id)
    | None -> ());
   let* session, _ =
     match session.phase with
@@ -1089,7 +1077,7 @@ let apply_command ~sw state store (session : session) command =
                   pending.request_id))
         | Some pending ->
           let* paused =
-            match take_paused_input session_id detail.request_id with
+            match take_paused_input state session_id detail.request_id with
             | Some paused -> Ok (Some paused)
             | None -> load_durable_paused_input store state session pending
           in

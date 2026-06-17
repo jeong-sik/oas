@@ -16,17 +16,16 @@ let prompt_snippet ?(metric_name = default_metric_name) () =
     metric_name
 ;;
 
-let metric_re = Str.regexp "<metric[ \t\r\n]+name=\"\\([^\"]+\\)\">\\([^<]+\\)</metric>"
+let metric_re = Re.Perl.re "<metric\\s+name=\"([^\"]+)\">([^<]+)</metric>" |> Re.compile
 
 let collect_matches text : (string * string) list =
   let rec loop pos acc =
-    try
-      let _ = Str.search_forward metric_re text pos in
-      let name = Str.matched_group 1 text in
-      let value = Str.matched_group 2 text in
-      loop (Str.match_end ()) ((name, value) :: acc)
-    with
-    | Not_found -> List.rev acc
+    match Re.exec ~pos metric_re text with
+    | exception Not_found -> List.rev acc
+    | groups ->
+      let name = Re.Group.get groups 1 in
+      let value = Re.Group.get groups 2 in
+      loop (Re.Group.stop groups 0) ((name, value) :: acc)
   in
   loop 0 []
 ;;

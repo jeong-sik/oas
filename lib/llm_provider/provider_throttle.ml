@@ -45,10 +45,8 @@ let with_permit_priority ~priority:_ _t f =
    * fine-grained capacity gates with the context to make backpressure
    * observable. OAS-level slot queueing would create invisible backpressure
    * the consumer cannot observe, leading to liveness timeout mismatches
-   * (no_first_token).
-   *
-   * Process-wide FD throttle hook is preserved as a safety net. *)
-  Fd_throttle_hook.with_slot f
+   * (no_first_token). *)
+  f ()
 ;;
 
 let with_permit t f = with_permit_priority ~priority:Request_priority.Background t f

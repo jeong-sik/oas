@@ -294,7 +294,7 @@ let test_mock_thinking_response () =
 let test_mock_to_provider_config () =
   let cfg = Provider_mock.to_provider_config () in
   Alcotest.(check string) "model_id" "mock-model" cfg.model_id;
-  Alcotest.(check string) "api_key_env" "MOCK_API_KEY" cfg.api_key_env
+  Alcotest.(check string) "api_key_env" "OAS_TEST_MOCK_API_KEY" cfg.api_key_env
 ;;
 
 (* ── Guardrails: tool filtering (exercises pipeline's Stage 2/5) ── *)

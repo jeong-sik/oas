@@ -89,16 +89,6 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
             "kind": "openai_compat",
             "transport": "managed",
             "auth": {"type": "oauth_cached_login"}
-          },
-          {
-            "id": "file-auth",
-            "kind": "openai_compat",
-            "auth": {"type": "file", "path": "/tmp/provider-token"}
-          },
-          {
-            "id": "exec-auth",
-            "kind": "openai_compat",
-            "auth": {"type": "exec", "command": "op read token"}
           }
         ]
       }|}
@@ -161,15 +151,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check bool "cli cached auth" true (cli.auth = Provider_catalog.Oauth_cached_login);
   let oauth = require_lookup catalog "oauth" in
   check bool "managed transport" true (oauth.transport = Provider_catalog.Managed);
-  check bool "oauth auth" true (oauth.auth = Provider_catalog.Oauth_cached_login);
-  let file_auth = require_lookup catalog "file-auth" in
-  check
-    bool
-    "file auth"
-    true
-    (file_auth.auth = Provider_catalog.File "/tmp/provider-token");
-  let exec_auth = require_lookup catalog "exec-auth" in
-  check bool "exec auth" true (exec_auth.auth = Provider_catalog.Exec "op read token")
+  check bool "oauth auth" true (oauth.auth = Provider_catalog.Oauth_cached_login)
 ;;
 
 let test_type_mismatches_fall_back_without_rejecting_entry () =
@@ -367,6 +349,39 @@ let test_non_list_providers_is_empty_catalog () =
   check (option reject) "lookup none" None (Provider_catalog.lookup catalog "missing")
 ;;
 
+let test_removed_auth_types_are_rejected () =
+  let catalog_json auth_type extra_fields =
+    Printf.sprintf
+      {|{
+        "schema_version": 1,
+        "providers": [
+          {
+            "id": "legacy-auth",
+            "kind": "openai_compat",
+            "auth": {"type": "%s"%s}
+          }
+        ]
+      }|}
+      auth_type
+      extra_fields
+  in
+  let check_rejected auth_type extrafields =
+    match
+      Provider_catalog.of_json
+        (Yojson.Safe.from_string (catalog_json auth_type extrafields))
+    with
+    | Ok _ -> failf "expected auth type %S to be rejected" auth_type
+    | Error msg ->
+      check
+        bool
+        (Printf.sprintf "%S rejected" auth_type)
+        true
+        (contains ~needle:"removed" msg || contains ~needle:"unknown" msg)
+  in
+  check_rejected "file" ", \"path\": \"/tmp/token\"";
+  check_rejected "exec" ", \"command\": \"op read token\""
+;;
+
 let test_rejects_schema_version_and_accumulates_entry_errors () =
   (match Provider_catalog.of_json (Yojson.Safe.from_string {|{"schema_version": 2}|}) with
    | Error msg ->
@@ -488,6 +503,10 @@ let () =
             "schema and entry errors"
             `Quick
             test_rejects_schema_version_and_accumulates_entry_errors
+        ; test_case
+            "removed auth types rejected"
+            `Quick
+            test_removed_auth_types_are_rejected
         ] )
     ; ( "load"
       , [ test_case

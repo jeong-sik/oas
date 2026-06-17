@@ -16,8 +16,6 @@ type auth =
   | Api_key_env of string
   | Oauth_cached_login
   | Setup_token_env of string
-  | File of string
-  | Exec of string
 
 type t =
   { id : string
@@ -53,8 +51,6 @@ let auth_of_catalog = function
   | PC.Api_key_env env -> Api_key_env env
   | PC.Oauth_cached_login -> Oauth_cached_login
   | PC.Setup_token_env env -> Setup_token_env env
-  | PC.File path -> File path
-  | PC.Exec command -> Exec command
 ;;
 
 let command_of_kind = function

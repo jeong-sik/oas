@@ -35,7 +35,7 @@ let () =
   let provider : Provider.config =
     { provider = Local { base_url = "http://127.0.0.1:8085" }
     ; model_id = "qwen3.5-35b"
-    ; api_key_env = "DUMMY_KEY"
+    ; api_key_env = "OAS_STREAMING_EXAMPLE_API_KEY"
     }
   in
   let config =

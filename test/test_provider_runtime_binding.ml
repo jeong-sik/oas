@@ -54,18 +54,6 @@ let catalog_variants_json =
       "auth": {"type": "oauth_cached_login"},
       "capabilities_base": "openai_chat"
     },
-        {
-          "id": "file-auth",
-          "kind": "openai_compat",
-          "auth": {"type": "file", "path": "/tmp/provider-token"},
-      "capabilities_base": "openai_chat"
-    },
-    {
-      "id": "exec-auth",
-      "kind": "openai_compat",
-      "auth": {"type": "exec", "command": "op read token"},
-      "capabilities_base": "openai_chat"
-    },
     {
       "id": "api-key-auth",
       "kind": "openai_compat",
@@ -87,8 +75,6 @@ let auth_to_string = function
   | Provider_runtime_binding.Api_key_env env -> "api_key_env:" ^ env
   | Provider_runtime_binding.Oauth_cached_login -> "oauth"
   | Provider_runtime_binding.Setup_token_env env -> "setup:" ^ env
-  | Provider_runtime_binding.File path -> "file:" ^ path
-  | Provider_runtime_binding.Exec command -> "exec:" ^ command
 ;;
 
 let expect_binding label =
@@ -200,8 +186,6 @@ let test_catalog_transport_and_auth_variants () =
     let cases =
       [ "rich-alias", "http", "setup:RICH_SETUP_TOKEN", Some "rich-default", None
       ; "managed-oauth", "managed", "oauth", None, None
-      ; "file-auth", "http", "file:/tmp/provider-token", None, None
-      ; "exec-auth", "http", "exec:op read token", None, None
       ; "api-key-auth", "http", "api_key_env:API_KEY_AUTH", None, None
       ]
     in
