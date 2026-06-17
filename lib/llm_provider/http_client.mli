@@ -182,11 +182,54 @@ val timeout_phase_to_label : timeout_phase -> string
     only to bound the connect + initial-response-headers phase. *)
 val default_http_timeout_s : float
 
+(** {1 Connection cache} *)
+
+(** Opaque reusable connection cache.
+
+    A cache holds idle Eio transport connections keyed by origin
+    [(scheme, host, port)]. It is bound to the [sw] passed to
+    {!create_cache}; all cached connections are closed when that switch is
+    released. An optional eviction fiber reaps entries that have been
+    idle longer than [idle_ttl_seconds].
+
+    @since 0.208.0 *)
+type cache
+
+(** Statistics snapshot for observability. *)
+type cache_stats =
+  { idle_per_host : (string * int) list
+  ; total_idle : int
+  ; reuse_count_total : int
+  ; create_count_total : int
+  }
+
+(** Create a connection cache.
+
+    [max_idle_per_host] caps the number of idle connections kept per origin.
+    [idle_ttl_seconds] is the maximum time an idle connection is kept.
+    [clock], if supplied, drives the background eviction fiber.
+
+    @since 0.208.0 *)
+val create_cache
+  :  sw:Eio.Switch.t
+  -> ?clock:_ Eio.Time.clock
+  -> ?max_idle_per_host:int
+  -> ?idle_ttl_seconds:float
+  -> unit
+  -> cache
+
+(** Snapshot of current cache statistics. *)
+val cache_stats : cache -> cache_stats
+
 (** GET a URL synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
-    The connection is bound to [sw]; it is closed when [sw] is released.
-    This respects the caller's switch scope and cancellation.
+    Without [cache], the connection is bound to [sw] and closed when [sw]
+    is released. With [cache], the connection is bound to the cache's
+    switch and parked back in the cache on success for reuse.
+
+    When [cache] is supplied the [connection: close] request header is
+    omitted so HTTP keep-alive can work.
 
     When [clock] is supplied the entire operation (connect + response
     + body read) is bounded by [timeout_s] (default
@@ -194,7 +237,8 @@ val default_http_timeout_s : float
     surfaces as [TimeoutError { phase = Http_operation; _ }] which is
     classified as retryable by {!Retry.is_retryable}. *)
 val get_sync
-  :  ?clock:_ Eio.Time.clock
+  :  ?cache:cache
+  -> ?clock:_ Eio.Time.clock
   -> ?timeout_s:float
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -206,15 +250,20 @@ val get_sync
 (** POST JSON body synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
-    The connection is bound to [sw]; it is closed when [sw] is released.
-    This respects the caller's switch scope and cancellation.
+    Without [cache], the connection is bound to [sw] and closed when [sw]
+    is released. With [cache], the connection is bound to the cache's
+    switch and parked back in the cache on success for reuse.
+
+    When [cache] is supplied the [connection: close] request header is
+    omitted so HTTP keep-alive can work.
 
     When [clock] is supplied the entire operation is bounded by
     [timeout_s] (default {!default_http_timeout_s}); a timeout owned by
     this wrapper surfaces as
     [TimeoutError { phase = Http_operation; _ }]. *)
 val post_sync
-  :  ?clock:_ Eio.Time.clock
+  :  ?cache:cache
+  -> ?clock:_ Eio.Time.clock
   -> ?timeout_s:float
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -231,12 +280,18 @@ val post_sync
     The connection is bound to [sw]; prefer {!with_post_stream} to
     ensure the connection fd is released when the stream is consumed.
 
+    [cache] is accepted for API symmetry but is currently ignored: the
+    returned [Buf_read.t] outlives this function, so the client cannot
+    be safely parked until consumption finishes. Use {!with_post_stream}
+    for cache-aware streaming.
+
     When [clock] is supplied only the connect + initial response
     headers are bounded by [connect_timeout_s] (default
     {!default_http_timeout_s}); body consumption through the returned
     reader is the caller's responsibility to timebox. *)
 val post_stream
-  :  ?clock:_ Eio.Time.clock
+  :  ?cache:cache
+  -> ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -250,6 +305,11 @@ val post_stream
     [f] receives the reader; when [f] returns the connection is closed
     and its fd is released immediately.
 
+    When [cache] is supplied, the streaming connection is bound to the
+    cache's long-lived switch and is parked back after [f] returns, so
+    it can be reused across requests. [f] must consume the full response
+    body; leaving unread bytes on the reader will corrupt the next reuse.
+
     [connect_timeout_s] bounds only the connect + initial response
     headers phase when [clock] is supplied; a stall there surfaces as
     [TimeoutError { phase = Http_operation; _ }].
@@ -262,7 +322,8 @@ val post_stream
     [Stream_idle]); callers that let it propagate get
     [TimeoutError { phase = Unknown_timeout; _ }] as a safe default. *)
 val with_post_stream
-  :  ?clock:_ Eio.Time.clock
+  :  ?cache:cache
+  -> ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> url:string

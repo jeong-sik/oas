@@ -440,7 +440,7 @@ let apply_stub_tool_results ~keep_recent messages =
     List.concat processed)
 ;;
 
-let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
+let apply_cap_message_tokens ?cache ~max_tokens ~keep_recent messages =
   if max_tokens <= 0
   then messages
   else (
@@ -458,7 +458,7 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
           false
       in
       let cap_message (msg : message) =
-        let msg_tokens = estimate_message_tokens msg in
+        let msg_tokens = estimate_message_tokens ?cache msg in
         if msg_tokens <= max_tokens
         then msg
         else (
@@ -467,7 +467,7 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
           if n_blocks <= 1
           then msg
           else (
-            let block_tokens = Array.map estimate_block_tokens blocks in
+            let block_tokens = Array.map (estimate_block_tokens ?cache) blocks in
             let keep = Array.make n_blocks false in
             let mandatory_tokens = ref 0 in
             Array.iteri
@@ -600,9 +600,10 @@ let apply_relocate_tool_results ~state ~keep_recent messages =
     List.concat processed)
 ;;
 
-let apply_cache_alignment ~size messages =
+let apply_cache_alignment ?cache ~size messages =
+  if size <= 0 then invalid_arg "apply_cache_alignment: size must be a positive integer";
   let total_tokens =
-    List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+    List.fold_left (fun acc msg -> acc + estimate_message_tokens ?cache msg) 0 messages
   in
   let remainder = total_tokens mod size in
   if remainder = 0 || total_tokens = 0
@@ -617,4 +618,26 @@ let apply_cache_alignment ~size messages =
     | last_msg :: rest ->
       let new_content = last_msg.content @ [ padding_block ] in
       { last_msg with content = new_content } :: rest)
+;;
+
+let%test "apply_cache_alignment rejects non-positive size" =
+  try
+    ignore (apply_cache_alignment ~size:0 []);
+    false
+  with
+  | Invalid_argument _ -> true
+;;
+
+let%test "apply_cache_alignment adds padding when not aligned" =
+  let msg =
+    { role = Assistant
+    ; content = [ Text "hello world" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  match apply_cache_alignment ~size:100 [ msg ] with
+  | [ aligned ] -> List.length aligned.content > List.length msg.content
+  | _ -> false
 ;;

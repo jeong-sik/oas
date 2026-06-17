@@ -236,6 +236,7 @@ let complete_stream_http
       ?stream_idle_timeout_s
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
+      ?(connection_cache : Http_client.cache option)
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -441,6 +442,7 @@ let complete_stream_http
       in
       match
         Http_client.with_post_stream
+          ?cache:connection_cache
           ?clock
           ~connect_timeout_s:(Provider_config.default_connect_timeout_s config.kind)
           ~net

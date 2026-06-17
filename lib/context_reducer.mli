@@ -14,6 +14,14 @@ open Types
 
 (** {1 Strategy types} *)
 
+(** Per-reduction memoization table for token estimates. Passed to
+    [Dynamic] selectors so they can avoid re-estimating messages that
+    will be estimated again by the selected strategy. *)
+type estimate_cache
+
+(** Create a fresh estimate cache for a single reduction. *)
+val create_estimate_cache : unit -> estimate_cache
+
 (** Windowing strategy for context reduction. *)
 type strategy =
   | Keep_last_n of int
@@ -49,7 +57,7 @@ type strategy =
       }
   | Compose of strategy list
   | Custom of (message list -> message list)
-  | Dynamic of (turn:int -> messages:message list -> strategy)
+  | Dynamic of (cache:estimate_cache -> turn:int -> messages:message list -> strategy)
 
 (** A configured reducer wrapping a strategy. *)
 type t = { strategy : strategy }
@@ -72,11 +80,13 @@ type importance_boost = message -> float option
     Returns at least 1. *)
 val estimate_char_tokens : string -> int
 
-(** Estimate tokens for a single content block. *)
-val estimate_block_tokens : content_block -> int
+(** Estimate tokens for a single content block. [cache] memoizes repeated
+    estimates within one reduction. *)
+val estimate_block_tokens : ?cache:estimate_cache -> content_block -> int
 
-(** Estimate tokens for a message. *)
-val estimate_message_tokens : message -> int
+(** Estimate tokens for a message. [cache] memoizes repeated estimates
+    within one reduction. *)
+val estimate_message_tokens : ?cache:estimate_cache -> message -> int
 
 (** {1 Overhead estimation} *)
 
@@ -188,8 +198,9 @@ val importance_scored
   -> t
 
 (** Dynamic strategy: selects a strategy per turn based on
-    conversation state. *)
-val dynamic : (turn:int -> messages:message list -> strategy) -> t
+    conversation state. [cache] is the same estimate cache that will be
+    passed to the selected strategy. *)
+val dynamic : (cache:estimate_cache -> turn:int -> messages:message list -> strategy) -> t
 
 (** {1 Capabilities integration} *)
 

@@ -23,6 +23,7 @@ let complete
       ?runtime_mcp_policy
       ?(trace_context = [])
       ?(cache : Cache.t option)
+      ?(connection_cache : Http_client.cache option)
       ?(metrics : Metrics.t option)
       ?(priority : Request_priority.t option)
       ?body_timeout_s
@@ -86,6 +87,7 @@ let complete
                ?clock
                ~on_http_status:m.on_http_status
                ?body_timeout_s
+               ?connection_cache
                ~config:request_config
                ~messages
                ~tools
@@ -188,6 +190,7 @@ let complete_with_retry
       ?trace_context
       ?(retry_config = default_retry_config)
       ?cache
+      ?connection_cache
       ?metrics
       ?priority
       ?body_timeout_s
@@ -209,6 +212,7 @@ let complete_with_retry
       ?runtime_mcp_policy
       ?trace_context
       ?cache
+      ?connection_cache
       ~metrics:m
       ?priority
       ?body_timeout_s
@@ -268,6 +272,7 @@ let complete_stream
       ~(on_event : Types.sse_event -> unit)
       ?metrics
       ?(priority : Request_priority.t option)
+      ?(connection_cache : Http_client.cache option)
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ()
   =
@@ -313,6 +318,7 @@ let complete_stream
           ?stream_idle_timeout_s
           ?on_telemetry
           ~metrics
+          ?connection_cache
           ~config:request_config
           ~messages
           ~tools
@@ -352,6 +358,7 @@ let complete_stream_with_retry
       ~on_event
       ?metrics
       ?priority
+      ?connection_cache
       ?stream_idle_timeout_s
       ?on_telemetry
       ()
@@ -374,6 +381,7 @@ let complete_stream_with_retry
       ~on_event
       ~metrics:m
       ?priority
+      ?connection_cache
       ?stream_idle_timeout_s
       ?on_telemetry
       ()
@@ -418,7 +426,14 @@ let complete_stream_with_retry
 
 (* ── HTTP Transport constructor ─────────────────────── *)
 
-let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net ()
+let make_http_transport
+      ?clock
+      ?stream_idle_timeout_s
+      ?body_timeout_s
+      ?(connection_cache : Http_client.cache option)
+      ~sw
+      ~net
+      ()
   : Llm_transport.t
   =
   { complete_sync =
@@ -429,6 +444,7 @@ let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net (
             ~net
             ?clock
             ?body_timeout_s
+            ?connection_cache
             ~config:req.config
             ~messages:req.messages
             ~tools:req.tools
@@ -450,6 +466,7 @@ let make_http_transport ?clock ?stream_idle_timeout_s ?body_timeout_s ~sw ~net (
           ~net
           ?clock
           ?stream_idle_timeout_s
+          ?connection_cache
           ~config:req.config
           ~messages:req.messages
           ~tools:req.tools

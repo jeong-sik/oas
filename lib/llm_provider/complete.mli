@@ -45,11 +45,15 @@ val apply_sampling_defaults : Provider_config.t -> Provider_config.t
     {!Llm_transport.t} value that can be passed to [complete]
     or [complete_stream] via [?transport].
 
+    When [connection_cache] is supplied, the transport reuses idle
+    HTTP connections and parks them back after each request.
+
     @since 0.78.0 *)
 val make_http_transport
   :  ?clock:_ Eio.Time.clock
   -> ?stream_idle_timeout_s:float
   -> ?body_timeout_s:float
+  -> ?connection_cache:Http_client.cache
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> unit
@@ -62,7 +66,9 @@ val make_http_transport
     When [transport] is provided, uses that transport for I/O.
     Otherwise falls back to the built-in HTTP transport.
 
-    When [cache] is provided, checks cache before I/O and stores on success.
+    When [cache] is provided, checks response cache before I/O and stores on success.
+    When [connection_cache] is provided, the built-in HTTP transport reuses idle
+    connections. It has no effect when a custom [transport] is supplied.
     When [metrics] is provided, fires lifecycle callbacks.
 
     @return [Ok api_response] on success (possibly from cache)
@@ -78,6 +84,7 @@ val complete
   -> ?runtime_mcp_policy:Llm_transport.runtime_mcp_policy
   -> ?trace_context:(string * string) list
   -> ?cache:Cache.t
+  -> ?connection_cache:Http_client.cache
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
   -> ?body_timeout_s:float
@@ -114,7 +121,8 @@ val default_retry_config : retry_config
 val is_retryable : Http_client.http_error -> bool
 
 (** Completion with exponential backoff retry.
-    Passes [transport], [cache] and [metrics] through to each attempt. *)
+    Passes [transport], [cache], [connection_cache] and [metrics]
+    through to each attempt. *)
 val complete_with_retry
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -127,6 +135,7 @@ val complete_with_retry
   -> ?trace_context:(string * string) list
   -> ?retry_config:retry_config
   -> ?cache:Cache.t
+  -> ?connection_cache:Http_client.cache
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
   -> ?body_timeout_s:float
@@ -181,12 +190,13 @@ val complete_stream
   -> on_event:(Types.sse_event -> unit)
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
+  -> ?connection_cache:Http_client.cache
   -> ?on_telemetry:(Telemetry_event.t -> unit)
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 
 (** Streaming completion with exponential backoff retry.
-    Passes [transport] and [metrics] through to each attempt. *)
+    Passes [transport], [connection_cache] and [metrics] through to each attempt. *)
 val complete_stream_with_retry
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
@@ -201,6 +211,7 @@ val complete_stream_with_retry
   -> on_event:(Types.sse_event -> unit)
   -> ?metrics:Metrics.t
   -> ?priority:Request_priority.t
+  -> ?connection_cache:Http_client.cache
   -> ?stream_idle_timeout_s:float
   -> ?on_telemetry:(Telemetry_event.t -> unit)
   -> unit

@@ -216,7 +216,7 @@ let test_provider_mock_tool_use () =
 
 let test_dynamic_reducer () =
   let reducer =
-    Context_reducer.dynamic (fun ~turn ~messages:_ ->
+    Context_reducer.dynamic (fun ~cache:_ ~turn ~messages:_ ->
       if turn < 3
       then Context_reducer.Keep_last_n 20
       else Context_reducer.Token_budget 100)
