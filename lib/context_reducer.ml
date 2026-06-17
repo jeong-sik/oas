@@ -52,7 +52,10 @@ type strategy =
   | Compose of strategy list
   | Custom of (message list -> message list)
   | Dynamic of
-      (cache:Context_reducer_estimate.estimate_cache -> turn:int -> messages:message list -> strategy)
+      (cache:Context_reducer_estimate.estimate_cache
+       -> turn:int
+       -> messages:message list
+       -> strategy)
 
 type t = { strategy : strategy }
 type importance_scorer = index:int -> total:int -> message -> float
@@ -64,8 +67,13 @@ type importance_boost = message -> float option
     without keeping this file monolithic. *)
 let estimate_char_tokens = Context_reducer_estimate.estimate_char_tokens
 
-let estimate_block_tokens ?cache block = Context_reducer_estimate.estimate_block_tokens ?cache block
-let estimate_message_tokens ?cache msg = Context_reducer_estimate.estimate_message_tokens ?cache msg
+let estimate_block_tokens ?cache block =
+  Context_reducer_estimate.estimate_block_tokens ?cache block
+;;
+
+let estimate_message_tokens ?cache msg =
+  Context_reducer_estimate.estimate_message_tokens ?cache msg
+;;
 
 let[@warning "-32"] estimate_next_turn_overhead ?system_prompt ?tools ?output_reserve () =
   Context_reducer_estimate.estimate_next_turn_overhead
@@ -283,10 +291,7 @@ let from_context_config
   in
   dynamic (fun ~cache ~turn:_ ~messages ->
     let current_tokens =
-      List.fold_left
-        (fun acc msg -> acc + estimate_message_tokens ~cache msg)
-        0
-        messages
+      List.fold_left (fun acc msg -> acc + estimate_message_tokens ~cache msg) 0 messages
     in
     let watermark_threshold = int_of_float (float_of_int max_tokens *. watermark) in
     let normal_threshold = int_of_float (float_of_int max_tokens *. 0.6) in

@@ -38,7 +38,11 @@ let read_only_tool =
     ~name:"lookup"
     ~description:"Lookup a value"
     ~parameters:
-      [ { name = "key"; description = "Key to look up"; param_type = String; required = true }
+      [ { name = "key"
+        ; description = "Key to look up"
+        ; param_type = String
+        ; required = true
+        }
       ]
     (fun args ->
        let open Yojson.Safe.Util in
@@ -74,7 +78,11 @@ let external_fetch_tool =
     ~name:"fetch_url"
     ~description:"Fetch a URL (simulated)"
     ~parameters:
-      [ { name = "url"; description = "URL to fetch"; param_type = String; required = true }
+      [ { name = "url"
+        ; description = "URL to fetch"
+        ; param_type = String
+        ; required = true
+        }
       ]
     (fun args ->
        let open Yojson.Safe.Util in
@@ -123,8 +131,14 @@ let () =
   (* 2. Race two agents; the first to finish wins, the other is cancelled. *)
   let agent_b = make_agent ~net "racer-b" in
   let agent_c = make_agent ~net "racer-c" in
-  (match Async_agent.race ~sw ~clock [ agent_b, "Look up 'ocaml'."; agent_c, "Look up 'eio'." ] with
-   | Ok (name, resp) -> Printf.printf "[race] winner=%s result=%s\n" name (extract_text resp)
+  (match
+     Async_agent.race
+       ~sw
+       ~clock
+       [ agent_b, "Look up 'ocaml'."; agent_c, "Look up 'eio'." ]
+   with
+   | Ok (name, resp) ->
+     Printf.printf "[race] winner=%s result=%s\n" name (extract_text resp)
    | Error e -> Printf.eprintf "[race] error: %s\n" (Error.to_string e));
   (* 3. Run several agents in parallel and collect all results. *)
   let agents =
