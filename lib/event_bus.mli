@@ -77,7 +77,7 @@ type payload =
       ; input : Yojson.Safe.t
       ; turn : int
         (** Zero-based turn index within the current agent run. Lets
-            downstream FSM observers (e.g. MASC) correlate a tool event
+            downstream FSM observers correlate a tool event
             with the turn that emitted it without reaching into OAS
             internals. OAS does not interpret this field.
             @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)

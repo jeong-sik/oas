@@ -192,7 +192,12 @@ let test_accept_all () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"; tool_name = "x"; tool_use_id = "tu-test"; input = `Null; turn = 0 }));
+          { agent_name = "a"
+          ; tool_name = "x"
+          ; tool_use_id = "tu-test"
+          ; input = `Null
+          ; turn = 0
+          }));
   Event_bus.publish bus (ev (Custom ("test", `Null)));
   let events = Event_bus.drain sub in
   check int "all three events" 3 (List.length events)
@@ -298,7 +303,12 @@ let test_multiple_event_types () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"; tool_name = "f"; tool_use_id = "tu-test"; input = `Null; turn = 0 }));
+          { agent_name = "a"
+          ; tool_name = "f"
+          ; tool_use_id = "tu-test"
+          ; input = `Null
+          ; turn = 0
+          }));
   Event_bus.publish
     bus
     (ev
@@ -348,7 +358,12 @@ let test_tool_called_fields () =
     bus
     (ev
        (ToolCalled
-          { agent_name = "a"; tool_name = "calc"; tool_use_id = "tu-test"; input; turn = 0 }));
+          { agent_name = "a"
+          ; tool_name = "calc"
+          ; tool_use_id = "tu-test"
+          ; input
+          ; turn = 0
+          }));
   match Event_bus.drain sub with
   | [ { payload = ToolCalled r; _ } ] ->
     check string "agent_name" "a" r.agent_name;
