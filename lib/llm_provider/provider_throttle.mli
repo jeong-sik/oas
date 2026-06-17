@@ -23,28 +23,12 @@ type t
     @raise Invalid_argument if [max_concurrent] < 1 *)
 val create : max_concurrent:int -> provider_name:string -> t
 
-(** Run [f] through the configured FD throttle hook.
-    [priority] is accepted for compatibility with pre-consumer-owned admission
-    callers; local provider slots are not acquired here.
-    @since 0.96.0 *)
-val with_permit_priority : priority:Request_priority.t -> t -> (unit -> 'a) -> 'a
+(** Number of permits currently available.
 
-(** Run [f] with a permit at [Background] priority.
-    Kept for backward compatibility with pre-scheduling callers. *)
-val with_permit : t -> (unit -> 'a) -> 'a
-
-(** Like {!with_permit_priority} but bounds the wrapped call.
-    @raise Eio.Time.Timeout if [f] does not complete within [timeout_sec].
-    @since 0.91.0 *)
-val with_permit_timeout
-  :  _ Eio.Time.clock
-  -> timeout_sec:float
-  -> ?priority:Request_priority.t
-  -> t
-  -> (unit -> 'a)
-  -> 'a
-
-(** Number of permits currently available. *)
+    @since 0.206.10 The legacy [{!with_permit}, {!with_permit_priority},
+    {!with_permit_timeout}] entrypoints have been removed because they
+    bypassed the local slot scheduler and reported inconsistent state.
+    Use the explicit handle API below. *)
 val available : t -> int
 
 (** Number of permits currently held. *)

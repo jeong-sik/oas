@@ -585,13 +585,20 @@ let make_closing_client ~sw ~net ~uri =
     Ok client
 ;;
 
-let drain_response_body resp_body =
+let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
   let buf = Cstruct.create 4096 in
   let rec drain () =
     let _ = Eio.Flow.single_read resp_body buf in
     drain ()
   in
-  try drain () with
+  let drain_with_timeout () =
+    match clock with
+    | Some clk ->
+      (try Eio.Time.with_timeout_exn clk timeout_s drain with
+       | Eio.Time.Timeout -> ())
+    | None -> drain ()
+  in
+  try drain_with_timeout () with
   | End_of_file -> ()
   | Eio.Time.Timeout -> ()
   | Unix.Unix_error (code, _, _) ->
@@ -603,23 +610,29 @@ let drain_response_body resp_body =
      | Local_resource_exhaustion
      | End_of_file
      | Unknown -> ())
-  | Eio.Io _ -> ()
-  | Sys_error _ -> ()
-  | Failure _ -> ()
-  | Invalid_argument _ -> ()
+  | Eio.Io _ as e ->
+    Diag.warn "http_client" "drain_response_body: %s" (Printexc.to_string e);
+    ()
+  | Sys_error msg ->
+    Diag.warn "http_client" "drain_response_body: sys_error %s" msg;
+    ()
+  | Failure msg ->
+    Diag.warn "http_client" "drain_response_body: failure %s" msg;
+    ()
+  | Invalid_argument msg ->
+    Diag.warn "http_client" "drain_response_body: invalid_arg %s" msg;
+    ()
   (* Re-raise cancellation so a fiber cancelled mid-drain unwinds instead of
      being absorbed by the catch-all below (structured concurrency). Mirrors the
      transport-close handler in this module. *)
   | Eio.Cancel.Cancelled _ as e -> raise e
   | drain_failure ->
-    let (_ : exn) = drain_failure in
+    Diag.warn "http_client" "drain_response_body: %s" (Printexc.to_string drain_failure);
     ()
 ;;
 
-let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw:_ ~net ~url ~headers () =
+let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers () =
   catch_network (fun () ->
-    Eio.Switch.run
-    @@ fun sw ->
     let* uri = parse_uri url in
     let* client = make_closing_client ~sw ~net ~uri in
     let hdr = Http.Header.of_list (add_connection_close headers) in
@@ -632,25 +645,15 @@ let get_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw:_ ~net ~url ~heade
             of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
         with
         | exn ->
-          drain_response_body resp_body;
+          drain_response_body ?clock resp_body;
           raise exn
       in
       Ok (code, body_str)))
 ;;
 
-let post_sync
-      ?clock
-      ?(timeout_s = default_http_timeout_s)
-      ~sw:_
-      ~net
-      ~url
-      ~headers
-      ~body
-      ()
+let post_sync ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ~body ()
   =
   catch_network (fun () ->
-    Eio.Switch.run
-    @@ fun sw ->
     let* uri = parse_uri url in
     let* client = make_closing_client ~sw ~net ~uri in
     (* Explicitly set Content-Length to prevent chunked transfer encoding.
@@ -682,7 +685,7 @@ let post_sync
             of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
         with
         | exn ->
-          drain_response_body resp_body;
+          drain_response_body ?clock resp_body;
           raise exn
       in
       Ok (code, body_str)))

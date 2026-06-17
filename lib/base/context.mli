@@ -20,8 +20,22 @@ type diff =
   ; changed : (string * Yojson.Safe.t) list
   }
 
-val create : unit -> t
+(** Create a new context.
+
+    [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
+    the context is shared across parallel fibers under an Eio scheduler.
+    The default [~eio:false] keeps the legacy {!Stdlib.Mutex} implementation
+    for use outside of an Eio fiber (e.g. synchronous tests or serialization). *)
+val create : ?eio:bool -> unit -> t
+
+(** Create a new context.
+
+    [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
+    the context is shared across parallel fibers under an Eio scheduler.
+    The default [~eio:false] keeps the legacy {!Stdlib.Mutex} implementation
+    for use outside of an Eio fiber (e.g. synchronous tests or serialization). *)
 val get : t -> string -> Yojson.Safe.t option
+
 val set : t -> string -> Yojson.Safe.t -> unit
 val delete : t -> string -> unit
 val keys : t -> string list

@@ -414,36 +414,76 @@ let save_to_file journal path =
   | Error e -> Error (Printf.sprintf "save_to_file: %s" (Error.to_string e))
 ;;
 
-let load_from_file path =
-  if not (Sys.file_exists path)
-  then Ok { state = Atomic.make ([], 0); on_append = None }
-  else (
-    try
-      let ic = open_in path in
-      Fun.protect
-        ~finally:(fun () -> close_in_noerr ic)
-        (fun () ->
-           let rec read_lines acc count line_no =
-             match input_line ic with
-             | line ->
-               if String.trim line = ""
-               then read_lines acc count (line_no + 1)
-               else (
-                 let json =
-                   try Ok (Yojson.Safe.from_string line) with
-                   | Yojson.Json_error msg ->
-                     Error (Printf.sprintf "line %d: %s" line_no msg)
-                 in
-                 match json with
-                 | Error e -> Error e
-                 | Ok j ->
-                   (match event_of_json j with
-                    | Ok evt -> read_lines (evt :: acc) (count + 1) (line_no + 1)
-                    | Error e -> Error (Printf.sprintf "line %d: %s" line_no e)))
-             | exception End_of_file ->
-               Ok { state = Atomic.make (acc, count); on_append = None }
-           in
-           read_lines [] 0 1)
-    with
-    | Sys_error msg -> Error (Printf.sprintf "load_from_file: %s" msg))
+let max_journal_size = 50 * 1024 * 1024
+
+let parse_lines lines =
+  let rec read_lines acc count line_no = function
+    | [] -> Ok { state = Atomic.make (acc, count); on_append = None }
+    | line :: rest ->
+      if String.trim line = ""
+      then read_lines acc count (line_no + 1) rest
+      else (
+        let json =
+          try Ok (Yojson.Safe.from_string line) with
+          | Yojson.Json_error msg -> Error (Printf.sprintf "line %d: %s" line_no msg)
+        in
+        match json with
+        | Error e -> Error e
+        | Ok j ->
+          (match event_of_json j with
+           | Ok evt -> read_lines (evt :: acc) (count + 1) (line_no + 1) rest
+           | Error e -> Error (Printf.sprintf "line %d: %s" line_no e)))
+  in
+  read_lines [] 0 1 lines
+;;
+
+let load_from_file ?fs path =
+  match fs with
+  | Some dir ->
+    let file_path = Eio.Path.(dir / path) in
+    if not (Eio.Path.is_file file_path)
+    then Ok { state = Atomic.make ([], 0); on_append = None }
+    else (
+      try
+        Eio.Path.with_open_in file_path (fun flow ->
+          let contents =
+            Eio.Buf_read.(of_flow flow ~max_size:max_journal_size |> take_all)
+          in
+          parse_lines (String.split_on_char '\n' contents))
+      with
+      | Eio.Io _ as e ->
+        Error (Printf.sprintf "load_from_file: %s" (Printexc.to_string e))
+      | exn -> Error (Printf.sprintf "load_from_file: %s" (Printexc.to_string exn)))
+  | None ->
+    if not (Sys.file_exists path)
+    then Ok { state = Atomic.make ([], 0); on_append = None }
+    else (
+      try
+        let ic = open_in path in
+        Fun.protect
+          ~finally:(fun () -> close_in_noerr ic)
+          (fun () ->
+             let rec read_lines acc count line_no =
+               match input_line ic with
+               | line ->
+                 if String.trim line = ""
+                 then read_lines acc count (line_no + 1)
+                 else (
+                   let json =
+                     try Ok (Yojson.Safe.from_string line) with
+                     | Yojson.Json_error msg ->
+                       Error (Printf.sprintf "line %d: %s" line_no msg)
+                   in
+                   match json with
+                   | Error e -> Error e
+                   | Ok j ->
+                     (match event_of_json j with
+                      | Ok evt -> read_lines (evt :: acc) (count + 1) (line_no + 1)
+                      | Error e -> Error (Printf.sprintf "line %d: %s" line_no e)))
+               | exception End_of_file ->
+                 Ok { state = Atomic.make (acc, count); on_append = None }
+             in
+             read_lines [] 0 1)
+      with
+      | Sys_error msg -> Error (Printf.sprintf "load_from_file: %s" msg))
 ;;

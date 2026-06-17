@@ -90,9 +90,9 @@ let with_permit ~priority t f =
   Fun.protect f ~finally:(fun () -> release_slot t)
 ;;
 
-let available t = t.max_slots - t.active
-let in_use t = t.active
-let queue_length t = List.length t.waiters
+let available t = Eio.Mutex.use_ro t.mutex (fun () -> t.max_slots - t.active)
+let in_use t = Eio.Mutex.use_ro t.mutex (fun () -> t.active)
+let queue_length t = Eio.Mutex.use_ro t.mutex (fun () -> List.length t.waiters)
 
 (* ── Capacity Query ────────────────────────────────────── *)
 
@@ -156,14 +156,10 @@ let yield_permit t p =
 let resume_permit t p =
   match p.state with
   | Yielded ->
-    (try
-       acquire ~priority:Resume t;
-       p.state <- Held
-     with
-     | exn ->
-       (* If acquire succeeded but we're being cancelled, release the slot *)
-       release_slot t;
-       raise exn)
+    (* [acquire] already handles cancellation release if a slot was handed to us
+       and then the fiber was cancelled, so we must not release again here. *)
+    acquire ~priority:Resume t;
+    p.state <- Held
   | Held -> invalid_arg "Slot_scheduler.resume_permit: permit is already held"
   | Released -> invalid_arg "Slot_scheduler.resume_permit: permit already released"
 ;;

@@ -2,6 +2,8 @@
 
 open Agent_sdk
 
+let eio_run f = Eio_main.run f
+
 (* ── Test helpers ────────────────────────────────────────────── *)
 
 let make_record
@@ -461,6 +463,7 @@ let test_sandbox_basic () =
       ~model:"mock"
       ~prompt:"test prompt"
       ~run_fn
+      ()
   in
   Alcotest.(check bool) "success" true result.trajectory.success;
   Alcotest.(check int) "called once" 1 !call_count;
@@ -488,6 +491,7 @@ let test_sandbox_max_turns () =
       ~model:"mock"
       ~prompt:"test"
       ~run_fn
+      ()
   in
   (* Turn count is 1, max_turns is 1: within limit *)
   Alcotest.(check int) "called once" 1 !call_count;
@@ -519,6 +523,7 @@ let test_sandbox_tool_counting () =
       ~model:"mock"
       ~prompt:"run tools"
       ~run_fn
+      ()
   in
   (* 2 tool_use blocks counted *)
   let tool_metric =
@@ -541,6 +546,7 @@ let test_sandbox_trajectory_capture () =
       ~model:"mock"
       ~prompt:"capture me"
       ~run_fn
+      ()
   in
   (* Should have Think (prompt) + Respond steps *)
   let total = List.length result.trajectory.steps in
@@ -560,6 +566,7 @@ let test_sandbox_no_capture () =
       ~model:"mock"
       ~prompt:"silent"
       ~run_fn
+      ()
   in
   (* With capture off, no steps recorded *)
   Alcotest.(check int) "no steps" 0 (List.length result.trajectory.steps)
@@ -575,9 +582,45 @@ let test_sandbox_error_run () =
       ~model:"mock"
       ~prompt:"fail"
       ~run_fn
+      ()
   in
   Alcotest.(check bool) "not success" false result.trajectory.success;
   Alcotest.(check bool) "has error" true (Option.is_some result.trajectory.error)
+;;
+
+let test_sandbox_timeout () =
+  eio_run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let run_fn _prompt =
+      Eio.Time.sleep clock 10.0;
+      Ok (mock_response "too late")
+    in
+    let config : Sandbox_runner.sandbox_config =
+      { timeout_s = 0.1; max_turns = 5; max_tool_calls = 10; capture_trajectory = false }
+    in
+    let result =
+      Sandbox_runner.run
+        ~clock
+        ~config
+        ~agent_name:"timeout-test"
+        ~model:"mock"
+        ~prompt:"hang"
+        ~run_fn
+        ()
+    in
+    Alcotest.(check bool) "not success" false result.trajectory.success;
+    Alcotest.(check bool)
+      "timeout verdict failed"
+      false
+      (List.for_all (fun (v : Harness.verdict) -> v.passed) result.verdicts);
+    Alcotest.(check bool)
+      "error mentions timeout"
+      true
+      (Option.fold
+         ~none:false
+         ~some:(fun e ->
+           String.contains e 't' && String.contains e 'i' && String.contains e 'm')
+         result.trajectory.error))
 ;;
 
 (* ── Test suite ──────────────────────────────────────────────── *)
@@ -608,6 +651,7 @@ let () =
         ; Alcotest.test_case "trajectory capture" `Quick test_sandbox_trajectory_capture
         ; Alcotest.test_case "no capture" `Quick test_sandbox_no_capture
         ; Alcotest.test_case "error run" `Quick test_sandbox_error_run
+        ; Alcotest.test_case "timeout enforced" `Quick test_sandbox_timeout
         ] )
     ]
 ;;

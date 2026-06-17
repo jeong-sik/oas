@@ -161,8 +161,12 @@ val save_to_file : journal -> string -> (unit, string) result
 (** Load a journal from a JSONL file produced by {!save_to_file}.
     Empty or missing file returns an empty journal (not an error).
     Malformed lines abort the load with [Error msg] identifying the
-    first bad line.  The loaded journal has no [on_append] callback. *)
-val load_from_file : string -> (journal, string) result
+    first bad line.  The loaded journal has no [on_append] callback.
+
+    When [~fs] is supplied the load uses Eio non-blocking I/O and is
+    bounded by a 50 MB size limit; otherwise a synchronous fallback is
+    used for non-Eio callers. *)
+val load_from_file : ?fs:Eio.Fs.dir_ty Eio.Path.t -> string -> (journal, string) result
 
 (** {1 Queries} *)
 
