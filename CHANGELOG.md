@@ -8,6 +8,16 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.1](https://github.com/jeong-sik/oas/compare/v0.207.0...v0.207.1) (2026-06-17)
+
+
+### Features
+
+* adversarial security / secrets hardening ([#2107](https://github.com/jeong-sik/oas/issues/2107)) ([fa51717](https://github.com/jeong-sik/oas/commit/fa517179c52f5eb0b95d878b46ececb69e610242))
+* **event_bus:** add turn index to ToolCalled/ToolCompleted for downstream FSM correlation ([#2108](https://github.com/jeong-sik/oas/issues/2108)) ([89e979d](https://github.com/jeong-sik/oas/commit/89e979ddcc2c873a178121015075cd7da2f5238b))
+* **oas:** adversarial hardening — eio-concurrency-core ([#2106](https://github.com/jeong-sik/oas/issues/2106)) ([4543cc9](https://github.com/jeong-sik/oas/commit/4543cc9e0f6cfcc236da2c6f097d8738f8435ecb))
+* **oas:** adversarial hardening — legacy-purge-safe ([#2105](https://github.com/jeong-sik/oas/issues/2105)) ([e22a669](https://github.com/jeong-sik/oas/commit/e22a6697208bffb6dde3b410237c1f6933af6ed7))
+
 ## [0.207.0](https://github.com/jeong-sik/oas/compare/v0.206.14...v0.207.0) (2026-06-16)
 
 
