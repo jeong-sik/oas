@@ -526,8 +526,8 @@ type cache =
   ; max_idle_per_host : int
   ; idle_ttl_seconds : float
   ; mutable entries : cache_entry list Cache_map.t
-  ; mutable reuse_count_total : int
-  ; mutable create_count_total : int
+  ; reuse_count_total : int Atomic.t
+  ; create_count_total : int Atomic.t
   ; stop : bool Atomic.t
   }
 
@@ -539,8 +539,8 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
     ; max_idle_per_host
     ; idle_ttl_seconds
     ; entries = Cache_map.empty
-    ; reuse_count_total = 0
-    ; create_count_total = 0
+    ; reuse_count_total = Atomic.make 0
+    ; create_count_total = Atomic.make 0
     ; stop = Atomic.make false
     }
   in
@@ -574,7 +574,7 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
          then ()
          else (
            Eio.Time.sleep clock (cache.idle_ttl_seconds /. 2.0);
-           let now = Eio.Time.now clock in
+           let now = Unix.gettimeofday () in
            let expired =
              Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
                let expired = ref [] in
@@ -591,12 +591,13 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
                cache.entries <- remaining;
                !expired)
            in
-           List.iter
-             (fun e ->
-                try Eio.Resource.close e.connection with
-                | Eio.Cancel.Cancelled _ as exn -> raise exn
-                | _ -> ())
-             expired;
+           Eio.Cancel.protect (fun () ->
+             List.iter
+               (fun e ->
+                  try Eio.Resource.close e.connection with
+                  | Eio.Cancel.Cancelled _ as exn -> raise exn
+                  | _ -> ())
+               expired);
            loop ())
        in
        loop ())
@@ -614,8 +615,8 @@ let cache_stats (cache : cache) : cache_stats =
     let total_idle = List.fold_left (fun acc (_, n) -> acc + n) 0 idle_per_host in
     { idle_per_host
     ; total_idle
-    ; reuse_count_total = cache.reuse_count_total
-    ; create_count_total = cache.create_count_total
+    ; reuse_count_total = Atomic.get cache.reuse_count_total
+    ; create_count_total = Atomic.get cache.create_count_total
     })
 ;;
 
@@ -627,7 +628,7 @@ let cache_take (cache : cache) uri : cache_entry option =
     match Cache_map.find_opt key cache.entries with
     | Some (e :: rest) ->
       cache.entries <- Cache_map.add key rest cache.entries;
-      cache.reuse_count_total <- cache.reuse_count_total + 1;
+      Atomic.incr cache.reuse_count_total;
       Some e
     | _ -> None)
 ;;
@@ -816,7 +817,7 @@ let with_client ?cache ~sw ~net ~uri f =
       | Some e -> Ok (e.connection, true)
       | None ->
         let* conn = make_connection ~sw:cache.sw ~net ~uri in
-        cache.create_count_total <- cache.create_count_total + 1;
+        Atomic.incr cache.create_count_total;
         Ok (conn, false)
     in
     let client =
@@ -825,9 +826,17 @@ let with_client ?cache ~sw ~net ~uri f =
     let ok = ref false in
     Fun.protect
       ~finally:(fun () ->
-        if !ok
-        then cache_return cache uri { connection = conn; last_used_at = 0.0 }
-        else Eio.Resource.close conn)
+        try
+          if !ok
+          then cache_return cache uri { connection = conn; last_used_at = 0.0 }
+          else Eio.Resource.close conn
+        with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | exn ->
+          Diag.warn
+            "http_client"
+            "with_client cleanup failed: %s"
+            (Printexc.to_string exn))
       (fun () ->
          let result = f client in
          (match result with

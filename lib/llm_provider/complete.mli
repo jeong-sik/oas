@@ -67,7 +67,8 @@ val make_http_transport
     Otherwise falls back to the built-in HTTP transport.
 
     When [cache] is provided, checks response cache before I/O and stores on success.
-    When [connection_cache] is provided, reuses HTTP connections.
+    When [connection_cache] is provided, the built-in HTTP transport reuses idle
+    connections. It has no effect when a custom [transport] is supplied.
     When [metrics] is provided, fires lifecycle callbacks.
 
     @return [Ok api_response] on success (possibly from cache)

@@ -237,6 +237,31 @@ let test_stream_reuses_connection () =
   | Exit -> ()
 ;;
 
+let test_per_host_cap_closes_excess () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net (anthropic_response "cached") in
+    let config = make_anthropic_config url in
+    let cache = Http_client.create_cache ~sw ~max_idle_per_host:1 () in
+    let once () =
+      match
+        Complete.complete ~sw ~net:env#net ~config ~messages:[] ~connection_cache:cache ()
+      with
+      | Ok _ -> ()
+      | Error _ -> Alcotest.fail "expected Ok concurrent"
+    in
+    Eio.Fiber.both once once;
+    let stats = Http_client.cache_stats cache in
+    Alcotest.(check int) "two creates for concurrent" 2 stats.create_count_total;
+    Alcotest.(check int) "only one idle due to cap" 1 stats.total_idle;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let () =
   Alcotest.run
     "HTTP Client Connection Cache"
@@ -245,6 +270,10 @@ let () =
             "sync connection reused"
             `Quick
             test_complete_reuses_connection
+        ; Alcotest.test_case
+            "per-host cap closes excess"
+            `Quick
+            test_per_host_cap_closes_excess
         ] )
     ; ( "lifecycle"
       , [ Alcotest.test_case
