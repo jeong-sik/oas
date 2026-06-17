@@ -601,6 +601,8 @@ let apply_relocate_tool_results ~state ~keep_recent messages =
 ;;
 
 let apply_cache_alignment ?cache ~size messages =
+  if size <= 0
+  then invalid_arg "apply_cache_alignment: size must be a positive integer";
   let total_tokens =
     List.fold_left (fun acc msg -> acc + estimate_message_tokens ?cache msg) 0 messages
   in
@@ -617,4 +619,26 @@ let apply_cache_alignment ?cache ~size messages =
     | last_msg :: rest ->
       let new_content = last_msg.content @ [ padding_block ] in
       { last_msg with content = new_content } :: rest)
+;;
+
+let%test "apply_cache_alignment rejects non-positive size" =
+  try
+    ignore (apply_cache_alignment ~size:0 []);
+    false
+  with
+  | Invalid_argument _ -> true
+;;
+
+let%test "apply_cache_alignment adds padding when not aligned" =
+  let msg =
+    { role = Assistant
+    ; content = [ Text "hello world" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  match apply_cache_alignment ~size:100 [ msg ] with
+  | [ aligned ] -> List.length aligned.content > List.length msg.content
+  | _ -> false
 ;;

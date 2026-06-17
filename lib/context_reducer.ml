@@ -15,6 +15,8 @@
 
 open Types
 
+type estimate_cache = Context_reducer_estimate.estimate_cache
+
 type strategy =
   | Keep_last_n of int
   | Token_budget of int
@@ -49,7 +51,8 @@ type strategy =
       }
   | Compose of strategy list
   | Custom of (message list -> message list)
-  | Dynamic of (turn:int -> messages:message list -> strategy)
+  | Dynamic of
+      (cache:Context_reducer_estimate.estimate_cache -> turn:int -> messages:message list -> strategy)
 
 type t = { strategy : strategy }
 type importance_scorer = index:int -> total:int -> message -> float
@@ -61,8 +64,8 @@ type importance_boost = message -> float option
     without keeping this file monolithic. *)
 let estimate_char_tokens = Context_reducer_estimate.estimate_char_tokens
 
-let estimate_block_tokens block = Context_reducer_estimate.estimate_block_tokens block
-let estimate_message_tokens msg = Context_reducer_estimate.estimate_message_tokens msg
+let estimate_block_tokens ?cache block = Context_reducer_estimate.estimate_block_tokens ?cache block
+let estimate_message_tokens ?cache msg = Context_reducer_estimate.estimate_message_tokens ?cache msg
 
 let[@warning "-32"] estimate_next_turn_overhead ?system_prompt ?tools ?output_reserve () =
   Context_reducer_estimate.estimate_next_turn_overhead
@@ -140,7 +143,7 @@ and apply_strategy ~cache strategy messages =
   | Dynamic selector ->
     (* Infer turn count from message structure *)
     let turn_count = List.length (group_into_turns messages) in
-    let selected = selector ~turn:turn_count ~messages in
+    let selected = selector ~cache ~turn:turn_count ~messages in
     apply_strategy ~cache selected messages
 ;;
 
@@ -198,7 +201,7 @@ let importance_scored ?(threshold = 0.3) ?boost ~scorer () =
 (** Dynamic strategy: selects a strategy per turn based on conversation state.
     Example: early turns get full context, later turns use token budget.
     {[
-      dynamic (fun ~turn ~messages:_ ->
+      dynamic (fun ~cache:_ ~turn ~messages:_ ->
         if turn < 5 then Keep_last_n 20
         else Token_budget 4000)
     ]} *)
@@ -278,9 +281,12 @@ let from_context_config
       ; prune_tool_args ~max_arg_len:5000 ()
       ]
   in
-  dynamic (fun ~turn:_ ~messages ->
+  dynamic (fun ~cache ~turn:_ ~messages ->
     let current_tokens =
-      List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+      List.fold_left
+        (fun acc msg -> acc + estimate_message_tokens ~cache msg)
+        0
+        messages
     in
     let watermark_threshold = int_of_float (float_of_int max_tokens *. watermark) in
     let normal_threshold = int_of_float (float_of_int max_tokens *. 0.6) in
