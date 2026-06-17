@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.2](https://github.com/jeong-sik/oas/compare/v0.207.1...v0.207.2) (2026-06-17)
+
+
+### Bug Fixes
+
+* **oas:** repair main CI — ocamlformat + SDK independence ([#2111](https://github.com/jeong-sik/oas/issues/2111)) ([db7d3fb](https://github.com/jeong-sik/oas/commit/db7d3fbd77a6679b5439ba55e9ad446eaa96d327))
+
 ## [0.207.1](https://github.com/jeong-sik/oas/compare/v0.207.0...v0.207.1) (2026-06-17)
 
 
