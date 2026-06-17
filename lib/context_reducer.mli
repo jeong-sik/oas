@@ -19,6 +19,9 @@ open Types
     will be estimated again by the selected strategy. *)
 type estimate_cache
 
+(** Create a fresh estimate cache for a single reduction. *)
+val create_estimate_cache : unit -> estimate_cache
+
 (** Windowing strategy for context reduction. *)
 type strategy =
   | Keep_last_n of int
