@@ -258,12 +258,12 @@ let test_gemini_url_variants () =
   check
     string
     "sync keyed"
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent?key=secret"
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent"
     (Complete.gemini_url ~config:keyed ~stream:false);
   check
     string
     "stream keyed"
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent?key=secret&alt=sse"
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent?alt=sse"
     (Complete.gemini_url ~config:keyed ~stream:true);
   let no_key =
     make_config

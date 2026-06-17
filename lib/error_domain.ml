@@ -37,6 +37,7 @@ type config_error =
   [ `Missing_env_var of string
   | `Unsupported_provider of string
   | `Invalid_config of string * string
+  | `Sensitive_value_in_config of string
   ]
 
 type mcp_error =
@@ -133,6 +134,7 @@ let of_sdk_error (err : Error.sdk_error) : sdk_error_poly =
   | Error.Config (MissingEnvVar r) -> `Missing_env_var r.var_name
   | Error.Config (UnsupportedProvider r) -> `Unsupported_provider r.detail
   | Error.Config (InvalidConfig r) -> `Invalid_config (r.field, r.detail)
+  | Error.Config (SensitiveValueInConfig r) -> `Sensitive_value_in_config r.detail
   | Error.Mcp (ServerStartFailed r) -> `Mcp_server_start_failed (r.command, r.detail)
   | Error.Mcp (InitializeFailed r) -> `Mcp_init_failed r.detail
   | Error.Mcp (ToolListFailed r) -> `Mcp_tool_list_failed r.detail
@@ -194,6 +196,7 @@ let to_sdk_error (err : sdk_error_poly) : Error.sdk_error =
   | `Missing_env_var var -> Error.Config (MissingEnvVar { var_name = var })
   | `Unsupported_provider detail -> Error.Config (UnsupportedProvider { detail })
   | `Invalid_config (field, detail) -> Error.Config (InvalidConfig { field; detail })
+  | `Sensitive_value_in_config detail -> Error.Config (SensitiveValueInConfig { detail })
   | `Mcp_server_start_failed (command, detail) ->
     Error.Mcp (ServerStartFailed { command; detail })
   | `Mcp_init_failed detail -> Error.Mcp (InitializeFailed { detail })
@@ -266,6 +269,7 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Missing_env_var _
   | `Unsupported_provider _
   | `Invalid_config _
+  | `Sensitive_value_in_config _
   | `Mcp_server_start_failed _
   | `Serialization _
   | `Io _

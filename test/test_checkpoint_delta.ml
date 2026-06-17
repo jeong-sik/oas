@@ -110,6 +110,7 @@ let mcp_info_gen =
        ; command
        ; args
        ; env = []
+       ; env_policy = Mcp.Minimal
        ; http_base_url = None
        ; http_headers = []
        ; tool_schemas
@@ -250,6 +251,7 @@ let sample_mcp_session =
   ; command = "memory-server"
   ; args = [ "--stdio" ]
   ; env = [ "MODE", "test" ]
+  ; env_policy = Mcp.Minimal
   ; http_base_url = None
   ; http_headers = []
   ; tool_schemas = [ sample_tool_schema ]

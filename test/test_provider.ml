@@ -24,7 +24,9 @@ let check_auth_headers label expected (pc : Llm_provider.Provider_config.t) =
   Alcotest.(check (list (pair string string)))
     label
     expected
-    (Provider.auth_headers_only_for_kind ~kind:pc.kind ~api_key:pc.api_key)
+    (Provider.auth_headers_only_for_kind
+       ~kind:pc.kind
+       ~api_key:((pc.api_key :> string) :> string))
 ;;
 
 let test_missing_env_var () =
@@ -607,7 +609,7 @@ let test_provider_config_of_agent_anthropic () =
       "anthropic"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "model_id" "claude-sonnet-4-20250514" pc.model_id;
-    Alcotest.(check string) "api_key" "sk-ant-adapter-test" pc.api_key;
+    Alcotest.(check string) "api_key" "sk-ant-adapter-test" (pc.api_key :> string);
     Alcotest.(check string) "request_path" "/v1/messages" pc.request_path;
     check_no_header "x-api-key omitted from config headers" "x-api-key" pc.headers;
     check_auth_headers
@@ -704,7 +706,10 @@ let test_provider_config_of_agent_none_fallback () =
       "defaults to anthropic"
       "anthropic"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
-    Alcotest.(check string) "uses fallback key" "sk-ant-default-fallback" pc.api_key;
+    Alcotest.(check string)
+      "uses fallback key"
+      "sk-ant-default-fallback"
+      (pc.api_key :> string);
     Alcotest.(check string)
       "preserves caller base_url"
       "https://api.anthropic.com"
@@ -735,7 +740,7 @@ let test_provider_config_of_agent_local_strips_dummy_key () =
       "openai_compat"
       (Llm_provider.Provider_config.string_of_provider_kind pc.kind);
     Alcotest.(check string) "request_path" "/v1/chat/completions" pc.request_path;
-    Alcotest.(check string) "local strips dummy api_key" "" pc.api_key;
+    Alcotest.(check string) "local strips dummy api_key" "" (pc.api_key :> string);
     Alcotest.(check (list (pair string string)))
       "headers"
       [ "Content-Type", "application/json" ]
@@ -823,7 +828,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
         Alcotest.(check string)
           "uses cloud-specific key first"
           "ollama-cloud-provider-test-key"
-          pc.api_key;
+          (pc.api_key :> string);
         check_no_header
           "authorization omitted from config headers"
           "Authorization"
@@ -853,7 +858,7 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
         Alcotest.(check string)
           "uses OLLAMA_API_KEY fallback"
           "ollama-api-fallback-key"
-          pc.api_key;
+          (pc.api_key :> string);
         check_no_header
           "authorization omitted from config headers"
           "Authorization"

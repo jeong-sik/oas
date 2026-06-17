@@ -33,8 +33,15 @@ type field =
   | F of string * float
   | B of string * bool
   | J of string * Yojson.Safe.t
+  | Secret of string * Llm_provider.Secret.t
+  (** Secret field — always renders as [<redacted>] in every sink. *)
 
 val field_to_json : field -> string * Yojson.Safe.t
+
+(** Best-effort redaction of secret patterns in log messages and string
+    fields.  Used automatically by the built-in sinks; exposed for callers
+    that want to scrub data before constructing a [field]. *)
+val redact : string -> string
 
 (** {2 Record} *)
 

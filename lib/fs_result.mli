@@ -17,8 +17,14 @@ val read_file : string -> (string, Error.sdk_error) result
 (** Write file atomically via .tmp + rename. Creates parent dirs. *)
 val write_file : string -> string -> (unit, Error.sdk_error) result
 
-(** Append content to file. Creates parent dirs if needed. *)
+(** Append content to file. Creates parent dirs if needed.
+    The file is created with mode [0o600] (owner read/write only). *)
 val append_file : string -> string -> (unit, Error.sdk_error) result
+
+(** Like {!write_file} but guarantees owner-only ([0o600]) permissions using
+    [O_CREAT|O_EXCL] and an atomic rename.  Use for files that may contain
+    secrets or sensitive session data. *)
+val write_file_secret : string -> string -> (unit, Error.sdk_error) result
 
 (** {1 Directory operations} *)
 

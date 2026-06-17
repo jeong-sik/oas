@@ -48,7 +48,10 @@ type t =
   { kind : provider_kind
   ; model_id : string
   ; base_url : string
-  ; api_key : string
+  ; api_key : Secret.t
+    (** API key / token as an abstract secret.  Never log or serialize
+        this field directly; use {!auth_headers_for_config} at HTTP request
+        time. *)
   ; headers : (string * string) list
   ; request_path : string
   ; max_tokens : int option
@@ -318,5 +321,15 @@ val is_local : t -> bool
 (** Return only the auth-specific headers for a config.
     Callers merge this into [config.headers] at HTTP request time so that
     [Provider_config.t.headers] never carries sensitive tokens like API keys.
-    Gemini keys go in the URL query string, not headers. *)
+    Gemini keys are sent in the [x-goog-api-key] header and are never placed
+    in the URL query string. *)
 val auth_headers_for_config : t -> (string * string) list
+
+(** Same as {!auth_headers_for_config} but takes the provider kind and raw key
+    as separate arguments.  Used by the legacy {!Api.create_message} path so it
+    does not need to construct a full [Provider_config.t] just to compute auth
+    headers. *)
+val auth_headers_for_kind_and_key
+  :  kind:provider_kind
+  -> api_key:string
+  -> (string * string) list

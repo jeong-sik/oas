@@ -293,17 +293,13 @@ let complete_http
                since they cannot be safely sampled. *)
                 let api_key_tag =
                   let k = config.api_key in
-                  let len = String.length k in
-                  if len = 0
+                  if Secret.is_empty k
                   then "-"
-                  else if len < 8
-                  then Printf.sprintf "len:%d" len
-                  else
-                    Printf.sprintf
-                      "%s..%s(len:%d)"
-                      (String.sub k 0 3)
-                      (String.sub k (len - 3) 3)
-                      len
+                  else (
+                    let len = Secret.length k in
+                    if len < 8
+                    then Printf.sprintf "len:%d" len
+                    else Printf.sprintf "fp:%s(len:%d)" (Secret.fingerprint k) len)
                 in
                 Diag.warn
                   "complete"

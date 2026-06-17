@@ -24,9 +24,14 @@ val capability_of_string : string -> capability
 
 (** {1 Agent Card} *)
 
+type credential_ref =
+  | Env of string
+  | File of string
+  | No_credential
+
 type authentication =
   { schemes : string list
-  ; credentials : string option
+  ; credential_ref : credential_ref
   }
 
 type supported_interface =

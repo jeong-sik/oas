@@ -49,6 +49,7 @@ let test_server_spec_fields () =
     { command = "/usr/bin/echo"
     ; args = [ "--version" ]
     ; env = [ "FOO", "bar" ]
+    ; env_policy = Minimal
     ; name = "test-server"
     }
   in
@@ -60,7 +61,7 @@ let test_server_spec_fields () =
 
 let test_server_spec_empty_args () =
   let spec : Mcp.server_spec =
-    { command = "npx"; args = []; env = []; name = "minimal" }
+    { command = "npx"; args = []; env = []; env_policy = Minimal; name = "minimal" }
   in
   Alcotest.(check int) "empty args" 0 (List.length spec.args);
   Alcotest.(check int) "empty env" 0 (List.length spec.env)
@@ -71,6 +72,7 @@ let test_server_spec_multiple_env () =
     { command = "node"
     ; args = [ "server.js" ]
     ; env = [ "API_KEY", "abc"; "PORT", "3000"; "DEBUG", "1" ]
+    ; env_policy = Minimal
     ; name = "multi-env"
     }
   in
@@ -143,6 +145,7 @@ let test_connect_all_bad_command () =
     { command = "/nonexistent/command/that/should/fail"
     ; args = []
     ; env = []
+    ; env_policy = Minimal
     ; name = "bad-server"
     }
   in
@@ -155,7 +158,12 @@ let test_connect_and_load_bad_command () =
   with_eio
   @@ fun ~sw ~mgr ->
   let spec : Mcp.server_spec =
-    { command = "/this/does/not/exist"; args = []; env = []; name = "ghost" }
+    { command = "/this/does/not/exist"
+    ; args = []
+    ; env = []
+    ; env_policy = Minimal
+    ; name = "ghost"
+    }
   in
   match Mcp.connect_and_load ~sw ~mgr spec with
   | Ok _ -> Alcotest.fail "Expected Error"
@@ -244,10 +252,15 @@ let test_connect_all_second_fails () =
   with_eio
   @@ fun ~sw ~mgr ->
   let good_spec : Mcp.server_spec =
-    { command = "cat"; args = []; env = []; name = "cat-server" }
+    { command = "cat"; args = []; env = []; env_policy = Minimal; name = "cat-server" }
   in
   let bad_spec : Mcp.server_spec =
-    { command = "/nonexistent/binary"; args = []; env = []; name = "bad-server" }
+    { command = "/nonexistent/binary"
+    ; args = []
+    ; env = []
+    ; env_policy = Minimal
+    ; name = "bad-server"
+    }
   in
   match Mcp.connect_all ~sw ~mgr [ good_spec; bad_spec ] with
   | Ok _ -> Alcotest.(check bool) "unexpected success" true true

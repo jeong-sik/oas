@@ -267,14 +267,25 @@ let close t =
 
 (* ── Managed lifecycle ─────────────────────────────────────────── *)
 
+(** Default trust boundary for MCP stdio subprocesses. *)
+type env_policy =
+  | Minimal
+  (** Start the child with a minimal allow-list ([PATH], [LANG],
+          [LC_ALL], [TMPDIR]) plus any keys explicitly listed in [spec.env]. *)
+  | Inherit
+  (** Inherit the full parent environment and apply [spec.env] overrides.
+          Use only when the MCP server is fully trusted. *)
+  | Explicit (** Pass exactly the variables listed in [spec.env]. *)
+
 (** Server start specification.
     [command] is the executable, [args] its arguments.
-    [env] contains extra environment variable overrides (merged with
-    the current process environment).  [name] identifies the server. *)
+    [env] contains extra environment variable overrides applied according to
+    [env_policy].  [name] identifies the server. *)
 type server_spec =
   { command : string
   ; args : string list
   ; env : (string * string) list
+  ; env_policy : env_policy
   ; name : string
   }
 
@@ -318,6 +329,147 @@ let merge_env extras =
     Array.of_list (base_filtered @ extra_entries))
 ;;
 
+let env_policy_to_string = function
+  | Minimal -> "minimal"
+  | Inherit -> "inherit"
+  | Explicit -> "explicit"
+;;
+
+let env_policy_of_string = function
+  | "minimal" -> Ok Minimal
+  | "inherit" -> Ok Inherit
+  | "explicit" -> Ok Explicit
+  | value -> Error (Printf.sprintf "Unknown env_policy: %s" value)
+;;
+
+let minimal_env_vars = [ "PATH"; "LANG"; "LC_ALL"; "TMPDIR" ]
+
+(** Build a child environment according to [env_policy].  [Minimal] is the
+    safe default and prevents an untrusted MCP server from reading the entire
+    parent environment (which may contain API keys, tokens, SSH agents, etc.). *)
+let build_minimal_env ~policy extras =
+  match policy with
+  | Inherit -> merge_env extras
+  | Explicit -> Array.of_list (List.map (fun (k, v) -> k ^ "=" ^ v) extras)
+  | Minimal ->
+    let extra_keys = List.map fst extras in
+    let keep key = List.mem key minimal_env_vars || List.mem key extra_keys in
+    let base =
+      Array.to_list (Unix.environment ())
+      |> List.filter (fun entry ->
+        match String.split_on_char '=' entry with
+        | k :: _ -> keep k
+        | [] -> false)
+    in
+    let base_filtered =
+      List.filter
+        (fun entry ->
+           match String.split_on_char '=' entry with
+           | k :: _ -> not (List.mem k extra_keys)
+           | [] -> true)
+        base
+    in
+    let extra_entries = List.map (fun (k, v) -> k ^ "=" ^ v) extras in
+    Array.of_list (base_filtered @ extra_entries)
+;;
+
+let is_shell_meta ch =
+  match ch with
+  | ';'
+  | '|'
+  | '&'
+  | '$'
+  | '`'
+  | '('
+  | ')'
+  | '{'
+  | '}'
+  | '<'
+  | '>'
+  | '*'
+  | '?'
+  | '#'
+  | '!'
+  | '~'
+  | '\\'
+  | '"'
+  | '\''
+  | '\n'
+  | '\r'
+  | '\t' -> true
+  | _ -> false
+;;
+
+let has_shell_meta s = String.exists is_shell_meta s
+let interpreters = [ "sh"; "bash"; "zsh"; "python"; "python3"; "node"; "ruby"; "perl" ]
+
+let shell_commands_allowed () =
+  match Sys.getenv_opt "OAS_MCP_ALLOW_SHELL_COMMANDS" with
+  | Some ("1" | "true") -> true
+  | Some _ | None -> false
+;;
+
+let validate_command_and_args ~command ~args =
+  if has_shell_meta command
+  then
+    Error
+      (Error.Mcp
+         (ServerStartFailed
+            { command; detail = "MCP command contains shell metacharacters" }))
+  else if Filename.is_relative command
+  then
+    Error
+      (Error.Mcp
+         (ServerStartFailed { command; detail = "MCP command must be an absolute path" }))
+  else (
+    let basename = Filename.basename command in
+    if (not (shell_commands_allowed ())) && List.mem basename interpreters
+    then
+      Error
+        (Error.Mcp
+           (ServerStartFailed
+              { command
+              ; detail =
+                  Printf.sprintf
+                    "MCP command is an interpreter (%s); set \
+                     OAS_MCP_ALLOW_SHELL_COMMANDS=1 to allow"
+                    basename
+              }))
+    else (
+      let resolved =
+        try Unix.realpath command with
+        | _ -> command
+      in
+      if not (Sys.file_exists resolved && Sys.is_regular_file resolved)
+      then
+        Error
+          (Error.Mcp
+             (ServerStartFailed
+                { command
+                ; detail = Printf.sprintf "MCP command is not a regular file: %s" resolved
+                }))
+      else (
+        let st = Unix.stat resolved in
+        if st.st_perm land 0o022 <> 0
+        then
+          Error
+            (Error.Mcp
+               (ServerStartFailed
+                  { command
+                  ; detail =
+                      Printf.sprintf
+                        "MCP command is writable by group or other: %s"
+                        resolved
+                  }))
+        else if List.exists has_shell_meta args
+        then
+          Error
+            (Error.Mcp
+               (ServerStartFailed
+                  { command; detail = "MCP args contain shell metacharacters" }))
+        else Ok resolved)))
+;;
+
 (** Close a single managed MCP connection (transport-aware). *)
 let close_managed m =
   match m.transport with
@@ -337,41 +489,54 @@ let close_all managed_list = List.iter close_managed managed_list
     tools, and convert them to SDK [Tool.t] values.
     On any failure the subprocess is closed before returning [Error]. *)
 let connect_and_load ~sw ~mgr spec =
-  let env = merge_env spec.env in
-  match connect ~sw ~mgr ~command:spec.command ~args:spec.args ~env () with
+  match validate_command_and_args ~command:spec.command ~args:spec.args with
   | Error e -> Error e
-  | Ok client ->
-    (try
-       match initialize client with
-       | Error e ->
-         close client;
-         Error e
-       | Ok () ->
-         (match list_tools client with
+  | Ok resolved_command ->
+    Llm_provider.Diag.info
+      "mcp"
+      "spawn %s: resolved=%s args=%d hash=%d"
+      spec.name
+      resolved_command
+      (List.length spec.args)
+      (Hashtbl.hash spec);
+    let env = build_minimal_env ~policy:spec.env_policy spec.env in
+    (match connect ~sw ~mgr ~command:spec.command ~args:spec.args ~env () with
+     | Error e -> Error e
+     | Ok client ->
+       (try
+          match initialize client with
           | Error e ->
             close client;
             Error e
-          | Ok mcp_tools ->
-            let tools = to_tools client mcp_tools in
-            Ok { tools; name = spec.name; transport = Stdio { client; spec } })
-     with
-     | Out_of_memory ->
-       close client;
-       raise Out_of_memory
-     | Stack_overflow ->
-       close client;
-       raise Stack_overflow
-     | Sys.Break ->
-       close client;
-       raise Sys.Break
-     | exn ->
-       close client;
-       Error
-         (Error.Mcp
-            (InitializeFailed
-               { detail =
-                   Printf.sprintf "MCP server '%s': %s" spec.name (Printexc.to_string exn)
-               })))
+          | Ok () ->
+            (match list_tools client with
+             | Error e ->
+               close client;
+               Error e
+             | Ok mcp_tools ->
+               let tools = to_tools client mcp_tools in
+               Ok { tools; name = spec.name; transport = Stdio { client; spec } })
+        with
+        | Out_of_memory ->
+          close client;
+          raise Out_of_memory
+        | Stack_overflow ->
+          close client;
+          raise Stack_overflow
+        | Sys.Break ->
+          close client;
+          raise Sys.Break
+        | exn ->
+          close client;
+          Error
+            (Error.Mcp
+               (InitializeFailed
+                  { detail =
+                      Printf.sprintf
+                        "MCP server '%s': %s"
+                        spec.name
+                        (Printexc.to_string exn)
+                  }))))
 ;;
 
 (** Connect to multiple MCP servers sequentially.

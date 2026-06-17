@@ -159,6 +159,7 @@ let test_session_transport_kind () =
     ; command = "http"
     ; args = []
     ; env = []
+    ; env_policy = Minimal
     ; http_base_url = Some "http://127.0.0.1:8935/mcp"
     ; http_headers = [ "Authorization", "Bearer tok" ]
     ; tool_schemas = []

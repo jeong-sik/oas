@@ -318,6 +318,7 @@ let test_server_spec_construction () =
     { command = "node"
     ; args = [ "server.js"; "--port"; "3000" ]
     ; env = [ "NODE_ENV", "production" ]
+    ; env_policy = Minimal
     ; name = "test-server"
     }
   in

@@ -43,6 +43,7 @@ let make_info
       ?(command = "/usr/bin/mcp-server")
       ?(args = [])
       ?(env = [])
+      ?(env_policy = Mcp.Minimal)
       ?http_base_url
       ?(http_headers = [])
       ?(tool_schemas = [])
@@ -53,6 +54,7 @@ let make_info
   ; command
   ; args
   ; env
+  ; env_policy
   ; http_base_url
   ; http_headers
   ; tool_schemas
@@ -136,6 +138,7 @@ let () =
               ; command = "http"
               ; args = []
               ; env = []
+              ; env_policy = Minimal
               ; http_base_url = Some "http://127.0.0.1:8935/mcp"
               ; http_headers =
                   [ "Authorization", "Bearer tok"; "X-Coordinator-Client", "codex" ]

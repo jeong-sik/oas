@@ -67,7 +67,7 @@ type t =
   { kind : provider_kind
   ; model_id : string
   ; base_url : string
-  ; api_key : string
+  ; api_key : Secret.t
   ; headers : (string * string) list
   ; request_path : string
   ; max_tokens : int option
@@ -143,7 +143,7 @@ let make
   { kind
   ; model_id
   ; base_url
-  ; api_key
+  ; api_key = Secret.of_string api_key
   ; headers
   ; request_path
   ; max_tokens
@@ -187,15 +187,32 @@ let provider_kind_of_yojson = Provider_kind.of_yojson
 (** Return only the auth-specific headers for a config.
     Callers merge this into [config.headers] at HTTP request time so that
     [Provider_config.t.headers] never carries sensitive tokens like API keys.
-    Gemini keys go in the URL query string, not headers. *)
+    Gemini keys are sent in the [x-goog-api-key] header and are never placed
+    in the URL query string. *)
 let auth_headers_for_config (config : t) : (string * string) list =
-  match String.trim config.api_key with
-  | "" -> []
-  | key ->
-    (match config.kind with
-     | Anthropic | Kimi -> [ "x-api-key", key ]
-     | Gemini -> []
-     | OpenAI_compat | Ollama | Glm | DashScope -> [ "Authorization", "Bearer " ^ key ])
+  if Secret.is_empty config.api_key
+  then []
+  else (
+    match config.kind with
+    | Anthropic | Kimi -> [ "x-api-key", Secret.header_value config.api_key ]
+    | Gemini -> [ "x-goog-api-key", Secret.header_value config.api_key ]
+    | OpenAI_compat | Ollama | Glm | DashScope ->
+      [ "Authorization", "Bearer " ^ Secret.header_value config.api_key ])
+;;
+
+(** Same as {!auth_headers_for_config} but takes the provider kind and raw key
+    as separate arguments.  Used by the legacy {!Api.create_message} path so it
+    does not need to construct a full [Provider_config.t] just to compute auth
+    headers. *)
+let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
+  : (string * string) list
+  =
+  let secret = Secret.of_string api_key in
+  if Secret.is_empty secret
+  then []
+  else
+    auth_headers_for_config
+      { (make ~kind ~model_id:"" ~base_url:"" ()) with api_key = secret }
 ;;
 
 let max_turns_hard_cap = function
