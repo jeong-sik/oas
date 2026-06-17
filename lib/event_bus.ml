@@ -226,6 +226,7 @@ type subscription =
   { id : int
   ; stream : event Eio.Stream.t
   ; filter : filter
+  ; accepts_all : bool
   ; purpose : string option
   ; published_total : int Atomic.t
   ; drained_total : int Atomic.t
@@ -331,6 +332,7 @@ let subscribe ?(filter = accept_all) ?purpose bus =
       { id
       ; stream
       ; filter
+      ; accepts_all = filter == accept_all
       ; purpose
       ; published_total = Atomic.make 0
       ; drained_total = Atomic.make 0
@@ -416,7 +418,10 @@ let publish bus event =
        Stream.add can block on a full stream — holding the lock would
        deadlock if another fiber tries to subscribe concurrently. *)
     let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
-    List.iter (fun sub -> if sub.filter event then deliver_to_sub bus sub event) subs)
+    List.iter
+      (fun sub ->
+         if sub.accepts_all || sub.filter event then deliver_to_sub bus sub event)
+      subs)
 ;;
 
 (* ── Drain ────────────────────────────────────────────────────────── *)

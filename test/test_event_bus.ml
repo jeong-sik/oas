@@ -115,6 +115,29 @@ let test_unsubscribe_idempotent_count () =
   check int "count not negative" 0 (Event_bus.subscriber_count bus)
 ;;
 
+let test_accept_all_subscriber_gets_all_events () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let all_sub = Event_bus.subscribe bus in
+  let tool_sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
+  Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
+  Event_bus.publish
+    bus
+    (ev
+       (ToolCalled
+          { agent_name = "a"
+          ; tool_name = "t"
+          ; tool_use_id = "1"
+          ; input = `Null
+          ; turn = 0
+          }));
+  let all_events = Event_bus.drain all_sub in
+  let tool_events = Event_bus.drain tool_sub in
+  check int "accept_all gets both events" 2 (List.length all_events);
+  check int "tools_only gets one event" 1 (List.length tool_events)
+;;
+
 (* ── drain ────────────────────────────────────────────────────────── *)
 
 let test_drain_fifo () =
@@ -1223,6 +1246,10 @@ let () =
             "unsubscribe idempotent count"
             `Quick
             test_unsubscribe_idempotent_count
+        ; test_case
+            "accept_all gets all events"
+            `Quick
+            test_accept_all_subscriber_gets_all_events
         ] )
     ; ( "drain"
       , [ test_case "fifo order" `Quick test_drain_fifo
