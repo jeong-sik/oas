@@ -71,7 +71,8 @@ let agent =
     ~tools:[] ()
 ```
 
-See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `streaming.ml`, `review_agent.ml`, `governance_demo.ml`, `plan_execute_demo.ml`, `autonomy_primitives_demo.ml`.
+See `examples/` for more: `basic_agent.ml`, `tool_use.ml`, `async_agent_demo.ml`, `streaming.ml`, `review_agent.ml`, `governance_demo.ml`, `plan_execute_demo.ml`, `autonomy_primitives_demo.ml`.
+For tool concurrency rules see `docs/tool-concurrency.md`.
 
 ## Provider support
 

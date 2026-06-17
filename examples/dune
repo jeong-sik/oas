@@ -2,6 +2,7 @@
  (names
   basic_agent
   tool_use
+  async_agent_demo
   streaming
   review_agent
   codegen_agent
