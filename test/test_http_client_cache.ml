@@ -262,6 +262,63 @@ let test_per_host_cap_closes_excess () =
   | Exit -> ()
 ;;
 
+let test_create_cache_rejects_invalid_params () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let expect_invalid_arg f =
+      try
+        ignore (f ());
+        Alcotest.fail "expected Invalid_argument"
+      with
+      | Invalid_argument _ -> ()
+    in
+    expect_invalid_arg (fun () -> Http_client.create_cache ~sw ~max_idle_per_host:0 ());
+    expect_invalid_arg (fun () -> Http_client.create_cache ~sw ~max_idle_per_host:(-1) ());
+    expect_invalid_arg (fun () -> Http_client.create_cache ~sw ~idle_ttl_seconds:0.0 ());
+    expect_invalid_arg (fun () ->
+      Http_client.create_cache ~sw ~idle_ttl_seconds:(-1.0) ());
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_stream_cancellation_closes_connection () =
+  (* Slow SSE server: cancel the fiber mid-body and assert the cached
+     connection is closed, not parked back into the cache. *)
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_sse_server ~sw ~net:env#net (anthropic_sse_response "never") in
+    let cache = Http_client.create_cache ~sw () in
+    let stream () =
+      Http_client.with_post_stream
+        ~cache
+        ~net:env#net
+        ~url
+        ~headers:[]
+        ~body:""
+        ~f:(fun reader ->
+          (* Read one line then block forever, simulating a stuck consumer. *)
+          ignore (Eio.Buf_read.line reader);
+          Eio.Time.sleep env#clock 60.0;
+          Ok ())
+        ()
+    in
+    (try ignore (Eio.Time.with_timeout_exn env#clock 0.2 stream) with
+     | Eio.Time.Timeout -> ());
+    let stats = Http_client.cache_stats cache in
+    Alcotest.(check int) "cancelled stream does not park connection" 0 stats.total_idle;
+    Alcotest.(check int) "one create" 1 stats.create_count_total;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let () =
   Alcotest.run
     "HTTP Client Connection Cache"
@@ -292,6 +349,16 @@ let () =
             "reuses streaming connection"
             `Quick
             test_stream_reuses_connection
+        ; Alcotest.test_case
+            "cancellation closes connection"
+            `Quick
+            test_stream_cancellation_closes_connection
+        ] )
+    ; ( "validation"
+      , [ Alcotest.test_case
+            "create_cache rejects invalid params"
+            `Quick
+            test_create_cache_rejects_invalid_params
         ] )
     ]
 ;;

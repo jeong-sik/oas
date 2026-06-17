@@ -3,12 +3,11 @@
     Wraps Eio + cohttp-eio with TLS. All network and HTTP-level errors
     are captured as {!http_error} so callers do not need [try/with].
 
-    Each synchronous request runs inside its own [Eio.Switch.run] scope
-    so the underlying TCP connection and its file descriptor are released
-    as soon as the response body is fully consumed.  Without this,
-    connections accumulate for the lifetime of the caller's switch —
-    typically the server's main switch — eventually exhausting OS file
-    descriptors.
+    Each synchronous request without a [connection_cache] runs inside
+    its own [Eio.Switch.run] scope so the underlying TCP connection and
+    its file descriptor are released as soon as the response body is
+    fully consumed. With a cache, connections are bound to the cache's
+    switch and reused until eviction or switch release.
 
     @since 0.45.0 *)
 
@@ -533,6 +532,10 @@ type cache =
 
 let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) () : cache
   =
+  if max_idle_per_host < 1
+  then invalid_arg "Http_client.create_cache: max_idle_per_host must be >= 1";
+  if idle_ttl_seconds <= 0.0
+  then invalid_arg "Http_client.create_cache: idle_ttl_seconds must be > 0";
   let cache =
     { sw
     ; mu = Eio.Mutex.create ()
@@ -624,32 +627,38 @@ let cache_stats (cache : cache) : cache_stats =
 (** Find a warm client for [uri] and remove it from the cache so it is
     owned by the caller. Returns [None] if no entry is available. *)
 let cache_take (cache : cache) uri : cache_entry option =
-  let key = Cache_key.of_uri uri in
-  Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
-    match Cache_map.find_opt key cache.entries with
-    | Some (e :: rest) ->
-      cache.entries <- Cache_map.add key rest cache.entries;
-      Atomic.incr cache.reuse_count_total;
-      Some e
-    | _ -> None)
+  if Atomic.get cache.stop
+  then None
+  else (
+    let key = Cache_key.of_uri uri in
+    Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
+      match Cache_map.find_opt key cache.entries with
+      | Some (e :: rest) ->
+        cache.entries <- Cache_map.add key rest cache.entries;
+        Atomic.incr cache.reuse_count_total;
+        Some e
+      | _ -> None))
 ;;
 
 (** Park a client back into the cache, or close it if the per-host cap
     is reached. [close] is the entry's own shutdown function. *)
 let cache_return (cache : cache) uri (entry : cache_entry) : unit =
-  let key = Cache_key.of_uri uri in
-  let now = Unix.gettimeofday () in
-  let entry = { entry with last_used_at = now } in
-  let parked =
-    Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
-      let existing = Cache_map.find_opt key cache.entries |> Option.value ~default:[] in
-      if List.length existing < cache.max_idle_per_host
-      then (
-        cache.entries <- Cache_map.add key (entry :: existing) cache.entries;
-        true)
-      else false)
-  in
-  if not parked then Eio.Resource.close entry.connection
+  if Atomic.get cache.stop
+  then Eio.Resource.close entry.connection
+  else (
+    let key = Cache_key.of_uri uri in
+    let now = Unix.gettimeofday () in
+    let entry = { entry with last_used_at = now } in
+    let parked =
+      Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
+        let existing = Cache_map.find_opt key cache.entries |> Option.value ~default:[] in
+        if List.length existing < cache.max_idle_per_host
+        then (
+          cache.entries <- Cache_map.add key (entry :: existing) cache.entries;
+          true)
+        else false)
+    in
+    if not parked then Eio.Resource.close entry.connection)
 ;;
 
 (** Resolve the origin for [uri] and prepare the TLS wrapper if needed.
@@ -809,10 +818,15 @@ let make_closing_client ~sw ~net ~uri =
     [Ok] from [Error] for cache lifecycle decisions; exceptions are treated
     as fatal for the connection. *)
 let with_client ?cache ~sw ~net ~uri f =
+  ignore sw;
   match cache with
   | None ->
-    let* client = make_closing_client ~sw ~net ~uri in
-    f client
+    (* Run each one-shot request in its own switch so the connection and FD
+       are released as soon as the response body is consumed, even when the
+       caller supplied a long-lived switch. *)
+    Eio.Switch.run (fun sw ->
+      let* client = make_closing_client ~sw ~net ~uri in
+      f client)
   | Some cache ->
     let* conn, was_cached =
       match cache_take cache uri with
@@ -1143,7 +1157,12 @@ let with_post_stream
       | exn ->
         (match classify_network_exn exn with
          | Some e -> Error e
-         | None -> raise exn)
+         | None ->
+           (* Unclassified exceptions (including cancellation) escape, so close
+              the connection before re-raising to avoid leaking a cached socket
+              bound to the long-lived cache switch. *)
+           Eio.Cancel.protect (fun () -> Eio.Resource.close conn);
+           raise exn)
     in
     (match body_result, cache with
      | Ok _, Some cache ->
