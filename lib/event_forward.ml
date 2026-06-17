@@ -126,6 +126,7 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ; "tool_name", `String r.tool_name
         ; "tool_use_id", `String r.tool_use_id
         ; "input", r.input
+        ; "turn", `Int r.turn
         ]
     | ToolCompleted r ->
       `Assoc
@@ -133,6 +134,7 @@ let event_to_payload (event : Event_bus.event) : event_payload =
         ; "tool_name", `String r.tool_name
         ; "tool_use_id", `String r.tool_use_id
         ; "success", `Bool (Result.is_ok r.output)
+        ; "turn", `Int r.turn
         ]
     | TurnStarted r -> `Assoc [ "agent_name", `String r.agent_name; "turn", `Int r.turn ]
     | TurnReady r ->

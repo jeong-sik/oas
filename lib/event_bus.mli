@@ -75,6 +75,12 @@ type payload =
             timestamp. Empty string when the provider supplied no id.
             @since 0.206.2 *)
       ; input : Yojson.Safe.t
+      ; turn : int
+        (** Zero-based turn index within the current agent run. Lets
+            downstream FSM observers (e.g. MASC) correlate a tool event
+            with the turn that emitted it without reaching into OAS
+            internals. OAS does not interpret this field.
+            @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
   | ToolCompleted of
       { agent_name : string
@@ -83,6 +89,9 @@ type payload =
         (** Same id as the matching [ToolCalled]; see its doc.
             @since 0.206.2 *)
       ; output : Types.tool_result
+      ; turn : int
+        (** Same turn index as the matching [ToolCalled]. See its doc.
+            @since 0.207.0 (#SSOT-DRIFT-REMEDIATION) *)
       }
   | TurnStarted of
       { agent_name : string
