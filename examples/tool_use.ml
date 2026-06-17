@@ -81,11 +81,7 @@ let weather_api_tool =
     ~name:"weather"
     ~description:"Fetch current weather for a city"
     ~parameters:
-      [ { name = "city"
-        ; description = "City name"
-        ; param_type = String
-        ; required = true
-        }
+      [ { name = "city"; description = "City name"; param_type = String; required = true }
       ]
     (fun args ->
        let open Yojson.Safe.Util in
@@ -137,8 +133,7 @@ let () =
     { default_config with
       name = "tool-demo"
     ; system_prompt =
-        Some
-          "You have access to a calculator, a weather API, and a counter. Use them."
+        Some "You have access to a calculator, a weather API, and a counter. Use them."
     ; max_turns = 3
     }
   in
