@@ -54,8 +54,7 @@ type strategy =
       }
   | Compose of strategy list
   | Custom of (message list -> message list)
-  | Dynamic of
-      (cache:estimate_cache -> turn:int -> messages:message list -> strategy)
+  | Dynamic of (cache:estimate_cache -> turn:int -> messages:message list -> strategy)
 
 (** A configured reducer wrapping a strategy. *)
 type t = { strategy : strategy }
@@ -198,9 +197,7 @@ val importance_scored
 (** Dynamic strategy: selects a strategy per turn based on
     conversation state. [cache] is the same estimate cache that will be
     passed to the selected strategy. *)
-val dynamic
-  :  (cache:estimate_cache -> turn:int -> messages:message list -> strategy)
-  -> t
+val dynamic : (cache:estimate_cache -> turn:int -> messages:message list -> strategy) -> t
 
 (** {1 Capabilities integration} *)
 
