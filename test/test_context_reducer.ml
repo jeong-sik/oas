@@ -611,6 +611,28 @@ let test_cap_mandatory_overflow_returns_as_is () =
   Alcotest.(check int) "untouched when mandatory overflows" 1 (List.length asst.content)
 ;;
 
+(* --- from_context_config cache path --- *)
+
+let test_from_context_config_with_cache () =
+  (* Exercises the cache path through a Dynamic selector + Compose of
+     drop_thinking, repair, and token_budget. *)
+  let msgs =
+    List.init 50 (fun i ->
+      Types.
+        { role = (if i mod 2 = 0 then User else Assistant)
+        ; content = [ Text (String.make 200 (Char.chr (65 + (i mod 26)))) ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        })
+  in
+  let reducer =
+    Context_reducer.from_context_config ~compact_ratio:0.1 ~max_tokens:1000 ()
+  in
+  let reduced = Context_reducer.reduce reducer msgs in
+  Alcotest.(check bool) "reduced shorter" true (List.length reduced < List.length msgs)
+;;
+
 (* --- edge cases --- *)
 
 let test_empty () =
@@ -1699,6 +1721,12 @@ let () =
     ; ( "edge_cases"
       , [ Alcotest.test_case "empty messages" `Quick test_empty
         ; Alcotest.test_case "single message" `Quick test_single_message
+        ] )
+    ; ( "from_context_config"
+      , [ Alcotest.test_case
+            "dynamic selector with cache"
+            `Quick
+            test_from_context_config_with_cache
         ] )
     ]
 ;;

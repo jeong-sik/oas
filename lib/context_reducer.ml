@@ -61,8 +61,8 @@ type importance_boost = message -> float option
     without keeping this file monolithic. *)
 let estimate_char_tokens = Context_reducer_estimate.estimate_char_tokens
 
-let estimate_block_tokens = Context_reducer_estimate.estimate_block_tokens
-let estimate_message_tokens = Context_reducer_estimate.estimate_message_tokens
+let estimate_block_tokens block = Context_reducer_estimate.estimate_block_tokens block
+let estimate_message_tokens msg = Context_reducer_estimate.estimate_message_tokens msg
 
 let[@warning "-32"] estimate_next_turn_overhead ?system_prompt ?tools ?output_reserve () =
   Context_reducer_estimate.estimate_next_turn_overhead
@@ -103,15 +103,17 @@ let apply_cap_message_tokens = Context_reducer_apply.apply_cap_message_tokens
 let apply_summarize_old = Context_reducer_apply.apply_summarize_old
 let apply_relocate_tool_results = Context_reducer_apply.apply_relocate_tool_results
 let apply_cache_alignment = Context_reducer_apply.apply_cache_alignment
+let create_estimate_cache = Context_reducer_estimate.create_estimate_cache
 
 (** Reduce messages according to the configured strategy. *)
 let rec reduce (reducer : t) (messages : message list) : message list =
-  apply_strategy reducer.strategy messages
+  let cache = create_estimate_cache () in
+  apply_strategy ~cache reducer.strategy messages
 
-and apply_strategy strategy messages =
+and apply_strategy ~cache strategy messages =
   match strategy with
   | Keep_last_n n -> apply_keep_last_n n messages
-  | Token_budget budget -> apply_token_budget budget messages
+  | Token_budget budget -> apply_token_budget ~cache budget messages
   | Prune_tool_outputs { max_output_len } ->
     apply_prune_tool_outputs ~max_output_len messages
   | Prune_tool_args { max_arg_len; keep_recent } ->
@@ -128,18 +130,18 @@ and apply_strategy strategy messages =
   | Clear_tool_results { keep_recent } -> apply_clear_tool_results ~keep_recent messages
   | Stub_tool_results { keep_recent } -> apply_stub_tool_results ~keep_recent messages
   | Cap_message_tokens { max_tokens; keep_recent } ->
-    apply_cap_message_tokens ~max_tokens ~keep_recent messages
-  | Cache_alignment { size } -> apply_cache_alignment ~size messages
+    apply_cap_message_tokens ~cache ~max_tokens ~keep_recent messages
+  | Cache_alignment { size } -> apply_cache_alignment ~cache ~size messages
   | Relocate_tool_results { state; keep_recent } ->
     apply_relocate_tool_results ~state ~keep_recent messages
   | Compose strategies ->
-    List.fold_left (fun msgs s -> apply_strategy s msgs) messages strategies
+    List.fold_left (fun msgs s -> apply_strategy ~cache s msgs) messages strategies
   | Custom f -> f messages
   | Dynamic selector ->
     (* Infer turn count from message structure *)
     let turn_count = List.length (group_into_turns messages) in
     let selected = selector ~turn:turn_count ~messages in
-    apply_strategy selected messages
+    apply_strategy ~cache selected messages
 ;;
 
 (** Convenience constructors. *)

@@ -440,7 +440,7 @@ let apply_stub_tool_results ~keep_recent messages =
     List.concat processed)
 ;;
 
-let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
+let apply_cap_message_tokens ?cache ~max_tokens ~keep_recent messages =
   if max_tokens <= 0
   then messages
   else (
@@ -458,7 +458,7 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
           false
       in
       let cap_message (msg : message) =
-        let msg_tokens = estimate_message_tokens msg in
+        let msg_tokens = estimate_message_tokens ?cache msg in
         if msg_tokens <= max_tokens
         then msg
         else (
@@ -467,7 +467,7 @@ let apply_cap_message_tokens ~max_tokens ~keep_recent messages =
           if n_blocks <= 1
           then msg
           else (
-            let block_tokens = Array.map estimate_block_tokens blocks in
+            let block_tokens = Array.map (estimate_block_tokens ?cache) blocks in
             let keep = Array.make n_blocks false in
             let mandatory_tokens = ref 0 in
             Array.iteri
@@ -600,9 +600,9 @@ let apply_relocate_tool_results ~state ~keep_recent messages =
     List.concat processed)
 ;;
 
-let apply_cache_alignment ~size messages =
+let apply_cache_alignment ?cache ~size messages =
   let total_tokens =
-    List.fold_left (fun acc msg -> acc + estimate_message_tokens msg) 0 messages
+    List.fold_left (fun acc msg -> acc + estimate_message_tokens ?cache msg) 0 messages
   in
   let remainder = total_tokens mod size in
   if remainder = 0 || total_tokens = 0
