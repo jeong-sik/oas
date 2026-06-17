@@ -97,6 +97,24 @@ let test_unsubscribed_no_receive () =
   check int "no events after unsub" 0 (List.length events)
 ;;
 
+let test_publish_no_subscribers_is_noop () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  Event_bus.publish bus (ev (TurnStarted { agent_name = "a"; turn = 0 }));
+  check int "count stays zero" 0 (Event_bus.subscriber_count bus)
+;;
+
+let test_unsubscribe_idempotent_count () =
+  Eio_main.run
+  @@ fun _env ->
+  let bus = Event_bus.create () in
+  let sub = Event_bus.subscribe bus in
+  Event_bus.unsubscribe bus sub;
+  Event_bus.unsubscribe bus sub;
+  check int "count not negative" 0 (Event_bus.subscriber_count bus)
+;;
+
 (* ── drain ────────────────────────────────────────────────────────── *)
 
 let test_drain_fifo () =
@@ -1200,6 +1218,11 @@ let () =
       , [ test_case "received" `Quick test_publish_received
         ; test_case "multiple subscribers" `Quick test_publish_multiple_subscribers
         ; test_case "unsubscribed no receive" `Quick test_unsubscribed_no_receive
+        ; test_case "no subscribers is noop" `Quick test_publish_no_subscribers_is_noop
+        ; test_case
+            "unsubscribe idempotent count"
+            `Quick
+            test_unsubscribe_idempotent_count
         ] )
     ; ( "drain"
       , [ test_case "fifo order" `Quick test_drain_fifo
