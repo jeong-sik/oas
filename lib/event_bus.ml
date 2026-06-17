@@ -247,6 +247,9 @@ type t =
   ; (* Nanosecond accumulator (monotonic int add); exposed as float seconds
      via [stats] to avoid float accumulation drift across publishers. *)
     block_nanos_total : int Atomic.t
+  ; (* Cached subscriber count for O(1) queries and a lock-free fast path
+     when the bus has no subscribers. Updated under [mu]. *)
+    subscriber_count : int Atomic.t
   }
 
 let create ?(buffer_size = 256) ?(policy = Block) () =
@@ -256,6 +259,7 @@ let create ?(buffer_size = 256) ?(policy = Block) () =
   ; buffer_size
   ; policy
   ; block_nanos_total = Atomic.make 0
+  ; subscriber_count = Atomic.make 0
   }
 ;;
 
@@ -336,12 +340,16 @@ let subscribe ?(filter = accept_all) ?purpose bus =
     in
     bus.subscribers <- sub :: bus.subscribers;
     bus.next_id <- id + 1;
+    ignore (Atomic.fetch_and_add bus.subscriber_count 1);
     sub)
 ;;
 
 let unsubscribe bus sub =
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
-    bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers)
+    let before = List.length bus.subscribers in
+    bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers;
+    let after = List.length bus.subscribers in
+    if after < before then ignore (Atomic.fetch_and_add bus.subscriber_count (-1)) else ())
 ;;
 
 (* ── Publish ──────────────────────────────────────────────────────── *)
@@ -392,11 +400,17 @@ let deliver_to_sub bus sub event =
 ;;
 
 let publish bus event =
-  (* Snapshot subscriber list under lock, then deliver outside lock.
-     Stream.add can block on a full stream — holding the lock would
-     deadlock if another fiber tries to subscribe concurrently. *)
-  let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
-  List.iter (fun sub -> if sub.filter event then deliver_to_sub bus sub event) subs
+  (* Fast path: no subscribers means no lock, no filter evaluation, no
+     stream operations. Common for buses created speculatively or while
+     subscribers are temporarily drained. *)
+  if Atomic.get bus.subscriber_count = 0
+  then ()
+  else (
+    (* Snapshot subscriber list under lock, then deliver outside lock.
+       Stream.add can block on a full stream — holding the lock would
+       deadlock if another fiber tries to subscribe concurrently. *)
+    let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
+    List.iter (fun sub -> if sub.filter event then deliver_to_sub bus sub event) subs)
 ;;
 
 (* ── Drain ────────────────────────────────────────────────────────── *)
@@ -414,7 +428,7 @@ let drain sub =
 
 (* ── Queries ──────────────────────────────────────────────────────── *)
 
-let subscriber_count bus = Eio.Mutex.use_ro bus.mu (fun () -> List.length bus.subscribers)
+let subscriber_count bus = Atomic.get bus.subscriber_count
 
 type subscription_stats =
   { purpose : string option
