@@ -186,9 +186,9 @@ val default_http_timeout_s : float
 
 (** Opaque reusable connection cache.
 
-    A cache holds idle [Cohttp_eio.Client.t] values keyed by origin
+    A cache holds idle Eio transport connections keyed by origin
     [(scheme, host, port)]. It is bound to the [sw] passed to
-    {!create_cache}; all cached clients are closed when that switch is
+    {!create_cache}; all cached connections are closed when that switch is
     released. An optional eviction fiber reaps entries that have been
     idle longer than [idle_ttl_seconds].
 
@@ -205,8 +205,8 @@ type cache_stats =
 
 (** Create a connection cache.
 
-    [max_idle_per_host] caps the number of idle clients kept per origin.
-    [idle_ttl_seconds] is the maximum time an idle client is kept.
+    [max_idle_per_host] caps the number of idle connections kept per origin.
+    [idle_ttl_seconds] is the maximum time an idle connection is kept.
     [clock], if supplied, drives the background eviction fiber.
 
     @since 0.208.0 *)
@@ -224,13 +224,12 @@ val cache_stats : cache -> cache_stats
 (** GET a URL synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
-    The connection is bound to [sw]; it is closed when [sw] is released.
-    This respects the caller's switch scope and cancellation.
+    Without [cache], the connection is bound to [sw] and closed when [sw]
+    is released. With [cache], the connection is bound to the cache's
+    switch and parked back in the cache on success for reuse.
 
-    When [cache] is supplied a matching idle connection is reused when
-    available, and the connection is parked back in the cache on success.
-    The [connection: close] request header is omitted so HTTP keep-alive
-    can work.
+    When [cache] is supplied the [connection: close] request header is
+    omitted so HTTP keep-alive can work.
 
     When [clock] is supplied the entire operation (connect + response
     + body read) is bounded by [timeout_s] (default
@@ -251,13 +250,12 @@ val get_sync
 (** POST JSON body synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
-    The connection is bound to [sw]; it is closed when [sw] is released.
-    This respects the caller's switch scope and cancellation.
+    Without [cache], the connection is bound to [sw] and closed when [sw]
+    is released. With [cache], the connection is bound to the cache's
+    switch and parked back in the cache on success for reuse.
 
-    When [cache] is supplied a matching idle connection is reused when
-    available, and the connection is parked back in the cache on success.
-    The [connection: close] request header is omitted so HTTP keep-alive
-    can work.
+    When [cache] is supplied the [connection: close] request header is
+    omitted so HTTP keep-alive can work.
 
     When [clock] is supplied the entire operation is bounded by
     [timeout_s] (default {!default_http_timeout_s}); a timeout owned by
@@ -308,7 +306,9 @@ val post_stream
     and its fd is released immediately.
 
     When [cache] is supplied, the streaming connection is bound to the
-    cache's long-lived switch so it can be reused across requests.
+    cache's long-lived switch and is parked back after [f] returns, so
+    it can be reused across requests. [f] must consume the full response
+    body; leaving unread bytes on the reader will corrupt the next reuse.
 
     [connect_timeout_s] bounds only the connect + initial response
     headers phase when [clock] is supplied; a stall there surfaces as

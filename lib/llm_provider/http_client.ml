@@ -557,12 +557,13 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
         cache.entries <- Cache_map.empty;
         all)
     in
-    List.iter
-      (fun e ->
-         try Eio.Resource.close e.connection with
-         | Eio.Cancel.Cancelled _ as exn -> raise exn
-         | _ -> ())
-      leftover);
+    Eio.Cancel.protect (fun () ->
+      List.iter
+        (fun e ->
+           try Eio.Resource.close e.connection with
+           | Eio.Cancel.Cancelled _ as exn -> raise exn
+           | _ -> ())
+        leftover));
   (* Eviction fiber: reap entries past [idle_ttl_seconds] when a clock
      is supplied. Without a clock the cache still works; stale entries
      are closed on switch release. *)
@@ -751,16 +752,17 @@ let make_client ~net ~uri =
         "close: closing %d transport(s) for %s"
         n
         (Uri.to_string uri);
-    List.iter
-      (fun t ->
-         try
-           Eio.Resource.close t;
-           Diag.debug "http_client" "transport closed for %s" (Uri.to_string uri)
-         with
-         | Eio.Cancel.Cancelled _ as e -> raise e
-         | exn ->
-           log_close_failure ~url:(Uri.to_string uri) ~message:(Printexc.to_string exn))
-      transports
+    Eio.Cancel.protect (fun () ->
+      List.iter
+        (fun t ->
+           try
+             Eio.Resource.close t;
+             Diag.debug "http_client" "transport closed for %s" (Uri.to_string uri)
+           with
+           | Eio.Cancel.Cancelled _ as e -> raise e
+           | exn ->
+             log_close_failure ~url:(Uri.to_string uri) ~message:(Printexc.to_string exn))
+        transports)
   in
   Ok (client, close)
 ;;
@@ -1044,16 +1046,33 @@ let with_post_stream
      parsed (body is a lazy flow), so wrapping only this stage in
      [catch_network] keeps a connect / header-phase stall as
      [TimeoutError { phase = Http_operation }] without absorbing body-phase
-     timeouts (first-token / prefill wait, inter-chunk idle). *)
+     timeouts (first-token / prefill wait, inter-chunk idle).
+
+     Streaming is handled manually rather than through [with_client] so the
+     connection is NOT parked until [f] has fully consumed the reader. *)
   let post_result =
     catch_network (fun () ->
       let* uri = parse_uri url in
-      with_client ?cache ~sw:request_sw ~net ~uri (fun client ->
-        let headers_with_length =
-          ("content-length", string_of_int (String.length body))
-          :: maybe_add_connection_close ?cache headers
-        in
-        let hdr = Http.Header.of_list headers_with_length in
+      let* conn =
+        match cache with
+        | None -> make_connection ~sw:request_sw ~net ~uri
+        | Some cache ->
+          (match cache_take cache uri with
+           | Some e -> Ok e.connection
+           | None ->
+             let* conn = make_connection ~sw:cache.sw ~net ~uri in
+             Atomic.incr cache.create_count_total;
+             Ok conn)
+      in
+      let client =
+        Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
+      in
+      let headers_with_length =
+        ("content-length", string_of_int (String.length body))
+        :: maybe_add_connection_close ?cache headers
+      in
+      let hdr = Http.Header.of_list headers_with_length in
+      try
         let resp, resp_body =
           with_optional_timeout ~clock ~timeout_s:connect_timeout_s (fun () ->
             Cohttp_eio.Client.post
@@ -1065,10 +1084,10 @@ let with_post_stream
         in
         match Cohttp.Response.status resp with
         | `OK ->
-          let reader =
-            Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
-          in
-          Ok reader
+          Ok
+            ( uri
+            , conn
+            , Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body )
         | status ->
           let code = Cohttp.Code.code_of_status status in
           profile_headers_on_client_error
@@ -1085,7 +1104,14 @@ let with_post_stream
               drain_response_body resp_body;
               raise exn
           in
-          Error (HttpError { code; body = body_str })))
+          Eio.Resource.close conn;
+          Error (HttpError { code; body = body_str })
+      with
+      | exn ->
+        Eio.Resource.close conn;
+        (match classify_network_exn exn with
+         | Some e -> Error e
+         | None -> raise exn))
   in
   (* Phase 1b: body consumption. Deliberately OUTSIDE [catch_network]: a
      body-phase [Eio.Time.Timeout] is phase-distinct from the connect /
@@ -1093,32 +1119,38 @@ let with_post_stream
      phase-aware timeout handling and must convert [Eio.Time.Timeout] into a
      typed [Error] (see [Complete_stream.body_logic] and the Streaming
      callers). A body-phase timeout that [f] lets propagate escapes this
-     function as the raw exception. *)
+     function as the raw exception.
+
+     The connection is parked back into the cache only after [f] returns
+     successfully, ensuring the reader is no longer using the flow. *)
   match post_result with
   | Error e -> Error e
-  | Ok reader ->
-    (* Body consumption. [Eio.Time.Timeout] propagates so the caller
-        phases it (prefill → [First_token], inter-chunk → [Stream_idle]).
-        Other network exceptions classify like {!catch_network} so a
-        body-phase I/O failure still surfaces as a typed [NetworkError]
-        instead of escaping as a raw exception. *)
-    (try Ok (f reader) with
-     | Eio.Time.Timeout ->
-       (* Body-phase timeout. Stream-state-aware callers ([Complete_stream])
-          catch this inside [f] and emit the precise [First_token] /
-          [Stream_idle] phase. Callers that let it propagate (e.g.
-          [Streaming]) get [Unknown_timeout] as a safe default rather
-          than it being mislabelled [Http_operation] (the connect /
-          headers phase, which a body-phase timeout is not). *)
-       Error
-         (TimeoutError
-            { message = "stream body timed out (awaiting first token / inter-chunk idle)"
-            ; phase = Unknown_timeout
-            })
-     | exn ->
-       (match classify_network_exn exn with
-        | Some e -> Error e
-        | None -> raise exn))
+  | Ok (uri, conn, reader) ->
+    let body_result =
+      try Ok (f reader) with
+      | Eio.Time.Timeout ->
+        (* Body-phase timeout. Stream-state-aware callers ([Complete_stream])
+           catch this inside [f] and emit the precise [First_token] /
+           [Stream_idle] phase. Callers that let it propagate (e.g.
+           [Streaming]) get [Unknown_timeout] as a safe default rather
+           than it being mislabelled [Http_operation] (the connect /
+           headers phase, which a body-phase timeout is not). *)
+        Error
+          (TimeoutError
+             { message = "stream body timed out (awaiting first token / inter-chunk idle)"
+             ; phase = Unknown_timeout
+             })
+      | exn ->
+        (match classify_network_exn exn with
+         | Some e -> Error e
+         | None -> raise exn)
+    in
+    (match body_result, cache with
+     | Ok _, Some cache ->
+       cache_return cache uri { connection = conn; last_used_at = Unix.gettimeofday () }
+     | Ok _, None -> Eio.Resource.close conn
+     | Error _, _ -> Eio.Resource.close conn);
+    body_result
 ;;
 
 (* One W3C EventSource line, parsed per spec (§9.2.6 event stream
