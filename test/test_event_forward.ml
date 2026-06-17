@@ -23,7 +23,12 @@ let test_event_type_name () =
     ; ev (Event_bus.TurnStarted { agent_name = "a"; turn = 0 }), "turn.started"
     ; ( ev
           (Event_bus.ToolCalled
-             { agent_name = "a"; tool_name = "t"; tool_use_id = "tu-test"; input = `Null; turn = 0 })
+             { agent_name = "a"
+             ; tool_name = "t"
+             ; tool_use_id = "tu-test"
+             ; input = `Null
+             ; turn = 0
+             })
       , "tool.called" )
     ; ( ev
           (Event_bus.ContentReplacementKept
