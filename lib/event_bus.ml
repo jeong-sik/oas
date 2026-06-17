@@ -338,9 +338,14 @@ let subscribe ?(filter = accept_all) ?purpose bus =
       ; deliver_mu = Eio.Mutex.create ()
       }
     in
+    (* Increment the published counter before mutating the subscriber list.
+       [publish] reads the counter lock-free to decide whether to take the
+       fast path; both updates happen under [mu], so a publisher that sees a
+       non-zero counter is guaranteed to see the corresponding subscriber(s)
+       once it acquires [mu]. *)
+    ignore (Atomic.fetch_and_add bus.subscriber_count 1);
     bus.subscribers <- sub :: bus.subscribers;
     bus.next_id <- id + 1;
-    ignore (Atomic.fetch_and_add bus.subscriber_count 1);
     sub)
 ;;
 
