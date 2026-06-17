@@ -313,8 +313,9 @@ let complete_stream_http
              request also sets stream_options.include_usage. Anthropic and
              Ollama carry usage natively (message_start/message_delta and the
              NDJSON done-chunk respectively), so they keep stream:true only. *)
-          Http_client.inject_stream_param body_str
-          |> Http_client.inject_stream_options_include_usage
+          (* Single parse/serialize pass for both fields (was two passes via the
+             inject_stream_param >> inject_stream_options_include_usage chain). *)
+          Http_client.inject_stream_and_options body_str
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in
