@@ -346,6 +346,7 @@ let subscribe ?(filter = accept_all) ?purpose bus =
     ignore (Atomic.fetch_and_add bus.subscriber_count 1);
     bus.subscribers <- sub :: bus.subscribers;
     bus.next_id <- id + 1;
+    ignore (Atomic.fetch_and_add bus.subscriber_count 1);
     sub)
 ;;
 
