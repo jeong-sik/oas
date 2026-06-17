@@ -45,6 +45,7 @@ let openai_json_schema_payload = Backend_openai_request.openai_json_schema_paylo
 let response_format_to_openai_json = Backend_openai_request.response_format_to_openai_json
 let response_format_of_config = Backend_openai_request.response_format_of_config
 let build_request = Backend_openai_request.build_request
+let build_request_assoc = Backend_openai_request.build_request_assoc
 
 [@@@coverage off]
 (* === Inline tests === *)

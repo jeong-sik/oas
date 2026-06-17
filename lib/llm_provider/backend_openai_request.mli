@@ -16,6 +16,17 @@ val openai_json_schema_payload : Yojson.Safe.t -> Yojson.Safe.t
 val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 val response_format_of_config : Provider_config.t -> Yojson.Safe.t option
 
+val build_request_assoc
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> Yojson.Safe.t
+(** [build_request_assoc] is {!build_request} before the final
+    [Yojson.Safe.to_string]; sibling backends (e.g. {!Backend_glm}) mutate the
+    Assoc directly instead of parsing the serialized string back. *)
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t

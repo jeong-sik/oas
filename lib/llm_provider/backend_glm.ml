@@ -105,8 +105,12 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
-  let base_body = Backend_openai.build_request ~stream ~config ~messages ~tools () in
-  match Yojson.Safe.from_string base_body with
+  (* Take the request Assoc directly from the OpenAI builder instead of
+     serializing then parsing the whole message body back — removes one full
+     [Yojson.Safe.to_string] (OpenAI) + one [Yojson.Safe.from_string] (here)
+     per GLM turn. Byte-identical: [from_string (to_string assoc) = assoc]. *)
+  let base_assoc = Backend_openai.build_request_assoc ~stream ~config ~messages ~tools () in
+  match base_assoc with
   | `Assoc fields ->
     (* [thinking] single-owner normalization. The shared request builder's
        ZAI/GLM branch may already have emitted a [thinking] field (it fires for
@@ -139,7 +143,8 @@ let build_request
       else fields
     in
     Yojson.Safe.to_string (`Assoc fields)
-  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> base_body
+  | (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) as other ->
+    Yojson.Safe.to_string other
 ;;
 
 (* ── Response parsing ────────────────────────────── *)

@@ -157,7 +157,7 @@ let is_zai_glm_request (config : Provider_config.t) =
 
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
-let build_request
+let build_request_assoc
       ?(stream = false)
       ~(config : Provider_config.t)
       ~(messages : message list)
@@ -395,5 +395,20 @@ let build_request
       ("seed", `Int seed) :: body)
     else body
   in
-  Yojson.Safe.to_string (`Assoc body)
+  `Assoc body
+;;
+
+(** [build_request] serializes [build_request_assoc] to a JSON string.
+    Keeping the Assoc-producing variant separate lets sibling backends (e.g.
+    {!Backend_glm}) mutate the request Assoc directly instead of parsing the
+    serialized string back — one fewer full [Yojson.Safe.from_string] +
+    [Yojson.Safe.to_string] of the message body per turn. *)
+let build_request
+      ?(stream = false)
+      ~(config : Provider_config.t)
+      ~(messages : message list)
+      ?(tools : Yojson.Safe.t list = [])
+      ()
+  =
+  build_request_assoc ~stream ~config ~messages ~tools () |> Yojson.Safe.to_string
 ;;
