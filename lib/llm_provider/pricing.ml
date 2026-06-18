@@ -135,8 +135,12 @@ let catalog_pricing_entry_matches ~id_prefix normalized =
   then false
   else if prefix = "gpt"
   then normalized = "gpt"
-  else if prefix.[String.length prefix - 1] = ':'
-  then starts_with ~prefix normalized
+  else if is_model_delimiter prefix.[String.length prefix - 1]
+  then
+    (* A prefix that already ends in a delimiter (e.g. "cc:" or a provider
+       namespace "myorg/") is a raw prefix: requiring another delimiter after it
+       would reject the very ids it is meant to price. Codex P2 on #2127. *)
+    starts_with ~prefix normalized
   else delimited_prefix_match ~prefix normalized
 ;;
 
@@ -954,6 +958,22 @@ let%test
     | Some p ->
       close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
     | None -> false)
+;;
+
+(* A catalog id_prefix that ends in a delimiter (here a "/"-terminated provider
+   namespace) is a raw prefix: "myorg/" must price "myorg/model-a" rather than
+   requiring an extra delimiter after the slash. Codex P2 on #2127. *)
+let%test "pricing_for_model_opt: slash-terminated catalog prefix prices namespaced ids" =
+  with_catalog_toml
+    "[[models]]\n\
+     id_prefix = \"myorg/\"\n\
+     input_per_million = 1.0\n\
+     output_per_million = 2.0\n"
+    (fun () ->
+       match pricing_for_model_opt "myorg/model-a" with
+       | Some p ->
+         close_enough p.input_per_million 1.0 && close_enough p.output_per_million 2.0
+       | None -> false)
 ;;
 
 (* A genuine catalog miss (no applicable entry) still consults the static
