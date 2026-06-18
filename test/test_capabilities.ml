@@ -536,7 +536,13 @@ let test_example_manifest_base_labels_are_canonical () =
     List.iter
       (fun (entry : Capability_manifest.entry) ->
          match entry.base_label with
-         | None -> ()
+         | None ->
+           (* The Codex Spark entry intentionally does not inherit a public
+              chat-completions preset; every other example entry must specify a
+              base so the manifest actually applies the intended preset. *)
+           if entry.id_prefix <> "gpt-5.3-codex-spark"
+           then
+             check bool (Printf.sprintf "expected base for %s" entry.id_prefix) true false
          | Some label ->
            check
              bool
