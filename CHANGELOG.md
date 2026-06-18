@@ -8,6 +8,25 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.3](https://github.com/jeong-sik/oas/compare/v0.207.2...v0.207.3) (2026-06-17)
+
+
+### Features
+
+* **llm_provider:** reusable HTTP connection cache ([#2114](https://github.com/jeong-sik/oas/issues/2114)) ([260a261](https://github.com/jeong-sik/oas/commit/260a2612c13268402b9061a9d24c5ad0cdd5613c))
+
+
+### Bug Fixes
+
+* ocamlformat drift and Dynamic selector API fallout on main ([#2119](https://github.com/jeong-sik/oas/issues/2119)) ([acf65e2](https://github.com/jeong-sik/oas/commit/acf65e2daeac0e4d719bfb896a62edb5c02ddaf0))
+
+
+### Performance Improvements
+
+* **context_reducer:** memoize token estimates within a single reduce ([#2116](https://github.com/jeong-sik/oas/issues/2116)) ([3a17008](https://github.com/jeong-sik/oas/commit/3a170087a0555231e3a2528bbfe9fcbcab5528f9))
+* **event_bus:** O(1) subscriber count and empty-bus publish fast path ([#2115](https://github.com/jeong-sik/oas/issues/2115)) ([eab37c4](https://github.com/jeong-sik/oas/commit/eab37c4a537d4ab0f93685e8dea4aae58e80c06e))
+* **event_bus:** skip filter evaluation for accept_all subscribers ([#2117](https://github.com/jeong-sik/oas/issues/2117)) ([cc7d761](https://github.com/jeong-sik/oas/commit/cc7d761a3a94c1e1475b344fc06a44ad27c8a3e7))
+
 ## [0.207.2](https://github.com/jeong-sik/oas/compare/v0.207.1...v0.207.2) (2026-06-17)
 
 
