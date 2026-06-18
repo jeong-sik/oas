@@ -173,6 +173,13 @@ let build_request_assoc
     let message_serializer =
       match config.kind with
       | Provider_config.Glm -> Backend_openai_serialize.glm_messages_of_message
+      | Provider_config.OpenAI_compat
+        when is_zai_glm_request config && not (glm_clear_thinking_of_config config) ->
+        (* ZAI GLM accepts reasoning_content in request messages whenever we
+           ask it to preserve thinking (clear_thinking=false). The generic
+           OpenAI_compat serializer drops Thinking blocks, so route bare-ZAI
+           GLM through the GLM serializer for those turns. *)
+        Backend_openai_serialize.glm_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat

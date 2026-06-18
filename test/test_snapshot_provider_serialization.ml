@@ -338,6 +338,76 @@ let test_deepseek_zero_budget_omits_reasoning_effort () =
     (contains ~needle:{|"reasoning_effort"|} body)
 ;;
 
+(* ZAI GLM reached through the OpenAI-compat backend must replay historical
+   reasoning_content when it asks the provider to preserve thinking
+   (clear_thinking=false). Regression fence for the review follow-up from
+   PR #2023. *)
+let zai_glm_openai_compat_cfg ?(preserve_thinking = true) () =
+  Provider_config.make
+    ~kind:OpenAI_compat
+    ~model_id:"glm-5"
+    ~base_url:"https://api.z.ai/api/paas/v4"
+    ~api_key:"test-key"
+    ~max_tokens:1024
+    ~temperature:0.7
+    ~tool_choice:Any
+    ~disable_parallel_tool_use:true
+    ~enable_thinking:true
+    ~preserve_thinking
+    ()
+;;
+
+let zai_glm_messages_with_reasoning =
+  [ msg User [ Text "solve" ]
+  ; msg
+      Assistant
+      [ Text "answer"
+      ; Thinking { thinking_type = "reasoning"; content = "chain of thought" }
+      ]
+  ]
+;;
+
+let test_zai_glm_openai_compat_replays_reasoning_when_preserve_thinking () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(zai_glm_openai_compat_cfg ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check
+    bool
+    "thinking enabled with clear_thinking=false"
+    true
+    (contains ~needle:{|"thinking":{"type":"enabled","clear_thinking":false}|} body);
+  check
+    bool
+    "assistant message replays reasoning_content"
+    true
+    (contains
+       ~needle:
+         {|"reasoning_content":"chain of thought","role":"assistant","content":"answer"|}
+       body)
+;;
+
+let test_zai_glm_openai_compat_drops_reasoning_without_preserve () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(zai_glm_openai_compat_cfg ~preserve_thinking:false ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check
+    bool
+    "thinking enabled with clear_thinking=true"
+    true
+    (contains ~needle:{|"thinking":{"type":"enabled","clear_thinking":true}|} body);
+  check
+    bool
+    "assistant message omits reasoning_content when not preserving"
+    false
+    (contains ~needle:{|"reasoning_content"|} body)
+;;
+
 (* ── Anthropic ──────────────────────────────────────── *)
 
 let anthropic_forced_expected =
@@ -543,6 +613,14 @@ let () =
             "deepseek-v4-flash zero budget omits reasoning_effort"
             `Quick
             test_deepseek_zero_budget_omits_reasoning_effort
+        ; test_case
+            "zai-glm-openai-compat replays reasoning when preserve_thinking"
+            `Quick
+            test_zai_glm_openai_compat_replays_reasoning_when_preserve_thinking
+        ; test_case
+            "zai-glm-openai-compat drops reasoning without preserve_thinking"
+            `Quick
+            test_zai_glm_openai_compat_drops_reasoning_without_preserve
         ] )
     ; ( "anthropic"
       , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced
