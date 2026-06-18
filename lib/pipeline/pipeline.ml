@@ -322,14 +322,16 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
        let idle_skip = ref false in
        let idle_handled = ref false in
        (* true when Nudge or Skip handled idle *)
-       (* Nudge text is delivered inside the tool-results user message (as a
-          trailing Text block) instead of as a standalone user message snoc'd
-          before tool execution. A standalone message would sit between the
-          assistant tool_calls message and its tool results; the OpenAI-compat
-          serializer's strip_orphaned_tool_results treats that gap as an orphan
-          boundary and drops every tool result of the turn, so the model never
-          sees the outcome of the calls it is being nudged about — locking in
-          the repetition the nudge is meant to break. *)
+       (* Nudge text is captured here and later delivered as a separate
+          role:User message appended AFTER the role:Tool results message (see
+          the snoc at the tool-results append below), never as a standalone
+          message before tool execution. A message placed before the tool
+          results would sit between the assistant tool_calls message and its
+          results; the OpenAI-compat serializer's strip_orphaned_tool_results
+          treats that gap as an orphan boundary and drops every tool result of
+          the turn, so the model never sees the outcome of the calls it is
+          being nudged about — locking in the repetition the nudge is meant to
+          break. *)
        let pending_nudge = ref None in
        if idle_result.is_idle
        then (
@@ -465,9 +467,10 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               in
               update_state agent (fun s -> { s with messages = new_messages }));
            let* () = persist_turn_checkpoint agent After_tool_results_appended in
-           (* Anti-repetition hint is appended after the ToolResult message so
-              provider serializers can keep assistant tool_calls and role:tool
-              responses adjacent. *)
+           (* The idle nudge (and the fallback anti-repetition hint) is appended
+              as a separate role:User message after the role:Tool result message.
+              This keeps OpenAI-compatible serializers from placing user text
+              before the required tool replies, which strict providers reject. *)
            ignore idle_handled;
            (* suppress unused warning after dedup *)
            (* In-memory message hygiene after each tool execution round.
