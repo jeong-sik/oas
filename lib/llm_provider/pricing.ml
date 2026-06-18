@@ -186,14 +186,17 @@ let static_pricing_entries =
     ; static_entry "gpt-5.3-codex" (make ~cache:openai_cached_input 1.75 14.0)
     ; static_entry "gpt-5.2" (make ~cache:openai_cached_input 1.75 14.0)
     ; static_entry "gpt-4.1" (make 2.0 8.0)
-      (* Known generic GPT aliases the repo still constructs (gpt-4, gpt-4o).
-         The typed Exact "gpt" no longer covers them, so enumerate them at the
-         prior bare-gpt price instead of widening "gpt" back to a substring
-         match (which would also price unknown future families like
-         gpt-6-turbo). gpt-4o-mini is enumerated separately at its own cheaper
-         rate so it is never costed at the full gpt-4o rate. *)
+      (* Known generic GPT aliases the repo still constructs (gpt-4, gpt-4o)
+         plus the cheaper gpt-4o-mini. The typed Exact "gpt" no longer covers
+         them, so enumerate them at their own rates instead of widening "gpt"
+         back to a substring match (which would also price unknown future
+         families like gpt-6-turbo). These use delimiter-prefix matching so
+         dated ids (gpt-4o-2024-08-06, gpt-4-0613) price like their base; the
+         table is sorted by descending key length, so the longer gpt-4o-mini is
+         matched before gpt-4o and a mini id is never costed at the full gpt-4o
+         rate. *)
     ; static_entry "gpt-4" (make 2.5 10.0)
-    ; static_entry ~match_kind:Exact "gpt-4o" (make 2.5 10.0)
+    ; static_entry "gpt-4o" (make 2.5 10.0)
     ; static_entry "gpt-4o-mini" (make 0.15 0.6)
     ; static_entry "gpt-mini" (make 0.15 0.6)
     ; static_entry "o3-mini" (make 1.1 4.4)
@@ -860,6 +863,22 @@ let%test "pricing_for_model_opt: built-in fallback when catalog is absent" =
     | Some p ->
       close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
     | None -> false)
+;;
+
+(* Catalog-absent fallback: dated gpt-4o ids price like gpt-4o (delimiter
+   prefix), while gpt-4o-mini stays at its own cheaper rate (longer entry wins
+   the length-sorted lookup). Codex P2 on #2127. *)
+let%test "pricing_for_model_opt: dated gpt-4o prices without catalog, mini stays mini" =
+  with_empty_catalog (fun () ->
+    match
+      pricing_for_model_opt "gpt-4o-2024-08-06", pricing_for_model_opt "gpt-4o-mini"
+    with
+    | Some dated, Some mini ->
+      close_enough dated.input_per_million 2.5
+      && close_enough dated.output_per_million 10.0
+      && close_enough mini.input_per_million 0.15
+      && close_enough mini.output_per_million 0.6
+    | _ -> false)
 ;;
 
 let%test "pricing_for_model_opt: provider-prefixed id falls back to built-in table" =
