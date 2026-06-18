@@ -285,21 +285,31 @@ let pricing_for_model_opt model_id =
       | Some suffix when suffix <> model_id -> [ model_id; suffix ]
       | _ -> [ model_id ]
     in
-    (* Take the first candidate the catalog answers definitively (priced or
-       intentionally unpriced); only when every candidate is a genuine miss do
-       we consult the static fallback. A deliberate catalog "unpriced" must not
-       be overwritten by a static default. *)
+    (* Classify against the catalog. The original id gets full three-valued
+       treatment: a deliberate "unpriced" there must suppress the static
+       fallback. Provider-stripped candidates are only a convenience for finding
+       a PRICE -- a stripped id that is merely unpriced in the catalog must NOT
+       suppress the static/free fallback for the original id (e.g.
+       "dashscope/qwen3-32b" is free via the static dashscope alias even though
+       the stripped "qwen3-32b" hits an unpriced catalog capability entry).
+       Codex P2 on #2127. *)
     let catalog_class =
-      match Model_catalog.global () with
-      | Some catalog ->
-        List.fold_left
-          (fun acc id ->
-             match acc with
-             | Catalog_priced _ | Catalog_unpriced -> acc
-             | Catalog_no_match -> catalog_classify catalog id)
-          Catalog_no_match
-          candidates
-      | None -> Catalog_no_match
+      match Model_catalog.global (), candidates with
+      | None, _ | _, [] -> Catalog_no_match
+      | Some catalog, original :: stripped ->
+        (match catalog_classify catalog original with
+         | (Catalog_priced _ | Catalog_unpriced) as definitive -> definitive
+         | Catalog_no_match ->
+           (match
+              List.find_map
+                (fun id ->
+                   match catalog_classify catalog id with
+                   | Catalog_priced p -> Some p
+                   | Catalog_unpriced | Catalog_no_match -> None)
+                stripped
+            with
+            | Some p -> Catalog_priced p
+            | None -> Catalog_no_match))
     in
     (match catalog_class with
      | Catalog_priced p -> Some p
@@ -928,6 +938,22 @@ let with_catalog_toml content f =
 let%test "pricing_for_model_opt: catalog entry with omitted price stays unpriced" =
   with_catalog_toml "[[models]]\nid_prefix = \"gpt-4o\"\n" (fun () ->
     pricing_for_model_opt "gpt-4o" = None)
+;;
+
+(* A deliberate "unpriced" only suppresses the static fallback for the id the
+   caller actually asked about. A provider-stripped candidate that merely hits
+   an unpriced catalog capability entry must not suppress the original id's
+   static/free classification: "dashscope/qwen3-32b" stays free even though the
+   stripped "qwen3-32b" matches the unpriced "qwen3" entry. Codex P2 on #2127. *)
+let%test
+    "pricing_for_model_opt: provider-prefixed free id survives unpriced stripped catalog \
+     match"
+  =
+  with_catalog_toml "[[models]]\nid_prefix = \"qwen3\"\n" (fun () ->
+    match pricing_for_model_opt "dashscope/qwen3-32b" with
+    | Some p ->
+      close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
+    | None -> false)
 ;;
 
 (* A genuine catalog miss (no applicable entry) still consults the static
