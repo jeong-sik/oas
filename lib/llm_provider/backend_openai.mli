@@ -21,6 +21,14 @@ val parse_openai_response_result : string -> (Types.api_response, string) result
 
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 
+val build_request_assoc
+  :  ?stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> Yojson.Safe.t
+
 val build_request
   :  ?stream:bool
   -> config:Provider_config.t

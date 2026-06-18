@@ -46,6 +46,34 @@ let test_inject_stream_param_array () =
   Alcotest.(check string) "array unchanged" "[1,2,3]" result
 ;;
 
+let test_inject_stream_and_options_parity () =
+  (* inject_stream_and_options must be byte-identical to the chained
+     inject_stream_param >> inject_stream_options_include_usage across all
+     body shapes — the OpenAI-compat streaming path (complete_stream)
+     switched to it, so any divergence changes the request body sent to the
+     provider. Covers Assoc without/with pre-existing stream/stream_options,
+     non-json, array, empty. *)
+  let bodies =
+    [ {|{"model":"glm-4"}|}
+    ; {|{"model":"gpt-4","stream":false}|}
+    ; {|{"messages":[],"stream_options":{"include_usage":false}}|}
+    ; {|{"a":1,"stream":true,"stream_options":{"x":1}}|}
+    ; "not json"
+    ; {|[1,2,3]|}
+    ; ""
+    ]
+  in
+  List.iter
+    (fun body ->
+       let combined = Http_client.inject_stream_and_options body in
+       let chained =
+         Http_client.inject_stream_options_include_usage
+           (Http_client.inject_stream_param body)
+       in
+       Alcotest.(check string) "parity with chained" chained combined)
+    bodies
+;;
+
 let test_read_sse_basic () =
   Eio_main.run
   @@ fun _env ->
@@ -451,6 +479,9 @@ let () =
         ; Alcotest.test_case "non-json" `Quick test_inject_stream_param_non_json
         ; Alcotest.test_case "empty object" `Quick test_inject_stream_param_empty
         ; Alcotest.test_case "array" `Quick test_inject_stream_param_array
+        ; Alcotest.test_case
+            "and_options parity with chained"
+            `Quick test_inject_stream_and_options_parity
         ] )
     ; ( "read_sse"
       , [ Alcotest.test_case "basic events" `Quick test_read_sse_basic

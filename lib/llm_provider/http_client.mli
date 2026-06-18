@@ -404,3 +404,14 @@ val inject_stream_param : string -> string
     double-injection; a non-object or unparseable body is returned
     unchanged. *)
 val inject_stream_options_include_usage : string -> string
+
+(** Inject both ["stream": true] and [{"stream_options": {"include_usage": true}}]
+    in a single parse/serialize pass. Byte-identical to
+    [inject_stream_param body |> inject_stream_options_include_usage] (proven by
+    a parity test), but parses and serializes the body once instead of twice.
+    For the OpenAI-compatible streaming path that needs both fields (GLM, Kimi,
+    DashScope, OpenAI_compat) this removes one full Yojson parse and one full
+    [Yojson.Safe.to_string] of the request body per turn. Native-usage
+    providers (Anthropic, Ollama, Gemini) should keep using
+    [inject_stream_param] (stream only). *)
+val inject_stream_and_options : string -> string

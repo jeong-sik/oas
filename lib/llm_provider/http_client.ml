@@ -1323,6 +1323,37 @@ let inject_stream_options_include_usage body_str =
   | exception Yojson.Json_error _ -> body_str
 ;;
 
+let inject_stream_and_options body_str =
+  match Yojson.Safe.from_string body_str with
+  | `Assoc fields ->
+    let without_existing =
+      List.filter (fun (k, _) -> k <> "stream" && k <> "stream_options") fields
+    in
+    Yojson.Safe.to_string
+      (`Assoc
+        ( ("stream_options", `Assoc [ "include_usage", `Bool true ])
+        :: ("stream", `Bool true)
+        :: without_existing ))
+  | other -> Yojson.Safe.to_string other
+  | exception Yojson.Json_error _ -> body_str
+;;
+
+let%test "inject_stream_and_options matches chained param >> options" =
+  (* Parity proof: the combined single-pass injector must be byte-identical to
+     [inject_stream_param body |> inject_stream_options_include_usage] across
+     Assoc variants, pre-existing stream/stream_options, non-json, array, empty. *)
+  List.for_all
+    (fun body ->
+       inject_stream_and_options body
+       = inject_stream_options_include_usage (inject_stream_param body))
+    [ {|{"model":"glm-4"}|}
+    ; {|{"model":"gpt-4","stream":false}|}
+    ; {|{"messages":[],"stream_options":{"include_usage":false}}|}
+    ; {|{"a":1,"stream":true,"stream_options":{"x":1}}|}
+    ; "not json"
+    ; {|[1,2,3]|}
+    ; "" ]
+
 [@@@coverage off]
 (* ── catch_network tests ─────────────────────────────── *)
 

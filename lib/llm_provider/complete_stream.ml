@@ -313,8 +313,9 @@ let complete_stream_http
              request also sets stream_options.include_usage. Anthropic and
              Ollama carry usage natively (message_start/message_delta and the
              NDJSON done-chunk respectively), so they keep stream:true only. *)
-          Http_client.inject_stream_param body_str
-          |> Http_client.inject_stream_options_include_usage
+          (* Single parse/serialize pass for both fields (was two passes via the
+             inject_stream_param >> inject_stream_options_include_usage chain). *)
+          Http_client.inject_stream_and_options body_str
       in
       let t0 = Unix.gettimeofday () in
       let ttfrc_ref = ref None in
@@ -562,15 +563,27 @@ let complete_stream_http
                   if not !first_chunk_seen
                   then (
                     first_chunk_seen := true;
-                    let ttfrc_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+                    (* Reuse the dispatch-entry [now] instead of a fresh
+                       [Unix.gettimeofday]: the sub-microsecond the event
+                       loop spent between dispatch entry and here is below
+                       the metric's resolution, and a single per-dispatch
+                       timestamp keeps inter-chunk gaps measured
+                       dispatch-to-dispatch (wire gap) instead of mixing in
+                       per-event processing time. *)
+                    let ttfrc_ms = (now -. t0) *. 1000.0 in
                     ttfrc_ref := Some ttfrc_ms;
                     emit_telemetry
                       (Telemetry_event.Streaming_first_chunk
                          { provider; model; ttfrc_ms; requested_at = t0 });
-                    last_chunk_t := Unix.gettimeofday ();
+                    last_chunk_t := now;
                     chunk_counter := 1)
                   else (
-                    let now = Unix.gettimeofday () in
+                    (* [now] is the dispatch-entry timestamp bound above;
+                       reusing it drops a second [Unix.gettimeofday] syscall
+                       per chunk — this branch runs once per SSE chunk, i.e.
+                       thousands of times per turn. [last_chunk_t] is now also
+                       a dispatch-entry time, so [inter_chunk_ms] is a clean
+                       dispatch-to-dispatch (wire) gap. *)
                     let inter_chunk_ms = (now -. !last_chunk_t) *. 1000.0 in
                     (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
                        removed. Inter-chunk gaps are accumulated for the
