@@ -186,10 +186,15 @@ let static_pricing_entries =
     ; static_entry "gpt-5.3-codex" (make ~cache:openai_cached_input 1.75 14.0)
     ; static_entry "gpt-5.2" (make ~cache:openai_cached_input 1.75 14.0)
     ; static_entry "gpt-4.1" (make 2.0 8.0)
-      (* gpt-4o is a live model (complete_sampling.ml) with no catalog-specific
-         entry; with typed Exact "gpt" it is no longer covered and loses cost
-         annotation. Exact entry restores the prior bare-gpt price (2.5/10.0). *)
+      (* Known generic GPT aliases the repo still constructs (gpt-4, gpt-4o).
+         The typed Exact "gpt" no longer covers them, so enumerate them at the
+         prior bare-gpt price instead of widening "gpt" back to a substring
+         match (which would also price unknown future families like
+         gpt-6-turbo). gpt-4o-mini is enumerated separately at its own cheaper
+         rate so it is never costed at the full gpt-4o rate. *)
+    ; static_entry "gpt-4" (make 2.5 10.0)
     ; static_entry ~match_kind:Exact "gpt-4o" (make 2.5 10.0)
+    ; static_entry "gpt-4o-mini" (make 0.15 0.6)
     ; static_entry "gpt-mini" (make 0.15 0.6)
     ; static_entry "o3-mini" (make 1.1 4.4)
     ; static_entry ~match_kind:Exact "gpt" (make 2.5 10.0)
@@ -623,6 +628,24 @@ let%test "pricing gpt-5.3-codex-spark-next stays unknown" =
    typed Exact "gpt" stopped covering it (Codex P2 on #2127). *)
 let%test "pricing gpt-4o restored" =
   match pricing_for_model_opt "gpt-4o" with
+  | Some p ->
+    close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
+  | None -> false
+;;
+
+(* gpt-4o-mini must NOT inherit the full gpt-4o rate: the more-specific entry
+   keeps it at the cheaper mini price (Codex P2 on #2127). *)
+let%test "pricing gpt-4o-mini is the mini rate, not the gpt-4o rate" =
+  match pricing_for_model_opt "gpt-4o-mini" with
+  | Some p ->
+    close_enough p.input_per_million 0.15 && close_enough p.output_per_million 0.6
+  | None -> false
+;;
+
+(* gpt-4 is a known alias the repo still constructs; the typed Exact "gpt"
+   stopped covering it, so the enumerated entry restores its price. *)
+let%test "pricing gpt-4 alias restored" =
+  match pricing_for_model_opt "gpt-4" with
   | Some p ->
     close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
   | None -> false
