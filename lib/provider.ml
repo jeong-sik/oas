@@ -496,13 +496,14 @@ let openrouter ?(model_id = "anthropic/claude-sonnet-4-6") () =
 
    The delegate now keeps a small built-in fallback table for common cloud
    models so that installed SDKs without an external catalog still get non-zero
-   pricing (addressing the #2098 review follow-up). It also strips OpenRouter-
-   style provider prefixes (e.g. ["anthropic/claude-sonnet-4-6"]) before
-   consulting the catalog or the fallback table. Unknown-model behavior is
-   otherwise unchanged: [pricing_for_model_opt] returns [None] for an
-   unrecognized model and [pricing_for_model] still collapses that to
-   [zero_pricing] (the existing $0 contract — RFC-OAS-018 Phase 2 fail-closed
-   is deferred). *)
+   pricing (addressing the #2098 review follow-up). The pricing delegate strips
+   OpenRouter-style provider prefixes (e.g. ["anthropic/claude-sonnet-4-6"]) and
+   uses exact or delimiter-anchored matching for catalog/fallback entries so
+   broad aliases such as ["gpt"] do not price unknown future families.
+   Unknown-model behavior is otherwise unchanged: [pricing_for_model_opt]
+   returns [None] for an unrecognized model and [pricing_for_model] still
+   collapses that to [zero_pricing] (the existing $0 contract — RFC-OAS-018
+   Phase 2 fail-closed is deferred). *)
 type pricing = Llm_provider.Pricing.pricing =
   { input_per_million : float
   ; output_per_million : float

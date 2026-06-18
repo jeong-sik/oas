@@ -74,6 +74,24 @@ let provider_suffix model_id =
   | _ -> None
 ;;
 
+let starts_with ~prefix s =
+  let prefix_len = String.length prefix in
+  String.length s >= prefix_len && String.sub s 0 prefix_len = prefix
+;;
+
+let is_model_delimiter = function
+  | '-' | ':' | '.' | '/' -> true
+  | _ -> false
+;;
+
+let delimited_prefix_match ~prefix s =
+  starts_with ~prefix s
+  &&
+  let prefix_len = String.length prefix in
+  String.length s = prefix_len
+  || (String.length s > prefix_len && is_model_delimiter s.[prefix_len])
+;;
+
 let zero_pricing : pricing =
   { input_per_million = 0.0
   ; output_per_million = 0.0
@@ -82,11 +100,53 @@ let zero_pricing : pricing =
   }
 ;;
 
+type static_match_kind =
+  | Exact
+  | Delimited_prefix
+  | Raw_prefix
+
+type static_pricing_entry =
+  { key : string
+  ; match_kind : static_match_kind
+  ; pricing : pricing option
+  }
+
+let static_entry ?(match_kind = Delimited_prefix) key pricing =
+  { key; match_kind; pricing }
+;;
+
+let static_entry_matches entry normalized =
+  match entry.match_kind with
+  | Exact -> normalized = entry.key
+  | Delimited_prefix -> delimited_prefix_match ~prefix:entry.key normalized
+  | Raw_prefix -> starts_with ~prefix:entry.key normalized
+;;
+
+let static_free_alias_matches normalized =
+  let exact_aliases = [ "auto"; "gemini"; "kimi"; "codex" ] in
+  let prefix_aliases = [ "ollama"; "dashscope"; "nous" ] in
+  List.exists (String.equal normalized) exact_aliases
+  || List.exists (fun prefix -> delimited_prefix_match ~prefix normalized) prefix_aliases
+;;
+
+let catalog_pricing_entry_matches ~id_prefix normalized =
+  let prefix = String.lowercase_ascii (String.trim id_prefix) in
+  if prefix = ""
+  then false
+  else if prefix = "gpt"
+  then normalized = "gpt"
+  else if prefix.[String.length prefix - 1] = ':'
+  then starts_with ~prefix normalized
+  else delimited_prefix_match ~prefix normalized
+;;
+
 (* Built-in fallback pricing table. Used when the external model catalog is
    unavailable or does not contain a matching entry. This restores the
    previously in-code pricing knowledge for the most common cloud models,
-   ordered by descending pattern length so longer patterns shadow shorter
-   ones and avoid the old "gpt" shadowing "gpt-4.1" bug. *)
+   ordered by descending key length so longer keys shadow shorter ones. Static
+   matching is exact or delimiter-anchored; it intentionally does not use
+   substring matching, so unknown future families such as ["gpt-6-turbo"] do
+   not inherit the bare ["gpt"] price. *)
 let static_pricing_entries =
   let anthropic_cache = 1.25, 0.1 in
   let openai_cached_input = 1.0, 0.1 in
@@ -101,34 +161,34 @@ let static_pricing_entries =
       }
   in
   let entries =
-    [ "gpt-5.3-codex-spark", None
-    ; "claude-opus-4-6", make ~cache:anthropic_cache 15.0 75.0
-    ; "claude-opus-4-5", make ~cache:anthropic_cache 15.0 75.0
-    ; "claude-opus-4", make ~cache:anthropic_cache 15.0 75.0
-    ; "claude-sonnet-4-6", make ~cache:anthropic_cache 3.0 15.0
-    ; "claude-sonnet-4", make ~cache:anthropic_cache 3.0 15.0
-    ; "claude-haiku-4-5", make ~cache:anthropic_cache 0.8 4.0
-    ; "claude-haiku-4", make ~cache:anthropic_cache 0.8 4.0
-    ; "claude-3-7-sonnet", make ~cache:anthropic_cache 3.0 15.0
-    ; "claude_code", make ~cache:anthropic_cache 3.0 15.0
-    ; "cc:", make ~cache:anthropic_cache 3.0 15.0
-    ; "opus-4-6", make ~cache:anthropic_cache 15.0 75.0
-    ; "opus-4-5", make ~cache:anthropic_cache 15.0 75.0
-    ; "sonnet-4-6", make ~cache:anthropic_cache 3.0 15.0
-    ; "sonnet-4", make ~cache:anthropic_cache 3.0 15.0
-    ; "haiku-4-5", make ~cache:anthropic_cache 0.8 4.0
-    ; "gpt-5.5", make ~cache:openai_cached_input 5.0 30.0
-    ; "gpt-5.4-mini", make ~cache:openai_cached_input 0.75 4.5
-    ; "gpt-5.4", make ~cache:openai_cached_input 2.5 15.0
-    ; "gpt-5.3-codex", make ~cache:openai_cached_input 1.75 14.0
-    ; "gpt-5.2", make ~cache:openai_cached_input 1.75 14.0
-    ; "gpt-4.1", make 2.0 8.0
-    ; "gpt-mini", make 0.15 0.6
-    ; "o3-mini", make 1.1 4.4
-    ; "gpt", make 2.5 10.0
+    [ static_entry ~match_kind:Exact "gpt-5.3-codex-spark" None
+    ; static_entry "claude-opus-4-6" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "claude-opus-4-5" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "claude-opus-4" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "claude-sonnet-4-6" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "claude-sonnet-4" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "claude-haiku-4-5" (make ~cache:anthropic_cache 0.8 4.0)
+    ; static_entry "claude-haiku-4" (make ~cache:anthropic_cache 0.8 4.0)
+    ; static_entry "claude-3-7-sonnet" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "claude_code" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry ~match_kind:Raw_prefix "cc:" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "opus-4-6" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "opus-4-5" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "sonnet-4-6" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "sonnet-4" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "haiku-4-5" (make ~cache:anthropic_cache 0.8 4.0)
+    ; static_entry "gpt-5.5" (make ~cache:openai_cached_input 5.0 30.0)
+    ; static_entry "gpt-5.4-mini" (make ~cache:openai_cached_input 0.75 4.5)
+    ; static_entry "gpt-5.4" (make ~cache:openai_cached_input 2.5 15.0)
+    ; static_entry "gpt-5.3-codex" (make ~cache:openai_cached_input 1.75 14.0)
+    ; static_entry "gpt-5.2" (make ~cache:openai_cached_input 1.75 14.0)
+    ; static_entry "gpt-4.1" (make 2.0 8.0)
+    ; static_entry "gpt-mini" (make 0.15 0.6)
+    ; static_entry "o3-mini" (make 1.1 4.4)
+    ; static_entry ~match_kind:Exact "gpt" (make 2.5 10.0)
     ]
   in
-  List.sort (fun (a, _) (b, _) -> compare (String.length b) (String.length a)) entries
+  List.sort (fun a b -> compare (String.length b.key) (String.length a.key)) entries
 ;;
 
 (* Internal: static pricing table lookup on a pre-normalised model ID.
@@ -136,31 +196,25 @@ let static_pricing_entries =
    matches. Free aliases are checked first, then the built-in paid-model
    fallback table. *)
 let static_pricing_opt_normalized normalized =
-  if
-    normalized = "auto"
-    || normalized = "gemini"
-    || normalized = "kimi"
-    || normalized = "codex"
-    || normalized = "claude_code"
-    || string_contains ~needle:"ollama" normalized
-    || string_contains ~needle:"dashscope" normalized
-    || string_contains ~needle:"nous" normalized
+  if static_free_alias_matches normalized
   then Some zero_pricing
   else (
     match
       List.find_opt
-        (fun (pat, _) -> string_contains ~needle:(String.lowercase_ascii pat) normalized)
+        (fun entry -> static_entry_matches entry normalized)
         static_pricing_entries
     with
-    | Some (_, pricing) -> pricing
+    | Some entry -> entry.pricing
     | None -> None)
 ;;
 
 let catalog_pricing_opt catalog model_id =
+  let normalized = String.lowercase_ascii (String.trim model_id) in
   match Model_catalog.lookup catalog model_id with
   | Some entry
-    when Option.is_some entry.input_per_million && Option.is_some entry.output_per_million
-    ->
+    when Option.is_some entry.input_per_million
+         && Option.is_some entry.output_per_million
+         && catalog_pricing_entry_matches ~id_prefix:entry.id_prefix normalized ->
     Some
       { input_per_million = Option.get entry.input_per_million
       ; output_per_million = Option.get entry.output_per_million
@@ -431,6 +485,13 @@ let pricing_overrides_from_env () =
 (* === Inline tests === *)
 
 let close_enough a b = Float.abs (a -. b) < 1e-9
+
+let pricing_close_enough (a : pricing) (b : pricing) =
+  close_enough a.input_per_million b.input_per_million
+  && close_enough a.output_per_million b.output_per_million
+  && close_enough a.cache_write_multiplier b.cache_write_multiplier
+  && close_enough a.cache_read_multiplier b.cache_read_multiplier
+;;
 
 (* --- string_contains --- *)
 
@@ -765,6 +826,49 @@ let%test "pricing_for_model_opt: provider-prefixed id falls back to built-in tab
 
 let%test "pricing_for_model_opt: explicit unknown remains unknown without catalog" =
   with_empty_catalog (fun () -> pricing_for_model_opt "gpt-5.3-codex-spark" = None)
+;;
+
+let%test "pricing_for_model_opt: future gpt family remains unknown" =
+  pricing_for_model_opt "gpt-6-turbo" = None
+;;
+
+let%test "pricing_for_model_opt: broad gpt fallback does not price future family" =
+  with_empty_catalog (fun () -> pricing_for_model_opt "gpt-6-turbo" = None)
+;;
+
+let%test "pricing_for_model_opt: substring free aliases do not match paid-looking ids" =
+  with_empty_catalog (fun () ->
+    pricing_for_model_opt "future-ollama-paid" = None
+    && pricing_for_model_opt "paid-dashscope-compatible" = None
+    && pricing_for_model_opt "paid-nous-compatible" = None)
+;;
+
+let%test "pricing_for_model_opt: anchored free aliases still work without catalog" =
+  with_empty_catalog (fun () ->
+    match
+      pricing_for_model_opt "ollama/llama-3", pricing_for_model_opt "dashscope-3.5-35b"
+    with
+    | Some ollama, Some dashscope ->
+      close_enough ollama.input_per_million 0.0
+      && close_enough ollama.output_per_million 0.0
+      && close_enough dashscope.input_per_million 0.0
+      && close_enough dashscope.output_per_million 0.0
+    | _ -> false)
+;;
+
+let%test "built-in pricing fallback matches catalog pricing overlaps" =
+  match Model_catalog.global () with
+  | None -> true
+  | Some catalog ->
+    List.for_all
+      (fun entry ->
+         match entry.pricing with
+         | None -> true
+         | Some expected ->
+           (match catalog_pricing_opt catalog entry.key with
+            | Some actual -> pricing_close_enough actual expected
+            | None -> false))
+      static_pricing_entries
 ;;
 
 (* --- pricing_for_model: case insensitivity --- *)
