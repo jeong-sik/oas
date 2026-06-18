@@ -185,6 +185,10 @@ let static_pricing_entries =
     ; static_entry "gpt-5.4" (make ~cache:openai_cached_input 2.5 15.0)
     ; static_entry "gpt-5.3-codex" (make ~cache:openai_cached_input 1.75 14.0)
     ; static_entry "gpt-5.2" (make ~cache:openai_cached_input 1.75 14.0)
+      (* Base gpt-5 family fallback (catalog gpt-5 = 5.0/30.0). Delimiter-prefix
+         covers gpt-5 and gpt-5-latest; the more-specific gpt-5.x entries above
+         are longer and win the length-sorted lookup. *)
+    ; static_entry "gpt-5" (make ~cache:openai_cached_input 5.0 30.0)
     ; static_entry "gpt-4.1" (make 2.0 8.0)
       (* Known generic GPT aliases the repo still constructs (gpt-4, gpt-4o)
          plus the cheaper gpt-4o-mini. The typed Exact "gpt" no longer covers
@@ -651,6 +655,15 @@ let%test "pricing gpt-4 alias restored" =
   match pricing_for_model_opt "gpt-4" with
   | Some p ->
     close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
+  | None -> false
+;;
+
+(* Base gpt-5 must keep its catalog price (5.0/30.0) in the static fallback;
+   the gpt-5.x specifics are longer and still win for their own ids. *)
+let%test "pricing gpt-5 base alias covered" =
+  match pricing_for_model_opt "gpt-5" with
+  | Some p ->
+    close_enough p.input_per_million 5.0 && close_enough p.output_per_million 30.0
   | None -> false
 ;;
 
