@@ -64,36 +64,110 @@ let string_contains ~needle haystack =
   if needle_len = 0 then true else loop 0
 ;;
 
-(* Internal: static pricing table lookup on a pre-normalised model ID.
-   Called by [pricing_for_model_opt] when no dynamic override matches. *)
-let static_pricing_opt_normalized normalized =
+(* Strip an OpenRouter-style provider/org prefix so that a model id such as
+   ["anthropic/claude-sonnet-4-6"] can be matched against catalog prefixes that
+   omit the organization. *)
+let provider_suffix model_id =
+  match String.index_opt model_id '/' with
+  | Some i when i + 1 < String.length model_id ->
+    Some (String.sub model_id (i + 1) (String.length model_id - i - 1))
+  | _ -> None
+;;
+
+let zero_pricing : pricing =
+  { input_per_million = 0.0
+  ; output_per_million = 0.0
+  ; cache_write_multiplier = 1.0
+  ; cache_read_multiplier = 1.0
+  }
+;;
+
+(* Built-in fallback pricing table. Used when the external model catalog is
+   unavailable or does not contain a matching entry. This restores the
+   previously in-code pricing knowledge for the most common cloud models,
+   ordered by descending pattern length so longer patterns shadow shorter
+   ones and avoid the old "gpt" shadowing "gpt-4.1" bug. *)
+let static_pricing_entries =
+  let anthropic_cache = 1.25, 0.1 in
+  let openai_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
-  let result =
-    if
-      normalized = "auto"
-      || normalized = "gemini"
-      || normalized = "kimi"
-      || normalized = "codex"
-      || normalized = "claude_code"
-      || normalized = "gemini"
-      || normalized = "kimi"
-      || normalized = "codex"
-      || string_contains ~needle:"ollama" normalized
-      || string_contains ~needle:"dashscope" normalized
-      || string_contains ~needle:"nous" normalized
-    then Some ((0.0, 0.0), no_cache)
-    else None
-  in
-  match result with
-  | Some ((input_per_million, output_per_million), (cw, cr)) ->
+  let make ?(cache = no_cache) input output =
+    let cw, cr = cache in
     Some
-      ({ input_per_million
-       ; output_per_million
-       ; cache_write_multiplier = cw
-       ; cache_read_multiplier = cr
-       }
-       : pricing)
-  | None -> None
+      { input_per_million = input
+      ; output_per_million = output
+      ; cache_write_multiplier = cw
+      ; cache_read_multiplier = cr
+      }
+  in
+  let entries =
+    [ "gpt-5.3-codex-spark", None
+    ; "claude-opus-4-6", make ~cache:anthropic_cache 15.0 75.0
+    ; "claude-opus-4-5", make ~cache:anthropic_cache 15.0 75.0
+    ; "claude-opus-4", make ~cache:anthropic_cache 15.0 75.0
+    ; "claude-sonnet-4-6", make ~cache:anthropic_cache 3.0 15.0
+    ; "claude-sonnet-4", make ~cache:anthropic_cache 3.0 15.0
+    ; "claude-haiku-4-5", make ~cache:anthropic_cache 0.8 4.0
+    ; "claude-haiku-4", make ~cache:anthropic_cache 0.8 4.0
+    ; "claude-3-7-sonnet", make ~cache:anthropic_cache 3.0 15.0
+    ; "claude_code", make ~cache:anthropic_cache 3.0 15.0
+    ; "cc:", make ~cache:anthropic_cache 3.0 15.0
+    ; "opus-4-6", make ~cache:anthropic_cache 15.0 75.0
+    ; "opus-4-5", make ~cache:anthropic_cache 15.0 75.0
+    ; "sonnet-4-6", make ~cache:anthropic_cache 3.0 15.0
+    ; "sonnet-4", make ~cache:anthropic_cache 3.0 15.0
+    ; "haiku-4-5", make ~cache:anthropic_cache 0.8 4.0
+    ; "gpt-5.5", make ~cache:openai_cached_input 5.0 30.0
+    ; "gpt-5.4-mini", make ~cache:openai_cached_input 0.75 4.5
+    ; "gpt-5.4", make ~cache:openai_cached_input 2.5 15.0
+    ; "gpt-5.3-codex", make ~cache:openai_cached_input 1.75 14.0
+    ; "gpt-5.2", make ~cache:openai_cached_input 1.75 14.0
+    ; "gpt-4.1", make 2.0 8.0
+    ; "gpt-mini", make 0.15 0.6
+    ; "o3-mini", make 1.1 4.4
+    ; "gpt", make 2.5 10.0
+    ]
+  in
+  List.sort (fun (a, _) (b, _) -> compare (String.length b) (String.length a)) entries
+;;
+
+(* Internal: static pricing table lookup on a pre-normalised model ID.
+   Called by [pricing_for_model_opt] when no dynamic override or catalog entry
+   matches. Free aliases are checked first, then the built-in paid-model
+   fallback table. *)
+let static_pricing_opt_normalized normalized =
+  if
+    normalized = "auto"
+    || normalized = "gemini"
+    || normalized = "kimi"
+    || normalized = "codex"
+    || normalized = "claude_code"
+    || string_contains ~needle:"ollama" normalized
+    || string_contains ~needle:"dashscope" normalized
+    || string_contains ~needle:"nous" normalized
+  then Some zero_pricing
+  else (
+    match
+      List.find_opt
+        (fun (pat, _) -> string_contains ~needle:(String.lowercase_ascii pat) normalized)
+        static_pricing_entries
+    with
+    | Some (_, pricing) -> pricing
+    | None -> None)
+;;
+
+let catalog_pricing_opt catalog model_id =
+  match Model_catalog.lookup catalog model_id with
+  | Some entry
+    when Option.is_some entry.input_per_million && Option.is_some entry.output_per_million
+    ->
+    Some
+      { input_per_million = Option.get entry.input_per_million
+      ; output_per_million = Option.get entry.output_per_million
+      ; cache_write_multiplier = Option.value entry.cache_write_multiplier ~default:1.0
+      ; cache_read_multiplier = Option.value entry.cache_read_multiplier ~default:1.0
+      }
+  | _ -> None
 ;;
 
 let pricing_for_model_opt model_id =
@@ -108,39 +182,33 @@ let pricing_for_model_opt model_id =
   match override_match with
   | Some e ->
     Some
-      ({ input_per_million = e.input_per_million
-       ; output_per_million = e.output_per_million
-       ; cache_write_multiplier = e.cache_write_multiplier
-       ; cache_read_multiplier = e.cache_read_multiplier
-       }
-       : pricing)
+      { input_per_million = e.input_per_million
+      ; output_per_million = e.output_per_million
+      ; cache_write_multiplier = e.cache_write_multiplier
+      ; cache_read_multiplier = e.cache_read_multiplier
+      }
   | None ->
-    (* Check dynamic model catalog next *)
-    (match Model_catalog.global () with
-     | Some catalog ->
-       (match Model_catalog.lookup catalog model_id with
-        | Some entry
-          when Option.is_some entry.input_per_million
-               && Option.is_some entry.output_per_million ->
-          Some
-            ({ input_per_million = Option.get entry.input_per_million
-             ; output_per_million = Option.get entry.output_per_million
-             ; cache_write_multiplier =
-                 Option.value entry.cache_write_multiplier ~default:1.0
-             ; cache_read_multiplier =
-                 Option.value entry.cache_read_multiplier ~default:1.0
-             }
-             : pricing)
-        | _ -> static_pricing_opt_normalized normalized)
-     | None -> static_pricing_opt_normalized normalized)
-;;
-
-let zero_pricing : pricing =
-  { input_per_million = 0.0
-  ; output_per_million = 0.0
-  ; cache_write_multiplier = 1.0
-  ; cache_read_multiplier = 1.0
-  }
+    (* Check the dynamic catalog and the built-in static fallback.
+       Provider-prefixed model ids (e.g. ["anthropic/claude-sonnet-4-6"]) are
+       tried both as-is and with the provider prefix stripped. *)
+    let candidates =
+      match provider_suffix model_id with
+      | Some suffix when suffix <> model_id -> [ model_id; suffix ]
+      | _ -> [ model_id ]
+    in
+    let catalog_result =
+      match Model_catalog.global () with
+      | Some catalog ->
+        List.find_map (fun id -> catalog_pricing_opt catalog id) candidates
+      | None -> None
+    in
+    (match catalog_result with
+     | Some _ as r -> r
+     | None ->
+       List.find_map
+         (fun id ->
+            static_pricing_opt_normalized (String.lowercase_ascii (String.trim id)))
+         candidates)
 ;;
 
 let pricing_for_model model_id =
@@ -667,6 +735,36 @@ let%test "pricing_for_model_opt: cloud-style unknown returns None" =
   match pricing_for_model_opt "future-cloud-provider/fancy-model-v9" with
   | Some _ -> false
   | None -> true
+;;
+
+let with_empty_catalog f =
+  let original = Model_catalog.global () in
+  Model_catalog.set_global [];
+  Fun.protect
+    ~finally:(fun () ->
+      match original with
+      | Some c -> Model_catalog.set_global c
+      | None -> Model_catalog.clear_global ())
+    f
+;;
+
+let%test "pricing_for_model_opt: built-in fallback when catalog is absent" =
+  with_empty_catalog (fun () ->
+    match pricing_for_model_opt "claude-sonnet-4-6" with
+    | Some p ->
+      close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
+    | None -> false)
+;;
+
+let%test "pricing_for_model_opt: provider-prefixed id falls back to built-in table" =
+  with_empty_catalog (fun () ->
+    match pricing_for_model_opt "anthropic/claude-sonnet-4-6" with
+    | Some p -> close_enough p.input_per_million 3.0
+    | None -> false)
+;;
+
+let%test "pricing_for_model_opt: explicit unknown remains unknown without catalog" =
+  with_empty_catalog (fun () -> pricing_for_model_opt "gpt-5.3-codex-spark" = None)
 ;;
 
 (* --- pricing_for_model: case insensitivity --- *)
