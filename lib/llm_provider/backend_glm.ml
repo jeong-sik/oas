@@ -223,7 +223,7 @@ let parse_response body =
      string -- was 3 full Yojson.Safe.from_string of the response per turn. *)
   let json =
     try Yojson.Safe.from_string body with
-    | Yojson.Json_error _ -> raise (glm_parse_error "response body is not valid JSON")
+    | Yojson.Json_error msg -> raise (glm_parse_error msg)
   in
   match check_glm_error_json json with
   | Some err -> raise (Glm_api_error err)
