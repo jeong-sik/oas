@@ -227,20 +227,36 @@ let static_pricing_opt_normalized normalized =
     | None -> None)
 ;;
 
-let catalog_pricing_opt catalog model_id =
+(* The catalog gives three distinct answers, not two. Collapsing them into a
+   [pricing option] conflates "no applicable entry" with "entry applies but is
+   intentionally unpriced": the former must consult the static fallback, the
+   latter must stay unpriced (consulting static there would override the
+   operator's deliberate choice and fill in a price). Codex P2 on #2127. *)
+type catalog_classification =
+  | Catalog_priced of pricing
+  | Catalog_unpriced (* applies to this id but deliberately omits a price *)
+  | Catalog_no_match (* no applicable entry -> consult the static fallback *)
+
+let catalog_classify catalog model_id =
   let normalized = String.lowercase_ascii (String.trim model_id) in
   match Model_catalog.lookup catalog model_id with
-  | Some entry
-    when Option.is_some entry.input_per_million
-         && Option.is_some entry.output_per_million
-         && catalog_pricing_entry_matches ~id_prefix:entry.id_prefix normalized ->
-    Some
-      { input_per_million = Option.get entry.input_per_million
-      ; output_per_million = Option.get entry.output_per_million
-      ; cache_write_multiplier = Option.value entry.cache_write_multiplier ~default:1.0
-      ; cache_read_multiplier = Option.value entry.cache_read_multiplier ~default:1.0
-      }
-  | _ -> None
+  | Some entry when catalog_pricing_entry_matches ~id_prefix:entry.id_prefix normalized ->
+    (match entry.input_per_million, entry.output_per_million with
+     | Some input, Some output ->
+       Catalog_priced
+         { input_per_million = input
+         ; output_per_million = output
+         ; cache_write_multiplier = Option.value entry.cache_write_multiplier ~default:1.0
+         ; cache_read_multiplier = Option.value entry.cache_read_multiplier ~default:1.0
+         }
+     | _ -> Catalog_unpriced)
+  | _ -> Catalog_no_match
+;;
+
+let catalog_pricing_opt catalog model_id =
+  match catalog_classify catalog model_id with
+  | Catalog_priced p -> Some p
+  | Catalog_unpriced | Catalog_no_match -> None
 ;;
 
 let pricing_for_model_opt model_id =
@@ -269,15 +285,26 @@ let pricing_for_model_opt model_id =
       | Some suffix when suffix <> model_id -> [ model_id; suffix ]
       | _ -> [ model_id ]
     in
-    let catalog_result =
+    (* Take the first candidate the catalog answers definitively (priced or
+       intentionally unpriced); only when every candidate is a genuine miss do
+       we consult the static fallback. A deliberate catalog "unpriced" must not
+       be overwritten by a static default. *)
+    let catalog_class =
       match Model_catalog.global () with
       | Some catalog ->
-        List.find_map (fun id -> catalog_pricing_opt catalog id) candidates
-      | None -> None
+        List.fold_left
+          (fun acc id ->
+             match acc with
+             | Catalog_priced _ | Catalog_unpriced -> acc
+             | Catalog_no_match -> catalog_classify catalog id)
+          Catalog_no_match
+          candidates
+      | None -> Catalog_no_match
     in
-    (match catalog_result with
-     | Some _ as r -> r
-     | None ->
+    (match catalog_class with
+     | Catalog_priced p -> Some p
+     | Catalog_unpriced -> None
+     | Catalog_no_match ->
        List.find_map
          (fun id ->
             static_pricing_opt_normalized (String.lowercase_ascii (String.trim id)))
@@ -868,6 +895,54 @@ let with_empty_catalog f =
       | Some c -> Model_catalog.set_global c
       | None -> Model_catalog.clear_global ())
     f
+;;
+
+(* Install a synthetic catalog from inline TOML for the duration of [f], then
+   restore the original. Goes through [Model_catalog.load_file] so the test
+   exercises the real parse path and stays robust to new optional fields. *)
+let with_catalog_toml content f =
+  let path = Filename.temp_file "oas_pricing_catalog" ".toml" in
+  let original = Model_catalog.global () in
+  Fun.protect
+    ~finally:(fun () ->
+      (try Sys.remove path with
+       | Sys_error _ -> ());
+      match original with
+      | Some c -> Model_catalog.set_global c
+      | None -> Model_catalog.clear_global ())
+    (fun () ->
+       let oc = open_out path in
+       output_string oc content;
+       close_out oc;
+       match Model_catalog.load_file path with
+       | Ok catalog ->
+         Model_catalog.set_global catalog;
+         f ()
+       | Error e -> failwith ("test catalog load failed: " ^ e))
+;;
+
+(* A catalog entry that applies to the id but deliberately omits pricing marks
+   the model unpriced; the static fallback must not override that intent with a
+   default rate (static would otherwise price gpt-4o at 2.5/10.0). Codex P2 on
+   #2127. *)
+let%test "pricing_for_model_opt: catalog entry with omitted price stays unpriced" =
+  with_catalog_toml "[[models]]\nid_prefix = \"gpt-4o\"\n" (fun () ->
+    pricing_for_model_opt "gpt-4o" = None)
+;;
+
+(* A genuine catalog miss (no applicable entry) still consults the static
+   fallback rather than reporting the model unpriced. *)
+let%test "pricing_for_model_opt: catalog miss still consults static fallback" =
+  with_catalog_toml
+    "[[models]]\n\
+     id_prefix = \"unrelated-vendor-x\"\n\
+     input_per_million = 1.0\n\
+     output_per_million = 2.0\n"
+    (fun () ->
+       match pricing_for_model_opt "gpt-4o" with
+       | Some p ->
+         close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
+       | None -> false)
 ;;
 
 let%test "pricing_for_model_opt: built-in fallback when catalog is absent" =
