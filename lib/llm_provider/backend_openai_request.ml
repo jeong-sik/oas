@@ -155,6 +155,12 @@ let is_zai_glm_request (config : Provider_config.t) =
   && Zai_catalog.is_glm_model_id config.model_id
 ;;
 
+let zai_glm_preserve_thinking_request (config : Provider_config.t) =
+  is_zai_glm_request config
+  && config.enable_thinking = Some true
+  && not (glm_clear_thinking_of_config config)
+;;
+
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request_assoc
@@ -173,12 +179,11 @@ let build_request_assoc
     let message_serializer =
       match config.kind with
       | Provider_config.Glm -> Backend_openai_serialize.glm_messages_of_message
-      | Provider_config.OpenAI_compat
-        when is_zai_glm_request config && not (glm_clear_thinking_of_config config) ->
-        (* ZAI GLM accepts reasoning_content in request messages whenever we
-           ask it to preserve thinking (clear_thinking=false). The generic
-           OpenAI_compat serializer drops Thinking blocks, so route bare-ZAI
-           GLM through the GLM serializer for those turns. *)
+      | Provider_config.OpenAI_compat when zai_glm_preserve_thinking_request config ->
+        (* ZAI GLM accepts reasoning_content in request messages only when the
+           same request body enables thinking with clear_thinking=false. The
+           generic OpenAI_compat serializer drops Thinking blocks, so route
+           bare-ZAI GLM through the GLM serializer only for that wire shape. *)
         Backend_openai_serialize.glm_messages_of_message
       | Provider_config.Anthropic
       | Provider_config.Kimi

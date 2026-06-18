@@ -342,7 +342,11 @@ let test_deepseek_zero_budget_omits_reasoning_effort () =
    reasoning_content when it asks the provider to preserve thinking
    (clear_thinking=false). Regression fence for the review follow-up from
    PR #2023. *)
-let zai_glm_openai_compat_cfg ?(preserve_thinking = true) () =
+let zai_glm_openai_compat_cfg
+      ?(enable_thinking = Some true)
+      ?(preserve_thinking = true)
+      ()
+  =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"glm-5"
@@ -352,7 +356,7 @@ let zai_glm_openai_compat_cfg ?(preserve_thinking = true) () =
     ~temperature:0.7
     ~tool_choice:Any
     ~disable_parallel_tool_use:true
-    ~enable_thinking:true
+    ?enable_thinking
     ~preserve_thinking
     ()
 ;;
@@ -404,6 +408,44 @@ let test_zai_glm_openai_compat_drops_reasoning_without_preserve () =
   check
     bool
     "assistant message omits reasoning_content when not preserving"
+    false
+    (contains ~needle:{|"reasoning_content"|} body)
+;;
+
+let test_zai_glm_openai_compat_drops_reasoning_when_thinking_disabled () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:
+        (zai_glm_openai_compat_cfg
+           ~enable_thinking:(Some false)
+           ~preserve_thinking:true
+           ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check
+    bool
+    "thinking disabled"
+    true
+    (contains ~needle:{|"thinking":{"type":"disabled"}|} body);
+  check
+    bool
+    "disabled thinking does not replay reasoning_content"
+    false
+    (contains ~needle:{|"reasoning_content"|} body)
+;;
+
+let test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(zai_glm_openai_compat_cfg ~enable_thinking:None ~preserve_thinking:true ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check bool "thinking object omitted" false (contains ~needle:{|"thinking"|} body);
+  check
+    bool
+    "absent thinking control does not replay reasoning_content"
     false
     (contains ~needle:{|"reasoning_content"|} body)
 ;;
@@ -621,6 +663,14 @@ let () =
             "zai-glm-openai-compat drops reasoning without preserve_thinking"
             `Quick
             test_zai_glm_openai_compat_drops_reasoning_without_preserve
+        ; test_case
+            "zai-glm-openai-compat drops reasoning when thinking disabled"
+            `Quick
+            test_zai_glm_openai_compat_drops_reasoning_when_thinking_disabled
+        ; test_case
+            "zai-glm-openai-compat drops reasoning when thinking absent"
+            `Quick
+            test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent
         ] )
     ; ( "anthropic"
       , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced
