@@ -100,75 +100,129 @@ let member_string_opt key json =
     None
 ;;
 
+let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
+
+let known_entry_keys =
+  [ "_comment"
+  ; "id_prefix"
+  ; "base"
+  ; "max_context_tokens"
+  ; "max_output_tokens"
+  ; "supports_tools"
+  ; "supports_tool_choice"
+  ; "supports_parallel_tool_calls"
+  ; "supports_reasoning"
+  ; "supports_extended_thinking"
+  ; "supports_reasoning_budget"
+  ; "supports_response_format_json"
+  ; "supports_structured_output"
+  ; "supports_multimodal_inputs"
+  ; "supports_image_input"
+  ; "supports_audio_input"
+  ; "supports_video_input"
+  ; "supports_native_streaming"
+  ; "supports_system_prompt"
+  ; "supports_caching"
+  ; "supports_prompt_caching"
+  ; "supports_top_k"
+  ; "supports_min_p"
+  ; "supports_seed"
+  ; "supports_computer_use"
+  ; "supports_code_execution"
+  ; "thinking_control_format"
+  ]
+;;
+
+let unknown_keys ~known = function
+  | `Assoc fields ->
+    List.filter_map (fun (key, _) -> if List.mem key known then None else Some key) fields
+  | _ -> []
+;;
+
+let reject_unknown_keys ~scope ~known json =
+  match unknown_keys ~known json with
+  | [] -> Ok ()
+  | keys ->
+    Error
+      (Printf.sprintf "%s contains unknown field(s): %s" scope (String.concat ", " keys))
+;;
+
 let parse_entry json =
-  match member_string_opt "id_prefix" json with
-  | None -> Error "entry missing required \"id_prefix\" field"
-  | Some id_prefix ->
-    Ok
-      { id_prefix
-      ; base_label = member_string_opt "base" json
-      ; max_context_tokens = member_int "max_context_tokens" json
-      ; max_output_tokens = member_int "max_output_tokens" json
-      ; supports_tools = member_bool "supports_tools" json
-      ; supports_tool_choice = member_bool "supports_tool_choice" json
-      ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
-      ; supports_reasoning = member_bool "supports_reasoning" json
-      ; supports_extended_thinking = member_bool "supports_extended_thinking" json
-      ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
-      ; supports_response_format_json = member_bool "supports_response_format_json" json
-      ; supports_structured_output = member_bool "supports_structured_output" json
-      ; supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json
-      ; supports_image_input = member_bool "supports_image_input" json
-      ; supports_audio_input = member_bool "supports_audio_input" json
-      ; supports_video_input = member_bool "supports_video_input" json
-      ; supports_native_streaming = member_bool "supports_native_streaming" json
-      ; supports_system_prompt = member_bool "supports_system_prompt" json
-      ; supports_caching = member_bool "supports_caching" json
-      ; supports_prompt_caching = member_bool "supports_prompt_caching" json
-      ; supports_top_k = member_bool "supports_top_k" json
-      ; supports_min_p = member_bool "supports_min_p" json
-      ; supports_seed = member_bool "supports_seed" json
-      ; supports_computer_use = member_bool "supports_computer_use" json
-      ; supports_code_execution = member_bool "supports_code_execution" json
-      ; thinking_control_format = member_string_opt "thinking_control_format" json
-      }
+  match reject_unknown_keys ~scope:"entry" ~known:known_entry_keys json with
+  | Error _ as error -> error
+  | Ok () ->
+    (match member_string_opt "id_prefix" json with
+     | None -> Error "entry missing required \"id_prefix\" field"
+     | Some id_prefix ->
+       Ok
+         { id_prefix
+         ; base_label = member_string_opt "base" json
+         ; max_context_tokens = member_int "max_context_tokens" json
+         ; max_output_tokens = member_int "max_output_tokens" json
+         ; supports_tools = member_bool "supports_tools" json
+         ; supports_tool_choice = member_bool "supports_tool_choice" json
+         ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
+         ; supports_reasoning = member_bool "supports_reasoning" json
+         ; supports_extended_thinking = member_bool "supports_extended_thinking" json
+         ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
+         ; supports_response_format_json =
+             member_bool "supports_response_format_json" json
+         ; supports_structured_output = member_bool "supports_structured_output" json
+         ; supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json
+         ; supports_image_input = member_bool "supports_image_input" json
+         ; supports_audio_input = member_bool "supports_audio_input" json
+         ; supports_video_input = member_bool "supports_video_input" json
+         ; supports_native_streaming = member_bool "supports_native_streaming" json
+         ; supports_system_prompt = member_bool "supports_system_prompt" json
+         ; supports_caching = member_bool "supports_caching" json
+         ; supports_prompt_caching = member_bool "supports_prompt_caching" json
+         ; supports_top_k = member_bool "supports_top_k" json
+         ; supports_min_p = member_bool "supports_min_p" json
+         ; supports_seed = member_bool "supports_seed" json
+         ; supports_computer_use = member_bool "supports_computer_use" json
+         ; supports_code_execution = member_bool "supports_code_execution" json
+         ; thinking_control_format = member_string_opt "thinking_control_format" json
+         })
 ;;
 
 let of_json json =
-  let schema_version =
-    match Yojson.Safe.Util.member "schema_version" json with
-    | `Int n -> n
-    | _ -> 0
-  in
-  if schema_version <> 1
-  then
-    Error
-      (Printf.sprintf
-         "unsupported capability manifest schema_version: %d (expected 1)"
-         schema_version)
-  else (
-    let model_items =
-      match Yojson.Safe.Util.member "models" json with
-      | `List items -> items
-      | _ -> []
+  match reject_unknown_keys ~scope:"manifest" ~known:known_manifest_keys json with
+  | Error _ as error -> error
+  | Ok () ->
+    let schema_version =
+      match Yojson.Safe.Util.member "schema_version" json with
+      | `Int n -> n
+      | _ -> 0
     in
-    let results = List.map parse_entry model_items in
-    let errors =
-      List.filter_map
-        (function
-          | Error e -> Some e
-          | Ok _ -> None)
-        results
-    in
-    if errors <> []
-    then Error (String.concat "; " errors)
-    else
-      Ok
-        (List.filter_map
-           (function
-             | Ok e -> Some e
-             | Error _ -> None)
-           results))
+    if schema_version <> 1
+    then
+      Error
+        (Printf.sprintf
+           "unsupported capability manifest schema_version: %d (expected 1)"
+           schema_version)
+    else (
+      let model_items =
+        match Yojson.Safe.Util.member "models" json with
+        | `List items -> items
+        | _ -> []
+      in
+      let results = List.map parse_entry model_items in
+      let errors =
+        List.filter_map
+          (function
+            | Error e -> Some e
+            | Ok _ -> None)
+          results
+      in
+      if errors <> []
+      then Error (String.concat "; " errors)
+      else
+        Ok
+          (List.filter_map
+             (function
+               | Ok e -> Some e
+               | Error _ -> None)
+             results))
 ;;
 
 let load_file path =
@@ -331,14 +385,24 @@ let%test "lookup: exact prefix match" =
   && Option.is_none (lookup manifest "other-model")
 ;;
 
-let%test "of_json: unknown fields are ignored (forward-compat)" =
+let%test "of_json: unknown entry fields return error" =
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"m","future_field":"ignored"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":"m","base_label":"openai_chat"}]}|}
   in
   match of_json json with
-  | Ok [ entry ] -> entry.id_prefix = "m"
-  | _ -> false
+  | Error msg -> String.equal msg "entry contains unknown field(s): base_label"
+  | Ok _ -> false
+;;
+
+let%test "of_json: unknown root fields return error" =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"m"}],"future_field":"ignored"}|}
+  in
+  match of_json json with
+  | Error msg -> String.equal msg "manifest contains unknown field(s): future_field"
+  | Ok _ -> false
 ;;
 
 let%test "set_global / clear_global: runtime override roundtrips" =
