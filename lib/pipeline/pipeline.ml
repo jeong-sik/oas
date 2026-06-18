@@ -465,9 +465,10 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               in
               update_state agent (fun s -> { s with messages = new_messages }));
            let* () = persist_turn_checkpoint agent After_tool_results_appended in
-           (* Anti-repetition hint is appended after the ToolResult message so
-              provider serializers can keep assistant tool_calls and role:tool
-              responses adjacent. *)
+           (* The idle nudge (and the fallback anti-repetition hint) is appended
+              as a separate role:User message after the role:Tool result message.
+              This keeps OpenAI-compatible serializers from placing user text
+              before the required tool replies, which strict providers reject. *)
            ignore idle_handled;
            (* suppress unused warning after dedup *)
            (* In-memory message hygiene after each tool execution round.
