@@ -85,7 +85,10 @@ type t = entry list
 (** [of_json json] parses a manifest from a [Yojson.Safe.t] value.
 
     Returns [Error msg] when [schema_version] is missing or not 1,
-    or when a model entry is missing the required [id_prefix] field. *)
+    the root object contains an unknown field, a model entry contains
+    an unknown field, or a model entry is missing the required
+    [id_prefix] field.  The non-operational [_comment] field is
+    accepted at the root and entry levels. *)
 val of_json : Yojson.Safe.t -> (t, string) result
 
 (** [load_file path] reads and parses a manifest from the given file
