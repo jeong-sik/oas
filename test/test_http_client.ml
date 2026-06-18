@@ -481,7 +481,8 @@ let () =
         ; Alcotest.test_case "array" `Quick test_inject_stream_param_array
         ; Alcotest.test_case
             "and_options parity with chained"
-            `Quick test_inject_stream_and_options_parity
+            `Quick
+            test_inject_stream_and_options_parity
         ] )
     ; ( "read_sse"
       , [ Alcotest.test_case "basic events" `Quick test_read_sse_basic

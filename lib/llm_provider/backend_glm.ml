@@ -109,7 +109,9 @@ let build_request
      serializing then parsing the whole message body back — removes one full
      [Yojson.Safe.to_string] (OpenAI) + one [Yojson.Safe.from_string] (here)
      per GLM turn. Byte-identical: [from_string (to_string assoc) = assoc]. *)
-  let base_assoc = Backend_openai.build_request_assoc ~stream ~config ~messages ~tools () in
+  let base_assoc =
+    Backend_openai.build_request_assoc ~stream ~config ~messages ~tools ()
+  in
   match base_assoc with
   | `Assoc fields ->
     (* [thinking] single-owner normalization. The shared request builder's
@@ -177,13 +179,15 @@ let check_glm_error_json (json : Yojson.Safe.t) : glm_error option =
 ;;
 
 let check_glm_error body : glm_error option =
-  try check_glm_error_json (Yojson.Safe.from_string body)
-  with Yojson.Json_error _ -> None
+  try check_glm_error_json (Yojson.Safe.from_string body) with
+  | Yojson.Json_error _ -> None
 ;;
 
 (** Extract reasoning_content from Glm response and prepend as Thinking block.
     Glm returns reasoning in [message.reasoning_content] alongside [message.content]. *)
-let extract_reasoning_content_json (resp : api_response) (json : Yojson.Safe.t) : api_response =
+let extract_reasoning_content_json (resp : api_response) (json : Yojson.Safe.t)
+  : api_response
+  =
   try
     let open Yojson.Safe.Util in
     let choices = json |> member "choices" in
@@ -206,8 +210,8 @@ let extract_reasoning_content_json (resp : api_response) (json : Yojson.Safe.t) 
 ;;
 
 let extract_reasoning_content (resp : api_response) body : api_response =
-  try extract_reasoning_content_json resp (Yojson.Safe.from_string body)
-  with Yojson.Json_error _ -> resp
+  try extract_reasoning_content_json resp (Yojson.Safe.from_string body) with
+  | Yojson.Json_error _ -> resp
 ;;
 
 let glm_parse_error message =
