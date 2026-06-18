@@ -79,8 +79,12 @@ let starts_with ~prefix s =
   String.length s >= prefix_len && String.sub s 0 prefix_len = prefix
 ;;
 
+(* Model-id component separators. ["_"] is included because route ids such as
+   the in-tree DashScope catalog entry ["dashscope_3"] use it as a boundary, so a
+   prefix like ["dashscope"] must anchor on it the same way it does on ["-"].
+   Codex P2 on #2127. *)
 let is_model_delimiter = function
-  | '-' | ':' | '.' | '/' -> true
+  | '-' | ':' | '.' | '/' | '_' -> true
   | _ -> false
 ;;
 
@@ -1051,6 +1055,22 @@ let%test "pricing_for_model_opt: anchored free aliases still work without catalo
       && close_enough ollama.output_per_million 0.0
       && close_enough dashscope.input_per_million 0.0
       && close_enough dashscope.output_per_million 0.0
+    | _ -> false)
+;;
+
+(* DashScope route ids use "_" as a separator (the in-tree catalog "dashscope_3"
+   entry). Without the catalog, the static free-alias check must still classify
+   them as zero-priced rather than unknown. Codex P2 on #2127. *)
+let%test
+    "pricing_for_model_opt: underscore-separated dashscope id is free without catalog"
+  =
+  with_empty_catalog (fun () ->
+    match pricing_for_model_opt "dashscope_3", pricing_for_model_opt "dashscope_3.5" with
+    | Some a, Some b ->
+      close_enough a.input_per_million 0.0
+      && close_enough a.output_per_million 0.0
+      && close_enough b.input_per_million 0.0
+      && close_enough b.output_per_million 0.0
     | _ -> false)
 ;;
 
