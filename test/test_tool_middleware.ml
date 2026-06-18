@@ -576,8 +576,9 @@ let test_strip_empty () =
 (* A standalone user Text message (e.g. an idle nudge) between the assistant
    tool_calls message and the tool results breaks the result span: every tool
    result of the turn is treated as orphaned, and the results message is
-   dropped entirely. This is why the pipeline delivers idle nudges inside the
-   tool-results message — see the companion test below. *)
+   dropped entirely. This is why the pipeline delivers idle nudges as a
+   separate role:User message AFTER the tool-results message, never before it
+   — see the companion test below. *)
 let test_strip_drops_results_after_interleaved_text () =
   let msgs =
     [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
