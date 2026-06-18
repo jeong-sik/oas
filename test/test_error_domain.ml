@@ -149,7 +149,7 @@ let test_to_string_each_variant () =
     ; `Auth_error "forbidden"
     ; `Server_error (503, "unavailable")
     ; `Network_error "connection refused"
-    ; `Provider_timeout "3s elapsed"
+    ; `Provider_timeout (None, "3s elapsed")
     ; `Streaming_timeout (Http_client.Stream_body, "stream body elapsed")
     ; `Overloaded
     ; `Invalid_request "bad body"
@@ -188,7 +188,7 @@ let test_all_variants_convert () =
     ; `Auth_error "x"
     ; `Server_error (500, "x")
     ; `Network_error "x"
-    ; `Provider_timeout "x"
+    ; `Provider_timeout (None, "x")
     ; `Streaming_timeout (Http_client.Stream_idle Http_client.Streaming_thinking, "idle")
     ; `Overloaded
     ; `Invalid_request "x"
@@ -264,7 +264,7 @@ let test_roundtrip_api_timeout () =
   let orig = Error.Api (Retry.Timeout { message = "3s"; phase = None }) in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
-   | `Provider_timeout "3s" -> ()
+   | `Provider_timeout (None, "3s") -> ()
    | _ -> Alcotest.fail "expected Provider_timeout");
   let back = Error_domain.to_sdk_error poly in
   match back with
@@ -287,6 +287,22 @@ let test_roundtrip_api_timeout_preserves_phase () =
       (Llm_provider.Error.Timeout { timeout_phase = Some Http_client.First_token; _ }) ->
     ()
   | _ -> Alcotest.fail "roundtrip lost timeout phase"
+;;
+
+let test_roundtrip_api_timeout_preserves_non_streaming_phase () =
+  let orig =
+    Error.Api
+      (Retry.Timeout { message = "headers"; phase = Some Http_client.Http_operation })
+  in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Provider_timeout (Some Http_client.Http_operation, "headers") -> ()
+   | _ -> Alcotest.fail "expected Provider_timeout with Http_operation phase");
+  let back = Error_domain.to_sdk_error poly in
+  match back with
+  | Error.Api (Retry.Timeout { phase = Some Http_client.Http_operation; message }) ->
+    Alcotest.(check string) "message" "headers" message
+  | _ -> Alcotest.fail "roundtrip lost non-streaming timeout phase"
 ;;
 
 let test_roundtrip_provider_streaming_timeout () =
@@ -525,7 +541,7 @@ let test_retryable_provider_timeout () =
   Alcotest.(check bool)
     "provider_timeout retryable"
     true
-    (Error_domain.is_retryable (`Provider_timeout "3s"))
+    (Error_domain.is_retryable (`Provider_timeout (None, "3s")))
 ;;
 
 let test_retryable_streaming_timeout () =
@@ -709,7 +725,7 @@ let test_provider_roundtrip_all_via_to_sdk () =
     ; `Auth_error "x"
     ; `Server_error (500, "x")
     ; `Network_error "x"
-    ; `Provider_timeout "x"
+    ; `Provider_timeout (None, "x")
     ; `Streaming_timeout (Http_client.Stream_body, "x")
     ; `Overloaded
     ; `Invalid_request "x"
@@ -744,6 +760,10 @@ let () =
             "api timeout preserves phase"
             `Quick
             test_roundtrip_api_timeout_preserves_phase
+        ; Alcotest.test_case
+            "api timeout preserves non-streaming phase"
+            `Quick
+            test_roundtrip_api_timeout_preserves_non_streaming_phase
         ; Alcotest.test_case
             "provider streaming timeout"
             `Quick

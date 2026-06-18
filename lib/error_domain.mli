@@ -26,7 +26,7 @@ type provider_error =
   | `Auth_error of string
   | `Server_error of int * string (** status, message *)
   | `Network_error of string
-  | `Provider_timeout of string
+  | `Provider_timeout of Llm_provider.Http_client.timeout_phase option * string
   | `Streaming_timeout of Llm_provider.Http_client.timeout_phase * string
   | `Overloaded
   | `Invalid_request of string

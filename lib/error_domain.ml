@@ -8,7 +8,7 @@ type provider_error =
   | `Auth_error of string
   | `Server_error of int * string
   | `Network_error of string
-  | `Provider_timeout of string
+  | `Provider_timeout of Http_client.timeout_phase option * string
   | `Streaming_timeout of Http_client.timeout_phase * string
   | `Overloaded
   | `Invalid_request of string
@@ -86,7 +86,7 @@ let of_api_error (err : Retry.api_error) : provider_error =
     (match r.phase with
      | Some phase when is_streaming_timeout_phase phase ->
        `Streaming_timeout (phase, r.message)
-     | Some _ | None -> `Provider_timeout r.message)
+     | phase -> `Provider_timeout (phase, r.message))
   | Retry.Overloaded _ -> `Overloaded
   | Retry.InvalidRequest r -> `Invalid_request r.message
   | Retry.NotFound r -> `Not_found r.message
@@ -104,7 +104,7 @@ let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error
     (match r.timeout_phase with
      | Some phase when is_streaming_timeout_phase phase ->
        `Streaming_timeout (phase, r.detail)
-     | Some _ | None -> `Provider_timeout r.detail)
+     | phase -> `Provider_timeout (phase, r.detail))
   | Llm_provider.Error.CapacityExhausted _ -> `Overloaded
   | Llm_provider.Error.InvalidRequest r -> `Invalid_request r.reason
   | Llm_provider.Error.NotFound r -> `Not_found r.detail
@@ -158,7 +158,7 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Auth_error msg -> Error.Api (Retry.AuthError { message = msg })
   | `Server_error (status, msg) -> Error.Api (Retry.ServerError { status; message = msg })
   | `Network_error msg -> Error.Api (Retry.NetworkError { message = msg; kind = Unknown })
-  | `Provider_timeout msg -> Error.Api (Retry.Timeout { message = msg; phase = None })
+  | `Provider_timeout (phase, msg) -> Error.Api (Retry.Timeout { message = msg; phase })
   | `Streaming_timeout (phase, msg) ->
     Error.Provider
       (Llm_provider.Error.Timeout
