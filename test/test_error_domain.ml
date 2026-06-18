@@ -272,6 +272,23 @@ let test_roundtrip_api_timeout () =
   | _ -> Alcotest.fail "roundtrip mismatch for Timeout"
 ;;
 
+let test_roundtrip_api_timeout_preserves_phase () =
+  let orig =
+    Error.Api
+      (Retry.Timeout { message = "prefill"; phase = Some Http_client.First_token })
+  in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Streaming_timeout (Http_client.First_token, "prefill") -> ()
+   | _ -> Alcotest.fail "expected Streaming_timeout with First_token");
+  let back = Error_domain.to_sdk_error poly in
+  match back with
+  | Error.Provider
+      (Llm_provider.Error.Timeout { timeout_phase = Some Http_client.First_token; _ }) ->
+    ()
+  | _ -> Alcotest.fail "roundtrip lost timeout phase"
+;;
+
 let test_roundtrip_provider_streaming_timeout () =
   let orig =
     Error.Provider
@@ -723,6 +740,10 @@ let () =
         ; Alcotest.test_case "api server_error" `Quick test_roundtrip_api_server_error
         ; Alcotest.test_case "api network_error" `Quick test_roundtrip_api_network_error
         ; Alcotest.test_case "api timeout" `Quick test_roundtrip_api_timeout
+        ; Alcotest.test_case
+            "api timeout preserves phase"
+            `Quick
+            test_roundtrip_api_timeout_preserves_phase
         ; Alcotest.test_case
             "provider streaming timeout"
             `Quick

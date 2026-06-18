@@ -60,21 +60,6 @@ type sdk_error_poly =
   | `Internal of string
   ]
 
-(* ── Conversion from Error.sdk_error ────────────────────── *)
-
-let of_api_error (err : Retry.api_error) : provider_error =
-  match err with
-  | Retry.RateLimited r -> `Rate_limited r.retry_after
-  | Retry.AuthError r -> `Auth_error r.message
-  | Retry.ServerError r -> `Server_error (r.status, r.message)
-  | Retry.NetworkError r -> `Network_error r.message
-  | Retry.Timeout r -> `Provider_timeout r.message
-  | Retry.Overloaded _ -> `Overloaded
-  | Retry.InvalidRequest r -> `Invalid_request r.message
-  | Retry.NotFound r -> `Not_found r.message
-  | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
-;;
-
 let is_streaming_timeout_phase = function
   | Http_client.First_token | Http_client.Stream_body | Http_client.Stream_idle _ -> true
   | Http_client.Admission
@@ -87,6 +72,25 @@ let is_streaming_timeout_phase = function
   | Http_client.Cli_stdout_idle
   | Http_client.Caller_budget
   | Http_client.Unknown_timeout -> false
+;;
+
+(* ── Conversion from Error.sdk_error ────────────────────── *)
+
+let of_api_error (err : Retry.api_error) : provider_error =
+  match err with
+  | Retry.RateLimited r -> `Rate_limited r.retry_after
+  | Retry.AuthError r -> `Auth_error r.message
+  | Retry.ServerError r -> `Server_error (r.status, r.message)
+  | Retry.NetworkError r -> `Network_error r.message
+  | Retry.Timeout r ->
+    (match r.phase with
+     | Some phase when is_streaming_timeout_phase phase ->
+       `Streaming_timeout (phase, r.message)
+     | Some _ | None -> `Provider_timeout r.message)
+  | Retry.Overloaded _ -> `Overloaded
+  | Retry.InvalidRequest r -> `Invalid_request r.message
+  | Retry.NotFound r -> `Not_found r.message
+  | Retry.ContextOverflow r -> `Context_overflow (r.message, r.limit)
 ;;
 
 let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error =
