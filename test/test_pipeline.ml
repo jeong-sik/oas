@@ -852,7 +852,7 @@ let test_error_domain_provider_errors () =
     [ `Auth_error "bad key"
     ; `Server_error (500, "internal")
     ; `Overloaded
-    ; `Provider_timeout "slow"
+    ; `Provider_timeout (None, "slow")
     ; `Invalid_request "bad"
     ]
   in
