@@ -21,7 +21,9 @@ exception Cancelled
 type 'a future =
   { promise : ('a, Error.sdk_error) Result.t Eio.Promise.t
   ; resolver : ('a, Error.sdk_error) Result.t Eio.Promise.u
+  ; cancelled_u : unit Eio.Promise.u
   ; resolved : bool Atomic.t
+  ; cancel_sent : bool Atomic.t
   ; cancel_fn : (unit -> unit) option Atomic.t
   }
 
@@ -52,30 +54,36 @@ let run_agent_result ~sw ?clock agent prompt =
 
 let spawn ~sw ?clock agent prompt =
   let promise, resolver = Eio.Promise.create () in
+  let cancelled_p, cancelled_u = Eio.Promise.create () in
   let resolved = Atomic.make false in
-  let future = { promise; resolver; resolved; cancel_fn = Atomic.make None } in
+  let cancel_sent = Atomic.make false in
+  let future =
+    { promise; resolver; cancelled_u; resolved; cancel_sent; cancel_fn = Atomic.make None }
+  in
   Eio.Fiber.fork ~sw (fun () ->
     try
-      (* Run agent inside a sub-switch so cancel can terminate the fiber.
-         Eio.Switch.run creates an independent error domain — failing it
-         cancels all I/O (HTTP, DNS, etc.) within Agent.run. *)
+      (* Race the agent execution against an explicit cancellation signal.
+         If [cancel] is called before Agent.run starts, the cancellation
+         branch wins and Agent.run never starts, avoiding orphan fibers.
+         If Agent.run is already running, cancel_fn fails the sub-switch
+         and the cancellation branch wins once it exits. *)
       let result =
-        try
-          Eio.Switch.run (fun sub_sw ->
-            Atomic.set
-              future.cancel_fn
-              (Some (fun () -> Eio.Switch.fail sub_sw Cancelled));
-            Fun.protect
-              (fun () -> Agent.run ~sw:sub_sw ?clock agent prompt)
-              ~finally:(fun () -> Atomic.set future.cancel_fn None))
-        with
-        | Cancelled -> Error (Error.Internal "cancelled")
-        | Eio.Cancel.Cancelled _ as e -> raise e
-        | Raw_trace.Trace_error e -> Error e
-        | Out_of_memory -> raise Out_of_memory
-        | Stack_overflow -> raise Stack_overflow
-        | Stdlib.Sys.Break -> raise Stdlib.Sys.Break
-        | exn -> Error (internal_agent_exception exn)
+        Eio.Fiber.first
+          (fun () ->
+             try
+               Eio.Switch.run (fun sub_sw ->
+                 Atomic.set
+                   future.cancel_fn
+                   (Some (fun () -> Eio.Switch.fail sub_sw Cancelled));
+                 Fun.protect
+                   ~finally:(fun () -> Atomic.set future.cancel_fn None)
+                   (fun () -> run_agent_result ~sw:sub_sw ?clock agent prompt))
+             with
+             | Cancelled -> Error (Error.Internal "cancelled")
+             | Eio.Cancel.Cancelled _ -> Error (Error.Internal "cancelled"))
+          (fun () ->
+             Eio.Promise.await cancelled_p;
+             Error (Error.Internal "cancelled"))
       in
       resolve_once future result
     with
@@ -94,16 +102,22 @@ let is_ready future = Option.is_some (Eio.Promise.peek future.promise)
 (* ── Cancellation ─────────────────────────────────────────────── *)
 
 let cancel future =
-  (* Stop the fiber first, then resolve the future.
-     cancel_fn fails the sub-switch, which causes the fiber to exit
-     with Cancelled.  The fiber's own handler calls resolve_once,
-     but we call it again as a fallback (idempotent). *)
-  (match Atomic.exchange future.cancel_fn None with
-   | Some f ->
-     (try f () with
-      | Eio.Io _ | Unix.Unix_error _ | Failure _ -> ())
-   | None -> ());
-  resolve_once future (Error (Error.Internal "cancelled"))
+  (* Resolve the cancellation promise so the agent fiber exits. If the agent
+     fiber has not started Agent.run yet, Eio.Fiber.first will prefer the
+     cancellation branch. If it has started, cancel_fn fails the sub-switch.
+     We also resolve the future immediately to preserve the established
+     contract that [cancel] returns a ready future; resolve_once makes the
+     final result idempotent. *)
+  if Atomic.compare_and_set future.cancel_sent false true then begin
+    Eio.Promise.resolve future.cancelled_u ();
+    resolve_once future (Error (Error.Internal "cancelled"));
+    match Atomic.exchange future.cancel_fn None with
+    | Some f ->
+      (try f () with
+       | Eio.Cancel.Cancelled _ -> ()
+       | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ())
+    | None -> ()
+  end
 ;;
 
 (* ── Combinators ──────────────────────────────────────────────── *)
