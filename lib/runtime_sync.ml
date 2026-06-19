@@ -1,6 +1,6 @@
-let schema_version_current = 1
-
 open Result_syntax
+
+let schema_version_current = 1
 
 type persistence_backend =
   | Browser_indexeddb
@@ -166,34 +166,36 @@ let assoc_field name fields =
 ;;
 
 let int_field name fields =
-  match assoc_field name fields with
-  | Ok (`Int value) -> Ok value
-  | Ok _ -> Error (Printf.sprintf "field %s must be an int" name)
-  | Error _ as err -> err
+  let* value = assoc_field name fields in
+  match value with
+  | `Int value -> Ok value
+  | _ -> Error (Printf.sprintf "field %s must be an int" name)
 ;;
 
 let string_field name fields =
-  match assoc_field name fields with
-  | Ok (`String value) -> Ok value
-  | Ok _ -> Error (Printf.sprintf "field %s must be a string" name)
-  | Error _ as err -> err
+  let* value = assoc_field name fields in
+  match value with
+  | `String value -> Ok value
+  | _ -> Error (Printf.sprintf "field %s must be a string" name)
 ;;
 
 let string_list_field name fields =
-  match assoc_field name fields with
-  | Ok (`List items) ->
-    items
-    |> List.fold_left
-         (fun acc item ->
-            let* rev = acc in
-            match item with
-            | `String value -> Ok (value :: rev)
-            | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null ->
-              Error (Printf.sprintf "field %s must contain only strings" name))
-         (Ok [])
-    |> Result.map List.rev
-  | Ok _ -> Error (Printf.sprintf "field %s must be a list" name)
-  | Error _ as err -> err
+  let* value = assoc_field name fields in
+  match value with
+  | `List items ->
+    let+ rev =
+      List.fold_left
+        (fun acc item ->
+           let* rev = acc in
+           match item with
+           | `String value -> Ok (value :: rev)
+           | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null ->
+             Error (Printf.sprintf "field %s must contain only strings" name))
+        (Ok [])
+        items
+    in
+    List.rev rev
+  | _ -> Error (Printf.sprintf "field %s must be a list" name)
 ;;
 
 let option_field name fields decode =
@@ -223,26 +225,27 @@ let event_record_of_yojson = function
     let* envelope_json = assoc_field "envelope" fields in
     let* envelope = Event_envelope.of_json envelope_json in
     let* event_json = assoc_field "event" fields in
-    (match Runtime.event_of_yojson event_json with
-     | Ok event -> Ok { envelope; event }
-     | Error detail -> Error detail)
+    let* event = Runtime.event_of_yojson event_json in
+    Ok { envelope; event }
   | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
     Error "runtime sync event record must be a JSON object"
 ;;
 
 let event_record_list_field name fields =
-  match assoc_field name fields with
-  | Ok (`List items) ->
-    items
-    |> List.fold_left
-         (fun acc item ->
-            let* rev = acc in
-            let* record = event_record_of_yojson item in
-            Ok (record :: rev))
-         (Ok [])
-    |> Result.map List.rev
-  | Ok _ -> Error (Printf.sprintf "field %s must be a list" name)
-  | Error _ as err -> err
+  let* value = assoc_field name fields in
+  match value with
+  | `List items ->
+    let+ rev =
+      List.fold_left
+        (fun acc item ->
+           let* rev = acc in
+           let* record = event_record_of_yojson item in
+           Ok (record :: rev))
+        (Ok [])
+        items
+    in
+    List.rev rev
+  | _ -> Error (Printf.sprintf "field %s must be a list" name)
 ;;
 
 let window_to_yojson window =
@@ -268,14 +271,11 @@ let validate_cursor_field field_name expected_stream_id (cursor : cursor) =
 ;;
 
 let validate_persistence = function
-  | None -> Ok ()
-  | Some persistence ->
-    if String.equal persistence.namespace ""
-    then Error "persistence namespace must not be empty"
-    else (
-      match persistence.max_window_events with
-      | Some value when value <= 0 -> Error "max_window_events must be positive"
-      | Some _ | None -> Ok ())
+  | Some persistence when String.equal persistence.namespace "" ->
+    Error "persistence namespace must not be empty"
+  | Some { max_window_events = Some value; _ } when value <= 0 ->
+    Error "max_window_events must be positive"
+  | _ -> Ok ()
 ;;
 
 let validate_event_order cursor next_cursor records =
@@ -323,16 +323,16 @@ let window_of_yojson = function
       Error (Printf.sprintf "unsupported runtime sync schema_version: %d" schema_version)
     else
       let* stream_id = string_field "stream_id" fields in
-      let* cursor_json = assoc_field "cursor" fields in
-      let* cursor = cursor_of_yojson cursor_json in
-      let* next_cursor_json = assoc_field "next_cursor" fields in
-      let* next_cursor = cursor_of_yojson next_cursor_json in
-      let* () = validate_cursor_field "cursor" stream_id cursor in
-      let* () = validate_cursor_field "next_cursor" stream_id next_cursor in
-      let* events = event_record_list_field "events" fields in
-      let* artifact_refs = string_list_field "artifact_refs" fields in
-      let* persistence = option_field "persistence" fields persistence_contract_of_json in
-      let* merge_policy =
+      let* cursor_json = assoc_field "cursor" fields
+      and* next_cursor_json = assoc_field "next_cursor" fields in
+      let* cursor = cursor_of_yojson cursor_json
+      and* next_cursor = cursor_of_yojson next_cursor_json in
+      let* () = validate_cursor_field "cursor" stream_id cursor
+      and* () = validate_cursor_field "next_cursor" stream_id next_cursor in
+      let* events = event_record_list_field "events" fields
+      and* artifact_refs = string_list_field "artifact_refs" fields
+      and* persistence = option_field "persistence" fields persistence_contract_of_json
+      and* merge_policy =
         match List.assoc_opt "merge_policy" fields with
         | None -> Ok Append_only
         | Some value -> merge_policy_of_json value
