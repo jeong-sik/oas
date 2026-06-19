@@ -8,6 +8,21 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.5](https://github.com/jeong-sik/oas/compare/v0.207.4...v0.207.5) (2026-06-19)
+
+
+### Bug Fixes
+
+* address review follow-ups from [#2023](https://github.com/jeong-sik/oas/issues/2023) ([#2125](https://github.com/jeong-sik/oas/issues/2125)) ([2271978](https://github.com/jeong-sik/oas/commit/22719783317b3130bc121cae56eb5626e48ce69b))
+* **async_agent:** eliminate cancel race and orphan fiber ([#2130](https://github.com/jeong-sik/oas/issues/2130)) ([dedc13a](https://github.com/jeong-sik/oas/commit/dedc13a975dcbe99502d0e7aaf933d9b5fb85960))
+* **durable_event:** correct FNV-1a operator precedence ([#2129](https://github.com/jeong-sik/oas/issues/2129)) ([545c23a](https://github.com/jeong-sik/oas/commit/545c23af938c2cf038705a2fb3236d9657645e14))
+* **eval_collector:** make counter updates fiber-safe with atomics ([#2135](https://github.com/jeong-sik/oas/issues/2135)) ([dd3d647](https://github.com/jeong-sik/oas/commit/dd3d6470aea56f35e1254fd7becbb1fef627bd7d))
+* **event_bus:** remove subscriber_count race and prevent blocking on cancelled subscriptions ([#2136](https://github.com/jeong-sik/oas/issues/2136)) ([9374370](https://github.com/jeong-sik/oas/commit/9374370c0c6fcd3d4f87f02f54562d5bd8114071))
+* **guardrail_tripwire:** avoid data race on shared violation ref ([#2133](https://github.com/jeong-sik/oas/issues/2133)) ([6dbe29f](https://github.com/jeong-sik/oas/commit/6dbe29ffe2bd58abb427de4a874febbf03fbface))
+* **otel_export:** propagate Eio.Cancel.Cancelled instead of retrying ([#2134](https://github.com/jeong-sik/oas/issues/2134)) ([e0fc325](https://github.com/jeong-sik/oas/commit/e0fc3254e7b044fa3c4916afcfaf95cbdf2beec3))
+* **provider_intf:** propagate Provider.resolve errors from of_config ([#2139](https://github.com/jeong-sik/oas/issues/2139)) ([ea4e3bb](https://github.com/jeong-sik/oas/commit/ea4e3bb52411b26bd4abec0570453702d325be5d))
+* **streaming:** add auth header and usage options to OpenAI-compatible stream ([#2131](https://github.com/jeong-sik/oas/issues/2131)) ([04254a9](https://github.com/jeong-sik/oas/commit/04254a98ac0c05767ce0e4be2d99dfaae0b76602))
+
 ## [0.207.4](https://github.com/jeong-sik/oas/compare/v0.207.3...v0.207.4) (2026-06-19)
 
 
