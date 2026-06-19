@@ -214,16 +214,16 @@ let tool_choice_of_json_opt json =
   match Yojson.Safe.Util.member "tool_choice" json with
   | `Null -> Ok None
   | value ->
-    let* tool_choice = Types.tool_choice_of_json value in
-    Ok (Some (Types.tool_choice_to_json tool_choice))
+    let+ tool_choice = Types.tool_choice_of_json value in
+    Some (Types.tool_choice_to_json tool_choice)
 ;;
 
 let evidence_role_of_json_opt json =
   match Yojson.Safe.Util.member "evidence_role" json with
   | `Null -> Ok None
   | `String value ->
-    let* role = evidence_role_of_string value in
-    Ok (Some role)
+    let+ role = evidence_role_of_string value in
+    Some role
   | (`Assoc _ | `List _ | `Bool _ | `Int _ | `Intlit _ | `Float _) as value ->
     Error
       (Error.Serialization
@@ -343,10 +343,9 @@ let read_all ~path () =
     record_of_json json)
   |> List.fold_left
        (fun acc item ->
-          match acc, item with
-          | Ok records, Ok record -> Ok (record :: records)
-          | (Error _ as err), _ -> err
-          | _, (Error _ as err) -> err)
+          let* records = acc in
+          let* record = item in
+          Ok (record :: records))
        (Ok [])
   |> Result.map List.rev
 ;;
@@ -476,14 +475,11 @@ let append_record
       ; error = Option.map maybe_redact_string error
       }
     in
-    let result = append_locked active.sink record in
-    (match result with
-     | Ok () ->
-       active.sink.next_seq <- seq + 1;
-       if active.start_seq = 0 then active.start_seq <- seq;
-       active.end_seq <- max active.end_seq seq
-     | Error _ -> ());
-    Result.map (fun () -> seq) result)
+    let* () = append_locked active.sink record in
+    active.sink.next_seq <- seq + 1;
+    if active.start_seq = 0 then active.start_seq <- seq;
+    active.end_seq <- max active.end_seq seq;
+    Ok seq)
 ;;
 
 let start_run
@@ -510,7 +506,7 @@ let start_run
     ; redact_secrets = sink.redact_secrets
     }
   in
-  let result =
+  let+ _ =
     append_record
       active
       ~record_type:Run_started
@@ -522,9 +518,7 @@ let start_run
       ?thinking_budget
       ()
   in
-  match result with
-  | Ok _ -> Ok active
-  | Error _ as err -> err
+  active
 ;;
 
 let record_assistant_block active ~block_index block =
@@ -606,9 +600,8 @@ let finish_run
       ~(stop_reason : string option)
       ~(error : string option)
   =
-  let* () =
+  let* _ =
     append_record active ~record_type:Run_finished ?final_text ?stop_reason ?error ()
-    |> Result.map (fun _ -> ())
   in
   let run_ref =
     { worker_run_id = active.worker_run_id
