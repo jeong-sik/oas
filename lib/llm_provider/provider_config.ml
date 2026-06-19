@@ -473,7 +473,9 @@ let%test "validate_output_schema_request: Ollama Cloud accepts json_schema" =
   validate_output_schema_request config = Ok ()
 ;;
 
-let%test "validate_output_schema_request: unknown OpenAI-compatible host rejects json_schema" =
+let%test
+    "validate_output_schema_request: unknown OpenAI-compatible host rejects json_schema"
+  =
   let config =
     make
       ~kind:OpenAI_compat

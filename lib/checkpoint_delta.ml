@@ -1,4 +1,5 @@
 open Checkpoint_types
+open Result_syntax
 
 let _log = Log.create ~module_name:"checkpoint" ()
 let checkpoint_version = Checkpoint_types.checkpoint_version
@@ -243,8 +244,8 @@ let apply_delta base delta =
           }
       | Replace_system_prompt system_prompt -> Ok { checkpoint with system_prompt }
       | Splice_messages splice ->
-        apply_message_splice checkpoint.messages splice
-        |> Result.map (fun messages -> { checkpoint with messages })
+        let+ messages = apply_message_splice checkpoint.messages splice in
+        { checkpoint with messages }
       | Replace_usage usage -> Ok { checkpoint with usage }
       | Replace_turn_count turn_count -> Ok { checkpoint with turn_count }
       | Replace_tools tools -> Ok { checkpoint with tools }
@@ -273,19 +274,19 @@ let apply_delta base delta =
       | Replace_working_context working_context -> Ok { checkpoint with working_context }
     in
     let initial = { base with context = Context.copy base.context } in
-    let result =
+    let* checkpoint =
       List.fold_left
-        (fun acc op -> Result.bind acc (fun checkpoint -> apply_op checkpoint op))
+        (fun acc op ->
+           let* checkpoint = acc in
+           apply_op checkpoint op)
         (Ok initial)
         delta.operations
     in
-    Result.bind result (fun checkpoint ->
-      if Checkpoint_codec.checkpoint_hash checkpoint <> delta.result_checkpoint_hash
-      then
-        Error
-          (Error.Io
-             (ValidationFailed { detail = "Checkpoint.delta result hash mismatch" }))
-      else Ok checkpoint))
+    if Checkpoint_codec.checkpoint_hash checkpoint <> delta.result_checkpoint_hash
+    then
+      Error
+        (Error.Io (ValidationFailed { detail = "Checkpoint.delta result hash mismatch" }))
+    else Ok checkpoint)
 ;;
 
 let restore_with_delta_fallback ?metrics ~base ~delta ~full_checkpoint () =
