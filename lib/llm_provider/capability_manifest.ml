@@ -39,6 +39,9 @@ type entry =
 (** A parsed capability manifest. *)
 type t = entry list
 
+let ( let* ) = Result.bind
+let ( let+ ) x f = Result.map f x
+
 (* ── JSON parsing helpers ───────────────────────────────── *)
 
 let json_kind = function
@@ -148,92 +151,80 @@ let reject_unknown_keys ~scope ~known json =
 ;;
 
 let parse_entry json =
-  match reject_unknown_keys ~scope:"entry" ~known:known_entry_keys json with
-  | Error _ as error -> error
-  | Ok () ->
-    (match member_string_opt "id_prefix" json with
-     | None -> Error "entry missing required \"id_prefix\" field"
-     | Some id_prefix ->
-       Ok
-         { id_prefix
-         ; base_label = member_string_opt "base" json
-         ; max_context_tokens = member_int "max_context_tokens" json
-         ; max_output_tokens = member_int "max_output_tokens" json
-         ; supports_tools = member_bool "supports_tools" json
-         ; supports_tool_choice = member_bool "supports_tool_choice" json
-         ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
-         ; supports_reasoning = member_bool "supports_reasoning" json
-         ; supports_extended_thinking = member_bool "supports_extended_thinking" json
-         ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
-         ; supports_response_format_json =
-             member_bool "supports_response_format_json" json
-         ; supports_structured_output = member_bool "supports_structured_output" json
-         ; supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json
-         ; supports_image_input = member_bool "supports_image_input" json
-         ; supports_audio_input = member_bool "supports_audio_input" json
-         ; supports_video_input = member_bool "supports_video_input" json
-         ; supports_native_streaming = member_bool "supports_native_streaming" json
-         ; supports_system_prompt = member_bool "supports_system_prompt" json
-         ; supports_caching = member_bool "supports_caching" json
-         ; supports_prompt_caching = member_bool "supports_prompt_caching" json
-         ; supports_top_k = member_bool "supports_top_k" json
-         ; supports_min_p = member_bool "supports_min_p" json
-         ; supports_seed = member_bool "supports_seed" json
-         ; supports_computer_use = member_bool "supports_computer_use" json
-         ; supports_code_execution = member_bool "supports_code_execution" json
-         ; thinking_control_format = member_string_opt "thinking_control_format" json
-         })
+  let* () = reject_unknown_keys ~scope:"entry" ~known:known_entry_keys json in
+  let+ id_prefix =
+    match member_string_opt "id_prefix" json with
+    | Some id_prefix -> Ok id_prefix
+    | None -> Error "entry missing required \"id_prefix\" field"
+  in
+  { id_prefix
+  ; base_label = member_string_opt "base" json
+  ; max_context_tokens = member_int "max_context_tokens" json
+  ; max_output_tokens = member_int "max_output_tokens" json
+  ; supports_tools = member_bool "supports_tools" json
+  ; supports_tool_choice = member_bool "supports_tool_choice" json
+  ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
+  ; supports_reasoning = member_bool "supports_reasoning" json
+  ; supports_extended_thinking = member_bool "supports_extended_thinking" json
+  ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
+  ; supports_response_format_json = member_bool "supports_response_format_json" json
+  ; supports_structured_output = member_bool "supports_structured_output" json
+  ; supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json
+  ; supports_image_input = member_bool "supports_image_input" json
+  ; supports_audio_input = member_bool "supports_audio_input" json
+  ; supports_video_input = member_bool "supports_video_input" json
+  ; supports_native_streaming = member_bool "supports_native_streaming" json
+  ; supports_system_prompt = member_bool "supports_system_prompt" json
+  ; supports_caching = member_bool "supports_caching" json
+  ; supports_prompt_caching = member_bool "supports_prompt_caching" json
+  ; supports_top_k = member_bool "supports_top_k" json
+  ; supports_min_p = member_bool "supports_min_p" json
+  ; supports_seed = member_bool "supports_seed" json
+  ; supports_computer_use = member_bool "supports_computer_use" json
+  ; supports_code_execution = member_bool "supports_code_execution" json
+  ; thinking_control_format = member_string_opt "thinking_control_format" json
+  }
 ;;
 
 let of_json json =
-  match reject_unknown_keys ~scope:"manifest" ~known:known_manifest_keys json with
-  | Error _ as error -> error
-  | Ok () ->
-    let schema_version =
-      match Yojson.Safe.Util.member "schema_version" json with
-      | `Int n -> n
-      | _ -> 0
+  let* () = reject_unknown_keys ~scope:"manifest" ~known:known_manifest_keys json in
+  let schema_version =
+    match Yojson.Safe.Util.member "schema_version" json with
+    | `Int n -> n
+    | _ -> 0
+  in
+  if schema_version <> 1
+  then
+    Error
+      (Printf.sprintf
+         "unsupported capability manifest schema_version: %d (expected 1)"
+         schema_version)
+  else (
+    let model_items =
+      match Yojson.Safe.Util.member "models" json with
+      | `List items -> items
+      | _ -> []
     in
-    if schema_version <> 1
-    then
-      Error
-        (Printf.sprintf
-           "unsupported capability manifest schema_version: %d (expected 1)"
-           schema_version)
-    else (
-      let model_items =
-        match Yojson.Safe.Util.member "models" json with
-        | `List items -> items
-        | _ -> []
-      in
-      let results = List.map parse_entry model_items in
-      let errors =
-        List.filter_map
-          (function
-            | Error e -> Some e
-            | Ok _ -> None)
-          results
-      in
-      if errors <> []
-      then Error (String.concat "; " errors)
-      else
-        Ok
-          (List.filter_map
-             (function
-               | Ok e -> Some e
-               | Error _ -> None)
-             results))
+    let results = List.map parse_entry model_items in
+    let oks, errors =
+      List.partition_map
+        (function
+          | Ok e -> Left e
+          | Error e -> Right e)
+        results
+    in
+    if errors <> [] then Error (String.concat "; " errors) else Ok oks)
 ;;
 
 let load_file path =
-  let read_result =
+  let* json =
     try Ok (Yojson.Safe.from_file path) with
     | Sys_error msg ->
       Error (Printf.sprintf "cannot read capability manifest %s: %s" path msg)
     | Yojson.Json_error msg ->
       Error (Printf.sprintf "capability manifest JSON parse error in %s: %s" path msg)
   in
-  Result.bind read_result of_json
+  of_json json
 ;;
 
 let load_runtime_file path =
