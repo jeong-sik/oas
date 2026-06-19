@@ -26,6 +26,8 @@ type strategy =
       ; always_include : string list
       }
 
+exception Unsupported_configuration of string
+
 (* ── Helpers ─────────────────────────────────────────────── *)
 
 (** Build a set of selected names, deduplicating.
@@ -215,7 +217,7 @@ let select ~strategy ~context ~tools =
     (* Phase 3: LLM-based categorical classification not yet implemented.
        Fail explicitly so callers know the configuration is unsupported
        rather than silently receiving an empty tool set. *)
-    raise (Invalid_argument "Categorical LLM classifier not implemented")
+    raise (Unsupported_configuration "Categorical LLM classifier not implemented")
   | Categorical { groups; classifier = `Bm25; always_include } ->
     (* BM25 categorical: build index from group names + tool names,
        find matching groups, expose all tools in those groups. *)

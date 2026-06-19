@@ -418,33 +418,27 @@ let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
 (* ── Categorical LLM stub ───────────────────────── *)
 
 let expected_unimplemented_error =
-  Invalid_argument "Categorical LLM classifier not implemented"
+  Tool_selector.Unsupported_configuration "Categorical LLM classifier not implemented"
 ;;
 
 let test_categorical_llm_unimplemented_raises () =
-  check_raises
-    "raises Invalid_argument"
-    expected_unimplemented_error
-    (fun () ->
-       ignore
-         (Tool_selector.select
-            ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
-            ~context:"q"
-            ~tools:tools_5))
+  check_raises "raises Unsupported_configuration" expected_unimplemented_error (fun () ->
+    ignore
+      (Tool_selector.select
+         ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
+         ~context:"q"
+         ~tools:tools_5))
 ;;
 
 let test_categorical_llm_unimplemented_raises_with_index () =
   let index = Tool_index.of_tools tools_5 in
-  check_raises
-    "raises Invalid_argument"
-    expected_unimplemented_error
-    (fun () ->
-       ignore
-         (Tool_selector.select_with_index
-            ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
-            ~index
-            ~context:"q"
-            ~tools:tools_5))
+  check_raises "raises Unsupported_configuration" expected_unimplemented_error (fun () ->
+    ignore
+      (Tool_selector.select_with_index
+         ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
+         ~index
+         ~context:"q"
+         ~tools:tools_5))
 ;;
 
 (* ── Confidence threshold ───────────────────────── *)
@@ -620,11 +614,11 @@ let () =
         ] )
     ; ( "stubs"
       , [ test_case
-            "Categorical Llm raises Invalid_argument"
+            "Categorical Llm raises Unsupported_configuration"
             `Quick
             test_categorical_llm_unimplemented_raises
         ; test_case
-            "Categorical Llm raises Invalid_argument with index"
+            "Categorical Llm raises Unsupported_configuration with index"
             `Quick
             test_categorical_llm_unimplemented_raises_with_index
         ] )
