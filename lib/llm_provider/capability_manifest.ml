@@ -199,7 +199,7 @@ let of_json json =
       (Printf.sprintf
          "unsupported capability manifest schema_version: %d (expected 1)"
          schema_version)
-  else (
+  else
     let* model_items =
       match Yojson.Safe.Util.member "models" json with
       | `List items -> Ok items
@@ -218,7 +218,7 @@ let of_json json =
           | Error e -> Right e)
         results
     in
-    if errors <> [] then Error (String.concat "; " errors) else Ok oks)
+    if errors <> [] then Error (String.concat "; " errors) else Ok oks
 ;;
 
 let load_file path =
