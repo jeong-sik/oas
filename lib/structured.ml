@@ -58,14 +58,20 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
         | ToolResult _ -> None)
       content
   in
-  match found with
-  | Some json ->
-    schema.parse json
-    |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
-  | None ->
-    Error
-      (Error.Internal
-         (Printf.sprintf "No tool_use block for '%s' in response" schema.name))
+  let* json =
+    found
+    |> Option.to_result
+         ~none:
+           (Error.Internal
+              (Printf.sprintf "No tool_use block for '%s' in response" schema.name))
+  in
+  schema.parse json
+  |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
+;;
+
+let parse_json_string text =
+  try Ok (Yojson.Safe.from_string text) with
+  | Yojson.Json_error detail -> Error detail
 ;;
 
 (** Extract structured output from the response text JSON. *)
@@ -84,13 +90,13 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
       (Error.Serialization
          (JsonParseError
             { detail = "structured output response did not contain text JSON" }))
-  else (
-    try
-      let json = Yojson.Safe.from_string text in
-      schema.parse json
-      |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
-    with
-    | Yojson.Json_error detail -> Error (Error.Serialization (JsonParseError { detail })))
+  else
+    let* json =
+      parse_json_string text
+      |> Result.map_error (fun detail -> Error.Serialization (JsonParseError { detail }))
+    in
+    schema.parse json
+    |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
 ;;
 
 let sdk_error_of_http_error = function
@@ -156,28 +162,38 @@ let schema_extractor (schema : 'a schema) : 'a extractor =
 
 (* NOTE: keep [json_extractor] / [text_extractor] for callers who parse
    free-form responses themselves. *)
+let try_parse f x =
+  try Ok (f x) with
+  | Yojson.Json_error e -> Error (Printf.sprintf "JSON parse: %s" e)
+  | Yojson.Safe.Util.Type_error (msg, _) -> Error (Printf.sprintf "JSON type: %s" msg)
+  | Failure msg -> Error (Printf.sprintf "parse failure: %s" msg)
+;;
+
 let json_extractor (parse : Yojson.Safe.t -> 'a) : 'a extractor =
   fun resp ->
   let texts = List.filter_map text_block resp.content in
-  match texts with
-  | [] -> Error "no text content in response"
-  | text :: _ ->
-    (try Ok (parse (Yojson.Safe.from_string text)) with
-     | Yojson.Json_error e -> Error (Printf.sprintf "JSON parse: %s" e)
-     | Yojson.Safe.Util.Type_error (msg, _) -> Error (Printf.sprintf "JSON type: %s" msg)
-     | Failure msg -> Error (Printf.sprintf "parse failure: %s" msg))
+  let* text =
+    match texts with
+    | [] -> Error "no text content in response"
+    | text :: _ -> Ok text
+  in
+  let* json =
+    parse_json_string text
+    |> Result.map_error (fun e -> Printf.sprintf "JSON parse: %s" e)
+  in
+  try_parse parse json
 ;;
 
 (** Extract a value from the first text block using a string parser. *)
 let text_extractor (parse : string -> 'a option) : 'a extractor =
   fun resp ->
   let texts = List.filter_map text_block resp.content in
-  match texts with
-  | [] -> Error "no text content in response"
-  | text :: _ ->
-    (match parse text with
-     | Some v -> Ok v
-     | None -> Error "text extractor returned None")
+  let* text =
+    match texts with
+    | [] -> Error "no text content in response"
+    | text :: _ -> Ok text
+  in
+  parse text |> Option.to_result ~none:"text extractor returned None"
 ;;
 
 (** Run an agent with a prompt and extract a structured value from the response.
