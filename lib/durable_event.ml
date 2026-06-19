@@ -120,7 +120,10 @@ let length journal =
 let fnv1a_hash (s : string) : int =
   let basis = 0x811c9dc5 in
   let prime = 0x01000193 in
-  String.fold_left (fun h c -> h lxor Char.code c * prime) basis s
+  (* FNV-1a: XOR the hash with the byte first, then multiply by the prime.
+     Parentheses are required because [*] binds tighter than [lxor] in OCaml.
+     See https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function *)
+  String.fold_left (fun h c -> (h lxor Char.code c) * prime) basis s
   land max_int (* ensure positive, 63-bit on 64-bit OCaml *)
 ;;
 
