@@ -14,9 +14,9 @@ type t =
   { collector : Eval.collector
   ; sub : Event_bus.subscription
   ; bus : Event_bus.t
-  ; mutable turn_count : int
-  ; mutable tool_calls : int
-  ; mutable tool_completions : int
+  ; turn_count : int Atomic.t
+  ; tool_calls : int Atomic.t
+  ; tool_completions : int Atomic.t
   ; start_time : float
   }
 
@@ -26,9 +26,9 @@ let wrap_run ~bus ~agent_name ~run_id () =
   { collector
   ; sub
   ; bus
-  ; turn_count = 0
-  ; tool_calls = 0
-  ; tool_completions = 0
+  ; turn_count = Atomic.make 0
+  ; tool_calls = Atomic.make 0
+  ; tool_completions = Atomic.make 0
   ; start_time = Unix.gettimeofday ()
   }
 ;;
@@ -38,9 +38,9 @@ let process_events t =
   List.iter
     (fun (event : Event_bus.event) ->
        match event.payload with
-       | TurnStarted _ -> t.turn_count <- t.turn_count + 1
-       | ToolCalled _ -> t.tool_calls <- t.tool_calls + 1
-       | ToolCompleted _ -> t.tool_completions <- t.tool_completions + 1
+       | TurnStarted _ -> ignore (Atomic.fetch_and_add t.turn_count 1 : int)
+       | ToolCalled _ -> ignore (Atomic.fetch_and_add t.tool_calls 1 : int)
+       | ToolCompleted _ -> ignore (Atomic.fetch_and_add t.tool_completions 1 : int)
        | AgentCompleted r ->
          Eval.record
            t.collector
@@ -105,14 +105,22 @@ let finalize t =
   (* Record aggregated metrics *)
   Eval.record
     t.collector
-    { name = "turn_count"; value = Int_val t.turn_count; unit_ = None; tags = [] };
+    { name = "turn_count"
+    ; value = Int_val (Atomic.get t.turn_count)
+    ; unit_ = None
+    ; tags = []
+    };
   Eval.record
     t.collector
-    { name = "tool_calls"; value = Int_val t.tool_calls; unit_ = None; tags = [] };
+    { name = "tool_calls"
+    ; value = Int_val (Atomic.get t.tool_calls)
+    ; unit_ = None
+    ; tags = []
+    };
   Eval.record
     t.collector
     { name = "tool_completions"
-    ; value = Int_val t.tool_completions
+    ; value = Int_val (Atomic.get t.tool_completions)
     ; unit_ = None
     ; tags = []
     };
