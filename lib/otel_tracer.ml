@@ -441,32 +441,44 @@ let metric_type_to_string = function
 
 (* -- Global instance (backward compat) -------------------------------- *)
 
-let _global : instance =
-  { config = default_config
-  ; mu = Stdlib_mu (Mutex.create ())
-  ; fiber_key = None
-  ; current_spans = []
-  ; completed_spans = []
-  ; metrics = []
-  }
+(* The global tracer is lazy so that environment-sensitive configuration is
+   captured on first use, and so the fiber-local key is only allocated when
+   needed.  Using a fiber-local key makes the global API safe for concurrent
+   Eio fibers: each fiber gets its own span stack instead of sharing the
+   instance-wide [current_spans]. *)
+let _global : instance lazy_t =
+  lazy
+    (let endpoint = Sys.getenv_opt "OTEL_EXPORTER_OTLP_ENDPOINT" in
+     { config = { service_name = "agent-sdk"; endpoint }
+     ; mu = Stdlib_mu (Mutex.create ())
+     ; fiber_key = Some (Eio.Fiber.create_key ())
+     ; current_spans = []
+     ; completed_spans = []
+     ; metrics = []
+     })
 ;;
 
-let start_span attrs = inst_start_span _global attrs
-let end_span s ~ok = inst_end_span _global s ~ok
-let add_event s msg = inst_add_event _global s msg
-let add_attrs s attrs = inst_add_attrs _global s attrs
-let add_link s ~trace_id ~span_id = inst_add_link _global s ~trace_id ~span_id
-let flush () = inst_flush _global
-let reset () = inst_reset _global
-let completed_count () = inst_completed_count _global
-let active_count () = inst_active_count _global
+let start_span attrs = inst_start_span (Lazy.force _global) attrs
+let end_span s ~ok = inst_end_span (Lazy.force _global) s ~ok
+let add_event s msg = inst_add_event (Lazy.force _global) s msg
+let add_attrs s attrs = inst_add_attrs (Lazy.force _global) s attrs
+
+let add_link s ~trace_id ~span_id =
+  inst_add_link (Lazy.force _global) s ~trace_id ~span_id
+;;
+
+let flush () = inst_flush (Lazy.force _global)
+let reset () = inst_reset (Lazy.force _global)
+let completed_count () = inst_completed_count (Lazy.force _global)
+let active_count () = inst_active_count (Lazy.force _global)
 
 let record_metric ~name ~value ~metric_type =
-  inst_record_metric _global ~name ~value ~metric_type
+  inst_record_metric (Lazy.force _global) ~name ~value ~metric_type
 ;;
 
-let get_metrics () = inst_get_metrics _global
-let clear_metrics () = inst_clear_metrics _global
+let get_metrics () = inst_get_metrics (Lazy.force _global)
+let clear_metrics () = inst_clear_metrics (Lazy.force _global)
+let current_span () = inst_current_span (Lazy.force _global)
 
 (* -- JSON export ------------------------------------------------------ *)
 
@@ -557,9 +569,10 @@ let metric_entry_to_json (m : metric_entry) : Yojson.Safe.t =
 ;;
 
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
+  let global = Lazy.force _global in
   let spans, metrics =
-    inst_with_lock _global (fun () ->
-      List.rev _global.completed_spans, List.rev _global.metrics)
+    inst_with_lock global (fun () ->
+      List.rev global.completed_spans, List.rev global.metrics)
   in
   let resource =
     `Assoc [ "attributes", attrs_to_json [ "service.name", cfg.service_name ] ]
@@ -669,6 +682,11 @@ let tracer_of_instance inst : Tracing.t =
            raise exn)
     ;;
   end)
+;;
+
+let with_span attrs f =
+  let module T = (val tracer_of_instance (Lazy.force _global)) in
+  T.with_span attrs f
 ;;
 
 (* -- First-class module constructors ---------------------------------- *)
