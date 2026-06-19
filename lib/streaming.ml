@@ -332,10 +332,15 @@ let create_message_stream
                      }))))
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
+       let auth_headers =
+         Provider.auth_headers_only_for_kind
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~api_key
+       in
        let headers =
          match Provider.resolve provider_cfg with
-         | Ok (_, _, h) -> h
-         | Error _ -> [ "Content-Type", "application/json" ]
+         | Ok (_, _, h) -> h @ auth_headers
+         | Error _ -> [ "Content-Type", "application/json" ] @ auth_headers
        in
        let stream_path = Provider.request_path provider_cfg.provider in
        let body =
@@ -345,7 +350,7 @@ let create_message_stream
            ~messages
            ?tools
            ()
-         |> Llm_provider.Http_client.inject_stream_param
+         |> Llm_provider.Http_client.inject_stream_and_options
        in
        let url = base_url ^ stream_path in
        (match
