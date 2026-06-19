@@ -346,8 +346,12 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
 
 let openai_host_supports_output_schema base_url =
   match Uri.of_string base_url |> Uri.host with
-  | Some host -> String.lowercase_ascii host = "api.openai.com"
   | None -> false
+  | Some host ->
+    let host = String.lowercase_ascii host in
+    String.equal host "api.openai.com"
+    || String.equal host "ollama.com"
+    || String.ends_with ~suffix:".ollama.com" host
 ;;
 
 (** A native-schema request is in effect when either field carries one.
@@ -441,6 +445,47 @@ let is_local (config : t) =
   let url = String.lowercase_ascii (String.trim config.base_url) in
   has_host_prefix ~url ~prefix:Constants.Endpoints.local_prefix
   || has_host_prefix ~url ~prefix:Constants.Endpoints.localhost_prefix
+;;
+
+let%test "validate_output_schema_request: OpenAI official host accepts json_schema" =
+  let config =
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-4o"
+      ~base_url:"https://api.openai.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  validate_output_schema_request config = Ok ()
+;;
+
+let%test "validate_output_schema_request: Ollama Cloud accepts json_schema" =
+  let config =
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"minimax-m3"
+      ~base_url:"https://ollama.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  validate_output_schema_request config = Ok ()
+;;
+
+let%test "validate_output_schema_request: unknown OpenAI-compatible host rejects json_schema" =
+  let config =
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"generic"
+      ~base_url:"https://openai-compatible.example.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match validate_output_schema_request config with
+  | Error _ -> true
+  | Ok () -> false
 ;;
 
 (* ── Inline tests ────────────────────────────────────── *)
