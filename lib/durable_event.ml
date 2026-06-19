@@ -116,7 +116,19 @@ let length journal =
 (** Stable idempotency key using FNV-1a hash for better distribution.
     Not cryptographic, but sufficient for deduplication within a single
     journal. Collisions are theoretically possible but practically
-    unlikely for distinct tool inputs. *)
+    unlikely for distinct tool inputs.
+
+    Stability scope: the result is stable only for a fixed build. The
+    derived [idempotency_key] is persisted in the JSONL journal
+    ([save_to_file]) and compared by equality during replay
+    ([load_from_file] then [find_completed_activity]). Any change to this
+    function — including this FNV-1a precedence correction — shifts every
+    key, so a journal written by an older build and replayed by a newer
+    one misses the dedup lookup and re-runs the matching tool once. This
+    is within best-effort, within-build deduplication; cross-build
+    idempotency would instead require versioning the key (e.g. prefixing
+    it with a hash-algorithm tag) rather than relying on raw hash
+    stability. *)
 let fnv1a_hash (s : string) : int =
   let basis = 0x811c9dc5 in
   let prime = 0x01000193 in
