@@ -731,6 +731,41 @@ let for_model_id model_id =
      | None -> for_model_id_catalog model_id)
 ;;
 
+let starts_with ~prefix s =
+  String.length s >= String.length prefix
+  && String.sub s 0 (String.length prefix) = prefix
+;;
+
+let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string) =
+  let provider_label = String.lowercase_ascii (String.trim provider_label) in
+  let model_id = String.trim model_id in
+  let candidates = [ provider_label ^ "/" ^ model_id; provider_label ^ ":" ^ model_id ] in
+  let qualified_prefixes = [ provider_label ^ "/"; provider_label ^ ":" ] in
+  match Model_catalog.global () with
+  | None -> None
+  | Some catalog ->
+    let rec loop = function
+      | [] -> None
+      | candidate :: rest ->
+        (match Model_catalog.lookup catalog candidate with
+         | Some entry
+           when List.exists
+                  (fun prefix ->
+                     starts_with
+                       ~prefix
+                       (String.lowercase_ascii (String.trim entry.id_prefix)))
+                  qualified_prefixes -> Some (apply_catalog_entry entry)
+         | Some _ | None -> loop rest)
+    in
+    loop candidates
+;;
+
+let for_provider_model_id ~(provider_label : string) ~(model_id : string) =
+  match for_provider_model_id_catalog ~provider_label ~model_id with
+  | Some _ as caps -> caps
+  | None -> for_model_id model_id
+;;
+
 [@@@coverage off]
 
 let%test "for_model_id glm-4.5 has reasoning" =

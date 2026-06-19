@@ -402,6 +402,97 @@ let test_lookup_glm_ocr () =
   | None -> fail "should match glm-ocr"
 ;;
 
+let test_ollama_cloud_current_catalog_resolves () =
+  let cases =
+    [ "deepseek-v4-pro", 524_288, false
+    ; "minimax-m2.1", 204_800, false
+    ; "minimax-m2.5", 196_608, false
+    ; "qwen3.5:397b", 262_144, true
+    ; "deepseek-v3.1:671b", 163_840, false
+    ; "nemotron-3-nano:30b", 262_144, false
+    ; "devstral-2:123b", 262_144, false
+    ; "gemma3:12b", 131_072, true
+    ; "rnj-1:8b", 32_768, false
+    ; "nemotron-3-ultra", 262_144, false
+    ; "qwen3-coder:480b", 262_144, false
+    ; "devstral-small-2:24b", 262_144, true
+    ; "gemini-3-flash-preview", 1_048_576, true
+    ; "gemma4:31b", 262_144, true
+    ; "kimi-k2.5", 262_144, true
+    ; "kimi-k2.7-code", 262_144, true
+    ; "gpt-oss:20b", 131_072, false
+    ; "gemma3:27b", 131_072, true
+    ; "kimi-k2.6", 262_144, true
+    ; "deepseek-v3.2", 163_840, false
+    ; "mistral-large-3:675b", 262_144, true
+    ; "glm-5.1", 202_752, false
+    ; "glm-5.2", 1_000_000, false
+    ; "gpt-oss:120b", 131_072, false
+    ; "minimax-m3", 524_288, true
+    ; "ministral-3:3b", 262_144, true
+    ; "glm-5", 202_752, false
+    ; "qwen3-coder-next", 262_144, false
+    ; "minimax-m2.7", 196_608, false
+    ; "ministral-3:8b", 262_144, true
+    ; "deepseek-v4-flash", 1_048_576, false
+    ; "ministral-3:14b", 262_144, true
+    ; "gemma3:4b", 131_072, true
+    ; "nemotron-3-super", 262_144, false
+    ; "glm-4.7", 202_752, false
+    ]
+  in
+  List.iter
+    (fun (model_id, context, vision) ->
+       match
+         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+       with
+       | None -> failf "ollama_cloud/%s should resolve" model_id
+       | Some c ->
+         check (option int) (model_id ^ " context") (Some context) c.max_context_tokens;
+         check bool (model_id ^ " vision") vision c.supports_image_input;
+         check bool (model_id ^ " multimodal") vision c.supports_multimodal_inputs)
+    cases
+;;
+
+let test_ollama_cloud_provider_qualified_overrides_bare_family () =
+  let open Capabilities in
+  let bare_glm =
+    match for_model_id "glm-5.1" with
+    | Some c -> c
+    | None -> fail "bare glm-5.1 should resolve"
+  in
+  let cloud_glm =
+    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"glm-5.1" with
+    | Some c -> c
+    | None -> fail "ollama_cloud/glm-5.1 should resolve"
+  in
+  check (option int) "bare GLM context" (Some 200_000) bare_glm.max_context_tokens;
+  check (option int) "cloud GLM context" (Some 202_752) cloud_glm.max_context_tokens;
+  check_thinking_control
+    "cloud GLM uses Ollama reasoning_effort"
+    Reasoning_effort
+    cloud_glm.thinking_control_format;
+  let bare_kimi =
+    match for_model_id "kimi-k2.6" with
+    | Some c -> c
+    | None -> fail "bare kimi-k2.6 should resolve"
+  in
+  let cloud_kimi =
+    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"kimi-k2.6" with
+    | Some c -> c
+    | None -> fail "ollama_cloud/kimi-k2.6 should resolve"
+  in
+  check_thinking_control
+    "bare Kimi keeps Kimi dialect"
+    Thinking_object_only
+    bare_kimi.thinking_control_format;
+  check_thinking_control
+    "cloud Kimi uses Ollama reasoning_effort"
+    Reasoning_effort
+    cloud_kimi.thinking_control_format;
+  check bool "cloud Kimi vision" true cloud_kimi.supports_image_input
+;;
+
 (* ── with_context_size ───────────────────────────────── *)
 
 let test_with_context_size () =
@@ -898,6 +989,14 @@ let () =
         ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision
         ; test_case "glm-4.6v vision" `Quick test_lookup_glm46v_vision
         ; test_case "glm-ocr vision" `Quick test_lookup_glm_ocr
+        ; test_case
+            "ollama cloud current catalog"
+            `Quick
+            test_ollama_cloud_current_catalog_resolves
+        ; test_case
+            "ollama cloud overrides shared bare families"
+            `Quick
+            test_ollama_cloud_provider_qualified_overrides_bare_family
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown

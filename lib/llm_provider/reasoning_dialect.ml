@@ -158,7 +158,7 @@ let for_provider_config (config : Provider_config.t) =
     ; streaming = Delta_field "thought"
     }
   | Kimi | OpenAI_compat | Ollama | Glm ->
-    (match Capabilities.for_model_id config.model_id with
+    (match Provider_config.capabilities_for_config_model config with
      | Some caps ->
        of_capabilities caps
        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking

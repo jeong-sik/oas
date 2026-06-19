@@ -184,6 +184,24 @@ let show_provider_kind = Provider_kind.show
 let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
+let base_url_targets_ollama_cloud base_url =
+  let base_url = String.lowercase_ascii (String.trim base_url) in
+  String.starts_with ~prefix:"https://ollama.com" base_url
+  || String.starts_with ~prefix:"http://ollama.com" base_url
+;;
+
+let capability_provider_label (config : t) =
+  if base_url_targets_ollama_cloud config.base_url
+  then "ollama_cloud"
+  else string_of_provider_kind config.kind
+;;
+
+let capabilities_for_config_model (config : t) =
+  Capabilities.for_provider_model_id
+    ~provider_label:(capability_provider_label config)
+    ~model_id:config.model_id
+;;
+
 (** Return only the auth-specific headers for a config.
     Callers merge this into [config.headers] at HTTP request time so that
     [Provider_config.t.headers] never carries sensitive tokens like API keys.
@@ -400,7 +418,7 @@ let validate_output_schema_request (config : t) =
           documented in the current Z.AI API"
      | Kimi | OpenAI_compat ->
        let caps =
-         match Capabilities.for_model_id config.model_id with
+         match capabilities_for_config_model config with
          | Some c -> c
          | None -> Capabilities.default_capabilities
        in
@@ -473,7 +491,9 @@ let%test "validate_output_schema_request: Ollama Cloud accepts json_schema" =
   validate_output_schema_request config = Ok ()
 ;;
 
-let%test "validate_output_schema_request: unknown OpenAI-compatible host rejects json_schema" =
+let%test
+    "validate_output_schema_request: unknown OpenAI-compatible host rejects json_schema"
+  =
   let config =
     make
       ~kind:OpenAI_compat
