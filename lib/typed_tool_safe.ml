@@ -49,12 +49,15 @@ let execute_read_only ?context safe_tool args =
 ;;
 
 let execute_with_approval ?context ~approve safe_tool args =
+  let open Result_syntax in
   let tool_name = Typed_tool.name safe_tool.tool in
   let input_desc = lazy (Yojson.Safe.to_string args) in
-  match approve ~tool_name ~input_desc with
-  | Ok () -> Typed_tool.execute ?context safe_tool.tool args
-  | Error reason ->
-    Error { Types.message = reason; recoverable = false; error_class = None }
+  let* () =
+    approve ~tool_name ~input_desc
+    |> Result.map_error (fun reason ->
+      { Types.message = reason; recoverable = false; error_class = None })
+  in
+  Typed_tool.execute ?context safe_tool.tool args
 ;;
 
 let execute_write ?context ~approve tool args =
