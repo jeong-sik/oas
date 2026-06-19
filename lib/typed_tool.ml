@@ -2,6 +2,8 @@
 
     @since 0.120.0 *)
 
+open Result_syntax
+
 (** Internal handler representation. Parametric variant — the type parameters
     ['input] and ['output] are threaded through both constructors. *)
 type ('input, 'output) handler_kind =
@@ -53,11 +55,8 @@ let run_handler
 ;;
 
 let execute_parsed ?context tool json =
-  match tool.parse json with
-  | Error e -> Error e
-  | Ok input ->
-    let result = run_handler ?context tool.handler input in
-    Ok (input, result)
+  let* input = tool.parse json in
+  Ok (input, run_handler ?context tool.handler input)
 ;;
 
 let execute ?context tool json =
