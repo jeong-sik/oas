@@ -454,6 +454,26 @@ let test_schema_extractor_parse_failure () =
   | Ok _ -> Alcotest.fail "expected schema parse error"
 ;;
 
+let test_schema_extractor_parser_json_error () =
+  let schema : unit Structured.schema =
+    { name = "nested_json"
+    ; description = "Parse nested JSON"
+    ; params = []
+    ; parse =
+        (fun json ->
+          let open Yojson.Safe.Util in
+          let nested = json |> member "nested" |> to_string in
+          ignore (Yojson.Safe.from_string nested : Yojson.Safe.t);
+          Ok ())
+    }
+  in
+  let extract = Structured.schema_extractor schema in
+  let resp = make_response [ Text {|{"nested":"{"}|} ] in
+  match extract resp with
+  | Error e -> Alcotest.(check bool) "has json error text" true (String.length e > 0)
+  | Ok _ -> Alcotest.fail "expected parser json error"
+;;
+
 (* --- extract_with_retry: unit-level logic tests --- *)
 
 (** Test that max_retries=0 means only 1 attempt (no retry).
@@ -591,6 +611,10 @@ let () =
             "schema_extractor parse failure"
             `Quick
             test_schema_extractor_parse_failure
+        ; Alcotest.test_case
+            "schema_extractor parser json error"
+            `Quick
+            test_schema_extractor_parser_json_error
         ] )
     ; ( "extract_with_retry"
       , [ Alcotest.test_case
