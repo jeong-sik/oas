@@ -1776,6 +1776,69 @@ let test_with_context_size_overrides () =
   Alcotest.(check (option int)) "overrides" (Some 1_000_000) c.max_context_tokens
 ;;
 
+(* ── Complete_common.thinking_control_disable_unsatisfiable ──
+   Guards the fail-loud path that rejects an unsatisfiable "disable thinking"
+   request instead of dropping it silently (the librarian empty/invalid-JSON class). *)
+
+let reasoning_no_control_caps =
+  { Capabilities.openai_compat_chat_capabilities with supports_reasoning = true }
+;;
+
+let test_thinking_disable_unsatisfiable_when_reasoning_no_control () =
+  let config = make_config ~model_id:"reasoner-no-control" ~enable_thinking:false () in
+  Alcotest.(check bool)
+    "reasoning model + No_thinking_control + disable -> unsatisfiable"
+    true
+    (Complete_common.thinking_control_disable_unsatisfiable
+       ~caps:reasoning_no_control_caps
+       config)
+;;
+
+let test_thinking_enable_is_satisfiable () =
+  let config = make_config ~model_id:"reasoner-no-control" ~enable_thinking:true () in
+  Alcotest.(check bool)
+    "enable_thinking=true is satisfiable (model thinks by default)"
+    false
+    (Complete_common.thinking_control_disable_unsatisfiable
+       ~caps:reasoning_no_control_caps
+       config)
+;;
+
+let test_thinking_unset_is_satisfiable () =
+  let config = make_config ~model_id:"reasoner-no-control" () in
+  Alcotest.(check bool)
+    "enable_thinking unset -> nothing to satisfy"
+    false
+    (Complete_common.thinking_control_disable_unsatisfiable
+       ~caps:reasoning_no_control_caps
+       config)
+;;
+
+let test_thinking_disable_noop_for_non_reasoning () =
+  (* openai_compat_chat_capabilities has supports_reasoning = false *)
+  let config = make_config ~model_id:"non-reasoner" ~enable_thinking:false () in
+  Alcotest.(check bool)
+    "non-reasoning model -> disable is a harmless no-op"
+    false
+    (Complete_common.thinking_control_disable_unsatisfiable
+       ~caps:Capabilities.openai_compat_chat_capabilities
+       config)
+;;
+
+let test_thinking_disable_satisfiable_with_control_format () =
+  let caps =
+    { Capabilities.openai_compat_chat_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Thinking_object
+    }
+  in
+  let config = make_config ~model_id:"reasoner-with-control" ~enable_thinking:false () in
+  Alcotest.(check bool)
+    "reasoning model WITH a thinking_control_format -> satisfiable"
+    false
+    (Complete_common.thinking_control_disable_unsatisfiable ~caps config)
+;;
+
 (* ═══════════════════════════════════════════════════
    Test runner
    ═══════════════════════════════════════════════════ *)
@@ -2013,6 +2076,28 @@ let () =
     ; ( "capabilities.with_context_size"
       , [ Alcotest.test_case "set" `Quick test_with_context_size
         ; Alcotest.test_case "overrides" `Quick test_with_context_size_overrides
+        ] )
+    ; ( "complete_common.thinking_control"
+      , [ Alcotest.test_case
+            "reasoning+no-control disable unsatisfiable"
+            `Quick
+            test_thinking_disable_unsatisfiable_when_reasoning_no_control
+        ; Alcotest.test_case
+            "enable is satisfiable"
+            `Quick
+            test_thinking_enable_is_satisfiable
+        ; Alcotest.test_case
+            "unset is satisfiable"
+            `Quick
+            test_thinking_unset_is_satisfiable
+        ; Alcotest.test_case
+            "non-reasoning no-op"
+            `Quick
+            test_thinking_disable_noop_for_non_reasoning
+        ; Alcotest.test_case
+            "with control format satisfiable"
+            `Quick
+            test_thinking_disable_satisfiable_with_control_format
         ] )
     ]
 ;;
