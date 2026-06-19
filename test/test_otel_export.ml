@@ -404,6 +404,48 @@ let test_force_flush_updates_total_exported () =
     | Failed { reason } -> Alcotest.failf "expected force flush success: %s" reason)
 ;;
 
+exception Cancel_test
+
+let test_export_batch_cancellation_not_retried () =
+  let request_count = ref 0 in
+  let handler _conn _req body =
+    ignore (read_request_body body : string);
+    incr request_count;
+    Cohttp_eio.Server.respond_string ~status:`Internal_server_error ~body:"boom" ()
+  in
+  with_mock_collector ~port:18357 handler (fun ~sw ~clock ~net ~endpoint ->
+    let instance = make_instance ~service_name:"otel-export-cancel" () in
+    record_span ~name:"span-a" ~turn:1 instance;
+    let config =
+      { (default_export_config ~endpoint) with max_retries = 3; timeout_sec = 0.1 }
+    in
+    let t0 = Eio.Time.now clock in
+    let outcome = ref None in
+    (try
+       Eio.Switch.run
+       @@ fun export_sw ->
+       Eio.Fiber.fork ~sw:export_sw (fun () ->
+         outcome
+         := Some
+              (try
+                 `Result (flush_to_collector ~sw:export_sw ~clock ~net ~config instance)
+               with
+               | Eio.Cancel.Cancelled _ -> `Cancelled
+               | exn -> `Other exn));
+       Eio.Time.sleep clock 0.3;
+       Eio.Switch.fail export_sw Cancel_test
+     with
+     | Cancel_test -> ());
+    let elapsed = Eio.Time.now clock -. t0 in
+    Alcotest.(check bool) "cancelled quickly" true (elapsed < 1.0);
+    match !outcome with
+    | None -> Alcotest.fail "expected outcome before switch failed"
+    | Some `Cancelled -> ()
+    | Some (`Result _) -> Alcotest.fail "expected cancellation, got result"
+    | Some (`Other exn) ->
+      Alcotest.failf "expected cancellation, got %s" (Printexc.to_string exn))
+;;
+
 (* ── Export result type tests ────────────────────────────────── *)
 
 let test_export_result_variants () =
@@ -529,6 +571,10 @@ let () =
             "force flush total"
             `Quick
             test_force_flush_updates_total_exported
+        ; Alcotest.test_case
+            "cancellation not retried"
+            `Quick
+            test_export_batch_cancellation_not_retried
         ] )
     ; "result_types", [ Alcotest.test_case "variants" `Quick test_export_result_variants ]
     ; ( "instance"
