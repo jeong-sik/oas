@@ -114,47 +114,51 @@ let save_session store (session : session) =
     (session |> session_to_yojson |> Yojson.Safe.pretty_to_string)
 ;;
 
-let load_session store session_id =
-  let* raw = load_text (session_path store session_id) in
+let parse_session raw =
+  let with_default key value fields =
+    if List.mem_assoc key fields then fields else (key, value) :: fields
+  in
+  let normalize_participant = function
+    | `Assoc fields ->
+      `Assoc
+        (fields
+         |> with_default "aliases" (`List [])
+         |> with_default "worker_id" `Null
+         |> with_default "runtime_actor" `Null
+         |> with_default "requested_provider" `Null
+         |> with_default "requested_model" `Null
+         |> with_default "requested_policy" `Null
+         |> with_default "resolved_provider" `Null
+         |> with_default "resolved_model" `Null
+         |> with_default "accepted_at" `Null
+         |> with_default "ready_at" `Null
+         |> with_default "first_progress_at" `Null
+         |> with_default "last_progress_at" `Null)
+    | json -> json
+  in
+  let normalize_session = function
+    | `Assoc fields ->
+      let participants =
+        match List.assoc_opt "participants" fields with
+        | Some (`List items) -> `List (List.map normalize_participant items)
+        | Some value -> value
+        | None -> `List []
+      in
+      `Assoc
+        ((fields |> List.remove_assoc "participants") @ [ "participants", participants ])
+    | json -> json
+  in
   try
-    let with_default key value fields =
-      if List.mem_assoc key fields then fields else (key, value) :: fields
-    in
-    let normalize_participant = function
-      | `Assoc fields ->
-        `Assoc
-          (fields
-           |> with_default "aliases" (`List [])
-           |> with_default "worker_id" `Null
-           |> with_default "runtime_actor" `Null
-           |> with_default "requested_provider" `Null
-           |> with_default "requested_model" `Null
-           |> with_default "requested_policy" `Null
-           |> with_default "resolved_provider" `Null
-           |> with_default "resolved_model" `Null
-           |> with_default "accepted_at" `Null
-           |> with_default "ready_at" `Null
-           |> with_default "first_progress_at" `Null
-           |> with_default "last_progress_at" `Null)
-      | json -> json
-    in
-    let normalize_session = function
-      | `Assoc fields ->
-        let participants =
-          match List.assoc_opt "participants" fields with
-          | Some (`List items) -> `List (List.map normalize_participant items)
-          | Some value -> value
-          | None -> `List []
-        in
-        `Assoc
-          ((fields |> List.remove_assoc "participants") @ [ "participants", participants ])
-      | json -> json
-    in
-    match session_of_yojson (Yojson.Safe.from_string raw |> normalize_session) with
-    | Ok session -> Ok session
-    | Error detail -> Error (Error.Serialization (JsonParseError { detail }))
+    let normalized = Yojson.Safe.from_string raw |> normalize_session in
+    session_of_yojson normalized
+    |> Result.map_error (fun detail -> Error.Serialization (JsonParseError { detail }))
   with
   | Yojson.Json_error detail -> Error (Error.Serialization (JsonParseError { detail }))
+;;
+
+let load_session store session_id =
+  let* raw = load_text (session_path store session_id) in
+  parse_session raw
 ;;
 
 let compare_run_record left right =
@@ -311,7 +315,16 @@ let read_events store session_id ?after_seq () =
   let path = events_path store session_id in
   if not (Sys.file_exists path)
   then Ok []
-  else
+  else (
+    let parse_event_line line =
+      try
+        event_of_yojson (Yojson.Safe.from_string line)
+        |> Result.map_error (fun detail ->
+          Error.Serialization (JsonParseError { detail }))
+      with
+      | Yojson.Json_error detail ->
+        Error (Error.Serialization (JsonParseError { detail }))
+    in
     let* raw = load_text path in
     raw
     |> String.split_on_char '\n'
@@ -320,21 +333,15 @@ let read_events store session_id ?after_seq () =
     |> List.fold_left
          (fun acc line ->
             let* rev = acc in
-            try
-              match event_of_yojson (Yojson.Safe.from_string line) with
-              | Ok event ->
-                let should_include =
-                  match after_seq with
-                  | Some min_seq -> event.seq > min_seq
-                  | None -> true
-                in
-                if should_include then Ok (event :: rev) else Ok rev
-              | Error detail -> Error (Error.Serialization (JsonParseError { detail }))
-            with
-            | Yojson.Json_error detail ->
-              Error (Error.Serialization (JsonParseError { detail })))
+            let* event = parse_event_line line in
+            let should_include =
+              match after_seq with
+              | Some min_seq -> event.seq > min_seq
+              | None -> true
+            in
+            Ok (if should_include then event :: rev else rev))
          (Ok [])
-    |> Result.map List.rev
+    |> Result.map List.rev)
 ;;
 
 let run_event_id session_id (event : event) = Printf.sprintf "%s#%d" session_id event.seq
