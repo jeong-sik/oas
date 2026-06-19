@@ -1,6 +1,21 @@
 (** External provider catalog overlay. *)
 
-let ( let* ) = Result.bind
+module Result_syntax = struct
+  let ( let* ) = Result.bind
+  let ( let+ ) x f = Result.map f x
+
+  let both a b =
+    match a, b with
+    | Ok a_val, Ok b_val -> Ok (a_val, b_val)
+    | Error e, _ -> Error e
+    | _, Error e -> Error e
+  ;;
+
+  let ( and* ) = both
+  let ( and+ ) = both
+end
+
+open Result_syntax
 
 type transport =
   | Http
@@ -245,6 +260,9 @@ let parse_capabilities provider_json =
     | _ -> provider_json
   in
   let* base = capability_base provider_json in
+  let* thinking_control_format =
+    parse_thinking_control_format (member_string "thinking_control_format" cap_json)
+  in
   let caps =
     base
     |> fun caps ->
@@ -416,19 +434,17 @@ let parse_capabilities provider_json =
       (fun caps v -> { caps with Capabilities.emits_usage_tokens = v })
       cap_json
   in
-  let* caps =
-    match
-      parse_thinking_control_format (member_string "thinking_control_format" cap_json)
-    with
-    | Ok None -> Ok caps
-    | Ok (Some thinking_control_format) ->
-      Ok { caps with Capabilities.thinking_control_format }
-    | Error _ as e -> e
+  let caps =
+    match thinking_control_format with
+    | None -> caps
+    | Some thinking_control_format -> { caps with Capabilities.thinking_control_format }
   in
-  Ok
-    (match member_supported_models cap_json with
-     | Some models -> { caps with Capabilities.supported_models = Some models }
-     | None -> caps)
+  let caps =
+    match member_supported_models cap_json with
+    | Some models -> { caps with Capabilities.supported_models = Some models }
+    | None -> caps
+  in
+  Ok caps
 ;;
 
 let parse_entry json =
@@ -452,16 +468,13 @@ let parse_entry json =
                  "removed provider catalog field \"api_key_env\"; use \
                   auth.type=api_key_env with auth.env")
           else Ok ()
-        in
-        let* auth = Result.map_error prefix_id (parse_auth json) in
-        let api_key_env = auth_env auth in
-        let* transport_opt =
+        and* auth = Result.map_error prefix_id (parse_auth json)
+        and* transport_opt =
           Result.map_error prefix_id (parse_transport (member_string "transport" json))
-        in
+        and* capabilities = Result.map_error prefix_id (parse_capabilities json) in
         let transport =
           Option.value transport_opt ~default:(default_transport_for_kind kind)
         in
-        let* capabilities = Result.map_error prefix_id (parse_capabilities json) in
         let max_context =
           match member_int "max_context" json with
           | Some _ as v -> v
@@ -479,7 +492,7 @@ let parse_entry json =
                 "request_path"
                 ~default:(Provider_config.request_path_default_for_kind kind)
                 json
-          ; api_key_env
+          ; api_key_env = auth_env auth
           ; auth
           ; default_model = member_string "default_model" json
           ; max_context
@@ -526,14 +539,14 @@ let of_json json =
 ;;
 
 let load_file path =
-  let read_result =
+  let* json =
     try Ok (Yojson.Safe.from_file path) with
     | Sys_error msg ->
       Error (Printf.sprintf "cannot read provider catalog %s: %s" path msg)
     | Yojson.Json_error msg ->
       Error (Printf.sprintf "provider catalog JSON parse error in %s: %s" path msg)
   in
-  Result.bind read_result of_json
+  of_json json
 ;;
 
 let load_runtime_file path =
