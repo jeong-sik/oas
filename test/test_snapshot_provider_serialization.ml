@@ -167,6 +167,39 @@ let contains ~needle haystack =
   nl = 0 || go 0
 ;;
 
+let json_body body = Yojson.Safe.from_string body
+
+let has_field name json =
+  match Yojson.Safe.Util.member name json with
+  | `Null -> false
+  | _ -> true
+;;
+
+let assistant_message body =
+  let open Yojson.Safe.Util in
+  body
+  |> json_body
+  |> member "messages"
+  |> to_list
+  |> List.find (fun msg -> msg |> member "role" |> to_string = "assistant")
+;;
+
+let check_reasoning_content label expected body =
+  let msg = assistant_message body in
+  check bool label expected (has_field "reasoning_content" msg)
+;;
+
+let check_thinking_enabled_clear label expected_clear body =
+  let open Yojson.Safe.Util in
+  let thinking = body |> json_body |> member "thinking" in
+  check string (label ^ " type") "enabled" (thinking |> member "type" |> to_string);
+  check
+    bool
+    (label ^ " clear_thinking")
+    expected_clear
+    (thinking |> member "clear_thinking" |> to_bool)
+;;
+
 (* ── OpenAI-compatible ──────────────────────────────── *)
 
 let openai_forced_expected =
@@ -336,6 +369,98 @@ let test_deepseek_zero_budget_omits_reasoning_effort () =
     "zero-budget reasoning omits invalid reasoning_effort"
     false
     (contains ~needle:{|"reasoning_effort"|} body)
+;;
+
+(* ZAI GLM reached through the OpenAI-compat backend must replay historical
+   reasoning_content when it asks the provider to preserve thinking
+   (clear_thinking=false). Regression fence for the review follow-up from
+   PR #2023. *)
+let zai_glm_openai_compat_cfg
+      ?(enable_thinking = Some true)
+      ?(preserve_thinking = true)
+      ()
+  =
+  Provider_config.make
+    ~kind:OpenAI_compat
+    ~model_id:"glm-5"
+    ~base_url:"https://api.z.ai/api/paas/v4"
+    ~api_key:"test-key"
+    ~max_tokens:1024
+    ~temperature:0.7
+    ~tool_choice:Any
+    ~disable_parallel_tool_use:true
+    ?enable_thinking
+    ~preserve_thinking
+    ()
+;;
+
+let zai_glm_messages_with_reasoning =
+  [ msg User [ Text "solve" ]
+  ; msg
+      Assistant
+      [ Text "answer"
+      ; Thinking { thinking_type = "reasoning"; content = "chain of thought" }
+      ]
+  ]
+;;
+
+let test_zai_glm_openai_compat_replays_reasoning_when_preserve_thinking () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(zai_glm_openai_compat_cfg ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check_thinking_enabled_clear "thinking enabled with clear_thinking=false" false body;
+  check_reasoning_content "assistant message replays reasoning_content" true body
+;;
+
+let test_zai_glm_openai_compat_drops_reasoning_without_preserve () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(zai_glm_openai_compat_cfg ~preserve_thinking:false ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check_thinking_enabled_clear "thinking enabled with clear_thinking=true" true body;
+  check_reasoning_content
+    "assistant message omits reasoning_content when not preserving"
+    false
+    body
+;;
+
+let test_zai_glm_openai_compat_drops_reasoning_when_thinking_disabled () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:
+        (zai_glm_openai_compat_cfg
+           ~enable_thinking:(Some false)
+           ~preserve_thinking:true
+           ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  let open Yojson.Safe.Util in
+  check
+    string
+    "thinking disabled"
+    "disabled"
+    (body |> json_body |> member "thinking" |> member "type" |> to_string);
+  check_reasoning_content "disabled thinking does not replay reasoning_content" false body
+;;
+
+let test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(zai_glm_openai_compat_cfg ~enable_thinking:None ~preserve_thinking:true ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check bool "thinking object omitted" false (body |> json_body |> has_field "thinking");
+  check_reasoning_content
+    "absent thinking control does not replay reasoning_content"
+    false
+    body
 ;;
 
 (* ── Anthropic ──────────────────────────────────────── *)
@@ -543,6 +668,22 @@ let () =
             "deepseek-v4-flash zero budget omits reasoning_effort"
             `Quick
             test_deepseek_zero_budget_omits_reasoning_effort
+        ; test_case
+            "zai-glm-openai-compat replays reasoning when preserve_thinking"
+            `Quick
+            test_zai_glm_openai_compat_replays_reasoning_when_preserve_thinking
+        ; test_case
+            "zai-glm-openai-compat drops reasoning without preserve_thinking"
+            `Quick
+            test_zai_glm_openai_compat_drops_reasoning_without_preserve
+        ; test_case
+            "zai-glm-openai-compat drops reasoning when thinking disabled"
+            `Quick
+            test_zai_glm_openai_compat_drops_reasoning_when_thinking_disabled
+        ; test_case
+            "zai-glm-openai-compat drops reasoning when thinking absent"
+            `Quick
+            test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent
         ] )
     ; ( "anthropic"
       , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced

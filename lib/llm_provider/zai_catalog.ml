@@ -10,7 +10,7 @@ let zai_anthropic_base_url = "https://api.z.ai/api/anthropic"
 
 let is_glm_model_id model_id =
   let m = String.lowercase_ascii (String.trim model_id) in
-  m = "glm" || String.starts_with ~prefix:"glm-" m || String.starts_with ~prefix:"glm-" m
+  m = "glm" || String.starts_with ~prefix:"glm-" m
 ;;
 
 let has_prefix value prefix =
@@ -168,7 +168,6 @@ let throttle_key_for_chat ~base_url ~model_id =
 let%test "is_glm_model_id accepts glm and bare glm prefixes" =
   is_glm_model_id "glm-5"
   && is_glm_model_id "glm"
-  && is_glm_model_id "glm-5"
   && is_glm_model_id "GLM-4.7-Flash"
   && not (is_glm_model_id "gpt-5")
 ;;
