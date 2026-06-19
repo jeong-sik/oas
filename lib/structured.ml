@@ -74,6 +74,14 @@ let parse_json_string text =
   | Yojson.Json_error detail -> Error detail
 ;;
 
+let parse_schema_text_json schema json =
+  try
+    schema.parse json
+    |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
+  with
+  | Yojson.Json_error detail -> Error (Error.Serialization (JsonParseError { detail }))
+;;
+
 (** Extract structured output from the response text JSON. *)
 let extract_text_json ~(schema : _ schema) (response : api_response)
   : ('a, Error.sdk_error) result
@@ -95,8 +103,7 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
       parse_json_string text
       |> Result.map_error (fun detail -> Error.Serialization (JsonParseError { detail }))
     in
-    schema.parse json
-    |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
+    parse_schema_text_json schema json
 ;;
 
 let sdk_error_of_http_error = function
