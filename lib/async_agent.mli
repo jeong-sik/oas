@@ -44,13 +44,17 @@ val is_ready : 'a future -> bool
 
 (** {1 Cancellation} *)
 
-(** [cancel future] marks the future as cancelled immediately and, if the
-    spawned fiber has already installed its sub-switch, fails that switch
-    so in-flight I/O can be interrupted.
+(** [cancel future] resolves the future as cancelled and, if the spawned
+    fiber has already installed its sub-switch, fails that switch so
+    in-flight I/O can be interrupted.
 
-    This makes cancellation idempotent and visible to callers right away,
-    while still propagating the cancellation signal into the running fiber
-    when possible. *)
+    Result resolution is first-wins: if the agent fiber has already
+    resolved the future with a result, [cancel] does not override it — the
+    future keeps that result. A [cancel] that races an in-flight completion
+    may therefore yield the completion rather than [Error "cancelled"]. The
+    call stays idempotent and is visible to callers right away, while
+    propagating the cancellation signal into the running fiber when
+    possible. *)
 val cancel : 'a future -> unit
 
 (** {1 Combinators} *)
