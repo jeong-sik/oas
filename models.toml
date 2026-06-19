@@ -1474,6 +1474,22 @@ supports_seed = true
 input_per_million = 0.0
 output_per_million = 0.0
 
+[[models]]
+id_prefix = "gemma4-coder-"
+base = "openai_chat"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = false
+thinking_control_format = "chat_template_token"
+supports_native_streaming = true
+supports_top_k = true
+supports_seed = true
+input_per_million = 0.0
+output_per_million = 0.0
+
 # Generic/Ollama/Other Fallbacks
 [[models]]
 id_prefix = "ollama"
