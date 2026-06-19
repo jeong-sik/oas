@@ -78,8 +78,8 @@ type strategy =
   (** Group-based selection.
 
         [`Bm25] classification is implemented. [`Llm] classification is not
-        implemented yet and currently returns an empty tool set, keeping the
-        path fail-closed without crashing the process. *)
+        implemented yet and raises [Invalid_argument] to signal an
+        unsupported configuration. *)
 
 (** Select tools relevant to the current turn context.
 

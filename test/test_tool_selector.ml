@@ -415,28 +415,36 @@ let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
   check (list string) "bm25 fallback order" [ "read_file"; "search" ] selected
 ;;
 
-(* ── Categorical stubs ──────────────────────────── *)
+(* ── Categorical LLM stub ───────────────────────── *)
 
-let test_categorical_llm_unimplemented_returns_empty () =
-  let result =
-    Tool_selector.select
-      ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
-      ~context:"q"
-      ~tools:tools_5
-  in
-  check int "empty" 0 (List.length result)
+let expected_unimplemented_error =
+  Invalid_argument "Categorical LLM classifier not implemented"
 ;;
 
-let test_categorical_llm_unimplemented_returns_empty_with_index () =
+let test_categorical_llm_unimplemented_raises () =
+  check_raises
+    "raises Invalid_argument"
+    expected_unimplemented_error
+    (fun () ->
+       ignore
+         (Tool_selector.select
+            ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
+            ~context:"q"
+            ~tools:tools_5))
+;;
+
+let test_categorical_llm_unimplemented_raises_with_index () =
   let index = Tool_index.of_tools tools_5 in
-  let result =
-    Tool_selector.select_with_index
-      ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
-      ~index
-      ~context:"q"
-      ~tools:tools_5
-  in
-  check int "empty" 0 (List.length result)
+  check_raises
+    "raises Invalid_argument"
+    expected_unimplemented_error
+    (fun () ->
+       ignore
+         (Tool_selector.select_with_index
+            ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
+            ~index
+            ~context:"q"
+            ~tools:tools_5))
 ;;
 
 (* ── Confidence threshold ───────────────────────── *)
@@ -612,13 +620,13 @@ let () =
         ] )
     ; ( "stubs"
       , [ test_case
-            "Categorical Llm empty fallback"
+            "Categorical Llm raises Invalid_argument"
             `Quick
-            test_categorical_llm_unimplemented_returns_empty
+            test_categorical_llm_unimplemented_raises
         ; test_case
-            "Categorical Llm empty fallback with index"
+            "Categorical Llm raises Invalid_argument with index"
             `Quick
-            test_categorical_llm_unimplemented_returns_empty_with_index
+            test_categorical_llm_unimplemented_raises_with_index
         ] )
     ; ( "categorical_bm25"
       , [ test_case "file query matches file_ops" `Quick test_categorical_bm25

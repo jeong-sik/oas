@@ -213,9 +213,9 @@ let select ~strategy ~context ~tools =
       ~tools
   | Categorical { classifier = `Llm; _ } ->
     (* Phase 3: LLM-based categorical classification not yet implemented.
-       Keep the unimplemented path fail-closed instead of crashing the
-       process. *)
-    []
+       Fail explicitly so callers know the configuration is unsupported
+       rather than silently receiving an empty tool set. *)
+    raise (Invalid_argument "Categorical LLM classifier not implemented")
   | Categorical { groups; classifier = `Bm25; always_include } ->
     (* BM25 categorical: build index from group names + tool names,
        find matching groups, expose all tools in those groups. *)
