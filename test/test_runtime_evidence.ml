@@ -447,6 +447,7 @@ let test_sessions_store_raw_trace_files_and_hooks () =
     |> Result.get_ok
   in
   let trace_path = Filename.concat raw_dir "hook_worker.jsonl" in
+  let older_trace_path = Filename.concat raw_dir "zz_older_hook_worker.jsonl" in
   let record
         ?prompt
         ?model
@@ -513,13 +514,24 @@ let test_sessions_store_raw_trace_files_and_hooks () =
   |> String.concat "\n"
   |> fun raw ->
   Runtime_store.save_text trace_path (raw ^ "\n") |> Result.get_ok;
+  [ record
+      ~hook_name:"pre_tool"
+      ~hook_decision:"allow"
+      ~hook_detail:"older-other-file"
+      1
+      Raw_trace.Hook_invoked
+  ]
+  |> List.map (fun record -> Raw_trace.record_to_json record |> Yojson.Safe.to_string)
+  |> String.concat "\n"
+  |> fun raw ->
+  Runtime_store.save_text older_trace_path (raw ^ "\n") |> Result.get_ok;
   Runtime_store.save_text (Filename.concat raw_dir "ignore.txt") "ignored"
   |> Result.get_ok;
   let files =
     Sessions_store.get_raw_trace_files ~session_root:root ~session_id:"sess-hooks" ()
     |> Result.get_ok
   in
-  check int "jsonl files only" 1 (List.length files);
+  check int "jsonl files only" 2 (List.length files);
   check string "trace file path" trace_path (List.hd files);
   let summaries =
     Sessions_store.get_hook_summary ~session_root:root ~session_id:"sess-hooks" ()
@@ -535,7 +547,7 @@ let test_sessions_store_raw_trace_files_and_hooks () =
       (fun (summary : Sessions.hook_summary) -> String.equal summary.hook_name "pre_tool")
       summaries
   in
-  check int "pre_tool count" 2 pre_tool.count;
+  check int "pre_tool count" 3 pre_tool.count;
   check (option string) "latest decision" (Some "deny") pre_tool.latest_decision;
   check (option string) "latest detail" (Some "latest") pre_tool.latest_detail;
   check bool "latest timestamp" true (Option.is_some pre_tool.latest_ts);
