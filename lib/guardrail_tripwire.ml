@@ -22,7 +22,9 @@ type tripwire_result =
     If all pass, blocks forever (Promise.await) so the action fiber can win.
     Runs inside Fiber.first — the losing fiber gets cancelled. *)
 let check_tripwires ~messages tripwires =
-  let violation = ref None in
+  (* Atomic ensures only the first failing check records a violation,
+     avoiding concurrent writes to a shared [ref] by multiple fibers. *)
+  let violation = Stdlib.Atomic.make None in
   (* Run all checks in a switch — first failure wins *)
   let found_violation =
     try
@@ -34,9 +36,11 @@ let check_tripwires ~messages tripwires =
              match tw.check messages with
              | Ok () -> ()
              | Error reason ->
-               violation := Some (tw.name, reason);
-               (* Cancel the switch to stop other checks *)
-               raise Exit))
+               (* Only the first fiber to observe a failure cancels the switch.
+                  Other fibers that also fail simply return and get cancelled. *)
+               if Stdlib.Atomic.compare_and_set violation None (Some (tw.name, reason))
+               then raise Exit
+               else ()))
         tripwires;
       (* If we reach here, all checks passed *)
       false
@@ -44,7 +48,7 @@ let check_tripwires ~messages tripwires =
     | Exit -> true
     | Eio.Cancel.Cancelled _ -> false
   in
-  match found_violation, !violation with
+  match found_violation, Stdlib.Atomic.get violation with
   | true, Some (name, reason) -> Tripped { tripwire_name = name; reason }
   | _ -> All_clear
 ;;
