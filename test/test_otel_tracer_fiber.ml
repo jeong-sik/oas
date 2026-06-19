@@ -92,6 +92,58 @@ let test_parallel_spans_do_not_cross_contaminate () =
         active.Agent_sdk.Otel_tracer.name))
 ;;
 
+let test_global_with_span_is_fiber_safe () =
+  Eio_main.run (fun _env ->
+    (* Ensure the global tracer is initialized inside the Eio runtime. *)
+    let (_ : Agent_sdk.Otel_tracer.span) =
+      Agent_sdk.Otel_tracer.start_span
+        { Agent_sdk.Tracing.kind = Agent_run
+        ; name = "warmup"
+        ; agent_name = "test"
+        ; turn = 1
+        ; extra = []
+        ; links = []
+        }
+    in
+    Agent_sdk.Otel_tracer.reset ();
+    let root_attrs =
+      { Agent_sdk.Tracing.kind = Agent_run
+      ; name = "global_root"
+      ; agent_name = "test"
+      ; turn = 1
+      ; extra = []
+      ; links = []
+      }
+    in
+    Agent_sdk.Otel_tracer.with_span root_attrs (fun () ->
+      let parent_span = Option.get (Agent_sdk.Otel_tracer.current_span ()) in
+      let parent_id = parent_span.Agent_sdk.Otel_tracer.span_id in
+      let child_ids =
+        Eio.Fiber.List.map
+          (fun i ->
+             let child_attrs =
+               { Agent_sdk.Tracing.kind = Tool_exec
+               ; name = Printf.sprintf "global_child_%d" i
+               ; agent_name = "test"
+               ; turn = 1
+               ; extra = []
+               ; links = []
+               }
+             in
+             Agent_sdk.Otel_tracer.with_span child_attrs (fun () ->
+               let child = Option.get (Agent_sdk.Otel_tracer.current_span ()) in
+               child.Agent_sdk.Otel_tracer.parent_span_id))
+          [ 0; 1; 2 ]
+      in
+      List.iteri
+        (fun i ppid ->
+           check
+             (Printf.sprintf "global_child_%d has correct parent" i)
+             (Some parent_id)
+             ppid)
+        child_ids))
+;;
+
 let () =
   Alcotest.run
     "otel_tracer_fiber"
@@ -104,6 +156,10 @@ let () =
             "parallel spans do not cross-contaminate"
             `Quick
             test_parallel_spans_do_not_cross_contaminate
+        ; Alcotest.test_case
+            "global with_span is fiber-safe"
+            `Quick
+            test_global_with_span_is_fiber_safe
         ] )
     ]
 ;;

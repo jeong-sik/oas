@@ -142,6 +142,8 @@ val end_span : span -> ok:bool -> unit
 val add_event : span -> string -> unit
 val add_attrs : span -> (string * string) list -> unit
 val add_link : span -> trace_id:string -> span_id:string -> unit
+val with_span : Tracing.span_attrs -> (unit -> 'a) -> 'a
+val current_span : unit -> span option
 val flush : unit -> span list
 val reset : unit -> unit
 val completed_count : unit -> int
