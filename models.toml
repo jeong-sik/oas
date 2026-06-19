@@ -169,6 +169,36 @@ cache_write_multiplier = 1.0
 cache_read_multiplier = 1.0
 
 [[models]]
+id_prefix = "gpt-4o-mini"
+base = "openai_chat"
+max_context_tokens = 128000
+max_output_tokens = 16384
+input_per_million = 0.15
+output_per_million = 0.6
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gpt-4o"
+base = "openai_chat"
+max_context_tokens = 128000
+max_output_tokens = 16384
+input_per_million = 2.5
+output_per_million = 10.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
+id_prefix = "gpt-4"
+base = "openai_chat"
+max_context_tokens = 128000
+max_output_tokens = 16384
+input_per_million = 2.5
+output_per_million = 10.0
+cache_write_multiplier = 1.0
+cache_read_multiplier = 1.0
+
+[[models]]
 id_prefix = "gpt"
 base = "openai_chat"
 max_context_tokens = 128000

@@ -64,36 +64,207 @@ let string_contains ~needle haystack =
   if needle_len = 0 then true else loop 0
 ;;
 
-(* Internal: static pricing table lookup on a pre-normalised model ID.
-   Called by [pricing_for_model_opt] when no dynamic override matches. *)
-let static_pricing_opt_normalized normalized =
+(* Strip an OpenRouter-style provider/org prefix so that a model id such as
+   ["anthropic/claude-sonnet-4-6"] can be matched against catalog prefixes that
+   omit the organization. *)
+let provider_suffix model_id =
+  match String.index_opt model_id '/' with
+  | Some i when i + 1 < String.length model_id ->
+    Some (String.sub model_id (i + 1) (String.length model_id - i - 1))
+  | _ -> None
+;;
+
+let starts_with ~prefix s =
+  let prefix_len = String.length prefix in
+  String.length s >= prefix_len && String.sub s 0 prefix_len = prefix
+;;
+
+(* Model-id component separators. ["_"] is included because route ids such as
+   the in-tree DashScope catalog entry ["dashscope_3"] use it as a boundary, so a
+   prefix like ["dashscope"] must anchor on it the same way it does on ["-"].
+   Codex P2 on #2127. *)
+let is_model_delimiter = function
+  | '-' | ':' | '.' | '/' | '_' -> true
+  | _ -> false
+;;
+
+let delimited_prefix_match ~prefix s =
+  starts_with ~prefix s
+  &&
+  let prefix_len = String.length prefix in
+  String.length s = prefix_len
+  || (String.length s > prefix_len && is_model_delimiter s.[prefix_len])
+;;
+
+let zero_pricing : pricing =
+  { input_per_million = 0.0
+  ; output_per_million = 0.0
+  ; cache_write_multiplier = 1.0
+  ; cache_read_multiplier = 1.0
+  }
+;;
+
+type static_match_kind =
+  | Exact
+  | Delimited_prefix
+  | Raw_prefix
+
+type static_pricing_entry =
+  { key : string
+  ; match_kind : static_match_kind
+  ; pricing : pricing option
+  }
+
+let static_entry ?(match_kind = Delimited_prefix) key pricing =
+  { key; match_kind; pricing }
+;;
+
+let static_entry_matches entry normalized =
+  match entry.match_kind with
+  | Exact -> normalized = entry.key
+  | Delimited_prefix -> delimited_prefix_match ~prefix:entry.key normalized
+  | Raw_prefix -> starts_with ~prefix:entry.key normalized
+;;
+
+let static_free_alias_matches normalized =
+  let exact_aliases = [ "auto"; "gemini"; "kimi"; "codex" ] in
+  let prefix_aliases = [ "ollama"; "dashscope"; "nous" ] in
+  List.exists (String.equal normalized) exact_aliases
+  || List.exists (fun prefix -> delimited_prefix_match ~prefix normalized) prefix_aliases
+;;
+
+let catalog_pricing_entry_matches ~id_prefix normalized =
+  let prefix = String.lowercase_ascii (String.trim id_prefix) in
+  if prefix = ""
+  then false
+  else if prefix = "gpt"
+  then normalized = "gpt"
+  else if is_model_delimiter prefix.[String.length prefix - 1]
+  then
+    (* A prefix that already ends in a delimiter (e.g. "cc:" or a provider
+       namespace "myorg/") is a raw prefix: requiring another delimiter after it
+       would reject the very ids it is meant to price. Codex P2 on #2127. *)
+    starts_with ~prefix normalized
+  else delimited_prefix_match ~prefix normalized
+;;
+
+(* Built-in fallback pricing table. Used when the external model catalog is
+   unavailable or does not contain a matching entry. This restores the
+   previously in-code pricing knowledge for the most common cloud models,
+   ordered by descending key length so longer keys shadow shorter ones. Static
+   matching is exact or delimiter-anchored; it intentionally does not use
+   substring matching, so unknown future families such as ["gpt-6-turbo"] do
+   not inherit the bare ["gpt"] price. *)
+let static_pricing_entries =
+  let anthropic_cache = 1.25, 0.1 in
+  let openai_cached_input = 1.0, 0.1 in
   let no_cache = 1.0, 1.0 in
-  let result =
-    if
-      normalized = "auto"
-      || normalized = "gemini"
-      || normalized = "kimi"
-      || normalized = "codex"
-      || normalized = "claude_code"
-      || normalized = "gemini"
-      || normalized = "kimi"
-      || normalized = "codex"
-      || string_contains ~needle:"ollama" normalized
-      || string_contains ~needle:"dashscope" normalized
-      || string_contains ~needle:"nous" normalized
-    then Some ((0.0, 0.0), no_cache)
-    else None
-  in
-  match result with
-  | Some ((input_per_million, output_per_million), (cw, cr)) ->
+  let make ?(cache = no_cache) input output =
+    let cw, cr = cache in
     Some
-      ({ input_per_million
-       ; output_per_million
-       ; cache_write_multiplier = cw
-       ; cache_read_multiplier = cr
-       }
-       : pricing)
-  | None -> None
+      { input_per_million = input
+      ; output_per_million = output
+      ; cache_write_multiplier = cw
+      ; cache_read_multiplier = cr
+      }
+  in
+  let entries =
+    (* [gpt-5.3-codex-spark] is an explicit no-pricing sentinel. Delimited_prefix
+       (not Exact) so spark variants such as gpt-5.3-codex-spark-next also stay
+       unpriced instead of falling through to the broader gpt-5.3-codex entry. *)
+    [ static_entry ~match_kind:Delimited_prefix "gpt-5.3-codex-spark" None
+    ; static_entry "claude-opus-4-6" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "claude-opus-4-5" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "claude-opus-4" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "claude-sonnet-4-6" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "claude-sonnet-4" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "claude-haiku-4-5" (make ~cache:anthropic_cache 0.8 4.0)
+    ; static_entry "claude-haiku-4" (make ~cache:anthropic_cache 0.8 4.0)
+    ; static_entry "claude-3-7-sonnet" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "claude_code" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry ~match_kind:Raw_prefix "cc:" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "opus-4-6" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "opus-4-5" (make ~cache:anthropic_cache 15.0 75.0)
+    ; static_entry "sonnet-4-6" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "sonnet-4" (make ~cache:anthropic_cache 3.0 15.0)
+    ; static_entry "haiku-4-5" (make ~cache:anthropic_cache 0.8 4.0)
+    ; static_entry "gpt-5.5" (make ~cache:openai_cached_input 5.0 30.0)
+    ; static_entry "gpt-5.4-mini" (make ~cache:openai_cached_input 0.75 4.5)
+    ; static_entry "gpt-5.4" (make ~cache:openai_cached_input 2.5 15.0)
+    ; static_entry "gpt-5.3-codex" (make ~cache:openai_cached_input 1.75 14.0)
+    ; static_entry "gpt-5.2" (make ~cache:openai_cached_input 1.75 14.0)
+      (* Base gpt-5 family fallback (catalog gpt-5 = 5.0/30.0). Delimiter-prefix
+         covers gpt-5 and gpt-5-latest; the more-specific gpt-5.x entries above
+         are longer and win the length-sorted lookup. *)
+    ; static_entry "gpt-5" (make ~cache:openai_cached_input 5.0 30.0)
+    ; static_entry "gpt-4.1" (make 2.0 8.0)
+      (* Known generic GPT aliases the repo still constructs (gpt-4, gpt-4o)
+         plus the cheaper gpt-4o-mini. The typed Exact "gpt" no longer covers
+         them, so enumerate them at their own rates instead of widening "gpt"
+         back to a substring match (which would also price unknown future
+         families like gpt-6-turbo). These use delimiter-prefix matching so
+         dated ids (gpt-4o-2024-08-06, gpt-4-0613) price like their base; the
+         table is sorted by descending key length, so the longer gpt-4o-mini is
+         matched before gpt-4o and a mini id is never costed at the full gpt-4o
+         rate. *)
+    ; static_entry "gpt-4" (make 2.5 10.0)
+    ; static_entry "gpt-4o" (make 2.5 10.0)
+    ; static_entry "gpt-4o-mini" (make 0.15 0.6)
+    ; static_entry "gpt-mini" (make 0.15 0.6)
+    ; static_entry "o3-mini" (make 1.1 4.4)
+    ; static_entry ~match_kind:Exact "gpt" (make 2.5 10.0)
+    ]
+  in
+  List.sort (fun a b -> compare (String.length b.key) (String.length a.key)) entries
+;;
+
+(* Internal: static pricing table lookup on a pre-normalised model ID.
+   Called by [pricing_for_model_opt] when no dynamic override or catalog entry
+   matches. Free aliases are checked first, then the built-in paid-model
+   fallback table. *)
+let static_pricing_opt_normalized normalized =
+  if static_free_alias_matches normalized
+  then Some zero_pricing
+  else (
+    match
+      List.find_opt
+        (fun entry -> static_entry_matches entry normalized)
+        static_pricing_entries
+    with
+    | Some entry -> entry.pricing
+    | None -> None)
+;;
+
+(* The catalog gives three distinct answers, not two. Collapsing them into a
+   [pricing option] conflates "no applicable entry" with "entry applies but is
+   intentionally unpriced": the former must consult the static fallback, the
+   latter must stay unpriced (consulting static there would override the
+   operator's deliberate choice and fill in a price). Codex P2 on #2127. *)
+type catalog_classification =
+  | Catalog_priced of pricing
+  | Catalog_unpriced (* applies to this id but deliberately omits a price *)
+  | Catalog_no_match (* no applicable entry -> consult the static fallback *)
+
+let catalog_classify catalog model_id =
+  let normalized = String.lowercase_ascii (String.trim model_id) in
+  match Model_catalog.lookup catalog model_id with
+  | Some entry when catalog_pricing_entry_matches ~id_prefix:entry.id_prefix normalized ->
+    (match entry.input_per_million, entry.output_per_million with
+     | Some input, Some output ->
+       Catalog_priced
+         { input_per_million = input
+         ; output_per_million = output
+         ; cache_write_multiplier = Option.value entry.cache_write_multiplier ~default:1.0
+         ; cache_read_multiplier = Option.value entry.cache_read_multiplier ~default:1.0
+         }
+     | _ -> Catalog_unpriced)
+  | _ -> Catalog_no_match
+;;
+
+let catalog_pricing_opt catalog model_id =
+  match catalog_classify catalog model_id with
+  | Catalog_priced p -> Some p
+  | Catalog_unpriced | Catalog_no_match -> None
 ;;
 
 let pricing_for_model_opt model_id =
@@ -108,39 +279,54 @@ let pricing_for_model_opt model_id =
   match override_match with
   | Some e ->
     Some
-      ({ input_per_million = e.input_per_million
-       ; output_per_million = e.output_per_million
-       ; cache_write_multiplier = e.cache_write_multiplier
-       ; cache_read_multiplier = e.cache_read_multiplier
-       }
-       : pricing)
+      { input_per_million = e.input_per_million
+      ; output_per_million = e.output_per_million
+      ; cache_write_multiplier = e.cache_write_multiplier
+      ; cache_read_multiplier = e.cache_read_multiplier
+      }
   | None ->
-    (* Check dynamic model catalog next *)
-    (match Model_catalog.global () with
-     | Some catalog ->
-       (match Model_catalog.lookup catalog model_id with
-        | Some entry
-          when Option.is_some entry.input_per_million
-               && Option.is_some entry.output_per_million ->
-          Some
-            ({ input_per_million = Option.get entry.input_per_million
-             ; output_per_million = Option.get entry.output_per_million
-             ; cache_write_multiplier =
-                 Option.value entry.cache_write_multiplier ~default:1.0
-             ; cache_read_multiplier =
-                 Option.value entry.cache_read_multiplier ~default:1.0
-             }
-             : pricing)
-        | _ -> static_pricing_opt_normalized normalized)
-     | None -> static_pricing_opt_normalized normalized)
-;;
-
-let zero_pricing : pricing =
-  { input_per_million = 0.0
-  ; output_per_million = 0.0
-  ; cache_write_multiplier = 1.0
-  ; cache_read_multiplier = 1.0
-  }
+    (* Check the dynamic catalog and the built-in static fallback.
+       Provider-prefixed model ids (e.g. ["anthropic/claude-sonnet-4-6"]) are
+       tried both as-is and with the provider prefix stripped. *)
+    let candidates =
+      match provider_suffix model_id with
+      | Some suffix when suffix <> model_id -> [ model_id; suffix ]
+      | _ -> [ model_id ]
+    in
+    (* Classify against the catalog. The original id gets full three-valued
+       treatment: a deliberate "unpriced" there must suppress the static
+       fallback. Provider-stripped candidates are only a convenience for finding
+       a PRICE -- a stripped id that is merely unpriced in the catalog must NOT
+       suppress the static/free fallback for the original id (e.g.
+       "dashscope/qwen3-32b" is free via the static dashscope alias even though
+       the stripped "qwen3-32b" hits an unpriced catalog capability entry).
+       Codex P2 on #2127. *)
+    let catalog_class =
+      match Model_catalog.global (), candidates with
+      | None, _ | _, [] -> Catalog_no_match
+      | Some catalog, original :: stripped ->
+        (match catalog_classify catalog original with
+         | (Catalog_priced _ | Catalog_unpriced) as definitive -> definitive
+         | Catalog_no_match ->
+           (match
+              List.find_map
+                (fun id ->
+                   match catalog_classify catalog id with
+                   | Catalog_priced p -> Some p
+                   | Catalog_unpriced | Catalog_no_match -> None)
+                stripped
+            with
+            | Some p -> Catalog_priced p
+            | None -> Catalog_no_match))
+    in
+    (match catalog_class with
+     | Catalog_priced p -> Some p
+     | Catalog_unpriced -> None
+     | Catalog_no_match ->
+       List.find_map
+         (fun id ->
+            static_pricing_opt_normalized (String.lowercase_ascii (String.trim id)))
+         candidates)
 ;;
 
 let pricing_for_model model_id =
@@ -364,6 +550,13 @@ let pricing_overrides_from_env () =
 
 let close_enough a b = Float.abs (a -. b) < 1e-9
 
+let pricing_close_enough (a : pricing) (b : pricing) =
+  close_enough a.input_per_million b.input_per_million
+  && close_enough a.output_per_million b.output_per_million
+  && close_enough a.cache_write_multiplier b.cache_write_multiplier
+  && close_enough a.cache_read_multiplier b.cache_read_multiplier
+;;
+
 (* --- string_contains --- *)
 
 let%test "string_contains: empty needle matches anything" =
@@ -475,6 +668,48 @@ let%test "pricing gpt-5.2" =
 
 let%test "pricing gpt-5.3-codex-spark remains unknown" =
   pricing_for_model_opt "gpt-5.3-codex-spark" = None
+;;
+
+(* The spark sentinel is Delimited_prefix, so future spark variants must not
+   fall through to the broader gpt-5.3-codex price. *)
+let%test "pricing gpt-5.3-codex-spark-next stays unknown" =
+  pricing_for_model_opt "gpt-5.3-codex-spark-next" = None
+;;
+
+(* Regression: gpt-4o is a live model and must keep cost annotation after the
+   typed Exact "gpt" stopped covering it (Codex P2 on #2127). *)
+let%test "pricing gpt-4o restored" =
+  match pricing_for_model_opt "gpt-4o" with
+  | Some p ->
+    close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
+  | None -> false
+;;
+
+(* gpt-4o-mini must NOT inherit the full gpt-4o rate: the more-specific entry
+   keeps it at the cheaper mini price (Codex P2 on #2127). *)
+let%test "pricing gpt-4o-mini is the mini rate, not the gpt-4o rate" =
+  match pricing_for_model_opt "gpt-4o-mini" with
+  | Some p ->
+    close_enough p.input_per_million 0.15 && close_enough p.output_per_million 0.6
+  | None -> false
+;;
+
+(* gpt-4 is a known alias the repo still constructs; the typed Exact "gpt"
+   stopped covering it, so the enumerated entry restores its price. *)
+let%test "pricing gpt-4 alias restored" =
+  match pricing_for_model_opt "gpt-4" with
+  | Some p ->
+    close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
+  | None -> false
+;;
+
+(* Base gpt-5 must keep its catalog price (5.0/30.0) in the static fallback;
+   the gpt-5.x specifics are longer and still win for their own ids. *)
+let%test "pricing gpt-5 base alias covered" =
+  match pricing_for_model_opt "gpt-5" with
+  | Some p ->
+    close_enough p.input_per_million 5.0 && close_enough p.output_per_million 30.0
+  | None -> false
 ;;
 
 let%test "pricing gpt (not mini)" =
@@ -667,6 +902,191 @@ let%test "pricing_for_model_opt: cloud-style unknown returns None" =
   match pricing_for_model_opt "future-cloud-provider/fancy-model-v9" with
   | Some _ -> false
   | None -> true
+;;
+
+let with_empty_catalog f =
+  let original = Model_catalog.global () in
+  Model_catalog.set_global [];
+  Fun.protect
+    ~finally:(fun () ->
+      match original with
+      | Some c -> Model_catalog.set_global c
+      | None -> Model_catalog.clear_global ())
+    f
+;;
+
+(* Install a synthetic catalog from inline TOML for the duration of [f], then
+   restore the original. Goes through [Model_catalog.load_file] so the test
+   exercises the real parse path and stays robust to new optional fields. *)
+let with_catalog_toml content f =
+  let path = Filename.temp_file "oas_pricing_catalog" ".toml" in
+  let original = Model_catalog.global () in
+  Fun.protect
+    ~finally:(fun () ->
+      (try Sys.remove path with
+       | Sys_error _ -> ());
+      match original with
+      | Some c -> Model_catalog.set_global c
+      | None -> Model_catalog.clear_global ())
+    (fun () ->
+       let oc = open_out path in
+       output_string oc content;
+       close_out oc;
+       match Model_catalog.load_file path with
+       | Ok catalog ->
+         Model_catalog.set_global catalog;
+         f ()
+       | Error e -> failwith ("test catalog load failed: " ^ e))
+;;
+
+(* A catalog entry that applies to the id but deliberately omits pricing marks
+   the model unpriced; the static fallback must not override that intent with a
+   default rate (static would otherwise price gpt-4o at 2.5/10.0). Codex P2 on
+   #2127. *)
+let%test "pricing_for_model_opt: catalog entry with omitted price stays unpriced" =
+  with_catalog_toml "[[models]]\nid_prefix = \"gpt-4o\"\n" (fun () ->
+    pricing_for_model_opt "gpt-4o" = None)
+;;
+
+(* A deliberate "unpriced" only suppresses the static fallback for the id the
+   caller actually asked about. A provider-stripped candidate that merely hits
+   an unpriced catalog capability entry must not suppress the original id's
+   static/free classification: "dashscope/qwen3-32b" stays free even though the
+   stripped "qwen3-32b" matches the unpriced "qwen3" entry. Codex P2 on #2127. *)
+let%test
+    "pricing_for_model_opt: provider-prefixed free id survives unpriced stripped catalog \
+     match"
+  =
+  with_catalog_toml "[[models]]\nid_prefix = \"qwen3\"\n" (fun () ->
+    match pricing_for_model_opt "dashscope/qwen3-32b" with
+    | Some p ->
+      close_enough p.input_per_million 0.0 && close_enough p.output_per_million 0.0
+    | None -> false)
+;;
+
+(* A catalog id_prefix that ends in a delimiter (here a "/"-terminated provider
+   namespace) is a raw prefix: "myorg/" must price "myorg/model-a" rather than
+   requiring an extra delimiter after the slash. Codex P2 on #2127. *)
+let%test "pricing_for_model_opt: slash-terminated catalog prefix prices namespaced ids" =
+  with_catalog_toml
+    "[[models]]\n\
+     id_prefix = \"myorg/\"\n\
+     input_per_million = 1.0\n\
+     output_per_million = 2.0\n"
+    (fun () ->
+       match pricing_for_model_opt "myorg/model-a" with
+       | Some p ->
+         close_enough p.input_per_million 1.0 && close_enough p.output_per_million 2.0
+       | None -> false)
+;;
+
+(* A genuine catalog miss (no applicable entry) still consults the static
+   fallback rather than reporting the model unpriced. *)
+let%test "pricing_for_model_opt: catalog miss still consults static fallback" =
+  with_catalog_toml
+    "[[models]]\n\
+     id_prefix = \"unrelated-vendor-x\"\n\
+     input_per_million = 1.0\n\
+     output_per_million = 2.0\n"
+    (fun () ->
+       match pricing_for_model_opt "gpt-4o" with
+       | Some p ->
+         close_enough p.input_per_million 2.5 && close_enough p.output_per_million 10.0
+       | None -> false)
+;;
+
+let%test "pricing_for_model_opt: built-in fallback when catalog is absent" =
+  with_empty_catalog (fun () ->
+    match pricing_for_model_opt "claude-sonnet-4-6" with
+    | Some p ->
+      close_enough p.input_per_million 3.0 && close_enough p.output_per_million 15.0
+    | None -> false)
+;;
+
+(* Catalog-absent fallback: dated gpt-4o ids price like gpt-4o (delimiter
+   prefix), while gpt-4o-mini stays at its own cheaper rate (longer entry wins
+   the length-sorted lookup). Codex P2 on #2127. *)
+let%test "pricing_for_model_opt: dated gpt-4o prices without catalog, mini stays mini" =
+  with_empty_catalog (fun () ->
+    match
+      pricing_for_model_opt "gpt-4o-2024-08-06", pricing_for_model_opt "gpt-4o-mini"
+    with
+    | Some dated, Some mini ->
+      close_enough dated.input_per_million 2.5
+      && close_enough dated.output_per_million 10.0
+      && close_enough mini.input_per_million 0.15
+      && close_enough mini.output_per_million 0.6
+    | _ -> false)
+;;
+
+let%test "pricing_for_model_opt: provider-prefixed id falls back to built-in table" =
+  with_empty_catalog (fun () ->
+    match pricing_for_model_opt "anthropic/claude-sonnet-4-6" with
+    | Some p -> close_enough p.input_per_million 3.0
+    | None -> false)
+;;
+
+let%test "pricing_for_model_opt: explicit unknown remains unknown without catalog" =
+  with_empty_catalog (fun () -> pricing_for_model_opt "gpt-5.3-codex-spark" = None)
+;;
+
+let%test "pricing_for_model_opt: future gpt family remains unknown" =
+  pricing_for_model_opt "gpt-6-turbo" = None
+;;
+
+let%test "pricing_for_model_opt: broad gpt fallback does not price future family" =
+  with_empty_catalog (fun () -> pricing_for_model_opt "gpt-6-turbo" = None)
+;;
+
+let%test "pricing_for_model_opt: substring free aliases do not match paid-looking ids" =
+  with_empty_catalog (fun () ->
+    pricing_for_model_opt "future-ollama-paid" = None
+    && pricing_for_model_opt "paid-dashscope-compatible" = None
+    && pricing_for_model_opt "paid-nous-compatible" = None)
+;;
+
+let%test "pricing_for_model_opt: anchored free aliases still work without catalog" =
+  with_empty_catalog (fun () ->
+    match
+      pricing_for_model_opt "ollama/llama-3", pricing_for_model_opt "dashscope-3.5-35b"
+    with
+    | Some ollama, Some dashscope ->
+      close_enough ollama.input_per_million 0.0
+      && close_enough ollama.output_per_million 0.0
+      && close_enough dashscope.input_per_million 0.0
+      && close_enough dashscope.output_per_million 0.0
+    | _ -> false)
+;;
+
+(* DashScope route ids use "_" as a separator (the in-tree catalog "dashscope_3"
+   entry). Without the catalog, the static free-alias check must still classify
+   them as zero-priced rather than unknown. Codex P2 on #2127. *)
+let%test
+    "pricing_for_model_opt: underscore-separated dashscope id is free without catalog"
+  =
+  with_empty_catalog (fun () ->
+    match pricing_for_model_opt "dashscope_3", pricing_for_model_opt "dashscope_3.5" with
+    | Some a, Some b ->
+      close_enough a.input_per_million 0.0
+      && close_enough a.output_per_million 0.0
+      && close_enough b.input_per_million 0.0
+      && close_enough b.output_per_million 0.0
+    | _ -> false)
+;;
+
+let%test "built-in pricing fallback matches catalog pricing overlaps" =
+  match Model_catalog.global () with
+  | None -> true
+  | Some catalog ->
+    List.for_all
+      (fun entry ->
+         match entry.pricing with
+         | None -> true
+         | Some expected ->
+           (match catalog_pricing_opt catalog entry.key with
+            | Some actual -> pricing_close_enough actual expected
+            | None -> false))
+      static_pricing_entries
 ;;
 
 (* --- pricing_for_model: case insensitivity --- *)
