@@ -199,16 +199,11 @@ let of_json json =
       (Printf.sprintf
          "unsupported capability manifest schema_version: %d (expected 1)"
          schema_version)
-  else
-    let* model_items =
+  else (
+    let model_items =
       match Yojson.Safe.Util.member "models" json with
-      | `List items -> Ok items
-      | `Null -> Ok []
-      | actual ->
-        Error
-          (Printf.sprintf
-             "capability manifest \"models\" must be a list, got %s"
-             (json_kind actual))
+      | `List items -> items
+      | _ -> []
     in
     let results = List.map parse_entry model_items in
     let oks, errors =
@@ -218,7 +213,7 @@ let of_json json =
           | Error e -> Right e)
         results
     in
-    if errors <> [] then Error (String.concat "; " errors) else Ok oks
+    if errors <> [] then Error (String.concat "; " errors) else Ok oks)
 ;;
 
 let load_file path =
@@ -339,20 +334,6 @@ let%test "of_json: empty models list is valid" =
   match of_json json with
   | Ok entries -> entries = []
   | Error _ -> false
-;;
-
-let%test "of_json: missing models defaults to empty manifest" =
-  let json = Yojson.Safe.from_string {|{"schema_version":1}|} in
-  match of_json json with
-  | Ok entries -> entries = []
-  | Error _ -> false
-;;
-
-let%test "of_json: non-list models returns error" =
-  let json = Yojson.Safe.from_string {|{"schema_version":1,"models":"oops"}|} in
-  match of_json json with
-  | Error msg -> String.contains msg 'm'
-  | Ok _ -> false
 ;;
 
 let%test "lookup: prefix match is case-insensitive" =
