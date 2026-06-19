@@ -289,6 +289,34 @@ output_per_million = 0.28
 cache_write_multiplier = 1.0
 cache_read_multiplier = 0.02
 
+# MiniMax Models
+# Source: ollama-cloud /api/show 2026-06-17 caps=[completion,tools,thinking,vision].
+# minimax-m3 is the memory-os librarian runtime (runtime.toml [runtime].librarian).
+# Without this entry it resolved to provider_default (OpenAI_compat) whose
+# thinking_control_format = No_thinking_control, so the librarian's
+# enable_thinking = false was silently dropped at the wire and the reasoning model
+# polluted/emptied the JSON-mode body (librarian "empty response" / "invalid episode
+# JSON"). This entry supersedes the inert MASC runtime.toml [models.minimax-m3.capabilities]
+# block (#21521), which OAS for_model_id never reads.
+# thinking_control_format mirrors the sibling ollama-cloud deepseek-v4 entries
+# ("thinking_object" -> request emits {"thinking":{"type":"disabled"}}); verify against
+# a live ollama-cloud probe if minimax uses a different disable dialect.
+# Pricing intentionally omitted (float option): minimax-m3 rates not yet confirmed.
+[[models]]
+id_prefix = "minimax-m3"
+base = "openai_chat"
+max_context_tokens = 524288
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "thinking_object"
+supports_response_format_json = true
+supports_structured_output = true
+supports_image_input = true
+supports_native_streaming = true
+
 # Gemini Models
 [[models]]
 id_prefix = "gemini-2.5"
