@@ -1331,9 +1331,9 @@ let inject_stream_and_options body_str =
     in
     Yojson.Safe.to_string
       (`Assoc
-        ( ("stream_options", `Assoc [ "include_usage", `Bool true ])
-        :: ("stream", `Bool true)
-        :: without_existing ))
+          (("stream_options", `Assoc [ "include_usage", `Bool true ])
+           :: ("stream", `Bool true)
+           :: without_existing))
   | other -> Yojson.Safe.to_string other
   | exception Yojson.Json_error _ -> body_str
 ;;
@@ -1352,7 +1352,9 @@ let%test "inject_stream_and_options matches chained param >> options" =
     ; {|{"a":1,"stream":true,"stream_options":{"x":1}}|}
     ; "not json"
     ; {|[1,2,3]|}
-    ; "" ]
+    ; ""
+    ]
+;;
 
 [@@@coverage off]
 (* ── catch_network tests ─────────────────────────────── *)
