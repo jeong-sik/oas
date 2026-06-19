@@ -8,6 +8,22 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.6](https://github.com/jeong-sik/oas/compare/v0.207.5...v0.207.6) (2026-06-19)
+
+
+### Features
+
+* **llm_provider:** allow json_schema response format for Ollama Cloud ([#2160](https://github.com/jeong-sik/oas/issues/2160)) ([36cea94](https://github.com/jeong-sik/oas/commit/36cea94216ec066ea582b256e37efe4f833d7da4))
+
+
+### Bug Fixes
+
+* **eval_collector:** unsubscribe before final drain ([#2148](https://github.com/jeong-sik/oas/issues/2148)) ([1cefcf3](https://github.com/jeong-sik/oas/commit/1cefcf31c0fff9a1b44930d61034dc0ed824272e))
+* **llm_provider:** reject unsatisfiable thinking-control instead of silent drop ([#2156](https://github.com/jeong-sik/oas/issues/2156)) ([8a30a9a](https://github.com/jeong-sik/oas/commit/8a30a9a25b536216352f2ef5e858da52bdcb5e65))
+* **models:** register minimax-m3 capability entry (librarian thinking control) ([#2155](https://github.com/jeong-sik/oas/issues/2155)) ([7897d49](https://github.com/jeong-sik/oas/commit/7897d4998a101387412ba32beaf896b2a1863552))
+* **typed_tool_safe:** improve result safety in lib/typed_tool_safe.ml ([#2158](https://github.com/jeong-sik/oas/issues/2158)) ([1ad1092](https://github.com/jeong-sik/oas/commit/1ad1092e00596b7c3ffc2f524c025a8643b4f6db))
+* **typed_tool:** improve result safety in lib/typed_tool.ml ([#2159](https://github.com/jeong-sik/oas/issues/2159)) ([022407e](https://github.com/jeong-sik/oas/commit/022407e712334e081e18a444e6d00c92d1284926))
+
 ## [0.207.5](https://github.com/jeong-sik/oas/compare/v0.207.4...v0.207.5) (2026-06-19)
 
 
