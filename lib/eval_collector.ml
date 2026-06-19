@@ -99,8 +99,8 @@ let process_events t =
 ;;
 
 let finalize t =
-  process_events t;
   Event_bus.unsubscribe t.bus t.sub;
+  process_events t;
   let elapsed = Unix.gettimeofday () -. t.start_time in
   (* Record aggregated metrics *)
   Eval.record

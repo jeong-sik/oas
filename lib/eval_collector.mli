@@ -29,6 +29,6 @@ val wrap_run : bus:Event_bus.t -> agent_name:string -> run_id:string -> unit -> 
     manually for intermediate inspection. *)
 val process_events : t -> unit
 
-(** Finalize collection: drain remaining events, unsubscribe,
+(** Finalize collection: unsubscribe, drain remaining events,
     record aggregate metrics, and return the completed run metrics. *)
 val finalize : t -> Eval.run_metrics
