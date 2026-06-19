@@ -25,7 +25,7 @@ let base_capabilities_for_kind = function
 ;;
 
 let resolve_capabilities_for_config (config : Provider_config.t) =
-  match Capabilities.for_model_id config.model_id with
+  match Provider_config.capabilities_for_config_model config with
   | Some caps -> caps, Model_capability
   | None -> base_capabilities_for_kind config.kind, Provider_default_capability
 ;;

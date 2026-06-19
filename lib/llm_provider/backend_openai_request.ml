@@ -118,7 +118,7 @@ let capabilities_of_config (config : Provider_config.t) =
   match config.kind with
   | Provider_config.DashScope -> Capabilities.dashscope_capabilities
   | _ ->
-    (match Capabilities.for_model_id config.model_id with
+    (match Provider_config.capabilities_for_config_model config with
      | Some caps -> caps
      | None ->
        (match config.kind with
@@ -359,7 +359,7 @@ let build_request_assoc
     match config.supports_tool_choice_override with
     | Some v -> v
     | None ->
-      (match Capabilities.for_model_id config.model_id with
+      (match Provider_config.capabilities_for_config_model config with
        | Some c -> c.supports_tool_choice
        | None -> true)
   in

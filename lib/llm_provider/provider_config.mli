@@ -274,6 +274,17 @@ val reasoning_effort_request_value
     @since 0.114.0 *)
 val reasoning_effort_of_config : t -> string option
 
+(** Capability catalog provider namespace for [config].
+
+    This is usually {!string_of_provider_kind}, except official Ollama Cloud
+    endpoints are scoped as ["ollama_cloud"] even when they use the
+    OpenAI-compatible wire kind. *)
+val capability_provider_label : t -> string
+
+(** Resolve model capabilities using provider-qualified catalog entries first,
+    then bare model entries. *)
+val capabilities_for_config_model : t -> Capabilities.capabilities option
+
 (** Derive a provider-safe schema name for native structured-output APIs
     that require one (for example Openai's [json_schema.name]). *)
 val structured_output_name_of_schema : Yojson.Safe.t -> string
