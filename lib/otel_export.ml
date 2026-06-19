@@ -162,6 +162,7 @@ let post_otlp ~sw ~clock ~client ~config ~endpoint body =
       in
       if code >= 200 && code < 300 then Ok () else Error (Printf.sprintf "HTTP %d" code))
   with
+  | Eio.Cancel.Cancelled _ as e -> raise e
   | Eio.Time.Timeout -> Error (Printf.sprintf "timeout after %.1fs" config.timeout_sec)
   | exn -> Error (Printexc.to_string exn)
 ;;
@@ -172,13 +173,16 @@ let export_batch ~sw ~clock ~client ~config ~service_name spans =
   let body = build_otlp_body ~service_name spans in
   let endpoint = endpoint_for_signal config.endpoint "/v1/traces" in
   let rec attempt n =
-    match post_otlp ~sw ~clock ~client ~config ~endpoint body with
-    | Ok () -> Ok (List.length spans)
-    | Error _ when n < config.max_retries ->
-      let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
-      Eio.Time.sleep clock delay;
-      attempt (n + 1)
-    | Error reason -> Error reason
+    try
+      match post_otlp ~sw ~clock ~client ~config ~endpoint body with
+      | Ok () -> Ok (List.length spans)
+      | Error _ when n < config.max_retries ->
+        let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
+        Eio.Time.sleep clock delay;
+        attempt (n + 1)
+      | Error reason -> Error reason
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
   in
   attempt 0
 ;;
@@ -187,13 +191,16 @@ let export_metrics ~sw ~clock ~client ~config ~service_name metrics =
   let body = build_otlp_metrics_body ~service_name metrics in
   let endpoint = endpoint_for_signal config.endpoint "/v1/metrics" in
   let rec attempt n =
-    match post_otlp ~sw ~clock ~client ~config ~endpoint body with
-    | Ok () -> Ok (List.length metrics)
-    | Error _ when n < config.max_retries ->
-      let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
-      Eio.Time.sleep clock delay;
-      attempt (n + 1)
-    | Error reason -> Error reason
+    try
+      match post_otlp ~sw ~clock ~client ~config ~endpoint body with
+      | Ok () -> Ok (List.length metrics)
+      | Error _ when n < config.max_retries ->
+        let delay = Float.pow 2.0 (Float.of_int n) *. 0.5 in
+        Eio.Time.sleep clock delay;
+        attempt (n + 1)
+      | Error reason -> Error reason
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
   in
   attempt 0
 ;;
