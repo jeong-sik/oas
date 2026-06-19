@@ -268,7 +268,7 @@ val payload_kind : payload -> string
 
 (** {2 ID generation} *)
 
-(** Generate a fresh unique identifier (pid-timestamp-counter). *)
+(** Generate a fresh unique identifier (pid-counter). *)
 val fresh_id : unit -> string
 
 (** Create an envelope with optional correlation/run IDs (defaults to fresh)

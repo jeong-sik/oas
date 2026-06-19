@@ -175,8 +175,7 @@ let id_counter = Atomic.make 0
 
 let fresh_id () =
   let n = Atomic.fetch_and_add id_counter 1 in
-  let now_us = Int.of_float (Unix.gettimeofday () *. 1e6) in
-  Printf.sprintf "%x-%x-%x" (Unix.getpid ()) now_us n
+  Printf.sprintf "%x-%x" (Unix.getpid ()) n
 ;;
 
 let mk_envelope ?correlation_id ?run_id ?caused_by () =
@@ -242,6 +241,10 @@ type subscription =
      w.r.t. other publishers. Drain is not blocked — [take_nonblocking]
      on an empty stream simply returns None. Unused under [Block]. *)
     deliver_mu : Eio.Mutex.t
+  ; (* Set atomically by [unsubscribe] so a publisher that is still
+     holding a snapshot of this subscription can drop the event instead
+     of blocking on a stream that will never be drained again. *)
+    cancelled : bool Atomic.t
   }
 
 (* ── Bus ──────────────────────────────────────────────────────────── *)
@@ -346,6 +349,7 @@ let subscribe ?(filter = accept_all) ?purpose bus =
       ; drained_total = Atomic.make 0
       ; dropped_total = Atomic.make 0
       ; deliver_mu = Eio.Mutex.create ()
+      ; cancelled = Atomic.make false
       }
     in
     bus.subscribers <- sub :: bus.subscribers;
@@ -355,6 +359,10 @@ let subscribe ?(filter = accept_all) ?purpose bus =
 ;;
 
 let unsubscribe bus sub =
+  (* Mark the subscription as cancelled before removing it from the bus.
+     Publishers holding a stale snapshot will see the flag and skip the
+     stream instead of blocking on a stream that is no longer drained. *)
+  Atomic.set sub.cancelled true;
   Eio.Mutex.use_rw ~protect:true bus.mu (fun () ->
     let before = List.length bus.subscribers in
     bus.subscribers <- List.filter (fun s -> s.id <> sub.id) bus.subscribers;
@@ -372,65 +380,78 @@ let unsubscribe bus sub =
    [take_nonblocking] without taking the mutex — it only widens the
    gap, never narrows it. *)
 let deliver_to_sub bus sub event =
-  Atomic.incr sub.published_total;
-  match bus.policy with
-  | Block ->
-    (* Measure time spent blocked only if the stream is actually full.
-       [Eio.Stream.add] is non-blocking when space is available, so the
-       common case skips the clock read entirely. *)
-    if Eio.Stream.length sub.stream >= bus.buffer_size
-    then (
-      let t0 = Unix.gettimeofday () in
-      Eio.Stream.add sub.stream event;
-      let dt = Unix.gettimeofday () -. t0 in
-      let ns = Int.of_float (dt *. 1e9) in
-      if ns > 0 then ignore (Atomic.fetch_and_add bus.block_nanos_total ns))
-    else Eio.Stream.add sub.stream event
-  | Drop_oldest ->
-    Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+  (* A concurrent [unsubscribe] may have cancelled this subscription
+     after [publish] took its snapshot. Skip it entirely to avoid
+     blocking on a stream that will never be drained again. *)
+  if Atomic.get sub.cancelled
+  then ()
+  else (
+    Atomic.incr sub.published_total;
+    match bus.policy with
+    | Block ->
+      (* Measure time spent blocked only if the stream is actually full.
+         [Eio.Stream.add] is non-blocking when space is available, so the
+         common case skips the clock read entirely. *)
       if Eio.Stream.length sub.stream >= bus.buffer_size
-      then (
-        (* Evict one oldest. take_nonblocking can race with an external
-           drainer; tolerate [None] by dropping the new event instead. *)
-        match Eio.Stream.take_nonblocking sub.stream with
-        | Some _ ->
-          Atomic.incr sub.dropped_total;
-          (* Add is safe now: we hold deliver_mu, no other publisher can
-             refill this sub's slot concurrently, and length decreased. *)
-          Eio.Stream.add sub.stream event
-        | None ->
-          (* Rare: drainer emptied the queue. Just add. *)
-          Eio.Stream.add sub.stream event)
-      else Eio.Stream.add sub.stream event)
-  | Drop_newest ->
-    Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
-      if Eio.Stream.length sub.stream >= bus.buffer_size
-      then Atomic.incr sub.dropped_total
-      else Eio.Stream.add sub.stream event)
+      then
+        if Atomic.get sub.cancelled
+        then ()
+        else (
+          let t0 = Unix.gettimeofday () in
+          Eio.Stream.add sub.stream event;
+          let dt = Unix.gettimeofday () -. t0 in
+          let ns = Int.of_float (dt *. 1e9) in
+          if ns > 0 then ignore (Atomic.fetch_and_add bus.block_nanos_total ns))
+      else if not (Atomic.get sub.cancelled)
+      then Eio.Stream.add sub.stream event
+    | Drop_oldest ->
+      Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+        if Atomic.get sub.cancelled
+        then ()
+        else if Eio.Stream.length sub.stream >= bus.buffer_size
+        then (
+          (* Evict one oldest. take_nonblocking can race with an external
+             drainer; tolerate [None] by dropping the new event instead. *)
+          match Eio.Stream.take_nonblocking sub.stream with
+          | Some _ ->
+            Atomic.incr sub.dropped_total;
+            (* Add is safe now: we hold deliver_mu, no other publisher can
+               refill this sub's slot concurrently, and length decreased. *)
+            if not (Atomic.get sub.cancelled) then Eio.Stream.add sub.stream event
+          | None ->
+            (* Rare: drainer emptied the queue. Just add. *)
+            if not (Atomic.get sub.cancelled) then Eio.Stream.add sub.stream event)
+        else if not (Atomic.get sub.cancelled)
+        then Eio.Stream.add sub.stream event)
+    | Drop_newest ->
+      Eio.Mutex.use_rw ~protect:true sub.deliver_mu (fun () ->
+        if Atomic.get sub.cancelled
+        then ()
+        else if Eio.Stream.length sub.stream >= bus.buffer_size
+        then Atomic.incr sub.dropped_total
+        else if not (Atomic.get sub.cancelled)
+        then Eio.Stream.add sub.stream event))
 ;;
 
 let publish bus event =
-  (* Fast path: no subscribers means no lock, no filter evaluation, no
-     stream operations. Common for buses created speculatively or while
-     subscribers are temporarily drained. *)
-  if Atomic.get bus.subscriber_count = 0
-  then ()
-  else (
-    (* Snapshot subscriber list under lock, then deliver outside lock.
-       Stream.add can block on a full stream — holding the lock would
-       deadlock if another fiber tries to subscribe concurrently. *)
-    let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
-    List.iter
-      (fun sub ->
-         let matches =
-           sub.accepts_all
-           ||
-           match sub.filter with
-           | Accept_all -> true
-           | Predicate f -> f event
-         in
-         if matches then deliver_to_sub bus sub event)
-      subs)
+  (* Always take the lock and snapshot the actual subscriber list. The
+     old lock-free fast path based on [subscriber_count] raced with
+     concurrent [subscribe] calls: a subscriber added after the count
+     check would miss the event even though it was active at publish
+     time. Stream.add can block on a full stream, so delivery happens
+     outside the lock to avoid deadlocking concurrent subscribers. *)
+  let subs = Eio.Mutex.use_ro bus.mu (fun () -> bus.subscribers) in
+  List.iter
+    (fun sub ->
+       let matches =
+         sub.accepts_all
+         ||
+         match sub.filter with
+         | Accept_all -> true
+         | Predicate f -> f event
+       in
+       if matches then deliver_to_sub bus sub event)
+    subs
 ;;
 
 (* ── Drain ────────────────────────────────────────────────────────── *)
