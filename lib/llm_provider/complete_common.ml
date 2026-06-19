@@ -248,13 +248,74 @@ let validate_request_path (config : Provider_config.t) =
   | Error reason -> Error (Http_client.AcceptRejected { reason })
 ;;
 
+(* RFC-OAS-023 (capability axis) — fail-loud on an unsatisfiable thinking-control
+   request instead of dropping it silently.
+
+   When a caller explicitly disables thinking (enable_thinking = Some false) on a
+   reasoning-capable model whose resolved capability cannot encode a thinking
+   directive (thinking_control_format = No_thinking_control, and not the zai/GLM
+   special case that backend_openai_request handles), the directive is dropped at
+   the wire. The reasoning model then thinks freely and pollutes/empties JSON-mode
+   output — the memory-os librarian "empty response" / "invalid episode JSON" class.
+   Reject before sending so the caller sees a typed AcceptRejected error rather than
+   silent garbage.
+
+   Scope guards against over-firing:
+   - supports_reasoning = false: the model does not think, so enable_thinking=false
+     is a harmless no-op — not rejected.
+   - enable_thinking = Some true / None: a reasoning model thinks by default, so an
+     "enable" (or unset) request is satisfiable — not rejected.
+   Unknown models (provider_default) are caught earlier by the consumer's startup
+   binding validation; by the time a request reaches here the model is catalogued,
+   so a No_thinking_control + supports_reasoning hit signals a catalog gap to fix. *)
+(* Pure decision (no global state) so it is unit-testable in isolation: is an
+   explicit "disable thinking" request impossible to honor for [caps]? *)
+let thinking_control_disable_unsatisfiable
+      ~(caps : Capabilities.capabilities)
+      (config : Provider_config.t)
+  =
+  match config.enable_thinking with
+  | Some true | None -> false
+  | Some false ->
+    let glm_special_case =
+      (* backend_openai_request encodes thinking for zai/GLM even under
+         No_thinking_control, so that combination IS satisfiable. *)
+      Zai_catalog.is_zai_base_url config.base_url
+      && Zai_catalog.is_glm_model_id config.model_id
+    in
+    caps.supports_reasoning
+    && caps.thinking_control_format = Capabilities.No_thinking_control
+    && not glm_special_case
+;;
+
+let validate_thinking_control_request (config : Provider_config.t) =
+  let caps, _source = resolve_capabilities_for_config config in
+  if thinking_control_disable_unsatisfiable ~caps config
+  then
+    Error
+      (Http_client.AcceptRejected
+         { reason =
+             Printf.sprintf
+               "model %S is reasoning-capable but its capability record declares \
+                thinking_control_format=No_thinking_control: enable_thinking=false \
+                cannot be encoded and would be silently dropped, letting the model \
+                think freely and corrupt JSON-mode output. Declare a \
+                thinking_control_format for this model in Capabilities.for_model_id \
+                (models.toml), or route to a model that supports disabling thinking."
+               config.model_id })
+  else Ok ()
+;;
+
 let validate_all (config : Provider_config.t) =
   match validate_request_path config with
   | Error _ as e -> e
   | Ok () ->
     (match validate_output_schema_request config with
      | Error _ as e -> e
-     | Ok () -> validate_cli_sampling_params config)
+     | Ok () ->
+       (match validate_cli_sampling_params config with
+        | Error _ as e -> e
+        | Ok () -> validate_thinking_control_request config))
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in
