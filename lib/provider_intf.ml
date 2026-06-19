@@ -66,15 +66,15 @@ type provider_module = (module PROVIDER)
 type streaming_provider_module = (module STREAMING_PROVIDER)
 
 (** Runtime dispatch: resolve a provider config to a first-class module.
-    Returns [Some (module STREAMING_PROVIDER)] if native streaming is
-    supported, [None] otherwise (caller should fall back to sync + synthetic). *)
-let of_config (provider_cfg : Provider.config) : provider_module =
-  let spec = Provider.model_spec_of_config provider_cfg in
-  let base_url, api_key, headers =
-    match Provider.resolve provider_cfg with
-    | Ok (url, key, hdrs) -> url, key, hdrs
-    | Error _ -> "", "", []
-  in
+    Returns an error if provider configuration or credentials cannot be
+    resolved. *)
+let of_config (provider_cfg : Provider.config)
+  : (provider_module, Error.sdk_error) result
+  =
+  match Provider.resolve provider_cfg with
+  | Error err -> Error err
+  | Ok (base_url, api_key, headers) ->
+    let spec = Provider.model_spec_of_config provider_cfg in
   let module P = struct
     type t = unit
 
@@ -141,7 +141,7 @@ let of_config (provider_cfg : Provider.config) : provider_module =
     ;;
   end
   in
-  (module P : PROVIDER)
+  Ok (module P : PROVIDER)
 ;;
 
 (** Check if a provider config supports native streaming. *)
@@ -151,50 +151,54 @@ let supports_streaming (provider_cfg : Provider.config) : bool =
 ;;
 
 (** Resolve to a streaming provider if supported.
-    Returns [Some] for Anthropic and OpenAI-compatible providers. *)
+    Returns [Ok (Some _)] when native streaming is supported, [Ok None]
+    otherwise (caller should fall back to sync + synthetic). Returns an
+    error if provider configuration or credentials cannot be resolved. *)
 let of_config_streaming (provider_cfg : Provider.config)
-  : streaming_provider_module option
+  : (streaming_provider_module option, Error.sdk_error) result
   =
   if not (supports_streaming provider_cfg)
-  then None
+  then Ok None
   else (
-    let base_module = of_config provider_cfg in
-    let module Base = (val base_module : PROVIDER) in
-    let base_url =
-      match Provider.resolve provider_cfg with
-      | Ok (url, _, _) -> url
-      | Error _ -> ""
-    in
-    let module SP = struct
-      include Base
+    match of_config provider_cfg with
+    | Error err -> Error err
+    | Ok base_module ->
+      let module Base = (val base_module : PROVIDER) in
+      let base_url =
+        match Provider.resolve provider_cfg with
+        | Ok (url, _, _) -> url
+        | Error _ -> ""
+      in
+      let module SP = struct
+        include Base
 
-      let create_message_stream
+        let create_message_stream
+              ~sw
+              ~net
+              ?clock
+              ?idle_timeout
+              ~config
+              ~messages
+              ?tools
+              ~on_event
+              ()
+          =
+          Streaming.create_message_stream
             ~sw
             ~net
             ?clock
             ?idle_timeout
+            ~base_url
+            ~provider:provider_cfg
             ~config
             ~messages
             ?tools
             ~on_event
             ()
-        =
-        Streaming.create_message_stream
-          ~sw
-          ~net
-          ?clock
-          ?idle_timeout
-          ~base_url
-          ~provider:provider_cfg
-          ~config
-          ~messages
-          ?tools
-          ~on_event
-          ()
-      ;;
-    end
-    in
-    Some (module SP : STREAMING_PROVIDER))
+        ;;
+      end
+      in
+      Ok (Some (module SP : STREAMING_PROVIDER)))
 ;;
 
 [@@@coverage off]
@@ -228,25 +232,26 @@ let%test "supports_streaming OpenAICompat" =
 ;;
 
 let%test "of_config returns a provider_module" =
-  let cfg : Provider.config =
-    { provider = Provider.Anthropic
-    ; model_id = "claude-3-5-sonnet-20241022"
-    ; api_key_env = "ANTHROPIC_API_KEY"
-    }
-  in
-  let _m = of_config cfg in
-  (* Just verify it doesn't raise *)
-  true
+  match of_config (Provider.local_llm ()) with
+  | Ok _ -> true
+  | Error _ -> false
 ;;
 
-let%test "of_config_streaming Anthropic returns Some" =
+let%test "of_config propagates resolve errors" =
   let cfg : Provider.config =
     { provider = Provider.Anthropic
     ; model_id = "claude-3-5-sonnet-20241022"
-    ; api_key_env = "ANTHROPIC_API_KEY"
+    ; api_key_env = "OAS_PROVIDER_INTF_NONEXISTENT_KEY"
     }
   in
-  match of_config_streaming cfg with
-  | Some _ -> true
-  | None -> false
+  match of_config cfg with
+  | Error (Error.Config (MissingEnvVar _)) -> true
+  | Ok _ -> false
+  | Error _ -> false
+;;
+
+let%test "of_config_streaming Local returns Some" =
+  match of_config_streaming (Provider.local_llm ()) with
+  | Ok (Some _) -> true
+  | _ -> false
 ;;

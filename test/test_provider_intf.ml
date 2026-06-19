@@ -4,11 +4,25 @@ open Agent_sdk
 open Agent_sdk.Types
 module Retry = Llm_provider.Retry
 
+let require_provider config =
+  match Provider_intf.of_config config with
+  | Ok m -> m
+  | Error err -> Alcotest.failf "Expected provider, got error: %s" (Error.to_string err)
+;;
+
+let require_streaming_provider config =
+  match Provider_intf.of_config_streaming config with
+  | Ok (Some m) -> m
+  | Ok None -> Alcotest.fail "Expected a streaming provider, got None"
+  | Error err ->
+    Alcotest.failf "Expected streaming provider, got error: %s" (Error.to_string err)
+;;
+
 (* ── Module type satisfaction ────────────────────────────── *)
 
-let test_of_config_anthropic () =
-  let config = Provider.anthropic_sonnet () in
-  let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
+let test_of_config_local () =
+  let config = Provider.local_llm () in
+  let (module P : Provider_intf.PROVIDER) = require_provider config in
   (* Module was constructed — type check passed at compile time.
      We can't call create_message without a real network, but the
      module satisfying PROVIDER is the key guarantee. *)
@@ -17,8 +31,22 @@ let test_of_config_anthropic () =
 
 let test_of_config_openai () =
   let config = Provider.openrouter ~model_id:"gpt-4" () in
-  let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config config in
+  let (module P : Provider_intf.PROVIDER) = require_provider config in
   ignore (module P : Provider_intf.PROVIDER)
+;;
+
+let test_of_config_propagates_resolve_error () =
+  let config =
+    { Provider.provider = Provider.Anthropic
+    ; model_id = "claude-3-5-sonnet-20241022"
+    ; api_key_env = "OAS_PROVIDER_INTF_NONEXISTENT_KEY"
+    }
+  in
+  match Provider_intf.of_config config with
+  | Error (Error.Config (MissingEnvVar _)) -> ()
+  | Ok _ -> Alcotest.fail "Expected resolve error for missing env var"
+  | Error err ->
+    Alcotest.failf "Expected MissingEnvVar error, got: %s" (Error.to_string err)
 ;;
 
 (* ── supports_streaming ──────────────────────────────────── *)
@@ -31,11 +59,9 @@ let test_anthropic_supports_streaming () =
 (* ── of_config_streaming ─────────────────────────────────── *)
 
 let test_streaming_provider_some () =
-  let config = Provider.anthropic_sonnet () in
-  match Provider_intf.of_config_streaming config with
-  | Some (module SP : Provider_intf.STREAMING_PROVIDER) ->
-    ignore (module SP : Provider_intf.STREAMING_PROVIDER)
-  | None -> Alcotest.fail "expected Some for anthropic"
+  let config = Provider.local_llm () in
+  let (module SP : Provider_intf.STREAMING_PROVIDER) = require_streaming_provider config in
+  ignore (module SP : Provider_intf.STREAMING_PROVIDER)
 ;;
 
 (* ── HTTP dispatch ───────────────────────────────────────── *)
@@ -120,7 +146,7 @@ let test_provider_dispatch_uses_http_client () =
     let provider : Provider.config =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
-    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+    let (module P : Provider_intf.PROVIDER) = require_provider provider in
     match
       P.create_message
         ~sw
@@ -157,7 +183,7 @@ let test_provider_dispatch_maps_server_error () =
     let provider : Provider.config =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
-    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+    let (module P : Provider_intf.PROVIDER) = require_provider provider in
     match
       P.create_message
         ~sw
@@ -182,7 +208,7 @@ let test_provider_dispatch_rejects_malformed_openai_response () =
     let provider : Provider.config =
       { provider = Local { base_url }; model_id = "mock"; api_key_env = "DUMMY_KEY" }
     in
-    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+    let (module P : Provider_intf.PROVIDER) = require_provider provider in
     match
       P.create_message
         ~sw
@@ -231,9 +257,11 @@ let test_custom_provider_dispatch_uses_registered_impl () =
       Provider.custom_provider ~name:custom_name ~model_id:"custom-model" ()
     in
     (match Provider_intf.of_config_streaming provider with
-     | None -> ()
-     | Some _ -> Alcotest.fail "custom provider should not expose streaming");
-    let (module P : Provider_intf.PROVIDER) = Provider_intf.of_config provider in
+     | Ok None -> ()
+     | Ok (Some _) -> Alcotest.fail "custom provider should not expose streaming"
+     | Error err ->
+       Alcotest.failf "unexpected streaming resolve error: %s" (Error.to_string err));
+    let (module P : Provider_intf.PROVIDER) = require_provider provider in
     match
       P.create_message
         ~sw
@@ -262,10 +290,14 @@ let () =
     "Provider_intf"
     [ ( "of_config"
       , [ Alcotest.test_case
-            "anthropic satisfies PROVIDER"
+            "local satisfies PROVIDER"
             `Quick
-            test_of_config_anthropic
+            test_of_config_local
         ; Alcotest.test_case "openai satisfies PROVIDER" `Quick test_of_config_openai
+        ; Alcotest.test_case
+            "propagates resolve errors"
+            `Quick
+            test_of_config_propagates_resolve_error
         ] )
     ; ( "streaming"
       , [ Alcotest.test_case

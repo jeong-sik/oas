@@ -38,11 +38,18 @@ end
 type provider_module = (module PROVIDER)
 type streaming_provider_module = (module STREAMING_PROVIDER)
 
-(** Resolve a provider config to a first-class PROVIDER module. *)
-val of_config : Provider.config -> provider_module
+(** Resolve a provider config to a first-class PROVIDER module.
+    Returns an error if provider configuration or credentials cannot be
+    resolved (e.g. a required environment variable is missing). *)
+val of_config : Provider.config -> (provider_module, Error.sdk_error) result
 
 (** Check if a provider config supports native streaming. *)
 val supports_streaming : Provider.config -> bool
 
-(** Resolve to a STREAMING_PROVIDER if native streaming is supported. *)
-val of_config_streaming : Provider.config -> streaming_provider_module option
+(** Resolve to a STREAMING_PROVIDER if native streaming is supported.
+    Returns [Ok None] when streaming is not supported for this provider.
+    Returns an error if provider configuration or credentials cannot be
+    resolved. *)
+val of_config_streaming
+  :  Provider.config
+  -> (streaming_provider_module option, Error.sdk_error) result
