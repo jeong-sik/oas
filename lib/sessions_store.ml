@@ -12,6 +12,19 @@ let make_store ?session_root () = Runtime_store.create ?root:session_root ()
 let file_read_error = Util.file_read_error
 let first_some = Util.first_some
 
+(** [result_all xs] collects a list of results into a result of a list,
+    short-circuiting on the first [Error] and preserving element order. *)
+let result_all xs =
+  List.fold_left
+    (fun acc item ->
+       let* acc = acc in
+       let* item = item in
+       Ok (item :: acc))
+    (Ok [])
+    xs
+  |> Result.map List.rev
+;;
+
 let primary_alias aliases =
   match aliases with
   | alias :: _ when String.trim alias <> "" -> Some alias
@@ -196,13 +209,8 @@ let get_hook_summary ?session_root ~session_id () =
   let* runs =
     paths
     |> List.map (fun path -> Raw_trace_query.read_runs ~path ())
-    |> List.fold_left
-         (fun acc item ->
-            match acc, item with
-            | Ok runs, Ok entries -> Ok (entries @ runs)
-            | (Error _ as err), _ -> err
-            | _, (Error _ as err) -> err)
-         (Ok [])
+    |> result_all
+    |> Result.map List.flatten
   in
   let table : (string, hook_summary) Hashtbl.t = Hashtbl.create 8 in
   let update_summary hook_name decision detail ts =
@@ -227,22 +235,19 @@ let get_hook_summary ?session_root ~session_id () =
       ; latest_ts = Some ts
       }
   in
-  let* () =
-    runs
-    |> List.fold_left
-         (fun acc run ->
-            let* () = acc in
-            let* records = Raw_trace_query.read_run run in
-            List.iter
-              (fun (record : Raw_trace.record) ->
-                 match record.record_type, record.hook_name, record.hook_decision with
-                 | Raw_trace.Hook_invoked, Some hook_name, Some decision ->
-                   update_summary hook_name decision record.hook_detail record.ts
-                 | _record_type, _hook_name, _hook_decision -> ())
-              records;
-            Ok ())
-         (Ok ())
+  let* records_list =
+    runs |> List.map (fun run -> Raw_trace_query.read_run run) |> result_all
   in
+  List.iter
+    (fun records ->
+       List.iter
+         (fun (record : Raw_trace.record) ->
+            match record.record_type, record.hook_name, record.hook_decision with
+            | Raw_trace.Hook_invoked, Some hook_name, Some decision ->
+              update_summary hook_name decision record.hook_detail record.ts
+            | _record_type, _hook_name, _hook_decision -> ())
+         records)
+    records_list;
   Ok
     (Hashtbl.to_seq_values table
      |> List.of_seq
@@ -275,18 +280,15 @@ let get_tool_catalog ?session_root ~session_id () =
 
 let get_raw_trace_runs ?session_root ~session_id () =
   let* paths = get_raw_trace_files ?session_root ~session_id () in
-  paths
-  |> List.map (fun path -> Raw_trace_query.read_runs ~path ())
-  |> List.fold_left
-       (fun acc item ->
-          match acc, item with
-          | Ok runs, Ok entries -> Ok (entries @ runs)
-          | (Error _ as err), _ -> err
-          | _, (Error _ as err) -> err)
-       (Ok [])
-  |> Result.map
-       (List.sort (fun (a : raw_trace_run) (b : raw_trace_run) ->
-          Int.compare a.start_seq b.start_seq))
+  let+ runs =
+    paths
+    |> List.map (fun path -> Raw_trace_query.read_runs ~path ())
+    |> result_all
+    |> Result.map List.flatten
+  in
+  List.sort
+    (fun (a : raw_trace_run) (b : raw_trace_run) -> Int.compare a.start_seq b.start_seq)
+    runs
 ;;
 
 let get_raw_trace_run ?session_root ~session_id ~worker_run_id () =
@@ -330,36 +332,14 @@ let get_latest_raw_trace_run ?session_root ~session_id () =
   | [] -> Ok None
 ;;
 
-let summarize_runs runs =
-  runs
-  |> List.map Raw_trace_query.summarize_run
-  |> List.fold_left
-       (fun acc item ->
-          match acc, item with
-          | Ok summaries, Ok summary -> Ok (summary :: summaries)
-          | (Error _ as err), _ -> err
-          | _, (Error _ as err) -> err)
-       (Ok [])
-  |> Result.map List.rev
-;;
+let summarize_runs runs = runs |> List.map Raw_trace_query.summarize_run |> result_all
 
 let get_raw_trace_summaries ?session_root ~session_id () =
   let* runs = get_raw_trace_runs ?session_root ~session_id () in
   summarize_runs runs
 ;;
 
-let validate_runs runs =
-  runs
-  |> List.map Raw_trace_query.validate_run
-  |> List.fold_left
-       (fun acc item ->
-          match acc, item with
-          | Ok validations, Ok validation -> Ok (validation :: validations)
-          | (Error _ as err), _ -> err
-          | _, (Error _ as err) -> err)
-       (Ok [])
-  |> Result.map List.rev
-;;
+let validate_runs runs = runs |> List.map Raw_trace_query.validate_run |> result_all
 
 let get_raw_trace_validations ?session_root ~session_id () =
   let* runs = get_raw_trace_runs ?session_root ~session_id () in
