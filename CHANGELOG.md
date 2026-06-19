@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.4](https://github.com/jeong-sik/oas/compare/v0.207.3...v0.207.4) (2026-06-19)
+
+
+### Bug Fixes
+
+* address review follow-ups from [#2017](https://github.com/jeong-sik/oas/issues/2017) ([#2122](https://github.com/jeong-sik/oas/issues/2122)) ([d54eed6](https://github.com/jeong-sik/oas/commit/d54eed6e7ba807ae58791fb73d206aa64576cd41))
+* address review follow-ups from [#2028](https://github.com/jeong-sik/oas/issues/2028) ([#2124](https://github.com/jeong-sik/oas/issues/2124)) ([d58dc7d](https://github.com/jeong-sik/oas/commit/d58dc7d84aa01ca3a6be2e1d0a9a201589931a74))
+* address review follow-ups from [#2096](https://github.com/jeong-sik/oas/issues/2096) ([#2123](https://github.com/jeong-sik/oas/issues/2123)) ([072f83c](https://github.com/jeong-sik/oas/commit/072f83ccf10d54224560338024fffee1a916dc1b))
+* address review follow-ups from [#2098](https://github.com/jeong-sik/oas/issues/2098) ([#2127](https://github.com/jeong-sik/oas/issues/2127)) ([59170f9](https://github.com/jeong-sik/oas/commit/59170f942db9fb636b9aaa7f0dbcb4e18cc96529))
+* **backend_glm:** preserve Yojson parse error message for retry classification ([#2121](https://github.com/jeong-sik/oas/issues/2121)) ([7091d3d](https://github.com/jeong-sik/oas/commit/7091d3d57bbe1ea5f683bf18d71df83cfef3317a))
+
 ## [0.207.3](https://github.com/jeong-sik/oas/compare/v0.207.2...v0.207.3) (2026-06-17)
 
 
