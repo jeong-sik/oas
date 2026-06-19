@@ -58,7 +58,13 @@ let spawn ~sw ?clock agent prompt =
   let resolved = Atomic.make false in
   let cancel_sent = Atomic.make false in
   let future =
-    { promise; resolver; cancelled_u; resolved; cancel_sent; cancel_fn = Atomic.make None }
+    { promise
+    ; resolver
+    ; cancelled_u
+    ; resolved
+    ; cancel_sent
+    ; cancel_fn = Atomic.make None
+    }
   in
   Eio.Fiber.fork ~sw (fun () ->
     try
@@ -108,7 +114,8 @@ let cancel future =
      We also resolve the future immediately to preserve the established
      contract that [cancel] returns a ready future; resolve_once makes the
      final result idempotent. *)
-  if Atomic.compare_and_set future.cancel_sent false true then begin
+  if Atomic.compare_and_set future.cancel_sent false true
+  then (
     Eio.Promise.resolve future.cancelled_u ();
     resolve_once future (Error (Error.Internal "cancelled"));
     match Atomic.exchange future.cancel_fn None with
@@ -116,8 +123,7 @@ let cancel future =
       (try f () with
        | Eio.Cancel.Cancelled _ -> ()
        | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ())
-    | None -> ()
-  end
+    | None -> ())
 ;;
 
 (* ── Combinators ──────────────────────────────────────────────── *)

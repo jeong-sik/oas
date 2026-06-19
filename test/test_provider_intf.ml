@@ -60,7 +60,9 @@ let test_anthropic_supports_streaming () =
 
 let test_streaming_provider_some () =
   let config = Provider.local_llm () in
-  let (module SP : Provider_intf.STREAMING_PROVIDER) = require_streaming_provider config in
+  let (module SP : Provider_intf.STREAMING_PROVIDER) =
+    require_streaming_provider config
+  in
   ignore (module SP : Provider_intf.STREAMING_PROVIDER)
 ;;
 
@@ -289,10 +291,7 @@ let () =
   Alcotest.run
     "Provider_intf"
     [ ( "of_config"
-      , [ Alcotest.test_case
-            "local satisfies PROVIDER"
-            `Quick
-            test_of_config_local
+      , [ Alcotest.test_case "local satisfies PROVIDER" `Quick test_of_config_local
         ; Alcotest.test_case "openai satisfies PROVIDER" `Quick test_of_config_openai
         ; Alcotest.test_case
             "propagates resolve errors"
