@@ -21,6 +21,7 @@
     ]} *)
 
 open Types
+open Result_syntax
 
 (** Transport kind tag for serialization. *)
 type transport_kind =
@@ -154,12 +155,14 @@ let map_str_err r =
 let tool_schema_of_json json = map_str_err (Types.tool_schema_of_json json)
 
 let result_all items =
-  let rec loop acc = function
-    | [] -> Ok (List.rev acc)
-    | Ok item :: rest -> loop (item :: acc) rest
-    | Error e :: _ -> Error e
-  in
-  loop [] items
+  List.fold_left
+    (fun acc item ->
+       let* xs = acc in
+       let* x = item in
+       Ok (x :: xs))
+    (Ok [])
+    items
+  |> Result.map List.rev
 ;;
 
 (* ── info JSON ─────────────────────────────────────────────────── *)
@@ -198,74 +201,59 @@ let info_to_json (info : info) : Yojson.Safe.t =
 let info_of_json json : (info, Error.sdk_error) result =
   try
     let open Yojson.Safe.Util in
-    let env_result =
-      json |> member "env" |> to_list |> List.map env_pair_of_json |> result_all
-    in
-    let http_headers_result =
+    let* env = json |> member "env" |> to_list |> List.map env_pair_of_json |> result_all
+    and* http_headers =
       let http_header_items =
         match json |> member "http_headers" with
         | `List items -> items
         | _ -> []
       in
       http_header_items |> List.map env_pair_of_json |> result_all
-    in
-    let tools_result =
+    and* tool_schemas =
       json
       |> member "tool_schemas"
       |> to_list
       |> List.map tool_schema_of_json
       |> result_all
-    in
-    let env_policy_result =
+    and* env_policy =
       match json |> member "env_policy" |> to_string_option with
       | Some raw ->
-        (match Mcp.env_policy_of_string raw with
-         | Ok p -> Ok p
-         | Error msg ->
-           Error
-             (Error.Serialization
-                (JsonParseError { detail = "Mcp_session.info_of_json: " ^ msg })))
+        Result.map_error
+          (fun msg ->
+             Error.Serialization
+               (JsonParseError { detail = "Mcp_session.info_of_json: " ^ msg }))
+          (Mcp.env_policy_of_string raw)
       | None -> Ok Minimal
     in
-    match env_result, http_headers_result, tools_result, env_policy_result with
-    | Ok env, Ok http_headers, Ok tool_schemas, Ok env_policy ->
-      let transport_kind_result =
-        match json |> member "transport_kind" |> to_string_option with
-        | Some raw -> transport_kind_of_string raw
-        | None ->
-          Error
-            (Error.Serialization
-               (JsonParseError
-                  { detail = "Mcp_session.info_of_json: missing transport_kind" }))
-      in
-      (match transport_kind_result with
-       | Error e -> Error e
-       | Ok transport_kind ->
-         let http_base_url = json |> member "http_base_url" |> to_string_option in
-         (match transport_kind, http_base_url with
-          | Http, None ->
-            Error
-              (Error.Serialization
-                 (JsonParseError
-                    { detail =
-                        "Mcp_session.info_of_json: HTTP transport requires http_base_url"
-                    }))
-          | _ ->
-            Ok
-              { server_name = json |> member "server_name" |> to_string
-              ; command = json |> member "command" |> to_string
-              ; args = json |> member "args" |> to_list |> List.map to_string
-              ; env
-              ; env_policy
-              ; http_base_url
-              ; http_headers
-              ; tool_schemas
-              ; transport_kind
+    let* transport_kind =
+      match json |> member "transport_kind" |> to_string_option with
+      | Some raw -> transport_kind_of_string raw
+      | None ->
+        Error
+          (Error.Serialization
+             (JsonParseError
+                { detail = "Mcp_session.info_of_json: missing transport_kind" }))
+    in
+    let http_base_url = json |> member "http_base_url" |> to_string_option in
+    match transport_kind, http_base_url with
+    | Http, None ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              { detail = "Mcp_session.info_of_json: HTTP transport requires http_base_url"
               }))
-    | Error e, _, _, _ -> Error e
-    | _, Error e, _, _ -> Error e
-    | _, _, Error e, _ -> Error e
-    | _, _, _, Error e -> Error e
+    | _ ->
+      Ok
+        { server_name = json |> member "server_name" |> to_string
+        ; command = json |> member "command" |> to_string
+        ; args = json |> member "args" |> to_list |> List.map to_string
+        ; env
+        ; env_policy
+        ; http_base_url
+        ; http_headers
+        ; tool_schemas
+        ; transport_kind
+        }
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error
