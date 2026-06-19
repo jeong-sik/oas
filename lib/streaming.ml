@@ -332,10 +332,9 @@ let create_message_stream
                      }))))
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
+       let openai_compat_kind = Llm_provider.Provider_config.OpenAI_compat in
        let auth_headers =
-         Provider.auth_headers_only_for_kind
-           ~kind:Llm_provider.Provider_config.OpenAI_compat
-           ~api_key
+         Provider.auth_headers_only_for_kind ~kind:openai_compat_kind ~api_key
        in
        let headers =
          match Provider.resolve provider_cfg with
@@ -350,6 +349,8 @@ let create_message_stream
            ~messages
            ?tools
            ()
+         (* Streaming must request both SSE chunks and usage deltas so the
+            accumulator can surface final token/cost metrics. *)
          |> Llm_provider.Http_client.inject_stream_and_options
        in
        let url = base_url ^ stream_path in
