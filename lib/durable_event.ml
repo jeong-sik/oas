@@ -113,21 +113,44 @@ let length journal =
 
 (* ── Idempotency ──────────────────────────────────── *)
 
-(** Stable idempotency key using FNV-1a hash for better distribution.
+(** Stable idempotency key using a tagged FNV-1a hash for better distribution.
     Not cryptographic, but sufficient for deduplication within a single
     journal. Collisions are theoretically possible but practically
-    unlikely for distinct tool inputs. *)
+    unlikely for distinct tool inputs.
+
+    Stability scope: the derived [idempotency_key] is persisted in the
+    JSONL journal ([save_to_file]) and compared by equality during replay
+    ([load_from_file] then [find_completed_activity]). The key carries an
+    explicit hash-algorithm tag, so future algorithm changes can produce a
+    new tagged key instead of silently reusing the same key namespace.
+    Replaying journals written before this tag still misses the dedup
+    lookup once and may re-run side-effectful tools once; callers that
+    require cross-build exactly-once effects must provide external
+    idempotency. *)
+let idempotency_hash_tag = "fnv1a63-v2"
+
 let fnv1a_hash (s : string) : int =
   let basis = 0x811c9dc5 in
   let prime = 0x01000193 in
-  String.fold_left (fun h c -> h lxor Char.code c * prime) basis s
+  (* FNV-1a: XOR the hash with the byte first, then multiply by the prime.
+     Keep the XOR in a separate binding so precedence cannot change the
+     algorithm.
+     This is the project-local OCaml-int variant: it uses the 32-bit FNV
+     constants, then masks the native int result to a positive 63-bit value.
+     See https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function *)
+  String.fold_left
+    (fun h c ->
+       let h = h lxor Char.code c in
+       h * prime)
+    basis
+    s
   land max_int (* ensure positive, 63-bit on 64-bit OCaml *)
 ;;
 
 let make_idempotency_key ~tool_name ~input =
   let input_str = Yojson.Safe.to_string input in
   let hash = fnv1a_hash (tool_name ^ ":" ^ input_str) in
-  Printf.sprintf "%s:%08x" tool_name hash
+  Printf.sprintf "%s:%s:%08x" tool_name idempotency_hash_tag hash
 ;;
 
 let find_completed_activity journal key =
