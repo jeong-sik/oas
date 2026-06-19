@@ -298,11 +298,12 @@ let validate_thinking_control_request (config : Provider_config.t) =
              Printf.sprintf
                "model %S is reasoning-capable but its capability record declares \
                 thinking_control_format=No_thinking_control: enable_thinking=false \
-                cannot be encoded and would be silently dropped, letting the model \
-                think freely and corrupt JSON-mode output. Declare a \
-                thinking_control_format for this model in Capabilities.for_model_id \
-                (models.toml), or route to a model that supports disabling thinking."
-               config.model_id })
+                cannot be encoded and would be silently dropped, letting the model think \
+                freely and corrupt JSON-mode output. Declare a thinking_control_format \
+                for this model in Capabilities.for_model_id (models.toml), or route to a \
+                model that supports disabling thinking."
+               config.model_id
+         })
   else Ok ()
 ;;
 
