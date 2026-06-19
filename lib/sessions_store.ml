@@ -225,14 +225,19 @@ let get_hook_summary ?session_root ~session_id () =
         ; latest_ts = None
         }
     in
+    let is_latest =
+      match current.latest_ts with
+      | Some latest_ts -> ts >= latest_ts
+      | None -> true
+    in
     Hashtbl.replace
       table
       hook_name
       { hook_name
       ; count = current.count + 1
-      ; latest_decision = Some decision
-      ; latest_detail = detail
-      ; latest_ts = Some ts
+      ; latest_decision = (if is_latest then Some decision else current.latest_decision)
+      ; latest_detail = (if is_latest then detail else current.latest_detail)
+      ; latest_ts = (if is_latest then Some ts else current.latest_ts)
       }
   in
   let* records_list =
