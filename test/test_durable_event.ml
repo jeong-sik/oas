@@ -64,7 +64,8 @@ let test_last_timestamp () =
 let test_idempotency_key_deterministic () =
   let k1 = Durable_event.make_idempotency_key ~tool_name:"read" ~input:(`String "a") in
   let k2 = Durable_event.make_idempotency_key ~tool_name:"read" ~input:(`String "a") in
-  check string "deterministic" k1 k2
+  check string "deterministic" k1 k2;
+  check bool "hash tag" true (String.starts_with ~prefix:"read:fnv1a63-v2:" k1)
 ;;
 
 let test_idempotency_key_unique () =
