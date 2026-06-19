@@ -1,5 +1,6 @@
 open Types
 open Checkpoint_types
+open Result_syntax
 
 let checkpoint_version = Checkpoint_types.checkpoint_version
 
@@ -63,12 +64,14 @@ let map_str_err r =
 let tool_schema_of_json json = map_str_err (Types.tool_schema_of_json json)
 
 let result_all items =
-  let rec loop acc = function
-    | [] -> Ok (List.rev acc)
-    | Ok item :: rest -> loop (item :: acc) rest
-    | Error e :: _ -> Error e
-  in
-  loop [] items
+  List.fold_left
+    (fun acc item ->
+       let* acc = acc in
+       let* item = item in
+       Ok (item :: acc))
+    (Ok [])
+    items
+  |> Result.map List.rev
 ;;
 
 let content_block_of_json_strict json =
@@ -151,18 +154,16 @@ let message_of_json json =
     |> result_all
   in
   let metadata = metadata_of_json json in
-  match role, content, metadata with
-  | Ok role, Ok content, Ok metadata ->
-    Ok
-      { role
-      ; content
-      ; name = json |> member "name" |> to_string_option
-      ; tool_call_id = json |> member "tool_call_id" |> to_string_option
-      ; metadata
-      }
-  | Error e, _, _ -> Error e
-  | _, Error e, _ -> Error e
-  | _, _, Error e -> Error e
+  let* role = role
+  and* content = content
+  and* metadata = metadata in
+  Ok
+    { role
+    ; content
+    ; name = json |> member "name" |> to_string_option
+    ; tool_call_id = json |> member "tool_call_id" |> to_string_option
+    ; metadata
+    }
 ;;
 
 let checkpoint_to_json cp =
@@ -240,11 +241,10 @@ let context_diff_of_json json =
            (JsonParseError
               { detail = Printf.sprintf "Checkpoint.delta context diff removed: %s" msg }))
   in
-  match parse_kvs "added", parse_kvs "changed", parse_removed () with
-  | Ok added, Ok changed, Ok removed -> Ok { Context.added; removed; changed }
-  | Error e, _, _ -> Error e
-  | _, Error e, _ -> Error e
-  | _, _, Error e -> Error e
+  let* added = parse_kvs "added"
+  and* changed = parse_kvs "changed"
+  and* removed = parse_removed () in
+  Ok { Context.added; removed; changed }
 ;;
 
 let delta_to_json (delta : delta) =
@@ -336,47 +336,41 @@ let delta_of_json json =
     let kind = op_json |> member "kind" |> to_string in
     match kind with
     | "replace_identity" ->
-      let model =
+      let+ model =
         model_of_yojson (op_json |> member "model")
         |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
       in
-      Result.map
-        (fun model ->
-           Replace_identity
-             { session_id = op_json |> member "session_id" |> to_string
-             ; agent_name = op_json |> member "agent_name" |> to_string
-             ; model
-             ; created_at = op_json |> member "created_at" |> to_float
-             })
-        model
+      Replace_identity
+        { session_id = op_json |> member "session_id" |> to_string
+        ; agent_name = op_json |> member "agent_name" |> to_string
+        ; model
+        ; created_at = op_json |> member "created_at" |> to_float
+        }
     | "replace_system_prompt" ->
       Ok (Replace_system_prompt (op_json |> member "system_prompt" |> to_string_option))
     | "splice_messages" ->
-      let insert =
+      let+ insert =
         op_json |> member "insert" |> to_list |> List.map message_of_json |> result_all
       in
-      Result.map
-        (fun insert ->
-           Splice_messages
-             { start_index = op_json |> member "start_index" |> to_int
-             ; delete_count = op_json |> member "delete_count" |> to_int
-             ; insert
-             })
-        insert
+      Splice_messages
+        { start_index = op_json |> member "start_index" |> to_int
+        ; delete_count = op_json |> member "delete_count" |> to_int
+        ; insert
+        }
     | "replace_usage" -> Ok (Replace_usage (usage_of_json (op_json |> member "usage")))
     | "replace_turn_count" ->
       Ok (Replace_turn_count (op_json |> member "turn_count" |> to_int))
     | "replace_tools" ->
-      let tools =
+      let+ tools =
         op_json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
       in
-      Result.map (fun tools -> Replace_tools tools) tools
+      Replace_tools tools
     | "replace_tool_choice" ->
       (match op_json |> member "tool_choice" with
        | `Null -> Ok (Replace_tool_choice None)
        | value ->
-         tool_choice_of_json value
-         |> Result.map (fun value -> Replace_tool_choice (Some value)))
+         let+ value = tool_choice_of_json value in
+         Replace_tool_choice (Some value))
     | "replace_sampling" ->
       Ok
         (Replace_sampling
@@ -389,7 +383,7 @@ let delta_of_json json =
            ; thinking_budget = op_json |> member "thinking_budget" |> to_int_option
            })
     | "replace_limits" ->
-      let response_format =
+      let+ response_format =
         match op_json |> member "response_format" with
         | `Null ->
           Ok
@@ -397,21 +391,18 @@ let delta_of_json json =
                (op_json |> member "response_format_json" |> to_bool))
         | value -> response_format_of_json value
       in
-      Result.map
-        (fun response_format ->
-           Replace_limits
-             { disable_parallel_tool_use =
-                 op_json |> member "disable_parallel_tool_use" |> to_bool
-             ; response_format
-             ; cache_system_prompt = op_json |> member "cache_system_prompt" |> to_bool
-             })
-        response_format
+      Replace_limits
+        { disable_parallel_tool_use =
+            op_json |> member "disable_parallel_tool_use" |> to_bool
+        ; response_format
+        ; cache_system_prompt = op_json |> member "cache_system_prompt" |> to_bool
+        }
     | "patch_context" ->
-      context_diff_of_json (op_json |> member "diff")
-      |> Result.map (fun diff -> Patch_context diff)
+      let+ diff = context_diff_of_json (op_json |> member "diff") in
+      Patch_context diff
     | "replace_mcp_sessions" ->
-      Mcp_session.info_list_of_json (op_json |> member "mcp_sessions")
-      |> Result.map (fun sessions -> Replace_mcp_sessions sessions)
+      let+ sessions = Mcp_session.info_list_of_json (op_json |> member "mcp_sessions") in
+      Replace_mcp_sessions sessions
     | "replace_working_context" ->
       Ok
         (Replace_working_context
@@ -424,19 +415,16 @@ let delta_of_json json =
            (UnknownVariant { type_name = "Checkpoint.delta_op"; value = other }))
   in
   try
-    let operations =
+    let+ operations =
       json |> member "operations" |> to_list |> List.map op_of_json |> result_all
     in
-    Result.map
-      (fun operations ->
-         { delta_version = json |> member "delta_version" |> to_int
-         ; base_checkpoint_version = json |> member "base_checkpoint_version" |> to_int
-         ; base_checkpoint_hash = json |> member "base_checkpoint_hash" |> to_string
-         ; result_checkpoint_hash = json |> member "result_checkpoint_hash" |> to_string
-         ; created_at = json |> member "created_at" |> to_float
-         ; operations
-         })
-      operations
+    { delta_version = json |> member "delta_version" |> to_int
+    ; base_checkpoint_version = json |> member "base_checkpoint_version" |> to_int
+    ; base_checkpoint_hash = json |> member "base_checkpoint_hash" |> to_string
+    ; result_checkpoint_hash = json |> member "result_checkpoint_hash" |> to_string
+    ; created_at = json |> member "created_at" |> to_float
+    ; operations
+    }
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error
@@ -464,112 +452,91 @@ let of_json json =
       Error
         (Error.Serialization
            (VersionMismatch { expected = checkpoint_version; got = version }))
-    else (
-      let tool_choice =
+    else
+      let* tool_choice =
         match json |> member "tool_choice" with
         | `Null -> Ok None
-        | tc -> Result.map Option.some (tool_choice_of_json tc)
+        | tc ->
+          let+ tc = tool_choice_of_json tc in
+          Some tc
       in
-      match tool_choice with
-      | Error e -> Error e
-      | Ok tool_choice ->
-        let model =
-          model_of_yojson (json |> member "model")
-          |> Result.map_error (fun e ->
-            Error.Serialization (JsonParseError { detail = e }))
-        in
-        let messages =
-          json |> member "messages" |> to_list |> List.map message_of_json |> result_all
-        in
-        let tools =
-          json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
-        in
-        let context =
-          match json |> member "context" with
-          | `Null -> Ok (Context.create ())
-          | `Assoc _ as value -> Ok (Context.of_json value)
-          | _ ->
-            Error
-              (Error.Serialization
-                 (JsonParseError
-                    { detail = "Checkpoint.of_json: context must be a JSON object or null"
-                    }))
-        in
-        let mcp_sessions =
-          match json |> member "mcp_sessions" with
-          | `Null -> Ok []
-          | `List _ as lst -> Mcp_session.info_list_of_json lst
-          | _ ->
-            Error
-              (Error.Serialization
-                 (JsonParseError
-                    { detail =
-                        "Checkpoint.of_json: mcp_sessions must be a JSON array or null"
-                    }))
-        in
-        let working_context =
-          match json |> member "working_context" with
-          | `Null -> None
-          | v -> Some v
-        in
-        let response_format =
-          match json |> member "response_format" with
-          | `Null ->
-            Ok
-              (response_format_of_json_mode
-                 (json
-                  |> member "response_format_json"
-                  |> to_bool_option
-                  |> Option.value ~default:false))
-          | value -> response_format_of_json value
-        in
-        (match model, messages, tools, context, mcp_sessions, response_format with
-         | ( Ok model
-           , Ok messages
-           , Ok tools
-           , Ok context
-           , Ok mcp_sessions
-           , Ok response_format ) ->
-           Ok
-             { version = checkpoint_version
-             ; session_id = json |> member "session_id" |> to_string
-             ; agent_name = json |> member "agent_name" |> to_string
-             ; model
-             ; system_prompt = json |> member "system_prompt" |> to_string_option
-             ; messages
-             ; usage = json |> member "usage" |> usage_of_json
-             ; turn_count = json |> member "turn_count" |> to_int
-             ; created_at = json |> member "created_at" |> to_float
-             ; tools
-             ; tool_choice
-             ; disable_parallel_tool_use =
-                 json
-                 |> member "disable_parallel_tool_use"
-                 |> to_bool_option
-                 |> Option.value ~default:false
-             ; temperature = json |> member "temperature" |> to_float_option
-             ; top_p = json |> member "top_p" |> to_float_option
-             ; top_k = json |> member "top_k" |> to_int_option
-             ; min_p = json |> member "min_p" |> to_float_option
-             ; enable_thinking = json |> member "enable_thinking" |> to_bool_option
-             ; preserve_thinking = json |> member "preserve_thinking" |> to_bool_option
-             ; response_format
-             ; thinking_budget = json |> member "thinking_budget" |> to_int_option
-             ; cache_system_prompt =
-                 json
-                 |> member "cache_system_prompt"
-                 |> to_bool_option
-                 |> Option.value ~default:false
-             ; context
-             ; mcp_sessions
-             ; working_context
-             }
-         | Error e, _, _, _, _, _ -> Error e
-         | _, Error e, _, _, _, _ -> Error e
-         | _, _, Error e, _, _, _ -> Error e
-         | _, _, _, Error e, _, _ -> Error e
-         | _, _, _, _, Error e, _ -> Error e
-         | _, _, _, _, _, Error e -> Error e))
+      let* model =
+        model_of_yojson (json |> member "model")
+        |> Result.map_error (fun e -> Error.Serialization (JsonParseError { detail = e }))
+      and* messages =
+        json |> member "messages" |> to_list |> List.map message_of_json |> result_all
+      and* tools =
+        json |> member "tools" |> to_list |> List.map tool_schema_of_json |> result_all
+      and* context =
+        match json |> member "context" with
+        | `Null -> Ok (Context.create ())
+        | `Assoc _ as value -> Ok (Context.of_json value)
+        | _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail = "Checkpoint.of_json: context must be a JSON object or null" }))
+      and* mcp_sessions =
+        match json |> member "mcp_sessions" with
+        | `Null -> Ok []
+        | `List _ as lst -> Mcp_session.info_list_of_json lst
+        | _ ->
+          Error
+            (Error.Serialization
+               (JsonParseError
+                  { detail =
+                      "Checkpoint.of_json: mcp_sessions must be a JSON array or null"
+                  }))
+      and* response_format =
+        match json |> member "response_format" with
+        | `Null ->
+          Ok
+            (response_format_of_json_mode
+               (json
+                |> member "response_format_json"
+                |> to_bool_option
+                |> Option.value ~default:false))
+        | value -> response_format_of_json value
+      in
+      let working_context =
+        match json |> member "working_context" with
+        | `Null -> None
+        | v -> Some v
+      in
+      Ok
+        { version = checkpoint_version
+        ; session_id = json |> member "session_id" |> to_string
+        ; agent_name = json |> member "agent_name" |> to_string
+        ; model
+        ; system_prompt = json |> member "system_prompt" |> to_string_option
+        ; messages
+        ; usage = json |> member "usage" |> usage_of_json
+        ; turn_count = json |> member "turn_count" |> to_int
+        ; created_at = json |> member "created_at" |> to_float
+        ; tools
+        ; tool_choice
+        ; disable_parallel_tool_use =
+            json
+            |> member "disable_parallel_tool_use"
+            |> to_bool_option
+            |> Option.value ~default:false
+        ; temperature = json |> member "temperature" |> to_float_option
+        ; top_p = json |> member "top_p" |> to_float_option
+        ; top_k = json |> member "top_k" |> to_int_option
+        ; min_p = json |> member "min_p" |> to_float_option
+        ; enable_thinking = json |> member "enable_thinking" |> to_bool_option
+        ; preserve_thinking = json |> member "preserve_thinking" |> to_bool_option
+        ; response_format
+        ; thinking_budget = json |> member "thinking_budget" |> to_int_option
+        ; cache_system_prompt =
+            json
+            |> member "cache_system_prompt"
+            |> to_bool_option
+            |> Option.value ~default:false
+        ; context
+        ; mcp_sessions
+        ; working_context
+        }
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Error
