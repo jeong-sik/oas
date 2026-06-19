@@ -11,6 +11,23 @@
 
     @since 0.45.0 *)
 
+module Result_syntax = struct
+  let ( let* ) = Result.bind
+  let ( let+ ) x f = Result.map f x
+
+  let both a b =
+    match a, b with
+    | Ok a_val, Ok b_val -> Ok (a_val, b_val)
+    | Error e, _ -> Error e
+    | _, Error e -> Error e
+  ;;
+
+  let ( and* ) = both
+  let ( and+ ) = both
+end
+
+open Result_syntax
+
 type network_error_kind =
   | Connection_refused
   | Dns_failure
@@ -113,8 +130,6 @@ type http_error =
       }
 
 (* ── Internal helpers ──────────────────────────────────────── *)
-
-let ( let* ) = Result.bind
 
 let provider_failure_scope_to_string = function
   | Failure_scope_model -> "model"
@@ -701,22 +716,21 @@ let resolve_origin net uri =
            { message = Printexc.to_string exn; kind = classify_unix_error code })
     | Failure msg ->
       Error (NetworkError { message = msg; kind = classify_by_message msg })
-  in
-  let* tls_wrap =
+  and* tls_wrap =
     match Uri.scheme uri with
     | Some "https" ->
-      (match https with
-       | Ok wrap -> Ok (Some wrap)
-       | Error reason ->
-         Error
-           (NetworkError
-              { message =
-                  Printf.sprintf
-                    "HTTPS requested but TLS not available for %s: %s"
-                    (Uri.to_string uri)
-                    (Api_common.https_init_error_to_string reason)
-              ; kind = https_init_error_network_kind reason
-              }))
+      let wrap_error reason =
+        NetworkError
+          { message =
+              Printf.sprintf
+                "HTTPS requested but TLS not available for %s: %s"
+                (Uri.to_string uri)
+                (Api_common.https_init_error_to_string reason)
+          ; kind = https_init_error_network_kind reason
+          }
+      in
+      let+ wrap = Result.map_error wrap_error https in
+      Some wrap
     | Some "http" | Some _ | None -> Ok None
   in
   Ok (net, addr, tls_wrap)
@@ -727,7 +741,7 @@ let resolve_origin net uri =
     created by this client. The client is NOT bound to any switch; the
     caller decides when to close it or park it in a cache. *)
 let make_client ~net ~uri =
-  let* net, addr, tls_wrap = resolve_origin net uri in
+  let+ net, addr, tls_wrap = resolve_origin net uri in
   let tracked_transports : connection list Atomic.t = Atomic.make [] in
   let connect ~sw:conn_sw _uri =
     let sock = Eio.Net.connect ~sw:conn_sw net addr in
@@ -773,7 +787,7 @@ let make_client ~net ~uri =
              log_close_failure ~url:(Uri.to_string uri) ~message:(Printexc.to_string exn))
         transports)
   in
-  Ok (client, close)
+  client, close
 ;;
 
 (** Create a single transport connection bound to [sw]. This is the unit
@@ -803,9 +817,9 @@ let make_connection ~sw ~net ~uri : (connection, http_error) result =
     The caller provides the concrete URI so host resolution and TLS
     availability can be checked up front and reported as typed errors. *)
 let make_closing_client ~sw ~net ~uri =
-  let* client, close = make_client ~net ~uri in
+  let+ client, close = make_client ~net ~uri in
   Eio.Switch.on_release sw close;
-  Ok client
+  client
 ;;
 
 (** Run [f client] with a client obtained either from [cache] or created
@@ -832,9 +846,9 @@ let with_client ?cache ~sw ~net ~uri f =
       match cache_take cache uri with
       | Some e -> Ok (e.connection, true)
       | None ->
-        let* conn = make_connection ~sw:cache.sw ~net ~uri in
+        let+ conn = make_connection ~sw:cache.sw ~net ~uri in
         Atomic.incr cache.create_count_total;
-        Ok (conn, false)
+        conn, false
     in
     let client =
       Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
@@ -854,11 +868,9 @@ let with_client ?cache ~sw ~net ~uri f =
             "with_client cleanup failed: %s"
             (Printexc.to_string exn))
       (fun () ->
-         let result = f client in
-         (match result with
-          | Ok _ -> ok := true
-          | Error _ -> ());
-         result)
+         let* result = f client in
+         ok := true;
+         Ok result)
 ;;
 
 let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
@@ -1074,9 +1086,9 @@ let with_post_stream
           (match cache_take cache uri with
            | Some e -> Ok e.connection
            | None ->
-             let* conn = make_connection ~sw:cache.sw ~net ~uri in
+             let+ conn = make_connection ~sw:cache.sw ~net ~uri in
              Atomic.incr cache.create_count_total;
-             Ok conn)
+             conn)
       in
       let client =
         Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
@@ -1137,39 +1149,37 @@ let with_post_stream
 
      The connection is parked back into the cache only after [f] returns
      successfully, ensuring the reader is no longer using the flow. *)
-  match post_result with
-  | Error e -> Error e
-  | Ok (uri, conn, reader) ->
-    let body_result =
-      try Ok (f reader) with
-      | Eio.Time.Timeout ->
-        (* Body-phase timeout. Stream-state-aware callers ([Complete_stream])
+  let* uri, conn, reader = post_result in
+  let body_result =
+    try Ok (f reader) with
+    | Eio.Time.Timeout ->
+      (* Body-phase timeout. Stream-state-aware callers ([Complete_stream])
            catch this inside [f] and emit the precise [First_token] /
            [Stream_idle] phase. Callers that let it propagate (e.g.
            [Streaming]) get [Unknown_timeout] as a safe default rather
            than it being mislabelled [Http_operation] (the connect /
            headers phase, which a body-phase timeout is not). *)
-        Error
-          (TimeoutError
-             { message = "stream body timed out (awaiting first token / inter-chunk idle)"
-             ; phase = Unknown_timeout
-             })
-      | exn ->
-        (match classify_network_exn exn with
-         | Some e -> Error e
-         | None ->
-           (* Unclassified exceptions (including cancellation) escape, so close
+      Error
+        (TimeoutError
+           { message = "stream body timed out (awaiting first token / inter-chunk idle)"
+           ; phase = Unknown_timeout
+           })
+    | exn ->
+      (match classify_network_exn exn with
+       | Some e -> Error e
+       | None ->
+         (* Unclassified exceptions (including cancellation) escape, so close
               the connection before re-raising to avoid leaking a cached socket
               bound to the long-lived cache switch. *)
-           Eio.Cancel.protect (fun () -> Eio.Resource.close conn);
-           raise exn)
-    in
-    (match body_result, cache with
-     | Ok _, Some cache ->
-       cache_return cache uri { connection = conn; last_used_at = Unix.gettimeofday () }
-     | Ok _, None -> Eio.Resource.close conn
-     | Error _, _ -> Eio.Resource.close conn);
-    body_result
+         Eio.Cancel.protect (fun () -> Eio.Resource.close conn);
+         raise exn)
+  in
+  (match body_result, cache with
+   | Ok _, Some cache ->
+     cache_return cache uri { connection = conn; last_used_at = Unix.gettimeofday () }
+   | Ok _, None -> Eio.Resource.close conn
+   | Error _, _ -> Eio.Resource.close conn);
+  body_result
 ;;
 
 (* One W3C EventSource line, parsed per spec (§9.2.6 event stream
