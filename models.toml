@@ -991,21 +991,6 @@ supports_image_input = false
 supports_native_streaming = true
 
 [[models]]
-id_prefix = "kimi-k2.7-code"
-base = "ollama_cloud"
-max_context_tokens = 262144
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = true
-supports_extended_thinking = true
-supports_reasoning_budget = true
-thinking_control_format = "reasoning_effort"
-supports_multimodal_inputs = true
-supports_image_input = true
-modality_priority = "visual_first"
-supports_native_streaming = true
-
-[[models]]
 id_prefix = "minimax-m2.1"
 base = "ollama_cloud"
 max_context_tokens = 204800
@@ -1546,10 +1531,9 @@ max_context_tokens = 256000
 input_per_million = 0.0
 output_per_million = 0.0
 
-# Legacy native Kimi cloud suffix. This is intentionally not Ollama Cloud:
-# bare official Ollama Cloud Kimi rows below use base = "ollama_cloud",
-# 262144 context tokens, reasoning_effort, and visual_first ordering.
-# Native Kimi keeps the existing Kimi transport dialect and 256000 context.
+# Bare kimi-k2.* ids are native Kimi. Ollama Cloud's overlapping Kimi ids are
+# represented only by provider-qualified ollama_cloud/kimi-* rows so a bare
+# native route does not silently inherit Ollama Cloud wire semantics.
 [[models]]
 id_prefix = "kimi-k2.5:cloud"
 base = "kimi"
@@ -1558,44 +1542,11 @@ input_per_million = 0.0
 output_per_million = 0.0
 
 [[models]]
-id_prefix = "kimi-k2.5"
-base = "ollama_cloud"
-max_context_tokens = 262144
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = true
-supports_extended_thinking = true
-supports_reasoning_budget = true
-thinking_control_format = "reasoning_effort"
-supports_multimodal_inputs = true
-supports_image_input = true
-modality_priority = "visual_first"
-supports_native_streaming = true
-
-# Legacy native Kimi cloud suffix. Keep this more-specific prefix before the
-# bare official Ollama Cloud row so longest-prefix lookup preserves native Kimi
-# requests without changing Ollama Cloud Kimi semantics.
-[[models]]
 id_prefix = "kimi-k2.6:cloud"
 base = "kimi"
 max_context_tokens = 256000
 input_per_million = 0.0
 output_per_million = 0.0
-
-[[models]]
-id_prefix = "kimi-k2.6"
-base = "ollama_cloud"
-max_context_tokens = 262144
-supports_tools = true
-supports_tool_choice = false
-supports_reasoning = true
-supports_extended_thinking = true
-supports_reasoning_budget = true
-thinking_control_format = "reasoning_effort"
-supports_multimodal_inputs = true
-supports_image_input = true
-modality_priority = "visual_first"
-supports_native_streaming = true
 
 # xAI Grok Models
 [[models]]

@@ -265,18 +265,30 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
     check_preserve_order "native Kimi cloud suffix" native;
     check bool "native Kimi code execution" true native.supports_code_execution;
     (match Capabilities.for_model_id "kimi-k2.6" with
-     | Some ollama ->
+     | Some bare_native ->
        check
          (option int)
-         "Ollama Cloud Kimi context"
-         (Some 262_144)
-         ollama.max_context_tokens;
+         "bare native Kimi context 256K"
+         (Some 256_000)
+         bare_native.max_context_tokens;
+       check
+         (option int)
+         "bare native Kimi output 32K"
+         (Some 32_768)
+         bare_native.max_output_tokens;
+       check bool "bare native Kimi tools" true bare_native.supports_tools;
+       check bool "bare native Kimi reasoning" true bare_native.supports_reasoning;
        check_thinking_control
-         "Ollama Cloud Kimi uses reasoning_effort"
-         Capabilities.Reasoning_effort
-         ollama.thinking_control_format;
-       check_visual_first "Ollama Cloud Kimi" ollama
-     | None -> fail "should match Ollama Cloud Kimi bare route");
+         "bare native Kimi thinking object only"
+         Capabilities.Thinking_object_only
+         bare_native.thinking_control_format;
+       check_preserve_order "bare native Kimi" bare_native;
+       check
+         bool
+         "bare native Kimi code execution"
+         true
+         bare_native.supports_code_execution
+     | None -> fail "should match native bare Kimi route");
     (match
        Capabilities.for_provider_model_id
          ~provider_label:"ollama_cloud"
@@ -496,7 +508,7 @@ let test_ollama_cloud_current_catalog_resolves () =
     cases
 ;;
 
-let test_ollama_cloud_provider_qualified_overrides_bare_family () =
+let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let open Capabilities in
   let bare_glm =
     match for_model_id "glm-5.1" with
@@ -525,19 +537,28 @@ let test_ollama_cloud_provider_qualified_overrides_bare_family () =
     | None -> fail "ollama_cloud/kimi-k2.6 should resolve"
   in
   check_thinking_control
-    "bare Kimi uses Ollama reasoning_effort"
-    Reasoning_effort
+    "bare Kimi remains native thinking object"
+    Thinking_object_only
     bare_kimi.thinking_control_format;
   check_thinking_control
     "cloud Kimi uses Ollama reasoning_effort"
     Reasoning_effort
     cloud_kimi.thinking_control_format;
-  check (option int) "bare Kimi context" (Some 262_144) bare_kimi.max_context_tokens;
   check
     (option int)
-    "bare/cloud Kimi context parity"
-    cloud_kimi.max_context_tokens
+    "bare Kimi native context"
+    (Some 256_000)
     bare_kimi.max_context_tokens;
+  check
+    (option int)
+    "cloud Kimi official context"
+    (Some 262_144)
+    cloud_kimi.max_context_tokens;
+  check
+    bool
+    "bare/cloud Kimi contexts intentionally differ"
+    true
+    (bare_kimi.max_context_tokens <> cloud_kimi.max_context_tokens);
   check bool "bare Kimi vision" true bare_kimi.supports_image_input;
   check bool "cloud Kimi vision" true cloud_kimi.supports_image_input
 ;;
@@ -1046,9 +1067,9 @@ let () =
             `Quick
             test_ollama_cloud_current_catalog_resolves
         ; test_case
-            "ollama cloud overrides shared bare families"
+            "ollama cloud preserves shared bare families"
             `Quick
-            test_ollama_cloud_provider_qualified_overrides_bare_family
+            test_ollama_cloud_provider_qualified_preserves_shared_bare_family
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
