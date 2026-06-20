@@ -1547,6 +1547,13 @@ input_per_million = 0.0
 output_per_million = 0.0
 
 [[models]]
+id_prefix = "kimi-k2.5:cloud"
+base = "kimi"
+max_context_tokens = 256000
+input_per_million = 0.0
+output_per_million = 0.0
+
+[[models]]
 id_prefix = "kimi-k2.5"
 base = "ollama_cloud"
 max_context_tokens = 262144
@@ -1560,6 +1567,13 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+
+[[models]]
+id_prefix = "kimi-k2.6:cloud"
+base = "kimi"
+max_context_tokens = 256000
+input_per_million = 0.0
+output_per_million = 0.0
 
 [[models]]
 id_prefix = "kimi-k2.6"
