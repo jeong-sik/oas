@@ -238,20 +238,62 @@ let test_gemini_family_drives_capabilities () =
   check (option int) "gemini-2.5-flash ctx" (Some 1_000_000) (ctx "gemini-2.5-flash")
 ;;
 
-let test_lookup_kimi_k2_cloud () =
+let test_lookup_kimi_k2_native_cloud_suffix () =
+  let check_visual_first label caps =
+    match caps.Capabilities.modality_priority with
+    | Modality.Visual_first -> ()
+    | Modality.Preserve_input_order -> fail (label ^ " should be visual_first")
+  in
+  let check_preserve_order label caps =
+    match caps.Capabilities.modality_priority with
+    | Modality.Preserve_input_order -> ()
+    | Modality.Visual_first -> fail (label ^ " should preserve input order")
+  in
   match Capabilities.for_model_id "kimi-k2.6:cloud" with
-  | Some c ->
+  | Some native ->
     (* Kimi K2.6: 256K context per platform.kimi.ai official docs (2026-05-30
-       verified). Previously 262_144 from the anonymized kimi era. *)
-    check (option int) "context 256K" (Some 256_000) c.max_context_tokens;
-    check (option int) "output 32K" (Some 32_768) c.max_output_tokens;
-    check bool "tools" true c.supports_tools;
-    check bool "reasoning" true c.supports_reasoning;
+       verified). The :cloud suffix is a legacy native Kimi route, not the
+       Ollama Cloud row named kimi-k2.6. *)
+    check (option int) "native Kimi context 256K" (Some 256_000) native.max_context_tokens;
+    check (option int) "native Kimi output 32K" (Some 32_768) native.max_output_tokens;
+    check bool "native Kimi tools" true native.supports_tools;
+    check bool "native Kimi reasoning" true native.supports_reasoning;
     check_thinking_control
-      "thinking object only"
+      "native Kimi thinking object only"
       Capabilities.Thinking_object_only
-      c.thinking_control_format;
-    check bool "code execution" true c.supports_code_execution
+      native.thinking_control_format;
+    check_preserve_order "native Kimi cloud suffix" native;
+    check bool "native Kimi code execution" true native.supports_code_execution;
+    (match Capabilities.for_model_id "kimi-k2.6" with
+     | Some ollama ->
+       check
+         (option int)
+         "Ollama Cloud Kimi context"
+         (Some 262_144)
+         ollama.max_context_tokens;
+       check_thinking_control
+         "Ollama Cloud Kimi uses reasoning_effort"
+         Capabilities.Reasoning_effort
+         ollama.thinking_control_format;
+       check_visual_first "Ollama Cloud Kimi" ollama
+     | None -> fail "should match Ollama Cloud Kimi bare route");
+    (match
+       Capabilities.for_provider_model_id
+         ~provider_label:"ollama_cloud"
+         ~model_id:"kimi-k2.6"
+     with
+     | Some cloud ->
+       check
+         (option int)
+         "provider-qualified Ollama Cloud Kimi context"
+         (Some 262_144)
+         cloud.max_context_tokens;
+       check_thinking_control
+         "provider-qualified Ollama Cloud Kimi uses reasoning_effort"
+         Capabilities.Reasoning_effort
+         cloud.thinking_control_format;
+       check_visual_first "provider-qualified Ollama Cloud Kimi" cloud
+     | None -> fail "should match provider-qualified Ollama Cloud Kimi route")
   | None -> fail "should match kimi-k2 cloud route"
 ;;
 
@@ -986,7 +1028,10 @@ let () =
             "gemini_family drives 1M ctx capabilities"
             `Quick
             test_gemini_family_drives_capabilities
-        ; test_case "kimi-k2 cloud" `Quick test_lookup_kimi_k2_cloud
+        ; test_case
+            "kimi-k2 native cloud suffix vs Ollama Cloud"
+            `Quick
+            test_lookup_kimi_k2_native_cloud_suffix
         ; test_case "dashscope" `Quick test_lookup_provider_m
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash

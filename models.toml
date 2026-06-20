@@ -1546,6 +1546,10 @@ max_context_tokens = 256000
 input_per_million = 0.0
 output_per_million = 0.0
 
+# Legacy native Kimi cloud suffix. This is intentionally not Ollama Cloud:
+# bare official Ollama Cloud Kimi rows below use base = "ollama_cloud",
+# 262144 context tokens, reasoning_effort, and visual_first ordering.
+# Native Kimi keeps the existing Kimi transport dialect and 256000 context.
 [[models]]
 id_prefix = "kimi-k2.5:cloud"
 base = "kimi"
@@ -1568,6 +1572,9 @@ supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
 
+# Legacy native Kimi cloud suffix. Keep this more-specific prefix before the
+# bare official Ollama Cloud row so longest-prefix lookup preserves native Kimi
+# requests without changing Ollama Cloud Kimi semantics.
 [[models]]
 id_prefix = "kimi-k2.6:cloud"
 base = "kimi"
