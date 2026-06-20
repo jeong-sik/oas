@@ -1334,11 +1334,11 @@ let%test "build_request emits reasoning_effort for Openai reasoning models" =
   && json |> member "enable_thinking" = `Null
 ;;
 
-let%test "build_request emits thinking object only for Kimi K2.5" =
+let%test "build_request emits thinking object only for native Kimi K2" =
   let config =
     Provider_config.make
       ~kind:Kimi
-      ~model_id:"kimi-k2.5"
+      ~model_id:"kimi-k2"
       ~base_url:"https://api.moonshot.ai/v1"
       ~enable_thinking:false
       ()
