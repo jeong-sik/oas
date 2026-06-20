@@ -483,13 +483,20 @@ let test_ollama_cloud_provider_qualified_overrides_bare_family () =
     | None -> fail "ollama_cloud/kimi-k2.6 should resolve"
   in
   check_thinking_control
-    "bare Kimi keeps Kimi dialect"
-    Thinking_object_only
+    "bare Kimi uses Ollama reasoning_effort"
+    Reasoning_effort
     bare_kimi.thinking_control_format;
   check_thinking_control
     "cloud Kimi uses Ollama reasoning_effort"
     Reasoning_effort
     cloud_kimi.thinking_control_format;
+  check (option int) "bare Kimi context" (Some 262_144) bare_kimi.max_context_tokens;
+  check
+    (option int)
+    "bare/cloud Kimi context parity"
+    cloud_kimi.max_context_tokens
+    bare_kimi.max_context_tokens;
+  check bool "bare Kimi vision" true bare_kimi.supports_image_input;
   check bool "cloud Kimi vision" true cloud_kimi.supports_image_input
 ;;
 

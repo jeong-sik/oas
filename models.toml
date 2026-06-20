@@ -1548,17 +1548,33 @@ output_per_million = 0.0
 
 [[models]]
 id_prefix = "kimi-k2.5"
-base = "kimi"
-max_context_tokens = 256000
-input_per_million = 0.0
-output_per_million = 0.0
+base = "ollama_cloud"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_multimodal_inputs = true
+supports_image_input = true
+modality_priority = "visual_first"
+supports_native_streaming = true
 
 [[models]]
 id_prefix = "kimi-k2.6"
-base = "kimi"
-max_context_tokens = 256000
-input_per_million = 0.0
-output_per_million = 0.0
+base = "ollama_cloud"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+supports_multimodal_inputs = true
+supports_image_input = true
+modality_priority = "visual_first"
+supports_native_streaming = true
 
 # xAI Grok Models
 [[models]]
