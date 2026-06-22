@@ -272,8 +272,7 @@ let ollama_native_user_message ~modality_priority content =
          | Audio _ ->
            (* Ollama native /api/chat does not support audio input. *)
            texts, images
-         | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ ->
-           texts, images)
+         | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> texts, images)
       ([], [])
       ordered_content
   in
@@ -286,8 +285,7 @@ let ollama_native_user_message ~modality_priority content =
   let fields = ("content", `String text_content) :: fields in
   match List.rev images with
   | [] -> `Assoc fields
-  | imgs ->
-    `Assoc (("images", `List (List.map (fun img -> `String img) imgs)) :: fields)
+  | imgs -> `Assoc (("images", `List (List.map (fun img -> `String img) imgs)) :: fields)
 ;;
 
 let ollama_messages_of_message ?(model_id = "") msg =

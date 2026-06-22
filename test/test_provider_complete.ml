@@ -331,11 +331,7 @@ let test_ollama_native_multimodal_request_body () =
   (* Ollama native /api/chat rejects an array-valued content field and expects
      images in a separate images array of base64 payloads. *)
   let config =
-    PC.make
-      ~kind:Ollama
-      ~model_id:"gemma4:9b"
-      ~base_url:"http://localhost:11434"
-      ()
+    PC.make ~kind:Ollama ~model_id:"gemma4:9b" ~base_url:"http://localhost:11434" ()
   in
   let messages =
     [ { role = User

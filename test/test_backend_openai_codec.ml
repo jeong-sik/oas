@@ -223,7 +223,9 @@ let test_ollama_native_multimodal_variants () =
   (* Image-only user message: content is an empty string, images carries the payload. *)
   let image_only =
     Serialize.ollama_messages_of_message
-      (msg User [ Image { media_type = "image/png"; data = "png1"; source_type = "base64" } ])
+      (msg
+         User
+         [ Image { media_type = "image/png"; data = "png1"; source_type = "base64" } ])
     |> only "ollama"
   in
   check_string "image-only content empty" "" (member "content" image_only |> to_string);
@@ -233,7 +235,11 @@ let test_ollama_native_multimodal_variants () =
   (* Document blocks are forwarded as images for vision-model compatibility. *)
   let doc_msg =
     Serialize.ollama_messages_of_message
-      (msg User [ Document { media_type = "application/pdf"; data = "pdf1"; source_type = "base64" } ])
+      (msg
+         User
+         [ Document
+             { media_type = "application/pdf"; data = "pdf1"; source_type = "base64" }
+         ])
     |> only "ollama"
   in
   let doc_images = member "images" doc_msg |> as_list "document images" in
@@ -242,7 +248,9 @@ let test_ollama_native_multimodal_variants () =
   (* Audio is not supported by Ollama native /api/chat and must not leak into images. *)
   let audio_msg =
     Serialize.ollama_messages_of_message
-      (msg User [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = "base64" } ])
+      (msg
+         User
+         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = "base64" } ])
     |> only "ollama"
   in
   check_string "audio content empty" "" (member "content" audio_msg |> to_string);
@@ -251,7 +259,9 @@ let test_ollama_native_multimodal_variants () =
    | `Null -> ()
    | other ->
      Alcotest.fail
-       (Printf.sprintf "audio message should not have images, got %s" (Yojson.Safe.to_string other)));
+       (Printf.sprintf
+          "audio message should not have images, got %s"
+          (Yojson.Safe.to_string other)));
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
   let mixed =
     Serialize.ollama_messages_of_message
@@ -259,7 +269,8 @@ let test_ollama_native_multimodal_variants () =
          User
          [ Text "describe these"
          ; Image { media_type = "image/png"; data = "png2"; source_type = "base64" }
-         ; Document { media_type = "application/pdf"; data = "pdf2"; source_type = "base64" }
+         ; Document
+             { media_type = "application/pdf"; data = "pdf2"; source_type = "base64" }
          ])
     |> only "ollama"
   in
