@@ -205,17 +205,69 @@ let test_user_multimodal_preserve_and_visual_first () =
     "openai preserves text first"
     "text"
     (List.nth openai_parts 0 |> member "type" |> to_string);
-  let visual_first =
+  let ollama =
     Serialize.ollama_messages_of_message
       ~model_id:"google/gemma-4-26B-A4B-it"
       (msg User content)
     |> only "ollama"
   in
-  let visual_parts = member "content" visual_first |> as_list "ollama content" in
-  check_string
-    "visual model moves image first"
-    "image_url"
-    (List.nth visual_parts 0 |> member "type" |> to_string)
+  (* Ollama native /api/chat requires content to be a plain string and places
+     base64 image payloads in a separate images array. *)
+  check_string "ollama content is string" "caption" (member "content" ollama |> to_string);
+  let images = member "images" ollama |> as_list "ollama images" in
+  check_int "ollama images count" 1 (List.length images);
+  check_string "ollama image payload" "jpeg" (List.nth images 0 |> to_string)
+;;
+
+let test_ollama_native_multimodal_variants () =
+  (* Image-only user message: content is an empty string, images carries the payload. *)
+  let image_only =
+    Serialize.ollama_messages_of_message
+      (msg User [ Image { media_type = "image/png"; data = "png1"; source_type = "base64" } ])
+    |> only "ollama"
+  in
+  check_string "image-only content empty" "" (member "content" image_only |> to_string);
+  let images = member "images" image_only |> as_list "image-only images" in
+  check_int "image-only images count" 1 (List.length images);
+  check_string "image-only payload" "png1" (List.nth images 0 |> to_string);
+  (* Document blocks are forwarded as images for vision-model compatibility. *)
+  let doc_msg =
+    Serialize.ollama_messages_of_message
+      (msg User [ Document { media_type = "application/pdf"; data = "pdf1"; source_type = "base64" } ])
+    |> only "ollama"
+  in
+  let doc_images = member "images" doc_msg |> as_list "document images" in
+  check_int "document images count" 1 (List.length doc_images);
+  check_string "document payload" "pdf1" (List.nth doc_images 0 |> to_string);
+  (* Audio is not supported by Ollama native /api/chat and must not leak into images. *)
+  let audio_msg =
+    Serialize.ollama_messages_of_message
+      (msg User [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = "base64" } ])
+    |> only "ollama"
+  in
+  check_string "audio content empty" "" (member "content" audio_msg |> to_string);
+  (match Yojson.Safe.Util.member "images" audio_msg with
+   | `List [] -> ()
+   | `Null -> ()
+   | other ->
+     Alcotest.fail
+       (Printf.sprintf "audio message should not have images, got %s" (Yojson.Safe.to_string other)));
+  (* Mixed text + image + document preserves text in content and both payloads in images. *)
+  let mixed =
+    Serialize.ollama_messages_of_message
+      (msg
+         User
+         [ Text "describe these"
+         ; Image { media_type = "image/png"; data = "png2"; source_type = "base64" }
+         ; Document { media_type = "application/pdf"; data = "pdf2"; source_type = "base64" }
+         ])
+    |> only "ollama"
+  in
+  check_string "mixed content" "describe these" (member "content" mixed |> to_string);
+  let mixed_images = member "images" mixed |> as_list "mixed images" in
+  check_int "mixed images count" 2 (List.length mixed_images);
+  check_string "mixed first image" "png2" (List.nth mixed_images 0 |> to_string);
+  check_string "mixed second image" "pdf2" (List.nth mixed_images 1 |> to_string)
 ;;
 
 let test_assistant_tool_calls_openai_ollama_and_glm () =
@@ -1282,6 +1334,10 @@ let () =
             "multimodal ordering policies"
             `Quick
             test_user_multimodal_preserve_and_visual_first
+        ; Alcotest.test_case
+            "ollama native multimodal variants"
+            `Quick
+            test_ollama_native_multimodal_variants
         ; Alcotest.test_case
             "assistant tool calls provider variants"
             `Quick
