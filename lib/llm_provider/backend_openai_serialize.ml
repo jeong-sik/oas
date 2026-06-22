@@ -251,11 +251,67 @@ let modality_priority_for_model_id model_id =
   | None -> Modality.Preserve_input_order
 ;;
 
+(** Ollama native [/api/chat] user message serialization.
+    Unlike OpenAI-compatible endpoints where [content] may be a string or an
+    array of content parts, Ollama's native chat API requires [content] to be a
+    plain string and carries image payloads in a separate [images] array of
+    base64-encoded strings. Audio is not supported by the native endpoint and
+    is dropped.
+
+    Returns [None] when the message carries no representable user content (e.g.
+    an audio-only or orphaned-tool-result message), so callers do not emit an
+    empty [content:""] placeholder on the wire. *)
+let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option =
+  let ordered_content = Modality.reorder modality_priority content in
+  let text_parts, images =
+    List.fold_left
+      (fun (texts, images) block ->
+         match block with
+         | Text s -> Utf8_sanitize.sanitize s :: texts, images
+         | Image { data; _ } | Document { data; _ } ->
+           (* Ollama native /api/chat accepts base64 image payloads in the
+              images field. Document blocks are forwarded the same way so
+              vision models can attempt to process them as pages. *)
+           texts, data :: images
+         | Audio _ ->
+           (* Ollama native /api/chat does not support audio input. *)
+           texts, images
+         | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> texts, images)
+      ([], [])
+      ordered_content
+  in
+  let text_content =
+    match List.rev text_parts with
+    | [] -> ""
+    | parts -> String.concat "\n" parts
+  in
+  match List.rev images with
+  | [] when text_content = "" -> None
+  | [] -> Some (`Assoc [ "role", `String "user"; "content", `String text_content ])
+  | imgs ->
+    Some
+      (`Assoc
+          [ "role", `String "user"
+          ; "content", `String text_content
+          ; "images", `List (List.map (fun img -> `String img) imgs)
+          ])
+;;
+
 let ollama_messages_of_message ?(model_id = "") msg =
-  messages_of_message_with
-    ~tool_calls_fn:tool_calls_to_ollama_json
-    ~modality_priority:(modality_priority_for_model_id model_id)
-    msg
+  let modality_priority = modality_priority_for_model_id model_id in
+  match msg.role with
+  | User ->
+    (* Native /api/chat: content must be a string; images go in images array. *)
+    let user_msg = ollama_native_user_message ~modality_priority msg.content in
+    let tool_msgs = openai_tool_messages_of_blocks msg.content in
+    (match user_msg with
+     | None -> tool_msgs
+     | Some m -> tool_msgs @ [ m ])
+  | _ ->
+    messages_of_message_with
+      ~tool_calls_fn:tool_calls_to_ollama_json
+      ~modality_priority
+      msg
 ;;
 
 (** Strip ToolResult blocks that are outside the immediate result span

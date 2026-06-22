@@ -327,6 +327,41 @@ let test_ollama_gemma4_thinking_uses_template_token () =
        (first_message |> member "content" |> to_string))
 ;;
 
+let test_ollama_native_multimodal_request_body () =
+  (* Ollama native /api/chat rejects an array-valued content field and expects
+     images in a separate images array of base64 payloads. *)
+  let config =
+    PC.make ~kind:Ollama ~model_id:"gemma4:9b" ~base_url:"http://localhost:11434" ()
+  in
+  let messages =
+    [ { role = User
+      ; content =
+          [ Text "What is in this image?"
+          ; Image { media_type = "image/png"; data = "base64img"; source_type = "base64" }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = BOL.build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let user_msg = json |> member "messages" |> index 0 in
+  Alcotest.(check string) "role" "user" (user_msg |> member "role" |> to_string);
+  Alcotest.(check string)
+    "content is plain string"
+    "What is in this image?"
+    (user_msg |> member "content" |> to_string);
+  let images = user_msg |> member "images" |> to_list in
+  Alcotest.(check int) "images count" 1 (List.length images);
+  Alcotest.(check string) "image payload" "base64img" (List.nth images 0 |> to_string);
+  (* Verify the overall body still carries model/stream/keep_alive as before. *)
+  Alcotest.(check string) "model" "gemma4:9b" (json |> member "model" |> to_string);
+  Alcotest.(check bool) "stream" false (json |> member "stream" |> to_bool)
+;;
+
 let test_ollama_parse_parallel_tool_calls_object_arguments () =
   let body =
     {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
@@ -1116,6 +1151,10 @@ let () =
             "ollama gemma4 thinking uses template token"
             `Quick
             test_ollama_gemma4_thinking_uses_template_token
+        ; test_case
+            "ollama native multimodal request body"
+            `Quick
+            test_ollama_native_multimodal_request_body
         ; test_case
             "ollama parse parallel tool calls object args"
             `Quick
