@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.7](https://github.com/jeong-sik/oas/compare/v0.207.6...v0.207.7) (2026-06-22)
+
+
+### Bug Fixes
+
+* **ollama:** native /api/chat multimodal serialization ([fdc35cc](https://github.com/jeong-sik/oas/commit/fdc35cccd2057d204f798293a928836a37589ddb))
+
 ## [0.207.6](https://github.com/jeong-sik/oas/compare/v0.207.5...v0.207.6) (2026-06-19)
 
 
