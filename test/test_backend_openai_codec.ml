@@ -245,23 +245,15 @@ let test_ollama_native_multimodal_variants () =
   let doc_images = member "images" doc_msg |> as_list "document images" in
   check_int "document images count" 1 (List.length doc_images);
   check_string "document payload" "pdf1" (List.nth doc_images 0 |> to_string);
-  (* Audio is not supported by Ollama native /api/chat and must not leak into images. *)
-  let audio_msg =
+  (* Audio is not supported by Ollama native /api/chat and must not leak into
+     images; an audio-only user message produces no representable wire message. *)
+  let audio_msgs =
     Serialize.ollama_messages_of_message
       (msg
          User
          [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = "base64" } ])
-    |> only "ollama"
   in
-  check_string "audio content empty" "" (member "content" audio_msg |> to_string);
-  (match Yojson.Safe.Util.member "images" audio_msg with
-   | `List [] -> ()
-   | `Null -> ()
-   | other ->
-     Alcotest.fail
-       (Printf.sprintf
-          "audio message should not have images, got %s"
-          (Yojson.Safe.to_string other)));
+  check_int "audio-only produces no ollama messages" 0 (List.length audio_msgs);
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
   let mixed =
     Serialize.ollama_messages_of_message

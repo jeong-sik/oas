@@ -256,8 +256,12 @@ let modality_priority_for_model_id model_id =
     array of content parts, Ollama's native chat API requires [content] to be a
     plain string and carries image payloads in a separate [images] array of
     base64-encoded strings. Audio is not supported by the native endpoint and
-    is dropped. *)
-let ollama_native_user_message ~modality_priority content =
+    is dropped.
+
+    Returns [None] when the message carries no representable user content (e.g.
+    an audio-only or orphaned-tool-result message), so callers do not emit an
+    empty [content:""] placeholder on the wire. *)
+let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option =
   let ordered_content = Modality.reorder modality_priority content in
   let text_parts, images =
     List.fold_left
@@ -276,16 +280,21 @@ let ollama_native_user_message ~modality_priority content =
       ([], [])
       ordered_content
   in
-  let fields = [ "role", `String "user" ] in
   let text_content =
     match List.rev text_parts with
     | [] -> ""
     | parts -> String.concat "\n" parts
   in
-  let fields = ("content", `String text_content) :: fields in
   match List.rev images with
-  | [] -> `Assoc fields
-  | imgs -> `Assoc (("images", `List (List.map (fun img -> `String img) imgs)) :: fields)
+  | [] when text_content = "" -> None
+  | [] -> Some (`Assoc [ "role", `String "user"; "content", `String text_content ])
+  | imgs ->
+    Some
+      (`Assoc
+          [ "role", `String "user"
+          ; "content", `String text_content
+          ; "images", `List (List.map (fun img -> `String img) imgs)
+          ])
 ;;
 
 let ollama_messages_of_message ?(model_id = "") msg =
@@ -295,7 +304,9 @@ let ollama_messages_of_message ?(model_id = "") msg =
     (* Native /api/chat: content must be a string; images go in images array. *)
     let user_msg = ollama_native_user_message ~modality_priority msg.content in
     let tool_msgs = openai_tool_messages_of_blocks msg.content in
-    tool_msgs @ [ user_msg ]
+    (match user_msg with
+     | None -> tool_msgs
+     | Some m -> tool_msgs @ [ m ])
   | _ ->
     messages_of_message_with
       ~tool_calls_fn:tool_calls_to_ollama_json
