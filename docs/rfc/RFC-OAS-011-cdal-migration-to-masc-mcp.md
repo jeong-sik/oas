@@ -2,13 +2,37 @@
 
 | | |
 |---|---|
-| Status | Draft |
+| Status | Implemented (코드 2026-05 머지 완료; 문서 2026-06-24 정정) |
 | Author | jeong-sik (with Claude analysis) |
 | Created | 2026-05-08 |
 | Target | `agent_sdk` (oas) v0.193+ → CDAL 30+ 모듈 제거 / `masc_mcp` v0.20+ → `masc_mcp.cdal` sublibrary 신설 |
 | Supersedes | None |
 | Depends-on | RFC-OAS-009 v2 (Sever Core→CDAL Dependencies) — *완료 후* 본 RFC 진행 |
 | Related | RFC-OAS-012 (Tool Name Ignorance within CDAL) |
+
+> **Implementation status (2026-06-24 정정 — doc-lag 해소)**
+>
+> 본 RFC의 코드 작업은 masc 저장소에서 이미 완료되었다. 문서가 `Draft`로 남아 있던 것은
+> 문서가 코드를 따라가지 못한 doc-lag이다. 실제 마이그레이션은 다음 PR로 landing되었다
+> (모두 masc 저장소; oas 저장소에는 RFC-OAS-011/MM-* 커밋이 없고, oas는 pinned dependency로만 소비됨):
+>
+> - **MM-1** skeleton sublibrary — masc #14247
+> - **MM-2** B1~B5 leaf-first 배치 이주 — masc #14248 / #14253 / #14255 / #14259 / #14264
+> - **MM-3-rewire** `Agent_sdk.* → Masc_cdal_runtime.*` atomic flip — masc #14267
+> - **MM-4** agent_sdk pin bump — masc #14285 (이후 #14309, #14676으로 추가 bump)
+>
+> 검증: `scripts/lint-core-cdal-boundary.sh` exit 0 (OAS core → CDAL 역방향 의존 0건).
+> OAS lib에 잔존하는 CDAL 전용 모듈은 없다(전수 스캔 0개).
+>
+> **후속(2026-05-29):** masc로 이주된 contract/proof 런타임 파이프라인 14개 모듈은
+> masc #19469 ("Track B")에서 dead로 판정되어 제거되었다. 현재 masc.cdal_runtime에 남은
+> 모듈은 autonomy_exec / direct_evidence / sessions_proof / conformance / runtime_evidence 5개다.
+>
+> **잔여(별도 RFC):** `runtime_evidence` 모듈의 core/CDAL 분류와 masc↔OAS 중복 정리는
+> RFC-OAS-013으로 위임된다(본 RFC §1.2 / §6 Risk 3).
+>
+> 선행 의존이던 RFC-OAS-009 v2도 문서는 `Draft`이나, 그 실질 목표(core→CDAL 역의존 제거)는
+> 코드에서 달성되었다(위 lint exit 0). 동일한 doc-lag으로, 별도 정정이 필요하다.
 
 ## 0. Summary
 
