@@ -19,9 +19,7 @@
   unix
   re
   str
-  mcp_protocol
-  mcp_protocol.eio
-  mcp_protocol.http)
+  mcp_protocol_bundle)
  (flags
   (:standard -open Agent_sdk_base -open Agent_sdk_protocol))
  (inline_tests)
