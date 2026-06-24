@@ -17,11 +17,11 @@ let test_simple_handler_ok () =
         ]
       (fun input ->
          let open Yojson.Safe.Util in
-         Ok { Types.content = input |> member "msg" |> to_string })
+         Ok { Types.content = input |> member "msg" |> to_string; _meta = None })
   in
   let actual = Tool.execute tool (`Assoc [ "msg", `String "hello" ]) in
   match actual with
-  | Ok { content } -> check string "returns Ok" "hello" content
+  | Ok { content; _meta = _ } -> check string "returns Ok" "hello" content
   | Error _ -> fail "expected Ok"
 ;;
 
@@ -45,7 +45,7 @@ let test_context_handler_receives_context () =
       ~parameters:[]
       (fun ctx _input ->
          match Context.get ctx "key" with
-         | Some (`String v) -> Ok { Types.content = v }
+         | Some (`String v) -> Ok { Types.content = v; _meta = None }
          | _ ->
            Error
              { Types.message = "key not found"; recoverable = true; error_class = None })
@@ -54,7 +54,7 @@ let test_context_handler_receives_context () =
   Context.set ctx "key" (`String "ctx_value");
   let actual = Tool.execute ~context:ctx tool `Null in
   match actual with
-  | Ok { content } -> check string "reads context" "ctx_value" content
+  | Ok { content; _meta = _ } -> check string "reads context" "ctx_value" content
   | Error _ -> fail "expected Ok"
 ;;
 
@@ -66,7 +66,7 @@ let test_context_handler_writes_context () =
       ~parameters:[]
       (fun ctx _input ->
          Context.set ctx "written" (`Int 42);
-         Ok { Types.content = "done" })
+         Ok { Types.content = "done"; _meta = None })
   in
   let ctx = Context.create () in
   let _result = Tool.execute ~context:ctx tool `Null in
@@ -79,11 +79,11 @@ let test_context_handler_default_context () =
       ~name:"noctx"
       ~description:"No explicit context"
       ~parameters:[]
-      (fun _ctx _input -> Ok { Types.content = "works" })
+      (fun _ctx _input -> Ok { Types.content = "works"; _meta = None })
   in
   let actual = Tool.execute tool `Null in
   match actual with
-  | Ok { content } -> check string "default context" "works" content
+  | Ok { content; _meta = _ } -> check string "default context" "works" content
   | Error _ -> fail "expected Ok"
 ;;
 
@@ -104,7 +104,7 @@ let test_schema_to_json_structure () =
           ; required = false
           }
         ]
-      (fun _input -> Ok { Types.content = "" })
+      (fun _input -> Ok { Types.content = ""; _meta = None })
   in
   let json = Tool.schema_to_json tool in
   let open Yojson.Safe.Util in
@@ -133,7 +133,7 @@ let test_schema_param_types () =
   in
   let tool =
     Tool.create ~name:"types" ~description:"" ~parameters:params (fun _input ->
-      Ok { Types.content = "" })
+      Ok { Types.content = ""; _meta = None })
   in
   let json = Tool.schema_to_json tool in
   let open Yojson.Safe.Util in
@@ -176,7 +176,7 @@ let test_descriptor_preserved_and_not_in_schema () =
           ; required = true
           }
         ]
-      (fun _ -> Ok { Types.content = "ok" })
+      (fun _ -> Ok { Types.content = "ok"; _meta = None })
   in
   let descriptor = Tool.descriptor tool in
   check bool "descriptor present" true (Option.is_some descriptor);
@@ -287,7 +287,7 @@ let test_create_rejects_inconsistent_descriptor () =
             ~name:"bad"
             ~description:"bad"
             ~parameters:[]
-            (fun _ -> Ok { Types.content = "ok" })))
+            (fun _ -> Ok { Types.content = "ok"; _meta = None })))
 ;;
 
 let () =
@@ -337,21 +337,24 @@ let () =
                   ]
                 (fun input ->
                    let open Yojson.Safe.Util in
-                   Ok { Types.content = input |> member "name" |> to_string })
+                   Ok
+                     { Types.content = input |> member "name" |> to_string; _meta = None })
             in
             let wrapped = Tool.with_defaults [ "name", `String "default_user" ] tool in
             match Tool.execute wrapped (`Assoc []) with
-            | Ok { content } -> check string "default injected" "default_user" content
+            | Ok { content; _meta = _ } ->
+              check string "default injected" "default_user" content
             | Error _ -> fail "expected Ok")
         ; test_case "preserves explicit args" `Quick (fun () ->
             let tool =
               Tool.create ~name:"greet" ~description:"Greet" ~parameters:[] (fun input ->
                 let open Yojson.Safe.Util in
-                Ok { Types.content = input |> member "name" |> to_string })
+                Ok { Types.content = input |> member "name" |> to_string; _meta = None })
             in
             let wrapped = Tool.with_defaults [ "name", `String "default_user" ] tool in
             match Tool.execute wrapped (`Assoc [ "name", `String "alice" ]) with
-            | Ok { content } -> check string "explicit preserved" "alice" content
+            | Ok { content; _meta = _ } ->
+              check string "explicit preserved" "alice" content
             | Error _ -> fail "expected Ok")
         ; test_case "works with context handler" `Quick (fun () ->
             let tool =
@@ -361,12 +364,16 @@ let () =
                 ~parameters:[]
                 (fun _ctx input ->
                    let open Yojson.Safe.Util in
-                   Ok { Types.content = input |> member "agent" |> to_string })
+                   Ok
+                     { Types.content = input |> member "agent" |> to_string
+                     ; _meta = None
+                     })
             in
             let wrapped = Tool.with_defaults [ "agent", `String "worker-1" ] tool in
             let ctx = Context.create () in
             match Tool.execute ~context:ctx wrapped (`Assoc []) with
-            | Ok { content } -> check string "default in ctx handler" "worker-1" content
+            | Ok { content; _meta = _ } ->
+              check string "default in ctx handler" "worker-1" content
             | Error _ -> fail "expected Ok")
         ] )
       (* RFC-OAS-011 OAS-E PR-5: removed the "builtin_descriptor" test group.

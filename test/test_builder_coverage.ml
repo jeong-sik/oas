@@ -148,7 +148,7 @@ let test_agent_accessors () =
   @@ fun env ->
   let tool =
     Tool.create ~name:"test_tool" ~description:"desc" ~parameters:[] (fun _input ->
-      Ok { Types.content = "result" })
+      Ok { Types.content = "result"; _meta = None })
   in
   let ctx = Context.create () in
   Context.set ctx "key" (`String "value");

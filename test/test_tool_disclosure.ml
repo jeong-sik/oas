@@ -19,7 +19,7 @@ let make_tool name =
         ; required = false
         }
       ]
-    (fun _ -> Ok { Types.content = "ok" })
+    (fun _ -> Ok { Types.content = "ok"; _meta = None })
 ;;
 
 let json_keys = function

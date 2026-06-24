@@ -66,7 +66,7 @@ let get_pr_info_tool =
            ; "title,body,additions,deletions,changedFiles,labels"
            ]
        with
-       | Ok output -> Ok { content = output }
+       | Ok output -> Ok { content = output; _meta = None }
        | Error msg -> Error { message = msg; recoverable = true; error_class = None })
 ;;
 
@@ -132,7 +132,7 @@ let get_pr_diff_tool =
            then String.sub filtered 0 max_len ^ "\n... [truncated]"
            else filtered
          in
-         Ok { content = result })
+         Ok { content = result; _meta = None })
 ;;
 
 let post_review_tool =
@@ -172,7 +172,10 @@ let post_review_tool =
        Sys.remove tmp;
        match result with
        | Ok output ->
-         Ok { content = Printf.sprintf "Review posted. %s" (String.trim output) }
+         Ok
+           { content = Printf.sprintf "Review posted. %s" (String.trim output)
+           ; _meta = None
+           }
        | Error msg -> Error { message = msg; recoverable = true; error_class = None })
 ;;
 

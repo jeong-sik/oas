@@ -6,7 +6,7 @@ let make_tool ?(content = "ok") name =
     ~name
     ~description:("desc:" ^ name ^ ":" ^ content)
     ~parameters:[]
-    (fun _ -> Ok { Types.content })
+    (fun _ -> Ok { Types.content; _meta = None })
 ;;
 
 let tool_description = function

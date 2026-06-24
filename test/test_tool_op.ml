@@ -92,7 +92,7 @@ let test_apply_remove_dedup_current () =
 
 let make_tool name =
   Tool.create ~name ~description:name ~parameters:[] (fun _ ->
-    Ok { Types.content = name })
+    Ok { Types.content = name; _meta = None })
 ;;
 
 let test_apply_to_tool_set_remove () =

@@ -179,7 +179,7 @@ let test_typed_tool_integration () =
   in
   let input = `Assoc [ "message", `String "typed-gen" ] in
   match Typed_tool.execute tool input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let r = Yojson.Safe.Util.(json |> member "result" |> to_string) in
     Alcotest.(check string) "result" "sent: typed-gen" r

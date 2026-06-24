@@ -89,7 +89,7 @@ let with_mock_server ?port handler f =
 
 let make_tool name =
   Tool.create ~name ~description:("tool " ^ name) ~parameters:[] (fun _input ->
-    Ok { Types.content = name ^ " result" })
+    Ok { Types.content = name ^ " result"; _meta = None })
 ;;
 
 (* ── tool_filter tests ───────────────────────────────── *)
@@ -200,7 +200,7 @@ let test_limit_blocks_multi_tool_response () =
     let tool =
       Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun _input ->
         incr tool_calls;
-        Ok { content = "ok" })
+        Ok { content = "ok"; _meta = None })
     in
     let options =
       { Agent.default_options with
@@ -226,7 +226,7 @@ let test_no_limit_allows_all () =
        let tool =
          Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun _input ->
            incr tool_calls;
-           Ok { content = "ok" })
+           Ok { content = "ok"; _meta = None })
        in
        let options = { Agent.default_options with base_url } in
        let config = { default_config with max_turns = 5 } in

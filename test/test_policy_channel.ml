@@ -63,7 +63,7 @@ let test_version_increments () =
 
 let make_tool name =
   Tool.create ~name ~description:name ~parameters:[] (fun _ ->
-    Ok { Types.content = name })
+    Ok { Types.content = name; _meta = None })
 ;;
 
 let test_channel_restricts_tools () =

@@ -162,7 +162,7 @@ let test_mcp_tool_to_sdk_tool () =
   let call_fn input : Types.tool_result =
     let open Yojson.Safe.Util in
     let text = input |> member "text" |> to_string in
-    Ok { content = "echo: " ^ text }
+    Ok { content = "echo: " ^ text; _meta = None }
   in
   let sdk_tool = Mcp.mcp_tool_to_sdk_tool ~call_fn mcp_tool in
   Alcotest.(check string) "tool name" "echo" sdk_tool.schema.name;
@@ -171,7 +171,7 @@ let test_mcp_tool_to_sdk_tool () =
   let input = `Assoc [ "text", `String "hello" ] in
   let result = Tool.execute sdk_tool input in
   match result with
-  | Ok { content } -> Alcotest.(check string) "execution" "echo: hello" content
+  | Ok { content; _meta = _ } -> Alcotest.(check string) "execution" "echo: hello" content
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 

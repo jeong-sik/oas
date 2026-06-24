@@ -283,7 +283,7 @@ let test_resume_with_tools () =
   @@ fun net ->
   let tool =
     Tool.create ~name:"echo" ~description:"Echo input" ~parameters:[] (fun input ->
-      Ok { Types.content = Yojson.Safe.to_string input })
+      Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
   in
   let cp = make_checkpoint () in
   let agent = Agent.resume ~net ~checkpoint:cp ~tools:[ tool ] () in

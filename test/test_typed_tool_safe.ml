@@ -35,7 +35,7 @@ let valid_input = `Assoc [ "name", `String "Vincent" ]
 let test_read_only_success () =
   let safe = Typed_tool_safe.read_only base_tool in
   match Typed_tool_safe.execute_read_only safe valid_input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let g = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "greeting" "Hello, Vincent" g
@@ -53,7 +53,7 @@ let test_write_approved () =
   let safe = Typed_tool_safe.write base_tool in
   let approve ~tool_name:_ ~input_desc:(_ : _ Lazy.t) = Ok () in
   match Typed_tool_safe.execute_write ~approve safe valid_input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let g = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "greeting" "Hello, Vincent" g
@@ -110,7 +110,8 @@ let test_to_untyped () =
   let safe = Typed_tool_safe.write base_tool in
   let untyped = Typed_tool_safe.to_untyped safe in
   match Tool.execute untyped valid_input with
-  | Ok { content } -> Alcotest.(check bool) "works" true (String.length content > 0)
+  | Ok { content; _meta = _ } ->
+    Alcotest.(check bool) "works" true (String.length content > 0)
   | Error e -> Alcotest.fail e.message
 ;;
 

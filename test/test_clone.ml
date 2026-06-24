@@ -143,7 +143,7 @@ let test_clone_shares_tools () =
   @@ fun env ->
   let tool =
     Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun _ ->
-      Ok { Types.content = "ok" })
+      Ok { Types.content = "ok"; _meta = None })
   in
   let agent = Agent.create ~net:env#net ~config:Types.default_config ~tools:[ tool ] () in
   let clone = Agent.clone agent in

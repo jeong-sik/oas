@@ -450,6 +450,7 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
                       "[%s] called with %s"
                       tc.name
                       (Yojson.Safe.to_string input)
+                ; _meta = None
                 }))
       cfg.tools
   in
