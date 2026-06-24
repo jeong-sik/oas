@@ -90,7 +90,7 @@ let test_multi_turn_tool_loop () =
          incr call_count;
          let expr = Yojson.Safe.Util.(input |> member "expr" |> to_string) in
          Printf.printf "  [Tool %d] calculator(%s)\n%!" !call_count expr;
-         Ok { Types.content = "42" })
+         Ok { Types.content = "42"; _meta = None })
   in
   let config =
     provider_m_config
@@ -129,7 +129,7 @@ let test_idle_detection () =
       (fun _input ->
          incr call_count;
          Printf.printf "  [Tool %d] get_status()\n%!" !call_count;
-         Ok { Types.content = "status: all systems nominal" })
+         Ok { Types.content = "status: all systems nominal"; _meta = None })
   in
   let config =
     provider_m_config
@@ -194,7 +194,7 @@ let test_context_compaction () =
            !call_count
            file
            (String.length long_output);
-         Ok { Types.content = long_output })
+         Ok { Types.content = long_output; _meta = None })
   in
   let reducer =
     Context_reducer.compose
@@ -248,14 +248,14 @@ let test_context_injection () =
       (fun input ->
          let path = Yojson.Safe.Util.(input |> member "path" |> to_string) in
          Printf.printf "  [Tool] read_file(%s)\n%!" path;
-         Ok { Types.content = "line1: hello\nline2: world\n" })
+         Ok { Types.content = "line1: hello\nline2: world\n"; _meta = None })
   in
   let injector : Hooks.context_injector =
     fun ~tool_name ~input:_ ~output ->
     Printf.printf "  [Injector] tool=%s\n%!" tool_name;
     injector_called := true;
     match output with
-    | Ok { Types.content = _output_content } ->
+    | Ok { Types.content = _output_content; _meta = _ } ->
       Some
         { Hooks.context_updates = [ "last_file_read", `String tool_name ]
         ; extra_messages =

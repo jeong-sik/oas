@@ -130,7 +130,7 @@ let test_agent_tools_registered () =
   let net = Eio.Stdenv.net env in
   let tool =
     Tool.create ~name:"my_tool" ~description:"test" ~parameters:[] (fun _ ->
-      Ok { Types.content = "ok" })
+      Ok { Types.content = "ok"; _meta = None })
   in
   let agent = Agent.create ~net ~tools:[ tool ] () in
   let tools = Agent.tools agent in
@@ -148,9 +148,9 @@ let test_agent_turn_preparation () =
   let tools =
     Tool_set.of_list
       [ Tool.create ~name:"a" ~description:"tool a" ~parameters:[] (fun _ ->
-          Ok { Types.content = "a" })
+          Ok { Types.content = "a"; _meta = None })
       ; Tool.create ~name:"b" ~description:"tool b" ~parameters:[] (fun _ ->
-          Ok { Types.content = "b" })
+          Ok { Types.content = "b"; _meta = None })
       ]
   in
   let messages =
@@ -379,15 +379,15 @@ let test_agent_multiple_tools () =
   let net = Eio.Stdenv.net env in
   let t1 =
     Tool.create ~name:"tool_a" ~description:"A" ~parameters:[] (fun _ ->
-      Ok { Types.content = "a" })
+      Ok { Types.content = "a"; _meta = None })
   in
   let t2 =
     Tool.create ~name:"tool_b" ~description:"B" ~parameters:[] (fun _ ->
-      Ok { Types.content = "b" })
+      Ok { Types.content = "b"; _meta = None })
   in
   let t3 =
     Tool.create ~name:"tool_c" ~description:"C" ~parameters:[] (fun _ ->
-      Ok { Types.content = "c" })
+      Ok { Types.content = "c"; _meta = None })
   in
   let agent = Agent.create ~net ~tools:[ t1; t2; t3 ] () in
   Alcotest.(check int) "3 tools" 3 (Tool_set.size (Agent.tools agent))
@@ -702,9 +702,9 @@ let test_prepare_turn_tool_filter_override () =
   let tools =
     Tool_set.of_list
       [ Tool.create ~name:"allowed" ~description:"ok" ~parameters:[] (fun _ ->
-          Ok { Types.content = "ok" })
+          Ok { Types.content = "ok"; _meta = None })
       ; Tool.create ~name:"blocked" ~description:"no" ~parameters:[] (fun _ ->
-          Ok { Types.content = "no" })
+          Ok { Types.content = "no"; _meta = None })
       ]
   in
   let messages =

@@ -82,7 +82,7 @@ let greet_ctx_tool =
 let test_execute_success () =
   let input = `Assoc [ "name", `String "Vincent"; "shout", `Bool false ] in
   match Typed_tool.execute greet_tool input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "greeting" "Hello, Vincent" greeting
@@ -92,7 +92,7 @@ let test_execute_success () =
 let test_execute_shout () =
   let input = `Assoc [ "name", `String "Vincent"; "shout", `Bool true ] in
   match Typed_tool.execute greet_tool input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "uppercase" "HELLO, VINCENT" greeting
@@ -143,7 +143,7 @@ let test_to_untyped_bridge () =
   let untyped = Typed_tool.to_untyped greet_tool in
   let input = `Assoc [ "name", `String "Bridge" ] in
   match Tool.execute untyped input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "bridge works" "Hello, Bridge" greeting
@@ -201,7 +201,7 @@ let test_context_handler () =
   Context.set ctx "prefix" (`String "Dear");
   let input = `Assoc [ "name", `String "Admin" ] in
   match Typed_tool.execute ~context:ctx greet_ctx_tool input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "with prefix" "Dear Hello, Admin" greeting
@@ -221,7 +221,7 @@ let test_to_untyped_context_bridge () =
   Context.set ctx "prefix" (`String "Hey");
   let input = `Assoc [ "name", `String "World" ] in
   match Tool.execute ~context:ctx untyped input with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
     Alcotest.(check string) "ctx bridge" "Hey Hello, World" greeting
@@ -232,6 +232,20 @@ let test_null_input_parse () =
   match Typed_tool.execute greet_tool `Null with
   | Error e -> Alcotest.(check bool) "recoverable" true e.recoverable
   | Ok _ -> Alcotest.fail "expected error on null input"
+;;
+
+(** Compile-time and runtime guard for the [_meta] field on [Types.tool_output].
+    If the upstream MCP [tool_result] shape changes such that [_meta] is no
+    longer modelled here, this test will not compile. *)
+let test_meta_field_present () =
+  let result : Types.tool_result =
+    Ok { content = "ok"; _meta = Some (`Assoc [ "source", `String "typed_tool" ]) }
+  in
+  match result with
+  | Ok { content; _meta = Some _ } ->
+    Alcotest.(check string) "content preserved" "ok" content
+  | Ok { _meta = None; _ } -> Alcotest.fail "expected Some _meta"
+  | Error _ -> Alcotest.fail "expected Ok"
 ;;
 
 (* ── Test runner ────────────────────────────────────────── *)
@@ -271,5 +285,7 @@ let () =
       , [ Alcotest.test_case "with context" `Quick test_context_handler
         ; Alcotest.test_case "without context" `Quick test_context_handler_no_context
         ] )
+    ; ( "meta"
+      , [ Alcotest.test_case "_meta field is present" `Quick test_meta_field_present ] )
     ]
 ;;

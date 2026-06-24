@@ -56,7 +56,12 @@ let param_type_to_string = function
 (** Tool execution result types.
     Defined before content_block/message/api_response to avoid
     field-name shadowing on the [content] record field. *)
-type tool_output = { content : string }
+type tool_output =
+  { content : string
+  ; _meta : Yojson.Safe.t option
+    (** Optional structured metadata forwarded to the MCP [tool_result._meta]
+        field. [None] omits the field on the wire. *)
+  }
 
 type tool_error_class =
   | Transient

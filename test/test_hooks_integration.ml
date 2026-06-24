@@ -84,7 +84,7 @@ let fresh_echo_tool () =
   let tool =
     Tool.create ~name:"echo" ~description:"Echo" ~parameters:[] (fun _input ->
       incr calls;
-      Ok { Types.content = "echoed" })
+      Ok { Types.content = "echoed"; _meta = None })
   in
   tool, calls
 ;;
@@ -277,7 +277,7 @@ let test_post_tool_receives_output () =
             post_tool_use =
               Some
                 (function
-                  | Hooks.PostToolUse { output = Ok { content }; _ } ->
+                  | Hooks.PostToolUse { output = Ok { content; _meta = _ }; _ } ->
                     received_content := content;
                     Hooks.Continue
                   | _ -> Hooks.Continue)

@@ -85,7 +85,7 @@ let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_
   =
   if proj.is_error
   then Error { Types.message = proj.content; recoverable = true; error_class = None }
-  else Ok { Types.content = proj.content }
+  else Ok { Types.content = proj.content; _meta = None }
 ;;
 
 let role_can_carry_tool_results = function
@@ -117,7 +117,7 @@ let last_tool_results_from messages =
    path routes [ToolResult] blocks through
    [Canonical_tool.tool_result_of_block] and lowers the projection back to
    [Types.tool_result]. A result carrying a [json] (WP4 structured) payload
-   must still lower to [Ok {content}] — the projection surfaces
+   must still lower to [Ok { content; _meta = None }] — the projection surfaces
    [structured_content] without disturbing the existing string contract. *)
 let%test "last_tool_results_from routes through canonical projection (with json)" =
   let msgs =
@@ -145,7 +145,7 @@ let%test "last_tool_results_from routes through canonical projection (with json)
     ]
   in
   match last_tool_results_from msgs with
-  | [ Ok { content = "ok payload" }
+  | [ Ok { content = "ok payload"; _meta = _ }
     ; Error { message = "boom"; recoverable = true; error_class = None }
     ] -> true
   | _ -> false

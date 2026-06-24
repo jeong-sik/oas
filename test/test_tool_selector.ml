@@ -7,7 +7,7 @@ open Agent_sdk
 
 let make_tool name desc =
   Tool.create ~name ~description:desc ~parameters:[] (fun _ ->
-    Ok { Types.content = "ok" })
+    Ok { Types.content = "ok"; _meta = None })
 ;;
 
 let tools_20 =

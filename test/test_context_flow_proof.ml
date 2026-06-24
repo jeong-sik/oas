@@ -71,7 +71,7 @@ let fresh_echo_tool () =
   let tool =
     Tool.create ~name:"echo" ~description:"Echo" ~parameters:[] (fun _input ->
       incr calls;
-      Ok { Types.content = "echoed" })
+      Ok { Types.content = "echoed"; _meta = None })
   in
   tool, calls
 ;;

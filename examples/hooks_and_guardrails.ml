@@ -31,7 +31,10 @@ let list_files_tool =
       ]
     (fun args ->
        let path = Yojson.Safe.Util.(args |> member "path" |> to_string) in
-       Ok { content = Printf.sprintf "file1.txt\nfile2.ml\nREADME.md (in %s)" path })
+       Ok
+         { content = Printf.sprintf "file1.txt\nfile2.ml\nREADME.md (in %s)" path
+         ; _meta = None
+         })
 ;;
 
 let delete_file_tool =
@@ -47,7 +50,7 @@ let delete_file_tool =
       ]
     (fun args ->
        let path = Yojson.Safe.Util.(args |> member "path" |> to_string) in
-       Ok { content = Printf.sprintf "Deleted %s" path })
+       Ok { content = Printf.sprintf "Deleted %s" path; _meta = None })
 ;;
 
 (* ── Hooks ───────────────────────────────────────────── *)

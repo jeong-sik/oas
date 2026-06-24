@@ -52,7 +52,8 @@ let calculator_tool =
     (fun args ->
        let open Yojson.Safe.Util in
        match args |> member "expression" |> to_string_option with
-       | Some expr -> Ok { Types.content = Printf.sprintf "Result of '%s': 42" expr }
+       | Some expr ->
+         Ok { Types.content = Printf.sprintf "Result of '%s': 42" expr; _meta = None }
        | None ->
          Error
            { Types.message = "missing 'expression' parameter"
@@ -86,7 +87,8 @@ let weather_api_tool =
     (fun args ->
        let open Yojson.Safe.Util in
        match args |> member "city" |> to_string_option with
-       | Some city -> Ok { Types.content = Printf.sprintf "Weather in %s: sunny" city }
+       | Some city ->
+         Ok { Types.content = Printf.sprintf "Weather in %s: sunny" city; _meta = None }
        | None ->
          Error
            { Types.message = "missing 'city' parameter"
@@ -120,7 +122,7 @@ let counter_tool =
          | _ -> 1
        in
        Context.set ctx "count" (`Int n);
-       Ok { Types.content = string_of_int n })
+       Ok { Types.content = string_of_int n; _meta = None })
 ;;
 
 let () =

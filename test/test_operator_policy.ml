@@ -13,7 +13,7 @@ open Agent_sdk
 
 let make_tool name =
   Tool.create ~name ~description:"test" ~parameters:[] (fun _input ->
-    Ok { Types.content = "ok" })
+    Ok { Types.content = "ok"; _meta = None })
 ;;
 
 (* ── merge_operator_policy unit tests ──────────────────── *)

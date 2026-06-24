@@ -205,7 +205,7 @@ let test_filter_tools_only () =
           { agent_name = "a"
           ; tool_name = "calc"
           ; tool_use_id = "tu-test"
-          ; output = Ok { Types.content = "42" }
+          ; output = Ok { Types.content = "42"; _meta = None }
           ; turn = 0
           }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
@@ -357,7 +357,7 @@ let test_multiple_event_types () =
           { agent_name = "a"
           ; tool_name = "f"
           ; tool_use_id = "tu-test"
-          ; output = Ok { Types.content = "ok" }
+          ; output = Ok { Types.content = "ok"; _meta = None }
           ; turn = 0
           }));
   Event_bus.publish bus (ev (TurnCompleted { agent_name = "a"; turn = 0 }));
@@ -554,7 +554,7 @@ let test_on_tool_error_hook_silent_on_success () =
   let bus = Event_bus.create () in
   let tool =
     Tool.create ~name:"ok" ~description:"" ~parameters:[] (fun _ ->
-      Ok { Types.content = "done" })
+      Ok { Types.content = "done"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0
@@ -659,7 +659,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
   let bus = Event_bus.create () in
   let read_file =
     Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun _ ->
-      Ok { Types.content = "unused" })
+      Ok { Types.content = "unused"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0
@@ -742,7 +742,7 @@ let test_provider_read_alias_dispatches_to_read_file_when_visible () =
   let read_file =
     Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun input ->
       captured_input := input;
-      Ok { Types.content = "read-ok" })
+      Ok { Types.content = "read-ok"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0
@@ -819,7 +819,7 @@ let test_provider_search_alias_dispatches_to_search_files_when_visible () =
       ~parameters:[]
       (fun input ->
          captured_input := input;
-         Ok { Types.content = "search-ok" })
+         Ok { Types.content = "search-ok"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0
@@ -888,7 +888,7 @@ let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
       ~parameters:[]
       (fun input ->
          captured_input := input;
-         Ok { Types.content = "execute-ok" })
+         Ok { Types.content = "execute-ok"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0
@@ -954,7 +954,7 @@ let test_on_error_silent_on_successful_dispatch () =
   let bus = Event_bus.create () in
   let tool =
     Tool.create ~name:"ok" ~description:"" ~parameters:[] (fun _ ->
-      Ok { Types.content = "done" })
+      Ok { Types.content = "done"; _meta = None })
   in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0

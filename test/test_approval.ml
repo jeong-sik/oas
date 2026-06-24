@@ -54,7 +54,7 @@ let contains_substring ~needle haystack =
 (** Helper: create a simple tool that echoes its input as JSON string *)
 let make_echo_tool ?descriptor name =
   Tool.create ?descriptor ~name ~description:"echo" ~parameters:[] (fun input ->
-    Ok { Types.content = Yojson.Safe.to_string input })
+    Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
 ;;
 
 let execute_with_tools_in_env
@@ -395,7 +395,7 @@ let test_parallel_read_tools_share_batch () =
           (fun input ->
             Eio.Promise.resolve resolve_self ();
             Eio.Time.with_timeout_exn clock 0.05 (fun () -> Eio.Promise.await await_other);
-            Ok { Types.content = Yojson.Safe.to_string input })
+            Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
     }
   in
   let tools =
@@ -436,7 +436,7 @@ let test_workspace_tools_run_sequentially () =
             running := true;
             Eio.Time.sleep clock 0.01;
             running := false;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let results =
@@ -473,7 +473,7 @@ let test_undeclared_tools_default_to_sequential () =
             running := true;
             Eio.Time.sleep clock 0.01;
             running := false;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let results =
@@ -513,7 +513,7 @@ let test_workspace_barrier_splits_parallel_read_batches () =
             incr read_running;
             Eio.Time.sleep clock 0.02;
             decr read_running;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let make_workspace_tool name =
@@ -530,7 +530,7 @@ let test_workspace_barrier_splits_parallel_read_batches () =
             workspace_running := true;
             Eio.Time.sleep clock 0.02;
             workspace_running := false;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let tools =
@@ -587,7 +587,7 @@ let test_exclusive_external_barrier_isolation () =
             any_running := true;
             Eio.Time.sleep clock 0.02;
             any_running := false;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let make_workspace_tool name =
@@ -604,7 +604,7 @@ let test_exclusive_external_barrier_isolation () =
             any_running := true;
             Eio.Time.sleep clock 0.02;
             any_running := false;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let make_exclusive_tool name =
@@ -621,7 +621,7 @@ let test_exclusive_external_barrier_isolation () =
             exclusive_running := true;
             Eio.Time.sleep clock 0.02;
             exclusive_running := false;
-            Ok { Types.content = name })
+            Ok { Types.content = name; _meta = None })
     }
   in
   let tools =
@@ -720,7 +720,7 @@ let test_shell_descriptor_constraint_blocks_execution () =
         ]
       (fun _ ->
          handler_called := true;
-         Ok { Types.content = "ran" })
+         Ok { Types.content = "ran"; _meta = None })
   in
   let results =
     run_execute_with_tools

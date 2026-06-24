@@ -99,7 +99,7 @@ let test_tool_calling () =
          let expr = Yojson.Safe.Util.(input |> member "expression" |> to_string) in
          Printf.printf "  [Tool called] calculator(%s)\n%!" expr;
          (* Simple eval for demo *)
-         Ok { Types.content = Printf.sprintf "Result of %s = 5" expr })
+         Ok { Types.content = Printf.sprintf "Result of %s = 5" expr; _meta = None })
   in
   let agent = Agent.create ~net:env#net ~config ~tools:[ calc_tool ] ~options () in
   match Agent.run ~sw agent "What is 2+3? Use the calculator tool." with
@@ -150,7 +150,7 @@ let test_multi_tool () =
       (fun input ->
          let path = Yojson.Safe.Util.(input |> member "path" |> to_string) in
          Printf.printf "  [Tool called] read_file(%s)\n%!" path;
-         Ok { Types.content = "hello world\nthis is a test file\n" })
+         Ok { Types.content = "hello world\nthis is a test file\n"; _meta = None })
   in
   let agent = Agent.create ~net:env#net ~config ~tools:[ read_file_tool ] ~options () in
   match

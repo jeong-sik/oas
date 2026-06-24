@@ -1041,7 +1041,7 @@ let%test "last_tool_results_from finds tool results in last tool message" =
     ]
   in
   match last_tool_results_from msgs with
-  | [ Ok { content = "result1" }
+  | [ Ok { content = "result1"; _meta = _ }
     ; Error { message = "error msg"; recoverable = true; error_class = None }
     ] -> true
   | _ -> false
@@ -1080,7 +1080,7 @@ let%test "last_tool_results_from skips non-tool user messages" =
   (* Should find the legacy user-role tool result since the last user message
      has no tool results. *)
   match last_tool_results_from msgs with
-  | [ Ok { content = "first" } ] -> true
+  | [ Ok { content = "first"; _meta = _ } ] -> true
   | _ -> false
 ;;
 
@@ -1156,7 +1156,7 @@ let%test "last_tool_results_from picks last tool-result message" =
     ]
   in
   match last_tool_results_from msgs with
-  | [ Ok { content = "second" } ] -> true
+  | [ Ok { content = "second"; _meta = _ } ] -> true
   | _ -> false
 ;;
 
@@ -1181,7 +1181,7 @@ let%test "last_tool_results_from mixed content in user message" =
     ]
   in
   match last_tool_results_from msgs with
-  | [ Ok { content = "ok" } ] -> true
+  | [ Ok { content = "ok"; _meta = _ } ] -> true
   | _ -> false
 ;;
 

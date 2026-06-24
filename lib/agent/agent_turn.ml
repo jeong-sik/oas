@@ -349,7 +349,7 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
                         (Error
                            { message = content; recoverable = true; error_class = None }
                          : tool_result)
-                    else Some (Ok { content } : tool_result)
+                    else Some (Ok { content; _meta = None } : tool_result)
                   | Text _
                   | Thinking _
                   | RedactedThinking _
@@ -424,7 +424,7 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
                ; recoverable = recoverable_of_failure_kind result.failure_kind
                ; error_class = result.error_class
                }
-           else Ok { content = result.content }
+           else Ok { content = result.content; _meta = None }
          in
          (try
             match injector ~tool_name:name ~input ~output with

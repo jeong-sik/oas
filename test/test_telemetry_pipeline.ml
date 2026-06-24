@@ -348,7 +348,7 @@ let test_checkpoint_sink_after_tool_feedback () =
           ; required = true
           }
         ]
-      (fun _input -> Ok { Types.content = "12:00 UTC" })
+      (fun _input -> Ok { Types.content = "12:00 UTC"; _meta = None })
   in
   let agent =
     make_checkpoint_agent

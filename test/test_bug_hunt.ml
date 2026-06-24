@@ -60,7 +60,7 @@ let test_b1_injector_exception_caught () =
        (boom_injector
           ~tool_name:"test"
           ~input:`Null
-          ~output:(Ok { Types.content = "ok" }))
+          ~output:(Ok { Types.content = "ok"; _meta = None }))
    with
    | Failure msg -> if msg = "injector_boom" then threw := true);
   check bool "injector throws Failure" true !threw;

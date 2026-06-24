@@ -11,7 +11,7 @@ open Agent_sdk
 let make_agent env =
   let tools =
     [ Tool.create ~name:"echo" ~description:"echo" ~parameters:[] (fun input ->
-        Ok { Types.content = Yojson.Safe.to_string input })
+        Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
     ]
   in
   Agent.create ~net:(Eio.Stdenv.net env) ~tools ()

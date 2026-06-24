@@ -42,7 +42,7 @@ let demo_full () =
   @@ fun env ->
   let echo_tool =
     Tool.create ~name:"echo" ~description:"Echo input" ~parameters:[] (fun _input ->
-      Ok { content = "echoed" })
+      Ok { content = "echoed"; _meta = None })
   in
   let hooks =
     { Hooks.empty with

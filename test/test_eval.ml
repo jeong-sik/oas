@@ -219,7 +219,7 @@ let test_eval_collector_basic () =
           { agent_name = "test"
           ; tool_name = "t1"
           ; tool_use_id = "tu-test"
-          ; output = Ok { Types.content = "done" }
+          ; output = Ok { Types.content = "done"; _meta = None }
           ; turn = 0
           }));
   let rm = Eval_collector.finalize ec in

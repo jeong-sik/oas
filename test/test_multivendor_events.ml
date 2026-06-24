@@ -37,7 +37,7 @@ let stub_api_response : Types.api_response =
   }
 ;;
 
-let stub_tool_result : Types.tool_result = Ok { Types.content = "ok" }
+let stub_tool_result : Types.tool_result = Ok { Types.content = "ok"; _meta = None }
 
 (* ── I1/I2: envelope preserved across variants ────────────────── *)
 

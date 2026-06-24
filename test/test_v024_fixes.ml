@@ -120,7 +120,11 @@ let test_b9_injector_logs_instead_of_discard () =
   in
   let threw = ref false in
   (try
-     ignore (injector ~tool_name:"t" ~input:`Null ~output:(Ok { Types.content = "ok" }))
+     ignore
+       (injector
+          ~tool_name:"t"
+          ~input:`Null
+          ~output:(Ok { Types.content = "ok"; _meta = None }))
    with
    | Failure _ -> threw := true);
   check bool "injector still throws when called directly" true !threw

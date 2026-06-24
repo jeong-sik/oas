@@ -44,7 +44,7 @@ let print_event (event : Event_bus.event) =
   | ToolCompleted { agent_name; tool_name; output; turn = _ } ->
     let status =
       match output with
-      | Ok { content } -> green (Printf.sprintf "ok: %s" content)
+      | Ok { content; _meta = _ } -> green (Printf.sprintf "ok: %s" content)
       | Error { message; _ } -> Printf.sprintf "\027[31merr: %s\027[0m" message
     in
     Printf.eprintf
@@ -121,7 +121,7 @@ let calculator_tool =
       ]
     (fun args ->
        let expr = Yojson.Safe.Util.(args |> member "expression" |> to_string) in
-       Ok { content = Printf.sprintf "%s = 42" expr })
+       Ok { content = Printf.sprintf "%s = 42" expr; _meta = None })
 ;;
 
 let get_time_tool =
@@ -131,7 +131,10 @@ let get_time_tool =
     ~parameters:[]
     (fun _args ->
        let tm = Unix.localtime (Unix.gettimeofday ()) in
-       Ok { content = Printf.sprintf "%02d:%02d:%02d" tm.tm_hour tm.tm_min tm.tm_sec })
+       Ok
+         { content = Printf.sprintf "%02d:%02d:%02d" tm.tm_hour tm.tm_min tm.tm_sec
+         ; _meta = None
+         })
 ;;
 
 (* ── Mock HTTP server (fallback) ─────────────────────── *)

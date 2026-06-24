@@ -26,7 +26,7 @@ let test_of_tools () =
       ~name:"read_file"
       ~description:"Read file contents"
       ~parameters:[]
-      (fun _ -> Ok { Types.content = "ok" })
+      (fun _ -> Ok { Types.content = "ok"; _meta = None })
   in
   let idx = Tool_index.of_tools [ tool ] in
   check int "size 1" 1 (Tool_index.size idx);
