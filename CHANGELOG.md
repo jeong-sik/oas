@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
+
+
+### Bug Fixes
+
+* **build:** unify mcp_protocol dependency names ([#2167](https://github.com/jeong-sik/oas/issues/2167)) ([f4d4b69](https://github.com/jeong-sik/oas/commit/f4d4b696f535f62416c58b44fdb732006de134e9))
+* **protocol:** include _meta in tool_result records for mcp_protocol 0.16 ([#2169](https://github.com/jeong-sik/oas/issues/2169)) ([0f44338](https://github.com/jeong-sik/oas/commit/0f44338adcb52d23be9a196115ab02fbe0a8ec18))
+
 ## [0.207.7](https://github.com/jeong-sik/oas/compare/v0.207.6...v0.207.7) (2026-06-22)
 
 
