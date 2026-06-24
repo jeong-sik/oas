@@ -349,7 +349,9 @@ let test_apply_agent_spawn () =
   match Runtime_projection.apply_event session event with
   | Ok s ->
     let bob =
-      List.find (fun (p : Runtime.participant) -> p.name = "bob") s.participants
+      match Sessions.participant_by_name s "bob" with
+      | Some p -> p
+      | None -> Alcotest.fail "participant 'bob' not found"
     in
     Alcotest.(check bool) "state Starting" true (bob.state = Starting);
     Alcotest.(check (option string)) "role" (Some "reviewer") bob.role;
@@ -775,7 +777,9 @@ let test_apply_event_sequence () =
     Alcotest.(check int) "turn_count" 1 final.turn_count;
     Alcotest.(check (option string)) "outcome" (Some "success") final.outcome;
     let alice =
-      List.find (fun (p : Runtime.participant) -> p.name = "alice") final.participants
+      match Sessions.participant_by_name final "alice" with
+      | Some p -> p
+      | None -> Alcotest.fail "participant 'alice' not found"
     in
     Alcotest.(check bool) "alice Done" true (alice.state = Done)
   | Error e -> Alcotest.fail (Error.to_string e)
