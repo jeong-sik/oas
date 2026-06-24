@@ -93,6 +93,12 @@ let mk_participant ?(name = "alice") ?(state = Runtime.Planned) ?(started_at = N
   }
 ;;
 
+let find_proof_check (checks : Runtime.proof_check list) name =
+  match List.find_opt (fun (c : Runtime.proof_check) -> c.name = name) checks with
+  | Some c -> c
+  | None -> Alcotest.fail ("proof_check not found: " ^ name)
+;;
+
 (* ── initial_session ──────────────────────────────────── *)
 
 let test_initial_session_basic () =
@@ -662,7 +668,7 @@ let test_build_proof_failing () =
   Alcotest.(check bool) "proof not ok" false proof.ok;
   (* seq_contiguous should fail for empty events *)
   let seq_check =
-    List.find (fun (c : Runtime.proof_check) -> c.name = "seq_contiguous") proof.checks
+    find_proof_check proof.checks "seq_contiguous"
   in
   Alcotest.(check bool) "seq_contiguous fails" false seq_check.passed
 ;;
@@ -688,9 +694,7 @@ let test_build_proof_duplicate_artifact_ids () =
   in
   let proof = Runtime_projection.build_proof session events in
   let artifact_check =
-    List.find
-      (fun (c : Runtime.proof_check) -> c.name = "artifact_ids_unique")
-      proof.checks
+    find_proof_check proof.checks "artifact_ids_unique"
   in
   Alcotest.(check bool) "artifact_ids_unique fails" false artifact_check.passed
 ;;
@@ -704,7 +708,7 @@ let test_build_proof_non_contiguous_seq () =
   in
   let proof = Runtime_projection.build_proof session events in
   let seq_check =
-    List.find (fun (c : Runtime.proof_check) -> c.name = "seq_contiguous") proof.checks
+    find_proof_check proof.checks "seq_contiguous"
   in
   Alcotest.(check bool) "seq_contiguous fails" false seq_check.passed
 ;;
