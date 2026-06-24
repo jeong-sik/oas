@@ -4,12 +4,12 @@ open Agent_sdk
 
 let make_tool name =
   Tool.create ~name ~description:("desc_" ^ name) ~parameters:[] (fun _ ->
-    Ok { Types.content = "ok" })
+    Ok { Types.content = "ok"; _meta = None })
 ;;
 
 let make_tool_v2 name =
   Tool.create ~name ~description:("v2_" ^ name) ~parameters:[] (fun _ ->
-    Ok { Types.content = "v2" })
+    Ok { Types.content = "v2"; _meta = None })
 ;;
 
 (* ── Alcotest ────────────────────────────────────────────── *)

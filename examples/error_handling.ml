@@ -27,7 +27,7 @@ let fragile_tool =
     (fun args ->
        let path = Yojson.Safe.Util.(args |> member "path" |> to_string) in
        if Sys.file_exists path
-       then Ok { content = Printf.sprintf "Contents of %s: [data]" path }
+       then Ok { content = Printf.sprintf "Contents of %s: [data]" path; _meta = None }
        else
          Error
            { message = Printf.sprintf "File not found: %s" path

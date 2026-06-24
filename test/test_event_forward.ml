@@ -281,7 +281,7 @@ let test_tool_events_payload () =
          { agent_name = "x"
          ; tool_name = "search"
          ; tool_use_id = "tu-test"
-         ; output = Ok { Types.content = "result" }
+         ; output = Ok { Types.content = "result"; _meta = None }
          ; turn = 1
          })
   in

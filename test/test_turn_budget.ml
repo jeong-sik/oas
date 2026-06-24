@@ -116,7 +116,7 @@ let test_make_tool_no_agent () =
   let input = `Assoc [ "additional_turns", `Int 5; "reason", `String "testing" ] in
   let result = Tool.execute tool input in
   match result with
-  | Ok { content } ->
+  | Ok { content; _meta = _ } ->
     Alcotest.(check bool)
       "contains Granted"
       true

@@ -251,7 +251,7 @@ let test_tool_call_loop () =
           ]
         (fun input ->
            let x = Yojson.Safe.Util.(input |> member "x" |> to_int) in
-           Ok { Types.content = string_of_int x })
+           Ok { Types.content = string_of_int x; _meta = None })
     in
     let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
     match Agent.run ~sw agent "calc 42" with
@@ -288,7 +288,7 @@ let test_multi_content_tool () =
             ; required = true
             }
           ]
-        (fun _input -> Ok { Types.content = "hello" })
+        (fun _input -> Ok { Types.content = "hello"; _meta = None })
     in
     let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
     match Agent.run ~sw agent "greet" with
@@ -419,7 +419,7 @@ let test_max_turns () =
     in
     let tool =
       Tool.create ~name:"loop" ~description:"loops" ~parameters:[] (fun _input ->
-        Ok { Types.content = "again" })
+        Ok { Types.content = "again"; _meta = None })
     in
     let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:2 url in
     match Agent.run ~sw agent "loop" with
@@ -530,7 +530,7 @@ let test_pre_tool_skip () =
     let url = start_multi ~sw ~net:env#net ~port:21013 responses in
     let tool =
       Tool.create ~name:"skipped" ~description:"Skip me" ~parameters:[] (fun _input ->
-        Ok { Types.content = "should not run" })
+        Ok { Types.content = "should not run"; _meta = None })
     in
     let hooks = { Hooks.empty with pre_tool_use = Some (fun _e -> Hooks.Skip) } in
     let agent = make_agent ~net:env#net ~tools:[ tool ] ~hooks ~max_turns:3 url in
@@ -712,7 +712,7 @@ let test_context_tool () =
             ; required = true
             }
           ]
-        (fun _ctx _input -> Ok { Types.content = "ctx_result" })
+        (fun _ctx _input -> Ok { Types.content = "ctx_result"; _meta = None })
     in
     let agent = make_agent ~net:env#net ~tools:[ tool ] ~max_turns:5 url in
     match Agent.run ~sw agent "ctx" with

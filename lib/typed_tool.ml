@@ -67,7 +67,7 @@ let execute ?context tool json =
      | Ok output ->
        let json_output = tool.encode output in
        let content = Yojson.Safe.to_string json_output in
-       Ok { Types.content }
+       Ok { Types.content; _meta = None }
      | Error e -> Error { Types.message = e; recoverable = false; error_class = None })
 ;;
 

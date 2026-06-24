@@ -111,11 +111,11 @@ let () =
             let spec = Subagent.of_markdown "body" in
             let t1 =
               Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let t2 =
               Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let result = Subagent.filter_tools spec [ t1; t2 ] in
             check int "count" 2 (List.length result))
@@ -124,11 +124,11 @@ let () =
             let spec = Subagent.of_markdown md in
             let t1 =
               Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let t2 =
               Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let result = Subagent.filter_tools spec [ t1; t2 ] in
             check int "count" 1 (List.length result))
@@ -137,11 +137,11 @@ let () =
             let spec = Subagent.of_markdown md in
             let t1 =
               Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let t2 =
               Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let result = Subagent.filter_tools spec [ t1; t2 ] in
             check int "count" 1 (List.length result))
@@ -150,15 +150,15 @@ let () =
             let spec = Subagent.of_markdown md in
             let t1 =
               Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let t2 =
               Tool.create ~name:"write" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let t3 =
               Tool.create ~name:"exec" ~description:"" ~parameters:[] (fun _ ->
-                Ok { Types.content = "" })
+                Ok { Types.content = ""; _meta = None })
             in
             let result = Subagent.filter_tools spec [ t1; t2; t3 ] in
             check int "count" 1 (List.length result))
@@ -453,7 +453,7 @@ let () =
             let spec = Subagent.of_markdown md in
             let tools =
               [ Tool.create ~name:"read" ~description:"" ~parameters:[] (fun _ ->
-                  Ok { Types.content = "" })
+                  Ok { Types.content = ""; _meta = None })
               ]
             in
             let target =

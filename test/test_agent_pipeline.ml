@@ -185,7 +185,7 @@ let test_agent_run_tool_use () =
             ; required = true
             }
           ]
-        (fun _input -> Ok { Types.content = "12:00 UTC" })
+        (fun _input -> Ok { Types.content = "12:00 UTC"; _meta = None })
     in
     let agent = make_agent ~net:env#net ~tools:[ time_tool ] ~max_turns:5 url in
     match Agent.run ~sw agent "what time is it?" with
@@ -218,7 +218,7 @@ let test_agent_run_max_turns () =
         ~name:"loop_tool"
         ~description:"Always called"
         ~parameters:[]
-        (fun _input -> Ok { Types.content = "looped" })
+        (fun _input -> Ok { Types.content = "looped"; _meta = None })
     in
     let agent = make_agent ~net:env#net ~tools:[ loop_tool ] ~max_turns:2 url in
     match Agent.run ~sw agent "loop" with
@@ -405,7 +405,7 @@ let test_agent_run_pre_tool_hook () =
         ~name:"blocked_tool"
         ~description:"Should be blocked"
         ~parameters:[]
-        (fun _input -> Ok { Types.content = "should not run" })
+        (fun _input -> Ok { Types.content = "should not run"; _meta = None })
     in
     let hooks = { Hooks.empty with pre_tool_use = Some (fun _event -> Hooks.Skip) } in
     let agent = make_agent ~net:env#net ~tools:[ blocked_tool ] ~hooks ~max_turns:3 url in

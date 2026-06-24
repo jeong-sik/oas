@@ -293,13 +293,13 @@ let test_mcp_tool_to_sdk_tool_empty_schema () =
   let mcp_tool : Mcp.mcp_tool =
     { name = "empty_params"; description = "No parameters"; input_schema = `Assoc [] }
   in
-  let call_fn _input : Types.tool_result = Ok { content = "ok" } in
+  let call_fn _input : Types.tool_result = Ok { content = "ok"; _meta = None } in
   let sdk_tool = Mcp.mcp_tool_to_sdk_tool ~call_fn mcp_tool in
   Alcotest.(check string) "name" "empty_params" sdk_tool.schema.name;
   Alcotest.(check int) "no params" 0 (List.length sdk_tool.schema.parameters);
   (* Execute with empty input *)
   match Tool.execute sdk_tool (`Assoc []) with
-  | Ok { content } -> Alcotest.(check string) "ok" "ok" content
+  | Ok { content; _meta = _ } -> Alcotest.(check string) "ok" "ok" content
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 

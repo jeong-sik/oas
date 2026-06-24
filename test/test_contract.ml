@@ -334,9 +334,9 @@ let test_compose_system_prompt_with_trigger () =
 let test_filter_tools_none_grants () =
   let tools =
     [ Tool.create ~name:"a" ~description:"" ~parameters:[] (fun _ ->
-        Ok { Types.content = "" })
+        Ok { Types.content = ""; _meta = None })
     ; Tool.create ~name:"b" ~description:"" ~parameters:[] (fun _ ->
-        Ok { Types.content = "" })
+        Ok { Types.content = ""; _meta = None })
     ]
   in
   let filtered = Contract.filter_tools Contract.empty tools in
@@ -346,11 +346,11 @@ let test_filter_tools_none_grants () =
 let test_filter_tools_with_grants () =
   let tools =
     [ Tool.create ~name:"a" ~description:"" ~parameters:[] (fun _ ->
-        Ok { Types.content = "" })
+        Ok { Types.content = ""; _meta = None })
     ; Tool.create ~name:"b" ~description:"" ~parameters:[] (fun _ ->
-        Ok { Types.content = "" })
+        Ok { Types.content = ""; _meta = None })
     ; Tool.create ~name:"c" ~description:"" ~parameters:[] (fun _ ->
-        Ok { Types.content = "" })
+        Ok { Types.content = ""; _meta = None })
     ]
   in
   let c = Contract.with_tool_grants [ "a"; "c" ] Contract.empty in

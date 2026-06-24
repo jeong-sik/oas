@@ -59,8 +59,8 @@ let typecheck_tool =
          Sys.remove tmp;
          let output = Buffer.contents buf in
          if String.length output < 20
-         then Ok { content = "Typecheck passed (no errors)." }
-         else Ok { content = Printf.sprintf "Compiler output:\n%s" output })
+         then Ok { content = "Typecheck passed (no errors)."; _meta = None }
+         else Ok { content = Printf.sprintf "Compiler output:\n%s" output; _meta = None })
 ;;
 
 let format_tool =
@@ -102,7 +102,7 @@ let format_tool =
           | End_of_file -> ());
          ignore (Unix.close_process_in ic);
          Sys.remove tmp;
-         Ok { content = Buffer.contents buf })
+         Ok { content = Buffer.contents buf; _meta = None })
 ;;
 
 let write_file_tool =
@@ -148,6 +148,7 @@ let write_file_tool =
            close_out oc;
            Ok
              { content = Printf.sprintf "Written %d bytes to %s" (String.length code) path
+             ; _meta = None
              }
          with
          | exn ->

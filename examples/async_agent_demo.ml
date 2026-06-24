@@ -47,7 +47,8 @@ let read_only_tool =
     (fun args ->
        let open Yojson.Safe.Util in
        match args |> member "key" |> to_string_option with
-       | Some key -> Ok { Types.content = Printf.sprintf "value for %s" key }
+       | Some key ->
+         Ok { Types.content = Printf.sprintf "value for %s" key; _meta = None }
        | None ->
          Error
            { Types.message = "missing 'key' parameter"
@@ -87,7 +88,7 @@ let external_fetch_tool =
     (fun args ->
        let open Yojson.Safe.Util in
        match args |> member "url" |> to_string_option with
-       | Some url -> Ok { Types.content = Printf.sprintf "Fetched: %s" url }
+       | Some url -> Ok { Types.content = Printf.sprintf "Fetched: %s" url; _meta = None }
        | None ->
          Error
            { Types.message = "missing 'url' parameter"

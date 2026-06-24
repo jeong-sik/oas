@@ -8,9 +8,7 @@
   agent_sdk.base
   yojson
   eio
-  mcp_protocol
-  mcp_protocol.eio
-  mcp_protocol.http)
+  mcp_protocol_bundle)
  (flags
   (:standard -open Agent_sdk_base))
  (inline_tests)

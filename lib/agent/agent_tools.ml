@@ -460,7 +460,7 @@ let find_and_execute_tool_with_index
               let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
               let result_bytes =
                 match result with
-                | Ok { content } -> String.length content
+                | Ok { content; _meta = _ } -> String.length content
                 | Error { message; _ } -> String.length message
               in
               let _post =
@@ -516,7 +516,7 @@ let find_and_execute_tool_with_index
                | Ok _ -> ());
               let content, is_error, failure_kind, error_class =
                 match result with
-                | Ok { content } -> content, false, None, None
+                | Ok { content; _meta = _ } -> content, false, None, None
                 | Error { message; recoverable; error_class } ->
                   let failure_kind =
                     Some
@@ -590,7 +590,7 @@ let find_and_execute_tool_with_index
            ; recoverable = recoverable_of_failure_kind result.failure_kind
            ; error_class = result.error_class
            }
-       else Ok { content = output_content }
+       else Ok { content = output_content; _meta = None }
      in
      (try
         Event_bus.publish

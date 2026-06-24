@@ -15,7 +15,7 @@
         }]
         (fun input ->
            let loc = Yojson.Safe.Util.(input |> member "location" |> to_string) in
-           Ok { Types.content = Printf.sprintf "Weather in %s: Sunny, 22C" loc })
+           Ok { Types.content = Printf.sprintf "Weather in %s: Sunny, 22C" loc; _meta = None })
 
       let () =
         Eio_main.run @@ fun env ->

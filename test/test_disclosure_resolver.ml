@@ -8,7 +8,7 @@
 open Alcotest
 open Agent_sdk
 
-let ok_result content : Types.tool_result = Ok { Types.content }
+let ok_result content : Types.tool_result = Ok { Types.content; _meta = None }
 
 let err_result message : Types.tool_result =
   Error { Types.message; recoverable = true; error_class = Some Types.Deterministic }

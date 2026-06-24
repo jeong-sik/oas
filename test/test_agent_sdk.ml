@@ -29,11 +29,11 @@ let test_simple_tool () =
         ]
       (fun input ->
          let msg = Yojson.Safe.Util.(input |> member "msg" |> to_string) in
-         Ok { Types.content = msg })
+         Ok { Types.content = msg; _meta = None })
   in
   let input = `Assoc [ "msg", `String "hello" ] in
   match Tool.execute tool input with
-  | Ok { content } -> Alcotest.(check string) "echo output" "hello" content
+  | Ok { content; _meta = _ } -> Alcotest.(check string) "echo output" "hello" content
   | Error _ -> Alcotest.fail "Tool execution failed"
 ;;
 

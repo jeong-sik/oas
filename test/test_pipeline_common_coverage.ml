@@ -28,7 +28,7 @@ let echo_tool =
       ]
     (fun input ->
        let open Yojson.Safe.Util in
-       Ok { Types.content = input |> member "message" |> to_string })
+       Ok { Types.content = input |> member "message" |> to_string; _meta = None })
 ;;
 
 let text_response ?(content = [ Types.Text "ok" ]) () : Types.api_response =

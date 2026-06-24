@@ -125,7 +125,7 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
           (current_max budget)
           budget.ceiling
       in
-      Ok { content = msg }
+      Ok { content = msg; _meta = None }
     | Ok () ->
       (match try_extend budget ~additional ~reason with
        | Error reason_code ->
@@ -138,7 +138,7 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
              (extensions_count budget)
              budget.max_extensions
          in
-         Ok { content = msg }
+         Ok { content = msg; _meta = None }
        | Ok result ->
          (* Apply to agent state *)
          (match !agent_ref with
@@ -159,7 +159,7 @@ let make_tool ~agent_ref ~budget ?(max_idle_before_extend = 2) () =
              budget.max_extensions
              reason
          in
-         Ok { content = msg })
+         Ok { content = msg; _meta = None })
   in
   Tool.create
     ~name:"extend_turns"

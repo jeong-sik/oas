@@ -83,7 +83,7 @@ let sample_echo_tool =
       ]
     (fun input ->
        let msg = Yojson.Safe.Util.(input |> member "msg" |> to_string) in
-       Ok { Types.content = msg })
+       Ok { Types.content = msg; _meta = None })
 ;;
 
 let () =
