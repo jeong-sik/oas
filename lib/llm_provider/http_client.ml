@@ -395,26 +395,15 @@ let classify_by_message msg =
   then Connection_refused
   else if has_substr m "connection closed by peer" || has_substr m "broken pipe"
   then End_of_file
-  else if
-    has_substr m "timed out"
-    || has_substr m "timeout"
-    || has_substr m "operation timed out"
+  else if has_substr m "timed out" || has_substr m "timeout"
   then Timeout
-  else if
-    has_substr m "can't assign requested address"
-    || has_substr m "too many open files"
-    || has_substr m "no buffer space available"
-    || has_substr m "eaddrnotavail"
-    || has_substr m "emfile"
-    || has_substr m "enfile"
+  else if has_substr m "can't assign requested address"
   then Local_resource_exhaustion
   else if
     has_substr m "failed to resolve hostname"
     || has_substr m "name resolution"
     || has_substr m "name or service not known"
     || has_substr m "network is unreachable"
-    || has_substr m "network is down"
-    || has_substr m "no route to host"
     || has_substr m "host is unreachable"
   then Dns_failure
   else if has_substr m "tls" || has_substr m "ssl" || has_substr m "certificate"
@@ -881,12 +870,12 @@ let make_closing_client ~sw ~net ~uri =
 let with_client ?cache ~sw ~net ~uri f =
   match cache with
   | None ->
-    (* The caller's switch scopes the request lifetime. The connection is
-       closed via [make_closing_client]'s [Switch.on_release] hook when the
-       switch is released, preventing a leak without creating an orphan
-       sub-switch. *)
-    let* client = make_closing_client ~sw ~net ~uri in
-    f client
+    (* One-shot path: run the request under a fresh sub-switch so the
+       connection/FD is released as soon as [f] returns, even when the caller
+       supplied a long-lived switch. *)
+    Eio.Switch.run (fun sw' ->
+      let* client = make_closing_client ~sw:sw' ~net ~uri in
+      f client)
   | Some cache ->
     let* conn, was_cached =
       match cache_take cache uri with
@@ -1598,10 +1587,6 @@ let%test "classify_by_message: TLS error" =
   classify_by_message "TLS handshake failed: certificate verify failed" = Tls_error
 ;;
 
-let%test "classify_by_message: resource exhaustion" =
-  classify_by_message "Too many open files" = Local_resource_exhaustion
-;;
-
 let%test "classify_by_message: broken pipe" =
   classify_by_message "broken pipe" = End_of_file
 ;;
@@ -1620,18 +1605,6 @@ let%test "classify_by_message: network unreachable" =
 
 let%test "classify_by_message: host unreachable" =
   classify_by_message "Host is unreachable" = Dns_failure
-;;
-
-let%test "classify_by_message: no route to host" =
-  classify_by_message "No route to host" = Dns_failure
-;;
-
-let%test "classify_by_message: network is down" =
-  classify_by_message "Network is down" = Dns_failure
-;;
-
-let%test "classify_by_message: operation timed out" =
-  classify_by_message "Operation timed out" = Timeout
 ;;
 
 let%test "https_init_error_network_kind: empty trust anchors are local" =

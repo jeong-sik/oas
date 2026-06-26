@@ -123,13 +123,18 @@ let cancel future =
   else if Atomic.compare_and_set future.cancel_sent false true
   then (
     Eio.Promise.resolve future.cancelled_u ();
-    resolve_once future (Error (Error.Internal "cancelled"));
-    match Atomic.exchange future.cancel_fn None with
-    | Some f when not (is_ready future) ->
-      (try f () with
-       | Eio.Cancel.Cancelled _ -> ()
-       | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ())
-    | Some _ | None -> ())
+    (* Invoke the sub-switch failure hook before resolving the future, so a
+       running agent sees cancellation even though [resolve_once] will make
+       the final result idempotent.  The [cancel_fn] is cleared by the agent
+       fiber's [Fun.protect] finalizer once [Agent.run] exits; if we still
+       observe [Some f], the sub-switch is alive and failing it is valid. *)
+    (match Atomic.exchange future.cancel_fn None with
+     | Some f ->
+       (try f () with
+        | Eio.Cancel.Cancelled _ -> ()
+        | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ())
+     | None -> ());
+    resolve_once future (Error (Error.Internal "cancelled")))
 ;;
 
 (* ── Combinators ──────────────────────────────────────────────── *)
