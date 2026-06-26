@@ -152,7 +152,7 @@ let test_output_token_budget_valid () =
 let test_output_token_budget_zero () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
     let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "zero -> default" 25_000 budget)
+    Alcotest.(check int) "zero is accepted" 0 budget)
 ;;
 
 let test_output_token_budget_non_numeric () =

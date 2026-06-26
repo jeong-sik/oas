@@ -152,13 +152,4 @@ let string_list_of_json lst =
 ;;
 
 let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
-
-let int_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    (match int_of_string_opt trimmed with
-     | Some v when v > 0 -> v
-     | _ -> default)
-  | None -> default
-;;
+let int_env_or default var = Llm_provider.Cli_common_env.int ~default var

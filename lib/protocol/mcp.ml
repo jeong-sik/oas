@@ -804,11 +804,11 @@ let%test "output_token_budget non-numeric env value falls back to default" =
   budget = 25_000
 ;;
 
-let%test "output_token_budget zero falls back to default" =
+let%test "output_token_budget zero env value is accepted as zero" =
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "0";
   let budget = output_token_budget () in
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
-  budget = 25_000
+  budget = 0
 ;;
 
 let%test "truncate_output exact boundary not truncated" =
