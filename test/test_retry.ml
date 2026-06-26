@@ -123,11 +123,17 @@ let test_invalid_request_reason_boundary () =
     [ {|{"error":{"message":"Unexpected character in user.name string exceeds length"}}|}
     ; {|{"error":{"message":"parse error in query parameters"}}|}
     ; {|{"error":{"message":"unexpected token in tool schema"}}|}
+    ; "JSON parse error: unexpected token"
     ];
-  match Retry.classify_error ~status:400 ~body:"JSON parse error: unexpected token" with
-  | Retry.InvalidRequest ({ reason = Json_parse_error; _ } as err) ->
-    check bool "internal parser boundary is retryable" true (Retry.is_retryable err)
-  | _ -> fail "expected Json_parse_error"
+  check
+    bool
+    "typed parser-boundary invalid request is retryable"
+    true
+    (Retry.is_retryable
+       (Retry.InvalidRequest
+          { message = "JSON parse error: unexpected token"
+          ; reason = Retry.Json_parse_error
+          }))
 ;;
 
 let test_error_message_all_variants () =

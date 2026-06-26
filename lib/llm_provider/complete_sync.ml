@@ -42,6 +42,11 @@ let complete_http
         | Some cb -> cb ~provider:provider_name ~model_id:config.model_id ~status:code
         | None -> ()
       in
+      let provider_parse_failure ?parser message =
+        Error
+          (Http_client.ProviderFailure
+             { kind = Http_client.Provider_parse_error { parser }; message })
+      in
       let config = apply_sampling_defaults config in
       let uses_responses_api =
         Provider_config.request_path_targets_responses_api config.request_path
@@ -216,33 +221,40 @@ let complete_http
               with
               | Yojson.Json_error msg ->
                 Diag.error "complete" "JSON parse error: %s" msg;
-                Error
-                  (Http_client.HttpError { code = 400; body = "JSON parse error: " ^ msg })
+                provider_parse_failure
+                  ~parser:(Provider_config.string_of_provider_kind config.kind)
+                  msg
               | Yojson.Safe.Util.Type_error (msg, _) ->
                 Diag.error "complete" "JSON type error: %s" msg;
-                Error
-                  (Http_client.HttpError { code = 400; body = "JSON type error: " ^ msg })
+                provider_parse_failure
+                  ~parser:(Provider_config.string_of_provider_kind config.kind)
+                  msg
               | Yojson.Safe.Util.Undefined (msg, _) ->
                 Diag.error "complete" "JSON undefined field error: %s" msg;
-                Error
-                  (Http_client.HttpError
-                     { code = 400; body = "JSON undefined field error: " ^ msg })
+                provider_parse_failure
+                  ~parser:(Provider_config.string_of_provider_kind config.kind)
+                  msg
               | Backend_gemini.Gemini_api_error msg ->
                 Diag.error "complete" "Gemini API error: %s" msg;
                 Error
                   (Http_client.HttpError { code = 400; body = "Gemini API error: " ^ msg })
               | Backend_glm.Glm_api_error err ->
-                let semantic_code =
-                  Backend_glm.http_code_of_glm_error_class err.error_class
-                in
-                let body = Printf.sprintf "Glm error %s: %s" err.code err.message in
-                Diag.error
-                  "complete"
-                  "Glm API error (code=%s class=%d): %s"
-                  err.code
-                  semantic_code
-                  err.message;
-                Error (Http_client.HttpError { code = semantic_code; body })
+                if String.equal err.code "parse"
+                then (
+                  Diag.error "complete" "Glm parse error: %s" err.message;
+                  provider_parse_failure ~parser:"glm" err.message)
+                else (
+                  let semantic_code =
+                    Backend_glm.http_code_of_glm_error_class err.error_class
+                  in
+                  let body = Printf.sprintf "Glm error %s: %s" err.code err.message in
+                  Diag.error
+                    "complete"
+                    "Glm API error (code=%s class=%d): %s"
+                    err.code
+                    semantic_code
+                    err.message;
+                  Error (Http_client.HttpError { code = semantic_code; body }))
               | exn ->
                 let exn_str = Printexc.to_string exn in
                 Diag.error "complete" "Unexpected parsing exception: %s" exn_str;

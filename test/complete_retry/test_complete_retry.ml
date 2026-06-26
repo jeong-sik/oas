@@ -61,8 +61,11 @@ let provider_malformed_json_prose_body =
   {|{"error":"Value looks like object, but can't find closing '}' symbol"}|}
 ;;
 
-let parser_json_error_body =
-  "JSON parse error: Value looks like object, but can't find closing '}' symbol"
+let provider_parse_error =
+  Http_client.ProviderFailure
+    { kind = Http_client.Provider_parse_error { parser = Some "glm" }
+    ; message = "Unexpected end of input"
+    }
 ;;
 
 let test_is_retryable_hard_quota_429 () =
@@ -82,13 +85,16 @@ let test_is_retryable_provider_malformed_json_prose_400 () =
        (Http_client.HttpError { code = 400; body = provider_malformed_json_prose_body }))
 ;;
 
-let test_is_retryable_parser_json_error_400 () =
+let test_is_retryable_provider_parse_error () =
   check
     bool
-    "parser json error 400 is retryable"
+    "typed provider parse error is retryable"
     true
     (Complete.is_retryable
-       (Http_client.HttpError { code = 400; body = parser_json_error_body }))
+       (Http_client.ProviderFailure
+          { kind = Http_client.Provider_parse_error { parser = Some "glm" }
+          ; message = "Unexpected end of input"
+          }))
 ;;
 
 let test_complete_with_retry_stops_on_hard_quota_429 () =
@@ -126,7 +132,7 @@ let test_complete_with_retry_stops_on_hard_quota_429 () =
   | Exit -> ()
 ;;
 
-let test_complete_with_retry_retries_malformed_json_400 () =
+let test_complete_with_retry_retries_provider_parse_error () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -136,9 +142,7 @@ let test_complete_with_retry_retries_malformed_json_400 () =
     let request_count = ref 0 in
     let transport =
       scripted_transport
-        [ Error (Http_client.HttpError { code = 400; body = parser_json_error_body })
-        ; Ok (mock_response "recovered after retry")
-        ]
+        [ Error provider_parse_error; Ok (mock_response "recovered after retry") ]
         request_count
     in
     let config = make_config "http://unused.test" in
@@ -165,7 +169,7 @@ let test_complete_with_retry_retries_malformed_json_400 () =
       check string "response text" "recovered after retry" text;
       check int "two requests" 2 !request_count;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected recovery after malformed json"
+    | Error _ -> fail "expected recovery after provider parse error"
   with
   | Exit -> ()
 ;;
@@ -207,7 +211,7 @@ let test_complete_stream_with_retry_stops_on_hard_quota_429 () =
   | Exit -> ()
 ;;
 
-let test_complete_stream_with_retry_retries_malformed_json_400 () =
+let test_complete_stream_with_retry_retries_provider_parse_error () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -217,9 +221,7 @@ let test_complete_stream_with_retry_retries_malformed_json_400 () =
     let request_count = ref 0 in
     let transport =
       scripted_transport
-        [ Error (Http_client.HttpError { code = 400; body = parser_json_error_body })
-        ; Ok (mock_response "recovered after retry")
-        ]
+        [ Error provider_parse_error; Ok (mock_response "recovered after retry") ]
         request_count
     in
     let config = make_config "http://unused.test" in
@@ -248,7 +250,7 @@ let test_complete_stream_with_retry_retries_malformed_json_400 () =
       check string "response text" "recovered after retry" text;
       check int "two requests" 2 !request_count;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected recovery after malformed json"
+    | Error _ -> fail "expected recovery after provider parse error"
   with
   | Exit -> ()
 ;;
@@ -262,7 +264,7 @@ let () =
             "provider malformed json prose 400"
             `Quick
             test_is_retryable_provider_malformed_json_prose_400
-        ; test_case "parser json error 400" `Quick test_is_retryable_parser_json_error_400
+        ; test_case "provider parse error" `Quick test_is_retryable_provider_parse_error
         ] )
     ; ( "retry loop"
       , [ test_case
@@ -270,17 +272,17 @@ let () =
             `Quick
             test_complete_with_retry_stops_on_hard_quota_429
         ; test_case
-            "malformed json retries same provider"
+            "provider parse error retries same provider"
             `Quick
-            test_complete_with_retry_retries_malformed_json_400
+            test_complete_with_retry_retries_provider_parse_error
         ; test_case
             "stream hard quota stops immediately"
             `Quick
             test_complete_stream_with_retry_stops_on_hard_quota_429
         ; test_case
-            "stream malformed json retries same provider"
+            "stream provider parse error retries same provider"
             `Quick
-            test_complete_stream_with_retry_retries_malformed_json_400
+            test_complete_stream_with_retry_retries_provider_parse_error
         ] )
     ]
 ;;

@@ -120,19 +120,6 @@ let contains_case_insensitive ~(haystack : string) ~(needle : string) : bool =
   | Not_found -> false
 ;;
 
-let internal_json_parse_error_prefixes =
-  [ "JSON parse error:"; "JSON type error:"; "JSON undefined field error:" ]
-;;
-
-let invalid_request_reason_of_internal_boundary message =
-  if
-    List.exists
-      (fun prefix -> String.starts_with ~prefix message)
-      internal_json_parse_error_prefixes
-  then Json_parse_error
-  else Unknown_invalid_request
-;;
-
 (** Substrings inside the extracted [error.message] text indicating the 429
     is a hard account-level quota exhaustion (not a transient throttle).
     Retrying will never succeed without operator action (recharge / new
@@ -356,9 +343,7 @@ let classify_error ~status ~body : api_error =
   | 400 | 422 ->
     if is_context_overflow_message body
     then ContextOverflow { message; limit = parse_context_overflow_limit body }
-    else
-      InvalidRequest
-        { message; reason = invalid_request_reason_of_internal_boundary message }
+    else InvalidRequest { message; reason = Unknown_invalid_request }
   | 429 ->
     let parsed_retry_after =
       try
@@ -384,8 +369,7 @@ let classify_error ~status ~body : api_error =
   | s when s >= 500 -> ServerError { status = s; message }
   | unhandled_status ->
     let (_ : int) = unhandled_status in
-    InvalidRequest
-      { message; reason = invalid_request_reason_of_internal_boundary message }
+    InvalidRequest { message; reason = Unknown_invalid_request }
 ;;
 
 (* The HTTP status a provider error condition carries as an initial response,
@@ -546,14 +530,16 @@ let%test "extract_error_message: malformed body falls back to prefix" =
   result = "not json at all"
 ;;
 
-let%test "is_retryable: flat Ollama error string (regression for #6474)" =
+let%test "is_retryable: flat Ollama provider prose is not retryable" =
   (* Before the extract_error_message fix, Ollama's flat-string error
-     body was returned verbatim as the full JSON blob, and only matched
-     malformed JSON signals by accident.  After the fix, the message
-     is the clean yyjson string and should still be retryable. *)
+     body was returned verbatim as the full JSON blob. The extracted message
+     is still provider prose, so raw HTTP classification must not infer a typed
+     parser-boundary reason from it. *)
   let body = {|{"error":"Value looks like object, but can't find closing '}' symbol"}|} in
   match classify_error ~status:400 ~body with
-  | InvalidRequest _ as err -> is_retryable err
+  | InvalidRequest ({ reason = Unknown_invalid_request; _ } as err) ->
+    not (is_retryable err)
+  | InvalidRequest { reason = Json_parse_error; _ } -> false
   | RateLimited _
   | Overloaded _
   | ServerError _
@@ -590,10 +576,11 @@ let%test "classify_error returns ContextOverflow for overflow body" =
   | Timeout _ -> false
 ;;
 
-let%test "classify_error returns InvalidRequest for non-overflow 400" =
+let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   let body = {|{"error":{"message":"bad tool schema"}}|} in
   match classify_error ~status:400 ~body with
-  | InvalidRequest _ -> true
+  | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
+  | InvalidRequest { reason = Json_parse_error; _ } -> false
   | RateLimited _
   | Overloaded _
   | ServerError _
