@@ -537,7 +537,7 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
      parser-boundary reason from it. *)
   let body = {|{"error":"Value looks like object, but can't find closing '}' symbol"}|} in
   match classify_error ~status:400 ~body with
-  | InvalidRequest ({ reason = Unknown_invalid_request; _ } as err) ->
+  | InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
     not (is_retryable err)
   | InvalidRequest { reason = Json_parse_error; _ } -> false
   | RateLimited _
