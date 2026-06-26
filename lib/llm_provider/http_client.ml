@@ -329,16 +329,59 @@ let%test "max_single_header_bytes flags a single oversized header line" =
   max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
 ;;
 
+let known_network_error_kind = function
+  | Unknown -> None
+  | ( Connection_refused
+    | Dns_failure
+    | Tls_error
+    | Timeout
+    | Local_resource_exhaustion
+    | End_of_file ) as kind -> Some kind
+;;
+
+(* For composite errors, prefer kinds that should not be retried (local
+   resource exhaustion and TLS errors) over transient network failures.
+   This mirrors the severity ordering rather than the retry policy itself. *)
+let network_error_kind_is_non_retryable = function
+  | Local_resource_exhaustion | Tls_error -> true
+  | Connection_refused | Dns_failure | Timeout | End_of_file | Unknown -> false
+;;
+
+let classify_eio_backend_error = function
+  | Eio_unix.Unix_error (code, _, _) -> Some (classify_unix_error code)
+  | _ ->
+    (* Keep control flow on public typed backend constructors only. tls-eio's
+       socket-closed backend is private in its .ml, so OAS cannot match it
+       soundly; the surrounding [Connection_reset] fallback classifies that
+       path as [End_of_file]. *)
+    None
+;;
+
+let classify_eio_net_error = function
+  | Eio.Net.Connection_reset backend ->
+    Option.value (classify_eio_backend_error backend) ~default:End_of_file
+  | Eio.Net.Connection_failure (Eio.Net.Refused backend) ->
+    Option.value (classify_eio_backend_error backend) ~default:Connection_refused
+  | Eio.Net.Connection_failure Eio.Net.Timeout -> Timeout
+  | Eio.Net.Connection_failure Eio.Net.No_matching_addresses -> Dns_failure
+;;
+
 let rec classify_eio_error = function
-  | Eio.Net.E (Connection_reset _) -> End_of_file
-  | Eio.Net.E (Connection_failure (Refused _)) -> Connection_refused
-  | Eio.Net.E (Connection_failure No_matching_addresses) -> Dns_failure
-  | Eio.Net.E (Connection_failure Timeout) -> Timeout
+  | Eio.Net.E net_error -> classify_eio_net_error net_error
+  | Eio.Exn.X backend ->
+    Option.value (classify_eio_backend_error backend) ~default:Unknown
   | Eio.Exn.Multiple_io errors ->
-    errors
-    |> List.map (fun (err, _, _) -> classify_eio_error err)
-    |> List.find_opt (fun kind -> kind <> Unknown)
-    |> Option.value ~default:Unknown
+    let kinds =
+      List.filter_map
+        (fun (err, _, _) -> classify_eio_error err |> known_network_error_kind)
+        errors
+    in
+    (match List.find_opt network_error_kind_is_non_retryable kinds with
+     | Some kind -> kind
+     | None ->
+       (match kinds with
+        | kind :: _ -> kind
+        | [] -> Unknown))
   | _ -> Unknown
 ;;
 
@@ -370,7 +413,10 @@ let classify_network_exn (e : exn) =
     Some
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
   | Eio.Io (err, _) as exn -> Some (network_error_of_eio err exn)
-  | Sys_error msg | Failure msg -> Some (NetworkError { message = msg; kind = Unknown })
+  | (Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _) as exn ->
+    Some (NetworkError { message = Printexc.to_string exn; kind = Tls_error })
+  | Sys_error msg -> Some (NetworkError { message = msg; kind = Unknown })
+  | Failure msg -> Some (NetworkError { message = msg; kind = Unknown })
   | _ -> None
 ;;
 
@@ -1500,29 +1546,55 @@ let%test "resource exhaustion: DNS failure is not" =
           { message = "failed to resolve hostname: example.com"; kind = Dns_failure }))
 ;;
 
-(* ── structured Eio classification tests ───────────────────────── *)
+(* ── typed Eio classification tests ───────────────────── *)
 
-type Eio.Exn.Backend.t += Test_backend_error
+let eio_exn err = Eio.Exn.create err
 
-let%test "classify_eio_error: connection refused" =
-  classify_eio_error
-    (Eio.Net.E (Eio.Net.Connection_failure (Eio.Net.Refused Test_backend_error)))
-  = Connection_refused
+let%test "classify_network_exn: typed Eio refused" =
+  match
+    classify_network_exn
+      (eio_exn
+         (Eio.Net.E
+            (Eio.Net.Connection_failure
+               (Eio.Net.Refused (Eio_unix.Unix_error (Unix.ECONNREFUSED, "connect", ""))))))
+  with
+  | Some (NetworkError { kind = Connection_refused; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
 ;;
 
-let%test "classify_eio_error: no matching addresses" =
-  classify_eio_error
-    (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.No_matching_addresses))
-  = Dns_failure
+let%test "classify_network_exn: typed Eio timeout" =
+  match
+    classify_network_exn
+      (eio_exn (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)))
+  with
+  | Some (NetworkError { kind = Timeout; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
 ;;
 
-let%test "classify_eio_error: connection timeout" =
-  classify_eio_error (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)) = Timeout
+let%test "classify_network_exn: typed Eio no addresses" =
+  match
+    classify_network_exn
+      (eio_exn (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.No_matching_addresses)))
+  with
+  | Some (NetworkError { kind = Dns_failure; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
 ;;
 
-let%test "classify_eio_error: connection reset" =
-  classify_eio_error (Eio.Net.E (Eio.Net.Connection_reset Test_backend_error))
-  = End_of_file
+let%test "classify_network_exn: typed Eio Unix backend resource exhaustion" =
+  match
+    classify_network_exn
+      (eio_exn (Eio.Exn.X (Eio_unix.Unix_error (Unix.EMFILE, "socket", ""))))
+  with
+  | Some (NetworkError { kind = Local_resource_exhaustion; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
 ;;
 
 let%test "classify_network_exn: text-only Sys_error is Unknown" =
@@ -1531,7 +1603,15 @@ let%test "classify_network_exn: text-only Sys_error is Unknown" =
   | _ -> false
 ;;
 
-let%test "https_init_error_network_kind: ca certs unavailable is TLS" =
+let%test "classify_network_exn: message-only Failure stays Unknown" =
+  match classify_network_exn (Failure "Connection refused") with
+  | Some (NetworkError { kind = Unknown; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
+;;
+
+let%test "https_init_error_network_kind: empty trust anchors are TLS" =
   https_init_error_network_kind
     (Api_common.Ca_certs_unavailable "ca-certs: empty trust anchors")
   = Tls_error
@@ -1540,6 +1620,85 @@ let%test "https_init_error_network_kind: ca certs unavailable is TLS" =
 let%test "https_init_error_network_kind: TLS config remains TLS" =
   https_init_error_network_kind (Api_common.Tls_config_unavailable "unsupported protocol")
   = Tls_error
+;;
+
+let%test "classify_network_exn: plain Tls_alert is Tls_error" =
+  match classify_network_exn (Tls_eio.Tls_alert Tls.Packet.HANDSHAKE_FAILURE) with
+  | Some (NetworkError { kind = Tls_error; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
+;;
+
+let%test "classify_network_exn: plain Tls_failure is Tls_error" =
+  match classify_network_exn (Tls_eio.Tls_failure (`Fatal `No_application_protocol)) with
+  | Some (NetworkError { kind = Tls_error; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
+;;
+
+let%test "classify_network_exn: backend printer text does not classify" =
+  let module Test_backend = struct
+    type Eio.Exn.Backend.t += Tls_socket_closed_test
+
+    let () =
+      Eio.Exn.Backend.register_pp (fun f -> function
+        | Tls_socket_closed_test ->
+          Format.pp_print_string f "TLS_socket_closed";
+          true
+        | _ -> false)
+    ;;
+  end
+  in
+  match
+    classify_network_exn
+      (eio_exn (Eio.Net.E (Eio.Net.Connection_reset Test_backend.Tls_socket_closed_test)))
+  with
+  | Some (NetworkError { kind = End_of_file; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
+;;
+
+let multiple_io_exn errs =
+  let combine acc err =
+    let exn = eio_exn err in
+    let bt = Printexc.get_callstack 0 in
+    Eio.Exn.combine acc (exn, bt)
+  in
+  match errs with
+  | [] -> eio_exn (Eio.Exn.Multiple_io [])
+  | err :: errs ->
+    fst (List.fold_left combine (eio_exn err, Printexc.get_callstack 0) errs)
+;;
+
+let%test "classify_network_exn: Multiple_io prefers non-retryable kind" =
+  match
+    classify_network_exn
+      (multiple_io_exn
+         [ Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)
+         ; Eio.Exn.X (Eio_unix.Unix_error (Unix.EMFILE, "socket", ""))
+         ])
+  with
+  | Some (NetworkError { kind = Local_resource_exhaustion; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
+;;
+
+let%test "classify_network_exn: Multiple_io falls back to first known kind" =
+  match
+    classify_network_exn
+      (multiple_io_exn
+         [ Eio.Exn.X (Eio_unix.Unix_error (Unix.EPIPE, "write", ""))
+         ; Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)
+         ])
+  with
+  | Some (NetworkError { kind = End_of_file; _ }) -> true
+  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
+  | Some (ProviderTerminal _ | ProviderFailure _)
+  | None -> false
 ;;
 
 (* ── read_ndjson idle_timeout tests ──────────────────── *)
