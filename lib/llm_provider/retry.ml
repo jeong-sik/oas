@@ -1,5 +1,13 @@
 (** Structured API errors and retry logic with exponential backoff + jitter *)
 
+type invalid_request_reason =
+  | Json_parse_error
+  | Schema_error
+  | Tool_error
+  | Routing_error
+  | Parameter_error
+  | Unknown_invalid_request
+
 type api_error =
   | RateLimited of
       { retry_after : float option
@@ -11,7 +19,10 @@ type api_error =
       ; message : string
       }
   | AuthError of { message : string }
-  | InvalidRequest of { message : string }
+  | InvalidRequest of
+      { message : string
+      ; reason : invalid_request_reason
+      }
   | NotFound of { message : string }
   | ContextOverflow of
       { message : string
@@ -51,12 +62,25 @@ let network_error_kind_label = function
   | Http_client.Unknown -> "unknown"
 ;;
 
+let invalid_request_reason_to_string = function
+  | Json_parse_error -> "json_parse_error"
+  | Schema_error -> "schema_error"
+  | Tool_error -> "tool_error"
+  | Routing_error -> "routing_error"
+  | Parameter_error -> "parameter_error"
+  | Unknown_invalid_request -> "unknown"
+;;
+
 let error_message = function
   | RateLimited r -> Printf.sprintf "Rate limited: %s" r.message
   | Overloaded r -> Printf.sprintf "Overloaded: %s" r.message
   | ServerError r -> Printf.sprintf "Server error %d: %s" r.status r.message
   | AuthError r -> Printf.sprintf "Auth error: %s" r.message
-  | InvalidRequest r -> Printf.sprintf "Invalid request: %s" r.message
+  | InvalidRequest r ->
+    Printf.sprintf
+      "Invalid request (%s): %s"
+      (invalid_request_reason_to_string r.reason)
+      r.message
   | NotFound r -> Printf.sprintf "Not found: %s" r.message
   | ContextOverflow r ->
     let limit_str =
@@ -206,6 +230,10 @@ let is_malformed_json_message message =
   Option.is_some (malformed_json_signal_of_message message)
 ;;
 
+let invalid_request_reason_of_message message =
+  if is_malformed_json_message message then Json_parse_error else Unknown_invalid_request
+;;
+
 (** Substrings inside the extracted [error.message] text indicating the 429
     is a hard account-level quota exhaustion (not a transient throttle).
     Retrying will never succeed without operator action (recharge / new
@@ -278,9 +306,10 @@ let is_retryable = function
      | Http_client.Timeout
      | Http_client.End_of_file
      | Http_client.Unknown -> true)
-  | InvalidRequest { message } ->
+  | InvalidRequest { reason = Json_parse_error; _ } ->
     (* Malformed JSON from model output is transient — retry may produce valid JSON. *)
-    is_malformed_json_message message
+    true
+  | InvalidRequest _ -> false
   | AuthError _ | ContextOverflow _ | NotFound _ -> false
 ;;
 
@@ -428,7 +457,7 @@ let classify_error ~status ~body : api_error =
   | 400 | 422 ->
     if is_context_overflow_message body
     then ContextOverflow { message; limit = parse_context_overflow_limit body }
-    else InvalidRequest { message }
+    else InvalidRequest { message; reason = invalid_request_reason_of_message message }
   | 429 ->
     let parsed_retry_after =
       try
@@ -454,7 +483,7 @@ let classify_error ~status ~body : api_error =
   | s when s >= 500 -> ServerError { status = s; message }
   | unhandled_status ->
     let (_ : int) = unhandled_status in
-    InvalidRequest { message }
+    InvalidRequest { message; reason = invalid_request_reason_of_message message }
 ;;
 
 (* The HTTP status a provider error condition carries as an initial response,
@@ -680,55 +709,65 @@ let%test "ContextOverflow is not retryable" =
 let%test "InvalidRequest with malformed JSON is retryable (closing)" =
   is_retryable
     (InvalidRequest
-       { message = "Value looks like object, but can't find closing '}' symbol" })
+       { message = "Value looks like object, but can't find closing '}' symbol"
+       ; reason = Json_parse_error
+       })
 ;;
 
 let%test "InvalidRequest with malformed JSON is retryable (can't find)" =
-  is_retryable (InvalidRequest { message = "Can't find end of string" })
+  is_retryable (InvalidRequest { message = "Can't find end of string"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with malformed JSON is retryable (unexpected)" =
-  is_retryable (InvalidRequest { message = "Unexpected character in JSON" })
+  is_retryable (InvalidRequest { message = "Unexpected character in JSON"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with parse error is retryable" =
-  is_retryable (InvalidRequest { message = "Parse error at position 42" })
+  is_retryable (InvalidRequest { message = "Parse error at position 42"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with generic message is NOT retryable" =
-  not (is_retryable (InvalidRequest { message = "bad tool schema" }))
+  not
+    (is_retryable
+       (InvalidRequest { message = "bad tool schema"; reason = Unknown_invalid_request }))
 ;;
 
 let%test "InvalidRequest with unknown field is NOT retryable" =
-  not (is_retryable (InvalidRequest { message = "Unknown field 'foo'" }))
+  not
+    (is_retryable
+       (InvalidRequest { message = "Unknown field 'foo'"; reason = Unknown_invalid_request }))
 ;;
 
 let%test "InvalidRequest with uppercase PARSE ERROR is retryable" =
-  is_retryable (InvalidRequest { message = "PARSE ERROR at position 42" })
+  is_retryable (InvalidRequest { message = "PARSE ERROR at position 42"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with MixedCase is retryable" =
-  is_retryable (InvalidRequest { message = "Unexpected Character In JSON" })
+  is_retryable (InvalidRequest { message = "Unexpected Character In JSON"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with unterminated string is retryable" =
-  is_retryable (InvalidRequest { message = "Unterminated string literal" })
+  is_retryable (InvalidRequest { message = "Unterminated string literal"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with invalid json is retryable" =
-  is_retryable (InvalidRequest { message = "invalid json in tool call arguments" })
+  is_retryable (InvalidRequest { message = "invalid json in tool call arguments"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with query parse error is NOT retryable" =
-  not (is_retryable (InvalidRequest { message = "parse error in query parameters" }))
+  not
+    (is_retryable
+       (InvalidRequest { message = "parse error in query parameters"; reason = Unknown_invalid_request }))
 ;;
 
 let%test "InvalidRequest can't-find tool is NOT retryable" =
-  not (is_retryable (InvalidRequest { message = "Can't find the specified tool" }))
+  not
+    (is_retryable
+       (InvalidRequest { message = "Can't find the specified tool"; reason = Unknown_invalid_request }))
 ;;
 
 let%test "InvalidRequest with empty message is NOT retryable" =
-  not (is_retryable (InvalidRequest { message = "" }))
+  not (is_retryable (InvalidRequest { message = ""; reason = Unknown_invalid_request }))
 ;;
 
 (* --- hard-quota detection on RateLimited --- *)
@@ -892,7 +931,9 @@ let%test "is_hard_quota non-RateLimited variants are false" =
   && (not (is_hard_quota (AuthError { message = "invalid key" })))
   && (not (is_hard_quota (NetworkError { message = "connection reset"; kind = Unknown })))
   && (not (is_hard_quota (Timeout { message = "deadline exceeded"; phase = None })))
-  && (not (is_hard_quota (InvalidRequest { message = "bad input" })))
+  && (not
+        (is_hard_quota
+           (InvalidRequest { message = "bad input"; reason = Unknown_invalid_request })))
   && not (is_hard_quota (ContextOverflow { message = "too long"; limit = None }))
 ;;
 

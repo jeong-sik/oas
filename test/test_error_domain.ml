@@ -352,7 +352,7 @@ let test_roundtrip_api_overloaded () =
 ;;
 
 let test_roundtrip_api_invalid_request () =
-  let orig = Error.Api (Retry.InvalidRequest { message = "bad" }) in
+  let orig = Error.Api (Retry.InvalidRequest { message = "bad"; reason = Unknown_invalid_request }) in
   let poly = Error_domain.of_sdk_error orig in
   (match poly with
    | `Invalid_request "bad" -> ()

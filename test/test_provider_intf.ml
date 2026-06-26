@@ -219,7 +219,7 @@ let test_provider_dispatch_rejects_malformed_openai_response () =
         ~messages:user_messages
         ()
     with
-    | Error (Error.Api (Retry.InvalidRequest { message })) ->
+    | Error (Error.Api (Retry.InvalidRequest { message; _ })) ->
       Alcotest.(check bool) "parse message present" true (String.length message > 0)
     | Error err -> Alcotest.failf "unexpected error: %s" (Error.to_string err)
     | Ok _ -> Alcotest.fail "expected malformed response rejection")

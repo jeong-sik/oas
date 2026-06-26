@@ -102,7 +102,7 @@ let test_is_retryable () =
     bool
     "invalid request not retryable"
     false
-    (Retry.is_retryable (Retry.InvalidRequest { message = "" }));
+    (Retry.is_retryable (Retry.InvalidRequest { message = ""; reason = Unknown_invalid_request }));
   check
     bool
     "not found not retryable"
@@ -116,7 +116,8 @@ let test_error_message_all_variants () =
     ; Retry.Overloaded { message = "busy" }, "Overloaded: busy"
     ; Retry.ServerError { status = 503; message = "down" }, "Server error 503: down"
     ; Retry.AuthError { message = "bad key" }, "Auth error: bad key"
-    ; Retry.InvalidRequest { message = "wrong" }, "Invalid request: wrong"
+    ; ( Retry.InvalidRequest { message = "wrong"; reason = Unknown_invalid_request }
+      , "Invalid request (unknown): wrong" )
     ; Retry.NotFound { message = "no model" }, "Not found: no model"
     ; Retry.NetworkError { message = "dns"; kind = Unknown }, "Network error: dns"
     ; ( Retry.NetworkError
@@ -262,11 +263,11 @@ let test_with_retry_non_retryable_during_loop () =
     incr attempt;
     if !attempt = 1
     then Error (Retry.ServerError { status = 500; message = "transient" })
-    else Error (Retry.InvalidRequest { message = "bad input" })
+    else Error (Retry.InvalidRequest { message = "bad input"; reason = Unknown_invalid_request })
   in
   let res = Retry.with_retry ~clock ~config:fast_config f in
   (match res with
-   | Error (Retry.InvalidRequest { message }) ->
+   | Error (Retry.InvalidRequest { message; _ }) ->
      check string "non-retryable in loop" "bad input" message
    | _ -> fail "expected InvalidRequest from loop");
   check int "stopped at 2" 2 !attempt
