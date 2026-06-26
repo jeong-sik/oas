@@ -94,28 +94,29 @@ let merge (ctx : t) (pairs : (string * Yojson.Safe.t) list) =
 ;;
 
 let diff before after =
-  let before_snapshot = snapshot before in
-  let after_snapshot = snapshot after in
-  let before_map = Hashtbl.create (List.length before_snapshot + 1) in
-  let after_map = Hashtbl.create (List.length after_snapshot + 1) in
-  List.iter (fun (k, v) -> Hashtbl.replace before_map k v) before_snapshot;
-  List.iter (fun (k, v) -> Hashtbl.replace after_map k v) after_snapshot;
-  let added =
-    after_snapshot |> List.filter (fun (k, _) -> not (Hashtbl.mem before_map k))
+  let rec merge before_items after_items added removed changed =
+    match before_items, after_items with
+    | [], [] ->
+      { added = List.rev added; removed = List.rev removed; changed = List.rev changed }
+    | [], (key, value) :: after_tail ->
+      merge [] after_tail ((key, value) :: added) removed changed
+    | (key, _) :: before_tail, [] -> merge before_tail [] added (key :: removed) changed
+    | ( ((before_key, before_value) :: before_tail as before_all)
+      , ((after_key, after_value) :: after_tail as after_all) ) ->
+      let order = String.compare before_key after_key in
+      if order = 0
+      then (
+        let changed =
+          if before_value = after_value
+          then changed
+          else (after_key, after_value) :: changed
+        in
+        merge before_tail after_tail added removed changed)
+      else if order < 0
+      then merge before_tail after_all added (before_key :: removed) changed
+      else merge before_all after_tail ((after_key, after_value) :: added) removed changed
   in
-  let removed =
-    before_snapshot
-    |> List.filter_map (fun (k, _) -> if Hashtbl.mem after_map k then None else Some k)
-  in
-  let changed =
-    after_snapshot
-    |> List.filter_map (fun (k, v) ->
-      match Hashtbl.find_opt before_map k with
-      | Some prev when prev = v -> None
-      | Some _ -> Some (k, v)
-      | None -> None)
-  in
-  { added; removed; changed }
+  merge (snapshot before) (snapshot after) [] [] []
 ;;
 
 let to_json (ctx : t) : Yojson.Safe.t =
