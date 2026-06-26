@@ -98,7 +98,7 @@ val with_missing_approval_callback_policy
 val with_context_reducer : Context_reducer.t -> t -> t
 
 (** Set context reduction thresholds.
-    [compact_ratio] determines when to compact (default 0.8).
+    [compact_ratio] determines when to compact.
     [?context_window_tokens] overrides the reducer's context-window budget basis.
     This is used to estimate available input/context capacity for reduction
     decisions, and is distinct from [with_max_tokens], which controls the

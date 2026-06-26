@@ -26,23 +26,19 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
 
 (* ── Context compaction watermark ───────────────────── *)
 
-(** Default ratio at which proactive compaction fires (0.9 = 90% of context).
-    Override with [OAS_COMPACT_WATERMARK] env var (e.g. "0.8" for 80%).
-    Hard floor prevents silent pass-through that caused CTX 101% overrun
-    (#7083). Values outside (0.0, 1.0) are rejected.
-    @since 0.185.0 *)
-let compact_watermark_default =
-  match Sys.getenv "OAS_COMPACT_WATERMARK" with
-  | exception Not_found -> 0.9
-  | s ->
-    (match float_of_string_opt s with
-     | Some w when w > 0.0 && w < 1.0 -> w
-     | _ ->
-       Log.warn
-         _log
-         "OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), using 0.9"
-         [ Log.S ("value", s) ];
-       0.9)
+let proactive_watermark agent =
+  match agent.state.config.context_compact_ratio with
+  | Some ratio when Types.valid_context_ratio ratio -> ratio
+  | Some ratio ->
+    Log.warn
+      _log
+      "invalid context_compact_ratio; using default proactive watermark"
+      [ Log.S ("agent", agent.state.config.name)
+      ; Log.F ("value", ratio)
+      ; Log.F ("default", Types.default_context_compact_ratio)
+      ];
+    Types.default_context_compact_ratio
+  | None -> Types.default_context_compact_ratio
 ;;
 
 open Result_syntax
@@ -802,15 +798,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      TurnStarted a second time or re-invoking before_turn_params.
 
      Hard budget gate (OAS-2): when context_compact_ratio is not configured,
-     a ratio >= compact_watermark_default still triggers compaction. This
-     prevents the silent pass-through that caused a downstream consumer's
+     a ratio >= Types.default_context_compact_ratio still triggers compaction.
+     This prevents the silent pass-through that caused a downstream consumer's
      CTX 101% overrun (observed in upstream issue #7083). *)
   let prep =
-    let watermark =
-      match agent.state.config.context_compact_ratio with
-      | Some w when w > 0.0 && w < 1.0 -> w
-      | _ -> compact_watermark_default
-    in
+    let watermark = proactive_watermark agent in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
     let ratio = float_of_int est_tokens /. float_of_int context_window in
@@ -861,11 +853,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Same hard budget gate as 2.3 — if context still exceeds watermark
      after validation (validators can inject messages), compact again. *)
     let prep =
-      let watermark =
-        match agent.state.config.context_compact_ratio with
-        | Some w when w > 0.0 && w < 1.0 -> w
-        | _ -> compact_watermark_default
-      in
+      let watermark = proactive_watermark agent in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
       let ratio = float_of_int est_tokens /. float_of_int context_window in

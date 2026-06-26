@@ -74,6 +74,14 @@ type agent_config =
 
 val default_config : agent_config
 
+(** Default proactive context compaction watermark used when
+    [agent_config.context_compact_ratio] is [None]. *)
+val default_context_compact_ratio : float
+
+(** [valid_context_ratio ratio] is [true] for ratios accepted by
+    context-threshold configuration. *)
+val valid_context_ratio : float -> bool
+
 (** Usage tracking accumulated across provider calls. Per-response usage stays
     in {!Llm_provider.Types.api_usage}.
 

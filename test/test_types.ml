@@ -83,6 +83,17 @@ let test_model_to_string () =
   Alcotest.(check string) "custom" "my-model" (Types.model_to_string "my-model")
 ;;
 
+let test_context_compact_ratio_defaults () =
+  Alcotest.(check bool)
+    "default context compact ratio is valid"
+    true
+    (Types.valid_context_ratio Types.default_context_compact_ratio);
+  Alcotest.(check (option (float 0.0)))
+    "default_config leaves per-agent override unset"
+    None
+    Types.default_config.context_compact_ratio
+;;
+
 let test_role_to_string () =
   Alcotest.(check string) "user" "user" (Types.role_to_string Types.User);
   Alcotest.(check string) "assistant" "assistant" (Types.role_to_string Types.Assistant)
@@ -962,6 +973,12 @@ let () =
         ; Alcotest.test_case "empty stop reason" `Quick test_empty_stop_reason
         ] )
     ; "model", [ Alcotest.test_case "model_to_string" `Quick test_model_to_string ]
+    ; ( "context"
+      , [ Alcotest.test_case
+            "compact ratio defaults"
+            `Quick
+            test_context_compact_ratio_defaults
+        ] )
     ; ( "role"
       , [ Alcotest.test_case "role_to_string" `Quick test_role_to_string
         ; Alcotest.test_case "role_of_string" `Quick test_role_of_string

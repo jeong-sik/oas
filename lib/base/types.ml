@@ -80,6 +80,13 @@ type model = string [@@deriving yojson, show]
     Delegates to {!Model_registry.resolve_model_id}. *)
 let model_to_string = Model_registry.resolve_model_id
 
+(** Default proactive context compaction watermark. Pipeline code must read this
+    value through [agent_config.context_compact_ratio] resolution rather than
+    process-global environment state, so the agent config remains the SSOT. *)
+let default_context_compact_ratio = 0.9
+
+let valid_context_ratio ratio = ratio > 0.0 && ratio < 1.0
+
 (** Agent configuration *)
 type agent_config =
   { name : string
@@ -104,7 +111,8 @@ type agent_config =
   ; initial_messages : message list
     (* Seed conversation with prior history on first run *)
   ; context_compact_ratio : float option
-    (** Ratio of context budget at which to compact. Default 0.8 *)
+    (** Ratio of context budget at which to compact. Default:
+        {!default_context_compact_ratio}. *)
   ; context_prepare_ratio : float option
     (** Ratio at which to start preparing for compaction. Default 0.6 *)
   ; context_handoff_ratio : float option
