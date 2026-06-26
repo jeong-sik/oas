@@ -204,7 +204,9 @@ let create_message
                   (Llm_provider.Pricing.annotate_response_cost resp
                    |> fun r -> patch_latency r lat)
               | Error msg ->
-                Error (Retry.InvalidRequest { message = msg; reason = Unknown_invalid_request }))
+                Error
+                  (Retry.InvalidRequest
+                     { message = msg; reason = Unknown_invalid_request }))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl ->
@@ -219,7 +221,9 @@ let create_message
                      (Llm_provider.Pricing.annotate_response_cost resp
                       |> fun r -> patch_latency r lat)
                  | Error msg ->
-                   Error (Retry.InvalidRequest { message = msg; reason = Unknown_invalid_request }))))
+                   Error
+                     (Retry.InvalidRequest
+                        { message = msg; reason = Unknown_invalid_request }))))
         | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
         | `TransportError err -> Error err

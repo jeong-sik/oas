@@ -138,7 +138,8 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
               | Error msg ->
                 Error
                   (Error.Api
-                     (Retry.InvalidRequest { message = msg; reason = Unknown_invalid_request })))
+                     (Retry.InvalidRequest
+                        { message = msg; reason = Unknown_invalid_request })))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl -> Ok (impl.parse_response body_str)
@@ -146,7 +147,10 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
                 (match parse_openai_response_result body_str with
                  | Ok resp -> Ok resp
                  | Error msg ->
-                   Error (Error.Api (Retry.InvalidRequest { message = msg; reason = Unknown_invalid_request })))))
+                   Error
+                     (Error.Api
+                        (Retry.InvalidRequest
+                           { message = msg; reason = Unknown_invalid_request })))))
         | Ok (code, body_str) ->
           Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
         | Error err -> Error (Error.Api (retry_error_of_http_error err))

@@ -102,7 +102,8 @@ let test_is_retryable () =
     bool
     "invalid request not retryable"
     false
-    (Retry.is_retryable (Retry.InvalidRequest { message = ""; reason = Unknown_invalid_request }));
+    (Retry.is_retryable
+       (Retry.InvalidRequest { message = ""; reason = Unknown_invalid_request }));
   check
     bool
     "not found not retryable"
@@ -263,7 +264,9 @@ let test_with_retry_non_retryable_during_loop () =
     incr attempt;
     if !attempt = 1
     then Error (Retry.ServerError { status = 500; message = "transient" })
-    else Error (Retry.InvalidRequest { message = "bad input"; reason = Unknown_invalid_request })
+    else
+      Error
+        (Retry.InvalidRequest { message = "bad input"; reason = Unknown_invalid_request })
   in
   let res = Retry.with_retry ~clock ~config:fast_config f in
   (match res with

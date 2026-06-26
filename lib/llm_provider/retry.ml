@@ -715,15 +715,19 @@ let%test "InvalidRequest with malformed JSON is retryable (closing)" =
 ;;
 
 let%test "InvalidRequest with malformed JSON is retryable (can't find)" =
-  is_retryable (InvalidRequest { message = "Can't find end of string"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest { message = "Can't find end of string"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with malformed JSON is retryable (unexpected)" =
-  is_retryable (InvalidRequest { message = "Unexpected character in JSON"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest
+       { message = "Unexpected character in JSON"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with parse error is retryable" =
-  is_retryable (InvalidRequest { message = "Parse error at position 42"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest { message = "Parse error at position 42"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with generic message is NOT retryable" =
@@ -735,35 +739,46 @@ let%test "InvalidRequest with generic message is NOT retryable" =
 let%test "InvalidRequest with unknown field is NOT retryable" =
   not
     (is_retryable
-       (InvalidRequest { message = "Unknown field 'foo'"; reason = Unknown_invalid_request }))
+       (InvalidRequest
+          { message = "Unknown field 'foo'"; reason = Unknown_invalid_request }))
 ;;
 
 let%test "InvalidRequest with uppercase PARSE ERROR is retryable" =
-  is_retryable (InvalidRequest { message = "PARSE ERROR at position 42"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest { message = "PARSE ERROR at position 42"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with MixedCase is retryable" =
-  is_retryable (InvalidRequest { message = "Unexpected Character In JSON"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest
+       { message = "Unexpected Character In JSON"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with unterminated string is retryable" =
-  is_retryable (InvalidRequest { message = "Unterminated string literal"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest { message = "Unterminated string literal"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with invalid json is retryable" =
-  is_retryable (InvalidRequest { message = "invalid json in tool call arguments"; reason = Json_parse_error })
+  is_retryable
+    (InvalidRequest
+       { message = "invalid json in tool call arguments"; reason = Json_parse_error })
 ;;
 
 let%test "InvalidRequest with query parse error is NOT retryable" =
   not
     (is_retryable
-       (InvalidRequest { message = "parse error in query parameters"; reason = Unknown_invalid_request }))
+       (InvalidRequest
+          { message = "parse error in query parameters"
+          ; reason = Unknown_invalid_request
+          }))
 ;;
 
 let%test "InvalidRequest can't-find tool is NOT retryable" =
   not
     (is_retryable
-       (InvalidRequest { message = "Can't find the specified tool"; reason = Unknown_invalid_request }))
+       (InvalidRequest
+          { message = "Can't find the specified tool"; reason = Unknown_invalid_request }))
 ;;
 
 let%test "InvalidRequest with empty message is NOT retryable" =

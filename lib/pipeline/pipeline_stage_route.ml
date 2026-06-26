@@ -11,7 +11,8 @@ let sdk_error_of_http_error : Llm_provider.Http_client.http_error -> Error.sdk_e
   | Llm_provider.Http_client.TimeoutError _ as err ->
     Error.Provider (Llm_provider.Error.of_http_error err)
   | Llm_provider.Http_client.AcceptRejected { reason } ->
-    Error.Api (Retry.InvalidRequest { message = reason; reason = Unknown_invalid_request })
+    Error.Api
+      (Retry.InvalidRequest { message = reason; reason = Unknown_invalid_request })
   | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
     Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
   | Llm_provider.Http_client.ProviderTerminal { kind = Other _; _ } as err ->
