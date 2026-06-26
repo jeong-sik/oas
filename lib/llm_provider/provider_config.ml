@@ -250,45 +250,83 @@ let default_attempt_timeout_s = function
   | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;
 
+type reasoning_effort =
+  | Minimal
+  | Low
+  | Medium
+  | High
+  | XHigh
+
+let all_reasoning_efforts = [ Minimal; Low; Medium; High; XHigh ]
+
+let reasoning_effort_to_string = function
+  | Minimal -> "minimal"
+  | Low -> "low"
+  | Medium -> "medium"
+  | High -> "high"
+  | XHigh -> "xhigh"
+;;
+
+let reasoning_effort_of_string value =
+  List.find_opt
+    (fun effort -> String.equal value (reasoning_effort_to_string effort))
+    all_reasoning_efforts
+;;
+
+let default_reasoning_effort_env = "OAS_DEFAULT_REASONING_EFFORT"
+
+let reasoning_effort_values_for_log =
+  String.concat "/" (List.map reasoning_effort_to_string all_reasoning_efforts)
+;;
+
 (** Default reasoning effort level when thinking is enabled but no budget
     is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
     Accepted values: "minimal", "low", "medium", "high", "xhigh". Invalid
     values fall back to "medium".
     @since 0.185.0 *)
-let default_reasoning_effort () =
-  match Cli_common_env.get "OAS_DEFAULT_REASONING_EFFORT" with
-  | Some (("minimal" | "low" | "medium" | "high" | "xhigh") as v) -> v
+let default_reasoning_effort_value ?(getenv = Cli_common_env.get) () =
+  match getenv default_reasoning_effort_env with
   | Some v ->
-    Diag.warn
-      "provider_config"
-      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected minimal/low/medium/high/xhigh), \
-       using medium"
-      v;
-    "medium"
-  | None -> "medium"
+    (match reasoning_effort_of_string v with
+     | Some effort -> effort
+     | None ->
+       Diag.warn
+         "provider_config"
+         "%s=%S invalid (expected %s), using medium"
+         default_reasoning_effort_env
+         v
+         reasoning_effort_values_for_log;
+       Medium)
+  | None -> Medium
 ;;
 
-(** Map thinking configuration to reasoning_effort string.
-    Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
-    When [thinking_budget] is [None] and thinking is enabled, the default
-    effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
-    (fallback: "medium").
-    Shared by Ollama backends and api_openai request building.
-    @since 0.114.0 *)
+let effort_of_thinking_config_value
+      ?getenv
+      ~(enable_thinking : bool option)
+      ~(thinking_budget : int option)
+      ()
+  : reasoning_effort option
+  =
+  match enable_thinking with
+  | Some false | None -> None
+  | Some true ->
+    (match thinking_budget with
+     | Some n when n <= 0 -> None
+     | Some n when n <= 2048 -> Some Low
+     | Some n when n <= 8192 -> Some Medium
+     | Some _ -> Some High
+     | None -> Some (default_reasoning_effort_value ?getenv ()))
+;;
+
+(** Compatibility wrapper for callers that still consume wire strings. *)
 let effort_of_thinking_config
       ~(enable_thinking : bool option)
       ~(thinking_budget : int option)
   : string
   =
-  match enable_thinking with
-  | Some false | None -> "none"
-  | Some true ->
-    (match thinking_budget with
-     | Some n when n <= 0 -> "none"
-     | Some n when n <= 2048 -> "low"
-     | Some n when n <= 8192 -> "medium"
-     | Some _ -> "high"
-     | None -> default_reasoning_effort ())
+  match effort_of_thinking_config_value ~enable_thinking ~thinking_budget () with
+  | None -> "none"
+  | Some effort -> reasoning_effort_to_string effort
 ;;
 
 let reasoning_effort_request_value
@@ -296,11 +334,9 @@ let reasoning_effort_request_value
       ~(thinking_budget : int option)
   : string option
   =
-  match enable_thinking with
-  | Some true ->
-    let effort = effort_of_thinking_config ~enable_thinking ~thinking_budget in
-    if String.equal effort "none" then None else Some effort
-  | Some false | None -> None
+  Option.map
+    reasoning_effort_to_string
+    (effort_of_thinking_config_value ~enable_thinking ~thinking_budget ())
 ;;
 
 (** Compute reasoning_effort for a provider config.
