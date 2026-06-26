@@ -146,6 +146,23 @@ type t =
       Anthropic (Claude) does not support seed — the field is silently
       ignored for that provider.
       @since 0.185.0 *)
+  ; connect_timeout_s : float option
+    (** Per-config override for the connect + initial-response-headers
+      wall-clock timeout. See {!default_connect_timeout_s} for the
+      kind-based default this overrides. [None] keeps the kind default
+      ([Ollama] -> 600.0s, other kinds -> 60.0s). [Some s] forces [s]
+      seconds for the connect/headers phase only — it is independent of
+      the body deadline ([body_timeout_s]) and the inter-chunk stream-idle
+      deadline ([stream_idle_timeout_s]).
+
+      Use case (oas#2163, RFC-OAS-026 I2): an OpenAI-compatible endpoint
+      whose upstream behaves like a queued/cloud model (long cold-start or
+      admission wait before the first response header) needs a larger
+      connect budget than the 60s cloud default, without changing its
+      wire-format [kind]. The consumer declares the budget; OAS owns
+      enforcement and [phase=Http_operation] attribution. No URL/string
+      matching is performed on the SDK side.
+      @since 0.207.9 *)
   }
 
 (** Default config for quick construction. Only [kind], [model_id],
@@ -180,6 +197,7 @@ val make
   -> ?internal_model_rotation_count:int
   -> ?num_ctx:int
   -> ?seed:int
+  -> ?connect_timeout_s:float
   -> unit
   -> t
 
