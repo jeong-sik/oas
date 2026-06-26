@@ -43,11 +43,14 @@ let clear_cancel_fn future =
   with_cancel_fn_lock future (fun () -> Atomic.set future.cancel_fn None)
 ;;
 
+let take_cancel_fn future =
+  with_cancel_fn_lock future (fun () -> Atomic.exchange future.cancel_fn None)
+;;
+
 let invoke_cancel_fn future =
-  with_cancel_fn_lock future (fun () ->
-    match Atomic.exchange future.cancel_fn None with
-    | Some f -> f ()
-    | None -> ())
+  match take_cancel_fn future with
+  | Some f -> f ()
+  | None -> ()
 ;;
 
 (* ── Agent name extraction ────────────────────────────────────── *)
