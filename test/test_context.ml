@@ -96,6 +96,28 @@ let test_diff () =
   check (list string) "changed keys" [ "changed" ] (List.map fst diff.changed)
 ;;
 
+let test_diff_sorted () =
+  let before = Context.create () in
+  List.iter
+    (fun key -> Context.set before key (`String ("before-" ^ key)))
+    [ "removed-b"; "stable"; "changed-b"; "removed-a"; "changed-a" ];
+  let after = Context.copy before in
+  Context.delete after "removed-b";
+  Context.delete after "removed-a";
+  Context.set after "changed-b" (`String "after-b");
+  Context.set after "changed-a" (`String "after-a");
+  Context.set after "added-b" (`String "b");
+  Context.set after "added-a" (`String "a");
+  let diff = Context.diff before after in
+  check (list string) "removed sorted" [ "removed-a"; "removed-b" ] diff.removed;
+  check (list string) "added sorted" [ "added-a"; "added-b" ] (List.map fst diff.added);
+  check
+    (list string)
+    "changed sorted"
+    [ "changed-a"; "changed-b" ]
+    (List.map fst diff.changed)
+;;
+
 let test_to_json () =
   let ctx = Context.create () in
   Context.set ctx "key" (`String "value");
@@ -159,6 +181,7 @@ let () =
     ; ( "scope"
       , [ test_case "scoped helpers" `Quick test_scoped_helpers
         ; test_case "diff" `Quick test_diff
+        ; test_case "diff sorted" `Quick test_diff_sorted
         ] )
     ; ( "json"
       , [ test_case "to_json" `Quick test_to_json
