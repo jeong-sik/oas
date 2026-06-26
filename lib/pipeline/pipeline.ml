@@ -503,6 +503,12 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
     ; links = []
     }
     (fun _tracer ->
+       let reset_idle_state () =
+         Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
+           let reset = Agent_turn.reset_idle_detection () in
+           agent.last_tool_calls <- reset.new_state.last_tool_calls;
+           agent.consecutive_idle_turns <- reset.new_state.consecutive_idle_turns)
+       in
        match response.stop_reason with
        | StopToolUse ->
          let tool_uses =
@@ -525,6 +531,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
          (match result with
           | Ok IdleSkipped ->
             (* on_idle hook returned Skip: stop gracefully with the current response *)
+            reset_idle_state ();
             Ok (Complete response)
           | other -> other)
        | EndTurn
@@ -534,6 +541,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | PauseTurn
        | Compaction
        | ContextWindowExceeded ->
+         reset_idle_state ();
          let _stop =
            invoke_hook_with_trace
              agent
