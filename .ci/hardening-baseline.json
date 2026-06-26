@@ -1,0 +1,59 @@
+{
+  "_comment": "Production hardening ratchet baseline. Regenerate with scripts/hardening-ratchet.sh --rebaseline.",
+  "examples": {
+    "direct_env_reads": [
+      "lib/base/model_registry.ml:10:match Sys.getenv_opt \"OAS_DEFAULT_MODEL\" with",
+      "lib/base/util.ml:101:match Sys.getenv_opt var with",
+      "lib/base/util.ml:157:match Sys.getenv_opt var with",
+      "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
+      "lib/defaults.ml:18:match Sys.getenv_opt var with",
+      "lib/defaults.ml:31:match Sys.getenv_opt var with",
+      "lib/defaults.ml:43:match Sys.getenv_opt var with",
+      "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in"
+    ],
+    "direct_env_reads_outside_env_boundary": [
+      "lib/base/model_registry.ml:10:match Sys.getenv_opt \"OAS_DEFAULT_MODEL\" with",
+      "lib/base/util.ml:101:match Sys.getenv_opt var with",
+      "lib/base/util.ml:157:match Sys.getenv_opt var with",
+      "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
+      "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
+      "lib/llm_provider/complete_sync.ml:110:Sys.getenv_opt \"OAS_DEBUG_REQUEST_BODY\"",
+      "lib/llm_provider/diag.ml:15:match Sys.getenv_opt name with",
+      "lib/llm_provider/discovery.ml:675:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with"
+    ],
+    "exception_message_classifiers": [
+      "lib/llm_provider/complete.ml:536:(Http_client.NetworkError { message = \"connection refused\"; kind = Unknown })",
+      "lib/llm_provider/error.ml:100:| Http_client.Timeout -> \"timeout\"",
+      "lib/llm_provider/http_client.ml:364:let classify_by_message msg =",
+      "lib/llm_provider/http_client.ml:365:let m = String.lowercase_ascii msg in",
+      "lib/llm_provider/http_client.ml:366:if has_substr m \"connection refused\" || has_substr m \"connection reset\"",
+      "lib/llm_provider/http_client.ml:368:else if has_substr m \"connection closed by peer\" || has_substr m \"broken pipe\"",
+      "lib/llm_provider/http_client.ml:370:else if has_substr m \"timed out\" || has_substr m \"timeout\"",
+      "lib/llm_provider/http_client.ml:373:has_substr m \"can't assign requested address\""
+    ],
+    "local_workspace_path_literals": [],
+    "stub_markers": [
+      "lib/llm_provider/http_client.ml:1249:assert false",
+      "lib/llm_provider/http_client.ml:1294:assert false"
+    ],
+    "wildcard_silent_defaults": [
+      "lib/agent/agent_handoff.ml:36:| _ -> None))",
+      "lib/agent/agent_handoff.ml:79:| _ -> false)",
+      "lib/agent/agent_tool_name_alias.ml:70:| _ -> false",
+      "lib/agent/agent_tools.ml:83:| _ -> None",
+      "lib/agent/builder.ml:466:| _ -> Ok (build b)))",
+      "lib/agent_tool.ml:33:| _ -> None)",
+      "lib/api_openai.ml:19:| _ -> []",
+      "lib/api_openai.ml:137:| _ -> None"
+    ]
+  },
+  "lastUpdatedCommit": "ecd509f4b13af6d02854789cb6f8f36823df0533",
+  "metrics": {
+    "direct_env_reads": 34,
+    "direct_env_reads_outside_env_boundary": 22,
+    "exception_message_classifiers": 64,
+    "local_workspace_path_literals": 0,
+    "stub_markers": 2,
+    "wildcard_silent_defaults": 261
+  }
+}
