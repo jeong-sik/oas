@@ -48,6 +48,10 @@ let snapshot (ctx : t) =
     |> List.sort (fun (a, _) (b, _) -> String.compare a b))
 ;;
 
+let snapshot_unsorted (ctx : t) =
+  with_lock ctx (fun () -> Hashtbl.fold (fun k v acc -> (k, v) :: acc) ctx.tbl [])
+;;
+
 let scope_prefix = function
   | App -> "app:"
   | User -> "user:"
@@ -84,8 +88,10 @@ let merge (ctx : t) (pairs : (string * Yojson.Safe.t) list) =
 ;;
 
 let diff before after =
-  let before_snapshot = snapshot before in
-  let after_snapshot = snapshot after in
+  (* Use unsorted snapshots: [diff] does not need sorted order, so avoid the
+     redundant sorting cost of {!snapshot}. *)
+  let before_snapshot = snapshot_unsorted before in
+  let after_snapshot = snapshot_unsorted after in
   let before_map = Hashtbl.create (List.length before_snapshot + 1) in
   let after_map = Hashtbl.create (List.length after_snapshot + 1) in
   List.iter (fun (k, v) -> Hashtbl.replace before_map k v) before_snapshot;

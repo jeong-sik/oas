@@ -24,7 +24,7 @@ open Agent_sdk
 let read_file_tool =
   let descriptor =
     { Tool.kind = Some "fs"
-    ; mutation_class = Some "read_only"
+    ; mutation_class = Some Tool.Read_only
     ; concurrency_class = Some Tool.Parallel_read
     ; permission = Some Tool.ReadOnly
     ; evidence_role = None
@@ -58,7 +58,7 @@ Example:
 let web_search_tool =
   let descriptor =
     { Tool.kind = Some "web"
-    ; mutation_class = Some "external_effect"
+    ; mutation_class = Some Tool.External_effect
     ; concurrency_class = Some Tool.Exclusive_external
     ; permission = Some Tool.ReadOnly
     ; evidence_role = None

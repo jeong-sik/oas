@@ -20,6 +20,34 @@ type concurrency_class =
   | Exclusive_external
 [@@deriving yojson, show]
 
+type mutation_class =
+  | Read_only [@name "read_only"]
+  | Workspace [@name "workspace"]
+  | Workspace_mutating [@name "workspace_mutating"]
+  | Local_mutation [@name "local_mutation"]
+  | External [@name "external"]
+  | External_effect [@name "external_effect"]
+[@@deriving yojson, show]
+
+let mutation_class_to_string = function
+  | Read_only -> "read_only"
+  | Workspace -> "workspace"
+  | Workspace_mutating -> "workspace_mutating"
+  | Local_mutation -> "local_mutation"
+  | External -> "external"
+  | External_effect -> "external_effect"
+;;
+
+let mutation_class_of_string = function
+  | "read_only" -> Some Read_only
+  | "workspace" -> Some Workspace
+  | "workspace_mutating" -> Some Workspace_mutating
+  | "local_mutation" -> Some Local_mutation
+  | "external" -> Some External
+  | "external_effect" -> Some External_effect
+  | _ -> None
+;;
+
 type permission =
   | ReadOnly
   | Write
@@ -43,7 +71,7 @@ type shell_constraints =
 
 type descriptor =
   { kind : string option
-  ; mutation_class : string option
+  ; mutation_class : mutation_class option
   ; concurrency_class : concurrency_class option
   ; permission : permission option
   ; evidence_role : evidence_role option
@@ -64,10 +92,9 @@ type t =
   }
 
 let expected_concurrency_class_of_mutation_class = function
-  | "read_only" -> Some Parallel_read
-  | "workspace" | "workspace_mutating" | "local_mutation" -> Some Sequential_workspace
-  | "external" | "external_effect" -> Some Exclusive_external
-  | _ -> None
+  | Read_only -> Some Parallel_read
+  | Workspace | Workspace_mutating | Local_mutation -> Some Sequential_workspace
+  | External | External_effect -> Some Exclusive_external
 ;;
 
 let concurrency_class_name = function
@@ -84,7 +111,7 @@ let validate_descriptor (descriptor : descriptor) =
        Error
          (Printf.sprintf
             "descriptor mismatch: mutation_class=%s requires concurrency_class=%s"
-            mutation_class
+            (mutation_class_to_string mutation_class)
             (concurrency_class_name expected))
      | _ -> Ok ())
   | _ -> Ok ()
@@ -179,7 +206,8 @@ let descriptor_to_yojson = function
       ; ( "mutation_class"
         , Option.value
             ~default:`Null
-            (Option.map (fun value -> `String value) descriptor.mutation_class) )
+            (Option.map (fun mc -> `String (mutation_class_to_string mc)) descriptor.mutation_class)
+        )
       ; ( "concurrency_class"
         , Option.value
             ~default:`Null

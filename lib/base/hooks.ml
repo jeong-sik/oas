@@ -76,7 +76,13 @@ let extract_reasoning (messages : message list) : reasoning_summary =
          List.filter_map
            (function
              | Thinking { content; _ } -> Some content
-             | _ -> None)
+             | Text _
+             | RedactedThinking _
+             | ToolUse _
+             | ToolResult _
+             | Image _
+             | Document _
+             | Audio _ -> None)
            msg.content)
       messages
   in
@@ -464,9 +470,7 @@ let invoke_validated ?hook_name ?on_illegal hook_opt event =
             (match hook_name with
              | Some name -> Printf.sprintf " (hook: %s)" name
              | None -> "");
-          (match on_illegal with
-           | Some cb -> cb ~stage ~decision ~msg
-           | None -> ());
+          Option.iter (fun cb -> cb ~stage ~decision ~msg) on_illegal;
           Continue))
 ;;
 

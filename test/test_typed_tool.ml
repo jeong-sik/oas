@@ -181,7 +181,7 @@ let test_descriptor_some () =
       ~encode:(fun () -> `Null)
       ~descriptor:
         { kind = Some "read"
-        ; mutation_class = Some "read_only"
+        ; mutation_class = Some Tool.Read_only
         ; concurrency_class = Some Tool.Parallel_read
         ; permission = Some Tool.ReadOnly
         ; evidence_role = None

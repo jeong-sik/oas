@@ -276,7 +276,7 @@ let test_create_rejects_inconsistent_descriptor () =
          (Tool.create
             ~descriptor:
               { Tool.kind = None
-              ; mutation_class = Some "read_only"
+              ; mutation_class = Some Tool.Read_only
               ; concurrency_class = Some Tool.Sequential_workspace
               ; permission = None
               ; evidence_role = None

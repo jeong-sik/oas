@@ -11,21 +11,6 @@
 
     @since 0.45.0 *)
 
-module Result_syntax = struct
-  let ( let* ) = Result.bind
-  let ( let+ ) x f = Result.map f x
-
-  let both a b =
-    match a, b with
-    | Ok a_val, Ok b_val -> Ok (a_val, b_val)
-    | Error e, _ -> Error e
-    | _, Error e -> Error e
-  ;;
-
-  let ( and* ) = both
-  let ( and+ ) = both
-end
-
 open Result_syntax
 
 type network_error_kind =
@@ -344,21 +329,64 @@ let%test "max_single_header_bytes flags a single oversized header line" =
   max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
 ;;
 
-(* Substring check on already-lowered strings. *)
+(* Substring search on already-lowered strings. KMP keeps this linear in the
+   haystack length; the previous [String.sub] per position was O(n·m). *)
 let has_substr haystack needle =
-  let hlen = String.length haystack
-  and nlen = String.length needle in
-  if nlen > hlen
+  let hlen = String.length haystack in
+  let nlen = String.length needle in
+  if nlen = 0
+  then true
+  else if nlen > hlen
   then false
   else (
-    let rec check i =
-      if i > hlen - nlen
-      then false
-      else if String.sub haystack i nlen = needle
-      then true
-      else check (i + 1)
+    (* lps.(i) = length of the longest proper prefix of needle[0..i] that is
+       also a suffix. *)
+    let lps = Array.make nlen 0 in
+    let rec build_lps len i =
+      if i >= nlen
+      then ()
+      else if needle.[i] = needle.[len]
+      then (
+        lps.(i) <- len + 1;
+        build_lps (len + 1) (i + 1))
+      else if len = 0
+      then (
+        lps.(i) <- 0;
+        build_lps 0 (i + 1))
+      else build_lps lps.(len - 1) i
     in
-    check 0)
+    build_lps 0 1;
+    let rec search i j =
+      if j = nlen
+      then true
+      else if i = hlen
+      then false
+      else if haystack.[i] = needle.[j]
+      then search (i + 1) (j + 1)
+      else if j = 0
+      then search (i + 1) 0
+      else search i lps.(j - 1)
+    in
+    search 0 0)
+;;
+
+let%test "has_substr: empty needle is always present" = has_substr "anything" ""
+
+let%test "has_substr: finds needle at start, middle, and end" =
+  has_substr "abcdef" "abc"
+  && has_substr "abcdef" "cde"
+  && has_substr "abcdef" "ef"
+  && not (has_substr "abcdef" "xyz")
+;;
+
+let%test "has_substr: overlapping patterns" =
+  has_substr "abababa" "aba" && has_substr "aaaa" "aa"
+;;
+
+let%test "has_substr: repeated-character worst case is linear" =
+  let haystack = String.make 10000 'a' ^ "b" in
+  let needle = String.make 5000 'a' ^ "b" in
+  has_substr haystack needle
 ;;
 
 let classify_by_message msg =
@@ -506,6 +534,12 @@ module Cache_key = struct
     | n -> n
   ;;
 
+  let default_port_for_scheme scheme =
+    match scheme with
+    | "https" -> 443
+    | _ -> 80
+  ;;
+
   let of_uri uri =
     let scheme = Uri.scheme uri |> Option.value ~default:"http" in
     let host =
@@ -513,15 +547,23 @@ module Cache_key = struct
       | Some "" | None -> "localhost"
       | Some h -> h
     in
-    let port =
-      Uri.port uri
-      |> Option.value
-           ~default:
-             (match scheme with
-              | "https" -> 443
-              | _ -> 80)
-    in
+    let port = Uri.port uri |> Option.value ~default:(default_port_for_scheme scheme) in
     { scheme; host; port }
+  ;;
+
+  let%test "Cache_key.of_uri defaults to https port 443" =
+    let key = of_uri (Uri.of_string "https://example.com/path") in
+    key.scheme = "https" && key.host = "example.com" && key.port = 443
+  ;;
+
+  let%test "Cache_key.of_uri defaults to http port 80" =
+    let key = of_uri (Uri.of_string "http://example.com/path") in
+    key.scheme = "http" && key.host = "example.com" && key.port = 80
+  ;;
+
+  let%test "Cache_key.of_uri preserves explicit port" =
+    let key = of_uri (Uri.of_string "https://example.com:8443/path") in
+    key.port = 8443
   ;;
 end
 

@@ -264,6 +264,10 @@ type content_block =
       }
 [@@deriving show]
 
+(** Message metadata: extensible typed key-value pairs attached to a message.
+    Keys are caller-defined strings; values are JSON payloads. *)
+type metadata = (string * Yojson.Safe.t) list [@@deriving show]
+
 (** A single message in the conversation.
     [name] identifies the speaker (e.g. tool result source).
     [tool_call_id] links a tool result back to its tool_use request. *)
@@ -272,7 +276,7 @@ type message =
   ; content : content_block list
   ; name : string option [@default None]
   ; tool_call_id : string option [@default None]
-  ; metadata : (string * Yojson.Safe.t) list [@default []]
+  ; metadata : metadata [@default []]
   }
 [@@deriving show]
 
