@@ -365,6 +365,21 @@ let test_roundtrip_api_invalid_request () =
   | _ -> Alcotest.fail "roundtrip mismatch for InvalidRequest"
 ;;
 
+let test_roundtrip_api_invalid_request_preserves_malformed_json_retryability () =
+  let message = "Unexpected token } in JSON at position 12" in
+  let orig =
+    Error.Api (Retry.InvalidRequest { message; reason = Retry.Json_parse_error })
+  in
+  let poly = Error_domain.of_sdk_error orig in
+  (match poly with
+   | `Invalid_request msg -> Alcotest.(check string) "message preserved" message msg
+   | _ -> Alcotest.fail "expected Invalid_request");
+  match Error_domain.to_sdk_error poly with
+  | Error.Api (Retry.InvalidRequest { reason = Retry.Json_parse_error; _ } as err) ->
+    Alcotest.(check bool) "retryable after roundtrip" true (Retry.is_retryable err)
+  | _ -> Alcotest.fail "roundtrip lost malformed JSON reason"
+;;
+
 let test_roundtrip_api_context_overflow () =
   let orig =
     Error.Api (Retry.ContextOverflow { message = "too big"; limit = Some 8192 })
@@ -775,6 +790,10 @@ let () =
             "api invalid_request"
             `Quick
             test_roundtrip_api_invalid_request
+        ; Alcotest.test_case
+            "api invalid_request malformed JSON retryability"
+            `Quick
+            test_roundtrip_api_invalid_request_preserves_malformed_json_retryability
         ; Alcotest.test_case
             "api context_overflow"
             `Quick

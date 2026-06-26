@@ -206,7 +206,9 @@ let create_message
               | Error msg ->
                 Error
                   (Retry.InvalidRequest
-                     { message = msg; reason = Unknown_invalid_request }))
+                     { message = msg
+                     ; reason = Retry.invalid_request_reason_of_message msg
+                     }))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl ->
@@ -223,7 +225,9 @@ let create_message
                  | Error msg ->
                    Error
                      (Retry.InvalidRequest
-                        { message = msg; reason = Unknown_invalid_request }))))
+                        { message = msg
+                        ; reason = Retry.invalid_request_reason_of_message msg
+                        }))))
         | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
         | `TransportError err -> Error err

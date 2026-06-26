@@ -136,6 +136,8 @@ type malformed_json_signal =
   | Invalid_json
   | Missing_closing
   | Unexpected_character_in_json
+  | Unexpected_token_in_json
+  | Unexpected_end_of_json
   | Unterminated
   | Parse_error_with_json_context
 
@@ -211,6 +213,15 @@ let malformed_json_signal_of_message message =
     || (contains_sequence [ "unexpected"; "character" ] tokens
         && has_malformed_json_context tokens)
   then Some Unexpected_character_in_json
+  else if
+    contains_sequence [ "unexpected"; "token" ] tokens
+    && has_malformed_json_context tokens
+  then Some Unexpected_token_in_json
+  else if
+    contains_sequence [ "unexpected"; "end"; "of"; "json" ] tokens
+    || (contains_sequence [ "unexpected"; "end" ] tokens
+        && has_malformed_json_context tokens)
+  then Some Unexpected_end_of_json
   else if contains_token "unterminated" tokens
   then Some Unterminated
   else if

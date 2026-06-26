@@ -111,6 +111,24 @@ let test_is_retryable () =
     (Retry.is_retryable (Retry.NotFound { message = "" }))
 ;;
 
+let test_malformed_json_classifier () =
+  check
+    bool
+    "unexpected token in JSON"
+    true
+    (Retry.is_malformed_json_message "Unexpected token } in JSON at position 12");
+  check
+    bool
+    "unexpected end of JSON input"
+    true
+    (Retry.is_malformed_json_message "Unexpected end of JSON input");
+  check
+    bool
+    "generic invalid request is not malformed JSON"
+    false
+    (Retry.is_malformed_json_message "bad tool schema")
+;;
+
 let test_error_message_all_variants () =
   let cases =
     [ Retry.RateLimited { retry_after = None; message = "slow" }, "Rate limited: slow"
@@ -370,6 +388,7 @@ let () =
         ] )
     ; ( "retryability"
       , [ test_case "retryable predicates" `Quick test_is_retryable
+        ; test_case "malformed JSON classifier" `Quick test_malformed_json_classifier
         ; test_case "error_message all variants" `Quick test_error_message_all_variants
         ; test_case
             "context overflow classification"
