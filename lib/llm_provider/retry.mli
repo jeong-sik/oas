@@ -46,6 +46,10 @@ val is_retryable : api_error -> bool
 val error_message : api_error -> string
 val is_context_overflow_message : string -> bool
 
+(** True when an InvalidRequest message is a provider-side malformed JSON
+    rejection rather than a generic schema, routing, or parameter error. *)
+val is_malformed_json_message : string -> bool
+
 (** True when the error represents hard account-level quota exhaustion
     (balance 0, credit depleted, monthly quota reached, resource exhausted).
     A retry of the exact same request will never succeed until billing /
