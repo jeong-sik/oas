@@ -23,7 +23,7 @@ type config =
 (* ── Env-var overrides ─────────────────────────────────────── *)
 
 let int_of_env name =
-  match Sys.getenv_opt name with
+  match Llm_provider.Cli_common_env.get name with
   | None -> None
   | Some s -> int_of_string_opt s
 ;;
