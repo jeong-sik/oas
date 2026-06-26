@@ -80,6 +80,35 @@ let int ?(allow_negative = false) ~default var =
   | None -> default
 ;;
 
+let float ?(allow_negative = false) ~default var =
+  match Sys.getenv_opt var with
+  | Some raw ->
+    let trimmed = String.trim raw in
+    if trimmed = ""
+    then default
+    else (
+      match float_of_string_opt trimmed with
+      | Some v when allow_negative || v >= 0.0 -> v
+      | Some v ->
+        Diag.warn
+          "cli_common_env"
+          "%s=%S is negative (%f); using default %f"
+          var
+          raw
+          v
+          default;
+        default
+      | None ->
+        Diag.warn
+          "cli_common_env"
+          "%s=%S is not a float; using default %f"
+          var
+          raw
+          default;
+        default)
+  | None -> default
+;;
+
 [@@@coverage off]
 
 let with_env name value f =
@@ -132,6 +161,47 @@ let%test "int rejects non-numeric env value" =
         (fun () -> int ~default:7 "OAS_TEST_CLI_COMMON_ENV_INT_NON_NUMERIC")
     in
     value = 7
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg 'n')
+         !warnings)
+;;
+
+let%test "float accepts positive env value" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_FLOAT_POSITIVE" "3.14" (fun () ->
+    float ~default:7.0 "OAS_TEST_CLI_COMMON_ENV_FLOAT_POSITIVE" = 3.14)
+;;
+
+let%test "float rejects negative env value by default" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_FLOAT_NEGATIVE" "-2.5" (fun () ->
+    let warnings = ref [] in
+    let value =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> float ~default:7.0 "OAS_TEST_CLI_COMMON_ENV_FLOAT_NEGATIVE")
+    in
+    value = 7.0
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg '-')
+         !warnings)
+;;
+
+let%test "float allows negative env value when requested" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_FLOAT_ALLOW_NEGATIVE" "-2.5" (fun () ->
+    float ~allow_negative:true ~default:7.0 "OAS_TEST_CLI_COMMON_ENV_FLOAT_ALLOW_NEGATIVE"
+    = -2.5)
+;;
+
+let%test "float rejects non-numeric env value" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_FLOAT_NON_NUMERIC" "not-a-number" (fun () ->
+    let warnings = ref [] in
+    let value =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> float ~default:7.0 "OAS_TEST_CLI_COMMON_ENV_FLOAT_NON_NUMERIC")
+    in
+    value = 7.0
     && List.exists
          (fun (level, ctx, msg) ->
             level = Diag.Warn && ctx = "cli_common_env" && String.contains msg 'n')
