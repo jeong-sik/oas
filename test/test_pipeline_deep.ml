@@ -6,7 +6,7 @@
     - Agent_turn.resolve_turn_params (Stage 2)
     - Agent_turn.apply_context_injection (Stage 5)
     - Agent_turn.filter_valid_messages (Stage 5)
-    - Error_domain.tag_error pattern (coordinator)
+    - Error_domain stage-context conversion
     - Pipeline.run_turn via mock HTTP (Stages 1-6) *)
 
 open Agent_sdk
@@ -702,10 +702,11 @@ let test_filter_valid_single_different () =
   Alcotest.(check int) "1 message kept" 1 (List.length result)
 ;;
 
-(* ── Error_domain: pipeline tag_error pattern ─────────────── *)
+(* ── Error_domain: stage-context conversion ─────────────── *)
 
-(** Verify Error_domain functions used by pipeline's tag_error. *)
-let test_tag_error_pattern_internal () =
+(** Verify Error_domain stage-context conversion independently from pipeline
+    control flow. *)
+let test_stage_context_internal () =
   let err = Error.Internal "pipeline failure" in
   let poly = Error_domain.of_sdk_error err in
   let ctx = Error_domain.with_stage "route" poly in
@@ -718,7 +719,7 @@ let test_tag_error_pattern_internal () =
      && String.sub s 0 (String.length prefix) = prefix)
 ;;
 
-let test_tag_error_pattern_agent () =
+let test_stage_context_agent () =
   let err = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in
   let poly = Error_domain.of_sdk_error err in
   let ctx = Error_domain.with_stage "output" poly in
@@ -731,7 +732,7 @@ let test_tag_error_pattern_agent () =
      && String.sub s 0 (String.length prefix) = prefix)
 ;;
 
-let test_tag_error_pattern_collect () =
+let test_stage_context_collect () =
   let err = Error.Api (AuthError { message = "bad key" }) in
   let poly = Error_domain.of_sdk_error err in
   let ctx = Error_domain.with_stage "collect" poly in
@@ -803,10 +804,10 @@ let () =
             `Quick
             test_filter_valid_single_different
         ] )
-    ; ( "tag_error_pattern"
-      , [ Alcotest.test_case "internal + route" `Quick test_tag_error_pattern_internal
-        ; Alcotest.test_case "agent + output" `Quick test_tag_error_pattern_agent
-        ; Alcotest.test_case "api + collect" `Quick test_tag_error_pattern_collect
+    ; ( "error_stage_context"
+      , [ Alcotest.test_case "internal + route" `Quick test_stage_context_internal
+        ; Alcotest.test_case "agent + output" `Quick test_stage_context_agent
+        ; Alcotest.test_case "api + collect" `Quick test_stage_context_collect
         ] )
     ]
 ;;

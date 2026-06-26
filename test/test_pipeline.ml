@@ -802,7 +802,7 @@ let test_stage_parse_narrows_runtime_mcp_policy () =
   | None -> Alcotest.fail "expected runtime MCP policy"
 ;;
 
-(* ── Error_domain: tag_error ─────────────────────────────── *)
+(* ── Error_domain conversion ─────────────────────────────── *)
 
 let test_error_domain_of_sdk_error () =
   let err = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in

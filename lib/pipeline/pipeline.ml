@@ -751,17 +751,6 @@ let emergency_compact ?raw_trace_run agent ?limit () =
 
 (* ── Pipeline coordinator ────────────────────────────────── *)
 
-let tag_error stage result =
-  match result with
-  | Ok _ as ok -> ok
-  | Error e ->
-    let poly = Error_domain.of_sdk_error e in
-    let _ctx = Error_domain.with_stage stage poly in
-    (* Stage context is created for diagnostics;
-       we still propagate sdk_error for backward compat *)
-    Error e
-;;
-
 let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
   (* Stage 1: Input *)
   let* () =
@@ -774,7 +763,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_input ?raw_trace_run agent |> tag_error "input")
+      (fun _tracer -> stage_input ?raw_trace_run agent)
   in
   (* Stage 2: Parse *)
   let prep, original_config, turn_params =
@@ -900,9 +889,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
               })
        | None -> ());
       let t0 = Unix.gettimeofday () in
-      let api_result =
-        stage_route ~sw ?clock ~api_strategy agent prep |> tag_error "route"
-      in
+      let api_result = stage_route ~sw ?clock ~api_strategy agent prep in
       let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
       (match agent.options.journal, api_result with
        | Some j, Ok response ->
@@ -979,16 +966,12 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
           update_state agent (fun s -> { s with config = original_config });
           Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
         | Guardrails_async.Pass ->
-          let* () =
-            stage_collect ?raw_trace_run agent ~original_config response
-            |> tag_error "collect"
-          in
+          let* () = stage_collect ?raw_trace_run agent ~original_config response in
           stage_output
             ?raw_trace_run
             agent
             ~effective_guardrails:prep.effective_guardrails
-            response
-          |> tag_error "output"))
+            response))
 ;;
 
 [@@@coverage off]
@@ -1082,18 +1065,6 @@ let%test "last_tool_results_from skips non-tool user messages" =
   match last_tool_results_from msgs with
   | [ Ok { content = "first"; _meta = _ } ] -> true
   | _ -> false
-;;
-
-let%test "tag_error passes through Ok" =
-  let result = tag_error "test_stage" (Ok 42) in
-  result = Ok 42
-;;
-
-let%test "tag_error passes through Error" =
-  let err = Error.Internal "test error" in
-  match tag_error "test_stage" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
 ;;
 
 (* --- Additional coverage tests --- *)
@@ -1208,22 +1179,6 @@ let%test "last_tool_results_from error tool result" =
   | _ -> false
 ;;
 
-let%test "tag_error with Config error" =
-  let err = Error.Config (MissingEnvVar { var_name = "X" }) in
-  match tag_error "parse" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error with Agent error" =
-  let err = Error.Agent (UnrecognizedStopReason { reason = "weird" }) in
-  match tag_error "output" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error string result Ok" = tag_error "collect" (Ok "success") = Ok "success"
-
 (* --- Additional pipeline tests --- *)
 
 let%test "last_tool_results_from only non-result roles" =
@@ -1293,32 +1248,6 @@ let%test "last_tool_results_from user msg with only non-tool content" =
   in
   last_tool_results_from msgs = []
 ;;
-
-let%test "tag_error with Serialization error" =
-  let err = Error.Serialization (JsonParseError { detail = "bad json" }) in
-  match tag_error "route" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error with Io error" =
-  let err =
-    Error.Io (FileOpFailed { op = "read"; path = "/tmp/x"; detail = "not found" })
-  in
-  match tag_error "input" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error with Mcp error" =
-  let err = Error.Mcp (InitializeFailed { detail = "timeout" }) in
-  match tag_error "parse" (Error err) with
-  | Error e -> e = err
-  | Ok _ -> false
-;;
-
-let%test "tag_error Ok unit" = tag_error "collect" (Ok ()) = Ok ()
-let%test "tag_error Ok list" = tag_error "output" (Ok [ 1; 2; 3 ]) = Ok [ 1; 2; 3 ]
 
 (* --- Proactive compaction: phase selection is tested via
    Budget_strategy inline tests; integration tested via consumer agent
