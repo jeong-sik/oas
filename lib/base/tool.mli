@@ -87,6 +87,15 @@ type t =
   ; handler : handler_kind
   }
 
+(** Stable snake_case string for a concurrency class.
+    Use this for logs, hooks, and JSON-adjacent diagnostic output. *)
+val concurrency_class_name : concurrency_class -> string
+
+(** Interpret legacy descriptor [mutation_class] strings as concurrency
+    classes. This is the single policy surface for old descriptors that have
+    not yet been migrated to typed [concurrency_class]. *)
+val expected_concurrency_class_of_mutation_class : string -> concurrency_class option
+
 val create
   :  ?descriptor:descriptor
   -> name:string

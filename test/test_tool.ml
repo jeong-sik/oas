@@ -322,6 +322,25 @@ let test_mutation_class_of_yojson_accepts_legacy_constructor_names () =
     cases
 ;;
 
+let test_mutation_class_expected_concurrency_class () =
+  let check_mapping mutation_class expected =
+    check
+      (option string)
+      mutation_class
+      expected
+      (Option.map
+         Tool.concurrency_class_name
+         (Tool.expected_concurrency_class_of_mutation_class mutation_class))
+  in
+  check_mapping "read_only" (Some "parallel_read");
+  check_mapping "workspace" (Some "sequential_workspace");
+  check_mapping "workspace_mutating" (Some "sequential_workspace");
+  check_mapping "local_mutation" (Some "sequential_workspace");
+  check_mapping "external" (Some "exclusive_external");
+  check_mapping "external_effect" (Some "exclusive_external");
+  check_mapping "unknown" None
+;;
+
 let test_create_rejects_inconsistent_descriptor () =
   check_raises
     "invalid descriptor"
@@ -380,6 +399,10 @@ let () =
         ] )
     ; ( "validation"
       , [ test_case
+            "mutation class expected concurrency"
+            `Quick
+            test_mutation_class_expected_concurrency_class
+        ; test_case
             "create rejects inconsistent descriptor"
             `Quick
             test_create_rejects_inconsistent_descriptor
