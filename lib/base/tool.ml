@@ -157,7 +157,7 @@ let execute ?context tool input =
     let ctx =
       match context with
       | Some c -> c
-      | None -> Context.create ()
+      | None -> Context.create ~eio:false ()
     in
     f ctx input
 ;;

@@ -4,25 +4,25 @@ open Alcotest
 open Agent_sdk
 
 let test_create_empty () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   check (list string) "empty context has no keys" [] (Context.keys ctx)
 ;;
 
 let test_set_get () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "name" (`String "alice");
   let result = Context.get ctx "name" in
   check bool "key exists" true (result = Some (`String "alice"))
 ;;
 
 let test_get_missing () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   let result = Context.get ctx "missing" in
   check bool "missing key returns None" true (result = None)
 ;;
 
 let test_set_overwrite () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "count" (`Int 1);
   Context.set ctx "count" (`Int 2);
   let result = Context.get ctx "count" in
@@ -30,14 +30,14 @@ let test_set_overwrite () =
 ;;
 
 let test_delete () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "count" (`Int 2);
   Context.delete ctx "count";
   check bool "delete removes key" true (Context.get ctx "count" = None)
 ;;
 
 let test_keys () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "a" (`String "1");
   Context.set ctx "b" (`String "2");
   let keys = List.sort String.compare (Context.keys ctx) in
@@ -45,7 +45,7 @@ let test_keys () =
 ;;
 
 let test_merge () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "existing" (`String "old");
   Context.merge ctx [ "existing", `String "new"; "added", `Int 42 ];
   check bool "merge overwrites" true (Context.get ctx "existing" = Some (`String "new"));
@@ -53,7 +53,7 @@ let test_merge () =
 ;;
 
 let test_scoped_helpers () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
   Context.set_scoped ctx Context.User "theme" (`String "dark");
   check
@@ -74,7 +74,7 @@ let test_scoped_helpers () =
 ;;
 
 let test_snapshot_sorted () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "b" (`Int 2);
   Context.set ctx "a" (`Int 1);
   let snapshot = Context.snapshot ctx in
@@ -82,7 +82,7 @@ let test_snapshot_sorted () =
 ;;
 
 let test_diff () =
-  let before = Context.create () in
+  let before = Context.create ~eio:false () in
   Context.set before "stable" (`String "x");
   Context.set before "removed" (`Int 1);
   Context.set before "changed" (`Int 1);
@@ -97,7 +97,7 @@ let test_diff () =
 ;;
 
 let test_diff_sorted () =
-  let before = Context.create () in
+  let before = Context.create ~eio:false () in
   List.iter
     (fun key -> Context.set before key (`String ("before-" ^ key)))
     [ "removed-b"; "stable"; "changed-b"; "removed-a"; "changed-a" ];
@@ -119,7 +119,7 @@ let test_diff_sorted () =
 ;;
 
 let test_to_json () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "key" (`String "value");
   let json = Context.to_json ctx in
   match json with
@@ -141,13 +141,13 @@ let test_of_json_non_assoc () =
 ;;
 
 let test_copy_empty () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   let copy = Context.copy ctx in
   check (list string) "copy of empty is empty" [] (Context.keys copy)
 ;;
 
 let test_copy_values () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "a" (`String "hello");
   Context.set ctx "b" (`Int 99);
   let copy = Context.copy ctx in
@@ -156,7 +156,7 @@ let test_copy_values () =
 ;;
 
 let test_copy_independence () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "x" (`String "original");
   let copy = Context.copy ctx in
   Context.set copy "x" (`String "modified");
@@ -195,17 +195,17 @@ let () =
         ] )
     ; ( "user_data"
       , [ test_case "set and get" `Quick (fun () ->
-            let ctx = Context.create () in
+            let ctx = Context.create ~eio:false () in
             Context.set_user_data ctx "name" (`String "alice");
             let actual = Context.get_user_data ctx "name" in
             check bool "get returns value" true (actual = Some (`String "alice")))
         ; test_case "stored with user: prefix" `Quick (fun () ->
-            let ctx = Context.create () in
+            let ctx = Context.create ~eio:false () in
             Context.set_user_data ctx "role" (`String "admin");
             let raw = Context.get ctx "user:role" in
             check bool "raw key has prefix" true (raw = Some (`String "admin")))
         ; test_case "all_user_data" `Quick (fun () ->
-            let ctx = Context.create () in
+            let ctx = Context.create ~eio:false () in
             Context.set_user_data ctx "a" (`Int 1);
             Context.set_user_data ctx "b" (`Int 2);
             Context.set_scoped ctx Context.Session "c" (`Int 3);
@@ -214,7 +214,7 @@ let () =
             check bool "has a" true (List.assoc_opt "a" ud = Some (`Int 1));
             check bool "has b" true (List.assoc_opt "b" ud = Some (`Int 2)))
         ; test_case "delete_user_data" `Quick (fun () ->
-            let ctx = Context.create () in
+            let ctx = Context.create ~eio:false () in
             Context.set_user_data ctx "x" (`Bool true);
             Context.delete_user_data ctx "x";
             check bool "deleted" true (Context.get_user_data ctx "x" = None))

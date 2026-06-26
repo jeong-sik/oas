@@ -329,63 +329,74 @@ let%test "max_single_header_bytes flags a single oversized header line" =
   max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
 ;;
 
-let has_substr haystack needle =
-  needle = ""
-  ||
-  try
-    let (_ : int) = Str.search_forward (Str.regexp_string needle) haystack 0 in
-    true
-  with
-  | Not_found -> false
+let contains_substring haystack needle =
+  let hlen = String.length haystack in
+  let nlen = String.length needle in
+  if nlen = 0
+  then true
+  else if nlen > hlen
+  then false
+  else (
+    let rec check i j =
+      if j = nlen
+      then true
+      else if haystack.[i + j] <> needle.[j]
+      then false
+      else check i (j + 1)
+    in
+    let rec search i =
+      if i + nlen > hlen then false else if check i 0 then true else search (i + 1)
+    in
+    search 0)
 ;;
 
-let%test "has_substr: empty needle is always present" = has_substr "anything" ""
+let%test "contains_substring: empty needle is always present" = contains_substring "anything" ""
 
-let%test "has_substr: finds needle at start, middle, and end" =
-  has_substr "abcdef" "abc"
-  && has_substr "abcdef" "cde"
-  && has_substr "abcdef" "ef"
-  && not (has_substr "abcdef" "xyz")
+let%test "contains_substring: finds needle at start, middle, and end" =
+  contains_substring "abcdef" "abc"
+  && contains_substring "abcdef" "cde"
+  && contains_substring "abcdef" "ef"
+  && not (contains_substring "abcdef" "xyz")
 ;;
 
-let%test "has_substr: overlapping patterns" =
-  has_substr "abababa" "aba" && has_substr "aaaa" "aa"
+let%test "contains_substring: overlapping patterns" =
+  contains_substring "abababa" "aba" && contains_substring "aaaa" "aa"
 ;;
 
-let%test "has_substr: repeated-character overlap" =
+let%test "contains_substring: repeated-character overlap" =
   let haystack = String.make 10000 'a' ^ "b" in
   let needle = String.make 5000 'a' ^ "b" in
-  has_substr haystack needle
+  contains_substring haystack needle
 ;;
 
 (* Fallback for exception forms that only preserve text. Structured Unix errors
    are classified through [classify_unix_error] before this path. *)
 let classify_by_message msg =
   let m = String.lowercase_ascii msg in
-  if has_substr m "connection refused" || has_substr m "connection reset"
+  if contains_substring m "connection refused" || contains_substring m "connection reset"
   then Connection_refused
-  else if has_substr m "connection closed by peer" || has_substr m "broken pipe"
+  else if contains_substring m "connection closed by peer" || contains_substring m "broken pipe"
   then End_of_file
-  else if has_substr m "timed out" || has_substr m "timeout"
+  else if contains_substring m "timed out" || contains_substring m "timeout"
   then Timeout
   else if
-    has_substr m "can't assign requested address"
-    || has_substr m "cannot assign requested address"
-    || has_substr m "too many open files"
-    || has_substr m "no buffer space available"
-    || has_substr m "eaddrnotavail"
-    || has_substr m "emfile"
-    || has_substr m "enfile"
-    || has_substr m "enobufs"
+    contains_substring m "can't assign requested address"
+    || contains_substring m "cannot assign requested address"
+    || contains_substring m "too many open files"
+    || contains_substring m "no buffer space available"
+    || contains_substring m "eaddrnotavail"
+    || contains_substring m "emfile"
+    || contains_substring m "enfile"
+    || contains_substring m "enobufs"
   then Local_resource_exhaustion
   else if
-    has_substr m "failed to resolve hostname"
-    || has_substr m "name resolution"
-    || has_substr m "name or service not known"
-    || has_substr m "network is unreachable"
-    || has_substr m "host is unreachable"
+    contains_substring m "failed to resolve hostname"
+    || contains_substring m "name resolution"
+    || contains_substring m "name or service not known"
+    || contains_substring m "network is unreachable"
+    || contains_substring m "host is unreachable"
   then Dns_failure
-  else if has_substr m "tls" || has_substr m "ssl" || has_substr m "certificate"
+  else if contains_substring m "tls" || contains_substring m "ssl" || contains_substring m "certificate"
   then Tls_error
   else Unknown
 ;;
@@ -396,7 +407,7 @@ let https_init_error_network_kind = function
     (match classify_by_message msg with
      | Local_resource_exhaustion -> Local_resource_exhaustion
      | Connection_refused | Dns_failure | Tls_error | Timeout | End_of_file | Unknown ->
-       if has_substr m "empty trust anchors" || has_substr m "no trust anchors"
+       if contains_substring m "empty trust anchors" || contains_substring m "no trust anchors"
        then Local_resource_exhaustion
        else Tls_error)
   | Api_common.Tls_config_unavailable _ -> Tls_error
@@ -1407,7 +1418,7 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
 let%test "catch_network maps Sys_error to NetworkError" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
   | Error (NetworkError { message; kind = End_of_file }) ->
-    has_substr (String.lowercase_ascii message) "broken pipe"
+    contains_substring (String.lowercase_ascii message) "broken pipe"
   | Ok _
   | Error
       ( HttpError _

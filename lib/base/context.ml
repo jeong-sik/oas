@@ -31,7 +31,7 @@ type diff =
   ; changed : (string * Yojson.Safe.t) list
   }
 
-let create ?(eio = false) () : t =
+let create ~(eio : bool) () : t =
   let mu = if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ()) in
   { mu; tbl = Hashtbl.create 16 }
 ;;
@@ -124,7 +124,7 @@ let to_json (ctx : t) : Yojson.Safe.t =
 ;;
 
 let of_json (json : Yojson.Safe.t) : t =
-  let ctx = create () in
+  let ctx = create ~eio:false () in
   (match json with
    | `Assoc pairs -> List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs
    | _ -> ());
@@ -163,7 +163,7 @@ type isolated_scope =
     Only keys listed in [propagate_down] are copied to the local context.
     Reads from parent under lock, then populates new local context. *)
 let create_scope ~parent ~propagate_down ~propagate_up =
-  let local = create () in
+  let local = create ~eio:false () in
   let pairs =
     with_lock parent (fun () ->
       List.filter_map

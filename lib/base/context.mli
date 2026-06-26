@@ -24,16 +24,11 @@ type diff =
 
     [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
     the context is shared across parallel fibers under an Eio scheduler.
-    The default [~eio:false] keeps the legacy {!Stdlib.Mutex} implementation
-    for use outside of an Eio fiber (e.g. synchronous tests or serialization). *)
-val create : ?eio:bool -> unit -> t
+    [~eio:false] keeps the {!Stdlib.Mutex} implementation for use outside of an
+    Eio fiber (e.g. synchronous tests or serialization). The argument is
+    required so callers explicitly choose the concurrency model. *)
+val create : eio:bool -> unit -> t
 
-(** Create a new context.
-
-    [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
-    the context is shared across parallel fibers under an Eio scheduler.
-    The default [~eio:false] keeps the legacy {!Stdlib.Mutex} implementation
-    for use outside of an Eio fiber (e.g. synchronous tests or serialization). *)
 val get : t -> string -> Yojson.Safe.t option
 
 val set : t -> string -> Yojson.Safe.t -> unit
