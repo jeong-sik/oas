@@ -667,9 +667,7 @@ let test_build_proof_failing () =
   let proof = Runtime_projection.build_proof session events in
   Alcotest.(check bool) "proof not ok" false proof.ok;
   (* seq_contiguous should fail for empty events *)
-  let seq_check =
-    find_proof_check proof.checks "seq_contiguous"
-  in
+  let seq_check = find_proof_check proof.checks "seq_contiguous" in
   Alcotest.(check bool) "seq_contiguous fails" false seq_check.passed
 ;;
 
@@ -693,9 +691,7 @@ let test_build_proof_duplicate_artifact_ids () =
     ]
   in
   let proof = Runtime_projection.build_proof session events in
-  let artifact_check =
-    find_proof_check proof.checks "artifact_ids_unique"
-  in
+  let artifact_check = find_proof_check proof.checks "artifact_ids_unique" in
   Alcotest.(check bool) "artifact_ids_unique fails" false artifact_check.passed
 ;;
 
@@ -707,9 +703,7 @@ let test_build_proof_non_contiguous_seq () =
     ]
   in
   let proof = Runtime_projection.build_proof session events in
-  let seq_check =
-    find_proof_check proof.checks "seq_contiguous"
-  in
+  let seq_check = find_proof_check proof.checks "seq_contiguous" in
   Alcotest.(check bool) "seq_contiguous fails" false seq_check.passed
 ;;
 

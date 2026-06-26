@@ -102,12 +102,38 @@ let test_is_retryable () =
     bool
     "invalid request not retryable"
     false
-    (Retry.is_retryable (Retry.InvalidRequest { message = "" }));
+    (Retry.is_retryable
+       (Retry.InvalidRequest { message = ""; reason = Unknown_invalid_request }));
   check
     bool
     "not found not retryable"
     false
     (Retry.is_retryable (Retry.NotFound { message = "" }))
+;;
+
+let test_invalid_request_reason_boundary () =
+  let expect_unknown body =
+    match Retry.classify_error ~status:400 ~body with
+    | Retry.InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
+      check bool "generic invalid request is not retryable" false (Retry.is_retryable err)
+    | _ -> fail "expected Unknown_invalid_request"
+  in
+  List.iter
+    expect_unknown
+    [ {|{"error":{"message":"Unexpected character in user.name string exceeds length"}}|}
+    ; {|{"error":{"message":"parse error in query parameters"}}|}
+    ; {|{"error":{"message":"unexpected token in tool schema"}}|}
+    ; "JSON parse error: unexpected token"
+    ];
+  check
+    bool
+    "typed parser-boundary invalid request is retryable"
+    true
+    (Retry.is_retryable
+       (Retry.InvalidRequest
+          { message = "JSON parse error: unexpected token"
+          ; reason = Retry.Json_parse_error
+          }))
 ;;
 
 let test_error_message_all_variants () =
@@ -116,7 +142,8 @@ let test_error_message_all_variants () =
     ; Retry.Overloaded { message = "busy" }, "Overloaded: busy"
     ; Retry.ServerError { status = 503; message = "down" }, "Server error 503: down"
     ; Retry.AuthError { message = "bad key" }, "Auth error: bad key"
-    ; Retry.InvalidRequest { message = "wrong" }, "Invalid request: wrong"
+    ; ( Retry.InvalidRequest { message = "wrong"; reason = Unknown_invalid_request }
+      , "Invalid request (unknown): wrong" )
     ; Retry.NotFound { message = "no model" }, "Not found: no model"
     ; Retry.NetworkError { message = "dns"; kind = Unknown }, "Network error: dns"
     ; ( Retry.NetworkError
@@ -262,11 +289,13 @@ let test_with_retry_non_retryable_during_loop () =
     incr attempt;
     if !attempt = 1
     then Error (Retry.ServerError { status = 500; message = "transient" })
-    else Error (Retry.InvalidRequest { message = "bad input" })
+    else
+      Error
+        (Retry.InvalidRequest { message = "bad input"; reason = Unknown_invalid_request })
   in
   let res = Retry.with_retry ~clock ~config:fast_config f in
   (match res with
-   | Error (Retry.InvalidRequest { message }) ->
+   | Error (Retry.InvalidRequest { message; _ }) ->
      check string "non-retryable in loop" "bad input" message
    | _ -> fail "expected InvalidRequest from loop");
   check int "stopped at 2" 2 !attempt
@@ -366,6 +395,10 @@ let () =
         ] )
     ; ( "retryability"
       , [ test_case "retryable predicates" `Quick test_is_retryable
+        ; test_case
+            "invalid request reason boundary"
+            `Quick
+            test_invalid_request_reason_boundary
         ; test_case "error_message all variants" `Quick test_error_message_all_variants
         ; test_case
             "context overflow classification"

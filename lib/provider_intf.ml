@@ -17,16 +17,38 @@ let retry_error_of_http_error = function
   | Http_client.TimeoutError { message; phase } ->
     Retry.Timeout { message; phase = Some phase }
   | Http_client.AcceptRejected { reason } ->
-    Retry.InvalidRequest { message = "Response rejected: " ^ reason }
-  | Http_client.ProviderTerminal { message; _ } -> Retry.InvalidRequest { message }
+    Retry.InvalidRequest
+      { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request }
+  | Http_client.ProviderTerminal { message; _ } ->
+    Retry.InvalidRequest { message; reason = Unknown_invalid_request }
   | Http_client.ProviderFailure { kind; message } ->
     Retry.InvalidRequest
-      { message = Http_client.provider_failure_to_string ~kind ~message }
+      { message = Http_client.provider_failure_to_string ~kind ~message
+      ; reason = Unknown_invalid_request
+      }
 ;;
 
 let parse_openai_response_result body_str =
-  try Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
-  | Yojson.Json_error msg | Yojson.Safe.Util.Type_error (msg, _) -> Error msg
+  try
+    match Llm_provider.Backend_openai_parse.parse_openai_response_result body_str with
+    | Ok _ as ok -> ok
+    | Error message ->
+      Error (Retry.InvalidRequest { message; reason = Retry.Unknown_invalid_request })
+  with
+  | Yojson.Json_error msg ->
+    Error
+      (Retry.InvalidRequest
+         { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
+  | Yojson.Safe.Util.Type_error (msg, _) ->
+    Error
+      (Retry.InvalidRequest
+         { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
+  | Yojson.Safe.Util.Undefined (msg, _) ->
+    Error
+      (Retry.InvalidRequest
+         { message = "JSON undefined field error: " ^ msg
+         ; reason = Retry.Json_parse_error
+         })
 ;;
 
 (** Synchronous provider: can send a message and get a response. *)
@@ -131,14 +153,14 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
            | Provider.Openai_chat_completions ->
              (match parse_openai_response_result body_str with
               | Ok resp -> Ok resp
-              | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))
+              | Error err -> Error (Error.Api err))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl -> Ok (impl.parse_response body_str)
               | None ->
                 (match parse_openai_response_result body_str with
                  | Ok resp -> Ok resp
-                 | Error msg -> Error (Error.Api (Retry.InvalidRequest { message = msg })))))
+                 | Error err -> Error (Error.Api err))))
         | Ok (code, body_str) ->
           Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
         | Error err -> Error (Error.Api (retry_error_of_http_error err))

@@ -363,7 +363,8 @@ let test_retry_remaining_variants_mapping () =
       , "auth" )
     ; ( Error.of_retry_api_error
           ~provider:"openai"
-          (Retry.InvalidRequest { message = "bad payload" })
+          (Retry.InvalidRequest
+             { message = "bad payload"; reason = Unknown_invalid_request })
       , "invalid" )
     ; ( Error.of_retry_api_error
           ~provider:"openai"

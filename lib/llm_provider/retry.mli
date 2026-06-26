@@ -5,6 +5,10 @@
 
 (** {1 Error types} *)
 
+type invalid_request_reason =
+  | Json_parse_error
+  | Unknown_invalid_request
+
 type api_error =
   | RateLimited of
       { retry_after : float option
@@ -16,7 +20,10 @@ type api_error =
       ; message : string
       }
   | AuthError of { message : string }
-  | InvalidRequest of { message : string }
+  | InvalidRequest of
+      { message : string
+      ; reason : invalid_request_reason
+      }
   | NotFound of { message : string }
   | ContextOverflow of
       { message : string

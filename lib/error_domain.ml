@@ -164,7 +164,9 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
       (Llm_provider.Error.Timeout
          { provider = "unknown"; timeout_phase = Some phase; detail = msg })
   | `Overloaded -> Error.Api (Retry.Overloaded { message = "overloaded" })
-  | `Invalid_request msg -> Error.Api (Retry.InvalidRequest { message = msg })
+  | `Invalid_request msg ->
+    Error.Api
+      (Retry.InvalidRequest { message = msg; reason = Retry.Unknown_invalid_request })
   | `Not_found msg -> Error.Api (Retry.NotFound { message = msg })
   | `Context_overflow (msg, limit) ->
     Error.Api (Retry.ContextOverflow { message = msg; limit })

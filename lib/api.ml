@@ -16,12 +16,15 @@ let retry_error_of_http_error = function
   | Llm_provider.Http_client.TimeoutError { message; phase } ->
     Retry.Timeout { message; phase = Some phase }
   | Llm_provider.Http_client.AcceptRejected { reason } ->
-    Retry.InvalidRequest { message = "Response rejected: " ^ reason }
+    Retry.InvalidRequest
+      { message = "Response rejected: " ^ reason; reason = Unknown_invalid_request }
   | Llm_provider.Http_client.ProviderTerminal { message; _ } ->
-    Retry.InvalidRequest { message }
+    Retry.InvalidRequest { message; reason = Unknown_invalid_request }
   | Llm_provider.Http_client.ProviderFailure { kind; message } ->
     Retry.InvalidRequest
-      { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message }
+      { message = Llm_provider.Http_client.provider_failure_to_string ~kind ~message
+      ; reason = Unknown_invalid_request
+      }
 ;;
 
 (* Re-export Api_common *)
@@ -200,7 +203,10 @@ let create_message
                 Ok
                   (Llm_provider.Pricing.annotate_response_cost resp
                    |> fun r -> patch_latency r lat)
-              | Error msg -> Error (Retry.InvalidRequest { message = msg }))
+              | Error msg ->
+                Error
+                  (Retry.InvalidRequest
+                     { message = msg; reason = Retry.Unknown_invalid_request }))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl ->
@@ -214,7 +220,10 @@ let create_message
                    Ok
                      (Llm_provider.Pricing.annotate_response_cost resp
                       |> fun r -> patch_latency r lat)
-                 | Error msg -> Error (Retry.InvalidRequest { message = msg }))))
+                 | Error msg ->
+                   Error
+                     (Retry.InvalidRequest
+                        { message = msg; reason = Retry.Unknown_invalid_request }))))
         | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
         | `TransportError err -> Error err
@@ -243,7 +252,18 @@ let create_message
       | Failure msg -> Error (Retry.NetworkError { message = msg; kind = Unknown })
       | Yojson.Json_error msg ->
         Error
-          (Retry.NetworkError { message = "JSON parse error: " ^ msg; kind = Unknown })
+          (Retry.InvalidRequest
+             { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
+      | Yojson.Safe.Util.Type_error (msg, _) ->
+        Error
+          (Retry.InvalidRequest
+             { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
+      | Yojson.Safe.Util.Undefined (msg, _) ->
+        Error
+          (Retry.InvalidRequest
+             { message = "JSON undefined field error: " ^ msg
+             ; reason = Retry.Json_parse_error
+             })
     in
     (match clock with
      | Some clock ->
