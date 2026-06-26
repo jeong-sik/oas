@@ -8,6 +8,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Features
+
+* **util:** `Util.int_env_or` now delegates to `Cli_common_env.int` and accepts non-negative values (including 0), with warnings on invalid or negative input.
+
 ## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
 
 

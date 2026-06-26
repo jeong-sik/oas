@@ -98,5 +98,6 @@ val string_list_of_json : Yojson.Safe.t list -> string list
 val json_of_string_pairs : (string * string) list -> Yojson.Safe.t
 
 (** [int_env_or default var] looks up env var [var], trims it, parses it as a non-negative integer,
-    and returns the integer value if valid, otherwise [default]. *)
+    and returns the integer value if valid, otherwise [default]. Invalid or negative values emit a
+    diagnostic warning before falling back to [default]. *)
 val int_env_or : int -> string -> int
