@@ -31,10 +31,14 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
     override.  Hard floor prevents silent pass-through that caused CTX 101%
     overrun (#7083). Values outside (0.0, 1.0) are rejected.
     @since 0.185.0 *)
+let default_compact_watermark = 0.9
+
+let is_valid_compact_watermark w = w > 0.0 && w < 1.0
+
 let resolve_compact_watermark agent =
   match agent.state.config.context_compact_ratio with
-  | Some w when w > 0.0 && w < 1.0 -> w
-  | _ -> 0.9
+  | Some w when is_valid_compact_watermark w -> w
+  | _ -> default_compact_watermark
 ;;
 
 open Result_syntax
@@ -1321,3 +1325,11 @@ let%test "tag_error Ok list" = tag_error "output" (Ok [ 1; 2; 3 ]) = Ok [ 1; 2; 
 (* --- Proactive compaction: phase selection is tested via
    Budget_strategy inline tests; integration tested via consumer agent
    turns that set context_compact_ratio in agent config. --- *)
+
+let%test "compact watermark accepts only open interval ratios" =
+  is_valid_compact_watermark 0.5
+  && (not (is_valid_compact_watermark 0.0))
+  && (not (is_valid_compact_watermark 1.0))
+  && (not (is_valid_compact_watermark (-0.1)))
+  && not (is_valid_compact_watermark 1.1)
+;;

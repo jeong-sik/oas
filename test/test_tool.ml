@@ -265,6 +265,54 @@ let test_concurrency_class_yojson_roundtrip () =
     variants
 ;;
 
+let test_mutation_class_yojson_roundtrip () =
+  let variants =
+    [ Tool.Read_only, "read_only"
+    ; Tool.Workspace, "workspace"
+    ; Tool.Workspace_mutating, "workspace_mutating"
+    ; Tool.Local_mutation, "local_mutation"
+    ; Tool.External, "external"
+    ; Tool.External_effect, "external_effect"
+    ]
+  in
+  List.iter
+    (fun (value, expected) ->
+       let json = Tool.mutation_class_to_yojson value in
+       check string "canonical json" expected (Yojson.Safe.Util.to_string json);
+       match Tool.mutation_class_of_yojson json with
+       | Ok decoded ->
+         check
+           string
+           "roundtrip"
+           (Tool.show_mutation_class value)
+           (Tool.show_mutation_class decoded)
+       | Error msg -> fail ("mutation_class roundtrip: " ^ msg))
+    variants
+;;
+
+let test_mutation_class_of_yojson_accepts_legacy_constructor_names () =
+  let cases =
+    [ "Read_only", Tool.Read_only
+    ; "Workspace", Tool.Workspace
+    ; "Workspace_mutating", Tool.Workspace_mutating
+    ; "Local_mutation", Tool.Local_mutation
+    ; "External", Tool.External
+    ; "External_effect", Tool.External_effect
+    ]
+  in
+  List.iter
+    (fun (json_string, expected) ->
+       match Tool.mutation_class_of_yojson (`String json_string) with
+       | Ok decoded ->
+         check
+           string
+           "legacy constructor"
+           (Tool.show_mutation_class expected)
+           (Tool.show_mutation_class decoded)
+       | Error msg -> fail ("legacy mutation_class: " ^ msg))
+    cases
+;;
+
 let test_create_rejects_inconsistent_descriptor () =
   check_raises
     "invalid descriptor"
@@ -314,6 +362,11 @@ let () =
       , [ test_case "workdir_policy" `Quick test_workdir_policy_yojson_roundtrip
         ; test_case "shell_constraints" `Quick test_shell_constraints_yojson_roundtrip
         ; test_case "concurrency_class" `Quick test_concurrency_class_yojson_roundtrip
+        ; test_case "mutation_class" `Quick test_mutation_class_yojson_roundtrip
+        ; test_case
+            "mutation_class legacy constructors"
+            `Quick
+            test_mutation_class_of_yojson_accepts_legacy_constructor_names
         ; test_case "descriptor None" `Quick test_descriptor_to_yojson_none
         ] )
     ; ( "validation"

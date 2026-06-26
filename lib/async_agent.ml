@@ -25,12 +25,29 @@ type 'a future =
   ; resolved : bool Atomic.t
   ; cancel_sent : bool Atomic.t
   ; cancel_fn : (unit -> unit) option Atomic.t
+  ; cancel_mu : Mutex.t
   }
 
 (** Resolve the future exactly once. Subsequent calls are no-ops. *)
 let resolve_once future result =
   if not (Atomic.exchange future.resolved true)
   then Eio.Promise.resolve future.resolver result
+;;
+
+let with_cancel_fn_lock future f =
+  Mutex.lock future.cancel_mu;
+  Fun.protect ~finally:(fun () -> Mutex.unlock future.cancel_mu) f
+;;
+
+let clear_cancel_fn future =
+  with_cancel_fn_lock future (fun () -> Atomic.set future.cancel_fn None)
+;;
+
+let invoke_cancel_fn future =
+  with_cancel_fn_lock future (fun () ->
+    match Atomic.exchange future.cancel_fn None with
+    | Some f -> f ()
+    | None -> ())
 ;;
 
 (* ── Agent name extraction ────────────────────────────────────── *)
@@ -64,6 +81,7 @@ let spawn ~sw ?clock agent prompt =
     ; resolved
     ; cancel_sent
     ; cancel_fn = Atomic.make None
+    ; cancel_mu = Mutex.create ()
     }
   in
   Eio.Fiber.fork ~sw (fun () ->
@@ -82,7 +100,7 @@ let spawn ~sw ?clock agent prompt =
                    future.cancel_fn
                    (Some (fun () -> Eio.Switch.fail sub_sw Cancelled));
                  Fun.protect
-                   ~finally:(fun () -> Atomic.set future.cancel_fn None)
+                   ~finally:(fun () -> clear_cancel_fn future)
                    (fun () -> run_agent_result ~sw:sub_sw ?clock agent prompt))
              with
              | Cancelled -> Error (Error.Internal "cancelled")
@@ -125,15 +143,12 @@ let cancel future =
     Eio.Promise.resolve future.cancelled_u ();
     (* Invoke the sub-switch failure hook before resolving the future, so a
        running agent sees cancellation even though [resolve_once] will make
-       the final result idempotent.  The [cancel_fn] is cleared by the agent
-       fiber's [Fun.protect] finalizer once [Agent.run] exits; if we still
-       observe [Some f], the sub-switch is alive and failing it is valid. *)
-    (match Atomic.exchange future.cancel_fn None with
-     | Some f ->
-       (try f () with
-        | Eio.Cancel.Cancelled _ -> ()
-        | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ())
-     | None -> ());
+       the final result idempotent.  [invoke_cancel_fn] shares a lock with the
+       agent fiber finalizer: either the hook is invoked while the sub-switch
+       is still alive, or the finalizer clears it before release. *)
+    (try invoke_cancel_fn future with
+     | Eio.Cancel.Cancelled _ -> ()
+     | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ());
     resolve_once future (Error (Error.Internal "cancelled")))
 ;;
 

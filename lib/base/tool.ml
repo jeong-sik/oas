@@ -27,7 +27,7 @@ type mutation_class =
   | Local_mutation [@name "local_mutation"]
   | External [@name "external"]
   | External_effect [@name "external_effect"]
-[@@deriving yojson, show]
+[@@deriving show]
 
 let mutation_class_to_string = function
   | Read_only -> "read_only"
@@ -39,13 +39,23 @@ let mutation_class_to_string = function
 ;;
 
 let mutation_class_of_string = function
-  | "read_only" -> Some Read_only
-  | "workspace" -> Some Workspace
-  | "workspace_mutating" -> Some Workspace_mutating
-  | "local_mutation" -> Some Local_mutation
-  | "external" -> Some External
-  | "external_effect" -> Some External_effect
+  | "read_only" | "Read_only" -> Some Read_only
+  | "workspace" | "Workspace" -> Some Workspace
+  | "workspace_mutating" | "Workspace_mutating" -> Some Workspace_mutating
+  | "local_mutation" | "Local_mutation" -> Some Local_mutation
+  | "external" | "External" -> Some External
+  | "external_effect" | "External_effect" -> Some External_effect
   | _ -> None
+;;
+
+let mutation_class_to_yojson value = `String (mutation_class_to_string value)
+
+let mutation_class_of_yojson = function
+  | `String value ->
+    (match mutation_class_of_string value with
+     | Some mutation_class -> Ok mutation_class
+     | None -> Error ("unknown mutation_class: " ^ value))
+  | json -> Error ("mutation_class: expected string, got " ^ Yojson.Safe.to_string json)
 ;;
 
 type permission =
@@ -206,8 +216,9 @@ let descriptor_to_yojson = function
       ; ( "mutation_class"
         , Option.value
             ~default:`Null
-            (Option.map (fun mc -> `String (mutation_class_to_string mc)) descriptor.mutation_class)
-        )
+            (Option.map
+               (fun mc -> `String (mutation_class_to_string mc))
+               descriptor.mutation_class) )
       ; ( "concurrency_class"
         , Option.value
             ~default:`Null

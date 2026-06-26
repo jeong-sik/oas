@@ -329,45 +329,14 @@ let%test "max_single_header_bytes flags a single oversized header line" =
   max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
 ;;
 
-(* Substring search on already-lowered strings. KMP keeps this linear in the
-   haystack length; the previous [String.sub] per position was O(n·m). *)
 let has_substr haystack needle =
-  let hlen = String.length haystack in
-  let nlen = String.length needle in
-  if nlen = 0
-  then true
-  else if nlen > hlen
-  then false
-  else (
-    (* lps.(i) = length of the longest proper prefix of needle[0..i] that is
-       also a suffix. *)
-    let lps = Array.make nlen 0 in
-    let rec build_lps len i =
-      if i >= nlen
-      then ()
-      else if needle.[i] = needle.[len]
-      then (
-        lps.(i) <- len + 1;
-        build_lps (len + 1) (i + 1))
-      else if len = 0
-      then (
-        lps.(i) <- 0;
-        build_lps 0 (i + 1))
-      else build_lps lps.(len - 1) i
-    in
-    build_lps 0 1;
-    let rec search i j =
-      if j = nlen
-      then true
-      else if i = hlen
-      then false
-      else if haystack.[i] = needle.[j]
-      then search (i + 1) (j + 1)
-      else if j = 0
-      then search (i + 1) 0
-      else search i lps.(j - 1)
-    in
-    search 0 0)
+  needle = ""
+  ||
+  try
+    let (_ : int) = Str.search_forward (Str.regexp_string needle) haystack 0 in
+    true
+  with
+  | Not_found -> false
 ;;
 
 let%test "has_substr: empty needle is always present" = has_substr "anything" ""
@@ -383,12 +352,14 @@ let%test "has_substr: overlapping patterns" =
   has_substr "abababa" "aba" && has_substr "aaaa" "aa"
 ;;
 
-let%test "has_substr: repeated-character worst case is linear" =
+let%test "has_substr: repeated-character overlap" =
   let haystack = String.make 10000 'a' ^ "b" in
   let needle = String.make 5000 'a' ^ "b" in
   has_substr haystack needle
 ;;
 
+(* Fallback for exception forms that only preserve text. Structured Unix errors
+   are classified through [classify_unix_error] before this path. *)
 let classify_by_message msg =
   let m = String.lowercase_ascii msg in
   if has_substr m "connection refused" || has_substr m "connection reset"
@@ -397,7 +368,15 @@ let classify_by_message msg =
   then End_of_file
   else if has_substr m "timed out" || has_substr m "timeout"
   then Timeout
-  else if has_substr m "can't assign requested address"
+  else if
+    has_substr m "can't assign requested address"
+    || has_substr m "cannot assign requested address"
+    || has_substr m "too many open files"
+    || has_substr m "no buffer space available"
+    || has_substr m "eaddrnotavail"
+    || has_substr m "emfile"
+    || has_substr m "enfile"
+    || has_substr m "enobufs"
   then Local_resource_exhaustion
   else if
     has_substr m "failed to resolve hostname"
@@ -1439,6 +1418,32 @@ let%test "catch_network maps Sys_error to NetworkError" =
       | ProviderFailure _ ) -> false
 ;;
 
+let%test "catch_network classifies Sys_error local resource exhaustion" =
+  match catch_network (fun () -> raise (Sys_error "Too many open files")) with
+  | Error (NetworkError { kind = Local_resource_exhaustion; _ }) -> true
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
+;;
+
+let%test "catch_network classifies Failure EMFILE local resource exhaustion" =
+  match catch_network (fun () -> raise (Failure "EMFILE")) with
+  | Error (NetworkError { kind = Local_resource_exhaustion; _ }) -> true
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
+;;
+
 let%test "catch_network classifies Unix ECONNREFUSED" =
   match
     catch_network (fun () -> raise (Unix.Unix_error (Unix.ECONNREFUSED, "connect", "")))
@@ -1605,6 +1610,29 @@ let%test "classify_by_message: network unreachable" =
 
 let%test "classify_by_message: host unreachable" =
   classify_by_message "Host is unreachable" = Dns_failure
+;;
+
+let%test "classify_by_message: too many open files is local resource" =
+  classify_by_message "Too many open files" = Local_resource_exhaustion
+;;
+
+let%test "classify_by_message: EMFILE is local resource" =
+  classify_by_message "Unix.Unix_error(Unix.EMFILE, \"socket\", \"\")"
+  = Local_resource_exhaustion
+;;
+
+let%test "classify_by_message: ENFILE is local resource" =
+  classify_by_message "Unix.Unix_error(Unix.ENFILE, \"socket\", \"\")"
+  = Local_resource_exhaustion
+;;
+
+let%test "classify_by_message: ENOBUFS is local resource" =
+  classify_by_message "No buffer space available" = Local_resource_exhaustion
+;;
+
+let%test "classify_by_message: EADDRNOTAVAIL is local resource" =
+  classify_by_message "Unix.Unix_error(Unix.EADDRNOTAVAIL, \"connect\", \"\")"
+  = Local_resource_exhaustion
 ;;
 
 let%test "https_init_error_network_kind: empty trust anchors are local" =

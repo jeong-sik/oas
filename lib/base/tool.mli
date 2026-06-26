@@ -28,10 +28,12 @@ type mutation_class =
   | Local_mutation
   | External
   | External_effect
-[@@deriving yojson, show]
+[@@deriving show]
 
 val mutation_class_to_string : mutation_class -> string
 val mutation_class_of_string : string -> mutation_class option
+val mutation_class_to_yojson : mutation_class -> Yojson.Safe.t
+val mutation_class_of_yojson : Yojson.Safe.t -> (mutation_class, string) result
 
 (** Permission level for tool execution.
     Consumers use this to decide approval policy per tool.
