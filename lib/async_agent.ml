@@ -113,17 +113,23 @@ let cancel future =
      cancellation branch. If it has started, cancel_fn fails the sub-switch.
      We also resolve the future immediately to preserve the established
      contract that [cancel] returns a ready future; resolve_once makes the
-     final result idempotent. *)
-  if Atomic.compare_and_set future.cancel_sent false true
+     final result idempotent.
+
+     Guard: if the future is already resolved, the agent fiber has finished
+     and its sub-switch has been released. Do not invoke a stale cancel_fn
+     closure that would fail a dead switch. *)
+  if is_ready future
+  then ()
+  else if Atomic.compare_and_set future.cancel_sent false true
   then (
     Eio.Promise.resolve future.cancelled_u ();
     resolve_once future (Error (Error.Internal "cancelled"));
     match Atomic.exchange future.cancel_fn None with
-    | Some f ->
+    | Some f when not (is_ready future) ->
       (try f () with
        | Eio.Cancel.Cancelled _ -> ()
        | Eio.Io _ | Unix.Unix_error _ | Failure _ | Invalid_argument _ -> ())
-    | None -> ())
+    | Some _ | None -> ())
 ;;
 
 (* ── Combinators ──────────────────────────────────────────────── *)

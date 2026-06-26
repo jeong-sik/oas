@@ -31,18 +31,33 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
     Hard floor prevents silent pass-through that caused CTX 101% overrun
     (#7083). Values outside (0.0, 1.0) are rejected.
     @since 0.185.0 *)
-let compact_watermark_default =
-  match Sys.getenv "OAS_COMPACT_WATERMARK" with
-  | exception Not_found -> 0.9
-  | s ->
-    (match float_of_string_opt s with
-     | Some w when w > 0.0 && w < 1.0 -> w
-     | _ ->
-       Log.warn
-         _log
-         "OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), using 0.9"
-         [ Log.S ("value", s) ];
-       0.9)
+let compact_watermark =
+  let cached = ref None in
+  fun () ->
+    match !cached with
+    | Some w -> w
+    | None ->
+      let w =
+        match Sys.getenv "OAS_COMPACT_WATERMARK" with
+        | exception Not_found -> 0.9
+        | s ->
+          (match float_of_string_opt s with
+           | Some w when w > 0.0 && w < 1.0 -> w
+           | _ ->
+             Log.warn
+               _log
+               "OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), using 0.9"
+               [ Log.S ("value", s) ];
+             0.9)
+      in
+      cached := Some w;
+      w
+;;
+
+let resolve_compact_watermark agent =
+  match agent.state.config.context_compact_ratio with
+  | Some w when w > 0.0 && w < 1.0 -> w
+  | _ -> compact_watermark ()
 ;;
 
 open Result_syntax
@@ -200,7 +215,14 @@ let stage_collect ?raw_trace_run agent ~original_config response =
     (fun _tracer ->
        update_state agent (fun s -> { s with config = original_config });
        let ts = Unix.gettimeofday () in
-       set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
+       (* Preserve an already-recorded first_progress_at (e.g. from streaming
+          first-token or tool-execution events). Overwriting it with the
+          collection timestamp would make latency-to-first-progress metrics
+          silently regress to the end of the turn. *)
+       (match agent.lifecycle with
+        | Some prev when Option.is_some prev.first_progress_at ->
+          set_lifecycle agent ~last_progress_at:ts Running
+        | _ -> set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running);
        let* () = trace_assistant_blocks raw_trace_run response.content in
        let usage =
          Agent_turn.accumulate_usage
@@ -802,15 +824,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      TurnStarted a second time or re-invoking before_turn_params.
 
      Hard budget gate (OAS-2): when context_compact_ratio is not configured,
-     a ratio >= compact_watermark_default still triggers compaction. This
+     a ratio >= compact_watermark still triggers compaction. This
      prevents the silent pass-through that caused a downstream consumer's
      CTX 101% overrun (observed in upstream issue #7083). *)
   let prep =
-    let watermark =
-      match agent.state.config.context_compact_ratio with
-      | Some w when w > 0.0 && w < 1.0 -> w
-      | _ -> compact_watermark_default
-    in
+    let watermark = resolve_compact_watermark agent in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
     let ratio = float_of_int est_tokens /. float_of_int context_window in
@@ -861,11 +879,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Same hard budget gate as 2.3 — if context still exceeds watermark
      after validation (validators can inject messages), compact again. *)
     let prep =
-      let watermark =
-        match agent.state.config.context_compact_ratio with
-        | Some w when w > 0.0 && w < 1.0 -> w
-        | _ -> compact_watermark_default
-      in
+      let watermark = resolve_compact_watermark agent in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
       let ratio = float_of_int est_tokens /. float_of_int context_window in

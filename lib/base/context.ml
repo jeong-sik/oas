@@ -1,20 +1,16 @@
 (** Cross-turn shared state for agent execution.
     Inspired by Google ADK's session.state pattern.
 
-    Uses Hashtbl internally, protected by Mutex for safe concurrent
-    access from parallel tool-execution fibers.
-    Stdlib.Mutex is used (not Eio.Mutex) so Context.t can be created
-    and used outside Eio context (tests, serialization, etc.).
-    Within a single Eio domain, Mutex sections are non-yielding
-    (pure Hashtbl ops), so Stdlib.Mutex is safe and sufficient.
-    Values are Yojson.Safe.t for flexibility while maintaining serializability. *)
-
-type mutex =
-  | Stdlib_mu of Mutex.t
-  | Eio_mu of Eio.Mutex.t
+    Uses Hashtbl internally, protected by Stdlib.Mutex for safe concurrent
+    access from parallel tool-execution fibers. Stdlib.Mutex is used (not
+    Eio.Mutex) so Context.t can be created and used outside an Eio context
+    (tests, serialization, etc.). Within a single Eio domain, mutex sections
+    are non-yielding (pure Hashtbl ops), so Stdlib.Mutex is safe and
+    sufficient. Values are Yojson.Safe.t for flexibility while maintaining
+    serializability. *)
 
 type t =
-  { mu : mutex
+  { mu : Mutex.t
   ; tbl : (string, Yojson.Safe.t) Hashtbl.t
   }
 
@@ -31,17 +27,11 @@ type diff =
   ; changed : (string * Yojson.Safe.t) list
   }
 
-let create ?(eio = false) () : t =
-  let mu = if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ()) in
-  { mu; tbl = Hashtbl.create 16 }
-;;
+let create () : t = { mu = Mutex.create (); tbl = Hashtbl.create 16 }
 
 let with_lock ctx f =
-  match ctx.mu with
-  | Stdlib_mu mu ->
-    Mutex.lock mu;
-    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
-  | Eio_mu mu -> Eio.Mutex.use_rw ~protect:true mu f
+  Mutex.lock ctx.mu;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock ctx.mu)
 ;;
 
 let get (ctx : t) key = with_lock ctx (fun () -> Hashtbl.find_opt ctx.tbl key)
@@ -133,14 +123,7 @@ let of_json (json : Yojson.Safe.t) : t =
 
 let copy (ctx : t) : t =
   with_lock ctx (fun () ->
-    let new_ctx =
-      create
-        ~eio:
-          (match ctx.mu with
-           | Eio_mu _ -> true
-           | _ -> false)
-        ()
-    in
+    let new_ctx = create () in
     Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
     new_ctx)
 ;;

@@ -355,7 +355,7 @@ let create
   let ctx =
     match context with
     | Some c -> c
-    | None -> Context.create ~eio:true ()
+    | None -> Context.create ()
   in
   { mu = Eio.Mutex.create ()
   ; state
@@ -373,7 +373,7 @@ let create
 
 let clone ?(copy_context = false) agent =
   let ctx =
-    if copy_context then Context.copy agent.context else Context.create ~eio:true ()
+    if copy_context then Context.copy agent.context else Context.create ()
   in
   let state =
     { config = agent.state.config

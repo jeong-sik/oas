@@ -367,7 +367,10 @@ let classify_by_message msg =
   then Connection_refused
   else if has_substr m "connection closed by peer" || has_substr m "broken pipe"
   then End_of_file
-  else if has_substr m "timed out" || has_substr m "timeout"
+  else if
+    has_substr m "timed out"
+    || has_substr m "timeout"
+    || has_substr m "operation timed out"
   then Timeout
   else if
     has_substr m "can't assign requested address"
@@ -382,6 +385,8 @@ let classify_by_message msg =
     || has_substr m "name resolution"
     || has_substr m "name or service not known"
     || has_substr m "network is unreachable"
+    || has_substr m "network is down"
+    || has_substr m "no route to host"
     || has_substr m "host is unreachable"
   then Dns_failure
   else if has_substr m "tls" || has_substr m "ssl" || has_substr m "certificate"
@@ -832,15 +837,14 @@ let make_closing_client ~sw ~net ~uri =
     [Ok] from [Error] for cache lifecycle decisions; exceptions are treated
     as fatal for the connection. *)
 let with_client ?cache ~sw ~net ~uri f =
-  ignore sw;
   match cache with
   | None ->
-    (* Run each one-shot request in its own switch so the connection and FD
-       are released as soon as the response body is consumed, even when the
-       caller supplied a long-lived switch. *)
-    Eio.Switch.run (fun sw ->
-      let* client = make_closing_client ~sw ~net ~uri in
-      f client)
+    (* The caller's switch scopes the request lifetime. The connection is
+       closed via [make_closing_client]'s [Switch.on_release] hook when the
+       switch is released, preventing a leak without creating an orphan
+       sub-switch. *)
+    let* client = make_closing_client ~sw ~net ~uri in
+    f client
   | Some cache ->
     let* conn, was_cached =
       match cache_take cache uri with
@@ -881,23 +885,31 @@ let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
   in
   let drain_with_timeout () =
     match clock with
-    | Some clk ->
-      (try Eio.Time.with_timeout_exn clk timeout_s drain with
-       | Eio.Time.Timeout -> ())
+    | Some clk -> Eio.Time.with_timeout_exn clk timeout_s drain
     | None -> drain ()
   in
   try drain_with_timeout () with
-  | End_of_file -> ()
-  | Eio.Time.Timeout -> ()
-  | Unix.Unix_error (code, _, _) ->
-    (match classify_unix_error code with
-     | Connection_refused
-     | Dns_failure
-     | Tls_error
-     | Timeout
-     | Local_resource_exhaustion
-     | End_of_file
-     | Unknown -> ())
+  | End_of_file ->
+    Diag.debug "http_client" "drain_response_body: reached End_of_file";
+    ()
+  | Eio.Time.Timeout ->
+    Diag.debug "http_client" "drain_response_body: timed out after %.1fs" timeout_s;
+    ()
+  | Unix.Unix_error (code, _, _) as e ->
+    let kind = classify_unix_error code in
+    Diag.warn
+      "http_client"
+      "drain_response_body: Unix_error %s (kind %s)"
+      (Printexc.to_string e)
+      (match kind with
+       | Connection_refused -> "connection_refused"
+       | Dns_failure -> "dns_failure"
+       | Tls_error -> "tls_error"
+       | Timeout -> "timeout"
+       | Local_resource_exhaustion -> "local_resource_exhaustion"
+       | End_of_file -> "end_of_file"
+       | Unknown -> "unknown");
+    ()
   | Eio.Io _ as e ->
     Diag.warn "http_client" "drain_response_body: %s" (Printexc.to_string e);
     ()
@@ -1566,6 +1578,18 @@ let%test "classify_by_message: network unreachable" =
 
 let%test "classify_by_message: host unreachable" =
   classify_by_message "Host is unreachable" = Dns_failure
+;;
+
+let%test "classify_by_message: no route to host" =
+  classify_by_message "No route to host" = Dns_failure
+;;
+
+let%test "classify_by_message: network is down" =
+  classify_by_message "Network is down" = Dns_failure
+;;
+
+let%test "classify_by_message: operation timed out" =
+  classify_by_message "Operation timed out" = Timeout
 ;;
 
 let%test "https_init_error_network_kind: empty trust anchors are local" =
