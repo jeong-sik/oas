@@ -154,7 +154,8 @@ let complete_http
                truncated local model loads on the connect/headers phase as a
                phase=Http_operation timeout. *)
             ~timeout_s:
-              (Option.value config.connect_timeout_s
+              (Option.value
+                 config.connect_timeout_s
                  ~default:(Provider_config.default_connect_timeout_s config.kind))
             ()
         in

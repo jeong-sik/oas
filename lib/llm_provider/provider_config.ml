@@ -534,7 +534,12 @@ let%test "connect_timeout_s: None by default (kind default applies downstream)" 
 
 let%test "connect_timeout_s: explicit override is preserved verbatim" =
   let config =
-    make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ~connect_timeout_s:600.0 ()
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"https://x"
+      ~connect_timeout_s:600.0
+      ()
   in
   config.connect_timeout_s = Some 600.0
 ;;

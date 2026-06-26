@@ -446,7 +446,8 @@ let complete_stream_http
           ?cache:connection_cache
           ?clock
           ~connect_timeout_s:
-            (Option.value config.connect_timeout_s
+            (Option.value
+               config.connect_timeout_s
                ~default:(Provider_config.default_connect_timeout_s config.kind))
           ~net
           ~url
