@@ -14,8 +14,8 @@ module Sdk_version = Sdk_version
 
 (** Wrapped namespaces for the underlying libraries. *)
 module Base = Agent_sdk_base
-module Llm_provider = Llm_provider
 
+module Llm_provider = Llm_provider
 module Result_syntax = Agent_sdk_base.Result_syntax
 module Types = Agent_sdk_base.Types
 module Model_registry = Agent_sdk_base.Model_registry

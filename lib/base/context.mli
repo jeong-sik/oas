@@ -30,7 +30,6 @@ type diff =
 val create : eio:bool -> unit -> t
 
 val get : t -> string -> Yojson.Safe.t option
-
 val set : t -> string -> Yojson.Safe.t -> unit
 val delete : t -> string -> unit
 val keys : t -> string list

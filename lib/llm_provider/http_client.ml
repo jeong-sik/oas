@@ -350,7 +350,9 @@ let contains_substring haystack needle =
     search 0)
 ;;
 
-let%test "contains_substring: empty needle is always present" = contains_substring "anything" ""
+let%test "contains_substring: empty needle is always present" =
+  contains_substring "anything" ""
+;;
 
 let%test "contains_substring: finds needle at start, middle, and end" =
   contains_substring "abcdef" "abc"
@@ -375,7 +377,8 @@ let classify_by_message msg =
   let m = String.lowercase_ascii msg in
   if contains_substring m "connection refused" || contains_substring m "connection reset"
   then Connection_refused
-  else if contains_substring m "connection closed by peer" || contains_substring m "broken pipe"
+  else if
+    contains_substring m "connection closed by peer" || contains_substring m "broken pipe"
   then End_of_file
   else if contains_substring m "timed out" || contains_substring m "timeout"
   then Timeout
@@ -396,7 +399,10 @@ let classify_by_message msg =
     || contains_substring m "network is unreachable"
     || contains_substring m "host is unreachable"
   then Dns_failure
-  else if contains_substring m "tls" || contains_substring m "ssl" || contains_substring m "certificate"
+  else if
+    contains_substring m "tls"
+    || contains_substring m "ssl"
+    || contains_substring m "certificate"
   then Tls_error
   else Unknown
 ;;
@@ -407,7 +413,9 @@ let https_init_error_network_kind = function
     (match classify_by_message msg with
      | Local_resource_exhaustion -> Local_resource_exhaustion
      | Connection_refused | Dns_failure | Tls_error | Timeout | End_of_file | Unknown ->
-       if contains_substring m "empty trust anchors" || contains_substring m "no trust anchors"
+       if
+         contains_substring m "empty trust anchors"
+         || contains_substring m "no trust anchors"
        then Local_resource_exhaustion
        else Tls_error)
   | Api_common.Tls_config_unavailable _ -> Tls_error

@@ -132,9 +132,7 @@ let contains_substring haystack needle =
 ;;
 
 let contains_case_insensitive ~(haystack : string) ~(needle : string) : bool =
-  contains_substring
-    (String.lowercase_ascii haystack)
-    (String.lowercase_ascii needle)
+  contains_substring (String.lowercase_ascii haystack) (String.lowercase_ascii needle)
 ;;
 
 (** Substrings inside the extracted [error.message] text indicating the 429

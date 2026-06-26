@@ -425,7 +425,9 @@ let test_workspace_tools_run_sequentially () =
   let make_guarded_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:Tool.Workspace_mutating Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       name
     |> fun tool ->
     { tool with
@@ -519,7 +521,9 @@ let test_workspace_barrier_splits_parallel_read_batches () =
   let make_workspace_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:Tool.Workspace_mutating Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       name
     |> fun tool ->
     { tool with
@@ -593,7 +597,9 @@ let test_exclusive_external_barrier_isolation () =
   let make_workspace_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:Tool.Workspace_mutating Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       name
     |> fun tool ->
     { tool with
@@ -677,7 +683,9 @@ let test_exclusive_batch_kind_metadata () =
   let seq_tool =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:Tool.Workspace_mutating Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       "writer"
   in
   let excl_tool =
