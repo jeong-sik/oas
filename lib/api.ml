@@ -206,9 +206,7 @@ let create_message
               | Error msg ->
                 Error
                   (Retry.InvalidRequest
-                     { message = msg
-                     ; reason = Retry.invalid_request_reason_of_message msg
-                     }))
+                     { message = msg; reason = Retry.Unknown_invalid_request }))
            | Provider.Custom name ->
              (match Provider.find_provider name with
               | Some impl ->
@@ -225,9 +223,7 @@ let create_message
                  | Error msg ->
                    Error
                      (Retry.InvalidRequest
-                        { message = msg
-                        ; reason = Retry.invalid_request_reason_of_message msg
-                        }))))
+                        { message = msg; reason = Retry.Unknown_invalid_request }))))
         | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
         | `TransportError err -> Error err
@@ -256,7 +252,18 @@ let create_message
       | Failure msg -> Error (Retry.NetworkError { message = msg; kind = Unknown })
       | Yojson.Json_error msg ->
         Error
-          (Retry.NetworkError { message = "JSON parse error: " ^ msg; kind = Unknown })
+          (Retry.InvalidRequest
+             { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
+      | Yojson.Safe.Util.Type_error (msg, _) ->
+        Error
+          (Retry.InvalidRequest
+             { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
+      | Yojson.Safe.Util.Undefined (msg, _) ->
+        Error
+          (Retry.InvalidRequest
+             { message = "JSON undefined field error: " ^ msg
+             ; reason = Retry.Json_parse_error
+             })
     in
     (match clock with
      | Some clock ->

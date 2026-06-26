@@ -166,8 +166,7 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
   | `Overloaded -> Error.Api (Retry.Overloaded { message = "overloaded" })
   | `Invalid_request msg ->
     Error.Api
-      (Retry.InvalidRequest
-         { message = msg; reason = Retry.invalid_request_reason_of_message msg })
+      (Retry.InvalidRequest { message = msg; reason = Retry.Unknown_invalid_request })
   | `Not_found msg -> Error.Api (Retry.NotFound { message = msg })
   | `Context_overflow (msg, limit) ->
     Error.Api (Retry.ContextOverflow { message = msg; limit })

@@ -7,10 +7,6 @@
 
 type invalid_request_reason =
   | Json_parse_error
-  | Schema_error
-  | Tool_error
-  | Routing_error
-  | Parameter_error
   | Unknown_invalid_request
 
 type api_error =
@@ -56,8 +52,6 @@ val default_config : retry_config
 val is_retryable : api_error -> bool
 val error_message : api_error -> string
 val is_context_overflow_message : string -> bool
-val is_malformed_json_message : string -> bool
-val invalid_request_reason_of_message : string -> invalid_request_reason
 
 (** True when the error represents hard account-level quota exhaustion
     (balance 0, credit depleted, monthly quota reached, resource exhausted).

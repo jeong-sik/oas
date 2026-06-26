@@ -111,22 +111,23 @@ let test_is_retryable () =
     (Retry.is_retryable (Retry.NotFound { message = "" }))
 ;;
 
-let test_malformed_json_classifier () =
-  check
-    bool
-    "unexpected token in JSON"
-    true
-    (Retry.is_malformed_json_message "Unexpected token } in JSON at position 12");
-  check
-    bool
-    "unexpected end of JSON input"
-    true
-    (Retry.is_malformed_json_message "Unexpected end of JSON input");
-  check
-    bool
-    "generic invalid request is not malformed JSON"
-    false
-    (Retry.is_malformed_json_message "bad tool schema")
+let test_invalid_request_reason_boundary () =
+  let expect_unknown body =
+    match Retry.classify_error ~status:400 ~body with
+    | Retry.InvalidRequest ({ reason = Unknown_invalid_request; _ } as err) ->
+      check bool "generic invalid request is not retryable" false (Retry.is_retryable err)
+    | _ -> fail "expected Unknown_invalid_request"
+  in
+  List.iter
+    expect_unknown
+    [ {|{"error":{"message":"Unexpected character in user.name string exceeds length"}}|}
+    ; {|{"error":{"message":"parse error in query parameters"}}|}
+    ; {|{"error":{"message":"unexpected token in tool schema"}}|}
+    ];
+  match Retry.classify_error ~status:400 ~body:"JSON parse error: unexpected token" with
+  | Retry.InvalidRequest ({ reason = Json_parse_error; _ } as err) ->
+    check bool "internal parser boundary is retryable" true (Retry.is_retryable err)
+  | _ -> fail "expected Json_parse_error"
 ;;
 
 let test_error_message_all_variants () =
@@ -388,7 +389,10 @@ let () =
         ] )
     ; ( "retryability"
       , [ test_case "retryable predicates" `Quick test_is_retryable
-        ; test_case "malformed JSON classifier" `Quick test_malformed_json_classifier
+        ; test_case
+            "invalid request reason boundary"
+            `Quick
+            test_invalid_request_reason_boundary
         ; test_case "error_message all variants" `Quick test_error_message_all_variants
         ; test_case
             "context overflow classification"

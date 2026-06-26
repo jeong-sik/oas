@@ -2,10 +2,6 @@
 
 type invalid_request_reason =
   | Json_parse_error
-  | Schema_error
-  | Tool_error
-  | Routing_error
-  | Parameter_error
   | Unknown_invalid_request
 
 type api_error =
@@ -64,10 +60,6 @@ let network_error_kind_label = function
 
 let invalid_request_reason_to_string = function
   | Json_parse_error -> "json_parse_error"
-  | Schema_error -> "schema_error"
-  | Tool_error -> "tool_error"
-  | Routing_error -> "routing_error"
-  | Parameter_error -> "parameter_error"
   | Unknown_invalid_request -> "unknown"
 ;;
 
@@ -128,121 +120,17 @@ let contains_case_insensitive ~(haystack : string) ~(needle : string) : bool =
   | Not_found -> false
 ;;
 
-(** Classifies InvalidRequest messages that stem from malformed JSON in the
-    request body (e.g., the model generated invalid tool_call JSON that
-    llama-server rejected).  These are transient — retrying the same request
-    may produce valid output due to model nondeterminism. *)
-type malformed_json_signal =
-  | Invalid_json
-  | Missing_closing
-  | Unexpected_character_in_json
-  | Unexpected_token_in_json
-  | Unexpected_end_of_json
-  | Unterminated
-  | Parse_error_with_json_context
-
-let message_token_char = function
-  | 'a' .. 'z' | '0' .. '9' | '_' -> true
-  | _ -> false
+let internal_json_parse_error_prefixes =
+  [ "JSON parse error:"; "JSON type error:"; "JSON undefined field error:" ]
 ;;
 
-let message_tokens message =
-  let lower = String.lowercase_ascii message in
-  let tokens = ref [] in
-  let token = Buffer.create 16 in
-  let flush_token () =
-    if Buffer.length token > 0
-    then (
-      tokens := Buffer.contents token :: !tokens;
-      Buffer.clear token)
-  in
-  String.iter
-    (fun ch -> if message_token_char ch then Buffer.add_char token ch else flush_token ())
-    lower;
-  flush_token ();
-  List.rev !tokens
-;;
-
-let token_is needle token = String.equal token needle
-let contains_token needle tokens = List.exists (token_is needle) tokens
-
-let rec starts_with_sequence tokens sequence =
-  match tokens, sequence with
-  | _, [] -> true
-  | [], _ :: _ -> false
-  | token :: rest_tokens, expected :: rest_sequence ->
-    String.equal token expected && starts_with_sequence rest_tokens rest_sequence
-;;
-
-let rec contains_sequence sequence tokens =
-  match tokens with
-  | [] -> sequence = []
-  | _ :: rest -> starts_with_sequence tokens sequence || contains_sequence sequence rest
-;;
-
-let malformed_json_context_tokens =
-  [ "json"
-  ; "yyjson"
-  ; "body"
-  ; "request"
-  ; "payload"
-  ; "argument"
-  ; "arguments"
-  ; "tool"
-  ; "call"
-  ; "calls"
-  ; "schema"
-  ; "byte"
-  ; "position"
-  ; "object"
-  ; "array"
-  ; "string"
-  ]
-;;
-
-let has_malformed_json_context tokens =
-  List.exists (fun context -> contains_token context tokens) malformed_json_context_tokens
-;;
-
-let malformed_json_signal_of_message message =
-  let tokens = message_tokens message in
-  if contains_sequence [ "invalid"; "json" ] tokens
-  then Some Invalid_json
-  else if
-    contains_sequence [ "unexpected"; "character"; "in"; "json" ] tokens
-    || (contains_sequence [ "unexpected"; "character" ] tokens
-        && has_malformed_json_context tokens)
-  then Some Unexpected_character_in_json
-  else if
-    contains_sequence [ "unexpected"; "token" ] tokens
-    && has_malformed_json_context tokens
-  then Some Unexpected_token_in_json
-  else if
-    contains_sequence [ "unexpected"; "end"; "of"; "json" ] tokens
-    || (contains_sequence [ "unexpected"; "end" ] tokens
-        && has_malformed_json_context tokens)
-  then Some Unexpected_end_of_json
-  else if contains_token "unterminated" tokens
-  then Some Unterminated
-  else if
-    (contains_token "closing" tokens
-     && (contains_token "find" tokens
-         || contains_token "missing" tokens
-         || contains_token "expected" tokens))
-    || contains_sequence [ "find"; "end"; "of" ] tokens
-  then Some Missing_closing
-  else if
-    contains_sequence [ "parse"; "error" ] tokens && has_malformed_json_context tokens
-  then Some Parse_error_with_json_context
-  else None
-;;
-
-let is_malformed_json_message message =
-  Option.is_some (malformed_json_signal_of_message message)
-;;
-
-let invalid_request_reason_of_message message =
-  if is_malformed_json_message message then Json_parse_error else Unknown_invalid_request
+let invalid_request_reason_of_internal_boundary message =
+  if
+    List.exists
+      (fun prefix -> String.starts_with ~prefix message)
+      internal_json_parse_error_prefixes
+  then Json_parse_error
+  else Unknown_invalid_request
 ;;
 
 (** Substrings inside the extracted [error.message] text indicating the 429
@@ -468,7 +356,9 @@ let classify_error ~status ~body : api_error =
   | 400 | 422 ->
     if is_context_overflow_message body
     then ContextOverflow { message; limit = parse_context_overflow_limit body }
-    else InvalidRequest { message; reason = invalid_request_reason_of_message message }
+    else
+      InvalidRequest
+        { message; reason = invalid_request_reason_of_internal_boundary message }
   | 429 ->
     let parsed_retry_after =
       try
@@ -494,7 +384,8 @@ let classify_error ~status ~body : api_error =
   | s when s >= 500 -> ServerError { status = s; message }
   | unhandled_status ->
     let (_ : int) = unhandled_status in
-    InvalidRequest { message; reason = invalid_request_reason_of_message message }
+    InvalidRequest
+      { message; reason = invalid_request_reason_of_internal_boundary message }
 ;;
 
 (* The HTTP status a provider error condition carries as an initial response,

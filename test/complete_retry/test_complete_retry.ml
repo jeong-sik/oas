@@ -57,8 +57,12 @@ let hard_quota_body =
   {|{"error":{"message":"Insufficient balance or no resource package. Please recharge.","retry_after":5.0}}|}
 ;;
 
-let malformed_json_body =
+let provider_malformed_json_prose_body =
   {|{"error":"Value looks like object, but can't find closing '}' symbol"}|}
+;;
+
+let parser_json_error_body =
+  "JSON parse error: Value looks like object, but can't find closing '}' symbol"
 ;;
 
 let test_is_retryable_hard_quota_429 () =
@@ -69,13 +73,22 @@ let test_is_retryable_hard_quota_429 () =
     (Complete.is_retryable (Http_client.HttpError { code = 429; body = hard_quota_body }))
 ;;
 
-let test_is_retryable_malformed_json_400 () =
+let test_is_retryable_provider_malformed_json_prose_400 () =
   check
     bool
-    "malformed json 400 is retryable"
+    "provider prose 400 is not retryable"
+    false
+    (Complete.is_retryable
+       (Http_client.HttpError { code = 400; body = provider_malformed_json_prose_body }))
+;;
+
+let test_is_retryable_parser_json_error_400 () =
+  check
+    bool
+    "parser json error 400 is retryable"
     true
     (Complete.is_retryable
-       (Http_client.HttpError { code = 400; body = malformed_json_body }))
+       (Http_client.HttpError { code = 400; body = parser_json_error_body }))
 ;;
 
 let test_complete_with_retry_stops_on_hard_quota_429 () =
@@ -123,7 +136,7 @@ let test_complete_with_retry_retries_malformed_json_400 () =
     let request_count = ref 0 in
     let transport =
       scripted_transport
-        [ Error (Http_client.HttpError { code = 400; body = malformed_json_body })
+        [ Error (Http_client.HttpError { code = 400; body = parser_json_error_body })
         ; Ok (mock_response "recovered after retry")
         ]
         request_count
@@ -204,7 +217,7 @@ let test_complete_stream_with_retry_retries_malformed_json_400 () =
     let request_count = ref 0 in
     let transport =
       scripted_transport
-        [ Error (Http_client.HttpError { code = 400; body = malformed_json_body })
+        [ Error (Http_client.HttpError { code = 400; body = parser_json_error_body })
         ; Ok (mock_response "recovered after retry")
         ]
         request_count
@@ -245,7 +258,11 @@ let () =
     "complete_retry"
     [ ( "classification"
       , [ test_case "hard quota 429" `Quick test_is_retryable_hard_quota_429
-        ; test_case "malformed json 400" `Quick test_is_retryable_malformed_json_400
+        ; test_case
+            "provider malformed json prose 400"
+            `Quick
+            test_is_retryable_provider_malformed_json_prose_400
+        ; test_case "parser json error 400" `Quick test_is_retryable_parser_json_error_400
         ] )
     ; ( "retry loop"
       , [ test_case

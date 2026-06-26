@@ -365,7 +365,7 @@ let test_roundtrip_api_invalid_request () =
   | _ -> Alcotest.fail "roundtrip mismatch for InvalidRequest"
 ;;
 
-let test_roundtrip_api_invalid_request_preserves_malformed_json_retryability () =
+let test_roundtrip_api_invalid_request_does_not_infer_malformed_json () =
   let message = "Unexpected token } in JSON at position 12" in
   let orig =
     Error.Api (Retry.InvalidRequest { message; reason = Retry.Json_parse_error })
@@ -375,9 +375,13 @@ let test_roundtrip_api_invalid_request_preserves_malformed_json_retryability () 
    | `Invalid_request msg -> Alcotest.(check string) "message preserved" message msg
    | _ -> Alcotest.fail "expected Invalid_request");
   match Error_domain.to_sdk_error poly with
-  | Error.Api (Retry.InvalidRequest { reason = Retry.Json_parse_error; _ } as err) ->
-    Alcotest.(check bool) "retryable after roundtrip" true (Retry.is_retryable err)
-  | _ -> Alcotest.fail "roundtrip lost malformed JSON reason"
+  | Error.Api (Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; _ } as err)
+    ->
+    Alcotest.(check bool)
+      "prose is not inferred after roundtrip"
+      false
+      (Retry.is_retryable err)
+  | _ -> Alcotest.fail "roundtrip mismatch for InvalidRequest"
 ;;
 
 let test_roundtrip_api_context_overflow () =
@@ -793,7 +797,7 @@ let () =
         ; Alcotest.test_case
             "api invalid_request malformed JSON retryability"
             `Quick
-            test_roundtrip_api_invalid_request_preserves_malformed_json_retryability
+            test_roundtrip_api_invalid_request_does_not_infer_malformed_json
         ; Alcotest.test_case
             "api context_overflow"
             `Quick
