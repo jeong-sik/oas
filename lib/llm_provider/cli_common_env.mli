@@ -57,3 +57,9 @@ val trim_non_empty_opt : string option -> string option
     unless [allow_negative] is [true].  Rejected negative and non-numeric
     values emit a warning before falling back to [default]. *)
 val int : ?allow_negative:bool -> default:int -> string -> int
+
+(** [float ?allow_negative ~default var] parses env var [var] as a float.
+    Returns [default] when unset or empty.  Negative values are rejected
+    unless [allow_negative] is [true].  Rejected negative and non-numeric
+    values emit a warning before falling back to [default]. *)
+val float : ?allow_negative:bool -> default:float -> string -> float
