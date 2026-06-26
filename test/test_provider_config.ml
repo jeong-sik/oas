@@ -86,6 +86,58 @@ let test_request_path_override () =
   check_string "custom path" "/custom/path" cfg.request_path
 ;;
 
+(* ── auth headers ────────────────────────────────────── *)
+
+let check_headers = Alcotest.(check (list (pair string string)))
+
+let test_auth_headers_for_kind_and_key_matches_config () =
+  List.iter
+    (fun kind ->
+       let cfg =
+         Provider_config.make
+           ~kind
+           ~model_id:"auth-model"
+           ~base_url:"https://provider.example"
+           ~api_key:"provider-key"
+           ()
+       in
+       check_headers
+         (Provider_config.string_of_provider_kind kind)
+         (Provider_config.auth_headers_for_config cfg)
+         (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:"provider-key"))
+    Provider_config.all_provider_kinds
+;;
+
+let test_auth_headers_for_kind_and_key_wire_headers () =
+  let cases =
+    [ Provider_config.Anthropic, [ "x-api-key", "provider-key" ]
+    ; Provider_config.Kimi, [ "x-api-key", "provider-key" ]
+    ; Provider_config.Gemini, [ "x-goog-api-key", "provider-key" ]
+    ; Provider_config.OpenAI_compat, [ "Authorization", "Bearer provider-key" ]
+    ; Provider_config.Ollama, [ "Authorization", "Bearer provider-key" ]
+    ; Provider_config.Glm, [ "Authorization", "Bearer provider-key" ]
+    ; Provider_config.DashScope, [ "Authorization", "Bearer provider-key" ]
+    ]
+  in
+  List.iter
+    (fun (kind, expected) ->
+       check_headers
+         (Provider_config.string_of_provider_kind kind)
+         expected
+         (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:"provider-key"))
+    cases
+;;
+
+let test_auth_headers_for_kind_and_key_omits_empty_secret () =
+  List.iter
+    (fun kind ->
+       check_headers
+         (Provider_config.string_of_provider_kind kind)
+         []
+         (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:""))
+    Provider_config.all_provider_kinds
+;;
+
 (* ── make: explicit values ────────────────────────────── *)
 
 let test_make_with_all_options () =
@@ -942,6 +994,20 @@ let () =
         ; Alcotest.test_case "ollama" `Quick test_request_path_ollama
         ; Alcotest.test_case "dashscope" `Quick test_request_path_dashscope
         ; Alcotest.test_case "override" `Quick test_request_path_override
+        ] )
+    ; ( "auth_headers"
+      , [ Alcotest.test_case
+            "kind/key API matches config API"
+            `Quick
+            test_auth_headers_for_kind_and_key_matches_config
+        ; Alcotest.test_case
+            "kind/key API emits provider wire headers"
+            `Quick
+            test_auth_headers_for_kind_and_key_wire_headers
+        ; Alcotest.test_case
+            "empty secret omits headers"
+            `Quick
+            test_auth_headers_for_kind_and_key_omits_empty_secret
         ] )
     ; ( "explicit_values"
       , [ Alcotest.test_case "all options" `Quick test_make_with_all_options
