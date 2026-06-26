@@ -114,7 +114,7 @@ let test_is_retryable () =
 let test_invalid_request_reason_boundary () =
   let expect_unknown body =
     match Retry.classify_error ~status:400 ~body with
-    | Retry.InvalidRequest ({ reason = Unknown_invalid_request; _ } as err) ->
+    | Retry.InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
       check bool "generic invalid request is not retryable" false (Retry.is_retryable err)
     | _ -> fail "expected Unknown_invalid_request"
   in
