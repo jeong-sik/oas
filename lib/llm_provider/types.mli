@@ -220,6 +220,10 @@ type inference_telemetry =
   }
 [@@deriving show, yojson]
 
+(** Empty inference telemetry value owned by the telemetry type module.
+    Callers should record-update this value instead of duplicating every field. *)
+val default_inference_telemetry : inference_telemetry
+
 type api_response =
   { id : string
   ; model : string

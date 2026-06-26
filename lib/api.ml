@@ -63,21 +63,8 @@ let patch_latency (resp : Types.api_response) (latency_ms : int) : Types.api_res
     match resp.telemetry with
     | Some t -> Some { t with Llm_provider.Types.request_latency_ms = Some latency_ms }
     | None ->
-      Some
-        { Llm_provider.Types.system_fingerprint = None
-        ; timings = None
-        ; reasoning_tokens = None
-        ; reasoning_tokens_estimated = false
-        ; request_latency_ms = Some latency_ms
-        ; peak_memory_gb = None
-        ; provider_kind = None
-        ; reasoning_effort = None
-        ; canonical_model_id = None
-        ; effective_context_window = None
-        ; provider_internal_action_count = None
-        ; ttfrc_ms = None
-        ; prefill_ms = None
-        }
+      let default = Llm_provider.Types.default_inference_telemetry in
+      Some { default with request_latency_ms = Some latency_ms }
   in
   { resp with telemetry }
 ;;

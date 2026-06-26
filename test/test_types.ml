@@ -557,6 +557,22 @@ let test_usage_and_inference_telemetry_yojson_roundtrip () =
   | Error msg -> Alcotest.fail msg
 ;;
 
+let test_default_inference_telemetry () =
+  let telemetry = Types.default_inference_telemetry in
+  Alcotest.(check (option int))
+    "default latency unknown"
+    None
+    telemetry.request_latency_ms;
+  Alcotest.(check bool)
+    "default reasoning tokens are not estimated"
+    false
+    telemetry.reasoning_tokens_estimated;
+  Alcotest.(check (option int))
+    "default provider actions unknown"
+    None
+    telemetry.provider_internal_action_count
+;;
+
 (* ── role_of_string ──────────────────────────────────────── *)
 
 let test_role_of_string () =
@@ -998,6 +1014,10 @@ let () =
             "usage and telemetry yojson"
             `Quick
             test_usage_and_inference_telemetry_yojson_roundtrip
+        ; Alcotest.test_case
+            "default inference telemetry"
+            `Quick
+            test_default_inference_telemetry
         ] )
     ; "config", [ Alcotest.test_case "default_config" `Quick test_default_config ]
     ; ( "yojson_roundtrip"
