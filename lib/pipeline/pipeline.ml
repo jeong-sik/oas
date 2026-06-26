@@ -380,7 +380,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               to Skip (for example, at a configured threshold). *)
            pending_nudge := Some nudge_msg;
            idle_handled := true
-         | _ -> ());
+         | Hooks.Continue
+         | Hooks.Override _
+         | Hooks.ApprovalRequired
+         | Hooks.AdjustParams _
+         | Hooks.ElicitInput _ -> ());
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
        if !idle_skip
@@ -616,7 +620,12 @@ let compact_messages
   in
   match hook_decision with
   | Hooks.Skip -> false
-  | _ ->
+  | Hooks.Continue
+  | Hooks.Override _
+  | Hooks.ApprovalRequired
+  | Hooks.AdjustParams _
+  | Hooks.ElicitInput _
+  | Hooks.Nudge _ ->
     let reduced =
       Budget_strategy.reduce_for_budget
         ?summarizer:agent.options.summarizer

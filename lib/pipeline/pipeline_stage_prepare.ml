@@ -71,7 +71,11 @@ let stage_input ?raw_trace_run agent =
             }
       });
     Ok ()
-  | _ -> Ok ()
+  | Hooks.Continue
+  | Hooks.Skip
+  | Hooks.Override _
+  | Hooks.ApprovalRequired
+  | Hooks.AdjustParams _ -> Ok ()
 ;;
 
 (* Lower a canonical tool-result projection to the [Types.tool_result] the
