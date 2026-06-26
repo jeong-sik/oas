@@ -28,8 +28,8 @@ val bool_env_or : bool -> string -> bool
 val local_llm_url : string
 
 (** Fallback provider name.
-    Reads [OAS_FALLBACK_PROVIDER], defaults to ["local"]. *)
-val fallback_provider : string
+    Reads [OAS_FALLBACK_PROVIDER] at call time, defaults to ["local"]. *)
+val fallback_provider : unit -> string
 
 (** Explicit gate for runtime-only test providers such as ["mock"] and ["echo"].
     Disabled by default; tests must opt in via [OAS_ALLOW_TEST_PROVIDERS]. *)

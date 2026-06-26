@@ -2,12 +2,23 @@
     Targets: env_or, local_llm_url, fallback_provider, default_context_reducer.
     Uses Unix.putenv/Unix environment manipulation for env var testing.
 
-    IMPORTANT: Defaults.local_llm_url and Defaults.fallback_provider are
-    evaluated at module init time (let-binding, not functions). To test
-    different env var states we test env_or directly, which IS a function,
-    and test the reducer which is also computed at init time but exercisable. *)
+    IMPORTANT: Defaults.local_llm_url is evaluated at module init time
+    (let-binding, not function). To test different env var states we test
+    env_or directly, which IS a function, and test the reducer which is also
+    computed at init time but exercisable. *)
 
 open Agent_sdk
+
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  Unix.putenv key value;
+  Fun.protect
+    ~finally:(fun () ->
+      match previous with
+      | Some previous -> Unix.putenv key previous
+      | None -> Unix.putenv key "")
+    f
+;;
 
 let () =
   let open Alcotest in
@@ -55,8 +66,15 @@ let () =
     ; (* ── fallback_provider ───────────────────────────── *)
       ( "fallback_provider"
       , [ test_case "fallback_provider is non-empty" `Quick (fun () ->
-            let p = Defaults.fallback_provider in
+            let p = Defaults.fallback_provider () in
             check bool "non-empty" true (String.length p > 0))
+        ; test_case "fallback_provider reads env at call time" `Quick (fun () ->
+            with_env "OAS_FALLBACK_PROVIDER" "provider-a" (fun () ->
+              check string "first env" "provider-a" (Defaults.fallback_provider ());
+              Unix.putenv "OAS_FALLBACK_PROVIDER" "  provider-b  ";
+              check string "second env" "provider-b" (Defaults.fallback_provider ());
+              Unix.putenv "OAS_FALLBACK_PROVIDER" "";
+              check string "empty env default" "local" (Defaults.fallback_provider ())))
         ] )
     ; (* ── default_context_reducer ─────────────────────── *)
       ( "default_context_reducer"

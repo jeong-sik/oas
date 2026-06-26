@@ -36,7 +36,7 @@ let bool_env_or default var =
 ;;
 
 let local_llm_url = Llm_provider.Discovery.default_endpoint
-let fallback_provider = env_or "local" "OAS_FALLBACK_PROVIDER"
+let fallback_provider () = env_or "local" "OAS_FALLBACK_PROVIDER"
 let allow_test_providers () = bool_env_or false "OAS_ALLOW_TEST_PROVIDERS"
 
 (** Default context reducer: repair dangling tool calls + prune old tool args.
