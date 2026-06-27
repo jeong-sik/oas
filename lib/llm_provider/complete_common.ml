@@ -125,6 +125,45 @@ let%test "model capability thinking drift remains high-confidence warning" =
   && info_observations = []
 ;;
 
+type latency_counter = Mtime_clock.counter option
+
+let ns_per_ms = 1_000_000.0
+
+let start_latency_counter () =
+  try Some (Mtime_clock.counter ()) with
+  | exn ->
+    Diag.warn
+      "complete"
+      "monotonic latency clock unavailable: %s"
+      (Printexc.to_string exn);
+    None
+;;
+
+let latency_ms_float = function
+  | None -> None
+  | Some counter -> Some (Mtime.Span.to_float_ns (Mtime_clock.count counter) /. ns_per_ms)
+;;
+
+let round_latency_ms ms = int_of_float (Float.round ms)
+let latency_ms_int counter = Option.map round_latency_ms (latency_ms_float counter)
+
+let%test "latency counter yields non-negative elapsed duration when available" =
+  match start_latency_counter () with
+  | None -> true
+  | Some _ as counter ->
+    (match latency_ms_float counter with
+     | Some elapsed_ms -> elapsed_ms >= 0.0
+     | None -> false)
+;;
+
+let%test "unknown latency counter stays unknown" =
+  latency_ms_float None = None && latency_ms_int None = None
+;;
+
+let%test "integer latency rounds sub-millisecond samples" =
+  round_latency_ms 0.49 = 0 && round_latency_ms 0.5 = 1 && round_latency_ms 0.9 = 1
+;;
+
 (** Patch {!Types.api_response} telemetry with transport latency and provider
     metadata.
     The JSON parser sets [request_latency_ms = None] because it cannot see the

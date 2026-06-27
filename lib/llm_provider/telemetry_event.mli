@@ -34,7 +34,7 @@ type t =
   | Streaming_first_chunk of
       { provider : string
       ; model : string
-      ; ttfrc_ms : float
+      ; ttfrc_ms : float option
       ; requested_at : float
       }
   | Streaming_summary of
@@ -48,7 +48,8 @@ type t =
             delta (text, reasoning, or tool-call). Distinct from
             [ttfrc_ms] on [Streaming_first_chunk] which fires on the
             first chunk regardless of payload. [None] when the
-            completion never delivered a non-empty delta. *)
+            completion never delivered a non-empty delta or elapsed
+            latency was unavailable. *)
       ; prefill_ms : float option
         (** RFC-OAS-020: milliseconds from request submission to the
             first SSE event of any kind. [Some] when the provider
@@ -56,10 +57,12 @@ type t =
             (e.g. Anthropic [MessageStart] arrives before the first
             [ContentBlockDelta]); [None] for providers that do not
             (e.g. OpenAI-compat first chunk is a content delta). *)
-      ; total_ms : float
-      ; inter_chunk_ms_p50 : float
-      ; inter_chunk_ms_p95 : float
-      ; inter_chunk_ms_max : float
+      ; total_ms : float option
+        (** Monotonic elapsed milliseconds for the full stream. [None]
+            when the monotonic latency counter was unavailable. *)
+      ; inter_chunk_ms_p50 : float option
+      ; inter_chunk_ms_p95 : float option
+      ; inter_chunk_ms_max : float option
       ; terminal : streaming_terminal
       }
   | Thinking_complete of

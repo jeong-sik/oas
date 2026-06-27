@@ -57,7 +57,7 @@ let make_mock_transport () : Llm_provider.Llm_transport.t =
              (Llm_provider.Telemetry_event.Streaming_first_chunk
                 { provider = "mock-provider"
                 ; model = "mock-model"
-                ; ttfrc_ms = 1.0
+                ; ttfrc_ms = Some 1.0
                 ; requested_at = 0.0
                 })
          | None -> ());
