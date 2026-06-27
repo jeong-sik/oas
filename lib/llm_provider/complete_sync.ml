@@ -8,6 +8,15 @@
 include Complete_common
 include Complete_sampling
 
+let latency_now_s = function
+  | Some clock -> Eio.Time.now clock
+  | None -> Unix.gettimeofday ()
+;;
+
+let elapsed_latency_ms ~clock started_s =
+  int_of_float ((latency_now_s clock -. started_s) *. 1000.0)
+;;
+
 let complete_http
       ~sw
       ~net
@@ -133,7 +142,7 @@ let complete_http
               have been removed because they leak API keys and prompts. Use 'summary' or \
               a scrubbing-aware logger instead."
          | _other_debug_mode -> ());
-        let t0 = Unix.gettimeofday () in
+        let t0 = latency_now_s clock in
         let post_sync_call () =
           Http_client.post_sync
             ?cache:connection_cache
@@ -319,7 +328,7 @@ let complete_http
               in
               Error (Http_client.HttpError { code; body }))
         in
-        let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+        let latency_ms = elapsed_latency_ms ~clock t0 in
         result, latency_ms))
 ;;
 
