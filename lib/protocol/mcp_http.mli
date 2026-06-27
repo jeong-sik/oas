@@ -13,6 +13,10 @@ type config =
     ["http://localhost:8080/mcp"]. *)
 val default_config : unit -> config
 
+(** Environment variable used by {!default_config} to resolve the MCP HTTP
+    endpoint. *)
+val default_endpoint_env_var : string
+
 type t
 
 val connect

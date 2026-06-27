@@ -32,13 +32,13 @@ let test_default_config () =
 ;;
 
 let test_default_config_reads_env_at_call_time () =
-  with_env "OAS_MCP_HTTP_URL" "http://127.0.0.1:7777/mcp" (fun () ->
+  with_env Mcp_http.default_endpoint_env_var "http://127.0.0.1:7777/mcp" (fun () ->
     let cfg = Mcp_http.default_config () in
     check string "first env" "http://127.0.0.1:7777/mcp" cfg.base_url;
-    Unix.putenv "OAS_MCP_HTTP_URL" "  http://127.0.0.1:8888/mcp  ";
+    Unix.putenv Mcp_http.default_endpoint_env_var "  http://127.0.0.1:8888/mcp  ";
     let cfg = Mcp_http.default_config () in
     check string "second env" "http://127.0.0.1:8888/mcp" cfg.base_url;
-    Unix.putenv "OAS_MCP_HTTP_URL" "";
+    Unix.putenv Mcp_http.default_endpoint_env_var "";
     let cfg = Mcp_http.default_config () in
     check string "empty env default" "http://localhost:8080/mcp" cfg.base_url)
 ;;
