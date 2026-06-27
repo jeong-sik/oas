@@ -5,6 +5,10 @@
 
     Fail-open design: on write failure, original content is preserved.
 
+    This module performs blocking Unix filesystem I/O via {!Fs_result}. Callers
+    in latency-sensitive Eio fibers should run it from a system thread or use a
+    future Eio-native offload implementation.
+
     @since 0.62.0
 
     @stability Evolving
@@ -42,7 +46,9 @@ type offload_result =
 
     Returns [Offloaded] when content exceeds [config.threshold_bytes],
     [Kept] otherwise or on write failure. Write failures are emitted via
-    [Llm_provider.Diag.warn] before preserving the original content. *)
+    [Llm_provider.Diag.warn] before preserving the original content.
+
+    Performs blocking Unix filesystem I/O. *)
 val maybe_offload : config:config -> tool_name:string -> string -> offload_result
 
 (** Format an offload result for context insertion. *)

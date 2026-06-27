@@ -26,6 +26,15 @@ let default_config () =
 
 (** Diagnostic context string used for [Llm_provider.Diag] warnings. *)
 let diag_ctx = "context_offload"
+
+let offload_path ~output_dir ~tool_name =
+  match Tool_result_store.sanitize_tool_use_id tool_name with
+  | Error _ as err -> err
+  | Ok safe_tool_name ->
+    let prefix = Printf.sprintf "oas_offload_%s_" safe_tool_name in
+    (try Ok (Filename.temp_file ~temp_dir:output_dir prefix ".txt") with
+     | Eio.Cancel.Cancelled _ as e -> raise e
+     | exn -> Fs_result.io_error_of_exn ~op:"create_temp" ~path:output_dir exn)
 ;;
 
 (** Result of an offload attempt. *)
@@ -50,28 +59,31 @@ let maybe_offload ~(config : config) ~(tool_name : string) (content : string)
   if len <= config.threshold_bytes
   then Kept content
   else (
-    let filename =
-      Printf.sprintf
-        "oas_offload_%s_%d.txt"
-        (String.map (fun c -> if c = '/' || c = ' ' then '_' else c) tool_name)
-        (int_of_float (Unix.gettimeofday () *. 1000.0))
-    in
-    let path = Filename.concat config.output_dir filename in
-    match Fs_result.write_file path content with
-    | Ok () ->
-      let preview =
-        if len <= config.preview_len
-        then content
-        else String.sub content 0 config.preview_len
-      in
-      Offloaded { path; preview; original_bytes = len }
+    match offload_path ~output_dir:config.output_dir ~tool_name with
     | Error err ->
       Llm_provider.Diag.warn
         diag_ctx
         "failed to offload tool result for %s: %s"
         tool_name
         (Error.to_string err);
-      Kept content)
+      Kept content
+    | Ok path ->
+      (match Fs_result.write_file path content with
+       | Ok () ->
+         let preview =
+           if len <= config.preview_len
+           then content
+           else String.sub content 0 config.preview_len
+         in
+         Offloaded { path; preview; original_bytes = len }
+       | Error err ->
+         ignore (Fs_result.remove_file path : (unit, Error.sdk_error) result);
+         Llm_provider.Diag.warn
+           diag_ctx
+           "failed to offload tool result for %s: %s"
+           tool_name
+           (Error.to_string err);
+         Kept content))
 ;;
 
 (** Format an offloaded result as a replacement string for the context.
