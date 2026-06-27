@@ -250,34 +250,18 @@ let default_attempt_timeout_s = function
   | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;
 
-type reasoning_effort =
+type reasoning_effort = Reasoning_effort.t =
   | Minimal
   | Low
   | Medium
   | High
   | XHigh
 
-let all_reasoning_efforts = [ Minimal; Low; Medium; High; XHigh ]
-
-let reasoning_effort_to_string = function
-  | Minimal -> "minimal"
-  | Low -> "low"
-  | Medium -> "medium"
-  | High -> "high"
-  | XHigh -> "xhigh"
-;;
-
-let reasoning_effort_of_string value =
-  List.find_opt
-    (fun effort -> String.equal value (reasoning_effort_to_string effort))
-    all_reasoning_efforts
-;;
-
+let all_reasoning_efforts = Reasoning_effort.all
+let reasoning_effort_to_string = Reasoning_effort.to_string
+let reasoning_effort_of_string = Reasoning_effort.of_string
 let default_reasoning_effort_env = "OAS_DEFAULT_REASONING_EFFORT"
-
-let reasoning_effort_values_for_log =
-  String.concat "/" (List.map reasoning_effort_to_string all_reasoning_efforts)
-;;
+let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
 
 (** Default reasoning effort level when thinking is enabled but no budget
     is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
@@ -311,10 +295,7 @@ let effort_of_thinking_config_value
   | Some false | None -> None
   | Some true ->
     (match thinking_budget with
-     | Some n when n <= 0 -> None
-     | Some n when n <= 2048 -> Some Low
-     | Some n when n <= 8192 -> Some Medium
-     | Some _ -> Some High
+     | Some n -> Reasoning_effort.of_budget n
      | None -> Some (default_reasoning_effort_value ?getenv ()))
 ;;
 
@@ -329,6 +310,14 @@ let effort_of_thinking_config
   | Some effort -> reasoning_effort_to_string effort
 ;;
 
+let reasoning_effort_request_value_typed
+      ~(enable_thinking : bool option)
+      ~(thinking_budget : int option)
+  : reasoning_effort option
+  =
+  effort_of_thinking_config_value ~enable_thinking ~thinking_budget ()
+;;
+
 let reasoning_effort_request_value
       ~(enable_thinking : bool option)
       ~(thinking_budget : int option)
@@ -336,7 +325,7 @@ let reasoning_effort_request_value
   =
   Option.map
     reasoning_effort_to_string
-    (effort_of_thinking_config_value ~enable_thinking ~thinking_budget ())
+    (reasoning_effort_request_value_typed ~enable_thinking ~thinking_budget)
 ;;
 
 (** Compute reasoning_effort for a provider config.

@@ -463,9 +463,21 @@ let test_reasoning_effort_of_thinking_config () =
   check_effort "disabled" "none" (Some false) (Some 4096);
   check_effort "missing flag" "none" None (Some 4096);
   check_effort "zero budget" "none" (Some true) (Some 0);
-  check_effort "low budget" "low" (Some true) (Some 2048);
-  check_effort "medium budget" "medium" (Some true) (Some 8192);
-  check_effort "high budget" "high" (Some true) (Some 8193)
+  check_effort
+    "low budget"
+    "low"
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens);
+  check_effort
+    "medium budget"
+    "medium"
+    (Some true)
+    (Some Reasoning_effort.medium_budget_max_tokens);
+  check_effort
+    "high budget"
+    "high"
+    (Some true)
+    (Some (Reasoning_effort.medium_budget_max_tokens + 1))
 ;;
 
 let test_reasoning_effort_typed_roundtrip () =
@@ -490,7 +502,12 @@ let test_reasoning_effort_typed_roundtrip () =
     "unknown wire"
     None
     (reasoning_effort_option_to_string
-       (Provider_config.reasoning_effort_of_string "urgent"))
+       (Provider_config.reasoning_effort_of_string "urgent"));
+  Alcotest.(check (option string))
+    "trimmed case-insensitive wire"
+    (Some "low")
+    (reasoning_effort_option_to_string
+       (Provider_config.reasoning_effort_of_string " LOW "))
 ;;
 
 let test_reasoning_effort_typed_config_value () =
@@ -507,9 +524,21 @@ let test_reasoning_effort_typed_config_value () =
   check_value "disabled typed" None (Some false) (Some 4096);
   check_value "missing flag typed" None None (Some 4096);
   check_value "zero budget typed" None (Some true) (Some 0);
-  check_value "low typed" (Some "low") (Some true) (Some 2048);
-  check_value "medium typed" (Some "medium") (Some true) (Some 8192);
-  check_value "high typed" (Some "high") (Some true) (Some 8193);
+  check_value
+    "low typed"
+    (Some "low")
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens);
+  check_value
+    "medium typed"
+    (Some "medium")
+    (Some true)
+    (Some Reasoning_effort.medium_budget_max_tokens);
+  check_value
+    "high typed"
+    (Some "high")
+    (Some true)
+    (Some (Reasoning_effort.medium_budget_max_tokens + 1));
   let getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "xhigh" ] in
   Alcotest.(check (option string))
     "env default typed"
@@ -564,10 +593,28 @@ let test_reasoning_effort_request_value () =
       expected
       (Provider_config.reasoning_effort_request_value ~enable_thinking ~thinking_budget)
   in
+  let check_typed_value label expected enable_thinking thinking_budget =
+    Alcotest.(check (option string))
+      label
+      expected
+      (reasoning_effort_option_to_string
+         (Provider_config.reasoning_effort_request_value_typed
+            ~enable_thinking
+            ~thinking_budget))
+  in
   check_value "unset omits field" None None (Some 4096);
   check_value "disabled omits field" None (Some false) (Some 4096);
   check_value "zero budget omits field" None (Some true) (Some 0);
-  check_value "enabled maps effort" (Some "low") (Some true) (Some 2048)
+  check_value
+    "enabled maps effort"
+    (Some "low")
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens);
+  check_typed_value
+    "enabled maps typed effort"
+    (Some "low")
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens)
 ;;
 
 let test_structured_output_name_of_schema () =

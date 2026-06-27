@@ -225,12 +225,14 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
          | _ -> body_assoc)
       | Llm_provider.Capabilities.Reasoning_effort ->
         (match
-           Llm_provider.Provider_config.reasoning_effort_request_value
+           Llm_provider.Provider_config.reasoning_effort_request_value_typed
              ~enable_thinking:config.config.enable_thinking
              ~thinking_budget:config.config.thinking_budget
          with
          | Some effort ->
-           (match Llm_provider.Reasoning_dialect.normalize_effort dialect effort with
+           (match
+              Llm_provider.Reasoning_dialect.normalize_effort_value dialect effort
+            with
             | Some normalized -> ("reasoning_effort", `String normalized) :: body_assoc
             | None -> body_assoc)
          | None -> body_assoc)
@@ -239,12 +241,14 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
          | Some true ->
            let body_assoc =
              match
-               Llm_provider.Provider_config.reasoning_effort_request_value
+               Llm_provider.Provider_config.reasoning_effort_request_value_typed
                  ~enable_thinking:config.config.enable_thinking
                  ~thinking_budget:config.config.thinking_budget
              with
              | Some effort ->
-               (match Llm_provider.Reasoning_dialect.normalize_effort dialect effort with
+               (match
+                  Llm_provider.Reasoning_dialect.normalize_effort_value dialect effort
+                with
                 | Some normalized ->
                   ("reasoning_effort", `String normalized) :: body_assoc
                 | None -> body_assoc)

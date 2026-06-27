@@ -271,13 +271,14 @@ val default_attempt_timeout_s : provider_kind -> float option
 (** OpenAI-compatible reasoning effort levels accepted on the wire.
     [reasoning_effort_to_string] is the only string serialization surface for
     these values. *)
-type reasoning_effort =
+type reasoning_effort = Reasoning_effort.t =
   | Minimal
   | Low
   | Medium
   | High
   | XHigh
 
+val all_reasoning_efforts : reasoning_effort list
 val reasoning_effort_to_string : reasoning_effort -> string
 val reasoning_effort_of_string : string -> reasoning_effort option
 
@@ -308,6 +309,14 @@ val effort_of_thinking_config
   :  enable_thinking:bool option
   -> thinking_budget:int option
   -> string
+
+(** Typed provider request body value for OpenAI-compatible
+    [reasoning_effort]. [None] means callers omit the field. Production
+    serializers should prefer this over the string compatibility wrapper. *)
+val reasoning_effort_request_value_typed
+  :  enable_thinking:bool option
+  -> thinking_budget:int option
+  -> reasoning_effort option
 
 (** Provider request body value for OpenAI-compatible [reasoning_effort].
     Returns [None] when thinking is disabled, unset, or resolved to ["none"],

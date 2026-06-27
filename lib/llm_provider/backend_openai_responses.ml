@@ -298,13 +298,7 @@ let build_request
   in
   let dialect = Reasoning_dialect.for_provider_config config in
   let reasoning_effort =
-    match
-      Provider_config.reasoning_effort_request_value
-        ~enable_thinking:config.enable_thinking
-        ~thinking_budget:config.thinking_budget
-    with
-    | Some effort -> Reasoning_dialect.normalize_effort dialect effort
-    | None -> None
+    Backend_openai_request.normalized_reasoning_effort dialect config
   in
   let body =
     [ "model", `String config.model_id

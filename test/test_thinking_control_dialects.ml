@@ -11,6 +11,7 @@ module BOL = Llm_provider.Backend_ollama
 module BAN = Llm_provider.Backend_anthropic
 module CM = Llm_provider.Capability_manifest
 module RD = Llm_provider.Reasoning_dialect
+module RE = Llm_provider.Reasoning_effort
 open Alcotest
 open Llm_provider.Types
 open Yojson.Safe.Util
@@ -209,7 +210,12 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     (option string)
     "preserve xhigh"
     (Some "xhigh")
-    (RD.normalize_effort dialect "xhigh")
+    (RD.normalize_effort dialect "xhigh");
+  check
+    (option string)
+    "typed preserve xhigh"
+    (Some "xhigh")
+    (RD.normalize_effort_value dialect RE.XHigh)
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =
@@ -310,6 +316,16 @@ let test_deepseek_reasoning_dialect_semantics () =
     "xhigh maps max"
     (Some "max")
     (RD.normalize_effort dialect "xhigh");
+  check
+    (option string)
+    "typed low maps high"
+    (Some "high")
+    (RD.normalize_effort_value dialect RE.Low);
+  check
+    (option string)
+    "typed minimal omitted"
+    None
+    (RD.normalize_effort_value dialect RE.Minimal);
   check
     (list string)
     "ignored sampling params"
