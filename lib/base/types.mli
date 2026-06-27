@@ -74,6 +74,24 @@ type agent_config =
 
 val default_config : agent_config
 
+(** Default proactive context compaction watermark used when
+    [agent_config.context_compact_ratio] is [None]. *)
+val default_context_compact_ratio : float
+
+(** Default budget ratio for the context reducer's normal compaction path.
+
+    Distinct from {!default_context_compact_ratio}: the budget ratio limits
+    how much of [max_tokens] the reducer may keep, while the watermark ratio
+    triggers proactive compaction in the pipeline. *)
+val default_context_compact_budget_ratio : float
+
+(** [valid_context_ratio ratio] is [true] for ratios accepted by
+    context-threshold configuration. *)
+val valid_context_ratio : float -> bool
+
+(** Require [ratio] to be a valid context ratio, or raise [Invalid_argument]. *)
+val require_context_ratio : name:string -> float -> float
+
 (** Usage tracking accumulated across provider calls. Per-response usage stays
     in {!Llm_provider.Types.api_usage}.
 

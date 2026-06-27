@@ -16,6 +16,11 @@ val openai_json_schema_payload : Yojson.Safe.t -> Yojson.Safe.t
 val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 val response_format_of_config : Provider_config.t -> Yojson.Safe.t option
 
+val normalized_reasoning_effort
+  :  Reasoning_dialect.t
+  -> Provider_config.t
+  -> string option
+
 (** [build_request_assoc] is {!build_request} before the final
     [Yojson.Safe.to_string]; sibling backends (e.g. {!Backend_glm}) mutate the
     Assoc directly instead of parsing the serialized string back. *)

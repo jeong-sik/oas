@@ -31,14 +31,32 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
     override.  Hard floor prevents silent pass-through that caused CTX 101%
     overrun (#7083). Values outside (0.0, 1.0) are rejected.
     @since 0.185.0 *)
-let default_compact_watermark = 0.9
+let is_valid_compact_watermark = Types.valid_context_ratio
 
-let is_valid_compact_watermark w = w > 0.0 && w < 1.0
-
-let resolve_compact_watermark agent =
+(** Single resolver for the proactive compaction watermark. Config ratios are
+    already validated at construction time by the builder and reducer; this
+    function remains as a fail-soft guard for direct [agent_config]
+    construction, checkpoint reload, or any other path that bypasses the
+    builder boundary. *)
+let proactive_watermark agent =
   match agent.state.config.context_compact_ratio with
-  | Some w when is_valid_compact_watermark w -> w
-  | _ -> default_compact_watermark
+  | Some ratio when Types.valid_context_ratio ratio -> ratio
+  | Some ratio ->
+    Log.warn
+      _log
+      "invalid context_compact_ratio; using default proactive watermark"
+      [ Log.S ("agent", agent.state.config.name)
+      ; Log.F ("value", ratio)
+      ; Log.F ("default", Types.default_context_compact_ratio)
+      ];
+    Types.default_context_compact_ratio
+  | None -> Types.default_context_compact_ratio
+;;
+
+let context_window_usage_ratio ~estimated_tokens ~limit_tokens =
+  if limit_tokens <= 0
+  then 0.0
+  else float_of_int estimated_tokens /. float_of_int limit_tokens
 ;;
 
 open Result_syntax
@@ -575,11 +593,7 @@ let publish_context_window_usage agent ~estimated_tokens ~limit_tokens =
   match agent.options.event_bus with
   | None -> ()
   | Some bus ->
-    let usage_ratio =
-      if limit_tokens <= 0
-      then 0.0
-      else float_of_int estimated_tokens /. float_of_int limit_tokens
-    in
+    let usage_ratio = context_window_usage_ratio ~estimated_tokens ~limit_tokens in
     Telemetry_bus.publish
       (Telemetry_bus.of_event_bus bus)
       (Llm_provider.Telemetry_event.Context_window_usage
@@ -833,15 +847,18 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Agent_turn.prepare_turn directly (not stage_parse) to avoid emitting
      TurnStarted a second time or re-invoking before_turn_params.
 
-     Hard budget gate (OAS-2): when context_compact_ratio is not configured,
-     a ratio >= compact_watermark still triggers compaction. This
-     prevents the silent pass-through that caused a downstream consumer's
+     Hard budget gate (OAS-2): when context_compact_ratio is not configured
+     or is invalid, a ratio >= Types.default_context_compact_ratio still
+     triggers compaction.
+     This prevents the silent pass-through that caused a downstream consumer's
      CTX 101% overrun (observed in upstream issue #7083). *)
   let prep =
-    let watermark = resolve_compact_watermark agent in
+    let watermark = proactive_watermark agent in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
-    let ratio = float_of_int est_tokens /. float_of_int context_window in
+    let ratio =
+      context_window_usage_ratio ~estimated_tokens:est_tokens ~limit_tokens:context_window
+    in
     if ratio >= watermark
     then (
       (* Emit ContextOverflowImminent before compaction *)
@@ -889,10 +906,14 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Same hard budget gate as 2.3 — if context still exceeds watermark
      after validation (validators can inject messages), compact again. *)
     let prep =
-      let watermark = resolve_compact_watermark agent in
+      let watermark = proactive_watermark agent in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
-      let ratio = float_of_int est_tokens /. float_of_int context_window in
+      let ratio =
+        context_window_usage_ratio
+          ~estimated_tokens:est_tokens
+          ~limit_tokens:context_window
+      in
       if ratio >= watermark
       then (
         let compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in

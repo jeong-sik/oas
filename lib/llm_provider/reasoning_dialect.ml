@@ -180,16 +180,25 @@ let for_provider_config (config : Provider_config.t) =
     |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
 ;;
 
+let normalize_effort_value dialect effort =
+  match dialect.effort_alias_policy, (effort : Reasoning_effort.t) with
+  | ( Deepseek_high_or_max
+    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
+    Some "high"
+  | Deepseek_high_or_max, Reasoning_effort.XHigh -> Some "max"
+  | Deepseek_high_or_max, Reasoning_effort.Minimal -> None
+  | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
+;;
+
 let normalize_effort dialect raw =
   let normalized = String.lowercase_ascii (String.trim raw) in
-  match normalized, dialect.effort_alias_policy with
-  | ("none" | "off" | "disabled" | ""), _ -> None
-  | ("low" | "medium" | "high"), Deepseek_high_or_max -> Some "high"
-  | ("xhigh" | "max"), Deepseek_high_or_max -> Some "max"
-  | ("minimal" | "low" | "medium" | "high"), Preserve_effort -> Some normalized
-  | "max", Preserve_effort -> Some "max"
-  | "xhigh", Preserve_effort -> Some "xhigh"
-  | _ -> None
+  match normalized with
+  | "none" | "off" | "disabled" | "" -> None
+  | "max" -> Some "max"
+  | _ ->
+    (match Reasoning_effort.of_string raw with
+     | Some effort -> normalize_effort_value dialect effort
+     | None -> None)
 ;;
 
 let sampling_params_ignored_when_thinking dialect =

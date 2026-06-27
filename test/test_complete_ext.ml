@@ -490,7 +490,7 @@ let test_complete_stream_transport_success_metrics_and_telemetry () =
                (Telemetry_event.Streaming_first_chunk
                   { provider = "openai"
                   ; model = request.config.model_id
-                  ; ttfrc_ms = 1.5
+                  ; ttfrc_ms = Some 1.5
                   ; requested_at = 0.0
                   })
            | None -> ());

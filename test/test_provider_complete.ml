@@ -21,6 +21,19 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
+let with_env name value f =
+  let saved = Sys.getenv_opt name in
+  (match value with
+   | Some v -> Unix.putenv name v
+   | None -> Unix.putenv name "");
+  Fun.protect
+    ~finally:(fun () ->
+      match saved with
+      | Some v -> Unix.putenv name v
+      | None -> Unix.putenv name "")
+    f
+;;
+
 (* ── Anthropic build_request ─────────────────────────── *)
 
 let test_anthropic_basic_body () =
@@ -1056,6 +1069,41 @@ let test_cache_short_prompt_skips () =
     (json |> member "system" |> to_string)
 ;;
 
+let test_cache_prompt_min_chars_resolves_env_at_build_time () =
+  let system_prompt = "Short prompt." in
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"m"
+      ~base_url:""
+      ~system_prompt
+      ~cache_system_prompt:true
+      ()
+  in
+  let system_json () =
+    let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "system"
+  in
+  with_env Llm_provider.Constants.Env.prompt_cache_min_chars (Some "9999") (fun () ->
+    let open Yojson.Safe.Util in
+    Alcotest.(check string)
+      "high threshold keeps plain string"
+      system_prompt
+      (system_json () |> to_string));
+  with_env Llm_provider.Constants.Env.prompt_cache_min_chars (Some "1") (fun () ->
+    let open Yojson.Safe.Util in
+    let system = system_json () |> to_list in
+    Alcotest.(check int) "low threshold caches system block" 1 (List.length system);
+    let block = List.hd system in
+    Alcotest.(check string) "type" "text" (block |> member "type" |> to_string);
+    Alcotest.(check string)
+      "cache_control type"
+      "ephemeral"
+      (block |> member "cache_control" |> member "type" |> to_string))
+;;
+
 let test_cache_no_system_no_cache () =
   let config =
     PC.make
@@ -1219,6 +1267,10 @@ let () =
         ; test_case "last tool gets cache_control" `Quick test_cache_tools
         ; test_case "default cache off" `Quick test_cache_default_false
         ; test_case "short prompt skips cache" `Quick test_cache_short_prompt_skips
+        ; test_case
+            "prompt min chars resolves env at build time"
+            `Quick
+            test_cache_prompt_min_chars_resolves_env_at_build_time
         ] )
     ]
 ;;

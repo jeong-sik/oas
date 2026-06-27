@@ -83,6 +83,37 @@ let test_model_to_string () =
   Alcotest.(check string) "custom" "my-model" (Types.model_to_string "my-model")
 ;;
 
+let test_context_compact_ratio_defaults () =
+  Alcotest.(check (float 0.0))
+    "default context compact ratio"
+    0.9
+    Types.default_context_compact_ratio;
+  Alcotest.(check bool)
+    "default context compact ratio is valid"
+    true
+    (Types.valid_context_ratio Types.default_context_compact_ratio);
+  Alcotest.(check bool) "valid override accepted" true (Types.valid_context_ratio 0.5);
+  Alcotest.(check bool) "zero rejected" false (Types.valid_context_ratio 0.0);
+  Alcotest.(check bool) "one rejected" false (Types.valid_context_ratio 1.0);
+  Alcotest.(check bool) "negative rejected" false (Types.valid_context_ratio (-0.1));
+  Alcotest.(check (option (float 0.0)))
+    "default_config leaves per-agent override unset"
+    None
+    Types.default_config.context_compact_ratio;
+  Alcotest.(check (float 0.0))
+    "default context compact budget ratio"
+    0.8
+    Types.default_context_compact_budget_ratio;
+  Alcotest.(check (float 0.0))
+    "require_context_ratio accepts valid ratio"
+    0.5
+    (Types.require_context_ratio ~name:"test" 0.5);
+  Alcotest.check_raises
+    "require_context_ratio rejects zero"
+    (Invalid_argument "test must be > 0.0 and < 1.0")
+    (fun () -> ignore (Types.require_context_ratio ~name:"test" 0.0))
+;;
+
 let test_role_to_string () =
   Alcotest.(check string) "user" "user" (Types.role_to_string Types.User);
   Alcotest.(check string) "assistant" "assistant" (Types.role_to_string Types.Assistant)
@@ -909,6 +940,39 @@ let test_response_shape_thinking_only_is_not_deliverable () =
     (summary_contains ~needle:"hidden" response)
 ;;
 
+let test_response_shape_empty_end_turn_is_not_deliverable () =
+  let response = response () in
+  let shape = Response_shape.summarize response in
+  Alcotest.(check bool)
+    "no deliverable content"
+    false
+    (Response_shape.has_deliverable_content shape);
+  Alcotest.(check bool)
+    "ended without deliverable content"
+    true
+    (Response_shape.ended_without_deliverable_content response);
+  Alcotest.(check string)
+    "shape label"
+    "empty"
+    (Response_shape.content_shape_to_string (Response_shape.content_shape response shape));
+  Alcotest.(check bool)
+    "summary includes empty shape"
+    true
+    (summary_contains ~needle:"shape=empty" response);
+  Alcotest.(check bool)
+    "summary includes end_turn"
+    true
+    (summary_contains ~needle:"stop_reason=end_turn" response);
+  Alcotest.(check bool)
+    "summary includes no content blocks"
+    true
+    (summary_contains ~needle:"content_blocks=0" response);
+  Alcotest.(check bool)
+    "summary includes no content kinds"
+    true
+    (summary_contains ~needle:"content_kinds=[none]" response)
+;;
+
 let test_response_shape_thinking_plus_text_is_deliverable () =
   let response =
     response
@@ -962,6 +1026,12 @@ let () =
         ; Alcotest.test_case "empty stop reason" `Quick test_empty_stop_reason
         ] )
     ; "model", [ Alcotest.test_case "model_to_string" `Quick test_model_to_string ]
+    ; ( "context"
+      , [ Alcotest.test_case
+            "compact ratio defaults"
+            `Quick
+            test_context_compact_ratio_defaults
+        ] )
     ; ( "role"
       , [ Alcotest.test_case "role_to_string" `Quick test_role_to_string
         ; Alcotest.test_case "role_of_string" `Quick test_role_of_string
@@ -982,6 +1052,10 @@ let () =
             "thinking-only is not deliverable"
             `Quick
             test_response_shape_thinking_only_is_not_deliverable
+        ; Alcotest.test_case
+            "empty end_turn is not deliverable"
+            `Quick
+            test_response_shape_empty_end_turn_is_not_deliverable
         ; Alcotest.test_case
             "thinking plus text is deliverable"
             `Quick

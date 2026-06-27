@@ -8,6 +8,19 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Bug Fixes
+
+* **context_offload:** emit a diagnostic warning when tool-result offload write
+  fails before preserving the original content.
+* **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
+
+### Features
+
+* **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or`, `Defaults.int_env_or`/`float_env_or`/`bool_env_or`, and `Tool_result_store` config overrides now delegate to it.
+* **env:** `Defaults` env parsers preserve the historical structured `Log.warn` schema via the new `Cli_common_env` `on_invalid` callback.
+* **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
+* **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
+* **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 ### Breaking Changes
 
 * **context_offload:** `Context_offload.default_config` is now `unit -> config`
@@ -18,10 +31,29 @@ original tag dates. `0.100.4` was never tagged or released.
   `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from
   `Mcp_http.default_config` to `Mcp_http.default_config ()`.
 
+## [0.207.10](https://github.com/jeong-sik/oas/compare/v0.207.9...v0.207.10) (2026-06-27)
+
+
 ### Bug Fixes
 
-* **context_offload:** emit a diagnostic warning when tool-result offload write
-  fails before preserving the original content.
+* **builder:** log auto dump save failures ([#2197](https://github.com/jeong-sik/oas/issues/2197)) ([ed1deac](https://github.com/jeong-sik/oas/commit/ed1deac2ab9af03730af233f6d0d2eb4d3f119f0))
+* **complete:** measure latency with monotonic counters ([#2181](https://github.com/jeong-sik/oas/issues/2181)) ([9ab0301](https://github.com/jeong-sik/oas/commit/9ab030140a09791a7402cfb9209cc212889c0d7a))
+* **pipeline:** make compaction watermark config-owned ([#2177](https://github.com/jeong-sik/oas/issues/2177)) ([0a018b7](https://github.com/jeong-sik/oas/commit/0a018b7210038d0c9c274d7d4f0658b6e672cced))
+* **provider:** derive auth headers without dummy config ([#2178](https://github.com/jeong-sik/oas/issues/2178)) ([48afaec](https://github.com/jeong-sik/oas/commit/48afaec325ab528c50be135e03933de4e4b20794))
+
+## [0.207.9](https://github.com/jeong-sik/oas/compare/v0.207.8...v0.207.9) (2026-06-27)
+
+
+### Bug Fixes
+
+* **config:** reject malformed agent list fields ([#2198](https://github.com/jeong-sik/oas/issues/2198)) ([e1c6b13](https://github.com/jeong-sik/oas/commit/e1c6b13247af69354bc3ab77a274ab52804c2aec))
+* **discovery:** warn on invalid port env tokens ([#2199](https://github.com/jeong-sik/oas/issues/2199)) ([1134964](https://github.com/jeong-sik/oas/commit/1134964c5ba864443972e6c2a5129ef67f712a1e))
+* **mcp:** resolve http transport env at call time ([#2193](https://github.com/jeong-sik/oas/issues/2193)) ([ebed7ca](https://github.com/jeong-sik/oas/commit/ebed7ca35371425593d6a91ac5857165a753e008))
+* **oas:** concurrency safety, http client diagnostics, and pipeline SSOT ([#2174](https://github.com/jeong-sik/oas/issues/2174)) ([54507b2](https://github.com/jeong-sik/oas/commit/54507b26c920486588e8e36a7aa28ac125d75c9b))
+* **oas:** reset idle counter on non-tool-use turns and idle Skip ([#2190](https://github.com/jeong-sik/oas/issues/2190)) ([1998e7c](https://github.com/jeong-sik/oas/commit/1998e7cb02f1fdd1eac5fc031595ddddfa1ef007))
+* **pipeline:** make hook decisions exhaustive ([#2179](https://github.com/jeong-sik/oas/issues/2179)) ([bd34a5e](https://github.com/jeong-sik/oas/commit/bd34a5eb3a665ae6be514d0aaf7af553edd070fc))
+* **provider:** configurable connect/headers timeout override ([#2163](https://github.com/jeong-sik/oas/issues/2163)) ([#2186](https://github.com/jeong-sik/oas/issues/2186)) ([37f2084](https://github.com/jeong-sik/oas/commit/37f20842b0718f0fb2bb5e48f597d5319362a965))
+
 ## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
 
 

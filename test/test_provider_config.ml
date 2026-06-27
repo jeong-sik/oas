@@ -5,6 +5,11 @@ open Llm_provider
 let check_string = Alcotest.(check string)
 let check_int = Alcotest.(check int)
 let check_bool = Alcotest.(check bool)
+let getenv_from pairs name = List.assoc_opt name pairs
+
+let reasoning_effort_option_to_string =
+  Option.map Provider_config.reasoning_effort_to_string
+;;
 
 (* ── make: defaults ───────────────────────────────────── *)
 
@@ -84,6 +89,57 @@ let test_request_path_override () =
       ()
   in
   check_string "custom path" "/custom/path" cfg.request_path
+;;
+
+(* ── auth headers ────────────────────────────────────── *)
+
+let check_headers = Alcotest.(check (list (pair string string)))
+
+let test_auth_headers_for_kind_and_key_matches_config () =
+  List.iter
+    (fun kind ->
+       let cfg =
+         Provider_config.make
+           ~kind
+           ~model_id:"auth-model"
+           ~base_url:"https://provider.example"
+           ~api_key:"provider-key"
+           ()
+       in
+       check_headers
+         (Provider_config.string_of_provider_kind kind)
+         (Provider_config.auth_headers_for_config cfg)
+         (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:"provider-key"))
+    Provider_config.all_provider_kinds
+;;
+
+let expected_auth_headers_for_kind = function
+  | Provider_config.Anthropic | Provider_config.Kimi -> [ "x-api-key", "provider-key" ]
+  | Provider_config.Gemini -> [ "x-goog-api-key", "provider-key" ]
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Glm
+  | Provider_config.DashScope -> [ "Authorization", "Bearer provider-key" ]
+;;
+
+let test_auth_headers_for_kind_and_key_wire_headers () =
+  List.iter
+    (fun kind ->
+       check_headers
+         (Provider_config.string_of_provider_kind kind)
+         (expected_auth_headers_for_kind kind)
+         (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:"provider-key"))
+    Provider_config.all_provider_kinds
+;;
+
+let test_auth_headers_for_kind_and_key_omits_empty_secret () =
+  List.iter
+    (fun kind ->
+       check_headers
+         (Provider_config.string_of_provider_kind kind)
+         []
+         (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:""))
+    Provider_config.all_provider_kinds
 ;;
 
 (* ── make: explicit values ────────────────────────────── *)
@@ -458,9 +514,98 @@ let test_reasoning_effort_of_thinking_config () =
   check_effort "disabled" "none" (Some false) (Some 4096);
   check_effort "missing flag" "none" None (Some 4096);
   check_effort "zero budget" "none" (Some true) (Some 0);
-  check_effort "low budget" "low" (Some true) (Some 2048);
-  check_effort "medium budget" "medium" (Some true) (Some 8192);
-  check_effort "high budget" "high" (Some true) (Some 8193)
+  check_effort
+    "low budget"
+    "low"
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens);
+  check_effort
+    "medium budget"
+    "medium"
+    (Some true)
+    (Some Reasoning_effort.medium_budget_max_tokens);
+  check_effort
+    "high budget"
+    "high"
+    (Some true)
+    (Some (Reasoning_effort.medium_budget_max_tokens + 1))
+;;
+
+let test_reasoning_effort_typed_roundtrip () =
+  let cases =
+    [ Provider_config.Minimal, "minimal"
+    ; Provider_config.Low, "low"
+    ; Provider_config.Medium, "medium"
+    ; Provider_config.High, "high"
+    ; Provider_config.XHigh, "xhigh"
+    ]
+  in
+  List.iter
+    (fun (value, wire) ->
+       check_string "to wire" wire (Provider_config.reasoning_effort_to_string value);
+       Alcotest.(check (option string))
+         "from wire"
+         (Some wire)
+         (reasoning_effort_option_to_string
+            (Provider_config.reasoning_effort_of_string wire)))
+    cases;
+  Alcotest.(check (option string))
+    "unknown wire"
+    None
+    (reasoning_effort_option_to_string
+       (Provider_config.reasoning_effort_of_string "urgent"));
+  Alcotest.(check (option string))
+    "trimmed case-insensitive wire"
+    (Some "low")
+    (reasoning_effort_option_to_string
+       (Provider_config.reasoning_effort_of_string " LOW "))
+;;
+
+let test_reasoning_effort_typed_config_value () =
+  let check_value label expected enable_thinking thinking_budget =
+    Alcotest.(check (option string))
+      label
+      expected
+      (reasoning_effort_option_to_string
+         (Provider_config.effort_of_thinking_config_value
+            ~enable_thinking
+            ~thinking_budget
+            ()))
+  in
+  check_value "disabled typed" None (Some false) (Some 4096);
+  check_value "missing flag typed" None None (Some 4096);
+  check_value "zero budget typed" None (Some true) (Some 0);
+  check_value
+    "low typed"
+    (Some "low")
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens);
+  check_value
+    "medium typed"
+    (Some "medium")
+    (Some true)
+    (Some Reasoning_effort.medium_budget_max_tokens);
+  check_value
+    "high typed"
+    (Some "high")
+    (Some true)
+    (Some (Reasoning_effort.medium_budget_max_tokens + 1));
+  let getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "xhigh" ] in
+  Alcotest.(check (option string))
+    "env default typed"
+    (Some "xhigh")
+    (reasoning_effort_option_to_string
+       (Provider_config.effort_of_thinking_config_value
+          ~getenv
+          ~enable_thinking:(Some true)
+          ~thinking_budget:None
+          ()));
+  let invalid_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "urgent" ] in
+  Alcotest.(check string)
+    "invalid env defaults medium"
+    "medium"
+    (Provider_config.reasoning_effort_to_string
+       (Provider_config.default_reasoning_effort_value ~getenv:invalid_getenv ()))
 ;;
 
 let test_reasoning_effort_of_config () =
@@ -499,10 +644,28 @@ let test_reasoning_effort_request_value () =
       expected
       (Provider_config.reasoning_effort_request_value ~enable_thinking ~thinking_budget)
   in
+  let check_typed_value label expected enable_thinking thinking_budget =
+    Alcotest.(check (option string))
+      label
+      expected
+      (reasoning_effort_option_to_string
+         (Provider_config.reasoning_effort_request_value_typed
+            ~enable_thinking
+            ~thinking_budget))
+  in
   check_value "unset omits field" None None (Some 4096);
   check_value "disabled omits field" None (Some false) (Some 4096);
   check_value "zero budget omits field" None (Some true) (Some 0);
-  check_value "enabled maps effort" (Some "low") (Some true) (Some 2048)
+  check_value
+    "enabled maps effort"
+    (Some "low")
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens);
+  check_typed_value
+    "enabled maps typed effort"
+    (Some "low")
+    (Some true)
+    (Some Reasoning_effort.low_budget_max_tokens)
 ;;
 
 let test_structured_output_name_of_schema () =
@@ -943,6 +1106,20 @@ let () =
         ; Alcotest.test_case "dashscope" `Quick test_request_path_dashscope
         ; Alcotest.test_case "override" `Quick test_request_path_override
         ] )
+    ; ( "auth_headers"
+      , [ Alcotest.test_case
+            "kind/key API matches config API"
+            `Quick
+            test_auth_headers_for_kind_and_key_matches_config
+        ; Alcotest.test_case
+            "kind/key API emits provider wire headers"
+            `Quick
+            test_auth_headers_for_kind_and_key_wire_headers
+        ; Alcotest.test_case
+            "empty secret omits headers"
+            `Quick
+            test_auth_headers_for_kind_and_key_omits_empty_secret
+        ] )
     ; ( "explicit_values"
       , [ Alcotest.test_case "all options" `Quick test_make_with_all_options
         ; Alcotest.test_case "custom headers" `Quick test_custom_headers
@@ -1021,6 +1198,14 @@ let () =
             "turn hard caps and clamp"
             `Quick
             test_max_turns_hard_cap_and_clamp
+        ; Alcotest.test_case
+            "reasoning effort typed roundtrip"
+            `Quick
+            test_reasoning_effort_typed_roundtrip
+        ; Alcotest.test_case
+            "reasoning effort typed config value"
+            `Quick
+            test_reasoning_effort_typed_config_value
         ; Alcotest.test_case
             "thinking effort thresholds"
             `Quick
