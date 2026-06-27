@@ -354,7 +354,10 @@ let () =
     ; ( "truncate_output"
       , [ Alcotest.test_case "large text" `Quick test_truncate_output_large
         ; Alcotest.test_case "empty text" `Quick test_truncate_output_empty
-        ; Alcotest.test_case "zero budget unlimited" `Quick test_truncate_output_zero_budget_unlimited
+        ; Alcotest.test_case
+            "zero budget unlimited"
+            `Quick
+            test_truncate_output_zero_budget_unlimited
         ] )
     ; ( "output_token_budget"
       , [ Alcotest.test_case "valid custom" `Quick test_output_token_budget_valid

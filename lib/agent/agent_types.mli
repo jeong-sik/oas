@@ -278,6 +278,7 @@ val set_idle_state : t -> idle_state -> unit
 (** Reset idle-detection counters to their initial (zero) state.
     Equivalent to [set_idle_state t { last_tool_calls = None; consecutive_idle_turns = 0 }]. *)
 val reset_idle_state : t -> unit
+
 val description : t -> string option
 val allowed_paths : t -> string list
 

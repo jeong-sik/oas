@@ -249,10 +249,7 @@ let set_idle_state t (s : Agent_turn.idle_state) =
     t.consecutive_idle_turns <- s.consecutive_idle_turns)
 ;;
 
-let reset_idle_state t =
-  set_idle_state t (Agent_turn.reset_idle_detection ()).new_state
-;;
-
+let reset_idle_state t = set_idle_state t (Agent_turn.reset_idle_detection ()).new_state
 let description t = t.options.description
 let allowed_paths t = t.options.allowed_paths
 let sdk_version = Sdk_version.version
