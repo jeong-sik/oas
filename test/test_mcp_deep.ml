@@ -135,6 +135,14 @@ let test_truncate_one_over () =
       (contains_substring ~sub:"...[oas mcp output truncated]" result))
 ;;
 
+let test_truncate_zero_budget_unlimited () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
+    (* Zero budget must mean "unlimited", not "truncate to marker". *)
+    let text = String.make 100 'd' in
+    let result = Mcp.truncate_output text in
+    Alcotest.(check string) "zero budget means no truncation" text result)
+;;
+
 (* ── text_of_tool_result tests ───────────────────────────────── *)
 
 let test_text_single_text () =
@@ -307,6 +315,7 @@ let () =
         ; Alcotest.test_case "long" `Quick test_truncate_long
         ; Alcotest.test_case "exact boundary" `Quick test_truncate_exact_boundary
         ; Alcotest.test_case "one over" `Quick test_truncate_one_over
+        ; Alcotest.test_case "zero budget unlimited" `Quick test_truncate_zero_budget_unlimited
         ] )
     ; ( "text_of_tool_result"
       , [ Alcotest.test_case "single text" `Quick test_text_single_text

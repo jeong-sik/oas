@@ -161,6 +161,13 @@ let test_output_token_budget_non_numeric () =
     Alcotest.(check int) "non-numeric -> default" 25_000 budget)
 ;;
 
+let test_truncate_output_zero_budget_unlimited () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
+    let text = String.make 1000 'x' in
+    let result = Mcp.truncate_output text in
+    Alcotest.(check string) "zero budget means no truncation" text result)
+;;
+
 (* ── text_of_tool_result extended ─────────────────────────── *)
 
 let test_text_of_tool_result_resource_content () =
@@ -347,6 +354,7 @@ let () =
     ; ( "truncate_output"
       , [ Alcotest.test_case "large text" `Quick test_truncate_output_large
         ; Alcotest.test_case "empty text" `Quick test_truncate_output_empty
+        ; Alcotest.test_case "zero budget unlimited" `Quick test_truncate_output_zero_budget_unlimited
         ] )
     ; ( "output_token_budget"
       , [ Alcotest.test_case "valid custom" `Quick test_output_token_budget_valid

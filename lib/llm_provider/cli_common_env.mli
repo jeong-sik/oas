@@ -20,11 +20,22 @@
     [None] otherwise.  Whitespace-only values are treated as unset. *)
 val get : string -> string option
 
-(** [bool ?default name] returns [true] when [name] is set to [1], [true],
-    [yes], or [on] (case-insensitive), and [false] when set to [0], [false],
-    [no], or [off].  Unset or empty values return [default] (default [false]).
-    Invalid values emit a warning before returning [default]. *)
-val bool : ?default:bool -> string -> bool
+(** Structured description of an invalid environment variable value.
+    Passed to the optional [on_invalid] callback of the parsers below so
+    callers can emit warnings in their own logging schema while reusing
+    the canonical parse logic. *)
+type invalid_env =
+  { var : string
+  ; raw : string
+  ; expected : string
+  }
+
+(** [bool ?default ?on_invalid name] returns [true] when [name] is set to [1],
+    [true], [yes], or [on] (case-insensitive), and [false] when set to [0],
+    [false], [no], or [off].  Unset or empty values return [default] (default
+    [false]).  Invalid values call [on_invalid] if provided, otherwise emit a
+    diagnostic warning before returning [default]. *)
+val bool : ?default:bool -> ?on_invalid:(invalid_env -> unit) -> string -> bool
 
 (** [list ?sep name] splits the value of [name] on [sep] (default
     comma) and trims each token.  Empty tokens are dropped.  Unset,
@@ -53,14 +64,16 @@ val trim_non_empty : string -> string option
 (** [trim_non_empty_opt opt] maps [trim_non_empty] over an option. *)
 val trim_non_empty_opt : string option -> string option
 
-(** [int ?allow_negative ~default var] parses env var [var] as an integer.
-    Returns [default] when unset or empty.  Negative values are rejected
-    unless [allow_negative] is [true].  Rejected negative and non-numeric
-    values emit a warning before falling back to [default]. *)
-val int : ?allow_negative:bool -> default:int -> string -> int
+(** [int ?allow_negative ?on_invalid ~default var] parses env var [var] as an
+    integer.  Returns [default] when unset or empty.  Negative values are
+    rejected unless [allow_negative] is [true].  Rejected values call
+    [on_invalid] if provided, otherwise emit a diagnostic warning before
+    falling back to [default]. *)
+val int : ?allow_negative:bool -> ?on_invalid:(invalid_env -> unit) -> default:int -> string -> int
 
-(** [float ?allow_negative ~default var] parses env var [var] as a float.
-    Returns [default] when unset or empty.  Negative values are rejected
-    unless [allow_negative] is [true].  Rejected negative and non-numeric
-    values emit a warning before falling back to [default]. *)
-val float : ?allow_negative:bool -> default:float -> string -> float
+(** [float ?allow_negative ?on_invalid ~default var] parses env var [var] as a
+    float.  Returns [default] when unset or empty.  Negative and non-finite
+    values are rejected unless [allow_negative] is [true] (non-finite values
+    are always rejected).  Rejected values call [on_invalid] if provided,
+    otherwise emit a diagnostic warning before falling back to [default]. *)
+val float : ?allow_negative:bool -> ?on_invalid:(invalid_env -> unit) -> default:float -> string -> float

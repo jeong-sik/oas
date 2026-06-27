@@ -3,10 +3,38 @@
     Each value falls back to the compile-time default when the
     corresponding OAS_* environment variable is unset or empty. *)
 
+let _log = Log.create ~module_name:"defaults" ()
+
+let warn_invalid_env ~var ~raw ~expected =
+  Log.warn
+    _log
+    "invalid environment override; using default"
+    [ Log.S ("var", var); Log.S ("raw", raw); Log.S ("expected", expected) ]
+;;
+
 let env_or = Util.env_or
-let int_env_or default var = Llm_provider.Cli_common_env.int ~default var
-let float_env_or default var = Llm_provider.Cli_common_env.float ~default var
-let bool_env_or default var = Llm_provider.Cli_common_env.bool ~default var
+
+let int_env_or default var =
+  Llm_provider.Cli_common_env.int
+    ~on_invalid:(fun { var; raw; expected } -> warn_invalid_env ~var ~raw ~expected)
+    ~default
+    var
+;;
+
+let float_env_or default var =
+  Llm_provider.Cli_common_env.float
+    ~on_invalid:(fun { var; raw; expected } -> warn_invalid_env ~var ~raw ~expected)
+    ~default
+    var
+;;
+
+let bool_env_or default var =
+  Llm_provider.Cli_common_env.bool
+    ~on_invalid:(fun { var; raw; expected } -> warn_invalid_env ~var ~raw ~expected)
+    ~default
+    var
+;;
+
 let local_llm_url = Llm_provider.Discovery.default_endpoint
 let fallback_provider = env_or "local" "OAS_FALLBACK_PROVIDER"
 let allow_test_providers () = bool_env_or false "OAS_ALLOW_TEST_PROVIDERS"

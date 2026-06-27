@@ -10,7 +10,19 @@ let trim_non_empty_opt = function
 
 let get name = trim_non_empty_opt (Sys.getenv_opt name)
 
-let bool ?(default = false) name =
+type invalid_env =
+  { var : string
+  ; raw : string
+  ; expected : string
+  }
+
+let warn_invalid ~on_invalid ~var ~raw ~expected ~diag =
+  match on_invalid with
+  | Some f -> f { var; raw; expected }
+  | None -> diag ()
+;;
+
+let bool ?(default = false) ?on_invalid name =
   match get name with
   | None -> default
   | Some v ->
@@ -18,12 +30,13 @@ let bool ?(default = false) name =
      | "1" | "true" | "yes" | "on" -> true
      | "0" | "false" | "no" | "off" -> false
      | _ ->
-       Diag.warn
-         "cli_common_env"
-         "%s=%S is not a boolean; using default %b"
-         name
-         v
-         default;
+       warn_invalid
+         ~on_invalid
+         ~var:name
+         ~raw:v
+         ~expected:"boolean"
+         ~diag:(fun () ->
+           Diag.warn "cli_common_env" "%s=%S is not a boolean; using default %b" name v default);
        default)
 ;;
 
@@ -59,65 +72,70 @@ let kv_pairs name =
   | Some v -> Some (split_on_char_trim ',' v |> List.filter_map parse_kv)
 ;;
 
-let int ?(allow_negative = false) ~default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    if trimmed = ""
-    then default
-    else (
-      match int_of_string_opt trimmed with
-      | Some v when allow_negative || v >= 0 -> v
-      | Some v ->
-        Diag.warn
-          "cli_common_env"
-          "%s=%S is negative (%d); using default %d"
-          var
-          raw
-          v
-          default;
-        default
-      | None ->
-        Diag.warn
-          "cli_common_env"
-          "%s=%S is not an integer; using default %d"
-          var
-          raw
-          default;
-        default)
+let int ?(allow_negative = false) ?on_invalid ~default var =
+  let expected = if allow_negative then "integer" else "non-negative integer" in
+  match get var with
   | None -> default
+  | Some raw ->
+    (match int_of_string_opt raw with
+     | Some v when v >= 0 || allow_negative -> v
+     | Some v ->
+       warn_invalid
+         ~on_invalid
+         ~var
+         ~raw
+         ~expected
+         ~diag:(fun () ->
+           Diag.warn "cli_common_env" "%s=%S is negative (%d); using default %d" var raw v default);
+       default
+     | None ->
+       warn_invalid
+         ~on_invalid
+         ~var
+         ~raw
+         ~expected
+         ~diag:(fun () ->
+           Diag.warn "cli_common_env" "%s=%S is not an integer; using default %d" var raw default);
+       default)
 ;;
 
-let float ?(allow_negative = false) ~default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    if trimmed = ""
-    then default
-    else (
-      match float_of_string_opt trimmed with
-      | Some v when allow_negative || v >= 0.0 -> v
-      | Some v ->
-        Diag.warn
-          "cli_common_env"
-          "%s=%S is negative (%f); using default %f"
-          var
-          raw
-          v
-          default;
-        default
-      | None ->
-        Diag.warn
-          "cli_common_env"
-          "%s=%S is not a float; using default %f"
-          var
-          raw
-          default;
-        default)
+let float ?(allow_negative = false) ?on_invalid ~default var =
+  let expected =
+    if allow_negative then "finite float" else "non-negative finite float"
+  in
+  match get var with
   | None -> default
+  | Some raw ->
+    (match float_of_string_opt raw with
+     | Some v when Float.is_finite v && (v >= 0.0 || allow_negative) -> v
+     | Some v ->
+       let kind = if Float.is_finite v then "negative" else "not a finite" in
+       warn_invalid
+         ~on_invalid
+         ~var
+         ~raw
+         ~expected
+         ~diag:(fun () ->
+           Diag.warn "cli_common_env" "%s=%S is %s (%f); using default %f" var raw kind v default);
+       default
+     | None ->
+       warn_invalid
+         ~on_invalid
+         ~var
+         ~raw
+         ~expected
+         ~diag:(fun () ->
+           Diag.warn "cli_common_env" "%s=%S is not a float; using default %f" var raw default);
+       default)
 ;;
 
 [@@@coverage off]
+
+(* Message fragments used by tests; keep in sync with [int], [float], [bool]. *)
+let msg_is_negative = "is negative"
+let msg_is_not_an_integer = "is not an integer"
+let msg_is_not_a_float = "is not a float"
+let msg_is_not_a_boolean = "is not a boolean"
 
 let string_contains ~needle haystack =
   let needle_len = String.length needle in
@@ -168,7 +186,7 @@ let%test "int rejects negative env value by default" =
          (fun (level, ctx, msg) ->
             level = Diag.Warn
             && ctx = "cli_common_env"
-            && string_contains ~needle:"is negative" msg)
+            && string_contains ~needle:msg_is_negative msg)
          !warnings)
 ;;
 
@@ -190,7 +208,7 @@ let%test "int rejects non-numeric env value" =
          (fun (level, ctx, msg) ->
             level = Diag.Warn
             && ctx = "cli_common_env"
-            && string_contains ~needle:"is not an integer" msg)
+            && string_contains ~needle:msg_is_not_an_integer msg)
          !warnings)
 ;;
 
@@ -212,7 +230,7 @@ let%test "float rejects negative env value by default" =
          (fun (level, ctx, msg) ->
             level = Diag.Warn
             && ctx = "cli_common_env"
-            && string_contains ~needle:"is negative" msg)
+            && string_contains ~needle:msg_is_negative msg)
          !warnings)
 ;;
 
@@ -235,7 +253,24 @@ let%test "float rejects non-numeric env value" =
          (fun (level, ctx, msg) ->
             level = Diag.Warn
             && ctx = "cli_common_env"
-            && string_contains ~needle:"is not a float" msg)
+            && string_contains ~needle:msg_is_not_a_float msg)
+         !warnings)
+;;
+
+let%test "float rejects non-finite env value" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_FLOAT_INF" "inf" (fun () ->
+    let warnings = ref [] in
+    let value =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> float ~default:7.0 "OAS_TEST_CLI_COMMON_ENV_FLOAT_INF")
+    in
+    value = 7.0
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && ctx = "cli_common_env"
+            && string_contains ~needle:"not a finite" msg)
          !warnings)
 ;;
 
@@ -259,6 +294,6 @@ let%test "bool rejects invalid env value with warning" =
          (fun (level, ctx, msg) ->
             level = Diag.Warn
             && ctx = "cli_common_env"
-            && string_contains ~needle:"is not a boolean" msg)
+            && string_contains ~needle:msg_is_not_a_boolean msg)
          !warnings)
 ;;

@@ -55,7 +55,10 @@ let utf8_safe_boundary text at =
     instead of [~budget * 1.33 chars but cut mid-codepoint]. *)
 let truncate_output text =
   let budget = output_token_budget () in
-  if Llm_provider.Text_estimate.estimate_char_tokens text <= budget
+  (* A budget of zero (or any non-positive value) is interpreted as
+     "unlimited": the user explicitly accepted 0 as a valid non-negative
+     value, so we must not truncate every non-empty result to the marker. *)
+  if budget <= 0 || Llm_provider.Text_estimate.estimate_char_tokens text <= budget
   then text
   else (
     (* Binary search the largest byte offset whose prefix fits in
@@ -809,6 +812,14 @@ let%test "output_token_budget zero env value is accepted as zero" =
   let budget = output_token_budget () in
   Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
   budget = 0
+;;
+
+let%test "truncate_output with zero budget is unlimited" =
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "0";
+  let text = String.make 100 'x' in
+  let result = truncate_output text in
+  Unix.putenv "OAS_MCP_OUTPUT_MAX_TOKENS" "";
+  result = text
 ;;
 
 let%test "truncate_output exact boundary not truncated" =
