@@ -216,6 +216,21 @@ let with_context_thresholds
       ?handoff_ratio
       b
   =
+  let compact_ratio =
+    Types.require_context_ratio
+      ~name:"Builder.with_context_thresholds: compact_ratio"
+      compact_ratio
+  in
+  let prepare_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Builder.with_context_thresholds: prepare_ratio")
+      prepare_ratio
+  in
+  let handoff_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Builder.with_context_thresholds: handoff_ratio")
+      handoff_ratio
+  in
   (* Resolution chain for the context window used by the reducer:
      1. explicit [?context_window_tokens] argument (caller knows the
         per-agent override),

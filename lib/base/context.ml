@@ -1,12 +1,8 @@
 (** Cross-turn shared state for agent execution.
     Inspired by Google ADK's session.state pattern.
 
-    Uses Hashtbl internally, protected by Mutex for safe concurrent
-    access from parallel tool-execution fibers.
-    Stdlib.Mutex is used (not Eio.Mutex) so Context.t can be created
-    and used outside Eio context (tests, serialization, etc.).
-    Within a single Eio domain, Mutex sections are non-yielding
-    (pure Hashtbl ops), so Stdlib.Mutex is safe and sufficient.
+    Uses Hashtbl internally, protected by either Eio.Mutex for Eio agent hot
+    paths or Stdlib.Mutex for synchronous tests/serialization code.
     Values are Yojson.Safe.t for flexibility while maintaining serializability. *)
 
 type mutex =
@@ -31,10 +27,22 @@ type diff =
   ; changed : (string * Yojson.Safe.t) list
   }
 
-let create ?(eio = false) () : t =
+type concurrency_backend =
+  | Stdlib_mutex
+  | Eio_mutex
+
+let create ~(eio : bool) () : t =
   let mu = if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ()) in
   { mu; tbl = Hashtbl.create 16 }
 ;;
+
+let is_eio_backed ctx =
+  match ctx.mu with
+  | Eio_mu _ -> true
+  | Stdlib_mu _ -> false
+;;
+
+let concurrency_backend ctx = if is_eio_backed ctx then Eio_mutex else Stdlib_mutex
 
 let with_lock ctx f =
   match ctx.mu with
@@ -123,24 +131,23 @@ let to_json (ctx : t) : Yojson.Safe.t =
   `Assoc pairs
 ;;
 
-let of_json (json : Yojson.Safe.t) : t =
-  let ctx = create () in
-  (match json with
-   | `Assoc pairs -> List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs
-   | _ -> ());
-  ctx
+let of_json ?(eio = false) (json : Yojson.Safe.t) : t =
+  match json with
+  | `Assoc pairs ->
+    let ctx = create ~eio () in
+    List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs;
+    ctx
+  | _ -> invalid_arg "Context.of_json: expected JSON object"
 ;;
 
-let copy (ctx : t) : t =
+let copy ?eio (ctx : t) : t =
   with_lock ctx (fun () ->
-    let new_ctx =
-      create
-        ~eio:
-          (match ctx.mu with
-           | Eio_mu _ -> true
-           | _ -> false)
-        ()
+    let use_eio =
+      match eio with
+      | Some value -> value
+      | None -> is_eio_backed ctx
     in
+    let new_ctx = create ~eio:use_eio () in
     Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
     new_ctx)
 ;;
@@ -163,7 +170,7 @@ type isolated_scope =
     Only keys listed in [propagate_down] are copied to the local context.
     Reads from parent under lock, then populates new local context. *)
 let create_scope ~parent ~propagate_down ~propagate_up =
-  let local = create () in
+  let local = create ~eio:(is_eio_backed parent) () in
   let pairs =
     with_lock parent (fun () ->
       List.filter_map

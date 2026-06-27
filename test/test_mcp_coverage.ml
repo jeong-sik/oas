@@ -152,13 +152,20 @@ let test_output_token_budget_valid () =
 let test_output_token_budget_zero () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
     let budget = Mcp.output_token_budget () in
-    Alcotest.(check int) "zero -> default" 25_000 budget)
+    Alcotest.(check int) "zero is accepted" 0 budget)
 ;;
 
 let test_output_token_budget_non_numeric () =
   with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "abc") (fun () ->
     let budget = Mcp.output_token_budget () in
     Alcotest.(check int) "non-numeric -> default" 25_000 budget)
+;;
+
+let test_truncate_output_zero_budget_unlimited () =
+  with_env "OAS_MCP_OUTPUT_MAX_TOKENS" (Some "0") (fun () ->
+    let text = String.make 1000 'x' in
+    let result = Mcp.truncate_output text in
+    Alcotest.(check string) "zero budget means no truncation" text result)
 ;;
 
 (* ── text_of_tool_result extended ─────────────────────────── *)
@@ -306,7 +313,7 @@ let test_mcp_tool_to_sdk_tool_empty_schema () =
 (* ── Mcp_http.default_config ──────────────────────────────── *)
 
 let test_mcp_http_default_config_values () =
-  let cfg = Mcp_http.default_config in
+  let cfg = Mcp_http.default_config () in
   Alcotest.(check string) "default base_url" "http://localhost:8080/mcp" cfg.base_url;
   Alcotest.(check (list (pair string string))) "no headers" [] cfg.headers
 ;;
@@ -347,6 +354,7 @@ let () =
     ; ( "truncate_output"
       , [ Alcotest.test_case "large text" `Quick test_truncate_output_large
         ; Alcotest.test_case "empty text" `Quick test_truncate_output_empty
+        ; Alcotest.test_case "zero budget unlimited" `Quick test_truncate_output_zero_budget_unlimited
         ] )
     ; ( "output_token_budget"
       , [ Alcotest.test_case "valid custom" `Quick test_output_token_budget_valid

@@ -11,11 +11,11 @@
 val env_or : string -> string -> string
 
 (** Read an integer environment variable, falling back to [default]
-    if the variable is unset, empty, non-numeric, or non-positive. *)
+    if the variable is unset, empty, non-numeric, or negative. *)
 val int_env_or : int -> string -> int
 
 (** Read a float environment variable, falling back to [default]
-    if the variable is unset, empty, non-numeric, or non-positive. *)
+    if the variable is unset, empty, non-numeric, or negative. *)
 val float_env_or : float -> string -> float
 
 (** Read a boolean environment variable, falling back to [default]

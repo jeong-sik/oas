@@ -66,9 +66,9 @@ module Idle_severity = struct
   ;;
 end
 
-(** Extract reasoning summary from message list.
-    Scans for Thinking blocks and heuristically detects uncertainty
-    markers like "I'm not sure", "uncertain", "unclear". *)
+(** Extract structured reasoning summary from message list.
+    This only preserves provider-emitted Thinking blocks; it does not infer
+    uncertainty or tool rationale from prose. *)
 let extract_reasoning (messages : message list) : reasoning_summary =
   let thinking_blocks =
     List.concat_map
@@ -76,41 +76,17 @@ let extract_reasoning (messages : message list) : reasoning_summary =
          List.filter_map
            (function
              | Thinking { content; _ } -> Some content
-             | _ -> None)
+             | Text _
+             | RedactedThinking _
+             | ToolUse _
+             | ToolResult _
+             | Image _
+             | Document _
+             | Audio _ -> None)
            msg.content)
       messages
   in
-  let all_text = String.concat " " thinking_blocks in
-  let uncertainty_markers =
-    [ "not sure"
-    ; "uncertain"
-    ; "unclear"
-    ; "I'm not confident"
-    ; "might be wrong"
-    ; "unsure"
-    ; "probably"
-    ; "I think"
-    ]
-  in
-  let has_uncertainty =
-    List.exists
-      (fun marker -> Util.regex_match (Str.regexp_string_case_fold marker) all_text)
-      uncertainty_markers
-  in
-  let tool_rationale =
-    (* Look for the last thinking block that mentions tool selection *)
-    let tool_markers = [ "tool"; "function"; "call"; "use" ] in
-    List.find_map
-      (fun block ->
-         if
-           List.exists
-             (fun marker -> Util.regex_match (Str.regexp_string_case_fold marker) block)
-             tool_markers
-         then Some block
-         else None)
-      (List.rev thinking_blocks)
-  in
-  { thinking_blocks; has_uncertainty; tool_rationale }
+  { thinking_blocks; has_uncertainty = false; tool_rationale = None }
 ;;
 
 (** Events emitted during agent execution *)
@@ -464,9 +440,7 @@ let invoke_validated ?hook_name ?on_illegal hook_opt event =
             (match hook_name with
              | Some name -> Printf.sprintf " (hook: %s)" name
              | None -> "");
-          (match on_illegal with
-           | Some cb -> cb ~stage ~decision ~msg
-           | None -> ());
+          Option.iter (fun cb -> cb ~stage ~decision ~msg) on_illegal;
           Continue))
 ;;
 
