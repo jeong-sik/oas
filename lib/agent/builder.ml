@@ -179,6 +179,8 @@ let with_auto_dump_journal ~path b =
     match Durable_event.save_to_file journal path with
     | Ok () -> ()
     | Error err ->
+      (* Best-effort diagnostic: consumers that need hard guarantees should
+         provide their own [on_run_complete] callback. *)
       Log.warn
         _log
         "auto_dump_journal save failed"

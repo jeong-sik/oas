@@ -17,8 +17,27 @@ let with_log_capture f =
     (fun () -> f get_records)
 ;;
 
-let has_log_message message records =
-  List.exists (fun (record : Log.record) -> String.equal record.message message) records
+let string_field key fields =
+  List.find_map
+    (function
+      | Log.S (field_key, value) when String.equal field_key key -> Some value
+      | _ -> None)
+    fields
+;;
+
+let has_auto_dump_failure_log ~path records =
+  List.exists
+    (fun (record : Log.record) ->
+       record.level = Log.Warn
+       && String.equal record.module_name "builder"
+       && (match string_field "path" record.fields with
+           | Some value -> String.equal value path
+           | None -> false)
+       &&
+       match string_field "error" record.fields with
+       | Some value -> String.length value > 0
+       | None -> false)
+    records
 ;;
 
 let test_save_journal_writes_jsonl () =
@@ -97,11 +116,11 @@ let test_auto_dump_logs_save_failure () =
   @@ fun get_records ->
   Eio_main.run
   @@ fun env ->
-  let output_dir = Filename.temp_file "auto_dump_not_dir" ".txt" in
-  let path = Filename.concat output_dir "journal.jsonl" in
+  let parent_file = Filename.temp_file "auto_dump_not_dir" ".txt" in
+  let path = Filename.concat parent_file "journal.jsonl" in
   Fun.protect
     ~finally:(fun () ->
-      try Sys.remove output_dir with
+      try Sys.remove parent_file with
       | _ -> ())
     (fun () ->
        let net = Eio.Stdenv.net env in
@@ -122,7 +141,7 @@ let test_auto_dump_logs_save_failure () =
          bool
          "save failure logged"
          true
-         (has_log_message "auto_dump_journal save failed" (get_records ())))
+         (has_auto_dump_failure_log ~path (get_records ())))
 ;;
 
 let () =
