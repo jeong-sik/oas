@@ -68,10 +68,13 @@ type config =
   ; endpoint : string option
   }
 
-let default_config = { service_name = "agent-sdk"; endpoint = None }
+let default_service_name = "agent-sdk"
+let otel_endpoint_env_var = "OTEL_EXPORTER_OTLP_ENDPOINT"
+
+let default_config = { service_name = default_service_name; endpoint = None }
 
 let default_config_from_env ?(getenv = Sys.getenv_opt) () =
-  { default_config with endpoint = getenv "OTEL_EXPORTER_OTLP_ENDPOINT" }
+  { default_config with endpoint = getenv otel_endpoint_env_var }
 ;;
 
 (* -- Metric types ----------------------------------------------------- *)
@@ -446,7 +449,12 @@ let metric_type_to_string = function
    captured on first use, and so the fiber-local key is only allocated when
    needed.  Using a fiber-local key makes the global API safe for concurrent
    Eio fibers: each fiber gets its own span stack instead of sharing the
-   instance-wide [current_spans]. *)
+   instance-wide [current_spans].
+
+   NOTE: the endpoint is resolved once when [_global] is first forced.  Later
+   changes to [OTEL_EXPORTER_OTLP_ENDPOINT] do not affect the already-created
+   shared instance; create a fresh instance with [create_instance] for per-call
+   env resolution. *)
 let _global : instance lazy_t =
   lazy
     { config = default_config_from_env ()
@@ -621,7 +629,12 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
 
 (* -- Instance creation ------------------------------------------------ *)
 
-let create_instance ?(config = default_config_from_env ()) () : instance =
+let create_instance ?config ?getenv () : instance =
+  let config =
+    match config with
+    | Some config -> config
+    | None -> default_config_from_env ?getenv ()
+  in
   { config
   ; mu = Stdlib_mu (Mutex.create ())
   ; fiber_key = None
@@ -631,7 +644,12 @@ let create_instance ?(config = default_config_from_env ()) () : instance =
   }
 ;;
 
-let create_instance_eio ?(config = default_config_from_env ()) () : instance =
+let create_instance_eio ?config ?getenv () : instance =
+  let config =
+    match config with
+    | Some config -> config
+    | None -> default_config_from_env ?getenv ()
+  in
   { config
   ; mu = Eio_mu (Eio.Mutex.create ())
   ; fiber_key = Some (Eio.Fiber.create_key ())
@@ -691,20 +709,9 @@ let with_span attrs f =
 
 (* -- First-class module constructors ---------------------------------- *)
 
-let create ?config () : Tracing.t =
-  let inst =
-    match config with
-    | Some config -> create_instance ~config ()
-    | None -> create_instance ()
-  in
-  tracer_of_instance inst
-;;
+let create ?config ?getenv () : Tracing.t =
+  tracer_of_instance (create_instance ?config ?getenv ())
 
-let create_eio ?config () : Tracing.t =
-  let inst =
-    match config with
-    | Some config -> create_instance_eio ~config ()
-    | None -> create_instance_eio ()
-  in
-  tracer_of_instance inst
+let create_eio ?config ?getenv () : Tracing.t =
+  tracer_of_instance (create_instance_eio ?config ?getenv ())
 ;;

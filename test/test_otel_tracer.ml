@@ -43,12 +43,64 @@ let test_default_config_from_env_reads_getenv_at_call_time () =
   let calls = ref [] in
   let getenv name =
     calls := name :: !calls;
-    if String.equal name "OTEL_EXPORTER_OTLP_ENDPOINT" then Some endpoint else None
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
   in
   let config = Otel_tracer.default_config_from_env ~getenv () in
-  check string "service_name" "agent-sdk" config.service_name;
+  check string "service_name" Otel_tracer.default_service_name config.service_name;
   check (option string) "endpoint" (Some endpoint) config.endpoint;
-  check (list string) "env keys" [ "OTEL_EXPORTER_OTLP_ENDPOINT" ] (List.rev !calls)
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_instance_reads_env_at_call_time () =
+  let endpoint = "http://ctor.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let inst = Otel_tracer.create_instance ~getenv () in
+  check (option string) "endpoint" (Some endpoint) inst.config.endpoint;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_instance_eio_reads_env_at_call_time () =
+  let endpoint = "http://ctor-eio.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let inst = Otel_tracer.create_instance_eio ~getenv () in
+  check (option string) "endpoint" (Some endpoint) inst.config.endpoint;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_reads_env_at_call_time () =
+  let endpoint = "http://create.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let (module T : Tracing.TRACER) = Otel_tracer.create ~getenv () in
+  let span = T.start_span (default_attrs ~name:"env_probe" ()) in
+  T.end_span span ~ok:true;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_eio_reads_env_at_call_time () =
+  let endpoint = "http://create-eio.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  Eio_main.run
+    (fun _env ->
+       let (module T : Tracing.TRACER) = Otel_tracer.create_eio ~getenv () in
+       let span = T.start_span (default_attrs ~name:"env_probe" ()) in
+       T.end_span span ~ok:true;
+       check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls))
 ;;
 
 (* ── Span Lifecycle ──────────────────────────────────────────────── *)
@@ -650,6 +702,19 @@ let () =
             "default_config_from_env reads injected env"
             `Quick
             test_default_config_from_env_reads_getenv_at_call_time
+        ; test_case
+            "create_instance reads env at call time"
+            `Quick
+            test_create_instance_reads_env_at_call_time
+        ; test_case
+            "create_instance_eio reads env at call time"
+            `Quick
+            (with_eio test_create_instance_eio_reads_env_at_call_time)
+        ; test_case "create reads env at call time" `Quick test_create_reads_env_at_call_time
+        ; test_case
+            "create_eio reads env at call time"
+            `Quick
+            (with_eio test_create_eio_reads_env_at_call_time)
         ] )
     ; ( "span_lifecycle"
       , [ test_case "start_span name format" `Quick test_start_span_name_format
