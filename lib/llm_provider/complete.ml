@@ -93,7 +93,7 @@ let complete
                ~tools
                ()
            in
-           { Llm_transport.response = resp; latency_ms = Some lat }
+           { Llm_transport.response = resp; latency_ms = lat }
        in
        (* HTTP-backed transports bypass complete_http, so emit the status
          here using the transport result. Non-HTTP CLI transports must
@@ -282,7 +282,7 @@ let complete_stream
     let on_event = emit_stream_event on_event in
     let _priority = priority in
     let request_config = config_with_trace_context config trace_context in
-    let t0 = Unix.gettimeofday () in
+    let latency_counter = start_latency_counter () in
     let metrics_opt = metrics in
     let metrics = Option.value metrics ~default:(Metrics.get_global ()) in
     let on_telemetry_with_metrics evt =
@@ -316,6 +316,7 @@ let complete_stream
           ~net
           ?clock
           ?stream_idle_timeout_s
+          ~latency_counter
           ?on_telemetry
           ~metrics
           ?connection_cache
@@ -327,14 +328,12 @@ let complete_stream
     in
     Result.map
       (fun resp ->
-         let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+         let latency_ms = latency_ms_int latency_counter in
          let resp = Pricing.annotate_response_cost resp in
          let existing_telemetry = resp.telemetry in
          let ttfrc_ms = Option.bind existing_telemetry (fun t -> t.ttfrc_ms) in
          let prefill_ms = Option.bind existing_telemetry (fun t -> t.prefill_ms) in
-         let resp =
-           patch_telemetry resp ~config ~ttfrc_ms ~prefill_ms (Some latency_ms)
-         in
+         let resp = patch_telemetry resp ~config ~ttfrc_ms ~prefill_ms latency_ms in
          emit_tool_call_metrics
            metrics
            ~provider:(Provider_registry.provider_name_of_config config)
@@ -431,6 +430,7 @@ let make_http_transport
       ?stream_idle_timeout_s
       ?body_timeout_s
       ?(connection_cache : Http_client.cache option)
+      ?latency_counter
       ~sw
       ~net
       ()
@@ -450,7 +450,7 @@ let make_http_transport
             ~tools:req.tools
             ()
         in
-        { Llm_transport.response; latency_ms = Some latency_ms })
+        { Llm_transport.response; latency_ms })
   ; complete_stream =
       (fun ?on_telemetry ~on_event (req : Llm_transport.completion_request) ->
         (* RFC-OAS-026: the request-borne idle deadline is authoritative;
@@ -467,6 +467,7 @@ let make_http_transport
           ?clock
           ?stream_idle_timeout_s
           ?connection_cache
+          ?latency_counter
           ~config:req.config
           ~messages:req.messages
           ~tools:req.tools

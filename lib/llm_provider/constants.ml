@@ -8,6 +8,31 @@
 
 (* ── HTTP retry / handoff codes ──────────────────── *)
 
+module Env = struct
+  let max_tokens_default = "OAS_MAX_TOKENS_DEFAULT"
+  let thinking_budget_default = "OAS_THINKING_BUDGET_DEFAULT"
+  let anthropic_thinking_budget = "OAS_ANTHROPIC_THINKING_BUDGET"
+  let gemini_thinking_budget = "OAS_GEMINI_THINKING_BUDGET"
+  let prompt_cache_min_chars = "OAS_PROMPT_CACHE_MIN_CHARS"
+end
+
+let positive_int_env_opt ?(getenv = Sys.getenv_opt) var =
+  match getenv var with
+  | None -> None
+  | Some s ->
+    (match int_of_string_opt s with
+     | Some n when n > 0 -> Some n
+     | _ ->
+       Diag.warn "constants" "%s=%S is not a valid positive int, ignoring" var s;
+       None)
+;;
+
+let positive_int_env_or ?getenv ~var ~default () =
+  match positive_int_env_opt ?getenv var with
+  | Some n -> n
+  | None -> default
+;;
+
 module Http = struct
   (** HTTP status codes that trigger retry logic in {!Complete}. *)
   let retryable_codes = [ 429; 500; 502; 503; 529 ]
@@ -76,25 +101,24 @@ end
 
 (** Fallback [max_tokens] when both caller override and model capability
     are absent. Emitted as a required field by OpenAI-compat and Anthropic
-    backends.
+    backends. Env override resolution is intentionally done by
+    {!resolve_unknown_model_max_tokens_fallback} at request-build time,
+    not during module initialization.
 
     16384 is a last-resort ceiling for modern high-context models. Models with
     lower caps should be declared in [Capabilities.for_model_id] so the
     capability-gated path (not this fallback) applies.
     @since 0.188.0
-    @since 0.185.0 — raised from 4096 to 16384 *)
-let unknown_model_max_tokens_fallback =
-  match Sys.getenv "OAS_MAX_TOKENS_DEFAULT" with
-  | exception Not_found -> 16384
-  | s ->
-    (match int_of_string_opt s with
-     | Some n when n > 0 -> n
-     | _ ->
-       Diag.warn
-         "constants"
-         "OAS_MAX_TOKENS_DEFAULT=%S is not a valid positive int, using 16384"
-         s;
-       16384)
+    @since 0.185.0 — raised from 4096 to 16384
+    @since 0.208.0 — env override moved to call-time resolver *)
+let unknown_model_max_tokens_fallback = 16384
+
+let resolve_unknown_model_max_tokens_fallback ?getenv () =
+  positive_int_env_or
+    ?getenv
+    ~var:Env.max_tokens_default
+    ~default:unknown_model_max_tokens_fallback
+    ()
 ;;
 
 (* ── Cache ───────────────────────────────────────── *)
@@ -171,16 +195,7 @@ end
 (* ── Thinking ────────────────────────────────────── *)
 
 module Thinking = struct
-  let env_budget env_var =
-    match Sys.getenv env_var with
-    | exception Not_found -> None
-    | s ->
-      (match int_of_string_opt s with
-       | Some n when n > 0 -> Some n
-       | _ ->
-         Diag.warn "constants" "%s=%S is not a valid positive int, ignoring" env_var s;
-         None)
-  ;;
+  let env_budget ?getenv env_var = positive_int_env_opt ?getenv env_var
 
   (** Default extended thinking budget when not specified by caller.
       Used by Anthropic and Gemini backends.
@@ -188,12 +203,17 @@ module Thinking = struct
       16000 tokens covers most single-turn reasoning tasks. Models with
       higher caps (Claude Opus 4: 128K, Gemini 2.5 Pro: 32K) should be
       declared in [Capabilities] so callers can override per-model.
-      Override with [OAS_THINKING_BUDGET_DEFAULT] env var.
-      @since 0.185.0 — raised from 10000 to 16000 *)
-  let default_budget =
-    match env_budget "OAS_THINKING_BUDGET_DEFAULT" with
+      Override with [OAS_THINKING_BUDGET_DEFAULT] env var through
+      {!default_budget_for_env}; provider budget helpers call it at
+      request-build time.
+      @since 0.185.0 — raised from 10000 to 16000
+      @since 0.208.0 — env override moved to call-time resolver *)
+  let default_budget = 16000
+
+  let default_budget_for_env ?getenv () =
+    match env_budget ?getenv Env.thinking_budget_default with
     | Some n -> n
-    | None -> 16000
+    | None -> default_budget
   ;;
 
   (** Per-provider thinking budget overrides. Resolution order:
@@ -203,16 +223,16 @@ module Thinking = struct
       3. [OAS_THINKING_BUDGET_DEFAULT] env var
       4. Hardcoded default (16000)
       @since 0.185.0 *)
-  let anthropic_budget () =
-    match env_budget "OAS_ANTHROPIC_THINKING_BUDGET" with
+  let anthropic_budget ?getenv () =
+    match env_budget ?getenv Env.anthropic_thinking_budget with
     | Some n -> n
-    | None -> default_budget
+    | None -> default_budget_for_env ?getenv ()
   ;;
 
-  let gemini_budget () =
-    match env_budget "OAS_GEMINI_THINKING_BUDGET" with
+  let gemini_budget ?getenv () =
+    match env_budget ?getenv Env.gemini_thinking_budget with
     | Some n -> n
-    | None -> default_budget
+    | None -> default_budget_for_env ?getenv ()
   ;;
 end
 
@@ -252,19 +272,17 @@ module Anthropic = struct
       @since 0.185.0 *)
   let prompt_cache_min_tools = 3
 
-  let prompt_cache_min_chars =
-    match Sys.getenv "OAS_PROMPT_CACHE_MIN_CHARS" with
-    | exception Not_found -> default_prompt_cache_min_chars
-    | s ->
-      (match int_of_string_opt s with
-       | Some n when n > 0 -> n
-       | _ ->
-         Diag.warn
-           "constants"
-           "OAS_PROMPT_CACHE_MIN_CHARS=%S is not a valid positive int, using default %d"
-           s
-           default_prompt_cache_min_chars;
-         default_prompt_cache_min_chars)
+  (** Compatibility alias for the static default. New request-building code
+      should use {!prompt_cache_min_chars_for_env} so
+      [OAS_PROMPT_CACHE_MIN_CHARS] is resolved at call time. *)
+  let prompt_cache_min_chars = default_prompt_cache_min_chars
+
+  let prompt_cache_min_chars_for_env ?getenv () =
+    positive_int_env_or
+      ?getenv
+      ~var:Env.prompt_cache_min_chars
+      ~default:default_prompt_cache_min_chars
+      ()
   ;;
 end
 

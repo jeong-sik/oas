@@ -161,6 +161,16 @@ let zai_glm_preserve_thinking_request (config : Provider_config.t) =
   && not (glm_clear_thinking_of_config config)
 ;;
 
+let normalized_reasoning_effort dialect (config : Provider_config.t) =
+  match
+    Provider_config.reasoning_effort_request_value_typed
+      ~enable_thinking:config.enable_thinking
+      ~thinking_budget:config.thinking_budget
+  with
+  | Some effort -> Reasoning_dialect.normalize_effort_value dialect effort
+  | None -> None
+;;
+
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
 let build_request_assoc
@@ -211,7 +221,8 @@ let build_request_assoc
   (* Resolve [max_tokens] from three layers:
      1. Caller override ([config.max_tokens = Some n]) - explicit request
      2. Model capability ([caps.max_output_tokens]) - provider's ceiling
-     3. Fallback [Constants.unknown_model_max_tokens_fallback] - last resort when both are unknown
+     3. Fallback [Constants.resolve_unknown_model_max_tokens_fallback] -
+        last resort when both are unknown
 
      When the caller sends [None], they want the model's own maximum.
      When the caller sends [Some n], we clamp to the capability ceiling
@@ -222,7 +233,7 @@ let build_request_assoc
   let effective_max_tokens =
     match config.max_tokens, caps.max_output_tokens with
     | None, Some cap -> cap
-    | None, None -> Constants.unknown_model_max_tokens_fallback
+    | None, None -> Constants.resolve_unknown_model_max_tokens_fallback ()
     | Some n, Some cap when n > cap ->
       warn_capability_drop ~model_id:config.model_id ~field:"max_tokens:clamp";
       cap
@@ -289,29 +300,15 @@ let build_request_assoc
        | Some true, Some budget -> ("thinking_budget", `Int budget) :: body
        | _ -> body)
     | Reasoning_effort ->
-      (match
-         Provider_config.reasoning_effort_request_value
-           ~enable_thinking:config.enable_thinking
-           ~thinking_budget:config.thinking_budget
-       with
-       | Some effort ->
-         (match Reasoning_dialect.normalize_effort dialect effort with
-          | Some normalized -> ("reasoning_effort", `String normalized) :: body
-          | None -> body)
+      (match normalized_reasoning_effort dialect config with
+       | Some normalized -> ("reasoning_effort", `String normalized) :: body
        | None -> body)
     | Thinking_object ->
       (match config.enable_thinking with
        | Some true ->
          let body =
-           match
-             Provider_config.reasoning_effort_request_value
-               ~enable_thinking:config.enable_thinking
-               ~thinking_budget:config.thinking_budget
-           with
-           | Some effort ->
-             (match Reasoning_dialect.normalize_effort dialect effort with
-              | Some normalized -> ("reasoning_effort", `String normalized) :: body
-              | None -> body)
+           match normalized_reasoning_effort dialect config with
+           | Some normalized -> ("reasoning_effort", `String normalized) :: body
            | None -> body
          in
          ("thinking", `Assoc [ "type", `String "enabled" ]) :: body

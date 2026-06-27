@@ -19,8 +19,9 @@ let emit_stream_event on_event evt =
 ;;
 
 let record_streaming_metrics (metrics : Metrics.t) = function
-  | Telemetry_event.Streaming_first_chunk { provider; model; ttfrc_ms; _ } ->
-    metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
+  | Telemetry_event.Streaming_first_chunk { provider; model; ttfrc_ms = Some ttfrc_ms; _ }
+    -> metrics.on_streaming_first_chunk ~provider ~model_id:model ~ttfrc_ms
+  | Telemetry_event.Streaming_first_chunk { ttfrc_ms = None; _ } -> ()
   | Streaming_summary _
   | Thinking_complete _
   | Timeout _
@@ -233,6 +234,7 @@ let complete_stream_http
       ~sw:_
       ~net
       ?clock
+      ?latency_counter
       ?stream_idle_timeout_s
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
@@ -317,7 +319,12 @@ let complete_stream_http
              inject_stream_param >> inject_stream_options_include_usage chain). *)
           Http_client.inject_stream_and_options body_str
       in
-      let t0 = Unix.gettimeofday () in
+      let requested_at = Unix.gettimeofday () in
+      let latency_counter =
+        match latency_counter with
+        | Some counter -> counter
+        | None -> start_latency_counter ()
+      in
       let ttfrc_ref = ref None in
       (* RFC-OAS-020 — TTFT (Time To First Token) capture.
          [first_token_at_ref] fires on the first chunk that carries a
@@ -355,7 +362,7 @@ let complete_stream_http
          all four paths. *)
       let first_chunk_seen = ref false in
       let chunk_counter = ref 0 in
-      let last_chunk_t = ref 0.0 in
+      let last_chunk_t = ref None in
       let n_thinking = ref 0 in
       let n_answer = ref 0 in
       let n_tool_call_start = ref 0 in
@@ -389,19 +396,23 @@ let complete_stream_http
       in
       let percentiles () =
         match !inter_chunk_samples with
-        | [] -> 0.0, 0.0, 0.0
+        | [] -> None
         | samples ->
           let sorted = List.sort Float.compare samples in
           let n = List.length sorted in
           let nth k = List.nth sorted (max 0 (min (n - 1) k)) in
           let idx q = int_of_float (Float.of_int n *. q) in
-          nth (idx 0.5), nth (idx 0.95), nth (n - 1)
+          Some (nth (idx 0.5), nth (idx 0.95), nth (n - 1))
       in
       let publish_summary ~terminal () =
         if not !summary_published
         then (
           summary_published := true;
-          let p50, p95, pmax = percentiles () in
+          let p50, p95, pmax =
+            match percentiles () with
+            | Some (p50, p95, pmax) -> Some p50, Some p95, Some pmax
+            | None -> None, None, None
+          in
           (* RFC-OAS-020: compute TTFT from first-token capture
              (was first-chunk = ttfrc). [prefill_ms] is the gap
              between any first event and the first token; [None]
@@ -409,12 +420,12 @@ let complete_stream_http
              prelude). *)
           let ttft_ms =
             match !first_token_at_ref with
-            | Some t -> Some ((t -. t0) *. 1000.0)
+            | Some t -> Some t
             | None -> None
           in
           let prefill_ms =
             match !first_event_at_ref, !first_token_at_ref with
-            | Some fe, Some ft when ft > fe -> Some ((fe -. t0) *. 1000.0)
+            | Some fe, Some ft when ft > fe -> Some fe
             | None, _ | Some _, None | Some _, Some _ -> None
           in
           emit_telemetry
@@ -434,7 +445,7 @@ let complete_stream_http
                    }
                ; ttft_ms
                ; prefill_ms
-               ; total_ms = (Unix.gettimeofday () -. t0) *. 1000.0
+               ; total_ms = latency_ms_float latency_counter
                ; inter_chunk_ms_p50 = p50
                ; inter_chunk_ms_p95 = p95
                ; inter_chunk_ms_max = pmax
@@ -476,33 +487,32 @@ let complete_stream_http
                    [first_token_at_ref] fires on generated token events,
                    including hidden reasoning. The two refs together
                    distinguish prefill from generation latency. *)
-                let now = Unix.gettimeofday () in
+                let elapsed_ms = latency_ms_float latency_counter in
                 (* Thinking-only cutoff timestamps follow the injected Eio
                    clock when one is available, so a mock clock controls the
-                   cutoff in tests. The telemetry stamps below stay on
-                   [Unix.gettimeofday] because they are offsets against the
-                   wall-time [t0]. With the default Eio clock both sources
-                   advance identically, so production behaviour is unchanged.
-                   [Unix.gettimeofday] remains only as the clock-less
-                   fallback (clock-less callers have no idle protection
-                   either; see the [stream_idle_timeout_s] default above). *)
+                   cutoff in tests. Telemetry durations use the monotonic
+                   [latency_counter] above and therefore do not depend on
+                   wall-clock adjustments. *)
                 let cutoff_now =
                   match clock with
                   | Some c -> Eio.Time.now c
-                  | None -> now
+                  | None -> Unix.gettimeofday ()
                 in
-                if events <> [] && Option.is_none !first_event_at_ref
+                if events <> []
                 then (
-                  first_event_at_ref := Some now;
+                  (match elapsed_ms with
+                   | Some elapsed_ms when Option.is_none !first_event_at_ref ->
+                     first_event_at_ref := Some elapsed_ms
+                   | Some _ | None -> ());
                   stream_idle_state := Http_client.Awaiting_first_delta);
                 if
                   Option.is_none !first_token_at_ref
                   && List.exists Streaming.sse_event_is_first_token_signal events
-                then first_token_at_ref := Some now;
+                then first_token_at_ref := elapsed_ms;
                 if
                   Option.is_none !first_deliverable_at_ref
                   && List.exists Streaming.sse_event_is_deliverable_progress_signal events
-                then first_deliverable_at_ref := Some now;
+                then first_deliverable_at_ref := elapsed_ms;
                 List.iter
                   (fun evt ->
                      emit_stream_event on_event evt;
@@ -566,41 +576,37 @@ let complete_stream_http
                   if not !first_chunk_seen
                   then (
                     first_chunk_seen := true;
-                    (* Reuse the dispatch-entry [now] instead of a fresh
-                       [Unix.gettimeofday]: the sub-microsecond the event
-                       loop spent between dispatch entry and here is below
-                       the metric's resolution, and a single per-dispatch
-                       timestamp keeps inter-chunk gaps measured
-                       dispatch-to-dispatch (wire gap) instead of mixing in
-                       per-event processing time. *)
-                    let ttfrc_ms = (now -. t0) *. 1000.0 in
-                    ttfrc_ref := Some ttfrc_ms;
+                    (* Reuse the per-dispatch monotonic elapsed sample. This
+                       keeps inter-chunk gaps measured dispatch-to-dispatch
+                       instead of mixing in per-event processing time. *)
+                    let ttfrc_ms = elapsed_ms in
+                    ttfrc_ref := ttfrc_ms;
                     emit_telemetry
                       (Telemetry_event.Streaming_first_chunk
-                         { provider; model; ttfrc_ms; requested_at = t0 });
-                    last_chunk_t := now;
+                         { provider; model; ttfrc_ms; requested_at });
+                    last_chunk_t := elapsed_ms;
                     chunk_counter := 1)
                   else (
-                    (* [now] is the dispatch-entry timestamp bound above;
-                       reusing it drops a second [Unix.gettimeofday] syscall
-                       per chunk — this branch runs once per SSE chunk, i.e.
-                       thousands of times per turn. [last_chunk_t] is now also
-                       a dispatch-entry time, so [inter_chunk_ms] is a clean
-                       dispatch-to-dispatch (wire) gap. *)
-                    let inter_chunk_ms = (now -. !last_chunk_t) *. 1000.0 in
-                    (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
-                       removed. Inter-chunk gaps are accumulated for the
-                       percentile reservoir in [Streaming_summary]. Metrics
-                       sinks still receive the raw sample so aggregate backends
-                       can preserve latency counters without re-expanding the
-                       public telemetry stream. *)
-                    metrics.on_streaming_chunk
-                      ~provider
-                      ~model_id:model
-                      ~chunk_index:!chunk_counter
-                      ~inter_chunk_ms;
-                    inter_chunk_samples := inter_chunk_ms :: !inter_chunk_samples;
-                    last_chunk_t := now;
+                    (* [elapsed_ms] is the dispatch-entry sample bound above.
+                       [last_chunk_t] is also a dispatch-entry sample, so
+                       [inter_chunk_ms] is a clean dispatch-to-dispatch gap. *)
+                    (match elapsed_ms, !last_chunk_t with
+                     | Some elapsed_ms, Some last_chunk_t ->
+                       let inter_chunk_ms = elapsed_ms -. last_chunk_t in
+                       (* RFC-OAS-019: per-chunk [Streaming_chunk_n] publish
+                          removed. Inter-chunk gaps are accumulated for the
+                          percentile reservoir in [Streaming_summary]. Metrics
+                          sinks still receive the raw sample so aggregate backends
+                          can preserve latency counters without re-expanding the
+                          public telemetry stream. *)
+                       metrics.on_streaming_chunk
+                         ~provider
+                         ~model_id:model
+                         ~chunk_index:!chunk_counter
+                         ~inter_chunk_ms;
+                       inter_chunk_samples := inter_chunk_ms :: !inter_chunk_samples
+                     | Some _, None | None, Some _ | None, None -> ());
+                    last_chunk_t := elapsed_ms;
                     incr chunk_counter);
                 match tel_opt with
                 | Some evt -> emit_telemetry evt
@@ -742,7 +748,7 @@ let complete_stream_http
         publish_summary ~terminal:(Telemetry_event.Terminal_error "transport_error") ();
         e
       | Ok (Ok resp) ->
-        let latency_ms = int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0) in
+        let latency_ms = latency_ms_int latency_counter in
         (* Ollama injection: usage from the done chunk wins over the
          zeroed accumulator, and timings populate the otherwise-None
          telemetry slot before patch_telemetry layers in latency. *)
@@ -781,13 +787,7 @@ let complete_stream_http
                 { provider; model; prompt_eval_tokens; prompt_eval_ms; cache_hit })
          | Some _ | None -> ());
         let prefill_ms = Option.bind !ollama_timings (fun t -> t.prompt_ms) in
-        Ok
-          (patch_telemetry
-             resp
-             ~config
-             ~ttfrc_ms:!ttfrc_ref
-             ~prefill_ms
-             (Some latency_ms))
+        Ok (patch_telemetry resp ~config ~ttfrc_ms:!ttfrc_ref ~prefill_ms latency_ms)
       | Ok (Error (Http_client.TimeoutError _ as err)) ->
         publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();
         Error err

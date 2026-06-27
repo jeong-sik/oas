@@ -32,10 +32,10 @@ let sample_summary : T.t =
     ; kind_breakdown = sample_breakdown
     ; ttft_ms = Some 250.0
     ; prefill_ms = None
-    ; total_ms = 12_000.0
-    ; inter_chunk_ms_p50 = 40.0
-    ; inter_chunk_ms_p95 = 80.0
-    ; inter_chunk_ms_max = 150.0
+    ; total_ms = Some 12_000.0
+    ; inter_chunk_ms_p50 = Some 40.0
+    ; inter_chunk_ms_p95 = Some 80.0
+    ; inter_chunk_ms_max = Some 150.0
     ; terminal = T.Terminal_done
     }
 ;;
@@ -73,10 +73,10 @@ let test_terminal_error_roundtrip () =
           }
       ; ttft_ms = Some 110.0
       ; prefill_ms = Some 35.0
-      ; total_ms = 2_400.0
-      ; inter_chunk_ms_p50 = 25.0
-      ; inter_chunk_ms_p95 = 60.0
-      ; inter_chunk_ms_max = 120.0
+      ; total_ms = Some 2_400.0
+      ; inter_chunk_ms_p50 = Some 25.0
+      ; inter_chunk_ms_p95 = Some 60.0
+      ; inter_chunk_ms_max = Some 120.0
       ; terminal = T.Terminal_error "stream_idle_timeout_s_exceeded:streaming_answer"
       }
   in

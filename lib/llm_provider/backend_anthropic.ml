@@ -145,7 +145,7 @@ let build_request
     ; ( "max_tokens"
       , `Int
           (Option.value
-             ~default:Constants.unknown_model_max_tokens_fallback
+             ~default:(Constants.resolve_unknown_model_max_tokens_fallback ())
              config.max_tokens) )
     ; "messages", `List msgs_json
     ; "stream", `Bool stream
@@ -157,7 +157,7 @@ let build_request
       let s = Utf8_sanitize.sanitize s in
       let should_cache_system =
         config.cache_system_prompt
-        && String.length s >= Constants.Anthropic.prompt_cache_min_chars
+        && String.length s >= Constants.Anthropic.prompt_cache_min_chars_for_env ()
       in
       if should_cache_system
       then (
