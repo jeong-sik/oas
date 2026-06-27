@@ -1,5 +1,9 @@
 open Agent_sdk
 
+let check_context_backend label expected ctx =
+  Alcotest.(check bool) label true (Context.concurrency_backend ctx = expected)
+;;
+
 let check_response_format label expected actual =
   Alcotest.(check string)
     label
@@ -583,6 +587,21 @@ let () =
               "context preserved"
               true
               (Context.get ctx2 "key" = Some (`String "val")))
+        ; test_case "eio_context rehydrates checkpoint context backend" `Quick (fun () ->
+            Eio_main.run
+            @@ fun _env ->
+            let ctx = Context.create ~eio:false () in
+            Context.set ctx "key" (`String "val");
+            let cp = make_checkpoint ~context:ctx () in
+            let { Agent_checkpoint.context = ctx2; _ } =
+              Agent_checkpoint.build_resume ~checkpoint:cp ~eio_context:true ()
+            in
+            check_context_backend "rehydrated backend" Context.Eio_mutex ctx2;
+            check
+              bool
+              "context preserved"
+              true
+              (Context.get ctx2 "key" = Some (`String "val")))
         ; test_case "override config takes precedence" `Quick (fun () ->
             let cp =
               make_checkpoint ~agent_name:"orig-agent" ~model:"claude-sonnet-4-6" ()
@@ -647,6 +666,36 @@ let () =
               (Some "Be brief.")
               state.config.system_prompt;
             check int "messages" 1 (List.length state.messages))
+        ; test_case
+            "Agent.resume rehydrates JSON checkpoint context for Eio"
+            `Quick
+            (fun () ->
+               Eio_main.run
+               @@ fun env ->
+               let net = Eio.Stdenv.net env in
+               let ctx = Context.create ~eio:false () in
+               Context.set ctx "resume-key" (`String "resume-value");
+               let cp = make_checkpoint ~context:ctx () in
+               let decoded =
+                 match Checkpoint.of_json (Checkpoint.to_json cp) with
+                 | Ok cp -> cp
+                 | Error err ->
+                   Alcotest.fail
+                     (Printf.sprintf
+                        "checkpoint decode failed: %s"
+                        (Agent_sdk.Error.to_string err))
+               in
+               let agent = Agent.resume ~net ~checkpoint:decoded () in
+               let resumed_context = Agent.context agent in
+               check_context_backend
+                 "agent context backend"
+                 Context.Eio_mutex
+                 resumed_context;
+               check
+                 bool
+                 "context value preserved"
+                 true
+                 (Context.get resumed_context "resume-key" = Some (`String "resume-value")))
         ] )
     ; ( "error_cases"
       , [ test_case "malformed JSON string" `Quick (fun () ->

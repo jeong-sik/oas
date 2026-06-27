@@ -12,7 +12,7 @@ type resume_state =
 
 (** Build restored state from a checkpoint.
     Returns state + context; the caller wraps these into Agent.t. *)
-let build_resume ~(checkpoint : Checkpoint.t) ?config ?context () =
+let build_resume ~(checkpoint : Checkpoint.t) ?(eio_context = false) ?config ?context () =
   let base_config =
     match config with
     | Some c -> c
@@ -46,7 +46,7 @@ let build_resume ~(checkpoint : Checkpoint.t) ?config ?context () =
   let ctx =
     match context with
     | Some c -> c
-    | None -> Context.copy checkpoint.context
+    | None -> Context.copy ~eio:eio_context checkpoint.context
   in
   { state; context = ctx }
 ;;

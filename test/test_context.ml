@@ -3,6 +3,10 @@
 open Alcotest
 open Agent_sdk
 
+let check_backend label expected ctx =
+  check bool label true (Context.concurrency_backend ctx = expected)
+;;
+
 let test_create_empty () =
   let ctx = Context.create ~eio:false () in
   check (list string) "empty context has no keys" [] (Context.keys ctx)
@@ -136,8 +140,18 @@ let test_of_json_roundtrip () =
 ;;
 
 let test_of_json_non_assoc () =
-  let ctx = Context.of_json (`String "invalid") in
-  check (list string) "non-Assoc gives empty context" [] (Context.keys ctx)
+  check_raises
+    "non-Assoc rejected"
+    (Invalid_argument "Context.of_json: expected JSON object")
+    (fun () -> ignore (Context.of_json (`String "invalid") : Context.t))
+;;
+
+let test_of_json_eio_backend () =
+  Eio_main.run
+  @@ fun _env ->
+  let ctx = Context.of_json ~eio:true (`Assoc [ "x", `Int 1 ]) in
+  check_backend "eio backend" Context.Eio_mutex ctx;
+  check bool "value restored" true (Context.get ctx "x" = Some (`Int 1))
 ;;
 
 let test_copy_empty () =
@@ -161,6 +175,34 @@ let test_copy_independence () =
   let copy = Context.copy ctx in
   Context.set copy "x" (`String "modified");
   check bool "original unchanged" true (Context.get ctx "x" = Some (`String "original"))
+;;
+
+let test_copy_backend_override () =
+  Eio_main.run
+  @@ fun _env ->
+  let ctx = Context.create ~eio:false () in
+  Context.set ctx "x" (`String "value");
+  let eio_copy = Context.copy ~eio:true ctx in
+  check_backend "copy override to eio" Context.Eio_mutex eio_copy;
+  check bool "value copied" true (Context.get eio_copy "x" = Some (`String "value"));
+  let stdlib_copy = Context.copy ~eio:false eio_copy in
+  check_backend "copy override to stdlib" Context.Stdlib_mutex stdlib_copy
+;;
+
+let test_scope_inherits_parent_backend () =
+  Eio_main.run
+  @@ fun _env ->
+  let parent = Context.create ~eio:true () in
+  Context.set parent "k" (`String "v");
+  let scope =
+    Context.create_scope ~parent ~propagate_down:[ "k" ] ~propagate_up:[ "result" ]
+  in
+  check_backend "scope local inherits eio" Context.Eio_mutex scope.local;
+  check
+    bool
+    "propagate_down copied"
+    true
+    (Context.get scope.local "k" = Some (`String "v"))
 ;;
 
 let () =
@@ -187,11 +229,17 @@ let () =
       , [ test_case "to_json" `Quick test_to_json
         ; test_case "of_json roundtrip" `Quick test_of_json_roundtrip
         ; test_case "of_json non-Assoc" `Quick test_of_json_non_assoc
+        ; test_case "of_json eio backend" `Quick test_of_json_eio_backend
         ] )
     ; ( "copy"
       , [ test_case "copy empty" `Quick test_copy_empty
         ; test_case "copy values" `Quick test_copy_values
         ; test_case "copy independence" `Quick test_copy_independence
+        ; test_case "copy backend override" `Quick test_copy_backend_override
+        ; test_case
+            "scope inherits parent backend"
+            `Quick
+            test_scope_inherits_parent_backend
         ] )
     ; ( "user_data"
       , [ test_case "set and get" `Quick (fun () ->

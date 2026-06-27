@@ -178,10 +178,13 @@ let create_message
       | Error err -> `TransportError (retry_error_of_http_error err)
     in
     let do_request () =
-      let t0 = Unix.gettimeofday () in
-      let measured_latency_ms () =
-        int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0)
+      let now =
+        match clock with
+        | Some clk -> fun () -> Eio.Time.now clk
+        | None -> Unix.gettimeofday
       in
+      let t0 = now () in
+      let measured_latency_ms () = int_of_float ((now () -. t0) *. 1000.0) in
       try
         let call_result =
           match clock with

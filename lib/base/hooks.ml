@@ -70,6 +70,28 @@ end
     Scans for Thinking blocks and heuristically detects uncertainty
     markers like "I'm not sure", "uncertain", "unclear". *)
 let extract_reasoning (messages : message list) : reasoning_summary =
+  let contains_case_insensitive ~needle haystack =
+    let needle = String.lowercase_ascii needle in
+    let haystack = String.lowercase_ascii haystack in
+    let hlen = String.length haystack in
+    let nlen = String.length needle in
+    if nlen = 0
+    then true
+    else if nlen > hlen
+    then false
+    else (
+      let rec check i j =
+        if j = nlen
+        then true
+        else if haystack.[i + j] <> needle.[j]
+        then false
+        else check i (j + 1)
+      in
+      let rec search i =
+        if i + nlen > hlen then false else if check i 0 then true else search (i + 1)
+      in
+      search 0)
+  in
   let thinking_blocks =
     List.concat_map
       (fun (msg : message) ->
@@ -100,7 +122,7 @@ let extract_reasoning (messages : message list) : reasoning_summary =
   in
   let has_uncertainty =
     List.exists
-      (fun marker -> Util.regex_match (Str.regexp_string_case_fold marker) all_text)
+      (fun marker -> contains_case_insensitive ~needle:marker all_text)
       uncertainty_markers
   in
   let tool_rationale =
@@ -110,7 +132,7 @@ let extract_reasoning (messages : message list) : reasoning_summary =
       (fun block ->
          if
            List.exists
-             (fun marker -> Util.regex_match (Str.regexp_string_case_fold marker) block)
+             (fun marker -> contains_case_insensitive ~needle:marker block)
              tool_markers
          then Some block
          else None)
