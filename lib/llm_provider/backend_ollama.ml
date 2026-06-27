@@ -157,7 +157,9 @@ let build_request
      which point the one-shot WARN from Backend_openai also fires. *)
   let options = ref [] in
   (let mt =
-     Option.value ~default:Constants.unknown_model_max_tokens_fallback config.max_tokens
+     Option.value
+       ~default:(Constants.resolve_unknown_model_max_tokens_fallback ())
+       config.max_tokens
    in
    options := ("num_predict", `Int mt) :: !options);
   (match config.temperature with

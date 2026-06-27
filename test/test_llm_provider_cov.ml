@@ -737,6 +737,8 @@ let with_env name value f =
     f
 ;;
 
+let getenv_from pairs name = List.assoc_opt name pairs
+
 let test_constants_http_code_sets () =
   Alcotest.(check (list int))
     "retryable"
@@ -797,6 +799,49 @@ let test_constants_retry_cache_sampling_and_endpoints () =
 ;;
 
 let test_constants_env_helpers () =
+  let getenv =
+    getenv_from
+      [ Constants.Env.max_tokens_default, "8192"
+      ; Constants.Env.thinking_budget_default, "4096"
+      ; Constants.Env.anthropic_thinking_budget, "2048"
+      ; Constants.Env.gemini_thinking_budget, "3072"
+      ; Constants.Env.prompt_cache_min_chars, "4096"
+      ]
+  in
+  Alcotest.(check int)
+    "max tokens env override"
+    8192
+    (Constants.resolve_unknown_model_max_tokens_fallback ~getenv ());
+  Alcotest.(check int)
+    "default thinking env override"
+    4096
+    (Constants.Thinking.default_budget_for_env ~getenv ());
+  Alcotest.(check int)
+    "anthropic provider override"
+    2048
+    (Constants.Thinking.anthropic_budget ~getenv ());
+  Alcotest.(check int)
+    "gemini provider override"
+    3072
+    (Constants.Thinking.gemini_budget ~getenv ());
+  Alcotest.(check int)
+    "prompt cache chars env override"
+    4096
+    (Constants.Anthropic.prompt_cache_min_chars_for_env ~getenv ());
+  let invalid_getenv =
+    getenv_from
+      [ Constants.Env.max_tokens_default, "0"
+      ; Constants.Env.prompt_cache_min_chars, "not-an-int"
+      ]
+  in
+  Alcotest.(check int)
+    "max tokens invalid env fallback"
+    Constants.unknown_model_max_tokens_fallback
+    (Constants.resolve_unknown_model_max_tokens_fallback ~getenv:invalid_getenv ());
+  Alcotest.(check int)
+    "prompt cache invalid env fallback"
+    Constants.Anthropic.default_prompt_cache_min_chars
+    (Constants.Anthropic.prompt_cache_min_chars_for_env ~getenv:invalid_getenv ());
   with_env "OAS_DEFAULT_SEED" (Some "123") (fun () ->
     Alcotest.(check (option int))
       "seed valid"
@@ -811,12 +856,12 @@ let test_constants_env_helpers () =
     Alcotest.(check (option int))
       "env budget valid"
       (Some 4096)
-      (Constants.Thinking.env_budget "OAS_THINKING_BUDGET_DEFAULT"));
+      (Constants.Thinking.env_budget Constants.Env.thinking_budget_default));
   with_env "OAS_THINKING_BUDGET_DEFAULT" (Some "0") (fun () ->
     Alcotest.(check (option int))
       "env budget zero invalid"
       None
-      (Constants.Thinking.env_budget "OAS_THINKING_BUDGET_DEFAULT"));
+      (Constants.Thinking.env_budget Constants.Env.thinking_budget_default));
   with_env "OAS_ANTHROPIC_THINKING_BUDGET" (Some "2048") (fun () ->
     Alcotest.(check int)
       "anthropic override"
