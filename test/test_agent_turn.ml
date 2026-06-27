@@ -735,7 +735,7 @@ let test_idle_non_tool_use_ignored () =
 (* ── apply_context_injection ─────────────────────────────── *)
 
 let test_apply_context_injection_no_injector () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -764,7 +764,7 @@ let test_apply_context_injection_no_injector () =
 ;;
 
 let test_apply_context_injection_with_context_update () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -801,7 +801,7 @@ let test_apply_context_injection_with_context_update () =
 ;;
 
 let test_apply_context_injection_with_extra_messages () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -842,7 +842,7 @@ let test_apply_context_injection_with_extra_messages () =
 ;;
 
 let test_apply_context_injection_exception_handled () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -872,7 +872,7 @@ let test_apply_context_injection_exception_handled () =
 ;;
 
 let test_apply_context_injection_preserves_non_retryable_error () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
