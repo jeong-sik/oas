@@ -94,29 +94,30 @@ let merge (ctx : t) (pairs : (string * Yojson.Safe.t) list) =
 ;;
 
 let diff before after =
-  let rec merge before_items after_items added removed changed =
+  let json_equal a b = a == b || Yojson.Safe.equal a b in
+  let rec walk before_items after_items added removed changed =
     match before_items, after_items with
     | [], [] ->
       { added = List.rev added; removed = List.rev removed; changed = List.rev changed }
     | [], (key, value) :: after_tail ->
-      merge [] after_tail ((key, value) :: added) removed changed
-    | (key, _) :: before_tail, [] -> merge before_tail [] added (key :: removed) changed
+      walk [] after_tail ((key, value) :: added) removed changed
+    | (key, _) :: before_tail, [] -> walk before_tail [] added (key :: removed) changed
     | ( ((before_key, before_value) :: before_tail as before_all)
       , ((after_key, after_value) :: after_tail as after_all) ) ->
       let order = String.compare before_key after_key in
       if order = 0
       then (
         let changed =
-          if before_value = after_value
+          if json_equal before_value after_value
           then changed
           else (after_key, after_value) :: changed
         in
-        merge before_tail after_tail added removed changed)
+        walk before_tail after_tail added removed changed)
       else if order < 0
-      then merge before_tail after_all added (before_key :: removed) changed
-      else merge before_all after_tail ((after_key, after_value) :: added) removed changed
+      then walk before_tail after_all added (before_key :: removed) changed
+      else walk before_all after_tail ((after_key, after_value) :: added) removed changed
   in
-  merge (snapshot before) (snapshot after) [] [] []
+  walk (snapshot before) (snapshot after) [] [] []
 ;;
 
 let to_json (ctx : t) : Yojson.Safe.t =
