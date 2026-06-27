@@ -17,7 +17,7 @@ type config =
   ; preview_len : int (** Characters of content to keep as preview *)
   }
 
-let default_config =
+let default_config () =
   { threshold_bytes = 4096
   ; output_dir = Filename.get_temp_dir_name ()
   ; preview_len = 200
@@ -61,8 +61,13 @@ let maybe_offload ~(config : config) ~(tool_name : string) (content : string)
         else String.sub content 0 config.preview_len
       in
       Offloaded { path; preview; original_bytes = len }
-    | Error _ ->
-      (* Fail-open: if we can't write, keep original content *)
+    | Error err ->
+      Llm_provider.Diag.warn
+        "context_offload"
+        "failed to offload tool result for %s to %s: %s"
+        tool_name
+        path
+        (Error.to_string err);
       Kept content)
 ;;
 

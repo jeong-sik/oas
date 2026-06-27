@@ -9,7 +9,7 @@ let check_int = Alcotest.(check int)
 (* ── default_config ───────────────────────────────────── *)
 
 let test_default_config () =
-  let c = Context_offload.default_config in
+  let c = Context_offload.default_config () in
   check_int "threshold" 4096 c.threshold_bytes;
   check_int "preview_len" 200 c.preview_len;
   check_bool "output_dir non-empty" true (String.length c.output_dir > 0)
@@ -65,15 +65,33 @@ let test_offloaded_above_threshold () =
 
 let test_failopen_bad_dir () =
   let content = String.make 200 'a' in
-  let config : Context_offload.config =
-    { threshold_bytes = 50
-    ; output_dir = "/nonexistent/dir/that/does/not/exist"
-    ; preview_len = 10
-    }
-  in
-  match Context_offload.maybe_offload ~config ~tool_name:"test" content with
-  | Context_offload.Kept c -> check_int "original content" 200 (String.length c)
-  | Context_offload.Offloaded _ -> Alcotest.fail "should fail open"
+  let output_dir = Filename.temp_file "oas-context-offload-not-dir" ".txt" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove output_dir with
+      | Sys_error _ -> ())
+    (fun () ->
+       let config : Context_offload.config =
+         { threshold_bytes = 50; output_dir; preview_len = 10 }
+       in
+       let warnings = ref [] in
+       let result =
+         Llm_provider.Diag.with_sink
+           (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+           (fun () -> Context_offload.maybe_offload ~config ~tool_name:"test" content)
+       in
+       (match result with
+        | Context_offload.Kept c -> check_int "original content" 200 (String.length c)
+        | Context_offload.Offloaded _ -> Alcotest.fail "should fail open");
+       check_bool
+         "warns"
+         true
+         (List.exists
+            (fun (level, ctx, msg) ->
+               level = Llm_provider.Diag.Warn
+               && String.equal ctx "context_offload"
+               && Util.string_contains ~needle:output_dir msg)
+            !warnings))
 ;;
 
 (* ── to_context_string ────────────────────────────────── *)
