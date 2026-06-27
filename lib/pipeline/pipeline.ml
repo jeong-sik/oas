@@ -32,17 +32,17 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
     (#7083). Values outside (0.0, 1.0) are rejected.
     @since 0.185.0 *)
 let compact_watermark_default =
-  match Sys.getenv "OAS_COMPACT_WATERMARK" with
-  | exception Not_found -> 0.9
-  | s ->
-    (match float_of_string_opt s with
-     | Some w when w > 0.0 && w < 1.0 -> w
-     | _ ->
-       Log.warn
-         _log
-         "OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), using 0.9"
-         [ Log.S ("value", s) ];
-       0.9)
+  let raw =
+    Llm_provider.Cli_common_env.float ~allow_negative:true ~default:0.9 "OAS_COMPACT_WATERMARK"
+  in
+  if raw > 0.0 && raw < 1.0
+  then raw
+  else (
+    Log.warn
+      _log
+      "OAS_COMPACT_WATERMARK=%f invalid (expected 0.0 < v < 1.0), using 0.9"
+      [ Log.S ("value", string_of_float raw) ];
+    0.9)
 ;;
 
 open Result_syntax
