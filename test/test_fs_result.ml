@@ -77,6 +77,23 @@ let test_write_file_creates_dirs () =
        | Error _ -> Alcotest.fail "write should create dirs")
 ;;
 
+let test_write_file_parent_is_file () =
+  let parent = Filename.temp_file "fs_parent_file_" ".txt" in
+  let path = Filename.concat parent "child.txt" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove parent with
+      | _ -> ())
+    (fun () ->
+       match Fs_result.write_file path "content" with
+       | Error (Error.Io (FileOpFailed { op; path = err_path; detail })) ->
+         check_string "op" "mkdir_p" op;
+         check_string "path" parent err_path;
+         check_bool "detail" true (Util.string_contains ~needle:"not a directory" detail)
+       | Error _ -> Alcotest.fail "wrong error type"
+       | Ok () -> Alcotest.fail "write should reject file parent")
+;;
+
 (* ── append_file ──────────────────────────────────────── *)
 
 let test_append_file () =
@@ -115,6 +132,22 @@ let test_ensure_dir_new () =
        match Fs_result.ensure_dir path with
        | Ok () -> check_bool "dir exists" true (Sys.file_exists path)
        | Error _ -> Alcotest.fail "should succeed")
+;;
+
+let test_ensure_dir_existing_file () =
+  let path = Filename.temp_file "fs_ensure_file_" ".txt" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | _ -> ())
+    (fun () ->
+       match Fs_result.ensure_dir path with
+       | Error (Error.Io (FileOpFailed { op; path = err_path; detail })) ->
+         check_string "op" "mkdir_p" op;
+         check_string "path" path err_path;
+         check_bool "detail" true (Util.string_contains ~needle:"not a directory" detail)
+       | Error _ -> Alcotest.fail "wrong error type"
+       | Ok () -> Alcotest.fail "file path should not be accepted as a directory")
 ;;
 
 (* ── file_exists ──────────────────────────────────────── *)
@@ -199,11 +232,13 @@ let () =
     ; ( "write_file"
       , [ Alcotest.test_case "success" `Quick test_write_file_success
         ; Alcotest.test_case "creates dirs" `Quick test_write_file_creates_dirs
+        ; Alcotest.test_case "parent is file" `Quick test_write_file_parent_is_file
         ] )
     ; "append_file", [ Alcotest.test_case "append" `Quick test_append_file ]
     ; ( "ensure_dir"
       , [ Alcotest.test_case "existing" `Quick test_ensure_dir_existing
         ; Alcotest.test_case "new" `Quick test_ensure_dir_new
+        ; Alcotest.test_case "existing file" `Quick test_ensure_dir_existing_file
         ] )
     ; ( "file_exists"
       , [ Alcotest.test_case "true" `Quick test_file_exists_true
