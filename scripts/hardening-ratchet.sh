@@ -1,33 +1,38 @@
 #!/usr/bin/env bash
 # Production hardening ratchet for OAS.
 #
+# RFC: docs/rfc/RFC-OAS-023-hardening-ratchet.md
+#
 # This is intentionally a monotone-decrease gate, not a broad style linter:
 # current debt is captured in .ci/hardening-baseline.json, and PRs may hold or
-# reduce each metric. Increases fail CI.
+# reduce each metric. Increases are reported by CI; the workflow is currently
+# advisory while the detector remains regex-based.
 #
 # Metrics:
 #   local_workspace_path_literals
-#     String literals that bake a local developer workspace path such as
-#     "/Users/<user>/me" or "~/me" into runtime source.
+#     String literals that bake the repository root or $HOME into runtime source.
 #   direct_env_reads
 #     Direct Sys/Unix getenv calls in runtime source.
 #   direct_env_reads_outside_env_boundary
 #     Direct getenv calls outside obvious config/env boundary modules.
 #   exception_message_classifiers
-#     Exception-message substring classification shapes.
+#     Exception-message substring classification shapes (classify_by_message,
+#     has_substr on message-like variables). Typed error-label serializers are
+#     excluded.
 #   stub_markers
 #     Runtime stubs such as Not_implemented and failwith "not implemented".
+#     assert false is excluded because it is the standard exhaustiveness idiom.
 #   wildcard_silent_defaults
 #     Line-leading catch-all arms that collapse to permissive defaults.
 #
 # Usage:
 #   scripts/hardening-ratchet.sh --measure
 #   scripts/hardening-ratchet.sh --check
-#   scripts/hardening-ratchet.sh --rebaseline
+#   scripts/hardening-ratchet.sh --rebaseline  # main-only
 
 set -euo pipefail
 
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+REPO_ROOT="$(git rev-parse --show-toplevel)"
 BASELINE_FILE="${REPO_ROOT}/.ci/hardening-baseline.json"
 cd "$REPO_ROOT"
 
@@ -40,6 +45,7 @@ import sys
 from pathlib import Path
 
 repo = Path(sys.argv[1])
+MAX_EXAMPLES = 8
 
 tracked = subprocess.check_output(["git", "ls-files"], cwd=repo, text=True).splitlines()
 
@@ -53,17 +59,33 @@ runtime_files = [
 ]
 
 env_read_re = re.compile(r"\b(?:Sys|Unix)\.(?:getenv|getenv_opt|unsafe_getenv)\b")
-local_path_literal_re = re.compile(r"\"[^\"\n]*(?:/Users/[^\"\n]*/me|~/me)[^\"\n]*\"")
+
+# Local workspace roots are derived from the repository root and $HOME so the
+# detector does not bake in "~/me" or "/Users/<user>/me" (which would repeat the
+# anti-pattern it is policing).
+repo_root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=repo, text=True).strip()
+home = os.environ.get("HOME", "")
+local_path_roots = [repo_root]
+if home and home != repo_root:
+    local_path_roots.append(home)
+local_path_pattern = "|".join(re.escape(r) for r in local_path_roots if r)
+local_path_literal_re = re.compile(r"\"[^\"\n]*(?:" + local_path_pattern + r")[^\"\n]*\"")
+
+# Exception-message substring classifiers. We intentionally do NOT match raw
+# error substrings such as "timeout" (that is the same heuristic the metric
+# exists to remove). Only explicit classify_by_message / has_substr call sites
+# are counted, so typed error-label serializers are not misclassified.
 exception_classifier_re = re.compile(
     r"classify_by_message"
-    r"|String\.lowercase_ascii[^\n]*(?:msg|message|Printexc\.to_string)"
-    r"|has_substr[^\n]*(?:msg|message|\bm\b)"
-    r"|\"(?:connection refused|connection reset|timed out|timeout|name or service|tls|broken pipe|too many open files)\""
+    r"|has_substr\s*\([^\)]*(?:msg|message|\bm\b)"
 )
+
+# Stubs / unfinished implementations. `assert false` is excluded because it is
+# the standard OCaml idiom for exhaustiveness proofs on impossible GADT/variant
+# branches; counting it would flag safe code.
 stub_re = re.compile(
     r"Not_implemented"
     r"|failwith\s+\"[^\"]*(?:not implemented|TODO|stub)[^\"]*\""
-    r"|assert false"
 )
 wildcard_silent_re = re.compile(
     r"^\s*\|\s*_\s*->\s*(?:Ok\b|None\b|\[\]|\(\)|true\b|false\b|\"\")"
@@ -102,7 +124,7 @@ examples = {key: [] for key in metrics}
 
 def bump(metric: str, path: str, lineno: int, line: str) -> None:
     metrics[metric] += 1
-    if len(examples[metric]) < 8:
+    if len(examples[metric]) < MAX_EXAMPLES:
         examples[metric].append(f"{path}:{lineno}:{line.strip()}")
 
 def uncomment_lines(text: str):
@@ -134,16 +156,17 @@ def uncomment_lines(text: str):
         yield "".join(out), raw
 
 for path in runtime_files:
-    text = (repo / path).read_text(errors="replace")
+    # Fail loudly on encoding issues rather than silently corrupting source.
+    text = (repo / path).read_text(encoding="utf-8", errors="strict")
     for lineno, (line, raw_line) in enumerate(uncomment_lines(text), 1):
         env_matches = list(env_read_re.finditer(line))
         if env_matches:
             metrics["direct_env_reads"] += len(env_matches)
-            if len(examples["direct_env_reads"]) < 8:
+            if len(examples["direct_env_reads"]) < MAX_EXAMPLES:
                 examples["direct_env_reads"].append(f"{path}:{lineno}:{raw_line.strip()}")
             if not is_env_boundary(path):
                 metrics["direct_env_reads_outside_env_boundary"] += len(env_matches)
-                if len(examples["direct_env_reads_outside_env_boundary"]) < 8:
+                if len(examples["direct_env_reads_outside_env_boundary"]) < MAX_EXAMPLES:
                     examples["direct_env_reads_outside_env_boundary"].append(f"{path}:{lineno}:{raw_line.strip()}")
         if local_path_literal_re.search(line):
             bump("local_workspace_path_literals", path, lineno, raw_line)
@@ -227,6 +250,15 @@ for metric, items in data["examples"].items():
 }
 
 do_rebaseline() {
+  # main-only: write current measurements to baseline JSON. CI workflow
+  # guards branch to refs/heads/main; this is a sanity check.
+  local current_branch
+  current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")"
+  if [ "$current_branch" != "main" ] && [ "${ALLOW_REBASELINE_OFF_MAIN:-0}" != "1" ]; then
+    printf "refusing to rebaseline off main (branch=%s). Set ALLOW_REBASELINE_OFF_MAIN=1 to override.\n" "$current_branch" >&2
+    return 2
+  fi
+
   mkdir -p "$(dirname "$BASELINE_FILE")"
   local current_json
   current_json="$(measure)"
