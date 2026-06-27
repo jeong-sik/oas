@@ -7,7 +7,7 @@
     @since 0.93.1 *)
 
 let default_model_id =
-  match Sys.getenv_opt "OAS_DEFAULT_MODEL" with
+  match Llm_provider.Cli_common_env.get "OAS_DEFAULT_MODEL" with
   | Some v -> v
   | None -> "claude-sonnet-4-6-20250514"
 ;;

@@ -31,6 +31,18 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
     override.  Hard floor prevents silent pass-through that caused CTX 101%
     overrun (#7083). Values outside (0.0, 1.0) are rejected.
     @since 0.185.0 *)
+let compact_watermark_default =
+  match Llm_provider.Cli_common_env.get "OAS_COMPACT_WATERMARK" with
+  | None -> 0.9
+  | Some raw ->
+    (match float_of_string_opt raw with
+     | Some v when v > 0.0 && v < 1.0 -> v
+     | Some _ | None ->
+       Log.warn
+         _log
+         "OAS_COMPACT_WATERMARK invalid (expected 0.0 < v < 1.0), using 0.9"
+         [ Log.S ("raw", raw) ];
+       0.9)
 let default_compact_watermark = 0.9
 
 let is_valid_compact_watermark w = w > 0.0 && w < 1.0

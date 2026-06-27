@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Features
+
+* **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or`, `Defaults.int_env_or`/`float_env_or`/`bool_env_or`, and `Tool_result_store` config overrides now delegate to it.
+* **env:** `Defaults` env parsers preserve the historical structured `Log.warn` schema via the new `Cli_common_env` `on_invalid` callback.
+* **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
+* **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
+* **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 ### Breaking Changes
 
 * **mcp_http:** `Mcp_http.default_config` is now `unit -> config` so
