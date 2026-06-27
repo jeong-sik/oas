@@ -20,29 +20,21 @@ type config =
   ; aggregate_budget : int
   }
 
-(* ── Env-var overrides ─────────────────────────────────────── *)
-
-let int_of_env name =
-  match Sys.getenv_opt name with
-  | None -> None
-  | Some s -> int_of_string_opt s
-;;
-
 let config_with_env_overrides config =
   let threshold_chars =
-    match int_of_env "OAS_TOOL_RESULT_THRESHOLD" with
-    | Some v -> v
-    | None -> config.threshold_chars
+    Llm_provider.Cli_common_env.int
+      ~default:config.threshold_chars
+      "OAS_TOOL_RESULT_THRESHOLD"
   in
   let preview_chars =
-    match int_of_env "OAS_TOOL_RESULT_PREVIEW_LEN" with
-    | Some v -> v
-    | None -> config.preview_chars
+    Llm_provider.Cli_common_env.int
+      ~default:config.preview_chars
+      "OAS_TOOL_RESULT_PREVIEW_LEN"
   in
   let aggregate_budget =
-    match int_of_env "OAS_TOOL_RESULT_AGGREGATE_BUDGET" with
-    | Some v -> v
-    | None -> config.aggregate_budget
+    Llm_provider.Cli_common_env.int
+      ~default:config.aggregate_budget
+      "OAS_TOOL_RESULT_AGGREGATE_BUDGET"
   in
   { config with threshold_chars; preview_chars; aggregate_budget }
 ;;
@@ -259,6 +251,14 @@ let%test "config_with_env_overrides: bad input keeps default" =
   in
   unsetenv "OAS_TOOL_RESULT_THRESHOLD";
   unsetenv "OAS_TOOL_RESULT_PREVIEW_LEN";
+  ok
+;;
+
+let%test "config_with_env_overrides: negative input keeps default" =
+  Unix.putenv "OAS_TOOL_RESULT_THRESHOLD" "-100000";
+  let c = config_with_env_overrides base_config in
+  let ok = c.threshold_chars = default_threshold_chars in
+  unsetenv "OAS_TOOL_RESULT_THRESHOLD";
   ok
 ;;
 

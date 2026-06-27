@@ -30,7 +30,12 @@ let file_write_error ~path ~detail =
   Error.Io (FileOpFailed { op = "write"; path; detail })
 ;;
 
+(** Append a single element to the tail of a list.
+    This is [O(n)] in the length of [xs] because it copies [xs]. It is fine
+    for one-off appends, but using it inside a loop to build a list yields
+    quadratic cost; prefer cons-into-an-accumulator followed by [List.rev]. *)
 let snoc xs x = xs @ [ x ]
+
 let snoc_list xs ys = xs @ ys
 
 (** Traverse a list with a function returning [result], short-circuit on first error. *)
@@ -97,10 +102,9 @@ let trim_non_empty_opt = function
   | Some s -> trim_non_empty s
 ;;
 
-let get var =
-  match Sys.getenv_opt var with
-  | None -> None
-  | Some v -> trim_non_empty v
+(** Deprecated: use [Llm_provider.Cli_common_env.get]. Kept for backward
+    compatibility until remaining internal callers are migrated. *)
+let get = Llm_provider.Cli_common_env.get
 ;;
 
 let env_or default var =
@@ -152,13 +156,4 @@ let string_list_of_json lst =
 ;;
 
 let json_of_string_pairs pairs = `Assoc (List.map (fun (k, v) -> k, `String v) pairs)
-
-let int_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    (match int_of_string_opt trimmed with
-     | Some v when v > 0 -> v
-     | _ -> default)
-  | None -> default
-;;
+let int_env_or default var = Llm_provider.Cli_common_env.int ~default var

@@ -110,14 +110,29 @@ let safe_prefix (body : string) ~(max_len : int) : string =
   else String.sub body 0 max_len
 ;;
 
+let contains_substring haystack needle =
+  let hlen = String.length haystack in
+  let nlen = String.length needle in
+  if nlen = 0
+  then true
+  else if nlen > hlen
+  then false
+  else (
+    let rec check i j =
+      if j = nlen
+      then true
+      else if haystack.[i + j] <> needle.[j]
+      then false
+      else check i (j + 1)
+    in
+    let rec search i =
+      if i + nlen > hlen then false else if check i 0 then true else search (i + 1)
+    in
+    search 0)
+;;
+
 let contains_case_insensitive ~(haystack : string) ~(needle : string) : bool =
-  let haystack = String.lowercase_ascii haystack in
-  let needle = String.lowercase_ascii needle in
-  try
-    let (_ : int) = Str.search_forward (Str.regexp_string needle) haystack 0 in
-    true
-  with
-  | Not_found -> false
+  contains_substring (String.lowercase_ascii haystack) (String.lowercase_ascii needle)
 ;;
 
 (** Substrings inside the extracted [error.message] text indicating the 429

@@ -184,16 +184,12 @@ let rec find_in_parents filename dir depth =
 let env_loaded_catalog : t option Lazy.t =
   lazy
     (let env_path = Cli_common_env.get "OAS_MODEL_CATALOG" in
-     let home_opt =
-       try Some (Unix.getenv "HOME") with
-       | Not_found -> None
-     in
-     let cwd = Sys.getcwd () in
+     let cwd = Paths.cwd () in
      let search_paths =
        [ env_path
        ; find_in_parents "models.toml" cwd 10
        ; find_in_parents "oas-models.toml" cwd 10
-       ; Option.map (fun h -> Filename.concat h ".config/oas/models.toml") home_opt
+       ; Paths.user_config_file "models.toml"
          (* Boundary: this SDK is generic and must not know any embedding
             application's private runtime layout. A consumer points the SDK
             at its own catalog via [OAS_MODEL_CATALOG]; the SDK only probes

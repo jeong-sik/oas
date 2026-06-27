@@ -228,7 +228,8 @@ let to_string = function
 let is_retryable = function
   | Api err -> Retry.is_retryable err
   | Provider err -> Llm_provider.Error.is_retryable err
-  | Mcp (ServerStartFailed _) -> false
-  | Mcp _ -> true
+  | Mcp (InitializeFailed _ | ToolListFailed _ | ToolCallFailed _ | HttpTransportFailed _)
+    -> true
+  | Mcp _ -> false
   | Agent _ | Config _ | Serialization _ | Io _ | Orchestration _ | Internal _ -> false
 ;;

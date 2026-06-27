@@ -145,12 +145,15 @@ type content_block =
       }
 [@@deriving show]
 
+(** Message metadata: extensible typed key-value pairs attached to a message. *)
+type metadata = (string * Yojson.Safe.t) list [@@deriving show]
+
 type message =
   { role : role
   ; content : content_block list
   ; name : string option
   ; tool_call_id : string option
-  ; metadata : (string * Yojson.Safe.t) list
+  ; metadata : metadata
   }
 [@@deriving show]
 

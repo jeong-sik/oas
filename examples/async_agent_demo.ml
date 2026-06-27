@@ -24,7 +24,7 @@ open Types
 let read_only_tool =
   let descriptor =
     { Tool.kind = Some "demo"
-    ; mutation_class = Some "read_only"
+    ; mutation_class = Some Tool.Read_only
     ; concurrency_class = Some Tool.Parallel_read
     ; permission = Some Tool.ReadOnly
     ; evidence_role = None
@@ -65,7 +65,7 @@ let read_only_tool =
 let external_fetch_tool =
   let descriptor =
     { Tool.kind = Some "demo"
-    ; mutation_class = Some "external_effect"
+    ; mutation_class = Some Tool.External_effect
     ; concurrency_class = Some Tool.Exclusive_external
     ; permission = Some Tool.ReadOnly
     ; evidence_role = None

@@ -19,6 +19,14 @@ let with_temp_file content f =
     (fun () -> f path)
 ;;
 
+let expect_invalid_config_field label field json =
+  match Agent_config.of_json json with
+  | Error (Error.Config (InvalidConfig { field = actual; _ })) ->
+    Alcotest.(check string) label field actual
+  | Error e -> Alcotest.fail (label ^ ": unexpected error: " ^ Error.to_string e)
+  | Ok _ -> Alcotest.fail (label ^ ": expected InvalidConfig")
+;;
+
 (* ── of_json: minimal / defaults ─────────────────────────────── *)
 
 let test_of_json_minimal () =
@@ -133,11 +141,7 @@ let test_tool_parameters_not_list () =
     "tools": [{"name": "ping", "parameters": "not-a-list"}]
   }|}
   in
-  match Agent_config.of_json json with
-  | Error e -> Alcotest.fail ("params not list: " ^ Error.to_string e)
-  | Ok cfg ->
-    let t = List.nth cfg.tools 0 in
-    Alcotest.(check int) "empty params" 0 (List.length t.parameters)
+  expect_invalid_config_field "params not list" "parameters" json
 ;;
 
 let test_param_defaults () =
@@ -251,13 +255,7 @@ let test_mcp_http_headers_not_assoc () =
     "mcp_servers": [{"url": "http://x.com", "headers": "not-obj"}]
   }|}
   in
-  match Agent_config.of_json json with
-  | Error e -> Alcotest.fail ("headers not assoc: " ^ Error.to_string e)
-  | Ok cfg ->
-    (match List.nth cfg.mcp_servers 0 with
-     | Agent_config.Http_mcp { headers; _ } ->
-       Alcotest.(check int) "no headers" 0 (List.length headers)
-     | _ -> Alcotest.fail "expected Http_mcp")
+  expect_invalid_config_field "headers not assoc" "headers" json
 ;;
 
 let test_mcp_http_non_string_header_value () =
@@ -267,13 +265,17 @@ let test_mcp_http_non_string_header_value () =
     "mcp_servers": [{"url": "http://x.com", "headers": {"a": "b", "c": 123}}]
   }|}
   in
-  match Agent_config.of_json json with
-  | Error e -> Alcotest.fail ("non-string header: " ^ Error.to_string e)
-  | Ok cfg ->
-    (match List.nth cfg.mcp_servers 0 with
-     | Agent_config.Http_mcp { headers; _ } ->
-       Alcotest.(check int) "only string headers" 1 (List.length headers)
-     | _ -> Alcotest.fail "expected Http_mcp")
+  expect_invalid_config_field "non-string header" "/headers/c" json
+;;
+
+let test_mcp_stdio_non_string_env_value () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "mcp_servers": [{"command": "node", "env": ["FOO=bar", 123]}]
+  }|}
+  in
+  expect_invalid_config_field "non-string env" "env" json
 ;;
 
 (* ── load from file ──────────────────────────────────────────── *)
@@ -537,6 +539,11 @@ let test_of_json_bad_tool () =
   | Ok _ -> Alcotest.fail "expected error for bad tool"
 ;;
 
+let test_of_json_non_object_tool () =
+  let json = Yojson.Safe.from_string {|{"tools": ["not-object"]}|} in
+  expect_invalid_config_field "non-object tool" "tool" json
+;;
+
 let test_of_json_bad_mcp () =
   (* mcp without command or url *)
   let json =
@@ -550,18 +557,19 @@ let test_of_json_bad_mcp () =
   | Ok _ -> Alcotest.fail "expected error for bad mcp"
 ;;
 
+let test_of_json_non_object_mcp () =
+  let json = Yojson.Safe.from_string {|{"mcp_servers": ["not-object"]}|} in
+  expect_invalid_config_field "non-object mcp" "mcp_server" json
+;;
+
 let test_of_json_tools_not_list () =
   let json = Yojson.Safe.from_string {|{"tools": "not-list"}|} in
-  match Agent_config.of_json json with
-  | Error e -> Alcotest.fail ("should handle: " ^ Error.to_string e)
-  | Ok cfg -> Alcotest.(check int) "no tools" 0 (List.length cfg.tools)
+  expect_invalid_config_field "tools not list" "tools" json
 ;;
 
 let test_of_json_mcp_not_list () =
   let json = Yojson.Safe.from_string {|{"mcp_servers": "not-list"}|} in
-  match Agent_config.of_json json with
-  | Error e -> Alcotest.fail ("should handle: " ^ Error.to_string e)
-  | Ok cfg -> Alcotest.(check int) "no mcp" 0 (List.length cfg.mcp_servers)
+  expect_invalid_config_field "mcp not list" "mcp_servers" json
 ;;
 
 (* ── Test suite ──────────────────────────────────────────────── *)
@@ -580,7 +588,9 @@ let () =
         ; tc "mcp not list" test_of_json_mcp_not_list
         ; tc "bad param" test_of_json_bad_param
         ; tc "bad tool" test_of_json_bad_tool
+        ; tc "non-object tool" test_of_json_non_object_tool
         ; tc "bad mcp" test_of_json_bad_mcp
+        ; tc "non-object mcp" test_of_json_non_object_mcp
         ] )
     ; ( "mcp_servers"
       , [ tc "stdio" test_mcp_stdio
@@ -589,6 +599,7 @@ let () =
         ; tc "stdio defaults" test_mcp_stdio_defaults
         ; tc "headers not assoc" test_mcp_http_headers_not_assoc
         ; tc "non-string header" test_mcp_http_non_string_header_value
+        ; tc "non-string env" test_mcp_stdio_non_string_env_value
         ] )
     ; ( "load"
       , [ tc "valid file" test_load_valid_file

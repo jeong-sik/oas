@@ -15,41 +15,24 @@ let warn_invalid_env ~var ~raw ~expected =
 let env_or = Util.env_or
 
 let int_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    (match int_of_string_opt trimmed with
-     | Some v when v > 0 -> v
-     | _ ->
-       if trimmed <> ""
-       then warn_invalid_env ~var ~raw:trimmed ~expected:"positive integer";
-       default)
-  | None -> default
+  Llm_provider.Cli_common_env.int
+    ~on_invalid:(fun { var; raw; expected } -> warn_invalid_env ~var ~raw ~expected)
+    ~default
+    var
 ;;
 
 let float_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    (match float_of_string_opt trimmed with
-     | Some v when v > 0.0 -> v
-     | _ ->
-       if trimmed <> "" then warn_invalid_env ~var ~raw:trimmed ~expected:"positive float";
-       default)
-  | None -> default
+  Llm_provider.Cli_common_env.float
+    ~on_invalid:(fun { var; raw; expected } -> warn_invalid_env ~var ~raw ~expected)
+    ~default
+    var
 ;;
 
 let bool_env_or default var =
-  match Sys.getenv_opt var with
-  | Some raw ->
-    let trimmed = String.trim raw in
-    (match String.lowercase_ascii trimmed with
-     | "1" | "true" | "yes" | "on" -> true
-     | "0" | "false" | "no" | "off" -> false
-     | _ ->
-       if trimmed <> "" then warn_invalid_env ~var ~raw:trimmed ~expected:"boolean";
-       default)
-  | None -> default
+  Llm_provider.Cli_common_env.bool
+    ~on_invalid:(fun { var; raw; expected } -> warn_invalid_env ~var ~raw ~expected)
+    ~default
+    var
 ;;
 
 let local_llm_url = Llm_provider.Discovery.default_endpoint
