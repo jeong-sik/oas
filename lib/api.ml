@@ -178,10 +178,13 @@ let create_message
       | Error err -> `TransportError (retry_error_of_http_error err)
     in
     let do_request () =
-      let t0 = Unix.gettimeofday () in
-      let measured_latency_ms () =
-        int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0)
+      let now =
+        match clock with
+        | Some clk -> fun () -> Eio.Time.now clk
+        | None -> Unix.gettimeofday
       in
+      let t0 = now () in
+      let measured_latency_ms () = int_of_float ((now () -. t0) *. 1000.0) in
       try
         let call_result =
           match clock with
@@ -191,39 +194,25 @@ let create_message
         match call_result with
         | `Ok body_str ->
           let lat = measured_latency_ms () in
-          (match kind with
-           | Provider.Anthropic_messages ->
+          let raw_resp_result =
+            match kind with
+            | Provider.Anthropic_messages ->
+              Ok (parse_response (Yojson.Safe.from_string body_str))
+            | Provider.Openai_chat_completions -> parse_openai_response_result body_str
+            | Provider.Custom name ->
+              (match Provider.find_provider name with
+               | Some impl -> Ok (impl.parse_response body_str)
+               | None -> parse_openai_response_result body_str)
+          in
+          (match raw_resp_result with
+           | Ok resp ->
              Ok
-               (parse_response (Yojson.Safe.from_string body_str)
-                |> Llm_provider.Pricing.annotate_response_cost
+               (Llm_provider.Pricing.annotate_response_cost resp
                 |> fun r -> patch_latency r lat)
-           | Provider.Openai_chat_completions ->
-             (match parse_openai_response_result body_str with
-              | Ok resp ->
-                Ok
-                  (Llm_provider.Pricing.annotate_response_cost resp
-                   |> fun r -> patch_latency r lat)
-              | Error msg ->
-                Error
-                  (Retry.InvalidRequest
-                     { message = msg; reason = Retry.Unknown_invalid_request }))
-           | Provider.Custom name ->
-             (match Provider.find_provider name with
-              | Some impl ->
-                Ok
-                  (impl.parse_response body_str
-                   |> Llm_provider.Pricing.annotate_response_cost
-                   |> fun r -> patch_latency r lat)
-              | None ->
-                (match parse_openai_response_result body_str with
-                 | Ok resp ->
-                   Ok
-                     (Llm_provider.Pricing.annotate_response_cost resp
-                      |> fun r -> patch_latency r lat)
-                 | Error msg ->
-                   Error
-                     (Retry.InvalidRequest
-                        { message = msg; reason = Retry.Unknown_invalid_request }))))
+           | Error msg ->
+             Error
+               (Retry.InvalidRequest
+                  { message = msg; reason = Retry.Unknown_invalid_request }))
         | `HttpError (code, body_str) ->
           Error (Retry.classify_error ~status:code ~body:body_str)
         | `TransportError err -> Error err

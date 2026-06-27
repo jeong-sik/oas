@@ -14,8 +14,8 @@ let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
    the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_stage_log bus event
 
-let stage_input ?raw_trace_run agent =
-  let ts = Unix.gettimeofday () in
+let stage_input ?raw_trace_run ?clock agent =
+  let ts = Pipeline_common.timestamp_now ?clock () in
   set_lifecycle agent ~ready_at:ts Ready;
   let before_decision =
     invoke_hook_with_trace
@@ -259,7 +259,7 @@ let%test "runtime MCP policy is narrowed by AllowList guardrails" =
   narrowed.allowed_tool_names = [ "status_tool"; "ledger_tool" ]
 ;;
 
-let stage_parse ?raw_trace_run agent =
+let stage_parse ?raw_trace_run ?clock agent =
   let turn_params =
     match agent.options.hooks.before_turn_params with
     | None -> Hooks.default_turn_params
@@ -352,7 +352,10 @@ let stage_parse ?raw_trace_run agent =
    | Some j ->
      Durable_event.append
        j
-       (Turn_started { turn = agent.state.turn_count; timestamp = Unix.gettimeofday () })
+       (Turn_started
+          { turn = agent.state.turn_count
+          ; timestamp = Pipeline_common.timestamp_now ?clock ()
+          })
    | None -> ());
   let prep = prepare_turn_for_agent agent ~turn_params in
   let runtime_mcp_policy =

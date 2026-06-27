@@ -18,7 +18,9 @@ type turn_params =
 
 val default_turn_params : turn_params
 
-(** Reasoning summary extracted from assistant messages. *)
+(** Reasoning summary extracted from structured assistant message blocks.
+    [extract_reasoning] preserves Thinking blocks without inferring uncertainty
+    or tool rationale from prose. *)
 type reasoning_summary =
   { thinking_blocks : string list
   ; has_uncertainty : bool
