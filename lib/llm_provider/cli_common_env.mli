@@ -20,10 +20,11 @@
     [None] otherwise.  Whitespace-only values are treated as unset. *)
 val get : string -> string option
 
-(** [bool name] returns [true] when [name] is set to [1], [true], [yes],
-    or [on] (case-insensitive).  Any other value (including unset)
-    returns [false]. *)
-val bool : string -> bool
+(** [bool ?default name] returns [true] when [name] is set to [1], [true],
+    [yes], or [on] (case-insensitive), and [false] when set to [0], [false],
+    [no], or [off].  Unset or empty values return [default] (default [false]).
+    Invalid values emit a warning before returning [default]. *)
+val bool : ?default:bool -> string -> bool
 
 (** [list ?sep name] splits the value of [name] on [sep] (default
     comma) and trims each token.  Empty tokens are dropped.  Unset,

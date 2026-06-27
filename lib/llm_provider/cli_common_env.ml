@@ -10,13 +10,21 @@ let trim_non_empty_opt = function
 
 let get name = trim_non_empty_opt (Sys.getenv_opt name)
 
-let bool name =
+let bool ?(default = false) name =
   match get name with
-  | None -> false
+  | None -> default
   | Some v ->
     (match String.lowercase_ascii v with
      | "1" | "true" | "yes" | "on" -> true
-     | _ -> false)
+     | "0" | "false" | "no" | "off" -> false
+     | _ ->
+       Diag.warn
+         "cli_common_env"
+         "%s=%S is not a boolean; using default %b"
+         name
+         v
+         default;
+       default)
 ;;
 
 let filter_non_empty = List.filter (fun s -> s <> "")
@@ -111,6 +119,21 @@ let float ?(allow_negative = false) ~default var =
 
 [@@@coverage off]
 
+let string_contains ~needle haystack =
+  let needle_len = String.length needle in
+  let haystack_len = String.length haystack in
+  let rec loop idx =
+    if needle_len = 0
+    then true
+    else if idx + needle_len > haystack_len
+    then false
+    else if String.sub haystack idx needle_len = needle
+    then true
+    else loop (idx + 1)
+  in
+  loop 0
+;;
+
 let with_env name value f =
   (* Lightweight test helper. Do not use for production secrets: environment
      variables are visible to child processes and may be logged. OCaml's Unix
@@ -143,7 +166,9 @@ let%test "int rejects negative env value by default" =
     value = 7
     && List.exists
          (fun (level, ctx, msg) ->
-            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg '-')
+            level = Diag.Warn
+            && ctx = "cli_common_env"
+            && string_contains ~needle:"is negative" msg)
          !warnings)
 ;;
 
@@ -163,7 +188,9 @@ let%test "int rejects non-numeric env value" =
     value = 7
     && List.exists
          (fun (level, ctx, msg) ->
-            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg 'n')
+            level = Diag.Warn
+            && ctx = "cli_common_env"
+            && string_contains ~needle:"is not an integer" msg)
          !warnings)
 ;;
 
@@ -183,7 +210,9 @@ let%test "float rejects negative env value by default" =
     value = 7.0
     && List.exists
          (fun (level, ctx, msg) ->
-            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg '-')
+            level = Diag.Warn
+            && ctx = "cli_common_env"
+            && string_contains ~needle:"is negative" msg)
          !warnings)
 ;;
 
@@ -204,6 +233,32 @@ let%test "float rejects non-numeric env value" =
     value = 7.0
     && List.exists
          (fun (level, ctx, msg) ->
-            level = Diag.Warn && ctx = "cli_common_env" && String.contains msg 'n')
+            level = Diag.Warn
+            && ctx = "cli_common_env"
+            && string_contains ~needle:"is not a float" msg)
+         !warnings)
+;;
+
+let%test "bool accepts truthy and falsy env values" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_BOOL_TRUE" "on" (fun () ->
+    with_env "OAS_TEST_CLI_COMMON_ENV_BOOL_FALSE" "off" (fun () ->
+      bool "OAS_TEST_CLI_COMMON_ENV_BOOL_TRUE"
+      && not (bool ~default:true "OAS_TEST_CLI_COMMON_ENV_BOOL_FALSE")))
+;;
+
+let%test "bool rejects invalid env value with warning" =
+  with_env "OAS_TEST_CLI_COMMON_ENV_BOOL_BAD" "maybe" (fun () ->
+    let warnings = ref [] in
+    let value =
+      Diag.with_sink
+        (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+        (fun () -> bool ~default:true "OAS_TEST_CLI_COMMON_ENV_BOOL_BAD")
+    in
+    value
+    && List.exists
+         (fun (level, ctx, msg) ->
+            level = Diag.Warn
+            && ctx = "cli_common_env"
+            && string_contains ~needle:"is not a boolean" msg)
          !warnings)
 ;;
