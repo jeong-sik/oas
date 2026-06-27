@@ -70,7 +70,6 @@ type config =
 
 let default_service_name = "agent-sdk"
 let otel_endpoint_env_var = "OTEL_EXPORTER_OTLP_ENDPOINT"
-
 let default_config = { service_name = default_service_name; endpoint = None }
 
 let default_config_from_env ?(getenv = Sys.getenv_opt) () =
@@ -451,10 +450,10 @@ let metric_type_to_string = function
    Eio fibers: each fiber gets its own span stack instead of sharing the
    instance-wide [current_spans].
 
-   NOTE: the endpoint is resolved once when [_global] is first forced.  Later
-   changes to [OTEL_EXPORTER_OTLP_ENDPOINT] do not affect the already-created
-   shared instance; create a fresh instance with [create_instance] for per-call
-   env resolution. *)
+   NOTE: the endpoint is resolved once from [otel_endpoint_env_var] when
+   [_global] is first forced. Later env changes do not affect the
+   already-created shared instance; create a fresh instance with
+   [create_instance] for per-call env resolution. *)
 let _global : instance lazy_t =
   lazy
     { config = default_config_from_env ()
@@ -711,6 +710,7 @@ let with_span attrs f =
 
 let create ?config ?getenv () : Tracing.t =
   tracer_of_instance (create_instance ?config ?getenv ())
+;;
 
 let create_eio ?config ?getenv () : Tracing.t =
   tracer_of_instance (create_instance_eio ?config ?getenv ())

@@ -102,16 +102,25 @@ val make_span_name : Tracing.span_attrs -> string
 (** Create a stdlib-mutex backed instance.
 
     If [config] is omitted, [default_config_from_env ()] is called at creation
-    time, which reads [OTEL_EXPORTER_OTLP_ENDPOINT] from the environment.
+    time, which reads [otel_endpoint_env_var] from the environment.
     [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
-val create_instance : ?config:config -> ?getenv:(string -> string option) -> unit -> instance
+val create_instance
+  :  ?config:config
+  -> ?getenv:(string -> string option)
+  -> unit
+  -> instance
 
 (** Create an Eio-mutex backed instance.
 
     If [config] is omitted, [default_config_from_env ()] is called at creation
-    time, which reads [OTEL_EXPORTER_OTLP_ENDPOINT] from the environment.
+    time, which reads [otel_endpoint_env_var] from the environment.
     [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
-val create_instance_eio : ?config:config -> ?getenv:(string -> string option) -> unit -> instance
+val create_instance_eio
+  :  ?config:config
+  -> ?getenv:(string -> string option)
+  -> unit
+  -> instance
+
 val inst_start_span : instance -> Tracing.span_attrs -> span
 val inst_end_span : instance -> span -> ok:bool -> unit
 val inst_add_event : instance -> span -> string -> unit
@@ -199,13 +208,13 @@ val tracer_of_instance : instance -> Tracing.t
 (** Build a first-class tracer backed by a stdlib-mutex instance.
 
     If [config] is omitted, [default_config_from_env ()] is called at creation
-    time, which reads [OTEL_EXPORTER_OTLP_ENDPOINT] from the environment.
+    time, which reads [otel_endpoint_env_var] from the environment.
     [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
 val create : ?config:config -> ?getenv:(string -> string option) -> unit -> Tracing.t
 
 (** Build a first-class tracer backed by an Eio-mutex instance.
 
     If [config] is omitted, [default_config_from_env ()] is called at creation
-    time, which reads [OTEL_EXPORTER_OTLP_ENDPOINT] from the environment.
+    time, which reads [otel_endpoint_env_var] from the environment.
     [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
 val create_eio : ?config:config -> ?getenv:(string -> string option) -> unit -> Tracing.t

@@ -34,7 +34,11 @@ let json_assoc_field key = function
 (* -- Config ------------------------------------------------------------- *)
 
 let test_default_config_is_env_free () =
-  check string "service_name" "agent-sdk" Otel_tracer.default_config.service_name;
+  check
+    string
+    "service_name"
+    Otel_tracer.default_service_name
+    Otel_tracer.default_config.service_name;
   check (option string) "endpoint" None Otel_tracer.default_config.endpoint
 ;;
 
@@ -95,12 +99,11 @@ let test_create_eio_reads_env_at_call_time () =
     calls := name :: !calls;
     if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
   in
-  Eio_main.run
-    (fun _env ->
-       let (module T : Tracing.TRACER) = Otel_tracer.create_eio ~getenv () in
-       let span = T.start_span (default_attrs ~name:"env_probe" ()) in
-       T.end_span span ~ok:true;
-       check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls))
+  Eio_main.run (fun _env ->
+    let (module T : Tracing.TRACER) = Otel_tracer.create_eio ~getenv () in
+    let span = T.start_span (default_attrs ~name:"env_probe" ()) in
+    T.end_span span ~ok:true;
+    check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls))
 ;;
 
 (* ── Span Lifecycle ──────────────────────────────────────────────── *)
@@ -710,7 +713,10 @@ let () =
             "create_instance_eio reads env at call time"
             `Quick
             (with_eio test_create_instance_eio_reads_env_at_call_time)
-        ; test_case "create reads env at call time" `Quick test_create_reads_env_at_call_time
+        ; test_case
+            "create reads env at call time"
+            `Quick
+            test_create_reads_env_at_call_time
         ; test_case
             "create_eio reads env at call time"
             `Quick

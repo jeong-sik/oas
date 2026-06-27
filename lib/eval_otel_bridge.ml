@@ -199,9 +199,10 @@ let _mk_stdlib_inst () : Otel_tracer.instance =
   }
 ;;
 
-let default_otel_instance : Otel_tracer.instance = _mk_stdlib_inst ()
-let default_instance () = default_otel_instance
-let emit_run_metrics_default rm = emit_run_metrics default_otel_instance rm
+(* Lazy so default_config_from_env runs on first use, not module load. *)
+let default_otel_instance : Otel_tracer.instance lazy_t = lazy (_mk_stdlib_inst ())
+let default_instance () = Lazy.force default_otel_instance
+let emit_run_metrics_default rm = emit_run_metrics (default_instance ()) rm
 
 (* ── JSON export ──────────────────────────────────────────────── *)
 
