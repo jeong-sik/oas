@@ -90,9 +90,7 @@ let expect_invalid_config_field field json =
   | Ok _ -> fail "expected invalid config"
 ;;
 
-let test_rejects_non_object_config () =
-  expect_invalid_config_field "agent_config" (`List [])
-;;
+let test_rejects_non_object_config () = expect_invalid_config_field "<root>" (`List [])
 
 let test_rejects_non_list_tools () =
   expect_invalid_config_field "tools" (`Assoc [ "tools", `Assoc [] ])
@@ -120,7 +118,7 @@ let test_rejects_non_string_mcp_args () =
 
 let test_rejects_non_string_http_headers () =
   expect_invalid_config_field
-    "headers.Authorization"
+    "/headers/Authorization"
     (`Assoc
         [ ( "mcp_servers"
           , `List

@@ -147,6 +147,22 @@ let json_type_name = function
   | `String _ -> "string"
 ;;
 
+let root_config_field = "<root>"
+
+let json_pointer_escape s =
+  s
+  |> String.split_on_char '~'
+  |> String.concat "~0"
+  |> String.split_on_char '/'
+  |> String.concat "~1"
+;;
+
+let field_path_to_string = function
+  | [] -> root_config_field
+  | [ field ] -> field
+  | fields -> "/" ^ String.concat "/" (List.map json_pointer_escape fields)
+;;
+
 let invalid_type ~field ~expected json =
   Error
     (Error.Config
@@ -166,22 +182,26 @@ let require_object ~field = function
   | other -> invalid_type ~field ~expected:"object" other
 ;;
 
-let list_field_or_empty ~field json =
+let invalid_type_at ~field_path ~expected json =
+  invalid_type ~field:(field_path_to_string field_path) ~expected json
+;;
+
+let parse_optional_list_field ~field json =
   match field_opt field json with
   | None -> Ok []
   | Some (`List values) -> Ok values
   | Some other -> invalid_type ~field ~expected:"list" other
 ;;
 
-let assoc_field_or_empty ~field json =
+let parse_optional_object_field ~field json =
   match field_opt field json with
   | None -> Ok []
   | Some (`Assoc pairs) -> Ok pairs
   | Some other -> invalid_type ~field ~expected:"object" other
 ;;
 
-let string_list_field_or_empty ~field json =
-  let* values = list_field_or_empty ~field json in
+let parse_optional_string_list_field ~field json =
+  let* values = parse_optional_list_field ~field json in
   List.fold_left
     (fun acc value ->
        match acc, value with
@@ -217,7 +237,7 @@ let parse_tool json =
   try
     let name = json |> member "name" |> to_string in
     let description = Util.json_member_str "description" json in
-    let* params_json = list_field_or_empty ~field:"parameters" json in
+    let* params_json = parse_optional_list_field ~field:"parameters" json in
     let params_result =
       List.fold_left
         (fun acc j ->
@@ -244,7 +264,7 @@ let parse_mcp json =
     | Some url ->
       (* HTTP MCP: { "url": "...", "name": "...", "headers": {...} } *)
       let name = json |> member "name" |> to_string_option |> Option.value ~default:url in
-      let* header_fields = assoc_field_or_empty ~field:"headers" json in
+      let* header_fields = parse_optional_object_field ~field:"headers" json in
       let* headers =
         List.fold_left
           (fun acc (k, v) ->
@@ -252,7 +272,7 @@ let parse_mcp json =
              | (Error _ as e), _ -> e
              | Ok headers, `String value -> Ok ((k, value) :: headers)
              | Ok _, other ->
-               invalid_type ~field:("headers." ^ k) ~expected:"string" other)
+               invalid_type_at ~field_path:[ "headers"; k ] ~expected:"string" other)
           (Ok [])
           header_fields
         |> Result.map List.rev
@@ -261,11 +281,11 @@ let parse_mcp json =
     | None ->
       (* Stdio MCP: { "command": "...", "args": [...], ... } *)
       let command = json |> member "command" |> to_string in
-      let* args = string_list_field_or_empty ~field:"args" json in
+      let* args = parse_optional_string_list_field ~field:"args" json in
       let name =
         json |> member "name" |> to_string_option |> Option.value ~default:command
       in
-      let* env = string_list_field_or_empty ~field:"env" json in
+      let* env = parse_optional_string_list_field ~field:"env" json in
       Ok (Stdio_mcp { command; args; name; env })
   with
   | Type_error (msg, _) ->
@@ -275,7 +295,7 @@ let parse_mcp json =
 let of_json json =
   let open Yojson.Safe.Util in
   try
-    let* () = require_object ~field:"agent_config" json in
+    let* () = require_object ~field:root_config_field json in
     let name =
       json |> member "name" |> to_string_option |> Option.value ~default:"agent"
     in
@@ -293,7 +313,7 @@ let of_json json =
     let thinking_budget = json |> member "thinking_budget" |> to_int_option in
     let provider = json |> member "provider" |> to_string_option in
     let base_url = json |> member "base_url" |> to_string_option in
-    let* tools_json = list_field_or_empty ~field:"tools" json in
+    let* tools_json = parse_optional_list_field ~field:"tools" json in
     let tools_result =
       List.fold_left
         (fun acc j ->
@@ -307,7 +327,7 @@ let of_json json =
         tools_json
     in
     let* tools = tools_result in
-    let* mcp_json = list_field_or_empty ~field:"mcp_servers" json in
+    let* mcp_json = parse_optional_list_field ~field:"mcp_servers" json in
     let mcp_result =
       List.fold_left
         (fun acc j ->
@@ -337,7 +357,7 @@ let of_json json =
       }
   with
   | Type_error (msg, _) ->
-    Error (Error.Config (InvalidConfig { field = "agent_config"; detail = msg }))
+    Error (Error.Config (InvalidConfig { field = root_config_field; detail = msg }))
 ;;
 
 let load path =

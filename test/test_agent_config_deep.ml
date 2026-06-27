@@ -265,7 +265,17 @@ let test_mcp_http_non_string_header_value () =
     "mcp_servers": [{"url": "http://x.com", "headers": {"a": "b", "c": 123}}]
   }|}
   in
-  expect_invalid_config_field "non-string header" "headers.c" json
+  expect_invalid_config_field "non-string header" "/headers/c" json
+;;
+
+let test_mcp_stdio_non_string_env_value () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "mcp_servers": [{"command": "node", "env": ["FOO=bar", 123]}]
+  }|}
+  in
+  expect_invalid_config_field "non-string env" "env" json
 ;;
 
 (* ── load from file ──────────────────────────────────────────── *)
@@ -529,6 +539,11 @@ let test_of_json_bad_tool () =
   | Ok _ -> Alcotest.fail "expected error for bad tool"
 ;;
 
+let test_of_json_non_object_tool () =
+  let json = Yojson.Safe.from_string {|{"tools": ["not-object"]}|} in
+  expect_invalid_config_field "non-object tool" "tool" json
+;;
+
 let test_of_json_bad_mcp () =
   (* mcp without command or url *)
   let json =
@@ -540,6 +555,11 @@ let test_of_json_bad_mcp () =
   match Agent_config.of_json json with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected error for bad mcp"
+;;
+
+let test_of_json_non_object_mcp () =
+  let json = Yojson.Safe.from_string {|{"mcp_servers": ["not-object"]}|} in
+  expect_invalid_config_field "non-object mcp" "mcp_server" json
 ;;
 
 let test_of_json_tools_not_list () =
@@ -568,7 +588,9 @@ let () =
         ; tc "mcp not list" test_of_json_mcp_not_list
         ; tc "bad param" test_of_json_bad_param
         ; tc "bad tool" test_of_json_bad_tool
+        ; tc "non-object tool" test_of_json_non_object_tool
         ; tc "bad mcp" test_of_json_bad_mcp
+        ; tc "non-object mcp" test_of_json_non_object_mcp
         ] )
     ; ( "mcp_servers"
       , [ tc "stdio" test_mcp_stdio
@@ -577,6 +599,7 @@ let () =
         ; tc "stdio defaults" test_mcp_stdio_defaults
         ; tc "headers not assoc" test_mcp_http_headers_not_assoc
         ; tc "non-string header" test_mcp_http_non_string_header_value
+        ; tc "non-string env" test_mcp_stdio_non_string_env_value
         ] )
     ; ( "load"
       , [ tc "valid file" test_load_valid_file
