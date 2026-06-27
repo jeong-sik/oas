@@ -21,6 +21,19 @@ original tag dates. `0.100.4` was never tagged or released.
   `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from
   `Mcp_http.default_config` to `Mcp_http.default_config ()`.
 
+## [0.207.9](https://github.com/jeong-sik/oas/compare/v0.207.8...v0.207.9) (2026-06-27)
+
+
+### Bug Fixes
+
+* **config:** reject malformed agent list fields ([#2198](https://github.com/jeong-sik/oas/issues/2198)) ([e1c6b13](https://github.com/jeong-sik/oas/commit/e1c6b13247af69354bc3ab77a274ab52804c2aec))
+* **discovery:** warn on invalid port env tokens ([#2199](https://github.com/jeong-sik/oas/issues/2199)) ([1134964](https://github.com/jeong-sik/oas/commit/1134964c5ba864443972e6c2a5129ef67f712a1e))
+* **mcp:** resolve http transport env at call time ([#2193](https://github.com/jeong-sik/oas/issues/2193)) ([ebed7ca](https://github.com/jeong-sik/oas/commit/ebed7ca35371425593d6a91ac5857165a753e008))
+* **oas:** concurrency safety, http client diagnostics, and pipeline SSOT ([#2174](https://github.com/jeong-sik/oas/issues/2174)) ([54507b2](https://github.com/jeong-sik/oas/commit/54507b26c920486588e8e36a7aa28ac125d75c9b))
+* **oas:** reset idle counter on non-tool-use turns and idle Skip ([#2190](https://github.com/jeong-sik/oas/issues/2190)) ([1998e7c](https://github.com/jeong-sik/oas/commit/1998e7cb02f1fdd1eac5fc031595ddddfa1ef007))
+* **pipeline:** make hook decisions exhaustive ([#2179](https://github.com/jeong-sik/oas/issues/2179)) ([bd34a5e](https://github.com/jeong-sik/oas/commit/bd34a5eb3a665ae6be514d0aaf7af553edd070fc))
+* **provider:** configurable connect/headers timeout override ([#2163](https://github.com/jeong-sik/oas/issues/2163)) ([#2186](https://github.com/jeong-sik/oas/issues/2186)) ([37f2084](https://github.com/jeong-sik/oas/commit/37f20842b0718f0fb2bb5e48f597d5319362a965))
+
 ## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
 
 
