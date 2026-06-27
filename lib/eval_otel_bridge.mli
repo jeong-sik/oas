@@ -57,8 +57,8 @@ val emit_run_metrics : Otel_tracer.instance -> Eval.run_metrics -> unit
 (** Shared eval telemetry instance used by synchronous eval helpers that do
     not own an Eio network context. Exporters can drain this instance.
 
-    The instance is created lazily on first call, so environment-sensitive OTel
-    configuration is not captured at module load. *)
+    The instance is initialized on first call under a stdlib mutex, so
+    environment-sensitive OTel configuration is not captured at module load. *)
 val default_instance : unit -> Otel_tracer.instance
 
 (** Emit eval metrics on {!default_instance}. *)

@@ -199,9 +199,24 @@ let _mk_stdlib_inst () : Otel_tracer.instance =
   }
 ;;
 
-(* Lazy so default_config_from_env runs on first use, not module load. *)
-let default_otel_instance : Otel_tracer.instance lazy_t = lazy (_mk_stdlib_inst ())
-let default_instance () = Lazy.force default_otel_instance
+(* Initialized on first use under a stdlib mutex so concurrent callers cannot
+   race through process-wide default instance creation. *)
+let default_otel_instance_mu = Mutex.create ()
+let default_otel_instance_ref : Otel_tracer.instance option ref = ref None
+
+let default_instance () =
+  Mutex.lock default_otel_instance_mu;
+  Fun.protect
+    (fun () ->
+       match !default_otel_instance_ref with
+       | Some inst -> inst
+       | None ->
+         let inst = _mk_stdlib_inst () in
+         default_otel_instance_ref := Some inst;
+         inst)
+    ~finally:(fun () -> Mutex.unlock default_otel_instance_mu)
+;;
+
 let emit_run_metrics_default rm = emit_run_metrics (default_instance ()) rm
 
 (* ── JSON export ──────────────────────────────────────────────── *)
