@@ -25,13 +25,17 @@ let check_float msg expected actual = check (float 0.001) msg expected actual
 let test_streaming_first_chunk () =
   let ev =
     Telemetry_event.Streaming_first_chunk
-      { provider = "openai"; model = "gpt-4"; ttfrc_ms = 123.456; requested_at = 1000.0 }
+      { provider = "openai"
+      ; model = "gpt-4"
+      ; ttfrc_ms = Some 123.456
+      ; requested_at = 1000.0
+      }
   in
   match roundtrip ev with
   | Telemetry_event.Streaming_first_chunk r ->
     check string "provider" "openai" r.provider;
     check string "model" "gpt-4" r.model;
-    check_float "ttfrc_ms" 123.456 r.ttfrc_ms;
+    check (option (float 0.001)) "ttfrc_ms" (Some 123.456) r.ttfrc_ms;
     check_float "requested_at" 1000.0 r.requested_at
   | _ -> fail "variant mismatch"
 ;;
@@ -54,10 +58,10 @@ let test_streaming_summary () =
           }
       ; ttft_ms = Some 12.5
       ; prefill_ms = None
-      ; total_ms = 120.0
-      ; inter_chunk_ms_p50 = 20.0
-      ; inter_chunk_ms_p95 = 40.0
-      ; inter_chunk_ms_max = 60.0
+      ; total_ms = Some 120.0
+      ; inter_chunk_ms_p50 = Some 20.0
+      ; inter_chunk_ms_p95 = Some 40.0
+      ; inter_chunk_ms_max = Some 60.0
       ; terminal = Telemetry_event.Terminal_done
       }
   in
@@ -68,8 +72,8 @@ let test_streaming_summary () =
     check int "chunk_count" 3 r.chunk_count;
     check int "thinking chunks" 1 r.kind_breakdown.thinking;
     check_float "ttft_ms" 12.5 (Option.get r.ttft_ms);
-    check_float "total_ms" 120.0 r.total_ms;
-    check_float "p95" 40.0 r.inter_chunk_ms_p95;
+    check (option (float 0.001)) "total_ms" (Some 120.0) r.total_ms;
+    check (option (float 0.001)) "p95" (Some 40.0) r.inter_chunk_ms_p95;
     (match r.terminal with
      | Telemetry_event.Terminal_done -> ()
      | _ -> fail "terminal mismatch")
@@ -160,7 +164,7 @@ let test_context_window_usage () =
 let test_event_type_name () =
   let cases : (Telemetry_event.t * string) list =
     [ ( Streaming_first_chunk
-          { provider = ""; model = ""; ttfrc_ms = 0.0; requested_at = 0.0 }
+          { provider = ""; model = ""; ttfrc_ms = None; requested_at = 0.0 }
       , "streaming_first_chunk" )
     ; ( Streaming_summary
           { provider = ""
@@ -178,10 +182,10 @@ let test_event_type_name () =
               }
           ; ttft_ms = None
           ; prefill_ms = None
-          ; total_ms = 0.0
-          ; inter_chunk_ms_p50 = 0.0
-          ; inter_chunk_ms_p95 = 0.0
-          ; inter_chunk_ms_max = 0.0
+          ; total_ms = None
+          ; inter_chunk_ms_p50 = None
+          ; inter_chunk_ms_p95 = None
+          ; inter_chunk_ms_max = None
           ; terminal = Terminal_done
           }
       , "streaming_summary" )
@@ -222,26 +226,26 @@ let test_telemetry_bus_drop_oldest () =
   Telemetry_bus.publish
     bus
     (Telemetry_event.Streaming_first_chunk
-       { provider = "p"; model = "m"; ttfrc_ms = 1.0; requested_at = 0.0 });
+       { provider = "p"; model = "m"; ttfrc_ms = Some 1.0; requested_at = 0.0 });
   Telemetry_bus.publish
     bus
     (Telemetry_event.Streaming_first_chunk
-       { provider = "p"; model = "m"; ttfrc_ms = 2.0; requested_at = 0.0 });
+       { provider = "p"; model = "m"; ttfrc_ms = Some 2.0; requested_at = 0.0 });
   Telemetry_bus.publish
     bus
     (Telemetry_event.Streaming_first_chunk
-       { provider = "p"; model = "m"; ttfrc_ms = 3.0; requested_at = 0.0 });
+       { provider = "p"; model = "m"; ttfrc_ms = Some 3.0; requested_at = 0.0 });
   let events = Telemetry_bus.drain sub in
   check int "drained 2 events (one dropped)" 2 (List.length events);
   match events with
   | [ e1; e2 ] ->
     (match e1 with
      | Telemetry_event.Streaming_first_chunk r ->
-       check_float "first ttfrc (oldest evicted)" 2.0 r.ttfrc_ms
+       check (option (float 0.001)) "first ttfrc (oldest evicted)" (Some 2.0) r.ttfrc_ms
      | _ -> fail "expected Streaming_first_chunk");
     (match e2 with
      | Telemetry_event.Streaming_first_chunk r ->
-       check_float "second ttfrc" 3.0 r.ttfrc_ms
+       check (option (float 0.001)) "second ttfrc" (Some 3.0) r.ttfrc_ms
      | _ -> fail "expected Streaming_first_chunk")
   | _ -> fail "expected exactly 2 events"
 ;;

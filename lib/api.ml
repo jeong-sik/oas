@@ -55,20 +55,22 @@ let parse_openai_response_result =
   Llm_provider.Backend_openai_parse.parse_openai_response_result
 ;;
 
-(* Wall-clock latency patch. Parser layers leave request_latency_ms unknown
+(* Transport latency patch. Parser layers leave request_latency_ms unknown
    because they only see the JSON response body; only the transport layer
-   measures wall time. *)
-let patch_latency (resp : Types.api_response) (latency_ms : int) : Types.api_response =
+   can measure request latency. *)
+let patch_latency (resp : Types.api_response) (latency_ms : int option)
+  : Types.api_response
+  =
   let telemetry =
     match resp.telemetry with
-    | Some t -> Some { t with Llm_provider.Types.request_latency_ms = Some latency_ms }
+    | Some t -> Some { t with Llm_provider.Types.request_latency_ms = latency_ms }
     | None ->
       Some
         { Llm_provider.Types.system_fingerprint = None
         ; timings = None
         ; reasoning_tokens = None
         ; reasoning_tokens_estimated = false
-        ; request_latency_ms = Some latency_ms
+        ; request_latency_ms = latency_ms
         ; peak_memory_gb = None
         ; provider_kind = None
         ; reasoning_effort = None
@@ -178,9 +180,9 @@ let create_message
       | Error err -> `TransportError (retry_error_of_http_error err)
     in
     let do_request () =
-      let t0 = Unix.gettimeofday () in
+      let latency_counter = Llm_provider.Complete_common.start_latency_counter () in
       let measured_latency_ms () =
-        int_of_float ((Unix.gettimeofday () -. t0) *. 1000.0)
+        Llm_provider.Complete_common.latency_ms_int latency_counter
       in
       try
         let call_result =
@@ -492,7 +494,7 @@ let%test "patch_latency creates telemetry when None with measured ms" =
     ; telemetry = None
     }
   in
-  let patched = patch_latency resp 500 in
+  let patched = patch_latency resp (Some 500) in
   match patched.telemetry with
   | Some t -> t.Llm_provider.Types.request_latency_ms = Some 500
   | None -> false
@@ -525,7 +527,7 @@ let%test "patch_latency overwrites existing request_latency_ms" =
     ; telemetry = Some telemetry
     }
   in
-  let patched = patch_latency resp 1234 in
+  let patched = patch_latency resp (Some 1234) in
   match patched.telemetry with
   | Some t ->
     t.request_latency_ms = Some 1234
@@ -545,7 +547,25 @@ let%test "patch_latency zero latency still patches" =
     ; telemetry = None
     }
   in
-  let patched = patch_latency resp 0 in
+  let patched = patch_latency resp (Some 0) in
   (* Even 0 gets wrapped in Some — not a no-op. Caller decides semantics. *)
-  Option.is_some patched.telemetry
+  match patched.telemetry with
+  | Some t -> t.request_latency_ms = Some 0
+  | None -> false
+;;
+
+let%test "patch_latency preserves unknown latency" =
+  let resp : Types.api_response =
+    { id = "r4"
+    ; model = "m"
+    ; stop_reason = Types.EndTurn
+    ; content = []
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let patched = patch_latency resp None in
+  match patched.telemetry with
+  | Some t -> t.request_latency_ms = None
+  | None -> false
 ;;
