@@ -3,6 +3,21 @@
 open Alcotest
 open Agent_sdk
 
+let contains_substring haystack needle =
+  let hlen = String.length haystack
+  and nlen = String.length needle in
+  let rec scan i =
+    if i + nlen > hlen
+    then false
+    else if String.sub haystack i nlen = needle
+    then true
+    else scan (i + 1)
+  in
+  if nlen = 0 then true else scan 0
+;;
+
+let sorted_strings xs = List.sort_uniq String.compare xs
+
 let test_simple_handler_ok () =
   let tool =
     Tool.create
@@ -341,14 +356,15 @@ let test_mutation_class_expected_concurrency_class () =
   check
     (list string)
     "known mutation classes"
-    [ "read_only"
-    ; "workspace"
-    ; "workspace_mutating"
-    ; "local_mutation"
-    ; "external"
-    ; "external_effect"
-    ]
-    Tool.known_mutation_classes
+    (sorted_strings
+       [ "read_only"
+       ; "workspace"
+       ; "workspace_mutating"
+       ; "local_mutation"
+       ; "external"
+       ; "external_effect"
+       ])
+    (sorted_strings Tool.known_mutation_classes)
 ;;
 
 let test_create_rejects_inconsistent_descriptor () =
@@ -376,11 +392,69 @@ let test_create_rejects_inconsistent_descriptor () =
             (fun _ -> Ok { Types.content = "ok"; _meta = None })))
 ;;
 
+let test_create_rejects_workspace_mismatch () =
+  check_raises
+    "workspace mismatch"
+    (Invalid_argument
+       "Tool.create: descriptor mismatch: mutation_class=workspace requires \
+        concurrency_class=sequential_workspace")
+    (fun () ->
+       ignore
+         (Tool.create
+            ~descriptor:
+              { Tool.kind = None
+              ; mutation_class = Some Tool.Workspace
+              ; concurrency_class = Some Tool.Exclusive_external
+              ; permission = None
+              ; evidence_role = None
+              ; shell = None
+              ; notes = []
+              ; examples = []
+              }
+            ~name:"bad"
+            ~description:"bad"
+            ~parameters:[]
+            (fun _ -> Ok { Types.content = "ok"; _meta = None })))
+;;
+
+let test_create_rejects_external_mismatch () =
+  check_raises
+    "external mismatch"
+    (Invalid_argument
+       "Tool.create: descriptor mismatch: mutation_class=external requires \
+        concurrency_class=exclusive_external")
+    (fun () ->
+       ignore
+         (Tool.create
+            ~descriptor:
+              { Tool.kind = None
+              ; mutation_class = Some Tool.External
+              ; concurrency_class = Some Tool.Parallel_read
+              ; permission = None
+              ; evidence_role = None
+              ; shell = None
+              ; notes = []
+              ; examples = []
+              }
+            ~name:"bad"
+            ~description:"bad"
+            ~parameters:[]
+            (fun _ -> Ok { Types.content = "ok"; _meta = None })))
+;;
+
 let test_mutation_class_of_yojson_rejects_unknown () =
+  let expected_classes = Tool.known_mutation_classes in
   match Tool.mutation_class_of_yojson (`String "nonexistent") with
   | Ok _ -> fail "expected unknown mutation_class error"
   | Error msg ->
-    check string "unknown mutation_class" "unknown mutation_class: nonexistent" msg
+    check
+      bool
+      "message mentions unknown mutation_class"
+      true
+      (contains_substring msg "unknown mutation_class: nonexistent");
+    List.iter
+      (fun cls -> check bool ("known class: " ^ cls) true (List.mem cls expected_classes))
+      expected_classes
 ;;
 
 let () =
@@ -423,6 +497,14 @@ let () =
             "create rejects inconsistent descriptor"
             `Quick
             test_create_rejects_inconsistent_descriptor
+        ; test_case
+            "create rejects workspace mismatch"
+            `Quick
+            test_create_rejects_workspace_mismatch
+        ; test_case
+            "create rejects external mismatch"
+            `Quick
+            test_create_rejects_external_mismatch
         ; test_case
             "mutation_class_of_yojson rejects unknown"
             `Quick

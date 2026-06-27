@@ -14,6 +14,11 @@ original tag dates. `0.100.4` was never tagged or released.
   fails before preserving the original content.
 * **defaults:** add call-time local endpoint and fallback-provider resolvers while preserving compatibility snapshot values.
 * **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
+* **tool:** centralize mutation class concurrency policy and preserve `local_mutation` alias ([#2187](https://github.com/jeong-sik/oas/issues/2187))
+
+### Behavioral Changes
+
+* **tool:** unknown `mutation_class` strings are now rejected at `Tool.create` time instead of falling back silently.
 
 ### Features
 
@@ -73,7 +78,6 @@ original tag dates. `0.100.4` was never tagged or released.
 * **oas:** reset idle counter on non-tool-use turns and idle Skip ([#2190](https://github.com/jeong-sik/oas/issues/2190)) ([1998e7c](https://github.com/jeong-sik/oas/commit/1998e7cb02f1fdd1eac5fc031595ddddfa1ef007))
 * **pipeline:** make hook decisions exhaustive ([#2179](https://github.com/jeong-sik/oas/issues/2179)) ([bd34a5e](https://github.com/jeong-sik/oas/commit/bd34a5eb3a665ae6be514d0aaf7af553edd070fc))
 * **provider:** configurable connect/headers timeout override ([#2163](https://github.com/jeong-sik/oas/issues/2163)) ([#2186](https://github.com/jeong-sik/oas/issues/2186)) ([37f2084](https://github.com/jeong-sik/oas/commit/37f20842b0718f0fb2bb5e48f597d5319362a965))
-
 ## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
 
 
