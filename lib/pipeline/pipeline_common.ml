@@ -29,6 +29,15 @@ type turn_outcome =
   | ToolsExecuted
   | IdleSkipped
 
+(** Current timestamp. Prefer the Eio [clock] when available so tests and
+    structured-concurrency code observe a consistent time source; fall back
+    to [Unix.gettimeofday] only when running outside an Eio environment. *)
+let timestamp_now ?clock () =
+  match clock with
+  | Some clock -> Eio.Time.now clock
+  | None -> Unix.gettimeofday ()
+;;
+
 (* Publish an event, logging only genuine delivery failures. Re-raises
    [Eio.Cancel.Cancelled] so a fiber cancelled mid-publish — e.g. parked in
    [Event_bus.publish] on a full subscriber stream under the [Block] policy —

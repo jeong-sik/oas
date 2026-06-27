@@ -18,7 +18,7 @@ let descriptor_with ?mutation_class concurrency_class =
 
 let shell_descriptor () =
   { Tool.kind = Some "bash"
-  ; mutation_class = Some "workspace_mutating"
+  ; mutation_class = Some Tool.Workspace_mutating
   ; concurrency_class = Some Tool.Sequential_workspace
   ; permission = Some Tool.Write
   ; evidence_role = None
@@ -386,7 +386,7 @@ let test_parallel_read_tools_share_batch () =
   let started_b, resolve_b = Eio.Promise.create () in
   let make_barrier_tool name resolve_self await_other =
     make_echo_tool
-      ~descriptor:(descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      ~descriptor:(descriptor_with ~mutation_class:Tool.Read_only Tool.Parallel_read)
       name
     |> fun tool ->
     { tool with
@@ -425,7 +425,9 @@ let test_workspace_tools_run_sequentially () =
   let make_guarded_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:"workspace_mutating" Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       name
     |> fun tool ->
     { tool with
@@ -502,7 +504,7 @@ let test_workspace_barrier_splits_parallel_read_batches () =
   let workspace_running = ref false in
   let make_read_tool name =
     make_echo_tool
-      ~descriptor:(descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      ~descriptor:(descriptor_with ~mutation_class:Tool.Read_only Tool.Parallel_read)
       name
     |> fun tool ->
     { tool with
@@ -519,7 +521,9 @@ let test_workspace_barrier_splits_parallel_read_batches () =
   let make_workspace_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:"workspace_mutating" Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       name
     |> fun tool ->
     { tool with
@@ -576,7 +580,7 @@ let test_exclusive_external_barrier_isolation () =
   let exclusive_running = ref false in
   let make_read_tool name =
     make_echo_tool
-      ~descriptor:(descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      ~descriptor:(descriptor_with ~mutation_class:Tool.Read_only Tool.Parallel_read)
       name
     |> fun tool ->
     { tool with
@@ -593,7 +597,9 @@ let test_exclusive_external_barrier_isolation () =
   let make_workspace_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:"workspace_mutating" Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       name
     |> fun tool ->
     { tool with
@@ -610,7 +616,7 @@ let test_exclusive_external_barrier_isolation () =
   let make_exclusive_tool name =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:"external_effect" Tool.Exclusive_external)
+        (descriptor_with ~mutation_class:Tool.External_effect Tool.Exclusive_external)
       name
     |> fun tool ->
     { tool with
@@ -671,19 +677,21 @@ let test_exclusive_batch_kind_metadata () =
   in
   let read_tool =
     make_echo_tool
-      ~descriptor:(descriptor_with ~mutation_class:"read_only" Tool.Parallel_read)
+      ~descriptor:(descriptor_with ~mutation_class:Tool.Read_only Tool.Parallel_read)
       "reader"
   in
   let seq_tool =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:"workspace_mutating" Tool.Sequential_workspace)
+        (descriptor_with
+           ~mutation_class:Tool.Workspace_mutating
+           Tool.Sequential_workspace)
       "writer"
   in
   let excl_tool =
     make_echo_tool
       ~descriptor:
-        (descriptor_with ~mutation_class:"external_effect" Tool.Exclusive_external)
+        (descriptor_with ~mutation_class:Tool.External_effect Tool.Exclusive_external)
       "ext"
   in
   let _results =
