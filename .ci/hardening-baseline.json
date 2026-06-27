@@ -44,7 +44,7 @@
       "lib/api_openai.ml:137:| _ -> None"
     ]
   },
-  "lastUpdatedCommit": "05f96a6a44be32f2990c580f871ad28de16a4e8f",
+  "lastUpdatedCommit": "7317d0773f605f7af41eb18ccee4c90002f5c9a1",
   "metrics": {
     "direct_env_reads": 34,
     "direct_env_reads_outside_env_boundary": 22,
