@@ -24,6 +24,9 @@ val default_config : unit -> config
 (** Result of an offload attempt. *)
 type offload_result =
   | Kept of string
+  (** Original content retained. This is returned both when content is below
+          [config.threshold_bytes] and when offload fails after emitting a
+          diagnostic warning. *)
   | Offloaded of
       { path : string
       ; preview : string

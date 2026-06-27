@@ -8,6 +8,17 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Breaking Changes
+
+* **context_offload:** `Context_offload.default_config` is now `unit -> config`
+  so the temporary directory is resolved at call time. Update downstream callers
+  from `Context_offload.default_config` to `Context_offload.default_config ()`.
+
+### Bug Fixes
+
+* **context_offload:** emit a diagnostic warning when tool-result offload write
+  fails before preserving the original content.
+
 ## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
 
 
