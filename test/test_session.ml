@@ -69,6 +69,19 @@ let () =
         ; test_case "malformed json returns Error" `Quick (fun () ->
             let bad = `Assoc [ "not_id", `Int 42 ] in
             check bool "is error" true (Result.is_error (Session.of_json bad)))
+        ; test_case "non-object metadata returns Error" `Quick (fun () ->
+            let bad =
+              `Assoc
+                [ "id", `String "bad-metadata"
+                ; "started_at", `Float 1.0
+                ; "last_active_at", `Float 1.0
+                ; "turn_count", `Int 0
+                ; "resumed_from", `Null
+                ; "cwd", `Null
+                ; "metadata", `String "invalid"
+                ]
+            in
+            check bool "is error" true (Result.is_error (Session.of_json bad)))
         ] )
     ]
 ;;

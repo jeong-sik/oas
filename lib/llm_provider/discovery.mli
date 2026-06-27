@@ -97,7 +97,7 @@ val max_context_of_status : endpoint_status -> int option
     @since 0.86.0 *)
 
 (** Default ports to scan for local llama-server instances. *)
-val default_scan_ports : int list
+val default_scan_ports : unit -> int list
 
 val scan_local_endpoints
   :  ?ports:int list

@@ -3,6 +3,8 @@
 
 open Types
 
+let _log = Log.create ~module_name:"builder" ()
+
 type t =
   { net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; model : model
@@ -176,7 +178,13 @@ let with_auto_dump_journal ~path b =
   let dump _ok =
     match Durable_event.save_to_file journal path with
     | Ok () -> ()
-    | Error _ -> () (* Best-effort; consumer can provide a stricter callback. *)
+    | Error err ->
+      (* Best-effort diagnostic: consumers that need hard guarantees should
+         provide their own [on_run_complete] callback. *)
+      Log.warn
+        _log
+        "auto_dump_journal save failed"
+        [ Log.S ("path", path); Log.S ("error", err) ]
   in
   { b with journal = Some journal; on_run_complete = Some dump }
 ;;
@@ -216,6 +224,21 @@ let with_context_thresholds
       ?handoff_ratio
       b
   =
+  let compact_ratio =
+    Types.require_context_ratio
+      ~name:"Builder.with_context_thresholds: compact_ratio"
+      compact_ratio
+  in
+  let prepare_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Builder.with_context_thresholds: prepare_ratio")
+      prepare_ratio
+  in
+  let handoff_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Builder.with_context_thresholds: handoff_ratio")
+      handoff_ratio
+  in
   (* Resolution chain for the context window used by the reducer:
      1. explicit [?context_window_tokens] argument (caller knows the
         per-agent override),

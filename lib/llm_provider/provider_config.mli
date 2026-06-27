@@ -268,6 +268,38 @@ val clamp_max_turns : provider_kind -> int -> int
     legitimately exceed fixed cloud-style budgets. *)
 val default_attempt_timeout_s : provider_kind -> float option
 
+(** OpenAI-compatible reasoning effort levels accepted on the wire.
+    [reasoning_effort_to_string] is the only string serialization surface for
+    these values. *)
+type reasoning_effort = Reasoning_effort.t =
+  | Minimal
+  | Low
+  | Medium
+  | High
+  | XHigh
+
+val all_reasoning_efforts : reasoning_effort list
+val reasoning_effort_to_string : reasoning_effort -> string
+val reasoning_effort_of_string : string -> reasoning_effort option
+
+(** Typed default reasoning effort.
+    [getenv] exists for deterministic tests; production callers use the
+    default {!Cli_common_env.get} boundary. *)
+val default_reasoning_effort_value
+  :  ?getenv:(string -> string option)
+  -> unit
+  -> reasoning_effort
+
+(** Typed form of {!effort_of_thinking_config}. [None] means the request must
+    omit [reasoning_effort] or expose the legacy ["none"] sentinel through the
+    string compatibility wrapper. *)
+val effort_of_thinking_config_value
+  :  ?getenv:(string -> string option)
+  -> enable_thinking:bool option
+  -> thinking_budget:int option
+  -> unit
+  -> reasoning_effort option
+
 (** Map thinking configuration fields to reasoning_effort string.
     Returns ["none"], one of the budget-derived levels ["low" | "medium" |
     "high"], or a supported [OAS_DEFAULT_REASONING_EFFORT] override
@@ -277,6 +309,14 @@ val effort_of_thinking_config
   :  enable_thinking:bool option
   -> thinking_budget:int option
   -> string
+
+(** Typed provider request body value for OpenAI-compatible
+    [reasoning_effort]. [None] means callers omit the field. Production
+    serializers should prefer this over the string compatibility wrapper. *)
+val reasoning_effort_request_value_typed
+  :  enable_thinking:bool option
+  -> thinking_budget:int option
+  -> reasoning_effort option
 
 (** Provider request body value for OpenAI-compatible [reasoning_effort].
     Returns [None] when thinking is disabled, unset, or resolved to ["none"],

@@ -205,20 +205,30 @@ let capabilities_for_config_model (config : t) =
     ~model_id:config.model_id
 ;;
 
+(** Compute auth headers from a provider kind and secret. This is the core
+    implementation shared by {!auth_headers_for_config} and
+    {!auth_headers_for_kind_and_key}; it avoids constructing a dummy
+    [Provider_config.t] when only kind and key are available. *)
+let auth_headers_for_kind_and_secret ~(kind : provider_kind) ~(api_key : Secret.t)
+  : (string * string) list
+  =
+  if Secret.is_empty api_key
+  then []
+  else (
+    match kind with
+    | Anthropic | Kimi -> [ "x-api-key", Secret.header_value api_key ]
+    | Gemini -> [ "x-goog-api-key", Secret.header_value api_key ]
+    | OpenAI_compat | Ollama | Glm | DashScope ->
+      [ "Authorization", "Bearer " ^ Secret.header_value api_key ])
+;;
+
 (** Return only the auth-specific headers for a config.
     Callers merge this into [config.headers] at HTTP request time so that
     [Provider_config.t.headers] never carries sensitive tokens like API keys.
     Gemini keys are sent in the [x-goog-api-key] header and are never placed
     in the URL query string. *)
 let auth_headers_for_config (config : t) : (string * string) list =
-  if Secret.is_empty config.api_key
-  then []
-  else (
-    match config.kind with
-    | Anthropic | Kimi -> [ "x-api-key", Secret.header_value config.api_key ]
-    | Gemini -> [ "x-goog-api-key", Secret.header_value config.api_key ]
-    | OpenAI_compat | Ollama | Glm | DashScope ->
-      [ "Authorization", "Bearer " ^ Secret.header_value config.api_key ])
+  auth_headers_for_kind_and_secret ~kind:config.kind ~api_key:config.api_key
 ;;
 
 (** Same as {!auth_headers_for_config} but takes the provider kind and raw key
@@ -228,12 +238,7 @@ let auth_headers_for_config (config : t) : (string * string) list =
 let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
   : (string * string) list
   =
-  let secret = Secret.of_string api_key in
-  if Secret.is_empty secret
-  then []
-  else
-    auth_headers_for_config
-      { (make ~kind ~model_id:"" ~base_url:"" ()) with api_key = secret }
+  auth_headers_for_kind_and_secret ~kind ~api_key:(Secret.of_string api_key)
 ;;
 
 let max_turns_hard_cap = function
@@ -250,45 +255,72 @@ let default_attempt_timeout_s = function
   | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope -> None
 ;;
 
+type reasoning_effort = Reasoning_effort.t =
+  | Minimal
+  | Low
+  | Medium
+  | High
+  | XHigh
+
+let all_reasoning_efforts = Reasoning_effort.all
+let reasoning_effort_to_string = Reasoning_effort.to_string
+let reasoning_effort_of_string = Reasoning_effort.of_string
+let default_reasoning_effort_env = "OAS_DEFAULT_REASONING_EFFORT"
+let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
+
 (** Default reasoning effort level when thinking is enabled but no budget
     is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
     Accepted values: "minimal", "low", "medium", "high", "xhigh". Invalid
     values fall back to "medium".
     @since 0.185.0 *)
-let default_reasoning_effort () =
-  match Cli_common_env.get "OAS_DEFAULT_REASONING_EFFORT" with
-  | Some (("minimal" | "low" | "medium" | "high" | "xhigh") as v) -> v
+let default_reasoning_effort_value ?(getenv = Cli_common_env.get) () =
+  match getenv default_reasoning_effort_env with
   | Some v ->
-    Diag.warn
-      "provider_config"
-      "OAS_DEFAULT_REASONING_EFFORT=%S invalid (expected minimal/low/medium/high/xhigh), \
-       using medium"
-      v;
-    "medium"
-  | None -> "medium"
+    (match reasoning_effort_of_string v with
+     | Some effort -> effort
+     | None ->
+       Diag.warn
+         "provider_config"
+         "%s=%S invalid (expected %s), using medium"
+         default_reasoning_effort_env
+         v
+         reasoning_effort_values_for_log;
+       Medium)
+  | None -> Medium
 ;;
 
-(** Map thinking configuration to reasoning_effort string.
-    Four levels: "none", "low" (≤2048), "medium" (≤8192), "high" (>8192).
-    When [thinking_budget] is [None] and thinking is enabled, the default
-    effort is resolved from [OAS_DEFAULT_REASONING_EFFORT] env var
-    (fallback: "medium").
-    Shared by Ollama backends and api_openai request building.
-    @since 0.114.0 *)
+let effort_of_thinking_config_value
+      ?getenv
+      ~(enable_thinking : bool option)
+      ~(thinking_budget : int option)
+      ()
+  : reasoning_effort option
+  =
+  match enable_thinking with
+  | Some false | None -> None
+  | Some true ->
+    (match thinking_budget with
+     | Some n -> Reasoning_effort.of_budget n
+     | None -> Some (default_reasoning_effort_value ?getenv ()))
+;;
+
+(** Compatibility wrapper for callers that still consume wire strings. *)
 let effort_of_thinking_config
       ~(enable_thinking : bool option)
       ~(thinking_budget : int option)
   : string
   =
-  match enable_thinking with
-  | Some false | None -> "none"
-  | Some true ->
-    (match thinking_budget with
-     | Some n when n <= 0 -> "none"
-     | Some n when n <= 2048 -> "low"
-     | Some n when n <= 8192 -> "medium"
-     | Some _ -> "high"
-     | None -> default_reasoning_effort ())
+  match effort_of_thinking_config_value ~enable_thinking ~thinking_budget () with
+  | None -> "none"
+  | Some effort -> reasoning_effort_to_string effort
+;;
+
+let reasoning_effort_request_value_typed
+      ~(enable_thinking : bool option)
+      ~(thinking_budget : int option)
+  : reasoning_effort option
+  =
+  effort_of_thinking_config_value ~enable_thinking ~thinking_budget ()
 ;;
 
 let reasoning_effort_request_value
@@ -296,11 +328,9 @@ let reasoning_effort_request_value
       ~(thinking_budget : int option)
   : string option
   =
-  match enable_thinking with
-  | Some true ->
-    let effort = effort_of_thinking_config ~enable_thinking ~thinking_budget in
-    if String.equal effort "none" then None else Some effort
-  | Some false | None -> None
+  Option.map
+    reasoning_effort_to_string
+    (reasoning_effort_request_value_typed ~enable_thinking ~thinking_budget)
 ;;
 
 (** Compute reasoning_effort for a provider config.

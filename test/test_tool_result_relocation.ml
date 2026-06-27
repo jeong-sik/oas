@@ -602,7 +602,7 @@ let test_aggregate_budget_disabled () =
 (* ── 6. CRS checkpoint persistence (Phase 2) ────────── *)
 
 let test_crs_checkpoint_roundtrip () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   let crs = Content_replacement_state.create () in
   Content_replacement_state.record_replacement
     crs
@@ -630,7 +630,7 @@ let test_crs_checkpoint_roundtrip () =
 ;;
 
 let test_crs_restore_from_empty_context () =
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   (* No CRS saved — should return fresh empty state *)
   let crs = Content_replacement_state.restore_from_context ctx in
   Alcotest.(check int) "empty state" 0 (Content_replacement_state.seen_count crs)

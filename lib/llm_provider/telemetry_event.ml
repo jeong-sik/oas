@@ -47,7 +47,7 @@ type t =
   | Streaming_first_chunk of
       { provider : string
       ; model : string
-      ; ttfrc_ms : float
+      ; ttfrc_ms : float option
       ; requested_at : float
       }
   | Streaming_summary of
@@ -57,10 +57,10 @@ type t =
       ; kind_breakdown : streaming_kind_breakdown
       ; ttft_ms : float option
       ; prefill_ms : float option
-      ; total_ms : float
-      ; inter_chunk_ms_p50 : float
-      ; inter_chunk_ms_p95 : float
-      ; inter_chunk_ms_max : float
+      ; total_ms : float option
+      ; inter_chunk_ms_p50 : float option
+      ; inter_chunk_ms_p95 : float option
+      ; inter_chunk_ms_max : float option
       ; terminal : streaming_terminal
       }
   | Thinking_complete of

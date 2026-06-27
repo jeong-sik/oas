@@ -63,7 +63,8 @@ type t =
   ; on_streaming_first_chunk :
       provider:string -> model_id:string -> ttfrc_ms:float -> unit
     (** Fired when a streaming response emits its first parsed response
-        event.  [ttfrc_ms] is wall-clock time-to-first-response-chunk.
+        event and monotonic latency is available. [ttfrc_ms] is monotonic
+        elapsed time-to-first-response-chunk.
         @since 0.193.12 *)
   ; on_streaming_chunk :
       provider:string
@@ -72,8 +73,8 @@ type t =
       -> inter_chunk_ms:float
       -> unit
     (** Fired for each subsequent parsed streaming response event.
-        [inter_chunk_ms] is elapsed wall-clock time since the previous
-        parsed event.  [chunk_index] is the zero-based index reported by
+        [inter_chunk_ms] is monotonic elapsed time since the previous
+        measured parsed event. [chunk_index] is the zero-based index reported by
         the streaming telemetry event.  @since 0.193.12 *)
   }
 

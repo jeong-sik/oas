@@ -57,8 +57,11 @@ val trim_non_empty : string -> string option
 val trim_non_empty_opt : string option -> string option
 
 (** [get var] returns [Some v] if env var [var] is set to a non-empty
-    string after trimming, [None] otherwise. *)
+    string after trimming, [None] otherwise.
+
+    @deprecated Use [Llm_provider.Cli_common_env.get] instead. *)
 val get : string -> string option
+[@@ocaml.deprecated "Use Llm_provider.Cli_common_env.get instead."]
 
 (** [env_or default var] looks up env var [var], trims it, and returns
     the trimmed value if non-empty, otherwise [default]. *)
@@ -97,6 +100,7 @@ val string_list_of_json : Yojson.Safe.t list -> string list
 (** Serialize (string * string) list to JSON assoc: [[("k","v")]] -> [`Assoc [["k", `String "v"]]]. *)
 val json_of_string_pairs : (string * string) list -> Yojson.Safe.t
 
-(** [int_env_or default var] looks up env var [var], trims it, parses it as a positive integer,
-    and returns the integer value if valid, otherwise [default]. *)
+(** [int_env_or default var] looks up env var [var], trims it, parses it as a non-negative integer,
+    and returns the integer value if valid, otherwise [default]. Invalid or negative values emit a
+    diagnostic warning before falling back to [default]. *)
 val int_env_or : int -> string -> int

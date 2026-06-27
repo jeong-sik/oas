@@ -307,7 +307,7 @@ let context_with_contract ?context contract =
     let ctx =
       match context with
       | Some value -> value
-      | None -> Context.create ()
+      | None -> Context.create ~eio:false ()
     in
     Context.set ctx context_key (to_json contract);
     Some ctx)

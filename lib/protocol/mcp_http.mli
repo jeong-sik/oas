@@ -8,7 +8,14 @@ type config =
   ; headers : (string * string) list
   }
 
-val default_config : config
+(** Default HTTP MCP transport config.
+    Reads [OAS_MCP_HTTP_URL] at call time, defaulting to
+    ["http://localhost:8080/mcp"]. *)
+val default_config : unit -> config
+
+(** Environment variable used by {!default_config} to resolve the MCP HTTP
+    endpoint. *)
+val default_endpoint_env_var : string
 
 type t
 

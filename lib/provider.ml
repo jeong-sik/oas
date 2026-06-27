@@ -186,7 +186,7 @@ let first_present_env env_names =
   let rec loop = function
     | [] -> None
     | env_name :: rest ->
-      (match Util.get env_name with
+      (match Llm_provider.Cli_common_env.get env_name with
        | Some value -> Some (env_name, value)
        | None -> loop rest)
   in
@@ -194,7 +194,7 @@ let first_present_env env_names =
 ;;
 
 let kimi_direct_base_url () =
-  match Util.get "KIMI_BASE_URL" with
+  match Llm_provider.Cli_common_env.get "KIMI_BASE_URL" with
   | Some url -> url
   | None -> "https://api.kimi.com/coding"
 ;;
