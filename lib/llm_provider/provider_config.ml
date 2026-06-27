@@ -92,6 +92,7 @@ type t =
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
   ; seed : int option
+  ; connect_timeout_s : float option
   }
 
 let make
@@ -124,6 +125,7 @@ let make
       ?internal_model_rotation_count
       ?num_ctx
       ?seed
+      ?connect_timeout_s
       ()
   =
   let response_format =
@@ -168,6 +170,7 @@ let make
   ; internal_model_rotation_count
   ; num_ctx
   ; seed
+  ; connect_timeout_s
   }
 ;;
 
@@ -522,4 +525,21 @@ let%test "validate_cli_sampling_params: Anthropic with min_p → Ok" =
       ()
   in
   validate_cli_sampling_params config = Ok ()
+;;
+
+let%test "connect_timeout_s: None by default (kind default applies downstream)" =
+  let config = make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" () in
+  config.connect_timeout_s = None
+;;
+
+let%test "connect_timeout_s: explicit override is preserved verbatim" =
+  let config =
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"https://x"
+      ~connect_timeout_s:600.0
+      ()
+  in
+  config.connect_timeout_s = Some 600.0
 ;;

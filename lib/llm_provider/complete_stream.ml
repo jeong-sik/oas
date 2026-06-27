@@ -445,7 +445,10 @@ let complete_stream_http
         Http_client.with_post_stream
           ?cache:connection_cache
           ?clock
-          ~connect_timeout_s:(Provider_config.default_connect_timeout_s config.kind)
+          ~connect_timeout_s:
+            (Option.value
+               config.connect_timeout_s
+               ~default:(Provider_config.default_connect_timeout_s config.kind))
           ~net
           ~url
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
