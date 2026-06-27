@@ -70,10 +70,10 @@ let test_int_env_or_value () =
   check int "parsed" 100 (Defaults.int_env_or 42 "OAS_TEST_INT_VAL")
 ;;
 
-let test_int_env_or_zero_falls_back () =
-  (* impl requires v > 0 *)
+let test_int_env_or_zero_accepted () =
+  (* canonical env parser accepts non-negative values *)
   setenv "OAS_TEST_INT_ZERO" "0";
-  check int "0 → default" 42 (Defaults.int_env_or 42 "OAS_TEST_INT_ZERO")
+  check int "0 → 0" 0 (Defaults.int_env_or 42 "OAS_TEST_INT_ZERO")
 ;;
 
 let test_int_env_or_negative_falls_back () =
@@ -107,9 +107,10 @@ let test_float_env_or_value () =
   check (float 1e-9) "parsed" 3.14 (Defaults.float_env_or 1.5 "OAS_TEST_FLOAT_VAL")
 ;;
 
-let test_float_env_or_zero_falls_back () =
+let test_float_env_or_zero_accepted () =
+  (* canonical env parser accepts non-negative values *)
   setenv "OAS_TEST_FLOAT_ZERO" "0.0";
-  check (float 1e-9) "0 → default" 1.5 (Defaults.float_env_or 1.5 "OAS_TEST_FLOAT_ZERO")
+  check (float 1e-9) "0 → 0.0" 0.0 (Defaults.float_env_or 1.5 "OAS_TEST_FLOAT_ZERO")
 ;;
 
 let test_float_env_or_negative () =
@@ -219,7 +220,7 @@ let () =
     ; ( "int_env_or"
       , [ test_case "unset" `Quick test_int_env_or_unset
         ; test_case "real value" `Quick test_int_env_or_value
-        ; test_case "zero falls back" `Quick test_int_env_or_zero_falls_back
+        ; test_case "zero accepted" `Quick test_int_env_or_zero_accepted
         ; test_case "negative falls back" `Quick test_int_env_or_negative_falls_back
         ; test_case "garbage" `Quick test_int_env_or_garbage
         ; test_case "trimmed" `Quick test_int_env_or_trimmed
@@ -227,7 +228,7 @@ let () =
     ; ( "float_env_or"
       , [ test_case "unset" `Quick test_float_env_or_unset
         ; test_case "real value" `Quick test_float_env_or_value
-        ; test_case "zero falls back" `Quick test_float_env_or_zero_falls_back
+        ; test_case "zero accepted" `Quick test_float_env_or_zero_accepted
         ; test_case "negative" `Quick test_float_env_or_negative
         ; test_case "garbage" `Quick test_float_env_or_garbage
         ] )

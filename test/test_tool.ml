@@ -50,7 +50,7 @@ let test_context_handler_receives_context () =
            Error
              { Types.message = "key not found"; recoverable = true; error_class = None })
   in
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "key" (`String "ctx_value");
   let actual = Tool.execute ~context:ctx tool `Null in
   match actual with
@@ -68,12 +68,12 @@ let test_context_handler_writes_context () =
          Context.set ctx "written" (`Int 42);
          Ok { Types.content = "done"; _meta = None })
   in
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   let _result = Tool.execute ~context:ctx tool `Null in
   check bool "context was written" true (Context.get ctx "written" = Some (`Int 42))
 ;;
 
-let test_context_handler_default_context () =
+let test_context_handler_requires_context () =
   let tool =
     Tool.create_with_context
       ~name:"noctx"
@@ -83,8 +83,17 @@ let test_context_handler_default_context () =
   in
   let actual = Tool.execute tool `Null in
   match actual with
-  | Ok { content; _meta = _ } -> check string "default context" "works" content
-  | Error _ -> fail "expected Ok"
+  | Error { message; recoverable; error_class } ->
+    check string "error message" "context-aware tool requires explicit context" message;
+    check bool "not recoverable" false recoverable;
+    check
+      bool
+      "deterministic"
+      true
+      (match error_class with
+       | Some Types.Deterministic -> true
+       | _ -> false)
+  | Ok _ -> fail "expected missing-context error"
 ;;
 
 let test_schema_to_json_structure () =
@@ -265,6 +274,54 @@ let test_concurrency_class_yojson_roundtrip () =
     variants
 ;;
 
+let test_mutation_class_yojson_roundtrip () =
+  let variants =
+    [ Tool.Read_only, "read_only"
+    ; Tool.Workspace, "workspace"
+    ; Tool.Workspace_mutating, "workspace_mutating"
+    ; Tool.Local_mutation, "local_mutation"
+    ; Tool.External, "external"
+    ; Tool.External_effect, "external_effect"
+    ]
+  in
+  List.iter
+    (fun (value, expected) ->
+       let json = Tool.mutation_class_to_yojson value in
+       check string "canonical json" expected (Yojson.Safe.Util.to_string json);
+       match Tool.mutation_class_of_yojson json with
+       | Ok decoded ->
+         check
+           string
+           "roundtrip"
+           (Tool.show_mutation_class value)
+           (Tool.show_mutation_class decoded)
+       | Error msg -> fail ("mutation_class roundtrip: " ^ msg))
+    variants
+;;
+
+let test_mutation_class_of_yojson_accepts_legacy_constructor_names () =
+  let cases =
+    [ "Read_only", Tool.Read_only
+    ; "Workspace", Tool.Workspace
+    ; "Workspace_mutating", Tool.Workspace_mutating
+    ; "Local_mutation", Tool.Local_mutation
+    ; "External", Tool.External
+    ; "External_effect", Tool.External_effect
+    ]
+  in
+  List.iter
+    (fun (json_string, expected) ->
+       match Tool.mutation_class_of_yojson (`String json_string) with
+       | Ok decoded ->
+         check
+           string
+           "legacy constructor"
+           (Tool.show_mutation_class expected)
+           (Tool.show_mutation_class decoded)
+       | Error msg -> fail ("legacy mutation_class: " ^ msg))
+    cases
+;;
+
 let test_create_rejects_inconsistent_descriptor () =
   check_raises
     "invalid descriptor"
@@ -276,7 +333,7 @@ let test_create_rejects_inconsistent_descriptor () =
          (Tool.create
             ~descriptor:
               { Tool.kind = None
-              ; mutation_class = Some "read_only"
+              ; mutation_class = Some Tool.Read_only
               ; concurrency_class = Some Tool.Sequential_workspace
               ; permission = None
               ; evidence_role = None
@@ -300,7 +357,7 @@ let () =
     ; ( "context_handler"
       , [ test_case "receives context" `Quick test_context_handler_receives_context
         ; test_case "writes context" `Quick test_context_handler_writes_context
-        ; test_case "default context" `Quick test_context_handler_default_context
+        ; test_case "requires context" `Quick test_context_handler_requires_context
         ] )
     ; ( "schema"
       , [ test_case "json structure" `Quick test_schema_to_json_structure
@@ -314,6 +371,11 @@ let () =
       , [ test_case "workdir_policy" `Quick test_workdir_policy_yojson_roundtrip
         ; test_case "shell_constraints" `Quick test_shell_constraints_yojson_roundtrip
         ; test_case "concurrency_class" `Quick test_concurrency_class_yojson_roundtrip
+        ; test_case "mutation_class" `Quick test_mutation_class_yojson_roundtrip
+        ; test_case
+            "mutation_class legacy constructors"
+            `Quick
+            test_mutation_class_of_yojson_accepts_legacy_constructor_names
         ; test_case "descriptor None" `Quick test_descriptor_to_yojson_none
         ] )
     ; ( "validation"
@@ -370,7 +432,7 @@ let () =
                      })
             in
             let wrapped = Tool.with_defaults [ "agent", `String "worker-1" ] tool in
-            let ctx = Context.create () in
+            let ctx = Context.create ~eio:false () in
             match Tool.execute ~context:ctx wrapped (`Assoc []) with
             | Ok { content; _meta = _ } ->
               check string "default in ctx handler" "worker-1" content

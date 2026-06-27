@@ -745,7 +745,7 @@ let resume
       ()
   =
   let { Agent_checkpoint.state; context = ctx } =
-    Agent_checkpoint.build_resume ~checkpoint ?config ?context ()
+    Agent_checkpoint.build_resume ~checkpoint ~eio_context:true ?config ?context ()
   in
   (* Apply options-level priority override to config *)
   let state =

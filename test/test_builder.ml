@@ -339,7 +339,7 @@ let test_with_transport () =
 let test_with_context () =
   with_net
   @@ fun net ->
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "key" (`String "value");
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
@@ -534,7 +534,7 @@ let test_with_tool_grants_filters_tools () =
 let test_with_contract_injects_context_metadata () =
   with_net
   @@ fun net ->
-  let ctx = Context.create () in
+  let ctx = Context.create ~eio:false () in
   Context.set ctx "original" (`String "kept");
   let contract =
     Contract.empty |> Contract.with_runtime_awareness "Aware of explicit grants."
@@ -644,7 +644,11 @@ let test_with_context_thresholds_explicit () =
   Alcotest.(check (option int))
     "explicit context_window_tokens budget"
     (Some 131072)
-    (extract_token_budget reducer)
+    (extract_token_budget reducer);
+  Alcotest.(check (option (float 0.0)))
+    "stores compact ratio"
+    (Some 0.5)
+    (Agent.state agent).config.context_compact_ratio
 ;;
 
 (* --- 30. with_context_thresholds: default fallback 200_000 --- *)
@@ -729,6 +733,17 @@ let test_with_context_thresholds_invalid_ignored () =
     "zero context_window_tokens ignored; provider fallback"
     (Some 131_072)
     (extract_token_budget reducer)
+;;
+
+let test_with_context_thresholds_invalid_compact_ratio_rejected () =
+  with_net
+  @@ fun net ->
+  match
+    Builder.create ~net ~model:"claude-sonnet-4-6"
+    |> Builder.with_context_thresholds ~compact_ratio:1.0
+  with
+  | exception Invalid_argument _ -> ()
+  | _ -> Alcotest.fail "expected Invalid_argument for compact_ratio >= 1.0"
 ;;
 
 (* --- 26. build produces valid agent --- *)
@@ -952,6 +967,10 @@ let () =
             "context_thresholds invalid ignored"
             `Quick
             test_with_context_thresholds_invalid_ignored
+        ; Alcotest.test_case
+            "context_thresholds invalid compact ratio rejected"
+            `Quick
+            test_with_context_thresholds_invalid_compact_ratio_rejected
         ] )
     ; ( "build"
       , [ Alcotest.test_case "valid agent" `Quick test_build_produces_valid_agent

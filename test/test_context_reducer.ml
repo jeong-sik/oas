@@ -2,6 +2,12 @@
 
 open Agent_sdk
 
+let expect_invalid_arg label f =
+  match f () with
+  | exception Invalid_argument _ -> ()
+  | _ -> Alcotest.fail label
+;;
+
 let user_msg text =
   Types.
     { role = User
@@ -631,6 +637,15 @@ let test_from_context_config_with_cache () =
   in
   let reduced = Context_reducer.reduce reducer msgs in
   Alcotest.(check bool) "reduced shorter" true (List.length reduced < List.length msgs)
+;;
+
+let test_from_context_config_rejects_invalid_ratios () =
+  expect_invalid_arg "expected invalid compact_ratio" (fun () ->
+    ignore (Context_reducer.from_context_config ~compact_ratio:1.0 ~max_tokens:1000 ()));
+  expect_invalid_arg "expected invalid target_ratio" (fun () ->
+    ignore (Context_reducer.from_context_config ~target_ratio:0.0 ~max_tokens:1000 ()));
+  expect_invalid_arg "expected invalid watermark" (fun () ->
+    ignore (Context_reducer.from_context_config ~watermark:(-0.1) ~max_tokens:1000 ()))
 ;;
 
 (* --- edge cases --- *)
@@ -1727,6 +1742,10 @@ let () =
             "dynamic selector with cache"
             `Quick
             test_from_context_config_with_cache
+        ; Alcotest.test_case
+            "rejects invalid ratios"
+            `Quick
+            test_from_context_config_rejects_invalid_ratios
         ] )
     ]
 ;;
