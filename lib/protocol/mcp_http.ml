@@ -6,7 +6,7 @@ type config =
   ; headers : (string * string) list
   }
 
-let default_config =
+let default_config () =
   { base_url =
       Util.env_or "http://localhost:8080/mcp" "OAS_MCP_HTTP_URL"
       (* Set OAS_MCP_HTTP_URL to override the MCP server endpoint.

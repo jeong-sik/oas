@@ -11,10 +11,36 @@ open Agent_sdk
 
 (* ── Config defaults ────────────────────────────────────── *)
 
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  (* OCaml's Unix module has no portable unsetenv; OAS env readers treat an
+     empty value as unset. *)
+  let restore () =
+    match previous with
+    | Some previous -> Unix.putenv key previous
+    | None -> Unix.putenv key ""
+  in
+  Fun.protect ~finally:restore (fun () ->
+    Unix.putenv key value;
+    f ())
+;;
+
 let test_default_config () =
-  let cfg = Mcp_http.default_config in
+  let cfg = Mcp_http.default_config () in
   check string "base_url" "http://localhost:8080/mcp" cfg.base_url;
   check (list (pair string string)) "headers" [] cfg.headers
+;;
+
+let test_default_config_reads_env_at_call_time () =
+  with_env "OAS_MCP_HTTP_URL" "http://127.0.0.1:7777/mcp" (fun () ->
+    let cfg = Mcp_http.default_config () in
+    check string "first env" "http://127.0.0.1:7777/mcp" cfg.base_url;
+    Unix.putenv "OAS_MCP_HTTP_URL" "  http://127.0.0.1:8888/mcp  ";
+    let cfg = Mcp_http.default_config () in
+    check string "second env" "http://127.0.0.1:8888/mcp" cfg.base_url;
+    Unix.putenv "OAS_MCP_HTTP_URL" "";
+    let cfg = Mcp_http.default_config () in
+    check string "empty env default" "http://localhost:8080/mcp" cfg.base_url)
 ;;
 
 (* ── Connect to unreachable server ──────────────────────── *)
@@ -25,7 +51,9 @@ let test_connect_returns_ok () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
+  let config =
+    { (Mcp_http.default_config ()) with base_url = "http://127.0.0.1:19999" }
+  in
   match Mcp_http.connect ~sw ~net config with
   | Ok _client -> () (* connect itself succeeds; initialize would fail *)
   | Error e -> fail (Error.to_string e)
@@ -37,7 +65,9 @@ let test_initialize_unreachable () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
+  let config =
+    { (Mcp_http.default_config ()) with base_url = "http://127.0.0.1:19999" }
+  in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->
@@ -52,7 +82,9 @@ let test_list_tools_without_init () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
+  let config =
+    { (Mcp_http.default_config ()) with base_url = "http://127.0.0.1:19999" }
+  in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->
@@ -67,7 +99,9 @@ let test_call_tool_unreachable () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
+  let config =
+    { (Mcp_http.default_config ()) with base_url = "http://127.0.0.1:19999" }
+  in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->
@@ -84,7 +118,7 @@ let test_close_safe () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config = Mcp_http.default_config in
+  let config = Mcp_http.default_config () in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->
@@ -195,7 +229,13 @@ let test_session_transport_kind_required () =
 let () =
   run
     "Mcp_http"
-    [ "config", [ test_case "defaults" `Quick test_default_config ]
+    [ ( "config"
+      , [ test_case "defaults" `Quick test_default_config
+        ; test_case
+            "defaults read env at call time"
+            `Quick
+            test_default_config_reads_env_at_call_time
+        ] )
     ; ( "connect"
       , [ test_case "connect returns Ok" `Quick test_connect_returns_ok
         ; test_case "initialize unreachable" `Quick test_initialize_unreachable
