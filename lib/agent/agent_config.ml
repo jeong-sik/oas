@@ -152,7 +152,11 @@ let invalid_type ~field ~expected json =
     (Error.Config
        (InvalidConfig
           { field
-          ; detail = Printf.sprintf "expected %s, got %s" expected (Llm_provider.Json_util.json_type_name json)
+          ; detail =
+              Printf.sprintf
+                "expected %s, got %s"
+                expected
+                (Llm_provider.Json_util.json_type_name json)
           }))
 ;;
 
