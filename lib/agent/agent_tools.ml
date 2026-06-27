@@ -71,16 +71,19 @@ let find_in_index index name =
 ;;
 
 let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =
-  match descriptor.Tool.concurrency_class with
-  | Some cc -> cc
-  | None ->
-    (match
-       Option.bind
-         descriptor.Tool.mutation_class
-         Tool.expected_concurrency_class_of_mutation_class
-     with
-     | Some inferred -> inferred
-     | None -> Tool.Sequential_workspace)
+  match Tool.validate_descriptor descriptor with
+  | Error msg -> invalid_arg ("Agent_tools.concurrency_class_from_descriptor: " ^ msg)
+  | Ok () ->
+    (match descriptor.Tool.concurrency_class with
+     | Some cc -> cc
+     | None ->
+       (match
+          Option.bind
+            descriptor.Tool.mutation_class
+            Tool.expected_concurrency_class_of_mutation_class
+        with
+        | Some inferred -> inferred
+        | None -> Tool.Sequential_workspace))
 ;;
 
 (* RFC-OAS-009 v2 PR-B: removed CDAL builtin_descriptor fallback.

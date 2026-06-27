@@ -326,19 +326,29 @@ let test_mutation_class_expected_concurrency_class () =
   let check_mapping mutation_class expected =
     check
       (option string)
-      mutation_class
+      (Tool.mutation_class_to_string mutation_class)
       expected
       (Option.map
          Tool.concurrency_class_name
          (Tool.expected_concurrency_class_of_mutation_class mutation_class))
   in
-  check_mapping "read_only" (Some "parallel_read");
-  check_mapping "workspace" (Some "sequential_workspace");
-  check_mapping "workspace_mutating" (Some "sequential_workspace");
-  check_mapping "local_mutation" (Some "sequential_workspace");
-  check_mapping "external" (Some "exclusive_external");
-  check_mapping "external_effect" (Some "exclusive_external");
-  check_mapping "unknown" None
+  check_mapping Tool.Read_only (Some "parallel_read");
+  check_mapping Tool.Workspace (Some "sequential_workspace");
+  check_mapping Tool.Workspace_mutating (Some "sequential_workspace");
+  check_mapping Tool.Local_mutation (Some "sequential_workspace");
+  check_mapping Tool.External (Some "exclusive_external");
+  check_mapping Tool.External_effect (Some "exclusive_external");
+  check
+    (list string)
+    "known mutation classes"
+    [ "read_only"
+    ; "workspace"
+    ; "workspace_mutating"
+    ; "local_mutation"
+    ; "external"
+    ; "external_effect"
+    ]
+    Tool.known_mutation_classes
 ;;
 
 let test_create_rejects_inconsistent_descriptor () =
@@ -364,6 +374,13 @@ let test_create_rejects_inconsistent_descriptor () =
             ~description:"bad"
             ~parameters:[]
             (fun _ -> Ok { Types.content = "ok"; _meta = None })))
+;;
+
+let test_mutation_class_of_yojson_rejects_unknown () =
+  match Tool.mutation_class_of_yojson (`String "nonexistent") with
+  | Ok _ -> fail "expected unknown mutation_class error"
+  | Error msg ->
+    check string "unknown mutation_class" "unknown mutation_class: nonexistent" msg
 ;;
 
 let () =
@@ -406,6 +423,10 @@ let () =
             "create rejects inconsistent descriptor"
             `Quick
             test_create_rejects_inconsistent_descriptor
+        ; test_case
+            "mutation_class_of_yojson rejects unknown"
+            `Quick
+            test_mutation_class_of_yojson_rejects_unknown
         ] )
     ; ( "with_defaults"
       , [ test_case "injects missing args" `Quick (fun () ->

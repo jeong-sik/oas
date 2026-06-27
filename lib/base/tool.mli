@@ -91,10 +91,16 @@ type t =
     Use this for logs, hooks, and JSON-adjacent diagnostic output. *)
 val concurrency_class_name : concurrency_class -> string
 
-(** Interpret legacy descriptor [mutation_class] strings as concurrency
-    classes. This is the single policy surface for old descriptors that have
-    not yet been migrated to typed [concurrency_class]. *)
-val expected_concurrency_class_of_mutation_class : string -> concurrency_class option
+(** Interpret descriptor [mutation_class] values as concurrency classes.
+    This is the single policy surface for descriptors that have not set typed
+    [concurrency_class] explicitly. *)
+val expected_concurrency_class_of_mutation_class
+  :  mutation_class
+  -> concurrency_class option
+
+(** Canonical accepted [mutation_class] wire names, including explicit aliases.
+    Unknown strings are rejected while decoding {!mutation_class_of_yojson}. *)
+val known_mutation_classes : string list
 
 val create
   :  ?descriptor:descriptor
