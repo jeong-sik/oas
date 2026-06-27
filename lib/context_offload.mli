@@ -5,6 +5,10 @@
 
     Fail-open design: on write failure, original content is preserved.
 
+    This module performs blocking Unix filesystem I/O via {!Fs_result}. Callers
+    in latency-sensitive Eio fibers should run it from a system thread or use a
+    future Eio-native offload implementation.
+
     @since 0.62.0
 
     @stability Evolving
@@ -17,11 +21,21 @@ type config =
   ; preview_len : int
   }
 
-val default_config : config
+(** Default offload configuration.
+    Resolves [Filename.get_temp_dir_name ()] at call time. *)
+val default_config : unit -> config
+
+(** Diagnostic context string used for [Llm_provider.Diag] warnings emitted by
+    this module. Exposed so tests can assert on context without hard-coding the
+    string. *)
+val diag_ctx : string
 
 (** Result of an offload attempt. *)
 type offload_result =
   | Kept of string
+  (** Original content retained. This is returned both when content is below
+          [config.threshold_bytes] and when offload fails after emitting a
+          diagnostic warning. *)
   | Offloaded of
       { path : string
       ; preview : string
@@ -31,7 +45,10 @@ type offload_result =
 (** Attempt to offload content to the filesystem.
 
     Returns [Offloaded] when content exceeds [config.threshold_bytes],
-    [Kept] otherwise or on write failure. *)
+    [Kept] otherwise or on write failure. Write failures are emitted via
+    [Llm_provider.Diag.warn] before preserving the original content.
+
+    Performs blocking Unix filesystem I/O. *)
 val maybe_offload : config:config -> tool_name:string -> string -> offload_result
 
 (** Format an offload result for context insertion. *)
