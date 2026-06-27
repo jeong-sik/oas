@@ -714,9 +714,7 @@ let test_stage_context_internal () =
   Alcotest.(check bool)
     "stage prefix"
     true
-    (let prefix = "[route]" in
-     String.length s >= String.length prefix
-     && String.sub s 0 (String.length prefix) = prefix)
+    (String.starts_with ~prefix:"[route]" s)
 ;;
 
 let test_stage_context_agent () =
@@ -727,9 +725,7 @@ let test_stage_context_agent () =
   Alcotest.(check bool)
     "output stage"
     true
-    (let prefix = "[output]" in
-     String.length s >= String.length prefix
-     && String.sub s 0 (String.length prefix) = prefix)
+    (String.starts_with ~prefix:"[output]" s)
 ;;
 
 let test_stage_context_collect () =
@@ -740,9 +736,7 @@ let test_stage_context_collect () =
   Alcotest.(check bool)
     "collect stage"
     true
-    (let prefix = "[collect]" in
-     String.length s >= String.length prefix
-     && String.sub s 0 (String.length prefix) = prefix)
+    (String.starts_with ~prefix:"[collect]" s)
 ;;
 
 (* ── Suite ──────────────────────────────────────────────────── *)
