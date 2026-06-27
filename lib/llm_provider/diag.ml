@@ -11,16 +11,9 @@ let level_to_string = function
   | Error -> "ERROR"
 ;;
 
-let env_bool name =
-  match Sys.getenv_opt name with
-  | None -> false
-  | Some raw ->
-    (match String.lowercase_ascii (String.trim raw) with
-     | "1" | "true" | "yes" | "on" -> true
-     | _ -> false)
+let debug_enabled () =
+  Env_parse.bool_env "OAS_LLM_PROVIDER_DEBUG" || Env_parse.bool_env "OAS_CASCADE_DIAG"
 ;;
-
-let debug_enabled () = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_DIAG"
 
 let default_sink (lvl : level) ~ctx msg =
   match lvl with
@@ -49,18 +42,8 @@ let warn ctx fmt = emit Warn ctx fmt
 let error ctx fmt = emit Error ctx fmt
 
 let%test "debug_enabled reads OAS_LLM_PROVIDER_DEBUG at call time" =
-  let with_env name value f =
-    let previous = Sys.getenv_opt name in
-    Unix.putenv name value;
-    Fun.protect
-      ~finally:(fun () ->
-        match previous with
-        | Some previous -> Unix.putenv name previous
-        | None -> Unix.putenv name "")
-      f
-  in
-  with_env "OAS_CASCADE_DIAG" "" (fun () ->
-    with_env "OAS_LLM_PROVIDER_DEBUG" "" (fun () ->
+  Env_parse.with_env "OAS_CASCADE_DIAG" "" (fun () ->
+    Env_parse.with_env "OAS_LLM_PROVIDER_DEBUG" "" (fun () ->
       (not (debug_enabled ()))
       &&
       (Unix.putenv "OAS_LLM_PROVIDER_DEBUG" "1";
@@ -68,18 +51,8 @@ let%test "debug_enabled reads OAS_LLM_PROVIDER_DEBUG at call time" =
 ;;
 
 let%test "debug_enabled reads OAS_CASCADE_DIAG alias at call time" =
-  let with_env name value f =
-    let previous = Sys.getenv_opt name in
-    Unix.putenv name value;
-    Fun.protect
-      ~finally:(fun () ->
-        match previous with
-        | Some previous -> Unix.putenv name previous
-        | None -> Unix.putenv name "")
-      f
-  in
-  with_env "OAS_LLM_PROVIDER_DEBUG" "" (fun () ->
-    with_env "OAS_CASCADE_DIAG" "" (fun () ->
+  Env_parse.with_env "OAS_LLM_PROVIDER_DEBUG" "" (fun () ->
+    Env_parse.with_env "OAS_CASCADE_DIAG" "" (fun () ->
       (not (debug_enabled ()))
       &&
       (Unix.putenv "OAS_CASCADE_DIAG" "true";

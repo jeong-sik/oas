@@ -13,10 +13,7 @@ let get name = trim_non_empty_opt (Sys.getenv_opt name)
 let bool name =
   match get name with
   | None -> false
-  | Some v ->
-    (match String.lowercase_ascii v with
-     | "1" | "true" | "yes" | "on" -> true
-     | _ -> false)
+  | Some v -> Env_parse.bool_of_string v
 ;;
 
 let filter_non_empty = List.filter (fun s -> s <> "")
@@ -82,21 +79,7 @@ let int ?(allow_negative = false) ~default var =
 
 [@@@coverage off]
 
-let with_env name value f =
-  (* Lightweight test helper. Do not use for production secrets: environment
-     variables are visible to child processes and may be logged. OCaml's Unix
-     module has no portable [unsetenv], so restoring an unset variable means
-     setting it to empty, which [get] above treats the same as unset. *)
-  let original = Sys.getenv_opt name in
-  let restore () =
-    match original with
-    | None -> Unix.putenv name ""
-    | Some v -> Unix.putenv name v
-  in
-  Fun.protect ~finally:restore (fun () ->
-    Unix.putenv name value;
-    f ())
-;;
+let with_env = Env_parse.with_env
 
 let%test "int accepts positive env value" =
   with_env "OAS_TEST_CLI_COMMON_ENV_INT_POSITIVE" "12" (fun () ->

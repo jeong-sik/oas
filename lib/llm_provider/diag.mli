@@ -6,8 +6,9 @@
 
     Debug-level messages are gated by [OAS_LLM_PROVIDER_DEBUG=1]
     or the compatibility alias [OAS_CASCADE_DIAG=1] when using the
-    default sink. Consumer sinks receive all levels and apply their
-    own filtering.
+    default sink. These env gates are evaluated for each debug event,
+    so concurrent [Unix.putenv] mutations can affect later events.
+    Consumer sinks receive all levels and apply their own filtering.
 
     @since 0.131.0 *)
 
