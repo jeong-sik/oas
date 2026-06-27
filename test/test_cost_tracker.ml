@@ -62,7 +62,7 @@ let test_report_to_string () =
 (* ── Context Offload ───────────────────────────────── *)
 
 let test_offload_small_content () =
-  let config = Context_offload.default_config in
+  let config = Context_offload.default_config () in
   let result = Context_offload.maybe_offload ~config ~tool_name:"test" "small" in
   match result with
   | Context_offload.Kept s -> check string "kept" "small" s
@@ -70,7 +70,7 @@ let test_offload_small_content () =
 ;;
 
 let test_offload_large_content () =
-  let config = { Context_offload.default_config with threshold_bytes = 10 } in
+  let config = { (Context_offload.default_config ()) with threshold_bytes = 10 } in
   let content = String.make 100 'x' in
   let result = Context_offload.maybe_offload ~config ~tool_name:"big" content in
   match result with
@@ -85,7 +85,7 @@ let test_offload_large_content () =
 ;;
 
 let test_offload_exact_threshold () =
-  let config = { Context_offload.default_config with threshold_bytes = 10 } in
+  let config = { (Context_offload.default_config ()) with threshold_bytes = 10 } in
   let content = String.make 10 'y' in
   match Context_offload.maybe_offload ~config ~tool_name:"exact" content with
   | Context_offload.Kept _ -> () (* At threshold, kept *)
@@ -123,7 +123,7 @@ let test_offload_to_context_string_offloaded () =
 ;;
 
 let test_offload_convenience () =
-  let config = { Context_offload.default_config with threshold_bytes = 5 } in
+  let config = { (Context_offload.default_config ()) with threshold_bytes = 5 } in
   let result =
     Context_offload.offload_tool_result ~config ~tool_name:"conv" "this is longer than 5"
   in
@@ -139,7 +139,7 @@ let test_offload_convenience () =
 ;;
 
 let test_offload_special_chars_in_name () =
-  let config = { Context_offload.default_config with threshold_bytes = 5 } in
+  let config = { (Context_offload.default_config ()) with threshold_bytes = 5 } in
   let content = String.make 20 'z' in
   let result = Context_offload.maybe_offload ~config ~tool_name:"my/tool name" content in
   match result with
