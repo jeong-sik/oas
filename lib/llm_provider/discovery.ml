@@ -541,14 +541,25 @@ let refresh_and_sync ~sw ~net ~endpoints =
 let builtin_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
 let valid_tcp_port p = p >= 1 && p <= 65535
 
-let parse_ports_env s =
+let warn_invalid_discovery_port ~token ~reason =
+  Diag.warn "discovery" "OAS_DISCOVERY_PORTS token %S ignored: %s" token reason
+;;
+
+let parse_ports_env ?(on_invalid = fun ~token:_ ~reason:_ -> ()) s =
   String.split_on_char ',' s
   |> List.fold_left
        (fun ports raw ->
           let trimmed = String.trim raw in
           match int_of_string_opt trimmed with
+          | None when trimmed = "" -> ports
           | Some p when valid_tcp_port p && not (List.mem p ports) -> p :: ports
-          | _ -> ports)
+          | Some p when valid_tcp_port p -> ports
+          | Some _ ->
+            on_invalid ~token:trimmed ~reason:"outside TCP port range 1-65535";
+            ports
+          | None ->
+            on_invalid ~token:trimmed ~reason:"not an integer";
+            ports)
        []
   |> List.rev
 ;;
@@ -556,7 +567,7 @@ let parse_ports_env s =
 let default_scan_ports =
   match Cli_common_env.get "OAS_DISCOVERY_PORTS" with
   | Some s ->
-    (match parse_ports_env s with
+    (match parse_ports_env ~on_invalid:warn_invalid_discovery_port s with
      | [] -> builtin_scan_ports
      | ps -> ps)
   | None -> builtin_scan_ports
@@ -1192,12 +1203,29 @@ let%test "parse_ports_env skips empty tokens" =
   parse_ports_env "9000,,9001," = [ 9000; 9001 ]
 ;;
 
-let%test "parse_ports_env skips non-numeric tokens silently" =
-  parse_ports_env "9000,abc,9001" = [ 9000; 9001 ]
+let%test "parse_ports_env reports non-numeric tokens" =
+  let warnings = ref [] in
+  let ports =
+    parse_ports_env
+      ~on_invalid:(fun ~token ~reason -> warnings := (token, reason) :: !warnings)
+      "9000,abc,9001"
+  in
+  ports = [ 9000; 9001 ] && List.rev !warnings = [ "abc", "not an integer" ]
 ;;
 
-let%test "parse_ports_env skips invalid TCP ports" =
-  parse_ports_env "-1,0,1,65535,65536" = [ 1; 65535 ]
+let%test "parse_ports_env reports invalid TCP ports" =
+  let warnings = ref [] in
+  let ports =
+    parse_ports_env
+      ~on_invalid:(fun ~token ~reason -> warnings := (token, reason) :: !warnings)
+      "-1,0,1,65535,65536"
+  in
+  ports = [ 1; 65535 ]
+  && List.rev !warnings
+     = [ "-1", "outside TCP port range 1-65535"
+       ; "0", "outside TCP port range 1-65535"
+       ; "65536", "outside TCP port range 1-65535"
+       ]
 ;;
 
 let%test "parse_ports_env deduplicates while preserving order" =
