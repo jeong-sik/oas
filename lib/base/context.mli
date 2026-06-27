@@ -20,22 +20,20 @@ type diff =
   ; changed : (string * Yojson.Safe.t) list
   }
 
-(** Create a new context.
-
-    [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
-    the context is shared across parallel fibers under an Eio scheduler.
-    The default [~eio:false] keeps the legacy {!Stdlib.Mutex} implementation
-    for use outside of an Eio fiber (e.g. synchronous tests or serialization). *)
-val create : ?eio:bool -> unit -> t
+type concurrency_backend =
+  | Stdlib_mutex
+  | Eio_mutex
 
 (** Create a new context.
 
     [~eio:true] uses {!Eio.Mutex} for synchronization, which is required when
     the context is shared across parallel fibers under an Eio scheduler.
-    The default [~eio:false] keeps the legacy {!Stdlib.Mutex} implementation
-    for use outside of an Eio fiber (e.g. synchronous tests or serialization). *)
+    [~eio:false] keeps the {!Stdlib.Mutex} implementation for use outside of an
+    Eio fiber (e.g. synchronous tests or serialization). The argument is
+    required so callers explicitly choose the concurrency model. *)
+val create : eio:bool -> unit -> t
+
 val get : t -> string -> Yojson.Safe.t option
-
 val set : t -> string -> Yojson.Safe.t -> unit
 val delete : t -> string -> unit
 val keys : t -> string list
@@ -48,15 +46,20 @@ val keys_in_scope : t -> scope -> string list
 val merge : t -> (string * Yojson.Safe.t) list -> unit
 val diff : t -> t -> diff
 val to_json : t -> Yojson.Safe.t
+val concurrency_backend : t -> concurrency_backend
 
-(** Deserialize from JSON.  Returns an empty context if [json] is not
-    a JSON object (i.e. not [`Assoc _]). *)
-val of_json : Yojson.Safe.t -> t
+(** Deserialize from a JSON object.
+
+    [~eio:true] rehydrates the context with an {!Eio.Mutex}; the default
+    [~eio:false] is for synchronous decoding/storage code. Raises
+    [Invalid_argument] if [json] is not a JSON object. *)
+val of_json : ?eio:bool -> Yojson.Safe.t -> t
 
 (** Shallow-copy all entries into a fresh context.
     Values are [Yojson.Safe.t] (structurally immutable), so shallow copy
-    is sufficient for full independence. *)
-val copy : t -> t
+    is sufficient for full independence. By default the copy preserves the
+    source context's concurrency backend; [~eio] overrides it explicitly. *)
+val copy : ?eio:bool -> t -> t
 
 (** Isolated scope for sub-agent delegation.
     Only specified keys propagate between parent and child contexts. *)

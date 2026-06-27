@@ -87,9 +87,9 @@ let ensure_tree store session_id =
 ;;
 
 let default_root () =
-  match Util.get "OAS_RUNTIME_SESSION_ROOT" with
+  match Llm_provider.Cli_common_env.get "OAS_RUNTIME_SESSION_ROOT" with
   | Some value -> value
-  | None -> Filename.concat (Sys.getcwd ()) ".oas-runtime"
+  | None -> Filename.concat (Llm_provider.Paths.cwd ()) ".oas-runtime"
 ;;
 
 let create ?root () =
