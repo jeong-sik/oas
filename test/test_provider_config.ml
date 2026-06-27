@@ -108,24 +108,23 @@ let test_auth_headers_for_kind_and_key_matches_config () =
     Provider_config.all_provider_kinds
 ;;
 
+let expected_auth_headers_for_kind = function
+  | Provider_config.Anthropic | Provider_config.Kimi -> [ "x-api-key", "provider-key" ]
+  | Provider_config.Gemini -> [ "x-goog-api-key", "provider-key" ]
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Glm
+  | Provider_config.DashScope -> [ "Authorization", "Bearer provider-key" ]
+;;
+
 let test_auth_headers_for_kind_and_key_wire_headers () =
-  let cases =
-    [ Provider_config.Anthropic, [ "x-api-key", "provider-key" ]
-    ; Provider_config.Kimi, [ "x-api-key", "provider-key" ]
-    ; Provider_config.Gemini, [ "x-goog-api-key", "provider-key" ]
-    ; Provider_config.OpenAI_compat, [ "Authorization", "Bearer provider-key" ]
-    ; Provider_config.Ollama, [ "Authorization", "Bearer provider-key" ]
-    ; Provider_config.Glm, [ "Authorization", "Bearer provider-key" ]
-    ; Provider_config.DashScope, [ "Authorization", "Bearer provider-key" ]
-    ]
-  in
   List.iter
-    (fun (kind, expected) ->
+    (fun kind ->
        check_headers
          (Provider_config.string_of_provider_kind kind)
-         expected
+         (expected_auth_headers_for_kind kind)
          (Provider_config.auth_headers_for_kind_and_key ~kind ~api_key:"provider-key"))
-    cases
+    Provider_config.all_provider_kinds
 ;;
 
 let test_auth_headers_for_kind_and_key_omits_empty_secret () =

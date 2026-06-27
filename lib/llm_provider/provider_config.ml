@@ -205,7 +205,11 @@ let capabilities_for_config_model (config : t) =
     ~model_id:config.model_id
 ;;
 
-let auth_headers_for_secret ~(kind : provider_kind) ~(api_key : Secret.t)
+(** Compute auth headers from a provider kind and secret. This is the core
+    implementation shared by {!auth_headers_for_config} and
+    {!auth_headers_for_kind_and_key}; it avoids constructing a dummy
+    [Provider_config.t] when only kind and key are available. *)
+let auth_headers_for_kind_and_secret ~(kind : provider_kind) ~(api_key : Secret.t)
   : (string * string) list
   =
   if Secret.is_empty api_key
@@ -224,7 +228,7 @@ let auth_headers_for_secret ~(kind : provider_kind) ~(api_key : Secret.t)
     Gemini keys are sent in the [x-goog-api-key] header and are never placed
     in the URL query string. *)
 let auth_headers_for_config (config : t) : (string * string) list =
-  auth_headers_for_secret ~kind:config.kind ~api_key:config.api_key
+  auth_headers_for_kind_and_secret ~kind:config.kind ~api_key:config.api_key
 ;;
 
 (** Same as {!auth_headers_for_config} but takes the provider kind and raw key
@@ -234,7 +238,7 @@ let auth_headers_for_config (config : t) : (string * string) list =
 let auth_headers_for_kind_and_key ~(kind : provider_kind) ~(api_key : string)
   : (string * string) list
   =
-  auth_headers_for_secret ~kind ~api_key:(Secret.of_string api_key)
+  auth_headers_for_kind_and_secret ~kind ~api_key:(Secret.of_string api_key)
 ;;
 
 let max_turns_hard_cap = function
