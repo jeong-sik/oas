@@ -68,6 +68,9 @@ val with_preserve_thinking : preserve_thinking:bool option -> t -> t
 val thinking_enabled : enable_thinking:bool option -> bool
 val ignores_sampling_param : t -> enable_thinking:bool option -> string -> bool
 
+(** Normalize a typed caller effort for a provider dialect. *)
+val normalize_effort_value : t -> Reasoning_effort.t -> string option
+
 (** Normalize a caller effort for a provider dialect.
 
     Returns [None] when the input means "no reasoning effort field". *)

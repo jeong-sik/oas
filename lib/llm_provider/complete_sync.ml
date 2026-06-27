@@ -8,15 +8,6 @@
 include Complete_common
 include Complete_sampling
 
-let latency_now_s = function
-  | Some clock -> Eio.Time.now clock
-  | None -> Unix.gettimeofday ()
-;;
-
-let elapsed_latency_ms ~clock started_s =
-  int_of_float ((latency_now_s clock -. started_s) *. 1000.0)
-;;
-
 let complete_http
       ~sw
       ~net
@@ -31,7 +22,7 @@ let complete_http
       ()
   =
   match validate_all config with
-  | Error err -> Error err, 0
+  | Error err -> Error err, None
   | Ok () ->
     if requires_non_http_transport config.kind
     then
@@ -43,7 +34,7 @@ let complete_http
                    (Provider_config.string_of_provider_kind config.kind)
              ; kind = Unknown
              })
-      , 0 )
+      , None )
     else (
       let provider_name = Provider_registry.provider_name_of_config config in
       let emit_status code =
@@ -112,7 +103,7 @@ let complete_http
                      body_str.[0]
                      body_str.[body_len - 1]
                })
-        , 0 ))
+        , None ))
       else (
         (* Request body diagnostic summary.  Controlled by OAS_DEBUG_REQUEST_BODY:
        "summary" — stderr one-liner: provider, model, url, byte count
@@ -142,7 +133,7 @@ let complete_http
               have been removed because they leak API keys and prompts. Use 'summary' or \
               a scrubbing-aware logger instead."
          | _other_debug_mode -> ());
-        let t0 = latency_now_s clock in
+        let latency_counter = start_latency_counter ?clock () in
         let post_sync_call () =
           Http_client.post_sync
             ?cache:connection_cache
@@ -328,7 +319,7 @@ let complete_http
               in
               Error (Http_client.HttpError { code; body }))
         in
-        let latency_ms = elapsed_latency_ms ~clock t0 in
+        let latency_ms = latency_ms_int latency_counter in
         result, latency_ms))
 ;;
 

@@ -125,6 +125,60 @@ let%test "model capability thinking drift remains high-confidence warning" =
   && info_observations = []
 ;;
 
+type latency_counter =
+  | Unknown_latency
+  | Monotonic_latency of Mtime_clock.counter
+  | Eio_clock_latency :
+      { clock : 'a Eio.Time.clock
+      ; started_s : float
+      }
+      -> latency_counter
+
+let ns_per_ms = 1_000_000.0
+let clamp_latency_ms ms = Float.max 0.0 ms
+
+let start_latency_counter ?clock () =
+  match clock with
+  | Some clock -> Eio_clock_latency { clock; started_s = Eio.Time.now clock }
+  | None ->
+    (try Monotonic_latency (Mtime_clock.counter ()) with
+     | exn ->
+       Diag.warn
+         "complete"
+         "monotonic latency clock unavailable: %s"
+         (Printexc.to_string exn);
+       Unknown_latency)
+;;
+
+let latency_ms_float = function
+  | Unknown_latency -> None
+  | Monotonic_latency counter ->
+    Some
+      (clamp_latency_ms (Mtime.Span.to_float_ns (Mtime_clock.count counter) /. ns_per_ms))
+  | Eio_clock_latency { clock; started_s } ->
+    Some (clamp_latency_ms ((Eio.Time.now clock -. started_s) *. 1000.0))
+;;
+
+let round_latency_ms ms = int_of_float (Float.round ms)
+let latency_ms_int counter = Option.map round_latency_ms (latency_ms_float counter)
+
+let%test "latency counter yields non-negative elapsed duration when available" =
+  match start_latency_counter () with
+  | Unknown_latency -> true
+  | counter ->
+    (match latency_ms_float counter with
+     | Some elapsed_ms -> elapsed_ms >= 0.0
+     | None -> false)
+;;
+
+let%test "unknown latency counter stays unknown" =
+  latency_ms_float Unknown_latency = None && latency_ms_int Unknown_latency = None
+;;
+
+let%test "integer latency rounds sub-millisecond samples" =
+  round_latency_ms 0.49 = 0 && round_latency_ms 0.5 = 1 && round_latency_ms 0.9 = 1
+;;
+
 (** Patch {!Types.api_response} telemetry with transport latency and provider
     metadata.
     The JSON parser sets [request_latency_ms = None] because it cannot see the

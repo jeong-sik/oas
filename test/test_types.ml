@@ -940,6 +940,39 @@ let test_response_shape_thinking_only_is_not_deliverable () =
     (summary_contains ~needle:"hidden" response)
 ;;
 
+let test_response_shape_empty_end_turn_is_not_deliverable () =
+  let response = response () in
+  let shape = Response_shape.summarize response in
+  Alcotest.(check bool)
+    "no deliverable content"
+    false
+    (Response_shape.has_deliverable_content shape);
+  Alcotest.(check bool)
+    "ended without deliverable content"
+    true
+    (Response_shape.ended_without_deliverable_content response);
+  Alcotest.(check string)
+    "shape label"
+    "empty"
+    (Response_shape.content_shape_to_string (Response_shape.content_shape response shape));
+  Alcotest.(check bool)
+    "summary includes empty shape"
+    true
+    (summary_contains ~needle:"shape=empty" response);
+  Alcotest.(check bool)
+    "summary includes end_turn"
+    true
+    (summary_contains ~needle:"stop_reason=end_turn" response);
+  Alcotest.(check bool)
+    "summary includes no content blocks"
+    true
+    (summary_contains ~needle:"content_blocks=0" response);
+  Alcotest.(check bool)
+    "summary includes no content kinds"
+    true
+    (summary_contains ~needle:"content_kinds=[none]" response)
+;;
+
 let test_response_shape_thinking_plus_text_is_deliverable () =
   let response =
     response
@@ -1019,6 +1052,10 @@ let () =
             "thinking-only is not deliverable"
             `Quick
             test_response_shape_thinking_only_is_not_deliverable
+        ; Alcotest.test_case
+            "empty end_turn is not deliverable"
+            `Quick
+            test_response_shape_empty_end_turn_is_not_deliverable
         ; Alcotest.test_case
             "thinking plus text is deliverable"
             `Quick
