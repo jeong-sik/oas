@@ -131,22 +131,6 @@ type agent_file_config =
 
 (* ── JSON parsing ────────────────────────────────────────── *)
 
-let string_option = function
-  | `String value -> Some value
-  | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null -> None
-;;
-
-let json_type_name = function
-  | `Assoc _ -> "object"
-  | `Bool _ -> "bool"
-  | `Float _ -> "float"
-  | `Int _ -> "int"
-  | `Intlit _ -> "int"
-  | `List _ -> "list"
-  | `Null -> "null"
-  | `String _ -> "string"
-;;
-
 let root_config_field = "<root>"
 
 let json_pointer_escape s =
@@ -168,7 +152,7 @@ let invalid_type ~field ~expected json =
     (Error.Config
        (InvalidConfig
           { field
-          ; detail = Printf.sprintf "expected %s, got %s" expected (json_type_name json)
+          ; detail = Printf.sprintf "expected %s, got %s" expected (Llm_provider.Json_util.json_type_name json)
           }))
 ;;
 
