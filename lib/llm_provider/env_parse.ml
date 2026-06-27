@@ -16,6 +16,9 @@ let with_env name value f =
   let original = Sys.getenv_opt name in
   let restore () =
     match original with
+    (* OCaml's Unix module does not expose portable unsetenv. All readers in
+       this module treat the empty string as unset/default, so tests can safely
+       restore absent variables to an empty value. *)
     | None -> Unix.putenv name ""
     | Some v -> Unix.putenv name v
   in
