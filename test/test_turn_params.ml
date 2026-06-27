@@ -52,7 +52,7 @@ let test_reasoning_with_thinking () =
   in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check int) "one thinking block" 1 (List.length r.thinking_blocks);
-  Alcotest.(check bool) "uncertainty detected" true r.has_uncertainty
+  Alcotest.(check bool) "no inferred uncertainty" false r.has_uncertainty
 ;;
 
 let test_reasoning_tool_rationale () =
@@ -72,7 +72,7 @@ let test_reasoning_tool_rationale () =
     ]
   in
   let r = Hooks.extract_reasoning messages in
-  Alcotest.(check bool) "has tool rationale" true (r.tool_rationale <> None)
+  Alcotest.(check bool) "no inferred tool rationale" true (r.tool_rationale = None)
 ;;
 
 (* ── Hook event types ────────────────────────────────────────── *)

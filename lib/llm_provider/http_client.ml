@@ -329,48 +329,6 @@ let%test "max_single_header_bytes flags a single oversized header line" =
   max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
 ;;
 
-let contains_substring haystack needle =
-  let hlen = String.length haystack in
-  let nlen = String.length needle in
-  if nlen = 0
-  then true
-  else if nlen > hlen
-  then false
-  else (
-    let rec check i j =
-      if j = nlen
-      then true
-      else if haystack.[i + j] <> needle.[j]
-      then false
-      else check i (j + 1)
-    in
-    let rec search i =
-      if i + nlen > hlen then false else if check i 0 then true else search (i + 1)
-    in
-    search 0)
-;;
-
-let%test "contains_substring: empty needle is always present" =
-  contains_substring "anything" ""
-;;
-
-let%test "contains_substring: finds needle at start, middle, and end" =
-  contains_substring "abcdef" "abc"
-  && contains_substring "abcdef" "cde"
-  && contains_substring "abcdef" "ef"
-  && not (contains_substring "abcdef" "xyz")
-;;
-
-let%test "contains_substring: overlapping patterns" =
-  contains_substring "abababa" "aba" && contains_substring "aaaa" "aa"
-;;
-
-let%test "contains_substring: repeated-character overlap" =
-  let haystack = String.make 10000 'a' ^ "b" in
-  let needle = String.make 5000 'a' ^ "b" in
-  contains_substring haystack needle
-;;
-
 let rec classify_eio_error = function
   | Eio.Net.E (Connection_reset _) -> End_of_file
   | Eio.Net.E (Connection_failure (Refused _)) -> Connection_refused
@@ -389,23 +347,6 @@ let network_error_of_eio err exn =
 ;;
 
 let unknown_network_error msg = NetworkError { message = msg; kind = Unknown }
-
-let runtime_text_network_kind msg =
-  let normalized = String.lowercase_ascii msg in
-  if
-    contains_substring normalized "too many open files"
-    || contains_substring normalized "no buffer space available"
-    || contains_substring normalized "emfile"
-    || contains_substring normalized "enfile"
-    || contains_substring normalized "enobufs"
-    || contains_substring normalized "eaddrnotavail"
-    || contains_substring normalized "cannot assign requested address"
-    || contains_substring normalized "can't assign requested address"
-  then Local_resource_exhaustion
-  else if contains_substring normalized "broken pipe"
-  then End_of_file
-  else Unknown
-;;
 
 let https_init_error_network_kind = function
   | Api_common.Ca_certs_unavailable _ -> Tls_error
@@ -429,8 +370,7 @@ let classify_network_exn (e : exn) =
     Some
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
   | Eio.Io (err, _) as exn -> Some (network_error_of_eio err exn)
-  | Sys_error msg | Failure msg ->
-    Some (NetworkError { message = msg; kind = runtime_text_network_kind msg })
+  | Sys_error msg | Failure msg -> Some (NetworkError { message = msg; kind = Unknown })
   | _ -> None
 ;;
 
@@ -957,6 +897,16 @@ let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
     Error (NetworkError { message; kind = Unknown })
 ;;
 
+let read_response_body_or_drain_error ?clock resp_body =
+  try
+    Ok Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
+  with
+  | exn ->
+    (match drain_response_body ?clock resp_body with
+     | Ok () -> raise exn
+     | Error err -> Error err)
+;;
+
 let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ()
   =
   catch_network (fun () ->
@@ -966,15 +916,7 @@ let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~
       with_optional_timeout ~clock ~timeout_s (fun () ->
         let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
         let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-        let body_str =
-          try
-            Eio.Buf_read.(
-              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-          with
-          | exn ->
-            ignore (drain_response_body ?clock resp_body : (unit, http_error) result);
-            raise exn
-        in
+        let* body_str = read_response_body_or_drain_error ?clock resp_body in
         Ok (code, body_str))))
 ;;
 
@@ -1015,15 +957,7 @@ let post_sync
           ~code
           ~resp_headers:(Cohttp.Response.headers resp)
           headers_with_length;
-        let body_str =
-          try
-            Eio.Buf_read.(
-              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-          with
-          | exn ->
-            ignore (drain_response_body ?clock resp_body : (unit, http_error) result);
-            raise exn
-        in
+        let* body_str = read_response_body_or_drain_error ?clock resp_body in
         Ok (code, body_str))))
 ;;
 
@@ -1072,15 +1006,7 @@ let post_stream
         ~code
         ~resp_headers:(Cohttp.Response.headers resp)
         headers_with_length;
-      let body_str =
-        try
-          Eio.Buf_read.(
-            of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-        with
-        | exn ->
-          ignore (drain_response_body ?clock resp_body : (unit, http_error) result);
-          raise exn
-      in
+      let* body_str = read_response_body_or_drain_error ?clock resp_body in
       Error (HttpError { code; body = body_str }))
 ;;
 
@@ -1159,17 +1085,13 @@ let with_post_stream
             ~code
             ~resp_headers:(Cohttp.Response.headers resp)
             headers_with_length;
-          let body_str =
-            try
-              Eio.Buf_read.(
-                of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-            with
-            | exn ->
-              ignore (drain_response_body ?clock resp_body : (unit, http_error) result);
-              raise exn
-          in
-          Eio.Resource.close conn;
-          Error (HttpError { code; body = body_str })
+          (match read_response_body_or_drain_error ?clock resp_body with
+           | Ok body_str ->
+             Eio.Resource.close conn;
+             Error (HttpError { code; body = body_str })
+           | Error err ->
+             Eio.Resource.close conn;
+             Error err)
       with
       | exn ->
         Eio.Resource.close conn;
@@ -1419,10 +1341,9 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network maps Sys_error to NetworkError" =
+let%test "catch_network maps text-only Sys_error to unknown NetworkError" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Error (NetworkError { message; kind = End_of_file }) ->
-    contains_substring (String.lowercase_ascii message) "broken pipe"
+  | Error (NetworkError { message = "broken pipe"; kind = Unknown }) -> true
   | Ok _
   | Error
       ( HttpError _
@@ -1433,9 +1354,9 @@ let%test "catch_network maps Sys_error to NetworkError" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network classifies Sys_error local resource exhaustion" =
+let%test "catch_network keeps text-only Sys_error resource exhaustion unknown" =
   match catch_network (fun () -> raise (Sys_error "Too many open files")) with
-  | Error (NetworkError { kind = Local_resource_exhaustion; _ }) -> true
+  | Error (NetworkError { kind = Unknown; _ }) -> true
   | Ok _
   | Error
       ( HttpError _
@@ -1446,9 +1367,9 @@ let%test "catch_network classifies Sys_error local resource exhaustion" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network classifies Failure EMFILE local resource exhaustion" =
+let%test "catch_network keeps text-only Failure resource exhaustion unknown" =
   match catch_network (fun () -> raise (Failure "EMFILE")) with
-  | Error (NetworkError { kind = Local_resource_exhaustion; _ }) -> true
+  | Error (NetworkError { kind = Unknown; _ }) -> true
   | Ok _
   | Error
       ( HttpError _

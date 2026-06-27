@@ -66,32 +66,10 @@ module Idle_severity = struct
   ;;
 end
 
-(** Extract reasoning summary from message list.
-    Scans for Thinking blocks and heuristically detects uncertainty
-    markers like "I'm not sure", "uncertain", "unclear". *)
+(** Extract structured reasoning summary from message list.
+    This only preserves provider-emitted Thinking blocks; it does not infer
+    uncertainty or tool rationale from prose. *)
 let extract_reasoning (messages : message list) : reasoning_summary =
-  let contains_case_insensitive ~needle haystack =
-    let needle = String.lowercase_ascii needle in
-    let haystack = String.lowercase_ascii haystack in
-    let hlen = String.length haystack in
-    let nlen = String.length needle in
-    if nlen = 0
-    then true
-    else if nlen > hlen
-    then false
-    else (
-      let rec check i j =
-        if j = nlen
-        then true
-        else if haystack.[i + j] <> needle.[j]
-        then false
-        else check i (j + 1)
-      in
-      let rec search i =
-        if i + nlen > hlen then false else if check i 0 then true else search (i + 1)
-      in
-      search 0)
-  in
   let thinking_blocks =
     List.concat_map
       (fun (msg : message) ->
@@ -108,37 +86,7 @@ let extract_reasoning (messages : message list) : reasoning_summary =
            msg.content)
       messages
   in
-  let all_text = String.concat " " thinking_blocks in
-  let uncertainty_markers =
-    [ "not sure"
-    ; "uncertain"
-    ; "unclear"
-    ; "I'm not confident"
-    ; "might be wrong"
-    ; "unsure"
-    ; "probably"
-    ; "I think"
-    ]
-  in
-  let has_uncertainty =
-    List.exists
-      (fun marker -> contains_case_insensitive ~needle:marker all_text)
-      uncertainty_markers
-  in
-  let tool_rationale =
-    (* Look for the last thinking block that mentions tool selection *)
-    let tool_markers = [ "tool"; "function"; "call"; "use" ] in
-    List.find_map
-      (fun block ->
-         if
-           List.exists
-             (fun marker -> contains_case_insensitive ~needle:marker block)
-             tool_markers
-         then Some block
-         else None)
-      (List.rev thinking_blocks)
-  in
-  { thinking_blocks; has_uncertainty; tool_rationale }
+  { thinking_blocks; has_uncertainty = false; tool_rationale = None }
 ;;
 
 (** Events emitted during agent execution *)

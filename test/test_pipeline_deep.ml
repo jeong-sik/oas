@@ -47,7 +47,7 @@ let test_reasoning_multiple_messages () =
   in
   let r = Hooks.extract_reasoning messages in
   Alcotest.(check int) "2 thinking blocks" 2 (List.length r.thinking_blocks);
-  Alcotest.(check bool) "uncertainty from 2nd block" true r.has_uncertainty
+  Alcotest.(check bool) "no inferred uncertainty" false r.has_uncertainty
 ;;
 
 (** No thinking blocks but has text messages. *)
@@ -73,8 +73,8 @@ let test_reasoning_no_thinking_blocks () =
   Alcotest.(check bool) "no rationale" true (Option.is_none r.tool_rationale)
 ;;
 
-(** Thinking block with tool-related content yields tool_rationale. *)
-let test_reasoning_tool_rationale_detection () =
+(** Thinking prose mentioning tools does not produce inferred tool_rationale. *)
+let test_reasoning_no_tool_rationale_inference () =
   let messages : Types.message list =
     [ { role = Assistant
       ; content =
@@ -91,14 +91,11 @@ let test_reasoning_tool_rationale_detection () =
     ]
   in
   let r = Hooks.extract_reasoning messages in
-  Alcotest.(check bool) "has tool rationale" true (Option.is_some r.tool_rationale);
-  match r.tool_rationale with
-  | Some s -> Alcotest.(check bool) "mentions function" true (String.length s > 0)
-  | None -> Alcotest.fail "expected rationale"
+  Alcotest.(check bool) "no inferred rationale" true (Option.is_none r.tool_rationale)
 ;;
 
-(** Thinking with all uncertainty markers. *)
-let test_reasoning_various_uncertainty_markers () =
+(** Thinking prose markers do not produce inferred uncertainty. *)
+let test_reasoning_no_uncertainty_marker_inference () =
   let markers =
     [ "uncertain"
     ; "unclear"
@@ -125,8 +122,8 @@ let test_reasoning_various_uncertainty_markers () =
        in
        let r = Hooks.extract_reasoning messages in
        Alcotest.(check bool)
-         (Printf.sprintf "marker '%s' detected" marker)
-         true
+         (Printf.sprintf "marker '%s' not inferred" marker)
+         false
          r.has_uncertainty)
     markers
 ;;
@@ -753,13 +750,13 @@ let () =
       , [ Alcotest.test_case "multiple messages" `Quick test_reasoning_multiple_messages
         ; Alcotest.test_case "no thinking blocks" `Quick test_reasoning_no_thinking_blocks
         ; Alcotest.test_case
-            "tool rationale"
+            "no tool rationale inference"
             `Quick
-            test_reasoning_tool_rationale_detection
+            test_reasoning_no_tool_rationale_inference
         ; Alcotest.test_case
-            "uncertainty markers"
+            "no uncertainty marker inference"
             `Quick
-            test_reasoning_various_uncertainty_markers
+            test_reasoning_no_uncertainty_marker_inference
         ; Alcotest.test_case "no uncertainty" `Quick test_reasoning_no_uncertainty
         ] )
     ; ( "resolve_turn_params"

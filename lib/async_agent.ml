@@ -25,7 +25,7 @@ type 'a future =
   ; resolved : bool Atomic.t
   ; cancel_sent : bool Atomic.t
   ; cancel_fn : (unit -> unit) option Atomic.t
-  ; cancel_mu : Mutex.t
+  ; cancel_mu : Eio.Mutex.t
   }
 
 (** Resolve the future exactly once. Subsequent calls are no-ops. *)
@@ -34,10 +34,7 @@ let resolve_once future result =
   then Eio.Promise.resolve future.resolver result
 ;;
 
-let with_cancel_fn_lock future f =
-  Mutex.lock future.cancel_mu;
-  Fun.protect ~finally:(fun () -> Mutex.unlock future.cancel_mu) f
-;;
+let with_cancel_fn_lock future f = Eio.Mutex.use_rw ~protect:true future.cancel_mu f
 
 let clear_cancel_fn future =
   with_cancel_fn_lock future (fun () -> Atomic.set future.cancel_fn None)
@@ -84,7 +81,7 @@ let spawn ~sw ?clock agent prompt =
     ; resolved
     ; cancel_sent
     ; cancel_fn = Atomic.make None
-    ; cancel_mu = Mutex.create ()
+    ; cancel_mu = Eio.Mutex.create ()
     }
   in
   Eio.Fiber.fork ~sw (fun () ->

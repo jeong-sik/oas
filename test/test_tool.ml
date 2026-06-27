@@ -73,7 +73,7 @@ let test_context_handler_writes_context () =
   check bool "context was written" true (Context.get ctx "written" = Some (`Int 42))
 ;;
 
-let test_context_handler_default_context () =
+let test_context_handler_requires_context () =
   let tool =
     Tool.create_with_context
       ~name:"noctx"
@@ -83,8 +83,17 @@ let test_context_handler_default_context () =
   in
   let actual = Tool.execute tool `Null in
   match actual with
-  | Ok { content; _meta = _ } -> check string "default context" "works" content
-  | Error _ -> fail "expected Ok"
+  | Error { message; recoverable; error_class } ->
+    check string "error message" "context-aware tool requires explicit context" message;
+    check bool "not recoverable" false recoverable;
+    check
+      bool
+      "deterministic"
+      true
+      (match error_class with
+       | Some Types.Deterministic -> true
+       | _ -> false)
+  | Ok _ -> fail "expected missing-context error"
 ;;
 
 let test_schema_to_json_structure () =
@@ -348,7 +357,7 @@ let () =
     ; ( "context_handler"
       , [ test_case "receives context" `Quick test_context_handler_receives_context
         ; test_case "writes context" `Quick test_context_handler_writes_context
-        ; test_case "default context" `Quick test_context_handler_default_context
+        ; test_case "requires context" `Quick test_context_handler_requires_context
         ] )
     ; ( "schema"
       , [ test_case "json structure" `Quick test_schema_to_json_structure

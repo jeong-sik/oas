@@ -106,4 +106,8 @@ let of_json json =
     Error
       (Error.Serialization
          (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" msg }))
+  | Invalid_argument msg ->
+    Error
+      (Error.Serialization
+         (JsonParseError { detail = Printf.sprintf "Session.of_json: %s" msg }))
 ;;

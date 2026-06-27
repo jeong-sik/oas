@@ -154,12 +154,14 @@ let execute ?context tool input =
   match tool.handler with
   | Simple f -> f input
   | WithContext f ->
-    let ctx =
-      match context with
-      | Some c -> c
-      | None -> Context.create ~eio:false ()
-    in
-    f ctx input
+    (match context with
+     | Some ctx -> f ctx input
+     | None ->
+       Error
+         { message = "context-aware tool requires explicit context"
+         ; recoverable = false
+         ; error_class = Some Deterministic
+         })
 ;;
 
 let descriptor tool = tool.descriptor
