@@ -27,22 +27,30 @@ let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
 (* ── Context compaction watermark ───────────────────── *)
 
 (** Default ratio at which proactive compaction fires (0.9 = 90% of context).
-    Override with [OAS_COMPACT_WATERMARK] env var (e.g. "0.8" for 80%).
-    Hard floor prevents silent pass-through that caused CTX 101% overrun
-    (#7083). Values outside (0.0, 1.0) are rejected.
+    The agent config's [context_compact_ratio] is the SSOT; there is no env
+    override.  Hard floor prevents silent pass-through that caused CTX 101%
+    overrun (#7083). Values outside (0.0, 1.0) are rejected.
     @since 0.185.0 *)
 let compact_watermark_default =
-  match Sys.getenv "OAS_COMPACT_WATERMARK" with
-  | exception Not_found -> 0.9
-  | s ->
-    (match float_of_string_opt s with
-     | Some w when w > 0.0 && w < 1.0 -> w
-     | _ ->
+  match Llm_provider.Cli_common_env.get "OAS_COMPACT_WATERMARK" with
+  | None -> 0.9
+  | Some raw ->
+    (match float_of_string_opt raw with
+     | Some v when v > 0.0 && v < 1.0 -> v
+     | Some _ | None ->
        Log.warn
          _log
-         "OAS_COMPACT_WATERMARK=%S invalid (expected 0.0 < v < 1.0), using 0.9"
-         [ Log.S ("value", s) ];
+         "OAS_COMPACT_WATERMARK invalid (expected 0.0 < v < 1.0), using 0.9"
+         [ Log.S ("raw", raw) ];
        0.9)
+let default_compact_watermark = 0.9
+
+let is_valid_compact_watermark w = w > 0.0 && w < 1.0
+
+let resolve_compact_watermark agent =
+  match agent.state.config.context_compact_ratio with
+  | Some w when is_valid_compact_watermark w -> w
+  | _ -> default_compact_watermark
 ;;
 
 open Result_syntax
@@ -187,7 +195,7 @@ let stage_route ~sw ?clock ~api_strategy agent prep =
 
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
     assistant message, increment turn_count.  Restores original_config. *)
-let stage_collect ?raw_trace_run agent ~original_config response =
+let stage_collect ?raw_trace_run ?clock agent ~original_config response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -199,8 +207,15 @@ let stage_collect ?raw_trace_run agent ~original_config response =
     }
     (fun _tracer ->
        update_state agent (fun s -> { s with config = original_config });
-       let ts = Unix.gettimeofday () in
-       set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running;
+       let ts = Pipeline_common.timestamp_now ?clock () in
+       (* Preserve an already-recorded first_progress_at (e.g. from streaming
+          first-token or tool-execution events). Overwriting it with the
+          collection timestamp would make latency-to-first-progress metrics
+          silently regress to the end of the turn. *)
+       (match agent.lifecycle with
+        | Some prev when Option.is_some prev.first_progress_at ->
+          set_lifecycle agent ~last_progress_at:ts Running
+        | _ -> set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running);
        let* () = trace_assistant_blocks raw_trace_run response.content in
        let usage =
          Agent_turn.accumulate_usage
@@ -255,7 +270,7 @@ let stage_collect ?raw_trace_run agent ~original_config response =
                { from_state = "turn_running"
                ; to_state = "turn_complete"
                ; reason = response.stop_reason |> Types.show_stop_reason
-               ; timestamp = Unix.gettimeofday ()
+               ; timestamp = Pipeline_common.timestamp_now ?clock ()
                })
         | None -> ());
        Ok ())
@@ -316,9 +331,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
              }
            ~tool_uses
        in
-       Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-         agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
-         agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns);
+       Agent_types.set_idle_state agent idle_result.new_state;
        let idle_skip = ref false in
        let idle_handled = ref false in
        (* true when Nudge or Skip handled idle *)
@@ -380,7 +393,14 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               to Skip (for example, at a configured threshold). *)
            pending_nudge := Some nudge_msg;
            idle_handled := true
-         | _ -> ());
+         | Hooks.Continue -> ()
+         | Hooks.Override _
+         | Hooks.ApprovalRequired
+         | Hooks.AdjustParams _
+         | Hooks.ElicitInput _ ->
+           (* Unreachable after [Hooks.invoke_validated] for on_idle. Fail-fast
+              so a validation bypass cannot silently change idle behavior. *)
+           assert false);
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
        if !idle_skip
@@ -525,6 +545,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
          (match result with
           | Ok IdleSkipped ->
             (* on_idle hook returned Skip: stop gracefully with the current response *)
+            Agent_types.reset_idle_state agent;
             Ok (Complete response)
           | other -> other)
        | EndTurn
@@ -534,6 +555,9 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | PauseTurn
        | Compaction
        | ContextWindowExceeded ->
+         (* Invoke on_stop before resetting idle counters, so observers
+            (hooks, tracers, telemetry callbacks) can read the actual
+            consecutive_idle_turns value that drove this turn's behavior. *)
          let _stop =
            invoke_hook_with_trace
              agent
@@ -542,8 +566,11 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
              agent.options.hooks.on_stop
              (Hooks.OnStop { reason = response.stop_reason; response })
          in
+         Agent_types.reset_idle_state agent;
          Ok (Complete response)
-       | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason })))
+       | Unknown reason ->
+         Agent_types.reset_idle_state agent;
+         Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
 (* ── Proactive watermark compaction (Phase 2) ───────────── *)
@@ -597,6 +624,7 @@ let publish_context_window_usage agent ~estimated_tokens ~limit_tokens =
     were actually reduced. *)
 let compact_messages
       ?raw_trace_run
+      ?clock
       agent
       ~strategy_ratio
       ~budget_tokens
@@ -614,9 +642,7 @@ let compact_messages
       agent.options.hooks.pre_compact
       (Hooks.PreCompact { messages; estimated_tokens = est_tokens; budget_tokens })
   in
-  match hook_decision with
-  | Hooks.Skip -> false
-  | _ ->
+  let run_compaction () =
     let reduced =
       Budget_strategy.reduce_for_budget
         ?summarizer:agent.options.summarizer
@@ -678,10 +704,22 @@ let compact_messages
            (Checkpoint_saved
               { checkpoint_id =
                   Printf.sprintf "compact-%s-%d" checkpoint_prefix agent.state.turn_count
-              ; timestamp = Unix.gettimeofday ()
+              ; timestamp = Pipeline_common.timestamp_now ?clock ()
               })
        | None -> ());
       true)
+  in
+  match hook_decision with
+  | Hooks.Skip -> false
+  | Hooks.Continue -> run_compaction ()
+  | Hooks.Override _
+  | Hooks.ApprovalRequired
+  | Hooks.AdjustParams _
+  | Hooks.ElicitInput _
+  | Hooks.Nudge _ ->
+    (* Unreachable after [Hooks.invoke_validated] for pre_compact. Fail-fast
+       so a validation bypass cannot silently compact. *)
+    assert false
 ;;
 
 (** Apply proactive compaction when context usage exceeds the configured
@@ -698,7 +736,7 @@ let compact_messages
     @param watermark  Ratio (0.0-1.0) at which to begin compacting.
                       Typical value: 0.7 (= 70 % of context window).
     @since Phase 2 — proactive compaction *)
-let proactive_compact ?raw_trace_run agent ~watermark () =
+let proactive_compact ?raw_trace_run ?clock agent ~watermark () =
   let messages = agent.state.messages in
   let est_tokens = total_prompt_tokens_for_agent agent messages in
   let context_window_tokens = proactive_context_window_tokens agent in
@@ -719,6 +757,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
     let phase = Printf.sprintf "proactive(%.0f%%)" (usage_ratio *. 100.0) in
     compact_messages
       ?raw_trace_run
+      ?clock
       agent
       ~strategy_ratio:scaled_ratio
       ~budget_tokens:context_window_tokens
@@ -733,7 +772,7 @@ let proactive_compact ?raw_trace_run agent ~watermark () =
     is detected. Uses Budget_strategy Emergency phase (Summarize_old +
     aggressive tool pruning). Fires PreCompact hook; respects Skip.
     Returns [true] if messages were actually reduced. *)
-let emergency_compact ?raw_trace_run agent ?limit () =
+let emergency_compact ?raw_trace_run ?clock agent ?limit () =
   let budget_tokens =
     match limit with
     | Some l -> l
@@ -741,6 +780,7 @@ let emergency_compact ?raw_trace_run agent ?limit () =
   in
   compact_messages
     ?raw_trace_run
+    ?clock
     agent
     ~strategy_ratio:1.0
     ~budget_tokens
@@ -756,8 +796,12 @@ let tag_error stage result =
   | Ok _ as ok -> ok
   | Error e ->
     let poly = Error_domain.of_sdk_error e in
-    let _ctx = Error_domain.with_stage stage poly in
-    (* Stage context is created for diagnostics;
+    let ctx = Error_domain.with_stage stage poly in
+    Log.warn
+      _log
+      "pipeline stage failed"
+      [ Log.S ("stage", stage); Log.S ("error", Error_domain.ctx_to_string ctx) ];
+    (* Stage context is logged for diagnostics;
        we still propagate sdk_error for backward compat *)
     Error e
 ;;
@@ -774,7 +818,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_input ?raw_trace_run agent |> tag_error "input")
+      (fun _tracer -> stage_input ?raw_trace_run ?clock agent |> tag_error "input")
   in
   (* Stage 2: Parse *)
   let prep, original_config, turn_params =
@@ -787,7 +831,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_parse ?raw_trace_run agent)
+      (fun _tracer -> stage_parse ?raw_trace_run ?clock agent)
   in
   let context_window = proactive_context_window_tokens agent in
   let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
@@ -802,15 +846,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      TurnStarted a second time or re-invoking before_turn_params.
 
      Hard budget gate (OAS-2): when context_compact_ratio is not configured,
-     a ratio >= compact_watermark_default still triggers compaction. This
+     a ratio >= compact_watermark still triggers compaction. This
      prevents the silent pass-through that caused a downstream consumer's
      CTX 101% overrun (observed in upstream issue #7083). *)
   let prep =
-    let watermark =
-      match agent.state.config.context_compact_ratio with
-      | Some w when w > 0.0 && w < 1.0 -> w
-      | _ -> compact_watermark_default
-    in
+    let watermark = resolve_compact_watermark agent in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
     let ratio = float_of_int est_tokens /. float_of_int context_window in
@@ -842,7 +882,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
                  { agent_name = agent.state.config.name; trigger = "proactive" }
            }
        | None -> ());
-      let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
+      let compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
       if compacted then prepare_turn_for_agent agent ~turn_params else prep)
     else prep
   in
@@ -861,21 +901,17 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Same hard budget gate as 2.3 — if context still exceeds watermark
      after validation (validators can inject messages), compact again. *)
     let prep =
-      let watermark =
-        match agent.state.config.context_compact_ratio with
-        | Some w when w > 0.0 && w < 1.0 -> w
-        | _ -> compact_watermark_default
-      in
+      let watermark = resolve_compact_watermark agent in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
       let ratio = float_of_int est_tokens /. float_of_int context_window in
       if ratio >= watermark
       then (
-        let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
+        let compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
         if compacted
         then (
           update_state agent (fun s -> { s with config = original_config });
-          let prep', _, _ = stage_parse ?raw_trace_run agent in
+          let prep', _, _ = stage_parse ?raw_trace_run ?clock agent in
           prep')
         else prep)
       else prep
@@ -896,14 +932,14 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
               { turn = agent.state.turn_count
               ; model = agent.state.config.model
               ; input_tokens = est_input
-              ; timestamp = Unix.gettimeofday ()
+              ; timestamp = Pipeline_common.timestamp_now ?clock ()
               })
        | None -> ());
-      let t0 = Unix.gettimeofday () in
+      let t0 = Pipeline_common.timestamp_now ?clock () in
       let api_result =
         stage_route ~sw ?clock ~api_strategy agent prep |> tag_error "route"
       in
-      let duration_ms = (Unix.gettimeofday () -. t0) *. 1000.0 in
+      let duration_ms = (Pipeline_common.timestamp_now ?clock () -. t0) *. 1000.0 in
       (match agent.options.journal, api_result with
        | Some j, Ok response ->
          let out_tokens =
@@ -918,7 +954,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
               ; output_tokens = out_tokens
               ; stop_reason = Types.show_stop_reason response.stop_reason
               ; duration_ms
-              ; timestamp = Unix.gettimeofday ()
+              ; timestamp = Pipeline_common.timestamp_now ?clock ()
               })
        | Some j, Error err ->
          Durable_event.append
@@ -927,7 +963,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
               { turn = agent.state.turn_count
               ; error_domain = "Api"
               ; detail = Error.to_string err
-              ; timestamp = Unix.gettimeofday ()
+              ; timestamp = Pipeline_common.timestamp_now ?clock ()
               })
        | None, _ -> ());
       match api_result with
@@ -943,12 +979,12 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
                    { agent_name = agent.state.config.name; trigger = "emergency" }
              }
          | None -> ());
-        let compacted = emergency_compact ?raw_trace_run agent ?limit () in
+        let compacted = emergency_compact ?raw_trace_run ?clock agent ?limit () in
         if not compacted
         then api_result
         else (
           update_state agent (fun s -> { s with config = original_config });
-          let prep', _, _ = stage_parse ?raw_trace_run agent in
+          let prep', _, _ = stage_parse ?raw_trace_run ?clock agent in
           attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1))
       | other -> other
     in
@@ -980,7 +1016,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
           Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
         | Guardrails_async.Pass ->
           let* () =
-            stage_collect ?raw_trace_run agent ~original_config response
+            stage_collect ?raw_trace_run ?clock agent ~original_config response
             |> tag_error "collect"
           in
           stage_output
@@ -1323,3 +1359,11 @@ let%test "tag_error Ok list" = tag_error "output" (Ok [ 1; 2; 3 ]) = Ok [ 1; 2; 
 (* --- Proactive compaction: phase selection is tested via
    Budget_strategy inline tests; integration tested via consumer agent
    turns that set context_compact_ratio in agent config. --- *)
+
+let%test "compact watermark accepts only open interval ratios" =
+  is_valid_compact_watermark 0.5
+  && (not (is_valid_compact_watermark 0.0))
+  && (not (is_valid_compact_watermark 1.0))
+  && (not (is_valid_compact_watermark (-0.1)))
+  && not (is_valid_compact_watermark 1.1)
+;;
