@@ -24,11 +24,11 @@ type thinking_control_format =
   (** Chat-template control token style: inject a model-specific thinking token
       into the conversation instead of sending a top-level thinking field. *)
   | Reasoning_effort
-  (** Openai-style top-level [reasoning_effort] string field. The set of
-      non-disabled values this codebase emits is [{"low","medium","high"}] —
-      see {!Provider_config.reasoning_effort_request_value}. Disabled
-      reasoning is represented by omitting the field. Ollama's
-      OpenAI-compatible mode uses this shape. *)
+  (** Openai-style top-level [reasoning_effort] string field. The typed value
+      set lives in {!Reasoning_effort}; provider-specific aliases are applied
+      by {!Reasoning_dialect.normalize_effort_value}. Disabled reasoning is
+      represented by omitting the field. Ollama's OpenAI-compatible mode uses
+      this shape. *)
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
