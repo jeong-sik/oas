@@ -487,6 +487,10 @@ let update_idle_detection ~idle_state ~tool_uses =
     ~tool_uses
 ;;
 
+let reset_idle_detection () =
+  { new_state = { last_tool_calls = None; consecutive_idle_turns = 0 }; is_idle = false }
+;;
+
 (** Default per-tool-result character cap.
     Aligned with Claude Code's DEFAULT_MAX_RESULT_SIZE_CHARS (50,000).
     Results exceeding this are truncated with a marker at creation time,
