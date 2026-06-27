@@ -316,6 +316,7 @@ let complete_stream
           ~net
           ?clock
           ?stream_idle_timeout_s
+          ~latency_counter
           ?on_telemetry
           ~metrics
           ?connection_cache
@@ -429,6 +430,7 @@ let make_http_transport
       ?stream_idle_timeout_s
       ?body_timeout_s
       ?(connection_cache : Http_client.cache option)
+      ?latency_counter
       ~sw
       ~net
       ()
@@ -465,6 +467,7 @@ let make_http_transport
           ?clock
           ?stream_idle_timeout_s
           ?connection_cache
+          ?latency_counter
           ~config:req.config
           ~messages:req.messages
           ~tools:req.tools

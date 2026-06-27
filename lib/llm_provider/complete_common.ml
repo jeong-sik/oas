@@ -131,8 +131,11 @@ let ns_per_ms = 1_000_000.0
 
 let start_latency_counter () =
   try Some (Mtime_clock.counter ()) with
-  | Sys_error msg ->
-    Diag.warn "complete" "monotonic latency clock unavailable: %s" msg;
+  | exn ->
+    Diag.warn
+      "complete"
+      "monotonic latency clock unavailable: %s"
+      (Printexc.to_string exn);
     None
 ;;
 
