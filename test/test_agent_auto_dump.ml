@@ -5,6 +5,22 @@ open Agent_sdk
 
 let ts = 1711234567.0
 
+let with_log_capture f =
+  let sink, get_records = Log.collector_sink () in
+  Log.clear_sinks ();
+  Log.set_global_level Log.Info;
+  Log.add_sink sink;
+  Fun.protect
+    ~finally:(fun () ->
+      Log.clear_sinks ();
+      Log.set_global_level Log.Info)
+    (fun () -> f get_records)
+;;
+
+let has_log_message message records =
+  List.exists (fun (record : Log.record) -> String.equal record.message message) records
+;;
+
 let test_save_journal_writes_jsonl () =
   Eio_main.run
   @@ fun env ->
@@ -76,6 +92,39 @@ let test_auto_dump_installs_callback () =
        | Ok j' -> check int "length" 1 (Durable_event.length j'))
 ;;
 
+let test_auto_dump_logs_save_failure () =
+  with_log_capture
+  @@ fun get_records ->
+  Eio_main.run
+  @@ fun env ->
+  let output_dir = Filename.temp_file "auto_dump_not_dir" ".txt" in
+  let path = Filename.concat output_dir "journal.jsonl" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove output_dir with
+      | _ -> ())
+    (fun () ->
+       let net = Eio.Stdenv.net env in
+       let agent =
+         Builder.create ~net ~model:"test"
+         |> Builder.with_auto_dump_journal ~path
+         |> Builder.build_safe
+         |> Result.get_ok
+       in
+       let opts = Agent.options agent in
+       (match opts.journal with
+        | Some j -> Durable_event.append j (Turn_started { turn = 1; timestamp = ts })
+        | None -> fail "journal missing");
+       (match opts.on_run_complete with
+        | Some cb -> cb true
+        | None -> fail "callback missing");
+       check
+         bool
+         "save failure logged"
+         true
+         (has_log_message "auto_dump_journal save failed" (get_records ())))
+;;
+
 let () =
   run
     "Agent auto-dump"
@@ -91,6 +140,7 @@ let () =
             "installs on_run_complete callback"
             `Quick
             test_auto_dump_installs_callback
+        ; test_case "logs auto-dump save failure" `Quick test_auto_dump_logs_save_failure
         ] )
     ]
 ;;

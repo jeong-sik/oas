@@ -3,6 +3,8 @@
 
 open Types
 
+let _log = Log.create ~module_name:"builder" ()
+
 type t =
   { net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; model : model
@@ -176,7 +178,11 @@ let with_auto_dump_journal ~path b =
   let dump _ok =
     match Durable_event.save_to_file journal path with
     | Ok () -> ()
-    | Error _ -> () (* Best-effort; consumer can provide a stricter callback. *)
+    | Error err ->
+      Log.warn
+        _log
+        "auto_dump_journal save failed"
+        [ Log.S ("path", path); Log.S ("error", err) ]
   in
   { b with journal = Some journal; on_run_complete = Some dump }
 ;;
