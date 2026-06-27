@@ -215,16 +215,18 @@ val from_capabilities
   -> t option
 
 (** Create a reducer from an explicit context budget with configurable thresholds.
-    Uses [max_tokens * compact_ratio] as the token budget (default 80%),
-    composed with [drop_thinking], [repair_dangling_tool_calls],
-    and [repair_orphaned_tool_results].
+    Uses [max_tokens * compact_ratio] as the token budget. The budget ratio
+    defaults to {!Types.default_context_compact_budget_ratio} (0.8) and is
+    intentionally distinct from the proactive compaction watermark default
+    ({!Types.default_context_compact_ratio}, 0.9).
 
-    When [target_ratio] is set, the aggressive compaction
-    path uses [max_tokens * target_ratio] as the ceiling budget, preserving the
-    last [keep_recent_turns] turns. The [watermark] defaults to
-    {!Types.default_context_compact_ratio} and triggers this aggressive path
-    when context utilization exceeds it. Ratio arguments must be greater than
-    0.0 and less than 1.0.
+    The reducer is composed with [drop_thinking], [repair_dangling_tool_calls],
+    and [repair_orphaned_tool_results]. When [target_ratio] is set, the
+    aggressive compaction path uses [max_tokens * target_ratio] as the ceiling
+    budget, preserving the last [keep_recent_turns] turns. The [watermark]
+    defaults to {!Types.default_context_compact_ratio} and triggers this
+    aggressive path when context utilization exceeds it. Ratio arguments must
+    be greater than 0.0 and less than 1.0.
 
     @since 0.79.0
     @since 0.185.0 — added target_ratio, watermark, keep_recent_turns *)

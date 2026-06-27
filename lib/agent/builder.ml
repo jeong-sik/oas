@@ -209,14 +209,6 @@ let with_auto_context_overflow_retry auto_context_overflow_retry b =
   { b with auto_context_overflow_retry }
 ;;
 
-let require_context_ratio ~name ratio =
-  if valid_context_ratio ratio
-  then ratio
-  else
-    invalid_arg
-      (Printf.sprintf "Builder.with_context_thresholds: %s must be > 0.0 and < 1.0" name)
-;;
-
 let with_context_thresholds
       ~compact_ratio
       ?context_window_tokens
@@ -224,7 +216,19 @@ let with_context_thresholds
       ?handoff_ratio
       b
   =
-  let compact_ratio = require_context_ratio ~name:"compact_ratio" compact_ratio in
+  let compact_ratio =
+    Types.require_context_ratio ~name:"Builder.with_context_thresholds: compact_ratio" compact_ratio
+  in
+  let prepare_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Builder.with_context_thresholds: prepare_ratio")
+      prepare_ratio
+  in
+  let handoff_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Builder.with_context_thresholds: handoff_ratio")
+      handoff_ratio
+  in
   (* Resolution chain for the context window used by the reducer:
      1. explicit [?context_window_tokens] argument (caller knows the
         per-agent override),

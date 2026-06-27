@@ -85,7 +85,27 @@ let model_to_string = Model_registry.resolve_model_id
     process-global environment state, so the agent config remains the SSOT. *)
 let default_context_compact_ratio = 0.9
 
+(** Default budget ratio for the context reducer's normal compaction path.
+
+    This is intentionally distinct from {!default_context_compact_ratio}: the
+    budget ratio controls how much of [max_tokens] the reducer may consume
+    during normal compaction, while the watermark ratio triggers proactive
+    compaction in the pipeline. *)
+let default_context_compact_budget_ratio = 0.8
+
 let valid_context_ratio ratio = ratio > 0.0 && ratio < 1.0
+
+(** Require [ratio] to be a valid context ratio, or raise [Invalid_argument].
+
+    [name] is included in the error message so callers can identify which
+    argument failed validation. *)
+let require_context_ratio ~name ratio =
+  if valid_context_ratio ratio
+  then ratio
+  else
+    invalid_arg
+      (Printf.sprintf "%s must be > 0.0 and < 1.0" name)
+;;
 
 (** Agent configuration *)
 type agent_config =
@@ -111,12 +131,15 @@ type agent_config =
   ; initial_messages : message list
     (* Seed conversation with prior history on first run *)
   ; context_compact_ratio : float option
-    (** Ratio of context budget at which to compact. Default:
-        {!default_context_compact_ratio}. *)
+    (** Proactive compaction watermark: ratio of the context window at which the
+        pipeline triggers compaction. Default:
+        {!default_context_compact_ratio}. This is the watermark ratio, not the
+        reducer's budget ratio; see {!default_context_compact_budget_ratio}. *)
   ; context_prepare_ratio : float option
-    (** Ratio at which to start preparing for compaction. Default 0.6 *)
+    (** Ratio at which to start preparing for compaction. Must be in (0.0, 1.0).
+        Default 0.6. *)
   ; context_handoff_ratio : float option
-    (** Ratio at which to trigger handoff. Default 0.95 *)
+    (** Ratio at which to trigger handoff. Must be in (0.0, 1.0). Default 0.95. *)
   ; priority : Llm_provider.Request_priority.t option
     (** Scheduling priority for LLM requests. @since 0.96.0 *)
   ; yield_on_tool : bool

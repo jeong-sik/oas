@@ -30,6 +30,11 @@ let proactive_watermark agent =
   match agent.state.config.context_compact_ratio with
   | Some ratio when Types.valid_context_ratio ratio -> ratio
   | Some ratio ->
+    (* Builder.with_context_thresholds and Context_reducer.from_context_config
+       validate these ratios at construction time, so this path is normally
+       unreachable for configs built through the public API. It remains as a
+       fail-soft guard for direct [agent_config] construction, checkpoint
+       reload, or any other path that bypasses the builder boundary. *)
     Log.warn
       _log
       "invalid context_compact_ratio; using default proactive watermark"
@@ -562,11 +567,7 @@ let publish_context_window_usage agent ~estimated_tokens ~limit_tokens =
   match agent.options.event_bus with
   | None -> ()
   | Some bus ->
-    let usage_ratio =
-      if limit_tokens <= 0
-      then 0.0
-      else float_of_int estimated_tokens /. float_of_int limit_tokens
-    in
+    let usage_ratio = context_window_usage_ratio ~estimated_tokens ~limit_tokens in
     Telemetry_bus.publish
       (Telemetry_bus.of_event_bus bus)
       (Llm_provider.Telemetry_event.Context_window_usage

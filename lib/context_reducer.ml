@@ -259,29 +259,25 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
 
     @since 0.79.0
     @since 0.185.0 — added target_ratio, watermark, keep_recent_turns *)
-let require_context_ratio ~name ratio =
-  if Types.valid_context_ratio ratio
-  then ratio
-  else
-    invalid_arg
-      (Printf.sprintf
-         "Context_reducer.from_context_config: %s must be > 0.0 and < 1.0"
-         name)
-;;
-
 let from_context_config
-      ?(compact_ratio = 0.8)
+      ?(compact_ratio = Types.default_context_compact_budget_ratio)
       ?target_ratio
       ?(watermark = Types.default_context_compact_ratio)
       ?(keep_recent_turns = 4)
       ~max_tokens
       ()
   =
-  let compact_ratio = require_context_ratio ~name:"compact_ratio" compact_ratio in
-  let target_ratio =
-    Option.map (require_context_ratio ~name:"target_ratio") target_ratio
+  let compact_ratio =
+    Types.require_context_ratio ~name:"Context_reducer.from_context_config: compact_ratio" compact_ratio
   in
-  let watermark = require_context_ratio ~name:"watermark" watermark in
+  let target_ratio =
+    Option.map
+      (Types.require_context_ratio ~name:"Context_reducer.from_context_config: target_ratio")
+      target_ratio
+  in
+  let watermark =
+    Types.require_context_ratio ~name:"Context_reducer.from_context_config: watermark" watermark
+  in
   let ceiling_budget =
     int_of_float
       (float_of_int max_tokens *. Option.value ~default:compact_ratio target_ratio)

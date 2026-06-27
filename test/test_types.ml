@@ -99,7 +99,19 @@ let test_context_compact_ratio_defaults () =
   Alcotest.(check (option (float 0.0)))
     "default_config leaves per-agent override unset"
     None
-    Types.default_config.context_compact_ratio
+    Types.default_config.context_compact_ratio;
+  Alcotest.(check (float 0.0))
+    "default context compact budget ratio"
+    0.8
+    Types.default_context_compact_budget_ratio;
+  Alcotest.(check (float 0.0))
+    "require_context_ratio accepts valid ratio"
+    0.5
+    (Types.require_context_ratio ~name:"test" 0.5);
+  Alcotest.check_raises
+    "require_context_ratio rejects zero"
+    (Invalid_argument "test must be > 0.0 and < 1.0")
+    (fun () -> ignore (Types.require_context_ratio ~name:"test" 0.0))
 ;;
 
 let test_role_to_string () =
