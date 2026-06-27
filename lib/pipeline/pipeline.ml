@@ -551,7 +551,9 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
              (Hooks.OnStop { reason = response.stop_reason; response })
          in
          Ok (Complete response)
-       | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason })))
+       | Unknown reason ->
+         reset_idle_state ();
+         Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
 (* ── Proactive watermark compaction (Phase 2) ───────────── *)
