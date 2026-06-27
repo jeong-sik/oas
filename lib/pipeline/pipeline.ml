@@ -385,9 +385,9 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
          | Hooks.ApprovalRequired
          | Hooks.AdjustParams _
          | Hooks.ElicitInput _ ->
-           (* Unreachable after [Hooks.invoke_validated] for on_idle; defensive
-              no-op keeps this match exhaustive if validation is bypassed. *)
-           ());
+           (* Unreachable after [Hooks.invoke_validated] for on_idle. Fail-fast
+              so a validation bypass cannot silently change idle behavior. *)
+           assert false);
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
        if !idle_skip
@@ -696,9 +696,9 @@ let compact_messages
   | Hooks.AdjustParams _
   | Hooks.ElicitInput _
   | Hooks.Nudge _ ->
-    (* Unreachable after [Hooks.invoke_validated] for pre_compact; defensive
-       continue behavior preserves the validated fallback policy. *)
-    run_compaction ()
+    (* Unreachable after [Hooks.invoke_validated] for pre_compact. Fail-fast
+       so a validation bypass cannot silently compact. *)
+    assert false
 ;;
 
 (** Apply proactive compaction when context usage exceeds the configured
