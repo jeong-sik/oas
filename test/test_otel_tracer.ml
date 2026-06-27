@@ -31,6 +31,26 @@ let json_assoc_field key = function
   | _ -> None
 ;;
 
+(* -- Config ------------------------------------------------------------- *)
+
+let test_default_config_is_env_free () =
+  check string "service_name" "agent-sdk" Otel_tracer.default_config.service_name;
+  check (option string) "endpoint" None Otel_tracer.default_config.endpoint
+;;
+
+let test_default_config_from_env_reads_getenv_at_call_time () =
+  let endpoint = "http://collector.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name "OTEL_EXPORTER_OTLP_ENDPOINT" then Some endpoint else None
+  in
+  let config = Otel_tracer.default_config_from_env ~getenv () in
+  check string "service_name" "agent-sdk" config.service_name;
+  check (option string) "endpoint" (Some endpoint) config.endpoint;
+  check (list string) "env keys" [ "OTEL_EXPORTER_OTLP_ENDPOINT" ] (List.rev !calls)
+;;
+
 (* ── Span Lifecycle ──────────────────────────────────────────────── *)
 
 let test_start_span_name_format () =
@@ -624,7 +644,14 @@ let test_first_class_trace_context_headers () =
 let () =
   run
     "Otel_tracer"
-    [ ( "span_lifecycle"
+    [ ( "config"
+      , [ test_case "default_config is env-free" `Quick test_default_config_is_env_free
+        ; test_case
+            "default_config_from_env reads injected env"
+            `Quick
+            test_default_config_from_env_reads_getenv_at_call_time
+        ] )
+    ; ( "span_lifecycle"
       , [ test_case "start_span name format" `Quick test_start_span_name_format
         ; test_case "start_span attributes" `Quick test_start_span_attributes
         ; test_case "start_span kind mapping" `Quick test_start_span_kind_mapping

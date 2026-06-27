@@ -74,7 +74,12 @@ type instance =
 
 (** {1 Config} *)
 
+(** Environment-free baseline config. *)
 val default_config : config
+
+(** Build the default config using the provided environment lookup at call time. *)
+val default_config_from_env : ?getenv:(string -> string option) -> unit -> config
+
 val otel_span_kind_to_int : otel_span_kind -> int
 
 (** {1 Utilities} *)

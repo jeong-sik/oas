@@ -68,9 +68,10 @@ type config =
   ; endpoint : string option
   }
 
-let default_config =
-  let endpoint = Sys.getenv_opt "OTEL_EXPORTER_OTLP_ENDPOINT" in
-  { service_name = "agent-sdk"; endpoint }
+let default_config = { service_name = "agent-sdk"; endpoint = None }
+
+let default_config_from_env ?(getenv = Sys.getenv_opt) () =
+  { default_config with endpoint = getenv "OTEL_EXPORTER_OTLP_ENDPOINT" }
 ;;
 
 (* -- Metric types ----------------------------------------------------- *)
@@ -448,14 +449,13 @@ let metric_type_to_string = function
    instance-wide [current_spans]. *)
 let _global : instance lazy_t =
   lazy
-    (let endpoint = Sys.getenv_opt "OTEL_EXPORTER_OTLP_ENDPOINT" in
-     { config = { service_name = "agent-sdk"; endpoint }
-     ; mu = Stdlib_mu (Mutex.create ())
-     ; fiber_key = Some (Eio.Fiber.create_key ())
-     ; current_spans = []
-     ; completed_spans = []
-     ; metrics = []
-     })
+    { config = default_config_from_env ()
+    ; mu = Stdlib_mu (Mutex.create ())
+    ; fiber_key = Some (Eio.Fiber.create_key ())
+    ; current_spans = []
+    ; completed_spans = []
+    ; metrics = []
+    }
 ;;
 
 let start_span attrs = inst_start_span (Lazy.force _global) attrs
@@ -621,7 +621,7 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
 
 (* -- Instance creation ------------------------------------------------ *)
 
-let create_instance ?(config = default_config) () : instance =
+let create_instance ?(config = default_config_from_env ()) () : instance =
   { config
   ; mu = Stdlib_mu (Mutex.create ())
   ; fiber_key = None
@@ -631,7 +631,7 @@ let create_instance ?(config = default_config) () : instance =
   }
 ;;
 
-let create_instance_eio ?(config = default_config) () : instance =
+let create_instance_eio ?(config = default_config_from_env ()) () : instance =
   { config
   ; mu = Eio_mu (Eio.Mutex.create ())
   ; fiber_key = Some (Eio.Fiber.create_key ())
@@ -691,10 +691,20 @@ let with_span attrs f =
 
 (* -- First-class module constructors ---------------------------------- *)
 
-let create ?(config : config = default_config) () : Tracing.t =
-  tracer_of_instance (create_instance ~config ())
+let create ?config () : Tracing.t =
+  let inst =
+    match config with
+    | Some config -> create_instance ~config ()
+    | None -> create_instance ()
+  in
+  tracer_of_instance inst
 ;;
 
-let create_eio ?(config : config = default_config) () : Tracing.t =
-  tracer_of_instance (create_instance_eio ~config ())
+let create_eio ?config () : Tracing.t =
+  let inst =
+    match config with
+    | Some config -> create_instance_eio ~config ()
+    | None -> create_instance_eio ()
+  in
+  tracer_of_instance inst
 ;;
