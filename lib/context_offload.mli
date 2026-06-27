@@ -21,6 +21,11 @@ type config =
     Resolves [Filename.get_temp_dir_name ()] at call time. *)
 val default_config : unit -> config
 
+(** Diagnostic context string used for [Llm_provider.Diag] warnings emitted by
+    this module. Exposed so tests can assert on context without hard-coding the
+    string. *)
+val diag_ctx : string
+
 (** Result of an offload attempt. *)
 type offload_result =
   | Kept of string

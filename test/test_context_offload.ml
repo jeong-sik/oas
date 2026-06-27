@@ -87,10 +87,9 @@ let test_failopen_bad_dir () =
          "warns"
          true
          (List.exists
-            (fun (level, ctx, msg) ->
+            (fun (level, ctx, _msg) ->
                level = Llm_provider.Diag.Warn
-               && String.equal ctx "context_offload"
-               && Util.string_contains ~needle:output_dir msg)
+               && String.equal ctx Context_offload.diag_ctx)
             !warnings))
 ;;
 

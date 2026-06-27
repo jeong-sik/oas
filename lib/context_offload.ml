@@ -24,6 +24,10 @@ let default_config () =
   }
 ;;
 
+(** Diagnostic context string used for [Llm_provider.Diag] warnings. *)
+let diag_ctx = "context_offload"
+;;
+
 (** Result of an offload attempt. *)
 type offload_result =
   | Kept of string (** Content below threshold, unchanged *)
@@ -63,10 +67,9 @@ let maybe_offload ~(config : config) ~(tool_name : string) (content : string)
       Offloaded { path; preview; original_bytes = len }
     | Error err ->
       Llm_provider.Diag.warn
-        "context_offload"
-        "failed to offload tool result for %s to %s: %s"
+        diag_ctx
+        "failed to offload tool result for %s: %s"
         tool_name
-        path
         (Error.to_string err);
       Kept content)
 ;;
