@@ -540,29 +540,83 @@ let refresh_and_sync ~sw ~net ~endpoints =
 
 let builtin_scan_ports = [ 8085; 8086; 8087; 8088; 8089; 8090; 11434 ]
 let valid_tcp_port p = p >= 1 && p <= 65535
+let discovery_ports_env = "OAS_DISCOVERY_PORTS"
+let discovery_diag_context = "discovery"
 
-let parse_ports_env s =
-  String.split_on_char ',' s
-  |> List.fold_left
-       (fun ports raw ->
-          let trimmed = String.trim raw in
-          match int_of_string_opt trimmed with
-          | Some p when valid_tcp_port p && not (List.mem p ports) -> p :: ports
-          | _ -> ports)
-       []
-  |> List.rev
+type invalid_scan_port_reason =
+  | Not_an_integer
+  | Outside_tcp_port_range
+
+type invalid_scan_port =
+  { token : string
+  ; reason : invalid_scan_port_reason
+  }
+
+let invalid_scan_port_reason_to_string = function
+  | Not_an_integer -> "not an integer"
+  | Outside_tcp_port_range -> "outside TCP port range 1-65535"
 ;;
 
-let default_scan_ports =
-  match Cli_common_env.get "OAS_DISCOVERY_PORTS" with
+let warn_invalid_discovery_port ~env_var ~diag_context ~token ~reason =
+  Diag.warn
+    diag_context
+    "%s token %S ignored: %s"
+    env_var
+    token
+    (invalid_scan_port_reason_to_string reason)
+;;
+
+let missing_invalid_port_handler ~token ~reason =
+  invalid_arg
+    (Printf.sprintf
+       "parse_ports_env invalid token %S: %s"
+       token
+       (invalid_scan_port_reason_to_string reason))
+;;
+
+let parse_ports_env_result s =
+  String.split_on_char ',' s
+  |> List.fold_left
+       (fun (ports, invalids) raw ->
+          let trimmed = String.trim raw in
+          match int_of_string_opt trimmed with
+          | None when trimmed = "" ->
+            (* Empty tokens make trailing/repeated separators harmless. *)
+            ports, invalids
+          | Some p when valid_tcp_port p && not (List.mem p ports) -> p :: ports, invalids
+          | Some p when valid_tcp_port p ->
+            (* Keep the first occurrence so user-provided probe order is stable. *)
+            ports, invalids
+          | Some _ ->
+            ports, { token = trimmed; reason = Outside_tcp_port_range } :: invalids
+          | None -> ports, { token = trimmed; reason = Not_an_integer } :: invalids)
+       ([], [])
+  |> fun (ports, invalids) -> List.rev ports, List.rev invalids
+;;
+
+let parse_ports_env ?(on_invalid = missing_invalid_port_handler) s =
+  let ports, invalids = parse_ports_env_result s in
+  List.iter (fun { token; reason } -> on_invalid ~token ~reason) invalids;
+  ports
+;;
+
+let default_scan_ports () =
+  match Cli_common_env.get discovery_ports_env with
   | Some s ->
-    (match parse_ports_env s with
+    (match
+       parse_ports_env
+         ~on_invalid:
+           (warn_invalid_discovery_port
+              ~env_var:discovery_ports_env
+              ~diag_context:discovery_diag_context)
+         s
+     with
      | [] -> builtin_scan_ports
      | ps -> ps)
   | None -> builtin_scan_ports
 ;;
 
-let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
+let scan_local_endpoints ?(ports = default_scan_ports ()) ~sw ~net () =
   let candidates = List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports in
   let statuses = discover ~sw ~net ~endpoints:candidates in
   List.filter_map
@@ -1192,12 +1246,19 @@ let%test "parse_ports_env skips empty tokens" =
   parse_ports_env "9000,,9001," = [ 9000; 9001 ]
 ;;
 
-let%test "parse_ports_env skips non-numeric tokens silently" =
-  parse_ports_env "9000,abc,9001" = [ 9000; 9001 ]
+let%test "parse_ports_env reports non-numeric tokens" =
+  let ports, invalids = parse_ports_env_result "9000,abc,9001" in
+  ports = [ 9000; 9001 ] && invalids = [ { token = "abc"; reason = Not_an_integer } ]
 ;;
 
-let%test "parse_ports_env skips invalid TCP ports" =
-  parse_ports_env "-1,0,1,65535,65536" = [ 1; 65535 ]
+let%test "parse_ports_env reports invalid TCP ports" =
+  let ports, invalids = parse_ports_env_result "-1,0,1,65535,65536" in
+  ports = [ 1; 65535 ]
+  && invalids
+     = [ { token = "-1"; reason = Outside_tcp_port_range }
+       ; { token = "0"; reason = Outside_tcp_port_range }
+       ; { token = "65536"; reason = Outside_tcp_port_range }
+       ]
 ;;
 
 let%test "parse_ports_env deduplicates while preserving order" =

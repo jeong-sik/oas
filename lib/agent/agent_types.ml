@@ -191,6 +191,11 @@ let default_options =
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
 
+type idle_state = Agent_turn.idle_state =
+  { last_tool_calls : tool_call_fingerprint list option
+  ; consecutive_idle_turns : int
+  }
+
 type t =
   { mu : Eio.Mutex.t
   ; mutable state : agent_state
@@ -232,6 +237,20 @@ let set_consecutive_idle_turns t n =
 
 let get_consecutive_idle_turns t =
   Eio.Mutex.use_ro t.mu (fun () -> t.consecutive_idle_turns)
+;;
+
+(** Mutex-protected atomic update of both idle-detection fields.  Keeps
+    [last_tool_calls] and [consecutive_idle_turns] consistent under
+    concurrent updates from parallel tool-execution fibers or periodic
+    callbacks. *)
+let set_idle_state t (s : Agent_turn.idle_state) =
+  Eio.Mutex.use_rw ~protect:true t.mu (fun () ->
+    t.last_tool_calls <- s.last_tool_calls;
+    t.consecutive_idle_turns <- s.consecutive_idle_turns)
+;;
+
+let reset_idle_state t =
+  set_idle_state t (Agent_turn.reset_idle_detection ()).new_state
 ;;
 
 let description t = t.options.description

@@ -18,6 +18,7 @@ type resume_state =
     Returns state + context; the caller wraps these into [Agent.t]. *)
 val build_resume
   :  checkpoint:Checkpoint.t
+  -> ?eio_context:bool
   -> ?config:Types.agent_config
   -> ?context:Context.t
   -> unit

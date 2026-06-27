@@ -313,7 +313,7 @@ let test_mcp_tool_to_sdk_tool_empty_schema () =
 (* ── Mcp_http.default_config ──────────────────────────────── *)
 
 let test_mcp_http_default_config_values () =
-  let cfg = Mcp_http.default_config in
+  let cfg = Mcp_http.default_config () in
   Alcotest.(check string) "default base_url" "http://localhost:8080/mcp" cfg.base_url;
   Alcotest.(check (list (pair string string))) "no headers" [] cfg.headers
 ;;

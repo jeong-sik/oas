@@ -30,7 +30,12 @@ let file_write_error ~path ~detail =
   Error.Io (FileOpFailed { op = "write"; path; detail })
 ;;
 
+(** Append a single element to the tail of a list.
+    This is [O(n)] in the length of [xs] because it copies [xs]. It is fine
+    for one-off appends, but using it inside a loop to build a list yields
+    quadratic cost; prefer cons-into-an-accumulator followed by [List.rev]. *)
 let snoc xs x = xs @ [ x ]
+
 let snoc_list xs ys = xs @ ys
 
 (** Traverse a list with a function returning [result], short-circuit on first error. *)

@@ -225,6 +225,12 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot =
 
 type tool_call_fingerprint = Agent_turn.tool_call_fingerprint
 
+(** Idle detection state snapshot. *)
+type idle_state = Agent_turn.idle_state =
+  { last_tool_calls : tool_call_fingerprint list option
+  ; consecutive_idle_turns : int
+  }
+
 (** Mutable agent record — library-internal only.
     External code must use [Agent.t] (abstract) and its accessors.
 
@@ -262,6 +268,16 @@ val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val set_consecutive_idle_turns : t -> int -> unit
 val get_consecutive_idle_turns : t -> int
+
+(** Mutex-protected atomic update of both idle-detection fields.
+    Callers should use this instead of assigning [last_tool_calls] and
+    [consecutive_idle_turns] directly, so the two fields stay consistent
+    under concurrent tool-execution fibers and periodic callbacks. *)
+val set_idle_state : t -> idle_state -> unit
+
+(** Reset idle-detection counters to their initial (zero) state.
+    Equivalent to [set_idle_state t { last_tool_calls = None; consecutive_idle_turns = 0 }]. *)
+val reset_idle_state : t -> unit
 val description : t -> string option
 val allowed_paths : t -> string list
 

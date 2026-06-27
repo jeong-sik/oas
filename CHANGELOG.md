@@ -15,6 +15,11 @@ original tag dates. `0.100.4` was never tagged or released.
 * **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
+### Breaking Changes
+
+* **mcp_http:** `Mcp_http.default_config` is now `unit -> config` so
+  `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from
+  `Mcp_http.default_config` to `Mcp_http.default_config ()`.
 
 ## [0.207.8](https://github.com/jeong-sik/oas/compare/v0.207.7...v0.207.8) (2026-06-24)
 
