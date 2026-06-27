@@ -600,7 +600,7 @@ let parse_ports_env ?(on_invalid = missing_invalid_port_handler) s =
   ports
 ;;
 
-let default_scan_ports =
+let default_scan_ports () =
   match Cli_common_env.get discovery_ports_env with
   | Some s ->
     (match
@@ -616,7 +616,7 @@ let default_scan_ports =
   | None -> builtin_scan_ports
 ;;
 
-let scan_local_endpoints ?(ports = default_scan_ports) ~sw ~net () =
+let scan_local_endpoints ?(ports = default_scan_ports ()) ~sw ~net () =
   let candidates = List.map (fun p -> Printf.sprintf "http://127.0.0.1:%d" p) ports in
   let statuses = discover ~sw ~net ~endpoints:candidates in
   List.filter_map
