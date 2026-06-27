@@ -323,7 +323,7 @@ let complete_stream_http
       let latency_counter =
         match latency_counter with
         | Some counter -> counter
-        | None -> start_latency_counter ()
+        | None -> start_latency_counter ?clock ()
       in
       let ttfrc_ref = ref None in
       (* RFC-OAS-020 — TTFT (Time To First Token) capture.

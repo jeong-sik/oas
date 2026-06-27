@@ -10,7 +10,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Bug Fixes
 
+* **context_offload:** emit a diagnostic warning when tool-result offload write
+  fails before preserving the original content.
 * **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
+
 ### Features
 
 * **env:** consolidate int/float/boolean env parsing in `Llm_provider.Cli_common_env`; `Util.int_env_or`, `Defaults.int_env_or`/`float_env_or`/`bool_env_or`, and `Tool_result_store` config overrides now delegate to it.
@@ -19,6 +22,10 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 ### Breaking Changes
+
+* **context_offload:** `Context_offload.default_config` is now `unit -> config`
+  so the temporary directory is resolved at call time. Update downstream callers
+  from `Context_offload.default_config` to `Context_offload.default_config ()`.
 
 * **mcp_http:** `Mcp_http.default_config` is now `unit -> config` so
   `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from

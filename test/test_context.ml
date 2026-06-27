@@ -100,6 +100,31 @@ let test_diff () =
   check (list string) "changed keys" [ "changed" ] (List.map fst diff.changed)
 ;;
 
+let test_diff_interleaved_order () =
+  let before = Context.create ~eio:false () in
+  List.iter
+    (fun (key, value) -> Context.set before key value)
+    [ "a", `Int 1; "c", `Int 1; "e", `Int 1; "g", `Int 1 ];
+  let after = Context.create ~eio:false () in
+  List.iter
+    (fun (key, value) -> Context.set after key value)
+    [ "b", `Int 2; "c", `Int 3; "d", `Int 4; "g", `Int 1 ];
+  let diff = Context.diff before after in
+  check (list string) "added keys" [ "b"; "d" ] (List.map fst diff.added);
+  check (list string) "removed keys" [ "a"; "e" ] diff.removed;
+  check (list string) "changed keys" [ "c" ] (List.map fst diff.changed);
+  check
+    (list (pair string int))
+    "changed values"
+    [ "c", 3 ]
+    (List.map
+       (fun (key, value) ->
+          match value with
+          | `Int n -> key, n
+          | _ -> fail "expected int diff value")
+       diff.changed)
+;;
+
 let test_diff_sorted () =
   let before = Context.create ~eio:false () in
   List.iter
@@ -223,6 +248,7 @@ let () =
     ; ( "scope"
       , [ test_case "scoped helpers" `Quick test_scoped_helpers
         ; test_case "diff" `Quick test_diff
+        ; test_case "diff interleaved order" `Quick test_diff_interleaved_order
         ; test_case "diff sorted" `Quick test_diff_sorted
         ] )
     ; ( "json"

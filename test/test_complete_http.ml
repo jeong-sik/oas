@@ -65,6 +65,7 @@ let start_mock_server
       ?(delay_sec = 0.0)
       ?clock
       ?capture_body
+      ?on_request
       response_body
   =
   let port = fresh_port () in
@@ -72,6 +73,9 @@ let start_mock_server
     let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
     (match capture_body with
      | Some seen -> seen := Some request_body
+     | None -> ());
+    (match on_request with
+     | Some f -> f ()
      | None -> ());
     (match clock with
      | Some clk when delay_sec > 0.0 -> Eio.Time.sleep clk delay_sec
@@ -581,6 +585,46 @@ let test_complete_openai_mlx_vlm_telemetry () =
     | Error _ -> fail "expected Ok for mlx-vlm openai compat"
   with
   | Exit -> ()
+;;
+
+let test_complete_sync_latency_uses_injected_clock () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let clock = Eio_mock.Clock.make () in
+    Eio_mock.Clock.set_time clock 10.0;
+    let url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> Eio_mock.Clock.set_time clock 11.25)
+        (anthropic_response "clocked")
+    in
+    let config = make_config url in
+    match Complete.complete ~sw ~net:env#net ~clock ~config ~messages () with
+    | Ok resp ->
+      (match resp.telemetry with
+       | Some telemetry ->
+         check
+           (option int)
+           "latency from injected clock"
+           (Some 1250)
+           telemetry.request_latency_ms
+       | None -> fail "expected telemetry");
+      Eio.Switch.fail sw Exit
+    | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
+let test_latency_counter_clamps_negative_injected_clock () =
+  let clock = Eio_mock.Clock.make () in
+  Eio_mock.Clock.set_time clock 10.0;
+  let counter = Complete_common.start_latency_counter ~clock () in
+  Eio_mock.Clock.set_time clock 9.0;
+  check (option int) "latency clamped" (Some 0) (Complete_common.latency_ms_int counter)
 ;;
 
 (* ── complete with cache ─────────────────────────────── *)
@@ -1584,7 +1628,7 @@ let test_complete_stream_unknown_latency_stays_unknown () =
       Complete_stream.complete_stream_http
         ~sw
         ~net:env#net
-        ~latency_counter:None
+        ~latency_counter:Complete_common.Unknown_latency
         ~on_telemetry:(fun evt -> telemetry_events := evt :: !telemetry_events)
         ~metrics
         ~config
@@ -1798,6 +1842,14 @@ let () =
             "openai mlx-vlm telemetry"
             `Quick
             test_complete_openai_mlx_vlm_telemetry
+        ; test_case
+            "sync latency uses injected clock"
+            `Quick
+            test_complete_sync_latency_uses_injected_clock
+        ; test_case
+            "latency clamps negative injected clock"
+            `Quick
+            test_latency_counter_clamps_negative_injected_clock
         ; test_case "trace context headers" `Quick test_complete_trace_context_headers
         ; test_case "non-retryable" `Quick test_complete_non_retryable
         ; test_case

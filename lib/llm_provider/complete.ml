@@ -282,7 +282,7 @@ let complete_stream
     let on_event = emit_stream_event on_event in
     let _priority = priority in
     let request_config = config_with_trace_context config trace_context in
-    let latency_counter = start_latency_counter () in
+    let latency_counter = start_latency_counter ?clock () in
     let metrics_opt = metrics in
     let metrics = Option.value metrics ~default:(Metrics.get_global ()) in
     let on_telemetry_with_metrics evt =

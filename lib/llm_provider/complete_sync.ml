@@ -133,7 +133,7 @@ let complete_http
               have been removed because they leak API keys and prompts. Use 'summary' or \
               a scrubbing-aware logger instead."
          | _other_debug_mode -> ());
-        let latency_counter = start_latency_counter () in
+        let latency_counter = start_latency_counter ?clock () in
         let post_sync_call () =
           Http_client.post_sync
             ?cache:connection_cache
