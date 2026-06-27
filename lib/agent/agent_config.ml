@@ -386,7 +386,7 @@ let resolve_provider ~model_id provider_str base_url =
     let url =
       match base_url with
       | Some u -> u
-      | None -> Defaults.local_llm_url
+      | None -> Defaults.resolve_local_llm_url ()
     in
     { Provider.provider = Local { base_url = url }; model_id; api_key_env = "" })
   else (

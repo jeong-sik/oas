@@ -59,6 +59,12 @@ val discover
     All local endpoint defaults in llm_provider reference this value. *)
 val default_endpoint : string
 
+(** Call-time resolver for the canonical local LLM endpoint.
+    Reads [OAS_LOCAL_LLM_URL] at call time, falling back to
+    {!Constants.Endpoints.default_url}. Prefer this over {!default_endpoint}
+    when the value must reflect environment changes after module init. *)
+val resolve_default_endpoint : unit -> string
+
 (** Ollama endpoint.  Reads OLLAMA_HOST env var,
     falls back to ["http://127.0.0.1:11434"]. *)
 val ollama_endpoint : string

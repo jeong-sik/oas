@@ -52,6 +52,12 @@ let default_endpoint =
   | None -> Constants.Endpoints.default_url
 ;;
 
+let resolve_default_endpoint () =
+  match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
+  | Some v -> v
+  | None -> Constants.Endpoints.default_url
+;;
+
 let ollama_endpoint =
   match Cli_common_env.get "OLLAMA_HOST" with
   | Some url -> url

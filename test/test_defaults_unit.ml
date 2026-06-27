@@ -87,6 +87,16 @@ let () =
                    "empty env default"
                    "local"
                    (Defaults.resolve_fallback_provider ())))
+        ; test_case "resolve_fallback_provider normalizes casing" `Quick (fun () ->
+            Llm_provider.Cli_common_env.with_env
+              "OAS_FALLBACK_PROVIDER"
+              "ProViDer-A"
+              (fun () ->
+                 check
+                   string
+                   "lowercased"
+                   "provider-a"
+                   (Defaults.resolve_fallback_provider ())))
         ] )
     ; (* ── default_context_reducer ─────────────────────── *)
       ( "default_context_reducer"

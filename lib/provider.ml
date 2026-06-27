@@ -439,7 +439,7 @@ let resolve (cfg : config) =
 ;;
 
 let local_llm () =
-  { provider = Local { base_url = Defaults.local_llm_url }
+  { provider = Local { base_url = Defaults.resolve_local_llm_url () }
   ; model_id = "default"
   ; api_key_env = "DUMMY_KEY"
   }
