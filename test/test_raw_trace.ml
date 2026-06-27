@@ -156,7 +156,7 @@ let test_agent_run_stream_append_only_raw_trace () =
     Tool.create
       ~descriptor:
         { Tool.kind = Some "file"
-        ; mutation_class = Some "workspace"
+        ; mutation_class = Some Tool.Workspace
         ; concurrency_class = Some Tool.Sequential_workspace
         ; permission = Some Tool.Write
         ; evidence_role = Some Tool.File_write
@@ -188,7 +188,7 @@ let test_agent_run_stream_append_only_raw_trace () =
     Tool.create
       ~descriptor:
         { Tool.kind = Some "shell"
-        ; mutation_class = Some "read_only"
+        ; mutation_class = Some Tool.Read_only
         ; concurrency_class = Some Tool.Parallel_read
         ; permission = Some Tool.ReadOnly
         ; evidence_role = Some Tool.Verification

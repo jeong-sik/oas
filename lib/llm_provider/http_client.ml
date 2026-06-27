@@ -11,21 +11,6 @@
 
     @since 0.45.0 *)
 
-module Result_syntax = struct
-  let ( let* ) = Result.bind
-  let ( let+ ) x f = Result.map f x
-
-  let both a b =
-    match a, b with
-    | Ok a_val, Ok b_val -> Ok (a_val, b_val)
-    | Error e, _ -> Error e
-    | _, Error e -> Error e
-  ;;
-
-  let ( and* ) = both
-  let ( and+ ) = both
-end
-
 open Result_syntax
 
 type network_error_kind =
@@ -344,60 +329,27 @@ let%test "max_single_header_bytes flags a single oversized header line" =
   max_single_header_bytes [ "x-big", String.make 9000 'x' ] > cdn_per_header_limit_bytes
 ;;
 
-(* Substring check on already-lowered strings. *)
-let has_substr haystack needle =
-  let hlen = String.length haystack
-  and nlen = String.length needle in
-  if nlen > hlen
-  then false
-  else (
-    let rec check i =
-      if i > hlen - nlen
-      then false
-      else if String.sub haystack i nlen = needle
-      then true
-      else check (i + 1)
-    in
-    check 0)
+let rec classify_eio_error = function
+  | Eio.Net.E (Connection_reset _) -> End_of_file
+  | Eio.Net.E (Connection_failure (Refused _)) -> Connection_refused
+  | Eio.Net.E (Connection_failure No_matching_addresses) -> Dns_failure
+  | Eio.Net.E (Connection_failure Timeout) -> Timeout
+  | Eio.Exn.Multiple_io errors ->
+    errors
+    |> List.map (fun (err, _, _) -> classify_eio_error err)
+    |> List.find_opt (fun kind -> kind <> Unknown)
+    |> Option.value ~default:Unknown
+  | _ -> Unknown
 ;;
 
-let classify_by_message msg =
-  let m = String.lowercase_ascii msg in
-  if has_substr m "connection refused" || has_substr m "connection reset"
-  then Connection_refused
-  else if has_substr m "connection closed by peer" || has_substr m "broken pipe"
-  then End_of_file
-  else if has_substr m "timed out" || has_substr m "timeout"
-  then Timeout
-  else if
-    has_substr m "can't assign requested address"
-    || has_substr m "too many open files"
-    || has_substr m "no buffer space available"
-    || has_substr m "eaddrnotavail"
-    || has_substr m "emfile"
-    || has_substr m "enfile"
-  then Local_resource_exhaustion
-  else if
-    has_substr m "failed to resolve hostname"
-    || has_substr m "name resolution"
-    || has_substr m "name or service not known"
-    || has_substr m "network is unreachable"
-    || has_substr m "host is unreachable"
-  then Dns_failure
-  else if has_substr m "tls" || has_substr m "ssl" || has_substr m "certificate"
-  then Tls_error
-  else Unknown
+let network_error_of_eio err exn =
+  NetworkError { message = Printexc.to_string exn; kind = classify_eio_error err }
 ;;
+
+let unknown_network_error msg = NetworkError { message = msg; kind = Unknown }
 
 let https_init_error_network_kind = function
-  | Api_common.Ca_certs_unavailable msg ->
-    let m = String.lowercase_ascii msg in
-    (match classify_by_message msg with
-     | Local_resource_exhaustion -> Local_resource_exhaustion
-     | Connection_refused | Dns_failure | Tls_error | Timeout | End_of_file | Unknown ->
-       if has_substr m "empty trust anchors" || has_substr m "no trust anchors"
-       then Local_resource_exhaustion
-       else Tls_error)
+  | Api_common.Ca_certs_unavailable _ -> Tls_error
   | Api_common.Tls_config_unavailable _ -> Tls_error
 ;;
 
@@ -417,11 +369,8 @@ let classify_network_exn (e : exn) =
   | Unix.Unix_error (code, _, _) as exn ->
     Some
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
-  | Eio.Io _ as exn ->
-    let msg = Printexc.to_string exn in
-    Some (NetworkError { message = msg; kind = classify_by_message msg })
-  | Sys_error msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })
-  | Failure msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })
+  | Eio.Io (err, _) as exn -> Some (network_error_of_eio err exn)
+  | Sys_error msg | Failure msg -> Some (NetworkError { message = msg; kind = Unknown })
   | _ -> None
 ;;
 
@@ -501,6 +450,12 @@ module Cache_key = struct
     | n -> n
   ;;
 
+  let default_port_for_scheme scheme =
+    match scheme with
+    | "https" -> 443
+    | _ -> 80
+  ;;
+
   let of_uri uri =
     let scheme = Uri.scheme uri |> Option.value ~default:"http" in
     let host =
@@ -508,15 +463,23 @@ module Cache_key = struct
       | Some "" | None -> "localhost"
       | Some h -> h
     in
-    let port =
-      Uri.port uri
-      |> Option.value
-           ~default:
-             (match scheme with
-              | "https" -> 443
-              | _ -> 80)
-    in
+    let port = Uri.port uri |> Option.value ~default:(default_port_for_scheme scheme) in
     { scheme; host; port }
+  ;;
+
+  let%test "Cache_key.of_uri defaults to https port 443" =
+    let key = of_uri (Uri.of_string "https://example.com/path") in
+    key.scheme = "https" && key.host = "example.com" && key.port = 443
+  ;;
+
+  let%test "Cache_key.of_uri defaults to http port 80" =
+    let key = of_uri (Uri.of_string "http://example.com/path") in
+    key.scheme = "http" && key.host = "example.com" && key.port = 80
+  ;;
+
+  let%test "Cache_key.of_uri preserves explicit port" =
+    let key = of_uri (Uri.of_string "https://example.com:8443/path") in
+    key.port = 8443
   ;;
 end
 
@@ -543,6 +506,7 @@ type cache =
   ; reuse_count_total : int Atomic.t
   ; create_count_total : int Atomic.t
   ; stop : bool Atomic.t
+  ; now : unit -> float
   }
 
 let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) () : cache
@@ -552,6 +516,11 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
   if idle_ttl_seconds <= 0.0
   then invalid_arg "Http_client.create_cache: idle_ttl_seconds must be > 0";
   let cache =
+    let now =
+      match clock with
+      | Some clock -> fun () -> Eio.Time.now clock
+      | None -> Unix.gettimeofday
+    in
     { sw
     ; mu = Eio.Mutex.create ()
     ; max_idle_per_host
@@ -560,6 +529,7 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
     ; reuse_count_total = Atomic.make 0
     ; create_count_total = Atomic.make 0
     ; stop = Atomic.make false
+    ; now
     }
   in
   Eio.Switch.on_release sw (fun () ->
@@ -593,7 +563,7 @@ let create_cache ~sw ?clock ?(max_idle_per_host = 8) ?(idle_ttl_seconds = 60.0) 
          then ()
          else (
            Eio.Time.sleep clock (cache.idle_ttl_seconds /. 2.0);
-           let now = Unix.gettimeofday () in
+           let now = cache.now () in
            let expired =
              Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
                let expired = ref [] in
@@ -662,7 +632,7 @@ let cache_return (cache : cache) uri (entry : cache_entry) : unit =
   then Eio.Resource.close entry.connection
   else (
     let key = Cache_key.of_uri uri in
-    let now = Unix.gettimeofday () in
+    let now = cache.now () in
     let entry = { entry with last_used_at = now } in
     let parked =
       Eio.Mutex.use_rw ~protect:true cache.mu (fun () ->
@@ -707,15 +677,12 @@ let resolve_origin net uri =
              ; kind = Dns_failure
              })
     with
-    | Eio.Io _ as exn ->
-      let msg = Printexc.to_string exn in
-      Error (NetworkError { message = msg; kind = classify_by_message msg })
+    | Eio.Io (err, _) as exn -> Error (network_error_of_eio err exn)
     | Unix.Unix_error (code, _, _) as exn ->
       Error
         (NetworkError
            { message = Printexc.to_string exn; kind = classify_unix_error code })
-    | Failure msg ->
-      Error (NetworkError { message = msg; kind = classify_by_message msg })
+    | Failure msg -> Error (unknown_network_error msg)
   and* tls_wrap =
     match Uri.scheme uri with
     | Some "https" ->
@@ -804,13 +771,11 @@ let make_connection ~sw ~net ~uri : (connection, http_error) result =
     Diag.debug "http_client" "make_connection: new connection for %s" (Uri.to_string uri);
     Ok conn
   with
-  | Eio.Io _ as exn ->
-    let msg = Printexc.to_string exn in
-    Error (NetworkError { message = msg; kind = classify_by_message msg })
+  | Eio.Io (err, _) as exn -> Error (network_error_of_eio err exn)
   | Unix.Unix_error (code, _, _) as exn ->
     Error
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
-  | Failure msg -> Error (NetworkError { message = msg; kind = classify_by_message msg })
+  | Failure msg -> Error (unknown_network_error msg)
 ;;
 
 (** Client wrapper that tracks the socket for explicit close.
@@ -832,14 +797,13 @@ let make_closing_client ~sw ~net ~uri =
     [Ok] from [Error] for cache lifecycle decisions; exceptions are treated
     as fatal for the connection. *)
 let with_client ?cache ~sw ~net ~uri f =
-  ignore sw;
   match cache with
   | None ->
-    (* Run each one-shot request in its own switch so the connection and FD
-       are released as soon as the response body is consumed, even when the
-       caller supplied a long-lived switch. *)
-    Eio.Switch.run (fun sw ->
-      let* client = make_closing_client ~sw ~net ~uri in
+    (* One-shot path: run the request under a fresh sub-switch so the
+       connection/FD is released as soon as [f] returns, even when the caller
+       supplied a long-lived switch. *)
+    Eio.Switch.run (fun sw' ->
+      let* client = make_closing_client ~sw:sw' ~net ~uri in
       f client)
   | Some cache ->
     let* conn, was_cached =
@@ -881,42 +845,66 @@ let drain_response_body ?clock ?(timeout_s = 30.0) resp_body =
   in
   let drain_with_timeout () =
     match clock with
-    | Some clk ->
-      (try Eio.Time.with_timeout_exn clk timeout_s drain with
-       | Eio.Time.Timeout -> ())
+    | Some clk -> Eio.Time.with_timeout_exn clk timeout_s drain
     | None -> drain ()
   in
   try drain_with_timeout () with
-  | End_of_file -> ()
-  | Eio.Time.Timeout -> ()
-  | Unix.Unix_error (code, _, _) ->
-    (match classify_unix_error code with
-     | Connection_refused
-     | Dns_failure
-     | Tls_error
-     | Timeout
-     | Local_resource_exhaustion
-     | End_of_file
-     | Unknown -> ())
-  | Eio.Io _ as e ->
-    Diag.warn "http_client" "drain_response_body: %s" (Printexc.to_string e);
-    ()
+  | End_of_file ->
+    Diag.debug "http_client" "drain_response_body: reached End_of_file";
+    Ok ()
+  | Eio.Time.Timeout ->
+    Diag.debug "http_client" "drain_response_body: timed out after %.1fs" timeout_s;
+    Error
+      (TimeoutError
+         { message = Printf.sprintf "response body drain timed out after %.1fs" timeout_s
+         ; phase = Non_streaming_body
+         })
+  | Unix.Unix_error (code, _, _) as e ->
+    let kind = classify_unix_error code in
+    Diag.warn
+      "http_client"
+      "drain_response_body: Unix_error %s (kind %s)"
+      (Printexc.to_string e)
+      (match kind with
+       | Connection_refused -> "connection_refused"
+       | Dns_failure -> "dns_failure"
+       | Tls_error -> "tls_error"
+       | Timeout -> "timeout"
+       | Local_resource_exhaustion -> "local_resource_exhaustion"
+       | End_of_file -> "end_of_file"
+       | Unknown -> "unknown");
+    Error (NetworkError { message = Printexc.to_string e; kind })
+  | Eio.Io (err, _) as e ->
+    let message = Printexc.to_string e in
+    Diag.warn "http_client" "drain_response_body: %s" message;
+    Error (network_error_of_eio err e)
   | Sys_error msg ->
     Diag.warn "http_client" "drain_response_body: sys_error %s" msg;
-    ()
+    Error (unknown_network_error msg)
   | Failure msg ->
     Diag.warn "http_client" "drain_response_body: failure %s" msg;
-    ()
+    Error (unknown_network_error msg)
   | Invalid_argument msg ->
     Diag.warn "http_client" "drain_response_body: invalid_arg %s" msg;
-    ()
+    Error (NetworkError { message = msg; kind = Unknown })
   (* Re-raise cancellation so a fiber cancelled mid-drain unwinds instead of
      being absorbed by the catch-all below (structured concurrency). Mirrors the
      transport-close handler in this module. *)
   | Eio.Cancel.Cancelled _ as e -> raise e
   | drain_failure ->
-    Diag.warn "http_client" "drain_response_body: %s" (Printexc.to_string drain_failure);
-    ()
+    let message = Printexc.to_string drain_failure in
+    Diag.warn "http_client" "drain_response_body: %s" message;
+    Error (NetworkError { message; kind = Unknown })
+;;
+
+let read_response_body_or_drain_error ?clock resp_body =
+  try
+    Ok Eio.Buf_read.(of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
+  with
+  | exn ->
+    (match drain_response_body ?clock resp_body with
+     | Ok () -> raise exn
+     | Error err -> Error err)
 ;;
 
 let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~headers ()
@@ -928,15 +916,7 @@ let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~
       with_optional_timeout ~clock ~timeout_s (fun () ->
         let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
         let code = Cohttp.Response.status resp |> Cohttp.Code.code_of_status in
-        let body_str =
-          try
-            Eio.Buf_read.(
-              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-          with
-          | exn ->
-            drain_response_body ?clock resp_body;
-            raise exn
-        in
+        let* body_str = read_response_body_or_drain_error ?clock resp_body in
         Ok (code, body_str))))
 ;;
 
@@ -977,15 +957,7 @@ let post_sync
           ~code
           ~resp_headers:(Cohttp.Response.headers resp)
           headers_with_length;
-        let body_str =
-          try
-            Eio.Buf_read.(
-              of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-          with
-          | exn ->
-            drain_response_body ?clock resp_body;
-            raise exn
-        in
+        let* body_str = read_response_body_or_drain_error ?clock resp_body in
         Ok (code, body_str))))
 ;;
 
@@ -1034,15 +1006,7 @@ let post_stream
         ~code
         ~resp_headers:(Cohttp.Response.headers resp)
         headers_with_length;
-      let body_str =
-        try
-          Eio.Buf_read.(
-            of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-        with
-        | exn ->
-          drain_response_body resp_body;
-          raise exn
-      in
+      let* body_str = read_response_body_or_drain_error ?clock resp_body in
       Error (HttpError { code; body = body_str }))
 ;;
 
@@ -1121,17 +1085,13 @@ let with_post_stream
             ~code
             ~resp_headers:(Cohttp.Response.headers resp)
             headers_with_length;
-          let body_str =
-            try
-              Eio.Buf_read.(
-                of_flow ~max_size:Api_common.max_response_body resp_body |> take_all)
-            with
-            | exn ->
-              drain_response_body resp_body;
-              raise exn
-          in
-          Eio.Resource.close conn;
-          Error (HttpError { code; body = body_str })
+          (match read_response_body_or_drain_error ?clock resp_body with
+           | Ok body_str ->
+             Eio.Resource.close conn;
+             Error (HttpError { code; body = body_str })
+           | Error err ->
+             Eio.Resource.close conn;
+             Error err)
       with
       | exn ->
         Eio.Resource.close conn;
@@ -1175,8 +1135,7 @@ let with_post_stream
          raise exn)
   in
   (match body_result, cache with
-   | Ok _, Some cache ->
-     cache_return cache uri { connection = conn; last_used_at = Unix.gettimeofday () }
+   | Ok _, Some cache -> cache_return cache uri { connection = conn; last_used_at = 0.0 }
    | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
   body_result
@@ -1382,10 +1341,35 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network maps Sys_error to NetworkError" =
+let%test "catch_network maps text-only Sys_error to unknown NetworkError" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Error (NetworkError { message; kind = End_of_file }) ->
-    has_substr (String.lowercase_ascii message) "broken pipe"
+  | Error (NetworkError { message = "broken pipe"; kind = Unknown }) -> true
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
+;;
+
+let%test "catch_network keeps text-only Sys_error resource exhaustion unknown" =
+  match catch_network (fun () -> raise (Sys_error "Too many open files")) with
+  | Error (NetworkError { kind = Unknown; _ }) -> true
+  | Ok _
+  | Error
+      ( HttpError _
+      | NetworkError _
+      | TimeoutError _
+      | AcceptRejected _
+      | ProviderTerminal _
+      | ProviderFailure _ ) -> false
+;;
+
+let%test "catch_network keeps text-only Failure resource exhaustion unknown" =
+  match catch_network (fun () -> raise (Failure "EMFILE")) with
+  | Error (NetworkError { kind = Unknown; _ }) -> true
   | Ok _
   | Error
       ( HttpError _
@@ -1516,62 +1500,41 @@ let%test "resource exhaustion: DNS failure is not" =
           { message = "failed to resolve hostname: example.com"; kind = Dns_failure }))
 ;;
 
-(* ── classify_by_message tests ───────────────────────── *)
+(* ── structured Eio classification tests ───────────────────────── *)
 
-let%test "classify_by_message: connection refused" =
-  classify_by_message "Connection refused" = Connection_refused
-;;
+type Eio.Exn.Backend.t += Test_backend_error
 
-let%test "classify_by_message: connection refused via Eio" =
-  classify_by_message
-    "Eio.Io (Unix.Unix_error (Connection refused, connect, 127.0.0.1:443))"
+let%test "classify_eio_error: connection refused" =
+  classify_eio_error
+    (Eio.Net.E (Eio.Net.Connection_failure (Eio.Net.Refused Test_backend_error)))
   = Connection_refused
 ;;
 
-let%test "classify_by_message: timeout" =
-  classify_by_message "Connection timed out" = Timeout
+let%test "classify_eio_error: no matching addresses" =
+  classify_eio_error
+    (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.No_matching_addresses))
+  = Dns_failure
 ;;
 
-let%test "classify_by_message: DNS failure" =
-  classify_by_message "failed to resolve hostname: api.example.com" = Dns_failure
+let%test "classify_eio_error: connection timeout" =
+  classify_eio_error (Eio.Net.E (Eio.Net.Connection_failure Eio.Net.Timeout)) = Timeout
 ;;
 
-let%test "classify_by_message: DNS name or service" =
-  classify_by_message "Name or service not known" = Dns_failure
+let%test "classify_eio_error: connection reset" =
+  classify_eio_error (Eio.Net.E (Eio.Net.Connection_reset Test_backend_error))
+  = End_of_file
 ;;
 
-let%test "classify_by_message: TLS error" =
-  classify_by_message "TLS handshake failed: certificate verify failed" = Tls_error
+let%test "classify_network_exn: text-only Sys_error is Unknown" =
+  match classify_network_exn (Sys_error "Connection refused") with
+  | Some (NetworkError { kind = Unknown; _ }) -> true
+  | _ -> false
 ;;
 
-let%test "classify_by_message: resource exhaustion" =
-  classify_by_message "Too many open files" = Local_resource_exhaustion
-;;
-
-let%test "classify_by_message: broken pipe" =
-  classify_by_message "broken pipe" = End_of_file
-;;
-
-let%test "classify_by_message: connection closed by peer" =
-  classify_by_message "connection closed by peer" = End_of_file
-;;
-
-let%test "classify_by_message: connection reset by peer" =
-  classify_by_message "Connection reset by peer" = Connection_refused
-;;
-
-let%test "classify_by_message: network unreachable" =
-  classify_by_message "Network is unreachable" = Dns_failure
-;;
-
-let%test "classify_by_message: host unreachable" =
-  classify_by_message "Host is unreachable" = Dns_failure
-;;
-
-let%test "https_init_error_network_kind: empty trust anchors are local" =
+let%test "https_init_error_network_kind: ca certs unavailable is TLS" =
   https_init_error_network_kind
     (Api_common.Ca_certs_unavailable "ca-certs: empty trust anchors")
-  = Local_resource_exhaustion
+  = Tls_error
 ;;
 
 let%test "https_init_error_network_kind: TLS config remains TLS" =

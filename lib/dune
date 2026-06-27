@@ -13,6 +13,7 @@
   tls
   tls-eio
   ca-certs
+  mtime.clock.os
   yojson
   ppx_deriving_yojson.runtime
   uri

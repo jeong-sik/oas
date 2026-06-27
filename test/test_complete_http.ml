@@ -1558,6 +1558,84 @@ let test_complete_stream_metrics () =
   | Exit -> ()
 ;;
 
+let test_complete_stream_unknown_latency_stays_unknown () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed text")
+    in
+    let config = make_config url in
+    let telemetry_events = ref [] in
+    let first_chunk_metrics = ref 0 in
+    let inter_chunk_metrics = ref 0 in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_streaming_first_chunk =
+          (fun ~provider:_ ~model_id:_ ~ttfrc_ms:_ -> incr first_chunk_metrics)
+      ; on_streaming_chunk =
+          (fun ~provider:_ ~model_id:_ ~chunk_index:_ ~inter_chunk_ms:_ ->
+            incr inter_chunk_metrics)
+      }
+    in
+    let result =
+      Complete_stream.complete_stream_http
+        ~sw
+        ~net:env#net
+        ~latency_counter:None
+        ~on_telemetry:(fun evt -> telemetry_events := evt :: !telemetry_events)
+        ~metrics
+        ~config
+        ~messages
+        ~tools:[]
+        ~on_event:(fun _evt -> ())
+        ()
+    in
+    (match result with
+     | Ok resp ->
+       (match resp.telemetry with
+        | Some t ->
+          check (option int) "response latency unknown" None t.request_latency_ms;
+          check (option (float 0.001)) "response ttfrc unknown" None t.ttfrc_ms
+        | None -> fail "expected response telemetry")
+     | Error _ -> fail "expected Ok");
+    let first_chunk =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_first_chunk r -> Some r.ttfrc_ms
+          | _ -> None)
+        !telemetry_events
+    in
+    let summary =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary
+              { total_ms; inter_chunk_ms_p50; inter_chunk_ms_p95; inter_chunk_ms_max; _ }
+            -> Some (total_ms, inter_chunk_ms_p50, inter_chunk_ms_p95, inter_chunk_ms_max)
+          | _ -> None)
+        !telemetry_events
+    in
+    check
+      (option (option (float 0.001)))
+      "first chunk latency event"
+      (Some None)
+      first_chunk;
+    (match summary with
+     | Some (total_ms, inter_chunk_ms_p50, inter_chunk_ms_p95, inter_chunk_ms_max) ->
+       check (option (float 0.001)) "summary total unknown" None total_ms;
+       check (option (float 0.001)) "summary p50 unknown" None inter_chunk_ms_p50;
+       check (option (float 0.001)) "summary p95 unknown" None inter_chunk_ms_p95;
+       check (option (float 0.001)) "summary max unknown" None inter_chunk_ms_max
+     | None -> fail "expected streaming summary");
+    check int "first chunk metrics skipped" 0 !first_chunk_metrics;
+    check int "inter chunk metrics skipped" 0 !inter_chunk_metrics;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 (* RFC-OAS-026: drive the [Some t] transport dispatch arm with a transport that
    has NO construction-time idle deadline. The high-level [stream_idle_timeout_s]
    must reach [read_sse] via the request-borne carrier field on
@@ -1776,6 +1854,10 @@ let () =
             `Quick
             test_complete_stream_idle_timeout_still_fires
         ; test_case "streaming metrics" `Quick test_complete_stream_metrics
+        ; test_case
+            "unknown stream latency stays unknown"
+            `Quick
+            test_complete_stream_unknown_latency_stays_unknown
         ; test_case
             "transport arm idle timeout (RFC-OAS-026)"
             `Quick

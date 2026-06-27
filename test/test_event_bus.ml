@@ -430,7 +430,7 @@ let test_turn_started_fields () =
 let test_tool_completed_preserves_non_retryable_flag () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let sub = Event_bus.subscribe ~filter:Event_bus.filter_tools_only bus in
   let tool =
@@ -499,7 +499,7 @@ let test_tool_completed_preserves_non_retryable_flag () =
 let test_on_tool_error_hook_fires_on_tool_failure () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let tool =
     Tool.create ~name:"fail" ~description:"Always fails" ~parameters:[] (fun _ ->
@@ -550,7 +550,7 @@ let test_on_tool_error_hook_fires_on_tool_failure () =
 let test_on_tool_error_hook_silent_on_success () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let tool =
     Tool.create ~name:"ok" ~description:"" ~parameters:[] (fun _ ->
@@ -596,7 +596,7 @@ let test_on_tool_error_hook_silent_on_success () =
 let test_on_error_fires_on_tool_not_found () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let schedule : Hooks.tool_schedule =
     { planned_index = 0
@@ -655,7 +655,7 @@ let test_on_error_fires_on_tool_not_found () =
 let test_unknown_tool_reports_available_tools_and_retries () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let read_file =
     Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun _ ->
@@ -736,7 +736,7 @@ let test_unknown_tool_reports_available_tools_and_retries () =
 let test_provider_read_alias_dispatches_to_read_file_when_visible () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let captured_input = ref `Null in
   let read_file =
@@ -810,7 +810,7 @@ let test_provider_read_alias_dispatches_to_read_file_when_visible () =
 let test_provider_search_alias_dispatches_to_search_files_when_visible () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let captured_input = ref `Null in
   let search_files =
     Tool.create
@@ -879,7 +879,7 @@ let test_provider_search_alias_dispatches_to_search_files_when_visible () =
 let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let captured_input = ref `Null in
   let execute =
     Tool.create
@@ -950,7 +950,7 @@ let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
 let test_on_error_silent_on_successful_dispatch () =
   Eio_main.run
   @@ fun _env ->
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let tool =
     Tool.create ~name:"ok" ~description:"" ~parameters:[] (fun _ ->
