@@ -28,6 +28,10 @@ let read_file path =
 let ensure_dir_recursive ?(mode = 0o700) path =
   let op = "mkdir_p" in
   let file_error path detail = Error (Error.Io (FileOpFailed { op; path; detail })) in
+  (* Use Unix.* here rather than Sys.* so mkdir failures retain structured errno
+     values. The EEXIST -> stat check below is necessarily racy if another
+     process replaces the path between the two syscalls; the result is still a
+     best-effort diagnostic for local directory preparation. *)
   let ensure_existing_dir p =
     try
       match (Unix.stat p).st_kind with
@@ -37,30 +41,36 @@ let ensure_dir_recursive ?(mode = 0o700) path =
     | Eio.Cancel.Cancelled _ as e -> raise e
     | exn -> io_error_of_exn ~op ~path:p exn
   in
+  let mkdir_once p =
+    try
+      Unix.mkdir p mode;
+      Ok `Created
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | Unix.Unix_error (Unix.EEXIST, _, _) -> Ok `Already_exists
+    | Unix.Unix_error (Unix.ENOENT, _, _) -> Ok `Missing_parent
+    | exn -> io_error_of_exn ~op ~path:p exn
+  in
   let rec aux p =
     if String.equal p ""
     then file_error p "empty directory path"
     else (
-      try
-        Unix.mkdir p mode;
-        Ok ()
-      with
-      | Eio.Cancel.Cancelled _ as e -> raise e
-      | Unix.Unix_error (Unix.EEXIST, _, _) -> ensure_existing_dir p
-      | Unix.Unix_error (Unix.ENOENT, _, _) ->
+      match mkdir_once p with
+      | Error _ as err -> err
+      | Ok `Created -> Ok ()
+      | Ok `Already_exists -> ensure_existing_dir p
+      | Ok `Missing_parent ->
         let parent = Filename.dirname p in
         if String.equal parent p
         then io_error_of_exn ~op ~path:p (Unix.Unix_error (Unix.ENOENT, op, p))
         else
           let* () = aux parent in
-          (try
-             Unix.mkdir p mode;
-             Ok ()
-           with
-           | Eio.Cancel.Cancelled _ as e -> raise e
-           | Unix.Unix_error (Unix.EEXIST, _, _) -> ensure_existing_dir p
-           | exn -> io_error_of_exn ~op ~path:p exn)
-      | exn -> io_error_of_exn ~op ~path:p exn)
+          (match mkdir_once p with
+           | Error _ as err -> err
+           | Ok `Created -> Ok ()
+           | Ok `Already_exists -> ensure_existing_dir p
+           | Ok `Missing_parent ->
+             io_error_of_exn ~op ~path:p (Unix.Unix_error (Unix.ENOENT, op, p))))
   in
   aux path
 ;;

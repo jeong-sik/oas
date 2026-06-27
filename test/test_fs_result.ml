@@ -89,7 +89,7 @@ let test_write_file_parent_is_file () =
        | Error (Error.Io (FileOpFailed { op; path = err_path; detail })) ->
          check_string "op" "mkdir_p" op;
          check_string "path" parent err_path;
-         check_bool "detail" true (Util.string_contains ~needle:"not a directory" detail)
+         check_string "detail" "path exists and is not a directory" detail
        | Error _ -> Alcotest.fail "wrong error type"
        | Ok () -> Alcotest.fail "write should reject file parent")
 ;;
@@ -145,9 +145,19 @@ let test_ensure_dir_existing_file () =
        | Error (Error.Io (FileOpFailed { op; path = err_path; detail })) ->
          check_string "op" "mkdir_p" op;
          check_string "path" path err_path;
-         check_bool "detail" true (Util.string_contains ~needle:"not a directory" detail)
+         check_string "detail" "path exists and is not a directory" detail
        | Error _ -> Alcotest.fail "wrong error type"
        | Ok () -> Alcotest.fail "file path should not be accepted as a directory")
+;;
+
+let test_ensure_dir_empty_path () =
+  match Fs_result.ensure_dir "" with
+  | Error (Error.Io (FileOpFailed { op; path; detail })) ->
+    check_string "op" "mkdir_p" op;
+    check_string "path" "" path;
+    check_string "detail" "empty directory path" detail
+  | Error _ -> Alcotest.fail "wrong error type"
+  | Ok () -> Alcotest.fail "empty path should fail"
 ;;
 
 (* ── file_exists ──────────────────────────────────────── *)
@@ -239,6 +249,7 @@ let () =
       , [ Alcotest.test_case "existing" `Quick test_ensure_dir_existing
         ; Alcotest.test_case "new" `Quick test_ensure_dir_new
         ; Alcotest.test_case "existing file" `Quick test_ensure_dir_existing_file
+        ; Alcotest.test_case "empty path" `Quick test_ensure_dir_empty_path
         ] )
     ; ( "file_exists"
       , [ Alcotest.test_case "true" `Quick test_file_exists_true
