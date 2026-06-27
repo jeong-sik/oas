@@ -30,13 +30,13 @@ let bool ?(default = false) ?on_invalid name =
      | "1" | "true" | "yes" | "on" -> true
      | "0" | "false" | "no" | "off" -> false
      | _ ->
-       warn_invalid
-         ~on_invalid
-         ~var:name
-         ~raw:v
-         ~expected:"boolean"
-         ~diag:(fun () ->
-           Diag.warn "cli_common_env" "%s=%S is not a boolean; using default %b" name v default);
+       warn_invalid ~on_invalid ~var:name ~raw:v ~expected:"boolean" ~diag:(fun () ->
+         Diag.warn
+           "cli_common_env"
+           "%s=%S is not a boolean; using default %b"
+           name
+           v
+           default);
        default)
 ;;
 
@@ -80,29 +80,28 @@ let int ?(allow_negative = false) ?on_invalid ~default var =
     (match int_of_string_opt raw with
      | Some v when v >= 0 || allow_negative -> v
      | Some v ->
-       warn_invalid
-         ~on_invalid
-         ~var
-         ~raw
-         ~expected
-         ~diag:(fun () ->
-           Diag.warn "cli_common_env" "%s=%S is negative (%d); using default %d" var raw v default);
+       warn_invalid ~on_invalid ~var ~raw ~expected ~diag:(fun () ->
+         Diag.warn
+           "cli_common_env"
+           "%s=%S is negative (%d); using default %d"
+           var
+           raw
+           v
+           default);
        default
      | None ->
-       warn_invalid
-         ~on_invalid
-         ~var
-         ~raw
-         ~expected
-         ~diag:(fun () ->
-           Diag.warn "cli_common_env" "%s=%S is not an integer; using default %d" var raw default);
+       warn_invalid ~on_invalid ~var ~raw ~expected ~diag:(fun () ->
+         Diag.warn
+           "cli_common_env"
+           "%s=%S is not an integer; using default %d"
+           var
+           raw
+           default);
        default)
 ;;
 
 let float ?(allow_negative = false) ?on_invalid ~default var =
-  let expected =
-    if allow_negative then "finite float" else "non-negative finite float"
-  in
+  let expected = if allow_negative then "finite float" else "non-negative finite float" in
   match get var with
   | None -> default
   | Some raw ->
@@ -110,22 +109,24 @@ let float ?(allow_negative = false) ?on_invalid ~default var =
      | Some v when Float.is_finite v && (v >= 0.0 || allow_negative) -> v
      | Some v ->
        let kind = if Float.is_finite v then "negative" else "not a finite" in
-       warn_invalid
-         ~on_invalid
-         ~var
-         ~raw
-         ~expected
-         ~diag:(fun () ->
-           Diag.warn "cli_common_env" "%s=%S is %s (%f); using default %f" var raw kind v default);
+       warn_invalid ~on_invalid ~var ~raw ~expected ~diag:(fun () ->
+         Diag.warn
+           "cli_common_env"
+           "%s=%S is %s (%f); using default %f"
+           var
+           raw
+           kind
+           v
+           default);
        default
      | None ->
-       warn_invalid
-         ~on_invalid
-         ~var
-         ~raw
-         ~expected
-         ~diag:(fun () ->
-           Diag.warn "cli_common_env" "%s=%S is not a float; using default %f" var raw default);
+       warn_invalid ~on_invalid ~var ~raw ~expected ~diag:(fun () ->
+         Diag.warn
+           "cli_common_env"
+           "%s=%S is not a float; using default %f"
+           var
+           raw
+           default);
        default)
 ;;
 
