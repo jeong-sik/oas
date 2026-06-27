@@ -76,7 +76,7 @@ let resolve_provider ?provider ?model () =
     match provider with
     | Some value when String.trim value <> "" ->
       String.lowercase_ascii (String.trim value)
-    | _ -> Defaults.fallback_provider ()
+    | _ -> Defaults.resolve_fallback_provider ()
   in
   let base =
     match selected with
@@ -109,7 +109,7 @@ let resolve_execution (session : session) (detail : spawn_agent_request) =
     | _ ->
       (match Util.trim_non_empty_opt session.provider with
        | Some value -> String.lowercase_ascii value
-       | None -> Defaults.fallback_provider ())
+       | None -> Defaults.resolve_fallback_provider ())
   in
   let requested_model = Util.trim_non_empty_opt detail.model in
   match selected_provider with

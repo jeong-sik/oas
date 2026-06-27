@@ -1,17 +1,8 @@
 open Agent_sdk
 
-let with_env key value f =
-  let previous = Sys.getenv_opt key in
-  Unix.putenv key value;
-  Fun.protect
-    ~finally:(fun () ->
-      match previous with
-      | Some previous -> Unix.putenv key previous
-      | None -> Unix.putenv key "")
-    f
+let with_test_providers_enabled f =
+  Llm_provider.Cli_common_env.with_env "OAS_ALLOW_TEST_PROVIDERS" "1" f
 ;;
-
-let with_test_providers_enabled f = with_env "OAS_ALLOW_TEST_PROVIDERS" "1" f
 
 let with_provider_catalog json f =
   match Llm_provider.Provider_catalog.of_json (Yojson.Safe.from_string json) with
@@ -387,14 +378,11 @@ let test_resolve_execution_session_provider () =
 ;;
 
 let test_resolve_execution_fallback () =
-  with_env "OAS_FALLBACK_PROVIDER" "local" (fun () ->
-    match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
-    | Ok res ->
-      Alcotest.(check string)
-        "fallback"
-        (Defaults.fallback_provider ())
-        res.selected_provider
-    | Error _ -> Alcotest.fail "expected Ok")
+  Llm_provider.Cli_common_env.with_env "OAS_FALLBACK_PROVIDER" "echo" (fun () ->
+    with_test_providers_enabled (fun () ->
+      match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+      | Ok res -> Alcotest.(check string) "fallback" "echo" res.selected_provider
+      | Error _ -> Alcotest.fail "expected Ok"))
 ;;
 
 let () =
