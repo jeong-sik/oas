@@ -1496,6 +1496,12 @@ let%test "classify_unix_error: EHOSTUNREACH is Dns_failure" =
   classify_unix_error Unix.EHOSTUNREACH = Dns_failure
 ;;
 
+(* ── drain_response_body tests ───────────────────────── *)
+
+let%test "drain_response_body: complete source reports complete" =
+  Result.is_ok (drain_response_body (Eio.Flow.string_source "abc"))
+;;
+
 (* ── is_local_resource_exhaustion tests ──────────────── *)
 
 let%test "resource exhaustion: EADDRNOTAVAIL via Eio" =
