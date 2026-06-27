@@ -18,7 +18,7 @@ type network_error_kind =
   | Dns_failure (** Hostname resolution failed or returned no results. *)
   | Tls_error
   (** TLS handshake, certificate validation, trust-store discovery, or TLS
-      transport shutdown failed. *)
+      protocol processing failed. *)
   | Timeout (** Connection or read timed out (ETIMEDOUT). *)
   | Local_resource_exhaustion
   (** Local OS resource limits reached (EMFILE, ENFILE, ENOBUFS, EADDRNOTAVAIL). *)
