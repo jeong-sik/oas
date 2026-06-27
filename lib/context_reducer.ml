@@ -268,15 +268,20 @@ let from_context_config
       ()
   =
   let compact_ratio =
-    Types.require_context_ratio ~name:"Context_reducer.from_context_config: compact_ratio" compact_ratio
+    Types.require_context_ratio
+      ~name:"Context_reducer.from_context_config: compact_ratio"
+      compact_ratio
   in
   let target_ratio =
     Option.map
-      (Types.require_context_ratio ~name:"Context_reducer.from_context_config: target_ratio")
+      (Types.require_context_ratio
+         ~name:"Context_reducer.from_context_config: target_ratio")
       target_ratio
   in
   let watermark =
-    Types.require_context_ratio ~name:"Context_reducer.from_context_config: watermark" watermark
+    Types.require_context_ratio
+      ~name:"Context_reducer.from_context_config: watermark"
+      watermark
   in
   let ceiling_budget =
     int_of_float

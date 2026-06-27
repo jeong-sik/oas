@@ -102,9 +102,7 @@ let valid_context_ratio ratio = ratio > 0.0 && ratio < 1.0
 let require_context_ratio ~name ratio =
   if valid_context_ratio ratio
   then ratio
-  else
-    invalid_arg
-      (Printf.sprintf "%s must be > 0.0 and < 1.0" name)
+  else invalid_arg (Printf.sprintf "%s must be > 0.0 and < 1.0" name)
 ;;
 
 (** Agent configuration *)

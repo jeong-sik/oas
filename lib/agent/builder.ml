@@ -217,7 +217,9 @@ let with_context_thresholds
       b
   =
   let compact_ratio =
-    Types.require_context_ratio ~name:"Builder.with_context_thresholds: compact_ratio" compact_ratio
+    Types.require_context_ratio
+      ~name:"Builder.with_context_thresholds: compact_ratio"
+      compact_ratio
   in
   let prepare_ratio =
     Option.map
