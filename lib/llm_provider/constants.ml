@@ -272,6 +272,9 @@ module Anthropic = struct
       @since 0.185.0 *)
   let prompt_cache_min_tools = 3
 
+  (** Compatibility alias for the static default. New request-building code
+      should use {!prompt_cache_min_chars_for_env} so
+      [OAS_PROMPT_CACHE_MIN_CHARS] is resolved at call time. *)
   let prompt_cache_min_chars = default_prompt_cache_min_chars
 
   let prompt_cache_min_chars_for_env ?getenv () =
