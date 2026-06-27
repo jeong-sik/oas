@@ -17,6 +17,8 @@
     "lib/llm_provider/cli_common_env.mli",
     "lib/llm_provider/constants.ml",
     "lib/llm_provider/constants.mli",
+    "lib/llm_provider/env_parse.ml",
+    "lib/llm_provider/env_parse.mli",
     "lib/llm_provider/model_catalog.ml",
     "lib/llm_provider/model_catalog.mli",
     "lib/llm_provider/paths.ml",
