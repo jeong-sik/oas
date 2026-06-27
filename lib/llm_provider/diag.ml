@@ -20,11 +20,11 @@ let env_bool name =
      | _ -> false)
 ;;
 
-let debug_enabled = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_DIAG"
+let debug_enabled () = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_DIAG"
 
 let default_sink (lvl : level) ~ctx msg =
   match lvl with
-  | Debug when not debug_enabled -> ()
+  | Debug when not (debug_enabled ()) -> ()
   | _ ->
     Printf.eprintf
       "[llm_provider] [%s] [%s] %s\n%!"
@@ -47,3 +47,41 @@ let debug ctx fmt = emit Debug ctx fmt
 let info ctx fmt = emit Info ctx fmt
 let warn ctx fmt = emit Warn ctx fmt
 let error ctx fmt = emit Error ctx fmt
+
+let%test "debug_enabled reads OAS_LLM_PROVIDER_DEBUG at call time" =
+  let with_env name value f =
+    let previous = Sys.getenv_opt name in
+    Unix.putenv name value;
+    Fun.protect
+      ~finally:(fun () ->
+        match previous with
+        | Some previous -> Unix.putenv name previous
+        | None -> Unix.putenv name "")
+      f
+  in
+  with_env "OAS_CASCADE_DIAG" "" (fun () ->
+    with_env "OAS_LLM_PROVIDER_DEBUG" "" (fun () ->
+      (not (debug_enabled ()))
+      &&
+      (Unix.putenv "OAS_LLM_PROVIDER_DEBUG" "1";
+       debug_enabled ())))
+;;
+
+let%test "debug_enabled reads OAS_CASCADE_DIAG alias at call time" =
+  let with_env name value f =
+    let previous = Sys.getenv_opt name in
+    Unix.putenv name value;
+    Fun.protect
+      ~finally:(fun () ->
+        match previous with
+        | Some previous -> Unix.putenv name previous
+        | None -> Unix.putenv name "")
+      f
+  in
+  with_env "OAS_LLM_PROVIDER_DEBUG" "" (fun () ->
+    with_env "OAS_CASCADE_DIAG" "" (fun () ->
+      (not (debug_enabled ()))
+      &&
+      (Unix.putenv "OAS_CASCADE_DIAG" "true";
+       debug_enabled ())))
+;;
