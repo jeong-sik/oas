@@ -178,6 +178,37 @@ let test_resolve_params_no_hook () =
     (Option.is_none params.extra_system_context)
 ;;
 
+(** resolve_turn_params with an explicit Continue decision returns defaults. *)
+let test_resolve_params_continue () =
+  let hooks = { Hooks.empty with before_turn_params = Some (fun _ -> Hooks.Continue) } in
+  let messages : Types.message list =
+    [ { role = User
+      ; content = [ Text "hello" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let invoke_hook ~hook_name:_ hook event =
+    match hook with
+    | Some h -> h event
+    | None -> Hooks.Continue
+  in
+  let params =
+    Agent_turn.resolve_turn_params ~hooks ~messages ~max_turns:10 ~turn:0 ~invoke_hook
+  in
+  Alcotest.(check bool) "default temperature" true (Option.is_none params.temperature);
+  Alcotest.(check bool)
+    "default thinking_budget"
+    true
+    (Option.is_none params.thinking_budget);
+  Alcotest.(check bool)
+    "default extra_context"
+    true
+    (Option.is_none params.extra_system_context)
+;;
+
 (** resolve_turn_params with AdjustParams decision applies params. *)
 let test_resolve_params_adjust () =
   let adjusted : Hooks.turn_params =
@@ -764,6 +795,7 @@ let () =
         ] )
     ; ( "resolve_turn_params"
       , [ Alcotest.test_case "no hook" `Quick test_resolve_params_no_hook
+        ; Alcotest.test_case "continue uses defaults" `Quick test_resolve_params_continue
         ; Alcotest.test_case "adjust params" `Quick test_resolve_params_adjust
         ; Alcotest.test_case
             "system_prompt_override applied"

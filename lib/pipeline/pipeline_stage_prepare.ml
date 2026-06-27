@@ -71,7 +71,11 @@ let stage_input ?raw_trace_run agent =
             }
       });
     Ok ()
-  | _ -> Ok ()
+  | Hooks.Continue -> Ok ()
+  | Hooks.Skip | Hooks.Override _ | Hooks.ApprovalRequired | Hooks.AdjustParams _ ->
+    (* Unreachable after [Hooks.invoke_validated] for before_turn. Fail-fast
+       so a validation bypass cannot silently start a turn. *)
+    assert false
 ;;
 
 (* Lower a canonical tool-result projection to the [Types.tool_result] the
@@ -279,7 +283,16 @@ let stage_parse ?raw_trace_run agent =
       in
       (match decision with
        | Hooks.AdjustParams params -> params
-       | _ -> Hooks.default_turn_params)
+       | Hooks.Continue -> Hooks.default_turn_params
+       | Hooks.Skip
+       | Hooks.Override _
+       | Hooks.ApprovalRequired
+       | Hooks.ElicitInput _
+       | Hooks.Nudge _ ->
+         (* Unreachable after [Hooks.invoke_validated] for before_turn_params.
+            Fail-fast so a validation bypass cannot silently use default
+            parameters. *)
+         assert false)
   in
   let original_config = agent.state.config in
   let new_config =

@@ -380,7 +380,14 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
               to Skip (for example, at a configured threshold). *)
            pending_nudge := Some nudge_msg;
            idle_handled := true
-         | _ -> ());
+         | Hooks.Continue -> ()
+         | Hooks.Override _
+         | Hooks.ApprovalRequired
+         | Hooks.AdjustParams _
+         | Hooks.ElicitInput _ ->
+           (* Unreachable after [Hooks.invoke_validated] for on_idle. Fail-fast
+              so a validation bypass cannot silently change idle behavior. *)
+           assert false);
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
        if !idle_skip
@@ -614,9 +621,7 @@ let compact_messages
       agent.options.hooks.pre_compact
       (Hooks.PreCompact { messages; estimated_tokens = est_tokens; budget_tokens })
   in
-  match hook_decision with
-  | Hooks.Skip -> false
-  | _ ->
+  let run_compaction () =
     let reduced =
       Budget_strategy.reduce_for_budget
         ?summarizer:agent.options.summarizer
@@ -682,6 +687,18 @@ let compact_messages
               })
        | None -> ());
       true)
+  in
+  match hook_decision with
+  | Hooks.Skip -> false
+  | Hooks.Continue -> run_compaction ()
+  | Hooks.Override _
+  | Hooks.ApprovalRequired
+  | Hooks.AdjustParams _
+  | Hooks.ElicitInput _
+  | Hooks.Nudge _ ->
+    (* Unreachable after [Hooks.invoke_validated] for pre_compact. Fail-fast
+       so a validation bypass cannot silently compact. *)
+    assert false
 ;;
 
 (** Apply proactive compaction when context usage exceeds the configured
