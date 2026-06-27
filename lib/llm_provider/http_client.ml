@@ -390,6 +390,23 @@ let network_error_of_eio err exn =
 
 let unknown_network_error msg = NetworkError { message = msg; kind = Unknown }
 
+let runtime_text_network_kind msg =
+  let normalized = String.lowercase_ascii msg in
+  if
+    contains_substring normalized "too many open files"
+    || contains_substring normalized "no buffer space available"
+    || contains_substring normalized "emfile"
+    || contains_substring normalized "enfile"
+    || contains_substring normalized "enobufs"
+    || contains_substring normalized "eaddrnotavail"
+    || contains_substring normalized "cannot assign requested address"
+    || contains_substring normalized "can't assign requested address"
+  then Local_resource_exhaustion
+  else if contains_substring normalized "broken pipe"
+  then End_of_file
+  else Unknown
+;;
+
 let https_init_error_network_kind = function
   | Api_common.Ca_certs_unavailable _ -> Tls_error
   | Api_common.Tls_config_unavailable _ -> Tls_error
@@ -412,8 +429,8 @@ let classify_network_exn (e : exn) =
     Some
       (NetworkError { message = Printexc.to_string exn; kind = classify_unix_error code })
   | Eio.Io (err, _) as exn -> Some (network_error_of_eio err exn)
-  | Sys_error msg -> Some (unknown_network_error msg)
-  | Failure msg -> Some (unknown_network_error msg)
+  | Sys_error msg | Failure msg ->
+    Some (NetworkError { message = msg; kind = runtime_text_network_kind msg })
   | _ -> None
 ;;
 
