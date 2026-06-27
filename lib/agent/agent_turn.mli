@@ -232,6 +232,9 @@ val update_idle_detection_with_normalizer
   -> tool_uses:Types.content_block list
   -> idle_result
 
+(** Reset idle detection state after a non-tool-use turn or an idle Skip. *)
+val reset_idle_detection : unit -> idle_result
+
 (** {1 Tool result construction} *)
 
 (** Default per-tool-result character cap (50,000).

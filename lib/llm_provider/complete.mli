@@ -40,6 +40,10 @@ val apply_sampling_defaults : Provider_config.t -> Provider_config.t
 
 (** {1 Transport} *)
 
+(** Opaque handle for a monotonic latency measurement.
+    See {!Complete_common.start_latency_counter} for creation. *)
+type latency_counter = Complete_common.latency_counter
+
 (** Create an HTTP-based transport.
     Wraps the internal HTTP completion pipeline into a
     {!Llm_transport.t} value that can be passed to [complete]
@@ -48,12 +52,22 @@ val apply_sampling_defaults : Provider_config.t -> Provider_config.t
     When [connection_cache] is supplied, the transport reuses idle
     HTTP connections and parks them back after each request.
 
+    When [latency_counter] is supplied, the transport's streaming
+    path shares that counter instead of allocating its own. The
+    per-request [complete_stream] entry point already shares its
+    counter for the direct-HTTP path; this parameter is useful when
+    constructing a transport that should also share a counter with
+    its caller. Arbitrary non-HTTP transports still use their own
+    latency measurement because [Llm_transport.t.complete_stream]
+    does not accept a counter.
+
     @since 0.78.0 *)
 val make_http_transport
   :  ?clock:_ Eio.Time.clock
   -> ?stream_idle_timeout_s:float
   -> ?body_timeout_s:float
   -> ?connection_cache:Http_client.cache
+  -> ?latency_counter:latency_counter
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> unit
