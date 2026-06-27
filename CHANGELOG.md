@@ -21,6 +21,16 @@ original tag dates. `0.100.4` was never tagged or released.
   `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from
   `Mcp_http.default_config` to `Mcp_http.default_config ()`.
 
+## [0.207.10](https://github.com/jeong-sik/oas/compare/v0.207.9...v0.207.10) (2026-06-27)
+
+
+### Bug Fixes
+
+* **builder:** log auto dump save failures ([#2197](https://github.com/jeong-sik/oas/issues/2197)) ([ed1deac](https://github.com/jeong-sik/oas/commit/ed1deac2ab9af03730af233f6d0d2eb4d3f119f0))
+* **complete:** measure latency with monotonic counters ([#2181](https://github.com/jeong-sik/oas/issues/2181)) ([9ab0301](https://github.com/jeong-sik/oas/commit/9ab030140a09791a7402cfb9209cc212889c0d7a))
+* **pipeline:** make compaction watermark config-owned ([#2177](https://github.com/jeong-sik/oas/issues/2177)) ([0a018b7](https://github.com/jeong-sik/oas/commit/0a018b7210038d0c9c274d7d4f0658b6e672cced))
+* **provider:** derive auth headers without dummy config ([#2178](https://github.com/jeong-sik/oas/issues/2178)) ([48afaec](https://github.com/jeong-sik/oas/commit/48afaec325ab528c50be135e03933de4e4b20794))
+
 ## [0.207.9](https://github.com/jeong-sik/oas/compare/v0.207.8...v0.207.9) (2026-06-27)
 
 
