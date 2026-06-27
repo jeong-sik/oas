@@ -319,9 +319,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
              }
            ~tool_uses
        in
-       Eio.Mutex.use_rw ~protect:true agent.mu (fun () ->
-         agent.last_tool_calls <- idle_result.new_state.last_tool_calls;
-         agent.consecutive_idle_turns <- idle_result.new_state.consecutive_idle_turns);
+       Agent_types.set_idle_state agent idle_result.new_state;
        let idle_skip = ref false in
        let idle_handled = ref false in
        (* true when Nudge or Skip handled idle *)
@@ -535,6 +533,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
          (match result with
           | Ok IdleSkipped ->
             (* on_idle hook returned Skip: stop gracefully with the current response *)
+            Agent_types.reset_idle_state agent;
             Ok (Complete response)
           | other -> other)
        | EndTurn
@@ -544,6 +543,9 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
        | PauseTurn
        | Compaction
        | ContextWindowExceeded ->
+         (* Invoke on_stop before resetting idle counters, so observers
+            (hooks, tracers, telemetry callbacks) can read the actual
+            consecutive_idle_turns value that drove this turn's behavior. *)
          let _stop =
            invoke_hook_with_trace
              agent
@@ -552,8 +554,11 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
              agent.options.hooks.on_stop
              (Hooks.OnStop { reason = response.stop_reason; response })
          in
+         Agent_types.reset_idle_state agent;
          Ok (Complete response)
-       | Unknown reason -> Error (Error.Agent (UnrecognizedStopReason { reason })))
+       | Unknown reason ->
+         Agent_types.reset_idle_state agent;
+         Error (Error.Agent (UnrecognizedStopReason { reason })))
 ;;
 
 (* ── Proactive watermark compaction (Phase 2) ───────────── *)
