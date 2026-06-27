@@ -5,6 +5,8 @@
     Compatibility snapshot values are evaluated at module init time. Tests that
     need call-time env reflection use the explicit resolve_* functions. *)
 
+[@@@ocaml.warning "-3"]
+
 open Agent_sdk
 
 let () =
@@ -67,7 +69,7 @@ let () =
             check bool "non-empty" true (String.length p > 0))
         ; test_case "resolve_fallback_provider reads env at call time" `Quick (fun () ->
             Llm_provider.Cli_common_env.with_env
-              "OAS_FALLBACK_PROVIDER"
+              Defaults.fallback_provider_env_var
               "provider-a"
               (fun () ->
                  check
@@ -75,21 +77,21 @@ let () =
                    "first env"
                    "provider-a"
                    (Defaults.resolve_fallback_provider ());
-                 Unix.putenv "OAS_FALLBACK_PROVIDER" "  provider-b  ";
+                 Unix.putenv Defaults.fallback_provider_env_var "  provider-b  ";
                  check
                    string
                    "second env"
                    "provider-b"
                    (Defaults.resolve_fallback_provider ());
-                 Unix.putenv "OAS_FALLBACK_PROVIDER" "";
+                 Unix.putenv Defaults.fallback_provider_env_var "";
                  check
                    string
                    "empty env default"
-                   "local"
+                   Defaults.default_fallback_provider
                    (Defaults.resolve_fallback_provider ())))
         ; test_case "resolve_fallback_provider normalizes casing" `Quick (fun () ->
             Llm_provider.Cli_common_env.with_env
-              "OAS_FALLBACK_PROVIDER"
+              Defaults.fallback_provider_env_var
               "ProViDer-A"
               (fun () ->
                  check

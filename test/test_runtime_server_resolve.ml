@@ -1,3 +1,5 @@
+[@@@ocaml.warning "-3"]
+
 open Agent_sdk
 
 let with_test_providers_enabled f =
@@ -378,11 +380,14 @@ let test_resolve_execution_session_provider () =
 ;;
 
 let test_resolve_execution_fallback () =
-  Llm_provider.Cli_common_env.with_env "OAS_FALLBACK_PROVIDER" "echo" (fun () ->
-    with_test_providers_enabled (fun () ->
-      match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
-      | Ok res -> Alcotest.(check string) "fallback" "echo" res.selected_provider
-      | Error _ -> Alcotest.fail "expected Ok"))
+  Llm_provider.Cli_common_env.with_env
+    Defaults.fallback_provider_env_var
+    "echo"
+    (fun () ->
+       with_test_providers_enabled (fun () ->
+         match Runtime_server_resolve.resolve_execution dummy_session dummy_spawn with
+         | Ok res -> Alcotest.(check string) "fallback" "echo" res.selected_provider
+         | Error _ -> Alcotest.fail "expected Ok"))
 ;;
 
 let () =
