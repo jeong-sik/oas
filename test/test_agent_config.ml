@@ -82,6 +82,56 @@ let test_defaults () =
   | Error e -> fail (Error.to_string e)
 ;;
 
+let expect_invalid_config_field field json =
+  match Agent_config.of_json json with
+  | Error (Error.Config (InvalidConfig { field = actual; _ })) ->
+    check string "field" field actual
+  | Error e -> fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+  | Ok _ -> fail "expected invalid config"
+;;
+
+let test_rejects_non_object_config () =
+  expect_invalid_config_field "agent_config" (`List [])
+;;
+
+let test_rejects_non_list_tools () =
+  expect_invalid_config_field "tools" (`Assoc [ "tools", `Assoc [] ])
+;;
+
+let test_rejects_non_list_tool_parameters () =
+  expect_invalid_config_field
+    "parameters"
+    (`Assoc
+        [ "tools", `List [ `Assoc [ "name", `String "calc"; "parameters", `Assoc [] ] ] ])
+;;
+
+let test_rejects_non_list_mcp_servers () =
+  expect_invalid_config_field "mcp_servers" (`Assoc [ "mcp_servers", `String "node" ])
+;;
+
+let test_rejects_non_string_mcp_args () =
+  expect_invalid_config_field
+    "args"
+    (`Assoc
+        [ ( "mcp_servers"
+          , `List [ `Assoc [ "command", `String "node"; "args", `List [ `Int 1 ] ] ] )
+        ])
+;;
+
+let test_rejects_non_string_http_headers () =
+  expect_invalid_config_field
+    "headers.Authorization"
+    (`Assoc
+        [ ( "mcp_servers"
+          , `List
+              [ `Assoc
+                  [ "url", `String "http://example.com/mcp"
+                  ; "headers", `Assoc [ "Authorization", `Int 1 ]
+                  ]
+              ] )
+        ])
+;;
+
 (* ── load ───────────────────────────────────────────────── *)
 
 let test_load_nonexistent () =
@@ -400,6 +450,18 @@ let () =
         ; test_case "http mcp" `Quick test_http_mcp_config
         ; test_case "http mcp defaults" `Quick test_http_mcp_defaults
         ; test_case "mixed mcp" `Quick test_mixed_mcp_config
+        ; test_case "reject non-object config" `Quick test_rejects_non_object_config
+        ; test_case "reject non-list tools" `Quick test_rejects_non_list_tools
+        ; test_case
+            "reject non-list tool parameters"
+            `Quick
+            test_rejects_non_list_tool_parameters
+        ; test_case "reject non-list mcp_servers" `Quick test_rejects_non_list_mcp_servers
+        ; test_case "reject non-string mcp args" `Quick test_rejects_non_string_mcp_args
+        ; test_case
+            "reject non-string http headers"
+            `Quick
+            test_rejects_non_string_http_headers
         ] )
     ; ( "load"
       , [ test_case "nonexistent" `Quick test_load_nonexistent
