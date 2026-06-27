@@ -2,55 +2,46 @@
   "_comment": "Production hardening ratchet baseline. Regenerate with scripts/hardening-ratchet.sh --rebaseline.",
   "examples": {
     "direct_env_reads": [
-      "lib/base/model_registry.ml:10:match Sys.getenv_opt \"OAS_DEFAULT_MODEL\" with",
-      "lib/base/util.ml:101:match Sys.getenv_opt var with",
-      "lib/base/util.ml:157:match Sys.getenv_opt var with",
       "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
-      "lib/defaults.ml:18:match Sys.getenv_opt var with",
-      "lib/defaults.ml:31:match Sys.getenv_opt var with",
-      "lib/defaults.ml:43:match Sys.getenv_opt var with",
-      "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in"
+      "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
+      "lib/llm_provider/cli_common_env.ml:11:let get name = trim_non_empty_opt (Sys.getenv_opt name)",
+      "lib/llm_provider/cli_common_env.ml:160:let original = Sys.getenv_opt name in",
+      "lib/llm_provider/complete_sync.ml:115:Sys.getenv_opt \"OAS_DEBUG_REQUEST_BODY\"",
+      "lib/llm_provider/constants.ml:87:match Sys.getenv \"OAS_MAX_TOKENS_DEFAULT\" with",
+      "lib/llm_provider/constants.ml:175:match Sys.getenv env_var with",
+      "lib/llm_provider/constants.ml:229:match Sys.getenv \"OAS_DEFAULT_SEED\" with"
     ],
     "direct_env_reads_outside_env_boundary": [
-      "lib/base/model_registry.ml:10:match Sys.getenv_opt \"OAS_DEFAULT_MODEL\" with",
-      "lib/base/util.ml:101:match Sys.getenv_opt var with",
-      "lib/base/util.ml:157:match Sys.getenv_opt var with",
       "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
       "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
       "lib/llm_provider/complete_sync.ml:115:Sys.getenv_opt \"OAS_DEBUG_REQUEST_BODY\"",
       "lib/llm_provider/diag.ml:15:match Sys.getenv_opt name with",
-      "lib/llm_provider/discovery.ml:675:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with"
+      "lib/llm_provider/discovery.ml:729:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with",
+      "lib/llm_provider/discovery.ml:758:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with",
+      "lib/llm_provider/paths.ml:4:match Sys.getenv_opt \"HOME\" with",
+      "lib/llm_provider/pricing.ml:506:match Sys.getenv_opt \"OAS_PRICING_FILE\" with"
     ],
-    "exception_message_classifiers": [
-      "lib/llm_provider/http_client.ml:364:let classify_by_message msg =",
-      "lib/llm_provider/http_client.ml:395:(match classify_by_message msg with",
-      "lib/llm_provider/http_client.ml:422:Some (NetworkError { message = msg; kind = classify_by_message msg })",
-      "lib/llm_provider/http_client.ml:423:| Sys_error msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })",
-      "lib/llm_provider/http_client.ml:424:| Failure msg -> Some (NetworkError { message = msg; kind = classify_by_message msg })",
-      "lib/llm_provider/http_client.ml:712:Error (NetworkError { message = msg; kind = classify_by_message msg })",
-      "lib/llm_provider/http_client.ml:718:Error (NetworkError { message = msg; kind = classify_by_message msg })",
-      "lib/llm_provider/http_client.ml:809:Error (NetworkError { message = msg; kind = classify_by_message msg })"
-    ],
+    "exception_message_classifiers": [],
     "local_workspace_path_literals": [],
     "stub_markers": [],
     "wildcard_silent_defaults": [
       "lib/agent/agent_handoff.ml:36:| _ -> None))",
       "lib/agent/agent_handoff.ml:79:| _ -> false)",
       "lib/agent/agent_tool_name_alias.ml:70:| _ -> false",
-      "lib/agent/agent_tools.ml:83:| _ -> None",
-      "lib/agent/builder.ml:466:| _ -> Ok (build b)))",
+      "lib/agent/builder.ml:481:| _ -> Ok (build b)))",
       "lib/agent_tool.ml:33:| _ -> None)",
       "lib/api_openai.ml:19:| _ -> []",
-      "lib/api_openai.ml:137:| _ -> None"
+      "lib/api_openai.ml:137:| _ -> None",
+      "lib/api_openai.ml:143:| _ -> true"
     ]
   },
-  "lastUpdatedCommit": "7317d0773f605f7af41eb18ccee4c90002f5c9a1",
+  "lastUpdatedCommit": "12b3124475bc7e4d639d04fb8825bcf69dce0b64",
   "metrics": {
-    "direct_env_reads": 34,
-    "direct_env_reads_outside_env_boundary": 22,
-    "exception_message_classifiers": 34,
+    "direct_env_reads": 25,
+    "direct_env_reads_outside_env_boundary": 18,
+    "exception_message_classifiers": 0,
     "local_workspace_path_literals": 0,
     "stub_markers": 0,
-    "wildcard_silent_defaults": 261
+    "wildcard_silent_defaults": 255
   }
 }
