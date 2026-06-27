@@ -105,7 +105,6 @@ let trim_non_empty_opt = function
 (** Deprecated: use [Llm_provider.Cli_common_env.get]. Kept for backward
     compatibility until remaining internal callers are migrated. *)
 let get = Llm_provider.Cli_common_env.get
-;;
 
 let env_or default var =
   match get var with

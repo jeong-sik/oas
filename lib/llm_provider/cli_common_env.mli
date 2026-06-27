@@ -69,11 +69,21 @@ val trim_non_empty_opt : string option -> string option
     rejected unless [allow_negative] is [true].  Rejected values call
     [on_invalid] if provided, otherwise emit a diagnostic warning before
     falling back to [default]. *)
-val int : ?allow_negative:bool -> ?on_invalid:(invalid_env -> unit) -> default:int -> string -> int
+val int
+  :  ?allow_negative:bool
+  -> ?on_invalid:(invalid_env -> unit)
+  -> default:int
+  -> string
+  -> int
 
 (** [float ?allow_negative ?on_invalid ~default var] parses env var [var] as a
     float.  Returns [default] when unset or empty.  Negative and non-finite
     values are rejected unless [allow_negative] is [true] (non-finite values
     are always rejected).  Rejected values call [on_invalid] if provided,
     otherwise emit a diagnostic warning before falling back to [default]. *)
-val float : ?allow_negative:bool -> ?on_invalid:(invalid_env -> unit) -> default:float -> string -> float
+val float
+  :  ?allow_negative:bool
+  -> ?on_invalid:(invalid_env -> unit)
+  -> default:float
+  -> string
+  -> float
