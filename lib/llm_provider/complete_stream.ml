@@ -759,21 +759,7 @@ let complete_stream_http
               | _, None -> resp.telemetry
               | Some t, (Some _ as timings) -> Some { t with timings }
               | None, (Some _ as timings) ->
-                Some
-                  { Types.system_fingerprint = None
-                  ; timings
-                  ; reasoning_tokens = None
-                  ; reasoning_tokens_estimated = false
-                  ; request_latency_ms = None
-                  ; peak_memory_gb = None
-                  ; provider_kind = None
-                  ; reasoning_effort = None
-                  ; canonical_model_id = None
-                  ; effective_context_window = None
-                  ; provider_internal_action_count = None
-                  ; ttfrc_ms = None
-                  ; prefill_ms = None
-                  }
+                Some { Types.default_inference_telemetry with timings }
             in
             { resp with usage; telemetry }
           | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> resp

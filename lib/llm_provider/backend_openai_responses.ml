@@ -488,21 +488,7 @@ let telemetry_of_response_json json =
       | Some (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
       | None -> None
     in
-    Some
-      { system_fingerprint = None
-      ; timings = None
-      ; reasoning_tokens
-      ; reasoning_tokens_estimated = false
-      ; request_latency_ms = None
-      ; peak_memory_gb = None
-      ; provider_kind = None
-      ; reasoning_effort = None
-      ; canonical_model_id = None
-      ; effective_context_window = None
-      ; provider_internal_action_count = None
-      ; ttfrc_ms = None
-      ; prefill_ms = None
-      }
+    Some { Types.default_inference_telemetry with reasoning_tokens }
   | Some (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None ->
     None
 ;;

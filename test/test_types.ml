@@ -559,18 +559,52 @@ let test_usage_and_inference_telemetry_yojson_roundtrip () =
 
 let test_default_inference_telemetry () =
   let telemetry = Types.default_inference_telemetry in
-  Alcotest.(check (option int))
-    "default latency unknown"
+  Alcotest.(check (option string))
+    "default system fingerprint unknown"
     None
-    telemetry.request_latency_ms;
+    telemetry.system_fingerprint;
+  Alcotest.(check bool) "default timings unknown" true (Option.is_none telemetry.timings);
+  Alcotest.(check (option int))
+    "default reasoning tokens unknown"
+    None
+    telemetry.reasoning_tokens;
   Alcotest.(check bool)
     "default reasoning tokens are not estimated"
     false
     telemetry.reasoning_tokens_estimated;
   Alcotest.(check (option int))
+    "default latency unknown"
+    None
+    telemetry.request_latency_ms;
+  Alcotest.(check (option (float 0.001)))
+    "default peak memory unknown"
+    None
+    telemetry.peak_memory_gb;
+  Alcotest.(check bool)
+    "default provider kind unknown"
+    true
+    (Option.is_none telemetry.provider_kind);
+  Alcotest.(check (option string))
+    "default reasoning effort unknown"
+    None
+    telemetry.reasoning_effort;
+  Alcotest.(check (option string))
+    "default canonical model unknown"
+    None
+    telemetry.canonical_model_id;
+  Alcotest.(check (option int))
+    "default context window unknown"
+    None
+    telemetry.effective_context_window;
+  Alcotest.(check (option int))
     "default provider actions unknown"
     None
-    telemetry.provider_internal_action_count
+    telemetry.provider_internal_action_count;
+  Alcotest.(check (option (float 0.001))) "default ttfrc unknown" None telemetry.ttfrc_ms;
+  Alcotest.(check (option (float 0.001)))
+    "default prefill unknown"
+    None
+    telemetry.prefill_ms
 ;;
 
 (* ── role_of_string ──────────────────────────────────────── *)
