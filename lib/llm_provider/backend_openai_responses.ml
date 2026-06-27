@@ -270,7 +270,7 @@ let effective_max_output_tokens (config : Provider_config.t) =
   let caps = capabilities_of_config config in
   match config.max_tokens, caps.max_output_tokens with
   | None, Some cap -> cap
-  | None, None -> Constants.unknown_model_max_tokens_fallback
+  | None, None -> Constants.resolve_unknown_model_max_tokens_fallback ()
   | Some n, Some cap when n > cap -> cap
   | Some n, _ -> n
 ;;

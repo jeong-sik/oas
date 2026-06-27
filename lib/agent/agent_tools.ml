@@ -77,10 +77,10 @@ let concurrency_class_to_string = function
 ;;
 
 let inferred_concurrency_class_of_mutation_class = function
-  | "read_only" -> Some Tool.Parallel_read
-  | "workspace" | "workspace_mutating" -> Some Tool.Sequential_workspace
-  | "external" | "external_effect" -> Some Tool.Exclusive_external
-  | _ -> None
+  | Tool.Read_only -> Some Tool.Parallel_read
+  | Tool.Workspace | Tool.Workspace_mutating | Tool.Local_mutation ->
+    Some Tool.Sequential_workspace
+  | Tool.External | Tool.External_effect -> Some Tool.Exclusive_external
 ;;
 
 let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =

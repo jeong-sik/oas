@@ -39,15 +39,6 @@ type response_parse_error =
 
 (* ── Minimal JSON Schema validator ──────────────────── *)
 
-let json_type_name = function
-  | `Assoc _ -> "object"
-  | `List _ -> "array"
-  | `String _ -> "string"
-  | `Int _ | `Intlit _ | `Float _ -> "number"
-  | `Bool _ -> "boolean"
-  | `Null -> "null"
-;;
-
 let json_schema_type_name = function
   | `String s -> Some s
   | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
@@ -109,7 +100,7 @@ let rec validate_against_schema
   in
   (match json_schema_type_name (schema |> member "type") with
    | Some expected when not (json_matches_schema_type expected value) ->
-     add json_path expected (json_type_name value)
+     add json_path expected (Json_util.json_type_name value)
    | Some _ | None -> ());
   (* Check "required" fields *)
   (match schema |> member "required", value with

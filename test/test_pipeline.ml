@@ -4,6 +4,8 @@
     Provider_mock.next_response and agent state inspection. *)
 
 open Agent_sdk
+module Internal_agent = Agent_sdk__Agent_types
+module Internal_pipeline = Agent_sdk__Pipeline
 
 (* ── Provider mock: verify pipeline stages via mock responses ── *)
 
@@ -200,6 +202,100 @@ let test_agent_turn_idle_detection () =
   in
   Alcotest.(check bool) "repeated call is idle" true idle_result2.is_idle;
   Alcotest.(check int) "consecutive 1" 1 idle_result2.new_state.consecutive_idle_turns
+;;
+
+let pipeline_response stop_reason : Types.api_response =
+  { id = "pipeline-reset-test"
+  ; model = "mock-model"
+  ; stop_reason
+  ; content = [ Text "done" ]
+  ; usage = None
+  ; telemetry = None
+  }
+;;
+
+let transport_returning response =
+  { Llm_provider.Llm_transport.complete_sync =
+      (fun _req ->
+        { Llm_provider.Llm_transport.response = Ok response; latency_ms = Some 0 })
+  ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _req -> Ok response)
+  }
+;;
+
+let seed_idle_state agent =
+  Eio.Mutex.use_rw ~protect:true agent.Internal_agent.mu (fun () ->
+    agent.last_tool_calls <- Some [ { Agent_turn.fp_name = "search"; fp_input = "{}" } ];
+    agent.consecutive_idle_turns <- 7)
+;;
+
+let idle_state_snapshot agent =
+  Eio.Mutex.use_ro agent.Internal_agent.mu (fun () ->
+    agent.last_tool_calls, agent.consecutive_idle_turns)
+;;
+
+let make_pipeline_test_agent ~net ~response =
+  let transport = transport_returning response in
+  let options =
+    { Internal_agent.default_options with
+      transport = Some transport
+    ; provider = Some (Provider_mock.to_provider_config ())
+    ; guardrails = Guardrails.permissive
+    ; max_idle_turns = 99
+    }
+  in
+  let agent =
+    Internal_agent.create
+      ~net
+      ~config:{ Types.default_config with name = "pipeline-idle-reset-test" }
+      ~options
+      ()
+  in
+  Internal_agent.set_state
+    agent
+    { (Internal_agent.state agent) with messages = [ Types.user_msg "hello" ] };
+  seed_idle_state agent;
+  agent
+;;
+
+let assert_pipeline_idle_reset agent =
+  let last_tool_calls, consecutive_idle_turns = idle_state_snapshot agent in
+  Alcotest.(check bool) "last tool calls reset" true (Option.is_none last_tool_calls);
+  Alcotest.(check int) "consecutive idle reset" 0 consecutive_idle_turns
+;;
+
+let test_pipeline_output_resets_idle_on_end_turn () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let agent = make_pipeline_test_agent ~net ~response:(pipeline_response EndTurn) in
+  (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+   | Ok (Internal_pipeline.Complete response) ->
+     Alcotest.(check bool) "completed" true (response.stop_reason = EndTurn)
+   | Ok Internal_pipeline.ToolsExecuted ->
+     Alcotest.fail "expected Complete, got ToolsExecuted"
+   | Ok Internal_pipeline.IdleSkipped ->
+     Alcotest.fail "expected Complete, got IdleSkipped"
+   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err));
+  assert_pipeline_idle_reset agent
+;;
+
+let test_pipeline_output_resets_idle_on_unknown () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let agent =
+    make_pipeline_test_agent ~net ~response:(pipeline_response (Unknown "mystery-stop"))
+  in
+  (match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+   | Error (Error.Agent (UnrecognizedStopReason { reason })) ->
+     Alcotest.(check string) "unknown reason" "mystery-stop" reason
+   | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
+   | Ok _ -> Alcotest.fail "expected unrecognized stop reason");
+  assert_pipeline_idle_reset agent
 ;;
 
 (* ── Provider_mock: additional coverage ─────────────────── *)
@@ -1004,6 +1100,14 @@ let () =
         ; Alcotest.test_case "different tools" `Quick test_idle_detection_different_tools
         ; Alcotest.test_case "same input idle" `Quick test_idle_detection_same_input
         ; Alcotest.test_case "empty tools idle" `Quick test_idle_detection_empty_tools
+        ; Alcotest.test_case
+            "output resets idle on end turn"
+            `Quick
+            test_pipeline_output_resets_idle_on_end_turn
+        ; Alcotest.test_case
+            "output resets idle on unknown"
+            `Quick
+            test_pipeline_output_resets_idle_on_unknown
         ; Alcotest.test_case "extra system context" `Quick test_prepare_turn_extra_context
         ; Alcotest.test_case
             "tool filter override"
