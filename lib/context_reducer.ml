@@ -246,11 +246,11 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
 
     - [compact_ratio] (default 0.8) determines the fraction of [max_tokens] used as
       the target budget when compaction fires.
-    - [target_ratio] (default 0.5, since 0.185.0) overrides [compact_ratio] when the
-      context exceeds the watermark, producing a more aggressive ceiling enforcement.
-      When [None], [compact_ratio] is used at all levels (pre-0.185 behavior).
-    - [watermark] (default 0.9) is the context utilization fraction that triggers
-      the aggressive compaction path.
+    - [target_ratio] overrides [compact_ratio] when the context exceeds the
+      watermark, producing a more aggressive ceiling enforcement. When [None],
+      [compact_ratio] is used at all levels (pre-0.185 behavior).
+    - [watermark] (default {!Types.default_context_compact_ratio}) is the context
+      utilization fraction that triggers the aggressive compaction path.
     - [keep_recent_turns] (default 4) is the minimum number of recent turns preserved
       even under aggressive compaction.
 
@@ -259,14 +259,29 @@ let from_capabilities ?(margin = 0.8) (caps : Llm_provider.Capabilities.capabili
 
     @since 0.79.0
     @since 0.185.0 — added target_ratio, watermark, keep_recent_turns *)
+let require_context_ratio ~name ratio =
+  if Types.valid_context_ratio ratio
+  then ratio
+  else
+    invalid_arg
+      (Printf.sprintf
+         "Context_reducer.from_context_config: %s must be > 0.0 and < 1.0"
+         name)
+;;
+
 let from_context_config
       ?(compact_ratio = 0.8)
       ?target_ratio
-      ?(watermark = 0.9)
+      ?(watermark = Types.default_context_compact_ratio)
       ?(keep_recent_turns = 4)
       ~max_tokens
       ()
   =
+  let compact_ratio = require_context_ratio ~name:"compact_ratio" compact_ratio in
+  let target_ratio =
+    Option.map (require_context_ratio ~name:"target_ratio") target_ratio
+  in
+  let watermark = require_context_ratio ~name:"watermark" watermark in
   let ceiling_budget =
     int_of_float
       (float_of_int max_tokens *. Option.value ~default:compact_ratio target_ratio)
@@ -333,7 +348,7 @@ let%test "estimate_next_turn_overhead with tools" =
   overhead > 4096 + 100
 ;;
 
-let%test "from_context_config default compact_ratio 0.8" =
+let%test "from_context_config default budget compact_ratio 0.8" =
   let reducer = from_context_config ~max_tokens:10000 () in
   match reducer.strategy with
   | Dynamic _ -> true

@@ -84,10 +84,18 @@ let test_model_to_string () =
 ;;
 
 let test_context_compact_ratio_defaults () =
+  Alcotest.(check (float 0.0))
+    "default context compact ratio"
+    0.9
+    Types.default_context_compact_ratio;
   Alcotest.(check bool)
     "default context compact ratio is valid"
     true
     (Types.valid_context_ratio Types.default_context_compact_ratio);
+  Alcotest.(check bool) "valid override accepted" true (Types.valid_context_ratio 0.5);
+  Alcotest.(check bool) "zero rejected" false (Types.valid_context_ratio 0.0);
+  Alcotest.(check bool) "one rejected" false (Types.valid_context_ratio 1.0);
+  Alcotest.(check bool) "negative rejected" false (Types.valid_context_ratio (-0.1));
   Alcotest.(check (option (float 0.0)))
     "default_config leaves per-agent override unset"
     None

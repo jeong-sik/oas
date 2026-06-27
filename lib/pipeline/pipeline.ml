@@ -41,6 +41,12 @@ let proactive_watermark agent =
   | None -> Types.default_context_compact_ratio
 ;;
 
+let context_window_usage_ratio ~estimated_tokens ~limit_tokens =
+  if limit_tokens <= 0
+  then 0.0
+  else float_of_int estimated_tokens /. float_of_int limit_tokens
+;;
+
 open Result_syntax
 
 type api_strategy =
@@ -797,15 +803,18 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      Agent_turn.prepare_turn directly (not stage_parse) to avoid emitting
      TurnStarted a second time or re-invoking before_turn_params.
 
-     Hard budget gate (OAS-2): when context_compact_ratio is not configured,
-     a ratio >= Types.default_context_compact_ratio still triggers compaction.
+     Hard budget gate (OAS-2): when context_compact_ratio is not configured
+     or is invalid, a ratio >= Types.default_context_compact_ratio still
+     triggers compaction.
      This prevents the silent pass-through that caused a downstream consumer's
      CTX 101% overrun (observed in upstream issue #7083). *)
   let prep =
     let watermark = proactive_watermark agent in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
-    let ratio = float_of_int est_tokens /. float_of_int context_window in
+    let ratio =
+      context_window_usage_ratio ~estimated_tokens:est_tokens ~limit_tokens:context_window
+    in
     if ratio >= watermark
     then (
       (* Emit ContextOverflowImminent before compaction *)
@@ -856,7 +865,11 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       let watermark = proactive_watermark agent in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
-      let ratio = float_of_int est_tokens /. float_of_int context_window in
+      let ratio =
+        context_window_usage_ratio
+          ~estimated_tokens:est_tokens
+          ~limit_tokens:context_window
+      in
       if ratio >= watermark
       then (
         let compacted = proactive_compact ?raw_trace_run agent ~watermark () in
