@@ -732,10 +732,36 @@ let test_idle_non_tool_use_ignored () =
   Alcotest.(check bool) "first not idle" false r1.is_idle
 ;;
 
+let test_idle_reset_breaks_streak () =
+  let tool = make_tool_use "search" {|{"q":"test"}|} in
+  let first =
+    Agent_turn.update_idle_detection
+      ~idle_state:{ last_tool_calls = None; consecutive_idle_turns = 0 }
+      ~tool_uses:[ tool ]
+  in
+  Alcotest.(check bool) "first not idle" false first.is_idle;
+  let second =
+    Agent_turn.update_idle_detection ~idle_state:first.new_state ~tool_uses:[ tool ]
+  in
+  Alcotest.(check bool) "repeat is idle" true second.is_idle;
+  Alcotest.(check int) "streak 1" 1 second.new_state.consecutive_idle_turns;
+  let reset = Agent_turn.reset_idle_detection () in
+  Alcotest.(check int) "reset clears streak" 0 reset.new_state.consecutive_idle_turns;
+  Alcotest.(check bool)
+    "last cleared"
+    true
+    (Option.is_none reset.new_state.last_tool_calls);
+  let after_reset =
+    Agent_turn.update_idle_detection ~idle_state:reset.new_state ~tool_uses:[ tool ]
+  in
+  Alcotest.(check bool) "after reset same tool is not idle" false after_reset.is_idle;
+  Alcotest.(check int) "streak stays 0" 0 after_reset.new_state.consecutive_idle_turns
+;;
+
 (* ── apply_context_injection ─────────────────────────────── *)
 
 let test_apply_context_injection_no_injector () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -764,7 +790,7 @@ let test_apply_context_injection_no_injector () =
 ;;
 
 let test_apply_context_injection_with_context_update () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -801,7 +827,7 @@ let test_apply_context_injection_with_context_update () =
 ;;
 
 let test_apply_context_injection_with_extra_messages () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -842,7 +868,7 @@ let test_apply_context_injection_with_extra_messages () =
 ;;
 
 let test_apply_context_injection_exception_handled () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -872,7 +898,7 @@ let test_apply_context_injection_exception_handled () =
 ;;
 
 let test_apply_context_injection_preserves_non_retryable_error () =
-  let context = Context.create () in
+  let context = Context.create ~eio:false () in
   let messages =
     [ { Types.role = Types.User
       ; content = [ Types.Text "hi" ]
@@ -993,6 +1019,10 @@ let () =
             test_idle_normalized_alias_calls
         ; Alcotest.test_case "multiple tools" `Quick test_idle_multiple_tools
         ; Alcotest.test_case "non-tool ignored" `Quick test_idle_non_tool_use_ignored
+        ; Alcotest.test_case
+            "reset breaks idle streak"
+            `Quick
+            test_idle_reset_breaks_streak
         ; Alcotest.test_case
             "granularity=Exact distinguishes inputs"
             `Quick

@@ -18,6 +18,23 @@ type concurrency_class =
   | Exclusive_external
 [@@deriving yojson, show]
 
+(** Side-effect classification for a tool.
+    Used to infer the required {!concurrency_class} when the latter is not set
+    explicitly. *)
+type mutation_class =
+  | Read_only
+  | Workspace
+  | Workspace_mutating
+  | Local_mutation
+  | External
+  | External_effect
+[@@deriving show]
+
+val mutation_class_to_string : mutation_class -> string
+val mutation_class_of_string : string -> mutation_class option
+val mutation_class_to_yojson : mutation_class -> Yojson.Safe.t
+val mutation_class_of_yojson : Yojson.Safe.t -> (mutation_class, string) result
+
 (** Permission level for tool execution.
     Consumers use this to decide approval policy per tool.
     @since 0.103.0 *)
@@ -44,7 +61,7 @@ type shell_constraints =
 
 type descriptor =
   { kind : string option
-  ; mutation_class : string option
+  ; mutation_class : mutation_class option
   ; concurrency_class : concurrency_class option
   ; permission : permission option
     (** When [Some], indicates the tool's side-effect level.

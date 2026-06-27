@@ -221,7 +221,7 @@ let refresh_llama_endpoints ~sw ~net () =
       let candidates =
         List.map
           (fun p -> Printf.sprintf "http://127.0.0.1:%d" p)
-          Discovery.default_scan_ports
+          (Discovery.default_scan_ports ())
       in
       let statuses = Discovery.refresh_and_sync ~sw ~net ~endpoints:candidates in
       let found =
