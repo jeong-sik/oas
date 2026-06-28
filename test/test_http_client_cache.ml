@@ -205,7 +205,7 @@ let observe_client_eof reader promise resolver =
     match Eio.Buf_read.line reader with
     | _ -> consume ()
     | exception End_of_file -> resolve_once promise resolver
-    | exception _ -> resolve_once promise resolver
+    | exception Eio.Io _ -> resolve_once promise resolver
   in
   consume ()
 ;;
@@ -234,7 +234,8 @@ let start_one_shot_lifecycle_server ~sw ~net ~clock ?body_delay_s body =
        | None -> ());
       Eio.Flow.copy_string body flow
     with
-    | _ -> resolve_once disconnected notify_disconnected
+    | End_of_file | Eio.Io _ | Unix.Unix_error _ ->
+      resolve_once disconnected notify_disconnected
   in
   let socket =
     Eio.Net.listen
