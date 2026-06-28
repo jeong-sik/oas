@@ -56,6 +56,9 @@ val discover
 (** Environment variable consulted by {!resolve_default_endpoint}. *)
 val local_llm_url_env_var : string
 
+(** Environment variable parsed by {!parse_llm_endpoints_env}. *)
+val llm_endpoints_env_var : string
+
 (** Environment variable consulted by {!resolve_ollama_endpoint}. *)
 val ollama_host_env_var : string
 
@@ -71,8 +74,10 @@ val default_endpoint : string
 (** Call-time resolver for the canonical local LLM endpoint.
     Reads [OAS_LOCAL_LLM_URL] at call time, falling back to
     {!Constants.Endpoints.default_url}. Prefer this over {!default_endpoint}
-    when the value must reflect environment changes after module init. *)
-val resolve_default_endpoint : unit -> string
+    when the value must reflect environment changes after module init. [getenv]
+    defaults to {!Cli_common_env.get}; tests may inject it to avoid mutating the
+    process environment. *)
+val resolve_default_endpoint : ?getenv:(string -> string option) -> unit -> string
 
 (** Ollama endpoint.  Reads OLLAMA_HOST env var,
     falls back to ["http://127.0.0.1:11434"]. *)
@@ -80,8 +85,10 @@ val ollama_endpoint : string
 
 (** Call-time resolver for the Ollama endpoint.
     Reads [OLLAMA_HOST] at call time. Prefer this over {!ollama_endpoint}
-    when the value must reflect environment changes after module init. *)
-val resolve_ollama_endpoint : unit -> string
+    when the value must reflect environment changes after module init. [getenv]
+    defaults to {!Cli_common_env.get}; tests may inject it to avoid mutating the
+    process environment. *)
+val resolve_ollama_endpoint : ?getenv:(string -> string option) -> unit -> string
 
 (** Parse the [LLM_ENDPOINTS] env var as a comma-separated list of
     URLs, trimming whitespace and dropping empty entries.  Returns
@@ -93,13 +100,16 @@ val resolve_ollama_endpoint : unit -> string
     Ollama append (see {!endpoints_from_env}) should layer their
     semantics on top of this raw list.
 
+    [getenv] defaults to {!Cli_common_env.get}; tests may inject it to avoid
+    mutating the process environment.
+
     @since 0.161.0 *)
-val parse_llm_endpoints_env : unit -> string list
+val parse_llm_endpoints_env : ?getenv:(string -> string option) -> unit -> string list
 
 (** Parse LLM_ENDPOINTS env var (comma-separated) and append the call-time
     Ollama endpoint if not already included.
     Falls back to [[resolve_default_endpoint (); resolve_ollama_endpoint ()]]. *)
-val endpoints_from_env : unit -> string list
+val endpoints_from_env : ?getenv:(string -> string option) -> unit -> string list
 
 (** JSON serialization for endpoint_status. *)
 val endpoint_status_to_json : endpoint_status -> Yojson.Safe.t

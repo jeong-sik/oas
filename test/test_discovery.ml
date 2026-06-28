@@ -4,6 +4,8 @@
 
 open Llm_provider
 
+let test_getenv bindings name = List.assoc_opt name bindings
+
 let fresh_port () =
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -44,31 +46,29 @@ let with_mock_server handler f =
 ;;
 
 let test_endpoints_from_env_default () =
-  (* When LLM_ENDPOINTS is not set, should return default *)
-  let saved = Sys.getenv_opt "LLM_ENDPOINTS" in
-  (match saved with
-   | Some _ -> Unix.putenv "LLM_ENDPOINTS" ""
-   | None -> ());
-  let result = Discovery.endpoints_from_env () in
-  (match saved with
-   | Some v -> Unix.putenv "LLM_ENDPOINTS" v
-   | None -> ());
+  let getenv = test_getenv [] in
+  let result = Discovery.endpoints_from_env ~getenv () in
   Alcotest.(check (list string))
     "default endpoint"
-    [ "http://127.0.0.1:8085"; Discovery.ollama_endpoint ]
+    [ Discovery.resolve_default_endpoint ~getenv ()
+    ; Discovery.resolve_ollama_endpoint ~getenv ()
+    ]
     result
 ;;
 
 let test_endpoints_from_env_custom () =
-  let saved = Sys.getenv_opt "LLM_ENDPOINTS" in
-  Unix.putenv "LLM_ENDPOINTS" "http://a:8085, http://b:8086,http://c:8087";
-  let result = Discovery.endpoints_from_env () in
-  (match saved with
-   | Some v -> Unix.putenv "LLM_ENDPOINTS" v
-   | None -> ());
+  let getenv =
+    test_getenv
+      [ Discovery.llm_endpoints_env_var, "http://a:8085, http://b:8086,http://c:8087" ]
+  in
+  let result = Discovery.endpoints_from_env ~getenv () in
   Alcotest.(check (list string))
     "parsed endpoints"
-    [ "http://a:8085"; "http://b:8086"; "http://c:8087"; Discovery.ollama_endpoint ]
+    [ "http://a:8085"
+    ; "http://b:8086"
+    ; "http://c:8087"
+    ; Discovery.resolve_ollama_endpoint ~getenv ()
+    ]
     result
 ;;
 
