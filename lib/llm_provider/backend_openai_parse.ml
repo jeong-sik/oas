@@ -303,13 +303,12 @@ let parse_openai_response_result_json
       | None -> []
     in
     let stop_reason =
-      match String.lowercase_ascii finish_reason with
-      | "tool_calls" when tool_blocks <> [] -> StopToolUse
-      | "length" -> MaxTokens
-      | "stop" | "end_turn" -> EndTurn
-      | "refusal" -> Refusal
-      | _other when tool_blocks <> [] -> StopToolUse
-      | other -> Unknown other
+      (* SSOT: Stop_reason_wire owns the wire finish-reason -> stop_reason table
+         and the StopToolUse => has-tool-block invariant (previously duplicated
+         here and in the streaming chunk handler with divergent guards). *)
+      Stop_reason_wire.of_finish
+        (Stop_reason_wire.wire_finish_of_string finish_reason)
+        ~has_tool_blocks:(tool_blocks <> [])
     in
     Ok
       { id = Cli_common_json.member_str "id" json
