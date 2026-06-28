@@ -12,7 +12,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **context_offload:** emit a diagnostic warning when tool-result offload write
   fails before preserving the original content.
-* **defaults:** add call-time local endpoint and fallback-provider resolvers while preserving compatibility snapshot values.
+* **defaults:** restore `Context_offload.default_config` and
+  `Mcp_http.default_config` as compatibility values; use
+  `Context_offload.make_default_config ()` or `Mcp_http.make_default_config ()`
+  for call-time environment resolution.
 * **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
 
 ### Features
@@ -22,15 +25,6 @@ original tag dates. `0.100.4` was never tagged or released.
 * **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
-### Breaking Changes
-
-* **context_offload:** `Context_offload.default_config` is now `unit -> config`
-  so the temporary directory is resolved at call time. Update downstream callers
-  from `Context_offload.default_config` to `Context_offload.default_config ()`.
-
-* **mcp_http:** `Mcp_http.default_config` is now `unit -> config` so
-  `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from
-  `Mcp_http.default_config` to `Mcp_http.default_config ()`.
 
 ## [0.207.11](https://github.com/jeong-sik/oas/compare/v0.207.10...v0.207.11) (2026-06-28)
 
