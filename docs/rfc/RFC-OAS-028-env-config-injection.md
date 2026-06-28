@@ -1,8 +1,8 @@
 ---
-title: RFC-OAS-024 — Pure Core / Impure Shell (Env Config Injection)
+title: RFC-OAS-028 — Pure Core / Impure Shell (Env Config Injection)
 ---
 
-# RFC-OAS-024: Pure Core / Impure Shell — Env Config Injection
+# RFC-OAS-028: Pure Core / Impure Shell — Env Config Injection
 
 | Field | Value |
 |---|---|
