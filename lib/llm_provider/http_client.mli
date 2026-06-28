@@ -226,9 +226,10 @@ val cache_stats : cache -> cache_stats
 (** GET a URL synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
-    Without [cache], the connection is bound to [sw] and closed when [sw]
-    is released. With [cache], the connection is bound to the cache's
-    switch and parked back in the cache on success for reuse.
+    Without [cache], the connection cleanup is bound to [sw] and also runs
+    as soon as the response body is consumed. With [cache], the connection
+    is bound to the cache's switch and parked back in the cache on success
+    for reuse.
 
     When [cache] is supplied the [connection: close] request header is
     omitted so HTTP keep-alive can work.
@@ -252,9 +253,10 @@ val get_sync
 (** POST JSON body synchronously, returning the full response.
     Returns [(status_code, body_string)] on success.
 
-    Without [cache], the connection is bound to [sw] and closed when [sw]
-    is released. With [cache], the connection is bound to the cache's
-    switch and parked back in the cache on success for reuse.
+    Without [cache], the connection cleanup is bound to [sw] and also runs
+    as soon as the response body is consumed. With [cache], the connection
+    is bound to the cache's switch and parked back in the cache on success
+    for reuse.
 
     When [cache] is supplied the [connection: close] request header is
     omitted so HTTP keep-alive can work.
