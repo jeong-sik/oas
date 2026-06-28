@@ -264,10 +264,20 @@ let finalize_stream_acc
         [ Types.Text r ]
       | _ -> []
     in
+    (* Enforce the StopToolUse => has-tool-block invariant now that the full
+       block set (including dropped partial tool calls above) is known. A
+       reasoning-only or dropped-partial-tool stream that the provider tagged
+       finish_reason="tool_calls" must NOT reach the driver as a tool-use turn
+       with zero tools -- the pipeline re-issues that forever (infinite Thinking
+       loop). SSOT: Stop_reason_wire.reconcile (same rule as the non-streaming
+       parser via Stop_reason_wire.of_finish). *)
+    let stop_reason =
+      Stop_reason_wire.reconcile !(acc.stop_reason) ~has_tool_blocks:has_tool
+    in
     Ok
       { Types.id = !(acc.id)
       ; model = !(acc.model)
-      ; stop_reason = !(acc.stop_reason)
+      ; stop_reason
       ; content = content @ promoted_reasoning
       ; usage =
           Some
