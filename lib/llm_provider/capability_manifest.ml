@@ -272,15 +272,33 @@ let lookup (t : t) model_id =
 
 (* ── Global manifest ───────────────────────────────────────
    Two-tier source: runtime override (set by host application via
-   [set_global]) takes precedence over the env-var-loaded lazy
+   [set_global]) takes precedence over the env-var-loaded cached
    manifest. The env path stays as the file-based default for
    standalone OAS deployments without an embedding host. *)
 
-let env_loaded_manifest : t option Lazy.t =
-  lazy
-    (match Cli_common_env.get "OAS_CAPABILITY_MANIFEST" with
-     | None -> None
-     | Some path -> load_runtime_file path)
+type env_cache =
+  | Unloaded
+  | Loaded of t option
+
+let load_ambient_manifest () =
+  match Cli_common_env.get "OAS_CAPABILITY_MANIFEST" with
+  | None -> None
+  | Some path -> load_runtime_file path
+;;
+
+let env_loaded_manifest : env_cache Atomic.t = Atomic.make Unloaded
+
+let load_ambient_once () =
+  match Atomic.get env_loaded_manifest with
+  | Loaded value -> value
+  | Unloaded ->
+    let value = load_ambient_manifest () in
+    if Atomic.compare_and_set env_loaded_manifest Unloaded (Loaded value)
+    then value
+    else (
+      match Atomic.get env_loaded_manifest with
+      | Loaded value -> value
+      | Unloaded -> value)
 ;;
 
 (* Process-wide runtime override. [Atomic.t] makes [set_global] /
@@ -289,14 +307,15 @@ let env_loaded_manifest : t option Lazy.t =
 let runtime_override : t option Atomic.t = Atomic.make None
 let set_global m = Atomic.set runtime_override (Some m)
 let clear_global () = Atomic.set runtime_override None
+let preload_global () = ignore (load_ambient_once () : t option)
 
 let global () =
   match Atomic.get runtime_override with
   | Some _ as o -> o
   | None ->
-    let env_value = Lazy.force env_loaded_manifest in
-    (* Re-check the override after forcing the (possibly slow) lazy env
-       load: if another domain installed an override during the force,
+    let env_value = load_ambient_once () in
+    (* Re-check the override after the (possibly slow) env
+       load: if another domain installed an override during the load,
        its value takes precedence so [global] stays linearizable with
        respect to [set_global]/[clear_global]. *)
     (match Atomic.get runtime_override with

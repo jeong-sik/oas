@@ -606,22 +606,41 @@ let default_model_for_provider t provider_id =
   | None -> None
 ;;
 
-let env_loaded_catalog : t option Lazy.t =
-  lazy
-    (match Cli_common_env.get "OAS_PROVIDER_CATALOG" with
-     | None -> None
-     | Some path -> load_runtime_file path)
+type env_cache =
+  | Unloaded
+  | Loaded of t option
+
+let load_ambient_catalog () =
+  match Cli_common_env.get "OAS_PROVIDER_CATALOG" with
+  | None -> None
+  | Some path -> load_runtime_file path
+;;
+
+let env_loaded_catalog : env_cache Atomic.t = Atomic.make Unloaded
+
+let load_ambient_once () =
+  match Atomic.get env_loaded_catalog with
+  | Loaded value -> value
+  | Unloaded ->
+    let value = load_ambient_catalog () in
+    if Atomic.compare_and_set env_loaded_catalog Unloaded (Loaded value)
+    then value
+    else (
+      match Atomic.get env_loaded_catalog with
+      | Loaded value -> value
+      | Unloaded -> value)
 ;;
 
 let runtime_override : t option Atomic.t = Atomic.make None
 let set_global t = Atomic.set runtime_override (Some t)
 let clear_global () = Atomic.set runtime_override None
+let preload_global () = ignore (load_ambient_once () : t option)
 
 let global () =
   match Atomic.get runtime_override with
   | Some _ as v -> v
   | None ->
-    let env_value = Lazy.force env_loaded_catalog in
+    let env_value = load_ambient_once () in
     (match Atomic.get runtime_override with
      | Some _ as v -> v
      | None -> env_value)

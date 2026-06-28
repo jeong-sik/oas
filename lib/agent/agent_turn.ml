@@ -385,7 +385,10 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
      | Hooks.Override _
      | Hooks.ApprovalRequired
      | Hooks.ElicitInput _
-     | Hooks.Nudge _ -> Hooks.default_turn_params)
+     | Hooks.Nudge _ -> Hooks.default_turn_params
+     | Hooks.HookFailed { stage; detail } ->
+       invalid_arg
+         (Printf.sprintf "hook before_turn_params failed at %s: %s" stage detail))
 ;;
 
 (* ── Context injection after tool execution ───────────────────── *)

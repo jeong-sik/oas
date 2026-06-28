@@ -88,16 +88,37 @@ let ensure_tree store session_id =
 
 let default_root () =
   match Llm_provider.Cli_common_env.get "OAS_RUNTIME_SESSION_ROOT" with
-  | Some value -> value
-  | None -> Filename.concat (Llm_provider.Paths.cwd ()) ".oas-runtime"
+  | Some value -> Ok value
+  | None ->
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "session_root"
+            ; detail =
+                "missing runtime session root; pass ~root/session_root or set \
+                 OAS_RUNTIME_SESSION_ROOT to an absolute path"
+            }))
+;;
+
+let validate_root root =
+  if Filename.is_relative root
+  then
+    Error
+      (Error.Config
+         (InvalidConfig
+            { field = "session_root"
+            ; detail = "runtime session root must be an absolute path"
+            }))
+  else Ok root
 ;;
 
 let create ?root () =
-  let resolved =
+  let* resolved =
     match Util.trim_non_empty_opt root with
-    | Some value -> value
+    | Some value -> Ok value
     | None -> default_root ()
   in
+  let* resolved = validate_root resolved in
   let store = { root = resolved } in
   let* () = ensure_dir resolved in
   let* () = ensure_dir (sessions_dir store) in

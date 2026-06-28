@@ -268,6 +268,21 @@ let test_builtin_nous_binding_uses_calltime_default_endpoint () =
            binding.base_url))
 ;;
 
+let test_non_claude_builtin_defaults_do_not_use_claude_model () =
+  [ "gemini"; "glm"; "kimi"; "dashscope"; "deepseek"; "groq"; "openrouter" ]
+  |> List.iter (fun provider_id ->
+    let binding = expect_binding provider_id in
+    let model = Provider_runtime_binding.resolve_model binding ~requested_model:None in
+    Alcotest.(check bool)
+      (provider_id ^ " default is not the Claude default")
+      true
+      (not (String.equal model Model_registry.default_model_id));
+    Alcotest.(check bool)
+      (provider_id ^ " default is not a Claude model id")
+      true
+      (not (String.starts_with ~prefix:"claude-" model)))
+;;
+
 let test_builtin_aliases_are_canonicalized () =
   let cases =
     [ "anthropic", "claude"
@@ -360,6 +375,10 @@ let () =
             "nous binding uses call-time default endpoint"
             `Quick
             test_builtin_nous_binding_uses_calltime_default_endpoint
+        ; Alcotest.test_case
+            "non-Claude builtin defaults do not use Claude model"
+            `Quick
+            test_non_claude_builtin_defaults_do_not_use_claude_model
         ; Alcotest.test_case
             "builtin aliases canonicalize"
             `Quick

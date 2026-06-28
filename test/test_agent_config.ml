@@ -27,22 +27,6 @@ let test_full_config () =
       ; "system_prompt", `String "You are helpful."
       ; "max_tokens", `Int 8192
       ; "max_turns", `Int 20
-      ; ( "tools"
-        , `List
-            [ `Assoc
-                [ "name", `String "get_weather"
-                ; "description", `String "Get weather info"
-                ; ( "parameters"
-                  , `List
-                      [ `Assoc
-                          [ "name", `String "city"
-                          ; "description", `String "City name"
-                          ; "type", `String "string"
-                          ; "required", `Bool true
-                          ]
-                      ] )
-                ]
-            ] )
       ; ( "mcp_servers"
         , `List
             [ `Assoc
@@ -60,10 +44,7 @@ let test_full_config () =
     check (option string) "prompt" (Some "You are helpful.") cfg.system_prompt;
     check (option int) "max_tokens" (Some 8192) cfg.max_tokens;
     check (option int) "max_turns" (Some 20) cfg.max_turns;
-    check int "tools" 1 (List.length cfg.tools);
-    let tool = List.hd cfg.tools in
-    check string "tool name" "get_weather" tool.name;
-    check int "tool params" 1 (List.length tool.parameters);
+    check int "tools" 0 (List.length cfg.tools);
     check int "mcp" 1 (List.length cfg.mcp_servers);
     (match List.hd cfg.mcp_servers with
      | Agent_config.Stdio_mcp { command; name; _ } ->
@@ -96,9 +77,9 @@ let test_rejects_non_list_tools () =
   expect_invalid_config_field "tools" (`Assoc [ "tools", `Assoc [] ])
 ;;
 
-let test_rejects_non_list_tool_parameters () =
+let test_rejects_inline_config_tools () =
   expect_invalid_config_field
-    "parameters"
+    "tools"
     (`Assoc
         [ "tools", `List [ `Assoc [ "name", `String "calc"; "parameters", `Assoc [] ] ] ])
 ;;
@@ -178,7 +159,7 @@ let test_to_builder () =
     ; system_prompt = Some "test prompt"
     ; max_tokens = Some 2048
     ; max_turns = Some 5
-    ; tools = [ { name = "echo"; description = "Echo"; parameters = [] } ]
+    ; tools = []
     ; mcp_servers = []
     ; enable_thinking = None
     ; preserve_thinking = None
@@ -193,6 +174,33 @@ let test_to_builder () =
     let card = Agent.card agent in
     check string "agent name" "builder-test" card.name
   | Error e -> fail (Error.to_string e)
+;;
+
+let test_to_builder_rejects_direct_inline_tools () =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  let cfg : Agent_config.agent_file_config =
+    { name = "builder-test"
+    ; model = "claude-sonnet-4-6"
+    ; system_prompt = None
+    ; max_tokens = None
+    ; max_turns = None
+    ; tools = [ { name = "echo"; description = "Echo"; parameters = [] } ]
+    ; mcp_servers = []
+    ; enable_thinking = None
+    ; preserve_thinking = None
+    ; thinking_budget = None
+    ; provider = None
+    ; base_url = None
+    }
+  in
+  check_raises
+    "inline config tools rejected"
+    (Invalid_argument
+       "Agent_config.to_builder: inline config tools have no executable runner; use \
+        mcp_servers or register typed tools in code")
+    (fun () -> ignore (Agent_config.to_builder ~net cfg))
 ;;
 
 let test_to_builder_no_tools () =
@@ -450,10 +458,7 @@ let () =
         ; test_case "mixed mcp" `Quick test_mixed_mcp_config
         ; test_case "reject non-object config" `Quick test_rejects_non_object_config
         ; test_case "reject non-list tools" `Quick test_rejects_non_list_tools
-        ; test_case
-            "reject non-list tool parameters"
-            `Quick
-            test_rejects_non_list_tool_parameters
+        ; test_case "reject inline config tools" `Quick test_rejects_inline_config_tools
         ; test_case "reject non-list mcp_servers" `Quick test_rejects_non_list_mcp_servers
         ; test_case "reject non-string mcp args" `Quick test_rejects_non_string_mcp_args
         ; test_case
@@ -467,7 +472,11 @@ let () =
         ; test_case "valid" `Quick test_load_valid
         ] )
     ; ( "to_builder"
-      , [ test_case "with tools" `Quick test_to_builder
+      , [ test_case "base config" `Quick test_to_builder
+        ; test_case
+            "reject direct inline tools"
+            `Quick
+            test_to_builder_rejects_direct_inline_tools
         ; test_case "no tools" `Quick test_to_builder_no_tools
         ; test_case "all models" `Quick test_to_builder_all_models
         ] )

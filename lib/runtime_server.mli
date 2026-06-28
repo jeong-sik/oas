@@ -20,6 +20,7 @@ open Runtime_server_types
 val serve_stdio
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  -> clock:float Eio.Time.clock_ty Eio.Resource.t
   -> stdin:_ Eio.Flow.source
   -> unit
   -> unit

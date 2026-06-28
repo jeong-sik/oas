@@ -1,6 +1,7 @@
 open Types
 open Agent_types
 open Agent_trace
+open Result_syntax
 
 (** Stage 1/2 helpers extracted from [Pipeline].
 
@@ -13,6 +14,10 @@ let _stage_log = Log.create ~module_name:"pipeline_stage_prepare" ()
 (* Shared with Pipeline via Pipeline_common (re-raises Eio cancellation);
    the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_stage_log bus event
+
+let hook_failed_sdk_error ~hook_name ~stage ~detail =
+  Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
+;;
 
 let stage_input ?raw_trace_run ?clock agent =
   let ts = Pipeline_common.timestamp_now ?clock () in
@@ -72,6 +77,8 @@ let stage_input ?raw_trace_run ?clock agent =
       });
     Ok ()
   | Hooks.Continue -> Ok ()
+  | Hooks.HookFailed { stage; detail } ->
+    Error (hook_failed_sdk_error ~hook_name:"before_turn" ~stage ~detail)
   | Hooks.Skip | Hooks.Override _ | Hooks.ApprovalRequired | Hooks.AdjustParams _ ->
     (* Unreachable after [Hooks.invoke_validated] for before_turn. Fail-fast
        so a validation bypass cannot silently start a turn. *)
@@ -260,9 +267,9 @@ let%test "runtime MCP policy is narrowed by AllowList guardrails" =
 ;;
 
 let stage_parse ?raw_trace_run ?clock agent =
-  let turn_params =
+  let* turn_params =
     match agent.options.hooks.before_turn_params with
-    | None -> Hooks.default_turn_params
+    | None -> Ok Hooks.default_turn_params
     | Some _ ->
       let last_results = last_tool_results_from agent.state.messages in
       let reasoning = Hooks.extract_reasoning agent.state.messages in
@@ -282,8 +289,10 @@ let stage_parse ?raw_trace_run ?clock agent =
              })
       in
       (match decision with
-       | Hooks.AdjustParams params -> params
-       | Hooks.Continue -> Hooks.default_turn_params
+       | Hooks.AdjustParams params -> Ok params
+       | Hooks.Continue -> Ok Hooks.default_turn_params
+       | Hooks.HookFailed { stage; detail } ->
+         Error (hook_failed_sdk_error ~hook_name:"before_turn_params" ~stage ~detail)
        | Hooks.Skip
        | Hooks.Override _
        | Hooks.ApprovalRequired
@@ -397,5 +406,5 @@ let stage_parse ?raw_trace_run ?clock agent =
              }
        }
    | None -> ());
-  prep, original_config, turn_params
+  Ok (prep, original_config, turn_params)
 ;;

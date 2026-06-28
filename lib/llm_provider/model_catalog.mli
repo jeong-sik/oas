@@ -44,5 +44,6 @@ val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
 val lookup : t -> string -> model_entry option
 val global : unit -> t option
+val preload_global : unit -> unit
 val set_global : t -> unit
 val clear_global : unit -> unit

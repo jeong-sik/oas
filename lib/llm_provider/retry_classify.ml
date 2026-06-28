@@ -37,9 +37,6 @@ let classify_retry_error = function
      deterministic exit, so signal non-retryable and let the agent
      runtime checkpoint via [Error.Agent (MaxTurnsExceeded ...)]. *)
   | Http_client.ProviderTerminal _ -> None
-  | Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = _ }; message } ->
-    Some (Retry.InvalidRequest { message; reason = Retry.Json_parse_error })
   (* Other provider/runtime failures are semantic routing inputs, not local
      retry inputs.  Retrying the same CLI/API lane would hide the typed
      reason from downstream policy. *)

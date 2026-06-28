@@ -88,6 +88,7 @@ let hook_decision_to_string = function
   | Hooks.AdjustParams _ -> "adjust_params"
   | Hooks.ElicitInput _ -> "elicit_input"
   | Hooks.Nudge _ -> "nudge"
+  | Hooks.HookFailed _ -> "hook_failed"
 ;;
 
 (** Build a new lifecycle snapshot, merging with a previous one.

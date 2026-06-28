@@ -20,6 +20,10 @@ open Agent_trace
 
 let _log = Log.create ~module_name:"pipeline" ()
 
+let hook_failed_sdk_error ~hook_name ~stage ~detail =
+  Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
+;;
+
 (* Shared with Pipeline_stage_prepare via Pipeline_common (re-raises Eio
    cancellation); the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
@@ -229,13 +233,19 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
            ~provider:agent.options.provider
            ~response_usage:response.usage
        in
-       let _after =
+       let after_decision =
          invoke_hook_with_trace
            agent
            ?raw_trace_run
            ~hook_name:"after_turn"
            agent.options.hooks.after_turn
            (Hooks.AfterTurn { turn = agent.state.turn_count; response })
+       in
+       let* () =
+         match after_decision with
+         | Hooks.HookFailed { stage; detail } ->
+           Error (hook_failed_sdk_error ~hook_name:"after_turn" ~stage ~detail)
+         | _ -> Ok ()
        in
        let completed_turn = agent.state.turn_count in
        let assistant_message = make_message ~role:Assistant response.content in
@@ -340,6 +350,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
        Agent_types.set_idle_state agent idle_result.new_state;
        let idle_skip = ref false in
        let idle_handled = ref false in
+       let idle_hook_failed = ref None in
        (* true when Nudge or Skip handled idle *)
        (* Nudge text is captured here and later delivered as a separate
           role:User message appended AFTER the role:Tool results message (see
@@ -400,6 +411,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
            pending_nudge := Some nudge_msg;
            idle_handled := true
          | Hooks.Continue -> ()
+         | Hooks.HookFailed { stage; detail } -> idle_hook_failed := Some (stage, detail)
          | Hooks.Override _
          | Hooks.ApprovalRequired
          | Hooks.AdjustParams _
@@ -409,97 +421,100 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
            assert false);
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
-       if !idle_skip
-       then Ok IdleSkipped
-       else (
+       match !idle_hook_failed with
+       | Some (stage, detail) ->
+         Error
+           (Error.Internal (Printf.sprintf "hook on_idle failed at %s: %s" stage detail))
+       | None when !idle_skip -> Ok IdleSkipped
+       | None ->
          let count = List.length tool_uses in
-         match Guardrails.exceeds_limit effective_guardrails count with
-         | true ->
-           let msg =
-             Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count
-           in
-           let content =
-             match !pending_nudge with
-             | Some nudge -> [ Text msg; Text nudge ]
-             | None -> [ Text msg ]
-           in
-           update_state agent (fun s ->
-             { s with messages = Util.snoc s.messages (make_message ~role:User content) });
-           let* () = persist_turn_checkpoint agent After_tool_results_appended in
-           Ok ToolsExecuted
-         | false ->
-           let results =
-             try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
-             | Raw_trace.Trace_error err -> Error err
-           in
-           let* results = results in
-           let tool_result_event_envelope = Pipeline_common.event_envelope agent in
-           let tool_results =
-             Agent_turn.make_tool_results
-               ?event_bus:agent.options.event_bus
-               ~correlation_id:tool_result_event_envelope.correlation_id
-               ~run_id:tool_result_event_envelope.run_id
-               ?relocation:agent.options.tool_result_relocation
-               results
-           in
-           (* Persist CRS to context after tool result processing so that
+         (match Guardrails.exceeds_limit effective_guardrails count with
+          | true ->
+            let msg =
+              Printf.sprintf "Tool call limit exceeded: %d calls in one turn" count
+            in
+            let content =
+              match !pending_nudge with
+              | Some nudge -> [ Text msg; Text nudge ]
+              | None -> [ Text msg ]
+            in
+            update_state agent (fun s ->
+              { s with messages = Util.snoc s.messages (make_message ~role:User content) });
+            let* () = persist_turn_checkpoint agent After_tool_results_appended in
+            Ok ToolsExecuted
+          | false ->
+            let results =
+              try Ok (execute_tools_with_trace agent raw_trace_run tool_uses) with
+              | Raw_trace.Trace_error err -> Error err
+            in
+            let* results = results in
+            let tool_result_event_envelope = Pipeline_common.event_envelope agent in
+            let tool_results =
+              Agent_turn.make_tool_results
+                ?event_bus:agent.options.event_bus
+                ~correlation_id:tool_result_event_envelope.correlation_id
+                ~run_id:tool_result_event_envelope.run_id
+                ?relocation:agent.options.tool_result_relocation
+                results
+            in
+            (* Persist CRS to context after tool result processing so that
             checkpoint captures the current replacement decisions. *)
-           (match agent.options.tool_result_relocation with
-            | Some (_, crs) ->
-              Content_replacement_state.persist_to_context agent.context crs
-            | None -> ());
-           (* Tool-call validation / recoverable errors flow back to the model as
+            (match agent.options.tool_result_relocation with
+             | Some (_, crs) ->
+               Content_replacement_state.persist_to_context agent.context crs
+             | None -> ());
+            (* Tool-call validation / recoverable errors flow back to the model as
               is_error tool_results; the model self-corrects on a subsequent turn.
               There is no separate retry-count gate — runaway is bounded by the
               shared loop guard (max_turns + idle detection + token budget), the real
               backpressure. (origin/main reached the same "tool failure is never
               turn-fatal" outcome by neutering the Exhausted branch; this removes the
               legacy tool-retry mechanism entirely, which subsumes that change.) *)
-           let tool_feedback = tool_results in
-           let followup_text =
-             match !pending_nudge with
-             | Some nudge -> Some nudge
-             | None when idle_result.is_idle && not !idle_handled ->
-               Some
-                 (Printf.sprintf
-                    "[Idle warning: You called the same tool(s) with identical arguments \
-                     %d time(s) in a row. Try a different tool or change your arguments \
-                     to make progress.]"
-                    agent.consecutive_idle_turns)
-             | None -> None
-           in
-           update_state agent (fun s ->
-             let messages =
-               match tool_feedback with
-               | [] -> s.messages
-               | _ -> Util.snoc s.messages (make_message ~role:Tool tool_feedback)
-             in
-             let messages =
-               match followup_text with
-               | None -> messages
-               | Some text -> Util.snoc messages (make_message ~role:User [ Text text ])
-             in
-             { s with messages });
-           (match agent.options.context_injector with
-            | None -> ()
-            | Some injector ->
-              let new_messages =
-                Agent_turn.apply_context_injection
-                  ~context:agent.context
-                  ~messages:agent.state.messages
-                  ~injector
-                  ~tool_uses
-                  ~results
+            let tool_feedback = tool_results in
+            let followup_text =
+              match !pending_nudge with
+              | Some nudge -> Some nudge
+              | None when idle_result.is_idle && not !idle_handled ->
+                Some
+                  (Printf.sprintf
+                     "[Idle warning: You called the same tool(s) with identical \
+                      arguments %d time(s) in a row. Try a different tool or change your \
+                      arguments to make progress.]"
+                     agent.consecutive_idle_turns)
+              | None -> None
+            in
+            update_state agent (fun s ->
+              let messages =
+                match tool_feedback with
+                | [] -> s.messages
+                | _ -> Util.snoc s.messages (make_message ~role:Tool tool_feedback)
               in
-              update_state agent (fun s -> { s with messages = new_messages }));
-           let* () = persist_turn_checkpoint agent After_tool_results_appended in
-           (* The idle nudge (and the fallback anti-repetition hint) is appended
+              let messages =
+                match followup_text with
+                | None -> messages
+                | Some text -> Util.snoc messages (make_message ~role:User [ Text text ])
+              in
+              { s with messages });
+            (match agent.options.context_injector with
+             | None -> ()
+             | Some injector ->
+               let new_messages =
+                 Agent_turn.apply_context_injection
+                   ~context:agent.context
+                   ~messages:agent.state.messages
+                   ~injector
+                   ~tool_uses
+                   ~results
+               in
+               update_state agent (fun s -> { s with messages = new_messages }));
+            let* () = persist_turn_checkpoint agent After_tool_results_appended in
+            (* The idle nudge (and the fallback anti-repetition hint) is appended
               as a separate role:User message after the role:Tool result message.
               This keeps OpenAI-compatible serializers from placing user text
               before the required tool replies, which strict providers reject. *)
-           ignore idle_handled;
-           (* suppress unused warning after dedup *)
-           (* In-memory message hygiene after each tool execution round.
+            ignore idle_handled;
+            (* suppress unused warning after dedup *)
+            (* In-memory message hygiene after each tool execution round.
             Without this, agent.state.messages grows unbounded across turns —
             context_reducer only trims before API calls, not in the stored state.
 
@@ -508,11 +523,11 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
                with short stubs. Tool results are the largest allocation source.
             2. Hard message cap: keep last 100 messages. Prevents unbounded growth
                in long-running agents (600+ turns). *)
-           (* Tool-result stubbing and message cap are now applied at call-time
+            (* Tool-result stubbing and message cap are now applied at call-time
             in Agent_turn.prepare_messages, not here.  Keeping stored messages
             unmodified preserves the byte-identical conversation prefix that
             local LLM KV-cache (Ollama/llama.cpp) depends on for reuse. *)
-           Ok ToolsExecuted))
+            Ok ToolsExecuted))
 ;;
 
 (* ── Stage 6: Output ─────────────────────────────────────── *)
@@ -564,7 +579,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
          (* Invoke on_stop before resetting idle counters, so observers
             (hooks, tracers, telemetry callbacks) can read the actual
             consecutive_idle_turns value that drove this turn's behavior. *)
-         let _stop =
+         let stop_decision =
            invoke_hook_with_trace
              agent
              ?raw_trace_run
@@ -572,8 +587,12 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
              agent.options.hooks.on_stop
              (Hooks.OnStop { reason = response.stop_reason; response })
          in
-         Agent_types.reset_idle_state agent;
-         Ok (Complete response)
+         (match stop_decision with
+          | Hooks.HookFailed { stage; detail } ->
+            Error (hook_failed_sdk_error ~hook_name:"on_stop" ~stage ~detail)
+          | _ ->
+            Agent_types.reset_idle_state agent;
+            Ok (Complete response))
        | Unknown reason ->
          Agent_types.reset_idle_state agent;
          Error (Error.Agent (UnrecognizedStopReason { reason })))
@@ -714,6 +733,12 @@ let compact_messages
   match hook_decision with
   | Hooks.Skip -> false
   | Hooks.Continue -> run_compaction ()
+  | Hooks.HookFailed { stage; detail } ->
+    Log.error
+      _log
+      "pre_compact hook failed; skipping compaction"
+      [ Log.S ("stage", stage); Log.S ("detail", detail) ];
+    false
   | Hooks.Override _
   | Hooks.ApprovalRequired
   | Hooks.AdjustParams _
@@ -823,7 +848,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       (fun _tracer -> stage_input ?raw_trace_run ?clock agent |> tag_error "input")
   in
   (* Stage 2: Parse *)
-  let prep, original_config, turn_params =
+  let* prep, original_config, turn_params =
     Tracing.with_span
       agent.options.tracer
       { kind = Hook_invoke
@@ -833,7 +858,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       ; extra = []
       ; links = []
       }
-      (fun _tracer -> stage_parse ?raw_trace_run ?clock agent)
+      (fun _tracer -> stage_parse ?raw_trace_run ?clock agent |> tag_error "parse")
   in
   let context_window = proactive_context_window_tokens agent in
   let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
@@ -905,7 +930,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
     (* Stage 2.7: Proactive watermark compaction — post-validation pass.
      Same hard budget gate as 2.3 — if context still exceeds watermark
      after validation (validators can inject messages), compact again. *)
-    let prep =
+    let* prep =
       let watermark = proactive_watermark agent in
       let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
       let context_window = proactive_context_window_tokens agent in
@@ -920,10 +945,12 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
         if compacted
         then (
           update_state agent (fun s -> { s with config = original_config });
-          let prep', _, _ = stage_parse ?raw_trace_run ?clock agent in
-          prep')
-        else prep)
-      else prep
+          let* prep', _, _ =
+            stage_parse ?raw_trace_run ?clock agent |> tag_error "parse"
+          in
+          Ok prep')
+        else Ok prep)
+      else Ok prep
     in
     (* Stage 3: Route — with compact-and-retry on context overflow *)
     let rec attempt_route ~prep ~compact_attempts =
@@ -993,7 +1020,9 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
         then api_result
         else (
           update_state agent (fun s -> { s with config = original_config });
-          let prep', _, _ = stage_parse ?raw_trace_run ?clock agent in
+          let* prep', _, _ =
+            stage_parse ?raw_trace_run ?clock agent |> tag_error "parse"
+          in
           attempt_route ~prep:prep' ~compact_attempts:(compact_attempts + 1))
       | other -> other
     in

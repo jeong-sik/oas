@@ -46,14 +46,33 @@ type participant_run_result =
   | Participant_completed of participant_run_success
   | Participant_input_required of Runtime.input_request * paused_participant
 
-let agent_config_of_session (session : session) (detail : spawn_agent_request) =
+let agent_config_model
+      ~default_config
+      (session : session)
+      (resolution : execution_resolution)
+      (detail : spawn_agent_request)
+  =
+  match resolution.provider_cfg with
+  | Some provider -> provider.Provider.model_id
+  | None ->
+    (match resolution.resolved_model with
+     | Some value when String.trim value <> "" -> value
+     | _ ->
+       (match detail.model with
+        | Some value when String.trim value <> "" -> Model_registry.resolve_model_id value
+        | _missing_model_override ->
+          Option.value session.model ~default:default_config.model))
+;;
+
+let agent_config_of_session
+      (session : session)
+      (resolution : execution_resolution)
+      (detail : spawn_agent_request)
+  =
   let default_config = Types.default_config_value () in
   { default_config with
     name = detail.participant_name
-  ; model =
-      (match detail.model with
-       | Some value when String.trim value <> "" -> Model_registry.resolve_model_id value
-       | _missing_model_override -> default_config.model)
+  ; model = agent_config_model ~default_config session resolution detail
   ; system_prompt =
       (match detail.system_prompt with
        | Some prompt when String.trim prompt <> "" -> Some prompt
@@ -241,7 +260,7 @@ let load_durable_paused_input
             ];
           None
       in
-      let config = agent_config_of_session session detail in
+      let config = agent_config_of_session session resolution detail in
       let options = agent_options_of_resolution resolution trace_sink in
       let agent = Agent.resume ~net:state.net ~checkpoint ~config ~options () in
       Ok
@@ -571,7 +590,7 @@ let run_participant
               }
           | _ -> Hooks.Continue
         in
-        let config = agent_config_of_session session detail in
+        let config = agent_config_of_session session resolution detail in
         let options =
           { Agent.default_options with
             raw_trace = trace_sink
@@ -663,7 +682,7 @@ let run_participant
      | Error err ->
        Error { error = err; raw_trace_run_id = latest_raw_trace_run_id trace_sink }
      | Ok session ->
-       let config = agent_config_of_session session detail in
+       let config = agent_config_of_session session resolution detail in
        let options = agent_options_of_resolution resolution trace_sink in
        let agent = Agent.create ~net:state.net ~config ~options () in
        let on_event = function
@@ -1100,7 +1119,7 @@ let apply_command ~sw state store (session : session) command =
      | Ok _, Some paused ->
        Eio.Fiber.fork ~sw (fun () ->
          resume_paused_participant store state session_id paused detail.response)
-     | _ -> ());
+     | Ok _, None | Error _, Some _ | Error _, None -> ());
     applied
   | Update_session_settings detail ->
     let* session, _ =
@@ -1406,9 +1425,21 @@ let handle_request ~sw state request =
 
 let max_stdio_line_len = 10 * 1024 * 1024
 
-let serve_stdio ~sw ~net ~stdin () =
-  let state = create ~net () in
+let serve_stdio ~sw ~net ~clock ~stdin () =
+  let state = create ~net ~clock () in
   let reader = Eio.Buf_read.of_flow stdin ~max_size:max_stdio_line_len in
+  let handle_request_sync request_id request =
+    let response =
+      match handle_request ~sw state request with
+      | Ok response -> response
+      | Error err -> Error_response (Error.to_string err)
+    in
+    write_protocol_message state (Response_message { request_id; response });
+    response
+  in
+  let handle_request_message request_id request =
+    Eio.Fiber.fork ~sw (fun () -> ignore (handle_request_sync request_id request))
+  in
   let rec loop () =
     match Eio.Buf_read.line reader with
     | raw ->
@@ -1419,18 +1450,18 @@ let serve_stdio ~sw ~net ~stdin () =
     | exception Eio.Cancel.Cancelled _ -> ()
   and handle_raw state raw =
     match protocol_message_of_string raw with
+    | Ok (Request_message { request_id; request = Shutdown }) ->
+      ignore (handle_request_sync request_id Shutdown)
     | Ok (Request_message payload) ->
-      let response =
-        match handle_request ~sw state payload.request with
-        | Ok response -> response
-        | Error err -> Error_response (Error.to_string err)
-      in
-      write_protocol_message
-        state
-        (Response_message { request_id = payload.request_id; response });
-      (match response with
-       | Shutdown_ack -> ()
-       | _continue_response -> loop ())
+      handle_request_message payload.request_id payload.request;
+      loop ()
+    | Ok (Control_response_message payload) ->
+      ignore
+        (Runtime_server_control.deliver_control_response
+           state
+           payload.control_id
+           payload.response);
+      loop ()
     | Ok _non_request_message -> loop ()
     | Error _ ->
       (match request_of_string raw with
@@ -1439,18 +1470,10 @@ let serve_stdio ~sw ~net ~stdin () =
            state
            (Response_message { request_id = "legacy"; response = Error_response detail });
          loop ()
+       | Ok Shutdown -> ignore (handle_request_sync "legacy" Shutdown)
        | Ok request ->
-         let response =
-           match handle_request ~sw state request with
-           | Ok response -> response
-           | Error err -> Error_response (Error.to_string err)
-         in
-         write_protocol_message
-           state
-           (Response_message { request_id = "legacy"; response });
-         (match response with
-          | Shutdown_ack -> ()
-          | _continue_response -> loop ()))
+         handle_request_message "legacy" request;
+         loop ())
   in
   loop ()
 ;;

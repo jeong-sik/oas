@@ -61,12 +61,12 @@ val connect_mcp_server
   -> mcp_file_config
   -> (Mcp.managed, Error.sdk_error) result
 
-val connect_mcp_servers_best_effort
+val connect_mcp_servers_required
   :  sw:Eio.Switch.t
   -> mgr:[ `Generic | `Unix ] Eio.Process.mgr_ty Eio.Resource.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> mcp_file_config list
-  -> Mcp.managed list
+  -> (Mcp.managed list, Error.sdk_error) result
 
 (** {1 Builder conversion} *)
 

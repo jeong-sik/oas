@@ -171,51 +171,41 @@ let lookup t model_id =
     sorted_t
 ;;
 
-let rec find_in_parents filename dir depth =
-  if depth <= 0
-  then None
-  else (
-    let path = Filename.concat dir filename in
-    if Sys.file_exists path
-    then Some path
-    else (
-      let parent = Filename.dirname dir in
-      if parent = dir then None else find_in_parents filename parent (depth - 1)))
+type env_cache =
+  | Unloaded
+  | Loaded of t option
+
+let load_ambient_catalog () =
+  match Cli_common_env.get "OAS_MODEL_CATALOG" with
+  | None -> None
+  | Some path -> load_runtime_file path
 ;;
 
-let env_loaded_catalog : t option Lazy.t =
-  lazy
-    (let env_path = Cli_common_env.get "OAS_MODEL_CATALOG" in
-     let cwd = Paths.cwd () in
-     let search_paths =
-       [ env_path
-       ; find_in_parents "models.toml" cwd 10
-       ; find_in_parents "oas-models.toml" cwd 10
-       ; Paths.user_config_file "models.toml"
-         (* Boundary: this SDK is generic and must not know any embedding
-            application's private runtime layout. A consumer points the SDK
-            at its own catalog via [OAS_MODEL_CATALOG]; the SDK only probes
-            its own namespace ([.config/oas]) and the cwd-parent chain. *)
-       ]
-       |> List.filter_map Fun.id
-     in
-     let rec try_load = function
-       | [] -> None
-       | path :: rest ->
-         if Sys.file_exists path then load_runtime_file path else try_load rest
-     in
-     try_load search_paths)
+let env_loaded_catalog : env_cache Atomic.t = Atomic.make Unloaded
+
+let load_ambient_once () =
+  match Atomic.get env_loaded_catalog with
+  | Loaded value -> value
+  | Unloaded ->
+    let value = load_ambient_catalog () in
+    if Atomic.compare_and_set env_loaded_catalog Unloaded (Loaded value)
+    then value
+    else (
+      match Atomic.get env_loaded_catalog with
+      | Loaded value -> value
+      | Unloaded -> value)
 ;;
 
 let runtime_override : t option Atomic.t = Atomic.make None
 let set_global t = Atomic.set runtime_override (Some t)
 let clear_global () = Atomic.set runtime_override None
+let preload_global () = ignore (load_ambient_once () : t option)
 
 let global () =
   match Atomic.get runtime_override with
   | Some _ as o -> o
   | None ->
-    let env_value = Lazy.force env_loaded_catalog in
+    let env_value = load_ambient_once () in
     (match Atomic.get runtime_override with
      | Some _ as o -> o
      | None -> env_value)

@@ -491,6 +491,8 @@ let test_classify_and_to_string () =
     ; Hooks.ApprovalRequired, "ApprovalRequired"
     ; Hooks.AdjustParams Hooks.default_turn_params, "AdjustParams"
     ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }, "ElicitInput"
+    ; Hooks.Nudge "n", "Nudge"
+    ; Hooks.HookFailed { stage = "before_turn"; detail = "boom" }, "HookFailed"
     ]
   in
   List.iter
@@ -510,16 +512,6 @@ let test_invoke_validated_legal () =
   check bool "validated Skip at pre_tool_use passes" true (result = Hooks.Skip)
 ;;
 
-(** Test invoke_validated falls back on illegal decision. *)
-let test_invoke_validated_illegal_falls_back () =
-  let hook _event = Hooks.Skip in
-  let called = ref false in
-  let on_illegal ~stage:_ ~decision:_ ~msg:_ = called := true in
-  let result = Hooks.invoke_validated ~on_illegal (Some hook) dummy_before_turn in
-  check bool "falls back to Continue" true (result = Hooks.Continue);
-  check bool "on_illegal was called" true !called
-;;
-
 let contains_substring ~needle haystack =
   let n = String.length needle in
   let h = String.length haystack in
@@ -527,11 +519,25 @@ let contains_substring ~needle haystack =
   n = 0 || loop 0
 ;;
 
-(** Pin the Continue coercion for every decision that is illegal at
-    pre_tool_use (AdjustParams / ElicitInput / Nudge): the decision is
-    coerced to Continue and [on_illegal] receives the stage, the
+(** Test invoke_validated returns HookFailed on illegal decision. *)
+let test_invoke_validated_illegal_returns_hook_failed () =
+  let hook _event = Hooks.Skip in
+  let called = ref false in
+  let on_illegal ~stage:_ ~decision:_ ~msg:_ = called := true in
+  let result = Hooks.invoke_validated ~on_illegal (Some hook) dummy_before_turn in
+  (match result with
+   | Hooks.HookFailed { stage; detail } ->
+     check string "stage" "before_turn" stage;
+     check bool "detail names Skip" true (contains_substring ~needle:"Skip" detail)
+   | _ -> fail "expected HookFailed");
+  check bool "on_illegal was called" true !called
+;;
+
+(** Pin the fail-closed result for every decision that is illegal at
+    pre_tool_use (AdjustParams / ElicitInput / Nudge): the decision returns
+    HookFailed and [on_illegal] receives the stage, the
     rejected decision and a message naming the decision kind. *)
-let test_invoke_validated_pre_tool_use_coercion_pinned () =
+let test_invoke_validated_pre_tool_use_fail_closed_pinned () =
   let illegal =
     [ Hooks.AdjustParams Hooks.default_turn_params
     ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }
@@ -553,9 +559,13 @@ let test_invoke_validated_pre_tool_use_coercion_pinned () =
        in
        check
          bool
-         (Printf.sprintf "%s coerced to Continue" kind_name)
+         (Printf.sprintf "%s returns HookFailed" kind_name)
          true
-         (result = Hooks.Continue);
+         (match result with
+          | Hooks.HookFailed { stage; detail } ->
+            String.equal stage "pre_tool_use"
+            && contains_substring ~needle:kind_name detail
+          | _ -> false);
        match !seen with
        | None -> fail (Printf.sprintf "on_illegal not called for %s" kind_name)
        | Some (stage, rejected, msg) ->
@@ -573,11 +583,18 @@ let test_invoke_validated_pre_tool_use_coercion_pinned () =
     illegal
 ;;
 
-(** hook_name is optional: coercion still returns Continue without it. *)
-let test_invoke_validated_coercion_without_hook_name () =
+(** hook_name is optional: illegal decision still returns HookFailed without it. *)
+let test_invoke_validated_fail_closed_without_hook_name () =
   let hook _event = Hooks.Nudge "n" in
   let result = Hooks.invoke_validated (Some hook) dummy_pre_tool_use in
-  check bool "coerced to Continue without hook_name" true (result = Hooks.Continue)
+  check
+    bool
+    "returns HookFailed without hook_name"
+    true
+    (match result with
+     | Hooks.HookFailed { stage = "pre_tool_use"; detail } ->
+       contains_substring ~needle:"Nudge" detail
+     | _ -> false)
 ;;
 
 (** Test invoke_validated with None hook. *)
@@ -690,22 +707,22 @@ let () =
     ; ( "invoke_validated"
       , [ test_case "legal decision passes" `Quick test_invoke_validated_legal
         ; test_case
-            "illegal falls back to Continue"
+            "illegal returns HookFailed"
             `Quick
-            test_invoke_validated_illegal_falls_back
+            test_invoke_validated_illegal_returns_hook_failed
         ; test_case "None returns Continue" `Quick test_invoke_validated_none
         ; test_case
             "observe-only Continue passes"
             `Quick
             test_invoke_validated_observe_only
         ; test_case
-            "pre_tool_use illegal decisions coerce to Continue"
+            "pre_tool_use illegal decisions return HookFailed"
             `Quick
-            test_invoke_validated_pre_tool_use_coercion_pinned
+            test_invoke_validated_pre_tool_use_fail_closed_pinned
         ; test_case
-            "coercion without hook_name returns Continue"
+            "fail-closed without hook_name returns HookFailed"
             `Quick
-            test_invoke_validated_coercion_without_hook_name
+            test_invoke_validated_fail_closed_without_hook_name
         ] )
     ]
 ;;

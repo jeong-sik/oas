@@ -302,19 +302,19 @@ let of_json json =
     let provider = json |> member "provider" |> to_string_option in
     let base_url = json |> member "base_url" |> to_string_option in
     let* tools_json = parse_optional_list_field ~field:"tools" json in
-    let tools_result =
-      List.fold_left
-        (fun acc j ->
-           match acc with
-           | Error _ as e -> e
-           | Ok ts ->
-             (match parse_tool j with
-              | Ok t -> Ok (t :: ts)
-              | Error e -> Error e))
-        (Ok [])
-        tools_json
+    let* tools =
+      match tools_json with
+      | [] -> Ok []
+      | _ :: _ ->
+        Error
+          (Error.Config
+             (InvalidConfig
+                { field = "tools"
+                ; detail =
+                    "inline config tools have no executable runner; use mcp_servers or \
+                     register typed tools in code"
+                }))
     in
-    let* tools = tools_result in
     let* mcp_json = parse_optional_list_field ~field:"mcp_servers" json in
     let mcp_result =
       List.fold_left
@@ -428,28 +428,32 @@ let connect_mcp_server ~sw ~mgr ~net mcp_cfg =
     Mcp_http.connect_and_load_managed ~sw ~net spec
 ;;
 
-(** Connect all MCP servers from config (best-effort: failures are logged,
-    not fatal). *)
-let connect_mcp_servers_best_effort ~sw ~mgr ~net mcp_cfgs =
+(** Connect all MCP servers from config.  Config-declared servers are required:
+    dropping a failed server silently removes tools from the agent surface. *)
+let connect_mcp_servers_required ~sw ~mgr ~net mcp_cfgs =
   List.fold_left
     (fun acc cfg ->
        match connect_mcp_server ~sw ~mgr ~net cfg with
-       | Ok managed -> managed :: acc
+       | Ok managed -> Result.map (fun manageds -> managed :: manageds) acc
        | Error e ->
          let name =
            match cfg with
            | Stdio_mcp { name; _ } -> name
            | Http_mcp { name; _ } -> name
          in
-         let _log = Log.create ~module_name:"agent_config" () in
-         Log.warn
-           _log
-           "MCP server failed"
-           [ S ("server", name); S ("error", Error.to_string e) ];
-         acc)
-    []
+         Error
+           (Error.Config
+              (InvalidConfig
+                 { field = "mcp_servers"
+                 ; detail =
+                     Printf.sprintf
+                       "required MCP server %S failed to connect: %s"
+                       name
+                       (Error.to_string e)
+                 })))
+    (Ok [])
     mcp_cfgs
-  |> List.rev
+  |> Result.map List.rev
 ;;
 
 (** Convert a loaded config to a Builder.t.
@@ -494,31 +498,18 @@ let to_builder ?sw ?mgr ~net (cfg : agent_file_config) =
     | Some p -> Builder.with_provider (resolve_provider ~model_id:model p cfg.base_url) b
     | None -> b
   in
-  let tools =
-    List.map
-      (fun (tc : tool_file_config) ->
-         Tool.create
-           ~name:tc.name
-           ~description:tc.description
-           ~parameters:tc.parameters
-           (fun input ->
-              Ok
-                { Types.content =
-                    Printf.sprintf
-                      "[%s] called with %s"
-                      tc.name
-                      (Yojson.Safe.to_string input)
-                ; _meta = None
-                }))
-      cfg.tools
-  in
-  let b = if tools <> [] then Builder.with_tools tools b else b in
+  if cfg.tools <> []
+  then
+    invalid_arg
+      "Agent_config.to_builder: inline config tools have no executable runner; use \
+       mcp_servers or register typed tools in code";
   (* Connect MCP servers if sw+mgr provided *)
   let b =
     match sw, mgr with
     | Some sw, Some mgr when cfg.mcp_servers <> [] ->
-      let managed = connect_mcp_servers_best_effort ~sw ~mgr ~net cfg.mcp_servers in
-      if managed <> [] then Builder.with_mcp_clients managed b else b
+      (match connect_mcp_servers_required ~sw ~mgr ~net cfg.mcp_servers with
+       | Ok managed -> if managed <> [] then Builder.with_mcp_clients managed b else b
+       | Error err -> invalid_arg (Error.to_string err))
     | _ -> b
   in
   b

@@ -3,7 +3,7 @@ open Agent_sdk
 let with_state f =
   Eio_main.run
   @@ fun env ->
-  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) ~clock:env#clock () in
   f state
 ;;
 

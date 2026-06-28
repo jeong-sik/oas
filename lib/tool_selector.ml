@@ -22,7 +22,10 @@ type strategy =
       }
   | Categorical of
       { groups : (string * string list) list
-      ; classifier : [ `Bm25 | `Llm ]
+      ; classifier :
+          [ `Bm25
+          | `Llm of context:string -> candidates:(string * string) list -> string list
+          ]
       ; always_include : string list
       }
 
@@ -113,13 +116,12 @@ let select_llm_core
            | None -> None)
         bm25_top
     in
-    (* Stage 2: LLM rerank with self-healing fallback *)
+    (* Stage 2: LLM rerank. Provider/classifier failure is fail-closed:
+       return no LLM-selected names and keep only [always_include]. *)
     let llm_selected =
       try rerank_fn ~context ~candidates with
       | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
-      | _exn ->
-        (* Self-healing: LLM/network failure -> BM25 top-k *)
-        List.filteri (fun i _ -> i < k) bm25_top |> List.map fst
+      | _exn -> []
     in
     (* Validate: only keep names that exist in candidates *)
     let candidate_set = Hashtbl.create (List.length candidates) in
@@ -153,6 +155,69 @@ let select_bm25_core
   let top_names = List.filteri (fun i _ -> i < k) retrieved |> List.map fst in
   let extra = if use_fallback then fallback_tools else [] in
   let selected_names = merge_names ~always_include ~top_names:(top_names @ extra) in
+  filter_by_names selected_names tools
+;;
+
+let group_candidates ~tools groups =
+  let tool_by_name = build_tool_name_index tools in
+  List.map
+    (fun (group_name, tool_names) ->
+       let description =
+         tool_names
+         |> List.map (fun name ->
+           match Hashtbl.find_opt tool_by_name name with
+           | Some (tool : Tool.t) -> name ^ ": " ^ tool.schema.description
+           | None -> name)
+         |> String.concat "\n"
+       in
+       group_name, description)
+    groups
+;;
+
+let select_categorical_bm25 ~groups ~always_include ~context ~tools =
+  let candidates = group_candidates ~tools groups in
+  let group_entries =
+    List.map
+      (fun (group_name, description) ->
+         { Tool_index.name = group_name; description; group = None; aliases = [] })
+      candidates
+  in
+  let group_index = Tool_index.build group_entries in
+  Tool_index.retrieve_names group_index context
+  |> fun group_names ->
+  let group_tool_names =
+    List.concat_map
+      (fun gname ->
+         match List.assoc_opt gname groups with
+         | Some names -> names
+         | None -> [])
+      group_names
+  in
+  let selected_names = merge_names ~always_include ~top_names:group_tool_names in
+  filter_by_names selected_names tools
+;;
+
+let select_categorical_llm ~groups ~classifier ~always_include ~context ~tools =
+  let candidates = group_candidates ~tools groups in
+  let candidate_set = Hashtbl.create (List.length candidates) in
+  List.iter (fun (name, _) -> Hashtbl.replace candidate_set name true) candidates;
+  let group_names =
+    try classifier ~context ~candidates with
+    | (Out_of_memory | Stack_overflow | Sys.Break) as exn -> raise exn
+    | _exn -> []
+  in
+  let valid_group_names =
+    List.filter (fun name -> Hashtbl.mem candidate_set name) group_names
+  in
+  let group_tool_names =
+    List.concat_map
+      (fun gname ->
+         match List.assoc_opt gname groups with
+         | Some names -> names
+         | None -> [])
+      valid_group_names
+  in
+  let selected_names = merge_names ~always_include ~top_names:group_tool_names in
   filter_by_names selected_names tools
 ;;
 
@@ -213,41 +278,14 @@ let select ~strategy ~context ~tools =
       ~rerank_fn
       ~context
       ~tools
-  | Categorical { classifier = `Llm; _ } ->
-    (* Phase 3: LLM-based categorical classification not yet implemented.
-       Fail explicitly so callers know the configuration is unsupported
-       rather than silently receiving an empty tool set. *)
-    raise (Unsupported_configuration "Categorical LLM classifier not implemented")
   | Categorical { groups; classifier = `Bm25; always_include } ->
-    (* BM25 categorical: build index from group names + tool names,
-       find matching groups, expose all tools in those groups. *)
     if tools = []
     then []
-    else (
-      let group_entries =
-        List.map
-          (fun (group_name, tool_names) ->
-             let desc = String.concat " " tool_names in
-             { Tool_index.name = group_name
-             ; description = desc
-             ; group = None
-             ; aliases = []
-             })
-          groups
-      in
-      let group_index = Tool_index.build group_entries in
-      let matched_groups = Tool_index.retrieve_names group_index context in
-      (* Collect all tool names from matched groups *)
-      let group_tool_names =
-        List.concat_map
-          (fun gname ->
-             match List.assoc_opt gname groups with
-             | Some names -> names
-             | None -> [])
-          matched_groups
-      in
-      let selected_names = merge_names ~always_include ~top_names:group_tool_names in
-      filter_by_names selected_names tools)
+    else select_categorical_bm25 ~groups ~always_include ~context ~tools
+  | Categorical { groups; classifier = `Llm classifier; always_include } ->
+    if tools = []
+    then []
+    else select_categorical_llm ~groups ~classifier ~always_include ~context ~tools
 ;;
 
 let select_with_index ~strategy ~index ~context ~tools =
@@ -317,8 +355,8 @@ let default_rerank_fn ~sw ~net ~provider ~k () =
   let prompt =
     Printf.sprintf
       "Given the user query below, select the %d most relevant tools from the list. \
-       Return ONLY tool names, one per line, in order of relevance. No numbering, no \
-       explanation.\n\n\
+       Return ONLY a JSON array of tool-name strings, in order of relevance. No \
+       markdown, no prose, no object wrapper.\n\n\
        Query: %s\n\n\
        Available tools:\n\
        %s"
@@ -335,9 +373,22 @@ let default_rerank_fn ~sw ~net ~provider ~k () =
       }
     ]
   in
-  let bm25_fallback () = List.filteri (fun i _ -> i < k) (List.map fst candidates) in
-  (* Single-provider rerank. Deterministic sampling for reproducibility;
-       short reply suffices (one tool name per line). *)
+  let parse_json_name_array text =
+    try
+      match Yojson.Safe.from_string text with
+      | `List items ->
+        items
+        |> List.filter_map (function
+          | `String name when Hashtbl.mem candidate_names name -> Some name
+          | `String _unknown_name
+          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _ -> None)
+      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
+    with
+    | Yojson.Json_error _ -> []
+  in
+  (* Single-provider rerank. Deterministic sampling for reproducibility. The
+     response contract is structured JSON; malformed/provider-error responses
+     select nothing, leaving only caller-specified [always_include] upstream. *)
   let provider_cfg =
     { provider with
       Llm_provider.Provider_config.temperature = Some 0.0
@@ -349,28 +400,6 @@ let default_rerank_fn ~sw ~net ~provider ~k () =
   with
   | Ok response ->
     let text = Types.text_of_response response in
-    String.split_on_char '\n' text
-    |> List.filter_map (fun line ->
-      let trimmed = String.trim line in
-      if trimmed = ""
-      then None
-      else (
-        (* Strip leading "1. " or "- " if present *)
-        let name =
-          if String.length trimmed > 2
-          then (
-            match trimmed.[0] with
-            | '0' .. '9' ->
-              (match String.index_opt trimmed '.' with
-               | Some i when i < 4 ->
-                 String.trim (String.sub trimmed (i + 1) (String.length trimmed - i - 1))
-               | _ -> trimmed)
-            | '-' -> String.trim (String.sub trimmed 1 (String.length trimmed - 1))
-            | _ -> trimmed)
-          else trimmed
-        in
-        if Hashtbl.mem candidate_names name then Some name else None))
-  | Error _ ->
-    (* Graceful degradation: return candidates in BM25 order *)
-    bm25_fallback ()
+    parse_json_name_array text
+  | Error _ -> []
 ;;

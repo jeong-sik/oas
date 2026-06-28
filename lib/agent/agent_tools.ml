@@ -842,6 +842,18 @@ let execute_scheduled_tool
                name
                input
                id
+           | Hooks.HookFailed { stage; detail } ->
+             { tool_use_id = id
+             ; tool_name = name
+             ; content =
+                 Printf.sprintf
+                   "Tool execution blocked: hook pre_tool_use failed at %s: %s"
+                   stage
+                   detail
+             ; is_error = true
+             ; failure_kind = Some Non_retryable_tool_error
+             ; error_class = Some Types.Deterministic
+             }
          with
          | Out_of_memory -> raise Out_of_memory
          | Stack_overflow -> raise Stack_overflow

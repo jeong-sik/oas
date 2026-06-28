@@ -84,80 +84,51 @@ let test_of_json_full () =
 
 (* ── Tool parsing ─────────────────────────────────────────────── *)
 
-let test_of_json_with_tools () =
+let test_parse_tool_full () =
   let json =
     Yojson.Safe.from_string
       {|{
-    "tools": [
-      {
-        "name": "get_weather",
-        "description": "Get weather info",
-        "parameters": [
-          {"name": "city", "type": "string", "required": true, "description": "City name"},
-          {"name": "units", "type": "number", "required": false}
-        ]
-      },
-      {
-        "name": "search",
-        "description": "Search the web"
-      }
+    "name": "get_weather",
+    "description": "Get weather info",
+    "parameters": [
+      {"name": "city", "type": "string", "required": true, "description": "City name"},
+      {"name": "units", "type": "number", "required": false}
     ]
   }|}
   in
-  match Agent_config.of_json json with
-  | Error e -> Alcotest.fail ("tools: " ^ Error.to_string e)
-  | Ok cfg ->
-    Alcotest.(check int) "2 tools" 2 (List.length cfg.tools);
-    let t1 = List.nth cfg.tools 0 in
-    Alcotest.(check string) "tool name" "get_weather" t1.name;
-    Alcotest.(check string) "tool desc" "Get weather info" t1.description;
-    Alcotest.(check int) "2 params" 2 (List.length t1.parameters);
-    let p1 = List.nth t1.parameters 0 in
+  match Agent_config.parse_tool json with
+  | Error e -> Alcotest.fail ("tool: " ^ Error.to_string e)
+  | Ok t ->
+    Alcotest.(check string) "tool name" "get_weather" t.name;
+    Alcotest.(check string) "tool desc" "Get weather info" t.description;
+    Alcotest.(check int) "2 params" 2 (List.length t.parameters);
+    let p1 = List.nth t.parameters 0 in
     Alcotest.(check string) "param name" "city" p1.name;
-    Alcotest.(check bool) "param required" true p1.required;
-    let t2 = List.nth cfg.tools 1 in
-    Alcotest.(check string) "tool2 name" "search" t2.name;
-    Alcotest.(check int) "no params" 0 (List.length t2.parameters)
+    Alcotest.(check bool) "param required" true p1.required
 ;;
 
 let test_tool_no_parameters_key () =
-  let json =
-    Yojson.Safe.from_string
-      {|{
-    "tools": [{"name": "ping", "description": "ping"}]
-  }|}
-  in
-  match Agent_config.of_json json with
+  let json = Yojson.Safe.from_string {|{"name": "ping", "description": "ping"}|} in
+  match Agent_config.parse_tool json with
   | Error e -> Alcotest.fail ("no params key: " ^ Error.to_string e)
-  | Ok cfg ->
-    let t = List.nth cfg.tools 0 in
-    Alcotest.(check int) "empty params" 0 (List.length t.parameters)
+  | Ok t -> Alcotest.(check int) "empty params" 0 (List.length t.parameters)
 ;;
 
 let test_tool_parameters_not_list () =
-  let json =
-    Yojson.Safe.from_string
-      {|{
-    "tools": [{"name": "ping", "parameters": "not-a-list"}]
-  }|}
-  in
-  expect_invalid_config_field "params not list" "parameters" json
+  let json = Yojson.Safe.from_string {|{"name": "ping", "parameters": "not-a-list"}|} in
+  match Agent_config.parse_tool json with
+  | Error (Error.Config (InvalidConfig { field; _ })) ->
+    Alcotest.(check string) "field" "parameters" field
+  | Error e -> Alcotest.fail ("unexpected error: " ^ Error.to_string e)
+  | Ok _ -> Alcotest.fail "expected invalid parameters"
 ;;
 
 let test_param_defaults () =
-  let json =
-    Yojson.Safe.from_string
-      {|{
-    "tools": [{
-      "name": "t1",
-      "parameters": [{"name": "x"}]
-    }]
-  }|}
-  in
-  match Agent_config.of_json json with
+  let json = Yojson.Safe.from_string {|{"name": "t1", "parameters": [{"name": "x"}]}|} in
+  match Agent_config.parse_tool json with
   | Error e -> Alcotest.fail ("param defaults: " ^ Error.to_string e)
-  | Ok cfg ->
-    let p = List.nth (List.nth cfg.tools 0).parameters 0 in
+  | Ok t ->
+    let p = List.nth t.parameters 0 in
     Alcotest.(check string) "default desc" "" p.description;
     Alcotest.(check bool) "default required" false p.required
 ;;
@@ -521,9 +492,7 @@ let test_of_json_bad_param () =
     "tools": [{"name": "t", "parameters": [{"name": 123}]}]
   }|}
   in
-  match Agent_config.of_json json with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected error for bad param"
+  expect_invalid_config_field "inline tools rejected before bad param" "tools" json
 ;;
 
 let test_of_json_bad_tool () =
@@ -534,14 +503,12 @@ let test_of_json_bad_tool () =
     "tools": [{"name": 999}]
   }|}
   in
-  match Agent_config.of_json json with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected error for bad tool"
+  expect_invalid_config_field "inline tools rejected before bad tool" "tools" json
 ;;
 
 let test_of_json_non_object_tool () =
   let json = Yojson.Safe.from_string {|{"tools": ["not-object"]}|} in
-  expect_invalid_config_field "non-object tool" "tool" json
+  expect_invalid_config_field "inline tools rejected before non-object tool" "tools" json
 ;;
 
 let test_of_json_bad_mcp () =
@@ -580,7 +547,7 @@ let () =
     [ ( "of_json"
       , [ tc "minimal" test_of_json_minimal
         ; tc "full" test_of_json_full
-        ; tc "with tools" test_of_json_with_tools
+        ; tc "parse tool full" test_parse_tool_full
         ; tc "tool no params key" test_tool_no_parameters_key
         ; tc "tool params not list" test_tool_parameters_not_list
         ; tc "param defaults" test_param_defaults

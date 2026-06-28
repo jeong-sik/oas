@@ -337,28 +337,16 @@ let build_request_assoc
        | None -> body)
     | No_thinking_control -> body
   in
-  (* tool_choice uses a DIFFERENT unknown-model default than top_k /
-     min_p above: unknown -> assume supported (true). Two reasons:
-       (1) [tool_choice] is a standard Openai Chat Completions body
-           param and virtually every OpenAI-compat server accepts it,
-           so conservatively dropping it on unknown models would
-           regress every agent that uses a model Capabilities does
-           not know about yet.
-       (2) top_k / min_p are non-standard extensions - ZAI Glm hard
-           400s on them (#827/#830), so conservative drop is the
-           right default for those specifically.
-     That is why this lookup is NOT a dedup candidate against the
-     [caps] binding above: we need [true] on [None] here, whereas
-     [caps] gives [default_capabilities.supports_tool_choice = false]
-     on [None]. Both defaults are intentional and contextual, not
-     drift. *)
+  (* Unknown model capabilities fail closed. A caller that wants to force
+     [tool_choice] for a not-yet-cataloged model must set
+     [supports_tool_choice_override=true] or provide a capability entry. *)
   let supports_tool_choice =
     match config.supports_tool_choice_override with
     | Some v -> v
     | None ->
       (match Provider_config.capabilities_for_config_model config with
        | Some c -> c.supports_tool_choice
-       | None -> true)
+       | None -> false)
   in
   let body =
     match effective_tool_choice config with
