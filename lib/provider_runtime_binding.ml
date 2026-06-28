@@ -370,7 +370,7 @@ let resolve_model binding ~requested_model =
      | _ ->
        (match binding.kind with
         | PConfig.Ollama -> "default"
-        | _ -> Model_registry.default_model_id))
+        | _ -> Model_registry.default_model_id_value ()))
 ;;
 
 let to_provider_config ?model binding =
