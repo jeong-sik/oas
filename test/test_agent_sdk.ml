@@ -2,6 +2,18 @@ open Alcotest
 open Agent_sdk
 open Types
 
+let with_env key value f =
+  let previous = Sys.getenv_opt key in
+  Fun.protect
+    ~finally:(fun () ->
+      match previous with
+      | Some v -> Unix.putenv key v
+      | None -> Unix.putenv key "")
+    (fun () ->
+       Unix.putenv key value;
+       f ())
+;;
+
 let test_model_string () =
   Alcotest.(check string)
     "claude_sonnet"
@@ -142,6 +154,15 @@ let test_create_agent_defaults () =
   Alcotest.(check int) "initial turn count" 0 st.turn_count
 ;;
 
+let test_create_agent_default_model_reads_current_env () =
+  with_env Model_registry.default_model_id_env_var "create-agent-default-model" (fun () ->
+    Eio_main.run
+    @@ fun env ->
+    let agent = Agent_sdk.create_agent ~net:env#net () in
+    let config = (Agent.state agent).config in
+    Alcotest.(check string) "model" "create-agent-default-model" config.model)
+;;
+
 let test_create_agent_with_name_model () =
   Eio_main.run
   @@ fun env ->
@@ -248,6 +269,10 @@ let () =
         ] )
     ; ( "create_agent"
       , [ test_case "defaults" `Quick test_create_agent_defaults
+        ; test_case
+            "default model reads current env"
+            `Quick
+            test_create_agent_default_model_reads_current_env
         ; test_case "with name/model/prompt" `Quick test_create_agent_with_name_model
         ; test_case "with provider" `Quick test_create_agent_with_provider
         ; test_case "with raw_trace" `Quick test_create_agent_with_raw_trace

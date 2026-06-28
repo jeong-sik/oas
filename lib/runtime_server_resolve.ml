@@ -27,7 +27,7 @@ let ensure_test_provider_enabled selected =
 let provider_runtime_name selected (cfg : Provider.config option) =
   match cfg with
   | None -> selected
-  | Some cfg -> Provider_runtime_binding.provider_id_of_legacy_config cfg
+  | Some cfg -> Provider_runtime_binding.provider_id_of_config cfg
 ;;
 
 let valid_provider_detail () =

@@ -153,9 +153,9 @@ type agent_config =
   }
 [@@deriving show]
 
-let default_config =
+let default_config_value ?getenv () =
   { name = "agent"
-  ; model = Model_registry.default_model_id
+  ; model = Model_registry.default_model_id_value ?getenv ()
   ; system_prompt = None
   ; max_tokens = None
   ; max_turns = 10
@@ -182,6 +182,8 @@ let default_config =
   ; call_time_pruner_keep_last = 100
   }
 ;;
+
+let default_config = default_config_value ()
 
 (** Usage tracking accumulated across provider calls. Per-response usage stays
     in [Llm_provider.Types.api_usage].

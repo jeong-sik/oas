@@ -302,7 +302,7 @@ let provider_id_of_provider_config cfg =
   | None -> PR.provider_name_of_config cfg
 ;;
 
-let provider_id_of_legacy_config (cfg : Provider.config) =
+let provider_id_of_config (cfg : Provider.config) =
   match cfg.provider with
   | Provider.Local _ -> "local"
   | Provider.Anthropic -> "claude"
@@ -370,7 +370,7 @@ let resolve_model binding ~requested_model =
      | _ ->
        (match binding.kind with
         | PConfig.Ollama -> "default"
-        | _ -> Model_registry.default_model_id))
+        | _ -> Model_registry.default_model_id_value ()))
 ;;
 
 let to_provider_config ?model binding =

@@ -9,9 +9,10 @@
     actually reachable, then pins each alias arm + the pass-through
     contract.
 
-    Two public values pinned (per [lib/model_registry.mli] surface):
-    1. [default_model_id] — env-resolved constant.
-    2. [resolve_model_id alias] — pass-through default for unknown
+    Public values pinned (per [lib/model_registry.mli] surface):
+    1. [default_model_id_value] — call-time env resolver.
+    2. [default_model_id] — compatibility snapshot.
+    3. [resolve_model_id alias] — pass-through default for unknown
        names; intentional (custom-model support) so the test pins it
        to prevent an accidental fail-closed refactor. *)
 
@@ -26,6 +27,48 @@ let test_default_model_id_non_empty () =
     "default_model_id is non-empty"
     true
     (String.length Model_registry.default_model_id > 0)
+;;
+
+let test_default_model_id_value_fallback () =
+  check
+    string
+    "default fallback"
+    Model_registry.default_model_id_fallback
+    (Model_registry.default_model_id_value ~getenv:(fun _ -> None) ())
+;;
+
+let test_default_model_id_value_uses_injected_env () =
+  let getenv name =
+    if String.equal name Model_registry.default_model_id_env_var
+    then Some "custom-default-model"
+    else None
+  in
+  check
+    string
+    "injected default"
+    "custom-default-model"
+    (Model_registry.default_model_id_value ~getenv ())
+;;
+
+let test_default_model_id_value_blank_env_falls_back () =
+  check
+    string
+    "blank env fallback"
+    Model_registry.default_model_id_fallback
+    (Model_registry.default_model_id_value ~getenv:(fun _ -> Some "   ") ())
+;;
+
+let test_default_config_value_uses_calltime_model () =
+  let getenv name =
+    if String.equal name Model_registry.default_model_id_env_var
+    then Some "config-default-model"
+    else None
+  in
+  check
+    string
+    "default_config_value model"
+    "config-default-model"
+    (Types.default_config_value ~getenv ()).model
 ;;
 
 (* ── resolve_model_id — explicit aliases ────────────── *)
@@ -147,7 +190,22 @@ let test_resolve_idempotent () =
 let () =
   run
     "model_registry"
-    [ "default_model_id", [ test_case "non-empty" `Quick test_default_model_id_non_empty ]
+    [ ( "default_model_id"
+      , [ test_case "snapshot non-empty" `Quick test_default_model_id_non_empty
+        ; test_case "call-time fallback" `Quick test_default_model_id_value_fallback
+        ; test_case
+            "call-time injected env"
+            `Quick
+            test_default_model_id_value_uses_injected_env
+        ; test_case
+            "call-time blank env fallback"
+            `Quick
+            test_default_model_id_value_blank_env_falls_back
+        ; test_case
+            "default config uses call-time model"
+            `Quick
+            test_default_config_value_uses_calltime_model
+        ] )
     ; ( "resolve_model_id (aliases)"
       , [ test_case "opus 4-6 + opus shorthand" `Quick test_resolve_opus_4_6_alias
         ; test_case "sonnet 4-6 + sonnet shorthand" `Quick test_resolve_sonnet_4_6_alias

@@ -145,7 +145,6 @@ module Event_forward = Event_forward
 module Relay_delivery = Relay_delivery
 module Metrics = Metrics
 module Progressive_tools = Progressive_tools
-module Provider_bridge = Provider_bridge
 module Async_agent = Async_agent
 module Append_instruction = Append_instruction
 module Consumer = Consumer
@@ -198,6 +197,7 @@ let create_agent
       ()
   =
   let open Types in
+  let default_config = default_config_value () in
   let config =
     { name = Option.value name ~default:default_config.name
     ; model = Option.value model ~default:default_config.model

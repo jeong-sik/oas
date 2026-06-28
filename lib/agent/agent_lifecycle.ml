@@ -77,7 +77,7 @@ type lifecycle_snapshot =
 let provider_runtime_name (cfg : Provider.config option) =
   match cfg with
   | None -> None
-  | Some cfg -> Some (Provider_runtime_binding.provider_id_of_legacy_config cfg)
+  | Some cfg -> Some (Provider_runtime_binding.provider_id_of_config cfg)
 ;;
 
 let hook_decision_to_string = function

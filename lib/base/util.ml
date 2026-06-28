@@ -87,12 +87,8 @@ let trim_non_empty_opt = function
   | Some s -> trim_non_empty s
 ;;
 
-(** Deprecated: use [Llm_provider.Cli_common_env.get]. Kept for backward
-    compatibility until remaining internal callers are migrated. *)
-let get = Llm_provider.Cli_common_env.get
-
 let env_or default var =
-  match get var with
+  match Llm_provider.Cli_common_env.get var with
   | Some v -> v
   | None -> default
 ;;
