@@ -219,17 +219,12 @@ let patch_telemetry
         }
     | None ->
       Some
-        { Types.system_fingerprint = None
-        ; timings = None
-        ; reasoning_tokens = None
-        ; reasoning_tokens_estimated = false
-        ; request_latency_ms = latency_ms
-        ; peak_memory_gb = None
+        { Types.default_inference_telemetry with
+          request_latency_ms = latency_ms
         ; provider_kind = pk
         ; reasoning_effort = re
         ; canonical_model_id = canonical
         ; effective_context_window = ctx_window
-        ; provider_internal_action_count = None
         ; ttfrc_ms
         ; prefill_ms
         }

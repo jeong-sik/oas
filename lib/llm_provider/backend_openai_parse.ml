@@ -220,19 +220,12 @@ let telemetry_of_openai_json json =
       (usage_float [ "peak_memory"; "peak_memory_gb" ])
   in
   Some
-    { Types.system_fingerprint
+    { Types.default_inference_telemetry with
+      system_fingerprint
     ; timings
     ; reasoning_tokens
     ; reasoning_tokens_estimated
-    ; request_latency_ms = None
     ; peak_memory_gb
-    ; provider_kind = None
-    ; reasoning_effort = None
-    ; canonical_model_id = None
-    ; effective_context_window = None
-    ; provider_internal_action_count = None
-    ; ttfrc_ms = None
-    ; prefill_ms = None
     }
 ;;
 

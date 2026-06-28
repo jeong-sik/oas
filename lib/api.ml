@@ -65,21 +65,8 @@ let patch_latency (resp : Types.api_response) (latency_ms : int option)
     match resp.telemetry with
     | Some t -> Some { t with Llm_provider.Types.request_latency_ms = latency_ms }
     | None ->
-      Some
-        { Llm_provider.Types.system_fingerprint = None
-        ; timings = None
-        ; reasoning_tokens = None
-        ; reasoning_tokens_estimated = false
-        ; request_latency_ms = latency_ms
-        ; peak_memory_gb = None
-        ; provider_kind = None
-        ; reasoning_effort = None
-        ; canonical_model_id = None
-        ; effective_context_window = None
-        ; provider_internal_action_count = None
-        ; ttfrc_ms = None
-        ; prefill_ms = None
-        }
+      let default = Llm_provider.Types.default_inference_telemetry in
+      Some { default with request_latency_ms = latency_ms }
   in
   { resp with telemetry }
 ;;
@@ -488,20 +475,12 @@ let%test "patch_latency creates telemetry when None with measured ms" =
 
 let%test "patch_latency overwrites existing request_latency_ms" =
   let telemetry : Llm_provider.Types.inference_telemetry =
-    { system_fingerprint = Some "fp"
-    ; timings = None
+    { Llm_provider.Types.default_inference_telemetry with
+      system_fingerprint = Some "fp"
     ; reasoning_tokens = Some 10
-    ; reasoning_tokens_estimated = false
-    ; request_latency_ms = None
-    ; (* parser cannot observe transport latency *)
-      peak_memory_gb = None
+    ; request_latency_ms = None (* parser cannot observe transport latency *)
     ; provider_kind = Some Llm_provider.Provider_config.Anthropic
-    ; reasoning_effort = None
     ; canonical_model_id = Some "claude-4-sonnet"
-    ; effective_context_window = Some 200_000
-    ; provider_internal_action_count = None
-    ; ttfrc_ms = None
-    ; prefill_ms = None
     }
   in
   let resp : Types.api_response =
