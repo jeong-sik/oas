@@ -70,14 +70,13 @@ let web_search_tool =
   Tool.create ~descriptor ~name:"web_search" ~parameters:[] handler
 ```
 
-## How MASC wires the class
+## How host runtimes wire the class
 
-MASC derives an OAS `Tool.descriptor` in `lib/tool_bridge.ml`. Read-only
-workspace tools map to `Parallel_read`; writes map to `Sequential_workspace`;
-destructive tools map to `Exclusive_external`. Web-search and web-fetch
-aliases (`WebSearch`, `WebFetch`, internal names `masc_web_search`,
-`masc_web_fetch`) are explicitly treated as external-network tools and mapped
-to `Exclusive_external` so the OAS runtime never batches them in parallel.
+Host runtimes should derive an OAS `Tool.descriptor` at their tool boundary.
+Read-only workspace tools map to `Parallel_read`; writes map to
+`Sequential_workspace`; destructive tools map to `Exclusive_external`.
+External-network tools such as web search or web fetch should also map to
+`Exclusive_external` so the OAS runtime never batches them in parallel.
 
 See also:
 

@@ -13,8 +13,8 @@ Local Dune wrapper for multi-agent development:
   - defaults local concurrency to DUNE_LOCAL_JOBS, or 2
   - injects --root <repo-root> unless --root is already present
 
-Set MASC_DUNE_THROTTLE=0 to bypass the local lock.
-Set MASC_DUNE_DRY_RUN=1 to print the command without running it.
+Set DUNE_LOCAL_THROTTLE=0 to bypass the local lock.
+Set DUNE_LOCAL_DRY_RUN=1 to print the command without running it.
 USAGE
 }
 
@@ -64,11 +64,11 @@ printf '[dune-local] command:' >&2
 printf ' %q' "${cmd[@]}" >&2
 printf '\n' >&2
 
-if [[ "${MASC_DUNE_DRY_RUN:-0}" = "1" ]]; then
+if [[ "${DUNE_LOCAL_DRY_RUN:-0}" = "1" ]]; then
   exit 0
 fi
 
-if [[ "${GITHUB_ACTIONS:-}" = "true" || "${MASC_DUNE_THROTTLE:-1}" = "0" ]]; then
+if [[ "${GITHUB_ACTIONS:-}" = "true" || "${DUNE_LOCAL_THROTTLE:-1}" = "0" ]]; then
   exec "${cmd[@]}"
 fi
 
