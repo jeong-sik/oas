@@ -276,7 +276,7 @@ let test_provider_id_fallbacks_do_not_invent_openai () =
     "unmatched openai compat"
     "openai_compat"
     (Provider_runtime_binding.provider_id_of_provider_config cfg);
-  let legacy : Provider.config =
+  let config : Provider.config =
     { provider =
         Provider.OpenAICompat
           { base_url = "https://unlisted.example/v1"
@@ -289,9 +289,9 @@ let test_provider_id_fallbacks_do_not_invent_openai () =
     }
   in
   Alcotest.(check string)
-    "legacy unmatched openai compat"
+    "config unmatched openai compat"
     "openai_compat"
-    (Provider_runtime_binding.provider_id_of_legacy_config legacy)
+    (Provider_runtime_binding.provider_id_of_config config)
 ;;
 
 let () =

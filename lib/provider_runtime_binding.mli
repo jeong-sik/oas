@@ -63,10 +63,10 @@ val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
     ["openai_compat"]; it never invents a fake provider id. *)
 val provider_id_of_provider_config : Llm_provider.Provider_config.t -> string
 
-(** Best-effort runtime provider id for the legacy {!Provider.config}
-    adapter. Custom providers are reported by their registered name, without
-    a ["custom:"] display prefix. *)
-val provider_id_of_legacy_config : Provider.config -> string
+(** Best-effort runtime provider id for an Agent SDK {!Provider.config}.
+    Custom providers are reported by their registered name, without a
+    ["custom:"] display prefix. *)
+val provider_id_of_config : Provider.config -> string
 
 (** Resolve OAS-owned provider capabilities for a concrete provider config.
 
