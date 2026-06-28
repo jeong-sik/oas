@@ -3,11 +3,10 @@
     Wraps Eio + cohttp-eio with TLS. All network and HTTP-level errors
     are captured as {!http_error} so callers do not need [try/with].
 
-    Each synchronous request without a [connection_cache] runs inside
-    its own [Eio.Switch.run] scope so the underlying TCP connection and
-    its file descriptor are released as soon as the response body is
-    fully consumed. With a cache, connections are bound to the cache's
-    switch and reused until eviction or switch release.
+    Each synchronous request without a [connection_cache] creates a one-shot
+    client and explicitly closes the underlying TCP connection as soon as the
+    response body is fully consumed. With a cache, connections are bound to
+    the cache's switch and reused until eviction or switch release.
 
     @since 0.45.0 *)
 
@@ -836,21 +835,27 @@ let make_closing_client ~sw ~net ~uri =
 (** Run [f client] with a client obtained either from [cache] or created
     for one request. When [cache] is supplied, a hit reuses a parked
     connection, a miss creates one and parks it on success, and any error
-    evicts it. When [cache] is omitted the behavior is the existing
-    one-shot behavior.
+    evicts it. When [cache] is omitted the client is created for a single
+    request and closed immediately after [f] returns.
 
-    [f] must return an [('a, http_error) result]. The wrapper distinguishes
-    [Ok] from [Error] for cache lifecycle decisions; exceptions are treated
-    as fatal for the connection. *)
+    [f] receives the caller switch and must return an
+    [('a, http_error) result]. The wrapper distinguishes [Ok] from [Error]
+    for cache lifecycle decisions; exceptions are treated as fatal for the
+    connection. *)
 let with_client ?cache ~sw ~net ~uri f =
   match cache with
   | None ->
-    (* One-shot path: run the request under a fresh sub-switch so the
-       connection/FD is released as soon as [f] returns, even when the caller
-       supplied a long-lived switch. *)
-    Eio.Switch.run (fun sw' ->
-      let* client = make_closing_client ~sw:sw' ~net ~uri in
-      f client)
+    let* client, close = make_client ~net ~uri in
+    Fun.protect
+      ~finally:(fun () ->
+        try Eio.Cancel.protect close with
+        | Eio.Cancel.Cancelled _ as e -> raise e
+        | exn ->
+          Diag.warn
+            "http_client"
+            "with_client one-shot close failed: %s"
+            (Printexc.to_string exn))
+      (fun () -> f ~sw client)
   | Some cache ->
     let* conn, was_cached =
       match cache_take cache uri with
@@ -878,7 +883,7 @@ let with_client ?cache ~sw ~net ~uri f =
             "with_client cleanup failed: %s"
             (Printexc.to_string exn))
       (fun () ->
-         let* result = f client in
+         let* result = f ~sw client in
          ok := true;
          Ok result)
 ;;
@@ -957,7 +962,7 @@ let get_sync ?cache ?clock ?(timeout_s = default_http_timeout_s) ~sw ~net ~url ~
   =
   catch_network (fun () ->
     let* uri = parse_uri url in
-    with_client ?cache ~sw ~net ~uri (fun client ->
+    with_client ?cache ~sw ~net ~uri (fun ~sw client ->
       let hdr = Http.Header.of_list (maybe_add_connection_close ?cache headers) in
       with_optional_timeout ~clock ~timeout_s (fun () ->
         let resp, resp_body = Cohttp_eio.Client.get ~sw client ~headers:hdr uri in
@@ -979,7 +984,7 @@ let post_sync
   =
   catch_network (fun () ->
     let* uri = parse_uri url in
-    with_client ?cache ~sw ~net ~uri (fun client ->
+    with_client ?cache ~sw ~net ~uri (fun ~sw client ->
       (* Explicitly set Content-Length to prevent chunked transfer encoding.
          Ollama's yyjson parser rejects chunked bodies with
          "Value looks like object, but can't find closing '}' symbol". *)
@@ -1488,6 +1493,12 @@ let%test "classify_unix_error: ENETUNREACH is Dns_failure" =
 
 let%test "classify_unix_error: EHOSTUNREACH is Dns_failure" =
   classify_unix_error Unix.EHOSTUNREACH = Dns_failure
+;;
+
+(* ── drain_response_body tests ───────────────────────── *)
+
+let%test "drain_response_body: complete source reports complete" =
+  Result.is_ok (drain_response_body (Eio.Flow.string_source "abc"))
 ;;
 
 (* ── is_local_resource_exhaustion tests ──────────────── *)
