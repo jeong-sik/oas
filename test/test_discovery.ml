@@ -4,6 +4,20 @@
 
 open Llm_provider
 
+let test_getenv bindings name = List.assoc_opt name bindings
+
+let with_env name value f =
+  let saved = Sys.getenv_opt name in
+  Fun.protect
+    ~finally:(fun () ->
+      match saved with
+      | Some old_value -> Unix.putenv name old_value
+      | None -> Unix.putenv name "")
+    (fun () ->
+       Unix.putenv name value;
+       f ())
+;;
+
 let fresh_port () =
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -43,33 +57,129 @@ let with_mock_server handler f =
   | Exit -> ()
 ;;
 
+let test_resolve_default_endpoint_reads_getenv () =
+  let first = "http://127.0.0.1:19001" in
+  let second = "http://127.0.0.1:19002" in
+  Alcotest.(check string)
+    "first value"
+    first
+    (Discovery.resolve_default_endpoint
+       ~getenv:(test_getenv [ Discovery.local_llm_url_env_var, first ])
+       ());
+  Alcotest.(check string)
+    "second value"
+    second
+    (Discovery.resolve_default_endpoint
+       ~getenv:(test_getenv [ Discovery.local_llm_url_env_var, second ])
+       ())
+;;
+
+let test_resolve_ollama_endpoint_reads_getenv () =
+  let first = "http://127.0.0.1:19003" in
+  let second = "http://127.0.0.1:19004" in
+  Alcotest.(check string)
+    "first value"
+    first
+    (Discovery.resolve_ollama_endpoint
+       ~getenv:(test_getenv [ Discovery.ollama_host_env_var, first ])
+       ());
+  Alcotest.(check string)
+    "second value"
+    second
+    (Discovery.resolve_ollama_endpoint
+       ~getenv:(test_getenv [ Discovery.ollama_host_env_var, second ])
+       ())
+;;
+
 let test_endpoints_from_env_default () =
-  (* When LLM_ENDPOINTS is not set, should return default *)
-  let saved = Sys.getenv_opt "LLM_ENDPOINTS" in
-  (match saved with
-   | Some _ -> Unix.putenv "LLM_ENDPOINTS" ""
-   | None -> ());
-  let result = Discovery.endpoints_from_env () in
-  (match saved with
-   | Some v -> Unix.putenv "LLM_ENDPOINTS" v
-   | None -> ());
+  let getenv = test_getenv [] in
+  let result = Discovery.endpoints_from_env ~getenv () in
   Alcotest.(check (list string))
     "default endpoint"
-    [ "http://127.0.0.1:8085"; Discovery.ollama_endpoint ]
+    [ Discovery.resolve_default_endpoint ~getenv ()
+    ; Discovery.resolve_ollama_endpoint ~getenv ()
+    ]
     result
 ;;
 
 let test_endpoints_from_env_custom () =
-  let saved = Sys.getenv_opt "LLM_ENDPOINTS" in
-  Unix.putenv "LLM_ENDPOINTS" "http://a:8085, http://b:8086,http://c:8087";
-  let result = Discovery.endpoints_from_env () in
-  (match saved with
-   | Some v -> Unix.putenv "LLM_ENDPOINTS" v
-   | None -> ());
+  let getenv =
+    test_getenv
+      [ Discovery.llm_endpoints_env_var, "http://a:8085, http://b:8086,http://c:8087" ]
+  in
+  let result = Discovery.endpoints_from_env ~getenv () in
   Alcotest.(check (list string))
     "parsed endpoints"
-    [ "http://a:8085"; "http://b:8086"; "http://c:8087"; Discovery.ollama_endpoint ]
+    [ "http://a:8085"
+    ; "http://b:8086"
+    ; "http://c:8087"
+    ; Discovery.resolve_ollama_endpoint ~getenv ()
+    ]
     result
+;;
+
+let test_endpoints_from_env_resolves_defaults_from_getenv () =
+  let getenv =
+    test_getenv
+      [ Discovery.llm_endpoints_env_var, ""
+      ; Discovery.local_llm_url_env_var, "http://127.0.0.1:19005"
+      ; Discovery.ollama_host_env_var, "http://127.0.0.1:19006"
+      ]
+  in
+  Alcotest.(check (list string))
+    "resolved defaults"
+    [ "http://127.0.0.1:19005"; "http://127.0.0.1:19006" ]
+    (Discovery.endpoints_from_env ~getenv ())
+;;
+
+let test_discover_uses_call_time_ollama_host () =
+  let props_hits = ref 0 in
+  let slots_hits = ref 0 in
+  let handler _conn req body =
+    ignore (Eio.Buf_read.(of_flow ~max_size:(1024 * 1024) body |> take_all) : string);
+    match Uri.path (Cohttp.Request.uri req) with
+    | "/health" -> Cohttp_eio.Server.respond_string ~status:`OK ~body:"ok" ()
+    | "/v1/models" ->
+      Cohttp_eio.Server.respond_string
+        ~status:`OK
+        ~body:{|{"data":[{"id":"phi4","owned_by":"ollama"}]}|}
+        ()
+    | "/api/tags" ->
+      Cohttp_eio.Server.respond_string
+        ~status:`OK
+        ~body:{|{"models":[{"name":"phi4"}]}|}
+        ()
+    | "/api/show" ->
+      Cohttp_eio.Server.respond_string
+        ~status:`OK
+        ~body:{|{"model_info":{"context_length":8192},"template":"{{ .Content }}"}|}
+        ()
+    | "/props" ->
+      incr props_hits;
+      Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"unexpected props" ()
+    | "/slots" ->
+      incr slots_hits;
+      Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"unexpected slots" ()
+    | _ -> Cohttp_eio.Server.respond_string ~status:`Not_found ~body:"missing" ()
+  in
+  with_mock_server handler (fun ~sw ~net ~endpoint ->
+    with_env Discovery.ollama_host_env_var endpoint (fun () ->
+      match Discovery.discover ~sw ~net ~endpoints:[ endpoint ] with
+      | [ status ] ->
+        Alcotest.(check bool) "healthy" true status.healthy;
+        Alcotest.(check int) "props probe skipped" 0 !props_hits;
+        Alcotest.(check int) "slots probe skipped" 0 !slots_hits;
+        Alcotest.(check (option int))
+          "ollama context"
+          (Some 8192)
+          (Option.map
+             (fun (props : Discovery.server_props) -> props.ctx_size)
+             status.props);
+        Alcotest.(check bool)
+          "reasoning effort behavior"
+          true
+          (status.capabilities.thinking_control_format = Capabilities.Reasoning_effort)
+      | _ -> Alcotest.fail "expected one endpoint status"))
 ;;
 
 let test_parse_models_json () =
@@ -379,8 +489,24 @@ let () =
   Alcotest.run
     "Discovery"
     [ ( "env"
-      , [ Alcotest.test_case "default" `Quick test_endpoints_from_env_default
+      , [ Alcotest.test_case
+            "resolve default endpoint from getenv"
+            `Quick
+            test_resolve_default_endpoint_reads_getenv
+        ; Alcotest.test_case
+            "resolve ollama endpoint from getenv"
+            `Quick
+            test_resolve_ollama_endpoint_reads_getenv
+        ; Alcotest.test_case "default" `Quick test_endpoints_from_env_default
         ; Alcotest.test_case "custom" `Quick test_endpoints_from_env_custom
+        ; Alcotest.test_case
+            "resolved endpoint defaults"
+            `Quick
+            test_endpoints_from_env_resolves_defaults_from_getenv
+        ; Alcotest.test_case
+            "discover uses call-time ollama host"
+            `Quick
+            test_discover_uses_call_time_ollama_host
         ] )
     ; "parsing", [ Alcotest.test_case "models json" `Quick test_parse_models_json ]
     ; ( "json"

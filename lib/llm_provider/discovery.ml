@@ -46,38 +46,51 @@ type endpoint_status =
   ; capabilities : Capabilities.capabilities
   }
 
+let local_llm_url_env_var = "OAS_LOCAL_LLM_URL"
+let llm_endpoints_env_var = "LLM_ENDPOINTS"
+let ollama_host_env_var = "OLLAMA_HOST"
+let default_ollama_endpoint = "http://127.0.0.1:11434"
+let env_get_non_empty ~getenv name = getenv name |> Cli_common_env.trim_non_empty_opt
+
 let default_endpoint =
-  match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
+  match Cli_common_env.get local_llm_url_env_var with
   | Some v -> v
   | None -> Constants.Endpoints.default_url
 ;;
 
-let resolve_default_endpoint () =
-  match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
+let resolve_default_endpoint ?(getenv = Cli_common_env.get) () =
+  match env_get_non_empty ~getenv local_llm_url_env_var with
   | Some v -> v
   | None -> Constants.Endpoints.default_url
 ;;
 
 let ollama_endpoint =
-  match Cli_common_env.get "OLLAMA_HOST" with
+  match Cli_common_env.get ollama_host_env_var with
   | Some url -> url
-  | None -> "http://127.0.0.1:11434"
+  | None -> default_ollama_endpoint
 ;;
 
-let parse_llm_endpoints_env () =
-  match Cli_common_env.list ~sep:',' "LLM_ENDPOINTS" with
-  | Some urls -> urls
+let resolve_ollama_endpoint ?(getenv = Cli_common_env.get) () =
+  match env_get_non_empty ~getenv ollama_host_env_var with
+  | Some url -> url
+  | None -> default_ollama_endpoint
+;;
+
+let parse_llm_endpoints_env ?(getenv = Cli_common_env.get) () =
+  match env_get_non_empty ~getenv llm_endpoints_env_var with
+  | Some urls -> Cli_common_env.split_on_char_trim ',' urls
   | None -> []
 ;;
 
-let endpoints_from_env () =
+let endpoints_from_env ?(getenv = Cli_common_env.get) () =
   let explicit =
-    match parse_llm_endpoints_env () with
-    | [] -> [ default_endpoint ]
+    match parse_llm_endpoints_env ~getenv () with
+    | [] -> [ resolve_default_endpoint ~getenv () ]
     | urls -> urls
   in
   (* Include Ollama endpoint if not already listed.
      Discovery handles both llama-server and Ollama probe paths. *)
+  let ollama_endpoint = resolve_ollama_endpoint ~getenv () in
   if List.mem ollama_endpoint explicit then explicit else explicit @ [ ollama_endpoint ]
 ;;
 
@@ -367,10 +380,10 @@ let port_of_url (url : string) : int option =
     The port match is intentionally strict — substring matching on
     ":11434" gives false positives on userinfo (user:11434@host),
     paths (/api/:11434), and query strings (?p=:11434). *)
-let url_is_ollama (url : string) : bool =
+let url_is_ollama ?(getenv = Cli_common_env.get) (url : string) : bool =
   match port_of_url url with
   | Some 11434 -> true
-  | _ -> String.equal (String.trim url) (String.trim ollama_endpoint)
+  | _ -> String.equal (String.trim url) (String.trim (resolve_ollama_endpoint ~getenv ()))
 ;;
 
 let probe_endpoint ~sw ~net url =
