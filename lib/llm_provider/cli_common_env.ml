@@ -139,18 +139,13 @@ let msg_is_not_a_float = "is not a float"
 let msg_is_not_a_boolean = "is not a boolean"
 
 let string_contains ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop idx =
-    if needle_len = 0
-    then true
-    else if idx + needle_len > haystack_len
-    then false
-    else if String.sub haystack idx needle_len = needle
-    then true
-    else loop (idx + 1)
-  in
-  loop 0
+  needle = ""
+  ||
+  try
+    let (_ : int) = Str.search_forward (Str.regexp_string needle) haystack 0 in
+    true
+  with
+  | Not_found -> false
 ;;
 
 let with_env = Env_parse.with_env

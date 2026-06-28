@@ -86,18 +86,17 @@ let base_evidence_file_specs store session_id =
 ;;
 
 let find_last_substring_index ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop idx =
-    if idx < 0
-    then None
-    else if String.sub haystack idx needle_len = needle
-    then Some idx
-    else loop (idx - 1)
-  in
-  if needle_len = 0 || haystack_len < needle_len
+  if needle = "" || haystack = ""
   then None
-  else loop (haystack_len - needle_len)
+  else (
+    try
+      Some
+        (Str.search_backward
+           (Str.regexp_string needle)
+           haystack
+           (String.length haystack - 1))
+    with
+    | Not_found -> None)
 ;;
 
 let dropped_output_deltas_of_text = function
