@@ -17,11 +17,17 @@ type config =
   ; preview_len : int (** Characters of content to keep as preview *)
   }
 
-let default_config () =
+let make_default_config () =
   { threshold_bytes = 4096
   ; output_dir = Filename.get_temp_dir_name ()
   ; preview_len = 200
   }
+;;
+
+(** Default offload configuration captured at module init. Callers that need to
+    re-resolve [Filename.get_temp_dir_name ()] at use time (e.g. when [TMPDIR]
+    is set after this module loads) should call {!make_default_config} instead. *)
+let default_config = make_default_config ()
 ;;
 
 (** Diagnostic context string used for [Llm_provider.Diag] warnings. *)

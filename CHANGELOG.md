@@ -51,6 +51,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **context:** diff sorted snapshots directly ([#2183](https://github.com/jeong-sik/oas/issues/2183)) ([fff74f6](https://github.com/jeong-sik/oas/commit/fff74f6bb0b4f1135e0048b658c266632cd37ead))
 
+> **Post-release correction (0.207.12, #2207):** [#2194](https://github.com/jeong-sik/oas/issues/2194)
+> also changed `Context_offload.default_config` and `Mcp_http.default_config` from
+> values to `unit -> config` functions — a breaking API change that should have
+> been a minor version bump. 0.207.12 reverts `default_config` to a value
+> (captured at module init) and exposes the call-time capability as
+> `make_default_config`. Downstream that migrated to `default_config ()` on
+> 0.207.11 should revert to `default_config` or use `make_default_config ()`.
+
 ## [0.207.10](https://github.com/jeong-sik/oas/compare/v0.207.9...v0.207.10) (2026-06-27)
 
 
