@@ -217,6 +217,23 @@ let parse_thinking_control_format = function
             other))
 ;;
 
+let parse_reasoning_visibility = function
+  | None -> Ok None
+  | Some raw ->
+    let trimmed = String.lowercase_ascii (String.trim raw) in
+    (match trimmed with
+     | "" | "default" -> Ok (Some Capabilities.Default_reasoning_visibility)
+     | "provider_hidden" | "hidden" -> Ok (Some Capabilities.Force_provider_hidden)
+     | "visible_channel" -> Ok (Some Capabilities.Force_visible_channel)
+     | "visible_text" -> Ok (Some Capabilities.Force_visible_text)
+     | other ->
+       Error
+         (Printf.sprintf
+            "unknown reasoning_visibility %S (canonical: default, provider_hidden, \
+             visible_channel, visible_text)"
+            other))
+;;
+
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
@@ -262,6 +279,9 @@ let parse_capabilities provider_json =
   let* base = capability_base provider_json in
   let* thinking_control_format =
     parse_thinking_control_format (member_string "thinking_control_format" cap_json)
+  in
+  let* reasoning_visibility =
+    parse_reasoning_visibility (member_string "reasoning_visibility" cap_json)
   in
   let caps =
     base
@@ -438,6 +458,12 @@ let parse_capabilities provider_json =
     match thinking_control_format with
     | None -> caps
     | Some thinking_control_format -> { caps with Capabilities.thinking_control_format }
+  in
+  let caps =
+    match reasoning_visibility with
+    | None -> caps
+    | Some reasoning_visibility_override ->
+      { caps with Capabilities.reasoning_visibility_override }
   in
   let caps =
     match member_supported_models cap_json with

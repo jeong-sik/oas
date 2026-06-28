@@ -232,8 +232,8 @@ let telemetry_of_openai_json json =
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
 let parse_openai_response_result_json
-  ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
-  (raw_json : Yojson.Safe.t)
+      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
+      (raw_json : Yojson.Safe.t)
   =
   let open Yojson.Safe.Util in
   let json =
@@ -290,9 +290,8 @@ let parse_openai_response_result_json
     (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
        Check both, preferring reasoning_content. reasoning_text is hoisted out
        of [thinking_blocks] so the content-assembly below can promote it to a
-       visible Text block when the provider's reasoning_visibility policy is
-       Visible_text (reasoning-only responses from models like
-       ollama_cloud.minimax-m3 that reply with content="" + reasoning="..."). *)
+       visible Text block when the provider/model reasoning_visibility policy is
+       Visible_text. *)
     let reasoning_text =
       match non_blank_json_string (msg |> member "reasoning_content") with
       | Some _ as text -> text
@@ -328,7 +327,7 @@ let parse_openai_response_result_json
               reasoning-only reply collapses to content=[Thinking] which every
               Text-only projection reads as empty. *)
            let promoted_reasoning =
-             match (reasoning_visibility, reasoning_text, text_blocks, tool_blocks) with
+             match reasoning_visibility, reasoning_text, text_blocks, tool_blocks with
              | Reasoning_dialect.Visible_text, Some r, [], [] -> [ Text r ]
              | _ -> []
            in
@@ -352,10 +351,12 @@ let parse_openai_response_result_json
     error-checks and reasoning-extracts from the same body) should call
     {!parse_openai_response_result_json} directly to avoid re-parsing. *)
 let parse_openai_response_result
-  ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
-  json_str
+      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
+      json_str
   =
-  parse_openai_response_result_json ~reasoning_visibility (Yojson.Safe.from_string json_str)
+  parse_openai_response_result_json
+    ~reasoning_visibility
+    (Yojson.Safe.from_string json_str)
 ;;
 
 let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =

@@ -190,7 +190,11 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "toggle wire"
     "reasoning_effort"
     (RD.toggle_wire_to_string dialect.toggle_wire);
-  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility);
+  check
+    string
+    "visibility"
+    "side_channel:reasoning"
+    (RD.visibility_to_string dialect.visibility);
   check
     string
     "replay policy"
@@ -212,6 +216,16 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "typed preserve xhigh"
     (Some "xhigh")
     (RD.normalize_effort_value dialect RE.XHigh)
+;;
+
+let test_reasoning_visibility_override_visible_text () =
+  let caps =
+    { Capabilities.openai_compat_chat_extended_capabilities with
+      reasoning_visibility_override = Capabilities.Force_visible_text
+    }
+  in
+  let dialect = RD.of_capabilities caps in
+  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility)
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =
@@ -647,6 +661,10 @@ let () =
             "openai reasoning dialect uses reasoning_effort"
             `Quick
             test_openai_reasoning_dialect_uses_reasoning_effort
+        ; test_case
+            "reasoning visibility override visible text"
+            `Quick
+            test_reasoning_visibility_override_visible_text
         ; test_case
             "openai reasoning request uses reasoning_effort"
             `Quick

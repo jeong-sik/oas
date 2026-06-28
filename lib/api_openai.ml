@@ -79,6 +79,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_extended_thinking = caps.supports_extended_thinking
   ; supports_reasoning_budget = caps.supports_reasoning_budget
   ; thinking_control_format = caps.thinking_control_format
+  ; reasoning_visibility_override = caps.reasoning_visibility_override
   ; supports_response_format_json = caps.supports_response_format_json
   ; supports_structured_output = caps.supports_structured_output
   ; supports_multimodal_inputs = caps.supports_multimodal_inputs
@@ -111,12 +112,12 @@ let reasoning_dialect_for_request capabilities (config : agent_state) =
 ;;
 
 let reasoning_visibility_of_request ?provider_config (config : agent_state) =
-  (* Resolve the provider's reasoning_visibility policy so the response parser
-     can promote a reasoning-only reply (content="" + reasoning) into a visible
-     Text block when the dialect is Visible_text (reasoning-only-answer models
-     like ollama_cloud.minimax-m3). *)
+  (* Resolve the provider/model reasoning_visibility policy so the response
+     parser can promote a reasoning-only reply into visible Text only when an
+     explicit capability override asks for that behavior. *)
   let capabilities = capabilities_for_request ?provider_config config in
-  (reasoning_dialect_for_request capabilities config).Llm_provider.Reasoning_dialect.visibility
+  (reasoning_dialect_for_request capabilities config)
+    .Llm_provider.Reasoning_dialect.visibility
 ;;
 
 let add_sampling_field dialect (config : agent_state) field value body_assoc =

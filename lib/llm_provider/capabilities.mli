@@ -28,6 +28,12 @@ type thinking_control_format =
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
 
+type reasoning_visibility_override =
+  | Default_reasoning_visibility
+  | Force_provider_hidden
+  | Force_visible_channel
+  | Force_visible_text
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -43,6 +49,7 @@ type capabilities =
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
   ; thinking_control_format : thinking_control_format
+  ; reasoning_visibility_override : reasoning_visibility_override
   ; (* Output format *)
     supports_response_format_json : bool
   ; supports_structured_output : bool

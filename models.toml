@@ -662,6 +662,7 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
 thinking_control_format = "reasoning_effort"
+reasoning_visibility = "visible_text"
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"

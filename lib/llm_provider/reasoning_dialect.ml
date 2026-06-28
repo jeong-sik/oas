@@ -66,7 +66,7 @@ let deepseek_ignored_sampling_params =
   [ "temperature"; "top_p"; "presence_penalty"; "frequency_penalty" ]
 ;;
 
-let of_capabilities (caps : Capabilities.capabilities) =
+let base_of_capabilities (caps : Capabilities.capabilities) =
   match caps.thinking_control_format with
   | No_thinking_control ->
     if caps.supports_reasoning
@@ -101,16 +101,9 @@ let of_capabilities (caps : Capabilities.capabilities) =
     ; streaming = Template_parser
     }
   | Reasoning_effort ->
-    (* Reasoning_effort providers (ollama_cloud incl. minimax-m3) frequently
-       reply with content="" + reasoning="..." (reasoning-only answer). Side_channel
-       keeps the reasoning as a Thinking block which every Text-only downstream
-       projection reads as empty. Visible_text lets the parser promote the
-       reasoning into a visible Text block when the reply is reasoning-only
-       (no content text, no tool calls); providers that emit a real content
-       Text are unaffected because promotion only fires on an empty Text. *)
     { default with
       toggle_wire = Reasoning_effort
-    ; visibility = Visible_text
+    ; visibility = Side_channel "reasoning"
     ; streaming = Delta_field "reasoning"
     }
   | Enable_thinking ->
@@ -120,6 +113,16 @@ let of_capabilities (caps : Capabilities.capabilities) =
     ; streaming = Delta_field "reasoning_content"
     }
 ;;
+
+let apply_visibility_override caps dialect =
+  match caps.Capabilities.reasoning_visibility_override with
+  | Default_reasoning_visibility -> dialect
+  | Force_provider_hidden -> { dialect with visibility = Provider_hidden }
+  | Force_visible_channel -> { dialect with visibility = Visible_channel }
+  | Force_visible_text -> { dialect with visibility = Visible_text }
+;;
+
+let of_capabilities caps = base_of_capabilities caps |> apply_visibility_override caps
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match preserve_thinking, dialect.toggle_wire with

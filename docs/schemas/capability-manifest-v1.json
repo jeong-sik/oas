@@ -141,6 +141,16 @@
             "reasoning_effort",
             "enable_thinking"
           ]
+        },
+        "reasoning_visibility": {
+          "type": "string",
+          "description": "Optional override for surfacing parsed reasoning output.",
+          "enum": [
+            "default",
+            "provider_hidden",
+            "visible_channel",
+            "visible_text"
+          ]
         }
       },
       "additionalProperties": true

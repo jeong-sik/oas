@@ -62,6 +62,13 @@ type thinking_control_format = Llm_provider.Capabilities.thinking_control_format
   | Reasoning_effort (** @since 0.195.0 *)
   | Enable_thinking (** @since 0.196.11 *)
 
+type reasoning_visibility_override =
+      Llm_provider.Capabilities.reasoning_visibility_override =
+  | Default_reasoning_visibility
+  | Force_provider_hidden
+  | Force_visible_channel
+  | Force_visible_text
+
 type capabilities =
   { max_context_tokens : int option
   ; max_output_tokens : int option
@@ -74,6 +81,7 @@ type capabilities =
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
   ; thinking_control_format : thinking_control_format
+  ; reasoning_visibility_override : reasoning_visibility_override
   ; supports_response_format_json : bool
   ; supports_structured_output : bool
   ; supports_multimodal_inputs : bool

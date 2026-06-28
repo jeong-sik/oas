@@ -75,6 +75,9 @@ type entry =
         thinking_object_only / chat_template_kwargs / chat_template_token /
         reasoning_effort / enable_thinking); applied in
         {!Capabilities.apply_manifest_entry}. *)
+  ; reasoning_visibility : string option
+    (** Optional parsed reasoning visibility override (default /
+        provider_hidden / visible_channel / visible_text). *)
   }
 
 (** A parsed capability manifest: an ordered list of model entries.

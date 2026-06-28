@@ -98,11 +98,10 @@ let test_parse_reasoning_content_and_tool_calls_coexist () =
 ;;
 
 let test_reasoning_only_promoted_to_text_under_visible_text () =
-  (* ollama_cloud.minimax-m3 replies with content="" + reasoning="..." (reasoning-only
-     answer). Under Visible_text the parser promotes the reasoning into a visible
-     Text block so downstream Text-only projections see a non-empty answer
-     instead of an empty Thinking-only response. With the default policy
-     (Provider_hidden / Side_channel) the same reply stays Thinking-only. *)
+  (* Under an explicit Visible_text capability override, the parser promotes a
+     reasoning-only reply into a visible Text block so downstream Text-only
+     projections see a non-empty answer. With the default policy the same reply
+     stays Thinking-only. *)
   let json =
     response_json
       ~content:(`String "")
@@ -122,11 +121,17 @@ let test_reasoning_only_promoted_to_text_under_visible_text () =
   let visible = promote Reasoning_dialect.Visible_text in
   let default_resp = promote Reasoning_dialect.Provider_hidden in
   let has_text r =
-    List.exists (function Text s -> String.trim s = "최종 답은 42" | _ -> false) r.content
+    List.exists
+      (function
+        | Text s -> String.trim s = "최종 답은 42"
+        | _ -> false)
+      r.content
   in
   check_bool "Visible_text promotes reasoning to Text" true (has_text visible);
-  check_bool "default policy keeps reasoning as Thinking-only (no Text)"
-    false (has_text default_resp)
+  check_bool
+    "default policy keeps reasoning as Thinking-only (no Text)"
+    false
+    (has_text default_resp)
 ;;
 
 let test_content_parts_cover_modalities () =
