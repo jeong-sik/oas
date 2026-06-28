@@ -8,7 +8,12 @@ let trim_non_empty_opt = function
   | Some s -> trim_non_empty s
 ;;
 
-let get name = trim_non_empty_opt (Sys.getenv_opt name)
+(* [get ?getenv name] is the canonical env-read primitive. The optional
+   [getenv] argument (default [Sys.getenv_opt]) is a dependency-injection
+   seam so callers and tests can resolve the environment without touching
+   the process env (RFC-OAS-024 §6 cut 5). The pure core never calls this
+   directly — it receives resolved config values as arguments. *)
+let get ?(getenv = Sys.getenv_opt) name = trim_non_empty_opt (getenv name)
 
 type invalid_env =
   { var : string
@@ -22,8 +27,8 @@ let warn_invalid ~on_invalid ~var ~raw ~expected ~diag =
   | None -> diag ()
 ;;
 
-let bool ?(default = false) ?on_invalid name =
-  match get name with
+let bool ?(getenv = Sys.getenv_opt) ?(default = false) ?on_invalid name =
+  match get ~getenv name with
   | None -> default
   | Some v ->
     (match String.lowercase_ascii (String.trim v) with
@@ -46,13 +51,13 @@ let split_on_char_trim sep s =
   String.split_on_char sep s |> List.map String.trim |> filter_non_empty
 ;;
 
-let list ?(sep = ',') name =
+let list ?(getenv = Sys.getenv_opt) ?(sep = ',') name =
   (* Treat unset, empty, and whitespace-only as the same "no value"
      signal (all → None).  OCaml [Unix.putenv k ""] cannot truly unset
      a variable, which would otherwise leak "set to empty = disable
      all" semantics across tests.  Callers wanting an explicit
      "disable all" should use a dedicated boolean env var instead. *)
-  match get name with
+  match get ~getenv name with
   | None -> None
   | Some v -> Some (split_on_char_trim sep v)
 ;;
@@ -66,15 +71,15 @@ let parse_kv entry =
     if k = "" then None else Some (k, v)
 ;;
 
-let kv_pairs name =
-  match get name with
+let kv_pairs ?(getenv = Sys.getenv_opt) name =
+  match get ~getenv name with
   | None -> None
   | Some v -> Some (split_on_char_trim ',' v |> List.filter_map parse_kv)
 ;;
 
-let int ?(allow_negative = false) ?on_invalid ~default var =
+let int ?(getenv = Sys.getenv_opt) ?(allow_negative = false) ?on_invalid ~default var =
   let expected = if allow_negative then "integer" else "non-negative integer" in
-  match get var with
+  match get ~getenv var with
   | None -> default
   | Some raw ->
     (match int_of_string_opt raw with
@@ -100,9 +105,9 @@ let int ?(allow_negative = false) ?on_invalid ~default var =
        default)
 ;;
 
-let float ?(allow_negative = false) ?on_invalid ~default var =
+let float ?(getenv = Sys.getenv_opt) ?(allow_negative = false) ?on_invalid ~default var =
   let expected = if allow_negative then "finite float" else "non-negative finite float" in
-  match get var with
+  match get ~getenv var with
   | None -> default
   | Some raw ->
     (match float_of_string_opt raw with
@@ -278,4 +283,31 @@ let%test "bool rejects invalid env value with warning" =
             && ctx = "cli_common_env"
             && string_contains ~needle:msg_is_not_a_boolean msg)
          !warnings)
+;;
+
+(* RFC-OAS-024 §6 cut 5: the ?getenv seam lets tests/callers resolve the
+   environment deterministically without [Unix.putenv]. These prove the
+   seam is honored for every env-reading function. *)
+let%test "get honors injected getenv (RFC-OAS-024 seam)" =
+  let never _ = None in
+  let always_yes _ = Some "yes" in
+  get ~getenv:never "OAS_UNSET_VAR_ZZZ" = None
+  && get ~getenv:always_yes "OAS_ANY_VAR_ZZZ" = Some "yes"
+;;
+
+let%test "bool honors injected getenv (RFC-OAS-024 seam)" =
+  let always_on _ = Some "on" in
+  let always_off _ = Some "off" in
+  bool ~getenv:always_on "OAS_ANY_VAR_ZZZ"
+  && not (bool ~getenv:always_off "OAS_ANY_VAR_ZZZ")
+;;
+
+let%test "int honors injected getenv (RFC-OAS-024 seam)" =
+  let always_42 _ = Some "42" in
+  int ~getenv:always_42 ~default:0 "OAS_ANY_VAR_ZZZ" = 42
+;;
+
+let%test "list honors injected getenv (RFC-OAS-024 seam)" =
+  let csv _ = Some "a, b ,c" in
+  list ~getenv:csv "OAS_ANY_VAR_ZZZ" = Some [ "a"; "b"; "c" ]
 ;;

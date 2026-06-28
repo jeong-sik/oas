@@ -16,9 +16,12 @@
 
     @since 0.159.0 *)
 
-(** [get name] returns [Some v] if [name] is set to a non-empty string,
-    [None] otherwise.  Whitespace-only values are treated as unset. *)
-val get : string -> string option
+(** [get ?getenv name] returns [Some v] if [name] is set to a non-empty
+    string, [None] otherwise.  Whitespace-only values are treated as unset.
+    [?getenv] (default [Sys.getenv_opt]) is a dependency-injection seam
+    (RFC-OAS-024 §6 cut 5): the pure core receives a resolved reader from
+    boot rather than reading the process environment directly. *)
+val get : ?getenv:(string -> string option) -> string -> string option
 
 (** Structured description of an invalid environment variable value.
     Passed to the optional [on_invalid] callback of the parsers below so
@@ -35,7 +38,12 @@ type invalid_env =
     [false], [no], or [off].  Unset or empty values return [default] (default
     [false]).  Invalid values call [on_invalid] if provided, otherwise emit a
     diagnostic warning before returning [default]. *)
-val bool : ?default:bool -> ?on_invalid:(invalid_env -> unit) -> string -> bool
+val bool
+  :  ?getenv:(string -> string option)
+  -> ?default:bool
+  -> ?on_invalid:(invalid_env -> unit)
+  -> string
+  -> bool
 
 (** [list ?sep name] splits the value of [name] on [sep] (default
     comma) and trims each token.  Empty tokens are dropped.  Unset,
@@ -43,13 +51,16 @@ val bool : ?default:bool -> ?on_invalid:(invalid_env -> unit) -> string -> bool
     distinct "disable-all" signal must use a dedicated boolean env
     variable, since [Unix.putenv] cannot truly unset and an empty
     value would otherwise leak across processes/tests. *)
-val list : ?sep:char -> string -> string list option
+val list : ?getenv:(string -> string option) -> ?sep:char -> string -> string list option
 
 (** [kv_pairs name] parses a comma-separated list of [key=value]
     entries into an association list.  Whitespace around keys/values
     is trimmed.  Entries without an [=] separator are dropped.
     Returns [None] when [name] is unset. *)
-val kv_pairs : string -> (string * string) list option
+val kv_pairs
+  :  ?getenv:(string -> string option)
+  -> string
+  -> (string * string) list option
 
 (** Filter out empty strings from a list. *)
 val filter_non_empty : string list -> string list
@@ -70,7 +81,8 @@ val trim_non_empty_opt : string option -> string option
     [on_invalid] if provided, otherwise emit a diagnostic warning before
     falling back to [default]. *)
 val int
-  :  ?allow_negative:bool
+  :  ?getenv:(string -> string option)
+  -> ?allow_negative:bool
   -> ?on_invalid:(invalid_env -> unit)
   -> default:int
   -> string
@@ -82,7 +94,8 @@ val int
     are always rejected).  Rejected values call [on_invalid] if provided,
     otherwise emit a diagnostic warning before falling back to [default]. *)
 val float
-  :  ?allow_negative:bool
+  :  ?getenv:(string -> string option)
+  -> ?allow_negative:bool
   -> ?on_invalid:(invalid_env -> unit)
   -> default:float
   -> string
