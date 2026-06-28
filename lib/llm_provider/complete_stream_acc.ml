@@ -435,9 +435,9 @@ let%test "finalize downgrades StopToolUse with no tool block to Unknown" =
   Hashtbl.replace acc.block_texts 0 buf;
   acc.stop_reason := Types.StopToolUse;
   acc.stop_reason_received := true;
-  (match finalize_stream_acc acc with
-   | Error _ -> false
-   | Ok result -> result.stop_reason = Types.Unknown "tool_calls")
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.stop_reason = Types.Unknown "tool_calls"
 ;;
 
 let%test "finalize keeps StopToolUse when a tool block is present" =
@@ -450,9 +450,9 @@ let%test "finalize keeps StopToolUse when a tool block is present" =
   Hashtbl.replace acc.block_texts 0 buf;
   acc.stop_reason := Types.StopToolUse;
   acc.stop_reason_received := true;
-  (match finalize_stream_acc acc with
-   | Error _ -> false
-   | Ok result -> result.stop_reason = Types.StopToolUse)
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.stop_reason = Types.StopToolUse
 ;;
 
 let%test "finalize_stream_acc multiple blocks ordered by index" =

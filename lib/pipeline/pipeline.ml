@@ -566,11 +566,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
             let result =
-              stage_execute
-                ?raw_trace_run
-                agent
-                ~effective_guardrails
-                tool_uses_nonempty
+              stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty
             in
             (match result with
              | Ok IdleSkipped ->

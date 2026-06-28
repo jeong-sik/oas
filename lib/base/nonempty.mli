@@ -7,11 +7,9 @@
 
 type 'a t
 
-val of_list : 'a list -> 'a t option
 (** [None] for the empty list, [Some t] otherwise. *)
+val of_list : 'a list -> 'a t option
 
 val to_list : 'a t -> 'a list
-
 val hd : 'a t -> 'a
-
 val length : 'a t -> int
