@@ -430,11 +430,19 @@ let gemini_family_of_id (id : string) : gemini_family =
 let gemini_thinking_control_of_id id =
   match gemini_family_of_id id with
   | Gemini_3_1 ->
-    (* Google documents that Gemini 3.1 Pro does not support the [minimal]
-       thinking level; other Gemini 3.1 families do. *)
-    let supports_minimal = not (String.starts_with ~prefix:"gemini-3.1-pro" id) in
+    (* Per ai.google.dev/gemini-api/docs/thinking and the gemini-3.1-flash-lite
+       model card (checked 2026-06-29), the [minimal] thinking level is valid
+       ONLY for gemini-3.1-flash-lite (where it is the default). gemini-3.1-pro
+       and gemini-3.1-flash accept low/medium/high only, so emitting [minimal]
+       for them produces an invalid thinkingLevel. The [-lite] check sits beside
+       the family classifier's bounded prefix matching (see [gemini_family_of_id]
+       doc) and keeps the wire decision typed at the call site. *)
+    let supports_minimal = String.starts_with ~prefix:"gemini-3.1-flash-lite" id in
     Gemini_thinking_level { supports_minimal }
-  | Gemini_3 -> Gemini_thinking_level { supports_minimal = true }
+  | Gemini_3 ->
+    (* gemini-3-flash-preview = low/medium/high; gemini-3-pro-preview = low/high.
+       Neither preview line exposes the [minimal] level. *)
+    Gemini_thinking_level { supports_minimal = false }
   | Gemini_2_5 -> Gemini_thinking_budget
   | Gemini_other _ -> Gemini_unknown_thinking_control
 ;;
@@ -846,6 +854,26 @@ let%test "for_model_id glm-5v has vision" =
   match for_model_id "glm-5v-turbo" with
   | Some c -> c.supports_reasoning && c.supports_image_input
   | None -> false
+;;
+
+let%test "gemini minimal thinking level is gemini-3.1-flash-lite only" =
+  let supports_minimal id =
+    match gemini_thinking_control_of_id id with
+    | Gemini_thinking_level { supports_minimal } -> supports_minimal
+    | Gemini_thinking_budget | Gemini_unknown_thinking_control -> false
+  in
+  supports_minimal "gemini-3.1-flash-lite"
+  && supports_minimal "gemini-3.1-flash-lite-preview"
+  && (not (supports_minimal "gemini-3.1-flash"))
+  && (not (supports_minimal "gemini-3.1-pro"))
+  && (not (supports_minimal "gemini-3-flash-preview"))
+  && not (supports_minimal "gemini-3-pro-preview")
+;;
+
+let%test "gemini 2.5 uses thinking budget, not a thinking level" =
+  match gemini_thinking_control_of_id "gemini-2.5-flash" with
+  | Gemini_thinking_budget -> true
+  | Gemini_thinking_level _ | Gemini_unknown_thinking_control -> false
 ;;
 
 let%test "for_model_id glm-4.6v stays vision-capable" =
