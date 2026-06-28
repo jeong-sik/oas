@@ -3,11 +3,11 @@
     Wraps Eio + cohttp-eio with TLS. All network and HTTP-level errors
     are captured as {!http_error} so callers do not need [try/with].
 
-    Each synchronous request without a [connection_cache] runs inside
-    its own [Eio.Switch.run] scope so the underlying TCP connection and
-    its file descriptor are released as soon as the response body is
-    fully consumed. With a cache, connections are bound to the cache's
-    switch and reused until eviction or switch release.
+    Each synchronous request without a [connection_cache] registers its
+    transport cleanup with the caller's switch and also closes the
+    transport as soon as the response body is fully consumed. With a cache,
+    connections are bound to the cache's switch and reused until eviction
+    or switch release.
 
     @since 0.45.0 *)
 
@@ -833,6 +833,11 @@ let make_closing_client ~sw ~net ~uri =
   client
 ;;
 
+let close_once close =
+  let closed = Atomic.make false in
+  fun () -> if Atomic.compare_and_set closed false true then close ()
+;;
+
 (** Run [f client] with a client obtained either from [cache] or created
     for one request. When [cache] is supplied, a hit reuses a parked
     connection, a miss creates one and parks it on success, and any error
@@ -845,12 +850,13 @@ let make_closing_client ~sw ~net ~uri =
 let with_client ?cache ~sw ~net ~uri f =
   match cache with
   | None ->
-    (* One-shot path: run the request under a fresh sub-switch so the
-       connection/FD is released as soon as [f] returns, even when the caller
-       supplied a long-lived switch. *)
-    Eio.Switch.run (fun sw' ->
-      let* client = make_closing_client ~sw:sw' ~net ~uri in
-      f client)
+    (* One-shot path: anchor cleanup to the caller's switch for cancellation
+       scope, but close eagerly after [f] returns so long-lived caller switches
+       do not retain idle FDs. *)
+    let* client, close = make_client ~net ~uri in
+    let close = close_once close in
+    Eio.Switch.on_release sw close;
+    Fun.protect ~finally:close (fun () -> f client)
   | Some cache ->
     let* conn, was_cached =
       match cache_take cache uri with
