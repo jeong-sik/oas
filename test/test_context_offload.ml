@@ -9,7 +9,7 @@ let check_int = Alcotest.(check int)
 (* ── default_config ───────────────────────────────────── *)
 
 let test_default_config () =
-  let c = Context_offload.default_config () in
+  let c = Context_offload.default_config in
   check_int "threshold" 4096 c.threshold_bytes;
   check_int "preview_len" 200 c.preview_len;
   check_bool "output_dir non-empty" true (String.length c.output_dir > 0)

@@ -21,9 +21,16 @@ type config =
   ; preview_len : int
   }
 
-(** Default offload configuration.
-    Resolves [Filename.get_temp_dir_name ()] at call time. *)
-val default_config : unit -> config
+(** Build a default offload configuration, resolving
+    [Filename.get_temp_dir_name ()] at call time. Use this when the temp
+    directory may be re-resolved after module init. *)
+val make_default_config : unit -> config
+
+(** Default offload configuration captured at module init. Equivalent to
+    {!make_default_config} evaluated once when the module loads; kept as a
+    value for backwards-compatible callers (so a prior [default_config] value
+    continues to type-check). *)
+val default_config : config
 
 (** Diagnostic context string used for [Llm_provider.Diag] warnings emitted by
     this module. Exposed so tests can assert on context without hard-coding the
