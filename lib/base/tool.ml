@@ -101,30 +101,73 @@ type t =
   ; handler : handler_kind
   }
 
-let expected_concurrency_class_of_mutation_class = function
-  | Read_only -> Some Parallel_read
-  | Workspace | Workspace_mutating | Local_mutation -> Some Sequential_workspace
-  | External | External_effect -> Some Exclusive_external
+type mutation_class_policy =
+  { mutation_class : mutation_class
+  ; aliases : mutation_class list
+  ; concurrency_class : concurrency_class
+  ; concurrency_class_name : string
+  }
+
+let mutation_class_policies =
+  [ { mutation_class = Read_only
+    ; aliases = []
+    ; concurrency_class = Parallel_read
+    ; concurrency_class_name = "parallel_read"
+    }
+  ; { mutation_class = Workspace
+    ; aliases = [ Workspace_mutating; Local_mutation ]
+    ; concurrency_class = Sequential_workspace
+    ; concurrency_class_name = "sequential_workspace"
+    }
+  ; { mutation_class = External
+    ; aliases = [ External_effect ]
+    ; concurrency_class = Exclusive_external
+    ; concurrency_class_name = "exclusive_external"
+    }
+  ]
 ;;
 
-let concurrency_class_name = function
-  | Parallel_read -> "parallel_read"
-  | Sequential_workspace -> "sequential_workspace"
-  | Exclusive_external -> "exclusive_external"
+let mutation_classes policy = policy.mutation_class :: policy.aliases
+
+let mutation_class_names policy =
+  List.map mutation_class_to_string (mutation_classes policy)
+;;
+
+let known_mutation_classes = List.concat_map mutation_class_names mutation_class_policies
+
+let expected_concurrency_class_of_mutation_class mutation_class =
+  mutation_class_policies
+  |> List.find_opt (fun policy -> List.mem mutation_class (mutation_classes policy))
+  |> Option.map (fun policy -> policy.concurrency_class)
+;;
+
+let concurrency_class_name concurrency_class =
+  mutation_class_policies
+  |> List.find_opt (fun policy -> policy.concurrency_class = concurrency_class)
+  |> Option.map (fun policy -> policy.concurrency_class_name)
+  |> Option.value ~default:(show_concurrency_class concurrency_class)
 ;;
 
 let validate_descriptor (descriptor : descriptor) =
-  match descriptor.mutation_class, descriptor.concurrency_class with
-  | Some mutation_class, Some concurrency_class ->
+  match descriptor.mutation_class with
+  | Some mutation_class ->
     (match expected_concurrency_class_of_mutation_class mutation_class with
-     | Some expected when expected <> concurrency_class ->
+     | None ->
        Error
          (Printf.sprintf
-            "descriptor mismatch: mutation_class=%s requires concurrency_class=%s"
+            "descriptor invalid: unknown mutation_class=%s (expected one of: %s)"
             (mutation_class_to_string mutation_class)
-            (concurrency_class_name expected))
-     | _ -> Ok ())
-  | _ -> Ok ()
+            (String.concat ", " known_mutation_classes))
+     | Some expected ->
+       (match descriptor.concurrency_class with
+        | Some concurrency_class when expected <> concurrency_class ->
+          Error
+            (Printf.sprintf
+               "descriptor mismatch: mutation_class=%s requires concurrency_class=%s"
+               (mutation_class_to_string mutation_class)
+               (concurrency_class_name expected))
+        | Some _ | None -> Ok ()))
+  | None -> Ok ()
 ;;
 
 let validate_descriptor_opt = function
