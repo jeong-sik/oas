@@ -116,24 +116,25 @@ let%test "stream unknown error type stays non-retryable provider failure" =
   | _ -> false
 ;;
 
-let%test "stream parse failure stays provider parse failure" =
-  match
-    http_error_of_stream_error
-      (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
-  with
+let maps_to_sse_parse_failure stream_error =
+  match http_error_of_stream_error stream_error with
   | Http_client.ProviderFailure
       { kind = Http_client.Provider_parse_error { parser = Some "sse" }; _ } -> true
-  | _ -> false
+  | Http_client.HttpError _
+  | Http_client.NetworkError _
+  | Http_client.TimeoutError _
+  | Http_client.AcceptRejected _
+  | Http_client.ProviderTerminal _
+  | Http_client.ProviderFailure _ -> false
+;;
+
+let%test "stream parse failure stays provider parse failure" =
+  maps_to_sse_parse_failure (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
 ;;
 
 let%test "stream unknown event stays provider parse failure" =
-  match
-    http_error_of_stream_error
-      (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
-  with
-  | Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }; _ } -> true
-  | _ -> false
+  maps_to_sse_parse_failure
+    (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
 ;;
 
 let%test "openai_compat_error_event surfaces a typed SSEError from an error chunk" =

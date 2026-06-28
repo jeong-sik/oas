@@ -1081,6 +1081,12 @@ let%test "build_request includes tool_choice for model with supports_tool_choice
   json |> member "tool_choice" |> to_string = "required"
 ;;
 
+let json_object_missing_key key json =
+  match Yojson.Safe.Util.to_assoc json with
+  | fields -> not (List.exists (fun (k, _) -> k = key) fields)
+  | exception Yojson.Safe.Util.Type_error _ -> false
+;;
+
 let%test "build_request omits tool_choice for unknown model without override" =
   let config =
     Provider_config.make
@@ -1092,9 +1098,7 @@ let%test "build_request omits tool_choice for unknown model without override" =
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
-  match json with
-  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
-  | _ -> false
+  json_object_missing_key "tool_choice" json
 ;;
 
 let%test "build_request omits tool_choice when tool_choice=None" =
@@ -1107,9 +1111,7 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
-  match json with
-  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
-  | _ -> false
+  json_object_missing_key "tool_choice" json
 ;;
 
 let%test "glm build_request drops tool_choice when unsupported" =

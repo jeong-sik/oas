@@ -47,7 +47,7 @@ type participant_run_result =
   | Participant_input_required of Runtime.input_request * paused_participant
 
 let agent_config_model
-      ~default_config
+      ~(default_config : Types.agent_config)
       (session : session)
       (resolution : execution_resolution)
       (detail : spawn_agent_request)

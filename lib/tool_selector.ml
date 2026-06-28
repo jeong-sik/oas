@@ -380,7 +380,7 @@ let default_rerank_fn ~sw ~net ~provider ~k () =
         items
         |> List.filter_map (function
           | `String name when Hashtbl.mem candidate_names name -> Some name
-          | `String _unknown_name
+          | `String _unknown_name -> None
           | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _ -> None)
       | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
     with

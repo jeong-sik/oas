@@ -243,9 +243,17 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
        in
        let* () =
          match after_decision with
+         | Hooks.Continue -> Ok ()
          | Hooks.HookFailed { stage; detail } ->
            Error (hook_failed_sdk_error ~hook_name:"after_turn" ~stage ~detail)
-         | _ -> Ok ()
+         | decision ->
+           let detail =
+             Printf.sprintf
+               "illegal after_turn decision escaped validation: %s"
+               (Hooks.decision_kind_to_string (Hooks.classify_decision decision))
+           in
+           Error
+             (hook_failed_sdk_error ~hook_name:"after_turn" ~stage:"after_turn" ~detail)
        in
        let completed_turn = agent.state.turn_count in
        let assistant_message = make_message ~role:Assistant response.content in

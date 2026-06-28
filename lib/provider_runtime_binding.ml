@@ -131,7 +131,8 @@ let model_catalog_default_for_base_label base_label =
          match entry.base_label with
          | Some base when String.equal (normalize base) base_label ->
            trim_non_empty entry.id_prefix
-         | Some _other_base | None -> None)
+         | Some _other_base -> None
+         | None -> None)
       catalog
 ;;
 
@@ -386,20 +387,23 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
 ;;
 
 let resolve_model binding ~requested_model =
+  let fallback_default_model () =
+    match binding.kind with
+    | PConfig.Ollama -> "default"
+    | PConfig.Anthropic
+    | PConfig.Kimi
+    | PConfig.OpenAI_compat
+    | PConfig.Gemini
+    | PConfig.Glm
+    | PConfig.DashScope -> binding.id
+  in
   match Option.bind requested_model trim_non_empty with
   | Some model -> model
   | None ->
     (match binding.default_model with
      | Some model when String.trim model <> "" -> model
-     | Some _blank_default_model | None ->
-       (match binding.kind with
-        | PConfig.Ollama -> "default"
-        | PConfig.Anthropic
-        | PConfig.Kimi
-        | PConfig.OpenAI_compat
-        | PConfig.Gemini
-        | PConfig.Glm
-        | PConfig.DashScope -> binding.id))
+     | Some _blank_default_model -> fallback_default_model ()
+     | None -> fallback_default_model ())
 ;;
 
 let to_provider_config ?model binding =

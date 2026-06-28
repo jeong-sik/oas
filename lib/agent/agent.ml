@@ -490,7 +490,8 @@ let with_optional_timeout ?clock ~last_activity agent f =
     let idle_timeout_s =
       match agent.options.execution_idle_timeout_s with
       | Some idle_timeout_s when idle_timeout_s > 0.0 -> Some idle_timeout_s
-      | Some _non_positive_idle_timeout_s | None -> None
+      | Some _non_positive_idle_timeout_s -> None
+      | None -> None
     in
     let run_with_idle ~sw () =
       match idle_timeout_s with
