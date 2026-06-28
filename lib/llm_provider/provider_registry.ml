@@ -154,12 +154,12 @@ let overlay_provider_catalog t =
 ;;
 
 (** Initial endpoints from LLM_ENDPOINTS env var.
-    Falls back to [[Discovery.default_endpoint]] when the variable is
+    Falls back to [[Discovery.resolve_default_endpoint ()]] when the variable is
     unset or has no non-empty entries (SSOT: see
     {!Discovery.parse_llm_endpoints_env}). *)
 let initial_llama_endpoints =
   match Discovery.parse_llm_endpoints_env () with
-  | [] -> [ Discovery.default_endpoint ]
+  | [] -> [ Discovery.resolve_default_endpoint () ]
   | urls -> urls
 ;;
 
@@ -229,7 +229,7 @@ let refresh_llama_endpoints ~sw ~net () =
           (fun (s : Discovery.endpoint_status) -> if s.healthy then Some s.url else None)
           statuses
       in
-      if found = [] then [ Discovery.default_endpoint ] else found
+      if found = [] then [ Discovery.resolve_default_endpoint () ] else found
   in
   (* When LLM_ENDPOINTS is explicit, still probe for context sync *)
   (match explicit with

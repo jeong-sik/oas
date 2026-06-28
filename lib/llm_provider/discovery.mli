@@ -53,6 +53,15 @@ val discover
   -> endpoints:string list
   -> endpoint_status list
 
+(** Environment variable consulted by {!resolve_default_endpoint}. *)
+val local_llm_url_env_var : string
+
+(** Environment variable consulted by {!resolve_ollama_endpoint}. *)
+val ollama_host_env_var : string
+
+(** Compile-time fallback for {!resolve_ollama_endpoint}. *)
+val default_ollama_endpoint : string
+
 (** Canonical local LLM endpoint default.
     Reads [OAS_LOCAL_LLM_URL], falls back to
     {!Constants.Endpoints.default_url}.
@@ -69,6 +78,11 @@ val resolve_default_endpoint : unit -> string
     falls back to ["http://127.0.0.1:11434"]. *)
 val ollama_endpoint : string
 
+(** Call-time resolver for the Ollama endpoint.
+    Reads [OLLAMA_HOST] at call time. Prefer this over {!ollama_endpoint}
+    when the value must reflect environment changes after module init. *)
+val resolve_ollama_endpoint : unit -> string
+
 (** Parse the [LLM_ENDPOINTS] env var as a comma-separated list of
     URLs, trimming whitespace and dropping empty entries.  Returns
     [[]] when the variable is unset, empty, or contains only empty
@@ -82,9 +96,9 @@ val ollama_endpoint : string
     @since 0.161.0 *)
 val parse_llm_endpoints_env : unit -> string list
 
-(** Parse LLM_ENDPOINTS env var (comma-separated) and append
-    {!ollama_endpoint} if not already included.
-    Falls back to [[default_endpoint; ollama_endpoint]]. *)
+(** Parse LLM_ENDPOINTS env var (comma-separated) and append the call-time
+    Ollama endpoint if not already included.
+    Falls back to [[resolve_default_endpoint (); resolve_ollama_endpoint ()]]. *)
 val endpoints_from_env : unit -> string list
 
 (** JSON serialization for endpoint_status. *)

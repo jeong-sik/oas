@@ -46,22 +46,32 @@ type endpoint_status =
   ; capabilities : Capabilities.capabilities
   }
 
+let local_llm_url_env_var = "OAS_LOCAL_LLM_URL"
+let ollama_host_env_var = "OLLAMA_HOST"
+let default_ollama_endpoint = "http://127.0.0.1:11434"
+
 let default_endpoint =
-  match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
+  match Cli_common_env.get local_llm_url_env_var with
   | Some v -> v
   | None -> Constants.Endpoints.default_url
 ;;
 
 let resolve_default_endpoint () =
-  match Cli_common_env.get "OAS_LOCAL_LLM_URL" with
+  match Cli_common_env.get local_llm_url_env_var with
   | Some v -> v
   | None -> Constants.Endpoints.default_url
 ;;
 
 let ollama_endpoint =
-  match Cli_common_env.get "OLLAMA_HOST" with
+  match Cli_common_env.get ollama_host_env_var with
   | Some url -> url
-  | None -> "http://127.0.0.1:11434"
+  | None -> default_ollama_endpoint
+;;
+
+let resolve_ollama_endpoint () =
+  match Cli_common_env.get ollama_host_env_var with
+  | Some url -> url
+  | None -> default_ollama_endpoint
 ;;
 
 let parse_llm_endpoints_env () =
@@ -73,11 +83,12 @@ let parse_llm_endpoints_env () =
 let endpoints_from_env () =
   let explicit =
     match parse_llm_endpoints_env () with
-    | [] -> [ default_endpoint ]
+    | [] -> [ resolve_default_endpoint () ]
     | urls -> urls
   in
   (* Include Ollama endpoint if not already listed.
      Discovery handles both llama-server and Ollama probe paths. *)
+  let ollama_endpoint = resolve_ollama_endpoint () in
   if List.mem ollama_endpoint explicit then explicit else explicit @ [ ollama_endpoint ]
 ;;
 
@@ -370,7 +381,7 @@ let port_of_url (url : string) : int option =
 let url_is_ollama (url : string) : bool =
   match port_of_url url with
   | Some 11434 -> true
-  | _ -> String.equal (String.trim url) (String.trim ollama_endpoint)
+  | _ -> String.equal (String.trim url) (String.trim (resolve_ollama_endpoint ()))
 ;;
 
 let probe_endpoint ~sw ~net url =
@@ -729,6 +740,16 @@ let%test "default_endpoint is localhost:8085" =
   default_endpoint = Constants.Endpoints.default_url
 ;;
 
+let%test "resolve_default_endpoint reads env at call time" =
+  Env_parse.with_env local_llm_url_env_var "http://127.0.0.1:19001" (fun () ->
+    resolve_default_endpoint () = "http://127.0.0.1:19001")
+;;
+
+let%test "resolve_ollama_endpoint reads env at call time" =
+  Env_parse.with_env ollama_host_env_var "http://127.0.0.1:19002" (fun () ->
+    resolve_ollama_endpoint () = "http://127.0.0.1:19002")
+;;
+
 (* --- parse_llm_endpoints_env (SSOT helper, #1002) --- *)
 
 let%test "parse_llm_endpoints_env empty when unset" =
@@ -794,7 +815,14 @@ let%test "endpoints_from_env filters empty parts" =
 let%test "endpoints_from_env empty string returns default" =
   Unix.putenv "LLM_ENDPOINTS" "";
   let eps = endpoints_from_env () in
-  List.hd eps = default_endpoint
+  List.hd eps = resolve_default_endpoint ()
+;;
+
+let%test "endpoints_from_env resolves defaults at call time" =
+  Env_parse.with_env "LLM_ENDPOINTS" "" (fun () ->
+    Env_parse.with_env local_llm_url_env_var "http://127.0.0.1:19003" (fun () ->
+      Env_parse.with_env ollama_host_env_var "http://127.0.0.1:19004" (fun () ->
+        endpoints_from_env () = [ "http://127.0.0.1:19003"; "http://127.0.0.1:19004" ])))
 ;;
 
 (* --- url_is_ollama --- *)
@@ -808,6 +836,12 @@ let%test "url_is_ollama matches localhost variant" =
 ;;
 
 let%test "url_is_ollama trims whitespace" = url_is_ollama "  http://127.0.0.1:11434  "
+
+let%test "url_is_ollama resolves OLLAMA_HOST at call time" =
+  Env_parse.with_env ollama_host_env_var "http://ollama.internal:19005" (fun () ->
+    url_is_ollama "  http://ollama.internal:19005  ")
+;;
+
 let%test "url_is_ollama matches IPv6 literal" = url_is_ollama "http://[::1]:11434"
 
 let%test "url_is_ollama matches with trailing path" =
