@@ -16,7 +16,9 @@ type network_error_kind =
   | Connection_refused
   (** Remote endpoint actively refused the connection (ECONNREFUSED). *)
   | Dns_failure (** Hostname resolution failed or returned no results. *)
-  | Tls_error (** TLS handshake or certificate validation failed. *)
+  | Tls_error
+  (** TLS handshake, certificate validation, trust-store discovery, or TLS
+      protocol processing failed. *)
   | Timeout (** Connection or read timed out (ETIMEDOUT). *)
   | Local_resource_exhaustion
   (** Local OS resource limits reached (EMFILE, ENFILE, ENOBUFS, EADDRNOTAVAIL). *)
