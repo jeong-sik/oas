@@ -171,8 +171,9 @@ val gemini_thinking_control_of_id : string -> gemini_thinking_control
     The catalog is resolved by {!Model_catalog.global}, in order: runtime
     override installed via {!Model_catalog.set_global}, the
     [OAS_MODEL_CATALOG] environment variable. The env discovery is cached
-    after first load; embedding hosts can call [Model_catalog.preload_global]
-    during bootstrap.
+    after first load; embedding hosts and test harnesses can call
+    [Model_catalog.preload_global] or inject [OAS_MODEL_CATALOG] during
+    bootstrap.
 
     Returns [None] when no catalog is available or when no catalog entry
     prefix-matches [model_id]; there is no in-code fallback table. *)

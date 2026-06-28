@@ -725,8 +725,9 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
     The catalog itself is resolved by {!Model_catalog.global}, in order:
     runtime override installed via {!Model_catalog.set_global}, then the
     [OAS_MODEL_CATALOG] environment variable. The env discovery is cached
-    after first load; embedding hosts can call [Model_catalog.preload_global]
-    during bootstrap.
+    after first load; embedding hosts and test harnesses can call
+    [Model_catalog.preload_global] or inject [OAS_MODEL_CATALOG] during
+    bootstrap.
 
     Returns [None] when no catalog is available or when the catalog has
     no entry whose [id_prefix] matches [model_id]. There is no in-code
@@ -893,8 +894,8 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
    [Model_catalog.set_global] and restore the override afterwards, so they
    are insulated from BOTH ambient manifest overrides
    ([OAS_CAPABILITY_MANIFEST]) and ambient catalog discovery
-   ([OAS_MODEL_CATALOG]). Without the explicit override these tests would
-   depend on process-level environment.
+   ([OAS_MODEL_CATALOG]). The repository-level Dune env injects [models.toml]
+   for inline tests that exercise the production catalog.
 
    [test_catalog_entry] fills every field with [None]; each fixture entry
    then sets only the capability-relevant fields, mirroring the

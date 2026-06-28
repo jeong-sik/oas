@@ -1,0 +1,7 @@
+; Inline tests use the repository model catalog as their deterministic fixture.
+; Runtime catalog loading remains explicit through Model_catalog.set_global or
+; OAS_MODEL_CATALOG; this stanza is test/build harness wiring, not discovery.
+(env
+ (_
+  (env-vars
+   (OAS_MODEL_CATALOG %{workspace_root}/models.toml))))
