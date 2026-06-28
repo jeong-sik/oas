@@ -9,6 +9,7 @@ module PC = Llm_provider.Provider_config
 module BOR = Llm_provider.Backend_openai_request
 module BOL = Llm_provider.Backend_ollama
 module BAN = Llm_provider.Backend_anthropic
+module CAP = Llm_provider.Capabilities
 module CM = Llm_provider.Capability_manifest
 module RD = Llm_provider.Reasoning_dialect
 module RE = Llm_provider.Reasoning_effort
@@ -216,6 +217,16 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "typed preserve xhigh"
     (Some "xhigh")
     (RD.normalize_effort_value dialect RE.XHigh)
+;;
+
+let test_reasoning_visibility_override_visible_text () =
+  let caps =
+    { CAP.openai_compat_chat_extended_capabilities with
+      reasoning_visibility_override = CAP.Force_visible_text
+    }
+  in
+  let dialect = RD.of_capabilities caps in
+  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility)
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =
@@ -651,6 +662,10 @@ let () =
             "openai reasoning dialect uses reasoning_effort"
             `Quick
             test_openai_reasoning_dialect_uses_reasoning_effort
+        ; test_case
+            "reasoning visibility override visible text"
+            `Quick
+            test_reasoning_visibility_override_visible_text
         ; test_case
             "openai reasoning request uses reasoning_effort"
             `Quick

@@ -33,6 +33,12 @@ type thinking_control_format =
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
 
+type reasoning_visibility_override =
+  | Default_reasoning_visibility
+  | Force_provider_hidden
+  | Force_visible_channel
+  | Force_visible_text
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -53,6 +59,11 @@ type capabilities =
         Only meaningful when [supports_reasoning] or [supports_extended_thinking]
         is true and the request goes through backend_openai.
         @since 0.184.0 *)
+  ; reasoning_visibility_override : reasoning_visibility_override
+    (** Optional override for how parsed reasoning content is surfaced. Most
+        providers inherit from [thinking_control_format]; catalog entries use
+        this only when a provider/model returns final answers solely in its
+        reasoning field and that field must become visible text. *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
   ; supports_structured_output : bool (** JSON schema 100% guarantee *)
@@ -109,6 +120,7 @@ let default_capabilities =
   ; supports_extended_thinking = false
   ; supports_reasoning_budget = false
   ; thinking_control_format = No_thinking_control
+  ; reasoning_visibility_override = Default_reasoning_visibility
   ; supports_response_format_json = false
   ; supports_structured_output = false
   ; supports_multimodal_inputs = false
@@ -322,6 +334,10 @@ let ollama_capabilities =
   }
 ;;
 
+let ollama_cloud_capabilities =
+  { ollama_capabilities with reasoning_visibility_override = Force_visible_text }
+;;
+
 let dashscope_capabilities =
   { openai_compat_chat_extended_capabilities with
     supports_tool_choice = true
@@ -474,7 +490,8 @@ let capabilities_for_provider_label label =
   | "openai_compat_chat_extended" | "openai_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
   | "gemini" -> Some gemini_capabilities
-  | "ollama" | "ollama_cloud" -> Some ollama_capabilities
+  | "ollama" -> Some ollama_capabilities
+  | "ollama_cloud" -> Some ollama_cloud_capabilities
   | "glm" | "zhipu" | "glm-coding" -> Some glm_capabilities
   | "dashscope" -> Some dashscope_capabilities
   | "nvidia" -> Some provider_l_capabilities
@@ -509,6 +526,15 @@ let thinking_control_format_of_manifest_string raw =
   | "chat_template_token" -> Some Chat_template_token
   | "reasoning_effort" -> Some Reasoning_effort
   | "enable_thinking" -> Some Enable_thinking
+  | _ -> None
+;;
+
+let reasoning_visibility_override_of_catalog_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "" | "default" -> Some Default_reasoning_visibility
+  | "provider_hidden" | "hidden" -> Some Force_provider_hidden
+  | "visible_channel" -> Some Force_visible_channel
+  | "visible_text" -> Some Force_visible_text
   | _ -> None
 ;;
 
@@ -583,6 +609,13 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
           | Some t -> t
           | None -> base.thinking_control_format)
        | None -> base.thinking_control_format)
+  ; reasoning_visibility_override =
+      (match entry.reasoning_visibility with
+       | Some s ->
+         (match reasoning_visibility_override_of_catalog_string s with
+          | Some visibility -> visibility
+          | None -> base.reasoning_visibility_override)
+       | None -> base.reasoning_visibility_override)
   }
 ;;
 
@@ -677,6 +710,13 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
           | Some t -> t
           | None -> base.thinking_control_format)
        | None -> base.thinking_control_format)
+  ; reasoning_visibility_override =
+      (match entry.reasoning_visibility with
+       | Some s ->
+         (match reasoning_visibility_override_of_catalog_string s with
+          | Some visibility -> visibility
+          | None -> base.reasoning_visibility_override)
+       | None -> base.reasoning_visibility_override)
   }
 ;;
 
@@ -890,6 +930,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
+  ; reasoning_visibility = None
   ; input_per_million = None
   ; output_per_million = None
   ; cache_write_multiplier = None
@@ -1449,6 +1490,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.max_output_tokens = cb.max_output_tokens
       && ca.supports_image_input = cb.supports_image_input
       && ca.thinking_control_format = cb.thinking_control_format
+      && ca.reasoning_visibility_override = cb.reasoning_visibility_override
     | _ -> false
   in
   let alias_pairs = [ "openai", "openai_chat"; "glm", "glm-coding" ] in

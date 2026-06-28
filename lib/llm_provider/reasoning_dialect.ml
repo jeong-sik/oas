@@ -66,7 +66,7 @@ let deepseek_ignored_sampling_params =
   [ "temperature"; "top_p"; "presence_penalty"; "frequency_penalty" ]
 ;;
 
-let of_capabilities (caps : Capabilities.capabilities) =
+let base_of_capabilities (caps : Capabilities.capabilities) =
   match caps.thinking_control_format with
   | No_thinking_control ->
     if caps.supports_reasoning
@@ -113,6 +113,16 @@ let of_capabilities (caps : Capabilities.capabilities) =
     ; streaming = Delta_field "reasoning_content"
     }
 ;;
+
+let apply_visibility_override caps dialect =
+  match caps.Capabilities.reasoning_visibility_override with
+  | Default_reasoning_visibility -> dialect
+  | Force_provider_hidden -> { dialect with visibility = Provider_hidden }
+  | Force_visible_channel -> { dialect with visibility = Visible_channel }
+  | Force_visible_text -> { dialect with visibility = Visible_text }
+;;
+
+let of_capabilities caps = base_of_capabilities caps |> apply_visibility_override caps
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match preserve_thinking, dialect.toggle_wire with

@@ -98,6 +98,7 @@ for the full JSON Schema (draft-07).
 | `supports_computer_use` | bool | from base | Computer-use tools. |
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
 | `thinking_control_format` | string | from base | Thinking wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `reasoning_effort`, `enable_thinking`. |
+| `reasoning_visibility` | string | `default` | Optional parsed reasoning visibility override. Accepted values: `default`, `provider_hidden`, `visible_channel`, `visible_text`. |
 
 Unknown fields are silently ignored (forward-compatible).
 
@@ -114,6 +115,7 @@ default is `default_capabilities` (all flags false, no limits).
 | `anthropic` | Claude (1M ctx, extended thinking, caching) |
 | `gemini` | Gemini (1M ctx, audio/video, code execution) |
 | `ollama` | Ollama local server |
+| `ollama_cloud` | Ollama Cloud OpenAI-compatible endpoint; parsed reasoning may be final visible text |
 | `glm` | GLM / ZhipuAI |
 | `kimi` | Kimi (262K ctx, reasoning) |
 | `nemotron` | NVIDIA NIM Nemotron (chat\_template\_kwargs thinking) |

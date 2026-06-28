@@ -34,6 +34,7 @@ type entry =
         reasoning_effort / enable_thinking). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
         entry silently dropped the model's thinking knob (RFC-OAS-023). *)
+  ; reasoning_visibility : string option
   }
 
 (** A parsed capability manifest. *)
@@ -138,6 +139,7 @@ let known_entry_keys =
   ; "supports_computer_use"
   ; "supports_code_execution"
   ; "thinking_control_format"
+  ; "reasoning_visibility"
   ]
 ;;
 
@@ -190,6 +192,7 @@ let parse_entry json =
     ; supports_computer_use = member_bool "supports_computer_use" json
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format = member_string_opt "thinking_control_format" json
+    ; reasoning_visibility = member_string_opt "reasoning_visibility" json
     }
 ;;
 

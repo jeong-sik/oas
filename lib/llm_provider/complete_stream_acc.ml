@@ -115,7 +115,10 @@ let accumulate_event (acc : stream_acc) = function
   | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
 
-let finalize_stream_acc (acc : stream_acc) =
+let finalize_stream_acc
+      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
+      (acc : stream_acc)
+  =
   match !(acc.sse_error) with
   | Some serr -> Error serr
   | None when not !(acc.stop_reason_received) ->
@@ -211,11 +214,61 @@ let finalize_stream_acc (acc : stream_acc) =
            | _ -> None)
         indices
     in
+    (* Visible_text policy: a reasoning-only stream (no Text block, no tool
+       calls) collapses to content=[Thinking] which every Text-only projection
+       reads as empty. Promote the reasoning into a visible Text block for
+       provider/model contracts that expose reasoning-only answer text. Mirrors
+       the non-streaming parser promotion. *)
+    let has_text =
+      List.exists
+        (function
+          | Types.Text _ -> true
+          | Types.Thinking _
+          | Types.RedactedThinking _
+          | Types.ToolUse _
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> false)
+        content
+    in
+    let has_tool =
+      List.exists
+        (function
+          | Types.ToolUse _ -> true
+          | Types.Text _
+          | Types.Thinking _
+          | Types.RedactedThinking _
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> false)
+        content
+    in
+    let reasoning_text =
+      List.find_map
+        (function
+          | Types.Thinking { content = c; _ } -> Some c
+          | Types.Text _
+          | Types.RedactedThinking _
+          | Types.ToolUse _
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> None)
+        content
+    in
+    let promoted_reasoning =
+      match reasoning_visibility, has_text, has_tool, reasoning_text with
+      | Reasoning_dialect.Visible_text, false, false, Some r when String.trim r <> "" ->
+        [ Types.Text r ]
+      | _ -> []
+    in
     Ok
       { Types.id = !(acc.id)
       ; model = !(acc.model)
       ; stop_reason = !(acc.stop_reason)
-      ; content
+      ; content = content @ promoted_reasoning
       ; usage =
           Some
             { input_tokens = !(acc.input_tokens)

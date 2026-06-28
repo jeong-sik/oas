@@ -184,7 +184,16 @@ let create_message
             match kind with
             | Provider.Anthropic_messages ->
               Ok (parse_response (Yojson.Safe.from_string body_str))
-            | Provider.Openai_chat_completions -> parse_openai_response_result body_str
+            | Provider.Openai_chat_completions ->
+              (* Thread the provider's reasoning_visibility policy so a
+                 reasoning-only reply can be promoted to a visible Text block
+                 only when the provider/model capability opts into Visible_text. *)
+              let visibility =
+                Api_openai.reasoning_visibility_of_request
+                  ~provider_config:provider_cfg
+                  config
+              in
+              parse_openai_response_result ~reasoning_visibility:visibility body_str
             | Provider.Custom name ->
               (match Provider.find_provider name with
                | Some impl -> Ok (impl.parse_response body_str)
