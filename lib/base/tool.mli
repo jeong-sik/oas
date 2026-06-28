@@ -87,6 +87,21 @@ type t =
   ; handler : handler_kind
   }
 
+(** Stable snake_case string for a concurrency class.
+    Use this for logs, hooks, and JSON-adjacent diagnostic output. *)
+val concurrency_class_name : concurrency_class -> string
+
+(** Interpret descriptor [mutation_class] values as concurrency classes.
+    This is the single policy surface for descriptors that have not set typed
+    [concurrency_class] explicitly. *)
+val expected_concurrency_class_of_mutation_class
+  :  mutation_class
+  -> concurrency_class option
+
+(** Canonical accepted [mutation_class] wire names, including explicit aliases.
+    Unknown strings are rejected while decoding {!mutation_class_of_yojson}. *)
+val known_mutation_classes : string list
+
 val create
   :  ?descriptor:descriptor
   -> name:string

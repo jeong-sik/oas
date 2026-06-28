@@ -70,27 +70,18 @@ let find_in_index index name =
      | id -> Hashtbl.find_opt index.by_id id)
 ;;
 
-let concurrency_class_to_string = function
-  | Tool.Parallel_read -> "parallel_read"
-  | Tool.Sequential_workspace -> "sequential_workspace"
-  | Tool.Exclusive_external -> "exclusive_external"
-;;
-
-let inferred_concurrency_class_of_mutation_class = function
-  | Tool.Read_only -> Some Tool.Parallel_read
-  | Tool.Workspace | Tool.Workspace_mutating | Tool.Local_mutation ->
-    Some Tool.Sequential_workspace
-  | Tool.External | Tool.External_effect -> Some Tool.Exclusive_external
-;;
-
 let concurrency_class_from_descriptor (descriptor : Tool.descriptor) =
+  (* Scheduling-time classification must not raise: descriptors that did not
+     pass through [Tool.create] (e.g., record-constructed or deserialized
+     tools) should still schedule safely. Validation belongs at construction
+     time, not during batch scheduling. *)
   match descriptor.Tool.concurrency_class with
   | Some cc -> cc
   | None ->
     (match
        Option.bind
          descriptor.Tool.mutation_class
-         inferred_concurrency_class_of_mutation_class
+         Tool.expected_concurrency_class_of_mutation_class
      with
      | Some inferred -> inferred
      | None -> Tool.Sequential_workspace)
@@ -241,7 +232,7 @@ let hook_schedule_of_tool_use
   { planned_index = tool_use.index
   ; batch_index
   ; batch_size
-  ; concurrency_class = concurrency_class_to_string tool_use.concurrency_class
+  ; concurrency_class = Tool.concurrency_class_name tool_use.concurrency_class
   ; batch_kind
   }
 ;;

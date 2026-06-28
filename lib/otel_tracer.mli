@@ -74,7 +74,19 @@ type instance =
 
 (** {1 Config} *)
 
+(** Default service name used when no config is supplied. *)
+val default_service_name : string
+
+(** Environment variable name read by [default_config_from_env] and by the
+    constructors below when [config] is omitted. *)
+val otel_endpoint_env_var : string
+
+(** Environment-free baseline config. *)
 val default_config : config
+
+(** Build the default config using the provided environment lookup at call time. *)
+val default_config_from_env : ?getenv:(string -> string option) -> unit -> config
+
 val otel_span_kind_to_int : otel_span_kind -> int
 
 (** {1 Utilities} *)
@@ -87,8 +99,28 @@ val make_span_name : Tracing.span_attrs -> string
 
 (** {1 Instance operations} *)
 
-val create_instance : ?config:config -> unit -> instance
-val create_instance_eio : ?config:config -> unit -> instance
+(** Create a stdlib-mutex backed instance.
+
+    If [config] is omitted, [default_config_from_env ()] is called at creation
+    time, which reads [otel_endpoint_env_var] from the environment.
+    [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
+val create_instance
+  :  ?config:config
+  -> ?getenv:(string -> string option)
+  -> unit
+  -> instance
+
+(** Create an Eio-mutex backed instance.
+
+    If [config] is omitted, [default_config_from_env ()] is called at creation
+    time, which reads [otel_endpoint_env_var] from the environment.
+    [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
+val create_instance_eio
+  :  ?config:config
+  -> ?getenv:(string -> string option)
+  -> unit
+  -> instance
+
 val inst_start_span : instance -> Tracing.span_attrs -> span
 val inst_end_span : instance -> span -> ok:bool -> unit
 val inst_add_event : instance -> span -> string -> unit
@@ -172,5 +204,17 @@ val to_otlp_json : config -> Yojson.Safe.t
 (** {1 First-class module constructors} *)
 
 val tracer_of_instance : instance -> Tracing.t
-val create : ?config:config -> unit -> Tracing.t
-val create_eio : ?config:config -> unit -> Tracing.t
+
+(** Build a first-class tracer backed by a stdlib-mutex instance.
+
+    If [config] is omitted, [default_config_from_env ()] is called at creation
+    time, which reads [otel_endpoint_env_var] from the environment.
+    [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
+val create : ?config:config -> ?getenv:(string -> string option) -> unit -> Tracing.t
+
+(** Build a first-class tracer backed by an Eio-mutex instance.
+
+    If [config] is omitted, [default_config_from_env ()] is called at creation
+    time, which reads [otel_endpoint_env_var] from the environment.
+    [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
+val create_eio : ?config:config -> ?getenv:(string -> string option) -> unit -> Tracing.t
