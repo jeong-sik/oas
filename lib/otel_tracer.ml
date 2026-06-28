@@ -68,9 +68,12 @@ type config =
   ; endpoint : string option
   }
 
-let default_config =
-  let endpoint = Sys.getenv_opt "OTEL_EXPORTER_OTLP_ENDPOINT" in
-  { service_name = "agent-sdk"; endpoint }
+let default_service_name = "agent-sdk"
+let otel_endpoint_env_var = "OTEL_EXPORTER_OTLP_ENDPOINT"
+let default_config = { service_name = default_service_name; endpoint = None }
+
+let default_config_from_env ?(getenv = Sys.getenv_opt) () =
+  { default_config with endpoint = getenv otel_endpoint_env_var }
 ;;
 
 (* -- Metric types ----------------------------------------------------- *)
@@ -441,44 +444,65 @@ let metric_type_to_string = function
 
 (* -- Global instance (backward compat) -------------------------------- *)
 
-(* The global tracer is lazy so that environment-sensitive configuration is
-   captured on first use, and so the fiber-local key is only allocated when
-   needed.  Using a fiber-local key makes the global API safe for concurrent
-   Eio fibers: each fiber gets its own span stack instead of sharing the
-   instance-wide [current_spans]. *)
-let _global : instance lazy_t =
-  lazy
-    (let endpoint = Sys.getenv_opt "OTEL_EXPORTER_OTLP_ENDPOINT" in
-     { config = { service_name = "agent-sdk"; endpoint }
-     ; mu = Stdlib_mu (Mutex.create ())
-     ; fiber_key = Some (Eio.Fiber.create_key ())
-     ; current_spans = []
-     ; completed_spans = []
-     ; metrics = []
-     })
+(* The global tracer is initialized on first use so that environment-sensitive
+   configuration is not captured at module load, and so the fiber-local key is
+   only allocated when needed. First-use creation is protected by a stdlib
+   mutex because the global API can be reached by non-Eio callers. Using a
+   fiber-local key makes the global API safe for concurrent Eio fibers: each
+   fiber gets its own span stack instead of sharing the instance-wide
+   [current_spans].
+
+   NOTE: the endpoint is resolved once from [otel_endpoint_env_var] when the
+   global instance is created. Later env changes do not affect the
+   already-created shared instance; create a fresh instance with
+   [create_instance] for per-call env resolution. *)
+let make_global_instance () : instance =
+  { config = default_config_from_env ()
+  ; mu = Stdlib_mu (Mutex.create ())
+  ; fiber_key = Some (Eio.Fiber.create_key ())
+  ; current_spans = []
+  ; completed_spans = []
+  ; metrics = []
+  }
 ;;
 
-let start_span attrs = inst_start_span (Lazy.force _global) attrs
-let end_span s ~ok = inst_end_span (Lazy.force _global) s ~ok
-let add_event s msg = inst_add_event (Lazy.force _global) s msg
-let add_attrs s attrs = inst_add_attrs (Lazy.force _global) s attrs
+let global_instance_mu = Mutex.create ()
+let global_instance_ref : instance option ref = ref None
+
+let global_instance () =
+  Mutex.lock global_instance_mu;
+  Fun.protect
+    (fun () ->
+       match !global_instance_ref with
+       | Some inst -> inst
+       | None ->
+         let inst = make_global_instance () in
+         global_instance_ref := Some inst;
+         inst)
+    ~finally:(fun () -> Mutex.unlock global_instance_mu)
+;;
+
+let start_span attrs = inst_start_span (global_instance ()) attrs
+let end_span s ~ok = inst_end_span (global_instance ()) s ~ok
+let add_event s msg = inst_add_event (global_instance ()) s msg
+let add_attrs s attrs = inst_add_attrs (global_instance ()) s attrs
 
 let add_link s ~trace_id ~span_id =
-  inst_add_link (Lazy.force _global) s ~trace_id ~span_id
+  inst_add_link (global_instance ()) s ~trace_id ~span_id
 ;;
 
-let flush () = inst_flush (Lazy.force _global)
-let reset () = inst_reset (Lazy.force _global)
-let completed_count () = inst_completed_count (Lazy.force _global)
-let active_count () = inst_active_count (Lazy.force _global)
+let flush () = inst_flush (global_instance ())
+let reset () = inst_reset (global_instance ())
+let completed_count () = inst_completed_count (global_instance ())
+let active_count () = inst_active_count (global_instance ())
 
 let record_metric ~name ~value ~metric_type =
-  inst_record_metric (Lazy.force _global) ~name ~value ~metric_type
+  inst_record_metric (global_instance ()) ~name ~value ~metric_type
 ;;
 
-let get_metrics () = inst_get_metrics (Lazy.force _global)
-let clear_metrics () = inst_clear_metrics (Lazy.force _global)
-let current_span () = inst_current_span (Lazy.force _global)
+let get_metrics () = inst_get_metrics (global_instance ())
+let clear_metrics () = inst_clear_metrics (global_instance ())
+let current_span () = inst_current_span (global_instance ())
 
 (* -- JSON export ------------------------------------------------------ *)
 
@@ -569,7 +593,7 @@ let metric_entry_to_json (m : metric_entry) : Yojson.Safe.t =
 ;;
 
 let to_otlp_json (cfg : config) : Yojson.Safe.t =
-  let global = Lazy.force _global in
+  let global = global_instance () in
   let spans, metrics =
     inst_with_lock global (fun () ->
       List.rev global.completed_spans, List.rev global.metrics)
@@ -621,7 +645,12 @@ let to_otlp_json (cfg : config) : Yojson.Safe.t =
 
 (* -- Instance creation ------------------------------------------------ *)
 
-let create_instance ?(config = default_config) () : instance =
+let create_instance ?config ?getenv () : instance =
+  let config =
+    match config with
+    | Some config -> config
+    | None -> default_config_from_env ?getenv ()
+  in
   { config
   ; mu = Stdlib_mu (Mutex.create ())
   ; fiber_key = None
@@ -631,7 +660,12 @@ let create_instance ?(config = default_config) () : instance =
   }
 ;;
 
-let create_instance_eio ?(config = default_config) () : instance =
+let create_instance_eio ?config ?getenv () : instance =
+  let config =
+    match config with
+    | Some config -> config
+    | None -> default_config_from_env ?getenv ()
+  in
   { config
   ; mu = Eio_mu (Eio.Mutex.create ())
   ; fiber_key = Some (Eio.Fiber.create_key ())
@@ -685,16 +719,16 @@ let tracer_of_instance inst : Tracing.t =
 ;;
 
 let with_span attrs f =
-  let module T = (val tracer_of_instance (Lazy.force _global)) in
+  let module T = (val tracer_of_instance (global_instance ())) in
   T.with_span attrs f
 ;;
 
 (* -- First-class module constructors ---------------------------------- *)
 
-let create ?(config : config = default_config) () : Tracing.t =
-  tracer_of_instance (create_instance ~config ())
+let create ?config ?getenv () : Tracing.t =
+  tracer_of_instance (create_instance ?config ?getenv ())
 ;;
 
-let create_eio ?(config : config = default_config) () : Tracing.t =
-  tracer_of_instance (create_instance_eio ~config ())
+let create_eio ?config ?getenv () : Tracing.t =
+  tracer_of_instance (create_instance_eio ?config ?getenv ())
 ;;

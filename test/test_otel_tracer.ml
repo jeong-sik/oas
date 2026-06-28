@@ -31,6 +31,81 @@ let json_assoc_field key = function
   | _ -> None
 ;;
 
+(* -- Config ------------------------------------------------------------- *)
+
+let test_default_config_is_env_free () =
+  check
+    string
+    "service_name"
+    Otel_tracer.default_service_name
+    Otel_tracer.default_config.service_name;
+  check (option string) "endpoint" None Otel_tracer.default_config.endpoint
+;;
+
+let test_default_config_from_env_reads_getenv_at_call_time () =
+  let endpoint = "http://collector.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let config = Otel_tracer.default_config_from_env ~getenv () in
+  check string "service_name" Otel_tracer.default_service_name config.service_name;
+  check (option string) "endpoint" (Some endpoint) config.endpoint;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_instance_reads_env_at_call_time () =
+  let endpoint = "http://ctor.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let inst = Otel_tracer.create_instance ~getenv () in
+  check (option string) "endpoint" (Some endpoint) inst.config.endpoint;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_instance_eio_reads_env_at_call_time () =
+  let endpoint = "http://ctor-eio.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let inst = Otel_tracer.create_instance_eio ~getenv () in
+  check (option string) "endpoint" (Some endpoint) inst.config.endpoint;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_reads_env_at_call_time () =
+  let endpoint = "http://create.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  let (module T : Tracing.TRACER) = Otel_tracer.create ~getenv () in
+  let span = T.start_span (default_attrs ~name:"env_probe" ()) in
+  T.end_span span ~ok:true;
+  check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls)
+;;
+
+let test_create_eio_reads_env_at_call_time () =
+  let endpoint = "http://create-eio.example/v1/traces" in
+  let calls = ref [] in
+  let getenv name =
+    calls := name :: !calls;
+    if String.equal name Otel_tracer.otel_endpoint_env_var then Some endpoint else None
+  in
+  Eio_main.run (fun _env ->
+    let (module T : Tracing.TRACER) = Otel_tracer.create_eio ~getenv () in
+    let span = T.start_span (default_attrs ~name:"env_probe" ()) in
+    T.end_span span ~ok:true;
+    check (list string) "env keys" [ Otel_tracer.otel_endpoint_env_var ] (List.rev !calls))
+;;
+
 (* ── Span Lifecycle ──────────────────────────────────────────────── *)
 
 let test_start_span_name_format () =
@@ -624,7 +699,30 @@ let test_first_class_trace_context_headers () =
 let () =
   run
     "Otel_tracer"
-    [ ( "span_lifecycle"
+    [ ( "config"
+      , [ test_case "default_config is env-free" `Quick test_default_config_is_env_free
+        ; test_case
+            "default_config_from_env reads injected env"
+            `Quick
+            test_default_config_from_env_reads_getenv_at_call_time
+        ; test_case
+            "create_instance reads env at call time"
+            `Quick
+            test_create_instance_reads_env_at_call_time
+        ; test_case
+            "create_instance_eio reads env at call time"
+            `Quick
+            (with_eio test_create_instance_eio_reads_env_at_call_time)
+        ; test_case
+            "create reads env at call time"
+            `Quick
+            test_create_reads_env_at_call_time
+        ; test_case
+            "create_eio reads env at call time"
+            `Quick
+            (with_eio test_create_eio_reads_env_at_call_time)
+        ] )
+    ; ( "span_lifecycle"
       , [ test_case "start_span name format" `Quick test_start_span_name_format
         ; test_case "start_span attributes" `Quick test_start_span_attributes
         ; test_case "start_span kind mapping" `Quick test_start_span_kind_mapping

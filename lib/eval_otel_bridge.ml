@@ -187,8 +187,10 @@ let emit_run_metrics (inst : Otel_tracer.instance) (rm : Eval.run_metrics) : uni
   Otel_tracer.inst_end_span inst span ~ok:(snap.verdict_failed_total = 0)
 ;;
 
-let default_otel_instance : Otel_tracer.instance =
-  { config = Otel_tracer.default_config
+(* Shared stdlib-mutex instance construction.  Kept as a single helper so
+   tests and the shared default instance use the same config source. *)
+let _mk_stdlib_inst () : Otel_tracer.instance =
+  { config = Otel_tracer.default_config_from_env ()
   ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
   ; fiber_key = None
   ; current_spans = []
@@ -197,8 +199,25 @@ let default_otel_instance : Otel_tracer.instance =
   }
 ;;
 
-let default_instance () = default_otel_instance
-let emit_run_metrics_default rm = emit_run_metrics default_otel_instance rm
+(* Initialized on first use under a stdlib mutex so concurrent callers cannot
+   race through process-wide default instance creation. *)
+let default_otel_instance_mu = Mutex.create ()
+let default_otel_instance_ref : Otel_tracer.instance option ref = ref None
+
+let default_instance () =
+  Mutex.lock default_otel_instance_mu;
+  Fun.protect
+    (fun () ->
+       match !default_otel_instance_ref with
+       | Some inst -> inst
+       | None ->
+         let inst = _mk_stdlib_inst () in
+         default_otel_instance_ref := Some inst;
+         inst)
+    ~finally:(fun () -> Mutex.unlock default_otel_instance_mu)
+;;
+
+let emit_run_metrics_default rm = emit_run_metrics (default_instance ()) rm
 
 (* ── JSON export ──────────────────────────────────────────────── *)
 
@@ -328,19 +347,6 @@ let%test "all metric names start with oas." =
   in
   let ms = to_metric_list (extract rm) in
   List.for_all (fun m -> String.length m.name > 4 && String.sub m.name 0 4 = "oas.") ms
-;;
-
-(* emit tests use a Stdlib.Mutex instance because inline tests
-   run outside an Eio context.  create_instance() uses Eio.Mutex
-   which raises Unhandled(Get_context) without Eio.main. *)
-let _mk_stdlib_inst () : Otel_tracer.instance =
-  { config = Otel_tracer.default_config
-  ; mu = Otel_tracer.Stdlib_mu (Mutex.create ())
-  ; fiber_key = None
-  ; current_spans = []
-  ; completed_spans = []
-  ; metrics = []
-  }
 ;;
 
 let%test "emit_run_metrics creates one span" =
