@@ -197,6 +197,7 @@ let create_agent
       ()
   =
   let open Types in
+  let default_config = default_config_value () in
   let config =
     { name = Option.value name ~default:default_config.name
     ; model = Option.value model ~default:default_config.model
