@@ -116,8 +116,8 @@ let accumulate_event (acc : stream_acc) = function
 ;;
 
 let finalize_stream_acc
-  ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
-  (acc : stream_acc)
+      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
+      (acc : stream_acc)
   =
   match !(acc.sse_error) with
   | Some serr -> Error serr
@@ -215,19 +215,33 @@ let finalize_stream_acc
         indices
     in
     (* Visible_text policy: a reasoning-only stream (no Text block, no tool
-       calls) collapses to content=[Thinking] which every Text-only downstream
-       projection reads as empty. Promote the reasoning into a visible Text
-       block so consumers (text_of_content / Response_shape / keeper) see a
-       non-empty answer. Mirrors the non-streaming parser promotion. *)
-    let has_text = List.exists (function Types.Text _ -> true | _ -> false) content in
-    let has_tool = List.exists (function Types.ToolUse _ -> true | _ -> false) content in
+       calls) collapses to content=[Thinking] which every Text-only projection
+       reads as empty. Promote the reasoning into a visible Text block for
+       provider/model contracts that expose reasoning-only answer text. Mirrors
+       the non-streaming parser promotion. *)
+    let has_text =
+      List.exists
+        (function
+          | Types.Text _ -> true
+          | _ -> false)
+        content
+    in
+    let has_tool =
+      List.exists
+        (function
+          | Types.ToolUse _ -> true
+          | _ -> false)
+        content
+    in
     let reasoning_text =
       List.find_map
-        (function Types.Thinking { content = c; _ } -> Some c | _ -> None)
+        (function
+          | Types.Thinking { content = c; _ } -> Some c
+          | _ -> None)
         content
     in
     let promoted_reasoning =
-      match (reasoning_visibility, has_text, has_tool, reasoning_text) with
+      match reasoning_visibility, has_text, has_tool, reasoning_text with
       | Reasoning_dialect.Visible_text, false, false, Some r when String.trim r <> "" ->
         [ Types.Text r ]
       | _ -> []

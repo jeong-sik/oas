@@ -115,6 +115,7 @@ default is `default_capabilities` (all flags false, no limits).
 | `anthropic` | Claude (1M ctx, extended thinking, caching) |
 | `gemini` | Gemini (1M ctx, audio/video, code execution) |
 | `ollama` | Ollama local server |
+| `ollama_cloud` | Ollama Cloud OpenAI-compatible endpoint; parsed reasoning may be final visible text |
 | `glm` | GLM / ZhipuAI |
 | `kimi` | Kimi (262K ctx, reasoning) |
 | `nemotron` | NVIDIA NIM Nemotron (chat\_template\_kwargs thinking) |

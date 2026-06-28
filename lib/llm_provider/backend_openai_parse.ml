@@ -321,11 +321,10 @@ let parse_openai_response_result_json
            in
            (* Visible_text policy: when the model replied with reasoning only
               (no content text, no tool calls), promote the reasoning into a
-              visible Text block so downstream consumers (text_of_content /
-              Response_shape / fusion answer / keeper) see a non-empty answer
-              instead of an empty Thinking-only response. Without this, a
-              reasoning-only reply collapses to content=[Thinking] which every
-              Text-only projection reads as empty. *)
+              visible Text block so SDK consumers that project textual answers
+              do not read the response as empty. Without this, a reasoning-only
+              reply collapses to content=[Thinking] which every Text-only
+              projection reads as empty. *)
            let promoted_reasoning =
              match reasoning_visibility, reasoning_text, text_blocks, tool_blocks with
              | Reasoning_dialect.Visible_text, Some r, [], [] -> [ Text r ]

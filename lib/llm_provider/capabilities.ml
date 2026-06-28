@@ -334,6 +334,10 @@ let ollama_capabilities =
   }
 ;;
 
+let ollama_cloud_capabilities =
+  { ollama_capabilities with reasoning_visibility_override = Force_visible_text }
+;;
+
 let dashscope_capabilities =
   { openai_compat_chat_extended_capabilities with
     supports_tool_choice = true
@@ -486,7 +490,8 @@ let capabilities_for_provider_label label =
   | "openai_compat_chat_extended" | "openai_chat_extended" ->
     Some openai_compat_chat_extended_capabilities
   | "gemini" -> Some gemini_capabilities
-  | "ollama" | "ollama_cloud" -> Some ollama_capabilities
+  | "ollama" -> Some ollama_capabilities
+  | "ollama_cloud" -> Some ollama_cloud_capabilities
   | "glm" | "zhipu" | "glm-coding" -> Some glm_capabilities
   | "dashscope" -> Some dashscope_capabilities
   | "nvidia" -> Some provider_l_capabilities

@@ -505,16 +505,11 @@ let test_ollama_cloud_current_catalog_resolves () =
          check (option int) (model_id ^ " context") (Some context) c.max_context_tokens;
          check bool (model_id ^ " vision") vision c.supports_image_input;
          check bool (model_id ^ " multimodal") vision c.supports_multimodal_inputs;
-         let expected_visibility =
-           if String.equal model_id "minimax-m3"
-           then Capabilities.Force_visible_text
-           else Capabilities.Default_reasoning_visibility
-         in
          check
            bool
            (model_id ^ " reasoning visibility")
            true
-           (c.reasoning_visibility_override = expected_visibility))
+           (c.reasoning_visibility_override = Capabilities.Force_visible_text))
     cases
 ;;
 
