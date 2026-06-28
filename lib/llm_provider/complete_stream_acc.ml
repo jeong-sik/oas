@@ -226,7 +226,10 @@ let finalize_stream_acc
           | Types.Thinking _
           | Types.RedactedThinking _
           | Types.ToolUse _
-          | Types.ToolResult _ -> false)
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> false)
         content
     in
     let has_tool =
@@ -236,15 +239,23 @@ let finalize_stream_acc
           | Types.Text _
           | Types.Thinking _
           | Types.RedactedThinking _
-          | Types.ToolResult _ -> false)
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> false)
         content
     in
     let reasoning_text =
       List.find_map
         (function
           | Types.Thinking { content = c; _ } -> Some c
-          | Types.Text _ | Types.RedactedThinking _ | Types.ToolUse _ | Types.ToolResult _
-            -> None)
+          | Types.Text _
+          | Types.RedactedThinking _
+          | Types.ToolUse _
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> None)
         content
     in
     let promoted_reasoning =
