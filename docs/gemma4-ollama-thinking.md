@@ -139,10 +139,11 @@ keeps the existing generic Ollama behavior and sends `think:false`.
 The Ollama response parser already maps `message.thinking` to an OAS
 `Thinking` content block.
 
-## MASC Runtime Wiring
+## Runtime Wiring
 
-MASC should reference the same local Ollama model through `runtime.toml`.
-If the local Ollama provider is not already present, define it first:
+Host applications should reference the same local Ollama model through their
+own provider/model configuration. If the local Ollama provider is not already
+present, define it first:
 
 ```toml
 [providers.ollama]
@@ -165,16 +166,16 @@ streaming = true
 max-concurrent = 1
 ```
 
-Then assign a keeper explicitly. MASC's current parser expects
-`[runtime.assignments]` as a TOML table of `keeper = "provider.model"` entries:
+Then bind the model to the host runtime using that runtime's own assignment
+mechanism:
 
 ```toml
 [runtime.assignments]
-"sangsu" = "ollama.gemma4-26b-a4b-qat"
+"agent-name" = "ollama.gemma4-26b-a4b-qat"
 ```
 
 Keep concurrency low at first. The 26B-A4B QAT model is large enough that
-parallel keeper turns can compete for local GPU/VRAM even when single-turn
+parallel agent turns can compete for local GPU/VRAM even when single-turn
 latency is acceptable.
 
 ## Operational Notes

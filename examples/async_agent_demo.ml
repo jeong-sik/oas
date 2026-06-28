@@ -60,8 +60,8 @@ let read_only_tool =
 (** External API tools should be marked [Exclusive_external] even when they are
     read-only. The OAS runtime will then flush any parallel-read batch before
     and after the call, avoiding concurrent requests against rate-limited
-    remote services. MASC maps [WebSearch]/[WebFetch]-style tools to this
-    class automatically. *)
+    remote services. Host runtimes should map their web-search and web-fetch
+    tools to this class at the descriptor boundary. *)
 let external_fetch_tool =
   let descriptor =
     { Tool.kind = Some "demo"
