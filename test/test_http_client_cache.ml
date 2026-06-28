@@ -186,6 +186,76 @@ let start_sse_server ~sw ~net response_body =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
+let drain_request_headers reader =
+  let rec consume () =
+    match Eio.Buf_read.line reader with
+    | "" -> ()
+    | _ -> consume ()
+    | exception End_of_file -> ()
+  in
+  consume ()
+;;
+
+let resolve_once promise resolver =
+  if not (Eio.Promise.is_resolved promise) then Eio.Promise.resolve resolver ()
+;;
+
+let observe_client_eof reader promise resolver =
+  let rec consume () =
+    match Eio.Buf_read.line reader with
+    | _ -> consume ()
+    | exception End_of_file -> resolve_once promise resolver
+    | exception Eio.Io _ -> resolve_once promise resolver
+  in
+  consume ()
+;;
+
+let start_one_shot_lifecycle_server ~sw ~net ~clock ?body_delay_s body =
+  let port = fresh_port () in
+  let disconnected, notify_disconnected = Eio.Promise.create () in
+  let handler flow _addr =
+    let reader = Eio.Buf_read.of_flow flow ~max_size:8192 in
+    drain_request_headers reader;
+    Eio.Fiber.fork ~sw (fun () ->
+      observe_client_eof reader disconnected notify_disconnected);
+    let response_headers =
+      Printf.sprintf
+        "HTTP/1.1 200 OK\r\n\
+         Content-Length: %d\r\n\
+         Content-Type: text/plain\r\n\
+         Connection: keep-alive\r\n\
+         \r\n"
+        (String.length body)
+    in
+    try
+      Eio.Flow.copy_string response_headers flow;
+      (match body_delay_s with
+       | Some delay_s -> Eio.Time.sleep clock delay_s
+       | None -> ());
+      Eio.Flow.copy_string body flow
+    with
+    | End_of_file | Eio.Io _ | Unix.Unix_error _ ->
+      resolve_once disconnected notify_disconnected
+  in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:1
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  Eio.Fiber.fork ~sw (fun () ->
+    Eio.Net.accept_fork ~sw socket ~on_error:(fun _ -> ()) handler);
+  Printf.sprintf "http://127.0.0.1:%d/one-shot" port, disconnected
+;;
+
+let await_client_disconnect ~clock ~label disconnected =
+  try Eio.Time.with_timeout_exn clock 1.0 (fun () -> Eio.Promise.await disconnected) with
+  | Eio.Time.Timeout ->
+    Alcotest.failf "%s: one-shot client did not close before parent switch release" label
+;;
+
 let test_stream_reuses_connection () =
   Eio_main.run
   @@ fun env ->
@@ -257,6 +327,58 @@ let test_per_host_cap_closes_excess () =
     let stats = Http_client.cache_stats cache in
     Alcotest.(check int) "two creates for concurrent" 2 stats.create_count_total;
     Alcotest.(check int) "only one idle due to cap" 1 stats.total_idle;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_one_shot_get_closes_after_response () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url, disconnected =
+      start_one_shot_lifecycle_server ~sw ~net:env#net ~clock:env#clock "ok"
+    in
+    (match Http_client.get_sync ~sw ~net:env#net ~url ~headers:[] () with
+     | Ok (200, "ok") -> ()
+     | Ok (code, body) -> Alcotest.failf "expected 200/ok, got %d/%S" code body
+     | Error _ -> Alcotest.fail "expected Ok response");
+    await_client_disconnect ~clock:env#clock ~label:"normal response" disconnected;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_one_shot_get_timeout_closes_connection () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url, disconnected =
+      start_one_shot_lifecycle_server
+        ~sw
+        ~net:env#net
+        ~clock:env#clock
+        ~body_delay_s:1.0
+        "ok"
+    in
+    (match
+       Http_client.get_sync
+         ~clock:env#clock
+         ~timeout_s:0.05
+         ~sw
+         ~net:env#net
+         ~url
+         ~headers:[]
+         ()
+     with
+     | Error (Http_client.TimeoutError { phase = Http_client.Http_operation; _ }) -> ()
+     | Error _ -> Alcotest.fail "expected Http_operation timeout"
+     | Ok (code, body) -> Alcotest.failf "expected timeout, got %d/%S" code body);
+    await_client_disconnect ~clock:env#clock ~label:"timed-out response" disconnected;
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -337,6 +459,14 @@ let () =
             "eviction fiber closes idle"
             `Quick
             test_eviction_fiber_closes_idle
+        ; Alcotest.test_case
+            "one-shot closes after response"
+            `Quick
+            test_one_shot_get_closes_after_response
+        ; Alcotest.test_case
+            "one-shot timeout closes connection"
+            `Quick
+            test_one_shot_get_timeout_closes_connection
         ] )
     ; ( "headers"
       , [ Alcotest.test_case
