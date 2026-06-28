@@ -193,7 +193,7 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
   check
     string
     "visibility"
-    "side_channel:reasoning"
+    "visible_text"
     (RD.visibility_to_string dialect.visibility);
   check
     string
