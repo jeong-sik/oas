@@ -31,6 +31,25 @@ original tag dates. `0.100.4` was never tagged or released.
   `OAS_MCP_HTTP_URL` is read at call time. Update downstream callers from
   `Mcp_http.default_config` to `Mcp_http.default_config ()`.
 
+## [0.207.11](https://github.com/jeong-sik/oas/compare/v0.207.10...v0.207.11) (2026-06-28)
+
+
+### Bug Fixes
+
+* **api:** centralize default inference telemetry ([#2180](https://github.com/jeong-sik/oas/issues/2180)) ([06f8a45](https://github.com/jeong-sik/oas/commit/06f8a45098f2feb942e93ae99a34c81ffce8430f))
+* **complete:** measure sync latency with eio clock ([#2201](https://github.com/jeong-sik/oas/issues/2201)) ([bcb1ea5](https://github.com/jeong-sik/oas/commit/bcb1ea54d26f48f3a4142e0d0f9dac9d3bdd01e3))
+* **constants:** resolve env defaults at call time ([#2185](https://github.com/jeong-sik/oas/issues/2185)) ([cc18b1b](https://github.com/jeong-sik/oas/commit/cc18b1bb8f15005d1bec1cacbe1429167bb7baec))
+* **context:** make offload failures observable ([#2194](https://github.com/jeong-sik/oas/issues/2194)) ([6195c74](https://github.com/jeong-sik/oas/commit/6195c74298be812a5d68979b49a4d5b324820ce3))
+* **diag:** resolve debug env gates at call time ([#2191](https://github.com/jeong-sik/oas/issues/2191)) ([0c097a9](https://github.com/jeong-sik/oas/commit/0c097a91b4b719020044c38b87e9002d435b7cf6))
+* **fs:** surface mkdir path failures ([#2196](https://github.com/jeong-sik/oas/issues/2196)) ([6453cd7](https://github.com/jeong-sik/oas/commit/6453cd72de2c6aa5d135a4f7de960d7e11fc32b4))
+* **http:** classify Eio transport errors by type ([#2184](https://github.com/jeong-sik/oas/issues/2184)) ([25e0bcc](https://github.com/jeong-sik/oas/commit/25e0bcc911003bbd6ba26effe58d152689f96e8f))
+* **provider:** type reasoning effort policy ([#2188](https://github.com/jeong-sik/oas/issues/2188)) ([1f7b2b4](https://github.com/jeong-sik/oas/commit/1f7b2b41801d3c7415674a18e058942e35aed525))
+
+
+### Performance Improvements
+
+* **context:** diff sorted snapshots directly ([#2183](https://github.com/jeong-sik/oas/issues/2183)) ([fff74f6](https://github.com/jeong-sik/oas/commit/fff74f6bb0b4f1135e0048b658c266632cd37ead))
+
 ## [0.207.10](https://github.com/jeong-sik/oas/compare/v0.207.9...v0.207.10) (2026-06-27)
 
 
