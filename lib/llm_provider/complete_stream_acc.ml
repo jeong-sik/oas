@@ -223,21 +223,28 @@ let finalize_stream_acc
       List.exists
         (function
           | Types.Text _ -> true
-          | _ -> false)
+          | Types.Thinking _
+          | Types.RedactedThinking _
+          | Types.ToolUse _
+          | Types.ToolResult _ -> false)
         content
     in
     let has_tool =
       List.exists
         (function
           | Types.ToolUse _ -> true
-          | _ -> false)
+          | Types.Text _
+          | Types.Thinking _
+          | Types.RedactedThinking _
+          | Types.ToolResult _ -> false)
         content
     in
     let reasoning_text =
       List.find_map
         (function
           | Types.Thinking { content = c; _ } -> Some c
-          | _ -> None)
+          | Types.Text _ | Types.RedactedThinking _ | Types.ToolUse _ | Types.ToolResult _
+            -> None)
         content
     in
     let promoted_reasoning =
