@@ -169,6 +169,14 @@ let test_ci_needle_longer () =
     (Util.contains_substring_ci ~haystack:"abc" ~needle:"abcdef")
 ;;
 
+let test_ci_literal_metacharacters () =
+  check
+    bool
+    "regex metacharacters are literal"
+    false
+    (Util.contains_substring_ci ~haystack:"abc" ~needle:".*")
+;;
+
 (* ── regex_match ──────────────────────────────────────── *)
 
 let test_regex_match_hit () =
@@ -258,6 +266,7 @@ let () =
         ; test_case "no match" `Quick test_ci_no_match
         ; test_case "empty needle" `Quick test_ci_empty_needle
         ; test_case "needle longer" `Quick test_ci_needle_longer
+        ; test_case "literal metacharacters" `Quick test_ci_literal_metacharacters
         ] )
     ; ( "regex_match"
       , [ test_case "hit" `Quick test_regex_match_hit

@@ -61,29 +61,17 @@ let safe_sub s start len =
   if actual_len <= 0 then "" else String.sub s start actual_len
 ;;
 
-(** Case-insensitive substring search. *)
-let contains_substring_ci ~haystack ~needle =
-  let h = String.lowercase_ascii haystack in
-  let n = String.lowercase_ascii needle in
-  let lh = String.length h in
-  let ln = String.length n in
-  if ln = 0
-  then true
-  else if ln > lh
-  then false
-  else (
-    let rec loop i =
-      if i + ln > lh then false else if String.sub h i ln = n then true else loop (i + 1)
-    in
-    loop 0)
-;;
-
 let regex_match re str =
   try
     let (_ : int) = Str.search_forward re str 0 in
     true
   with
   | Not_found -> false
+;;
+
+(** Case-insensitive substring search. *)
+let contains_substring_ci ~haystack ~needle =
+  needle = "" || regex_match (Str.regexp_string_case_fold needle) haystack
 ;;
 
 let filter_non_empty = List.filter (fun s -> s <> "")
