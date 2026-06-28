@@ -22,14 +22,34 @@ val float_env_or : float -> string -> float
     if the variable is unset, empty, or invalid. *)
 val bool_env_or : bool -> string -> bool
 
-(** Local LLM server URL.
-    Reads [OAS_LOCAL_LLM_URL], falling back to
-    {!Llm_provider.Constants.Endpoints.default_url}. *)
+(** Local LLM server URL snapshot kept for source compatibility.
+    Prefer {!resolve_local_llm_url} when the value must reflect environment
+    changes after module initialization. *)
 val local_llm_url : string
+[@@deprecated "Use Defaults.resolve_local_llm_url () for call-time env lookup"]
+
+(** Local LLM server URL.
+    Reads [OAS_LOCAL_LLM_URL] at call time, falling back to
+    {!Llm_provider.Constants.Endpoints.default_url}. *)
+val resolve_local_llm_url : unit -> string
+
+(** Environment variable used by {!resolve_fallback_provider}. *)
+val fallback_provider_env_var : string
+
+(** Default provider returned by {!resolve_fallback_provider} when
+    {!fallback_provider_env_var} is unset or empty. *)
+val default_fallback_provider : string
+
+(** Fallback provider name snapshot kept for source compatibility.
+    Prefer {!resolve_fallback_provider} when the value must reflect environment
+    changes after module initialization. *)
+val fallback_provider : string
+[@@deprecated "Use Defaults.resolve_fallback_provider () for call-time env lookup"]
 
 (** Fallback provider name.
-    Reads [OAS_FALLBACK_PROVIDER], defaults to ["local"]. *)
-val fallback_provider : string
+    Reads {!fallback_provider_env_var} at call time, defaults to
+    {!default_fallback_provider}. *)
+val resolve_fallback_provider : unit -> string
 
 (** Explicit gate for runtime-only test providers such as ["mock"] and ["echo"].
     Disabled by default; tests must opt in via [OAS_ALLOW_TEST_PROVIDERS]. *)

@@ -12,6 +12,7 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **context_offload:** emit a diagnostic warning when tool-result offload write
   fails before preserving the original content.
+* **defaults:** add call-time local endpoint and fallback-provider resolvers while preserving compatibility snapshot values.
 * **llm_provider:** resolve env-backed max token, thinking budget, and Anthropic prompt-cache defaults at request-build time; static prompt-cache threshold alias is kept only for compatibility.
 
 ### Features

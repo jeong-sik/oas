@@ -2,10 +2,10 @@
     Targets: env_or, local_llm_url, fallback_provider, default_context_reducer.
     Uses Unix.putenv/Unix environment manipulation for env var testing.
 
-    IMPORTANT: Defaults.local_llm_url and Defaults.fallback_provider are
-    evaluated at module init time (let-binding, not functions). To test
-    different env var states we test env_or directly, which IS a function,
-    and test the reducer which is also computed at init time but exercisable. *)
+    Compatibility snapshot values are evaluated at module init time. Tests that
+    need call-time env reflection use the explicit resolve_* functions. *)
+
+[@@@ocaml.warning "-3"]
 
 open Agent_sdk
 
@@ -51,12 +51,54 @@ let () =
               "starts with http"
               true
               (String.length url >= 4 && String.sub url 0 4 = "http"))
+        ; test_case "resolve_local_llm_url reads env at call time" `Quick (fun () ->
+            Llm_provider.Cli_common_env.with_env
+              "OAS_LOCAL_LLM_URL"
+              "http://127.0.0.1:19999"
+              (fun () ->
+                 check
+                   string
+                   "env url"
+                   "http://127.0.0.1:19999"
+                   (Defaults.resolve_local_llm_url ())))
         ] )
     ; (* ── fallback_provider ───────────────────────────── *)
       ( "fallback_provider"
       , [ test_case "fallback_provider is non-empty" `Quick (fun () ->
             let p = Defaults.fallback_provider in
             check bool "non-empty" true (String.length p > 0))
+        ; test_case "resolve_fallback_provider reads env at call time" `Quick (fun () ->
+            Llm_provider.Cli_common_env.with_env
+              Defaults.fallback_provider_env_var
+              "provider-a"
+              (fun () ->
+                 check
+                   string
+                   "first env"
+                   "provider-a"
+                   (Defaults.resolve_fallback_provider ());
+                 Unix.putenv Defaults.fallback_provider_env_var "  provider-b  ";
+                 check
+                   string
+                   "second env"
+                   "provider-b"
+                   (Defaults.resolve_fallback_provider ());
+                 Unix.putenv Defaults.fallback_provider_env_var "";
+                 check
+                   string
+                   "empty env default"
+                   Defaults.default_fallback_provider
+                   (Defaults.resolve_fallback_provider ())))
+        ; test_case "resolve_fallback_provider normalizes casing" `Quick (fun () ->
+            Llm_provider.Cli_common_env.with_env
+              Defaults.fallback_provider_env_var
+              "ProViDer-A"
+              (fun () ->
+                 check
+                   string
+                   "lowercased"
+                   "provider-a"
+                   (Defaults.resolve_fallback_provider ())))
         ] )
     ; (* ── default_context_reducer ─────────────────────── *)
       ( "default_context_reducer"

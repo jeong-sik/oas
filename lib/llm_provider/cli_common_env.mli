@@ -93,3 +93,4 @@ val float
     unset variable is restored to the empty string, which {!get} treats as
     unset. Do not use for production secrets. *)
 val with_env : string -> string -> (unit -> 'a) -> 'a
+[@@deprecated "For tests only; do not depend on this production interface"]
