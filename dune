@@ -4,4 +4,4 @@
 (env
  (_
   (env-vars
-   (OAS_MODEL_CATALOG %{workspace_root}/models.toml))))
+   (OAS_MODEL_CATALOG "%{workspace_root}/models.toml"))))
