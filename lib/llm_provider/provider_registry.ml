@@ -248,9 +248,15 @@ let discovered_endpoint_max_context (url : string) =
   Discovery.discovered_context_for_url url
 ;;
 
-let llama_defaults =
+let default_llama_endpoint () =
+  match Discovery.parse_llm_endpoints_env () with
+  | first :: _ -> first
+  | [] -> Discovery.resolve_default_endpoint ()
+;;
+
+let llama_defaults () =
   { kind = OpenAI_compat
-  ; base_url = List.hd llama_all_endpoints
+  ; base_url = default_llama_endpoint ()
   ; api_key_env = ""
   ; request_path = "/v1/chat/completions"
   }
@@ -303,9 +309,9 @@ let kimi_defaults =
   }
 ;;
 
-let ollama_defaults =
+let ollama_defaults () =
   { kind = Ollama
-  ; base_url = Discovery.ollama_endpoint
+  ; base_url = Discovery.resolve_ollama_endpoint ()
   ; api_key_env = ""
   ; request_path = "/api/chat"
   }
@@ -396,7 +402,7 @@ let default () =
   in
   reg
     "nous"
-    llama_defaults
+    (llama_defaults ())
     ~max_context:128_000
     Capabilities.openai_compat_chat_extended_capabilities;
   reg "claude" claude_defaults ~max_context:200_000 Capabilities.anthropic_capabilities;
@@ -446,7 +452,7 @@ let default () =
   register
     t
     { name = "ollama"
-    ; defaults = ollama_defaults
+    ; defaults = ollama_defaults ()
     ; max_context = 262_144
     ; capabilities = Capabilities.ollama_capabilities
     ; is_available = (fun () -> true)

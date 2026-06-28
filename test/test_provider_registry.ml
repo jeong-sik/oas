@@ -327,6 +327,31 @@ let test_provider_name_of_ollama_cloud_config () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
+let default_entry_base_url name =
+  let reg = Provider_registry.default () in
+  match Provider_registry.find reg name with
+  | Some e -> e.defaults.base_url
+  | None -> failf "%s should exist" name
+;;
+
+let test_default_nous_base_url_reads_llm_endpoints_at_call_time () =
+  let first = "http://127.0.0.1:18085" in
+  let second = "http://127.0.0.1:18086" in
+  with_env "LLM_ENDPOINTS" first (fun () ->
+    check string "first registry" first (default_entry_base_url "nous");
+    Unix.putenv "LLM_ENDPOINTS" second;
+    check string "second registry" second (default_entry_base_url "nous"))
+;;
+
+let test_default_ollama_base_url_reads_ollama_host_at_call_time () =
+  let first = "http://127.0.0.1:19134" in
+  let second = "http://127.0.0.1:19135" in
+  with_env "OLLAMA_HOST" first (fun () ->
+    check string "first registry" first (default_entry_base_url "ollama");
+    Unix.putenv "OLLAMA_HOST" second;
+    check string "second registry" second (default_entry_base_url "ollama"))
+;;
+
 let test_default_max_context () =
   let reg = Provider_registry.default () in
   (match Provider_registry.find reg "nous" with
@@ -1029,6 +1054,14 @@ let () =
             "provider_name_of_config returns ollama_cloud"
             `Quick
             test_provider_name_of_ollama_cloud_config
+        ; test_case
+            "nous base_url reads LLM_ENDPOINTS at registry construction"
+            `Quick
+            test_default_nous_base_url_reads_llm_endpoints_at_call_time
+        ; test_case
+            "ollama base_url reads OLLAMA_HOST at registry construction"
+            `Quick
+            test_default_ollama_base_url_reads_ollama_host_at_call_time
         ; test_case "max_context values" `Quick test_default_max_context
         ; test_case
             "max_context matches capabilities"
