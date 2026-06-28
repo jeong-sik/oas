@@ -29,8 +29,7 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   (* "trust content over label": a non-tool finish that nonetheless carried tool
      blocks is a tool-use turn (mirrors the historical non-streaming guard);
      without tool blocks it is surfaced verbatim as [Unknown]. *)
-  | Other other ->
-    if has_tool_blocks then Types.StopToolUse else Types.Unknown other
+  | Other other -> if has_tool_blocks then Types.StopToolUse else Types.Unknown other
 ;;
 
 let provisional_of_string s : Types.stop_reason =
@@ -45,6 +44,7 @@ let provisional_of_string s : Types.stop_reason =
 let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   match sr with
   | Types.StopToolUse when not has_tool_blocks -> Types.Unknown unmatched_tool_calls
+  | Types.Unknown _ when has_tool_blocks -> Types.StopToolUse
   | Types.StopToolUse
   | Types.EndTurn
   | Types.MaxTokens
@@ -94,10 +94,18 @@ let%test "streaming chain (provisional |> reconcile) matches parse-time of_finis
   chain true && chain false
 ;;
 
+let%test
+    "streaming chain (provisional |> reconcile) matches parse-time of_finish for Other + \
+     tools"
+  =
+  let s = "function_call" in
+  reconcile (provisional_of_string s) ~has_tool_blocks:true
+  = of_finish (wire_finish_of_string s) ~has_tool_blocks:true
+;;
+
 let%test "stop/length/refusal map identically on both paths" =
   let same s =
-    provisional_of_string s
-    = of_finish (wire_finish_of_string s) ~has_tool_blocks:false
+    provisional_of_string s = of_finish (wire_finish_of_string s) ~has_tool_blocks:false
   in
   same "stop" && same "end_turn" && same "length" && same "refusal"
 ;;
