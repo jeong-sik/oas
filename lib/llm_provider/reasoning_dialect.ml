@@ -101,9 +101,16 @@ let of_capabilities (caps : Capabilities.capabilities) =
     ; streaming = Template_parser
     }
   | Reasoning_effort ->
+    (* Reasoning_effort providers (ollama_cloud incl. minimax-m3) frequently
+       reply with content="" + reasoning="..." (reasoning-only answer). Side_channel
+       keeps the reasoning as a Thinking block which every Text-only downstream
+       projection reads as empty. Visible_text lets the parser promote the
+       reasoning into a visible Text block when the reply is reasoning-only
+       (no content text, no tool calls); providers that emit a real content
+       Text are unaffected because promotion only fires on an empty Text. *)
     { default with
       toggle_wire = Reasoning_effort
-    ; visibility = Side_channel "reasoning"
+    ; visibility = Visible_text
     ; streaming = Delta_field "reasoning"
     }
   | Enable_thinking ->

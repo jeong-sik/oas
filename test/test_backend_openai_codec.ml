@@ -97,6 +97,38 @@ let test_parse_reasoning_content_and_tool_calls_coexist () =
   check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
 ;;
 
+let test_reasoning_only_promoted_to_text_under_visible_text () =
+  (* ollama_cloud.minimax-m3 replies with content="" + reasoning="..." (reasoning-only
+     answer). Under Visible_text the parser promotes the reasoning into a visible
+     Text block so downstream Text-only projections see a non-empty answer
+     instead of an empty Thinking-only response. With the default policy
+     (Provider_hidden / Side_channel) the same reply stays Thinking-only. *)
+  let json =
+    response_json
+      ~content:(`String "")
+      ~finish_reason:"stop"
+      ~message_fields:[ "reasoning_content", `String "최종 답은 42" ]
+      ()
+  in
+  let promote visibility =
+    match
+      Parse.parse_openai_response_result
+        ~reasoning_visibility:visibility
+        (Yojson.Safe.to_string json)
+    with
+    | Ok r -> r
+    | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
+  in
+  let visible = promote Reasoning_dialect.Visible_text in
+  let default_resp = promote Reasoning_dialect.Provider_hidden in
+  let has_text r =
+    List.exists (function Text s -> String.trim s = "최종 답은 42" | _ -> false) r.content
+  in
+  check_bool "Visible_text promotes reasoning to Text" true (has_text visible);
+  check_bool "default policy keeps reasoning as Thinking-only (no Text)"
+    false (has_text default_resp)
+;;
+
 let test_content_parts_cover_modalities () =
   let parts =
     Serialize.openai_content_parts_of_blocks
@@ -1405,6 +1437,10 @@ let () =
             "reasoning_content and tool_calls coexist"
             `Quick
             test_parse_reasoning_content_and_tool_calls_coexist
+        ; Alcotest.test_case
+            "reasoning-only promoted to Text under Visible_text"
+            `Quick
+            test_reasoning_only_promoted_to_text_under_visible_text
         ; Alcotest.test_case
             "error default message"
             `Quick

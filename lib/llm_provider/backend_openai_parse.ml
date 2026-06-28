@@ -231,7 +231,10 @@ let telemetry_of_openai_json json =
 
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
-let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
+let parse_openai_response_result_json
+  ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
+  (raw_json : Yojson.Safe.t)
+  =
   let open Yojson.Safe.Util in
   let json =
     match raw_json with
@@ -284,14 +287,18 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
           calls
       | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
     in
+    (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
+       Check both, preferring reasoning_content. reasoning_text is hoisted out
+       of [thinking_blocks] so the content-assembly below can promote it to a
+       visible Text block when the provider's reasoning_visibility policy is
+       Visible_text (reasoning-only responses from models like
+       ollama_cloud.minimax-m3 that reply with content="" + reasoning="..."). *)
+    let reasoning_text =
+      match non_blank_json_string (msg |> member "reasoning_content") with
+      | Some _ as text -> text
+      | None -> non_blank_json_string (msg |> member "reasoning")
+    in
     let thinking_blocks =
-      (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
-           Check both, preferring reasoning_content. *)
-      let reasoning_text =
-        match non_blank_json_string (msg |> member "reasoning_content") with
-        | Some _ as text -> text
-        | None -> non_blank_json_string (msg |> member "reasoning")
-      in
       match reasoning_text with
       | Some s -> [ Thinking { thinking_type = "reasoning"; content = s } ]
       | None -> []
@@ -310,9 +317,22 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
       ; model = Cli_common_json.member_str "model" json
       ; stop_reason
       ; content =
-          thinking_blocks
-          @ (if Api_common.string_is_blank text_content then [] else [ Text text_content ])
-          @ tool_blocks
+          (let text_blocks =
+             if Api_common.string_is_blank text_content then [] else [ Text text_content ]
+           in
+           (* Visible_text policy: when the model replied with reasoning only
+              (no content text, no tool calls), promote the reasoning into a
+              visible Text block so downstream consumers (text_of_content /
+              Response_shape / fusion answer / keeper) see a non-empty answer
+              instead of an empty Thinking-only response. Without this, a
+              reasoning-only reply collapses to content=[Thinking] which every
+              Text-only projection reads as empty. *)
+           let promoted_reasoning =
+             match (reasoning_visibility, reasoning_text, text_blocks, tool_blocks) with
+             | Reasoning_dialect.Visible_text, Some r, [], [] -> [ Text r ]
+             | _ -> []
+           in
+           thinking_blocks @ text_blocks @ promoted_reasoning @ tool_blocks)
       ; usage = usage_of_openai_json json
       ; telemetry = telemetry_of_openai_json json
       }
@@ -331,8 +351,11 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
     parsed [Yojson.Safe.t] (e.g. {!Backend_glm.parse_response}, which also
     error-checks and reasoning-extracts from the same body) should call
     {!parse_openai_response_result_json} directly to avoid re-parsing. *)
-let parse_openai_response_result json_str =
-  parse_openai_response_result_json (Yojson.Safe.from_string json_str)
+let parse_openai_response_result
+  ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
+  json_str
+  =
+  parse_openai_response_result_json ~reasoning_visibility (Yojson.Safe.from_string json_str)
 ;;
 
 let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =
