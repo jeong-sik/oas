@@ -11,20 +11,16 @@ let level_to_string = function
   | Error -> "ERROR"
 ;;
 
-let env_bool name =
-  match Sys.getenv_opt name with
-  | None -> false
-  | Some raw ->
-    (match String.lowercase_ascii (String.trim raw) with
-     | "1" | "true" | "yes" | "on" -> true
-     | _ -> false)
-;;
+let debug_env_var = "OAS_LLM_PROVIDER_DEBUG"
+let cascade_diag_env_var = "OAS_CASCADE_DIAG"
 
-let debug_enabled = env_bool "OAS_LLM_PROVIDER_DEBUG" || env_bool "OAS_CASCADE_DIAG"
+let debug_enabled () =
+  Env_parse.bool_env debug_env_var || Env_parse.bool_env cascade_diag_env_var
+;;
 
 let default_sink (lvl : level) ~ctx msg =
   match lvl with
-  | Debug when not debug_enabled -> ()
+  | Debug when not (debug_enabled ()) -> ()
   | _ ->
     Printf.eprintf
       "[llm_provider] [%s] [%s] %s\n%!"
@@ -47,3 +43,38 @@ let debug ctx fmt = emit Debug ctx fmt
 let info ctx fmt = emit Info ctx fmt
 let warn ctx fmt = emit Warn ctx fmt
 let error ctx fmt = emit Error ctx fmt
+
+let%test "debug_enabled reads OAS_LLM_PROVIDER_DEBUG at call time" =
+  Env_parse.with_env cascade_diag_env_var "" (fun () ->
+    Env_parse.with_env debug_env_var "" (fun () ->
+      (not (debug_enabled ()))
+      &&
+      (Unix.putenv debug_env_var "1";
+       debug_enabled ())))
+;;
+
+let%test "debug_enabled reads OAS_CASCADE_DIAG alias at call time" =
+  Env_parse.with_env debug_env_var "" (fun () ->
+    Env_parse.with_env cascade_diag_env_var "" (fun () ->
+      (not (debug_enabled ()))
+      &&
+      (Unix.putenv cascade_diag_env_var "true";
+       debug_enabled ())))
+;;
+
+let%test "debug_enabled rejects invalid values and accepts normalized values" =
+  Env_parse.with_env debug_env_var "maybe" (fun () ->
+    Env_parse.with_env cascade_diag_env_var "  On " (fun () -> debug_enabled ()))
+;;
+
+let%test "debug_enabled sees combined false values as disabled" =
+  Env_parse.with_env debug_env_var "0" (fun () ->
+    Env_parse.with_env cascade_diag_env_var "off" (fun () -> not (debug_enabled ())))
+;;
+
+let%test "Env_parse.with_env restores original truthy value" =
+  Env_parse.with_env cascade_diag_env_var "" (fun () ->
+    Env_parse.with_env debug_env_var "yes" (fun () ->
+      Env_parse.with_env debug_env_var "0" (fun () -> not (debug_enabled ()))
+      && debug_enabled ()))
+;;

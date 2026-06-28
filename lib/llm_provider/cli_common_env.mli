@@ -87,3 +87,9 @@ val float
   -> default:float
   -> string
   -> float
+
+(** Test helper: temporarily set [name] to [value] while [f] runs.
+    OCaml's [Unix] module cannot portably unset env vars, so an originally
+    unset variable is restored to the empty string, which {!get} treats as
+    unset. Do not use for production secrets. *)
+val with_env : string -> string -> (unit -> 'a) -> 'a

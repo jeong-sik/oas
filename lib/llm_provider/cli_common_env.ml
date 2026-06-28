@@ -26,9 +26,9 @@ let bool ?(default = false) ?on_invalid name =
   match get name with
   | None -> default
   | Some v ->
-    (match String.lowercase_ascii v with
-     | "1" | "true" | "yes" | "on" -> true
-     | "0" | "false" | "no" | "off" -> false
+    (match String.lowercase_ascii (String.trim v) with
+     | "1" | "true" | "yes" | "on" | "0" | "false" | "no" | "off" | "" ->
+       Env_parse.bool_of_string ~default v
      | _ ->
        warn_invalid ~on_invalid ~var:name ~raw:v ~expected:"boolean" ~diag:(fun () ->
          Diag.warn
@@ -153,21 +153,7 @@ let string_contains ~needle haystack =
   loop 0
 ;;
 
-let with_env name value f =
-  (* Lightweight test helper. Do not use for production secrets: environment
-     variables are visible to child processes and may be logged. OCaml's Unix
-     module has no portable [unsetenv], so restoring an unset variable means
-     setting it to empty, which [get] above treats the same as unset. *)
-  let original = Sys.getenv_opt name in
-  let restore () =
-    match original with
-    | None -> Unix.putenv name ""
-    | Some v -> Unix.putenv name v
-  in
-  Fun.protect ~finally:restore (fun () ->
-    Unix.putenv name value;
-    f ())
-;;
+let with_env = Env_parse.with_env
 
 let%test "int accepts positive env value" =
   with_env "OAS_TEST_CLI_COMMON_ENV_INT_POSITIVE" "12" (fun () ->

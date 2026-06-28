@@ -4,10 +4,11 @@
     Consumers can replace the sink at startup to route into their
     own structured logging pipeline.
 
-    Debug-level messages are gated by [OAS_LLM_PROVIDER_DEBUG=1]
-    or the compatibility alias [OAS_CASCADE_DIAG=1] when using the
-    default sink. Consumer sinks receive all levels and apply their
-    own filtering.
+    Debug-level messages are gated by [debug_env_var]
+    or the compatibility alias [cascade_diag_env_var] when using the
+    default sink. These env gates are evaluated for each debug event,
+    so concurrent [Unix.putenv] mutations can affect later events.
+    Consumer sinks receive all levels and apply their own filtering.
 
     @since 0.131.0 *)
 
@@ -18,6 +19,12 @@ type level =
   | Error
 
 val level_to_string : level -> string
+
+(** Primary env var that enables debug diagnostics in the default sink. *)
+val debug_env_var : string
+
+(** Compatibility env var that also enables debug diagnostics. *)
+val cascade_diag_env_var : string
 
 (** Replace the global diagnostic sink.
     Thread-safe via [Atomic.t]. *)
