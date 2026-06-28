@@ -50,6 +50,14 @@ let test_default_model_id_value_uses_injected_env () =
     (Model_registry.default_model_id_value ~getenv ())
 ;;
 
+let test_default_model_id_value_blank_env_falls_back () =
+  check
+    string
+    "blank env fallback"
+    Model_registry.default_model_id_fallback
+    (Model_registry.default_model_id_value ~getenv:(fun _ -> Some "   ") ())
+;;
+
 (* ── resolve_model_id — explicit aliases ────────────── *)
 
 let test_resolve_opus_4_6_alias () =
@@ -176,6 +184,10 @@ let () =
             "call-time injected env"
             `Quick
             test_default_model_id_value_uses_injected_env
+        ; test_case
+            "call-time blank env fallback"
+            `Quick
+            test_default_model_id_value_blank_env_falls_back
         ] )
     ; ( "resolve_model_id (aliases)"
       , [ test_case "opus 4-6 + opus shorthand" `Quick test_resolve_opus_4_6_alias

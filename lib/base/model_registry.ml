@@ -11,7 +11,9 @@ let default_model_id_fallback = "claude-sonnet-4-6-20250514"
 
 let default_model_id_value ?(getenv = Llm_provider.Cli_common_env.get) () =
   match getenv default_model_id_env_var with
-  | Some v -> v
+  | Some v ->
+    let v = String.trim v in
+    if String.equal v "" then default_model_id_fallback else v
   | None -> default_model_id_fallback
 ;;
 
