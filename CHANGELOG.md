@@ -31,6 +31,22 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.12](https://github.com/jeong-sik/oas/compare/v0.207.11...v0.207.12) (2026-06-28)
+
+
+### Bug Fixes
+
+* **api:** keep default_config as a value (non-breaking) — semver repair ([#2194](https://github.com/jeong-sik/oas/issues/2194)/[#2204](https://github.com/jeong-sik/oas/issues/2204)) ([#2207](https://github.com/jeong-sik/oas/issues/2207)) ([57eb200](https://github.com/jeong-sik/oas/commit/57eb200f33444db3016d669eb2e7bb02ea8d1a25))
+* **defaults:** resolve fallback provider at call time ([#2189](https://github.com/jeong-sik/oas/issues/2189)) ([f6986af](https://github.com/jeong-sik/oas/commit/f6986af7a1eaf896702dc01f93ef0a7d23c361ef))
+* **http:** harden client error lifecycle ([#2176](https://github.com/jeong-sik/oas/issues/2176)) ([e818e66](https://github.com/jeong-sik/oas/commit/e818e66c196f6c66727f754025697578cd4cc2e7))
+* **otel:** avoid module-load env capture ([#2200](https://github.com/jeong-sik/oas/issues/2200)) ([305e1a3](https://github.com/jeong-sik/oas/commit/305e1a34409120ae601ca0767a30661c5ea01dd6))
+* **tool:** centralize mutation class concurrency policy ([#2187](https://github.com/jeong-sik/oas/issues/2187)) ([5f8aecf](https://github.com/jeong-sik/oas/commit/5f8aecfb3c5f217573f21a0f06e9aef490e52c7d))
+
+
+### Performance Improvements
+
+* **util:** use Str literal search for ci substring ([#2209](https://github.com/jeong-sik/oas/issues/2209)) ([4ac2bec](https://github.com/jeong-sik/oas/commit/4ac2bec0d5603436f5435f4b9baf14e00bb74850))
+
 ## [0.207.11](https://github.com/jeong-sik/oas/compare/v0.207.10...v0.207.11) (2026-06-28)
 
 
