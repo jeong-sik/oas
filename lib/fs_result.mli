@@ -28,7 +28,9 @@ val write_file_secret : string -> string -> (unit, Error.sdk_error) result
 
 (** {1 Directory operations} *)
 
-(** Ensure directory exists (recursive). *)
+(** Ensure directory exists (recursive).
+    Returns [Error] if [path] is empty, any existing path component is not a
+    directory, or a directory creation syscall fails. *)
 val ensure_dir : string -> (unit, Error.sdk_error) result
 
 (** List directory entries. *)
