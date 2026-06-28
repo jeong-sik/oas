@@ -190,11 +190,7 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "toggle wire"
     "reasoning_effort"
     (RD.toggle_wire_to_string dialect.toggle_wire);
-  check
-    string
-    "visibility"
-    "visible_text"
-    (RD.visibility_to_string dialect.visibility);
+  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility);
   check
     string
     "replay policy"
