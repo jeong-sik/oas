@@ -21,7 +21,6 @@ let make_default_config () =
     to re-read [OAS_MCP_HTTP_URL] at use time should call {!make_default_config}
     instead. *)
 let default_config = make_default_config ()
-;;
 
 type t = { client : Sdk_http_client.t }
 
