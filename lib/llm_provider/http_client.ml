@@ -3,11 +3,10 @@
     Wraps Eio + cohttp-eio with TLS. All network and HTTP-level errors
     are captured as {!http_error} so callers do not need [try/with].
 
-    Each synchronous request without a [connection_cache] runs inside
-    its own [Eio.Switch.run] scope so the underlying TCP connection and
-    its file descriptor are released as soon as the response body is
-    fully consumed. With a cache, connections are bound to the cache's
-    switch and reused until eviction or switch release.
+    Each synchronous request without a [connection_cache] creates a one-shot
+    client and explicitly closes the underlying TCP connection as soon as the
+    response body is fully consumed. With a cache, connections are bound to
+    the cache's switch and reused until eviction or switch release.
 
     @since 0.45.0 *)
 
