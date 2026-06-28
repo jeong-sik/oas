@@ -47,12 +47,13 @@ type participant_run_result =
   | Participant_input_required of Runtime.input_request * paused_participant
 
 let agent_config_of_session (session : session) (detail : spawn_agent_request) =
-  { Types.default_config with
+  let default_config = Types.default_config_value () in
+  { default_config with
     name = detail.participant_name
   ; model =
       (match detail.model with
        | Some value when String.trim value <> "" -> Model_registry.resolve_model_id value
-       | _missing_model_override -> Types.default_config.model)
+       | _missing_model_override -> default_config.model)
   ; system_prompt =
       (match detail.system_prompt with
        | Some prompt when String.trim prompt <> "" -> Some prompt

@@ -58,6 +58,19 @@ let test_default_model_id_value_blank_env_falls_back () =
     (Model_registry.default_model_id_value ~getenv:(fun _ -> Some "   ") ())
 ;;
 
+let test_default_config_value_uses_calltime_model () =
+  let getenv name =
+    if String.equal name Model_registry.default_model_id_env_var
+    then Some "config-default-model"
+    else None
+  in
+  check
+    string
+    "default_config_value model"
+    "config-default-model"
+    (Types.default_config_value ~getenv ()).model
+;;
+
 (* ── resolve_model_id — explicit aliases ────────────── *)
 
 let test_resolve_opus_4_6_alias () =
@@ -188,6 +201,10 @@ let () =
             "call-time blank env fallback"
             `Quick
             test_default_model_id_value_blank_env_falls_back
+        ; test_case
+            "default config uses call-time model"
+            `Quick
+            test_default_config_value_uses_calltime_model
         ] )
     ; ( "resolve_model_id (aliases)"
       , [ test_case "opus 4-6 + opus shorthand" `Quick test_resolve_opus_4_6_alias

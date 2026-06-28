@@ -72,6 +72,16 @@ type agent_config =
   }
 [@@deriving show]
 
+(** Build a fresh default configuration.
+
+    Unlike {!default_config}, this consults call-time default resolvers such as
+    {!Model_registry.default_model_id_value}. Use it when a newly created agent
+    should observe environment/configuration changes made after module
+    initialization. *)
+val default_config_value : ?getenv:(string -> string option) -> unit -> agent_config
+
+(** Compatibility snapshot of the default configuration at module load time.
+    Prefer {!default_config_value} for new agent/session defaults. *)
 val default_config : agent_config
 
 (** Default proactive context compaction watermark used when
