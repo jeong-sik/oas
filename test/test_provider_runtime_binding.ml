@@ -1,5 +1,18 @@
 open Agent_sdk
 
+let with_env name value f =
+  let previous = Sys.getenv_opt name in
+  (match value with
+   | Some v -> Unix.putenv name v
+   | None -> Unix.putenv name "");
+  Fun.protect
+    ~finally:(fun () ->
+      match previous with
+      | Some v -> Unix.putenv name v
+      | None -> Unix.putenv name "")
+    f
+;;
+
 let with_provider_catalog json f =
   match Llm_provider.Provider_catalog.of_json (Yojson.Safe.from_string json) with
   | Error msg -> Alcotest.fail msg
@@ -242,6 +255,19 @@ let test_builtin_binding_resolves () =
     (Provider_runtime_binding.resolve_model binding ~requested_model:None)
 ;;
 
+let test_builtin_nous_binding_uses_calltime_default_endpoint () =
+  with_env "LLM_ENDPOINTS" (Some "") (fun () ->
+    with_env
+      Llm_provider.Discovery.local_llm_url_env_var
+      (Some "http://127.0.0.1:19014")
+      (fun () ->
+         let binding = expect_binding "nous" in
+         Alcotest.(check string)
+           "runtime binding base_url"
+           "http://127.0.0.1:19014"
+           binding.base_url))
+;;
+
 let test_builtin_aliases_are_canonicalized () =
   let cases =
     [ "anthropic", "claude"
@@ -330,6 +356,10 @@ let () =
         ] )
     ; ( "builtins"
       , [ Alcotest.test_case "builtin resolves" `Quick test_builtin_binding_resolves
+        ; Alcotest.test_case
+            "nous binding uses call-time default endpoint"
+            `Quick
+            test_builtin_nous_binding_uses_calltime_default_endpoint
         ; Alcotest.test_case
             "builtin aliases canonicalize"
             `Quick

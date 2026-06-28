@@ -805,6 +805,31 @@ let test_provider_config_of_agent_custom_registered_kimi_preserves_headers () =
   | Error e -> Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
 ;;
 
+let test_provider_config_of_agent_custom_registered_nous_uses_calltime_default () =
+  with_env "LLM_ENDPOINTS" (Some "") (fun () ->
+    with_env
+      Llm_provider.Discovery.local_llm_url_env_var
+      (Some "http://127.0.0.1:19013")
+      (fun () ->
+         let cfg : Provider.config =
+           { provider = Custom_registered { name = "nous" }
+           ; model_id = "local-model"
+           ; api_key_env = ""
+           }
+         in
+         let state = agent_state_with_params () in
+         match
+           Provider.provider_config_of_agent ~state ~base_url:"unused-fallback" (Some cfg)
+         with
+         | Ok pc ->
+           Alcotest.(check string)
+             "custom nous base_url"
+             "http://127.0.0.1:19013"
+             pc.base_url
+         | Error e ->
+           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
+;;
+
 let test_provider_config_of_agent_custom_registered_ollama_cloud_headers () =
   with_env "OLLAMA_CLOUD_API_KEY" (Some "ollama-cloud-provider-test-key") (fun () ->
     with_env "OLLAMA_API_KEY" (Some "fallback-ollama-api-key") (fun () ->
@@ -1018,6 +1043,10 @@ let () =
             "custom registered kimi preserves headers"
             `Quick
             test_provider_config_of_agent_custom_registered_kimi_preserves_headers
+        ; Alcotest.test_case
+            "custom registered nous uses call-time default"
+            `Quick
+            test_provider_config_of_agent_custom_registered_nous_uses_calltime_default
         ; Alcotest.test_case
             "custom registered ollama_cloud adds auth header"
             `Quick
