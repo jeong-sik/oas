@@ -113,7 +113,6 @@ module Event_forward = Event_forward
 module Relay_delivery = Relay_delivery
 module Metrics = Metrics
 module Progressive_tools = Progressive_tools
-module Provider_bridge = Provider_bridge
 module Async_agent = Async_agent
 module Append_instruction = Append_instruction
 module Consumer = Consumer

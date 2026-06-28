@@ -302,7 +302,7 @@ let provider_id_of_provider_config cfg =
   | None -> PR.provider_name_of_config cfg
 ;;
 
-let provider_id_of_legacy_config (cfg : Provider.config) =
+let provider_id_of_config (cfg : Provider.config) =
   match cfg.provider with
   | Provider.Local _ -> "local"
   | Provider.Anthropic -> "claude"

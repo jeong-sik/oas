@@ -450,11 +450,6 @@
  (libraries agent_sdk alcotest))
 
 (test
- (name test_provider_bridge)
- (modules test_provider_bridge)
- (libraries agent_sdk alcotest unix))
-
-(test
  (name test_provider_complete)
  (modules test_provider_complete)
  (libraries agent_sdk llm_provider alcotest eio_main))

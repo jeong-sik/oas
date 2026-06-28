@@ -1,9 +1,7 @@
 (** Unit tests for Defaults module.
-    Targets: env_or, local_llm_url, fallback_provider, default_context_reducer.
-    Uses Unix.putenv/Unix environment manipulation for env var testing.
-
-    Compatibility snapshot values are evaluated at module init time. Tests that
-    need call-time env reflection use the explicit resolve_* functions. *)
+    Targets: env_or, resolve_local_llm_url, resolve_fallback_provider,
+    default_context_reducer. Uses Unix.putenv/Unix environment manipulation for
+    env var testing. *)
 
 [@@@ocaml.warning "-3"]
 
@@ -36,22 +34,17 @@ let () =
             let v = Defaults.env_or "fallback" "OAS_TEST_ENV_OR_4" in
             check string "fallback for whitespace" "fallback" v)
         ] )
-    ; (* ── local_llm_url (tested indirectly via env_or pattern) ── *)
-      ( "local_llm_url"
-      , [ test_case "default value is localhost:8085" `Quick (fun () ->
-            (* local_llm_url is evaluated at module load time, so we check
-           the default value assuming OAS_LOCAL_LLM_URL is not set in
-           the test environment. If it is, this test verifies the
-           actual resolved value is non-empty. *)
-            let url = Defaults.local_llm_url in
+    ; (* ── resolve_local_llm_url ───────────────────────── *)
+      ( "resolve_local_llm_url"
+      , [ test_case "default value is a URL" `Quick (fun () ->
+            let url = Defaults.resolve_local_llm_url () in
             check bool "non-empty" true (String.length url > 0);
-            (* Verify it looks like a URL *)
             check
               bool
               "starts with http"
               true
               (String.length url >= 4 && String.sub url 0 4 = "http"))
-        ; test_case "resolve_local_llm_url reads env at call time" `Quick (fun () ->
+        ; test_case "reads env at call time" `Quick (fun () ->
             Llm_provider.Cli_common_env.with_env
               "OAS_LOCAL_LLM_URL"
               "http://127.0.0.1:19999"
@@ -62,12 +55,12 @@ let () =
                    "http://127.0.0.1:19999"
                    (Defaults.resolve_local_llm_url ())))
         ] )
-    ; (* ── fallback_provider ───────────────────────────── *)
-      ( "fallback_provider"
-      , [ test_case "fallback_provider is non-empty" `Quick (fun () ->
-            let p = Defaults.fallback_provider in
+    ; (* ── resolve_fallback_provider ───────────────────── *)
+      ( "resolve_fallback_provider"
+      , [ test_case "default fallback provider is non-empty" `Quick (fun () ->
+            let p = Defaults.resolve_fallback_provider () in
             check bool "non-empty" true (String.length p > 0))
-        ; test_case "resolve_fallback_provider reads env at call time" `Quick (fun () ->
+        ; test_case "reads env at call time" `Quick (fun () ->
             Llm_provider.Cli_common_env.with_env
               Defaults.fallback_provider_env_var
               "provider-a"
