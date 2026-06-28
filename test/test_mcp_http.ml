@@ -51,9 +51,7 @@ let test_connect_returns_ok () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config =
-    { (Mcp_http.default_config) with base_url = "http://127.0.0.1:19999" }
-  in
+  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
   match Mcp_http.connect ~sw ~net config with
   | Ok _client -> () (* connect itself succeeds; initialize would fail *)
   | Error e -> fail (Error.to_string e)
@@ -65,9 +63,7 @@ let test_initialize_unreachable () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config =
-    { (Mcp_http.default_config) with base_url = "http://127.0.0.1:19999" }
-  in
+  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->
@@ -82,9 +78,7 @@ let test_list_tools_without_init () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config =
-    { (Mcp_http.default_config) with base_url = "http://127.0.0.1:19999" }
-  in
+  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->
@@ -99,9 +93,7 @@ let test_call_tool_unreachable () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
-  let config =
-    { (Mcp_http.default_config) with base_url = "http://127.0.0.1:19999" }
-  in
+  let config = { Mcp_http.default_config with base_url = "http://127.0.0.1:19999" } in
   match Mcp_http.connect ~sw ~net config with
   | Error e -> fail (Error.to_string e)
   | Ok client ->

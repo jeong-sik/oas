@@ -28,7 +28,6 @@ let make_default_config () =
     re-resolve [Filename.get_temp_dir_name ()] at use time (e.g. when [TMPDIR]
     is set after this module loads) should call {!make_default_config} instead. *)
 let default_config = make_default_config ()
-;;
 
 (** Diagnostic context string used for [Llm_provider.Diag] warnings. *)
 let diag_ctx = "context_offload"
