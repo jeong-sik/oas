@@ -744,20 +744,6 @@ let%test "default_endpoint is localhost:8085" =
   default_endpoint = Constants.Endpoints.default_url
 ;;
 
-let%test "resolve_default_endpoint reads env at call time" =
-  resolve_default_endpoint
-    ~getenv:(test_getenv [ local_llm_url_env_var, "http://127.0.0.1:19001" ])
-    ()
-  = "http://127.0.0.1:19001"
-;;
-
-let%test "resolve_ollama_endpoint reads env at call time" =
-  resolve_ollama_endpoint
-    ~getenv:(test_getenv [ ollama_host_env_var, "http://127.0.0.1:19002" ])
-    ()
-  = "http://127.0.0.1:19002"
-;;
-
 (* --- parse_llm_endpoints_env (SSOT helper, #1002) --- *)
 
 let%test "parse_llm_endpoints_env empty when unset" =
@@ -829,18 +815,6 @@ let%test "endpoints_from_env empty string returns default" =
   List.hd eps = resolve_default_endpoint ~getenv ()
 ;;
 
-let%test "endpoints_from_env resolves defaults at call time" =
-  endpoints_from_env
-    ~getenv:
-      (test_getenv
-         [ llm_endpoints_env_var, ""
-         ; local_llm_url_env_var, "http://127.0.0.1:19003"
-         ; ollama_host_env_var, "http://127.0.0.1:19004"
-         ])
-    ()
-  = [ "http://127.0.0.1:19003"; "http://127.0.0.1:19004" ]
-;;
-
 (* --- url_is_ollama --- *)
 
 let%test "url_is_ollama matches default ollama port" =
@@ -852,13 +826,6 @@ let%test "url_is_ollama matches localhost variant" =
 ;;
 
 let%test "url_is_ollama trims whitespace" = url_is_ollama "  http://127.0.0.1:11434  "
-
-let%test "url_is_ollama resolves OLLAMA_HOST at call time" =
-  url_is_ollama
-    ~getenv:(test_getenv [ ollama_host_env_var, "http://ollama.internal:19005" ])
-    "  http://ollama.internal:19005  "
-;;
-
 let%test "url_is_ollama matches IPv6 literal" = url_is_ollama "http://[::1]:11434"
 
 let%test "url_is_ollama matches with trailing path" =

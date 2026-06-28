@@ -45,6 +45,40 @@ let with_mock_server handler f =
   | Exit -> ()
 ;;
 
+let test_resolve_default_endpoint_reads_getenv () =
+  let first = "http://127.0.0.1:19001" in
+  let second = "http://127.0.0.1:19002" in
+  Alcotest.(check string)
+    "first value"
+    first
+    (Discovery.resolve_default_endpoint
+       ~getenv:(test_getenv [ Discovery.local_llm_url_env_var, first ])
+       ());
+  Alcotest.(check string)
+    "second value"
+    second
+    (Discovery.resolve_default_endpoint
+       ~getenv:(test_getenv [ Discovery.local_llm_url_env_var, second ])
+       ())
+;;
+
+let test_resolve_ollama_endpoint_reads_getenv () =
+  let first = "http://127.0.0.1:19003" in
+  let second = "http://127.0.0.1:19004" in
+  Alcotest.(check string)
+    "first value"
+    first
+    (Discovery.resolve_ollama_endpoint
+       ~getenv:(test_getenv [ Discovery.ollama_host_env_var, first ])
+       ());
+  Alcotest.(check string)
+    "second value"
+    second
+    (Discovery.resolve_ollama_endpoint
+       ~getenv:(test_getenv [ Discovery.ollama_host_env_var, second ])
+       ())
+;;
+
 let test_endpoints_from_env_default () =
   let getenv = test_getenv [] in
   let result = Discovery.endpoints_from_env ~getenv () in
@@ -70,6 +104,30 @@ let test_endpoints_from_env_custom () =
     ; Discovery.resolve_ollama_endpoint ~getenv ()
     ]
     result
+;;
+
+let test_endpoints_from_env_resolves_defaults_from_getenv () =
+  let getenv =
+    test_getenv
+      [ Discovery.llm_endpoints_env_var, ""
+      ; Discovery.local_llm_url_env_var, "http://127.0.0.1:19005"
+      ; Discovery.ollama_host_env_var, "http://127.0.0.1:19006"
+      ]
+  in
+  Alcotest.(check (list string))
+    "resolved defaults"
+    [ "http://127.0.0.1:19005"; "http://127.0.0.1:19006" ]
+    (Discovery.endpoints_from_env ~getenv ())
+;;
+
+let test_url_is_ollama_reads_getenv () =
+  let getenv =
+    test_getenv [ Discovery.ollama_host_env_var, "http://ollama.internal:19007" ]
+  in
+  Alcotest.(check bool)
+    "custom ollama host"
+    true
+    (Discovery.url_is_ollama ~getenv "  http://ollama.internal:19007  ")
 ;;
 
 let test_parse_models_json () =
@@ -379,8 +437,21 @@ let () =
   Alcotest.run
     "Discovery"
     [ ( "env"
-      , [ Alcotest.test_case "default" `Quick test_endpoints_from_env_default
+      , [ Alcotest.test_case
+            "resolve default endpoint from getenv"
+            `Quick
+            test_resolve_default_endpoint_reads_getenv
+        ; Alcotest.test_case
+            "resolve ollama endpoint from getenv"
+            `Quick
+            test_resolve_ollama_endpoint_reads_getenv
+        ; Alcotest.test_case "default" `Quick test_endpoints_from_env_default
         ; Alcotest.test_case "custom" `Quick test_endpoints_from_env_custom
+        ; Alcotest.test_case
+            "resolved endpoint defaults"
+            `Quick
+            test_endpoints_from_env_resolves_defaults_from_getenv
+        ; Alcotest.test_case "url_is_ollama getenv" `Quick test_url_is_ollama_reads_getenv
         ] )
     ; "parsing", [ Alcotest.test_case "models json" `Quick test_parse_models_json ]
     ; ( "json"
