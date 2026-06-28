@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.15](https://github.com/jeong-sik/oas/compare/v0.207.14...v0.207.15) (2026-06-28)
+
+
+### Bug Fixes
+
+* **llm_provider:** StopToolUse requires a tool block — stop_reason SSOT (infinite Thinking P0) ([#2222](https://github.com/jeong-sik/oas/issues/2222)) ([d73191c](https://github.com/jeong-sik/oas/commit/d73191cf0f456a9719b0cba5e1b9b209195174bf))
+
 ## [0.207.14](https://github.com/jeong-sik/oas/compare/v0.207.13...v0.207.14) (2026-06-28)
 
 
