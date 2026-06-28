@@ -52,16 +52,13 @@ let _get_overrides () =
 ;;
 
 let string_contains ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  let rec loop index =
-    if index + needle_len > haystack_len
-    then false
-    else if String.sub haystack index needle_len = needle
-    then true
-    else loop (index + 1)
-  in
-  if needle_len = 0 then true else loop 0
+  needle = ""
+  ||
+  try
+    let (_ : int) = Str.search_forward (Str.regexp_string needle) haystack 0 in
+    true
+  with
+  | Not_found -> false
 ;;
 
 (* Strip an OpenRouter-style provider/org prefix so that a model id such as
