@@ -62,6 +62,14 @@ type thinking_control_format = Llm_provider.Capabilities.thinking_control_format
   | Reasoning_effort (** @since 0.195.0 *)
   | Enable_thinking (** @since 0.196.11 *)
 
+type preserve_thinking_control_format =
+      Llm_provider.Capabilities.preserve_thinking_control_format =
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Chat_template_kwargs_preserve_thinking
+  | Top_level_preserve_thinking
+  | Always_preserved_thinking
+
 type reasoning_visibility_override =
       Llm_provider.Capabilities.reasoning_visibility_override =
   | Default_reasoning_visibility
@@ -81,6 +89,7 @@ type capabilities =
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
   ; thinking_control_format : thinking_control_format
+  ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_visibility_override : reasoning_visibility_override
   ; supports_response_format_json : bool
   ; supports_structured_output : bool

@@ -34,6 +34,11 @@ type entry =
         reasoning_effort / enable_thinking). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
         entry silently dropped the model's thinking knob (RFC-OAS-023). *)
+  ; preserve_thinking_control_format : string option
+    (** Canonical historical reasoning preservation wire format (none /
+        thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
+        top_level_preserve_thinking / always_preserved). Parsed + applied in
+        {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_visibility : string option
   }
 
@@ -109,6 +114,42 @@ let member_string_opt key json =
     None
 ;;
 
+let canonical_choice key ~allowed json =
+  match member_string_opt key json with
+  | None -> Ok None
+  | Some raw ->
+    let normalized = String.lowercase_ascii (String.trim raw) in
+    if List.mem normalized allowed
+    then Ok (Some raw)
+    else
+      Error
+        (Printf.sprintf
+           "entry field %S has unknown value %S (canonical: %s)"
+           key
+           normalized
+           (String.concat ", " allowed))
+;;
+
+let thinking_control_format_values =
+  [ "none"
+  ; "thinking_object"
+  ; "thinking_object_only"
+  ; "chat_template_kwargs"
+  ; "chat_template_token"
+  ; "reasoning_effort"
+  ; "enable_thinking"
+  ]
+;;
+
+let preserve_thinking_control_format_values =
+  [ "none"
+  ; "thinking_object_keep_all"
+  ; "chat_template_kwargs_preserve_thinking"
+  ; "top_level_preserve_thinking"
+  ; "always_preserved"
+  ]
+;;
+
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
 
 let known_entry_keys =
@@ -139,6 +180,7 @@ let known_entry_keys =
   ; "supports_computer_use"
   ; "supports_code_execution"
   ; "thinking_control_format"
+  ; "preserve_thinking_control_format"
   ; "reasoning_visibility"
   ]
 ;;
@@ -164,6 +206,18 @@ let parse_entry json =
     match member_string_opt "id_prefix" json with
     | None -> Error "entry missing required \"id_prefix\" field"
     | Some id_prefix -> Ok id_prefix
+  in
+  let* thinking_control_format =
+    canonical_choice
+      "thinking_control_format"
+      ~allowed:thinking_control_format_values
+      json
+  in
+  let* preserve_thinking_control_format =
+    canonical_choice
+      "preserve_thinking_control_format"
+      ~allowed:preserve_thinking_control_format_values
+      json
   in
   Ok
     { id_prefix
@@ -191,7 +245,8 @@ let parse_entry json =
     ; supports_seed = member_bool "supports_seed" json
     ; supports_computer_use = member_bool "supports_computer_use" json
     ; supports_code_execution = member_bool "supports_code_execution" json
-    ; thinking_control_format = member_string_opt "thinking_control_format" json
+    ; thinking_control_format
+    ; preserve_thinking_control_format
     ; reasoning_visibility = member_string_opt "reasoning_visibility" json
     }
 ;;

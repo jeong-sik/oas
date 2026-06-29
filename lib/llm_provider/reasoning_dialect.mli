@@ -51,9 +51,15 @@ type streaming_reasoning =
   | Delta_field of string
   | Template_parser
 
+type thinking_object_only_control =
+  { enabled : bool option
+  ; keep_all : bool
+  }
+
 type t =
   { toggle_default : toggle_default
   ; toggle_wire : toggle_wire
+  ; preserve_wire : Capabilities.preserve_thinking_control_format
   ; effort_alias_policy : effort_alias_policy
   ; sampling_policy : sampling_policy
   ; visibility : reasoning_visibility
@@ -66,6 +72,19 @@ val of_capabilities : Capabilities.capabilities -> t
 val for_provider_config : Provider_config.t -> t
 val with_preserve_thinking : preserve_thinking:bool option -> t -> t
 val thinking_enabled : enable_thinking:bool option -> bool
+
+val thinking_object_only_control
+  :  t
+  -> enable_thinking:bool option
+  -> preserve_thinking:bool option
+  -> thinking_object_only_control
+
+val chat_template_kwargs_preserve_field
+  :  t
+  -> preserve_thinking:bool option
+  -> bool option
+
+val top_level_preserve_field : t -> preserve_thinking:bool option -> bool option
 val ignores_sampling_param : t -> enable_thinking:bool option -> string -> bool
 
 (** Normalize a typed caller effort for a provider dialect. *)

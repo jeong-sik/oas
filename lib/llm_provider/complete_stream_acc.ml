@@ -264,10 +264,20 @@ let finalize_stream_acc
         [ Types.Text r ]
       | _ -> []
     in
+    (* Enforce the StopToolUse => has-tool-block invariant now that the full
+       block set (including dropped partial tool calls above) is known. A
+       reasoning-only or dropped-partial-tool stream that the provider tagged
+       finish_reason="tool_calls" must NOT reach the driver as a tool-use turn
+       with zero tools -- the pipeline re-issues that forever (infinite Thinking
+       loop). SSOT: Stop_reason_wire.reconcile (same rule as the non-streaming
+       parser via Stop_reason_wire.of_finish). *)
+    let stop_reason =
+      Stop_reason_wire.reconcile !(acc.stop_reason) ~has_tool_blocks:has_tool
+    in
     Ok
       { Types.id = !(acc.id)
       ; model = !(acc.model)
-      ; stop_reason = !(acc.stop_reason)
+      ; stop_reason
       ; content = content @ promoted_reasoning
       ; usage =
           Some
@@ -410,6 +420,39 @@ let%test "finalize_stream_acc assembles thinking block" =
     (match result.content with
      | [ Types.Thinking { thinking_type = "thinking"; content = "reasoning..." } ] -> true
      | _ -> false)
+;;
+
+(* Drift guard for the infinite-Thinking fix: a reasoning-only stream that the
+   provider tagged finish_reason="tool_calls" (provisional StopToolUse) must be
+   reconciled to Unknown when no tool block was assembled, so the driver does not
+   re-issue the identical Thinking turn forever. Reverting the reconcile in
+   finalize_stream_acc turns this RED. *)
+let%test "finalize downgrades StopToolUse with no tool block to Unknown" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "thinking";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "reasoning...";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.StopToolUse;
+  acc.stop_reason_received := true;
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.stop_reason = Types.Unknown "tool_calls"
+;;
+
+let%test "finalize keeps StopToolUse when a tool block is present" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "my_tool";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{\"key\":\"val\"}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  acc.stop_reason := Types.StopToolUse;
+  acc.stop_reason_received := true;
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.stop_reason = Types.StopToolUse
 ;;
 
 let%test "finalize_stream_acc multiple blocks ordered by index" =

@@ -303,7 +303,13 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
 (** Handle tool execution: idle detection, guardrails, context injection. *)
-let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses =
+let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty =
+  (* The caller (stage_output) proves the tool-call set is non-empty: a
+     StopToolUse turn that carried no tool block is rejected before this stage
+     (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
+     Threading [Nonempty.t] makes the empty case a compile error instead of a
+     silent [ToolsExecuted] that re-issues the same Thinking turn forever. *)
+  let tool_uses = Nonempty.to_list tool_uses_nonempty in
   Tracing.with_span
     agent.options.tracer
     { kind = Tool_exec
@@ -568,15 +574,29 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                 | Audio _ -> false)
              response.content
          in
-         let result =
-           stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses
-         in
-         (match result with
-          | Ok IdleSkipped ->
-            (* on_idle hook returned Skip: stop gracefully with the current response *)
+         (match Nonempty.of_list tool_uses with
+          | None ->
+            (* Defends the StopToolUse => has-tool-block invariant at the driver.
+               F1 (Stop_reason_wire.reconcile) guarantees the parsers never emit
+               StopToolUse without a tool block, so this is unreachable in
+               practice; if a future parser regresses it fails closed with a
+               typed error instead of silently returning [ToolsExecuted] and
+               re-issuing the identical Thinking turn forever. *)
             Agent_types.reset_idle_state agent;
-            Ok (Complete response)
-          | other -> other)
+            Error
+              (Error.Agent
+                 (UnrecognizedStopReason
+                    { reason = "StopToolUse turn carried no tool block" }))
+          | Some tool_uses_nonempty ->
+            let result =
+              stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty
+            in
+            (match result with
+             | Ok IdleSkipped ->
+               (* on_idle hook returned Skip: stop gracefully with the current response *)
+               Agent_types.reset_idle_state agent;
+               Ok (Complete response)
+             | other -> other))
        | EndTurn
        | MaxTokens
        | StopSequence

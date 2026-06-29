@@ -10,7 +10,7 @@ type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
   | Thinking_object_only
-  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
+  (** Kimi-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
   (** llama-server/vLLM/SGLang style:
       [{"chat_template_kwargs":{"enable_thinking":b,"preserve_thinking":b}}] *)
@@ -27,6 +27,20 @@ type thinking_control_format =
   | Enable_thinking
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
+
+type preserve_thinking_control_format =
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  (** [thinking.keep = "all"] inside the top-level
+      [thinking] object. *)
+  | Chat_template_kwargs_preserve_thinking
+  (** Self-hosted chat-template kwargs [preserve_thinking] flag. *)
+  | Top_level_preserve_thinking
+  (** Provider top-level [preserve_thinking] flag, separate from
+      [enable_thinking]. *)
+  | Always_preserved_thinking
+  (** Provider always requires historical reasoning replay and has no
+      request-time preserve toggle. *)
 
 type reasoning_visibility_override =
   | Default_reasoning_visibility
@@ -49,6 +63,7 @@ type capabilities =
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
   ; thinking_control_format : thinking_control_format
+  ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_visibility_override : reasoning_visibility_override
   ; (* Output format *)
     supports_response_format_json : bool

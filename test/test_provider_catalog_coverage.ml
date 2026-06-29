@@ -208,7 +208,10 @@ let test_transport_auth_and_thinking_canonical_matrix () =
             "kind": "openai_compat",
             "transport": "http",
             "auth": {"type": "none"},
-            "capabilities": {"thinking_control_format": "none"}
+            "capabilities": {
+              "thinking_control_format": "none",
+              "preserve_thinking_control_format": "always_preserved"
+            }
           },
           {
             "id": "cli-env",
@@ -261,6 +264,12 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "none thinking format"
     true
     (http_none.capabilities.thinking_control_format = Capabilities.No_thinking_control);
+  check
+    bool
+    "always preserved format"
+    true
+    (http_none.capabilities.preserve_thinking_control_format
+     = Capabilities.Always_preserved_thinking);
   let cli_env = require_lookup catalog "cli-env" in
   check bool "cli transport" true (cli_env.transport = Provider_catalog.Http);
   check bool "api key auth" true (cli_env.auth = Provider_catalog.Api_key_env "ENV_KEY");
