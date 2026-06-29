@@ -31,6 +31,14 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.19](https://github.com/jeong-sik/oas/compare/v0.207.18...v0.207.19) (2026-06-29)
+
+
+### Bug Fixes
+
+* **glm:** gate native reasoning_content replay on Preserved Thinking ([#2238](https://github.com/jeong-sik/oas/issues/2238)) ([5997ddc](https://github.com/jeong-sik/oas/commit/5997ddcd804ac3bedb1f63cca75f32c731fadb65))
+* **stream:** replace block-kind string match with closed variant (RFC-OAS-029 S6.1/S8.3) ([#2237](https://github.com/jeong-sik/oas/issues/2237)) ([7015b85](https://github.com/jeong-sik/oas/commit/7015b85ec822467efda8f64327873c8744da33c5))
+
 ## [0.207.18](https://github.com/jeong-sik/oas/compare/v0.207.17...v0.207.18) (2026-06-29)
 
 
