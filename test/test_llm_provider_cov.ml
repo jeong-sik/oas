@@ -366,7 +366,7 @@ let test_content_block_to_json_tool_result () =
 let test_content_block_to_json_image () =
   let json =
     Api_common.content_block_to_json
-      (Image { media_type = "image/png"; data = "abc"; source_type = "base64" })
+      (Image { media_type = "image/png"; data = "abc"; source_type = Types.Base64 })
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "image" (json |> member "type" |> to_string);
@@ -380,7 +380,8 @@ let test_content_block_to_json_image () =
 let test_content_block_to_json_document () =
   let json =
     Api_common.content_block_to_json
-      (Document { media_type = "application/pdf"; data = "pdf"; source_type = "base64" })
+      (Document
+         { media_type = "application/pdf"; data = "pdf"; source_type = Types.Base64 })
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "document" (json |> member "type" |> to_string)
@@ -389,7 +390,7 @@ let test_content_block_to_json_document () =
 let test_content_block_to_json_audio () =
   let json =
     Api_common.content_block_to_json
-      (Audio { media_type = "audio/wav"; data = "wav"; source_type = "base64" })
+      (Audio { media_type = "audio/wav"; data = "wav"; source_type = Types.Base64 })
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "audio" (json |> member "type" |> to_string)
@@ -477,7 +478,8 @@ let test_content_block_of_json_image () =
       ]
   in
   match Api_common.content_block_of_json json with
-  | Some (Image { media_type = "image/png"; data = "abc"; source_type = "base64" }) -> ()
+  | Some (Image { media_type = "image/png"; data = "abc"; source_type = Types.Base64 }) ->
+    ()
   | _ -> Alcotest.fail "image roundtrip"
 ;;
 

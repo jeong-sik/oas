@@ -221,6 +221,18 @@ let response_format_to_json = function
 
 (** {1 Content Types} *)
 
+(** Closed set of supported media source encodings. *)
+type media_source_kind = Base64 [@@deriving show]
+
+let media_source_kind_to_string = function
+  | Base64 -> "base64"
+;;
+
+let media_source_kind_of_string = function
+  | "base64" -> Some Base64
+  | _ -> None
+;;
+
 (** Content block types -- inline records for clarity *)
 type content_block =
   | Text of string
@@ -250,17 +262,17 @@ type content_block =
   | Image of
       { media_type : string
       ; data : string
-      ; source_type : string
+      ; source_type : media_source_kind
       }
   | Document of
       { media_type : string
       ; data : string
-      ; source_type : string
+      ; source_type : media_source_kind
       }
   | Audio of
       { media_type : string
       ; data : string
-      ; source_type : string
+      ; source_type : media_source_kind
       }
 [@@deriving show]
 
@@ -424,7 +436,7 @@ type content_delta =
   | InputJsonDelta of string
   | MediaDelta of
       { media_type : string
-      ; source_type : string
+      ; source_type : media_source_kind
       ; data : string
       }
   (** A chunk of a streamed media (image/document/audio) content block.
@@ -519,17 +531,17 @@ let make_message ?name ?tool_call_id ?(metadata = []) ~role content =
 let text_block text = Text text
 
 (** Create a base64-backed image content block by default. *)
-let image_block ?(source_type = "base64") ~media_type ~data () =
+let image_block ?(source_type = Base64) ~media_type ~data () =
   Image { media_type; data; source_type }
 ;;
 
 (** Create a base64-backed document content block by default. *)
-let document_block ?(source_type = "base64") ~media_type ~data () =
+let document_block ?(source_type = Base64) ~media_type ~data () =
   Document { media_type; data; source_type }
 ;;
 
 (** Create a base64-backed audio content block by default. *)
-let audio_block ?(source_type = "base64") ~media_type ~data () =
+let audio_block ?(source_type = Base64) ~media_type ~data () =
   Audio { media_type; data; source_type }
 ;;
 

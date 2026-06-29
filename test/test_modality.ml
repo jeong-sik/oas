@@ -19,15 +19,16 @@ let kinds bs = List.map block_kind bs
 let mk_text s = Types.Text s
 
 let mk_image () =
-  Types.Image { media_type = "image/png"; data = "AAAA"; source_type = "base64" }
+  Types.Image { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }
 ;;
 
 let mk_audio () =
-  Types.Audio { media_type = "audio/mp3"; data = "BBBB"; source_type = "base64" }
+  Types.Audio { media_type = "audio/mp3"; data = "BBBB"; source_type = Types.Base64 }
 ;;
 
 let mk_document () =
-  Types.Document { media_type = "application/pdf"; data = "CCCC"; source_type = "base64" }
+  Types.Document
+    { media_type = "application/pdf"; data = "CCCC"; source_type = Types.Base64 }
 ;;
 
 let test_preserve_input_order () =

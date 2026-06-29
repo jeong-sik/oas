@@ -231,7 +231,7 @@ let test_roundtrip_tool_result_error () =
 let test_roundtrip_tool_result_content_blocks () =
   let blocks =
     [ Text "preview"
-    ; Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
+    ; Image { media_type = "image/png"; data = "abc"; source_type = Base64 }
     ]
   in
   let resp =
@@ -388,13 +388,13 @@ let test_roundtrip_redacted_thinking () =
 let test_roundtrip_binary_block () =
   let resp =
     simple_response
-      [ Image { media_type = "image/png"; data = "base64data"; source_type = "base64" } ]
+      [ Image { media_type = "image/png"; data = "base64data"; source_type = Base64 } ]
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
   | Some r ->
     (match r.content with
-     | [ Image { media_type = "image/png"; data = "base64data"; source_type = "base64" } ]
+     | [ Image { media_type = "image/png"; data = "base64data"; source_type = Base64 } ]
        -> ()
      | _ -> Alcotest.fail "expected image block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
@@ -418,7 +418,7 @@ let test_roundtrip_document_block () =
   let resp =
     simple_response
       [ Document
-          { media_type = "application/pdf"; data = "pdf-data"; source_type = "base64" }
+          { media_type = "application/pdf"; data = "pdf-data"; source_type = Base64 }
       ]
   in
   let json = Cache.response_to_json resp in
@@ -426,7 +426,7 @@ let test_roundtrip_document_block () =
   | Some r ->
     (match r.content with
      | [ Document
-           { media_type = "application/pdf"; data = "pdf-data"; source_type = "base64" }
+           { media_type = "application/pdf"; data = "pdf-data"; source_type = Base64 }
        ] -> ()
      | _ -> Alcotest.fail "expected document block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
@@ -435,13 +435,13 @@ let test_roundtrip_document_block () =
 let test_roundtrip_audio_block () =
   let resp =
     simple_response
-      [ Audio { media_type = "audio/mp3"; data = "audio-data"; source_type = "base64" } ]
+      [ Audio { media_type = "audio/mp3"; data = "audio-data"; source_type = Base64 } ]
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
   | Some r ->
     (match r.content with
-     | [ Audio { media_type = "audio/mp3"; data = "audio-data"; source_type = "base64" } ]
+     | [ Audio { media_type = "audio/mp3"; data = "audio-data"; source_type = Base64 } ]
        -> ()
      | _ -> Alcotest.fail "expected audio block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"

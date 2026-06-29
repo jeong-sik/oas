@@ -138,9 +138,10 @@ let test_content_parts_cover_modalities () =
   let parts =
     Serialize.openai_content_parts_of_blocks
       [ Text "hello"
-      ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
-      ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
-      ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+      ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
+      ; Document
+          { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
+      ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
       ; Thinking { thinking_type = "reasoning"; content = "hidden" }
       ; RedactedThinking "redacted"
       ; ToolUse { id = "tc"; name = "tool"; input = `Assoc [] }
@@ -233,7 +234,7 @@ let test_wire_adjacency_nudged_tool_turn () =
 let test_user_multimodal_preserve_and_visual_first () =
   let content =
     [ Text "caption"
-    ; Image { media_type = "image/jpeg"; data = "jpeg"; source_type = "base64" }
+    ; Image { media_type = "image/jpeg"; data = "jpeg"; source_type = Types.Base64 }
     ]
   in
   let openai = Serialize.openai_messages_of_message (msg User content) |> only "openai" in
@@ -262,7 +263,7 @@ let test_ollama_native_multimodal_variants () =
     Serialize.ollama_messages_of_message
       (msg
          User
-         [ Image { media_type = "image/png"; data = "png1"; source_type = "base64" } ])
+         [ Image { media_type = "image/png"; data = "png1"; source_type = Types.Base64 } ])
     |> only "ollama"
   in
   check_string "image-only content empty" "" (member "content" image_only |> to_string);
@@ -275,7 +276,7 @@ let test_ollama_native_multimodal_variants () =
       (msg
          User
          [ Document
-             { media_type = "application/pdf"; data = "pdf1"; source_type = "base64" }
+             { media_type = "application/pdf"; data = "pdf1"; source_type = Types.Base64 }
          ])
     |> only "ollama"
   in
@@ -288,7 +289,7 @@ let test_ollama_native_multimodal_variants () =
     Serialize.ollama_messages_of_message
       (msg
          User
-         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = "base64" } ])
+         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 } ])
   in
   check_int "audio-only produces no ollama messages" 0 (List.length audio_msgs);
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
@@ -297,9 +298,9 @@ let test_ollama_native_multimodal_variants () =
       (msg
          User
          [ Text "describe these"
-         ; Image { media_type = "image/png"; data = "png2"; source_type = "base64" }
+         ; Image { media_type = "image/png"; data = "png2"; source_type = Types.Base64 }
          ; Document
-             { media_type = "application/pdf"; data = "pdf2"; source_type = "base64" }
+             { media_type = "application/pdf"; data = "pdf2"; source_type = Types.Base64 }
          ])
     |> only "ollama"
   in
@@ -647,9 +648,9 @@ let ignored_blocks : content_block list =
       ; json = None
       ; content_blocks = None
       }
-  ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
-  ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
-  ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+  ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
+  ; Document { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
+  ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
   ]
 ;;
 
@@ -685,9 +686,10 @@ let test_serializer_ignored_block_variants () =
     [ Thinking { thinking_type = "reasoning"; content = "   " }
     ; RedactedThinking "hidden"
     ; ToolUse { id = "local-call"; name = "local"; input = `Null }
-    ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
-    ; Document { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
-    ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+    ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
+    ; Document
+        { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
+    ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
     ]
   in
   let tool_fallback =
@@ -731,10 +733,10 @@ let test_strip_helpers_cover_non_tool_variants () =
               ; json = None
               ; content_blocks = None
               }
-          ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
+          ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
           ; Document
-              { media_type = "application/pdf"; data = "doc"; source_type = "base64" }
-          ; Audio { media_type = "wav"; data = "aud"; source_type = "base64" }
+              { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
+          ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
           ]
       ]
   in

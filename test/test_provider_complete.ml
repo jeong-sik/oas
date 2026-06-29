@@ -350,7 +350,7 @@ let test_ollama_native_multimodal_request_body () =
     [ { role = User
       ; content =
           [ Text "What is in this image?"
-          ; Image { media_type = "image/png"; data = "base64img"; source_type = "base64" }
+          ; Image { media_type = "image/png"; data = "base64img"; source_type = Base64 }
           ]
       ; name = None
       ; tool_call_id = None

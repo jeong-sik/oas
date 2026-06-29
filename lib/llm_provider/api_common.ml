@@ -98,7 +98,7 @@ let rec content_block_to_json_with
       [ "type", `String "image"
       ; ( "source"
         , `Assoc
-            [ "type", `String source_type
+            [ "type", `String (media_source_kind_to_string source_type)
             ; "media_type", `String media_type
             ; "data", `String data
             ] )
@@ -108,7 +108,7 @@ let rec content_block_to_json_with
       [ "type", `String "document"
       ; ( "source"
         , `Assoc
-            [ "type", `String source_type
+            [ "type", `String (media_source_kind_to_string source_type)
             ; "media_type", `String media_type
             ; "data", `String data
             ] )
@@ -118,7 +118,7 @@ let rec content_block_to_json_with
       [ "type", `String "audio"
       ; ( "source"
         , `Assoc
-            [ "type", `String source_type
+            [ "type", `String (media_source_kind_to_string source_type)
             ; "media_type", `String media_type
             ; "data", `String data
             ] )
@@ -163,22 +163,43 @@ let rec content_block_of_json json =
     Some (ToolResult { tool_use_id; content; is_error; json; content_blocks })
   | Some "image" ->
     let source = json |> member "source" in
-    let source_type = source |> member "type" |> to_string in
-    let media_type = source |> member "media_type" |> to_string in
-    let data = source |> member "data" |> to_string in
-    Some (Image { media_type; data; source_type })
+    (match
+       source
+       |> member "type"
+       |> to_string_option
+       |> fun source_type -> Option.bind source_type media_source_kind_of_string
+     with
+     | Some source_type ->
+       let media_type = source |> member "media_type" |> to_string in
+       let data = source |> member "data" |> to_string in
+       Some (Image { media_type; data; source_type })
+     | None -> None)
   | Some "document" ->
     let source = json |> member "source" in
-    let source_type = source |> member "type" |> to_string in
-    let media_type = source |> member "media_type" |> to_string in
-    let data = source |> member "data" |> to_string in
-    Some (Document { media_type; data; source_type })
+    (match
+       source
+       |> member "type"
+       |> to_string_option
+       |> fun source_type -> Option.bind source_type media_source_kind_of_string
+     with
+     | Some source_type ->
+       let media_type = source |> member "media_type" |> to_string in
+       let data = source |> member "data" |> to_string in
+       Some (Document { media_type; data; source_type })
+     | None -> None)
   | Some "audio" ->
     let source = json |> member "source" in
-    let source_type = source |> member "type" |> to_string in
-    let media_type = source |> member "media_type" |> to_string in
-    let data = source |> member "data" |> to_string in
-    Some (Audio { media_type; data; source_type })
+    (match
+       source
+       |> member "type"
+       |> to_string_option
+       |> fun source_type -> Option.bind source_type media_source_kind_of_string
+     with
+     | Some source_type ->
+       let media_type = source |> member "media_type" |> to_string in
+       let data = source |> member "data" |> to_string in
+       Some (Audio { media_type; data; source_type })
+     | None -> None)
   | _ -> None
 ;;
 

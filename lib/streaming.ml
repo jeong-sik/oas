@@ -29,7 +29,7 @@ type stream_acc =
   ; block_tool_names : (int, string) Hashtbl.t
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
   ; block_media_types : (int, string) Hashtbl.t
-  ; block_media_sources : (int, string) Hashtbl.t
+  ; block_media_sources : (int, media_source_kind) Hashtbl.t
   }
 
 let create_stream_acc () =
@@ -162,8 +162,7 @@ let finalize_stream_acc (acc : stream_acc) =
             ( Hashtbl.find_opt acc.block_media_types index
             , Hashtbl.find_opt acc.block_media_sources index )
           with
-          | Some media_type, Some source_type
-            when String.trim media_type <> "" && String.trim source_type <> "" ->
+          | Some media_type, Some source_type when String.trim media_type <> "" ->
             Ok (Some (make ~media_type ~data:text ~source_type))
           | _ -> Error (Printf.sprintf "malformed_media_block:%s:index:%d" kind index))
       in

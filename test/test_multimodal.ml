@@ -20,7 +20,7 @@ let test_image_round_trip () =
       { media_type = "image/png"
       ; data =
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-      ; source_type = "base64"
+      ; source_type = Types.Base64
       }
   in
   let json = Api.content_block_to_json img in
@@ -38,7 +38,7 @@ let test_document_round_trip () =
     Types.Document
       { media_type = "application/pdf"
       ; data = "JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwo+Pg=="
-      ; source_type = "base64"
+      ; source_type = Types.Base64
       }
   in
   let json = Api.content_block_to_json doc in
@@ -67,7 +67,10 @@ let test_image_parse_nested_source () =
   | Some (Types.Image { media_type; data; source_type }) ->
     Alcotest.(check string) "media_type" "image/jpeg" media_type;
     Alcotest.(check string) "data" "abc123" data;
-    Alcotest.(check string) "source_type" "base64" source_type
+    Alcotest.(check string)
+      "source_type"
+      "base64"
+      (Types.media_source_kind_to_string source_type)
   | Some _ -> Alcotest.fail "expected Image variant"
   | None -> Alcotest.fail "content_block_of_json returned None"
 ;;
@@ -92,7 +95,10 @@ let test_document_parse_nested_source () =
   | Some (Types.Document { media_type; data; source_type }) ->
     Alcotest.(check string) "media_type" "application/pdf" media_type;
     Alcotest.(check string) "data" "pdf_data_here" data;
-    Alcotest.(check string) "source_type" "base64" source_type
+    Alcotest.(check string)
+      "source_type"
+      "base64"
+      (Types.media_source_kind_to_string source_type)
   | Some _ -> Alcotest.fail "expected Document variant"
   | None -> Alcotest.fail "content_block_of_json returned None"
 ;;
@@ -117,6 +123,23 @@ let test_malformed_document_missing_source () =
   | Some _ -> Alcotest.fail "expected None or exception for malformed Document"
 ;;
 
+let test_unknown_media_source_kind_fails_closed () =
+  let json =
+    `Assoc
+      [ "type", `String "image"
+      ; ( "source"
+        , `Assoc
+            [ "type", `String "url"
+            ; "media_type", `String "image/png"
+            ; "data", `String "https://example.invalid/image.png"
+            ] )
+      ]
+  in
+  match Api.content_block_of_json json with
+  | None -> ()
+  | Some _ -> Alcotest.fail "unsupported media source kind must not parse"
+;;
+
 (* ------------------------------------------------------------------ *)
 (* Mixed content: Text + Image + Document                               *)
 (* ------------------------------------------------------------------ *)
@@ -125,9 +148,9 @@ let test_mixed_content_serialization () =
   let blocks =
     [ Types.Text "Here is an image:"
     ; Types.Image
-        { media_type = "image/png"; data = "base64data"; source_type = "base64" }
+        { media_type = "image/png"; data = "base64data"; source_type = Types.Base64 }
     ; Types.Document
-        { media_type = "application/pdf"; data = "pdfdata"; source_type = "base64" }
+        { media_type = "application/pdf"; data = "pdfdata"; source_type = Types.Base64 }
     ]
   in
   let json_list = List.map Api.content_block_to_json blocks in
@@ -149,9 +172,9 @@ let test_multimodal_constructors () =
   Alcotest.(check string) "role" "user" (Types.role_to_string msg.role);
   Alcotest.(check int) "blocks" 4 (List.length msg.content);
   match image, document, audio with
-  | ( Types.Image { source_type = "base64"; media_type = "image/png"; _ }
-    , Types.Document { source_type = "base64"; media_type = "application/pdf"; _ }
-    , Types.Audio { source_type = "base64"; media_type = "audio/wav"; _ } ) -> ()
+  | ( Types.Image { source_type = Types.Base64; media_type = "image/png"; _ }
+    , Types.Document { source_type = Types.Base64; media_type = "application/pdf"; _ }
+    , Types.Audio { source_type = Types.Base64; media_type = "audio/wav"; _ } ) -> ()
   | _ -> Alcotest.fail "unexpected multimodal constructor shape"
 ;;
 
@@ -226,7 +249,8 @@ let test_agent_run_with_handoffs_blocks_rejects_internal_blocks () =
 
 let test_image_json_structure () =
   let img =
-    Types.Image { media_type = "image/webp"; data = "webpdata"; source_type = "base64" }
+    Types.Image
+      { media_type = "image/webp"; data = "webpdata"; source_type = Types.Base64 }
   in
   let json = Api.content_block_to_json img in
   let open Yojson.Safe.Util in
@@ -243,7 +267,7 @@ let test_image_json_structure () =
 let test_document_json_structure () =
   let doc =
     Types.Document
-      { media_type = "text/plain"; data = "textdata"; source_type = "base64" }
+      { media_type = "text/plain"; data = "textdata"; source_type = Types.Base64 }
   in
   let json = Api.content_block_to_json doc in
   let open Yojson.Safe.Util in
@@ -286,7 +310,8 @@ let test_tool_result_content_blocks_serialize () =
       ; content_blocks =
           Some
             [ Types.Text "hi"
-            ; Types.Image { media_type = "image/png"; data = "d"; source_type = "base64" }
+            ; Types.Image
+                { media_type = "image/png"; data = "d"; source_type = Types.Base64 }
             ]
       }
   in
@@ -331,6 +356,10 @@ let () =
             "document missing source"
             `Quick
             test_malformed_document_missing_source
+        ; Alcotest.test_case
+            "unknown media source kind fail-closed"
+            `Quick
+            test_unknown_media_source_kind_fails_closed
         ] )
     ; ( "mixed"
       , [ Alcotest.test_case

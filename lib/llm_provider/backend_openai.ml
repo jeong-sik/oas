@@ -491,7 +491,7 @@ let%test "openai_messages_of_message user with image" =
   let msg =
     { role = User
     ; content =
-        [ Image { media_type = "image/png"; data = "abc123"; source_type = "base64" }
+        [ Image { media_type = "image/png"; data = "abc123"; source_type = Types.Base64 }
         ; Text "describe this"
         ]
     ; name = None
@@ -508,7 +508,7 @@ let%test "openai_messages_of_message user with document" =
     { role = User
     ; content =
         [ Document
-            { media_type = "application/pdf"; data = "abc"; source_type = "base64" }
+            { media_type = "application/pdf"; data = "abc"; source_type = Types.Base64 }
         ]
     ; name = None
     ; tool_call_id = None
@@ -523,7 +523,9 @@ let%test "openai_messages_of_message user with audio" =
   let msg =
     { role = User
     ; content =
-        [ Audio { media_type = "audio/wav"; data = "audiodata"; source_type = "base64" } ]
+        [ Audio
+            { media_type = "audio/wav"; data = "audiodata"; source_type = Types.Base64 }
+        ]
     ; name = None
     ; tool_call_id = None
     ; metadata = []
@@ -1024,7 +1026,7 @@ let%test "usage_of_openai_json prompt_tokens_details null" =
 
 let%test "openai_content_parts_of_blocks image block" =
   let blocks =
-    [ Image { media_type = "image/png"; data = "abc"; source_type = "base64" } ]
+    [ Image { media_type = "image/png"; data = "abc"; source_type = Types.Base64 } ]
   in
   let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
@@ -1032,7 +1034,9 @@ let%test "openai_content_parts_of_blocks image block" =
 
 let%test "openai_content_parts_of_blocks document block" =
   let blocks =
-    [ Document { media_type = "application/pdf"; data = "abc"; source_type = "base64" } ]
+    [ Document
+        { media_type = "application/pdf"; data = "abc"; source_type = Types.Base64 }
+    ]
   in
   let result = openai_content_parts_of_blocks blocks in
   List.length result = 1
@@ -1040,7 +1044,7 @@ let%test "openai_content_parts_of_blocks document block" =
 
 let%test "openai_content_parts_of_blocks audio block" =
   let blocks =
-    [ Audio { media_type = "audio/wav"; data = "abc"; source_type = "base64" } ]
+    [ Audio { media_type = "audio/wav"; data = "abc"; source_type = Types.Base64 } ]
   in
   let result = openai_content_parts_of_blocks blocks in
   List.length result = 1

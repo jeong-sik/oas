@@ -332,9 +332,9 @@ let test_show_content_block_variants () =
         ; json = None
         ; content_blocks = None
         }
-    ; Types.Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
+    ; Types.Image { media_type = "image/png"; data = "abc"; source_type = Types.Base64 }
     ; Types.Document
-        { media_type = "application/pdf"; data = "pdf"; source_type = "base64" }
+        { media_type = "application/pdf"; data = "pdf"; source_type = Types.Base64 }
     ]
   in
   List.iter
@@ -925,7 +925,7 @@ let test_validate_tool_result_shape () =
 
 let test_show_audio_block () =
   let block =
-    Types.Audio { media_type = "audio/wav"; data = "data"; source_type = "base64" }
+    Types.Audio { media_type = "audio/wav"; data = "data"; source_type = Types.Base64 }
   in
   let s = Types.show_content_block block in
   Alcotest.(check bool) "show non-empty" true (String.length s > 0)

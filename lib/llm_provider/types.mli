@@ -106,6 +106,14 @@ val response_format_of_json_mode : bool -> response_format
 
 (** {1 Content Types} *)
 
+(** Closed set of supported media source encodings. The public wire value stays
+    ["base64"], but internal content blocks no longer carry arbitrary source
+    strings. *)
+type media_source_kind = Base64 [@@deriving show]
+
+val media_source_kind_to_string : media_source_kind -> string
+val media_source_kind_of_string : string -> media_source_kind option
+
 type content_block =
   | Text of string
   | Thinking of
@@ -131,17 +139,17 @@ type content_block =
   | Image of
       { media_type : string
       ; data : string
-      ; source_type : string
+      ; source_type : media_source_kind
       }
   | Document of
       { media_type : string
       ; data : string
-      ; source_type : string
+      ; source_type : media_source_kind
       }
   | Audio of
       { media_type : string
       ; data : string
-      ; source_type : string
+      ; source_type : media_source_kind
       }
 [@@deriving show]
 
@@ -255,7 +263,7 @@ type content_delta =
   | InputJsonDelta of string
   | MediaDelta of
       { media_type : string
-      ; source_type : string
+      ; source_type : media_source_kind
       ; data : string
       }
   (** A chunk of a streamed media (image/document/audio) content block.
@@ -359,21 +367,21 @@ val make_message
 val text_block : string -> content_block
 
 val image_block
-  :  ?source_type:string
+  :  ?source_type:media_source_kind
   -> media_type:string
   -> data:string
   -> unit
   -> content_block
 
 val document_block
-  :  ?source_type:string
+  :  ?source_type:media_source_kind
   -> media_type:string
   -> data:string
   -> unit
   -> content_block
 
 val audio_block
-  :  ?source_type:string
+  :  ?source_type:media_source_kind
   -> media_type:string
   -> data:string
   -> unit

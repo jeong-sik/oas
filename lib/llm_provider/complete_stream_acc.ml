@@ -24,7 +24,7 @@ type stream_acc =
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
   ; block_media_types : (int, string) Hashtbl.t
     (** Per-block media MIME type from {!Types.MediaDelta}. *)
-  ; block_media_sources : (int, string) Hashtbl.t
+  ; block_media_sources : (int, Types.media_source_kind) Hashtbl.t
     (** Per-block media source kind from {!Types.MediaDelta}. *)
   }
 
@@ -189,8 +189,7 @@ let finalize_stream_acc
             ( Hashtbl.find_opt acc.block_media_types idx
             , Hashtbl.find_opt acc.block_media_sources idx )
           with
-          | Some media_type, Some source_type
-            when String.trim media_type <> "" && String.trim source_type <> "" ->
+          | Some media_type, Some source_type when String.trim media_type <> "" ->
             Ok (Some (make ~media_type ~data:text ~source_type))
           | _ ->
             Error
@@ -844,7 +843,10 @@ let%test "finalize_stream_acc assembles a streamed image block (multimodal)" =
        { index = 0
        ; delta =
            Types.MediaDelta
-             { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+             { media_type = "image/png"
+             ; source_type = Types.Base64
+             ; data = "iVBORw0KGgo="
+             }
        });
   accumulate_event
     acc
@@ -854,7 +856,7 @@ let%test "finalize_stream_acc assembles a streamed image block (multimodal)" =
   | Ok result ->
     result.content
     = [ Types.Image
-          { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = "base64" }
+          { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = Types.Base64 }
       ]
 ;;
 
@@ -870,7 +872,8 @@ let%test "finalize_stream_acc concatenates multi-chunk media payload" =
       (Types.ContentBlockDelta
          { index = 0
          ; delta =
-             Types.MediaDelta { media_type = "audio/mp3"; source_type = "base64"; data }
+             Types.MediaDelta
+               { media_type = "audio/mp3"; source_type = Types.Base64; data }
          })
   in
   chunk "AAAA";
@@ -883,7 +886,7 @@ let%test "finalize_stream_acc concatenates multi-chunk media payload" =
   | Ok result ->
     result.content
     = [ Types.Audio
-          { media_type = "audio/mp3"; data = "AAAABBBB"; source_type = "base64" }
+          { media_type = "audio/mp3"; data = "AAAABBBB"; source_type = Types.Base64 }
       ]
 ;;
 
@@ -1072,7 +1075,10 @@ let%test "finalize_stream_acc assembles a streamed image block" =
         { index = 0
         ; delta =
             Types.MediaDelta
-              { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+              { media_type = "image/png"
+              ; source_type = Types.Base64
+              ; data = "iVBORw0KGgo="
+              }
         }
     ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
     ];
@@ -1080,7 +1086,10 @@ let%test "finalize_stream_acc assembles a streamed image block" =
   | Ok
       { content =
           [ Types.Image
-              { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+              { media_type = "image/png"
+              ; source_type = Types.Base64
+              ; data = "iVBORw0KGgo="
+              }
           ]
       ; _
       } -> true
@@ -1098,13 +1107,13 @@ let%test "finalize_stream_acc concatenates multi-chunk media payload" =
         { index = 0
         ; delta =
             Types.MediaDelta
-              { media_type = "audio/mpeg"; source_type = "base64"; data = "AAA" }
+              { media_type = "audio/mpeg"; source_type = Types.Base64; data = "AAA" }
         }
     ; Types.ContentBlockDelta
         { index = 0
         ; delta =
             Types.MediaDelta
-              { media_type = "audio/mpeg"; source_type = "base64"; data = "BBB" }
+              { media_type = "audio/mpeg"; source_type = Types.Base64; data = "BBB" }
         }
     ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
     ];
@@ -1112,7 +1121,7 @@ let%test "finalize_stream_acc concatenates multi-chunk media payload" =
   | Ok
       { content =
           [ Types.Audio
-              { media_type = "audio/mpeg"; source_type = "base64"; data = "AAABBB" }
+              { media_type = "audio/mpeg"; source_type = Types.Base64; data = "AAABBB" }
           ]
       ; _
       } -> true

@@ -135,9 +135,9 @@ let test_validate_response_flags_unknown_tool_and_stop_reason () =
           ; json = None
           ; content_blocks = None
           }
-      ; T.Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
-      ; T.Document { media_type = "text/plain"; data = "doc"; source_type = "base64" }
-      ; T.Audio { media_type = "audio/wav"; data = "audio"; source_type = "base64" }
+      ; T.Image { media_type = "image/png"; data = "abc"; source_type = T.Base64 }
+      ; T.Document { media_type = "text/plain"; data = "doc"; source_type = T.Base64 }
+      ; T.Audio { media_type = "audio/wav"; data = "audio"; source_type = T.Base64 }
       ]
   in
   let result = H.validate_response ~declared_tools:[ "read_file" ] response in

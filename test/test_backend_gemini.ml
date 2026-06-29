@@ -644,7 +644,10 @@ let test_contents_multimodal () =
       ; content =
           [ Text "Describe this image:"
           ; Image
-              { media_type = "image/png"; data = "base64data"; source_type = "base64" }
+              { media_type = "image/png"
+              ; data = "base64data"
+              ; source_type = Types.Base64
+              }
           ]
       ; name = None
       ; tool_call_id = None

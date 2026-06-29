@@ -168,7 +168,8 @@ let test_token_budget_image_doc () =
     [ Types.
         { role = User
         ; content =
-            [ Image { media_type = "image/png"; data = large_img; source_type = "base64" }
+            [ Image
+                { media_type = "image/png"; data = large_img; source_type = Types.Base64 }
             ]
         ; name = None
         ; tool_call_id = None
@@ -181,7 +182,7 @@ let test_token_budget_image_doc () =
             [ Document
                 { media_type = "application/pdf"
                 ; data = large_doc
-                ; source_type = "base64"
+                ; source_type = Types.Base64
                 }
             ]
         ; name = None
@@ -249,7 +250,7 @@ let test_estimate_image () =
     Types.
       { role = User
       ; content =
-          [ Image { media_type = "image/png"; data = "x"; source_type = "base64" } ]
+          [ Image { media_type = "image/png"; data = "x"; source_type = Types.Base64 } ]
       ; name = None
       ; tool_call_id = None
       ; metadata = []
@@ -265,7 +266,7 @@ let test_estimate_image () =
           [ Image
               { media_type = "image/png"
               ; data = String.make 100_000 'A'
-              ; source_type = "base64"
+              ; source_type = Types.Base64
               }
           ]
       ; name = None
@@ -284,7 +285,7 @@ let test_estimate_document () =
       { role = User
       ; content =
           [ Document
-              { media_type = "application/pdf"; data = "x"; source_type = "base64" }
+              { media_type = "application/pdf"; data = "x"; source_type = Types.Base64 }
           ]
       ; name = None
       ; tool_call_id = None
@@ -300,7 +301,7 @@ let test_estimate_document () =
           [ Document
               { media_type = "application/pdf"
               ; data = String.make 200_000 'A'
-              ; source_type = "base64"
+              ; source_type = Types.Base64
               }
           ]
       ; name = None
@@ -321,7 +322,7 @@ let test_estimate_audio () =
           [ Audio
               { media_type = "audio/wav"
               ; data = String.make 50_000 'A'
-              ; source_type = "base64"
+              ; source_type = Types.Base64
               }
           ]
       ; name = None

@@ -184,10 +184,9 @@ let test_synthetic_events_media_blocks () =
     ; usage = Some (usage ())
     ; telemetry = None
     ; content =
-        [ Image { media_type = "image/png"; data = "aW1n"; source_type = "base64" }
-        ; Document
-            { media_type = "application/pdf"; data = "ZG9j"; source_type = "base64" }
-        ; Audio { media_type = "wav"; data = "YXVkaW8="; source_type = "base64" }
+        [ Image { media_type = "image/png"; data = "aW1n"; source_type = Base64 }
+        ; Document { media_type = "application/pdf"; data = "ZG9j"; source_type = Base64 }
+        ; Audio { media_type = "wav"; data = "YXVkaW8="; source_type = Base64 }
         ; RedactedThinking "hidden"
         ; ToolResult
             { tool_use_id = "call-1"

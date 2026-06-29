@@ -102,7 +102,7 @@ let test_tool_result_error_round_trip () =
 
 let test_image_round_trip () =
   let block =
-    Types.Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
+    Types.Image { media_type = "image/png"; data = "abc"; source_type = Types.Base64 }
   in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
@@ -113,7 +113,7 @@ let test_image_round_trip () =
 let test_document_round_trip () =
   let block =
     Types.Document
-      { media_type = "application/pdf"; data = "pdf"; source_type = "base64" }
+      { media_type = "application/pdf"; data = "pdf"; source_type = Types.Base64 }
   in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
@@ -1637,7 +1637,7 @@ let test_openai_messages_with_image () =
     ; content =
         [ Types.Text "describe this"
         ; Types.Image
-            { media_type = "image/png"; data = "abc123"; source_type = "base64" }
+            { media_type = "image/png"; data = "abc123"; source_type = Types.Base64 }
         ]
     ; name = None
     ; tool_call_id = None
@@ -1703,7 +1703,7 @@ let test_text_blocks_to_string () =
         ; json = None
         ; content_blocks = None
         }
-    ; Types.Image { media_type = "image/png"; data = ""; source_type = "base64" }
+    ; Types.Image { media_type = "image/png"; data = ""; source_type = Types.Base64 }
     ; Types.Text "world"
     ]
   in
