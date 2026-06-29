@@ -121,7 +121,15 @@ let create ~net ~model =
   ; auto_context_overflow_retry = true
   ; context_injector = None
   ; mcp_clients = []
-  ; event_bus = None
+  ; (* Observability-as-default: every Builder-constructed agent gets a fresh,
+       per-agent event bus so Turn/Tool/InferenceTelemetry events are emitted
+       without the caller opting in. [create] is a per-call function, so this
+       allocates a NEW bus per builder — not a shared global mutable bus (which
+       remains forbidden; [Agent_types.default_options.event_bus] stays [None]).
+       With no subscriber, [Event_bus.publish] is a no-op (it iterates an empty
+       subscriber list), so the default carries only a mutex acquire per event.
+       Callers that want zero emission use {!without_event_bus}. *)
+    event_bus = Some (Event_bus.create ())
   ; skill_registry = None
   ; elicitation = None
   ; description = None
@@ -304,6 +312,7 @@ let with_cache_extended_ttl v b = { b with cache_extended_ttl = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
 let with_exit_condition pred b = { b with exit_condition = Some pred }
 let with_event_bus bus b = { b with event_bus = Some bus }
+let without_event_bus b = { b with event_bus = None }
 let with_max_execution_time s b = { b with max_execution_time_s = Some s }
 let with_stream_idle_timeout s b = { b with stream_idle_timeout_s = Some s }
 let with_body_timeout s b = { b with body_timeout_s = Some s }

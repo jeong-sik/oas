@@ -120,7 +120,20 @@ val with_context_thresholds
 
 val with_context : Context.t -> t -> t
 val with_context_injector : Hooks.context_injector -> t -> t
+
+(** Attach a caller-owned event bus, replacing the default per-agent bus. *)
 val with_event_bus : Event_bus.t -> t -> t
+
+(** Opt out of observability-as-default by clearing the event bus.
+
+    {!create} installs a fresh per-agent {!Event_bus.t} so Turn / Tool /
+    InferenceTelemetry events are emitted without the caller opting in. Use
+    this when no events should be produced at all (e.g. a latency-sensitive
+    agent with no observer). With no subscriber the default bus only costs a
+    mutex acquire per event, so prefer leaving it on unless you have a reason.
+    @since 0.207.19 *)
+val without_event_bus : t -> t
+
 val with_max_execution_time : float -> t -> t
 
 (** Set the per-line idle deadline applied to streaming HTTP responses
