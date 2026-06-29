@@ -31,6 +31,18 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.22](https://github.com/jeong-sik/oas/compare/v0.207.21...v0.207.22) (2026-06-29)
+
+
+### Features
+
+* **ollama:** add native think dialect ([#2258](https://github.com/jeong-sik/oas/issues/2258)) ([841973c](https://github.com/jeong-sik/oas/commit/841973c2391d5a386cde97e1d344923ddbfcd117))
+
+
+### Bug Fixes
+
+* **ci:** restore oas main green after merge wave ([#2257](https://github.com/jeong-sik/oas/issues/2257)) ([0eb3971](https://github.com/jeong-sik/oas/commit/0eb3971122bf83488ef2db8b35224a37d8d6eee4))
+
 ## [0.207.21](https://github.com/jeong-sik/oas/compare/v0.207.20...v0.207.21) (2026-06-29)
 
 
