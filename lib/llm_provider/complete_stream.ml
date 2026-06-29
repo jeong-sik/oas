@@ -250,8 +250,9 @@ let%test "truncated stream (no terminal stop_reason) finalizes Error, not phanto
    produced no event and [finalize_stream_acc] rejected the stream as a phantom
    truncation -- surfacing "SSE parse failed:
    stream_terminated_without_stop_reason" to the caller. This is the exact shape
-   the keeper's default provider hit (https://ollama.com/v1, OpenAI-compat
-   wire). The helper now emits [MessageStop], so the stream finalizes [Ok] with
+   a downstream consumer's default provider hits (https://ollama.com/v1,
+   OpenAI-compat wire). The helper now emits [MessageStop], so the stream
+   finalizes [Ok] with
    the default [EndTurn]. *)
 let%test
     "clean stream finalizes Ok: OpenAI-compat [DONE] without finish_reason defaults \
