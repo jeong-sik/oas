@@ -724,6 +724,242 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   check bool "cloud Kimi vision" true cloud_kimi.supports_image_input
 ;;
 
+type structured_contract =
+  | Response_format_json_schema
+  | Native_structured_output
+
+type replay_contract =
+  | Replay_not_required
+  | Replay_tool_turn_only
+  | Replay_every_turn
+
+type streaming_contract =
+  | Streaming_not_required
+  | Delta_stream of string
+  | Template_stream
+
+type provider_route =
+  | Direct_model
+  | Provider_qualified of string
+  | Native_provider of Provider_config.provider_kind
+
+let frontier_capabilities route model_id =
+  match route with
+  | Direct_model -> Capabilities.for_model_id model_id
+  | Provider_qualified provider_label ->
+    Capabilities.for_provider_model_id ~provider_label ~model_id
+  | Native_provider _ -> Capabilities.for_model_id model_id
+;;
+
+let frontier_dialect route model_id caps =
+  match route with
+  | Native_provider kind ->
+    let base_url =
+      match kind with
+      | Provider_config.Anthropic -> "https://api.anthropic.com"
+      | Provider_config.Gemini -> "https://generativelanguage.googleapis.com/v1beta"
+      | Provider_config.Kimi
+      | Provider_config.OpenAI_compat
+      | Provider_config.Ollama
+      | Provider_config.Glm
+      | Provider_config.DashScope -> "https://example.invalid"
+    in
+    Provider_config.make ~kind ~model_id ~base_url ()
+    |> Reasoning_dialect.for_provider_config
+  | Direct_model | Provider_qualified _ -> Reasoning_dialect.of_capabilities caps
+;;
+
+let check_frontier_model
+      ~label
+      ~route
+      ~model_id
+      ~structured_contract
+      ~replay_contract
+      ~streaming_contract
+      ()
+  =
+  match frontier_capabilities route model_id with
+  | None -> failf "%s should resolve capabilities" label
+  | Some c ->
+    check bool (label ^ " supports tools") true c.supports_tools;
+    check bool (label ^ " supports reasoning") true c.supports_reasoning;
+    check bool (label ^ " supports extended thinking") true c.supports_extended_thinking;
+    check bool (label ^ " supports native streaming") true c.supports_native_streaming;
+    check bool (label ^ " supports structured output") true c.supports_structured_output;
+    (match structured_contract with
+     | Response_format_json_schema ->
+       check
+         bool
+         (label ^ " supports response_format/json_schema")
+         true
+         c.supports_response_format_json
+     | Native_structured_output -> ());
+    let dialect = frontier_dialect route model_id c in
+    (match replay_contract with
+     | Replay_not_required -> ()
+     | Replay_tool_turn_only ->
+       check
+         string
+         (label ^ " replay policy")
+         "drop_without_tool_preserve_with_tool"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
+     | Replay_every_turn ->
+       check
+         string
+         (label ^ " replay policy")
+         "preserve_always"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy));
+    (match streaming_contract with
+     | Streaming_not_required -> ()
+     | Delta_stream field ->
+       (match dialect.streaming with
+        | Reasoning_dialect.Delta_field actual ->
+          check string (label ^ " reasoning delta field") field actual
+        | other ->
+          failf
+            "%s expected Delta_field(%s), got %s"
+            label
+            field
+            (match other with
+             | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
+             | Reasoning_dialect.Template_parser -> "template_parser"
+             | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+     | Template_stream ->
+       check
+         string
+         (label ^ " template stream")
+         "template_parser"
+         (match dialect.streaming with
+          | Reasoning_dialect.Template_parser -> "template_parser"
+          | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
+          | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+;;
+
+let test_frontier_grouped_tool_thinking_structured_models () =
+  (* This matrix is intentionally named after current production-provider
+     evidence, not broad model families. Every row must keep the axes needed by
+     multi-turn + thinking/reasoning + tool-use + structured-output workflows.
+     Replay semantics are provider-specific: Kimi/Anthropic preserve every
+     turn, DeepSeek preserves tool-call turns, and other side-channel providers
+     only need stream separation here. *)
+  let cases =
+    [ ( "Xiaomi MiMo V2.5"
+      , Direct_model
+      , "mimo-v2.5-pro"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "reasoning_content" )
+    ; ( "DeepSeek V4 Pro"
+      , Direct_model
+      , "deepseek-v4-pro"
+      , Response_format_json_schema
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
+    ; ( "DeepSeek V4 Flash"
+      , Direct_model
+      , "deepseek-v4-flash"
+      , Response_format_json_schema
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
+    ; ( "Kimi K2.7 Code native"
+      , Direct_model
+      , "kimi-k2.7-code"
+      , Response_format_json_schema
+      , Replay_every_turn
+      , Streaming_not_required )
+    ; ( "MiniMax M3 native/openai-compatible"
+      , Direct_model
+      , "minimax-m3"
+      , Response_format_json_schema
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
+    ; ( "OpenAI GPT-5.5"
+      , Direct_model
+      , "gpt-5.5"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "reasoning" )
+    ; ( "OpenAI GPT-5.4 mini"
+      , Direct_model
+      , "gpt-5.4-mini"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "reasoning" )
+    ; ( "Claude Haiku 4.5"
+      , Native_provider Provider_config.Anthropic
+      , "claude-haiku-4-5"
+      , Native_structured_output
+      , Replay_every_turn
+      , Delta_stream "thinking_delta" )
+    ; ( "Claude Sonnet 4.6"
+      , Native_provider Provider_config.Anthropic
+      , "claude-sonnet-4-6"
+      , Native_structured_output
+      , Replay_every_turn
+      , Delta_stream "thinking_delta" )
+    ; ( "Claude Opus 4.6"
+      , Native_provider Provider_config.Anthropic
+      , "claude-opus-4-6"
+      , Native_structured_output
+      , Replay_every_turn
+      , Delta_stream "thinking_delta" )
+    ; ( "Qwen3.6 RunPod/self-hosted"
+      , Direct_model
+      , "qwen/qwen3.6-35b-a3b"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Template_stream )
+    ; ( "Ollama Cloud Qwen3.5"
+      , Provider_qualified "ollama_cloud"
+      , "qwen3.5:397b"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud Kimi K2.7 Code"
+      , Provider_qualified "ollama_cloud"
+      , "kimi-k2.7-code"
+      , Response_format_json_schema
+      , Replay_every_turn
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud MiniMax M3"
+      , Provider_qualified "ollama_cloud"
+      , "minimax-m3"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud Nemotron 3 Ultra"
+      , Provider_qualified "ollama_cloud"
+      , "nemotron-3-ultra"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud DeepSeek V4 Pro"
+      , Provider_qualified "ollama_cloud"
+      , "deepseek-v4-pro"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud DeepSeek V4 Flash"
+      , Provider_qualified "ollama_cloud"
+      , "deepseek-v4-flash"
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ]
+  in
+  List.iter
+    (fun (label, route, model_id, structured_contract, replay_contract, streaming_contract) ->
+       check_frontier_model
+         ~label
+         ~route
+         ~model_id
+         ~structured_contract
+         ~replay_contract
+         ~streaming_contract
+         ())
+    cases
+;;
+
 (* ── with_context_size ───────────────────────────────── *)
 
 let test_with_context_size () =
@@ -1412,6 +1648,10 @@ let () =
             "ollama cloud preserves shared bare families"
             `Quick
             test_ollama_cloud_provider_qualified_preserves_shared_bare_family
+        ; test_case
+            "frontier grouped tool/thinking/structured models"
+            `Quick
+            test_frontier_grouped_tool_thinking_structured_models
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
