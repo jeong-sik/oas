@@ -273,7 +273,7 @@ let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
     Accepted values: "minimal", "low", "medium", "high", "xhigh". Invalid
     values fall back to "medium".
     @since 0.185.0 *)
-let default_reasoning_effort_value ?(getenv = Cli_common_env.get) () =
+let default_reasoning_effort_value ?(getenv = fun name -> Cli_common_env.get name) () =
   match getenv default_reasoning_effort_env with
   | Some v ->
     (match reasoning_effort_of_string v with
