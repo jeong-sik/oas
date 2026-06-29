@@ -123,21 +123,42 @@ let test_malformed_document_missing_source () =
   | Some _ -> Alcotest.fail "expected None or exception for malformed Document"
 ;;
 
-let test_unknown_media_source_kind_fails_closed () =
+let check_unknown_media_source_kind_fails_closed ~block_type ~media_type ~data =
   let json =
     `Assoc
-      [ "type", `String "image"
+      [ "type", `String block_type
       ; ( "source"
         , `Assoc
             [ "type", `String "url"
-            ; "media_type", `String "image/png"
-            ; "data", `String "https://example.invalid/image.png"
+            ; "media_type", `String media_type
+            ; "data", `String data
             ] )
       ]
   in
   match Api.content_block_of_json json with
   | None -> ()
-  | Some _ -> Alcotest.fail "unsupported media source kind must not parse"
+  | Some _ -> Alcotest.failf "unsupported %s media source kind must not parse" block_type
+;;
+
+let test_unknown_image_source_kind_fails_closed () =
+  check_unknown_media_source_kind_fails_closed
+    ~block_type:"image"
+    ~media_type:"image/png"
+    ~data:"https://example.invalid/image.png"
+;;
+
+let test_unknown_document_source_kind_fails_closed () =
+  check_unknown_media_source_kind_fails_closed
+    ~block_type:"document"
+    ~media_type:"application/pdf"
+    ~data:"https://example.invalid/document.pdf"
+;;
+
+let test_unknown_audio_source_kind_fails_closed () =
+  check_unknown_media_source_kind_fails_closed
+    ~block_type:"audio"
+    ~media_type:"audio/wav"
+    ~data:"https://example.invalid/audio.wav"
 ;;
 
 (* ------------------------------------------------------------------ *)
@@ -357,9 +378,17 @@ let () =
             `Quick
             test_malformed_document_missing_source
         ; Alcotest.test_case
-            "unknown media source kind fail-closed"
+            "unknown image source kind fail-closed"
             `Quick
-            test_unknown_media_source_kind_fails_closed
+            test_unknown_image_source_kind_fails_closed
+        ; Alcotest.test_case
+            "unknown document source kind fail-closed"
+            `Quick
+            test_unknown_document_source_kind_fails_closed
+        ; Alcotest.test_case
+            "unknown audio source kind fail-closed"
+            `Quick
+            test_unknown_audio_source_kind_fails_closed
         ] )
     ; ( "mixed"
       , [ Alcotest.test_case
