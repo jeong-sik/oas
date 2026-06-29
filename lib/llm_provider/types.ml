@@ -221,15 +221,24 @@ let response_format_to_json = function
 
 (** {1 Content Types} *)
 
-(** Closed set of supported media source encodings. *)
-type media_source_kind = Base64 [@@deriving show]
+(** Closed set of supported media source carriers. *)
+type media_source_kind =
+  | Base64
+  | Url
+  | File_id
+[@@deriving show]
 
 let media_source_kind_to_string = function
   | Base64 -> "base64"
+  | Url -> "url"
+  | File_id -> "file_id"
 ;;
 
-let media_source_kind_of_string = function
+let media_source_kind_of_string raw =
+  match String.lowercase_ascii (String.trim raw) with
   | "base64" -> Some Base64
+  | "url" -> Some Url
+  | "file_id" -> Some File_id
   | _ -> None
 ;;
 

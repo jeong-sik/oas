@@ -26,6 +26,12 @@ let as_list label = function
       (Printf.sprintf "expected %s list, got %s" label (Yojson.Safe.to_string json))
 ;;
 
+let expect_invalid_arg label f =
+  match f () with
+  | exception Invalid_argument _ -> ()
+  | _ -> Alcotest.fail (label ^ " should fail closed with Invalid_argument")
+;;
+
 let member key json = Yojson.Safe.Util.member key json
 let to_string json = Yojson.Safe.Util.to_string json
 let to_int json = Yojson.Safe.Util.to_int json
@@ -168,6 +174,51 @@ let test_content_parts_cover_modalities () =
     "audio format"
     "wav"
     (member "input_audio" audio |> member "format" |> to_string)
+;;
+
+let test_non_base64_media_source_fails_closed () =
+  expect_invalid_arg "openai chat image url" (fun () ->
+    Serialize.openai_content_parts_of_blocks
+      [ Image
+          { media_type = "image/png"
+          ; data = "https://example.invalid/image.png"
+          ; source_type = Types.Url
+          }
+      ]
+    |> ignore);
+  expect_invalid_arg "ollama image url" (fun () ->
+    Serialize.ollama_messages_of_message
+      (msg
+         User
+         [ Image
+             { media_type = "image/png"
+             ; data = "https://example.invalid/image.png"
+             ; source_type = Types.Url
+             }
+         ])
+    |> ignore);
+  let config =
+    Provider_config.make
+      ~kind:Provider_config.OpenAI_compat
+      ~model_id:"gpt-test"
+      ~base_url:""
+      ()
+  in
+  expect_invalid_arg "responses document file_id" (fun () ->
+    Responses.build_request
+      ~config
+      ~messages:
+        [ msg
+            User
+            [ Document
+                { media_type = "application/pdf"
+                ; data = "file_abc123"
+                ; source_type = Types.File_id
+                }
+            ]
+        ]
+      ()
+    |> ignore)
 ;;
 
 let test_openai_user_messages_text_tool_and_empty () =
@@ -1411,6 +1462,10 @@ let () =
             "openai user text/tool/empty"
             `Quick
             test_openai_user_messages_text_tool_and_empty
+        ; Alcotest.test_case
+            "non-base64 media source fail-closed"
+            `Quick
+            test_non_base64_media_source_fails_closed
         ; Alcotest.test_case
             "wire adjacency: nudged tool turn"
             `Quick

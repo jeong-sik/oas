@@ -106,10 +106,13 @@ val response_format_of_json_mode : bool -> response_format
 
 (** {1 Content Types} *)
 
-(** Closed set of supported media source encodings. The public wire value stays
-    ["base64"], but internal content blocks no longer carry arbitrary source
-    strings. *)
-type media_source_kind = Base64 [@@deriving show]
+(** Closed set of supported media source carriers. Unsupported provider/source
+    combinations must fail closed instead of reinterpreting [data] as base64. *)
+type media_source_kind =
+  | Base64
+  | Url
+  | File_id
+[@@deriving show]
 
 val media_source_kind_to_string : media_source_kind -> string
 val media_source_kind_of_string : string -> media_source_kind option

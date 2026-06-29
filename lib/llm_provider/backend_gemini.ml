@@ -153,26 +153,34 @@ let build_tool_id_to_name (messages : message list) : (string, string) Hashtbl.t
 
 (* ── Content block -> Gemini part ───────────────────── *)
 
+let unsupported_media_source ~block source_type =
+  invalid_arg
+    (Printf.sprintf
+       "gemini does not support %s media source kind %s"
+       block
+       (Types.media_source_kind_to_string source_type))
+;;
+
+let inline_data_part ~block ~media_type ~data = function
+  | Base64 ->
+    Some
+      (`Assoc
+          [ "inlineData", `Assoc [ "mimeType", `String media_type; "data", `String data ]
+          ])
+  | (Url | File_id) as source_type -> unsupported_media_source ~block source_type
+;;
+
 let part_of_content_block id_to_name tool_signatures = function
   | Text s -> Some (`Assoc [ "text", `String (Utf8_sanitize.sanitize s) ])
   | Thinking { content; _ } ->
     Some
       (`Assoc [ "thought", `Bool true; "text", `String (Utf8_sanitize.sanitize content) ])
-  | Image { media_type; data; _ } ->
-    Some
-      (`Assoc
-          [ "inlineData", `Assoc [ "mimeType", `String media_type; "data", `String data ]
-          ])
-  | Audio { media_type; data; _ } ->
-    Some
-      (`Assoc
-          [ "inlineData", `Assoc [ "mimeType", `String media_type; "data", `String data ]
-          ])
-  | Document { media_type; data; _ } ->
-    Some
-      (`Assoc
-          [ "inlineData", `Assoc [ "mimeType", `String media_type; "data", `String data ]
-          ])
+  | Image { media_type; data; source_type } ->
+    inline_data_part ~block:"image" ~media_type ~data source_type
+  | Audio { media_type; data; source_type } ->
+    inline_data_part ~block:"audio" ~media_type ~data source_type
+  | Document { media_type; data; source_type } ->
+    inline_data_part ~block:"document" ~media_type ~data source_type
   | ToolUse { id; name; input } ->
     let fields = [ "functionCall", `Assoc [ "name", `String name; "args", input ] ] in
     let fields =
