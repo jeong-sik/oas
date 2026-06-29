@@ -393,8 +393,8 @@ type tool_choice_request_rejection =
 let tool_choice_request_rejection_to_message = function
   | Unsupported_named_tool_choice { provider_kind; model_id; tool_name } ->
     Printf.sprintf
-      "%s model %S does not support named forced tool_choice %S; use auto/any or \
-       remove tool_choice"
+      "%s model %S does not support named forced tool_choice %S; use auto/any or remove \
+       tool_choice"
       (string_of_provider_kind provider_kind)
       model_id
       tool_name
@@ -413,20 +413,23 @@ let tool_choice_capabilities_for_config (config : t) =
   match config.supports_tool_choice_override with
   | Some supports_tool_choice ->
     { caps with
-      Capabilities.supports_tool_choice = supports_tool_choice
+      Capabilities.supports_tool_choice
     ; supports_named_tool_choice = supports_tool_choice
     }
   | None -> caps
 ;;
 
-let validate_tool_choice_request_with_capabilities ~provider_kind ~model_id ~tool_choice caps =
+let validate_tool_choice_request_with_capabilities
+      ~provider_kind
+      ~model_id
+      ~tool_choice
+      caps
+  =
   match tool_choice with
   | Some (Types.Tool tool_name)
     when caps.Capabilities.supports_tool_choice
          && not caps.Capabilities.supports_named_tool_choice ->
-    Error
-      (Unsupported_named_tool_choice
-         { provider_kind; model_id; tool_name })
+    Error (Unsupported_named_tool_choice { provider_kind; model_id; tool_name })
   | Some (Types.Tool _) -> Ok ()
   | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
 ;;
@@ -441,7 +444,8 @@ let validate_tool_choice_request_typed (config : t) =
 ;;
 
 let validate_tool_choice_request config =
-  Result.map_error tool_choice_request_rejection_to_message
+  Result.map_error
+    tool_choice_request_rejection_to_message
     (validate_tool_choice_request_typed config)
 ;;
 

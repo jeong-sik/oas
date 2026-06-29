@@ -4,7 +4,6 @@
     Request building remains here due to agent_config/agent_state/Provider coupling. *)
 
 open Types
-
 module PConfig = Llm_provider.Provider_config
 
 (* Re-export pure functions from llm_provider *)
@@ -165,11 +164,11 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
     let caps = capabilities_for_request ?provider_config config in
     Ok (PConfig.Anthropic, model_id, llm_capabilities_of_provider_capabilities caps)
   | Some
-      ({ provider =
-           (Provider.Local { base_url } | Provider.OpenAICompat { base_url; _ })
+      ({ provider = Provider.Local { base_url } | Provider.OpenAICompat { base_url; _ }
        ; model_id
        ; _
-       } : Provider.config) ->
+       } :
+        Provider.config) ->
     let provider_kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
     let caps =
       match provider_kind with
@@ -183,20 +182,14 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
       | PConfig.Gemini
       | PConfig.DashScope -> Llm_provider.Capabilities.default_capabilities
     in
-    Ok
-      ( provider_kind
-      , model_id
-      , caps )
+    Ok (provider_kind, model_id, caps)
   | None ->
     let model_id = model_to_string config.config.model in
     if Llm_provider.Zai_catalog.is_glm_model_id model_id
     then Ok (PConfig.Glm, model_id, Llm_provider.Capabilities.glm_capabilities)
     else (
       let caps = capabilities_for_request config in
-      Ok
-        ( PConfig.OpenAI_compat
-        , model_id
-        , llm_capabilities_of_provider_capabilities caps ))
+      Ok (PConfig.OpenAI_compat, model_id, llm_capabilities_of_provider_capabilities caps))
 ;;
 
 let validate_tool_choice_request ?provider_config (config : agent_state) =
