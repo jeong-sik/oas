@@ -11,6 +11,25 @@
 
 open Agent_sdk
 
+let stream_error_to_string = function
+  | Types.Stream_provider_error { message; _ } -> message
+  | Types.Stream_parse_failed { reason; _ } -> reason
+  | Types.Stream_unknown_event { event_type; _ } -> "unknown_event:" ^ event_type
+;;
+
+let fail_unexpected_stream_error err =
+  Alcotest.fail ("unexpected SSE error: " ^ stream_error_to_string err)
+;;
+
+let check_zero_usage = function
+  | Some (u : Types.api_usage) ->
+    Alcotest.(check int) "input" 0 u.input_tokens;
+    Alcotest.(check int) "output" 0 u.output_tokens;
+    Alcotest.(check int) "cache_creation" 0 u.cache_creation_input_tokens;
+    Alcotest.(check int) "cache_read" 0 u.cache_read_input_tokens
+  | None -> Alcotest.fail "expected zero usage"
+;;
+
 (** Unwrap finalize result or fail the test. *)
 let finalize_ok acc =
   if not !(acc.Streaming.stop_reason_received)
@@ -20,15 +39,15 @@ let finalize_ok acc =
       (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
   match Streaming.finalize_stream_acc acc with
   | Ok resp -> resp
-  | Error msg -> Alcotest.fail ("unexpected SSE error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
 ;;
 
 (* ── stream_acc creation ──────────────────────────────────── *)
 
 let test_create_stream_acc () =
   let acc = Streaming.create_stream_acc () in
-  Alcotest.(check string) "empty id" "" !(acc.msg_id);
-  Alcotest.(check string) "empty model" "" !(acc.msg_model);
+  Alcotest.(check string) "empty id" "" !(acc.id);
+  Alcotest.(check string) "empty model" "" !(acc.model);
   Alcotest.(check int) "zero input" 0 !(acc.input_tokens);
   Alcotest.(check int) "zero output" 0 !(acc.output_tokens)
 ;;
@@ -48,8 +67,8 @@ let test_accumulate_message_start () =
   Streaming.accumulate_event
     acc
     (Types.MessageStart { id = "msg_1"; model = "claude-3"; usage = Some usage });
-  Alcotest.(check string) "id" "msg_1" !(acc.msg_id);
-  Alcotest.(check string) "model" "claude-3" !(acc.msg_model);
+  Alcotest.(check string) "id" "msg_1" !(acc.id);
+  Alcotest.(check string) "model" "claude-3" !(acc.model);
   Alcotest.(check int) "input tokens" 10 !(acc.input_tokens);
   Alcotest.(check int) "cache creation" 2 !(acc.cache_creation);
   Alcotest.(check int) "cache read" 3 !(acc.cache_read)
@@ -60,7 +79,7 @@ let test_accumulate_message_start_no_usage () =
   Streaming.accumulate_event
     acc
     (Types.MessageStart { id = "msg_2"; model = "gpt-4"; usage = None });
-  Alcotest.(check string) "id" "msg_2" !(acc.msg_id);
+  Alcotest.(check string) "id" "msg_2" !(acc.id);
   Alcotest.(check int) "input still 0" 0 !(acc.input_tokens)
 ;;
 
@@ -184,7 +203,7 @@ let test_accumulate_other_events () =
   Streaming.accumulate_event
     acc
     (Types.SSEError { message = "test error"; error_type = None; raw = "test error" });
-  Alcotest.(check string) "id unchanged" "" !(acc.msg_id)
+  Alcotest.(check string) "id unchanged" "" !(acc.id)
 ;;
 
 (* ── finalize_stream_acc ──────────────────────────────────── *)
@@ -291,7 +310,7 @@ let test_finalize_with_usage () =
 let test_finalize_no_usage () =
   let acc = Streaming.create_stream_acc () in
   let resp = finalize_ok acc in
-  Alcotest.(check bool) "no usage" true (resp.usage = None)
+  check_zero_usage resp.usage
 ;;
 
 let test_finalize_unknown_content_type () =
@@ -303,8 +322,18 @@ let test_finalize_unknown_content_type () =
   Streaming.accumulate_event
     acc
     (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "data" });
-  let resp = finalize_ok acc in
-  Alcotest.(check int) "unknown skipped" 0 (List.length resp.content)
+  Streaming.accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match Streaming.finalize_stream_acc acc with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    Alcotest.(check string)
+      "reason"
+      "unsupported_content_block_kind:unknown_type:index:0"
+      reason;
+    Alcotest.(check string) "raw omitted" "" raw
+  | Error err -> fail_unexpected_stream_error err
+  | Ok _ -> Alcotest.fail "expected unknown content type to fail closed"
 ;;
 
 let test_finalize_invalid_tool_json () =
@@ -320,11 +349,18 @@ let test_finalize_invalid_tool_json () =
   Streaming.accumulate_event
     acc
     (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta "not json{" });
-  let resp = finalize_ok acc in
-  (* Invalid JSON falls back to Text *)
-  match resp.content with
-  | [ Types.Text _ ] -> ()
-  | _ -> Alcotest.fail "expected Text fallback for invalid JSON"
+  Streaming.accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match Streaming.finalize_stream_acc acc with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    Alcotest.(check string) "raw omitted" "" raw;
+    Alcotest.(check bool)
+      "malformed tool args"
+      true
+      (String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason)
+  | Error err -> fail_unexpected_stream_error err
+  | Ok _ -> Alcotest.fail "expected invalid tool JSON to fail closed"
 ;;
 
 let test_finalize_multiple_blocks () =

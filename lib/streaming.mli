@@ -21,15 +21,16 @@ val emit_synthetic_events : Types.api_response -> (Types.sse_event -> unit) -> u
 (** Mutable accumulator for building an {!Types.api_response} from
     a sequence of SSE events. *)
 type stream_acc =
-  { msg_id : string ref
-  ; msg_model : string ref
+  { id : string ref
+  ; model : string ref
   ; input_tokens : int ref
   ; output_tokens : int ref
   ; cache_creation : int ref
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; stop_reason_received : bool ref
-  ; sse_error : string option ref
+  ; terminal_incomplete : bool ref
+  ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
@@ -46,8 +47,12 @@ val create_stream_acc : unit -> stream_acc
 val accumulate_event : stream_acc -> Types.sse_event -> unit
 
 (** Finalize the accumulator into a complete API response.
-    Returns [Error msg] if an SSE error was recorded during the stream. *)
-val finalize_stream_acc : stream_acc -> (Types.api_response, string) result
+    Returns [Error stream_error] if an SSE error or fail-closed stream parse
+    error was recorded during the stream. *)
+val finalize_stream_acc
+  :  ?reasoning_visibility:Llm_provider.Reasoning_dialect.reasoning_visibility
+  -> stream_acc
+  -> (Types.api_response, Types.stream_error) result
 
 (** {1 HTTP Error Mapping} *)
 

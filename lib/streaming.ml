@@ -13,16 +13,17 @@ let emit_synthetic_events = Llm_provider.Streaming.emit_synthetic_events
 
 (* ── Shared streaming accumulation ──────────────────────────── *)
 
-type stream_acc =
-  { msg_id : string ref
-  ; msg_model : string ref
+type stream_acc = Llm_provider.Complete_stream_acc.stream_acc =
+  { id : string ref
+  ; model : string ref
   ; input_tokens : int ref
   ; output_tokens : int ref
   ; cache_creation : int ref
   ; cache_read : int ref
   ; stop_reason : stop_reason ref
   ; stop_reason_received : bool ref
-  ; sse_error : string option ref
+  ; terminal_incomplete : bool ref
+  ; sse_error : stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
   ; block_types : (int, string) Hashtbl.t
   ; block_tool_ids : (int, string) Hashtbl.t
@@ -32,226 +33,20 @@ type stream_acc =
   ; block_media_sources : (int, media_source_kind) Hashtbl.t
   }
 
-let create_stream_acc () =
-  { msg_id = ref ""
-  ; msg_model = ref ""
-  ; input_tokens = ref 0
-  ; output_tokens = ref 0
-  ; cache_creation = ref 0
-  ; cache_read = ref 0
-  ; stop_reason = ref EndTurn
-  ; stop_reason_received = ref false
-  ; sse_error = ref None
-  ; block_texts = Hashtbl.create 4
-  ; block_types = Hashtbl.create 4
-  ; block_tool_ids = Hashtbl.create 4
-  ; block_tool_names = Hashtbl.create 4
-  ; block_thinking_signatures = Hashtbl.create 4
-  ; block_media_types = Hashtbl.create 4
-  ; block_media_sources = Hashtbl.create 4
-  }
-;;
-
-let accumulate_event (acc : stream_acc) = function
-  | MessageStart { id; model; usage } ->
-    acc.msg_id := id;
-    acc.msg_model := model;
-    (match usage with
-     | Some u ->
-       acc.input_tokens := u.input_tokens;
-       acc.cache_creation := u.cache_creation_input_tokens;
-       acc.cache_read := u.cache_read_input_tokens
-     | None -> ())
-  | ContentBlockStart { index; content_type; tool_id; tool_name } ->
-    Hashtbl.replace acc.block_types index content_type;
-    Hashtbl.replace acc.block_texts index (Buffer.create 64);
-    (match tool_id with
-     | Some id -> Hashtbl.replace acc.block_tool_ids index id
-     | None -> ());
-    (match tool_name with
-     | Some n -> Hashtbl.replace acc.block_tool_names index n
-     | None -> ())
-  | ContentBlockDelta { index; delta } ->
-    let buf =
-      match Hashtbl.find_opt acc.block_texts index with
-      | Some b -> b
-      | None ->
-        let b = Buffer.create 64 in
-        Hashtbl.replace acc.block_texts index b;
-        b
-    in
-    (match delta with
-     | TextDelta s | ThinkingDelta s | InputJsonDelta s -> Buffer.add_string buf s
-     | MediaDelta { media_type; source_type; data } ->
-       Hashtbl.replace acc.block_media_types index media_type;
-       Hashtbl.replace acc.block_media_sources index source_type;
-       Buffer.add_string buf data
-     | ThinkingSignatureDelta s ->
-       let sig_buf =
-         match Hashtbl.find_opt acc.block_thinking_signatures index with
-         | Some b -> b
-         | None ->
-           let b = Buffer.create 256 in
-           Hashtbl.replace acc.block_thinking_signatures index b;
-           b
-       in
-       Buffer.add_string sig_buf s)
-  | MessageDelta { stop_reason = sr; usage } ->
-    (match sr with
-     | Some r ->
-       acc.stop_reason := r;
-       acc.stop_reason_received := true
-     | None -> ());
-    (match usage with
-     | Some u ->
-       acc.output_tokens := u.output_tokens;
-       if u.cache_creation_input_tokens > 0
-       then acc.cache_creation := u.cache_creation_input_tokens;
-       if u.cache_read_input_tokens > 0 then acc.cache_read := u.cache_read_input_tokens
-     | None -> ())
-  (* WORKAROUND: this secondary streaming surface ([create_message_stream] via
-     [provider_intf], used by examples + e2e) keeps its own string [sse_error]
-     carrier and still collapses to [NetworkError {Unknown}] at finalize. The
-     typed-carrier fix landed on the primary completion path
-     ([Complete.complete_stream] / [Complete_stream_acc]). Root fix: unify this
-     duplicate accumulator onto [Complete_stream_acc] (follow-on). Here we only
-     destructure the enriched [SSEError] payload to keep compiling. *)
-  | SSEError { message; _ } -> acc.sse_error := Some message
-  | SSEParseFailed { raw; reason } ->
-    let preview =
-      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
-    in
-    acc.sse_error
-    := Some (Printf.sprintf "sse_parse_failed: %s | chunk: %s" reason preview)
-  | SSEUnknownEventType { event_type; raw } ->
-    let preview =
-      if String.length raw > 200 then String.sub raw 0 200 ^ "...(truncated)" else raw
-    in
-    acc.sse_error
-    := Some (Printf.sprintf "sse_unknown_event_type: %s | chunk: %s" event_type preview)
-  | MessageStop -> acc.stop_reason_received := true
-  (* StreamIncomplete drives the partial-tool drop on the primary
-     [Complete_stream_acc] path; this secondary accumulator (see WORKAROUND
-     above) does not assemble/drop tool blocks here, so it is a no-op pending the
-     same unification. *)
-  | StreamIncomplete _ -> ()
-  | Ping | ContentBlockStop _ | Connected | Timeout _ -> ()
-;;
-
-let finalize_stream_acc (acc : stream_acc) =
-  match !(acc.sse_error) with
-  | Some msg -> Error msg
-  | None when not !(acc.stop_reason_received) ->
-    Error "stream_terminated_without_stop_reason"
-  | None ->
-    let indices =
-      Hashtbl.fold (fun index _ indices -> index :: indices) acc.block_types []
-      |> List.sort compare
-    in
-    let content_of_index index =
-      let text =
-        match Hashtbl.find_opt acc.block_texts index with
-        | Some buf -> Buffer.contents buf
-        | None -> ""
-      in
-      let media_block kind make =
-        if String.trim text = ""
-        then Ok None
-        else (
-          match
-            ( Hashtbl.find_opt acc.block_media_types index
-            , Hashtbl.find_opt acc.block_media_sources index )
-          with
-          | Some media_type, Some source_type when String.trim media_type <> "" ->
-            Ok (Some (make ~media_type ~data:text ~source_type))
-          | _ -> Error (Printf.sprintf "malformed_media_block:%s:index:%d" kind index))
-      in
-      match Hashtbl.find_opt acc.block_types index with
-      | None -> Ok None
-      | Some "text" -> Ok (Some (Text text))
-      | Some "thinking" ->
-        let thinking_type =
-          match Hashtbl.find_opt acc.block_thinking_signatures index with
-          | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
-          | Some _ | None -> ""
-        in
-        Ok (Some (Thinking { thinking_type; content = text }))
-      | Some "redacted_thinking" ->
-        (match Hashtbl.find_opt acc.block_tool_ids index with
-         | Some data when data <> "" -> Ok (Some (RedactedThinking data))
-         | Some _ | None -> Ok None)
-      | Some "tool_use" ->
-        let tool_id =
-          match Hashtbl.find_opt acc.block_tool_ids index with
-          | Some id -> id
-          | None -> ""
-        in
-        let tool_name =
-          match Hashtbl.find_opt acc.block_tool_names index with
-          | Some name -> name
-          | None -> ""
-        in
-        (try
-           Ok
-             (Some
-                (ToolUse
-                   { id = tool_id
-                   ; name = tool_name
-                   ; input = Yojson.Safe.from_string text
-                   }))
-         with
-         | Yojson.Json_error _ -> Ok (Some (Text text)))
-      | Some "image" ->
-        media_block "image" (fun ~media_type ~data ~source_type ->
-          Image { media_type; data; source_type })
-      | Some "document" ->
-        media_block "document" (fun ~media_type ~data ~source_type ->
-          Document { media_type; data; source_type })
-      | Some "audio" ->
-        media_block "audio" (fun ~media_type ~data ~source_type ->
-          Audio { media_type; data; source_type })
-      | Some _ -> Ok None
-    in
-    let rec collect_content acc = function
-      | [] -> Ok (List.rev acc)
-      | index :: rest ->
-        (match content_of_index index with
-         | Error _ as err -> err
-         | Ok None -> collect_content acc rest
-         | Ok (Some block) -> collect_content (block :: acc) rest)
-    in
-    (match collect_content [] indices with
-     | Error _ as err -> err
-     | Ok content ->
-       let usage =
-         if
-           !(acc.input_tokens) > 0
-           || !(acc.output_tokens) > 0
-           || !(acc.cache_creation) > 0
-           || !(acc.cache_read) > 0
-         then
-           Some
-             { input_tokens = !(acc.input_tokens)
-             ; output_tokens = !(acc.output_tokens)
-             ; cache_creation_input_tokens = !(acc.cache_creation)
-             ; cache_read_input_tokens = !(acc.cache_read)
-             ; cost_usd = None
-             }
-         else None
-       in
-       Ok
-         { id = !(acc.msg_id)
-         ; model = !(acc.msg_model)
-         ; stop_reason = !(acc.stop_reason)
-         ; content
-         ; usage
-         ; telemetry = None
-         })
-;;
+let create_stream_acc = Llm_provider.Complete_stream_acc.create_stream_acc
+let accumulate_event = Llm_provider.Complete_stream_acc.accumulate_event
+let finalize_stream_acc = Llm_provider.Complete_stream_acc.finalize_stream_acc
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)
 
 let map_http_error = Http_error_sdk.of_http_error
+
+let map_stream_finalize_result = function
+  | Error e -> Error (map_http_error e)
+  | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
+  | Ok (Error serr) ->
+    Error (map_http_error (Llm_provider.Complete_stream.http_error_of_stream_error serr))
+;;
 
 (** Streaming variant of create_message.
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).
@@ -294,6 +89,9 @@ let create_message_stream
   match resolve_result with
   | Error e -> Error e
   | Ok (provider_cfg, base_url, api_key) ->
+    let reasoning_visibility =
+      Api_openai.reasoning_visibility_of_request ~provider_config:provider_cfg config
+    in
     (match Provider.request_kind provider_cfg.provider with
      | Provider.Anthropic_messages ->
        let headers =
@@ -305,50 +103,37 @@ let create_message_stream
        let body_assoc = Api.build_body_assoc ~config ~messages ?tools ~stream:true () in
        let body = Yojson.Safe.to_string (`Assoc body_assoc) in
        let url = base_url ^ "/v1/messages" in
-       (match
-          Llm_provider.Http_client.with_post_stream
-            ?clock
-            ~net
-            ~url
-            ~headers
-            ~body
-            ~f:(fun reader ->
-              let acc = create_stream_acc () in
-              Llm_provider.Http_client.read_sse
-                ?clock
-                ?idle_timeout
-                ~reader
-                ~on_data:(fun ~event_type data ->
-                  if data <> "[DONE]"
-                  then (
-                    match parse_sse_event event_type data with
-                    | None ->
-                      let evt =
-                        SSEParseFailed
-                          { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
-                      in
-                      on_event evt;
-                      accumulate_event acc evt
-                    | Some evt ->
-                      on_event evt;
-                      accumulate_event acc evt))
-                ();
-              if !(acc.stop_reason_received) then on_event MessageStop;
-              finalize_stream_acc acc)
-            ()
-        with
-        | Error e -> Error (map_http_error e)
-        | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
-        | Ok (Error msg) ->
-          Error
-            (Error.Provider
-               (Llm_provider.Error.of_http_error
-                  (Llm_provider.Http_client.ProviderFailure
-                     { kind =
-                         Llm_provider.Http_client.Provider_parse_error
-                           { parser = Some "sse_stream_accumulator" }
-                     ; message = Printf.sprintf "SSE stream error: %s" msg
-                     }))))
+       Llm_provider.Http_client.with_post_stream
+         ?clock
+         ~net
+         ~url
+         ~headers
+         ~body
+         ~f:(fun reader ->
+           let acc = create_stream_acc () in
+           Llm_provider.Http_client.read_sse
+             ?clock
+             ?idle_timeout
+             ~reader
+             ~on_data:(fun ~event_type data ->
+               if data <> "[DONE]"
+               then (
+                 match parse_sse_event event_type data with
+                 | None ->
+                   let evt =
+                     SSEParseFailed
+                       { raw = data; reason = "anthropic_sse_chunk_parse_failure" }
+                   in
+                   on_event evt;
+                   accumulate_event acc evt
+                 | Some evt ->
+                   on_event evt;
+                   accumulate_event acc evt))
+             ();
+           if !(acc.stop_reason_received) then on_event MessageStop;
+           finalize_stream_acc ~reasoning_visibility acc)
+         ()
+       |> map_stream_finalize_result
      | Provider.Openai_chat_completions ->
        (* OpenAI-compatible SSE streaming. *)
        let openai_compat_kind = Llm_provider.Provider_config.OpenAI_compat in
@@ -384,71 +169,58 @@ let create_message_stream
             |> Llm_provider.Http_client.inject_stream_and_options
           in
           let url = base_url ^ stream_path in
-          (match
-             Llm_provider.Http_client.with_post_stream
-               ?clock
-               ~net
-               ~url
-               ~headers
-               ~body
-               ~f:(fun reader ->
-                 let acc = create_stream_acc () in
-                 let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
-                 let msg_started = ref false in
-                 Llm_provider.Http_client.read_sse
-                   ?clock
-                   ?idle_timeout
-                   ~reader
-                   ~on_data:(fun ~event_type:_ data ->
-                     if data = "[DONE]"
-                     then ()
-                     else (
-                       match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                       | None ->
-                         let evt =
-                           SSEParseFailed
-                             { raw = data; reason = "openai_sse_chunk_parse_failure" }
-                         in
-                         on_event evt;
-                         accumulate_event acc evt
-                       | Some chunk ->
-                         if not !msg_started
-                         then (
-                           msg_started := true;
-                           let evt =
-                             MessageStart
-                               { id = chunk.chunk_id
-                               ; model = chunk.chunk_model
-                               ; usage = None
-                               }
-                           in
+          Llm_provider.Http_client.with_post_stream
+            ?clock
+            ~net
+            ~url
+            ~headers
+            ~body
+            ~f:(fun reader ->
+              let acc = create_stream_acc () in
+              let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
+              let msg_started = ref false in
+              Llm_provider.Http_client.read_sse
+                ?clock
+                ?idle_timeout
+                ~reader
+                ~on_data:(fun ~event_type:_ data ->
+                  if data = "[DONE]"
+                  then ()
+                  else (
+                    match Llm_provider.Streaming.parse_openai_sse_chunk data with
+                    | None ->
+                      let evt =
+                        SSEParseFailed
+                          { raw = data; reason = "openai_sse_chunk_parse_failure" }
+                      in
+                      on_event evt;
+                      accumulate_event acc evt
+                    | Some chunk ->
+                      if not !msg_started
+                      then (
+                        msg_started := true;
+                        let evt =
+                          MessageStart
+                            { id = chunk.chunk_id
+                            ; model = chunk.chunk_model
+                            ; usage = None
+                            }
+                        in
+                        on_event evt;
+                        accumulate_event acc evt);
+                      let evs, _tel =
+                        Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                      in
+                      List.iter
+                        (fun evt ->
                            on_event evt;
-                           accumulate_event acc evt);
-                         let evs, _tel =
-                           Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
-                         in
-                         List.iter
-                           (fun evt ->
-                              on_event evt;
-                              accumulate_event acc evt)
-                           evs))
-                   ();
-                 if !(acc.stop_reason_received) then on_event MessageStop;
-                 finalize_stream_acc acc)
-               ()
-           with
-           | Error e -> Error (map_http_error e)
-           | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
-           | Ok (Error msg) ->
-             Error
-               (Error.Provider
-                  (Llm_provider.Error.of_http_error
-                     (Llm_provider.Http_client.ProviderFailure
-                        { kind =
-                            Llm_provider.Http_client.Provider_parse_error
-                              { parser = Some "sse_stream_accumulator" }
-                        ; message = Printf.sprintf "SSE stream error: %s" msg
-                        })))))
+                           accumulate_event acc evt)
+                        evs))
+                ();
+              if !(acc.stop_reason_received) then on_event MessageStop;
+              finalize_stream_acc ~reasoning_visibility acc)
+            ()
+          |> map_stream_finalize_result)
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match
