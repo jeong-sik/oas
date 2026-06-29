@@ -871,7 +871,7 @@ let test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice () =
     (json |> member "tool_choice" |> to_string)
 ;;
 
-let test_build_openai_body_glm_preserves_reasoning_content () =
+let test_build_openai_body_glm_drops_reasoning_content_by_default () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -918,12 +918,12 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
   in
   let open Yojson.Safe.Util in
   let assistant = json |> member "messages" |> index 0 in
-  check string "content kept empty" "" (assistant |> member "content" |> to_string);
+  check bool "content dropped" true (assistant |> member "content" = `Null);
   check
-    string
-    "reasoning_content replayed"
-    "I should call the calculator."
-    (assistant |> member "reasoning_content" |> to_string);
+    bool
+    "reasoning_content dropped"
+    true
+    (assistant |> member "reasoning_content" = `Null);
   check string "tool choice still auto" "auto" (json |> member "tool_choice" |> to_string)
 ;;
 
@@ -1856,9 +1856,9 @@ let () =
             `Quick
             test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice
         ; test_case
-            "glm preserved reasoning replay"
+            "glm drops reasoning replay by default"
             `Quick
-            test_build_openai_body_glm_preserves_reasoning_content
+            test_build_openai_body_glm_drops_reasoning_content_by_default
         ; test_case
             "non-zai glm avoids glm path"
             `Quick
