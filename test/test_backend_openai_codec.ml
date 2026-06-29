@@ -601,6 +601,165 @@ let test_close_tool_message_pairs_repairs_dangling_and_late_results () =
   check_bool "late result dropped" false late_survived
 ;;
 
+let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
+  (* Sanitized from the MASC OAS snapshot shape:
+     assistant(text/tool_use) -> tool(tool_result), repeated many times, with a
+     later operator nudge occasionally separating a tool call from its result.
+     The invariant is structural: tool results stay adjacent to the tool calls
+     sent on the provider wire, and Thinking blocks never become visible
+     assistant content. *)
+  let messages =
+    [ msg
+        Assistant
+        [ Thinking { thinking_type = "reasoning"; content = "thought:first" }
+        ; Text "calling first lookup"
+        ; ToolUse
+            { id = "call-a"; name = "lookup"; input = `Assoc [ "city", `String "Seoul" ] }
+        ]
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call-a"
+            ; content = {|{"temp_c":21}|}
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; msg
+        Assistant
+        [ Thinking { thinking_type = "reasoning"; content = "thought:plain" }
+        ; Text "first lookup complete"
+        ]
+    ; msg
+        Assistant
+        [ Thinking { thinking_type = "reasoning"; content = "thought:second" }
+        ; ToolUse
+            { id = "call-b"; name = "lookup"; input = `Assoc [ "city", `String "Busan" ] }
+        ]
+    ; msg User [ Text "operator nudge before late tool result" ]
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call-b"
+            ; content = {|{"temp_c":24}|}
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; msg
+        Assistant
+        [ Thinking { thinking_type = "reasoning"; content = "thought:final" }
+        ; Text "done"
+        ]
+    ]
+  in
+  let closed = Serialize.close_tool_message_pairs_for_request messages in
+  let deepseek_dialect =
+    Reasoning_dialect.of_capabilities
+      { Capabilities.openai_compat_chat_extended_capabilities with
+        thinking_control_format = Capabilities.Thinking_object
+      }
+  in
+  let wire =
+    closed
+    |> List.concat_map
+         (Serialize.dialect_messages_of_message
+            ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_null
+            deepseek_dialect)
+  in
+  let roles = List.map (fun m -> member "role" m |> to_string) wire in
+  Alcotest.(check (list string))
+    "wire roles keep synthetic result before nudge and drop late result"
+    [ "assistant"; "tool"; "assistant"; "assistant"; "tool"; "user"; "assistant" ]
+    roles;
+  check_string
+    "first reasoning replayed for tool turn"
+    "thought:first"
+    (List.nth wire 0 |> member "reasoning_content" |> to_string);
+  Alcotest.(check bool)
+    "plain assistant thinking is not replayed under DeepSeek-style policy"
+    true
+    (List.nth wire 2 |> member "reasoning_content" = `Null);
+  check_string
+    "second reasoning replayed for tool turn"
+    "thought:second"
+    (List.nth wire 3 |> member "reasoning_content" |> to_string);
+  let synthetic_tool = List.nth wire 4 in
+  check_string
+    "synthetic tool id"
+    "call-b"
+    (member "tool_call_id" synthetic_tool |> to_string);
+  check_bool
+    "synthetic tool content"
+    true
+    (String.starts_with
+       ~prefix:"OAS synthesized"
+       (member "content" synthetic_tool |> to_string));
+  check_bool
+    "late tool result was not replayed"
+    false
+    (List.exists
+       (fun json ->
+          member "role" json = `String "tool"
+          && member "content" json = `String {|{"temp_c":24}|})
+       wire);
+  let leaked =
+    List.exists
+      (fun json ->
+         member "role" json = `String "assistant"
+         &&
+         match member "content" json with
+         | `String s -> String.contains s ':'
+         | `Null | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> false)
+      wire
+  in
+  check_bool "thinking markers never leak into assistant content" false leaked
+;;
+
+let test_kimi_replay_trace_preserves_all_historical_reasoning () =
+  let messages =
+    [ msg
+        Assistant
+        [ Thinking { thinking_type = "reasoning"; content = "k-thought:tool" }
+        ; ToolUse { id = "call-k"; name = "lookup"; input = `Assoc [] }
+        ]
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call-k"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; msg
+        Assistant
+        [ Thinking { thinking_type = "reasoning"; content = "k-thought:plain" }
+        ; Text "visible"
+        ]
+    ]
+  in
+  let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in
+  let wire =
+    messages |> List.concat_map (Serialize.dialect_messages_of_message kimi_dialect)
+  in
+  check_string
+    "tool-turn reasoning preserved"
+    "k-thought:tool"
+    (List.nth wire 0 |> member "reasoning_content" |> to_string);
+  check_string
+    "plain-turn reasoning preserved"
+    "k-thought:plain"
+    (List.nth wire 2 |> member "reasoning_content" |> to_string);
+  check_string
+    "plain visible content"
+    "visible"
+    (List.nth wire 2 |> member "content" |> to_string)
+;;
+
 let test_openai_build_request_closes_dangling_tool_call () =
   let config =
     Provider_config.make
@@ -1520,6 +1679,14 @@ let () =
             "close tool message pairs"
             `Quick
             test_close_tool_message_pairs_repairs_dangling_and_late_results
+        ; Alcotest.test_case
+            "MASC replay trace separates reasoning/tool/nudge"
+            `Quick
+            test_masc_replay_trace_keeps_reasoning_and_tools_separated
+        ; Alcotest.test_case
+            "Kimi replay preserves historical reasoning"
+            `Quick
+            test_kimi_replay_trace_preserves_all_historical_reasoning
         ; Alcotest.test_case
             "build_request closes dangling tool call"
             `Quick
