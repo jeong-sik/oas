@@ -387,10 +387,7 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
   in
   match cfg.supports_tool_choice_override with
   | Some supports_tool_choice ->
-    { caps with
-      supports_tool_choice
-    ; supports_named_tool_choice = supports_tool_choice
-    }
+    { caps with supports_tool_choice; supports_named_tool_choice = supports_tool_choice }
   | None -> caps
 ;;
 
