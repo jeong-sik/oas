@@ -55,12 +55,6 @@ let is_glm_request ?provider_config (config : agent_state) =
   | None -> Llm_provider.Zai_catalog.is_glm_model_id (model_to_string config.config.model)
 ;;
 
-let assistant_tool_content_format_for_request ?provider_config capabilities config =
-  if is_glm_request ?provider_config config
-  then Llm_provider.Capability_vocab.Assistant_tool_content_empty_string
-  else capabilities.Provider.assistant_tool_content_format
-;;
-
 let bool_field name = function
   | Some value -> [ name, `Bool value ]
   | None -> []
@@ -185,9 +179,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let dialect = reasoning_dialect_for_request capabilities config in
-  let assistant_tool_content_format =
-    assistant_tool_content_format_for_request ?provider_config capabilities config
-  in
+  let assistant_tool_content_format = capabilities.Provider.assistant_tool_content_format in
   let tools_to_send =
     match tools with
     | Some entries
