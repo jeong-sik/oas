@@ -39,6 +39,18 @@ type reasoning_visibility_override =
   | Force_visible_channel
   | Force_visible_text
 
+(** Optional override for the multi-turn reasoning replay policy. Most providers
+    inherit the policy implied by [thinking_control_format]; catalog entries set
+    this when a model's documented replay contract differs (e.g. Kimi K2 requires
+    replaying [reasoning_content] on every turn, so [Force_preserve_always]).
+
+    @since 0.207.16 *)
+type reasoning_replay_override =
+  | Default_reasoning_replay
+  | Force_no_replay
+  | Force_drop_without_tool_preserve_with_tool
+  | Force_preserve_always
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -64,6 +76,10 @@ type capabilities =
         providers inherit from [thinking_control_format]; catalog entries use
         this only when a provider/model returns final answers solely in its
         reasoning field and that field must become visible text. *)
+  ; reasoning_replay_override : reasoning_replay_override
+    (** Optional override for the multi-turn reasoning replay policy. Defaults to
+        the policy implied by [thinking_control_format]; catalog entries set this
+        when the model's documented replay contract differs (e.g. Kimi K2). *)
   ; (* ── Output format ─────────────────────────────────── *)
     supports_response_format_json : bool (** JSON mode *)
   ; supports_structured_output : bool (** JSON schema 100% guarantee *)
@@ -121,6 +137,7 @@ let default_capabilities =
   ; supports_reasoning_budget = false
   ; thinking_control_format = No_thinking_control
   ; reasoning_visibility_override = Default_reasoning_visibility
+  ; reasoning_replay_override = Default_reasoning_replay
   ; supports_response_format_json = false
   ; supports_structured_output = false
   ; supports_multimodal_inputs = false
@@ -538,6 +555,16 @@ let reasoning_visibility_override_of_catalog_string raw =
   | _ -> None
 ;;
 
+let reasoning_replay_override_of_catalog_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "" | "default" -> Some Default_reasoning_replay
+  | "no_replay" -> Some Force_no_replay
+  | "drop_without_tool" | "drop_without_tool_preserve_with_tool" ->
+    Some Force_drop_without_tool_preserve_with_tool
+  | "preserve_always" -> Some Force_preserve_always
+  | _ -> None
+;;
+
 let modality_priority_of_catalog_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "preserve_input_order" | "preserve-input-order" | "preserve" ->
@@ -616,6 +643,13 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
           | Some visibility -> visibility
           | None -> base.reasoning_visibility_override)
        | None -> base.reasoning_visibility_override)
+  ; reasoning_replay_override =
+      (match entry.reasoning_replay with
+       | Some s ->
+         (match reasoning_replay_override_of_catalog_string s with
+          | Some replay -> replay
+          | None -> base.reasoning_replay_override)
+       | None -> base.reasoning_replay_override)
   }
 ;;
 
@@ -638,6 +672,36 @@ let%test "apply_manifest_entry without thinking_control_format keeps base format
   | Ok [ entry ] ->
     (apply_manifest_entry entry).thinking_control_format = No_thinking_control
   | Ok _ | Error _ -> false
+;;
+
+let%test "apply_manifest_entry applies reasoning_replay preserve_always" =
+  match
+    Capability_manifest.of_json
+      (Yojson.Safe.from_string
+         {|{"schema_version":1,"models":[{"id_prefix":"m","reasoning_replay":"preserve_always"}]}|})
+  with
+  | Ok [ entry ] ->
+    (apply_manifest_entry entry).reasoning_replay_override = Force_preserve_always
+  | Ok _ | Error _ -> false
+;;
+
+let%test "apply_manifest_entry without reasoning_replay keeps base default" =
+  match
+    Capability_manifest.of_json
+      (Yojson.Safe.from_string {|{"schema_version":1,"models":[{"id_prefix":"m"}]}|})
+  with
+  | Ok [ entry ] ->
+    (apply_manifest_entry entry).reasoning_replay_override = Default_reasoning_replay
+  | Ok _ | Error _ -> false
+;;
+
+let%test "reasoning_replay_override_of_catalog_string parses vocabulary" =
+  reasoning_replay_override_of_catalog_string "preserve_always" = Some Force_preserve_always
+  && reasoning_replay_override_of_catalog_string "drop_without_tool"
+     = Some Force_drop_without_tool_preserve_with_tool
+  && reasoning_replay_override_of_catalog_string "no_replay" = Some Force_no_replay
+  && reasoning_replay_override_of_catalog_string "" = Some Default_reasoning_replay
+  && reasoning_replay_override_of_catalog_string "bogus" = None
 ;;
 
 let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
@@ -717,6 +781,13 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
           | Some visibility -> visibility
           | None -> base.reasoning_visibility_override)
        | None -> base.reasoning_visibility_override)
+  ; reasoning_replay_override =
+      (match entry.reasoning_replay with
+       | Some s ->
+         (match reasoning_replay_override_of_catalog_string s with
+          | Some replay -> replay
+          | None -> base.reasoning_replay_override)
+       | None -> base.reasoning_replay_override)
   }
 ;;
 
@@ -1491,6 +1562,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.supports_image_input = cb.supports_image_input
       && ca.thinking_control_format = cb.thinking_control_format
       && ca.reasoning_visibility_override = cb.reasoning_visibility_override
+      && ca.reasoning_replay_override = cb.reasoning_replay_override
     | _ -> false
   in
   let alias_pairs = [ "openai", "openai_chat"; "glm", "glm-coding" ] in

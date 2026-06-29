@@ -35,6 +35,10 @@ type entry =
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
         entry silently dropped the model's thinking knob (RFC-OAS-023). *)
   ; reasoning_visibility : string option
+  ; reasoning_replay : string option
+    (** Optional multi-turn reasoning replay policy override (default / no_replay
+        / drop_without_tool / preserve_always); applied in
+        {!Capabilities.apply_manifest_entry}. *)
   }
 
 (** A parsed capability manifest. *)
@@ -140,6 +144,7 @@ let known_entry_keys =
   ; "supports_code_execution"
   ; "thinking_control_format"
   ; "reasoning_visibility"
+  ; "reasoning_replay"
   ]
 ;;
 
@@ -193,6 +198,7 @@ let parse_entry json =
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format = member_string_opt "thinking_control_format" json
     ; reasoning_visibility = member_string_opt "reasoning_visibility" json
+    ; reasoning_replay = member_string_opt "reasoning_replay" json
     }
 ;;
 

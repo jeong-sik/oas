@@ -78,6 +78,9 @@ type entry =
   ; reasoning_visibility : string option
     (** Optional parsed reasoning visibility override (default /
         provider_hidden / visible_channel / visible_text). *)
+  ; reasoning_replay : string option
+    (** Optional multi-turn reasoning replay policy override (default /
+        no_replay / drop_without_tool / preserve_always). *)
   }
 
 (** A parsed capability manifest: an ordered list of model entries.

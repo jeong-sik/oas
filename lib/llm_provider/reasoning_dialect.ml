@@ -122,7 +122,17 @@ let apply_visibility_override caps dialect =
   | Force_visible_text -> { dialect with visibility = Visible_text }
 ;;
 
-let of_capabilities caps = base_of_capabilities caps |> apply_visibility_override caps
+let apply_replay_override caps dialect =
+  match caps.Capabilities.reasoning_replay_override with
+  | Default_reasoning_replay -> dialect
+  | Force_no_replay -> { dialect with replay_policy = No_replay }
+  | Force_drop_without_tool_preserve_with_tool ->
+    { dialect with replay_policy = Drop_without_tool_preserve_with_tool }
+  | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
+;;
+
+let of_capabilities caps =
+  base_of_capabilities caps |> apply_visibility_override caps |> apply_replay_override caps
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match preserve_thinking, dialect.toggle_wire with
@@ -280,4 +290,44 @@ let visibility_to_string = function
   | Side_channel field -> "side_channel:" ^ field
   | Visible_channel -> "visible_channel"
   | Visible_text -> "visible_text"
+;;
+
+[@@@coverage off]
+
+let%test "reasoning_replay_override Force_preserve_always lifts base no_replay" =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Reasoning_effort
+    ; reasoning_replay_override = Capabilities.Force_preserve_always
+    }
+  in
+  let dialect = of_capabilities caps in
+  (* base Reasoning_effort yields No_replay; the override lifts it to Preserve_always
+     so reasoning is replayed on both plain and tool turns. *)
+  should_replay_reasoning dialect ~assistant_had_tool_call:false
+  && should_replay_reasoning dialect ~assistant_had_tool_call:true
+;;
+
+let%test "reasoning_replay_override drop_without_tool replays only on tool turns" =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Reasoning_effort
+    ; reasoning_replay_override = Capabilities.Force_drop_without_tool_preserve_with_tool
+    }
+  in
+  let dialect = of_capabilities caps in
+  (not (should_replay_reasoning dialect ~assistant_had_tool_call:false))
+  && should_replay_reasoning dialect ~assistant_had_tool_call:true
+;;
+
+let%test "reasoning_replay_override default keeps base policy (Reasoning_effort = no_replay)" =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Reasoning_effort
+    }
+  in
+  not (should_replay_reasoning (of_capabilities caps) ~assistant_had_tool_call:false)
 ;;
