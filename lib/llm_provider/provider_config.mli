@@ -328,6 +328,29 @@ val reasoning_effort_request_value
   -> thinking_budget:int option
   -> string option
 
+(** Resolve GLM [clear_thinking]: the explicit field, else the inverse of
+    [preserve_thinking], else the API default [true]. SSOT for both request
+    builders' clear_thinking handling. *)
+val glm_clear_thinking_value
+  :  clear_thinking:bool option
+  -> preserve_thinking:bool option
+  -> bool
+
+val glm_clear_thinking : t -> bool
+
+(** [true] iff GLM should replay prior-turn [reasoning_content] into request
+    history: thinking active AND [clear_thinking] false (Preserved Thinking).
+    Under the default [clear_thinking=true] the server discards prior reasoning,
+    so replaying it violates the GLM contract and bloats the request. SSOT for
+    every GLM message-serializer routing site. *)
+val glm_should_replay_reasoning_fields
+  :  enable_thinking:bool option
+  -> clear_thinking:bool option
+  -> preserve_thinking:bool option
+  -> bool
+
+val glm_should_replay_reasoning : t -> bool
+
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)

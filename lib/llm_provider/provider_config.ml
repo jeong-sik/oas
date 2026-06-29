@@ -333,6 +333,47 @@ let reasoning_effort_request_value
     (reasoning_effort_request_value_typed ~enable_thinking ~thinking_budget)
 ;;
 
+(* GLM (Z.AI) Preserved-Thinking gate (SSOT).
+
+   The GLM Chat Completion API replays prior-turn [reasoning_content] from the
+   request history only under Preserved Thinking — that is, when thinking is
+   active AND [clear_thinking] is false. With the default [clear_thinking=true]
+   the server ignores/removes prior-turn reasoning, so sending it back violates
+   the documented contract and grows the request every turn. [clear_thinking]
+   resolves from the explicit field, else the inverse of [preserve_thinking],
+   else the API default [true].
+
+   Exposed on raw fields as well as on [t] because the two request builders
+   carry different config records ([Provider_config.t] vs [Types.agent_config]);
+   both route through this one resolver so the gate cannot drift between them. *)
+let glm_clear_thinking_value ~clear_thinking ~preserve_thinking =
+  match clear_thinking with
+  | Some clear -> clear
+  | None ->
+    (match preserve_thinking with
+     | Some preserve -> not preserve
+     | None -> true)
+;;
+
+let glm_should_replay_reasoning_fields ~enable_thinking ~clear_thinking ~preserve_thinking
+  =
+  enable_thinking = Some true
+  && not (glm_clear_thinking_value ~clear_thinking ~preserve_thinking)
+;;
+
+let glm_clear_thinking (config : t) =
+  glm_clear_thinking_value
+    ~clear_thinking:config.clear_thinking
+    ~preserve_thinking:config.preserve_thinking
+;;
+
+let glm_should_replay_reasoning (config : t) =
+  glm_should_replay_reasoning_fields
+    ~enable_thinking:config.enable_thinking
+    ~clear_thinking:config.clear_thinking
+    ~preserve_thinking:config.preserve_thinking
+;;
+
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)

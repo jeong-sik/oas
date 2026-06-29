@@ -463,6 +463,66 @@ let test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent () =
     body
 ;;
 
+(* Native [kind:Glm] reasoning_content replay gate (oas#2236). The native GLM
+   provider-client path must mirror the OpenAI_compat ZAI path above: replay
+   historical reasoning_content only under Preserved Thinking
+   (clear_thinking=false). Before the gate the native path replayed
+   unconditionally, contradicting the default clear_thinking=true contract. *)
+let native_glm_cfg ?(enable_thinking = Some true) ?preserve_thinking ?clear_thinking () =
+  Provider_config.make
+    ~kind:Glm
+    ~model_id:"glm-5"
+    ~base_url:"https://api.z.ai/api/paas/v4"
+    ~api_key:"test-key"
+    ~max_tokens:1024
+    ~temperature:0.7
+    ~tool_choice:Any
+    ~disable_parallel_tool_use:true
+    ?enable_thinking
+    ?preserve_thinking
+    ?clear_thinking
+    ()
+;;
+
+let test_native_glm_replays_reasoning_when_preserve_thinking () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(native_glm_cfg ~preserve_thinking:true ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check_reasoning_content
+    "native GLM replays reasoning_content under preserve thinking"
+    true
+    body
+;;
+
+let test_native_glm_drops_reasoning_by_default () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(native_glm_cfg ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check_reasoning_content
+    "native GLM omits reasoning_content with default clear_thinking=true"
+    false
+    body
+;;
+
+let test_native_glm_drops_reasoning_when_thinking_disabled () =
+  let body =
+    Backend_openai_request.build_request
+      ~config:(native_glm_cfg ~enable_thinking:(Some false) ~preserve_thinking:true ())
+      ~messages:zai_glm_messages_with_reasoning
+      ()
+  in
+  check_reasoning_content
+    "native GLM omits reasoning_content when thinking disabled"
+    false
+    body
+;;
+
 (* ── Anthropic ──────────────────────────────────────── *)
 
 let anthropic_forced_expected =
@@ -684,6 +744,18 @@ let () =
             "zai-glm-openai-compat drops reasoning when thinking absent"
             `Quick
             test_zai_glm_openai_compat_drops_reasoning_when_thinking_absent
+        ; test_case
+            "native-glm replays reasoning when preserve_thinking"
+            `Quick
+            test_native_glm_replays_reasoning_when_preserve_thinking
+        ; test_case
+            "native-glm drops reasoning by default (clear_thinking=true)"
+            `Quick
+            test_native_glm_drops_reasoning_by_default
+        ; test_case
+            "native-glm drops reasoning when thinking disabled"
+            `Quick
+            test_native_glm_drops_reasoning_when_thinking_disabled
         ] )
     ; ( "anthropic"
       , [ test_case "tool_choice forced(Tool)" `Quick test_anthropic_forced

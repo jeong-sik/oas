@@ -191,7 +191,16 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   in
   let provider_messages =
     let message_serializer =
-      if is_glm_request ?provider_config config
+      (* Gate GLM reasoning_content replay on Preserved Thinking, matching the
+         provider-client path in Backend_openai_request via the same SSOT
+         predicate. [Types.agent_config] carries no [clear_thinking] field, so it
+         resolves from [preserve_thinking]. *)
+      if
+        is_glm_request ?provider_config config
+        && Llm_provider.Provider_config.glm_should_replay_reasoning_fields
+             ~enable_thinking:config.config.enable_thinking
+             ~clear_thinking:None
+             ~preserve_thinking:config.config.preserve_thinking
       then Llm_provider.Backend_openai_serialize.glm_messages_of_message
       else Llm_provider.Backend_openai_serialize.dialect_messages_of_message dialect
     in
