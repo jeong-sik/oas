@@ -1077,6 +1077,7 @@ let%test "build_request includes tool_choice for model with supports_tool_choice
       ~model_id:"gpt"
       ~base_url:"http://localhost"
       ~tool_choice:Any
+      ~supports_tool_choice_override:true
       ()
   in
   let body = build_request ~config ~messages:[] () in
@@ -1091,7 +1092,7 @@ let json_object_missing_key key json =
   | exception Yojson.Safe.Util.Type_error _ -> false
 ;;
 
-let%test "build_request omits tool_choice for unknown model without override" =
+let%test "build_request rejects forced tool_choice for unknown model without override" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1100,9 +1101,12 @@ let%test "build_request omits tool_choice for unknown model without override" =
       ~tool_choice:Any
       ()
   in
-  let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  json_object_missing_key "tool_choice" json
+  match build_request ~config ~messages:[] () with
+  | exception Invalid_argument msg ->
+    String.starts_with
+      ~prefix:"Backend_openai_request.effective_tool_choice: openai_compat model"
+      msg
+  | _ -> false
 ;;
 
 let%test "build_request omits tool_choice when tool_choice=None" =
@@ -1218,7 +1222,7 @@ let%test "build_request prefers output_schema over json_object mode" =
   body |> member "response_format" |> member "type" |> to_string = "json_schema"
 ;;
 
-let%test "supports_tool_choice_override=Some false drops tool_choice on unknown model" =
+let%test "supports_tool_choice_override=Some false rejects forced tool_choice" =
   (* Unknown model_id defaults to supports_tool_choice=false. Override false
      keeps the fail-closed behavior explicit. *)
   let config =
@@ -1230,10 +1234,11 @@ let%test "supports_tool_choice_override=Some false drops tool_choice on unknown 
       ~supports_tool_choice_override:false
       ()
   in
-  let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  match json with
-  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
+  match build_request ~config ~messages:[] () with
+  | exception Invalid_argument msg ->
+    String.starts_with
+      ~prefix:"Backend_openai_request.effective_tool_choice: openai_compat model"
+      msg
   | _ -> false
 ;;
 

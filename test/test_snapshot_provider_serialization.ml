@@ -127,7 +127,6 @@ let openai_no_parallel_capability_cfg =
     ~api_key:"test-key"
     ~max_tokens:1024
     ~temperature:0.7
-    ~tool_choice:Any
     ~disable_parallel_tool_use:false
     ()
 ;;
