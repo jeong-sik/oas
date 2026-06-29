@@ -35,7 +35,22 @@ let parse_response json =
         ; cost_usd = None
         })
   in
-  let stop_reason = stop_reason_of_string stop_reason_str in
+  let has_tool_blocks =
+    List.exists
+      (function
+        | ToolUse _ -> true
+        | Text _
+        | Thinking _
+        | RedactedThinking _
+        | ToolResult _
+        | Image _
+        | Document _
+        | Audio _ -> false)
+      content
+  in
+  let stop_reason =
+    stop_reason_of_string stop_reason_str |> Stop_reason_wire.reconcile ~has_tool_blocks
+  in
   { id
   ; model
   ; stop_reason

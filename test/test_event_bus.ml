@@ -733,12 +733,15 @@ let test_unknown_tool_reports_available_tools_and_retries () =
   | _ -> fail "on_error fired more than once"
 ;;
 
-let test_provider_read_alias_dispatches_to_read_file_when_visible () =
+let test_registered_read_alias_dispatches_to_read_file_when_visible () =
   Eio_main.run
   @@ fun _env ->
   let context = Context.create ~eio:false () in
   let bus = Event_bus.create () in
   let captured_input = ref `Null in
+  Agent_tool_name_alias.register_alias
+    ~alias:"consumer_read_alias_for_test"
+    ~canonical:"ReadFile";
   let read_file =
     Tool.create ~name:"ReadFile" ~description:"Read a file" ~parameters:[] (fun input ->
       captured_input := input;
@@ -775,11 +778,11 @@ let test_provider_read_alias_dispatches_to_read_file_when_visible () =
       ~correlation_id:"c"
       ~run_id:"r"
       ~schedule
-      "Read"
+      "consumer_read_alias_for_test"
       (`Assoc [ "path", `String "README.md" ])
       "tool-name-alias-read"
   in
-  check bool "provider Read alias succeeds" false result.is_error;
+  check bool "registered read alias succeeds" false result.is_error;
   check string "result uses visible tool name" "ReadFile" result.tool_name;
   check string "read content" "read-ok" result.content;
   check bool "on_error not called" false !on_error_called;
@@ -787,11 +790,12 @@ let test_provider_read_alias_dispatches_to_read_file_when_visible () =
    | `Assoc fields ->
      check
        (option string)
-       "path normalized to file_path"
+       "path preserved"
        (Some "README.md")
-       (match List.assoc_opt "file_path" fields with
+       (match List.assoc_opt "path" fields with
         | Some (`String path) -> Some path
-        | _ -> None)
+        | _ -> None);
+     check bool "file_path not synthesized" false (List.mem_assoc "file_path" fields)
    | _ -> fail "expected object input");
   let events = Event_bus.drain sub in
   check
@@ -807,11 +811,14 @@ let test_provider_read_alias_dispatches_to_read_file_when_visible () =
        events)
 ;;
 
-let test_provider_search_alias_dispatches_to_search_files_when_visible () =
+let test_registered_search_alias_dispatches_to_search_files_when_visible () =
   Eio_main.run
   @@ fun _env ->
   let context = Context.create ~eio:false () in
   let captured_input = ref `Null in
+  Agent_tool_name_alias.register_alias
+    ~alias:"consumer_search_alias_for_test"
+    ~canonical:"SearchFiles";
   let search_files =
     Tool.create
       ~name:"SearchFiles"
@@ -849,11 +856,11 @@ let test_provider_search_alias_dispatches_to_search_files_when_visible () =
       ~agent_name:"agent"
       ~turn_count:0
       ~schedule
-      "Grep"
+      "consumer_search_alias_for_test"
       (`Assoc [ "query", `String "tool_returned_error_result"; "path", `String "logs" ])
       "tool-name-alias-search"
   in
-  check bool "provider Grep alias succeeds" false result.is_error;
+  check bool "registered search alias succeeds" false result.is_error;
   check string "result uses visible tool name" "SearchFiles" result.tool_name;
   check string "search content" "search-ok" result.content;
   check bool "on_error not called" false !on_error_called;
@@ -861,10 +868,10 @@ let test_provider_search_alias_dispatches_to_search_files_when_visible () =
   | `Assoc fields ->
     check
       (option string)
-      "query normalized to pattern"
+      "query preserved"
       (Some "tool_returned_error_result")
-      (match List.assoc_opt "pattern" fields with
-       | Some (`String pattern) -> Some pattern
+      (match List.assoc_opt "query" fields with
+       | Some (`String query) -> Some query
        | _ -> None);
     check
       (option string)
@@ -872,15 +879,19 @@ let test_provider_search_alias_dispatches_to_search_files_when_visible () =
       (Some "logs")
       (match List.assoc_opt "path" fields with
        | Some (`String path) -> Some path
-       | _ -> None)
+       | _ -> None);
+    check bool "pattern not synthesized" false (List.mem_assoc "pattern" fields)
   | _ -> fail "expected object input"
 ;;
 
-let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
+let test_registered_execute_alias_preserves_input () =
   Eio_main.run
   @@ fun _env ->
   let context = Context.create ~eio:false () in
   let captured_input = ref `Null in
+  Agent_tool_name_alias.register_alias
+    ~alias:"consumer_execute_alias_for_test"
+    ~canonical:"Execute";
   let execute =
     Tool.create
       ~name:"Execute"
@@ -908,34 +919,22 @@ let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
       ~agent_name:"agent"
       ~turn_count:0
       ~schedule
-      "execute_command"
+      "consumer_execute_alias_for_test"
       (`Assoc [ "command", `String "git status --short"; "cwd", `String "/tmp/workspace" ])
       "tool-name-alias-execute"
   in
-  check bool "provider execute_command alias succeeds" false result.is_error;
+  check bool "registered execute alias succeeds" false result.is_error;
   check string "result uses visible tool name" "Execute" result.tool_name;
   check string "execute content" "execute-ok" result.content;
   match !captured_input with
   | `Assoc fields ->
     check
       (option string)
-      "command normalized to executable"
-      (Some "git")
-      (match List.assoc_opt "executable" fields with
-       | Some (`String executable) -> Some executable
+      "command preserved"
+      (Some "git status --short")
+      (match List.assoc_opt "command" fields with
+       | Some (`String command) -> Some command
        | _ -> None);
-    check
-      (list string)
-      "command args normalized to argv"
-      [ "status"; "--short" ]
-      (match List.assoc_opt "argv" fields with
-       | Some (`List argv) ->
-         List.filter_map
-           (function
-             | `String arg -> Some arg
-             | _ -> None)
-           argv
-       | _ -> []);
     check
       (option string)
       "cwd preserved"
@@ -943,7 +942,8 @@ let test_provider_execute_alias_dispatches_simple_command_as_typed_argv () =
       (match List.assoc_opt "cwd" fields with
        | Some (`String cwd) -> Some cwd
        | _ -> None);
-    check bool "raw command omitted" false (List.mem_assoc "command" fields)
+    check bool "executable not synthesized" false (List.mem_assoc "executable" fields);
+    check bool "argv not synthesized" false (List.mem_assoc "argv" fields)
   | _ -> fail "expected object input"
 ;;
 
@@ -1298,17 +1298,17 @@ let () =
             `Quick
             test_unknown_tool_reports_available_tools_and_retries
         ; test_case
-            "provider Read alias dispatches to ReadFile when visible"
+            "registered Read alias dispatches to ReadFile when visible"
             `Quick
-            test_provider_read_alias_dispatches_to_read_file_when_visible
+            test_registered_read_alias_dispatches_to_read_file_when_visible
         ; test_case
-            "provider Grep alias dispatches to SearchFiles when visible"
+            "registered Grep alias dispatches to SearchFiles when visible"
             `Quick
-            test_provider_search_alias_dispatches_to_search_files_when_visible
+            test_registered_search_alias_dispatches_to_search_files_when_visible
         ; test_case
-            "provider execute_command alias dispatches to typed Execute when visible"
+            "registered execute_command alias preserves input"
             `Quick
-            test_provider_execute_alias_dispatches_simple_command_as_typed_argv
+            test_registered_execute_alias_preserves_input
         ; test_case
             "on_error silent on successful dispatch"
             `Quick

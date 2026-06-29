@@ -68,6 +68,17 @@ let test_consumer_tool_name_alias_registry () =
   | None -> Alcotest.fail "registered alias did not resolve"
 ;;
 
+let test_no_builtin_consumer_tool_aliases () =
+  let check_unresolved name =
+    Alcotest.(check bool)
+      ("unregistered alias is not built in: " ^ name)
+      true
+      (Option.is_none
+         (Agent_sdk.Agent_tool_name_alias.resolve ~requested:name ~input:`Null))
+  in
+  List.iter check_unresolved [ "Read"; "Grep"; "Bash"; "execute_command" ]
+;;
+
 let test_extract_text () =
   let content =
     [ Text "Hello"; ToolUse { id = "1"; name = "t"; input = `Null }; Text " World" ]
@@ -255,6 +266,10 @@ let () =
             "consumer tool name alias registry"
             `Quick
             test_consumer_tool_name_alias_registry
+        ; test_case
+            "no built-in consumer tool aliases"
+            `Quick
+            test_no_builtin_consumer_tool_aliases
         ] )
     ; "api", [ test_case "extract_text" `Quick test_extract_text ]
     ; ( "agent"
