@@ -31,6 +31,18 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.17](https://github.com/jeong-sik/oas/compare/v0.207.16...v0.207.17) (2026-06-29)
+
+
+### Features
+
+* **reasoning:** typed reasoning_replay_override + Kimi K2 replay ([#2227](https://github.com/jeong-sik/oas/issues/2227)) ([35d9990](https://github.com/jeong-sik/oas/commit/35d99906ba57cbd497c2c1173ea7d67b48c1d171))
+
+
+### Bug Fixes
+
+* **capabilities:** restrict gemini minimal thinking level to flash-lite ([#2224](https://github.com/jeong-sik/oas/issues/2224)) ([4bd292c](https://github.com/jeong-sik/oas/commit/4bd292c0b4a0480a4811e70df267cad774f9511e))
+
 ## [0.207.16](https://github.com/jeong-sik/oas/compare/v0.207.15...v0.207.16) (2026-06-29)
 
 
