@@ -203,6 +203,53 @@ let test_qwen36_dashscope_dialect_reports_enable_thinking () =
     (RD.toggle_wire_to_string dialect.toggle_wire)
 ;;
 
+let test_mimo_v25_uses_thinking_object_and_json_schema () =
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; "additionalProperties", `Bool false
+      ; "properties", `Assoc [ "answer", `Assoc [ "type", `String "string" ] ]
+      ; "required", `List [ `String "answer" ]
+      ]
+  in
+  let config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"mimo-v2.5-pro"
+      ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
+      ~enable_thinking:false
+      ~output_schema:schema
+      ()
+  in
+  let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  let dialect = RD.for_provider_config config in
+  check
+    string
+    "toggle wire"
+    "thinking_object_only"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "visibility"
+    "side_channel:reasoning_content"
+    (RD.visibility_to_string dialect.visibility);
+  let thinking = json |> member "thinking" in
+  check string "thinking type" "disabled" (thinking |> member "type" |> to_string);
+  check_member_absent "chat_template_kwargs" json;
+  check_member_absent "reasoning_effort" json;
+  let response_format = json |> member "response_format" in
+  check
+    string
+    "response_format type"
+    "json_schema"
+    (response_format |> member "type" |> to_string);
+  check
+    bool
+    "json schema strict"
+    true
+    (response_format |> member "json_schema" |> member "strict" |> to_bool)
+;;
+
 let test_openai_reasoning_dialect_uses_reasoning_effort () =
   let dialect =
     RD.of_capabilities Llm_provider.Capabilities.openai_compat_chat_extended_capabilities
@@ -746,6 +793,10 @@ let () =
             "qwen3.6 dashscope dialect reports enable_thinking"
             `Quick
             test_qwen36_dashscope_dialect_reports_enable_thinking
+        ; test_case
+            "mimo v2.5 uses thinking object and json_schema"
+            `Quick
+            test_mimo_v25_uses_thinking_object_and_json_schema
         ; test_case
             "openai reasoning dialect uses reasoning_effort"
             `Quick

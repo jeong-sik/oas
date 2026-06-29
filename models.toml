@@ -1828,7 +1828,14 @@ supports_native_streaming = true
 id_prefix = "mimo-v2.5"
 base = "openai_chat"
 supports_reasoning = true
+# Live MiMo V2.5 OpenAI-compatible smoke, checked 2026-06-29: responses carry
+# reasoning in the `reasoning_content` side-channel, accept tool calls, stream
+# reasoning/tool deltas separately, and accept response_format/json_schema.
 thinking_control_format = "thinking_object_only"
+supports_tools = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
 
 # Nvidia Models
 [[models]]

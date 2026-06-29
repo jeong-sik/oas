@@ -124,7 +124,10 @@ let test_lookup_mimo_v25_pro () =
       "uses thinking object only"
       Capabilities.Thinking_object_only
       c.thinking_control_format;
-    check bool "has tools" true c.supports_tools
+    check bool "has tools" true c.supports_tools;
+    check bool "has response_format json" true c.supports_response_format_json;
+    check bool "has structured output" true c.supports_structured_output;
+    check bool "has native streaming" true c.supports_native_streaming
   | None -> fail "should match mimo-v2.5-pro"
 ;;
 
