@@ -470,6 +470,11 @@
  (libraries agent_sdk llm_provider alcotest))
 
 (test
+ (name test_stop_reason_ssot)
+ (modules test_stop_reason_ssot)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
  (name test_telemetry_event)
  (modules test_telemetry_event)
  (libraries agent_sdk llm_provider alcotest eio_main))

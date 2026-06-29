@@ -173,6 +173,15 @@ type stop_reason =
 
 val stop_reason_of_string : string -> stop_reason
 
+val stop_reason_to_string : stop_reason -> string
+(** Canonical wire serialization — the exact inverse of {!stop_reason_of_string}.
+    SSOT for stop-reason wire strings; consumers must delegate here rather than
+    re-spell the literals. *)
+
+val stop_reason_to_metric_label : stop_reason -> string
+(** Stable, low-cardinality telemetry label. Identical to
+    {!stop_reason_to_string} except [Unknown _] collapses to ["unknown"]. *)
+
 (** API usage from a single provider response. Accumulated multi-call usage
     belongs in agent-level usage stats. *)
 type api_usage =
