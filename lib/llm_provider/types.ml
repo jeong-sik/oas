@@ -335,8 +335,14 @@ let stop_reason_to_string = function
    wildcard) forces a compile error if a new [stop_reason] variant is added. *)
 let stop_reason_to_metric_label = function
   | Unknown _ -> "unknown"
-  | ( EndTurn | StopToolUse | MaxTokens | StopSequence | Refusal | PauseTurn
-    | Compaction | ContextWindowExceeded ) as r -> stop_reason_to_string r
+  | ( EndTurn
+    | StopToolUse
+    | MaxTokens
+    | StopSequence
+    | Refusal
+    | PauseTurn
+    | Compaction
+    | ContextWindowExceeded ) as r -> stop_reason_to_string r
 ;;
 
 (** API usage from a single response *)
