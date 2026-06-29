@@ -31,6 +31,22 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.23](https://github.com/jeong-sik/oas/compare/v0.207.22...v0.207.23) (2026-06-29)
+
+
+### Features
+
+* **multimodal:** close media source kinds ([#2269](https://github.com/jeong-sik/oas/issues/2269)) ([35f5a06](https://github.com/jeong-sik/oas/commit/35f5a06ac6330d030067bfa863230e32bb6d6525))
+
+
+### Bug Fixes
+
+* **agent:** remove built-in consumer tool aliases ([#2271](https://github.com/jeong-sik/oas/issues/2271)) ([8a69156](https://github.com/jeong-sik/oas/commit/8a6915612d1f91049c4ae3960139448986df12a6))
+* **ci:** scope legacy-stage lint to OCaml sources ([#2260](https://github.com/jeong-sik/oas/issues/2260)) ([55fe715](https://github.com/jeong-sik/oas/commit/55fe7154bbf4b3bc52eeebce2b24f17fc5b0671c))
+* **streaming:** correct inline test for fail-closed tool arguments ([#2265](https://github.com/jeong-sik/oas/issues/2265)) ([c741324](https://github.com/jeong-sik/oas/commit/c74132468414bf0663b32722be74c9c4acd7f8c1))
+* **streaming:** fail closed on malformed streamed tool arguments ([#2261](https://github.com/jeong-sik/oas/issues/2261)) ([500f0b3](https://github.com/jeong-sik/oas/commit/500f0b30eeb7a777ae73dbb06521dd955b5c4357))
+* **tool-use:** gate strict text recovery by provider ([#2270](https://github.com/jeong-sik/oas/issues/2270)) ([74d32ec](https://github.com/jeong-sik/oas/commit/74d32eca13c49b4e6b0ca66639e1fc561885e502))
+
 ## [0.207.22](https://github.com/jeong-sik/oas/compare/v0.207.21...v0.207.22) (2026-06-29)
 
 
