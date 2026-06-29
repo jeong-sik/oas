@@ -540,7 +540,12 @@ let test_reasoning_effort_of_thinking_config () =
     "high budget"
     "high"
     (Some true)
-    (Some (Reasoning_effort.medium_budget_max_tokens + 1))
+    (Some Reasoning_effort.high_budget_max_tokens);
+  check_effort
+    "xhigh budget"
+    "xhigh"
+    (Some true)
+    (Some (Reasoning_effort.high_budget_max_tokens + 1))
 ;;
 
 let test_reasoning_effort_top_tier_budget_mapping () =
@@ -624,7 +629,12 @@ let test_reasoning_effort_typed_config_value () =
     "high typed"
     (Some "high")
     (Some true)
-    (Some (Reasoning_effort.medium_budget_max_tokens + 1));
+    (Some Reasoning_effort.high_budget_max_tokens);
+  check_value
+    "xhigh typed"
+    (Some "xhigh")
+    (Some true)
+    (Some (Reasoning_effort.high_budget_max_tokens + 1));
   let getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "xhigh" ] in
   Alcotest.(check (option string))
     "env default typed"

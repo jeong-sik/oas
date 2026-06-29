@@ -31,7 +31,8 @@ let of_budget = function
   | n when n <= 0 -> None
   | n when n <= low_budget_max_tokens -> Some Low
   | n when n <= medium_budget_max_tokens -> Some Medium
-  | _ -> Some High
+  | n when n <= high_budget_max_tokens -> Some High
+  | _ -> Some XHigh
 ;;
 
 let of_budget_with_xhigh = function

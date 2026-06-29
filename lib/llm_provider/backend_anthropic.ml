@@ -86,7 +86,7 @@ let effort_for_config mode (config : Provider_config.t) =
      | ( ( Capabilities.Anthropic_adaptive_only
          | Capabilities.Anthropic_adaptive_preferred
          | Capabilities.Anthropic_always_adaptive )
-       , Some budget ) -> Some (effort_of_budget budget)
+       , Some budget ) -> effort_of_budget budget
      | Capabilities.Anthropic_manual_budget, _
      | ( ( Capabilities.Anthropic_adaptive_only
          | Capabilities.Anthropic_adaptive_preferred
