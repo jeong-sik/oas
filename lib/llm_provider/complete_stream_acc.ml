@@ -919,9 +919,9 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
   | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
-let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
-  (* Non-truncated turn: an unparseable buffer still falls back to empty input
-     (existing behavior). Truncation is handled by the MaxTokens guard, below. *)
+let%test "finalize_stream_acc tool_use with invalid json fails closed" =
+  (* Non-truncated malformed tool arguments must not be coerced to empty input;
+     otherwise the tool would be dispatched with fabricated arguments. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   let buf = Buffer.create 16 in
@@ -931,11 +931,9 @@ let%test "finalize_stream_acc tool_use with invalid json falls back to empty ass
     acc.stop_reason_received := true;
     finalize_stream_acc acc
   with
-  | Error _ -> false
-  | Ok result ->
-    (match result.content with
-     | [ Types.ToolUse { input = `Assoc []; _ } ] -> true
-     | _ -> false)
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = "" && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0:" reason
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc drops tool_use on truncated turn (MaxTokens)" =
