@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.24](https://github.com/jeong-sik/oas/compare/v0.207.23...v0.207.24) (2026-06-29)
+
+
+### Bug Fixes
+
+* **tool-harness:** treat reconciled Unknown stop as non-tool consistent ([#2276](https://github.com/jeong-sik/oas/issues/2276)) ([043ccc5](https://github.com/jeong-sik/oas/commit/043ccc5cf11e7c2be8b4a31ee4cee0c7e420184e)), closes [#2275](https://github.com/jeong-sik/oas/issues/2275)
+
 ## [0.207.23](https://github.com/jeong-sik/oas/compare/v0.207.22...v0.207.23) (2026-06-29)
 
 
