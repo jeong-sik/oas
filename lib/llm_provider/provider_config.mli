@@ -65,10 +65,11 @@ type t =
   ; system_prompt : string option
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
-    (** Preserve Qwen3.6 thinking traces across historical messages when
-        the provider supports it. Self-hosted OpenAI-compatible endpoints
-        use [chat_template_kwargs.preserve_thinking]; DashScope uses a
-        top-level [preserve_thinking]. Ignored by other wire formats.
+    (** Request historical reasoning preservation when the selected provider
+        exposes a preserve toggle. The concrete wire field is selected by
+        [Capabilities.preserve_thinking_control_format]: chat-template kwargs,
+        top-level [preserve_thinking], [thinking.keep], or no request field for
+        always-preserved models.
         @since 0.205.12 *)
   ; thinking_budget : int option
   ; clear_thinking : bool option

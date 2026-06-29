@@ -155,7 +155,7 @@ The `capabilities` object accepts the same capability field names used by
 - `supports_tools`, `supports_tool_choice`, `supports_parallel_tool_calls`
 - `supports_runtime_mcp_tools`, `supports_runtime_tool_events`
 - `supports_reasoning`, `supports_extended_thinking`, `supports_reasoning_budget`
-- `thinking_control_format`
+- `thinking_control_format`, `preserve_thinking_control_format`
 - `supports_response_format_json`, `supports_structured_output`
 - `supports_image_input`, `supports_audio_input`, `supports_video_input`
 - `supports_native_streaming`, `supports_system_prompt`
@@ -175,6 +175,14 @@ Accepted `thinking_control_format` values are:
 - `chat_template_token` (inject a model-specific thinking token into the chat template)
 - `reasoning_effort`
 - `enable_thinking` (top-level `enable_thinking` plus optional `thinking_budget`)
+
+Accepted `preserve_thinking_control_format` values are:
+
+- `none`
+- `thinking_object_keep_all` (`thinking.keep = "all"`)
+- `chat_template_kwargs_preserve_thinking`
+- `top_level_preserve_thinking`
+- `always_preserved` (historical reasoning must be replayed; no request field)
 
 ## External Design References
 

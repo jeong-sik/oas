@@ -1,6 +1,6 @@
 # Provider Reasoning Dialects
 
-Date: 2026-06-14
+Date: 2026-06-29
 
 ## Purpose
 
@@ -10,20 +10,24 @@ strings when they decide how to display, replay, pause, or interrupt reasoning.
 
 `Llm_provider.Reasoning_dialect` is the typed surface for those facts. It is
 derived from the existing capability catalog and provider defaults, so it does
-not introduce a second model registry.
+not introduce a second model registry. The capability model deliberately splits
+thinking enable/depth control from historical-reasoning preserve/replay control:
+current models such as Kimi K2.7-code can require reasoning replay while
+accepting no request-time thinking parameter.
 
 ## Current Dialects
 
-| Capability wire format | Dialect meaning | Replay policy |
-| --- | --- | --- |
-| `Thinking_object` | DeepSeek-style top-level `thinking` object, optional `reasoning_effort`, side-channel `reasoning_content` | Drop reasoning between plain user turns, preserve reasoning after assistant tool calls |
-| `Thinking_object_only` | Top-level `thinking` object without effort | No mandatory replay yet |
-| `Chat_template_kwargs` | Self-hosted chat-template kwargs such as Qwen `enable_thinking` / `preserve_thinking` | No mandatory replay yet |
-| `Chat_template_token` | Template token injection such as Gemma `<\|think\|>` | No mandatory replay; parse visible thought channel from generated text |
-| `Reasoning_effort` | OpenAI-compatible `reasoning_effort` field | No mandatory replay yet |
-| `Enable_thinking` | DashScope-style top-level `enable_thinking` | No mandatory replay yet |
-| `Anthropic_thinking` | Claude Messages API `thinking` blocks. Older/current manual-thinking models use `thinking: {type:"enabled", budget_tokens:N}`; adaptive models use `thinking: {type:"adaptive"}` plus optional `output_config.effort`. | Preserve thinking blocks in history; Claude filters relevant blocks |
-| `Gemini_thinking_config` | Gemini native `generationConfig.thinkingConfig`. Gemini 3+ uses `thinkingLevel`; Gemini 2.5 uses `thinkingBudget`; thought parts/signatures carry visible summaries/tool continuity. | Preserve tool-call-linked thought signatures |
+| Thinking control format | Preserve control format | Dialect meaning | Replay policy |
+| --- | --- | --- | --- |
+| `Thinking_object` | `No_preserve_thinking_control` | DeepSeek-style top-level `thinking` object, optional `reasoning_effort`, side-channel `reasoning_content` | Drop reasoning between plain user turns, preserve reasoning after assistant tool calls |
+| `Thinking_object_only` | `Thinking_object_keep_all` | Top-level `thinking` object without effort plus `thinking.keep="all"` when requested | Preserve historical `reasoning_content` when `preserve_thinking=true` |
+| `Chat_template_kwargs` | `Chat_template_kwargs_preserve_thinking` | Self-hosted chat-template kwargs such as Qwen `enable_thinking` / `preserve_thinking` | Preserve historical reasoning only when requested |
+| `Enable_thinking` | `Top_level_preserve_thinking` | DashScope-style top-level `enable_thinking` plus separate `preserve_thinking` | Preserve historical reasoning only when requested |
+| `No_thinking_control` | `Always_preserved_thinking` | Latest Kimi-style models whose thinking is provider-controlled and whose historical `reasoning_content` must remain in messages | Always replay historical reasoning; emit no thinking request field |
+| `Chat_template_token` | `No_preserve_thinking_control` | Template token injection such as Gemma `<\|think\|>` | No mandatory replay; parse visible thought channel from generated text |
+| `Reasoning_effort` | `No_preserve_thinking_control` | OpenAI-compatible `reasoning_effort` field | No mandatory replay yet |
+| `Anthropic_thinking` | built-in | Claude Messages API `thinking` blocks. Older/current manual-thinking models use `thinking: {type:"enabled", budget_tokens:N}`; adaptive models use `thinking: {type:"adaptive"}` plus optional `output_config.effort`. | Preserve thinking blocks in history; Claude filters relevant blocks |
+| `Gemini_thinking_config` | built-in | Gemini native `generationConfig.thinkingConfig`. Gemini 3+ uses `thinkingLevel`; Gemini 2.5 uses `thinkingBudget`; thought parts/signatures carry visible summaries/tool continuity. | Preserve tool-call-linked thought signatures |
 
 ## Evidence
 
@@ -60,6 +64,13 @@ not introduce a second model registry.
   assistant reasoning forward. Source:
   <https://www.alibabacloud.com/help/en/model-studio/deep-thinking>, checked
   2026-06-14.
+- Kimi official docs: Kimi K2.7-code preserves thinking by default, should not
+  receive a request-time `thinking` parameter, and requires historical assistant
+  `reasoning_content` to remain in `messages`. Older Kimi variants can be
+  described through the separate preserve capability axis if an operator needs
+  them. Source:
+  <https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model>, checked
+  2026-06-29.
 
 ## Boundary
 
