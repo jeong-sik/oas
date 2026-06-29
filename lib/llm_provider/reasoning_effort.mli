@@ -6,6 +6,7 @@
     {!Reasoning_dialect}. *)
 
 type t =
+  | None_
   | Minimal
   | Low
   | Medium
@@ -14,6 +15,7 @@ type t =
 
 val all : t list
 val to_string : t -> string
+val all_wire_values : string list
 val of_string : string -> t option
 val values_for_log : string
 val low_budget_max_tokens : int

@@ -1308,6 +1308,35 @@ let test_manifest_rejects_retired_reasoning_visibility_key () =
   | Ok _ -> Alcotest.fail "retired reasoning_visibility key should reject"
 ;;
 
+let test_manifest_applies_accepted_reasoning_efforts () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"effort-ok","accepted_reasoning_efforts":["none","low","high"]}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    Alcotest.(check (option (list string)))
+      "accepted subset"
+      (Some [ "none"; "low"; "high" ])
+      (Option.map
+         (List.map Reasoning_effort.to_string)
+         (Capabilities.apply_manifest_entry entry).accepted_reasoning_efforts)
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
+let test_manifest_rejects_unknown_accepted_reasoning_effort () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"effort-bad","accepted_reasoning_efforts":["turbo"]}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "accepted_reasoning_efforts";
+    check_contains "mentions value" msg "turbo"
+  | Ok _ -> Alcotest.fail "unknown accepted reasoning effort should reject"
+;;
+
 let test_manifest_intlit_in_range_accepted () =
   (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
      directly to exercise the Intlit branch deterministically. *)
@@ -1486,6 +1515,22 @@ base = 17
          check_contains "mentions base" msg "base";
          check_contains "mentions expected type" msg "expected string"
        | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
+;;
+
+let test_model_catalog_rejects_unknown_accepted_reasoning_effort () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-effort"
+accepted_reasoning_efforts = ["low", "turbo"]
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions field" msg "accepted_reasoning_efforts";
+         check_contains "mentions value" msg "turbo"
+       | Ok _ ->
+         Alcotest.fail "unknown model catalog accepted_reasoning_effort should reject")
 ;;
 
 (* ── DashScope preset ────────────────────────────────── *)
@@ -1759,6 +1804,14 @@ let () =
             `Quick
             test_manifest_rejects_retired_reasoning_visibility_key
         ; test_case
+            "accepted reasoning efforts applied"
+            `Quick
+            test_manifest_applies_accepted_reasoning_efforts
+        ; test_case
+            "unknown accepted reasoning effort rejects"
+            `Quick
+            test_manifest_rejects_unknown_accepted_reasoning_effort
+        ; test_case
             "intlit in range accepted"
             `Quick
             test_manifest_intlit_in_range_accepted
@@ -1794,6 +1847,10 @@ let () =
             "model catalog rejects wrong-type base"
             `Quick
             test_model_catalog_rejects_wrong_type_base_label
+        ; test_case
+            "model catalog rejects unknown accepted reasoning effort"
+            `Quick
+            test_model_catalog_rejects_unknown_accepted_reasoning_effort
         ] )
     ; ( "prefix_ordering"
       , [ test_case

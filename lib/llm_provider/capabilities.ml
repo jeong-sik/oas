@@ -87,6 +87,11 @@ type capabilities =
     supports_reasoning : bool (** Any form of reasoning/thinking *)
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
+  ; accepted_reasoning_efforts : Reasoning_effort.t list option
+    (** Model/provider-specific subset of canonical reasoning efforts accepted
+        by the request wire format. [None] means no subset is declared and the
+        dialect vocabulary applies; [Some values] is enforced before request
+        serialization. *)
   ; thinking_control_format : thinking_control_format
     (** Wire-format for thinking control on OpenAI-compat backends.
         Determines which JSON shape the backend emits for enable_thinking.
@@ -159,6 +164,7 @@ let default_capabilities =
   ; supports_reasoning = false
   ; supports_extended_thinking = false
   ; supports_reasoning_budget = false
+  ; accepted_reasoning_efforts = None
   ; thinking_control_format = No_thinking_control
   ; preserve_thinking_control_format = No_preserve_thinking_control
   ; reasoning_replay_override = Default_reasoning_replay
@@ -652,6 +658,33 @@ let modality_priority_of_catalog_string raw =
   | _ -> None
 ;;
 
+let reasoning_efforts_of_catalog_strings ~field values =
+  let parsed =
+    List.map
+      (fun raw ->
+         match Reasoning_effort.of_string raw with
+         | Some effort -> Ok effort
+         | None -> Error raw)
+      values
+  in
+  let efforts, invalid =
+    List.partition_map
+      (function
+        | Ok effort -> Either.Left effort
+        | Error raw -> Either.Right raw)
+      parsed
+  in
+  match invalid with
+  | [] -> Some efforts
+  | values ->
+    Diag.warn
+      "capabilities"
+      "unknown %s value(s) %s; keeping provider base capability"
+      field
+      (String.concat ", " values);
+    None
+;;
+
 let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   let base =
     match entry.base_label with
@@ -701,6 +734,17 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
       override_bool base.supports_extended_thinking entry.supports_extended_thinking
   ; supports_reasoning_budget =
       override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; accepted_reasoning_efforts =
+      (match entry.accepted_reasoning_efforts with
+       | Some values ->
+         (match
+            reasoning_efforts_of_catalog_strings
+              ~field:"accepted_reasoning_efforts"
+              values
+          with
+          | Some efforts -> Some efforts
+          | None -> base.accepted_reasoning_efforts)
+       | None -> base.accepted_reasoning_efforts)
   ; supports_response_format_json =
       override_bool base.supports_response_format_json entry.supports_response_format_json
   ; supports_structured_output =
@@ -870,6 +914,17 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
       override_bool base.supports_extended_thinking entry.supports_extended_thinking
   ; supports_reasoning_budget =
       override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; accepted_reasoning_efforts =
+      (match entry.accepted_reasoning_efforts with
+       | Some values ->
+         (match
+            reasoning_efforts_of_catalog_strings
+              ~field:"accepted_reasoning_efforts"
+              values
+          with
+          | Some efforts -> Some efforts
+          | None -> base.accepted_reasoning_efforts)
+       | None -> base.accepted_reasoning_efforts)
   ; supports_response_format_json =
       override_bool base.supports_response_format_json entry.supports_response_format_json
   ; supports_structured_output =
@@ -1142,6 +1197,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_reasoning = None
   ; supports_extended_thinking = None
   ; supports_reasoning_budget = None
+  ; accepted_reasoning_efforts = None
   ; supports_response_format_json = None
   ; supports_structured_output = None
   ; supports_multimodal_inputs = None
@@ -1730,6 +1786,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.max_output_tokens = cb.max_output_tokens
       && ca.supports_image_input = cb.supports_image_input
       && ca.thinking_control_format = cb.thinking_control_format
+      && ca.accepted_reasoning_efforts = cb.accepted_reasoning_efforts
       && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
       && ca.assistant_tool_content_format = cb.assistant_tool_content_format
       && ca.reasoning_replay_override = cb.reasoning_replay_override

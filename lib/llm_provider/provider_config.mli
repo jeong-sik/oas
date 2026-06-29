@@ -283,6 +283,7 @@ val default_attempt_timeout_s : provider_kind -> float option
     [reasoning_effort_to_string] is the only string serialization surface for
     these values. *)
 type reasoning_effort = Reasoning_effort.t =
+  | None_
   | Minimal
   | Low
   | Medium
@@ -465,6 +466,28 @@ val validate_tool_choice_request_with_capabilities
   -> (unit, tool_choice_request_rejection) result
 
 val validate_tool_choice_request : t -> (unit, string) result
+
+(** Validate provider/model-specific reasoning effort subsets before request
+    serialization. The canonical effort vocabulary lives in
+    {!Reasoning_effort}; this guard enforces the selected model's accepted
+    subset when the capability catalog declares one. *)
+type reasoning_effort_request_rejection =
+  | Unsupported_reasoning_effort of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
+      ; accepted : reasoning_effort list
+      }
+
+val reasoning_effort_request_rejection_to_message
+  :  reasoning_effort_request_rejection
+  -> string
+
+val validate_reasoning_effort_request_typed
+  :  t
+  -> (unit, reasoning_effort_request_rejection) result
+
+val validate_reasoning_effort_request : t -> (unit, string) result
 
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)

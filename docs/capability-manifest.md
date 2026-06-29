@@ -83,6 +83,7 @@ for the full JSON Schema (draft-07).
 | `supports_reasoning` | bool | from base | Any reasoning capability (union). |
 | `supports_extended_thinking` | bool | from base | budget\_tokens-controlled thinking. |
 | `supports_reasoning_budget` | bool | from base | Reasoning effort control. |
+| `accepted_reasoning_efforts` | string[] | from base | Optional model-specific subset of canonical reasoning effort values. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Omit unless verified for that model. |
 | `supports_response_format_json` | bool | from base | JSON mode (valid JSON, no schema). |
 | `supports_structured_output` | bool | from base | Provider-native schema output. |
 | `supports_multimodal_inputs` | bool | from base | Any non-text input (union). |
@@ -100,6 +101,8 @@ for the full JSON Schema (draft-07).
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
 | `thinking_control_format` | string | from base | Thinking enable/depth wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `ollama_think`, `reasoning_effort`, `enable_thinking`. |
 | `preserve_thinking_control_format` | string | from base | Historical reasoning replay/preserve wire control. Accepted values: `none`, `thinking_object_keep_all`, `chat_template_kwargs_preserve_thinking`, `top_level_preserve_thinking`, `always_preserved`. |
+| `reasoning_visibility` | string | `default` | Optional parsed reasoning visibility override. Accepted values: `default`, `provider_hidden`, `visible_channel`, `visible_text`. |
+| `reasoning_replay` | string | `default` | Optional multi-turn reasoning replay override. Accepted values: `default`, `no_replay`, `drop_without_tool`, `preserve_always`. |
 
 Unknown fields and unknown enum values are rejected. Additive schema changes
 must update the parser and this schema together.

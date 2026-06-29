@@ -276,9 +276,15 @@ let build_request_assoc
       | Thinking_object_only
       | Chat_template_kwargs
       | Chat_template_token
+      | Ollama_think
       | Reasoning_effort
       | Enable_thinking -> None
     in
+    (match Provider_config.validate_reasoning_effort_request config with
+     | Ok () -> ()
+     | Error reason ->
+       invalid_arg
+         (Printf.sprintf "Backend_openai_request.normalized_reasoning_effort: %s" reason));
     Reasoning_dialect.request_control_fields
       dialect
       ~enable_thinking:config.enable_thinking

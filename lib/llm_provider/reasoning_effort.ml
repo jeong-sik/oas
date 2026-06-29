@@ -1,21 +1,25 @@
 (** Canonical OpenAI-compatible reasoning effort values. *)
 
 type t =
+  | None_
   | Minimal
   | Low
   | Medium
   | High
   | XHigh
 
-let all = [ Minimal; Low; Medium; High; XHigh ]
+let all = [ None_; Minimal; Low; Medium; High; XHigh ]
 
 let to_string = function
+  | None_ -> "none"
   | Minimal -> "minimal"
   | Low -> "low"
   | Medium -> "medium"
   | High -> "high"
   | XHigh -> "xhigh"
 ;;
+
+let all_wire_values = List.map to_string all
 
 let of_string value =
   let normalized = String.lowercase_ascii (String.trim value) in

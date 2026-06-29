@@ -46,10 +46,11 @@ let thinking_level_of_budget ~supports_minimal = function
   | Some n when n <= 0 -> if supports_minimal then "minimal" else "low"
   | Some n ->
     (match Reasoning_effort.of_budget n with
-     | Some effort ->
-       Reasoning_dialect.normalize_effort_value Reasoning_dialect.default effort
-       |> Option.value ~default:"high"
-     | None -> "high")
+     | Some Reasoning_effort.Low -> "low"
+     | Some Reasoning_effort.Medium -> "medium"
+     | Some Reasoning_effort.High | Some Reasoning_effort.XHigh -> "high"
+     | Some (Reasoning_effort.None_ | Reasoning_effort.Minimal) | None ->
+       if supports_minimal then "minimal" else "low")
   | None -> "high"
 ;;
 

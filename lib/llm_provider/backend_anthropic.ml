@@ -60,18 +60,15 @@ let parse_response json =
   }
 ;;
 
-let adaptive_effort_dialect =
-  { Reasoning_dialect.default with effort_alias_policy = Reasoning_dialect.Xhigh_as_max }
-;;
-
 let effort_of_budget budget =
-  let effort =
-    match Reasoning_effort.of_budget_with_xhigh budget with
-    | Some effort -> effort
-    | None -> Reasoning_effort.Low
-  in
-  Reasoning_dialect.normalize_effort_value adaptive_effort_dialect effort
-  |> Option.value ~default:"low"
+  match Reasoning_effort.of_budget budget with
+  | Some Reasoning_effort.None_ -> None
+  | Some Reasoning_effort.Minimal -> None
+  | Some Reasoning_effort.Low -> Some "low"
+  | Some Reasoning_effort.Medium -> Some "medium"
+  | Some Reasoning_effort.High -> Some "high"
+  | Some Reasoning_effort.XHigh -> Some "max"
+  | None -> None
 ;;
 
 let effort_for_config mode (config : Provider_config.t) =

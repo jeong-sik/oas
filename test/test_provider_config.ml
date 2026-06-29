@@ -636,7 +636,8 @@ let test_reasoning_effort_top_tier_budget_mapping () =
 
 let test_reasoning_effort_typed_roundtrip () =
   let cases =
-    [ Provider_config.Minimal, "minimal"
+    [ Provider_config.None_, "none"
+    ; Provider_config.Minimal, "minimal"
     ; Provider_config.Low, "low"
     ; Provider_config.Medium, "medium"
     ; Provider_config.High, "high"
@@ -708,12 +709,60 @@ let test_reasoning_effort_typed_config_value () =
           ~enable_thinking:(Some true)
           ~thinking_budget:None
           ()));
+  let none_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "none" ] in
+  Alcotest.(check (option string))
+    "env none typed"
+    (Some "none")
+    (reasoning_effort_option_to_string
+       (Provider_config.effort_of_thinking_config_value
+          ~getenv:none_getenv
+          ~enable_thinking:(Some true)
+          ~thinking_budget:None
+          ()));
   let invalid_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "urgent" ] in
   Alcotest.(check string)
     "invalid env defaults medium"
     "medium"
     (Provider_config.reasoning_effort_to_string
        (Provider_config.default_reasoning_effort_value ~getenv:invalid_getenv ()))
+;;
+
+let test_validate_reasoning_effort_subset_rejects_unsupported () =
+  let manifest =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"effort-subset-model","base":"openai_chat_extended","accepted_reasoning_efforts":["low"]}]}|}
+    |> Capability_manifest.of_json
+    |> Result.get_ok
+  in
+  Fun.protect ~finally:Capability_manifest.clear_global (fun () ->
+    Capability_manifest.set_global manifest;
+    let cfg thinking_budget =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"effort-subset-model"
+        ~base_url:"https://api.openai.com/v1"
+        ~enable_thinking:true
+        ~thinking_budget
+        ()
+    in
+    Alcotest.(check bool)
+      "low accepted"
+      true
+      (Result.is_ok
+         (Provider_config.validate_reasoning_effort_request_typed
+            (cfg Reasoning_effort.low_budget_max_tokens)));
+    match
+      Provider_config.validate_reasoning_effort_request_typed
+        (cfg Reasoning_effort.high_budget_max_tokens)
+    with
+    | Error
+        (Provider_config.Unsupported_reasoning_effort
+           { effort = Provider_config.High; accepted = [ Provider_config.Low ]; _ }) -> ()
+    | Error rejection ->
+      Alcotest.failf
+        "unexpected rejection: %s"
+        (Provider_config.reasoning_effort_request_rejection_to_message rejection)
+    | Ok () -> Alcotest.fail "high effort should be rejected by accepted subset")
 ;;
 
 let test_reasoning_effort_of_config () =
@@ -1325,6 +1374,10 @@ let () =
             "reasoning effort request value"
             `Quick
             test_reasoning_effort_request_value
+        ; Alcotest.test_case
+            "reasoning effort accepted subset"
+            `Quick
+            test_validate_reasoning_effort_subset_rejects_unsupported
         ; Alcotest.test_case
             "structured output names"
             `Quick

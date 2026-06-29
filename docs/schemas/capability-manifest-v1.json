@@ -82,6 +82,15 @@
           "type": "boolean",
           "description": "Whether the model supports reasoning budget control (budget_tokens, reasoning_effort, etc.)."
         },
+        "accepted_reasoning_efforts": {
+          "type": "array",
+          "description": "Optional model-specific subset of canonical reasoning_effort values accepted by this model. Omit when the subset is not confirmed.",
+          "items": {
+            "type": "string",
+            "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
+          },
+          "uniqueItems": true
+        },
         "supports_response_format_json": {
           "type": "boolean",
           "description": "Whether the model supports JSON output mode (syntactically valid JSON, no schema guarantee)."
@@ -165,6 +174,26 @@
             "chat_template_kwargs_preserve_thinking",
             "top_level_preserve_thinking",
             "always_preserved"
+          ]
+        },
+        "reasoning_visibility": {
+          "type": "string",
+          "description": "Optional override for surfacing parsed reasoning output.",
+          "enum": [
+            "default",
+            "provider_hidden",
+            "visible_channel",
+            "visible_text"
+          ]
+        },
+        "reasoning_replay": {
+          "type": "string",
+          "description": "Optional override for multi-turn reasoning replay policy.",
+          "enum": [
+            "default",
+            "no_replay",
+            "drop_without_tool",
+            "preserve_always"
           ]
         }
       },

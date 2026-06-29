@@ -209,6 +209,16 @@ let bool_field name = function
   | None -> []
 ;;
 
+let normalize_effort_value dialect effort =
+  match dialect.effort_alias_policy, (effort : Reasoning_effort.t) with
+  | ( Deepseek_high_or_max
+    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
+    Some "high"
+  | Deepseek_high_or_max, Reasoning_effort.XHigh -> Some "max"
+  | Deepseek_high_or_max, (Reasoning_effort.None_ | Reasoning_effort.Minimal) -> None
+  | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
+;;
+
 let request_control_fields
       dialect
       ~enable_thinking

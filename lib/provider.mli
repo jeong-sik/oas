@@ -95,6 +95,7 @@ type capabilities =
   ; supports_reasoning : bool
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
+  ; accepted_reasoning_efforts : Llm_provider.Reasoning_effort.t list option
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_replay_override : reasoning_replay_override

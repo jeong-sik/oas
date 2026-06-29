@@ -259,6 +259,7 @@ let default_attempt_timeout_s = function
 ;;
 
 type reasoning_effort = Reasoning_effort.t =
+  | None_
   | Minimal
   | Low
   | Medium
@@ -446,6 +447,23 @@ let tool_choice_request_rejection_to_message = function
       model_id
 ;;
 
+let request_capabilities_for_config (config : t) =
+  let caps =
+    match capabilities_for_config_model config with
+    | Some caps -> caps
+    | None ->
+      (match config.kind with
+       | Glm -> Capabilities.glm_capabilities
+       | Anthropic -> Capabilities.anthropic_capabilities
+       | Kimi -> Capabilities.kimi_capabilities
+       | Ollama -> Capabilities.ollama_capabilities
+       | Gemini -> Capabilities.gemini_capabilities
+       | DashScope -> Capabilities.dashscope_capabilities
+       | OpenAI_compat -> Capabilities.default_capabilities)
+  in
+  caps
+;;
+
 let tool_choice_capabilities_for_config (config : t) =
   let caps =
     match capabilities_for_config_model config with
@@ -514,6 +532,51 @@ let validate_tool_choice_request config =
   Result.map_error
     tool_choice_request_rejection_to_message
     (validate_tool_choice_request_typed config)
+;;
+
+type reasoning_effort_request_rejection =
+  | Unsupported_reasoning_effort of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
+      ; accepted : reasoning_effort list
+      }
+
+let reasoning_effort_list_to_message values =
+  values |> List.map reasoning_effort_to_string |> String.concat "/"
+;;
+
+let reasoning_effort_request_rejection_to_message = function
+  | Unsupported_reasoning_effort { provider_kind; model_id; effort; accepted } ->
+    Printf.sprintf
+      "%s model %S does not accept reasoning effort %S; accepted values: %s"
+      (string_of_provider_kind provider_kind)
+      model_id
+      (reasoning_effort_to_string effort)
+      (reasoning_effort_list_to_message accepted)
+;;
+
+let validate_reasoning_effort_request_typed (config : t) =
+  match
+    reasoning_effort_request_value_typed
+      ~enable_thinking:config.enable_thinking
+      ~thinking_budget:config.thinking_budget
+  with
+  | None -> Ok ()
+  | Some effort ->
+    let caps = request_capabilities_for_config config in
+    (match caps.Capabilities.accepted_reasoning_efforts with
+     | Some accepted when not (List.mem effort accepted) ->
+       Error
+         (Unsupported_reasoning_effort
+            { provider_kind = config.kind; model_id = config.model_id; effort; accepted })
+     | Some _ | None -> Ok ())
+;;
+
+let validate_reasoning_effort_request config =
+  Result.map_error
+    reasoning_effort_request_rejection_to_message
+    (validate_reasoning_effort_request_typed config)
 ;;
 
 (** Compute reasoning_effort for a provider config.

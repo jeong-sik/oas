@@ -71,6 +71,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_reasoning = caps.supports_reasoning
   ; supports_extended_thinking = caps.supports_extended_thinking
   ; supports_reasoning_budget = caps.supports_reasoning_budget
+  ; accepted_reasoning_efforts = caps.accepted_reasoning_efforts
   ; thinking_control_format = caps.thinking_control_format
   ; preserve_thinking_control_format = caps.preserve_thinking_control_format
   ; reasoning_replay_override = caps.reasoning_replay_override

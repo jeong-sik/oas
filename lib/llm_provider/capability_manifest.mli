@@ -59,6 +59,9 @@ type entry =
   ; supports_reasoning : bool option
   ; supports_extended_thinking : bool option
   ; supports_reasoning_budget : bool option
+  ; accepted_reasoning_efforts : string list option
+    (** Optional subset of canonical reasoning effort values this model accepts
+        (none / minimal / low / medium / high / xhigh). *)
   ; supports_response_format_json : bool option
   ; supports_structured_output : bool option
   ; supports_multimodal_inputs : bool option
