@@ -86,6 +86,13 @@ let accumulate_event (acc : stream_acc) = function
     (match delta with
      | Types.TextDelta s | Types.ThinkingDelta s | Types.InputJsonDelta s ->
        Buffer.add_string buf s
+     | Types.InputJsonSnapshot s ->
+       (* A complete tool-call arguments value replaces the block buffer rather
+          than appending, so a provider that re-emits the same whole value over
+          multiple chunks does not concatenate it into invalid JSON (e.g.
+          [{"limit":10}{"limit":10}]). *)
+       Buffer.clear buf;
+       Buffer.add_string buf s
      | Types.MediaDelta { media_type; source_type; data } ->
        Hashtbl.replace acc.block_media_types index media_type;
        Hashtbl.replace acc.block_media_sources index source_type;
@@ -721,6 +728,50 @@ let%test "accumulate_event InputJsonDelta appends to buffer" =
     (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta "\"v\"}" });
   let buf = Hashtbl.find acc.block_texts 0 in
   Buffer.contents buf = "{\"k\":\"v\"}"
+;;
+
+let%test "accumulate_event InputJsonSnapshot replaces buffer (no concat on repeat)" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "tool_use"; tool_id = None; tool_name = None });
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"old":1}|} });
+  (* A provider that re-emits the same (or an updated) complete arguments value
+     must replace, not append, so the buffer never becomes invalid JSON. *)
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} });
+  let buf = Hashtbl.find acc.block_texts 0 in
+  Buffer.contents buf = {|{"limit":10}|}
+;;
+
+let%test "finalize_stream_acc repeated tool-arg snapshot stays valid JSON" =
+  (* Regression: an OpenAI-compatible/Ollama/Gemini provider that streams a
+     whole tool-call arguments object and re-emits it on a later chunk used to
+     append into [{"limit":10}{"limit":10}], which finalize rejected as
+     [malformed_tool_use_arguments]. With InputJsonSnapshot the second emit
+     replaces the first, so the tool input parses cleanly. *)
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some "call_1"
+        ; tool_name = Some "list"
+        }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} }
+    ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok { content = [ Types.ToolUse { input; name; _ } ]; _ } ->
+    name = "list" && input = `Assoc [ ("limit", `Int 10) ]
+  | Ok _ | Error _ -> false
 ;;
 
 let%test "accumulate_event MessageDelta None stop_reason keeps default" =

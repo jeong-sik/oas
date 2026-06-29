@@ -115,11 +115,11 @@ let test_sse_function_call () =
     let has_input_delta =
       List.exists
         (function
-          | Types.ContentBlockDelta { delta = InputJsonDelta _; _ } -> true
+          | Types.ContentBlockDelta { delta = InputJsonSnapshot _; _ } -> true
           | _ -> false)
         events
     in
-    check "InputJsonDelta emitted" has_input_delta;
+    check "InputJsonSnapshot emitted" has_input_delta;
     (* A Gemini stream that emitted a functionCall and finishes with STOP now
        reports StopToolUse, not EndTurn (#2061): the model wants a tool call.
        Mirrors the Alcotest gemini stop-reason tests #2061 already updated. *)

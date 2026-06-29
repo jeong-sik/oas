@@ -156,7 +156,7 @@ let test_chunk_tool_call_is_token () =
     { tc_index = 0
     ; tc_id = Some "call_1"
     ; tc_name = Some "fetch"
-    ; tc_arguments = Some "{}"
+    ; tc_arguments = Some (Streaming.Args_complete "{}")
     }
   in
   let c = make_openai_chunk ~delta_tool_calls:[ tc ] () in

@@ -141,7 +141,8 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   match e with
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = ThinkingDelta s; _ } -> non_empty s
-  | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = (InputJsonDelta s | InputJsonSnapshot s); _ } ->
+    non_empty s
   | ContentBlockDelta { delta = MediaDelta { data; _ }; _ } -> non_empty data
   | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ } -> false
   | MessageStart _
@@ -162,7 +163,8 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   let non_empty s = String.length s > 0 in
   match e with
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
-  | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = (InputJsonDelta s | InputJsonSnapshot s); _ } ->
+    non_empty s
   | ContentBlockDelta { delta = MediaDelta { data; _ }; _ } -> non_empty data
   | ContentBlockStart { content_type = "tool_use"; _ } -> true
   | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ }
@@ -215,7 +217,7 @@ let emit_synthetic_events (response : api_response) on_event =
         | ToolUse { input; _ } ->
           on_event
             (ContentBlockDelta
-               { index; delta = InputJsonDelta (Yojson.Safe.to_string input) })
+               { index; delta = InputJsonSnapshot (Yojson.Safe.to_string input) })
         | Image { media_type; data; source_type }
         | Document { media_type; data; source_type }
         | Audio { media_type; data; source_type } ->
@@ -271,11 +273,20 @@ let%test "emit_synthetic_events round-trips a media block through the accumulato
     We parse each SSE chunk into {!openai_chunk}, then convert to
     {!sse_event} list using a stateful adapter ({!openai_stream_state}). *)
 
+(* Wire shape of streamed tool-call arguments. [Args_fragment] is an incremental
+   string chunk that the accumulator appends; [Args_complete] is a whole
+   object/array value serialized in a single delta, which the accumulator uses
+   to replace the block buffer so a provider that re-emits the same complete
+   value does not concatenate it into invalid JSON. *)
+type tool_call_arguments =
+  | Args_fragment of string
+  | Args_complete of string
+
 type openai_tool_call_delta =
   { tc_index : int
   ; tc_id : string option
   ; tc_name : string option
-  ; tc_arguments : string option
+  ; tc_arguments : tool_call_arguments option
   }
 
 type openai_chunk =
@@ -391,14 +402,18 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
                    let tc_arguments =
                      (* llama.cpp/llama-server (#20198) streams tool-call
                         arguments as a JSON object/array, not a serialized
-                        string; serialize so the string-fragment accumulator
-                        does not silently drop them (the Ollama NDJSON path
-                        already handles this shape). *)
+                        string. A whole object/array is a complete value, so
+                        tag it [Args_complete]: the accumulator replaces the
+                        block buffer instead of appending, so a provider that
+                        re-emits the same value over multiple chunks does not
+                        concatenate it into invalid JSON. A bare string is an
+                        incremental fragment ([Args_fragment]). *)
                      match fn |> member "arguments" with
                      | `Null -> None
-                     | (`Assoc _ | `List _) as v -> Some (Yojson.Safe.to_string v)
-                     | `String s -> Some s
-                     | other -> Some (Yojson.Safe.to_string other)
+                     | (`Assoc _ | `List _) as v ->
+                       Some (Args_complete (Yojson.Safe.to_string v))
+                     | `String s -> Some (Args_fragment s)
+                     | other -> Some (Args_complete (Yojson.Safe.to_string other))
                    in
                    Some { tc_index; tc_id; tc_name; tc_arguments }
                  with
@@ -597,11 +612,12 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
            idx
        in
        match tc.tc_arguments with
-       | Some args when args <> "" ->
+       | Some (Args_fragment args) when args <> "" ->
          emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
-       | Some empty_args ->
-         let (_ : string) = empty_args in
-         ()
+       | Some (Args_complete args) when args <> "" ->
+         emit
+           (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
+       | Some (Args_fragment _ | Args_complete _) -> ()
        | None -> ())
     chunk.delta_tool_calls;
   (* Finish reason -> MessageDelta *)
@@ -1074,7 +1090,7 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
            state.next_block_index <- state.next_block_index + 1;
            emit
              (ContentBlockDelta
-                { index = idx; delta = InputJsonDelta (Yojson.Safe.to_string args) })
+                { index = idx; delta = InputJsonSnapshot (Yojson.Safe.to_string args) })
          | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> ()
        in
        match part |> member "text" |> to_string_option with
@@ -1148,7 +1164,7 @@ type ollama_tool_call_delta =
   { oll_tc_index : int
   ; oll_tc_id : string option
   ; oll_tc_name : string option
-  ; oll_tc_arguments : string option
+  ; oll_tc_arguments : tool_call_arguments option
   }
 
 type ollama_chunk =
@@ -1201,9 +1217,10 @@ let parse_ollama_ndjson_chunk data_str : ollama_chunk option =
                 let oll_tc_arguments =
                   match func |> member "arguments" with
                   | `Null -> None
-                  | (`Assoc _ | `List _) as v -> Some (Yojson.Safe.to_string v)
-                  | `String s -> Some s
-                  | other -> Some (Yojson.Safe.to_string other)
+                  | (`Assoc _ | `List _) as v ->
+                    Some (Args_complete (Yojson.Safe.to_string v))
+                  | `String s -> Some (Args_fragment s)
+                  | other -> Some (Args_complete (Yojson.Safe.to_string other))
                 in
                 { oll_tc_index = idx; oll_tc_id; oll_tc_name; oll_tc_arguments })
              items
@@ -1378,11 +1395,12 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
            idx
        in
        match tc.oll_tc_arguments with
-       | Some args when args <> "" ->
+       | Some (Args_fragment args) when args <> "" ->
          emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
-       | Some empty_args ->
-         let (_ : string) = empty_args in
-         ()
+       | Some (Args_complete args) when args <> "" ->
+         emit
+           (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
+       | Some (Args_fragment _ | Args_complete _) -> ()
        | None -> ())
     chunk.oll_tool_calls;
   (* Terminal chunk: emit MessageDelta with stop_reason + usage. *)
@@ -1479,7 +1497,7 @@ let%test "parse_ollama_ndjson_chunk: tool_calls fully formed in done line" =
        tc.oll_tc_name = Some "foo"
        &&
          (match tc.oll_tc_arguments with
-         | Some args ->
+         | Some (Args_fragment args | Args_complete args) ->
            let json = Yojson.Safe.from_string args in
            json |> Yojson.Safe.Util.member "x" |> Yojson.Safe.Util.to_int = 1
          | None -> false)
@@ -1601,7 +1619,7 @@ let%test "ollama_chunk_to_events: done with zero usage → usage=None" =
     false
 ;;
 
-let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
+let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonSnapshot" =
   let state = create_openai_stream_state () in
   let chunk =
     { oll_model = "dashscope-3:8b"
@@ -1611,7 +1629,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
         [ { oll_tc_index = 0
           ; oll_tc_id = None
           ; oll_tc_name = Some "search"
-          ; oll_tc_arguments = Some {|{"q":"hello"}|}
+          ; oll_tc_arguments = Some (Args_complete {|{"q":"hello"}|})
           }
         ]
     ; oll_done_reason = Some "tool_calls"
@@ -1624,7 +1642,7 @@ let%test "ollama_chunk_to_events: tool_calls emit Start+InputJsonDelta" =
   match events with
   | [ ContentBlockStart
         { index = 0; content_type = "tool_use"; tool_name = Some "search"; _ }
-    ; ContentBlockDelta { index = 0; delta = InputJsonDelta args }
+    ; ContentBlockDelta { index = 0; delta = InputJsonSnapshot args }
     ; MessageDelta { stop_reason = Some StopToolUse; _ }
     ] -> args = {|{"q":"hello"}|}
   | unexpected_events ->

@@ -47,7 +47,9 @@ let test_parse_tool_call_start () =
     Alcotest.(check int) "tc_index" 0 tc.tc_index;
     Alcotest.(check (option string)) "tc_id" (Some "call_abc") tc.tc_id;
     Alcotest.(check (option string)) "tc_name" (Some "get_weather") tc.tc_name;
-    Alcotest.(check (option string)) "tc_args" (Some "") tc.tc_arguments
+    (match tc.tc_arguments with
+     | Some (S.Args_fragment s) -> Alcotest.(check string) "tc_args" "" s
+     | _ -> Alcotest.fail "expected Args_fragment for empty string arguments")
   | None -> Alcotest.fail "expected Some chunk"
 ;;
 
@@ -58,7 +60,9 @@ let test_parse_tool_call_args () =
   match S.parse_openai_sse_chunk data with
   | Some chunk ->
     let tc = List.hd chunk.delta_tool_calls in
-    Alcotest.(check (option string)) "args" (Some {|{"loc|}) tc.tc_arguments;
+    (match tc.tc_arguments with
+     | Some (S.Args_fragment s) -> Alcotest.(check string) "args" {|{"loc|} s
+     | _ -> Alcotest.fail "expected Args_fragment for string arguments");
     Alcotest.(check (option string)) "no id" None tc.tc_id;
     Alcotest.(check (option string)) "no name" None tc.tc_name
   | None -> Alcotest.fail "expected Some chunk"
@@ -157,7 +161,7 @@ let test_events_tool_call () =
     { tc_index = 0
     ; tc_id = Some "call_1"
     ; tc_name = Some "calc"
-    ; tc_arguments = Some "{\"x\":1}"
+    ; tc_arguments = Some (S.Args_fragment "{\"x\":1}")
     }
   in
   let events, _tel =
@@ -437,7 +441,7 @@ let test_events_tool_first_then_text () =
     { tc_index = 0
     ; tc_id = Some "call_1"
     ; tc_name = Some "get_weather"
-    ; tc_arguments = Some {|{"city":"Seoul"}|}
+    ; tc_arguments = Some (S.Args_fragment {|{"city":"Seoul"}|})
     }
   in
   let tool_events, _tel =
@@ -515,14 +519,14 @@ let test_events_multi_tool_then_text () =
     { tc_index = 0
     ; tc_id = Some "call_a"
     ; tc_name = Some "fn_a"
-    ; tc_arguments = Some "{}"
+    ; tc_arguments = Some (S.Args_fragment "{}")
     }
   in
   let tc1 : S.openai_tool_call_delta =
     { tc_index = 1
     ; tc_id = Some "call_b"
     ; tc_name = Some "fn_b"
-    ; tc_arguments = Some "{}"
+    ; tc_arguments = Some (S.Args_fragment "{}")
     }
   in
   let _ =
@@ -583,7 +587,7 @@ let test_events_thinking_tool_text () =
     { tc_index = 0
     ; tc_id = Some "call_x"
     ; tc_name = Some "search"
-    ; tc_arguments = Some "{}"
+    ; tc_arguments = Some (S.Args_fragment "{}")
     }
   in
   let _ =
