@@ -245,11 +245,27 @@ let finalize_stream_acc
           | Some s -> s
           | None -> ""
         in
-        let input =
-          try Yojson.Safe.from_string text with
-          | Yojson.Json_error _ -> `Assoc []
-        in
-        Ok (Some (Types.ToolUse { id; name; input }))
+        (* Tool arguments must parse. An empty argument buffer is the
+           legitimate "no arguments" case and becomes the empty object; a
+           non-empty buffer that fails to parse is a malformed tool call —
+           fail closed with a typed [Stream_parse_failed] rather than coercing
+           to [`Assoc []], which would silently dispatch the tool with empty
+           arguments (RFC-OAS-029 S8: no silent permissive default). Mirrors
+           the [Unknown_block] fail-closed arm and the typed-absence policy of
+           the sibling [Tool_result_block] branch (which carries [json = None]
+           rather than fabricating an object). *)
+        if String.trim text = ""
+        then Ok (Some (Types.ToolUse { id; name; input = `Assoc [] }))
+        else (
+          match Yojson.Safe.from_string text with
+          | input -> Ok (Some (Types.ToolUse { id; name; input }))
+          | exception Yojson.Json_error reason ->
+            Error
+              (Types.Stream_parse_failed
+                 { reason =
+                     Printf.sprintf "malformed_tool_use_arguments:index:%d:%s" idx reason
+                 ; raw = ""
+                 }))
       | Some (Tool_result_block { is_error }) ->
         let tool_use_id =
           match Hashtbl.find_opt acc.block_tool_ids idx with

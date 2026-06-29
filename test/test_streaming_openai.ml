@@ -841,6 +841,97 @@ let test_responses_stream_incomplete_content_filter_drops_tool () =
          response.content)
 ;;
 
+(* ── tool-argument fail-closed (canonical accumulator) ───────────────────────
+   The canonical [Complete_stream_acc] finalize path must not silently coerce a
+   malformed tool-argument buffer to empty arguments. A non-empty buffer that
+   fails to parse is a malformed tool call and surfaces a typed
+   [Stream_parse_failed]; an empty buffer is the legitimate no-arguments case
+   and yields [`Assoc []]. (RFC-OAS-029 S8: no silent permissive default.) *)
+let malformed_tool_args_tag = "malformed_tool_use_arguments"
+
+let test_stream_tool_args_malformed_fails_closed () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let acc = Acc.create_stream_acc () in
+  List.iter
+    (Acc.accumulate_event acc)
+    [ MessageStart { id = "m"; model = "m"; usage = None }
+    ; ContentBlockStart
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some "tu_bad"
+        ; tool_name = Some "get_weather"
+        }
+    ; ContentBlockDelta { index = 0; delta = InputJsonDelta "not json{" }
+    ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
+    ];
+  match Acc.finalize_stream_acc acc with
+  | Ok _ -> Alcotest.fail "expected Error: malformed tool arguments must fail closed"
+  | Error (Stream_parse_failed { reason; _ }) ->
+    Alcotest.(check bool)
+      "reason identifies malformed tool arguments"
+      true
+      (String.starts_with ~prefix:malformed_tool_args_tag reason)
+  | Error _ -> Alcotest.fail "expected Stream_parse_failed, got a different stream_error"
+;;
+
+let test_stream_tool_args_empty_is_no_args () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let acc = Acc.create_stream_acc () in
+  List.iter
+    (Acc.accumulate_event acc)
+    [ MessageStart { id = "m"; model = "m"; usage = None }
+    ; ContentBlockStart
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some "tu_empty"
+        ; tool_name = Some "now"
+        }
+      (* no InputJsonDelta: the argument buffer stays empty *)
+    ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
+    ];
+  match Acc.finalize_stream_acc acc with
+  | Error _ ->
+    Alcotest.fail "expected Ok: empty arguments are the legitimate no-args case"
+  | Ok response ->
+    (match response.content with
+     | [ ToolUse { id; name; input } ] ->
+       Alcotest.(check string) "tool id preserved" "tu_empty" id;
+       Alcotest.(check string) "tool name preserved" "now" name;
+       Alcotest.(check string)
+         "empty args -> empty object"
+         "{}"
+         (Yojson.Safe.to_string input)
+     | _ -> Alcotest.fail "expected a single ToolUse block")
+;;
+
+let test_stream_tool_args_valid_parsed () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let acc = Acc.create_stream_acc () in
+  List.iter
+    (Acc.accumulate_event acc)
+    [ MessageStart { id = "m"; model = "m"; usage = None }
+    ; ContentBlockStart
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some "tu_ok"
+        ; tool_name = Some "get_weather"
+        }
+    ; ContentBlockDelta { index = 0; delta = InputJsonDelta "{\"city\":" }
+    ; ContentBlockDelta { index = 0; delta = InputJsonDelta "\"Paris\"}" }
+    ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
+    ];
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected Ok for valid tool arguments"
+  | Ok response ->
+    (match response.content with
+     | [ ToolUse { input; _ } ] ->
+       Alcotest.(check string)
+         "parsed args preserved verbatim"
+         {|{"city":"Paris"}|}
+         (Yojson.Safe.to_string input)
+     | _ -> Alcotest.fail "expected a single ToolUse block")
+;;
+
 let () =
   let open Alcotest in
   run
@@ -902,6 +993,20 @@ let () =
             "incomplete content_filter drops tool (#2073)"
             `Quick
             test_responses_stream_incomplete_content_filter_drops_tool
+        ] )
+    ; ( "tool_args_failclosed"
+      , [ test_case
+            "malformed args -> typed Stream_parse_failed"
+            `Quick
+            test_stream_tool_args_malformed_fails_closed
+        ; test_case
+            "empty args -> empty object (no-args)"
+            `Quick
+            test_stream_tool_args_empty_is_no_args
+        ; test_case
+            "valid args -> parsed verbatim"
+            `Quick
+            test_stream_tool_args_valid_parsed
         ] )
     ]
 ;;
