@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.20](https://github.com/jeong-sik/oas/compare/v0.207.19...v0.207.20) (2026-06-29)
+
+
+### Bug Fixes
+
+* **provider:** isolate assistant tool content capability ([#2244](https://github.com/jeong-sik/oas/issues/2244)) ([6aa5549](https://github.com/jeong-sik/oas/commit/6aa554971b0b33bbbdb74a55f276bb66fd75abab))
+
 ## [0.207.19](https://github.com/jeong-sik/oas/compare/v0.207.18...v0.207.19) (2026-06-29)
 
 
