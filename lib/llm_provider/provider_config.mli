@@ -414,7 +414,7 @@ val validate_cli_sampling_params : t -> (unit, string) result
 (** Validate provider-specific [tool_choice] constraints before request-body
     construction. This catches unsupported runtime/provider contracts at the
     typed config boundary instead of letting serializers raise exceptions after
-    a keeper turn has started. *)
+    a turn has started. *)
 type tool_choice_request_rejection =
   | Unsupported_named_tool_choice of
       { provider_kind : provider_kind
@@ -423,10 +423,7 @@ type tool_choice_request_rejection =
       }
 
 val tool_choice_request_rejection_to_message : tool_choice_request_rejection -> string
-
-val validate_tool_choice_request_typed
-  :  t
-  -> (unit, tool_choice_request_rejection) result
+val validate_tool_choice_request_typed : t -> (unit, tool_choice_request_rejection) result
 
 val validate_tool_choice_request_with_capabilities
   :  provider_kind:provider_kind

@@ -64,8 +64,7 @@ let add_sampling_field dialect (config : Provider_config.t) field value body =
 let effective_tool_choice (config : Provider_config.t) =
   match Provider_config.validate_tool_choice_request config with
   | Error reason ->
-    invalid_arg
-      (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
+    invalid_arg (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
   | Ok () ->
     (match config.tool_choice with
      | Some None_ -> None
