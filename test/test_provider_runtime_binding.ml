@@ -21,6 +21,23 @@ let with_provider_catalog json f =
     Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
 ;;
 
+let with_model_catalog toml f =
+  let path = Filename.temp_file "oas-provider-runtime-binding-models" ".toml" in
+  let oc = open_out path in
+  Fun.protect ~finally:(fun () -> close_out_noerr oc) (fun () -> output_string oc toml);
+  Fun.protect
+    ~finally:(fun () ->
+      Llm_provider.Model_catalog.clear_global ();
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () ->
+       match Llm_provider.Model_catalog.load_file path with
+       | Error msg -> Alcotest.fail msg
+       | Ok catalog ->
+         Llm_provider.Model_catalog.set_global catalog;
+         f ())
+;;
+
 let catalog_json =
   {|
 {
@@ -182,6 +199,51 @@ let test_capabilities_for_provider_config_honors_override () =
     in
     let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
     Alcotest.(check bool) "override disables tool choice" false caps.supports_tool_choice)
+;;
+
+let test_capabilities_for_provider_config_uses_provider_qualified_model_catalog () =
+  with_model_catalog
+    {|
+[[models]]
+id_prefix = "kimi-k2.6"
+base = "kimi"
+supports_tools = true
+supports_tool_choice = true
+thinking_control_format = "none"
+
+[[models]]
+id_prefix = "ollama_cloud/kimi-k2.6"
+base = "ollama_cloud"
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = true
+thinking_control_format = "reasoning_effort"
+reasoning_replay = "preserve_always"
+|}
+    (fun () ->
+       let cfg =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"kimi-k2.6"
+           ~base_url:"https://ollama.com/v1"
+           ~request_path:"/chat/completions"
+           ()
+       in
+       let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
+       Alcotest.(check bool)
+         "ollama cloud row disables forced tool_choice"
+         false
+         caps.supports_tool_choice;
+       Alcotest.(check bool)
+         "ollama cloud row uses reasoning_effort"
+         true
+         (caps.thinking_control_format = Llm_provider.Capabilities.Reasoning_effort);
+       Alcotest.(check bool)
+         "ollama cloud row preserves reasoning replay"
+         true
+         (caps.reasoning_replay_override = Llm_provider.Capabilities.Force_preserve_always))
 ;;
 
 let test_all_includes_catalog_entry_once () =
@@ -356,6 +418,10 @@ let () =
             "capabilities honor tool_choice override"
             `Quick
             test_capabilities_for_provider_config_honors_override
+        ; Alcotest.test_case
+            "provider-qualified model catalog capabilities"
+            `Quick
+            test_capabilities_for_provider_config_uses_provider_qualified_model_catalog
         ; Alcotest.test_case
             "all includes catalog once"
             `Quick

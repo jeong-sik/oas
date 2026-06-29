@@ -763,7 +763,7 @@ let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
   check bool "tools preserved" true (List.mem_assoc "tools" assoc)
 ;;
 
-let test_build_openai_body_uses_glm_thinking_and_drops_forced_tool_choice () =
+let test_build_openai_body_rejects_glm_forced_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -795,47 +795,26 @@ let test_build_openai_body_uses_glm_thinking_and_drops_forced_tool_choice () =
       ; "input_schema", `Assoc [ "type", `String "object" ]
       ]
   in
-  let json =
-    Api.build_openai_body
-      ~provider_config
-      ~config:state
-      ~messages:[]
-      ~tools:[ tool_json ]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  let thinking = json |> member "thinking" in
-  check string "thinking enabled" "enabled" (thinking |> member "type" |> to_string);
-  check
-    bool
-    "clear_thinking default true"
-    true
-    (thinking |> member "clear_thinking" |> to_bool);
-  check
-    bool
-    "glm forced tool_choice omitted"
-    false
-    (List.mem_assoc "tool_choice" (to_assoc json))
+  check_raises
+    "glm rejects named forced tool_choice"
+    (Invalid_argument
+       "build_openai_body: Z.AI GLM does not support named forced tool_choice \
+        \"calculator\"; use auto/any or remove tool_choice")
+    (fun () ->
+       ignore
+         (Api.build_openai_body
+            ~provider_config
+            ~config:state
+            ~messages:[]
+            ~tools:[ tool_json ]
+            ()))
 ;;
 
-let test_build_openai_body_uses_bare_glm_thinking_and_drops_forced_tool_choice () =
-  let provider_config =
-    { Provider.provider =
-        Provider.OpenAICompat
-          { base_url = Llm_provider.Zai_catalog.general_base_url
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "glm-5"
-    ; api_key_env = ""
-    }
-  in
+let test_build_openai_body_rejects_bare_glm_forced_tool_choice () =
   let state =
     { Types.config =
         { Types.default_config with
-          model = provider_config.model_id
+          model = "glm-5"
         ; enable_thinking = Some true
         ; tool_choice = Some (Types.Tool "calculator")
         }
@@ -851,28 +830,13 @@ let test_build_openai_body_uses_bare_glm_thinking_and_drops_forced_tool_choice (
       ; "input_schema", `Assoc [ "type", `String "object" ]
       ]
   in
-  let json =
-    Api.build_openai_body
-      ~provider_config
-      ~config:state
-      ~messages:[]
-      ~tools:[ tool_json ]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  let thinking = json |> member "thinking" in
-  check string "thinking enabled" "enabled" (thinking |> member "type" |> to_string);
-  check
-    bool
-    "clear_thinking default true"
-    true
-    (thinking |> member "clear_thinking" |> to_bool);
-  check
-    bool
-    "bare glm forced tool_choice omitted"
-    false
-    (List.mem_assoc "tool_choice" (to_assoc json))
+  check_raises
+    "bare glm rejects named forced tool_choice"
+    (Invalid_argument
+       "build_openai_body: Z.AI GLM does not support named forced tool_choice \
+        \"calculator\"; use auto/any or remove tool_choice")
+    (fun () ->
+       ignore (Api.build_openai_body ~config:state ~messages:[] ~tools:[ tool_json ] ()))
 ;;
 
 let test_build_openai_body_glm_preserves_reasoning_content () =
@@ -911,7 +875,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
           model = provider_config.model_id
         ; enable_thinking = Some true
         ; preserve_thinking = Some true
-        ; tool_choice = Some (Types.Tool "calculator")
+        ; tool_choice = Some Types.Auto
         }
     ; messages = []
     ; turn_count = 0
@@ -931,10 +895,10 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     "I should call the calculator."
     (assistant |> member "reasoning_content" |> to_string);
   check
-    bool
-    "forced tool_choice omitted"
-    false
-    (List.mem_assoc "tool_choice" (to_assoc json))
+    string
+    "auto tool_choice preserved"
+    "auto"
+    (json |> member "tool_choice" |> to_string)
 ;;
 
 let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
@@ -1858,13 +1822,13 @@ let () =
             `Quick
             test_build_openai_body_omits_provider_m_only_fields_for_generic_compat
         ; test_case
-            "glm thinking + unsupported forced tool choice"
+            "glm rejects unsupported forced tool choice"
             `Quick
-            test_build_openai_body_uses_glm_thinking_and_drops_forced_tool_choice
+            test_build_openai_body_rejects_glm_forced_tool_choice
         ; test_case
-            "bare glm thinking + unsupported forced tool choice"
+            "bare glm rejects unsupported forced tool choice"
             `Quick
-            test_build_openai_body_uses_bare_glm_thinking_and_drops_forced_tool_choice
+            test_build_openai_body_rejects_bare_glm_forced_tool_choice
         ; test_case
             "glm preserved reasoning replay"
             `Quick

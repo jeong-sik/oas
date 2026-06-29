@@ -380,7 +380,7 @@ let registry_capabilities_for_provider_config (cfg : PConfig.t) =
 let capabilities_for_provider_config (cfg : PConfig.t) =
   let caps = registry_capabilities_for_provider_config cfg in
   let caps =
-    match Llm_provider.Capabilities.for_model_id cfg.model_id with
+    match PConfig.capabilities_for_config_model cfg with
     | Some model_caps -> model_caps
     | None -> caps
   in
