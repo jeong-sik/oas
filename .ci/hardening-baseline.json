@@ -37,16 +37,16 @@
     "wildcard_silent_defaults": [
       "lib/agent/agent_handoff.ml:36:| _ -> None))",
       "lib/agent/agent_handoff.ml:79:| _ -> false)",
-      "lib/agent/agent_tool_name_alias.ml:70:| _ -> false",
       "lib/agent/builder.ml:498:| _ -> Ok (build b)))",
       "lib/agent_tool.ml:33:| _ -> None)",
       "lib/api_openai.ml:20:| _ -> []",
       "lib/api_openai.ml:220:| _ -> None",
-      "lib/api_openai.ml:226:| _ -> true"
+      "lib/api_openai.ml:226:| _ -> true",
+      "lib/api_openai.ml:242:| _ -> None"
     ],
     "workaround_markers": []
   },
-  "lastUpdatedCommit": "fba516f6ffccccca24e58369411713128123baf5",
+  "lastUpdatedCommit": "66170abd52fe8265fb97e6c54eece06ce55b279f",
   "metrics": {
     "direct_env_reads": 21,
     "direct_env_reads_outside_env_boundary": 16,
@@ -55,7 +55,7 @@
     "local_workspace_path_literals": 0,
     "model_id_string_classifiers_outside_catalog": 2,
     "stub_markers": 0,
-    "wildcard_silent_defaults": 250,
+    "wildcard_silent_defaults": 251,
     "workaround_markers": 0
   },
   "removalTargets": {
