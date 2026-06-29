@@ -197,6 +197,23 @@ let test_parse_content_block_delta_input_json () =
   | None -> Alcotest.fail "parse returned None"
 ;;
 
+let test_parse_content_block_delta_unknown_fails_closed () =
+  let data =
+    {|{"type":"content_block_delta","index":2,"delta":{"type":"future_delta","value":"do not drop"}}|}
+  in
+  match Agent_sdk.Streaming.parse_sse_event None data with
+  | Some (SSEParseFailed { raw; reason }) ->
+    Alcotest.(check string) "raw preserved" data raw;
+    Alcotest.(check bool)
+      "reason names unsupported delta"
+      true
+      (String.starts_with
+         ~prefix:"type_error: unsupported content_block_delta type: future_delta"
+         reason)
+  | Some _ -> Alcotest.fail "expected SSEParseFailed for unknown delta subtype"
+  | None -> Alcotest.fail "parse returned None"
+;;
+
 let test_parse_content_block_stop () =
   let data = {|{"type":"content_block_stop","index":0}|} in
   match Agent_sdk.Streaming.parse_sse_event None data with
@@ -393,6 +410,54 @@ let test_openai_compat_interleaved_reasoning_and_tool_deltas () =
     (match result.content with
      | [ Thinking { content = "plan-done"; _ }
        ; ToolUse { id = "call_1"; name = "lookup"; input }
+       ; Text "visible"
+       ] ->
+       Alcotest.(check bool) "tool args" true (input = `Assoc [ "city", `String "Seoul" ])
+     | _ ->
+       Alcotest.fail "expected thinking, tool use, and visible text to stay separated")
+;;
+
+let parse_anthropic_event_exn ?event_type data =
+  match Agent_sdk.Streaming.parse_sse_event event_type data with
+  | Some event -> event
+  | None -> Alcotest.fail "expected Anthropic SSE event"
+;;
+
+let test_anthropic_interleaved_thinking_tool_text_finalizes () =
+  let module Acc = Agent_sdk.Llm_provider.Complete_stream_acc in
+  let raw_events =
+    [ parse_anthropic_event_exn
+        {|{"type":"message_start","message":{"id":"msg_anth","model":"claude-sonnet-4-6","usage":{"input_tokens":11}}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan-"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup","input":{}}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"done"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"Seoul\"}"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"visible"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}|}
+    ; parse_anthropic_event_exn {|{"type":"message_stop"}|}
+    ]
+  in
+  let acc = Acc.create_stream_acc () in
+  List.iter (Acc.accumulate_event acc) raw_events;
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected finalized Anthropic interleaved stream"
+  | Ok result ->
+    Alcotest.(check bool) "stop reason" true (result.stop_reason = StopToolUse);
+    (match result.content with
+     | [ Thinking { content = "plan-done"; _ }
+       ; ToolUse { id = "toolu_1"; name = "lookup"; input }
        ; Text "visible"
        ] ->
        Alcotest.(check bool) "tool args" true (input = `Assoc [ "city", `String "Seoul" ])
@@ -613,6 +678,10 @@ let () =
             "content_block_delta_input_json"
             `Quick
             test_parse_content_block_delta_input_json
+        ; test_case
+            "content_block_delta_unknown_fails_closed"
+            `Quick
+            test_parse_content_block_delta_unknown_fails_closed
         ; test_case "content_block_stop" `Quick test_parse_content_block_stop
         ; test_case "message_delta_end_turn" `Quick test_parse_message_delta_end_turn
         ; test_case "message_stop" `Quick test_parse_message_stop
@@ -631,6 +700,10 @@ let () =
             "openai_compat interleaved reasoning/tool deltas"
             `Quick
             test_openai_compat_interleaved_reasoning_and_tool_deltas
+        ; test_case
+            "anthropic interleaved thinking/tool/text finalizes"
+            `Quick
+            test_anthropic_interleaved_thinking_tool_text_finalizes
         ] )
     ; ( "emit_synthetic_events"
       , [ test_case "text only" `Quick test_synthetic_text_only

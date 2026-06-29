@@ -936,6 +936,46 @@ let test_stream_tool_args_valid_parsed () =
      | _ -> Alcotest.fail "expected a single ToolUse block")
 ;;
 
+let parse_ollama_line_exn data =
+  match S.parse_ollama_ndjson_chunk data with
+  | Some chunk -> chunk
+  | None -> Alcotest.fail "expected Ollama NDJSON stream chunk"
+;;
+
+let test_ollama_native_interleaved_thinking_tool_text_finalizes () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let state = S.create_openai_stream_state ~provider:"ollama" ~model:"qwen3.5:397b" () in
+  let acc = Acc.create_stream_acc () in
+  let feed line =
+    let chunk = parse_ollama_line_exn line in
+    let events, _ = S.ollama_chunk_to_events state chunk in
+    List.iter (Acc.accumulate_event acc) events
+  in
+  feed
+    {|{"model":"qwen3.5:397b","message":{"role":"assistant","thinking":"plan-"},"done":false}|};
+  feed
+    {|{"model":"qwen3.5:397b","message":{"role":"assistant","content":"visible"},"done":false}|};
+  feed
+    {|{"model":"qwen3.5:397b","message":{"role":"assistant","thinking":"done","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":{"city":"Seoul"}}}]},"done":true,"done_reason":"tool_calls","prompt_eval_count":13,"eval_count":8}|};
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected finalized Ollama native stream"
+  | Ok result ->
+    Alcotest.(check bool) "stop reason" true (result.stop_reason = StopToolUse);
+    (match result.usage with
+     | Some usage ->
+       Alcotest.(check int) "input tokens" 13 usage.input_tokens;
+       Alcotest.(check int) "output tokens" 8 usage.output_tokens
+     | None -> Alcotest.fail "expected done-line usage");
+    (match result.content with
+     | [ Thinking { content = "plan-done"; _ }
+       ; Text "visible"
+       ; ToolUse { id = "call_1"; name = "lookup"; input }
+       ] ->
+       Alcotest.(check bool) "tool args" true (input = `Assoc [ "city", `String "Seoul" ])
+     | _ ->
+       Alcotest.fail "expected thinking, visible text, and tool use to stay separated")
+;;
+
 let () =
   let open Alcotest in
   run
@@ -1011,6 +1051,12 @@ let () =
             "valid args -> parsed verbatim"
             `Quick
             test_stream_tool_args_valid_parsed
+        ] )
+    ; ( "ollama_ndjson_to_events"
+      , [ test_case
+            "native interleaved thinking/tool/text finalizes"
+            `Quick
+            test_ollama_native_interleaved_thinking_tool_text_finalizes
         ] )
     ]
 ;;
