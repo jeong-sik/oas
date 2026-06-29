@@ -13,6 +13,10 @@ let emit_synthetic_events = Llm_provider.Streaming.emit_synthetic_events
 
 (* ── Shared streaming accumulation ──────────────────────────── *)
 
+(* Manifest re-export of the canonical accumulator. This field list MUST mirror
+   {!Llm_provider.Complete_stream_acc.stream_acc} exactly -- the [= { ... }]
+   equation fails to compile if a field is added to the canonical type and not
+   here (SSOT lives in complete_stream_acc.ml/.mli). *)
 type stream_acc = Llm_provider.Complete_stream_acc.stream_acc =
   { id : string ref
   ; model : string ref
@@ -22,6 +26,7 @@ type stream_acc = Llm_provider.Complete_stream_acc.stream_acc =
   ; cache_read : int ref
   ; stop_reason : stop_reason ref
   ; stop_reason_received : bool ref
+  ; done_sentinel_seen : bool ref
   ; terminal_incomplete : bool ref
   ; sse_error : stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
