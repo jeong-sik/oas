@@ -40,17 +40,9 @@ let request_fingerprint
 
 let schema_version = "1"
 
-let stop_reason_to_string = function
-  | Types.EndTurn -> "end_turn"
-  | Types.StopToolUse -> "tool_use"
-  | Types.MaxTokens -> "max_tokens"
-  | Types.StopSequence -> "stop_sequence"
-  | Types.Refusal -> "refusal"
-  | Types.PauseTurn -> "pause_turn"
-  | Types.Compaction -> "compaction"
-  | Types.ContextWindowExceeded -> "model_context_window_exceeded"
-  | Types.Unknown s -> s
-;;
+(* stop_reason wire serialization is the SSOT [Types.stop_reason_to_string]
+   (this module's former local copy was byte-identical). Cache schema_version
+   "1" is preserved because the emitted strings are unchanged. *)
 
 (* Cache replay routes through [Types.stop_reason_of_string] so that a cached
    response parses identically to a live one. A local copy here previously
@@ -77,7 +69,7 @@ let response_to_json (resp : Types.api_response) : Yojson.Safe.t =
     [ "v", `String schema_version
     ; "id", `String resp.id
     ; "model", `String resp.model
-    ; "stop_reason", `String (stop_reason_to_string resp.stop_reason)
+    ; "stop_reason", `String (Types.stop_reason_to_string resp.stop_reason)
     ; "content", `List (List.map Api_common.content_block_to_json resp.content)
     ; "usage", usage_json
     ]
