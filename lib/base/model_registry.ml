@@ -9,11 +9,10 @@
 let default_model_id_env_var = "OAS_DEFAULT_MODEL"
 let default_model_id_fallback = "claude-sonnet-4-6-20250514"
 
-(* [getenv] defaults to [Sys.getenv_opt] (not [Llm_provider.Cli_common_env.get])
-   so [base] does not couple to [llm_provider] (RFC-OAS-014) and the injected
-   reader keeps type [string -> string option]. The value is trimmed below, so
-   a raw [Some "  "] is handled identically to [None]. *)
-let default_model_id_value ?(getenv = Sys.getenv_opt) () =
+(* [getenv] uses the shared env-boundary reader while keeping the injected
+   reader type [string -> string option]. The value is trimmed below, so a raw
+   [Some "  "] is handled identically to [None]. *)
+let default_model_id_value ?(getenv = Llm_provider.Cli_common_env.default_getenv) () =
   match getenv default_model_id_env_var with
   | Some v ->
     let v = String.trim v in
