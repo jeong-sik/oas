@@ -418,9 +418,9 @@ let content_blocks_of_reasoning_item item =
        in
        if Api_common.string_is_blank content
        then []
-       else [ Thinking { thinking_type = "reasoning_summary"; content } ]
+       else [ Thinking { signature = None; content } ]
      | Some (`String text) when not (Api_common.string_is_blank text) ->
-       [ Thinking { thinking_type = "reasoning_summary"; content = text } ]
+       [ Thinking { signature = None; content = text } ]
      | Some (`String _)
      | Some (`Assoc _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
      | None -> [])

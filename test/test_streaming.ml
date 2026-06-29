@@ -383,7 +383,7 @@ let test_synthetic_thinking () =
     { id = "msg-t"
     ; model = "test"
     ; stop_reason = EndTurn
-    ; content = [ Thinking { thinking_type = "sig"; content = "I think..." } ]
+    ; content = [ Thinking { signature = Some "sig"; content = "I think..." } ]
     ; usage = None
     ; telemetry = None
     }
@@ -449,7 +449,7 @@ let test_synthetic_multi_block () =
     ; model = "test"
     ; stop_reason = EndTurn
     ; content =
-        [ Thinking { thinking_type = "s"; content = "hmm" }
+        [ Thinking { signature = Some "s"; content = "hmm" }
         ; Text "answer"
         ; ToolUse { id = "tu2"; name = "read"; input = `Assoc [] }
         ]

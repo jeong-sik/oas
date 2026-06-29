@@ -18,7 +18,7 @@ let test_reasoning_multiple_messages () =
   let messages : Types.message list =
     [ { role = Assistant
       ; content =
-          [ Types.Thinking { thinking_type = "thinking"; content = "First thought" }
+          [ Types.Thinking { signature = None; content = "First thought" }
           ; Types.Text "response 1"
           ]
       ; name = None
@@ -34,7 +34,7 @@ let test_reasoning_multiple_messages () =
     ; { role = Assistant
       ; content =
           [ Types.Thinking
-              { thinking_type = "thinking"
+              { signature = None
               ; content = "Second thought, I'm not sure about this"
               }
           ; Types.Text "response 2"
@@ -79,7 +79,7 @@ let test_reasoning_no_tool_rationale_inference () =
     [ { role = Assistant
       ; content =
           [ Types.Thinking
-              { thinking_type = "thinking"
+              { signature = None
               ; content = "I should use the search function to find info"
               }
           ; Types.Text "Searching now"
@@ -112,7 +112,7 @@ let test_reasoning_no_uncertainty_marker_inference () =
          [ { role = Assistant
            ; content =
                [ Types.Thinking
-                   { thinking_type = "thinking"; content = "Analysis: " ^ marker }
+                   { signature = None; content = "Analysis: " ^ marker }
                ]
            ; name = None
            ; tool_call_id = None
@@ -134,7 +134,7 @@ let test_reasoning_no_uncertainty () =
     [ { role = Assistant
       ; content =
           [ Types.Thinking
-              { thinking_type = "thinking"; content = "The answer is clearly 42" }
+              { signature = None; content = "The answer is clearly 42" }
           ]
       ; name = None
       ; tool_call_id = None

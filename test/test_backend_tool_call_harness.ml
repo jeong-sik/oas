@@ -126,7 +126,7 @@ let test_validate_response_flags_unknown_tool_and_stop_reason () =
     mk_response
       ~stop_reason:T.EndTurn
       [ T.ToolUse { id = "call-2"; name = "undeclared"; input = `Assoc [] }
-      ; T.Thinking { thinking_type = "visible"; content = "reason" }
+      ; T.Thinking { signature = None; content = "reason" }
       ; T.RedactedThinking "redacted"
       ; T.ToolResult
           { tool_use_id = "call-2"

@@ -148,7 +148,7 @@ let test_content_parts_cover_modalities () =
       ; Document
           { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
       ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
-      ; Thinking { thinking_type = "reasoning"; content = "hidden" }
+      ; Thinking { signature = None; content = "hidden" }
       ; RedactedThinking "redacted"
       ; ToolUse { id = "tc"; name = "tool"; input = `Assoc [] }
       ]
@@ -250,7 +250,7 @@ let test_openai_user_messages_text_tool_and_empty () =
   check_string "user content" "first\nsecond" (member "content" user_json |> to_string);
   let empty_user =
     Serialize.openai_messages_of_message
-      (msg User [ Thinking { thinking_type = ""; content = "x" } ])
+      (msg User [ Thinking { signature = None; content = "x" } ])
   in
   check_int "empty user drops message" 0 (List.length empty_user)
 ;;
@@ -387,7 +387,7 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
   let replay_assistant =
     msg
       Assistant
-      [ Thinking { thinking_type = "reasoning"; content = "because" }
+      [ Thinking { signature = None; content = "because" }
       ; ToolUse { id = "call-2"; name = "lookup"; input = `Assoc [ "q", `String "y" ] }
       ]
   in
@@ -431,7 +431,7 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     Serialize.glm_messages_of_message
       (msg
          Assistant
-         [ Text "answer"; Thinking { thinking_type = "reasoning"; content = "because" } ])
+         [ Text "answer"; Thinking { signature = None; content = "because" } ])
     |> only "glm"
   in
   check_string "glm content" "answer" (member "content" glm |> to_string);
@@ -612,7 +612,7 @@ let test_strip_thinking_blocks () =
   let messages =
     [ msg
         Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "x" }; Text "visible" ]
+        [ Thinking { signature = None; content = "x" }; Text "visible" ]
     ; msg User [ Text "same" ]
     ]
   in
@@ -690,7 +690,7 @@ let test_tool_choice_and_tool_schema_conversion () =
 ;;
 
 let ignored_blocks : content_block list =
-  [ Thinking { thinking_type = "reasoning"; content = "   " }
+  [ Thinking { signature = None; content = "   " }
   ; RedactedThinking "hidden"
   ; ToolResult
       { tool_use_id = "call-x"
@@ -734,7 +734,7 @@ let test_serializer_ignored_block_variants () =
     true
     (member "reasoning_content" glm = `Null);
   let tool_fallback_blocks =
-    [ Thinking { thinking_type = "reasoning"; content = "   " }
+    [ Thinking { signature = None; content = "   " }
     ; RedactedThinking "hidden"
     ; ToolUse { id = "local-call"; name = "local"; input = `Null }
     ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
@@ -1116,8 +1116,8 @@ let test_responses_parse_reasoning_and_function_call () =
     check_string "model" "gpt-5.5" response.model;
     check_bool "stop tool use" true (response.stop_reason = StopToolUse);
     (match response.content with
-     | [ Thinking { thinking_type; content }; ToolUse { id; name; input } ] ->
-       check_string "thinking type" "reasoning_summary" thinking_type;
+     | [ Thinking { signature; content }; ToolUse { id; name; input } ] ->
+       check_bool "thinking unsigned" true (signature = None);
        check_string "thinking content" "Need current weather before answering." content;
        check_string "tool call_id" "call_weather" id;
        check_string "tool name" "get_weather" name;
@@ -1317,7 +1317,7 @@ let test_responses_build_request_round_trips_tool_result_items () =
         [ msg User [ Text "weather?" ]
         ; msg
             Assistant
-            [ Thinking { thinking_type = "reasoning_summary"; content = "Need a tool." }
+            [ Thinking { signature = None; content = "Need a tool." }
             ; ToolUse
                 { id = "call_weather"
                 ; name = "get_weather"

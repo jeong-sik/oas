@@ -351,7 +351,7 @@ let test_non_tool_use_blocks_filtered () =
       ~hooks
       [ Text "some assistant text"
       ; ToolUse { id = "t1"; name = "safe"; input = `String "data" }
-      ; Thinking { thinking_type = "thinking"; content = "reasoning" }
+      ; Thinking { signature = None; content = "reasoning" }
       ; ToolUse { id = "t2"; name = "safe"; input = `String "more" }
       ]
   in
@@ -373,7 +373,7 @@ let test_only_non_tool_use_blocks () =
   let results =
     run_execute
       ~hooks
-      [ Text "just text"; Thinking { thinking_type = "thinking"; content = "thoughts" } ]
+      [ Text "just text"; Thinking { signature = None; content = "thoughts" } ]
   in
   check int "empty results" 0 (List.length results)
 ;;

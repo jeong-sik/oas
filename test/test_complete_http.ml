@@ -1263,9 +1263,9 @@ let test_complete_stream_preserves_thinking_signature () =
     | Ok resp ->
       check bool "stop tool use" true (resp.stop_reason = Types.StopToolUse);
       (match resp.content with
-       | [ Types.Thinking { thinking_type; content }; Types.ToolUse { id; name; input } ]
+       | [ Types.Thinking { signature; content }; Types.ToolUse { id; name; input } ]
          ->
-         check string "thinking signature" "sig_opaque" thinking_type;
+         check bool "thinking signature" true (signature = Some "sig_opaque");
          check string "thinking content" "Need a lookup." content;
          check string "tool id" "tu_1" id;
          check string "tool name" "lookup" name;

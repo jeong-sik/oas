@@ -14,7 +14,7 @@ let mk_image () =
 let test_summarize_blocks_counts () =
   let blocks =
     [ Types.Text "hello"
-    ; Types.Thinking { thinking_type = "thinking"; content = "abcde" }
+    ; Types.Thinking { signature = None; content = "abcde" }
     ; Types.RedactedThinking "opaque"
     ; Types.Text "   " (* whitespace-only: trimmed to 0 chars *)
     ; mk_image ()

@@ -96,7 +96,7 @@ let thinking_then_tool_response : Types.api_response =
   ; model = "mock-model"
   ; stop_reason = Types.StopToolUse
   ; content =
-      [ Types.Thinking { thinking_type = "thinking"; content = "I should check the time" }
+      [ Types.Thinking { signature = None; content = "I should check the time" }
       ; Types.ToolUse
           { id = "call_1"
           ; name = "get_time"

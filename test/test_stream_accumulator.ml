@@ -335,8 +335,8 @@ let test_finalize_thinking_signature_block () =
   | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     (match List.hd resp.content with
-     | Thinking { thinking_type; content } ->
-       Alcotest.(check string) "signature" "sig_opaque" thinking_type;
+     | Thinking { signature; content } ->
+       Alcotest.(check bool) "signature" true (signature = Some "sig_opaque");
        Alcotest.(check string) "omitted thinking text" "" content
      | _ -> Alcotest.fail "expected Thinking")
 ;;

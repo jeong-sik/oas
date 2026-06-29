@@ -348,7 +348,7 @@ let test_api_common_text_blocks_to_string () =
       [ Text "hello"
       ; ToolUse { id = "t1"; name = "fn"; input = `Null }
       ; Text "world"
-      ; Thinking { thinking_type = "sig"; content = "thought" }
+      ; Thinking { signature = Some "sig"; content = "thought" }
       ]
   in
   let result = Api_common.text_blocks_to_string blocks in

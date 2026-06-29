@@ -120,8 +120,11 @@ val media_source_kind_of_string : string -> media_source_kind option
 type content_block =
   | Text of string
   | Thinking of
-      { thinking_type : string
-      ; content : string
+      { content : string
+      ; signature : string option
+        (** [Some s]: Anthropic cryptographic signature, replayed byte-exact on
+            tool turns. [None]: provider reasoning without a verification
+            signature (OpenAI-compatible / Gemini / GLM / Ollama). *)
       }
   | RedactedThinking of string
   | ToolUse of

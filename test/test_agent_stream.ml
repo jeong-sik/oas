@@ -79,7 +79,7 @@ let test_emit_tool_use () =
 
 let test_emit_thinking () =
   let response =
-    make_response [ Types.Thinking { thinking_type = "sig"; content = "I think..." } ]
+    make_response [ Types.Thinking { signature = Some "sig"; content = "I think..." } ]
   in
   let events = collect_events response in
   Alcotest.(check int) "7 events" 7 (List.length events);
@@ -234,7 +234,7 @@ let test_text_delta_content () =
 let test_thinking_delta_content () =
   let response =
     make_response
-      [ Types.Thinking { thinking_type = "sig123"; content = "deep thought" } ]
+      [ Types.Thinking { signature = Some "sig123"; content = "deep thought" } ]
   in
   let events = collect_events response in
   match List.nth events 2 with
@@ -345,7 +345,7 @@ let test_roundtrip_mixed_block_count () =
   let response =
     make_response
       [ Types.Text "intro"
-      ; Types.Thinking { thinking_type = "sig"; content = "hmm" }
+      ; Types.Thinking { signature = Some "sig"; content = "hmm" }
       ; Types.Text "conclusion"
       ]
   in

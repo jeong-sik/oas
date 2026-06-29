@@ -206,12 +206,12 @@ let emit_synthetic_events (response : api_response) on_event =
        on_event (ContentBlockStart { index; content_type; tool_id; tool_name });
        (match block with
         | Text s -> on_event (ContentBlockDelta { index; delta = TextDelta s })
-        | Thinking { thinking_type; content } ->
+        | Thinking { content; signature } ->
           on_event (ContentBlockDelta { index; delta = ThinkingDelta content });
-          if thinking_type <> ""
-          then
-            on_event
-              (ContentBlockDelta { index; delta = ThinkingSignatureDelta thinking_type })
+          (match signature with
+           | Some s ->
+             on_event (ContentBlockDelta { index; delta = ThinkingSignatureDelta s })
+           | None -> ())
         | ToolUse { input; _ } ->
           on_event
             (ContentBlockDelta

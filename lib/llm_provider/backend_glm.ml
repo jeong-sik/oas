@@ -222,7 +222,7 @@ let extract_reasoning_content_json (resp : api_response) (json : Yojson.Safe.t)
          (match resp.content with
           | Thinking { content; _ } :: _ when String.equal content r -> resp
           | _ ->
-            let thinking_block = Thinking { thinking_type = "thinking"; content = r } in
+            let thinking_block = Thinking { signature = None; content = r } in
             { resp with content = thinking_block :: resp.content })
        | Some _ | None -> resp)
     | `List [] | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->

@@ -115,7 +115,7 @@ let thinking_response
   { id
   ; model
   ; stop_reason = EndTurn
-  ; content = [ Thinking { thinking_type = "thinking"; content = thinking }; Text text ]
+  ; content = [ Thinking { signature = None; content = thinking }; Text text ]
   ; usage =
       Some
         { input_tokens

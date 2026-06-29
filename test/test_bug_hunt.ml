@@ -38,7 +38,7 @@ let asst_msg text =
 let thinking_only_msg content =
   Types.
     { role = Assistant
-    ; content = [ Thinking { thinking_type = "thinking"; content } ]
+    ; content = [ Thinking { signature = None; content } ]
     ; name = None
     ; tool_call_id = None
     ; metadata = []

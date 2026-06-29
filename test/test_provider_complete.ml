@@ -579,7 +579,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
     [ { role = Assistant
       ; content =
           [ Thinking
-              { thinking_type = "sig_1"; content = "I should call the calculator." }
+              { signature = Some "sig_1"; content = "I should call the calculator." }
           ; ToolUse
               { id = "tool_1"
               ; name = "calculator"
@@ -646,7 +646,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
     [ { role = Assistant
       ; content =
           [ Thinking
-              { thinking_type = "reasoning"; content = "I need the calculator result." }
+              { signature = None; content = "I need the calculator result." }
           ; ToolUse
               { id = "call_1"
               ; name = "calculator"
@@ -850,7 +850,7 @@ let response_with_thinking =
   { id = "resp-thinking"
   ; model = "auto"
   ; stop_reason = EndTurn
-  ; content = [ Thinking { thinking_type = "thinking"; content = "reasoning" } ]
+  ; content = [ Thinking { signature = None; content = "reasoning" } ]
   ; usage
   ; telemetry = None
   }

@@ -12,7 +12,7 @@ let content_block_gen =
   QCheck.Gen.oneof
     [ QCheck.Gen.map (fun s -> Text s) QCheck.Gen.string_printable
     ; QCheck.Gen.map2
-        (fun t c -> Thinking { thinking_type = t; content = c })
+        (fun t c -> Thinking { signature = Some t; content = c })
         QCheck.Gen.string_printable
         QCheck.Gen.string_printable
     ; QCheck.Gen.map (fun s -> RedactedThinking s) QCheck.Gen.string_printable

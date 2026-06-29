@@ -401,11 +401,11 @@ let assistant_with_reasoning ?(tool = false) () =
   let content =
     if tool
     then
-      [ Thinking { thinking_type = "reasoning"; content = "use calculator" }
+      [ Thinking { signature = None; content = "use calculator" }
       ; ToolUse { id = "call_1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
       ]
     else
-      [ Thinking { thinking_type = "reasoning"; content = "plain thought" }
+      [ Thinking { signature = None; content = "plain thought" }
       ; Text "answer"
       ]
   in

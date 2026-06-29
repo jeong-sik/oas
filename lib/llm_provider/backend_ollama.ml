@@ -269,7 +269,7 @@ let parse_ollama_response json_str =
         let thinking =
           match message |> member "thinking" with
           | `String s when not (Api_common.string_is_blank s) ->
-            [ Thinking { thinking_type = "thinking"; content = s } ]
+            [ Thinking { signature = None; content = s } ]
           | _ -> []
         in
         txt, tools, thinking
