@@ -60,9 +60,28 @@ let bool_field name = function
   | None -> []
 ;;
 
-let chat_template_kwargs_fields (config : agent_state) =
+let chat_template_kwargs_fields dialect (config : agent_state) =
   bool_field "enable_thinking" config.config.enable_thinking
-  @ bool_field "preserve_thinking" config.config.preserve_thinking
+  @ bool_field
+      "preserve_thinking"
+      (Llm_provider.Reasoning_dialect.chat_template_kwargs_preserve_field
+         dialect
+         ~preserve_thinking:config.config.preserve_thinking)
+;;
+
+let thinking_object_only_fields dialect (config : agent_state) =
+  let control =
+    Llm_provider.Reasoning_dialect.thinking_object_only_control
+      dialect
+      ~enable_thinking:config.config.enable_thinking
+      ~preserve_thinking:config.config.preserve_thinking
+  in
+  let fields =
+    match control.enabled with
+    | Some enabled -> [ "type", `String (if enabled then "enabled" else "disabled") ]
+    | None -> []
+  in
+  if control.keep_all then fields @ [ "keep", `String "all" ] else fields
 ;;
 
 let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
@@ -79,6 +98,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_extended_thinking = caps.supports_extended_thinking
   ; supports_reasoning_budget = caps.supports_reasoning_budget
   ; thinking_control_format = caps.thinking_control_format
+  ; preserve_thinking_control_format = caps.preserve_thinking_control_format
   ; reasoning_visibility_override = caps.reasoning_visibility_override
   ; reasoning_replay_override = caps.reasoning_replay_override
   ; supports_response_format_json = caps.supports_response_format_json
@@ -216,7 +236,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     else (
       match capabilities.thinking_control_format with
       | Llm_provider.Capabilities.Chat_template_kwargs ->
-        (match chat_template_kwargs_fields config with
+        (match chat_template_kwargs_fields dialect config with
          | [] -> body_assoc
          | fields -> ("chat_template_kwargs", `Assoc fields) :: body_assoc)
       | Llm_provider.Capabilities.Chat_template_token -> body_assoc
@@ -227,7 +247,11 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
           | None -> body_assoc
         in
         let body_assoc =
-          match config.config.preserve_thinking with
+          match
+            Llm_provider.Reasoning_dialect.top_level_preserve_field
+              dialect
+              ~preserve_thinking:config.config.preserve_thinking
+          with
           | Some preserve -> ("preserve_thinking", `Bool preserve) :: body_assoc
           | None -> body_assoc
         in
@@ -269,12 +293,9 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
          | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: body_assoc
          | None -> body_assoc)
       | Llm_provider.Capabilities.Thinking_object_only ->
-        (match config.config.enable_thinking with
-         | Some enabled ->
-           ( "thinking"
-           , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
-           :: body_assoc
-         | None -> body_assoc)
+        (match thinking_object_only_fields dialect config with
+         | [] -> body_assoc
+         | fields -> ("thinking", `Assoc fields) :: body_assoc)
       | Llm_provider.Capabilities.No_thinking_control
         when is_glm_request ?provider_config config ->
         (match config.config.enable_thinking with

@@ -28,6 +28,7 @@ type model_entry =
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
+  ; preserve_thinking_control_format : string option
   ; reasoning_visibility : string option
   ; reasoning_replay : string option
   ; input_per_million : float option
@@ -105,6 +106,8 @@ let parse_entry entry_toml =
       ; supports_computer_use = find_bool_opt entry_toml [ "supports_computer_use" ]
       ; supports_code_execution = find_bool_opt entry_toml [ "supports_code_execution" ]
       ; thinking_control_format = find_string_opt entry_toml [ "thinking_control_format" ]
+      ; preserve_thinking_control_format =
+          find_string_opt entry_toml [ "preserve_thinking_control_format" ]
       ; reasoning_visibility = find_string_opt entry_toml [ "reasoning_visibility" ]
       ; reasoning_replay = find_string_opt entry_toml [ "reasoning_replay" ]
       ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]

@@ -43,6 +43,17 @@ let openai_compat_config ?enable_thinking ?preserve_thinking ?thinking_budget mo
     ()
 ;;
 
+let kimi_config ?enable_thinking ?preserve_thinking ?thinking_budget model_id =
+  PC.make
+    ~kind:Kimi
+    ~model_id
+    ~base_url:"https://api.moonshot.ai/v1"
+    ?enable_thinking
+    ?preserve_thinking
+    ?thinking_budget
+    ()
+;;
+
 let ollama_config ?system_prompt ?enable_thinking model_id =
   PC.make
     ~kind:Ollama
@@ -433,6 +444,78 @@ let test_qwen_preserve_replays_reasoning_content () =
     (assistant |> member "reasoning_content" |> to_string)
 ;;
 
+let keep_all_axis_manifest =
+  {|{"schema_version":1,"models":[{"id_prefix":"keep-all-axis-test","base":"openai_chat","supports_reasoning":true,"supports_extended_thinking":true,"thinking_control_format":"thinking_object_only","preserve_thinking_control_format":"thinking_object_keep_all"}]}|}
+;;
+
+let test_thinking_object_keep_all_axis_uses_keep_all () =
+  with_manifest keep_all_axis_manifest (fun () ->
+    let config = openai_compat_config ~preserve_thinking:true "keep-all-axis-test" in
+    let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+    let thinking = json |> member "thinking" in
+    check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
+    check string "thinking keep" "all" (thinking |> member "keep" |> to_string);
+    check_member_absent "chat_template_kwargs" json;
+    check_member_absent "preserve_thinking" json)
+;;
+
+let test_thinking_object_keep_all_axis_replays_reasoning () =
+  with_manifest keep_all_axis_manifest (fun () ->
+    let config = openai_compat_config ~preserve_thinking:true "keep-all-axis-test" in
+    let dialect = RD.for_provider_config config in
+    check
+      string
+      "toggle wire"
+      "thinking_object_only"
+      (RD.toggle_wire_to_string dialect.toggle_wire);
+    check
+      string
+      "replay policy"
+      "preserve_always"
+      (RD.replay_policy_to_string dialect.replay_policy);
+    check
+      bool
+      "no tool-call replay requirement"
+      false
+      (RD.requires_reasoning_replay_on_tool_call dialect);
+    let json =
+      BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] ()
+      |> json_of_body
+    in
+    let assistant = json |> member "messages" |> index 0 in
+    check
+      string
+      "reasoning_content"
+      "plain thought"
+      (assistant |> member "reasoning_content" |> to_string))
+;;
+
+let test_kimi_latest_always_preserved_omits_thinking_param () =
+  let config = kimi_config "kimi-k2.7-code" in
+  let dialect = RD.for_provider_config config in
+  check string "toggle wire" "no_toggle" (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "preserve_always"
+    (RD.replay_policy_to_string dialect.replay_policy);
+  let user_json =
+    BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
+  in
+  check_member_absent "thinking" user_json;
+  check_member_absent "chat_template_kwargs" user_json;
+  check_member_absent "preserve_thinking" user_json;
+  let reasoning_json =
+    BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
+  in
+  let assistant = reasoning_json |> member "messages" |> index 0 in
+  check
+    string
+    "reasoning_content"
+    "plain thought"
+    (assistant |> member "reasoning_content" |> to_string)
+;;
+
 let test_ollama_qwen_uses_native_think_bool () =
   let config = ollama_config ~enable_thinking:true "qwen3:32b" in
   let json = BOL.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -694,6 +777,18 @@ let () =
             "qwen preserve replays reasoning_content"
             `Quick
             test_qwen_preserve_replays_reasoning_content
+        ; test_case
+            "thinking_object_keep_all axis uses thinking keep all"
+            `Quick
+            test_thinking_object_keep_all_axis_uses_keep_all
+        ; test_case
+            "thinking_object_keep_all axis replays reasoning"
+            `Quick
+            test_thinking_object_keep_all_axis_replays_reasoning
+        ; test_case
+            "kimi latest always-preserved omits thinking param"
+            `Quick
+            test_kimi_latest_always_preserved_omits_thinking_param
         ] )
     ; ( "ollama"
       , [ test_case

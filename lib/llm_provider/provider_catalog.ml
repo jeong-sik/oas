@@ -217,6 +217,27 @@ let parse_thinking_control_format = function
             other))
 ;;
 
+let parse_preserve_thinking_control_format = function
+  | None -> Ok None
+  | Some raw ->
+    let trimmed = String.lowercase_ascii (String.trim raw) in
+    (match trimmed with
+     | "" -> Ok None
+     | "none" -> Ok (Some Capabilities.No_preserve_thinking_control)
+     | "thinking_object_keep_all" -> Ok (Some Capabilities.Thinking_object_keep_all)
+     | "chat_template_kwargs_preserve_thinking" ->
+       Ok (Some Capabilities.Chat_template_kwargs_preserve_thinking)
+     | "top_level_preserve_thinking" -> Ok (Some Capabilities.Top_level_preserve_thinking)
+     | "always_preserved" -> Ok (Some Capabilities.Always_preserved_thinking)
+     | other ->
+       Error
+         (Printf.sprintf
+            "unknown preserve_thinking_control_format %S (canonical: none, \
+             thinking_object_keep_all, chat_template_kwargs_preserve_thinking, \
+             top_level_preserve_thinking, always_preserved)"
+            other))
+;;
+
 let parse_reasoning_visibility = function
   | None -> Ok None
   | Some raw ->
@@ -279,6 +300,10 @@ let parse_capabilities provider_json =
   let* base = capability_base provider_json in
   let* thinking_control_format =
     parse_thinking_control_format (member_string "thinking_control_format" cap_json)
+  in
+  let* preserve_thinking_control_format =
+    parse_preserve_thinking_control_format
+      (member_string "preserve_thinking_control_format" cap_json)
   in
   let* reasoning_visibility =
     parse_reasoning_visibility (member_string "reasoning_visibility" cap_json)
@@ -458,6 +483,12 @@ let parse_capabilities provider_json =
     match thinking_control_format with
     | None -> caps
     | Some thinking_control_format -> { caps with Capabilities.thinking_control_format }
+  in
+  let caps =
+    match preserve_thinking_control_format with
+    | None -> caps
+    | Some preserve_thinking_control_format ->
+      { caps with Capabilities.preserve_thinking_control_format }
   in
   let caps =
     match reasoning_visibility with

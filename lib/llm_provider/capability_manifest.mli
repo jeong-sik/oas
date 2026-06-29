@@ -75,6 +75,11 @@ type entry =
         thinking_object_only / chat_template_kwargs / chat_template_token /
         reasoning_effort / enable_thinking); applied in
         {!Capabilities.apply_manifest_entry}. *)
+  ; preserve_thinking_control_format : string option
+    (** Canonical historical reasoning preservation wire format (none /
+        thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
+        top_level_preserve_thinking / always_preserved); applied in
+        {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_visibility : string option
     (** Optional parsed reasoning visibility override (default /
         provider_hidden / visible_channel / visible_text). *)
