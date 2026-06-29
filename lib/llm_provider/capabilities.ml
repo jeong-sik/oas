@@ -65,6 +65,10 @@ type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Force_drop_without_tool_preserve_with_tool
   | Force_preserve_always
 
+type assistant_tool_content_format = Capability_vocab.assistant_tool_content_format =
+  | Assistant_tool_content_null
+  | Assistant_tool_content_empty_string
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -75,6 +79,11 @@ type capabilities =
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
   ; supports_runtime_tool_events : bool
+  ; assistant_tool_content_format : assistant_tool_content_format
+    (** Wire shape for assistant messages that contain tool calls but no visible
+        text. OpenAI-compatible providers disagree here: OpenAI accepts
+        [content:null], while GLM's OpenAI-compatible contract keeps
+        [content:""]. This is independent from reasoning replay. *)
   ; (* ── Thinking / reasoning ──────────────────────────── *)
     supports_reasoning : bool (** Any form of reasoning/thinking *)
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
@@ -151,6 +160,7 @@ let default_capabilities =
   ; supports_parallel_tool_calls = false
   ; supports_runtime_mcp_tools = false
   ; supports_runtime_tool_events = false
+  ; assistant_tool_content_format = Assistant_tool_content_null
   ; supports_reasoning = false
   ; supports_extended_thinking = false
   ; supports_reasoning_budget = false
@@ -414,6 +424,7 @@ let glm_capabilities =
      violations. Ref checked 2026-04-21:
      https://docs.z.ai/guides/capabilities/function-calling *)
     supports_tool_choice = false
+  ; assistant_tool_content_format = Assistant_tool_content_empty_string
   ; supports_reasoning = true
   ; supports_extended_thinking = true
   ; supports_response_format_json = true
@@ -621,6 +632,10 @@ let reasoning_replay_override_of_catalog_string raw =
   Capability_vocab.reasoning_replay_override_of_string raw
 ;;
 
+let assistant_tool_content_format_of_catalog_string raw =
+  Capability_vocab.assistant_tool_content_format_of_string raw
+;;
+
 let modality_priority_of_catalog_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "preserve_input_order" | "preserve-input-order" | "preserve" ->
@@ -654,6 +669,15 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
       override_bool base.supports_tool_choice entry.supports_tool_choice
   ; supports_parallel_tool_calls =
       override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
+  ; assistant_tool_content_format =
+      (match entry.assistant_tool_content_format with
+       | Some s ->
+         (match assistant_tool_content_format_of_catalog_string s with
+          | Some format -> format
+          | None ->
+            warn_unknown_capability_value ~field:"assistant_tool_content_format" s;
+            base.assistant_tool_content_format)
+       | None -> base.assistant_tool_content_format)
   ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
   ; supports_extended_thinking =
       override_bool base.supports_extended_thinking entry.supports_extended_thinking
@@ -754,6 +778,18 @@ let%test "apply_manifest_entry applies reasoning_replay preserve_always" =
   | Ok _ | Error _ -> false
 ;;
 
+let%test "apply_manifest_entry applies assistant_tool_content_format" =
+  match
+    Capability_manifest.of_json
+      (Yojson.Safe.from_string
+         {|{"schema_version":1,"models":[{"id_prefix":"m","assistant_tool_content_format":"empty_string"}]}|})
+  with
+  | Ok [ entry ] ->
+    (apply_manifest_entry entry).assistant_tool_content_format
+    = Assistant_tool_content_empty_string
+  | _ -> false
+;;
+
 let%test "apply_manifest_entry without reasoning_replay keeps base default" =
   match
     Capability_manifest.of_json
@@ -799,6 +835,15 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
       override_bool base.supports_tool_choice entry.supports_tool_choice
   ; supports_parallel_tool_calls =
       override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
+  ; assistant_tool_content_format =
+      (match entry.assistant_tool_content_format with
+       | Some s ->
+         (match assistant_tool_content_format_of_catalog_string s with
+          | Some format -> format
+          | None ->
+            warn_unknown_capability_value ~field:"assistant_tool_content_format" s;
+            base.assistant_tool_content_format)
+       | None -> base.assistant_tool_content_format)
   ; supports_reasoning = override_bool base.supports_reasoning entry.supports_reasoning
   ; supports_extended_thinking =
       override_bool base.supports_extended_thinking entry.supports_extended_thinking
@@ -1083,6 +1128,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_tools = None
   ; supports_tool_choice = None
   ; supports_parallel_tool_calls = None
+  ; assistant_tool_content_format = None
   ; supports_reasoning = None
   ; supports_extended_thinking = None
   ; supports_reasoning_budget = None
@@ -1667,6 +1713,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.supports_image_input = cb.supports_image_input
       && ca.thinking_control_format = cb.thinking_control_format
       && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
+      && ca.assistant_tool_content_format = cb.assistant_tool_content_format
       && ca.reasoning_visibility_override = cb.reasoning_visibility_override
       && ca.reasoning_replay_override = cb.reasoning_replay_override
     | _ -> false

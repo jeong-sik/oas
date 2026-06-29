@@ -11,6 +11,10 @@ type reasoning_replay_override =
   | Force_drop_without_tool_preserve_with_tool
   | Force_preserve_always
 
+type assistant_tool_content_format =
+  | Assistant_tool_content_null
+  | Assistant_tool_content_empty_string
+
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
 let reasoning_replay_table =
@@ -28,4 +32,20 @@ let reasoning_replay_override_of_string raw =
   match normalize raw with
   | "" -> Some Default_reasoning_replay
   | normalized -> List.assoc_opt normalized reasoning_replay_table
+;;
+
+let assistant_tool_content_format_table =
+  [ "null", Assistant_tool_content_null
+  ; "empty_string", Assistant_tool_content_empty_string
+  ]
+;;
+
+let assistant_tool_content_format_values =
+  List.map fst assistant_tool_content_format_table
+;;
+
+let assistant_tool_content_format_of_string raw =
+  match normalize raw with
+  | "" -> Some Assistant_tool_content_null
+  | normalized -> List.assoc_opt normalized assistant_tool_content_format_table
 ;;
