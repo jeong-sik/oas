@@ -76,16 +76,8 @@ let json_schema_type_of_string = function
 let json_matches_schema_type expected (value : Yojson.Safe.t) =
   match json_schema_type_of_string expected, value with
   | ( None
-    , ( `Assoc _
-      | `Bool _
-      | `Float _
-      | `Int _
-      | `Intlit _
-      | `List _
-      | `Null
-      | `String _
-      | `Tuple _
-      | `Variant _ ) ) ->
+    , (`Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) )
+    ->
     (* Unknown/non-standard schema [type]: do not silently accept any value.
        A malformed type keyword is surfaced as a violation, not a permissive
        pass (RFC-OAS-029 S8.1; replaces the prior [unsupported_type <> ""]). *)
@@ -105,16 +97,8 @@ let json_matches_schema_type expected (value : Yojson.Safe.t) =
         | Schema_integer
         | Schema_boolean
         | Schema_null )
-    , ( `Assoc _
-      | `Bool _
-      | `Float _
-      | `Int _
-      | `Intlit _
-      | `List _
-      | `Null
-      | `String _
-      | `Tuple _
-      | `Variant _ ) ) -> false
+    , (`Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) )
+    -> false
 ;;
 
 let schema_if_present = function
