@@ -91,6 +91,27 @@ let test_resolve_ollama_endpoint_reads_getenv () =
        ())
 ;;
 
+let test_fallback_endpoint_constants_ignore_env () =
+  with_env Discovery.local_llm_url_env_var "http://127.0.0.1:19101" (fun () ->
+    Alcotest.(check string)
+      "default_endpoint remains fallback constant"
+      Constants.Endpoints.default_url
+      Discovery.default_endpoint;
+    Alcotest.(check string)
+      "resolver reads local url"
+      "http://127.0.0.1:19101"
+      (Discovery.resolve_default_endpoint ()));
+  with_env Discovery.ollama_host_env_var "http://127.0.0.1:19102" (fun () ->
+    Alcotest.(check string)
+      "ollama_endpoint remains fallback constant"
+      Discovery.default_ollama_endpoint
+      Discovery.ollama_endpoint;
+    Alcotest.(check string)
+      "resolver reads ollama host"
+      "http://127.0.0.1:19102"
+      (Discovery.resolve_ollama_endpoint ()))
+;;
+
 let test_endpoints_from_env_default () =
   let getenv = test_getenv [] in
   let result = Discovery.endpoints_from_env ~getenv () in
@@ -497,6 +518,10 @@ let () =
             "resolve ollama endpoint from getenv"
             `Quick
             test_resolve_ollama_endpoint_reads_getenv
+        ; Alcotest.test_case
+            "fallback endpoint constants ignore env"
+            `Quick
+            test_fallback_endpoint_constants_ignore_env
         ; Alcotest.test_case "default" `Quick test_endpoints_from_env_default
         ; Alcotest.test_case "custom" `Quick test_endpoints_from_env_custom
         ; Alcotest.test_case
