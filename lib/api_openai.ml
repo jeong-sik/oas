@@ -305,6 +305,7 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
         | Llm_provider.Capabilities.Thinking_object_only
         | Llm_provider.Capabilities.Chat_template_kwargs
         | Llm_provider.Capabilities.Chat_template_token
+        | Llm_provider.Capabilities.Ollama_think
         | Llm_provider.Capabilities.Reasoning_effort
         | Llm_provider.Capabilities.Enable_thinking -> None
       in
