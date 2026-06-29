@@ -112,7 +112,8 @@ let test_execute_untyped_malformed_input_errors () =
        "missing prompt surfaced"
        "Agent_tool input requires a prompt field"
        message
-   | Ok { content; _meta = _ } -> Alcotest.failf "expected error (missing prompt), got: %s" content);
+   | Ok { content; _meta = _ } ->
+     Alcotest.failf "expected error (missing prompt), got: %s" content);
   match Tool.execute tool (`Assoc [ "prompt", `Int 5 ]) with
   | Error { message; _ } ->
     Alcotest.(check string)

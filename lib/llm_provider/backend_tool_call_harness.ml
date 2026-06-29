@@ -73,21 +73,48 @@ let json_schema_type_of_string = function
   | _ -> None
 ;;
 
-let json_matches_schema_type expected value =
-  match json_schema_type_of_string expected with
-  | None ->
+let json_matches_schema_type expected (value : Yojson.Safe.t) =
+  match json_schema_type_of_string expected, value with
+  | ( None
+    , ( `Assoc _
+      | `Bool _
+      | `Float _
+      | `Int _
+      | `Intlit _
+      | `List _
+      | `Null
+      | `String _
+      | `Tuple _
+      | `Variant _ ) ) ->
     (* Unknown/non-standard schema [type]: do not silently accept any value.
        A malformed type keyword is surfaced as a violation, not a permissive
        pass (RFC-OAS-029 S8.1; replaces the prior [unsupported_type <> ""]). *)
     false
-  | Some Schema_object -> (match value with `Assoc _ -> true | _ -> false)
-  | Some Schema_array -> (match value with `List _ -> true | _ -> false)
-  | Some Schema_string -> (match value with `String _ -> true | _ -> false)
-  | Some Schema_number ->
-    (match value with `Int _ | `Intlit _ | `Float _ -> true | _ -> false)
-  | Some Schema_integer -> (match value with `Int _ | `Intlit _ -> true | _ -> false)
-  | Some Schema_boolean -> (match value with `Bool _ -> true | _ -> false)
-  | Some Schema_null -> (match value with `Null -> true | _ -> false)
+  | Some Schema_object, `Assoc _ -> true
+  | Some Schema_array, `List _ -> true
+  | Some Schema_string, `String _ -> true
+  | Some Schema_number, (`Int _ | `Intlit _ | `Float _) -> true
+  | Some Schema_integer, (`Int _ | `Intlit _) -> true
+  | Some Schema_boolean, `Bool _ -> true
+  | Some Schema_null, `Null -> true
+  | ( Some
+        ( Schema_object
+        | Schema_array
+        | Schema_string
+        | Schema_number
+        | Schema_integer
+        | Schema_boolean
+        | Schema_null )
+    , ( `Assoc _
+      | `Bool _
+      | `Float _
+      | `Int _
+      | `Intlit _
+      | `List _
+      | `Null
+      | `String _
+      | `Tuple _
+      | `Variant _ ) ) -> false
 ;;
 
 let schema_if_present = function

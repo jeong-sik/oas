@@ -1154,7 +1154,7 @@ let%test "glm build_request replays reasoning_content without leaking it into co
   let body = build_request ~config ~messages () |> Yojson.Safe.from_string in
   let open Yojson.Safe.Util in
   let assistant = body |> member "messages" |> index 0 in
-  assistant |> member "content" |> to_string = ""
+  assistant |> member "content" = `Null
   && assistant |> member "reasoning_content" |> to_string = "use calculator"
 ;;
 
