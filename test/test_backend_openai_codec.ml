@@ -103,41 +103,59 @@ let test_parse_reasoning_content_and_tool_calls_coexist () =
   check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
 ;;
 
-let test_reasoning_only_promoted_to_text_under_visible_text () =
-  (* Under an explicit Visible_text capability override, the parser promotes a
-     reasoning-only reply into a visible Text block so downstream Text-only
-     projections see a non-empty answer. With the default policy the same reply
-     stays Thinking-only. *)
+let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
+  (* End-to-end #2236 regression guard. Provider-agnostic: it exercises the
+     Types<->serialize boundary every OpenAI-compatible family (DeepSeek, Kimi,
+     Qwen, GLM, Ollama) shares, so one assertion here covers all of them.
+
+     A reasoning-only reply must stay typed as [Thinking] in canonical content;
+     it is never promoted to a [Text] answer block. On the next turn the request
+     serializer must not surface that reasoning as the assistant "content"
+     (answer) field -- otherwise the model is re-fed its own reasoning as a
+     finalized answer and re-reasons over it: the parrot / infinite-recursion
+     loop. Promotion (the removed mechanism) erased the type distinction and is
+     exactly what made the leak possible. *)
+  let reasoning_text = "최종 답은 42" in
   let json =
     response_json
       ~content:(`String "")
       ~finish_reason:"stop"
-      ~message_fields:[ "reasoning_content", `String "최종 답은 42" ]
+      ~message_fields:[ "reasoning_content", `String reasoning_text ]
       ()
   in
-  let promote visibility =
-    match
-      Parse.parse_openai_response_result
-        ~reasoning_visibility:visibility
-        (Yojson.Safe.to_string json)
-    with
+  let response =
+    match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
     | Ok r -> r
     | Error msg -> Alcotest.fail ("unexpected parse error: " ^ msg)
   in
-  let visible = promote Reasoning_dialect.Visible_text in
-  let default_resp = promote Reasoning_dialect.Provider_hidden in
-  let has_text r =
+  let has_text =
     List.exists
       (function
-        | Text s -> String.trim s = "최종 답은 42"
+        | Text _ -> true
         | _ -> false)
-      r.content
+      response.content
   in
-  check_bool "Visible_text promotes reasoning to Text" true (has_text visible);
+  let has_thinking =
+    List.exists
+      (function
+        | Thinking { content; _ } -> String.trim content = reasoning_text
+        | _ -> false)
+      response.content
+  in
+  check_bool "reasoning stays typed as Thinking in canonical content" true has_thinking;
+  check_bool "reasoning is never promoted to a Text answer block" false has_text;
+  let assistant_msg = msg Assistant response.content in
+  let serialized = Serialize.openai_messages_of_message assistant_msg in
+  let assistant_json = only "assistant message" serialized in
+  let content_str =
+    match member "content" assistant_json with
+    | `String s -> s
+    | _ -> ""
+  in
   check_bool
-    "default policy keeps reasoning as Thinking-only (no Text)"
+    "reasoning must NOT be re-injected as assistant answer content on replay"
     false
-    (has_text default_resp)
+    (String.trim content_str = reasoning_text)
 ;;
 
 let test_content_parts_cover_modalities () =
@@ -1543,9 +1561,9 @@ let () =
             `Quick
             test_parse_reasoning_content_and_tool_calls_coexist
         ; Alcotest.test_case
-            "reasoning-only promoted to Text under Visible_text"
+            "reasoning-only stays Thinking and is never re-injected on replay"
             `Quick
-            test_reasoning_only_promoted_to_text_under_visible_text
+            test_reasoning_only_stays_thinking_and_never_reinjected_on_replay
         ; Alcotest.test_case
             "error default message"
             `Quick

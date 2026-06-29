@@ -90,9 +90,6 @@ let create_message_stream
   match resolve_result with
   | Error e -> Error e
   | Ok (provider_cfg, base_url, api_key) ->
-    let reasoning_visibility =
-      Api_openai.reasoning_visibility_of_request ~provider_config:provider_cfg config
-    in
     (match Provider.request_kind provider_cfg.provider with
      | Provider.Anthropic_messages ->
        let headers =
@@ -132,7 +129,7 @@ let create_message_stream
                    accumulate_event acc evt))
              ();
            if !(acc.stop_reason_received) then on_event MessageStop;
-           finalize_stream_acc ~reasoning_visibility acc)
+           finalize_stream_acc acc)
          ()
        |> map_stream_finalize_result
      | Provider.Openai_chat_completions ->
@@ -219,7 +216,7 @@ let create_message_stream
                         evs))
                 ();
               if !(acc.stop_reason_received) then on_event MessageStop;
-              finalize_stream_acc ~reasoning_visibility acc)
+              finalize_stream_acc acc)
             ()
           |> map_stream_finalize_result)
      | Provider.Custom _ ->

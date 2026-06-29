@@ -231,10 +231,7 @@ let telemetry_of_openai_json json =
 
 (** Parse an OpenAI-compatible JSON response string into an [api_response].
     Returns [Error msg] when the response body contains an API error. *)
-let parse_openai_response_result_json
-      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
-      (raw_json : Yojson.Safe.t)
-  =
+let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
   let open Yojson.Safe.Util in
   let json =
     match raw_json with
@@ -318,18 +315,16 @@ let parse_openai_response_result_json
           (let text_blocks =
              if Api_common.string_is_blank text_content then [] else [ Text text_content ]
            in
-           (* Visible_text policy: when the model replied with reasoning only
-              (no content text, no tool calls), promote the reasoning into a
-              visible Text block so SDK consumers that project textual answers
-              do not read the response as empty. Without this, a reasoning-only
-              reply collapses to content=[Thinking] which every Text-only
-              projection reads as empty. *)
-           let promoted_reasoning =
-             match reasoning_visibility, reasoning_text, text_blocks, tool_blocks with
-             | Reasoning_dialect.Visible_text, Some r, [], [] -> [ Text r ]
-             | _ -> []
-           in
-           thinking_blocks @ text_blocks @ promoted_reasoning @ tool_blocks)
+           (* Reasoning stays typed as [Thinking] end-to-end -- it is never
+              promoted into a [Text] block. Promotion erased the type distinction
+              between reasoning and answer, so on the next turn the request
+              serializer re-fed the reasoning as the assistant's answer content
+              and the model re-reasoned over it: the #2236 CoT re-injection loop.
+              Surfacing reasoning-only replies for display is a read-side
+              projection concern (see [Api_common.text_blocks_to_string] and the
+              runtime text extractors), not a parse-time mutation that also
+              pollutes replay. *)
+           thinking_blocks @ text_blocks @ tool_blocks)
       ; usage = usage_of_openai_json json
       ; telemetry = telemetry_of_openai_json json
       }
@@ -348,13 +343,8 @@ let parse_openai_response_result_json
     parsed [Yojson.Safe.t] (e.g. {!Backend_glm.parse_response}, which also
     error-checks and reasoning-extracts from the same body) should call
     {!parse_openai_response_result_json} directly to avoid re-parsing. *)
-let parse_openai_response_result
-      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
-      json_str
-  =
-  parse_openai_response_result_json
-    ~reasoning_visibility
-    (Yojson.Safe.from_string json_str)
+let parse_openai_response_result json_str =
+  parse_openai_response_result_json (Yojson.Safe.from_string json_str)
 ;;
 
 let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =

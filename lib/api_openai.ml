@@ -250,15 +250,6 @@ let reasoning_dialect_for_request capabilities (config : agent_state) =
        ~preserve_thinking:config.config.preserve_thinking
 ;;
 
-let reasoning_visibility_of_request ?provider_config (config : agent_state) =
-  (* Resolve the provider/model reasoning_visibility policy so the response
-     parser can promote a reasoning-only reply into visible Text only when an
-     explicit capability override asks for that behavior. *)
-  let capabilities = capabilities_for_request ?provider_config config in
-  (reasoning_dialect_for_request capabilities config)
-    .Llm_provider.Reasoning_dialect.visibility
-;;
-
 let add_sampling_field dialect (config : agent_state) field value body_assoc =
   if
     Llm_provider.Reasoning_dialect.ignores_sampling_param

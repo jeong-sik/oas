@@ -808,12 +808,7 @@ let complete_stream_http
               | Error _ as err -> err
               | Ok () ->
                 let result =
-                  match
-                    Complete_stream_acc.finalize_stream_acc
-                      ~reasoning_visibility:
-                        (Reasoning_dialect.for_provider_config config).visibility
-                      acc
-                  with
+                  match Complete_stream_acc.finalize_stream_acc acc with
                   | Ok _ as ok -> ok
                   | Error serr -> Error (http_error_of_stream_error serr)
                 in

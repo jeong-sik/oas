@@ -17,10 +17,7 @@ val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t opti
 
 (** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
-val parse_openai_response_result
-  :  ?reasoning_visibility:Reasoning_dialect.reasoning_visibility
-  -> string
-  -> (Types.api_response, string) result
+val parse_openai_response_result : string -> (Types.api_response, string) result
 
 val usage_of_openai_json : Yojson.Safe.t -> Types.api_usage option
 

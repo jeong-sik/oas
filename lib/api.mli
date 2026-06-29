@@ -64,10 +64,7 @@ val build_openai_body
 
 (** Parse an OpenAI-compatible JSON response.
     Returns [Ok api_response] on success, [Error msg] on API error. *)
-val parse_openai_response_result
-  :  ?reasoning_visibility:Llm_provider.Reasoning_dialect.reasoning_visibility
-  -> string
-  -> (Types.api_response, string) result
+val parse_openai_response_result : string -> (Types.api_response, string) result
 
 (** {1 Non-streaming request} *)
 

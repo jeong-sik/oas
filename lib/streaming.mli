@@ -50,10 +50,7 @@ val accumulate_event : stream_acc -> Types.sse_event -> unit
 (** Finalize the accumulator into a complete API response.
     Returns [Error stream_error] if an SSE error or fail-closed stream parse
     error was recorded during the stream. *)
-val finalize_stream_acc
-  :  ?reasoning_visibility:Llm_provider.Reasoning_dialect.reasoning_visibility
-  -> stream_acc
-  -> (Types.api_response, Types.stream_error) result
+val finalize_stream_acc : stream_acc -> (Types.api_response, Types.stream_error) result
 
 (** {1 HTTP Error Mapping} *)
 

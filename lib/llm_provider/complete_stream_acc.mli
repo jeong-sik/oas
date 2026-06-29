@@ -52,7 +52,4 @@ val accumulate_event : stream_acc -> Types.sse_event -> unit
     (typed so the consumer can route a provider-reported error through the same
     classification path as a non-streaming error); content blocks are ordered by
     their stream index. *)
-val finalize_stream_acc
-  :  ?reasoning_visibility:Reasoning_dialect.reasoning_visibility
-  -> stream_acc
-  -> (Types.api_response, Types.stream_error) result
+val finalize_stream_acc : stream_acc -> (Types.api_response, Types.stream_error) result
