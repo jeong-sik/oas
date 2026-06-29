@@ -254,6 +254,156 @@ reasoning_replay = "preserve_always"
          (caps.reasoning_replay_override = Llm_provider.Capabilities.Force_preserve_always))
 ;;
 
+let expect_tool_choice_ok label cfg =
+  match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
+  | Ok () -> ()
+  | Error rejection ->
+    Alcotest.failf
+      "%s unexpectedly rejected tool_choice: %s"
+      label
+      (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
+;;
+
+let expect_named_tool_choice_rejected label cfg =
+  match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
+  | Error (Llm_provider.Provider_config.Unsupported_named_tool_choice { tool_name; _ }) ->
+    Alcotest.(check string) (label ^ " tool") "calc" tool_name
+  | Ok () -> Alcotest.failf "%s unexpectedly accepted named forced tool_choice" label
+;;
+
+let request_tool_choice_field cfg =
+  let body =
+    Llm_provider.Backend_openai.build_request ~config:cfg ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  match body with
+  | `Assoc fields -> List.assoc_opt "tool_choice" fields
+  | _ -> Alcotest.fail "expected request body object"
+;;
+
+let expect_named_tool_choice_serialized label cfg =
+  match request_tool_choice_field cfg with
+  | Some (`Assoc fields) ->
+    Alcotest.(check string)
+      (label ^ " type")
+      "function"
+      (Yojson.Safe.Util.to_string (List.assoc "type" fields));
+    let function_json = List.assoc "function" fields in
+    Alcotest.(check string)
+      (label ^ " name")
+      "calc"
+      Yojson.Safe.Util.(function_json |> member "name" |> to_string)
+  | Some json ->
+    Alcotest.failf
+      "%s expected named tool_choice object, got %s"
+      label
+      (Yojson.Safe.to_string json)
+  | None -> Alcotest.failf "%s expected tool_choice in request body" label
+;;
+
+let expect_no_tool_choice_field label cfg =
+  match request_tool_choice_field cfg with
+  | None -> ()
+  | Some json ->
+    Alcotest.failf
+      "%s unexpectedly serialized tool_choice: %s"
+      label
+      (Yojson.Safe.to_string json)
+;;
+
+let test_forced_tool_choice_provider_invariants () =
+  with_model_catalog
+    {|
+[[models]]
+id_prefix = "claude-opus-4-6"
+base = "anthropic"
+supports_tools = true
+supports_tool_choice = true
+supports_named_tool_choice = true
+
+[[models]]
+id_prefix = "glm-5.1"
+base = "glm"
+supports_tools = true
+supports_tool_choice = true
+supports_named_tool_choice = false
+
+[[models]]
+id_prefix = "minimax-m3"
+base = "openai_chat"
+supports_tools = true
+supports_tool_choice = true
+supports_named_tool_choice = true
+
+[[models]]
+id_prefix = "ollama_cloud/minimax-m3"
+base = "ollama_cloud"
+supports_tools = true
+supports_tool_choice = false
+supports_named_tool_choice = false
+|}
+    (fun () ->
+       let named = Types.Tool "calc" in
+       let anthropic =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.Anthropic
+           ~model_id:"claude-opus-4-6"
+           ~base_url:"https://api.anthropic.com"
+           ~tool_choice:named
+           ()
+       in
+       expect_tool_choice_ok "anthropic named" anthropic;
+       let minimax =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"minimax-m3"
+           ~base_url:"https://api.minimax.chat/v1"
+           ~tool_choice:named
+           ()
+       in
+       expect_tool_choice_ok "minimax named" minimax;
+       expect_named_tool_choice_serialized "minimax named" minimax;
+       let glm =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.Glm
+           ~model_id:"glm-5.1"
+           ~base_url:Llm_provider.Zai_catalog.coding_base_url
+           ~tool_choice:named
+           ()
+       in
+       expect_named_tool_choice_rejected "glm named" glm;
+       let bare_zai_glm =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"glm-5.1"
+           ~base_url:Llm_provider.Zai_catalog.coding_base_url
+           ~tool_choice:named
+           ()
+       in
+       expect_named_tool_choice_rejected "bare zai glm named" bare_zai_glm;
+       let hosted_minimax_named =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"minimax-m3"
+           ~base_url:"https://ollama.com/v1"
+           ~request_path:"/chat/completions"
+           ~tool_choice:named
+           ()
+       in
+       expect_named_tool_choice_rejected "ollama cloud minimax named" hosted_minimax_named;
+       let hosted_minimax_any =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"minimax-m3"
+           ~base_url:"https://ollama.com/v1"
+           ~request_path:"/chat/completions"
+           ~tool_choice:Types.Any
+           ()
+       in
+       expect_tool_choice_ok "ollama cloud minimax any" hosted_minimax_any;
+       expect_no_tool_choice_field "ollama cloud minimax any" hosted_minimax_any)
+;;
+
 let test_all_includes_catalog_entry_once () =
   with_provider_catalog catalog_json (fun () ->
     let matches =
@@ -430,6 +580,10 @@ let () =
             "provider-qualified model catalog capabilities"
             `Quick
             test_capabilities_for_provider_config_uses_provider_qualified_model_catalog
+        ; Alcotest.test_case
+            "forced tool_choice provider invariants"
+            `Quick
+            test_forced_tool_choice_provider_invariants
         ; Alcotest.test_case
             "all includes catalog once"
             `Quick
