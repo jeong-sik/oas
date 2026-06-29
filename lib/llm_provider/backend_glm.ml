@@ -102,11 +102,21 @@ let without_field name fields =
   List.filter (fun (key, _) -> not (String.equal key name)) fields
 ;;
 
+let replace_or_append_field name value fields =
+  let rec loop acc replaced = function
+    | [] -> if replaced then List.rev acc else List.rev ((name, value) :: acc)
+    | (key, _) :: rest when String.equal key name ->
+      let acc = if replaced then acc else (name, value) :: acc in
+      loop acc true rest
+    | field :: rest -> loop (field :: acc) replaced rest
+  in
+  loop [] false fields
+;;
+
 let normalize_tool_choice_fields ~(tool_choice : Types.tool_choice option) fields =
-  let fields = without_field "tool_choice" fields in
   match tool_choice with
-  | Some (Auto | Any) -> ("tool_choice", `String "auto") :: fields
-  | Some (Tool _ | None_) | None -> fields
+  | Some (Auto | Any) -> replace_or_append_field "tool_choice" (`String "auto") fields
+  | Some (Tool _ | None_) | None -> without_field "tool_choice" fields
 ;;
 
 let build_request
