@@ -560,15 +560,18 @@ let thinking_control_format_of_manifest_string raw =
   | _ -> None
 ;;
 
+let preserve_thinking_control_manifest_values =
+  [ "none", No_preserve_thinking_control
+  ; "thinking_object_keep_all", Thinking_object_keep_all
+  ; "chat_template_kwargs_preserve_thinking", Chat_template_kwargs_preserve_thinking
+  ; "top_level_preserve_thinking", Top_level_preserve_thinking
+  ; "always_preserved", Always_preserved_thinking
+  ]
+;;
+
 let preserve_thinking_control_format_of_manifest_string raw =
-  match String.lowercase_ascii (String.trim raw) with
-  | "none" -> Some No_preserve_thinking_control
-  | "thinking_object_keep_all" -> Some Thinking_object_keep_all
-  | "chat_template_kwargs_preserve_thinking" ->
-    Some Chat_template_kwargs_preserve_thinking
-  | "top_level_preserve_thinking" -> Some Top_level_preserve_thinking
-  | "always_preserved" -> Some Always_preserved_thinking
-  | _ -> None
+  String.lowercase_ascii (String.trim raw)
+  |> Fun.flip List.assoc_opt preserve_thinking_control_manifest_values
 ;;
 
 let warn_unknown_capability_value ~field raw =
