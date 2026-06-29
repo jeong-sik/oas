@@ -10,6 +10,8 @@ open Alcotest
 open Llm_provider
 
 let all_known_variants =
+  (* Keep this hand-list in sync with [Types.stop_reason]. OCaml has no native
+     constructor enumeration, so this is the round-trip coverage surface. *)
   [ Types.EndTurn
   ; Types.StopToolUse
   ; Types.MaxTokens
@@ -21,17 +23,20 @@ let all_known_variants =
   ]
 ;;
 
-let stop_reason_testable = testable (fun fmt r -> Format.pp_print_string fmt (Types.show_stop_reason r)) ( = )
+let stop_reason_testable =
+  testable (fun fmt r -> Format.pp_print_string fmt (Types.show_stop_reason r)) ( = )
+;;
 
 (* of_string ∘ to_string = id for every known constructor. *)
 let test_roundtrip_known () =
   List.iter
     (fun r ->
-      let s = Types.stop_reason_to_string r in
-      check stop_reason_testable
-        (Printf.sprintf "roundtrip %s -> %S -> back" (Types.show_stop_reason r) s)
-        r
-        (Types.stop_reason_of_string s))
+       let s = Types.stop_reason_to_string r in
+       check
+         stop_reason_testable
+         (Printf.sprintf "roundtrip %s -> %S -> back" (Types.show_stop_reason r) s)
+         r
+         (Types.stop_reason_of_string s))
     all_known_variants
 ;;
 
@@ -40,7 +45,9 @@ let test_roundtrip_known () =
 let test_roundtrip_unknown_passthrough () =
   let raw = "some_future_provider_reason" in
   let r = Types.Unknown raw in
-  check stop_reason_testable "unknown passthrough roundtrips"
+  check
+    stop_reason_testable
+    "unknown passthrough roundtrips"
     r
     (Types.stop_reason_of_string (Types.stop_reason_to_string r));
   check string "unknown serializes to its raw token" raw (Types.stop_reason_to_string r)
@@ -48,13 +55,21 @@ let test_roundtrip_unknown_passthrough () =
 
 (* Pin the two strings that historically drifted across modules. *)
 let test_canonical_strings_pinned () =
-  check string "StopToolUse is tool_use (not stop_tool_use)"
-    "tool_use" (Types.stop_reason_to_string Types.StopToolUse);
-  check string "ContextWindowExceeded keeps the model_ prefix"
+  check
+    string
+    "StopToolUse is tool_use (not stop_tool_use)"
+    "tool_use"
+    (Types.stop_reason_to_string Types.StopToolUse);
+  check
+    string
+    "ContextWindowExceeded keeps the model_ prefix"
     "model_context_window_exceeded"
     (Types.stop_reason_to_string Types.ContextWindowExceeded);
   check string "EndTurn" "end_turn" (Types.stop_reason_to_string Types.EndTurn);
-  check string "StopSequence" "stop_sequence"
+  check
+    string
+    "StopSequence"
+    "stop_sequence"
     (Types.stop_reason_to_string Types.StopSequence)
 ;;
 
@@ -63,20 +78,28 @@ let test_canonical_strings_pinned () =
 let test_metric_label () =
   List.iter
     (fun r ->
-      check string
-        (Printf.sprintf "metric_label = to_string for %s" (Types.show_stop_reason r))
-        (Types.stop_reason_to_string r)
-        (Types.stop_reason_to_metric_label r))
+       check
+         string
+         (Printf.sprintf "metric_label = to_string for %s" (Types.show_stop_reason r))
+         (Types.stop_reason_to_string r)
+         (Types.stop_reason_to_metric_label r))
     all_known_variants;
-  check string "Unknown collapses to constant label"
-    "unknown" (Types.stop_reason_to_metric_label (Types.Unknown "anything_at_all"))
+  check
+    string
+    "Unknown collapses to constant label"
+    "unknown"
+    (Types.stop_reason_to_metric_label (Types.Unknown "anything_at_all"))
 ;;
 
 let () =
-  run "stop_reason_ssot"
+  run
+    "stop_reason_ssot"
     [ ( "canonical"
       , [ test_case "roundtrip known variants" `Quick test_roundtrip_known
-        ; test_case "unknown passthrough roundtrip" `Quick test_roundtrip_unknown_passthrough
+        ; test_case
+            "unknown passthrough roundtrip"
+            `Quick
+            test_roundtrip_unknown_passthrough
         ; test_case "pinned canonical strings" `Quick test_canonical_strings_pinned
         ; test_case "metric label semantics" `Quick test_metric_label
         ] )

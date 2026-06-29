@@ -1,7 +1,7 @@
 # Canonical Projection SSOT — OAS should own the serialization of its own ADTs
 
 - Date: 2026-06-29
-- Status: in progress (F1 landed; F2–F13 are follow-ups)
+- Status: in progress (F1 landed; F2–F14 are follow-ups)
 - Motivating PR: `refactor(stop-reason): single SSOT for stop_reason wire serialization`
 
 ## Problem
@@ -67,7 +67,7 @@ routing headers, cost-ledger and operator-alert routing.
   `unknown:`+s) and `response_shape.ml` (operator diagnostic,
   `context_window_exceeded` / `unknown(%S)`) emit different strings. Migrating
   them changes telemetry / diagnostic output — a behavior change that needs
-  consumer analysis, not a silent unify.
+  consumer analysis, not a silent unify. Tracked separately in #2241.
 
 ## Follow-up projections to expose (roadmap)
 
@@ -85,9 +85,11 @@ routing headers, cost-ledger and operator-alert routing.
 | F11 | wall tok/s from `inference_telemetry` | `usage_projection.wall_tokens_per_second` | MASC `wall_tokens_per_second` |
 | F12 | `api_usage` total | `Types.total_tokens` | MASC `total_tokens` ×2 |
 | F13 | misc usage/telemetry/cost helpers | `Types`/`pricing` helpers | MASC `keeper_hooks_oas_types.{usage_has_tokens,context_max_of_telemetry,oas_reported_cost}` |
+| F14 | `stop_reason` metric/diagnostic migration | consumer analysis for `agent.ml` labels and `response_shape.ml` diagnostics (#2241) | legacy OAS-local `stop_reason` string variants, if migration is safe |
 
 Sequencing: F4/F12 (trivial) → F5/F6/F7 (OAS-internal, immediate value) →
-F2/F3 (content_block utils) → F8 (capability axis, RFC) → F9/F10/F11/F13.
+F2/F3 (content_block utils) → F8 (capability axis, RFC) →
+F9/F10/F11/F13/F14.
 
 Rule for every step: OAS exposes a generic util; consumers call it. Never the
 reverse.
