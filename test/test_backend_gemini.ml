@@ -1068,6 +1068,102 @@ let test_gemini_stream_function_call_preserves_thought_signature () =
      | _ -> fail "expected redacted carrier, tool_use, delta, and terminal event")
 ;;
 
+let parse_gemini_chunk_exn data =
+  match Streaming.parse_gemini_sse_chunk data with
+  | Some chunk -> chunk
+  | None -> fail "expected Gemini SSE chunk"
+;;
+
+let test_gemini_stream_interleaved_thinking_tool_text_finalizes () =
+  let state =
+    Streaming.create_openai_stream_state
+      ~provider:"gemini"
+      ~model:"gemini-3-flash-preview"
+      ()
+  in
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let feed data =
+    let chunk = parse_gemini_chunk_exn data in
+    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    List.iter (Complete_stream_acc.accumulate_event acc) events
+  in
+  feed
+    {|{
+    "modelVersion": "gemini-3-flash-preview",
+    "candidates": [{
+      "content": {
+        "parts": [{"thought": true, "text": "plan-"}],
+        "role": "model"
+      }
+    }]
+  }|};
+  feed
+    {|{
+    "modelVersion": "gemini-3-flash-preview",
+    "candidates": [{
+      "content": {
+        "parts": [{
+          "functionCall": {"name": "lookup", "args": {"city": "Seoul"}},
+          "thoughtSignature": "sig-gemini-interleaved-123"
+        }],
+        "role": "model"
+      }
+    }]
+  }|};
+  feed
+    {|{
+    "modelVersion": "gemini-3-flash-preview",
+    "candidates": [{
+      "content": {
+        "parts": [{"thought": true, "text": "done"}],
+        "role": "model"
+      }
+    }]
+  }|};
+  feed
+    {|{
+    "modelVersion": "gemini-3-flash-preview",
+    "candidates": [{
+      "content": {
+        "parts": [{"text": "visible"}],
+        "role": "model"
+      },
+      "finishReason": "STOP"
+    }],
+    "usageMetadata": {"promptTokenCount": 13, "candidatesTokenCount": 8}
+  }|};
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error _ -> fail "expected finalized Gemini interleaved stream"
+  | Ok response ->
+    check bool "stop reason" true (response.stop_reason = Types.StopToolUse);
+    (match response.usage with
+     | Some usage ->
+       check int "input tokens" 13 usage.input_tokens;
+       check int "output tokens" 8 usage.output_tokens
+     | None -> fail "expected usage");
+    (match response.content with
+     | [ Types.Thinking { content = "plan-done"; _ }
+       ; Types.RedactedThinking raw
+       ; Types.ToolUse { id; name = "lookup"; input }
+       ; Types.Text "visible"
+       ] ->
+       check bool "tool args" true (input = `Assoc [ "city", `String "Seoul" ]);
+       let carrier = Yojson.Safe.from_string raw in
+       check string "carrier provider" "gemini" (carrier |> member "provider" |> to_string);
+       check
+         string
+         "carrier kind"
+         "gemini_thought_signature"
+         (carrier |> member "kind" |> to_string);
+       check string "carrier tool id" id (carrier |> member "tool_use_id" |> to_string);
+       check
+         string
+         "carrier signature"
+         "sig-gemini-interleaved-123"
+         (carrier |> member "thoughtSignature" |> to_string)
+     | _ -> fail "expected thinking, redacted carrier, tool use, and visible text")
+;;
+
 (* ── Suite ────────────────────────────────────────── *)
 
 let () =
@@ -1147,6 +1243,10 @@ let () =
             "function call thought signature"
             `Quick
             test_gemini_stream_function_call_preserves_thought_signature
+        ; test_case
+            "interleaved thinking/tool/text finalizes"
+            `Quick
+            test_gemini_stream_interleaved_thinking_tool_text_finalizes
         ] )
     ; ( "capabilities"
       , [ test_case "gemini capabilities" `Quick test_gemini_capabilities_named ] )
