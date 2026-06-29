@@ -168,9 +168,15 @@ let thinking_enabled ~enable_thinking =
 
 let thinking_object_only_control dialect ~enable_thinking ~preserve_thinking =
   let keep_all =
-    match dialect.preserve_wire, preserve_thinking, enable_thinking with
-    | Thinking_object_keep_all, Some true, (None | Some true) -> true
-    | _ -> false
+    match dialect.preserve_wire with
+    | Thinking_object_keep_all ->
+      (match preserve_thinking, enable_thinking with
+       | Some true, (None | Some true) -> true
+       | Some true, Some false | Some false, _ | None, _ -> false)
+    | No_preserve_thinking_control
+    | Chat_template_kwargs_preserve_thinking
+    | Top_level_preserve_thinking
+    | Always_preserved_thinking -> false
   in
   let enabled =
     match enable_thinking with
@@ -182,15 +188,21 @@ let thinking_object_only_control dialect ~enable_thinking ~preserve_thinking =
 ;;
 
 let chat_template_kwargs_preserve_field dialect ~preserve_thinking =
-  match dialect.preserve_wire, preserve_thinking with
-  | Chat_template_kwargs_preserve_thinking, Some preserve -> Some preserve
-  | _ -> None
+  match dialect.preserve_wire with
+  | Chat_template_kwargs_preserve_thinking -> preserve_thinking
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Top_level_preserve_thinking
+  | Always_preserved_thinking -> None
 ;;
 
 let top_level_preserve_field dialect ~preserve_thinking =
-  match dialect.preserve_wire, preserve_thinking with
-  | Top_level_preserve_thinking, Some preserve -> Some preserve
-  | _ -> None
+  match dialect.preserve_wire with
+  | Top_level_preserve_thinking -> preserve_thinking
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Chat_template_kwargs_preserve_thinking
+  | Always_preserved_thinking -> None
 ;;
 
 let ignores_sampling_param dialect ~enable_thinking field =
