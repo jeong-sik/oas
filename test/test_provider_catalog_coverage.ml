@@ -234,6 +234,11 @@ let test_transport_auth_and_thinking_canonical_matrix () =
             "capabilities": {"thinking_control_format": "reasoning_effort"}
           },
           {
+            "id": "ollama-think",
+            "kind": "ollama",
+            "capabilities": {"thinking_control_format": "ollama_think"}
+          },
+          {
             "id": "enable",
             "kind": "openai_compat",
             "auth": {"type": "api_key_env", "env": "ENABLE_KEY"},
@@ -292,6 +297,12 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "reasoning effort"
     true
     (reasoning.capabilities.thinking_control_format = Capabilities.Reasoning_effort);
+  let ollama_think = require_lookup catalog "ollama-think" in
+  check
+    bool
+    "ollama think"
+    true
+    (ollama_think.capabilities.thinking_control_format = Capabilities.Ollama_think);
   let enable = require_lookup catalog "enable" in
   check bool "enable env" true (enable.auth = Provider_catalog.Api_key_env "ENABLE_KEY");
   check
@@ -313,7 +324,7 @@ let test_transport_auth_and_thinking_canonical_matrix () =
     "oversized prompt alignment ignored"
     None
     base.capabilities.prompt_cache_alignment;
-  check int "catalog size" 7 (List.length catalog)
+  check int "catalog size" 8 (List.length catalog)
 ;;
 
 let test_removed_catalog_aliases_are_rejected () =

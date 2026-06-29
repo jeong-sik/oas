@@ -64,6 +64,17 @@ let ollama_config ?system_prompt ?enable_thinking model_id =
     ()
 ;;
 
+let ollama_cloud_config ?system_prompt ?enable_thinking model_id =
+  PC.make
+    ~kind:Ollama
+    ~model_id
+    ~base_url:"https://ollama.com"
+    ~request_path:"/api/chat"
+    ?system_prompt
+    ?enable_thinking
+    ()
+;;
+
 let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
   PC.make
     ~kind:Anthropic
@@ -525,6 +536,20 @@ let test_ollama_qwen_uses_native_think_bool () =
   check_member_absent "reasoning_effort" json
 ;;
 
+let test_ollama_cloud_glm_uses_native_think_not_zai_thinking () =
+  let config = ollama_cloud_config ~enable_thinking:true "glm-5.2" in
+  let json = BOL.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
+  check string "model" "glm-5.2" (json |> member "model" |> to_string);
+  check bool "think true" true (json |> member "think" |> to_bool);
+  check_member_absent "thinking" json;
+  check_member_absent "reasoning_content" json;
+  check_member_absent "reasoning_effort" json;
+  check_member_absent "tool_stream" json;
+  let dialect = RD.for_provider_config config in
+  check string "toggle wire" "ollama_think" (RD.toggle_wire_to_string dialect.toggle_wire);
+  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility)
+;;
+
 let test_ollama_gemma4_enabled_uses_chat_template_token () =
   let config =
     ollama_config
@@ -795,6 +820,10 @@ let () =
             "qwen uses native think bool"
             `Quick
             test_ollama_qwen_uses_native_think_bool
+        ; test_case
+            "cloud GLM uses native think not ZAI thinking"
+            `Quick
+            test_ollama_cloud_glm_uses_native_think_not_zai_thinking
         ; test_case
             "gemma4 enabled uses chat template token"
             `Quick

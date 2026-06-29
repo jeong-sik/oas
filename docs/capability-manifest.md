@@ -97,7 +97,7 @@ for the full JSON Schema (draft-07).
 | `supports_seed` | bool | from base | Deterministic seed. |
 | `supports_computer_use` | bool | from base | Computer-use tools. |
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
-| `thinking_control_format` | string | from base | Thinking enable/depth wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `reasoning_effort`, `enable_thinking`. |
+| `thinking_control_format` | string | from base | Thinking enable/depth wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `ollama_think`, `reasoning_effort`, `enable_thinking`. |
 | `preserve_thinking_control_format` | string | from base | Historical reasoning replay/preserve wire control. Accepted values: `none`, `thinking_object_keep_all`, `chat_template_kwargs_preserve_thinking`, `top_level_preserve_thinking`, `always_preserved`. |
 | `reasoning_visibility` | string | `default` | Optional parsed reasoning visibility override. Accepted values: `default`, `provider_hidden`, `visible_channel`, `visible_text`. |
 
@@ -117,7 +117,7 @@ default is `default_capabilities` (all flags false, no limits).
 | `anthropic` | Claude (1M ctx, extended thinking, caching) |
 | `gemini` | Gemini (1M ctx, audio/video, code execution) |
 | `ollama` | Ollama local server |
-| `ollama_cloud` | Ollama Cloud OpenAI-compatible endpoint; parsed reasoning may be final visible text |
+| `ollama_cloud` | Ollama Cloud native `/api/chat`; parsed reasoning may be final visible text |
 | `glm` | GLM / ZhipuAI |
 | `kimi` | Kimi (262K ctx, reasoning) |
 | `nemotron` | NVIDIA NIM Nemotron (chat\_template\_kwargs thinking) |

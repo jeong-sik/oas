@@ -249,6 +249,7 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
          | [] -> body_assoc
          | fields -> ("chat_template_kwargs", `Assoc fields) :: body_assoc)
       | Llm_provider.Capabilities.Chat_template_token -> body_assoc
+      | Llm_provider.Capabilities.Ollama_think -> body_assoc
       | Llm_provider.Capabilities.Enable_thinking ->
         let body_assoc =
           match config.config.enable_thinking with

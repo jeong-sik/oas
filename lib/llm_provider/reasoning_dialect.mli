@@ -21,6 +21,7 @@ type toggle_wire =
   | Thinking_object_only
   | Chat_template_kwargs
   | Chat_template_token
+  | Ollama_think
   | Reasoning_effort
   | Enable_thinking
   | Anthropic_thinking

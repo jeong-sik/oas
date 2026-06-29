@@ -42,7 +42,7 @@ let build_request
     | None -> Cli_common_env.bool "OAS_OLLAMA_THINK_DEFAULT"
   in
   let caps =
-    match Capabilities.for_model_id config.model_id with
+    match Provider_config.capabilities_for_config_model config with
     | Some c -> c
     | None -> Capabilities.ollama_capabilities
   in
