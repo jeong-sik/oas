@@ -88,7 +88,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **S10.1 (정직한 계약).** "Pure"로 문서화된 모듈은 pure여야 한다; 효과(wall-clock, mutable global)는 경계로 옮기거나 `.mli`에 문서화. recovered id는 결정론적(block index + content hash) 또는 주입된 generator로 유도.
 - **S10.2 (데이터 손실은 관측되되, 관측이 fix는 아니다).** block을 drop하면 `repair_dangling_tool_calls`가 synthesized block에 태그하듯 태그한다. counter/log는 typed fix와 함께하는 *alarm*으로만 허용, fix 자체로는 금지(telemetry-as-fix = reject 시그니처).
 
-## 3. Evidence — confirmed violations (22 confirmed, 16 refuted/boundary-acceptable)
+## 3. Evidence — confirmed/historical violations (22 findings: 19 open, 3 resolved in current branch ancestry, 16 refuted/boundary-acceptable)
 
 | Sev | ID | Principle | File:line | Standard |
 |---|---|---|---|---|
@@ -107,7 +107,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | D6-source-type-ignored-non-anthropic | string_match/silent | backend_openai_serialize.ml:60-82; backend_gemini.ml:161-174; backend_openai_responses.ml:121-137 | S7.1 |
 | P2 | D5-synthetic-events-multimodal-silent-drop | silent_failure | streaming.ml:193-217 | S7.2 |
 | P2 | D7-thinking-signature-overloaded-string | string_match | complete_stream_acc.ml:147-153; streaming.ml:151-155 | S6.5 |
-| P2 | D4-dead-string-normalize-effort | string_match | reasoning_dialect.ml:271-280 (+mli:96) | S9.2 |
+| P2 | D4-test-only-normalize-effort-wrapper | string_match | reasoning_dialect.ml:284-292 (+mli:96); test/test_thinking_control_dialects.ml | S9.2 |
 | P3 | D7-gemini-family-leaks-second-string-match | string_match | capabilities.ml:442-463 | S1.3 |
 | P3 | D-TOOLS-8-recovery-impure-nondeterministic-id | mutable | tool_use_recovery.ml:11-12,149-157 | S10.1 |
 | P3 | D3-tool-pair-silent-drop | silent_failure | tool_message_pairs.ml:55-111 | S3.3 |
@@ -156,7 +156,7 @@ Full per-finding verify reasoning and source URLs: audit artifact `wf_ad6e7c0c-a
 
 1. **Compiler** — S1.3/S1.4/S6.1/S7.1은 closed sum + exhaustive match로 표현. 새 variant/format이 컴파일을 깨야 한다. S2.1 also needs a uniqueness gate while duplicate builders remain. (`_ -> ...` catch-all 추가는 CLAUDE.md 워크어라운드 체크리스트 4번에 걸린다.)
 2. **CI grep gate** — S1.1/S2.2/S3.1: classifier 함수 밖의 model-name `String.starts_with`/raw threshold literal/`is_glm_request` 패턴을 거부하는 grep 단계를 `.github/workflows/ci.yml`에 추가. Grep은 우회 가능한 regression backstop일 뿐이며, durable proof는 raw model string matching이 parse boundary 밖에서 필요 없거나 표현 불가능해지는 typed family/capability classifier다. As of this RFC PR, the named gate is a required follow-up for remediation PRs, not a checked-in workflow yet.
-3. **Non-vacuous test** — S5.2/S6.2/S9.3: revert 시 red 되는 테스트. (예: `supports_tool_choice=false`인 GLM 요청 body에 `tool_choice`가 없음을 단언.)
+3. **Non-vacuous test** — S5.2/S6.2/S8.1/S9.3: revert 시 red 되는 테스트. (예: `supports_tool_choice=false`인 GLM 요청 body에 `tool_choice`가 없음을 단언; unknown JSON Schema `type`가 permissive wildcard로 돌아가면 `test_schema_validation_unknown_type_fails_closed`가 실패.)
 4. **Workaround-signature gate (planned)** — §5의 remediation을 그 workaround twin으로 구현하는 PR은 a future repo-versioned RFC gate에 걸려 거부돼야 한다. This RFC does **not** check in `scripts/ci/pr-rfc-check.sh`; until that lands, this rule is Advisory/reviewer-enforced. counter-as-fix / string-classifier 보강 / N-of-M / cap-cooldown-dedup-repair 금지.
 
 ## 5. Remediation backlog + sequencing
@@ -171,13 +171,13 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 ### 다음 (배포/사용 surface의 정합성 drift)
 4. OpenAI enum + replay drift (P1×2) — `none`/`minimal`/`xhigh` 등을 model-dependent vocabulary/subset으로 분리하고 tool-turn mandatory replay를 모델링. GPT-5.5 multi-turn tool loop에 현재 영향.
 5. Anthropic thinking drift + `tool_choice`-400 (P1×2) — forced tool + thinking hard-400 is verified; `thinking.display` visibility drift needs official source refresh before code changes.
-6. MiniMax provider 추가 (P1) — 현재 `No_replay` default가 interleaved thinking을 조용히 깨뜨림.
+6. MiniMax replay/tool-choice evidence + catalog field fix (P1) — catalog rows already exist; do not add a duplicate provider. First capture official/live evidence, then update the existing capability/replay rows instead of relying on `No_replay` defaults that can silently break interleaved thinking.
 7. 중복 stream accumulator 제거 (D4, P2) — 삭제 후 `Complete_stream_acc`로 라우팅; RFC/removal target 없는 자체 WORKAROUND 라벨(상시 프로세스 위반).
 
 ### 미뤄도 안전 (latent, 현재 배포 모델 트리거 없음) — typed cleanup으로 batch
 - `D2-budget-to-effort-triplicated`, `D5-anthropic-thinkmode-hardcoded-prefix-table`, `D4-provider-preset-stale-numeric-limits` (SSOT/hardcode 부채; 현재 값이 일치해 active break 없음 — catalog-field RFC로 fold).
 - **Closed before this RFC update (do not redo)**: `D-TOOLS-6`(agent_tool typed delegation), `D-TOOLS-9`(harness unknown schema type fail-closed), and `D-TOOLS-8`(deterministic recovery id) are historical violations already fixed in the current branch ancestry. They remain evidence for the standard, not open backlog.
-- **Direct, RFC 불필요, 저위험 (언제든)**: `D4-dead-string-normalize-effort` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D4-budget-magic-defaults-silent`, `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
+- **Direct, RFC 불필요, 저위험 (언제든)**: `D4-test-only-normalize-effort-wrapper` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D4-budget-magic-defaults-silent`, `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
 - `D7-gemini-family-leaks-second-string-match`(P3) + Gemini `supports_medium`/`thoughtSignature` strictness: 단일 Gemini variant reshape로 fold.
 
 ### Backlog 자체의 가드레일
