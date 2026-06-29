@@ -9,6 +9,19 @@ let member_absent json name =
   | `Assoc _ | `List _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `String _ -> false
 ;;
 
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop idx =
+    if idx + sub_len > text_len
+    then false
+    else if String.sub text idx sub_len = sub
+    then true
+    else loop (idx + 1)
+  in
+  if sub_len = 0 then true else loop 0
+;;
+
 (* Helper: compare content_block via show string *)
 let check_block msg expected actual =
   check string msg (Types.show_content_block expected) (Types.show_content_block actual)
@@ -795,19 +808,18 @@ let test_build_openai_body_rejects_glm_forced_tool_choice () =
       ; "input_schema", `Assoc [ "type", `String "object" ]
       ]
   in
-  check_raises
-    "glm rejects named forced tool_choice"
-    (Invalid_argument
-       "build_openai_body: Z.AI GLM does not support named forced tool_choice \
-        \"calculator\"; use auto/any or remove tool_choice")
-    (fun () ->
-       ignore
-         (Api.build_openai_body
-            ~provider_config
-            ~config:state
-            ~messages:[]
-            ~tools:[ tool_json ]
-            ()))
+  match
+    Api.build_openai_body_result
+      ~provider_config
+      ~config:state
+      ~messages:[]
+      ~tools:[ tool_json ]
+      ()
+  with
+  | Error reason ->
+    check bool "mentions tool_choice" true (contains_substring ~sub:"tool_choice" reason);
+    check bool "mentions tool name" true (contains_substring ~sub:"calculator" reason)
+  | Ok _ -> fail "expected Result.Error for unsupported GLM named tool_choice"
 ;;
 
 let test_build_openai_body_rejects_bare_glm_forced_tool_choice () =
@@ -830,13 +842,13 @@ let test_build_openai_body_rejects_bare_glm_forced_tool_choice () =
       ; "input_schema", `Assoc [ "type", `String "object" ]
       ]
   in
-  check_raises
-    "bare glm rejects named forced tool_choice"
-    (Invalid_argument
-       "build_openai_body: Z.AI GLM does not support named forced tool_choice \
-        \"calculator\"; use auto/any or remove tool_choice")
-    (fun () ->
-       ignore (Api.build_openai_body ~config:state ~messages:[] ~tools:[ tool_json ] ()))
+  match
+    Api.build_openai_body_result ~config:state ~messages:[] ~tools:[ tool_json ] ()
+  with
+  | Error reason ->
+    check bool "mentions tool_choice" true (contains_substring ~sub:"tool_choice" reason);
+    check bool "mentions tool name" true (contains_substring ~sub:"calculator" reason)
+  | Ok _ -> fail "expected Result.Error for unsupported bare GLM named tool_choice"
 ;;
 
 let test_build_openai_body_glm_preserves_reasoning_content () =

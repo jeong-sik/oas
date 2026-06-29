@@ -102,19 +102,20 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
       let create_message ~sw ~net ~config ~messages ?tools () =
         let kind = spec.request_kind in
         let path = spec.request_path in
-        let body_str =
+        let body_result =
           match kind with
           | Provider.Anthropic_messages ->
-            Yojson.Safe.to_string
-              (`Assoc
-                  (Api_anthropic.build_body_assoc
-                     ~config
-                     ~messages
-                     ?tools
-                     ~stream:false
-                     ()))
+            Ok
+              (Yojson.Safe.to_string
+                 (`Assoc
+                     (Api_anthropic.build_body_assoc
+                        ~config
+                        ~messages
+                        ?tools
+                        ~stream:false
+                        ())))
           | Provider.Openai_chat_completions ->
-            Api_openai.build_openai_body
+            Api_openai.build_openai_body_result
               ~provider_config:provider_cfg
               ~config
               ~messages
@@ -122,48 +123,57 @@ let of_config (provider_cfg : Provider.config) : (provider_module, Error.sdk_err
               ()
           | Provider.Custom name ->
             (match Provider.find_provider name with
-             | Some impl -> impl.build_body ~config ~messages ?tools ()
-             | None -> Yojson.Safe.to_string (`Assoc []))
+             | Some impl -> Ok (impl.build_body ~config ~messages ?tools ())
+             | None -> Ok (Yojson.Safe.to_string (`Assoc [])))
         in
-        let url = base_url ^ path in
-        (* Merge auth headers at request time so that [headers] (from
+        match body_result with
+        | Error reason ->
+          Error
+            (Error.Api
+               (Retry.InvalidRequest
+                  { message = "Request rejected: " ^ reason
+                  ; reason = Retry.Unknown_invalid_request
+                  }))
+        | Ok body_str ->
+          let url = base_url ^ path in
+          (* Merge auth headers at request time so that [headers] (from
          [Provider.resolve]) never carries sensitive tokens. *)
-        let auth_hdrs =
-          if api_key = ""
-          then []
-          else (
-            match kind with
-            | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
-            | Provider.Openai_chat_completions | Provider.Custom _ ->
-              [ "Authorization", "Bearer " ^ api_key ])
-        in
-        match
-          Http_client.post_sync
-            ~sw
-            ~net
-            ~url
-            ~headers:(headers @ auth_hdrs)
-            ~body:body_str
-            ()
-        with
-        | Ok (200, body_str) ->
-          (match kind with
-           | Provider.Anthropic_messages ->
-             Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
-           | Provider.Openai_chat_completions ->
-             (match parse_openai_response_result body_str with
-              | Ok resp -> Ok resp
-              | Error err -> Error (Error.Api err))
-           | Provider.Custom name ->
-             (match Provider.find_provider name with
-              | Some impl -> Ok (impl.parse_response body_str)
-              | None ->
+          let auth_hdrs =
+            if api_key = ""
+            then []
+            else (
+              match kind with
+              | Provider.Anthropic_messages -> [ "x-api-key", api_key ]
+              | Provider.Openai_chat_completions | Provider.Custom _ ->
+                [ "Authorization", "Bearer " ^ api_key ])
+          in
+          (match
+             Http_client.post_sync
+               ~sw
+               ~net
+               ~url
+               ~headers:(headers @ auth_hdrs)
+               ~body:body_str
+               ()
+           with
+           | Ok (200, body_str) ->
+             (match kind with
+              | Provider.Anthropic_messages ->
+                Ok (Api_anthropic.parse_response (Yojson.Safe.from_string body_str))
+              | Provider.Openai_chat_completions ->
                 (match parse_openai_response_result body_str with
                  | Ok resp -> Ok resp
-                 | Error err -> Error (Error.Api err))))
-        | Ok (code, body_str) ->
-          Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
-        | Error err -> Error (Error.Api (retry_error_of_http_error err))
+                 | Error err -> Error (Error.Api err))
+              | Provider.Custom name ->
+                (match Provider.find_provider name with
+                 | Some impl -> Ok (impl.parse_response body_str)
+                 | None ->
+                   (match parse_openai_response_result body_str with
+                    | Ok resp -> Ok resp
+                    | Error err -> Error (Error.Api err))))
+           | Ok (code, body_str) ->
+             Error (Error.Api (Retry.classify_error ~status:code ~body:body_str))
+           | Error err -> Error (Error.Api (retry_error_of_http_error err)))
       ;;
     end
     in

@@ -374,6 +374,77 @@ let glm_should_replay_reasoning (config : t) =
     ~preserve_thinking:config.preserve_thinking
 ;;
 
+let is_zai_glm_config (config : t) =
+  match config.kind with
+  | Glm -> true
+  | OpenAI_compat ->
+    Zai_catalog.is_zai_base_url config.base_url
+    && Zai_catalog.is_glm_model_id config.model_id
+  | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
+;;
+
+type tool_choice_request_rejection =
+  | Unsupported_named_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; tool_name : string
+      }
+
+let tool_choice_request_rejection_to_message = function
+  | Unsupported_named_tool_choice { provider_kind; model_id; tool_name } ->
+    Printf.sprintf
+      "%s model %S does not support named forced tool_choice %S; use auto/any or \
+       remove tool_choice"
+      (string_of_provider_kind provider_kind)
+      model_id
+      tool_name
+;;
+
+let tool_choice_capabilities_for_config (config : t) =
+  let caps =
+    match capabilities_for_config_model config with
+    | Some caps -> caps
+    | None ->
+      (match config.kind with
+       | Glm -> Capabilities.glm_capabilities
+       | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | DashScope ->
+         Capabilities.default_capabilities)
+  in
+  match config.supports_tool_choice_override with
+  | Some supports_tool_choice ->
+    { caps with
+      Capabilities.supports_tool_choice = supports_tool_choice
+    ; supports_named_tool_choice = supports_tool_choice
+    }
+  | None -> caps
+;;
+
+let validate_tool_choice_request_with_capabilities ~provider_kind ~model_id ~tool_choice caps =
+  match tool_choice with
+  | Some (Types.Tool tool_name)
+    when caps.Capabilities.supports_tool_choice
+         && not caps.Capabilities.supports_named_tool_choice ->
+    Error
+      (Unsupported_named_tool_choice
+         { provider_kind; model_id; tool_name })
+  | Some (Types.Tool _) -> Ok ()
+  | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
+;;
+
+let validate_tool_choice_request_typed (config : t) =
+  let caps = tool_choice_capabilities_for_config config in
+  validate_tool_choice_request_with_capabilities
+    ~provider_kind:config.kind
+    ~model_id:config.model_id
+    ~tool_choice:config.tool_choice
+    caps
+;;
+
+let validate_tool_choice_request config =
+  Result.map_error tool_choice_request_rejection_to_message
+    (validate_tool_choice_request_typed config)
+;;
+
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)

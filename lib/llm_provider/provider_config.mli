@@ -367,6 +367,10 @@ val capability_provider_label : t -> string
     then bare model entries. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
+(** True when [config] targets Z.AI GLM semantics, either through the native
+    [Glm] kind or an OpenAI-compatible Z.AI endpoint with a GLM model id. *)
+val is_zai_glm_config : t -> bool
+
 (** Derive a provider-safe schema name for native structured-output APIs
     that require one (for example Openai's [json_schema.name]). *)
 val structured_output_name_of_schema : Yojson.Safe.t -> string
@@ -406,6 +410,32 @@ val validate_request_path : t -> (unit, string) result
     Returns [Error] with the unsupported parameter names for CLI providers.
     @since 0.185.0 *)
 val validate_cli_sampling_params : t -> (unit, string) result
+
+(** Validate provider-specific [tool_choice] constraints before request-body
+    construction. This catches unsupported runtime/provider contracts at the
+    typed config boundary instead of letting serializers raise exceptions after
+    a keeper turn has started. *)
+type tool_choice_request_rejection =
+  | Unsupported_named_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; tool_name : string
+      }
+
+val tool_choice_request_rejection_to_message : tool_choice_request_rejection -> string
+
+val validate_tool_choice_request_typed
+  :  t
+  -> (unit, tool_choice_request_rejection) result
+
+val validate_tool_choice_request_with_capabilities
+  :  provider_kind:provider_kind
+  -> model_id:string
+  -> tool_choice:Types.tool_choice option
+  -> Capabilities.capabilities
+  -> (unit, tool_choice_request_rejection) result
+
+val validate_tool_choice_request : t -> (unit, string) result
 
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)

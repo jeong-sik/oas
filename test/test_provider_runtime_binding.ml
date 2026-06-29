@@ -198,7 +198,11 @@ let test_capabilities_for_provider_config_honors_override () =
         ()
     in
     let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
-    Alcotest.(check bool) "override disables tool choice" false caps.supports_tool_choice)
+    Alcotest.(check bool) "override disables tool choice" false caps.supports_tool_choice;
+    Alcotest.(check bool)
+      "override disables named tool choice"
+      false
+      caps.supports_named_tool_choice)
 ;;
 
 let test_capabilities_for_provider_config_uses_provider_qualified_model_catalog () =
@@ -236,6 +240,10 @@ reasoning_replay = "preserve_always"
          "ollama cloud row disables forced tool_choice"
          false
          caps.supports_tool_choice;
+       Alcotest.(check bool)
+         "ollama cloud row disables named forced tool_choice"
+         false
+         caps.supports_named_tool_choice;
        Alcotest.(check bool)
          "ollama cloud row uses reasoning_effort"
          true

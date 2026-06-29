@@ -7,6 +7,7 @@ type model_entry =
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
+  ; supports_named_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
   ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
@@ -114,6 +115,8 @@ let parse_entry entry_toml =
          ; max_output_tokens = find_int_opt entry_toml [ "max_output_tokens" ]
          ; supports_tools = find_bool_opt entry_toml [ "supports_tools" ]
          ; supports_tool_choice = find_bool_opt entry_toml [ "supports_tool_choice" ]
+         ; supports_named_tool_choice =
+             find_bool_opt entry_toml [ "supports_named_tool_choice" ]
          ; supports_parallel_tool_calls =
              find_bool_opt entry_toml [ "supports_parallel_tool_calls" ]
          ; assistant_tool_content_format
