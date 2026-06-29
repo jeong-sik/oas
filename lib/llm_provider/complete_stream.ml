@@ -254,8 +254,8 @@ let%test "truncated stream (no terminal stop_reason) finalizes Error, not phanto
    wire). The helper now emits [MessageStop], so the stream finalizes [Ok] with
    the default [EndTurn]. *)
 let%test
-    "clean stream finalizes Ok: OpenAI-compat [DONE] without finish_reason \
-     defaults EndTurn (covers GLM/Kimi/DashScope)"
+    "clean stream finalizes Ok: OpenAI-compat [DONE] without finish_reason defaults \
+     EndTurn (covers GLM/Kimi/DashScope)"
   =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
@@ -277,7 +277,8 @@ let%test
    a stop_reason was received). Guards against the helper turning every
    OpenAI-compat completion into EndTurn. *)
 let%test
-    "clean stream finalizes Ok: OpenAI-compat finish_reason:length then [DONE] keeps MaxTokens"
+    "clean stream finalizes Ok: OpenAI-compat finish_reason:length then [DONE] keeps \
+     MaxTokens"
   =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
