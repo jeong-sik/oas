@@ -798,11 +798,11 @@ let test_apply_manifest_entry_all_none_uses_base () =
   check bool "caching matches base" base.supports_caching caps.supports_caching
 ;;
 
-let test_manifest_wrong_type_fields_warn_and_ignore () =
+let test_manifest_wrong_type_feature_fields_warn_and_ignore () =
   let warnings = ref [] in
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"typed","base":17,"max_context_tokens":"131072","supports_tools":"yes"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":"typed","max_context_tokens":"131072","supports_tools":"yes"}]}|}
   in
   let manifest =
     Diag.with_sink
@@ -815,7 +815,6 @@ let test_manifest_wrong_type_fields_warn_and_ignore () =
     | Ok _ -> Alcotest.fail "expected one manifest entry"
     | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
   in
-  check (option string) "wrong-type base ignored" None entry.base_label;
   check (option int) "wrong-type int ignored" None entry.max_context_tokens;
   check (option bool) "wrong-type bool ignored" None entry.supports_tools;
   let has_warning field expected =
@@ -827,9 +826,48 @@ let test_manifest_wrong_type_fields_warn_and_ignore () =
          && string_contains_sub msg (Printf.sprintf "expected %s" expected))
       !warnings
   in
-  check bool "warned for base" true (has_warning "base" "string");
   check bool "warned for max_context_tokens" true (has_warning "max_context_tokens" "int");
   check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
+;;
+
+let test_manifest_rejects_wrong_type_base () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-base","base":17}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "base";
+    check_contains "mentions expected type" msg "expected string"
+  | Ok _ -> Alcotest.fail "wrong-type base should reject"
+;;
+
+let test_manifest_rejects_wrong_type_policy_string () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-policy","thinking_control_format":false}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "thinking_control_format";
+    check_contains "mentions expected type" msg "expected string"
+  | Ok _ -> Alcotest.fail "wrong-type thinking_control_format should reject"
+;;
+
+let test_manifest_accepts_ollama_think_policy_string () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"ollama-manifest","thinking_control_format":"ollama_think"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check_thinking_control
+      "manifest ollama_think"
+      Capabilities.Ollama_think
+      caps.thinking_control_format
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
@@ -852,6 +890,18 @@ let test_manifest_rejects_unknown_reasoning_replay () =
     check_contains "mentions field" msg "reasoning_replay";
     check_contains "mentions value" msg "preserve-allways"
   | Ok _ -> Alcotest.fail "unknown reasoning_replay should reject"
+;;
+
+let test_manifest_rejects_unknown_reasoning_visibility () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-visibility","reasoning_visibility":"translucent"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "reasoning_visibility";
+    check_contains "mentions value" msg "translucent"
+  | Ok _ -> Alcotest.fail "unknown reasoning_visibility should reject"
 ;;
 
 let test_manifest_intlit_in_range_accepted () =
@@ -974,6 +1024,65 @@ reasoning_replay = "preserve-allways"
          check_contains "mentions field" msg "reasoning_replay";
          check_contains "mentions value" msg "preserve-allways"
        | Ok _ -> Alcotest.fail "unknown model catalog reasoning_replay should reject")
+;;
+
+let test_model_catalog_rejects_wrong_type_policy_string () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-policy-type"
+reasoning_replay = true
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions field" msg "reasoning_replay";
+         check_contains "mentions expected type" msg "expected string"
+       | Ok _ -> Alcotest.fail "wrong-type model catalog reasoning_replay should reject")
+;;
+
+let test_model_catalog_rejects_unknown_policy_strings () =
+  let cases =
+    [ "thinking_control_format", "mind_palace"
+    ; "preserve_thinking_control_format", "memory_palace"
+    ; "reasoning_visibility", "visible_ether"
+    ; "modality_priority", "image_only"
+    ]
+  in
+  List.iter
+    (fun (field, value) ->
+       with_temp_model_catalog
+         (Printf.sprintf
+            {|
+[[models]]
+id_prefix = "bad-%s"
+%s = "%s"
+|}
+            field
+            field
+            value)
+         (fun path ->
+            match Model_catalog.load_file path with
+            | Error msg ->
+              check_contains (field ^ " mentions field") msg field;
+              check_contains (field ^ " mentions value") msg value
+            | Ok _ -> Alcotest.failf "unknown model catalog %s should reject" field))
+    cases
+;;
+
+let test_model_catalog_rejects_wrong_type_base_label () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-base-type"
+base = 17
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions base" msg "base";
+         check_contains "mentions expected type" msg "expected string"
+       | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
 ;;
 
 (* ── DashScope preset ────────────────────────────────── *)
@@ -1189,9 +1298,18 @@ let () =
             `Quick
             test_apply_manifest_entry_all_none_uses_base
         ; test_case
-            "wrong-type fields warn and ignore"
+            "wrong-type feature fields warn and ignore"
             `Quick
-            test_manifest_wrong_type_fields_warn_and_ignore
+            test_manifest_wrong_type_feature_fields_warn_and_ignore
+        ; test_case "wrong-type base rejects" `Quick test_manifest_rejects_wrong_type_base
+        ; test_case
+            "wrong-type policy string rejects"
+            `Quick
+            test_manifest_rejects_wrong_type_policy_string
+        ; test_case
+            "ollama_think policy string accepted"
+            `Quick
+            test_manifest_accepts_ollama_think_policy_string
         ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
@@ -1200,6 +1318,10 @@ let () =
             "unknown reasoning_replay rejects"
             `Quick
             test_manifest_rejects_unknown_reasoning_replay
+        ; test_case
+            "unknown reasoning_visibility rejects"
+            `Quick
+            test_manifest_rejects_unknown_reasoning_visibility
         ; test_case
             "intlit in range accepted"
             `Quick
@@ -1224,6 +1346,18 @@ let () =
             "model catalog rejects unknown reasoning_replay"
             `Quick
             test_model_catalog_rejects_unknown_reasoning_replay
+        ; test_case
+            "model catalog rejects wrong-type policy string"
+            `Quick
+            test_model_catalog_rejects_wrong_type_policy_string
+        ; test_case
+            "model catalog rejects unknown policy strings"
+            `Quick
+            test_model_catalog_rejects_unknown_policy_strings
+        ; test_case
+            "model catalog rejects wrong-type base"
+            `Quick
+            test_model_catalog_rejects_wrong_type_base_label
         ] )
     ; ( "prefix_ordering"
       , [ test_case

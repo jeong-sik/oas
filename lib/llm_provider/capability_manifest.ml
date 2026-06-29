@@ -112,16 +112,18 @@ let member_int key json =
     None
 ;;
 
-let member_string_opt key json =
+let member_string_closed key json =
   match Yojson.Safe.Util.member key json with
-  | `String s -> Some s
+  | `String s -> Ok (Some s)
+  | `Null -> Ok None
   | actual ->
-    warn_type_mismatch key ~expected:"string" actual;
-    None
+    Error (Printf.sprintf "entry field %S expected string, got %s" key (json_kind actual))
 ;;
 
 let canonical_choice key ~allowed json =
-  match member_string_opt key json with
+  let open Result_syntax in
+  let* value = member_string_closed key json in
+  match value with
   | None -> Ok None
   | Some raw ->
     let normalized = String.lowercase_ascii (String.trim raw) in
@@ -134,30 +136,6 @@ let canonical_choice key ~allowed json =
            key
            normalized
            (String.concat ", " allowed))
-;;
-
-let thinking_control_format_values =
-  [ "none"
-  ; "thinking_object"
-  ; "thinking_object_only"
-  ; "chat_template_kwargs"
-  ; "chat_template_token"
-  ; "reasoning_effort"
-  ; "enable_thinking"
-  ]
-;;
-
-let preserve_thinking_control_format_values =
-  [ "none"
-  ; "thinking_object_keep_all"
-  ; "chat_template_kwargs_preserve_thinking"
-  ; "top_level_preserve_thinking"
-  ; "always_preserved"
-  ]
-;;
-
-let assistant_tool_content_format_values =
-  Capability_vocab.assistant_tool_content_format_values
 ;;
 
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
@@ -216,20 +194,22 @@ let parse_entry json =
   let open Result_syntax in
   let* () = reject_unknown_keys ~scope:"entry" ~known:known_entry_keys json in
   let* id_prefix =
-    match member_string_opt "id_prefix" json with
-    | None -> Error "entry missing required \"id_prefix\" field"
-    | Some id_prefix -> Ok id_prefix
+    match member_string_closed "id_prefix" json with
+    | Error _ as error -> error
+    | Ok None -> Error "entry missing required \"id_prefix\" field"
+    | Ok (Some id_prefix) -> Ok id_prefix
   in
+  let* base_label = member_string_closed "base" json in
   let* thinking_control_format =
     canonical_choice
       "thinking_control_format"
-      ~allowed:thinking_control_format_values
+      ~allowed:Capability_vocab.thinking_control_format_values
       json
   in
   let* preserve_thinking_control_format =
     canonical_choice
       "preserve_thinking_control_format"
-      ~allowed:preserve_thinking_control_format_values
+      ~allowed:Capability_vocab.preserve_thinking_control_format_values
       json
   in
   let* reasoning_replay =
@@ -238,15 +218,21 @@ let parse_entry json =
       ~allowed:Capability_vocab.reasoning_replay_values
       json
   in
+  let* reasoning_visibility =
+    canonical_choice
+      "reasoning_visibility"
+      ~allowed:Capability_vocab.reasoning_visibility_values
+      json
+  in
   let* assistant_tool_content_format =
     canonical_choice
       "assistant_tool_content_format"
-      ~allowed:assistant_tool_content_format_values
+      ~allowed:Capability_vocab.assistant_tool_content_format_values
       json
   in
   Ok
     { id_prefix
-    ; base_label = member_string_opt "base" json
+    ; base_label
     ; max_context_tokens = member_int "max_context_tokens" json
     ; max_output_tokens = member_int "max_output_tokens" json
     ; supports_tools = member_bool "supports_tools" json
@@ -274,7 +260,7 @@ let parse_entry json =
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format
     ; preserve_thinking_control_format
-    ; reasoning_visibility = member_string_opt "reasoning_visibility" json
+    ; reasoning_visibility
     ; reasoning_replay
     }
 ;;
