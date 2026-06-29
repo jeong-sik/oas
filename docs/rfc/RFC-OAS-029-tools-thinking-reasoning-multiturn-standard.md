@@ -45,7 +45,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **S1.4 (잘못된 default로 resolve 금지).** dialect 항목이 없는 reasoning 모델은 **fail closed**(`None`/`Unknown`)해야 하고 `No_replay`/`No_thinking_control`로 조용히 resolve되면 안 된다. **Compiler/Test**.
 
 ### S2 — Thinking-field 구성
-- **S2.1 (builder는 하나).** wire field 이름(`thinking`, `reasoning_effort`, `enable_thinking`, `preserve_thinking`, `thinking_budget`, `clear_thinking`, `chat_template_kwargs`, `thinkingLevel`, `thinkingBudget`, `includeThoughts`)은 typed dialect로 keying된 **정확히 1개 함수**에만 존재한다. 새 format variant는 컴파일 site 1곳만 깨야 한다. Root: `thinking_request_fields : dialect -> Provider_config.t -> (string * Yojson.Safe.t) list`. **Compiler**.
+- **S2.1 (builder는 하나).** wire field 이름(`thinking`, `reasoning_effort`, `enable_thinking`, `preserve_thinking`, `thinking_budget`, `clear_thinking`, `chat_template_kwargs`, `thinkingLevel`, `thinkingBudget`, `includeThoughts`)은 typed dialect로 keying된 **정확히 1개 함수**에만 존재한다. 새 format variant는 컴파일 site 1곳만 깨야 한다. Root: `thinking_request_fields : dialect -> Provider_config.t -> (string * Yojson.Safe.t) list`. Closed sums make the target builder exhaustive, but they do **not** prove uniqueness while duplicate builders still exist; the remediation PR that closes D1 must add a grep/drift test proving those field names appear only in the canonical builder. **Compiler + Gate/Test**.
 - **S2.2 (budget→effort 매핑은 하나).** `2048`/`8192` 임계값과 `Reasoning_effort.of_budget` 매핑은 `reasoning_effort.ml`에만 산다. backend는 `Reasoning_effort.t`를 소비하고 `Reasoning_dialect.normalize_effort_value`로 wire string을 만든다. backend에 raw 임계 리터럴 금지. **Gate/Test**.
 - **S2.3 (effort vocabulary + provider acceptance subset).** `Reasoning_effort.t`는 OAS가 직렬화할 수 있는 closed vocabulary이며, 모든 provider/model이 그 모든 값을 수락한다는 뜻이 아니다. provider/model capability record가 수락 subset과 omission/`none` 허용 여부를 선언하고, request builder는 그 subset을 검증해 fail-closed하거나 typed policy로 omit해야 한다. `none`/`max`/`xhigh` 등은 공식 근거와 catalog capability update가 있을 때만 vocabulary에 추가한다.
 
@@ -115,6 +115,11 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P3 | D7-anthropic-prefix-list-literal-duplicates | hardcode | capabilities.ml:189-217 | S1.2 |
 | P3 | D8-manifest-cannot-override-catalog-precedence | ssot | capabilities.ml:826-839 | S9.3 |
 
+Status note: `D-TOOLS-6`, `D-TOOLS-9`, and `D-TOOLS-8` are historical
+confirmed violations but are already fixed in the current branch ancestry.
+They are retained here as evidence for S4.3/S8.1/S10.1, not as open backlog
+items.
+
 ### 3b. Doc-currency drifts (official 2026-06-29 docs vs OAS)
 
 | Sev | Provider / field | OAS now | Official | Standard |
@@ -149,14 +154,14 @@ Full per-finding verify reasoning and source URLs: audit artifact `wf_ad6e7c0c-a
 
 표준을 사람의 선의에 맡기지 않는다. 메커니즘:
 
-1. **Compiler** — S1.3/S1.4/S2.1/S6.1/S7.1은 closed sum + exhaustive match로 표현. 새 variant/format이 컴파일을 깨야 한다. (`_ -> ...` catch-all 추가는 CLAUDE.md 워크어라운드 체크리스트 4번에 걸린다.)
-2. **CI grep gate** — S1.1/S2.2/S3.1: classifier 함수 밖의 model-name `String.starts_with`/raw threshold literal/`is_glm_request` 패턴을 거부하는 grep 단계를 `.github/workflows/ci.yml`에 추가. (이미 있는 `util-ci-substring-str` 작업과 정렬.) Grep은 우회 가능한 regression backstop일 뿐이며, durable proof는 raw model string matching이 parse boundary 밖에서 필요 없거나 표현 불가능해지는 typed family/capability classifier다.
+1. **Compiler** — S1.3/S1.4/S6.1/S7.1은 closed sum + exhaustive match로 표현. 새 variant/format이 컴파일을 깨야 한다. S2.1 also needs a uniqueness gate while duplicate builders remain. (`_ -> ...` catch-all 추가는 CLAUDE.md 워크어라운드 체크리스트 4번에 걸린다.)
+2. **CI grep gate** — S1.1/S2.2/S3.1: classifier 함수 밖의 model-name `String.starts_with`/raw threshold literal/`is_glm_request` 패턴을 거부하는 grep 단계를 `.github/workflows/ci.yml`에 추가. Grep은 우회 가능한 regression backstop일 뿐이며, durable proof는 raw model string matching이 parse boundary 밖에서 필요 없거나 표현 불가능해지는 typed family/capability classifier다. As of this RFC PR, the named gate is a required follow-up for remediation PRs, not a checked-in workflow yet.
 3. **Non-vacuous test** — S5.2/S6.2/S9.3: revert 시 red 되는 테스트. (예: `supports_tool_choice=false`인 GLM 요청 body에 `tool_choice`가 없음을 단언.)
-4. **Workaround-signature gate** — §5의 remediation을 그 workaround twin으로 구현하는 PR은 `scripts/ci/pr-rfc-check.sh`의 시그니처에 걸려 거부된다. counter-as-fix / string-classifier 보강 / N-of-M / cap-cooldown-dedup-repair 금지.
+4. **Workaround-signature gate (planned)** — §5의 remediation을 그 workaround twin으로 구현하는 PR은 a future repo-versioned RFC gate에 걸려 거부돼야 한다. This RFC does **not** check in `scripts/ci/pr-rfc-check.sh`; until that lands, this rule is Advisory/reviewer-enforced. counter-as-fix / string-classifier 보강 / N-of-M / cap-cooldown-dedup-repair 금지.
 
 ## 5. Remediation backlog + sequencing
 
-RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M reshape(workaround 게이트가 RFC 요구); **Direct** = 순수 삭제/dedup/위임(시그니처 트리거 없음). 키스톤은 **RFC-OAS-023**.
+RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M reshape(workaround gate planned; reviewer-enforced until it is versioned); **Direct** = 순수 삭제/dedup/위임(시그니처 트리거 없음). 키스톤은 **RFC-OAS-023**.
 
 ### 먼저 (keystone, 가장 많이 unblock)
 1. **RFC-OAS-023 — GLM typed dialect reshape.** GLM-ness를 typed kind/capability로 1회 승격, `replay_policy`와 `Thinking_object`-style thinking-control variant 부여, 그 다음 2중/3중 thinking builder(S2.1)와 2중 `clear_thinking` helper(S9.2) 통합. 이 reshape 하나가 `D1-glm-replay-hardcoded-heuristic`(P1), `D6`(P2), GLM-row doc gap(P1×4), GLM effort/tool_choice/caps drift를 닫고 `is_glm_request` string fork를 제거한다. `D1-dup-thinking-builder-glm-drift`가 *re-drift 없이* 고쳐지려면 통합 builder가 string이 아니라 typed GLM dialect로 switch해야 하므로 이게 선행조건.
@@ -171,7 +176,8 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 
 ### 미뤄도 안전 (latent, 현재 배포 모델 트리거 없음) — typed cleanup으로 batch
 - `D2-budget-to-effort-triplicated`, `D5-anthropic-thinkmode-hardcoded-prefix-table`, `D4-provider-preset-stale-numeric-limits` (SSOT/hardcode 부채; 현재 값이 일치해 active break 없음 — catalog-field RFC로 fold).
-- **Direct, RFC 불필요, 저위험 (언제든)**: `D-TOOLS-6`(agent_tool 위임), `D-TOOLS-9`(harness fail-closed), `D4-dead-string-normalize-effort`(삭제), `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D-TOOLS-8`(id 결정론), `D4-budget-magic-defaults-silent`, `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
+- **Closed before this RFC update (do not redo)**: `D-TOOLS-6`(agent_tool typed delegation), `D-TOOLS-9`(harness unknown schema type fail-closed), and `D-TOOLS-8`(deterministic recovery id) are historical violations already fixed in the current branch ancestry. They remain evidence for the standard, not open backlog.
+- **Direct, RFC 불필요, 저위험 (언제든)**: `D4-dead-string-normalize-effort` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D4-budget-magic-defaults-silent`, `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
 - `D7-gemini-family-leaks-second-string-match`(P3) + Gemini `supports_medium`/`thoughtSignature` strictness: 단일 Gemini variant reshape로 fold.
 
 ### Backlog 자체의 가드레일
