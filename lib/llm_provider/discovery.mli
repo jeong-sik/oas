@@ -65,10 +65,10 @@ val ollama_host_env_var : string
 (** Compile-time fallback for {!resolve_ollama_endpoint}. *)
 val default_ollama_endpoint : string
 
-(** Canonical local LLM endpoint default.
-    Reads [OAS_LOCAL_LLM_URL], falls back to
-    {!Constants.Endpoints.default_url}.
-    All local endpoint defaults in llm_provider reference this value. *)
+(** Canonical local LLM endpoint fallback.
+    This is intentionally not an environment snapshot. Use
+    {!resolve_default_endpoint} when runtime configuration should read
+    [OAS_LOCAL_LLM_URL]. *)
 val default_endpoint : string
 
 (** Call-time resolver for the canonical local LLM endpoint.
@@ -79,8 +79,9 @@ val default_endpoint : string
     process environment. *)
 val resolve_default_endpoint : ?getenv:(string -> string option) -> unit -> string
 
-(** Ollama endpoint.  Reads OLLAMA_HOST env var,
-    falls back to ["http://127.0.0.1:11434"]. *)
+(** Ollama endpoint fallback. This is intentionally not an environment
+    snapshot. Use {!resolve_ollama_endpoint} when runtime configuration should
+    read [OLLAMA_HOST]. *)
 val ollama_endpoint : string
 
 (** Call-time resolver for the Ollama endpoint.
