@@ -29,6 +29,7 @@ type stream_acc =
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; stop_reason_received : bool ref
+  ; done_sentinel_seen : bool ref
   ; terminal_incomplete : bool ref
   ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t

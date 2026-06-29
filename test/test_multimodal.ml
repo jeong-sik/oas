@@ -47,6 +47,34 @@ let test_document_round_trip () =
   | None -> Alcotest.fail "content_block_of_json returned None for Document"
 ;;
 
+let test_image_url_round_trip () =
+  let img =
+    Types.Image
+      { media_type = "image/png"
+      ; data = "https://example.invalid/image.png"
+      ; source_type = Types.Url
+      }
+  in
+  let json = Api.content_block_to_json img in
+  match Api.content_block_of_json json with
+  | Some parsed -> check_block "image url round-trip" img parsed
+  | None -> Alcotest.fail "content_block_of_json returned None for URL Image"
+;;
+
+let test_document_file_id_round_trip () =
+  let doc =
+    Types.Document
+      { media_type = "application/pdf"
+      ; data = "file_abc123"
+      ; source_type = Types.File_id
+      }
+  in
+  let json = Api.content_block_to_json doc in
+  match Api.content_block_of_json json with
+  | Some parsed -> check_block "document file_id round-trip" doc parsed
+  | None -> Alcotest.fail "content_block_of_json returned None for file_id Document"
+;;
+
 (* ------------------------------------------------------------------ *)
 (* Parsing: Image with nested source                                    *)
 (* ------------------------------------------------------------------ *)
@@ -129,7 +157,7 @@ let check_unknown_media_source_kind_fails_closed ~block_type ~media_type ~data =
       [ "type", `String block_type
       ; ( "source"
         , `Assoc
-            [ "type", `String "url"
+            [ "type", `String "unknown_source"
             ; "media_type", `String media_type
             ; "data", `String data
             ] )
@@ -360,6 +388,11 @@ let () =
     [ ( "round_trip"
       , [ Alcotest.test_case "image base64 round-trip" `Quick test_image_round_trip
         ; Alcotest.test_case "document pdf round-trip" `Quick test_document_round_trip
+        ; Alcotest.test_case "image url round-trip" `Quick test_image_url_round_trip
+        ; Alcotest.test_case
+            "document file_id round-trip"
+            `Quick
+            test_document_file_id_round_trip
         ] )
     ; ( "parsing"
       , [ Alcotest.test_case "image nested source" `Quick test_image_parse_nested_source

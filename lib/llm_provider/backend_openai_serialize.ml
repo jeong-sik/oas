@@ -7,6 +7,25 @@
 
 open Types
 
+let unsupported_media_source ~backend ~block source_type =
+  invalid_arg
+    (Printf.sprintf
+       "%s does not support %s media source kind %s"
+       backend
+       block
+       (Types.media_source_kind_to_string source_type))
+;;
+
+let base64_data_url ~backend ~block ~media_type ~data = function
+  | Base64 -> Printf.sprintf "data:%s;base64,%s" media_type data
+  | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
+;;
+
+let base64_audio_data ~backend ~block ~data = function
+  | Base64 -> data
+  | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
+;;
+
 let tool_calls_to_openai_json blocks =
   blocks
   |> List.filter_map (function
@@ -57,25 +76,34 @@ let openai_content_parts_of_blocks blocks =
   |> List.filter_map (function
     | Text s ->
       Some (`Assoc [ "type", `String "text"; "text", `String (Utf8_sanitize.sanitize s) ])
-    | Image { media_type; data; source_type = _ } ->
+    | Image { media_type; data; source_type } ->
+      let url =
+        base64_data_url
+          ~backend:"openai_chat"
+          ~block:"image"
+          ~media_type
+          ~data
+          source_type
+      in
       Some
         (`Assoc
-            [ "type", `String "image_url"
-            ; ( "image_url"
-              , `Assoc
-                  [ "url", `String (Printf.sprintf "data:%s;base64,%s" media_type data) ]
-              )
-            ])
-    | Document { media_type; data; source_type = _ } ->
+            [ "type", `String "image_url"; "image_url", `Assoc [ "url", `String url ] ])
+    | Document { media_type; data; source_type } ->
+      let url =
+        base64_data_url
+          ~backend:"openai_chat"
+          ~block:"document"
+          ~media_type
+          ~data
+          source_type
+      in
       Some
         (`Assoc
-            [ "type", `String "image_url"
-            ; ( "image_url"
-              , `Assoc
-                  [ "url", `String (Printf.sprintf "data:%s;base64,%s" media_type data) ]
-              )
-            ])
-    | Audio { media_type; data; source_type = _ } ->
+            [ "type", `String "image_url"; "image_url", `Assoc [ "url", `String url ] ])
+    | Audio { media_type; data; source_type } ->
+      let data =
+        base64_audio_data ~backend:"openai_chat" ~block:"audio" ~data source_type
+      in
       Some
         (`Assoc
             [ "type", `String "input_audio"
@@ -275,11 +303,16 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
       (fun (texts, images) block ->
          match block with
          | Text s -> Utf8_sanitize.sanitize s :: texts, images
-         | Image { data; _ } | Document { data; _ } ->
+         | Image { data; source_type = Base64; _ }
+         | Document { data; source_type = Base64; _ } ->
            (* Ollama native /api/chat accepts base64 image payloads in the
               images field. Document blocks are forwarded the same way so
               vision models can attempt to process them as pages. *)
            texts, data :: images
+         | Image { source_type; _ } ->
+           unsupported_media_source ~backend:"ollama_native" ~block:"image" source_type
+         | Document { source_type; _ } ->
+           unsupported_media_source ~backend:"ollama_native" ~block:"document" source_type
          | Audio _ ->
            (* Ollama native /api/chat does not support audio input. *)
            texts, images
