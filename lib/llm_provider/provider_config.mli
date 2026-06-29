@@ -431,6 +431,10 @@ type tool_choice_request_rejection =
       ; model_id : string
       ; tool_name : string
       }
+  | Unsupported_required_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      }
 
 val tool_choice_request_rejection_to_message : tool_choice_request_rejection -> string
 val validate_tool_choice_request_typed : t -> (unit, tool_choice_request_rejection) result

@@ -273,6 +273,16 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
     check (option int) "native Kimi context 256K" (Some 256_000) native.max_context_tokens;
     check (option int) "native Kimi output 32K" (Some 32_768) native.max_output_tokens;
     check bool "native Kimi tools" true native.supports_tools;
+    check
+      bool
+      "native Kimi supports auto/none tool_choice"
+      true
+      native.supports_tool_choice;
+    check
+      bool
+      "native Kimi rejects forced/named tool_choice"
+      false
+      native.supports_named_tool_choice;
     check bool "native Kimi reasoning" true native.supports_reasoning;
     check_thinking_control
       "native latest Kimi has no thinking request toggle"
@@ -298,6 +308,16 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          (Some 32_768)
          bare_native.max_output_tokens;
        check bool "bare native Kimi tools" true bare_native.supports_tools;
+       check
+         bool
+         "bare native Kimi supports auto/none tool_choice"
+         true
+         bare_native.supports_tool_choice;
+       check
+         bool
+         "bare native Kimi rejects forced/named tool_choice"
+         false
+         bare_native.supports_named_tool_choice;
        check bool "bare native Kimi reasoning" true bare_native.supports_reasoning;
        check_thinking_control
          "bare native latest Kimi has no thinking request toggle"

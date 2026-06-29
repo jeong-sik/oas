@@ -415,6 +415,34 @@ let test_validate_responses_request_path_allows_json_mode () =
     (Result.is_ok (Provider_config.validate_request_path cfg))
 ;;
 
+let test_validate_kimi_k27_rejects_forced_tool_choice () =
+  let cfg tool_choice =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"kimi-k2.7-code"
+      ~base_url:"https://api.moonshot.ai/v1"
+      ~tool_choice
+      ()
+  in
+  check_bool
+    "named forced tool_choice rejects"
+    true
+    (Result.is_error
+       (Provider_config.validate_tool_choice_request (cfg (Types.Tool "lookup"))));
+  check_bool
+    "required forced tool_choice rejects"
+    true
+    (Result.is_error (Provider_config.validate_tool_choice_request (cfg Types.Any)));
+  check_bool
+    "auto tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.Auto)));
+  check_bool
+    "none tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.None_)))
+;;
+
 (* ── make: headers default ────────────────────────────── *)
 
 let test_default_headers () =
@@ -1209,6 +1237,10 @@ let () =
             "responses json mode path accepted"
             `Quick
             test_validate_responses_request_path_allows_json_mode
+        ; Alcotest.test_case
+            "kimi k2.7 forced tool_choice rejected"
+            `Quick
+            test_validate_kimi_k27_rejects_forced_tool_choice
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip

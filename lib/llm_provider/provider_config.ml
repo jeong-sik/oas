@@ -394,6 +394,10 @@ type tool_choice_request_rejection =
       ; model_id : string
       ; tool_name : string
       }
+  | Unsupported_required_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      }
 
 let tool_choice_request_rejection_to_message = function
   | Unsupported_forced_tool_choice { provider_kind; model_id; requested } ->
@@ -404,11 +408,17 @@ let tool_choice_request_rejection_to_message = function
       (Types.show_tool_choice requested)
   | Unsupported_named_tool_choice { provider_kind; model_id; tool_name } ->
     Printf.sprintf
-      "%s model %S does not support named forced tool_choice %S; use auto/any or remove \
+      "%s model %S does not support named forced tool_choice %S; use auto/none or remove \
        tool_choice"
       (string_of_provider_kind provider_kind)
       model_id
       tool_name
+  | Unsupported_required_tool_choice { provider_kind; model_id } ->
+    Printf.sprintf
+      "%s model %S does not support required forced tool_choice; use auto/none or remove \
+       tool_choice"
+      (string_of_provider_kind provider_kind)
+      model_id
 ;;
 
 let tool_choice_capabilities_for_config (config : t) =
@@ -441,6 +451,8 @@ let validate_tool_choice_request_with_capabilities
     Error (Unsupported_forced_tool_choice { provider_kind; model_id; requested })
   | Some (Types.Tool _ as requested) when not caps.Capabilities.supports_tool_choice ->
     Error (Unsupported_forced_tool_choice { provider_kind; model_id; requested })
+  | Some Types.Any when not caps.Capabilities.supports_named_tool_choice ->
+    Error (Unsupported_required_tool_choice { provider_kind; model_id })
   | Some (Types.Tool tool_name) when not caps.Capabilities.supports_named_tool_choice ->
     Error (Unsupported_named_tool_choice { provider_kind; model_id; tool_name })
   | Some (Types.Tool _) -> Ok ()
