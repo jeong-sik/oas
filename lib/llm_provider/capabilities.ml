@@ -74,6 +74,7 @@ type capabilities =
   ; (* ── Tool use ──────────────────────────────────────── *)
     supports_tools : bool
   ; supports_tool_choice : bool
+  ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
@@ -156,6 +157,7 @@ let default_capabilities =
   ; max_output_tokens = None
   ; supports_tools = false
   ; supports_tool_choice = false
+  ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; supports_parallel_tool_calls = false
   ; supports_runtime_mcp_tools = false
@@ -255,6 +257,7 @@ let anthropic_capabilities =
   ; (* default; higher for newer models *)
     supports_tools = true
   ; supports_tool_choice = true
+  ; supports_required_tool_choice = true
   ; supports_named_tool_choice = true
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
@@ -305,6 +308,9 @@ let kimi_capabilities =
      profile); a deployment that verified native named support can still override
      per-entry via the model catalog. Ref checked 2026-06-30:
      platform.kimi.ai/docs/api/chat, platform.kimi.ai/docs/api/tool-use. *)
+    supports_required_tool_choice = false
+  ; (* Same Kimi contract: named forced tool_choice has no faithful wire
+       representation. Keep required/named separated so Auto/None remain valid. *)
     supports_named_tool_choice = false
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
@@ -340,6 +346,7 @@ let openai_compat_chat_capabilities =
   ; max_output_tokens = Some 16_384
   ; supports_tools = true
   ; supports_tool_choice = true
+  ; supports_required_tool_choice = true
   ; supports_named_tool_choice = true
   ; supports_parallel_tool_calls = true
   ; supports_response_format_json = true
@@ -402,6 +409,7 @@ let provider_l_capabilities =
 let ollama_capabilities =
   { openai_compat_chat_extended_capabilities with
     supports_tool_choice = false
+  ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; supports_seed = true
   ; supports_seed_with_images = true
@@ -445,6 +453,7 @@ let glm_capabilities =
      replies do not count as contract violations. Ref checked 2026-04-21:
      https://docs.z.ai/guides/capabilities/function-calling *)
     supports_tool_choice = true
+  ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; assistant_tool_content_format = Assistant_tool_content_empty_string
   ; supports_reasoning = true
@@ -535,6 +544,7 @@ let gemini_capabilities =
   ; max_output_tokens = Some 65_000
   ; supports_tools = true
   ; supports_tool_choice = true
+  ; supports_required_tool_choice = true
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
   ; supports_extended_thinking = true
@@ -701,6 +711,11 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   let supports_tool_choice =
     override_bool base.supports_tool_choice entry.supports_tool_choice
   in
+  let supports_required_tool_choice =
+    match entry.supports_required_tool_choice with
+    | Some required -> required && supports_tool_choice
+    | None -> base.supports_required_tool_choice && supports_tool_choice
+  in
   let supports_named_tool_choice =
     match entry.supports_named_tool_choice, entry.supports_tool_choice with
     | Some named, _ -> named && supports_tool_choice
@@ -717,6 +732,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
   ; supports_tools = override_bool base.supports_tools entry.supports_tools
   ; supports_tool_choice
+  ; supports_required_tool_choice
   ; supports_named_tool_choice
   ; supports_parallel_tool_calls =
       override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
@@ -881,6 +897,11 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
   let supports_tool_choice =
     override_bool base.supports_tool_choice entry.supports_tool_choice
   in
+  let supports_required_tool_choice =
+    match entry.supports_required_tool_choice with
+    | Some required -> required && supports_tool_choice
+    | None -> base.supports_required_tool_choice && supports_tool_choice
+  in
   let supports_named_tool_choice =
     match entry.supports_named_tool_choice, entry.supports_tool_choice with
     | Some named, _ -> named && supports_tool_choice
@@ -897,6 +918,7 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
   ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
   ; supports_tools = override_bool base.supports_tools entry.supports_tools
   ; supports_tool_choice
+  ; supports_required_tool_choice
   ; supports_named_tool_choice
   ; supports_parallel_tool_calls =
       override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
@@ -1191,6 +1213,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; max_output_tokens = None
   ; supports_tools = None
   ; supports_tool_choice = None
+  ; supports_required_tool_choice = None
   ; supports_named_tool_choice = None
   ; supports_parallel_tool_calls = None
   ; assistant_tool_content_format = None
@@ -1231,6 +1254,7 @@ let qwen3_family_test_entry id_prefix : Model_catalog.model_entry =
   ; max_output_tokens = Some 81_920
   ; supports_tools = Some true
   ; supports_tool_choice = Some true
+  ; supports_required_tool_choice = Some true
   ; supports_named_tool_choice = Some true
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
@@ -1247,6 +1271,7 @@ let glm_thinking_test_entry id_prefix ~ctx ~out : Model_catalog.model_entry =
   ; max_output_tokens = Some out
   ; supports_tools = Some true
   ; supports_tool_choice = Some false
+  ; supports_required_tool_choice = Some false
   ; supports_named_tool_choice = Some false
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
@@ -1265,6 +1290,9 @@ let deepseek_v4_test_entry id_prefix : Model_catalog.model_entry =
        400s on forced tool_choice — both required and named function choice.
        Mirrors the models.toml entries. Ref 2026-06-30: deepseek-ai/DeepSeek-V3
        issue #1376, api-docs.deepseek.com/guides/function_calling. *)
+    supports_required_tool_choice = Some false
+  ; (* Same DeepSeek V4 thinking-mode forced tool_choice rejection, split by
+       required vs named capability. *)
     supports_named_tool_choice = Some false
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
@@ -1279,6 +1307,7 @@ let gemma4_openai_test_entry id_prefix : Model_catalog.model_entry =
   ; max_context_tokens = Some 262_144
   ; supports_tools = Some true
   ; supports_tool_choice = Some true
+  ; supports_required_tool_choice = Some true
   ; supports_named_tool_choice = Some true
   ; supports_multimodal_inputs = Some true
   ; supports_image_input = Some true

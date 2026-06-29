@@ -362,7 +362,25 @@ let parse_capabilities provider_json =
     let caps =
       if caps.supports_tool_choice
       then caps
-      else { caps with Capabilities.supports_named_tool_choice = false }
+      else
+        { caps with
+          Capabilities.supports_required_tool_choice = false
+        ; supports_named_tool_choice = false
+        }
+    in
+    override_bool
+      "supports_required_tool_choice"
+      caps
+      (fun caps v ->
+         { caps with
+           Capabilities.supports_required_tool_choice = v && caps.supports_tool_choice
+         })
+      cap_json
+    |> fun caps ->
+    let caps =
+      if caps.supports_tool_choice
+      then caps
+      else { caps with Capabilities.supports_required_tool_choice = false }
     in
     override_bool
       "supports_named_tool_choice"

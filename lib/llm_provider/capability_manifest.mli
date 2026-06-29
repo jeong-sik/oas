@@ -51,6 +51,7 @@ type entry =
   ; max_output_tokens : int option (** [None] = inherit from base. *)
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
+  ; supports_required_tool_choice : bool option
   ; supports_named_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
   ; assistant_tool_content_format : string option

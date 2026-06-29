@@ -388,6 +388,11 @@ let is_zai_glm_config (config : t) =
 ;;
 
 type tool_choice_request_rejection =
+  | Unsupported_forced_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; requested : Types.tool_choice
+      }
   | Unsupported_named_tool_choice of
       { provider_kind : provider_kind
       ; model_id : string
@@ -408,6 +413,13 @@ type tool_choice_request_rejection =
       }
 
 let tool_choice_request_rejection_to_message = function
+  | Unsupported_forced_tool_choice { provider_kind; model_id; requested } ->
+    Printf.sprintf
+      "%s model %S does not support forced tool_choice %S; use auto/none or remove \
+       tool_choice"
+      (string_of_provider_kind provider_kind)
+      model_id
+      (Types.show_tool_choice requested)
   | Unsupported_named_tool_choice { provider_kind; model_id; tool_name } ->
     Printf.sprintf
       "%s model %S does not support named forced tool_choice %S; use auto/none or remove \
@@ -467,6 +479,7 @@ let tool_choice_capabilities_for_config (config : t) =
   | Some supports_tool_choice ->
     { caps with
       Capabilities.supports_tool_choice
+    ; supports_required_tool_choice = supports_tool_choice
     ; supports_named_tool_choice = supports_tool_choice
     }
   | None -> caps
@@ -479,6 +492,12 @@ let validate_tool_choice_request_with_capabilities
       caps
   =
   match tool_choice with
+  | Some (Types.Any as requested) when not caps.Capabilities.supports_tool_choice ->
+    Error (Unsupported_forced_tool_choice { provider_kind; model_id; requested })
+  | Some (Types.Tool _ as requested) when not caps.Capabilities.supports_tool_choice ->
+    Error (Unsupported_forced_tool_choice { provider_kind; model_id; requested })
+  | Some Types.Any when not caps.Capabilities.supports_required_tool_choice ->
+    Error (Unsupported_required_tool_choice { provider_kind; model_id })
   | Some (Types.Tool tool_name) when not caps.Capabilities.supports_named_tool_choice ->
     Error (Unsupported_named_tool_choice { provider_kind; model_id; tool_name })
   | Some (Types.Tool _) -> Ok ()

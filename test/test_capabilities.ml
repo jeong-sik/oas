@@ -299,7 +299,12 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
       native.supports_tool_choice;
     check
       bool
-      "native Kimi rejects forced/named tool_choice"
+      "native Kimi rejects required tool_choice"
+      false
+      native.supports_required_tool_choice;
+    check
+      bool
+      "native Kimi rejects named tool_choice"
       false
       native.supports_named_tool_choice;
     check bool "native Kimi reasoning" true native.supports_reasoning;
@@ -334,7 +339,12 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          bare_native.supports_tool_choice;
        check
          bool
-         "bare native Kimi rejects forced/named tool_choice"
+         "bare native Kimi rejects required tool_choice"
+         false
+         bare_native.supports_required_tool_choice;
+       check
+         bool
+         "bare native Kimi rejects named tool_choice"
          false
          bare_native.supports_named_tool_choice;
        check bool "bare native Kimi reasoning" true bare_native.supports_reasoning;
@@ -847,19 +857,65 @@ let check_frontier_model
      | Native_structured_output -> ());
     let dialect = frontier_dialect route model_id c in
     (match replay_contract with
-     | Replay_not_required -> ()
+     | Replay_not_required ->
+       check
+         bool
+         (label ^ " does not replay plain-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " does not replay tool-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true)
      | Replay_tool_turn_only ->
        check
          string
          (label ^ " replay policy")
          "drop_without_tool_preserve_with_tool"
-         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+       check
+         bool
+         (label ^ " drops plain-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " preserves tool-turn reasoning")
+         true
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true);
+       check
+         bool
+         (label ^ " requires replay only on tool call")
+         true
+         (Reasoning_dialect.requires_reasoning_replay_on_tool_call dialect)
      | Replay_every_turn ->
        check
          string
          (label ^ " replay policy")
          "preserve_always"
-         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy));
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+       check
+         bool
+         (label ^ " preserves plain-turn reasoning")
+         true
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " preserves tool-turn reasoning")
+         true
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true);
+       check
+         bool
+         (label ^ " is not tool-only replay")
+         false
+         (Reasoning_dialect.requires_reasoning_replay_on_tool_call dialect));
     (match streaming_contract with
      | Streaming_not_required -> ()
      | Delta_stream field ->
@@ -978,6 +1034,13 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "thinking" )
+    ; ( "Ollama Cloud Gemma4"
+      , Provider_qualified "ollama_cloud"
+      , "gemma4:31b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
     ; ( "Ollama Cloud Kimi K2.7 Code"
       , Provider_qualified "ollama_cloud"
       , "kimi-k2.7-code"
@@ -1009,6 +1072,27 @@ let test_frontier_grouped_tool_thinking_structured_models () =
     ; ( "Ollama Cloud DeepSeek V4 Flash"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-flash"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud GLM 5.2"
+      , Provider_qualified "ollama_cloud"
+      , "glm-5.2"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud GPT-OSS 20B"
+      , Provider_qualified "ollama_cloud"
+      , "gpt-oss:20b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud GPT-OSS 120B"
+      , Provider_qualified "ollama_cloud"
+      , "gpt-oss:120b"
       , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required

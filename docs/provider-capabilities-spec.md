@@ -15,6 +15,7 @@ smoke on 2026-06-29.
 type capabilities = {
   supports_tools: bool;
   supports_tool_choice: bool;
+  supports_required_tool_choice: bool;
   supports_reasoning: bool;
   supports_response_format_json: bool;
   supports_multimodal_inputs: bool;
@@ -51,6 +52,8 @@ Cloud providers need hardcoded lookup tables keyed by model_id.
 |-------|---------|--------|-----------|
 | `supports_tools` | exists | keep | |
 | `supports_tool_choice` | exists | keep | |
+| `supports_required_tool_choice` | exists in code | keep separate | Required/any forced tool selection can differ from named forced tool selection. |
+| `supports_named_tool_choice` | exists in code | keep separate | Named forced tool selection can differ from `required`/`any` forced selection and from mere auto/none tool choice support. |
 | `supports_parallel_tool_calls` | exists | keep | Request builders derive effective `disable_parallel_tool_use` from caller intent plus provider/model capability. |
 | `assistant_tool_content_format` | exists in code | keep separate | Assistant tool-call content shape (`content:null` vs `content:""`) is a provider wire-contract axis, independent from reasoning replay. |
 | `supports_system_prompt` | missing | add | Most models support it, but some fine-tuned/distilled variants do not. Agent must fold system into first user message. |

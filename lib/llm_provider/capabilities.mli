@@ -60,6 +60,7 @@ type capabilities =
   ; (* Tool use *)
     supports_tools : bool
   ; supports_tool_choice : bool
+  ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool

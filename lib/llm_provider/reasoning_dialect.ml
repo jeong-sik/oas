@@ -335,16 +335,6 @@ let for_provider_config (config : Provider_config.t) =
     |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
 ;;
 
-let normalize_effort_value dialect effort =
-  match dialect.effort_alias_policy, (effort : Reasoning_effort.t) with
-  | ( Deepseek_high_or_max
-    , (Reasoning_effort.Low | Reasoning_effort.Medium | Reasoning_effort.High) ) ->
-    Some "high"
-  | Deepseek_high_or_max, Reasoning_effort.XHigh -> Some "max"
-  | Deepseek_high_or_max, (Reasoning_effort.None_ | Reasoning_effort.Minimal) -> None
-  | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
-;;
-
 let normalize_effort dialect raw =
   let normalized = String.lowercase_ascii (String.trim raw) in
   match normalized with

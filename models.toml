@@ -221,9 +221,10 @@ cache_read_multiplier = 1.0
 # default for these rows (thinking_control_format = thinking_object). Both
 # tool_choice="required" and a named function tool_choice return HTTP 400.
 # Ref checked 2026-06-30: api-docs.deepseek.com/guides/function_calling and
-# deepseek-ai/DeepSeek-V3 issue #1376. supports_named_tool_choice=false makes OAS
-# reject a named forced tool_choice (typed Unsupported_named_tool_choice) instead
-# of serializing a request the model 400s on. Plain auto still works, so
+# deepseek-ai/DeepSeek-V3 issue #1376. supports_required_tool_choice=false and
+# supports_named_tool_choice=false make OAS reject forced tool_choice (typed
+# Unsupported_required_tool_choice / Unsupported_named_tool_choice) instead of
+# serializing a request the model 400s on. Plain auto still works, so
 # supports_tool_choice stays true (mirrors the Kimi/GLM profiles).
 [[models]]
 id_prefix = "deepseek-v4-pro"
@@ -232,6 +233,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -253,6 +255,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -274,6 +277,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -295,6 +299,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -1604,6 +1609,7 @@ id_prefix = "kimi-k2"
 base = "kimi"
 max_context_tokens = 256000
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 input_per_million = 0.0
 output_per_million = 0.0
@@ -1613,6 +1619,7 @@ id_prefix = "kimi-k2.7-code"
 base = "kimi"
 max_context_tokens = 256000
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning_budget = false
 thinking_control_format = "none"

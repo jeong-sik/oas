@@ -59,7 +59,15 @@
         },
         "supports_tool_choice": {
           "type": "boolean",
-          "description": "Whether the model supports tool_choice (forced tool selection)."
+          "description": "Whether the model supports a tool_choice request field at all."
+        },
+        "supports_required_tool_choice": {
+          "type": "boolean",
+          "description": "Whether the model supports required/any forced tool_choice."
+        },
+        "supports_named_tool_choice": {
+          "type": "boolean",
+          "description": "Whether the model supports named forced tool_choice."
         },
         "supports_parallel_tool_calls": {
           "type": "boolean",

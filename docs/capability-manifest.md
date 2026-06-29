@@ -78,6 +78,8 @@ for the full JSON Schema (draft-07).
 | `max_output_tokens` | integer | from base | Maximum output tokens. |
 | `supports_tools` | bool | from base | Tool/function calling. |
 | `supports_tool_choice` | bool | from base | Forced tool selection. |
+| `supports_required_tool_choice` | bool | from base | Required/any forced tool selection. |
+| `supports_named_tool_choice` | bool | from base | Named forced tool selection. |
 | `supports_parallel_tool_calls` | bool | from base | Multiple tool calls per turn. |
 | `assistant_tool_content_format` | string | from base | Wire shape for assistant messages with tool calls and no visible text. Accepted values: `null`, `empty_string`. |
 | `supports_reasoning` | bool | from base | Any reasoning capability (union). |
@@ -154,6 +156,8 @@ let entry : Capability_manifest.entry =
   ; supports_tools = Some true
   ; (* all other fields: None = inherit from base *)
     supports_tool_choice = None
+  ; supports_required_tool_choice = None
+  ; supports_named_tool_choice = None
   ; supports_parallel_tool_calls = None
   ; (* ... *)
   }
