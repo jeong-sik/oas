@@ -905,6 +905,8 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     { Types.config =
         { Types.default_config with
           model = provider_config.model_id
+        ; enable_thinking = Some true
+        ; preserve_thinking = Some true
         ; tool_choice = Some (Types.Tool "calculator")
         }
     ; messages = []
