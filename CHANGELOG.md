@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.16](https://github.com/jeong-sik/oas/compare/v0.207.15...v0.207.16) (2026-06-29)
+
+
+### Features
+
+* **llm_provider:** add ?getenv DI seam to Cli_common_env (RFC-OAS-024 Phase 0) ([#2226](https://github.com/jeong-sik/oas/issues/2226)) ([a8f5677](https://github.com/jeong-sik/oas/commit/a8f5677376a9e4a3d5710c2b6340d36b3e1f0913))
+
 ## [0.207.15](https://github.com/jeong-sik/oas/compare/v0.207.14...v0.207.15) (2026-06-28)
 
 
