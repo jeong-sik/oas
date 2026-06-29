@@ -306,12 +306,16 @@ let build_request_assoc
     | None -> caps.supports_tool_choice
   in
   let body =
-    if supports_tool_choice
-    then (
-      match effective_tool_choice config with
-      | Some choice_json -> ("tool_choice", choice_json) :: body
-      | None -> body)
-    else body
+    match config.tool_choice with
+    | Some (Tool _) ->
+      (match effective_tool_choice config with
+       | Some choice_json -> ("tool_choice", choice_json) :: body
+       | None -> body)
+    | _ when supports_tool_choice ->
+      (match effective_tool_choice config with
+       | Some choice_json -> ("tool_choice", choice_json) :: body
+       | None -> body)
+    | _ -> body
   in
   let body =
     match tools with

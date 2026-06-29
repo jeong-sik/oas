@@ -1139,6 +1139,27 @@ let%test "glm build_request rejects unsupported forced tool_choice" =
   | _ -> false
 ;;
 
+let%test "build_request rejects named tool_choice when capability-false" =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"mystery-xyz-v1"
+      ~base_url:"http://localhost"
+      ~tool_choice:(Tool "calc")
+      ()
+  in
+  match build_request ~config ~messages:[] () with
+  | exception Invalid_argument msg ->
+    String.starts_with
+      ~prefix:"Backend_openai_request.effective_tool_choice: openai_compat model"
+      msg
+  | body ->
+    Printf.eprintf
+      "expected named tool_choice rejection for capability-false model, got body: %s\n"
+      body;
+    false
+;;
+
 let%test
     "glm build_request replays reasoning_content under preserved thinking without \
      leaking it into content"
