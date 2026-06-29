@@ -179,7 +179,9 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let dialect = reasoning_dialect_for_request capabilities config in
-  let assistant_tool_content_format = capabilities.Provider.assistant_tool_content_format in
+  let assistant_tool_content_format =
+    capabilities.Provider.assistant_tool_content_format
+  in
   let tools_to_send =
     match tools with
     | Some entries
