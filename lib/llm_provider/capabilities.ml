@@ -424,10 +424,10 @@ let glm_capabilities =
   ; (* Z.AI's function-calling docs currently document [tool_choice]
      as default [auto] and "only supports auto". OAS therefore treats
      Glm as "tools supported, forced tool_choice unsupported":
-     callers may still send tools and OAS may coerce an explicit
-     tool_choice request to [auto], but the completion contract must
-     stay relaxed so direct Glm text replies do not count as contract
-     violations. Ref checked 2026-04-21:
+     callers may still send tools, but named forced tool_choice requests
+     are not serialized because GLM has no faithful representation for
+     them. The completion contract must stay relaxed so direct Glm text
+     replies do not count as contract violations. Ref checked 2026-04-21:
      https://docs.z.ai/guides/capabilities/function-calling *)
     supports_tool_choice = true
   ; supports_named_tool_choice = false

@@ -331,7 +331,12 @@ let test_schema_validation_unknown_type_fails_closed () =
       "only the unknown-type path violates (null type accepts null)"
       [ "$.weird" ]
       (List.map (fun (v : H.schema_violation) -> v.path) call.violations
-       |> List.sort String.compare)
+       |> List.sort String.compare);
+    (match call.violations with
+     | [ violation ] ->
+       check string "unknown expected type is reported" "frobnicate" violation.expected;
+       check string "actual json type is reported" "string" violation.actual
+     | _ -> fail "expected exactly one unknown-type violation")
   | _ -> fail "expected one tool call"
 ;;
 

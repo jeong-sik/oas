@@ -98,6 +98,27 @@ let clear_thinking_of_config (config : Provider_config.t) =
      | None -> true)
 ;;
 
+let without_field name fields =
+  List.filter (fun (key, _) -> not (String.equal key name)) fields
+;;
+
+let replace_or_append_field name value fields =
+  let rec loop acc replaced = function
+    | [] -> if replaced then List.rev acc else List.rev ((name, value) :: acc)
+    | (key, _) :: rest when String.equal key name ->
+      let acc = if replaced then acc else (name, value) :: acc in
+      loop acc true rest
+    | field :: rest -> loop (field :: acc) replaced rest
+  in
+  loop [] false fields
+;;
+
+let normalize_tool_choice_fields ~(tool_choice : Types.tool_choice option) fields =
+  match tool_choice with
+  | Some (Auto | Any) -> replace_or_append_field "tool_choice" (`String "auto") fields
+  | Some (Tool _ | None_) | None -> without_field "tool_choice" fields
+;;
+
 let build_request
       ?(stream = false)
       ~(config : Provider_config.t)
@@ -123,7 +144,8 @@ let build_request
        The capability-driven unification of both emitters via
        [Glm_enable_thinking] is deferred to the RFC-OAS-023 axis reshape, which
        needs model-based [capabilities_of_config] resolution. *)
-    let fields = List.filter (fun (k, _) -> k <> "thinking") fields in
+    let fields = without_field "thinking" fields in
+    let fields = normalize_tool_choice_fields ~tool_choice:config.tool_choice fields in
     let fields =
       match config.enable_thinking with
       | Some true ->

@@ -1131,7 +1131,10 @@ let%test "glm build_request rejects unsupported forced tool_choice" =
   | _ -> false
 ;;
 
-let%test "glm build_request replays reasoning_content without leaking it into content" =
+let%test
+    "glm build_request replays reasoning_content under preserved thinking without \
+     leaking it into content"
+  =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm

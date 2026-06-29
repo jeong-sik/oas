@@ -74,20 +74,88 @@ let json_schema_type_of_string = function
 ;;
 
 let json_matches_schema_type expected value =
+  let is_object = function
+    | `List _
+    | `Int _
+    | `Intlit _
+    | `Float _
+    | `String _
+    | `Bool _
+    | `Null
+    | `Tuple _
+    | `Variant _ -> false
+    | `Assoc _ -> true
+  in
+  let is_array = function
+    | `Assoc _
+    | `Int _
+    | `Intlit _
+    | `Float _
+    | `String _
+    | `Bool _
+    | `Null
+    | `Tuple _
+    | `Variant _ -> false
+    | `List _ -> true
+  in
+  let is_string = function
+    | `Assoc _
+    | `List _
+    | `Int _
+    | `Intlit _
+    | `Float _
+    | `Bool _
+    | `Null
+    | `Tuple _
+    | `Variant _ -> false
+    | `String _ -> true
+  in
+  let is_number = function
+    | `Int _ | `Intlit _ | `Float _ -> true
+    | `Assoc _ | `List _ | `String _ | `Bool _ | `Null | `Tuple _ | `Variant _ -> false
+  in
+  let is_integer = function
+    | `Int _ | `Intlit _ -> true
+    | `Assoc _ | `List _ | `Float _ | `String _ | `Bool _ | `Null | `Tuple _ | `Variant _
+      -> false
+  in
+  let is_boolean = function
+    | `Bool _ -> true
+    | `Assoc _
+    | `List _
+    | `Int _
+    | `Intlit _
+    | `Float _
+    | `String _
+    | `Null
+    | `Tuple _
+    | `Variant _ -> false
+  in
+  let is_null = function
+    | `Null -> true
+    | `Assoc _
+    | `List _
+    | `Int _
+    | `Intlit _
+    | `Float _
+    | `String _
+    | `Bool _
+    | `Tuple _
+    | `Variant _ -> false
+  in
   match json_schema_type_of_string expected with
   | None ->
     (* Unknown/non-standard schema [type]: do not silently accept any value.
        A malformed type keyword is surfaced as a violation, not a permissive
        pass (RFC-OAS-029 S8.1; replaces the prior [unsupported_type <> ""]). *)
     false
-  | Some Schema_object -> (match value with `Assoc _ -> true | _ -> false)
-  | Some Schema_array -> (match value with `List _ -> true | _ -> false)
-  | Some Schema_string -> (match value with `String _ -> true | _ -> false)
-  | Some Schema_number ->
-    (match value with `Int _ | `Intlit _ | `Float _ -> true | _ -> false)
-  | Some Schema_integer -> (match value with `Int _ | `Intlit _ -> true | _ -> false)
-  | Some Schema_boolean -> (match value with `Bool _ -> true | _ -> false)
-  | Some Schema_null -> (match value with `Null -> true | _ -> false)
+  | Some Schema_object -> is_object value
+  | Some Schema_array -> is_array value
+  | Some Schema_string -> is_string value
+  | Some Schema_number -> is_number value
+  | Some Schema_integer -> is_integer value
+  | Some Schema_boolean -> is_boolean value
+  | Some Schema_null -> is_null value
 ;;
 
 let schema_if_present = function
