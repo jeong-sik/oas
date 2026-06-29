@@ -106,7 +106,8 @@ let normalize_tool_choice_fields (config : Provider_config.t) fields =
   let fields = without_field "tool_choice" fields in
   match config.tool_choice with
   | None | Some None_ -> fields
-  | Some (Auto | Any | Tool _) -> ("tool_choice", `String "auto") :: fields
+  | Some (Auto | Any) -> ("tool_choice", `String "auto") :: fields
+  | Some (Tool _) -> fields
 ;;
 
 let build_request
