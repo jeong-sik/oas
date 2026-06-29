@@ -5,6 +5,8 @@
 
 open Types
 
+module PConfig = Llm_provider.Provider_config
+
 (* Re-export pure functions from llm_provider *)
 include Llm_provider.Backend_openai
 
@@ -91,6 +93,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; max_output_tokens = caps.max_output_tokens
   ; supports_tools = caps.supports_tools
   ; supports_tool_choice = caps.supports_tool_choice
+  ; supports_named_tool_choice = caps.supports_named_tool_choice
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
   ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
   ; supports_runtime_tool_events = caps.supports_runtime_tool_events
@@ -123,6 +126,90 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; emits_usage_tokens = caps.emits_usage_tokens
   ; supported_models = caps.supported_models
   }
+;;
+
+let provider_config_kind_for_openai_compat ~base_url ~model_id =
+  if
+    Llm_provider.Zai_catalog.is_zai_base_url base_url
+    && Llm_provider.Zai_catalog.is_glm_model_id model_id
+  then PConfig.Glm
+  else PConfig.OpenAI_compat
+;;
+
+let provider_config_kind_of_request_kind = function
+  | Provider.Anthropic_messages -> PConfig.Anthropic
+  | Provider.Openai_chat_completions | Provider.Custom _ -> PConfig.OpenAI_compat
+;;
+
+let tool_choice_validation_context ?provider_config (config : agent_state) =
+  match provider_config with
+  | Some
+      ({ Provider.provider = Provider.Custom_registered { name }; model_id; _ } :
+        Provider.config) ->
+    (match Provider.find_provider name with
+     | Some impl ->
+       Ok
+         ( provider_config_kind_of_request_kind impl.Provider.request_kind
+         , model_id
+         , llm_capabilities_of_provider_capabilities impl.capabilities )
+     | None ->
+       let registry = Llm_provider.Provider_registry.default () in
+       (match Llm_provider.Provider_registry.find registry name with
+        | Some entry -> Ok (entry.defaults.kind, model_id, entry.capabilities)
+        | None ->
+          Error
+            (Printf.sprintf
+               "Custom_registered provider %S not found in provider registries"
+               name)))
+  | Some ({ provider = Provider.Anthropic; model_id; _ } : Provider.config) ->
+    let caps = capabilities_for_request ?provider_config config in
+    Ok (PConfig.Anthropic, model_id, llm_capabilities_of_provider_capabilities caps)
+  | Some
+      ({ provider =
+           (Provider.Local { base_url } | Provider.OpenAICompat { base_url; _ })
+       ; model_id
+       ; _
+       } : Provider.config) ->
+    let provider_kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
+    let caps =
+      match provider_kind with
+      | PConfig.Glm -> Llm_provider.Capabilities.glm_capabilities
+      | PConfig.OpenAI_compat ->
+        capabilities_for_request ?provider_config config
+        |> llm_capabilities_of_provider_capabilities
+      | PConfig.Anthropic
+      | PConfig.Kimi
+      | PConfig.Ollama
+      | PConfig.Gemini
+      | PConfig.DashScope -> Llm_provider.Capabilities.default_capabilities
+    in
+    Ok
+      ( provider_kind
+      , model_id
+      , caps )
+  | None ->
+    let model_id = model_to_string config.config.model in
+    if Llm_provider.Zai_catalog.is_glm_model_id model_id
+    then Ok (PConfig.Glm, model_id, Llm_provider.Capabilities.glm_capabilities)
+    else (
+      let caps = capabilities_for_request config in
+      Ok
+        ( PConfig.OpenAI_compat
+        , model_id
+        , llm_capabilities_of_provider_capabilities caps ))
+;;
+
+let validate_tool_choice_request ?provider_config (config : agent_state) =
+  match tool_choice_validation_context ?provider_config config with
+  | Error _ as error -> error
+  | Ok (provider_kind, model_id, caps) ->
+    Result.map_error
+      PConfig.tool_choice_request_rejection_to_message
+      (PConfig.validate_tool_choice_request_with_capabilities
+         ~provider_kind
+         ~model_id
+         ~tool_choice:config.config.tool_choice
+         caps)
 ;;
 
 let reasoning_dialect_for_request capabilities (config : agent_state) =
@@ -162,12 +249,6 @@ let effective_tool_choice_json
   | Some Types.None_ when is_glm -> None
   | Some (Types.Auto | Types.Any) when is_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
-  | Some (Types.Tool name) when is_glm ->
-    invalid_arg
-      (Printf.sprintf
-         "build_openai_body: Z.AI GLM does not support named forced tool_choice %S; use \
-          auto/any or remove tool_choice"
-         name)
   | Some Types.Auto when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->
@@ -179,21 +260,6 @@ let should_include_tools ?provider_config (config : agent_state) =
   match config.config.tool_choice with
   | Some Types.None_ when is_glm_request ?provider_config config -> false
   | _ -> true
-;;
-
-let unsupported_glm_named_tool_choice_reason name =
-  Printf.sprintf
-    "Z.AI GLM does not support named forced tool_choice %S; use auto/any or remove \
-     tool_choice"
-    name
-;;
-
-let validate_tool_choice_request ?provider_config (config : agent_state) =
-  match config.config.tool_choice with
-  | Some (Types.Tool name) when is_glm_request ?provider_config config ->
-    Error (unsupported_glm_named_tool_choice_reason name)
-  | Some (Types.Tool _) -> Ok ()
-  | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
 ;;
 
 let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_id () =

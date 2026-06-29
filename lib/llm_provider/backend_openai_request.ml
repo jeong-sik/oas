@@ -62,16 +62,15 @@ let add_sampling_field dialect (config : Provider_config.t) field value body =
 (* ── Request building ──────────────────────────────────── *)
 
 let effective_tool_choice (config : Provider_config.t) =
-  match config.kind, config.tool_choice with
-  | Glm, Some (Tool name) ->
+  match Provider_config.validate_tool_choice_request config with
+  | Error reason ->
     invalid_arg
-      (Printf.sprintf
-         "Backend_openai_request.build_request: Z.AI GLM does not support named forced \
-          tool_choice %S; use auto/any or remove tool_choice"
-         name)
-  | _, Some None_ -> None
-  | _, Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
-  | _, None -> None
+      (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
+  | Ok () ->
+    (match config.tool_choice with
+     | Some None_ -> None
+     | Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
+     | None -> None)
 ;;
 
 let effective_tools (config : Provider_config.t) tools =
@@ -367,16 +366,10 @@ let build_request_assoc
        | None -> body)
     | No_thinking_control -> body
   in
-  (* Unknown model capabilities fail closed. A caller that wants to force
-     [tool_choice] for a not-yet-cataloged model must set
-     [supports_tool_choice_override=true] or provide a capability entry. *)
   let supports_tool_choice =
     match config.supports_tool_choice_override with
     | Some v -> v
-    | None ->
-      (match Provider_config.capabilities_for_config_model config with
-       | Some c -> c.supports_tool_choice
-       | None -> false)
+    | None -> caps.supports_tool_choice
   in
   let body =
     match effective_tool_choice config with

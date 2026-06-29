@@ -78,6 +78,7 @@ let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
   ; max_output_tokens = caps.max_output_tokens
   ; supports_tools = caps.supports_tools
   ; supports_tool_choice = caps.supports_tool_choice
+  ; supports_named_tool_choice = caps.supports_named_tool_choice
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
   ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
   ; supports_runtime_tool_events = caps.supports_runtime_tool_events
@@ -385,7 +386,11 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
     | None -> caps
   in
   match cfg.supports_tool_choice_override with
-  | Some supports_tool_choice -> { caps with supports_tool_choice }
+  | Some supports_tool_choice ->
+    { caps with
+      supports_tool_choice
+    ; supports_named_tool_choice = supports_tool_choice
+    }
   | None -> caps
 ;;
 

@@ -9,6 +9,7 @@ type entry =
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
+  ; supports_named_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
   ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
@@ -169,6 +170,7 @@ let known_entry_keys =
   ; "max_output_tokens"
   ; "supports_tools"
   ; "supports_tool_choice"
+  ; "supports_named_tool_choice"
   ; "supports_parallel_tool_calls"
   ; "assistant_tool_content_format"
   ; "supports_reasoning"
@@ -249,6 +251,7 @@ let parse_entry json =
     ; max_output_tokens = member_int "max_output_tokens" json
     ; supports_tools = member_bool "supports_tools" json
     ; supports_tool_choice = member_bool "supports_tool_choice" json
+    ; supports_named_tool_choice = member_bool "supports_named_tool_choice" json
     ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
     ; assistant_tool_content_format
     ; supports_reasoning = member_bool "supports_reasoning" json

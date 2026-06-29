@@ -14,6 +14,7 @@ let make_test_impl ?(name = "test-provider") ?(request_path = "/v1/test") ()
       { Provider.default_capabilities with
         supports_tools = true
       ; supports_tool_choice = true
+      ; supports_named_tool_choice = true
       }
   ; build_body =
       (fun ~config:_ ~messages:_ ?tools:_ () -> {|{"model":"test","messages":[]}|})

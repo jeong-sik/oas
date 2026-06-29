@@ -252,6 +252,7 @@ let apply_reasoning_effort_overlay (caps : Capabilities.capabilities)
     supports_seed = true
   ; supports_seed_with_images = true
   ; supports_tool_choice = false
+  ; supports_named_tool_choice = false
   ; thinking_control_format = Capabilities.Reasoning_effort
   }
 ;;

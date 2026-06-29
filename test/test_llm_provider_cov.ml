@@ -1574,6 +1574,7 @@ let test_anthropic_capabilities () =
   let c = Capabilities.anthropic_capabilities in
   Alcotest.(check bool) "tools" true c.supports_tools;
   Alcotest.(check bool) "tool_choice" true c.supports_tool_choice;
+  Alcotest.(check bool) "named tool_choice" true c.supports_named_tool_choice;
   Alcotest.(check bool) "parallel tools" true c.supports_parallel_tool_calls;
   Alcotest.(check bool) "reasoning" true c.supports_reasoning;
   Alcotest.(check bool) "extended_thinking" true c.supports_extended_thinking;
@@ -1588,6 +1589,8 @@ let test_anthropic_capabilities () =
 let test_openai_compat_chat_capabilities () =
   let c = Capabilities.openai_compat_chat_capabilities in
   Alcotest.(check bool) "tools" true c.supports_tools;
+  Alcotest.(check bool) "tool_choice" true c.supports_tool_choice;
+  Alcotest.(check bool) "named tool_choice" true c.supports_named_tool_choice;
   Alcotest.(check bool) "json format" true c.supports_response_format_json;
   Alcotest.(check bool) "structured" true c.supports_structured_output;
   Alcotest.(check (option int)) "max_context" (Some 128_000) c.max_context_tokens
@@ -1618,14 +1621,14 @@ let test_glm_capabilities () =
   let c = Capabilities.glm_capabilities in
   (* Tool descriptions are sent and the model can still emit tool_use blocks. *)
   Alcotest.(check bool) "supports_tools" true c.supports_tools;
-  (* Pin the empirical Glm tool_choice semantics: Glm does not reliably
-     honor tool_choice=required (returns text-only).  This capability must
-     remain [false] so the request builder does not send a [tool_choice]
-     field that Glm would ignore, and a text-only response is accepted as
-     normal output.
-     Regression guard added after 2026-04-18 incident (8+ violations in
-     a single MASC session against glm-5-turbo / glm-4.7 / glm-5.1) (boundary-allow). *)
-  Alcotest.(check bool) "supports_tool_choice relaxed" false c.supports_tool_choice;
+  (* GLM accepts provider-level tool_choice modes such as auto/any, but does
+     not support named forced tool_choice. Keep these axes separate so callers
+     reject unsupported named forcing without dropping valid auto requests. *)
+  Alcotest.(check bool) "supports tool_choice modes" true c.supports_tool_choice;
+  Alcotest.(check bool)
+    "rejects named forced tool_choice"
+    false
+    c.supports_named_tool_choice;
   Alcotest.(check bool) "structured output disabled" false c.supports_structured_output;
   Alcotest.(check (option int)) "200K context" (Some 200_000) c.max_context_tokens;
   Alcotest.(check (option int)) "40960 output cap" (Some 40_960) c.max_output_tokens
