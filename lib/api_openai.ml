@@ -94,6 +94,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
   ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
   ; supports_runtime_tool_events = caps.supports_runtime_tool_events
+  ; assistant_tool_content_format = caps.assistant_tool_content_format
   ; supports_reasoning = caps.supports_reasoning
   ; supports_extended_thinking = caps.supports_extended_thinking
   ; supports_reasoning_budget = caps.supports_reasoning_budget
@@ -159,8 +160,9 @@ let effective_tool_choice_json
   let is_glm = is_glm_request ?provider_config config in
   match config.config.tool_choice with
   | Some Types.None_ when is_glm -> None
-  | Some (Types.Auto | Types.Any | Types.Tool _) when is_glm ->
+  | Some (Types.Auto | Types.Any) when is_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
+  | Some (Types.Tool _) when is_glm -> None
   | Some Types.Auto when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->
@@ -178,6 +180,9 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let dialect = reasoning_dialect_for_request capabilities config in
+  let assistant_tool_content_format =
+    capabilities.Provider.assistant_tool_content_format
+  in
   let tools_to_send =
     match tools with
     | Some entries
@@ -202,7 +207,10 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
              ~clear_thinking:None
              ~preserve_thinking:config.config.preserve_thinking
       then Llm_provider.Backend_openai_serialize.glm_messages_of_message
-      else Llm_provider.Backend_openai_serialize.dialect_messages_of_message dialect
+      else
+        Llm_provider.Backend_openai_serialize.dialect_messages_of_message
+          ~assistant_tool_content_format
+          dialect
     in
     system_message_json config @ List.concat_map message_serializer sanitized_messages
   in

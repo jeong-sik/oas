@@ -198,6 +198,8 @@ let build_request_assoc
     Backend_openai_serialize.close_tool_message_pairs_for_request messages
   in
   let dialect = Reasoning_dialect.for_provider_config config in
+  let caps = capabilities_of_config config in
+  let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =
     let message_serializer =
       match config.kind with
@@ -221,7 +223,9 @@ let build_request_assoc
       | Provider_config.Ollama
       | Provider_config.DashScope
       | Provider_config.Gemini ->
-        Backend_openai_serialize.dialect_messages_of_message dialect
+        Backend_openai_serialize.dialect_messages_of_message
+          ~assistant_tool_content_format
+          dialect
     in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
@@ -237,7 +241,6 @@ let build_request_assoc
      If no model-specific record exists, fall back to the provider-kind
      preset, then to conservative defaults for unknown OpenAI-compatible
      configs. *)
-  let caps = capabilities_of_config config in
   (* Resolve [max_tokens] from three layers:
      1. Caller override ([config.max_tokens = Some n]) - explicit request
      2. Model capability ([caps.max_output_tokens]) - provider's ceiling

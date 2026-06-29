@@ -1136,6 +1136,8 @@ let%test "glm build_request drops historical reasoning_content by default" =
       ~kind:Provider_config.Glm
       ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.coding_base_url
+      ~enable_thinking:true
+      ~preserve_thinking:true
       ()
   in
   let messages =

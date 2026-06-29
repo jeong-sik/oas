@@ -120,8 +120,8 @@ let accumulate_event (acc : stream_acc) = function
    finalizer below matches it exhaustively, so adding a kind breaks this compile
    site rather than slipping through the prior [_ -> None] catch-all that
    silently dropped any unrecognized block (RFC-OAS-029 S6.1). An unmodeled wire
-   kind becomes [Unknown_block] — handled explicitly and forward-compatibly
-   (S8.3), never silently. *)
+   kind becomes [Unknown_block] — handled explicitly as an unsupported stream
+   surface (S8.3), never silently or as assistant-visible text. *)
 type block_kind =
   | Text_block
   | Thinking_block
@@ -159,33 +159,29 @@ let finalize_stream_acc
     let indices =
       Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types [] |> List.sort compare
     in
-    let content =
-      List.filter_map
-        (fun idx ->
-           let text =
-             match Hashtbl.find_opt acc.block_texts idx with
-             | Some buf -> Buffer.contents buf
-             | None -> ""
-           in
-           match
-             Option.map block_kind_of_string (Hashtbl.find_opt acc.block_types idx)
-           with
-           | None -> None
-           | Some Text_block -> Some (Types.Text text)
-           | Some Thinking_block ->
-             let thinking_type =
-               match Hashtbl.find_opt acc.block_thinking_signatures idx with
-               | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
-               | Some _ | None -> "thinking"
-             in
-             Some (Types.Thinking { thinking_type; content = text })
-           | Some Redacted_thinking_block ->
-             (match Hashtbl.find_opt acc.block_tool_ids idx with
-              | Some data when data <> "" -> Some (Types.RedactedThinking data)
-              | Some _ | None -> None)
-           | Some Tool_use_block
-             when !(acc.terminal_incomplete) || !(acc.stop_reason) = Types.MaxTokens ->
-             (* A tool call only belongs to a turn the model finished at a tool
+    let content_of_index idx =
+      let text =
+        match Hashtbl.find_opt acc.block_texts idx with
+        | Some buf -> Buffer.contents buf
+        | None -> ""
+      in
+      match Option.map block_kind_of_string (Hashtbl.find_opt acc.block_types idx) with
+      | None -> Ok None
+      | Some Text_block -> Ok (Some (Types.Text text))
+      | Some Thinking_block ->
+        let thinking_type =
+          match Hashtbl.find_opt acc.block_thinking_signatures idx with
+          | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
+          | Some _ | None -> "thinking"
+        in
+        Ok (Some (Types.Thinking { thinking_type; content = text }))
+      | Some Redacted_thinking_block ->
+        (match Hashtbl.find_opt acc.block_tool_ids idx with
+         | Some data when data <> "" -> Ok (Some (Types.RedactedThinking data))
+         | Some _ | None -> Ok None)
+      | Some Tool_use_block
+        when !(acc.terminal_incomplete) || !(acc.stop_reason) = Types.MaxTokens ->
+        (* A tool call only belongs to a turn the model finished at a tool
                 boundary. When the turn was cut off, the accumulated tool block is
                 partial: its argument buffer may be empty (cut off before the first
                 delta) or even parse as JSON yet be incomplete. Drop it so the
@@ -203,124 +199,138 @@ let finalize_stream_acc
                 (#2073 streaming follow-up.) [response.failed]/[error] terminals
                 set [sse_error] instead, so finalize returns [Error] before content
                 assembly and never reaches this branch. *)
-             None
-           | Some Tool_use_block ->
-             let id =
-               match Hashtbl.find_opt acc.block_tool_ids idx with
-               | Some s -> s
-               | None -> ""
-             in
-             let name =
-               match Hashtbl.find_opt acc.block_tool_names idx with
-               | Some s -> s
-               | None -> ""
-             in
-             let input =
-               try Yojson.Safe.from_string text with
-               | Yojson.Json_error _ -> `Assoc []
-             in
-             Some (Types.ToolUse { id; name; input })
-           | Some (Tool_result_block { is_error }) ->
-             let tool_use_id =
-               match Hashtbl.find_opt acc.block_tool_ids idx with
-               | Some s -> s
-               | None -> ""
-             in
-             Some
-               (Types.ToolResult
-                  { tool_use_id
-                  ; content = text
-                  ; is_error
-                  ; json = (if is_error then None else Types.try_parse_json text)
-                  ; content_blocks = None
-                  })
-           | Some (Unknown_block _kind) ->
-             (* RFC-OAS-029 S6.1/S8.3: an unmodeled content-block kind is handled
-                explicitly, not silently dropped by a [_ -> None] catch-all.
-                Preserve any visible text it carried so newly introduced
-                text-bearing block kinds (e.g. provider server-tool result
-                blocks) survive in the response instead of vanishing. A kind that
-                accumulated no text has no renderable content; the raw kind string
-                remains inspectable in [acc.block_types]. Structurally malformed
-                SSE is a separate concern already surfaced via [sse_error]. *)
-             if String.trim text <> "" then Some (Types.Text text) else None)
-        indices
+        Ok None
+      | Some Tool_use_block ->
+        let id =
+          match Hashtbl.find_opt acc.block_tool_ids idx with
+          | Some s -> s
+          | None -> ""
+        in
+        let name =
+          match Hashtbl.find_opt acc.block_tool_names idx with
+          | Some s -> s
+          | None -> ""
+        in
+        let input =
+          try Yojson.Safe.from_string text with
+          | Yojson.Json_error _ -> `Assoc []
+        in
+        Ok (Some (Types.ToolUse { id; name; input }))
+      | Some (Tool_result_block { is_error }) ->
+        let tool_use_id =
+          match Hashtbl.find_opt acc.block_tool_ids idx with
+          | Some s -> s
+          | None -> ""
+        in
+        Ok
+          (Some
+             (Types.ToolResult
+                { tool_use_id
+                ; content = text
+                ; is_error
+                ; json = (if is_error then None else Types.try_parse_json text)
+                ; content_blocks = None
+                }))
+      | Some (Unknown_block kind) ->
+        (* RFC-OAS-029 S6.1/S8.3: an unmodeled content-block kind is handled
+           explicitly and fail-closed. Unknown wire semantics are not safely
+           equivalent to assistant-visible text, and surfacing [text] here can
+           leak future server/tool/control blocks into conversation history. Keep
+           the provider payload out of [raw]; the block index and kind identify
+           the unsupported surface without replaying its content. *)
+        Error
+          (Types.Stream_parse_failed
+             { reason =
+                 Printf.sprintf "unsupported_content_block_kind:%s:index:%d" kind idx
+             ; raw = ""
+             })
     in
-    (* Visible_text policy: a reasoning-only stream (no Text block, no tool
+    let rec collect_content acc = function
+      | [] -> Ok (List.rev acc)
+      | idx :: rest ->
+        (match content_of_index idx with
+         | Error _ as e -> e
+         | Ok None -> collect_content acc rest
+         | Ok (Some item) -> collect_content (item :: acc) rest)
+    in
+    (match collect_content [] indices with
+     | Error _ as e -> e
+     | Ok content ->
+       (* Visible_text policy: a reasoning-only stream (no Text block, no tool
        calls) collapses to content=[Thinking] which every Text-only projection
        reads as empty. Promote the reasoning into a visible Text block for
        provider/model contracts that expose reasoning-only answer text. Mirrors
        the non-streaming parser promotion. *)
-    let has_text =
-      List.exists
-        (function
-          | Types.Text _ -> true
-          | Types.Thinking _
-          | Types.RedactedThinking _
-          | Types.ToolUse _
-          | Types.ToolResult _
-          | Types.Image _
-          | Types.Document _
-          | Types.Audio _ -> false)
-        content
-    in
-    let has_tool =
-      List.exists
-        (function
-          | Types.ToolUse _ -> true
-          | Types.Text _
-          | Types.Thinking _
-          | Types.RedactedThinking _
-          | Types.ToolResult _
-          | Types.Image _
-          | Types.Document _
-          | Types.Audio _ -> false)
-        content
-    in
-    let reasoning_text =
-      List.find_map
-        (function
-          | Types.Thinking { content = c; _ } -> Some c
-          | Types.Text _
-          | Types.RedactedThinking _
-          | Types.ToolUse _
-          | Types.ToolResult _
-          | Types.Image _
-          | Types.Document _
-          | Types.Audio _ -> None)
-        content
-    in
-    let promoted_reasoning =
-      match reasoning_visibility, has_text, has_tool, reasoning_text with
-      | Reasoning_dialect.Visible_text, false, false, Some r when String.trim r <> "" ->
-        [ Types.Text r ]
-      | _ -> []
-    in
-    (* Enforce the StopToolUse => has-tool-block invariant now that the full
+       let has_text =
+         List.exists
+           (function
+             | Types.Text _ -> true
+             | Types.Thinking _
+             | Types.RedactedThinking _
+             | Types.ToolUse _
+             | Types.ToolResult _
+             | Types.Image _
+             | Types.Document _
+             | Types.Audio _ -> false)
+           content
+       in
+       let has_tool =
+         List.exists
+           (function
+             | Types.ToolUse _ -> true
+             | Types.Text _
+             | Types.Thinking _
+             | Types.RedactedThinking _
+             | Types.ToolResult _
+             | Types.Image _
+             | Types.Document _
+             | Types.Audio _ -> false)
+           content
+       in
+       let reasoning_text =
+         List.find_map
+           (function
+             | Types.Thinking { content = c; _ } -> Some c
+             | Types.Text _
+             | Types.RedactedThinking _
+             | Types.ToolUse _
+             | Types.ToolResult _
+             | Types.Image _
+             | Types.Document _
+             | Types.Audio _ -> None)
+           content
+       in
+       let promoted_reasoning =
+         match reasoning_visibility, has_text, has_tool, reasoning_text with
+         | Reasoning_dialect.Visible_text, false, false, Some r when String.trim r <> ""
+           -> [ Types.Text r ]
+         | _ -> []
+       in
+       (* Enforce the StopToolUse => has-tool-block invariant now that the full
        block set (including dropped partial tool calls above) is known. A
        reasoning-only or dropped-partial-tool stream that the provider tagged
        finish_reason="tool_calls" must NOT reach the driver as a tool-use turn
        with zero tools -- the pipeline re-issues that forever (infinite Thinking
        loop). SSOT: Stop_reason_wire.reconcile (same rule as the non-streaming
        parser via Stop_reason_wire.of_finish). *)
-    let stop_reason =
-      Stop_reason_wire.reconcile !(acc.stop_reason) ~has_tool_blocks:has_tool
-    in
-    Ok
-      { Types.id = !(acc.id)
-      ; model = !(acc.model)
-      ; stop_reason
-      ; content = content @ promoted_reasoning
-      ; usage =
-          Some
-            { input_tokens = !(acc.input_tokens)
-            ; output_tokens = !(acc.output_tokens)
-            ; cache_creation_input_tokens = !(acc.cache_creation)
-            ; cache_read_input_tokens = !(acc.cache_read)
-            ; cost_usd = None
-            }
-      ; telemetry = None
-      }
+       let stop_reason =
+         Stop_reason_wire.reconcile !(acc.stop_reason) ~has_tool_blocks:has_tool
+       in
+       Ok
+         { Types.id = !(acc.id)
+         ; model = !(acc.model)
+         ; stop_reason
+         ; content = content @ promoted_reasoning
+         ; usage =
+             Some
+               { input_tokens = !(acc.input_tokens)
+               ; output_tokens = !(acc.output_tokens)
+               ; cache_creation_input_tokens = !(acc.cache_creation)
+               ; cache_read_input_tokens = !(acc.cache_read)
+               ; cost_usd = None
+               }
+         ; telemetry = None
+         })
 ;;
 
 [@@@coverage off]
@@ -725,11 +735,10 @@ let%test "finalize_stream_acc empty produces empty content" =
   | Ok result -> result.content = []
 ;;
 
-let%test "finalize_stream_acc preserves text of unknown block kind (S6.1/S8.3)" =
-  (* RFC-OAS-029 S6.1/S8.3: an unmodeled content-block kind that carried visible
-     text is preserved as a Text block (forward-compatible with newly introduced
-     provider block kinds), not silently dropped by the former [_ -> None]
-     catch-all. Revert this fix -> content = [] (red). *)
+let%test "finalize_stream_acc fails closed for unknown block kind with text" =
+  (* RFC-OAS-029 S6.1/S8.3: unmodeled content-block kinds are not silently
+     dropped and are not coerced into assistant-visible Text. Revert this fix to
+     the old branch -> [Ok { content = [Types.Text "data"]; _ }] (red). *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "server_tool_use";
   let buf = Buffer.create 16 in
@@ -739,21 +748,29 @@ let%test "finalize_stream_acc preserves text of unknown block kind (S6.1/S8.3)" 
     acc.stop_reason_received := true;
     finalize_stream_acc acc
   with
-  | Error _ -> false
-  | Ok result -> result.content = [ Types.Text "data" ]
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = ""
+    && String.starts_with
+         ~prefix:"unsupported_content_block_kind:server_tool_use:index:0"
+         reason
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
-let%test "finalize_stream_acc drops empty unknown block kind" =
-  (* An unmodeled kind with no accumulated text has no renderable content, so it
-     is omitted via the explicit Unknown_block branch (not a silent catch-all). *)
+let%test "finalize_stream_acc fails closed for empty unknown block kind" =
+  (* Empty unknown blocks are still unsupported wire semantics. Returning [Ok []]
+     would silently erase a future server/tool/control surface. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "container_upload";
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc
   with
-  | Error _ -> false
-  | Ok result -> result.content = []
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = ""
+    && String.starts_with
+         ~prefix:"unsupported_content_block_kind:container_upload:index:0"
+         reason
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =

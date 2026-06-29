@@ -81,6 +81,7 @@ let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
   ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
   ; supports_runtime_tool_events = caps.supports_runtime_tool_events
+  ; assistant_tool_content_format = caps.assistant_tool_content_format
   ; supports_reasoning = caps.supports_reasoning
   ; supports_extended_thinking = caps.supports_extended_thinking
   ; supports_reasoning_budget = caps.supports_reasoning_budget

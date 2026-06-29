@@ -8,6 +8,7 @@ type model_entry =
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
+  ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
   ; supports_extended_thinking : bool option
   ; supports_reasoning_budget : bool option
@@ -89,15 +90,23 @@ let parse_entry entry_toml =
   | None -> Error "model entry missing required \"id_prefix\" field"
   | Some id_prefix ->
     let id_prefix = String.trim id_prefix in
-    (match
-       canonical_string_opt
-         ~entry_id:id_prefix
-         "reasoning_replay"
-         ~allowed:Capability_vocab.reasoning_replay_values
-         entry_toml
-     with
-     | Error _ as e -> e
-     | Ok reasoning_replay ->
+    let reasoning_replay_result =
+      canonical_string_opt
+        ~entry_id:id_prefix
+        "reasoning_replay"
+        ~allowed:Capability_vocab.reasoning_replay_values
+        entry_toml
+    in
+    let assistant_tool_content_format_result =
+      canonical_string_opt
+        ~entry_id:id_prefix
+        "assistant_tool_content_format"
+        ~allowed:Capability_vocab.assistant_tool_content_format_values
+        entry_toml
+    in
+    (match reasoning_replay_result, assistant_tool_content_format_result with
+     | (Error _ as e), _ | _, (Error _ as e) -> e
+     | Ok reasoning_replay, Ok assistant_tool_content_format ->
        Ok
          { id_prefix
          ; base_label = find_string_opt entry_toml [ "base" ]
@@ -107,6 +116,7 @@ let parse_entry entry_toml =
          ; supports_tool_choice = find_bool_opt entry_toml [ "supports_tool_choice" ]
          ; supports_parallel_tool_calls =
              find_bool_opt entry_toml [ "supports_parallel_tool_calls" ]
+         ; assistant_tool_content_format
          ; supports_reasoning = find_bool_opt entry_toml [ "supports_reasoning" ]
          ; supports_extended_thinking =
              find_bool_opt entry_toml [ "supports_extended_thinking" ]

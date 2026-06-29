@@ -84,6 +84,11 @@ type reasoning_replay_override = Llm_provider.Capabilities.reasoning_replay_over
   | Force_drop_without_tool_preserve_with_tool
   | Force_preserve_always
 
+type assistant_tool_content_format =
+      Llm_provider.Capabilities.assistant_tool_content_format =
+  | Assistant_tool_content_null
+  | Assistant_tool_content_empty_string
+
 type capabilities =
   { max_context_tokens : int option
   ; max_output_tokens : int option
@@ -92,6 +97,7 @@ type capabilities =
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
   ; supports_runtime_tool_events : bool
+  ; assistant_tool_content_format : assistant_tool_content_format
   ; supports_reasoning : bool
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool

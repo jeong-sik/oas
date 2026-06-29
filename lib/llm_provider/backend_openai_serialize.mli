@@ -11,7 +11,8 @@ val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val glm_messages_of_message : Types.message -> Yojson.Safe.t list
 
 val dialect_messages_of_message
-  :  Reasoning_dialect.t
+  :  ?assistant_tool_content_format:Capability_vocab.assistant_tool_content_format
+  -> Reasoning_dialect.t
   -> Types.message
   -> Yojson.Safe.t list
 

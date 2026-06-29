@@ -303,7 +303,7 @@ let test_openai_parallel_disabled_by_capability () =
    get correct (not shadowed) capabilities"] in [capabilities.ml] and in
    [test_capabilities.ml]'s cloud-suffix route checks. *)
 let deepseek_required_expected =
-  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":""},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
+  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
 ;;
 
 let test_deepseek_required () =

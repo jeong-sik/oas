@@ -641,3 +641,4 @@ let zero_api_usage =
 ;;
 
 let usage_of_response (resp : api_response) = resp.usage
+let total_tokens (usage : api_usage) = usage.input_tokens + usage.output_tokens

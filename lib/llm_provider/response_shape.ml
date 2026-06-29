@@ -51,7 +51,7 @@ let dedupe_keep_order values =
   loop [] [] values
 ;;
 
-let summarize (response : Types.api_response) =
+let summarize_blocks (content : Types.content_block list) =
   let shape =
     List.fold_left
       (fun shape -> function
@@ -82,10 +82,12 @@ let summarize (response : Types.api_response) =
          | Types.Audio _ ->
            { (add_kind "audio" shape) with audio_count = shape.audio_count + 1 })
       empty
-      response.content
+      content
   in
   { shape with content_kinds = List.rev shape.content_kinds |> dedupe_keep_order }
 ;;
+
+let summarize (response : Types.api_response) = summarize_blocks response.content
 
 let has_deliverable_content shape = shape.text_chars > 0 || shape.tool_use_count > 0
 

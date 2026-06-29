@@ -256,6 +256,19 @@ let parse_reasoning_visibility = function
             other))
 ;;
 
+let parse_assistant_tool_content_format = function
+  | None -> Ok None
+  | Some raw ->
+    (match Capability_vocab.assistant_tool_content_format_of_string raw with
+     | Some format -> Ok (Some format)
+     | None ->
+       Error
+         (Printf.sprintf
+            "unknown assistant_tool_content_format %S (canonical: %s)"
+            (String.lowercase_ascii (String.trim raw))
+            (String.concat ", " Capability_vocab.assistant_tool_content_format_values)))
+;;
+
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
@@ -309,6 +322,10 @@ let parse_capabilities provider_json =
   let* reasoning_visibility =
     parse_reasoning_visibility (member_string "reasoning_visibility" cap_json)
   in
+  let* assistant_tool_content_format =
+    parse_assistant_tool_content_format
+      (member_string "assistant_tool_content_format" cap_json)
+  in
   let caps =
     base
     |> fun caps ->
@@ -353,6 +370,11 @@ let parse_capabilities provider_json =
       caps
       (fun caps v -> { caps with Capabilities.supports_runtime_tool_events = v })
       cap_json
+    |> fun caps ->
+    (match assistant_tool_content_format with
+     | Some assistant_tool_content_format ->
+       { caps with Capabilities.assistant_tool_content_format }
+     | None -> caps)
     |> fun caps ->
     override_bool
       "supports_reasoning"

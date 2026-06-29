@@ -65,6 +65,11 @@
           "type": "boolean",
           "description": "Whether the model can call multiple tools in a single turn."
         },
+        "assistant_tool_content_format": {
+          "type": "string",
+          "description": "Wire shape for assistant messages that contain tool calls but no visible text.",
+          "enum": ["null", "empty_string"]
+        },
         "supports_reasoning": {
           "type": "boolean",
           "description": "Whether the model has any reasoning/thinking capability (union flag)."
