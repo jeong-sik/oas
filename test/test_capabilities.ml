@@ -40,6 +40,19 @@ let with_temp_manifest contents f =
     (fun () -> f path)
 ;;
 
+let with_temp_model_catalog contents f =
+  let path = Filename.temp_file "oas-model-catalog" ".toml" in
+  let oc = open_out path in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () -> output_string oc contents);
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () -> f path)
+;;
+
 (* ── Default capabilities ────────────────────────────── *)
 
 let test_default_no_limits () =
@@ -811,6 +824,18 @@ let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   | Ok _ -> Alcotest.fail "unknown preserve_thinking_control_format should reject"
 ;;
 
+let test_manifest_rejects_unknown_reasoning_replay () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-replay","reasoning_replay":"preserve-allways"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "reasoning_replay";
+    check_contains "mentions value" msg "preserve-allways"
+  | Ok _ -> Alcotest.fail "unknown reasoning_replay should reject"
+;;
+
 let test_manifest_intlit_in_range_accepted () =
   (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
      directly to exercise the Intlit branch deterministically. *)
@@ -916,6 +941,21 @@ let test_manifest_load_runtime_file_success_logs_info () =
            !logs
        in
        check bool "logs info load success" true has_info)
+;;
+
+let test_model_catalog_rejects_unknown_reasoning_replay () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-replay"
+reasoning_replay = "preserve-allways"
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions field" msg "reasoning_replay";
+         check_contains "mentions value" msg "preserve-allways"
+       | Ok _ -> Alcotest.fail "unknown model catalog reasoning_replay should reject")
 ;;
 
 (* ── DashScope preset ────────────────────────────────── *)
@@ -1139,6 +1179,10 @@ let () =
             `Quick
             test_manifest_rejects_unknown_preserve_thinking_control_format
         ; test_case
+            "unknown reasoning_replay rejects"
+            `Quick
+            test_manifest_rejects_unknown_reasoning_replay
+        ; test_case
             "intlit in range accepted"
             `Quick
             test_manifest_intlit_in_range_accepted
@@ -1158,6 +1202,10 @@ let () =
             "runtime manifest load logs success"
             `Quick
             test_manifest_load_runtime_file_success_logs_info
+        ; test_case
+            "model catalog rejects unknown reasoning_replay"
+            `Quick
+            test_model_catalog_rejects_unknown_reasoning_replay
         ] )
     ; ( "prefix_ordering"
       , [ test_case

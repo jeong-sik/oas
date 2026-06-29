@@ -144,7 +144,20 @@ let apply_visibility_override caps dialect =
   | Force_visible_text -> { dialect with visibility = Visible_text }
 ;;
 
-let of_capabilities caps = base_of_capabilities caps |> apply_visibility_override caps
+let apply_replay_override caps dialect =
+  match caps.Capabilities.reasoning_replay_override with
+  | Default_reasoning_replay -> dialect
+  | Force_no_replay -> { dialect with replay_policy = No_replay }
+  | Force_drop_without_tool_preserve_with_tool ->
+    { dialect with replay_policy = Drop_without_tool_preserve_with_tool }
+  | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
+;;
+
+let of_capabilities caps =
+  base_of_capabilities caps
+  |> apply_visibility_override caps
+  |> apply_replay_override caps
+;;
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match dialect.preserve_wire, preserve_thinking with
@@ -348,4 +361,62 @@ let visibility_to_string = function
   | Side_channel field -> "side_channel:" ^ field
   | Visible_channel -> "visible_channel"
   | Visible_text -> "visible_text"
+;;
+
+[@@@coverage off]
+
+let%test "reasoning_replay_override Force_preserve_always lifts base no_replay" =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Reasoning_effort
+    ; reasoning_replay_override = Capabilities.Force_preserve_always
+    }
+  in
+  let dialect = of_capabilities caps in
+  (* base Reasoning_effort yields No_replay; the override lifts it to Preserve_always
+     so reasoning is replayed on both plain and tool turns. *)
+  should_replay_reasoning dialect ~assistant_had_tool_call:false
+  && should_replay_reasoning dialect ~assistant_had_tool_call:true
+;;
+
+let%test "reasoning_replay_override drop_without_tool replays only on tool turns" =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Reasoning_effort
+    ; reasoning_replay_override = Capabilities.Force_drop_without_tool_preserve_with_tool
+    }
+  in
+  let dialect = of_capabilities caps in
+  (not (should_replay_reasoning dialect ~assistant_had_tool_call:false))
+  && should_replay_reasoning dialect ~assistant_had_tool_call:true
+;;
+
+let%test
+    "reasoning_replay_override default keeps base policy (Reasoning_effort = no_replay)"
+  =
+  let caps =
+    { Capabilities.default_capabilities with
+      supports_reasoning = true
+    ; thinking_control_format = Capabilities.Reasoning_effort
+    }
+  in
+  not (should_replay_reasoning (of_capabilities caps) ~assistant_had_tool_call:false)
+;;
+
+let%test
+    "kimi base profile replays reasoning on every turn (live path: bare kimi-k2.* -> \
+     base=kimi)"
+  =
+  (* MASC sends a bare api-name (e.g. "kimi-k2.6"); OAS longest-prefix-match
+     resolves it to the native "kimi-k2" catalog row whose base="kimi", so this
+     profile is the dialect applied on the live path. Kimi requires reasoning
+     replay (hard-required on tool turns, recommended always). The Kimi base
+     profile now carries both Always_preserved_thinking and Force_preserve_always
+     so catalog inheritance keeps replay explicit. Revert that override -> both
+     arms go false. *)
+  let dialect = of_capabilities Capabilities.kimi_capabilities in
+  should_replay_reasoning dialect ~assistant_had_tool_call:false
+  && should_replay_reasoning dialect ~assistant_had_tool_call:true
 ;;

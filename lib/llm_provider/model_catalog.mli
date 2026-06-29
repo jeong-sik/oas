@@ -33,6 +33,7 @@ type model_entry =
   ; thinking_control_format : string option
   ; preserve_thinking_control_format : string option
   ; reasoning_visibility : string option
+  ; reasoning_replay : string option
   ; input_per_million : float option
   ; output_per_million : float option
   ; cache_write_multiplier : float option

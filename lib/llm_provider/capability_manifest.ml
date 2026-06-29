@@ -40,6 +40,10 @@ type entry =
         top_level_preserve_thinking / always_preserved). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_visibility : string option
+  ; reasoning_replay : string option
+    (** Optional multi-turn reasoning replay policy override (default / no_replay
+        / drop_without_tool / preserve_always); applied in
+        {!Capabilities.apply_manifest_entry}. *)
   }
 
 (** A parsed capability manifest. *)
@@ -182,6 +186,7 @@ let known_entry_keys =
   ; "thinking_control_format"
   ; "preserve_thinking_control_format"
   ; "reasoning_visibility"
+  ; "reasoning_replay"
   ]
 ;;
 
@@ -219,6 +224,12 @@ let parse_entry json =
       ~allowed:preserve_thinking_control_format_values
       json
   in
+  let* reasoning_replay =
+    canonical_choice
+      "reasoning_replay"
+      ~allowed:Capability_vocab.reasoning_replay_values
+      json
+  in
   Ok
     { id_prefix
     ; base_label = member_string_opt "base" json
@@ -248,6 +259,7 @@ let parse_entry json =
     ; thinking_control_format
     ; preserve_thinking_control_format
     ; reasoning_visibility = member_string_opt "reasoning_visibility" json
+    ; reasoning_replay
     }
 ;;
 

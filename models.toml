@@ -575,6 +575,9 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
 thinking_control_format = "reasoning_effort"
+# Kimi K2 docs: reasoning_content must be replayed (hard-required on tool turns,
+# recommended on all turns). Without this, reasoning_effort defaults to no_replay.
+reasoning_replay = "preserve_always"
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
@@ -590,6 +593,9 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
 thinking_control_format = "reasoning_effort"
+# Kimi K2 docs: reasoning_content must be replayed (hard-required on tool turns,
+# recommended on all turns). Without this, reasoning_effort defaults to no_replay.
+reasoning_replay = "preserve_always"
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
@@ -605,6 +611,9 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
 thinking_control_format = "reasoning_effort"
+# Kimi K2.7-code docs: Preserved Thinking is always-on (keep reasoning_content of
+# every historical assistant message) and thinking cannot be disabled.
+reasoning_replay = "preserve_always"
 supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"

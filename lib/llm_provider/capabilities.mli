@@ -48,6 +48,12 @@ type reasoning_visibility_override =
   | Force_visible_channel
   | Force_visible_text
 
+type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
+  | Default_reasoning_replay
+  | Force_no_replay
+  | Force_drop_without_tool_preserve_with_tool
+  | Force_preserve_always
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -65,6 +71,7 @@ type capabilities =
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_visibility_override : reasoning_visibility_override
+  ; reasoning_replay_override : reasoning_replay_override
   ; (* Output format *)
     supports_response_format_json : bool
   ; supports_structured_output : bool
