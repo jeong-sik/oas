@@ -31,6 +31,21 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.21](https://github.com/jeong-sik/oas/compare/v0.207.20...v0.207.21) (2026-06-29)
+
+
+### Features
+
+* **observability:** default-on event bus + per-turn InferenceTelemetry producer ([#2252](https://github.com/jeong-sik/oas/issues/2252)) ([3c5a845](https://github.com/jeong-sik/oas/commit/3c5a8459ed2accacbf86ccfaea5c47880ac4a1b2))
+* **stream:** assemble multimodal image/document/audio blocks in the accumulator (RFC-OAS-029) ([#2246](https://github.com/jeong-sik/oas/issues/2246)) ([10a53be](https://github.com/jeong-sik/oas/commit/10a53be855966e14096a916f07cdc4633ff87c9b))
+
+
+### Bug Fixes
+
+* **glm:** reject forced tool_choice at typed boundary ([#2254](https://github.com/jeong-sik/oas/issues/2254)) ([b7f4947](https://github.com/jeong-sik/oas/commit/b7f4947cc6e6f89423059e311a2e732a373f51d6))
+* **provider:** use provider-qualified model capabilities ([#2248](https://github.com/jeong-sik/oas/issues/2248)) ([01276bb](https://github.com/jeong-sik/oas/commit/01276bbe26c819d396965596135c0d6c9584eff1))
+* **stream:** fail closed for unknown block kinds ([#2243](https://github.com/jeong-sik/oas/issues/2243)) ([b6149ac](https://github.com/jeong-sik/oas/commit/b6149ac63bc201c5385a4a47e95223f5036a9478))
+
 ## [0.207.20](https://github.com/jeong-sik/oas/compare/v0.207.19...v0.207.20) (2026-06-29)
 
 
