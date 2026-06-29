@@ -1,8 +1,9 @@
-(** Tool use recovery — extract ToolUse blocks from Text content when a
+(** Tool use recovery — strictly extract ToolUse blocks from Text content when a
     provider emits tool-call intent as text instead of a proper ToolUse
     block.
 
-    Delegates JSON normalization to {!Llm_provider.Lenient_json}.
+    This fallback only promotes an exact, unambiguous JSON object. It may strip
+    a Markdown code fence wrapper, but it does not repair malformed JSON.
 
     @since 0.136.0 *)
 
@@ -13,9 +14,9 @@ open Types
     or [None]. Exposed for testing. *)
 val find_json_object : string -> (int * int) option
 
-(** Try to parse a JSON object from a string. Strips markdown fences,
-    locates the first balanced object, and runs {!Lenient_json.parse}
-    for transform-based recovery. Returns [None] if no JSON found. *)
+(** Try to parse a JSON object from a string. Strips Markdown fences, requires
+    exactly one balanced object, and parses it strictly. Returns [None] when the
+    text has no object, multiple object candidates, or malformed JSON. *)
 val try_parse_json_object : string -> Yojson.Safe.t option
 
 (** Match a JSON value against known tool-call shapes and extract

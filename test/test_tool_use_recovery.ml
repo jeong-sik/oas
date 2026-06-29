@@ -1,4 +1,4 @@
-(** Tests for Tool_use_recovery — lenient extraction of ToolUse blocks
+(** Tests for Tool_use_recovery — strict extraction of ToolUse blocks
     from Text content. *)
 
 open Alcotest
@@ -88,6 +88,15 @@ let test_extract_double_stringified () =
   | None -> fail "expected extraction"
 ;;
 
+let test_extract_rejects_invalid_arguments_string () =
+  let json = `Assoc [ "name", `String "tool"; "arguments", `String "{\"x\": tru" ] in
+  check
+    (option (pair string string))
+    "invalid arguments string rejected"
+    None
+    (Option.map (fun (n, _) -> n, "") (TUR.extract_name_and_input json))
+;;
+
 let test_extract_tool_calls_wrapper () =
   let json =
     `Assoc
@@ -162,6 +171,32 @@ let test_recover_plain_text_preserved () =
   | _ -> fail "expected Text preserved"
 ;;
 
+let test_recover_rejects_repair_needed_json () =
+  let response =
+    make_response ~content:[ Text "{\"name\":\"my_tool\",\"input\":{\"x\":1}" ] ()
+  in
+  let recovered = TUR.recover_response ~valid_tool_names:[ "my_tool" ] response in
+  match recovered.content with
+  | [ Text _ ] -> ()
+  | _ -> fail "expected malformed JSON to remain Text"
+;;
+
+let test_recover_rejects_ambiguous_json_candidates () =
+  let response =
+    make_response
+      ~content:
+        [ Text
+            ("{\"name\":\"my_tool\",\"input\":{}}"
+             ^ " {\"name\":\"my_tool\",\"input\":{\"second\":true}}")
+        ]
+      ()
+  in
+  let recovered = TUR.recover_response ~valid_tool_names:[ "my_tool" ] response in
+  match recovered.content with
+  | [ Text _ ] -> ()
+  | _ -> fail "expected ambiguous JSON candidates to remain Text"
+;;
+
 let test_recovered_id_is_deterministic () =
   (* RFC-OAS-029 S10.1: recovered ids derive from block index + content hash,
      not wall-clock, so the same response recovers to the same id every run
@@ -204,6 +239,10 @@ let () =
       , [ test_case "anthropic style" `Quick test_extract_anthropic_style
         ; test_case "openai arguments object" `Quick test_extract_openai_arguments_object
         ; test_case "double stringified" `Quick test_extract_double_stringified
+        ; test_case
+            "invalid arguments string rejected"
+            `Quick
+            test_extract_rejects_invalid_arguments_string
         ; test_case "tool_calls wrapper" `Quick test_extract_tool_calls_wrapper
         ; test_case "no shape" `Quick test_extract_none
         ] )
@@ -216,6 +255,14 @@ let () =
             test_recover_noop_when_tool_use_present
         ; test_case "noop when no tools" `Quick test_recover_noop_when_no_tools
         ; test_case "plain text preserved" `Quick test_recover_plain_text_preserved
+        ; test_case
+            "repair-needed json preserved"
+            `Quick
+            test_recover_rejects_repair_needed_json
+        ; test_case
+            "ambiguous json candidates preserved"
+            `Quick
+            test_recover_rejects_ambiguous_json_candidates
         ; test_case "recovered id deterministic" `Quick test_recovered_id_is_deterministic
         ] )
     ]

@@ -28,6 +28,16 @@ let hook_failed_sdk_error ~hook_name ~stage ~detail =
    cancellation); the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
 
+let should_recover_text_tool_use (response : Types.api_response) =
+  match response.telemetry with
+  | Some
+      { provider_kind =
+          Some (Llm_provider.Provider_kind.Glm | Llm_provider.Provider_kind.Ollama)
+      ; _
+      } -> true
+  | Some _ | None -> false
+;;
+
 (* ── Context compaction watermark ───────────────────── *)
 
 (** Default ratio at which proactive compaction fires (0.9 = 90% of context).
@@ -1111,14 +1121,18 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
        update_state agent (fun s -> { s with config = original_config });
        Error e
      | Ok raw_response ->
-       (* Stage 3.4: Lenient tool-use recovery.
-       Some providers (Glm, smaller Ollama models) return tool-call
-       intent as text content instead of a ToolUse content block.
-       Promote recoverable Text blocks to ToolUse before contract
-       validation so the pipeline proceeds normally.
-       Ref: Samchon harness Layer 1 (dev.to/samchon, DashScope 2025). *)
-       let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
-       let response = Tool_use_recovery.recover_response ~valid_tool_names raw_response in
+       (* Stage 3.4: Strict provider-gated tool-use recovery.
+       GLM and Ollama-family responses may return tool-call intent as text
+       content instead of a ToolUse content block. Only typed provider telemetry
+       can enable this fallback; unknown or unrelated providers fail closed and
+       keep Text unchanged. *)
+       let response =
+         if should_recover_text_tool_use raw_response
+         then (
+           let valid_tool_names = Pipeline_stage_prepare.turn_ready_tool_names prep in
+           Tool_use_recovery.recover_response ~valid_tool_names raw_response)
+         else raw_response
+       in
        (* RFC-OAS-025 Option A: forced-tool-use enforcement removed.
           [tool_choice] is enforced server-side by the provider, so the SDK no
           longer validates the response against a completion contract nor retries
