@@ -286,6 +286,40 @@ let test_finalize_thinking_block () =
      | _ -> Alcotest.fail "expected Thinking")
 ;;
 
+let test_finalize_visible_text_promotes_reasoning_only () =
+  let acc = Streaming.create_stream_acc () in
+  acc_events
+    acc
+    [ MessageStart { id = "m"; model = "m"; usage = None }
+    ; ContentBlockStart
+        { index = 0; content_type = "thinking"; tool_id = None; tool_name = None }
+    ; ContentBlockDelta { index = 0; delta = ThinkingDelta "final answer is 42" }
+    ; MessageDelta { stop_reason = Some EndTurn; usage = None }
+    ];
+  match
+    Streaming.finalize_stream_acc
+      ~reasoning_visibility:Llm_provider.Reasoning_dialect.Visible_text
+      acc
+  with
+  | Error err -> fail_unexpected_stream_error err
+  | Ok resp ->
+    let has_promoted_text =
+      List.exists
+        (function
+          | Text "final answer is 42" -> true
+          | Text _
+          | Thinking _
+          | RedactedThinking _
+          | ToolUse _
+          | ToolResult _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        resp.content
+    in
+    Alcotest.(check bool) "visible text promoted" true has_promoted_text
+;;
+
 let test_finalize_thinking_signature_block () =
   let acc = Streaming.create_stream_acc () in
   acc_events
@@ -523,6 +557,10 @@ let () =
     ; ( "finalize"
       , [ Alcotest.test_case "text response" `Quick test_finalize_text_response
         ; Alcotest.test_case "thinking block" `Quick test_finalize_thinking_block
+        ; Alcotest.test_case
+            "visible_text promotes reasoning-only"
+            `Quick
+            test_finalize_visible_text_promotes_reasoning_only
         ; Alcotest.test_case
             "thinking signature block"
             `Quick
