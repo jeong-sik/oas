@@ -56,6 +56,18 @@ let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   | Types.Unknown _ -> sr
 ;;
 
+let is_unmatched_tool_calls = function
+  | Types.Unknown reason -> String.equal reason unmatched_tool_calls
+  | Types.StopToolUse
+  | Types.EndTurn
+  | Types.MaxTokens
+  | Types.StopSequence
+  | Types.Refusal
+  | Types.PauseTurn
+  | Types.Compaction
+  | Types.ContextWindowExceeded -> false
+;;
+
 [@@@coverage off]
 
 (* === Inline drift-guard tests ===
@@ -80,6 +92,12 @@ let%test "reconcile downgrades StopToolUse without tools" =
 
 let%test "reconcile preserves StopToolUse with tools" =
   reconcile Types.StopToolUse ~has_tool_blocks:true = Types.StopToolUse
+;;
+
+let%test "is_unmatched_tool_calls recognizes only canonical fail-closed value" =
+  is_unmatched_tool_calls (Types.Unknown "tool_calls")
+  && (not (is_unmatched_tool_calls (Types.Unknown "other")))
+  && not (is_unmatched_tool_calls Types.StopToolUse)
 ;;
 
 let%test "provisional tool_calls is StopToolUse (faithful wire claim)" =
