@@ -132,8 +132,22 @@ let test_gemini3_uses_thinking_level () =
   check bool "includeThoughts true" true (tc |> member "includeThoughts" |> to_bool)
 ;;
 
-let test_gemini3_disable_uses_minimal_level () =
+let test_gemini3_disable_uses_low_level () =
+  (* gemini-3-flash-preview does not expose the [minimal] level (official thinking
+     docs, 2026-06-29); a disabled turn falls back to the lowest valid level. *)
   let config = gemini_config ~model_id:"gemini-3-flash" ~enable_thinking:false () in
+  let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
+  let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
+  check string "thinkingLevel" "low" (tc |> member "thinkingLevel" |> to_string);
+  check bool "includeThoughts absent" true (tc |> member "includeThoughts" = `Null)
+;;
+
+let test_gemini31_flash_lite_disable_uses_minimal_level () =
+  (* gemini-3.1-flash-lite is the only family that accepts [minimal] (and it is
+     the default there), so a disabled turn maps to [minimal]. *)
+  let config =
+    gemini_config ~model_id:"gemini-3.1-flash-lite" ~enable_thinking:false ()
+  in
   let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
   check string "thinkingLevel" "minimal" (tc |> member "thinkingLevel" |> to_string);
@@ -1061,10 +1075,11 @@ let () =
             `Quick
             test_thinking_disabled_uses_budget_zero
         ; test_case "gemini 3 uses thinkingLevel" `Quick test_gemini3_uses_thinking_level
+        ; test_case "gemini 3 disable uses low" `Quick test_gemini3_disable_uses_low_level
         ; test_case
-            "gemini 3 disable uses minimal"
+            "gemini 3.1 flash-lite disable uses minimal"
             `Quick
-            test_gemini3_disable_uses_minimal_level
+            test_gemini31_flash_lite_disable_uses_minimal_level
         ; test_case
             "gemini 3.1 pro disable uses low"
             `Quick
