@@ -54,6 +54,10 @@ type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Force_drop_without_tool_preserve_with_tool
   | Force_preserve_always
 
+type assistant_tool_content_format = Capability_vocab.assistant_tool_content_format =
+  | Assistant_tool_content_null
+  | Assistant_tool_content_empty_string
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -64,6 +68,7 @@ type capabilities =
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
   ; supports_runtime_tool_events : bool
+  ; assistant_tool_content_format : assistant_tool_content_format
   ; (* Thinking / reasoning *)
     supports_reasoning : bool
   ; supports_extended_thinking : bool
