@@ -31,6 +31,15 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.25](https://github.com/jeong-sik/oas/compare/v0.207.24...v0.207.25) (2026-06-29)
+
+
+### Bug Fixes
+
+* **streaming:** treat OpenAI-compat [DONE] sentinel as a clean stream close ([#2281](https://github.com/jeong-sik/oas/issues/2281)) ([fd25631](https://github.com/jeong-sik/oas/commit/fd2563124bbf80cc4bd018dd9424dfd2da7a7a88))
+* **streaming:** use canonical stream accumulator ([#2279](https://github.com/jeong-sik/oas/issues/2279)) ([3d886a1](https://github.com/jeong-sik/oas/commit/3d886a1f4debe2cc1ddd04cd18cbbdb5dcfc1302))
+* **tool-choice:** reject unsupported named forcing ([#2272](https://github.com/jeong-sik/oas/issues/2272)) ([85ee86a](https://github.com/jeong-sik/oas/commit/85ee86a6cf429a759577625ba4e71f063244e0ac))
+
 ## [0.207.24](https://github.com/jeong-sik/oas/compare/v0.207.23...v0.207.24) (2026-06-29)
 
 
