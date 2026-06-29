@@ -326,83 +326,94 @@ let create_message_stream
          | Error _ -> [ "Content-Type", "application/json" ] @ auth_headers
        in
        let stream_path = Provider.request_path provider_cfg.provider in
-       let body =
-         Api_openai.build_openai_body
-           ~provider_config:provider_cfg
-           ~config
-           ~messages
-           ?tools
-           ()
-         (* Streaming must request both SSE chunks and usage deltas so the
-            accumulator can surface final token/cost metrics. *)
-         |> Llm_provider.Http_client.inject_stream_and_options
-       in
-       let url = base_url ^ stream_path in
        (match
-          Llm_provider.Http_client.with_post_stream
-            ?clock
-            ~net
-            ~url
-            ~headers
-            ~body
-            ~f:(fun reader ->
-              let acc = create_stream_acc () in
-              let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
-              let msg_started = ref false in
-              Llm_provider.Http_client.read_sse
-                ?clock
-                ?idle_timeout
-                ~reader
-                ~on_data:(fun ~event_type:_ data ->
-                  if data = "[DONE]"
-                  then ()
-                  else (
-                    match Llm_provider.Streaming.parse_openai_sse_chunk data with
-                    | None ->
-                      let evt =
-                        SSEParseFailed
-                          { raw = data; reason = "openai_sse_chunk_parse_failure" }
-                      in
-                      on_event evt;
-                      accumulate_event acc evt
-                    | Some chunk ->
-                      if not !msg_started
-                      then (
-                        msg_started := true;
-                        let evt =
-                          MessageStart
-                            { id = chunk.chunk_id
-                            ; model = chunk.chunk_model
-                            ; usage = None
-                            }
-                        in
-                        on_event evt;
-                        accumulate_event acc evt);
-                      let evs, _tel =
-                        Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
-                      in
-                      List.iter
-                        (fun evt ->
-                           on_event evt;
-                           accumulate_event acc evt)
-                        evs))
-                ();
-              if !(acc.stop_reason_received) then on_event MessageStop;
-              finalize_stream_acc acc)
+          Api_openai.build_openai_body_result
+            ~provider_config:provider_cfg
+            ~config
+            ~messages
+            ?tools
             ()
         with
-        | Error e -> Error (map_http_error e)
-        | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
-        | Ok (Error msg) ->
+        | Error reason ->
           Error
-            (Error.Provider
-               (Llm_provider.Error.of_http_error
-                  (Llm_provider.Http_client.ProviderFailure
-                     { kind =
-                         Llm_provider.Http_client.Provider_parse_error
-                           { parser = Some "sse_stream_accumulator" }
-                     ; message = Printf.sprintf "SSE stream error: %s" msg
-                     }))))
+            (Error.Api
+               (Llm_provider.Retry.InvalidRequest
+                  { message = "Request rejected: " ^ reason
+                  ; reason = Llm_provider.Retry.Unknown_invalid_request
+                  }))
+        | Ok body ->
+          let body =
+            body
+            (* Streaming must request both SSE chunks and usage deltas so the
+               accumulator can surface final token/cost metrics. *)
+            |> Llm_provider.Http_client.inject_stream_and_options
+          in
+          let url = base_url ^ stream_path in
+          (match
+             Llm_provider.Http_client.with_post_stream
+               ?clock
+               ~net
+               ~url
+               ~headers
+               ~body
+               ~f:(fun reader ->
+                 let acc = create_stream_acc () in
+                 let oai_state = Llm_provider.Streaming.create_openai_stream_state () in
+                 let msg_started = ref false in
+                 Llm_provider.Http_client.read_sse
+                   ?clock
+                   ?idle_timeout
+                   ~reader
+                   ~on_data:(fun ~event_type:_ data ->
+                     if data = "[DONE]"
+                     then ()
+                     else (
+                       match Llm_provider.Streaming.parse_openai_sse_chunk data with
+                       | None ->
+                         let evt =
+                           SSEParseFailed
+                             { raw = data; reason = "openai_sse_chunk_parse_failure" }
+                         in
+                         on_event evt;
+                         accumulate_event acc evt
+                       | Some chunk ->
+                         if not !msg_started
+                         then (
+                           msg_started := true;
+                           let evt =
+                             MessageStart
+                               { id = chunk.chunk_id
+                               ; model = chunk.chunk_model
+                               ; usage = None
+                               }
+                           in
+                           on_event evt;
+                           accumulate_event acc evt);
+                         let evs, _tel =
+                           Llm_provider.Streaming.openai_chunk_to_events oai_state chunk
+                         in
+                         List.iter
+                           (fun evt ->
+                              on_event evt;
+                              accumulate_event acc evt)
+                           evs))
+                   ();
+                 if !(acc.stop_reason_received) then on_event MessageStop;
+                 finalize_stream_acc acc)
+               ()
+           with
+           | Error e -> Error (map_http_error e)
+           | Ok (Ok resp) -> Ok (Llm_provider.Pricing.annotate_response_cost resp)
+           | Ok (Error msg) ->
+             Error
+               (Error.Provider
+                  (Llm_provider.Error.of_http_error
+                     (Llm_provider.Http_client.ProviderFailure
+                        { kind =
+                            Llm_provider.Http_client.Provider_parse_error
+                              { parser = Some "sse_stream_accumulator" }
+                        ; message = Printf.sprintf "SSE stream error: %s" msg
+                        })))))
      | Provider.Custom _ ->
        (* Sync fallback: non-streaming call + synthetic events *)
        (match

@@ -49,6 +49,7 @@ let build_body_assoc ~config ~messages ?tools ~stream () =
 (* Re-export Api_openai *)
 let openai_messages_of_message = Api_openai.openai_messages_of_message
 let openai_content_parts_of_blocks = Api_openai.openai_content_parts_of_blocks
+let build_openai_body_result = Api_openai.build_openai_body_result
 let build_openai_body = Api_openai.build_openai_body
 
 let parse_openai_response_result =
@@ -119,13 +120,14 @@ let create_message
     let model_spec = Provider.model_spec_of_config provider_cfg in
     let kind = model_spec.request_kind in
     let path = model_spec.request_path in
-    let body_str =
+    let body_result =
       match kind with
       | Provider.Anthropic_messages ->
-        Yojson.Safe.to_string
-          (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ()))
+        Ok
+          (Yojson.Safe.to_string
+             (`Assoc (build_body_assoc ~config ~messages ?tools ~stream:false ())))
       | Provider.Openai_chat_completions ->
-        Api_openai.build_openai_body
+        Api_openai.build_openai_body_result
           ~provider_config:provider_cfg
           ~config
           ~messages
@@ -134,98 +136,107 @@ let create_message
           ()
       | Provider.Custom name ->
         (match Provider.find_provider name with
-         | Some impl -> impl.build_body ~config ~messages ?tools ()
-         | None -> Yojson.Safe.to_string (`Assoc []))
+         | Some impl -> Ok (impl.build_body ~config ~messages ?tools ())
+         | None -> Ok (Yojson.Safe.to_string (`Assoc [])))
     in
-    let url = base_url ^ path in
-    let provider_kind_of_request_kind = function
-      | Provider.Anthropic_messages -> Llm_provider.Provider_config.Anthropic
-      | Provider.Openai_chat_completions -> Llm_provider.Provider_config.OpenAI_compat
-      | Provider.Custom _ -> Llm_provider.Provider_config.OpenAI_compat
-    in
-    let do_http_call () =
-      (* Merge auth headers at request time via Provider_config so that
+    (match body_result with
+     | Error reason ->
+       Error
+         (Error.Api
+            (Retry.InvalidRequest
+               { message = "Request rejected: " ^ reason
+               ; reason = Retry.Unknown_invalid_request
+               }))
+     | Ok body_str ->
+       let url = base_url ^ path in
+       let provider_kind_of_request_kind = function
+         | Provider.Anthropic_messages -> Llm_provider.Provider_config.Anthropic
+         | Provider.Openai_chat_completions -> Llm_provider.Provider_config.OpenAI_compat
+         | Provider.Custom _ -> Llm_provider.Provider_config.OpenAI_compat
+       in
+       let do_http_call () =
+         (* Merge auth headers at request time via Provider_config so that
          [header_list] (from [Provider.resolve]) never carries sensitive tokens. *)
-      let auth_hdrs =
-        Llm_provider.Provider_config.auth_headers_for_kind_and_key
-          ~kind:(provider_kind_of_request_kind kind)
-          ~api_key
-      in
-      match
-        Llm_provider.Http_client.post_sync
-          ?clock
-          ~timeout_s:request_timeout_s
-          ~sw
-          ~net
-          ~url
-          ~headers:(header_list @ auth_hdrs)
-          ~body:body_str
-          ()
-      with
-      | Ok (200, body_str) -> `Ok body_str
-      | Ok (code, body_str) -> `HttpError (code, body_str)
-      | Error err -> `TransportError (retry_error_of_http_error err)
-    in
-    let do_request () =
-      let latency_counter = Llm_provider.Complete_common.start_latency_counter () in
-      let measured_latency_ms () =
-        Llm_provider.Complete_common.latency_ms_int latency_counter
-      in
-      try
-        let call_result =
-          match clock with
-          | Some clk -> Eio.Time.with_timeout_exn clk request_timeout_s do_http_call
-          | None -> do_http_call ()
-        in
-        match call_result with
-        | `Ok body_str ->
-          let lat = measured_latency_ms () in
-          let raw_resp_result =
-            match kind with
-            | Provider.Anthropic_messages ->
-              Ok (parse_response (Yojson.Safe.from_string body_str))
-            | Provider.Openai_chat_completions ->
-              (* Thread the provider's reasoning_visibility policy so a
+         let auth_hdrs =
+           Llm_provider.Provider_config.auth_headers_for_kind_and_key
+             ~kind:(provider_kind_of_request_kind kind)
+             ~api_key
+         in
+         match
+           Llm_provider.Http_client.post_sync
+             ?clock
+             ~timeout_s:request_timeout_s
+             ~sw
+             ~net
+             ~url
+             ~headers:(header_list @ auth_hdrs)
+             ~body:body_str
+             ()
+         with
+         | Ok (200, body_str) -> `Ok body_str
+         | Ok (code, body_str) -> `HttpError (code, body_str)
+         | Error err -> `TransportError (retry_error_of_http_error err)
+       in
+       let do_request () =
+         let latency_counter = Llm_provider.Complete_common.start_latency_counter () in
+         let measured_latency_ms () =
+           Llm_provider.Complete_common.latency_ms_int latency_counter
+         in
+         try
+           let call_result =
+             match clock with
+             | Some clk -> Eio.Time.with_timeout_exn clk request_timeout_s do_http_call
+             | None -> do_http_call ()
+           in
+           match call_result with
+           | `Ok body_str ->
+             let lat = measured_latency_ms () in
+             let raw_resp_result =
+               match kind with
+               | Provider.Anthropic_messages ->
+                 Ok (parse_response (Yojson.Safe.from_string body_str))
+               | Provider.Openai_chat_completions ->
+                 (* Thread the provider's reasoning_visibility policy so a
                  reasoning-only reply can be promoted to a visible Text block
                  only when the provider/model capability opts into Visible_text. *)
-              let visibility =
-                Api_openai.reasoning_visibility_of_request
-                  ~provider_config:provider_cfg
-                  config
-              in
-              parse_openai_response_result ~reasoning_visibility:visibility body_str
-            | Provider.Custom name ->
-              (match Provider.find_provider name with
-               | Some impl -> Ok (impl.parse_response body_str)
-               | None -> parse_openai_response_result body_str)
-          in
-          (match raw_resp_result with
-           | Ok resp ->
-             Ok
-               (Llm_provider.Pricing.annotate_response_cost resp
-                |> fun r -> patch_latency r lat)
-           | Error msg ->
-             Error
-               (Retry.InvalidRequest
-                  { message = msg; reason = Retry.Unknown_invalid_request }))
-        | `HttpError (code, body_str) ->
-          Error (Retry.classify_error ~status:code ~body:body_str)
-        | `TransportError err -> Error err
-      with
-      | Eio.Time.Timeout ->
-        Error
-          (Retry.Timeout
-             { message =
-                 Printf.sprintf
-                   "HTTP request exceeded %.1fs wall-clock timeout"
-                   request_timeout_s
-             ; phase = None
-             })
-      | Eio.Io _ as exn ->
-        Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
-      | Unix.Unix_error _ as exn ->
-        Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
-      (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
+                 let visibility =
+                   Api_openai.reasoning_visibility_of_request
+                     ~provider_config:provider_cfg
+                     config
+                 in
+                 parse_openai_response_result ~reasoning_visibility:visibility body_str
+               | Provider.Custom name ->
+                 (match Provider.find_provider name with
+                  | Some impl -> Ok (impl.parse_response body_str)
+                  | None -> parse_openai_response_result body_str)
+             in
+             (match raw_resp_result with
+              | Ok resp ->
+                Ok
+                  (Llm_provider.Pricing.annotate_response_cost resp
+                   |> fun r -> patch_latency r lat)
+              | Error msg ->
+                Error
+                  (Retry.InvalidRequest
+                     { message = msg; reason = Retry.Unknown_invalid_request }))
+           | `HttpError (code, body_str) ->
+             Error (Retry.classify_error ~status:code ~body:body_str)
+           | `TransportError err -> Error err
+         with
+         | Eio.Time.Timeout ->
+           Error
+             (Retry.Timeout
+                { message =
+                    Printf.sprintf
+                      "HTTP request exceeded %.1fs wall-clock timeout"
+                      request_timeout_s
+                ; phase = None
+                })
+         | Eio.Io _ as exn ->
+           Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
+         | Unix.Unix_error _ as exn ->
+           Error (Retry.NetworkError { message = Printexc.to_string exn; kind = Unknown })
+         (* Backend_gemini.Gemini_api_error and Backend_glm.Glm_api_error
        are intentionally NOT caught here: this function only
        dispatches [Anthropic_messages | Openai_chat_completions |
        Custom] (see the match on [kind] above), so the Gemini/Glm
@@ -233,31 +244,31 @@ let create_message
        exceptions cannot reach here. They are caught at their real
        live site in [Llm_provider.Complete] — see
        lib/llm_provider/complete.ml:271,274. *)
-      | Failure msg -> Error (Retry.NetworkError { message = msg; kind = Unknown })
-      | Yojson.Json_error msg ->
-        Error
-          (Retry.InvalidRequest
-             { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
-      | Yojson.Safe.Util.Type_error (msg, _) ->
-        Error
-          (Retry.InvalidRequest
-             { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
-      | Yojson.Safe.Util.Undefined (msg, _) ->
-        Error
-          (Retry.InvalidRequest
-             { message = "JSON undefined field error: " ^ msg
-             ; reason = Retry.Json_parse_error
-             })
-    in
-    (match clock with
-     | Some clock ->
-       (match Retry.with_retry ~clock ?config:retry_config do_request with
-        | Ok _ as success -> success
-        | Error err -> Error (Error.Api err))
-     | None ->
-       (match do_request () with
-        | Ok _ as success -> success
-        | Error err -> Error (Error.Api err)))
+         | Failure msg -> Error (Retry.NetworkError { message = msg; kind = Unknown })
+         | Yojson.Json_error msg ->
+           Error
+             (Retry.InvalidRequest
+                { message = "JSON parse error: " ^ msg; reason = Retry.Json_parse_error })
+         | Yojson.Safe.Util.Type_error (msg, _) ->
+           Error
+             (Retry.InvalidRequest
+                { message = "JSON type error: " ^ msg; reason = Retry.Json_parse_error })
+         | Yojson.Safe.Util.Undefined (msg, _) ->
+           Error
+             (Retry.InvalidRequest
+                { message = "JSON undefined field error: " ^ msg
+                ; reason = Retry.Json_parse_error
+                })
+       in
+       (match clock with
+        | Some clock ->
+          (match Retry.with_retry ~clock ?config:retry_config do_request with
+           | Ok _ as success -> success
+           | Error err -> Error (Error.Api err))
+        | None ->
+          (match do_request () with
+           | Ok _ as success -> success
+           | Error err -> Error (Error.Api err))))
 ;;
 
 [@@@coverage off]

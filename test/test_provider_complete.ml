@@ -699,7 +699,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
     (json |> member "tool_stream" |> to_bool)
 ;;
 
-let test_glm_rejects_named_forced_tool_choice () =
+let test_complete_rejects_glm_named_forced_tool_choice_before_request () =
   let config =
     PC.make
       ~kind:Glm
@@ -709,12 +709,34 @@ let test_glm_rejects_named_forced_tool_choice () =
       ~tool_choice:(Tool "calculator")
       ()
   in
-  Alcotest.check_raises
-    "glm rejects named forced tool_choice"
-    (Invalid_argument
-       "Backend_openai_request.build_request: Z.AI GLM does not support named forced \
-        tool_choice \"calculator\"; use auto/any or remove tool_choice")
-    (fun () -> ignore (BGlm.build_request ~stream:true ~config ~messages:[] ()))
+  let assert_rejected label result =
+    match result with
+    | Error (Llm_provider.Http_client.AcceptRejected { reason }) ->
+      Alcotest.(check bool)
+        label
+        true
+        (contains_substring ~sub:"tool_choice" reason
+         && contains_substring ~sub:"calculator" reason)
+    | Ok _ -> Alcotest.failf "%s: expected AcceptRejected" label
+    | Error _ -> Alcotest.failf "%s: expected AcceptRejected" label
+  in
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  assert_rejected
+    "sync completion rejects before request"
+    (Llm_provider.Complete.complete ~sw ~net ~config ~messages:[] ());
+  assert_rejected
+    "stream completion rejects before request"
+    (Llm_provider.Complete.complete_stream
+       ~sw
+       ~net
+       ~config
+       ~messages:[]
+       ~on_event:(fun _ -> ())
+       ())
 ;;
 
 (* ── Provider_config.make ────────────────────────────── *)
@@ -1237,9 +1259,9 @@ let () =
             `Quick
             test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice
         ; test_case
-            "glm rejects named forced tool_choice"
+            "glm named forced tool_choice rejected at completion boundary"
             `Quick
-            test_glm_rejects_named_forced_tool_choice
+            test_complete_rejects_glm_named_forced_tool_choice_before_request
         ] )
     ; ( "gemini_build_request"
       , [ test_case "with json schema" `Quick test_gemini_with_json_schema ] )

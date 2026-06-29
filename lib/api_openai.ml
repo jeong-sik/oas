@@ -181,7 +181,22 @@ let should_include_tools ?provider_config (config : agent_state) =
   | _ -> true
 ;;
 
-let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
+let unsupported_glm_named_tool_choice_reason name =
+  Printf.sprintf
+    "Z.AI GLM does not support named forced tool_choice %S; use auto/any or remove \
+     tool_choice"
+    name
+;;
+
+let validate_tool_choice_request ?provider_config (config : agent_state) =
+  match config.config.tool_choice with
+  | Some (Types.Tool name) when is_glm_request ?provider_config config ->
+    Error (unsupported_glm_named_tool_choice_reason name)
+  | Some (Types.Tool _) -> Ok ()
+  | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
+;;
+
+let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_id () =
   let model_str = model_to_string config.config.model in
   let capabilities = capabilities_for_request ?provider_config config in
   let dialect = reasoning_dialect_for_request capabilities config in
@@ -373,4 +388,19 @@ let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
     | None -> body_assoc
   in
   Yojson.Safe.to_string (`Assoc body_assoc)
+;;
+
+let build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id () =
+  match validate_tool_choice_request ?provider_config config with
+  | Error reason -> Error reason
+  | Ok () ->
+    Ok (build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_id ())
+;;
+
+let build_openai_body ?provider_config ~config ~messages ?tools ?slot_id () =
+  match
+    build_openai_body_result ?provider_config ~config ~messages ?tools ?slot_id ()
+  with
+  | Ok body -> body
+  | Error reason -> invalid_arg ("build_openai_body: " ^ reason)
 ;;

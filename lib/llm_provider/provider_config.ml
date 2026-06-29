@@ -374,6 +374,30 @@ let glm_should_replay_reasoning (config : t) =
     ~preserve_thinking:config.preserve_thinking
 ;;
 
+let unsupported_glm_named_tool_choice_reason name =
+  Printf.sprintf
+    "Z.AI GLM does not support named forced tool_choice %S; use auto/any or remove \
+     tool_choice"
+    name
+;;
+
+let is_zai_glm_config (config : t) =
+  match config.kind with
+  | Glm -> true
+  | OpenAI_compat ->
+    Zai_catalog.is_zai_base_url config.base_url
+    && Zai_catalog.is_glm_model_id config.model_id
+  | Anthropic | Kimi | Ollama | Gemini | DashScope -> false
+;;
+
+let validate_tool_choice_request (config : t) =
+  match config.tool_choice with
+  | Some (Types.Tool name) when is_zai_glm_config config ->
+    Error (unsupported_glm_named_tool_choice_reason name)
+  | Some (Types.Tool _) -> Ok ()
+  | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
+;;
+
 (** Compute reasoning_effort for a provider config.
     Returns [None] for non-Ollama providers.
     @since 0.114.0 *)
