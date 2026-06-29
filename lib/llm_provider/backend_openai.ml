@@ -79,7 +79,7 @@ let%test "glm rejects named forced tool_choice" =
       ()
   in
   match effective_tool_choice cfg with
- | exception Invalid_argument msg ->
+  | exception Invalid_argument msg ->
     String.starts_with
       ~prefix:"Backend_openai_request.effective_tool_choice: glm model"
       msg
@@ -1124,7 +1124,7 @@ let%test "glm build_request rejects unsupported forced tool_choice" =
       ()
   in
   match build_request ~config ~messages:[] () with
- | exception Invalid_argument msg ->
+  | exception Invalid_argument msg ->
     String.starts_with
       ~prefix:"Backend_openai_request.effective_tool_choice: glm model"
       msg
