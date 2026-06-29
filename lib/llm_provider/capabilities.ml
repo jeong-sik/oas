@@ -894,8 +894,8 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
    [Model_catalog.set_global] and restore the override afterwards, so they
    are insulated from BOTH ambient manifest overrides
    ([OAS_CAPABILITY_MANIFEST]) and ambient catalog discovery
-   ([OAS_MODEL_CATALOG]). The repository-level Dune env injects [models.toml]
-   for inline tests that exercise the production catalog.
+   ([OAS_MODEL_CATALOG]). CI injects the repository [models.toml] through
+   [OAS_MODEL_CATALOG] for inline tests that exercise the production catalog.
 
    [test_catalog_entry] fills every field with [None]; each fixture entry
    then sets only the capability-relevant fields, mirroring the
