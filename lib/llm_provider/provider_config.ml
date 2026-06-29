@@ -274,7 +274,7 @@ let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
 
 (** Default reasoning effort level when thinking is enabled but no budget
     is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
-    Accepted values: "minimal", "low", "medium", "high", "xhigh". Invalid
+    Accepted values: "none", "minimal", "low", "medium", "high", "xhigh". Invalid
     values fall back to "medium".
     @since 0.185.0 *)
 let default_reasoning_effort_value ?(getenv = fun name -> Cli_common_env.get name) () =

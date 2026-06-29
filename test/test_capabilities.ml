@@ -27,6 +27,12 @@ let check_thinking_control label expected actual =
   check bool label true (actual = expected)
 ;;
 
+let accepted_reasoning_effort_strings caps =
+  Option.map
+    (List.map Reasoning_effort.to_string)
+    caps.Capabilities.accepted_reasoning_efforts
+;;
+
 let with_temp_manifest contents f =
   let path = Filename.temp_file "oas-capability-manifest" ".json" in
   let oc = open_out path in
@@ -156,7 +162,20 @@ let test_lookup_gpt5 () =
     check (option int) "context 1.05M" (Some 1_050_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "structured output" true c.supports_structured_output;
-    check bool "computer use" true c.supports_computer_use
+    check bool "computer use" true c.supports_computer_use;
+    check
+      (option (list string))
+      "gpt-5.4 accepted reasoning efforts"
+      (Some [ "none"; "minimal"; "low"; "medium"; "high"; "xhigh" ])
+      (accepted_reasoning_effort_strings c);
+    (match Capabilities.for_model_id "gpt-5" with
+     | Some gpt5 ->
+       check
+         (option (list string))
+         "gpt-5 accepted reasoning efforts"
+         (Some [ "minimal"; "low"; "medium"; "high" ])
+         (accepted_reasoning_effort_strings gpt5)
+     | None -> fail "should match bare gpt-5")
   | None -> fail "should match gpt-5"
 ;;
 

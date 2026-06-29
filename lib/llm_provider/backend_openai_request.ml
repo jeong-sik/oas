@@ -62,14 +62,16 @@ let add_sampling_field dialect (config : Provider_config.t) field value body =
 (* ── Request building ──────────────────────────────────── *)
 
 let effective_tool_choice (config : Provider_config.t) =
-  match Provider_config.validate_tool_choice_request config with
-  | Error reason ->
-    invalid_arg (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
-  | Ok () ->
-    (match config.tool_choice with
-     | Some None_ -> None
-     | Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
-     | None -> None)
+  match config.kind, config.tool_choice with
+  | _, Some None_ | _, None -> None
+  | Provider_config.Glm, Some Any ->
+    Some (Backend_openai_serialize.tool_choice_to_openai_json Any)
+  | _, Some choice ->
+    (match Provider_config.validate_tool_choice_request config with
+     | Error reason ->
+       invalid_arg
+         (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
+     | Ok () -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice))
 ;;
 
 let effective_tools (config : Provider_config.t) tools =
@@ -304,10 +306,12 @@ let build_request_assoc
     | None -> caps.supports_tool_choice
   in
   let body =
-    match effective_tool_choice config with
-    | Some choice_json when supports_tool_choice -> ("tool_choice", choice_json) :: body
-    | None -> body
-    | Some _ -> body
+    if supports_tool_choice
+    then (
+      match effective_tool_choice config with
+      | Some choice_json -> ("tool_choice", choice_json) :: body
+      | None -> body)
+    else body
   in
   let body =
     match tools with

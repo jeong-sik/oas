@@ -83,12 +83,16 @@ cache_write_multiplier = 1.25
 cache_read_multiplier = 0.1
 
 # OpenAI Models
+# OpenAI Responses API reasoning.effort reference, checked 2026-06-29:
+# gpt-5.1+ rows may declare none/minimal/low/medium/high/xhigh; the bare
+# gpt-5 row predates gpt-5.1 and therefore omits none/xhigh here.
 [[models]]
 id_prefix = "gpt-5.5"
 base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 5.0
 output_per_million = 30.0
 cache_write_multiplier = 1.0
@@ -100,6 +104,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 0.75
 output_per_million = 4.5
 cache_write_multiplier = 1.0
@@ -111,6 +116,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 2.5
 output_per_million = 15.0
 cache_write_multiplier = 1.0
@@ -122,6 +128,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 1.75
 output_per_million = 14.0
 cache_write_multiplier = 1.0
@@ -133,6 +140,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["minimal", "low", "medium", "high"]
 input_per_million = 5.0
 output_per_million = 30.0
 cache_write_multiplier = 1.0
@@ -2088,6 +2096,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 
 [[models]]
 id_prefix = "o3-mini"
