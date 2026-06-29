@@ -370,7 +370,11 @@ let test_removed_catalog_aliases_are_rejected () =
   assert_reject
     "reasoning replay alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"reasoning_replay":"preserve-allways"}}]}|}
-    "unknown reasoning_replay"
+    "unknown reasoning_replay";
+  assert_reject
+    "reasoning replay type rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"reasoning_replay":true}}]}|}
+    "expected string"
 ;;
 
 let test_non_list_providers_is_empty_catalog () =

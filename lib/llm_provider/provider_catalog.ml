@@ -93,6 +93,14 @@ let member_string_default key ~default json =
   | None -> default
 ;;
 
+let member_string_strict key json =
+  match member key json with
+  | `String s -> Ok (Some s)
+  | `Null -> Ok None
+  | actual ->
+    Error (Printf.sprintf "field %S expected string, got %s" key (json_kind actual))
+;;
+
 let member_bool key json =
   match member key json with
   | `Bool b -> Some b
@@ -326,21 +334,24 @@ let parse_capabilities provider_json =
   in
   let* base = capability_base provider_json in
   let* thinking_control_format =
-    parse_thinking_control_format (member_string "thinking_control_format" cap_json)
+    let* raw = member_string_strict "thinking_control_format" cap_json in
+    parse_thinking_control_format raw
   in
   let* preserve_thinking_control_format =
-    parse_preserve_thinking_control_format
-      (member_string "preserve_thinking_control_format" cap_json)
+    let* raw = member_string_strict "preserve_thinking_control_format" cap_json in
+    parse_preserve_thinking_control_format raw
   in
   let* reasoning_visibility =
-    parse_reasoning_visibility (member_string "reasoning_visibility" cap_json)
+    let* raw = member_string_strict "reasoning_visibility" cap_json in
+    parse_reasoning_visibility raw
   in
   let* reasoning_replay =
-    parse_reasoning_replay (member_string "reasoning_replay" cap_json)
+    let* raw = member_string_strict "reasoning_replay" cap_json in
+    parse_reasoning_replay raw
   in
   let* assistant_tool_content_format =
-    parse_assistant_tool_content_format
-      (member_string "assistant_tool_content_format" cap_json)
+    let* raw = member_string_strict "assistant_tool_content_format" cap_json in
+    parse_assistant_tool_content_format raw
   in
   let caps =
     base
