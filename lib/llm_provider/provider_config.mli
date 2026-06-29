@@ -407,6 +407,12 @@ val validate_request_path : t -> (unit, string) result
     @since 0.185.0 *)
 val validate_cli_sampling_params : t -> (unit, string) result
 
+(** Validate provider-specific [tool_choice] constraints before request-body
+    construction. This catches unsupported runtime/provider contracts at the
+    typed config boundary instead of letting serializers raise exceptions after
+    a keeper turn has started. *)
+val validate_tool_choice_request : t -> (unit, string) result
+
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)
 val is_local : t -> bool
