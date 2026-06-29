@@ -204,13 +204,13 @@ let test_agent_turn_idle_detection () =
   Alcotest.(check int) "consecutive 1" 1 idle_result2.new_state.consecutive_idle_turns
 ;;
 
-let pipeline_response stop_reason : Types.api_response =
+let pipeline_response ?telemetry stop_reason : Types.api_response =
   { id = "pipeline-reset-test"
   ; model = "mock-model"
   ; stop_reason
   ; content = [ Text "done" ]
   ; usage = None
-  ; telemetry = None
+  ; telemetry
   }
 ;;
 
@@ -257,6 +257,41 @@ let make_pipeline_test_agent ~net ~response =
   agent
 ;;
 
+let tool_recovery_response () =
+  { (pipeline_response EndTurn) with
+    id = "pipeline-tool-recovery-test"
+  ; content = [ Text "{\"name\":\"my_tool\",\"input\":{\"x\":1}}" ]
+  }
+;;
+
+let make_tool_recovery_test_agent ~net ~(provider : Provider.config) =
+  let tool =
+    Tool.create ~name:"my_tool" ~description:"test" ~parameters:[] (fun _ ->
+      Ok { Types.content = "ok"; _meta = None })
+  in
+  let response = tool_recovery_response () in
+  let transport = transport_returning response in
+  let options =
+    { Internal_agent.default_options with
+      transport = Some transport
+    ; provider = Some provider
+    ; guardrails = Guardrails.permissive
+    }
+  in
+  let agent =
+    Internal_agent.create
+      ~net
+      ~tools:[ tool ]
+      ~config:{ Types.default_config with name = "pipeline-tool-recovery-test" }
+      ~options
+      ()
+  in
+  Internal_agent.set_state
+    agent
+    { (Internal_agent.state agent) with messages = [ Types.user_msg "hello" ] };
+  agent
+;;
+
 let assert_pipeline_idle_reset agent =
   let last_tool_calls, consecutive_idle_turns = idle_state_snapshot agent in
   Alcotest.(check bool) "last tool calls reset" true (Option.is_none last_tool_calls);
@@ -296,6 +331,46 @@ let test_pipeline_output_resets_idle_on_unknown () =
    | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
    | Ok _ -> Alcotest.fail "expected unrecognized stop reason");
   assert_pipeline_idle_reset agent
+;;
+
+let test_pipeline_tool_recovery_allows_glm_provider () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let provider : Provider.config =
+    { provider = Provider.Custom_registered { name = "glm" }
+    ; model_id = "glm-5"
+    ; api_key_env = "ZAI_API_KEY"
+    }
+  in
+  let agent = make_tool_recovery_test_agent ~net ~provider in
+  match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+  | Ok Internal_pipeline.ToolsExecuted -> ()
+  | Ok (Internal_pipeline.Complete _) ->
+    Alcotest.fail "expected tool recovery to execute a tool"
+  | Ok Internal_pipeline.IdleSkipped -> Alcotest.fail "expected ToolsExecuted"
+  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
+;;
+
+let test_pipeline_tool_recovery_rejects_openai_compat_provider () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let provider = Provider.local_llm () in
+  let agent = make_tool_recovery_test_agent ~net ~provider in
+  match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+  | Ok (Internal_pipeline.Complete response) ->
+    (match response.content with
+     | [ Text _ ] -> ()
+     | _ -> Alcotest.fail "expected text to remain unpromoted")
+  | Ok Internal_pipeline.ToolsExecuted ->
+    Alcotest.fail "expected OpenAI-compatible text tool intent to fail closed"
+  | Ok Internal_pipeline.IdleSkipped -> Alcotest.fail "expected Complete"
+  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
 ;;
 
 (* ── Provider_mock: additional coverage ─────────────────── *)
@@ -1108,6 +1183,14 @@ let () =
             "output resets idle on unknown"
             `Quick
             test_pipeline_output_resets_idle_on_unknown
+        ; Alcotest.test_case
+            "tool recovery allows glm"
+            `Quick
+            test_pipeline_tool_recovery_allows_glm_provider
+        ; Alcotest.test_case
+            "tool recovery rejects openai compat"
+            `Quick
+            test_pipeline_tool_recovery_rejects_openai_compat_provider
         ; Alcotest.test_case "extra system context" `Quick test_prepare_turn_extra_context
         ; Alcotest.test_case
             "tool filter override"

@@ -1,4 +1,4 @@
-(** Tool use recovery — extract ToolUse blocks from text content when the
+(** Tool use recovery — strictly extract ToolUse blocks from text content when the
     provider returns a tool-call intent as text instead of a proper
     ToolUse block.
 
@@ -13,10 +13,10 @@
     returns either the original response (unchanged) or a response with
     Text blocks promoted to ToolUse blocks.
 
-    Reference: Samchon function calling harness, Layer 1 "Lenient parse"
-    (dev.to/samchon, DashScope Meetup 2025). Delegates JSON normalization to
-    {!Llm_provider.Lenient_json} (markdown fence strip, double-stringify
-    unwrap, trailing comma cleanup, bracket completion).
+    This fallback deliberately does not repair malformed JSON. It may strip a
+    Markdown code fence wrapper, but promotion requires exactly one balanced
+    JSON object that parses with {!Yojson.Safe.from_string}. Ambiguous text or
+    repair-needed JSON remains Text.
 
     @since 0.136.0 *)
 
@@ -26,66 +26,85 @@ let _log = Log.create ~module_name:"tool_use_recovery" ()
 
 (* ── JSON candidate location ─────────────────────────────── *)
 
+(** Strip a Markdown code fence wrapper without changing the wrapped JSON. *)
+let strip_markdown_fence (s : string) =
+  let trimmed = String.trim s in
+  let fence = "```" in
+  let fence_len = String.length fence in
+  if String.length trimmed < fence_len || String.sub trimmed 0 fence_len <> fence
+  then trimmed
+  else (
+    let lines = String.split_on_char '\n' trimmed in
+    match lines with
+    | _opening :: rest ->
+      (match List.rev rest with
+       | closing :: body_rev when String.trim closing = fence ->
+         String.trim (String.concat "\n" (List.rev body_rev))
+       | _ -> trimmed)
+    | _ -> trimmed)
+;;
+
 (** Find the first balanced top-level JSON object in a string by
     scanning for '{' and tracking depth while respecting string
     literals. Returns [Some (start, length)] or [None]. *)
-let find_json_object (s : string) : (int * int) option =
+let find_json_objects (s : string) : (int * int) list =
   let len = String.length s in
   let rec find_start i =
     if i >= len then None else if s.[i] = '{' then Some i else find_start (i + 1)
   in
-  match find_start 0 with
-  | None -> None
-  | Some start ->
-    let depth = ref 0 in
-    let in_string = ref false in
-    let escaped = ref false in
-    let end_idx = ref (-1) in
-    let i = ref start in
-    while !end_idx = -1 && !i < len do
-      let c = s.[!i] in
-      if !escaped
-      then escaped := false
-      else if c = '\\' && !in_string
-      then escaped := true
-      else if c = '"'
-      then in_string := not !in_string
-      else if not !in_string
-      then
-        if c = '{'
-        then incr depth
-        else if c = '}'
-        then (
-          decr depth;
-          if !depth = 0 then end_idx := !i);
-      incr i
-    done;
-    if !end_idx >= 0 then Some (start, !end_idx - start + 1) else None
+  let rec loop i acc =
+    match find_start i with
+    | None -> List.rev acc
+    | Some start ->
+      let depth = ref 0 in
+      let in_string = ref false in
+      let escaped = ref false in
+      let end_idx = ref (-1) in
+      let i = ref start in
+      while !end_idx = -1 && !i < len do
+        let c = s.[!i] in
+        if !escaped
+        then escaped := false
+        else if c = '\\' && !in_string
+        then escaped := true
+        else if c = '"'
+        then in_string := not !in_string
+        else if not !in_string
+        then
+          if c = '{'
+          then incr depth
+          else if c = '}'
+          then (
+            decr depth;
+            if !depth = 0 then end_idx := !i);
+        incr i
+      done;
+      if !end_idx >= 0
+      then loop (!end_idx + 1) ((start, !end_idx - start + 1) :: acc)
+      else List.rev acc
+  in
+  loop 0 []
 ;;
 
-(** Try to parse a JSON object from a string using {!Lenient_json.parse}
-    after locating a balanced object. Returns [None] only when no
-    object can be located at all (Lenient_json never raises). *)
+let find_json_object (s : string) : (int * int) option =
+  match find_json_objects s with
+  | first :: _ -> Some first
+  | [] -> None
+;;
+
+(** Try to parse a JSON object from a string using strict JSON parsing after
+    locating exactly one balanced object. Returns [None] when no object can be
+    located, when more than one candidate exists, or when parsing fails. *)
 let try_parse_json_object (s : string) : Yojson.Safe.t option =
-  (* Lenient_json handles markdown fences, double-stringify, trailing
-     commas, and unclosed brackets. We still locate the first balanced
-     object first, because content blocks may wrap JSON in surrounding
-     prose ("I will call: {...}"). *)
-  let stripped = Llm_provider.Lenient_json.strip_markdown_fence s in
-  match find_json_object stripped with
-  | None ->
-    (* Fall back to lenient_json on the whole input — handles cases
-       where the stream is the JSON itself, possibly truncated. *)
-    let parsed = Llm_provider.Lenient_json.parse stripped in
-    (match parsed with
-     | `Assoc [ ("raw", `String _) ] -> None (* Sentinel for parse failure *)
-     | other -> Some other)
-  | Some (start, length) ->
+  let stripped = strip_markdown_fence s in
+  match find_json_objects stripped with
+  | [ (start, length) ] ->
     let candidate = String.sub stripped start length in
-    let parsed = Llm_provider.Lenient_json.parse candidate in
-    (match parsed with
-     | `Assoc [ ("raw", `String _) ] -> None
-     | other -> Some other)
+    (match Yojson.Safe.from_string candidate with
+     | `Assoc _ as parsed -> Some parsed
+     | _ -> None
+     | exception Yojson.Json_error _ -> None)
+  | [] | _ :: _ :: _ -> None
 ;;
 
 (* ── Tool call shape matching ────────────────────────────── *)
@@ -116,11 +135,10 @@ let rec extract_name_and_input (json : Yojson.Safe.t) : (string * Yojson.Safe.t)
          | None ->
            (match List.assoc_opt "arguments" fields with
             | Some (`String s) ->
-              (* Double-stringified: arguments is a JSON-encoded string *)
-              let inner = Llm_provider.Lenient_json.parse s in
-              (match inner with
-               | `Assoc [ ("raw", `String _) ] -> Some (`String s)
-               | other -> Some other)
+              (* Double-stringified: arguments is a strict JSON-encoded string. *)
+              (match Yojson.Safe.from_string s with
+               | parsed -> Some parsed
+               | exception Yojson.Json_error _ -> None)
             | Some v -> Some v
             | None ->
               (match List.assoc_opt "parameters" fields with
