@@ -187,7 +187,8 @@ let test_tool_use_json_parseable () =
   let json_parts = ref [] in
   Streaming.emit_synthetic_events response (fun e ->
     match e with
-    | ContentBlockDelta { delta = InputJsonSnapshot s; _ } -> json_parts := s :: !json_parts
+    | ContentBlockDelta { delta = InputJsonSnapshot s; _ } ->
+      json_parts := s :: !json_parts
     | _ -> ());
   let combined = String.concat "" (List.rev !json_parts) in
   try

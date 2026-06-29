@@ -743,7 +743,8 @@ let%test "accumulate_event InputJsonSnapshot replaces buffer (no concat on repea
      must replace, not append, so the buffer never becomes invalid JSON. *)
   accumulate_event
     acc
-    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} });
+    (Types.ContentBlockDelta
+       { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} });
   let buf = Hashtbl.find acc.block_texts 0 in
   Buffer.contents buf = {|{"limit":10}|}
 ;;
@@ -764,13 +765,15 @@ let%test "finalize_stream_acc repeated tool-arg snapshot stays valid JSON" =
         ; tool_id = Some "call_1"
         ; tool_name = Some "list"
         }
-    ; Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} }
-    ; Types.ContentBlockDelta { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} }
+    ; Types.ContentBlockDelta
+        { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} }
+    ; Types.ContentBlockDelta
+        { index = 0; delta = Types.InputJsonSnapshot {|{"limit":10}|} }
     ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
     ];
   match finalize_stream_acc acc with
   | Ok { content = [ Types.ToolUse { input; name; _ } ]; _ } ->
-    name = "list" && input = `Assoc [ ("limit", `Int 10) ]
+    name = "list" && input = `Assoc [ "limit", `Int 10 ]
   | Ok _ | Error _ -> false
 ;;
 

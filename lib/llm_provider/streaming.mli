@@ -21,9 +21,9 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
 
 (** [true] when the SSE event represents the first generated
     token delta. That means a [ContentBlockDelta] carrying a
-    non-empty [TextDelta] / [ThinkingDelta] / [InputJsonDelta]
-    payload. Prelude events ([MessageStart], [ContentBlockStart],
-    [ThinkingSignatureDelta] carriers,
+    non-empty [TextDelta] / [ThinkingDelta] / [InputJsonDelta] /
+    [InputJsonSnapshot] payload. Prelude events ([MessageStart],
+    [ContentBlockStart], [ThinkingSignatureDelta] carriers,
     [Ping]), terminator events ([MessageStop], [MessageDelta] with
     no usage), and error events return [false].
 
@@ -195,7 +195,7 @@ type ollama_tool_call_delta =
   ; oll_tc_id : string option
   ; oll_tc_name : string option
   ; oll_tc_arguments : tool_call_arguments option
-      (** Tool-call arguments as they arrive on the wire. *)
+    (** Tool-call arguments as they arrive on the wire. *)
   }
 
 type ollama_chunk =

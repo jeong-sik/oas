@@ -1022,7 +1022,8 @@ let test_gemini_stream_function_call_preserves_thought_signature () =
            ; tool_id = Some tool_id
            ; tool_name = Some "search"
            }
-       ; ContentBlockDelta { index = delta_idx; delta = InputJsonSnapshot {|{"q":"test"}|} }
+       ; ContentBlockDelta
+           { index = delta_idx; delta = InputJsonSnapshot {|{"q":"test"}|} }
        ; MessageDelta { stop_reason = Some StopToolUse; _ }
        ] ->
        check int "redacted index" 0 redacted_idx;

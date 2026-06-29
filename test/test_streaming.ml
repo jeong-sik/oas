@@ -413,9 +413,9 @@ let test_synthetic_tool_use () =
      Alcotest.(check (option string)) "tool_name" (Some "calc") tool_name
    | _ -> Alcotest.fail "expected tool_use ContentBlockStart");
   match List.nth events 2 with
-  | ContentBlockDelta { delta = InputJsonDelta s; _ } ->
+  | ContentBlockDelta { delta = InputJsonSnapshot s; _ } ->
     Alcotest.(check bool) "has json" true (String.length s > 0)
-  | _ -> Alcotest.fail "expected InputJsonDelta"
+  | _ -> Alcotest.fail "expected InputJsonSnapshot"
 ;;
 
 let test_synthetic_image_media_delta () =

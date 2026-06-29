@@ -141,8 +141,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   match e with
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = ThinkingDelta s; _ } -> non_empty s
-  | ContentBlockDelta { delta = (InputJsonDelta s | InputJsonSnapshot s); _ } ->
-    non_empty s
+  | ContentBlockDelta { delta = InputJsonDelta s | InputJsonSnapshot s; _ } -> non_empty s
   | ContentBlockDelta { delta = MediaDelta { data; _ }; _ } -> non_empty data
   | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ } -> false
   | MessageStart _
@@ -163,8 +162,7 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   let non_empty s = String.length s > 0 in
   match e with
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
-  | ContentBlockDelta { delta = (InputJsonDelta s | InputJsonSnapshot s); _ } ->
-    non_empty s
+  | ContentBlockDelta { delta = InputJsonDelta s | InputJsonSnapshot s; _ } -> non_empty s
   | ContentBlockDelta { delta = MediaDelta { data; _ }; _ } -> non_empty data
   | ContentBlockStart { content_type = "tool_use"; _ } -> true
   | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ }
@@ -615,8 +613,7 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
        | Some (Args_fragment args) when args <> "" ->
          emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
        | Some (Args_complete args) when args <> "" ->
-         emit
-           (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
+         emit (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
        | Some (Args_fragment _ | Args_complete _) -> ()
        | None -> ())
     chunk.delta_tool_calls;
@@ -1398,8 +1395,7 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
        | Some (Args_fragment args) when args <> "" ->
          emit (ContentBlockDelta { index = block_idx; delta = InputJsonDelta args })
        | Some (Args_complete args) when args <> "" ->
-         emit
-           (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
+         emit (ContentBlockDelta { index = block_idx; delta = InputJsonSnapshot args })
        | Some (Args_fragment _ | Args_complete _) -> ()
        | None -> ())
     chunk.oll_tool_calls;
