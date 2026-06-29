@@ -24,6 +24,24 @@
     "lib/llm_provider/paths.ml",
     "lib/llm_provider/paths.mli"
   ],
+  "modelStringClassifierBoundaryPaths": [
+    "lib/llm_provider/capabilities.ml",
+    "lib/llm_provider/capabilities.mli",
+    "lib/llm_provider/capability_manifest.ml",
+    "lib/llm_provider/capability_manifest.mli",
+    "lib/llm_provider/model_catalog.ml",
+    "lib/llm_provider/model_catalog.mli",
+    "lib/llm_provider/pricing.ml",
+    "lib/llm_provider/pricing.mli",
+    "lib/llm_provider/provider_catalog.ml",
+    "lib/llm_provider/provider_catalog.mli",
+    "lib/llm_provider/provider_config.ml",
+    "lib/llm_provider/provider_config.mli",
+    "lib/llm_provider/provider_kind.ml",
+    "lib/llm_provider/provider_kind.mli",
+    "lib/llm_provider/zai_catalog.ml",
+    "lib/llm_provider/zai_catalog.mli"
+  ],
   "excludedPathParts": [
     "example",
     "examples",
@@ -42,8 +60,11 @@
     "direct_env_reads": "RFC-OAS-023: reduce by moving runtime env access behind config/env boundary modules.",
     "direct_env_reads_outside_env_boundary": "RFC-OAS-023: target zero outside explicit envBoundaryPaths.",
     "exception_message_classifiers": "RFC-OAS-023: target zero after typed Unix_error/Eio/http_error classifiers land.",
+    "heuristic_markers": "RFC-OAS-023/RFC-OAS-029: target zero for untyped heuristic runtime routing; new heuristic code requires a waiver and sunset plan.",
     "local_workspace_path_literals": "RFC-OAS-023: target zero; new local developer paths are never accepted without waiver.",
+    "model_id_string_classifiers_outside_catalog": "RFC-OAS-029: keep model-id string classification inside catalog/capability boundary modules; scattered model matching is SSOT drift.",
     "stub_markers": "RFC-OAS-023: target zero; assert false is excluded because it is commonly used for unreachable proof arms.",
+    "workaround_markers": "RFC-OAS-023/RFC-OAS-029: target zero for permanent runtime workaround debt; temporary additions require waiver and sunset issue.",
     "wildcard_silent_defaults": "RFC-OAS-023: reduce by replacing permissive catch-all defaults with typed/default-explicit handling."
   },
   "sourceRoots": [

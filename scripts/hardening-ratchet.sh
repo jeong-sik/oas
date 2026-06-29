@@ -27,6 +27,9 @@ METRICS = (
     "direct_env_reads",
     "direct_env_reads_outside_env_boundary",
     "exception_message_classifiers",
+    "heuristic_markers",
+    "workaround_markers",
+    "model_id_string_classifiers_outside_catalog",
     "stub_markers",
     "wildcard_silent_defaults",
 )
@@ -36,6 +39,14 @@ EXCEPTION_CLASSIFIER_RE = re.compile(
     r"\bclassify_by_message\b"
     r"|String\.lowercase_ascii\s+(?:msg|message|\([^)]*(?:msg|message|Printexc\.to_string)[^)]*\))"
     r"|\bhas_substr\s+(?:msg|message|m)\b"
+)
+HEURISTIC_MARKER_RE = re.compile(r"\bheuristic(?:s|al)?(?:\b|_)")
+WORKAROUND_MARKER_RE = re.compile(r"\bworkaround(?:\b|_)")
+MODEL_ID_STRING_CLASSIFIER_RE = re.compile(
+    r"\bString\.(?:lowercase_ascii|uppercase_ascii|starts_with|ends_with|contains|equal)\b"
+    r".*\b(?:config\.)?model(?:_id)?\b"
+    r"|\b(?:config\.)?model(?:_id)?\b"
+    r".*\bString\.(?:lowercase_ascii|uppercase_ascii|starts_with|ends_with|contains|equal)\b"
 )
 STUB_RE = re.compile(
     r"\bNot_implemented\b"
@@ -59,6 +70,7 @@ def load_config(path: Path):
         "sourceSuffixes",
         "excludedPathParts",
         "envBoundaryPaths",
+        "modelStringClassifierBoundaryPaths",
         "forbiddenLocalPathPrefixes",
         "maxExamples",
         "removalTargets",
@@ -150,6 +162,11 @@ def is_env_boundary(path: str, config) -> bool:
     return path in boundary_paths
 
 
+def is_model_string_classifier_boundary(path: str, config) -> bool:
+    boundary_paths = set(config["modelStringClassifierBoundaryPaths"])
+    return path in boundary_paths
+
+
 def has_local_workspace_literal(line: str, config) -> bool:
     prefixes = tuple(config["forbiddenLocalPathPrefixes"])
     for match in STRING_LITERAL_RE.finditer(line):
@@ -197,6 +214,23 @@ def measure_texts(files, config):
                     bump(metrics, examples, max_examples, "local_workspace_path_literals", path, lineno, raw_line)
                 if EXCEPTION_CLASSIFIER_RE.search(code_line):
                     bump(metrics, examples, max_examples, "exception_message_classifiers", path, lineno, raw_line)
+                if HEURISTIC_MARKER_RE.search(code_line):
+                    bump(metrics, examples, max_examples, "heuristic_markers", path, lineno, raw_line)
+                if WORKAROUND_MARKER_RE.search(code_line):
+                    bump(metrics, examples, max_examples, "workaround_markers", path, lineno, raw_line)
+                if (
+                    (not is_model_string_classifier_boundary(path, config))
+                    and MODEL_ID_STRING_CLASSIFIER_RE.search(code_line)
+                ):
+                    bump(
+                        metrics,
+                        examples,
+                        max_examples,
+                        "model_id_string_classifiers_outside_catalog",
+                        path,
+                        lineno,
+                        raw_line,
+                    )
                 if STUB_RE.search(line):
                     bump(metrics, examples, max_examples, "stub_markers", path, lineno, raw_line)
                 if WILDCARD_SILENT_RE.search(line):
@@ -284,20 +318,28 @@ def self_test(config):
             "let env = Sys.getenv_opt \\\\\"OAS_DIRECT\\\\\"",
             "let classify_by_message msg = msg",
             "let m = String.lowercase_ascii msg",
+            "let choice = heuristic_classify query",
+            "let workaround_flag = true",
+            "let model_norm = String.lowercase_ascii model_id",
+            "let model_is_qwen = String.starts_with ~prefix:\"qwen\" model_id",
             "| _ -> None",
             "let path = \\\\\"/home/alice/me/tmp\\\\\"",
             "let impossible = assert false",
             "let fixture = \\\\\"connection refused\\\\\"",
         ]),
         "lib/defaults.ml": "let env = Sys.getenv_opt \\\\\"OAS_BOUNDARY\\\\\"",
+        "lib/llm_provider/capabilities.ml": "let catalog_model = String.lowercase_ascii model_id",
     }
     result = measure_texts(sample, config)
     expected = {
         "direct_env_reads": 2,
         "direct_env_reads_outside_env_boundary": 1,
         "exception_message_classifiers": 2,
+        "heuristic_markers": 1,
         "local_workspace_path_literals": 1,
+        "model_id_string_classifiers_outside_catalog": 2,
         "stub_markers": 0,
+        "workaround_markers": 1,
         "wildcard_silent_defaults": 1,
     }
     if result["metrics"] != expected:

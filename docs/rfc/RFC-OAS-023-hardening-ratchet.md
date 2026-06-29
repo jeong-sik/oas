@@ -26,6 +26,9 @@ The baseline stores these metrics:
 | `direct_env_reads` | Direct `Sys.getenv`, `Sys.getenv_opt`, `Sys.unsafe_getenv`, `Unix.getenv`, or `Unix.getenv_opt` reads in runtime source. | Reduce by routing runtime configuration through explicit env/config boundary modules. |
 | `direct_env_reads_outside_env_boundary` | Direct env reads outside paths listed in `.ci/hardening-ratchet-config.json`. | Target zero outside `envBoundaryPaths`. |
 | `exception_message_classifiers` | Source shapes that classify by exception message text, such as `classify_by_message`, `String.lowercase_ascii msg`, or `has_substr msg`. Plain user-facing string literals like `"timeout"` are not counted. | Target zero after typed `Unix_error` / Eio / `http_error` classifiers replace message inspection. |
+| `heuristic_markers` | Runtime source identifiers that explicitly mark untyped heuristic behavior. Comments and string literals are stripped before matching. | Target zero for routing/provider behavior that should be typed or catalog-backed. New heuristic code requires `RATCHET-WAIVED` with a sunset plan. |
+| `workaround_markers` | Runtime source identifiers that explicitly mark workaround behavior. Comments and string literals are stripped before matching. | Target zero for permanent runtime workaround debt. Temporary additions require `RATCHET-WAIVED` with a sunset issue/RFC. |
+| `model_id_string_classifiers_outside_catalog` | Direct `String.lowercase_ascii`, `String.starts_with`, `String.ends_with`, `String.contains`, or `String.equal` classification on `model`/`model_id` outside configured catalog/capability boundary files. | Keep model-id classification in catalog/capability SSOT modules; scattered provider/model matching is RFC-OAS-029 drift. |
 | `stub_markers` | Runtime stubs such as `Not_implemented` and `failwith "not implemented"`. `assert false` is excluded because it is a common OCaml proof idiom for unreachable arms. | Target zero. |
 | `wildcard_silent_defaults` | Line-leading catch-all arms that collapse to permissive defaults like `None`, `[]`, `Ok`, `true`, `false`, `()`, or `""`. | Reduce by replacing permissive catch-all defaults with typed/default-explicit handling. |
 
@@ -46,6 +49,7 @@ The existing `.github/workflows/code-smell-ratchet.yml` is the only ratchet work
 - runtime source roots and suffixes;
 - excluded path parts for tests, examples, and fixtures;
 - explicit env/config boundary file paths;
+- explicit model string-classifier boundary file paths;
 - forbidden local-path prefixes;
 - max example count;
 - per-metric removal targets.
@@ -59,6 +63,7 @@ The script's `--self-test` mode guards these cases before any CI check result is
 - `Sys.getenv_opt` inside comments is not counted.
 - `(*` / `*)` inside normal OCaml strings are preserved and do not corrupt scanning.
 - Plain user-facing error strings such as `"connection refused"` are not counted as exception-message classifiers.
+- Model-id string classifiers are allowed only in configured catalog/capability boundary paths.
 - `assert false` is not counted as a stub marker.
 - Env reads in configured env boundary files count only toward `direct_env_reads`, not `direct_env_reads_outside_env_boundary`.
 

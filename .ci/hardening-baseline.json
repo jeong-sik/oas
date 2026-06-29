@@ -3,55 +3,70 @@
   "examples": {
     "direct_env_reads": [
       "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
-      "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
-      "lib/llm_provider/cli_common_env.ml:11:let get name = trim_non_empty_opt (Sys.getenv_opt name)",
-      "lib/llm_provider/cli_common_env.ml:160:let original = Sys.getenv_opt name in",
+      "lib/llm_provider/backend_ollama.ml:367:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
+      "lib/llm_provider/cli_common_env.ml:11:let default_getenv = Sys.getenv_opt",
       "lib/llm_provider/complete_sync.ml:115:Sys.getenv_opt \"OAS_DEBUG_REQUEST_BODY\"",
-      "lib/llm_provider/constants.ml:87:match Sys.getenv \"OAS_MAX_TOKENS_DEFAULT\" with",
-      "lib/llm_provider/constants.ml:175:match Sys.getenv env_var with",
-      "lib/llm_provider/constants.ml:229:match Sys.getenv \"OAS_DEFAULT_SEED\" with"
+      "lib/llm_provider/constants.ml:19:let positive_int_env_opt ?(getenv = Sys.getenv_opt) var =",
+      "lib/llm_provider/constants.ml:249:match Sys.getenv \"OAS_DEFAULT_SEED\" with",
+      "lib/llm_provider/discovery.ml:729:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with",
+      "lib/llm_provider/discovery.ml:758:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with"
     ],
     "direct_env_reads_outside_env_boundary": [
       "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
-      "lib/llm_provider/backend_ollama.ml:374:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
+      "lib/llm_provider/backend_ollama.ml:367:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
       "lib/llm_provider/complete_sync.ml:115:Sys.getenv_opt \"OAS_DEBUG_REQUEST_BODY\"",
-      "lib/llm_provider/diag.ml:15:match Sys.getenv_opt name with",
       "lib/llm_provider/discovery.ml:729:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with",
       "lib/llm_provider/discovery.ml:758:(match Sys.getenv_opt \"LLM_ENDPOINTS\" with",
-      "lib/llm_provider/pricing.ml:506:match Sys.getenv_opt \"OAS_PRICING_FILE\" with",
-      "lib/llm_provider/pricing.ml:520:(match Sys.getenv_opt \"OAS_PRICING_OVERRIDES\" with"
+      "lib/llm_provider/pricing.ml:503:match Sys.getenv_opt \"OAS_PRICING_FILE\" with",
+      "lib/llm_provider/pricing.ml:517:(match Sys.getenv_opt \"OAS_PRICING_OVERRIDES\" with",
+      "lib/llm_provider/secret.ml:15:match Sys.getenv_opt var with"
     ],
     "exception_message_classifiers": [
       "lib/llm_provider/retry.ml:307:let msg = String.lowercase_ascii (extract_error_message body) in"
     ],
+    "heuristic_markers": [
+      "lib/context_intent.ml:84:let heuristic_classify query =",
+      "lib/context_intent.mli:38:val heuristic_classify : string -> classification"
+    ],
     "local_workspace_path_literals": [],
+    "model_id_string_classifiers_outside_catalog": [
+      "lib/llm_provider/backend_gemini.ml:53:let model_id = String.lowercase_ascii (String.trim config.model_id) in",
+      "lib/provider.ml:53:let normalized = String.lowercase_ascii (String.trim model_id) in"
+    ],
     "stub_markers": [],
     "wildcard_silent_defaults": [
       "lib/agent/agent_handoff.ml:36:| _ -> None))",
       "lib/agent/agent_handoff.ml:79:| _ -> false)",
       "lib/agent/agent_tool_name_alias.ml:70:| _ -> false",
-      "lib/agent/builder.ml:481:| _ -> Ok (build b)))",
+      "lib/agent/builder.ml:498:| _ -> Ok (build b)))",
       "lib/agent_tool.ml:33:| _ -> None)",
-      "lib/api_openai.ml:19:| _ -> []",
-      "lib/api_openai.ml:137:| _ -> None",
-      "lib/api_openai.ml:143:| _ -> true"
-    ]
+      "lib/api_openai.ml:20:| _ -> []",
+      "lib/api_openai.ml:220:| _ -> None",
+      "lib/api_openai.ml:226:| _ -> true"
+    ],
+    "workaround_markers": []
   },
-  "lastUpdatedCommit": "d5340bc34a279922b6350bd63cab1313dceb7fb8",
+  "lastUpdatedCommit": "fba516f6ffccccca24e58369411713128123baf5",
   "metrics": {
-    "direct_env_reads": 25,
-    "direct_env_reads_outside_env_boundary": 18,
+    "direct_env_reads": 21,
+    "direct_env_reads_outside_env_boundary": 16,
     "exception_message_classifiers": 1,
+    "heuristic_markers": 2,
     "local_workspace_path_literals": 0,
+    "model_id_string_classifiers_outside_catalog": 2,
     "stub_markers": 0,
-    "wildcard_silent_defaults": 255
+    "wildcard_silent_defaults": 250,
+    "workaround_markers": 0
   },
   "removalTargets": {
     "direct_env_reads": "RFC-OAS-023: reduce by moving runtime env access behind config/env boundary modules.",
     "direct_env_reads_outside_env_boundary": "RFC-OAS-023: target zero outside explicit envBoundaryPaths.",
     "exception_message_classifiers": "RFC-OAS-023: target zero after typed Unix_error/Eio/http_error classifiers land.",
+    "heuristic_markers": "RFC-OAS-023/RFC-OAS-029: target zero for untyped heuristic runtime routing; new heuristic code requires a waiver and sunset plan.",
     "local_workspace_path_literals": "RFC-OAS-023: target zero; new local developer paths are never accepted without waiver.",
+    "model_id_string_classifiers_outside_catalog": "RFC-OAS-029: keep model-id string classification inside catalog/capability boundary modules; scattered model matching is SSOT drift.",
     "stub_markers": "RFC-OAS-023: target zero; assert false is excluded because it is commonly used for unreachable proof arms.",
-    "wildcard_silent_defaults": "RFC-OAS-023: reduce by replacing permissive catch-all defaults with typed/default-explicit handling."
+    "wildcard_silent_defaults": "RFC-OAS-023: reduce by replacing permissive catch-all defaults with typed/default-explicit handling.",
+    "workaround_markers": "RFC-OAS-023/RFC-OAS-029: target zero for permanent runtime workaround debt; temporary additions require waiver and sunset issue."
   }
 }
