@@ -29,6 +29,14 @@ let check_auth_headers label expected (pc : Llm_provider.Provider_config.t) =
        ~api_key:((pc.api_key :> string) :> string))
 ;;
 
+let with_provider_catalog json f =
+  match Llm_provider.Provider_catalog.of_json (Yojson.Safe.from_string json) with
+  | Error msg -> Alcotest.fail msg
+  | Ok catalog ->
+    Llm_provider.Provider_catalog.set_global catalog;
+    Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
+;;
+
 let test_missing_env_var () =
   (* Anthropic provider checks env var; nonexistent key -> Error *)
   let cfg : Provider.config =
@@ -896,6 +904,97 @@ let test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallbac
         Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))))
 ;;
 
+let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration () =
+  with_provider_catalog
+    {|
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "runpod-qwen36",
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1",
+      "request_path": "/v1/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat",
+      "capabilities": {"supports_structured_output": true}
+    }
+  ]
+}
+|}
+    (fun () ->
+       let model_id = "qwen/qwen3.6-35b-a3b" in
+       let schema = `Assoc [ "type", `String "object" ] in
+       let state = agent_state_with_params () in
+       let declared_cfg : Provider.config =
+         { provider = Custom_registered { name = "runpod-qwen36" }
+         ; model_id
+         ; api_key_env = ""
+         }
+       in
+       let declared_pc =
+         match
+           Provider.provider_config_of_agent
+             ~state
+             ~base_url:"unused-fallback"
+             (Some declared_cfg)
+         with
+         | Ok pc ->
+           { pc with
+             Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+           ; output_schema = Some schema
+           }
+         | Error e ->
+           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+       in
+       Alcotest.(check (option bool))
+         "catalog endpoint declaration projected"
+         (Some true)
+         declared_pc.supports_structured_output_override;
+       Alcotest.(check bool)
+         "catalog-declared endpoint validates schema output"
+         true
+         (Result.is_ok
+            (Llm_provider.Provider_config.validate_output_schema_request declared_pc));
+       let raw_cfg : Provider.config =
+         { provider =
+             OpenAICompat
+               { base_url = "https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
+               ; auth_header = None
+               ; path = "/v1/chat/completions"
+               ; static_token = None
+               }
+         ; model_id
+         ; api_key_env = ""
+         }
+       in
+       let raw_pc =
+         match
+           Provider.provider_config_of_agent
+             ~state
+             ~base_url:"unused-fallback"
+             (Some raw_cfg)
+         with
+         | Ok pc ->
+           { pc with
+             Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+           ; output_schema = Some schema
+           }
+         | Error e ->
+           Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
+       in
+       Alcotest.(check (option bool))
+         "raw OpenAICompat does not invent endpoint declaration"
+         None
+         raw_pc.supports_structured_output_override;
+       Alcotest.(check bool)
+         "raw OpenAICompat endpoint remains fail-closed"
+         true
+         (Result.is_error
+            (Llm_provider.Provider_config.validate_output_schema_request raw_pc)))
+;;
+
 let test_provider_config_of_agent_custom_registered_unknown_name () =
   let cfg : Provider.config =
     { provider = Custom_registered { name = "nonexistent-provider-xyz" }
@@ -1055,6 +1154,10 @@ let () =
             "custom registered ollama_cloud falls back to OLLAMA_API_KEY"
             `Quick
             test_provider_config_of_agent_custom_registered_ollama_cloud_api_key_fallback
+        ; Alcotest.test_case
+            "catalog structured output endpoint declaration"
+            `Quick
+            test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
         ; Alcotest.test_case
             "custom registered unknown name errors"
             `Quick

@@ -695,7 +695,16 @@ let provider_config_of_agent
   : (Llm_provider.Provider_config.t, Error.sdk_error) result
   =
   let cfg = state.config in
-  let build ~kind ~resolved_base_url ~api_key ~headers ~request_path ~model_id =
+  let build
+        ~kind
+        ~resolved_base_url
+        ~api_key
+        ~headers
+        ~request_path
+        ~model_id
+        ?supports_structured_output_override
+        ()
+    =
     Ok
       (Llm_provider.Provider_config.make
          ~kind
@@ -717,6 +726,7 @@ let provider_config_of_agent
          ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
          ~response_format:cfg.response_format
          ~cache_system_prompt:cfg.cache_system_prompt
+         ?supports_structured_output_override
          ())
   in
   match provider_opt with
@@ -759,7 +769,10 @@ let provider_config_of_agent
                   ~api_key
                   ~headers
                   ~request_path:entry.defaults.request_path
-                  ~model_id:p.model_id)
+                  ~model_id:p.model_id
+                  ~supports_structured_output_override:
+                    entry.capabilities.supports_structured_output
+                  ())
            | None ->
              let api_key =
                if entry.defaults.api_key_env = ""
@@ -776,7 +789,10 @@ let provider_config_of_agent
                ~api_key
                ~headers
                ~request_path:entry.defaults.request_path
-               ~model_id:p.model_id))
+               ~model_id:p.model_id
+               ~supports_structured_output_override:
+                 entry.capabilities.supports_structured_output
+               ()))
      | Anthropic | Local _ | OpenAICompat _ ->
        (match resolve p with
         | Error e -> Error e
@@ -802,7 +818,8 @@ let provider_config_of_agent
             ~api_key:sanitized_api_key
             ~headers
             ~request_path:(request_path p.provider)
-            ~model_id:p.model_id))
+            ~model_id:p.model_id
+            ()))
   | None ->
     let fallback_provider : config =
       { provider = Anthropic
@@ -819,5 +836,6 @@ let provider_config_of_agent
          ~api_key
          ~headers
          ~request_path:(request_path Anthropic)
-         ~model_id:(Types.model_to_string cfg.model))
+         ~model_id:(Types.model_to_string cfg.model)
+         ())
 ;;
