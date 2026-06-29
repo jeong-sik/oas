@@ -286,6 +286,56 @@ let stage_collect ?raw_trace_run ?clock agent ~original_config response =
                   { agent_name = agent.state.config.name; turn = completed_turn }
             }
         | None -> ());
+       (* Observability-as-default: emit per-call inference telemetry beside
+          [TurnCompleted] so token counts and decode tok/s are observable
+          without the caller wiring anything. The event's [provider] is a
+          required string, so we publish only once the provider identity is
+          known from [response.telemetry.provider_kind] — set by
+          [Complete_common.patch_telemetry] on every real completion (sync and
+          stream). A synthetic response with no telemetry has no provider to
+          attribute and no timings to report, so it is skipped rather than
+          emitted with a fabricated provider. Token/timing fields stay [None]
+          when the provider did not report them (cloud providers omit timings).
+          The nested [None -> ()] arms are explicit (no catch-all) so a future
+          telemetry field cannot be silently dropped here. *)
+       (match agent.options.event_bus with
+        | None -> ()
+        | Some bus ->
+          (match response.telemetry with
+           | None -> ()
+           | Some telemetry ->
+             (match telemetry.provider_kind with
+              | None -> ()
+              | Some provider_kind ->
+                let timings = telemetry.timings in
+                safe_publish
+                  bus
+                  { meta = Pipeline_common.event_envelope agent
+                  ; payload =
+                      InferenceTelemetry
+                        { agent_name = agent.state.config.name
+                        ; turn = completed_turn
+                        ; provider = Llm_provider.Provider_kind.to_string provider_kind
+                        ; model = response.model
+                        ; prompt_tokens =
+                            Option.map
+                              (fun (u : api_usage) -> u.input_tokens)
+                              response.usage
+                        ; completion_tokens =
+                            Option.map
+                              (fun (u : api_usage) -> u.output_tokens)
+                              response.usage
+                        ; prompt_ms =
+                            Option.bind timings (fun (t : inference_timings) ->
+                              t.prompt_ms)
+                        ; decode_ms =
+                            Option.bind timings (fun (t : inference_timings) ->
+                              t.predicted_ms)
+                        ; decode_tok_s =
+                            Option.bind timings (fun (t : inference_timings) ->
+                              t.predicted_per_second)
+                        }
+                  })));
        (match agent.options.journal with
         | Some j ->
           Durable_event.append

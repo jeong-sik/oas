@@ -490,6 +490,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_observability_default)
+ (modules test_observability_default)
+ (libraries agent_sdk llm_provider alcotest eio_main))
+
+(test
  (name test_lenient_json)
  (modules test_lenient_json)
  (libraries agent_sdk alcotest))
