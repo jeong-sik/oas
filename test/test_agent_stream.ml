@@ -71,10 +71,10 @@ let test_emit_tool_use () =
      Alcotest.(check (option string)) "tool_name" (Some "get_weather") tool_name
    | _ -> Alcotest.fail "expected ContentBlockStart with tool_use");
   match List.nth events 2 with
-  | Types.ContentBlockDelta { delta = Types.InputJsonDelta s; _ } ->
+  | Types.ContentBlockDelta { delta = Types.InputJsonSnapshot s; _ } ->
     let _parsed = Yojson.Safe.from_string s in
     Alcotest.(check bool) "valid JSON" true true
-  | _ -> Alcotest.fail "expected InputJsonDelta"
+  | _ -> Alcotest.fail "expected InputJsonSnapshot"
 ;;
 
 let test_emit_thinking () =
@@ -243,7 +243,7 @@ let test_thinking_delta_content () =
   | _ -> Alcotest.fail "expected ThinkingDelta"
 ;;
 
-let test_input_json_delta_content () =
+let test_input_json_snapshot_content () =
   let input = `Assoc [ "key", `String "value"; "num", `Int 42 ] in
   let response =
     make_response
@@ -252,11 +252,11 @@ let test_input_json_delta_content () =
   in
   let events = collect_events response in
   match List.nth events 2 with
-  | Types.ContentBlockDelta { delta = Types.InputJsonDelta s; _ } ->
+  | Types.ContentBlockDelta { delta = Types.InputJsonSnapshot s; _ } ->
     let parsed = Yojson.Safe.from_string s in
     let key = Yojson.Safe.Util.(parsed |> member "key" |> to_string) in
     Alcotest.(check string) "parsed key" "value" key
-  | _ -> Alcotest.fail "expected InputJsonDelta"
+  | _ -> Alcotest.fail "expected InputJsonSnapshot"
 ;;
 
 let test_image_block_media_delta () =
@@ -506,7 +506,7 @@ let () =
         ] )
     ; ( "emit_delta_types"
       , [ test_case "thinking_delta_content" `Quick test_thinking_delta_content
-        ; test_case "input_json_delta_content" `Quick test_input_json_delta_content
+        ; test_case "input_json_snapshot_content" `Quick test_input_json_snapshot_content
         ; test_case "image_block_media_delta" `Quick test_image_block_media_delta
         ; test_case "document_block_media_delta" `Quick test_document_block_media_delta
         ] )
