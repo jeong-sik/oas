@@ -1,9 +1,8 @@
 (** Tool name alias resolution.
 
-    OAS provides a small set of generic, provider-agnostic aliases
-    (e.g. [Bash] -> [Execute]) built-in.  Consumer-specific aliases
-    (for example, downstream shell-tool names) must be registered by
-    the consumer at initialization time via {!register_alias}.
+    OAS core does not ship consumer tool aliases.  Downstream consumers
+    that expose provider-facing aliases must register each alias during
+    their own initialization via {!register_alias}.
 
     @since 0.93.1 *)
 
@@ -20,8 +19,6 @@ val register_alias : alias:string -> canonical:string -> unit
 val resolve_alias : string -> string option
 
 (** [resolve ~requested ~input] attempts to resolve a requested tool
-    name to its canonical form, applying input normalization for the
-    built-in generic aliases.  Falls back to the mutable registry for
-    consumer-registered aliases (no input normalization is applied for
-    registry hits). *)
+    name to its consumer-registered canonical form.  Alias resolution
+    preserves the original JSON input unchanged. *)
 val resolve : requested:string -> input:Yojson.Safe.t -> (string * Yojson.Safe.t) option

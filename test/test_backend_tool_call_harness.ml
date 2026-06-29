@@ -293,6 +293,27 @@ let test_provider_convenience_validators_cover_tool_responses () =
   check int "gemini tool calls" 1 (List.length gemini.tool_calls_found)
 ;;
 
+let test_anthropic_tool_use_stop_without_tool_block_fails_closed () =
+  let json =
+    `Assoc
+      [ "id", `String "msg_no_tool"
+      ; "model", `String "claude-sonnet"
+      ; "stop_reason", `String "tool_use"
+      ; "content", `List [ `Assoc [ "type", `String "text"; "text", `String "" ] ]
+      ; "usage", `Assoc [ "input_tokens", `Int 1; "output_tokens", `Int 1 ]
+      ]
+  in
+  let response = Llm_provider.Backend_anthropic.parse_response json in
+  check
+    bool
+    "tool_use stop without a ToolUse block is not executable"
+    true
+    (response.stop_reason = T.Unknown "tool_calls");
+  let result = H.validate_response ~declared_tools:[ "lookup" ] response in
+  check bool "validation sees non-tool stop" true result.stop_reason_correct;
+  check int "no tool calls found" 0 (List.length result.tool_calls_found)
+;;
+
 let test_schema_validation_unknown_type_fails_closed () =
   (* RFC-OAS-029 S8.1: a non-standard schema [type] must surface as a violation
      instead of silently accepting any value (regression: the prior
@@ -375,6 +396,10 @@ let () =
             "provider convenience validators"
             `Quick
             test_provider_convenience_validators_cover_tool_responses
+        ; test_case
+            "anthropic tool_use stop without tool block fails closed"
+            `Quick
+            test_anthropic_tool_use_stop_without_tool_block_fails_closed
         ; test_case
             "unknown schema type fails closed"
             `Quick
