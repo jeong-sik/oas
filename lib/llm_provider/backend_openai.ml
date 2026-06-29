@@ -1130,7 +1130,7 @@ let%test "glm build_request drops tool_choice when unsupported" =
   | _ -> false
 ;;
 
-let%test "glm build_request replays reasoning_content without leaking it into content" =
+let%test "glm build_request drops historical reasoning_content by default" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -1154,8 +1154,7 @@ let%test "glm build_request replays reasoning_content without leaking it into co
   let body = build_request ~config ~messages () |> Yojson.Safe.from_string in
   let open Yojson.Safe.Util in
   let assistant = body |> member "messages" |> index 0 in
-  assistant |> member "content" = `Null
-  && assistant |> member "reasoning_content" |> to_string = "use calculator"
+  assistant |> member "content" = `Null && assistant |> member "reasoning_content" = `Null
 ;;
 
 let%test "build_request uses json_schema response_format when output_schema is set" =
