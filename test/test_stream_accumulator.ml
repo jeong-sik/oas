@@ -17,12 +17,31 @@ let make_usage ?(cache_create = 0) ?(cache_read = 0) inp out =
 
 let acc_events acc events = List.iter (Streaming.accumulate_event acc) events
 
+let stream_error_to_string = function
+  | Stream_provider_error { message; _ } -> message
+  | Stream_parse_failed { reason; _ } -> reason
+  | Stream_unknown_event { event_type; _ } -> "unknown_event:" ^ event_type
+;;
+
+let fail_unexpected_stream_error err =
+  Alcotest.fail ("unexpected error: " ^ stream_error_to_string err)
+;;
+
+let check_zero_usage = function
+  | Some u ->
+    Alcotest.(check int) "input" 0 u.input_tokens;
+    Alcotest.(check int) "output" 0 u.output_tokens;
+    Alcotest.(check int) "cache_creation" 0 u.cache_creation_input_tokens;
+    Alcotest.(check int) "cache_read" 0 u.cache_read_input_tokens
+  | None -> Alcotest.fail "expected zero usage"
+;;
+
 (* ── create_stream_acc ────────────────────────────────────── *)
 
 let test_create_initial_state () =
   let acc = Streaming.create_stream_acc () in
-  Alcotest.(check string) "msg_id empty" "" !(acc.msg_id);
-  Alcotest.(check string) "msg_model empty" "" !(acc.msg_model);
+  Alcotest.(check string) "msg_id empty" "" !(acc.id);
+  Alcotest.(check string) "msg_model empty" "" !(acc.model);
   Alcotest.(check int) "input_tokens 0" 0 !(acc.input_tokens);
   Alcotest.(check int) "output_tokens 0" 0 !(acc.output_tokens);
   Alcotest.(check int) "cache_creation 0" 0 !(acc.cache_creation);
@@ -38,8 +57,8 @@ let test_accumulate_message_start () =
       { id = "msg_123"; model = "claude-sonnet-4"; usage = Some (make_usage 100 0) }
   in
   Streaming.accumulate_event acc evt;
-  Alcotest.(check string) "id set" "msg_123" !(acc.msg_id);
-  Alcotest.(check string) "model set" "claude-sonnet-4" !(acc.msg_model);
+  Alcotest.(check string) "id set" "msg_123" !(acc.id);
+  Alcotest.(check string) "model set" "claude-sonnet-4" !(acc.model);
   Alcotest.(check int) "input_tokens" 100 !(acc.input_tokens)
 ;;
 
@@ -48,7 +67,7 @@ let test_accumulate_message_start_no_usage () =
   Streaming.accumulate_event
     acc
     (MessageStart { id = "m1"; model = "test"; usage = None });
-  Alcotest.(check string) "id" "m1" !(acc.msg_id);
+  Alcotest.(check string) "id" "m1" !(acc.id);
   Alcotest.(check int) "input stays 0" 0 !(acc.input_tokens)
 ;;
 
@@ -214,7 +233,7 @@ let test_accumulate_ignores_ping () =
   Streaming.accumulate_event
     acc
     (SSEError { message = "oops"; error_type = None; raw = "oops" });
-  Alcotest.(check string) "state unchanged" "" !(acc.msg_id)
+  Alcotest.(check string) "state unchanged" "" !(acc.id)
 ;;
 
 (* ── finalize_stream_acc ──────────────────────────────────── *)
@@ -230,7 +249,7 @@ let test_finalize_text_response () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = Some (make_usage 0 50) }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     Alcotest.(check string) "id" "msg_f" resp.id;
     Alcotest.(check string) "model" "test" resp.model;
@@ -259,7 +278,7 @@ let test_finalize_thinking_block () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     (match List.hd resp.content with
      | Thinking { content; _ } ->
@@ -279,7 +298,7 @@ let test_finalize_thinking_signature_block () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     (match List.hd resp.content with
      | Thinking { thinking_type; content } ->
@@ -302,7 +321,7 @@ let test_finalize_redacted_thinking_block () =
     ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     (match List.hd resp.content with
      | RedactedThinking data -> Alcotest.(check string) "data" "opaque_data" data
@@ -324,7 +343,7 @@ let test_finalize_tool_use () =
     ; MessageDelta { stop_reason = Some StopToolUse; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     (match List.hd resp.content with
      | ToolUse { id; name; input } ->
@@ -349,11 +368,14 @@ let test_finalize_tool_use_invalid_json () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
-  | Ok resp ->
-    (match List.hd resp.content with
-     | Text s -> Alcotest.(check string) "fallback to text" "not json{" s
-     | _ -> Alcotest.fail "expected Text fallback for invalid JSON")
+  | Error (Stream_parse_failed { reason; raw }) ->
+    Alcotest.(check string) "raw omitted" "" raw;
+    Alcotest.(check bool)
+      "malformed tool args"
+      true
+      (String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason)
+  | Error err -> fail_unexpected_stream_error err
+  | Ok _ -> Alcotest.fail "expected malformed tool_use arguments to fail closed"
 ;;
 
 let test_finalize_multi_block_ordering () =
@@ -370,7 +392,7 @@ let test_finalize_multi_block_ordering () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
+  | Error err -> fail_unexpected_stream_error err
   | Ok resp ->
     Alcotest.(check int) "2 blocks" 2 (List.length resp.content);
     (match resp.content with
@@ -389,11 +411,11 @@ let test_finalize_no_usage () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
-  | Ok resp -> Alcotest.(check bool) "no usage" true (Option.is_none resp.usage)
+  | Error err -> fail_unexpected_stream_error err
+  | Ok resp -> check_zero_usage resp.usage
 ;;
 
-let test_finalize_unknown_block_type_skipped () =
+let test_finalize_unknown_block_type_fails_closed () =
   let acc = Streaming.create_stream_acc () in
   acc_events
     acc
@@ -404,8 +426,14 @@ let test_finalize_unknown_block_type_skipped () =
     ; MessageDelta { stop_reason = Some EndTurn; usage = None }
     ];
   match Streaming.finalize_stream_acc acc with
-  | Error msg -> Alcotest.fail ("unexpected error: " ^ msg)
-  | Ok resp -> Alcotest.(check int) "unknown type skipped" 0 (List.length resp.content)
+  | Error (Stream_parse_failed { reason; raw }) ->
+    Alcotest.(check string)
+      "reason"
+      "unsupported_content_block_kind:future_type:index:0"
+      reason;
+    Alcotest.(check string) "raw omitted" "" raw
+  | Error err -> fail_unexpected_stream_error err
+  | Ok _ -> Alcotest.fail "expected unknown content block kind to fail closed"
 ;;
 
 (* ── map_http_error ───────────────────────────────────────── *)
@@ -514,9 +542,9 @@ let () =
             test_finalize_multi_block_ordering
         ; Alcotest.test_case "no usage" `Quick test_finalize_no_usage
         ; Alcotest.test_case
-            "unknown type skipped"
+            "unknown type fails closed"
             `Quick
-            test_finalize_unknown_block_type_skipped
+            test_finalize_unknown_block_type_fails_closed
         ] )
     ; ( "map_http_error"
       , [ Alcotest.test_case "http error" `Quick test_map_http_error_http
