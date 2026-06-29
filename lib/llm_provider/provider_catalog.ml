@@ -206,6 +206,7 @@ let parse_thinking_control_format = function
      | "thinking_object_only" -> Ok (Some Capabilities.Thinking_object_only)
      | "chat_template_kwargs" -> Ok (Some Capabilities.Chat_template_kwargs)
      | "chat_template_token" -> Ok (Some Capabilities.Chat_template_token)
+     | "ollama_think" -> Ok (Some Capabilities.Ollama_think)
      | "reasoning_effort" -> Ok (Some Capabilities.Reasoning_effort)
      | "enable_thinking" -> Ok (Some Capabilities.Enable_thinking)
      | other ->
@@ -213,7 +214,7 @@ let parse_thinking_control_format = function
          (Printf.sprintf
             "unknown thinking_control_format %S (canonical: none, thinking_object, \
              thinking_object_only, chat_template_kwargs, chat_template_token, \
-             reasoning_effort, enable_thinking)"
+             ollama_think, reasoning_effort, enable_thinking)"
             other))
 ;;
 

@@ -23,6 +23,10 @@ type thinking_control_format =
   | Chat_template_token
   (** Chat-template control token style: inject a model-specific thinking token
       into the conversation instead of sending a top-level thinking field. *)
+  | Ollama_think
+  (** Ollama native [/api/chat] top-level [think] bool or effort level. This is
+      distinct from OpenAI-compatible [reasoning_effort] even when the model
+      family name is shared with a cloud provider such as GLM. *)
   | Reasoning_effort
   (** Openai-style top-level [reasoning_effort] string field. The typed value
       set lives in {!Reasoning_effort}; provider-specific aliases are applied
@@ -394,7 +398,7 @@ let ollama_capabilities =
   ; supports_named_tool_choice = false
   ; supports_seed = true
   ; supports_seed_with_images = true
-  ; thinking_control_format = Reasoning_effort
+  ; thinking_control_format = Ollama_think
   }
 ;;
 
@@ -599,6 +603,7 @@ let thinking_control_format_of_manifest_string raw =
   | "thinking_object_only" -> Some Thinking_object_only
   | "chat_template_kwargs" -> Some Chat_template_kwargs
   | "chat_template_token" -> Some Chat_template_token
+  | "ollama_think" -> Some Ollama_think
   | "reasoning_effort" -> Some Reasoning_effort
   | "enable_thinking" -> Some Enable_thinking
   | _ -> None

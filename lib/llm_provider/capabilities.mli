@@ -18,6 +18,7 @@ type thinking_control_format =
   (** Chat-template control token style: the request builder injects a model
       token such as [<|think|>] into the rendered conversation instead of
       sending a top-level thinking field. *)
+  | Ollama_think (** Ollama native [/api/chat] top-level [think] bool or effort level. *)
   | Reasoning_effort
   (** Openai-style top-level [reasoning_effort] string field. The typed value
       set lives in {!Reasoning_effort}; provider-specific aliases are applied

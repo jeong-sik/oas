@@ -5,7 +5,9 @@ to make correct runtime decisions.
 
 Historical baseline from the March 2026 capability survey. Structured
 output notes in this document were revalidated against official provider
-docs and the current OAS serializers on 2026-04-21.
+docs and the current OAS serializers on 2026-04-21. GLM/Ollama thinking
+wire notes were revalidated against official docs and a live Ollama Cloud
+smoke on 2026-06-29.
 
 ## Historical Baseline (v0.71.0)
 
@@ -139,6 +141,24 @@ Minimum viable split:
 - `thinking_control_format` — request-time enable/depth wire shape
 - `preserve_thinking_control_format` — historical reasoning replay/preserve wire shape
 
+### GLM / Z.AI vs Ollama-hosted Thinking
+
+Do not derive the thinking wire shape from the model family name alone. GLM
+served by the Z.AI API and a GLM-named model served through Ollama Cloud are
+different provider contracts.
+
+| Surface | Request control | Historical reasoning replay | Response / stream reasoning | Tool / structured notes |
+|---------|-----------------|-----------------------------|-----------------------------|-------------------------|
+| Z.AI standard API / OpenAI-compatible `api.z.ai/api/paas/v4` | `thinking: {type, clear_thinking}`; GLM-5.2/5.1/5/4.7 thinking defaults on, disable with `type=disabled` | Preserved Thinking is off by default on the standard API; enable by sending `clear_thinking=false` and replay unmodified `reasoning_content` in the original sequence | Chat/stream deltas use `reasoning_content` for the thinking side channel | `tool_choice` only supports `auto`; streaming tool calls use Z.AI `tool_stream=true`; structured output docs describe JSON mode `response_format={"type":"json_object"}` plus caller-side/schema validation |
+| Z.AI Coding Plan endpoint | Same GLM `thinking` object | Preserved Thinking is enabled by default according to Z.AI docs | Same Z.AI `reasoning_content` channel | Treat endpoint defaults as provider/endpoint config, not model-family inference |
+| Ollama native `/api/chat` or `/api/generate`, including Ollama Cloud `https://ollama.com/api/chat` GLM models | `think` bool/level on the request; OAS records this as `ollama_think` | No Z.AI `clear_thinking` contract and no `reasoning_content` replay field | Native response uses `message.thinking` separate from `message.content`; streaming interleaves thinking chunks before answer chunks | Do not send Z.AI `thinking`, `clear_thinking`, `tool_stream`, or historical `reasoning_content` fields to native Ollama |
+
+GLM-5.2's model page is a capability overview: 1M context, 128K output,
+thinking mode, streaming output, function calling, context caching,
+structured output, and MCP. It is not itself the wire contract for every
+surface hosting a GLM-named model. Use the per-capability Z.AI docs for the
+Z.AI API contract, and Ollama docs/live probes for Ollama native contract.
+
 ## Multimodal Taxonomy
 
 `supports_multimodal_inputs: bool` conflates 3 modalities with different
@@ -214,6 +234,11 @@ reference from the March 2026 survey unless otherwise noted.
 - [근거] Ollama `/api/chat` format field: https://docs.ollama.com/api/chat — checked 2026-04-21 — High
 - [근거] GLM Structured Output overview: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21 — High
 - [근거] DashScope (Qwen) Structured Output / `response_format.json_schema` on OpenAI-compatible endpoint: https://www.alibabacloud.com/help/en/model-studio/structured-output — checked 2026-05-05 — High
+- [근거] GLM-5.2 model overview: https://docs.z.ai/guides/llm/glm-5.2 — checked 2026-06-29 — High
+- [근거] Z.AI GLM thinking mode and preserved thinking: https://docs.z.ai/guides/capabilities/thinking-mode — checked 2026-06-29 — High
+- [근거] Z.AI function calling / `tool_choice=auto`: https://docs.z.ai/guides/capabilities/function-calling — checked 2026-06-29 — High
+- [근거] Z.AI streaming tool calls / `tool_stream=true`: https://docs.z.ai/guides/capabilities/stream-tool — checked 2026-06-29 — High
+- [근거] Ollama thinking / `think` and `message.thinking`: https://docs.ollama.com/capabilities/thinking — checked 2026-06-29 — High
 - Qwen 3.5 blog (qwen.ai)
 - Meta Llama 4 (llama.com)
 - DeepSeek API docs (api-docs.deepseek.com)

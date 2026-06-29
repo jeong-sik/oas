@@ -11,6 +11,7 @@ type toggle_wire =
   | Thinking_object_only
   | Chat_template_kwargs
   | Chat_template_token
+  | Ollama_think
   | Reasoning_effort
   | Enable_thinking
   | Anthropic_thinking
@@ -119,6 +120,13 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; preserve_wire
     ; visibility = Visible_channel
     ; streaming = Template_parser
+    }
+  | Ollama_think ->
+    { default with
+      toggle_wire = Ollama_think
+    ; preserve_wire
+    ; visibility = Side_channel "thinking"
+    ; streaming = Delta_field "thinking"
     }
   | Reasoning_effort ->
     { default with
@@ -310,6 +318,7 @@ let sampling_params_ignored_for_format
   | Capabilities.Thinking_object_only
   | Capabilities.Chat_template_kwargs
   | Capabilities.Chat_template_token
+  | Capabilities.Ollama_think
   | Capabilities.Reasoning_effort
   | Capabilities.Enable_thinking -> []
 ;;
@@ -343,6 +352,7 @@ let toggle_wire_to_string = function
   | Thinking_object_only -> "thinking_object_only"
   | Chat_template_kwargs -> "chat_template_kwargs"
   | Chat_template_token -> "chat_template_token"
+  | Ollama_think -> "ollama_think"
   | Reasoning_effort -> "reasoning_effort"
   | Enable_thinking -> "enable_thinking"
   | Anthropic_thinking -> "anthropic_thinking"

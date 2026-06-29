@@ -312,6 +312,7 @@ let build_request_assoc
        | [] -> body
        | fields -> ("chat_template_kwargs", `Assoc fields) :: body)
     | Chat_template_token -> body
+    | Ollama_think -> body
     | Enable_thinking ->
       let body =
         match config.enable_thinking with
