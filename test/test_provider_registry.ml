@@ -280,7 +280,12 @@ let test_default_ollama_cloud_entry () =
     check bool "kind is Ollama" true (e.defaults.kind = Provider_config.Ollama);
     check string "base_url" "https://ollama.com" e.defaults.base_url;
     check string "api_key_env" "OLLAMA_CLOUD_API_KEY" e.defaults.api_key_env;
-    check string "request_path" "/api/chat" e.defaults.request_path
+    check string "request_path" "/api/chat" e.defaults.request_path;
+    check
+      bool
+      "ollama_cloud uses ollama_cloud_capabilities"
+      true
+      (e.capabilities.reasoning_visibility_override = Capabilities.Force_visible_text)
   | None -> fail "ollama_cloud should exist"
 ;;
 

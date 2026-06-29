@@ -51,12 +51,7 @@ let llm_endpoints_env_var = "LLM_ENDPOINTS"
 let ollama_host_env_var = "OLLAMA_HOST"
 let default_ollama_endpoint = "http://127.0.0.1:11434"
 let env_get_non_empty ~getenv name = getenv name |> Cli_common_env.trim_non_empty_opt
-
-let default_endpoint =
-  match Cli_common_env.get local_llm_url_env_var with
-  | Some v -> v
-  | None -> Constants.Endpoints.default_url
-;;
+let default_endpoint = Constants.Endpoints.default_url
 
 let resolve_default_endpoint ?(getenv = fun name -> Cli_common_env.get name) () =
   match env_get_non_empty ~getenv local_llm_url_env_var with
@@ -64,11 +59,7 @@ let resolve_default_endpoint ?(getenv = fun name -> Cli_common_env.get name) () 
   | None -> Constants.Endpoints.default_url
 ;;
 
-let ollama_endpoint =
-  match Cli_common_env.get ollama_host_env_var with
-  | Some url -> url
-  | None -> default_ollama_endpoint
-;;
+let ollama_endpoint = default_ollama_endpoint
 
 let resolve_ollama_endpoint ?(getenv = fun name -> Cli_common_env.get name) () =
   match env_get_non_empty ~getenv ollama_host_env_var with

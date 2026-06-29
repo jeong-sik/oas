@@ -146,14 +146,17 @@ let rec extract_name_and_input (json : Yojson.Safe.t) : (string * Yojson.Safe.t)
 
 (* ── Tool ID generation ──────────────────────────────────── *)
 
-let next_recovery_id =
-  let counter = ref 0 in
-  fun () ->
-    incr counter;
-    Printf.sprintf
-      "recovered_%d_%d"
-      (int_of_float (Unix.gettimeofday () *. 1000.0))
-      !counter
+(** Deterministic id for a recovered ToolUse block, derived from its position
+    in the content list and a content hash of the tool name and arguments. No
+    wall-clock and no mutable counter, so the same response recovers to the
+    same ids on every run — required because this module documents itself
+    "Pure" (RFC-OAS-029 S10.1). The block index keeps ids distinct even when
+    two recovered calls carry identical name and arguments. *)
+let recovery_id ~block_index ~name ~(input : Yojson.Safe.t) =
+  let digest =
+    Digest.to_hex (Digest.string (name ^ "\000" ^ Yojson.Safe.to_string input))
+  in
+  Printf.sprintf "recovered_%d_%s" block_index (String.sub digest 0 12)
 ;;
 
 (* ── Response-level recovery ─────────────────────────────── *)
@@ -167,8 +170,8 @@ let recover_content_blocks
   =
   let recovered = ref 0 in
   let new_content =
-    List.map
-      (fun block ->
+    List.mapi
+      (fun block_index block ->
          match block with
          | Text text ->
            (match try_parse_json_object text with
@@ -178,7 +181,7 @@ let recover_content_blocks
                | None -> block
                | Some (name, input) when List.mem name valid_tool_names ->
                  incr recovered;
-                 ToolUse { id = next_recovery_id (); name; input }
+                 ToolUse { id = recovery_id ~block_index ~name ~input; name; input }
                | Some _ -> block))
          | _ -> block)
       content

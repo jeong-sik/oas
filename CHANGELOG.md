@@ -31,6 +31,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.18](https://github.com/jeong-sik/oas/compare/v0.207.17...v0.207.18) (2026-06-29)
+
+
+### Bug Fixes
+
+* **tools:** input fail-closed + deterministic recovery ids (RFC-OAS-029 S8.1/S4.3/S10.1) ([#2234](https://github.com/jeong-sik/oas/issues/2234)) ([c021f11](https://github.com/jeong-sik/oas/commit/c021f113a7830601a6cb5386428b79f8e99d169f))
+
 ## [0.207.17](https://github.com/jeong-sik/oas/compare/v0.207.16...v0.207.17) (2026-06-29)
 
 

@@ -74,8 +74,10 @@ val default : unit -> t
     config does not match a known registry entry exactly. *)
 val provider_name_of_config : Provider_config.t -> string
 
-(** Initial LLM_ENDPOINTS URLs parsed from the environment at module load.
-    For current active endpoints, use [active_llama_endpoints]. *)
+(** Initial fallback endpoint snapshot. This is intentionally not parsed from
+    [LLM_ENDPOINTS] at module load. For current env-aware active endpoints, use
+    [active_llama_endpoints] after [refresh_llama_endpoints], or
+    [default_llama_endpoint] for call-time default resolution. *)
 val llama_all_endpoints : string list
 
 (** Pick the next llama endpoint via round-robin.

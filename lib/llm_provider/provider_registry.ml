@@ -153,15 +153,11 @@ let overlay_provider_catalog t =
   | Some entries -> List.iter (register_catalog_entry t) entries
 ;;
 
-(** Initial endpoints from LLM_ENDPOINTS env var.
-    Falls back to [[Discovery.resolve_default_endpoint ()]] when the variable is
-    unset or has no non-empty entries (SSOT: see
-    {!Discovery.parse_llm_endpoints_env}). *)
-let initial_llama_endpoints =
-  match Discovery.parse_llm_endpoints_env () with
-  | [] -> [ Discovery.resolve_default_endpoint () ]
-  | urls -> urls
-;;
+(** Initial endpoint snapshot.
+    Keep module initialization free of environment reads. Runtime callers that
+    need env-aware values use [default_llama_endpoint] or
+    [refresh_llama_endpoints]. *)
+let initial_llama_endpoints = [ Discovery.default_endpoint ]
 
 (** Mutable endpoint list, protected by atomic snapshot swap.
     Updated by [refresh_llama_endpoints]. *)
@@ -461,7 +457,7 @@ let default () =
     "ollama_cloud"
     ollama_cloud_defaults
     ~max_context:262_144
-    Capabilities.ollama_capabilities;
+    Capabilities.ollama_cloud_capabilities;
   overlay_provider_catalog t;
   t
 ;;

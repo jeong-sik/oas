@@ -162,6 +162,33 @@ let test_recover_plain_text_preserved () =
   | _ -> fail "expected Text preserved"
 ;;
 
+let test_recovered_id_is_deterministic () =
+  (* RFC-OAS-029 S10.1: recovered ids derive from block index + content hash,
+     not wall-clock, so the same response recovers to the same id every run
+     (regression: the prior id embedded Unix.gettimeofday and a mutable
+     counter, so two runs produced different ids). *)
+  let mk () =
+    make_response
+      ~content:[ Text "```json\n{\"name\": \"my_tool\", \"input\": {\"x\": 1}}\n```" ]
+      ()
+  in
+  let id_of r =
+    match r.content with
+    | [ ToolUse { id; _ } ] -> id
+    | _ -> fail "expected single ToolUse block"
+  in
+  let id1 = id_of (TUR.recover_response ~valid_tool_names:[ "my_tool" ] (mk ())) in
+  let id2 = id_of (TUR.recover_response ~valid_tool_names:[ "my_tool" ] (mk ())) in
+  check string "deterministic id across runs" id1 id2;
+  let prefix = "recovered_0_" in
+  check
+    bool
+    "id carries block-index prefix"
+    true
+    (String.length id1 >= String.length prefix
+     && String.sub id1 0 (String.length prefix) = prefix)
+;;
+
 (* ── Suite ───────────────────────────────────────────────── *)
 
 let () =
@@ -189,6 +216,7 @@ let () =
             test_recover_noop_when_tool_use_present
         ; test_case "noop when no tools" `Quick test_recover_noop_when_no_tools
         ; test_case "plain text preserved" `Quick test_recover_plain_text_preserved
+        ; test_case "recovered id deterministic" `Quick test_recovered_id_is_deterministic
         ] )
     ]
 ;;
