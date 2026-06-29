@@ -147,6 +147,7 @@ let openai_tool_messages_of_blocks blocks =
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(include_reasoning_content = false)
+      ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
       ?(modality_priority = Modality.Preserve_input_order)
       (msg : message)
   : Yojson.Safe.t list
@@ -190,15 +191,15 @@ let messages_of_message_with
       else ""
     in
     let tool_calls = tool_calls_fn msg.content in
-    let fields =
-      [ "role", `String "assistant"
-      ; (if include_reasoning_content
-         then "content", `String text_content
-         else if Api_common.string_is_blank text_content && tool_calls <> []
-         then "content", `Null
-         else "content", `String text_content)
-      ]
+    let assistant_content =
+      if Api_common.string_is_blank text_content && tool_calls <> []
+      then (
+        match assistant_tool_content_format with
+        | Capability_vocab.Assistant_tool_content_null -> `Null
+        | Capability_vocab.Assistant_tool_content_empty_string -> `String text_content)
+      else `String text_content
     in
+    let fields = [ "role", `String "assistant"; "content", assistant_content ] in
     let fields =
       if include_reasoning_content && not (Api_common.string_is_blank reasoning_content)
       then ("reasoning_content", `String reasoning_content) :: fields
@@ -229,10 +230,15 @@ let glm_messages_of_message msg =
   messages_of_message_with
     ~tool_calls_fn:tool_calls_to_openai_json
     ~include_reasoning_content:true
+    ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_empty_string
     msg
 ;;
 
-let dialect_messages_of_message dialect (msg : Types.message) =
+let dialect_messages_of_message
+      ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
+      dialect
+      (msg : Types.message)
+  =
   let tool_calls = tool_calls_to_openai_json msg.content in
   let include_reasoning_content =
     Reasoning_dialect.should_replay_reasoning
@@ -242,6 +248,7 @@ let dialect_messages_of_message dialect (msg : Types.message) =
   messages_of_message_with
     ~tool_calls_fn:(fun _ -> tool_calls)
     ~include_reasoning_content
+    ~assistant_tool_content_format
     msg
 ;;
 

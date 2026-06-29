@@ -763,7 +763,7 @@ let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =
   check bool "tools preserved" true (List.mem_assoc "tools" assoc)
 ;;
 
-let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
+let test_build_openai_body_uses_glm_thinking_and_drops_forced_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -812,10 +812,14 @@ let test_build_openai_body_uses_glm_thinking_and_auto_tool_choice () =
     "clear_thinking default true"
     true
     (thinking |> member "clear_thinking" |> to_bool);
-  check string "glm tool choice coerced" "auto" (json |> member "tool_choice" |> to_string)
+  check
+    bool
+    "glm forced tool_choice omitted"
+    false
+    (List.mem_assoc "tool_choice" (to_assoc json))
 ;;
 
-let test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice () =
+let test_build_openai_body_uses_bare_glm_thinking_and_drops_forced_tool_choice () =
   let provider_config =
     { Provider.provider =
         Provider.OpenAICompat
@@ -865,10 +869,10 @@ let test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice () =
     true
     (thinking |> member "clear_thinking" |> to_bool);
   check
-    string
-    "bare glm tool choice coerced"
-    "auto"
-    (json |> member "tool_choice" |> to_string)
+    bool
+    "bare glm forced tool_choice omitted"
+    false
+    (List.mem_assoc "tool_choice" (to_assoc json))
 ;;
 
 let test_build_openai_body_glm_preserves_reasoning_content () =
@@ -905,6 +909,8 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     { Types.config =
         { Types.default_config with
           model = provider_config.model_id
+        ; enable_thinking = Some true
+        ; preserve_thinking = Some true
         ; tool_choice = Some (Types.Tool "calculator")
         }
     ; messages = []
@@ -924,7 +930,11 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     "reasoning_content replayed"
     "I should call the calculator."
     (assistant |> member "reasoning_content" |> to_string);
-  check string "tool choice still auto" "auto" (json |> member "tool_choice" |> to_string)
+  check
+    bool
+    "forced tool_choice omitted"
+    false
+    (List.mem_assoc "tool_choice" (to_assoc json))
 ;;
 
 let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
@@ -1848,13 +1858,13 @@ let () =
             `Quick
             test_build_openai_body_omits_provider_m_only_fields_for_generic_compat
         ; test_case
-            "glm thinking + auto tool choice"
+            "glm thinking + unsupported forced tool choice"
             `Quick
-            test_build_openai_body_uses_glm_thinking_and_auto_tool_choice
+            test_build_openai_body_uses_glm_thinking_and_drops_forced_tool_choice
         ; test_case
-            "bare glm thinking + auto tool choice"
+            "bare glm thinking + unsupported forced tool choice"
             `Quick
-            test_build_openai_body_uses_bare_glm_thinking_and_auto_tool_choice
+            test_build_openai_body_uses_bare_glm_thinking_and_drops_forced_tool_choice
         ; test_case
             "glm preserved reasoning replay"
             `Quick

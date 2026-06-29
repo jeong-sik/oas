@@ -332,6 +332,49 @@ let test_assistant_tool_calls_openai_ollama_and_glm () =
     "ollama arguments raw json"
     "x"
     (member "function" ollama_call |> member "arguments" |> member "q" |> to_string);
+  let replay_assistant =
+    msg
+      Assistant
+      [ Thinking { thinking_type = "reasoning"; content = "because" }
+      ; ToolUse { id = "call-2"; name = "lookup"; input = `Assoc [ "q", `String "y" ] }
+      ]
+  in
+  let replay_dialect =
+    Reasoning_dialect.of_capabilities
+      { Capabilities.openai_compat_chat_extended_capabilities with
+        thinking_control_format = Capabilities.Thinking_object
+      }
+  in
+  let replay_null =
+    Serialize.dialect_messages_of_message
+      ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_null
+      replay_dialect
+      replay_assistant
+    |> only "replay null"
+  in
+  Alcotest.(check bool)
+    "reasoning replay keeps null content when capability says null"
+    true
+    (member "content" replay_null = `Null);
+  check_string
+    "reasoning replay still emits reasoning_content"
+    "because"
+    (member "reasoning_content" replay_null |> to_string);
+  let replay_empty =
+    Serialize.dialect_messages_of_message
+      ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_empty_string
+      replay_dialect
+      replay_assistant
+    |> only "replay empty"
+  in
+  check_string
+    "reasoning replay emits empty content when capability says empty string"
+    ""
+    (member "content" replay_empty |> to_string);
+  check_string
+    "empty-string capability still emits reasoning_content"
+    "because"
+    (member "reasoning_content" replay_empty |> to_string);
   let glm =
     Serialize.glm_messages_of_message
       (msg
