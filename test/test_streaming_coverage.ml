@@ -619,6 +619,30 @@ let test_map_http_error_auth_error () =
   | _ -> Alcotest.fail "expected Error.Api AuthError"
 ;;
 
+let test_map_http_error_accept_rejected_not_network () =
+  let http_err =
+    Llm_provider.Http_client.AcceptRejected { reason = "missing transport" }
+  in
+  let sdk_err = Streaming.map_http_error http_err in
+  match sdk_err with
+  | Error.Api (Retry.InvalidRequest { message; _ }) ->
+    check_string "message" "missing transport" message
+  | _ -> Alcotest.fail "expected Error.Api InvalidRequest"
+;;
+
+let test_map_http_error_provider_parse_not_network () =
+  let http_err =
+    Llm_provider.Http_client.ProviderFailure
+      { kind = Provider_parse_error { parser = Some "sse" }
+      ; message = "SSE parse failed: bad json"
+      }
+  in
+  let sdk_err = Streaming.map_http_error http_err in
+  match sdk_err with
+  | Error.Provider (Llm_provider.Error.ParseError _) -> ()
+  | _ -> Alcotest.fail "expected Error.Provider ParseError"
+;;
+
 (* ── MessageDelta cache update with prior values ────────────────── *)
 
 let test_acc_message_delta_cache_update_nonzero () =
@@ -841,6 +865,14 @@ let () =
         ; Alcotest.test_case "network error" `Quick test_map_http_error_network_error
         ; Alcotest.test_case "server 500" `Quick test_map_http_error_server_error
         ; Alcotest.test_case "auth 401" `Quick test_map_http_error_auth_error
+        ; Alcotest.test_case
+            "accept rejected is not network"
+            `Quick
+            test_map_http_error_accept_rejected_not_network
+        ; Alcotest.test_case
+            "provider parse is not network"
+            `Quick
+            test_map_http_error_provider_parse_not_network
         ] )
     ]
 ;;

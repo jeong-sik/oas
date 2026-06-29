@@ -5,7 +5,6 @@
     {!Llm_provider.Streaming}. The HTTP streaming client remains here
     due to agent_state/Provider/Error coupling. *)
 
-module Retry = Llm_provider.Retry
 open Types
 
 (* Re-export pure functions from llm_provider *)
@@ -217,22 +216,7 @@ let finalize_stream_acc (acc : stream_acc) =
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)
 
-let map_http_error = function
-  | Llm_provider.Http_client.HttpError { code; body } ->
-    Error.Api (Retry.classify_error ~status:code ~body)
-  | Llm_provider.Http_client.AcceptRejected { reason } ->
-    Error.Api (Retry.NetworkError { message = reason; kind = Unknown })
-  | Llm_provider.Http_client.NetworkError { message; kind; _ } ->
-    Error.Api (Retry.NetworkError { message; kind })
-  | Llm_provider.Http_client.TimeoutError _ as err ->
-    Error.Provider (Llm_provider.Error.of_http_error err)
-  | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
-    Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
-  | Llm_provider.Http_client.ProviderTerminal { kind = Other _; _ } as err ->
-    Error.Provider (Llm_provider.Error.of_http_error err)
-  | Llm_provider.Http_client.ProviderFailure _ as err ->
-    Error.Provider (Llm_provider.Error.of_http_error err)
-;;
+let map_http_error = Http_error_sdk.of_http_error
 
 (** Streaming variant of create_message.
     Supports Anthropic (native SSE) and OpenAI-compatible (SSE).

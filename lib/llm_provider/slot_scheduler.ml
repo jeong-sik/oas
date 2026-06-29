@@ -67,9 +67,15 @@ let rec acquire ~priority t =
 and release_slot t =
   let to_wake =
     Eio.Mutex.use_rw ~protect:true t.mutex (fun () ->
+      let release_active_slot () =
+        if t.active <= 0
+        then invalid_arg "Slot_scheduler.release_slot: active count underflow"
+        else t.active <- t.active - 1
+      in
       let rec find_valid = function
         | [] ->
-          t.active <- t.active - 1;
+          t.waiters <- [];
+          release_active_slot ();
           None
         | entry :: rest ->
           if Atomic.get entry.cancelled
@@ -450,4 +456,29 @@ let%test "cancel does not leak slot" =
               Eio.Promise.resolve release_hold ()));
     (* After everything settles, slot should be available *)
     available t = 1)
+;;
+
+let%test "release drops cancelled waiters" =
+  Eio_main.run (fun env ->
+    let clock = Eio.Stdenv.clock env in
+    let t = create ~max_slots:1 in
+    let p = acquire_permit ~priority:Interactive t in
+    let timed_out_waiter () =
+      try
+        Eio.Time.with_timeout_exn clock 0.01 (fun () -> acquire ~priority:Background t);
+        false
+      with
+      | Eio.Time.Timeout -> true
+    in
+    let first_cancelled = timed_out_waiter () in
+    let second_cancelled = timed_out_waiter () in
+    let queued_before_release = queue_length t in
+    release_permit t p;
+    let snap = snapshot t in
+    first_cancelled
+    && second_cancelled
+    && queued_before_release = 2
+    && snap.active = 0
+    && snap.available = 1
+    && snap.queue_length = 0)
 ;;

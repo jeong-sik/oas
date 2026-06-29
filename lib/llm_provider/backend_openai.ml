@@ -1081,7 +1081,13 @@ let%test "build_request includes tool_choice for model with supports_tool_choice
   json |> member "tool_choice" |> to_string = "required"
 ;;
 
-let%test "build_request includes tool_choice for unknown model (backward compat)" =
+let json_object_missing_key key json =
+  match Yojson.Safe.Util.to_assoc json with
+  | fields -> not (List.exists (fun (k, _) -> k = key) fields)
+  | exception Yojson.Safe.Util.Type_error _ -> false
+;;
+
+let%test "build_request omits tool_choice for unknown model without override" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1092,8 +1098,7 @@ let%test "build_request includes tool_choice for unknown model (backward compat)
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "tool_choice" |> to_string = "required"
+  json_object_missing_key "tool_choice" json
 ;;
 
 let%test "build_request omits tool_choice when tool_choice=None" =
@@ -1106,9 +1111,7 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   in
   let body = build_request ~config ~messages:[] () in
   let json = Yojson.Safe.from_string body in
-  match json with
-  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
-  | _ -> false
+  json_object_missing_key "tool_choice" json
 ;;
 
 let%test "glm build_request drops tool_choice when unsupported" =
@@ -1206,8 +1209,8 @@ let%test "build_request prefers output_schema over json_object mode" =
 ;;
 
 let%test "supports_tool_choice_override=Some false drops tool_choice on unknown model" =
-  (* Unknown model_id defaults to supports_tool_choice=true. Override
-     to Some false must take precedence and drop the tool_choice field. *)
+  (* Unknown model_id defaults to supports_tool_choice=false. Override false
+     keeps the fail-closed behavior explicit. *)
   let config =
     Provider_config.make
       ~kind:OpenAI_compat

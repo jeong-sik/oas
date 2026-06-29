@@ -10,6 +10,17 @@ let contains label ~needle text =
   Alcotest.(check bool) label true (Util.string_contains ~needle text)
 ;;
 
+let source_path path =
+  if Filename.is_relative path
+  then (
+    match Sys.getenv_opt "DUNE_SOURCEROOT" with
+    | Some root -> Filename.concat root path
+    | None -> path)
+  else path
+;;
+
+let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
+
 let with_temp_store f =
   let root =
     Filename.concat
@@ -24,7 +35,7 @@ let with_temp_store f =
 ;;
 
 let make_state env root =
-  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) ~clock:env#clock () in
   state.session_root <- Some root;
   state
 ;;
@@ -65,7 +76,7 @@ let test_handle_initialize_status_events_report_prove_shutdown () =
   @@ fun root store ->
   Eio.Switch.run
   @@ fun sw ->
-  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) () in
+  let state = Runtime_server_types.create ~net:(Eio.Stdenv.net env) ~clock:env#clock () in
   let init : Runtime.init_request =
     { session_root = Some ("  " ^ root ^ "  ")
     ; provider = Some "mock"
@@ -226,6 +237,25 @@ let test_apply_command_public_paths_and_errors () =
         state
         store
         session
+        (Runtime.Update_session_settings { model = None; permission_mode = None })
+    with
+    | Ok (Runtime.Command_applied session) ->
+      Alcotest.(check (option string)) "model preserved" (Some "new-model") session.model;
+      Alcotest.(check (option string))
+        "permission preserved"
+        (Some "never")
+        session.permission_mode;
+      session
+    | Ok _ -> Alcotest.fail "expected settings preservation response"
+    | Error err -> Alcotest.fail (Error.to_string err)
+  in
+  let session =
+    match
+      Runtime_server.apply_command
+        ~sw
+        state
+        store
+        session
         (Runtime.Attach_artifact
            { name = "note"; kind = "text"; content = "artifact body" })
     with
@@ -245,7 +275,7 @@ let test_apply_command_public_paths_and_errors () =
         (Runtime.Checkpoint { label = Some "before finalize" })
     with
     | Ok (Runtime.Command_applied session) ->
-      Alcotest.(check int) "checkpoint seq" 5 session.last_seq;
+      Alcotest.(check int) "checkpoint seq" 6 session.last_seq;
       session
     | Ok _ -> Alcotest.fail "expected checkpoint response"
     | Error err -> Alcotest.fail (Error.to_string err)
@@ -340,6 +370,39 @@ let test_finalize_session_active_and_terminal () =
   | Error err -> Alcotest.fail (Error.to_string err)
 ;;
 
+let test_control_channel_uses_stdio_router_not_blocking_stdin () =
+  let control_source = read_source "lib/runtime_server_control.ml" in
+  let server_source = read_source "lib/runtime_server.ml" in
+  Alcotest.(check bool)
+    "control helper must not read stdin directly"
+    false
+    (Util.string_contains ~needle:"input_line stdin" control_source);
+  contains
+    "control helper awaits promise with timeout"
+    ~needle:"Eio.Time.with_timeout_exn"
+    control_source;
+  contains
+    "stdio router delivers control response"
+    ~needle:"deliver_control_response"
+    server_source;
+  contains
+    "request handling forked so stdin router keeps running"
+    ~needle:"Eio.Fiber.fork"
+    server_source
+;;
+
+let test_agent_config_uses_resolved_provider_model () =
+  let server_source = read_source "lib/runtime_server.ml" in
+  contains
+    "agent config reads provider resolution model id"
+    ~needle:"provider.Provider.model_id"
+    server_source;
+  contains
+    "spawn path passes resolution to agent config"
+    ~needle:"agent_config_of_session session resolution detail"
+    server_source
+;;
+
 let () =
   Alcotest.run
     "Runtime_server_coverage"
@@ -360,6 +423,16 @@ let () =
             "active and terminal sessions"
             `Quick
             test_finalize_session_active_and_terminal
+        ] )
+    ; ( "control"
+      , [ Alcotest.test_case
+            "stdio router owns control responses"
+            `Quick
+            test_control_channel_uses_stdio_router_not_blocking_stdin
+        ; Alcotest.test_case
+            "agent config uses resolved provider model"
+            `Quick
+            test_agent_config_uses_resolved_provider_model
         ] )
     ]
 ;;

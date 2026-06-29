@@ -129,7 +129,7 @@ let content_block_to_json =
   content_block_to_json_with ~tool_result_content_style:Tool_result_content_string
 ;;
 
-let content_block_of_json json =
+let rec content_block_of_json json =
   let open Yojson.Safe.Util in
   match json |> member "type" |> to_string_option with
   | Some "text" ->
@@ -149,10 +149,18 @@ let content_block_of_json json =
     Some (ToolUse { id; name; input })
   | Some "tool_result" ->
     let tool_use_id = json |> member "tool_use_id" |> to_string in
-    let content = json |> member "content" |> to_string in
+    let content_json = json |> member "content" in
+    let content, content_blocks =
+      match content_json with
+      | `String content -> content, None
+      | `List blocks ->
+        let blocks = List.filter_map content_block_of_json blocks in
+        text_blocks_to_string blocks, Some blocks
+      | other -> Yojson.Safe.to_string other, None
+    in
     let is_error = Cli_common_json.member_bool "is_error" json in
     let json = Types.try_parse_json content in
-    Some (ToolResult { tool_use_id; content; is_error; json; content_blocks = None })
+    Some (ToolResult { tool_use_id; content; is_error; json; content_blocks })
   | Some "image" ->
     let source = json |> member "source" in
     let source_type = source |> member "type" |> to_string in
