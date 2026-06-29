@@ -33,6 +33,20 @@ type thinking_control_format =
   (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
       plus optional [thinking_budget]. *)
 
+type preserve_thinking_control_format =
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  (** [thinking.keep = "all"] inside the top-level
+      [thinking] object. *)
+  | Chat_template_kwargs_preserve_thinking
+  (** Self-hosted chat-template kwargs [preserve_thinking] flag. *)
+  | Top_level_preserve_thinking
+  (** Provider top-level [preserve_thinking] flag, separate from
+      [enable_thinking]. *)
+  | Always_preserved_thinking
+  (** Provider always requires historical reasoning replay and has no
+      request-time preserve toggle. *)
+
 type reasoning_visibility_override =
   | Default_reasoning_visibility
   | Force_provider_hidden
@@ -59,6 +73,11 @@ type capabilities =
         Only meaningful when [supports_reasoning] or [supports_extended_thinking]
         is true and the request goes through backend_openai.
         @since 0.184.0 *)
+  ; preserve_thinking_control_format : preserve_thinking_control_format
+    (** Wire-format for preserving historical reasoning between requests.
+        This is intentionally separate from [thinking_control_format]: some
+        models use [thinking.keep], some have no request toggle but require
+        replay, and Qwen-style chat templates use a nested boolean. *)
   ; reasoning_visibility_override : reasoning_visibility_override
     (** Optional override for how parsed reasoning content is surfaced. Most
         providers inherit from [thinking_control_format]; catalog entries use
@@ -120,6 +139,7 @@ let default_capabilities =
   ; supports_extended_thinking = false
   ; supports_reasoning_budget = false
   ; thinking_control_format = No_thinking_control
+  ; preserve_thinking_control_format = No_preserve_thinking_control
   ; reasoning_visibility_override = Default_reasoning_visibility
   ; supports_response_format_json = false
   ; supports_structured_output = false
@@ -247,8 +267,9 @@ let kimi_capabilities =
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
   ; supports_extended_thinking = true
-  ; supports_reasoning_budget = true
-  ; thinking_control_format = Thinking_object_only
+  ; supports_reasoning_budget = false
+  ; thinking_control_format = No_thinking_control
+  ; preserve_thinking_control_format = Always_preserved_thinking
   ; supports_response_format_json = true
   ; supports_structured_output = true
   ; supports_system_prompt = true
@@ -322,6 +343,7 @@ let provider_l_capabilities =
     supports_tool_choice = true
   ; supports_reasoning = true
   ; thinking_control_format = Chat_template_kwargs
+  ; preserve_thinking_control_format = Chat_template_kwargs_preserve_thinking
   }
 ;;
 
@@ -343,6 +365,7 @@ let dashscope_capabilities =
     supports_tool_choice = true
   ; supports_min_p = true
   ; thinking_control_format = Enable_thinking
+  ; preserve_thinking_control_format = Top_level_preserve_thinking
   }
 ;;
 
@@ -537,6 +560,25 @@ let thinking_control_format_of_manifest_string raw =
   | _ -> None
 ;;
 
+let preserve_thinking_control_format_of_manifest_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "none" -> Some No_preserve_thinking_control
+  | "thinking_object_keep_all" -> Some Thinking_object_keep_all
+  | "chat_template_kwargs_preserve_thinking" ->
+    Some Chat_template_kwargs_preserve_thinking
+  | "top_level_preserve_thinking" -> Some Top_level_preserve_thinking
+  | "always_preserved" -> Some Always_preserved_thinking
+  | _ -> None
+;;
+
+let warn_unknown_capability_value ~field raw =
+  Diag.warn
+    "capabilities"
+    "unknown %s value %S; keeping provider base capability"
+    field
+    raw
+;;
+
 let reasoning_visibility_override_of_catalog_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "" | "default" -> Some Default_reasoning_visibility
@@ -615,8 +657,19 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
        | Some s ->
          (match thinking_control_format_of_manifest_string s with
           | Some t -> t
-          | None -> base.thinking_control_format)
+          | None ->
+            warn_unknown_capability_value ~field:"thinking_control_format" s;
+            base.thinking_control_format)
        | None -> base.thinking_control_format)
+  ; preserve_thinking_control_format =
+      (match entry.preserve_thinking_control_format with
+       | Some s ->
+         (match preserve_thinking_control_format_of_manifest_string s with
+          | Some t -> t
+          | None ->
+            warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
+            base.preserve_thinking_control_format)
+       | None -> base.preserve_thinking_control_format)
   ; reasoning_visibility_override =
       (match entry.reasoning_visibility with
        | Some s ->
@@ -716,8 +769,19 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
        | Some s ->
          (match thinking_control_format_of_manifest_string s with
           | Some t -> t
-          | None -> base.thinking_control_format)
+          | None ->
+            warn_unknown_capability_value ~field:"thinking_control_format" s;
+            base.thinking_control_format)
        | None -> base.thinking_control_format)
+  ; preserve_thinking_control_format =
+      (match entry.preserve_thinking_control_format with
+       | Some s ->
+         (match preserve_thinking_control_format_of_manifest_string s with
+          | Some t -> t
+          | None ->
+            warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
+            base.preserve_thinking_control_format)
+       | None -> base.preserve_thinking_control_format)
   ; reasoning_visibility_override =
       (match entry.reasoning_visibility with
        | Some s ->
@@ -958,6 +1022,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
+  ; preserve_thinking_control_format = None
   ; reasoning_visibility = None
   ; input_per_million = None
   ; output_per_million = None
@@ -976,6 +1041,7 @@ let qwen3_family_test_entry id_prefix : Model_catalog.model_entry =
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
   ; thinking_control_format = Some "chat_template_kwargs"
+  ; preserve_thinking_control_format = Some "chat_template_kwargs_preserve_thinking"
   ; supports_native_streaming = Some true
   }
 ;;
@@ -1518,6 +1584,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.max_output_tokens = cb.max_output_tokens
       && ca.supports_image_input = cb.supports_image_input
       && ca.thinking_control_format = cb.thinking_control_format
+      && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
       && ca.reasoning_visibility_override = cb.reasoning_visibility_override
     | _ -> false
   in
