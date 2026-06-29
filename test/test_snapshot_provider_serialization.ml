@@ -386,7 +386,7 @@ let zai_glm_openai_compat_cfg
     ~api_key:"test-key"
     ~max_tokens:1024
     ~temperature:0.7
-    ~tool_choice:Any
+    ~tool_choice:Auto
     ~disable_parallel_tool_use:true
     ?enable_thinking
     ~preserve_thinking
