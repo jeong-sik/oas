@@ -63,8 +63,77 @@ let build_or_fail b =
   | Error err -> Alcotest.fail ("build_safe failed: " ^ Error.to_string err)
 ;;
 
-let single_response_transport response : Llm_provider.Llm_transport.t =
-  let remaining = ref [ response ] in
+let sample_telemetry : Types.inference_telemetry =
+  { Types.default_inference_telemetry with
+    timings =
+      Some
+        { Types.prompt_n = Some 11
+        ; prompt_ms = Some 12.0
+        ; prompt_per_second = None
+        ; predicted_n = Some 22
+        ; predicted_ms = Some 34.0
+        ; predicted_per_second = Some 81.5
+        ; cache_n = None
+        }
+  ; provider_kind = Some Llm_provider.Provider_kind.OpenAI_compat
+  }
+;;
+
+let sample_usage : Types.api_usage =
+  { input_tokens = 11
+  ; output_tokens = 22
+  ; cache_creation_input_tokens = 0
+  ; cache_read_input_tokens = 0
+  ; cost_usd = None
+  }
+;;
+
+(* Turn 1: the model interleaves a Thinking block before a ToolUse block. OAS
+   must preserve that order in the assembled assistant message so a downstream
+   renderer (MASC) can show Thinking → Tool in sequence. *)
+let thinking_then_tool_response : Types.api_response =
+  { id = "obs-tool-1"
+  ; model = "mock-model"
+  ; stop_reason = Types.StopToolUse
+  ; content =
+      [ Types.Thinking { thinking_type = "thinking"; content = "I should check the time" }
+      ; Types.ToolUse
+          { id = "call_1"
+          ; name = "get_time"
+          ; input = `Assoc [ "timezone", `String "UTC" ]
+          }
+      ]
+  ; usage = Some sample_usage
+  ; telemetry = Some sample_telemetry
+  }
+;;
+
+let final_text_response : Types.api_response =
+  { id = "obs-tool-2"
+  ; model = "mock-model"
+  ; stop_reason = Types.EndTurn
+  ; content = [ Types.Text "it is 12:00 UTC" ]
+  ; usage = Some sample_usage
+  ; telemetry = Some sample_telemetry
+  }
+;;
+
+let get_time_tool =
+  Tool.create
+    ~name:"get_time"
+    ~description:"Get current time"
+    ~parameters:
+      [ { name = "timezone"
+        ; param_type = Types.String
+        ; description = "tz"
+        ; required = true
+        }
+      ]
+    (fun _input -> Ok { Types.content = "12:00 UTC"; _meta = None })
+;;
+
+let sequence_transport responses : Llm_provider.Llm_transport.t =
+  let remaining = ref responses in
   let next () =
     match !remaining with
     | r :: rest ->
@@ -77,6 +146,14 @@ let single_response_transport response : Llm_provider.Llm_transport.t =
         { Llm_provider.Llm_transport.response = Ok (next ()); latency_ms = Some 0 })
   ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _req -> Ok (next ()))
   }
+;;
+
+let first_index pred xs =
+  let rec loop i = function
+    | [] -> None
+    | x :: rest -> if pred x then Some i else loop (i + 1) rest
+  in
+  loop 0 xs
 ;;
 
 let test_builder_default_on_event_bus () =
@@ -114,7 +191,7 @@ let test_pipeline_emits_inference_telemetry_on_default_bus () =
   Eio.Switch.run
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
-  let transport = single_response_transport response_with_telemetry in
+  let transport = sequence_transport [ response_with_telemetry ] in
   (* Build through the default-on path and pull the bus the Builder created, so
      this also proves the producer publishes onto the *default* bus. *)
   let agent =
@@ -173,6 +250,93 @@ let test_pipeline_emits_inference_telemetry_on_default_bus () =
     Alcotest.(check (option (float 0.001))) "decode_tok_s" (Some 81.5) decode_tok_s
 ;;
 
+(* The adversarial core of the observability pillar: with only a Builder (no
+   explicit bus wiring), a tool-using multi-turn run must surface Tools and
+   Turns on the default bus in causal order, and OAS must preserve the
+   Thinking → Tool interleaving order in the assembled assistant message. This
+   is "Tools observed by default — verified, not claimed". *)
+let test_tools_turns_and_interleaving_observed_by_default () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let transport =
+    sequence_transport [ thinking_then_tool_response; final_text_response ]
+  in
+  let agent =
+    Builder.create ~net ~model:"mock-model"
+    |> Builder.with_name "obs-tools"
+    |> Builder.with_max_turns 3
+    |> Builder.with_provider mock_provider
+    |> Builder.with_transport transport
+    |> Builder.with_tool get_time_tool
+    |> build_or_fail
+  in
+  let event_bus =
+    match (Agent.options agent).event_bus with
+    | Some bus -> bus
+    | None -> Alcotest.fail "expected default-on event bus on the built agent"
+  in
+  let sub = Event_bus.subscribe event_bus in
+  (match Agent.run ~sw agent "what time is it?" with
+   | Ok _ -> ()
+   | Error err -> Alcotest.fail ("expected run success: " ^ Error.to_string err));
+  let kinds =
+    Event_bus.drain sub
+    |> List.map (fun event -> Event_bus.payload_kind event.Event_bus.payload)
+  in
+  (* Tools observed by default, in causal order (call before completion). *)
+  let idx k = first_index (String.equal k) kinds in
+  (match idx "tool_called", idx "tool_completed" with
+   | Some called, Some completed ->
+     Alcotest.(check bool) "tool_called precedes tool_completed" true (called < completed)
+   | _ ->
+     Alcotest.failf
+       "expected tool_called and tool_completed on the default bus; saw [%s]"
+       (String.concat "; " kinds));
+  (* Turn and per-call telemetry observed by default. *)
+  Alcotest.(check bool) "turn_completed observed" true (List.mem "turn_completed" kinds);
+  Alcotest.(check bool)
+    "inference_telemetry observed"
+    true
+    (List.mem "inference_telemetry" kinds);
+  (* Interleaving exposure: the assistant message that carries the tool call
+     must keep Thinking before ToolUse so a renderer can reproduce the order. *)
+  let assistant_with_tool =
+    List.find_opt
+      (fun (m : Types.message) ->
+         m.role = Types.Assistant
+         && List.exists
+              (function
+                | Types.ToolUse _ -> true
+                | _ -> false)
+              m.content)
+      (Agent.state agent).messages
+  in
+  match assistant_with_tool with
+  | None -> Alcotest.fail "expected an assistant message carrying the tool call"
+  | Some m ->
+    let thinking_at =
+      first_index
+        (function
+          | Types.Thinking _ -> true
+          | _ -> false)
+        m.content
+    in
+    let tool_at =
+      first_index
+        (function
+          | Types.ToolUse _ -> true
+          | _ -> false)
+        m.content
+    in
+    (match thinking_at, tool_at with
+     | Some t, Some u ->
+       Alcotest.(check bool) "Thinking precedes ToolUse (interleaving order)" true (t < u)
+     | _ -> Alcotest.fail "expected both Thinking and ToolUse in the assistant message")
+;;
+
 let () =
   Alcotest.run
     "Observability default"
@@ -191,6 +355,10 @@ let () =
             "emits InferenceTelemetry on default bus"
             `Quick
             test_pipeline_emits_inference_telemetry_on_default_bus
+        ; Alcotest.test_case
+            "tools, turns, and interleaving observed by default"
+            `Quick
+            test_tools_turns_and_interleaving_observed_by_default
         ] )
     ]
 ;;
