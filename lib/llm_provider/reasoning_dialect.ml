@@ -41,9 +41,15 @@ type streaming_reasoning =
   | Delta_field of string
   | Template_parser
 
+type thinking_object_only_control =
+  { enabled : bool option
+  ; keep_all : bool
+  }
+
 type t =
   { toggle_default : toggle_default
   ; toggle_wire : toggle_wire
+  ; preserve_wire : Capabilities.preserve_thinking_control_format
   ; effort_alias_policy : effort_alias_policy
   ; sampling_policy : sampling_policy
   ; visibility : reasoning_visibility
@@ -54,6 +60,7 @@ type t =
 let default =
   { toggle_default = Provider_default
   ; toggle_wire = No_toggle
+  ; preserve_wire = No_preserve_thinking_control
   ; effort_alias_policy = Preserve_effort
   ; sampling_policy = Sampling_supported
   ; visibility = Provider_hidden
@@ -67,14 +74,24 @@ let deepseek_ignored_sampling_params =
 ;;
 
 let base_of_capabilities (caps : Capabilities.capabilities) =
+  let preserve_wire = caps.preserve_thinking_control_format in
   match caps.thinking_control_format with
   | No_thinking_control ->
-    if caps.supports_reasoning
-    then { default with visibility = Provider_hidden }
-    else default
+    let dialect =
+      if caps.supports_reasoning
+      then { default with visibility = Provider_hidden; preserve_wire }
+      else { default with preserve_wire }
+    in
+    (match preserve_wire with
+     | Always_preserved_thinking -> { dialect with replay_policy = Preserve_always }
+     | No_preserve_thinking_control
+     | Thinking_object_keep_all
+     | Chat_template_kwargs_preserve_thinking
+     | Top_level_preserve_thinking -> dialect)
   | Thinking_object ->
     { toggle_default = Enabled
     ; toggle_wire = Thinking_object { includes_reasoning_effort = true }
+    ; preserve_wire
     ; effort_alias_policy = Deepseek_high_or_max
     ; sampling_policy = Ignored_when_thinking deepseek_ignored_sampling_params
     ; visibility = Side_channel "reasoning_content"
@@ -85,30 +102,35 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     { default with
       toggle_default = Provider_default
     ; toggle_wire = Thinking_object_only
+    ; preserve_wire
     ; visibility = Side_channel "reasoning_content"
     ; streaming = Delta_field "reasoning_content"
     }
   | Chat_template_kwargs ->
     { default with
       toggle_wire = Chat_template_kwargs
+    ; preserve_wire
     ; visibility = Visible_channel
     ; streaming = Template_parser
     }
   | Chat_template_token ->
     { default with
       toggle_wire = Chat_template_token
+    ; preserve_wire
     ; visibility = Visible_channel
     ; streaming = Template_parser
     }
   | Reasoning_effort ->
     { default with
       toggle_wire = Reasoning_effort
+    ; preserve_wire
     ; visibility = Side_channel "reasoning"
     ; streaming = Delta_field "reasoning"
     }
   | Enable_thinking ->
     { default with
       toggle_wire = Enable_thinking
+    ; preserve_wire
     ; visibility = Side_channel "reasoning_content"
     ; streaming = Delta_field "reasoning_content"
     }
@@ -125,16 +147,50 @@ let apply_visibility_override caps dialect =
 let of_capabilities caps = base_of_capabilities caps |> apply_visibility_override caps
 
 let with_preserve_thinking ~preserve_thinking dialect =
-  match preserve_thinking, dialect.toggle_wire with
-  | Some true, (Chat_template_kwargs | Enable_thinking) ->
-    { dialect with replay_policy = Preserve_always }
-  | _ -> dialect
+  match dialect.preserve_wire, preserve_thinking with
+  | Always_preserved_thinking, _ -> { dialect with replay_policy = Preserve_always }
+  | ( ( Thinking_object_keep_all
+      | Chat_template_kwargs_preserve_thinking
+      | Top_level_preserve_thinking )
+    , Some true ) -> { dialect with replay_policy = Preserve_always }
+  | ( ( No_preserve_thinking_control
+      | Thinking_object_keep_all
+      | Chat_template_kwargs_preserve_thinking
+      | Top_level_preserve_thinking )
+    , _ ) -> dialect
 ;;
 
 let thinking_enabled ~enable_thinking =
   match enable_thinking with
   | Some false -> false
   | Some true | None -> true
+;;
+
+let thinking_object_only_control dialect ~enable_thinking ~preserve_thinking =
+  let keep_all =
+    match dialect.preserve_wire, preserve_thinking, enable_thinking with
+    | Thinking_object_keep_all, Some true, (None | Some true) -> true
+    | _ -> false
+  in
+  let enabled =
+    match enable_thinking with
+    | Some _ as enabled -> enabled
+    | None when keep_all -> Some true
+    | None -> None
+  in
+  { enabled; keep_all }
+;;
+
+let chat_template_kwargs_preserve_field dialect ~preserve_thinking =
+  match dialect.preserve_wire, preserve_thinking with
+  | Chat_template_kwargs_preserve_thinking, Some preserve -> Some preserve
+  | _ -> None
+;;
+
+let top_level_preserve_field dialect ~preserve_thinking =
+  match dialect.preserve_wire, preserve_thinking with
+  | Top_level_preserve_thinking, Some preserve -> Some preserve
+  | _ -> None
 ;;
 
 let ignores_sampling_param dialect ~enable_thinking field =

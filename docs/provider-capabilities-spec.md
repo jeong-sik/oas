@@ -56,6 +56,7 @@ Cloud providers need hardcoded lookup tables keyed by model_id.
 | `supports_think_tool` | missing | add | Anthropic-only. Mid-reasoning pause between tool calls. |
 | `supports_adaptive_reasoning` | missing | add | Model auto-selects depth. Opus 4.6, Gemini 3 dynamic. |
 | `supports_reasoning_budget` | missing | add | budget_tokens (Anthropic), reasoning_effort (OpenAI), thinking_level (Gemini). |
+| `thinking_control_format` / `preserve_thinking_control_format` | exists in code | keep separate | Enable/depth wire shape and historical reasoning replay wire shape are independent axes. |
 | `supports_structured_output` | exists in code | keep, tighten semantics | Use only for provider-native schema-constrained output APIs. Do not use it for JSON mode or "prompt with schema text + app-side validator" patterns. |
 | `supports_response_format_json` | exists in code | keep, separate from schema guarantee | JSON mode means "return valid JSON" only. It is not a subset of native schema support and still requires caller-side shape validation. |
 | `supports_caching` | missing | add | Prompt caching: Anthropic (90% savings), OpenAI, Gemini, DeepSeek. |
@@ -134,6 +135,8 @@ add specific flags for SDK features that depend on the distinction.
 Minimum viable split:
 - `supports_extended_thinking` — enables `thinking_budget` in agent config
 - `supports_reasoning_budget` — enables cost-aware thinking control
+- `thinking_control_format` — request-time enable/depth wire shape
+- `preserve_thinking_control_format` — historical reasoning replay/preserve wire shape
 
 ## Multimodal Taxonomy
 

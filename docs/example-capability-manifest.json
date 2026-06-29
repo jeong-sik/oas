@@ -3,15 +3,17 @@
   "schema_version": 1,
   "models": [
     {
-      "_comment": "Kimi K2.6 — Moonshot AI. 1T MoE / 32B active. 256K ctx. Top-level thinking + budget. Released 2026-04-20. https://platform.kimi.ai/docs/guide/kimi-k2-6-quickstart",
-      "id_prefix": "kimi-k2.6",
-      "base": "openai_chat",
-      "max_context_tokens": 262144,
+      "_comment": "Kimi K2.7-code — Moonshot AI. Latest K2 code model. Thinking is provider-controlled, no request-time thinking parameter, historical reasoning_content must be preserved. https://platform.kimi.ai/docs/guide/use-kimi-k2-thinking-model",
+      "id_prefix": "kimi-k2.7-code",
+      "base": "kimi",
+      "max_context_tokens": 256000,
       "supports_tools": true,
       "supports_tool_choice": true,
       "supports_reasoning": true,
       "supports_extended_thinking": true,
-      "supports_reasoning_budget": true,
+      "supports_reasoning_budget": false,
+      "thinking_control_format": "none",
+      "preserve_thinking_control_format": "always_preserved",
       "supports_native_streaming": true,
       "supports_prompt_caching": true,
       "supports_system_prompt": true

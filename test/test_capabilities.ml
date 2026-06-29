@@ -249,22 +249,27 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
     | Modality.Preserve_input_order -> ()
     | Modality.Visual_first -> fail (label ^ " should preserve input order")
   in
-  match Capabilities.for_model_id "kimi-k2.6:cloud" with
+  match Capabilities.for_model_id "kimi-k2.7-code" with
   | Some native ->
-    (* Kimi K2.6: 256K context per platform.kimi.ai official docs (2026-05-30
-       verified). The :cloud suffix is a legacy native Kimi route, not the
-       Ollama Cloud row named kimi-k2.6. *)
+    (* Kimi built-in semantics track the latest K2 code model. Older K2
+       variants can still be expressed by external catalog entries through the
+       separate preserve_thinking_control_format axis. *)
     check (option int) "native Kimi context 256K" (Some 256_000) native.max_context_tokens;
     check (option int) "native Kimi output 32K" (Some 32_768) native.max_output_tokens;
     check bool "native Kimi tools" true native.supports_tools;
     check bool "native Kimi reasoning" true native.supports_reasoning;
     check_thinking_control
-      "native Kimi thinking object only"
-      Capabilities.Thinking_object_only
+      "native latest Kimi has no thinking request toggle"
+      Capabilities.No_thinking_control
       native.thinking_control_format;
-    check_preserve_order "native Kimi cloud suffix" native;
+    check
+      bool
+      "native latest Kimi always preserves reasoning"
+      true
+      (native.preserve_thinking_control_format = Capabilities.Always_preserved_thinking);
+    check_preserve_order "native Kimi latest" native;
     check bool "native Kimi code execution" true native.supports_code_execution;
-    (match Capabilities.for_model_id "kimi-k2.6" with
+    (match Capabilities.for_model_id "kimi-k2" with
      | Some bare_native ->
        check
          (option int)
@@ -279,9 +284,15 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
        check bool "bare native Kimi tools" true bare_native.supports_tools;
        check bool "bare native Kimi reasoning" true bare_native.supports_reasoning;
        check_thinking_control
-         "bare native Kimi thinking object only"
-         Capabilities.Thinking_object_only
+         "bare native latest Kimi has no thinking request toggle"
+         Capabilities.No_thinking_control
          bare_native.thinking_control_format;
+       check
+         bool
+         "bare native latest Kimi always preserves reasoning"
+         true
+         (bare_native.preserve_thinking_control_format
+          = Capabilities.Always_preserved_thinking);
        check_preserve_order "bare native Kimi" bare_native;
        check
          bool
@@ -292,7 +303,7 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
     (match
        Capabilities.for_provider_model_id
          ~provider_label:"ollama_cloud"
-         ~model_id:"kimi-k2.6"
+         ~model_id:"kimi-k2.7-code"
      with
      | Some cloud ->
        check
@@ -532,19 +543,26 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     Reasoning_effort
     cloud_glm.thinking_control_format;
   let bare_kimi =
-    match for_model_id "kimi-k2.6" with
+    match for_model_id "kimi-k2.7-code" with
     | Some c -> c
-    | None -> fail "bare kimi-k2.6 should resolve"
+    | None -> fail "bare kimi-k2.7-code should resolve"
   in
   let cloud_kimi =
-    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"kimi-k2.6" with
+    match
+      for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"kimi-k2.7-code"
+    with
     | Some c -> c
-    | None -> fail "ollama_cloud/kimi-k2.6 should resolve"
+    | None -> fail "ollama_cloud/kimi-k2.7-code should resolve"
   in
   check_thinking_control
-    "bare Kimi remains native thinking object"
-    Thinking_object_only
+    "bare latest Kimi has no thinking request toggle"
+    No_thinking_control
     bare_kimi.thinking_control_format;
+  check
+    bool
+    "bare latest Kimi always preserves reasoning"
+    true
+    (bare_kimi.preserve_thinking_control_format = Always_preserved_thinking);
   check_thinking_control
     "cloud Kimi uses Ollama reasoning_effort"
     Reasoning_effort
@@ -783,6 +801,16 @@ let test_manifest_wrong_type_fields_warn_and_ignore () =
   check bool "warned for supports_tools" true (has_warning "supports_tools" "bool")
 ;;
 
+let test_manifest_rejects_unknown_preserve_thinking_control_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-preserve","preserve_thinking_control_format":"memory_palace"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg -> check_contains "mentions field" msg "preserve_thinking_control_format"
+  | Ok _ -> Alcotest.fail "unknown preserve_thinking_control_format should reject"
+;;
+
 let test_manifest_intlit_in_range_accepted () =
   (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
      directly to exercise the Intlit branch deterministically. *)
@@ -928,9 +956,11 @@ let test_openai_compat_reasoning_records_have_explicit_control () =
          check bool (label ^ " supports reasoning") true c.supports_reasoning;
          check
            bool
-           (label ^ " has explicit thinking control")
+           (label ^ " has explicit reasoning control or preserve policy")
            true
-           (c.thinking_control_format <> Capabilities.No_thinking_control))
+           (c.thinking_control_format <> Capabilities.No_thinking_control
+            || c.preserve_thinking_control_format
+               <> Capabilities.No_preserve_thinking_control))
     cases
 ;;
 
@@ -1104,6 +1134,10 @@ let () =
             "wrong-type fields warn and ignore"
             `Quick
             test_manifest_wrong_type_fields_warn_and_ignore
+        ; test_case
+            "unknown preserve_thinking_control_format rejects"
+            `Quick
+            test_manifest_rejects_unknown_preserve_thinking_control_format
         ; test_case
             "intlit in range accepted"
             `Quick

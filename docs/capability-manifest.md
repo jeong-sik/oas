@@ -97,10 +97,12 @@ for the full JSON Schema (draft-07).
 | `supports_seed` | bool | from base | Deterministic seed. |
 | `supports_computer_use` | bool | from base | Computer-use tools. |
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
-| `thinking_control_format` | string | from base | Thinking wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `reasoning_effort`, `enable_thinking`. |
+| `thinking_control_format` | string | from base | Thinking enable/depth wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `reasoning_effort`, `enable_thinking`. |
+| `preserve_thinking_control_format` | string | from base | Historical reasoning replay/preserve wire control. Accepted values: `none`, `thinking_object_keep_all`, `chat_template_kwargs_preserve_thinking`, `top_level_preserve_thinking`, `always_preserved`. |
 | `reasoning_visibility` | string | `default` | Optional parsed reasoning visibility override. Accepted values: `default`, `provider_hidden`, `visible_channel`, `visible_text`. |
 
-Unknown fields are silently ignored (forward-compatible).
+Unknown fields and unknown enum values are rejected. Additive schema changes
+must update the parser and this schema together.
 
 ### Base presets
 
@@ -175,8 +177,9 @@ environment:
   specific one), place the more-specific entry earlier in the list.
 - The manifest is loaded **once** on first use (lazy singleton).  Restart the
   process to pick up changes.
-- Load errors are logged via `Diag.warn` and the manifest layer is silently
-  skipped, so a bad manifest file degrades gracefully to the built-in table.
+- Runtime load errors are logged via `Diag.warn` and the manifest layer is
+  skipped, so a bad manifest file degrades to the built-in table with an
+  operator-visible diagnostic.
 - `for_model_id` from the built-in table remains the fallback, so existing
   well-known model IDs (Claude, GPT, Gemini, etc.) do not need manifest entries
   unless you want to override their built-in capabilities.
