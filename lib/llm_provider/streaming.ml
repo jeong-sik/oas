@@ -542,16 +542,15 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
   (match chunk.finish_reason with
    | Some reason ->
      let stop_reason =
-       (* OpenAI wire vocabulary -> stop_reason. Kept in sync with the
-          non-streaming parser (Backend_openai_parse): "refusal" -> Refusal.
-          "content_filter" stays Unknown — it is a moderation cutoff, not a
-          model refusal. *)
-       match String.lowercase_ascii reason with
-       | "stop" -> EndTurn
-       | "tool_calls" -> StopToolUse
-       | "length" -> MaxTokens
-       | "refusal" -> Refusal
-       | other -> Unknown other
+       (* OpenAI wire vocabulary -> PROVISIONAL stop_reason. The accumulated
+          tool-block set is unknown at the chunk boundary (tool arguments arrive
+          as deltas before this terminal chunk), so a "tool_calls" finish is
+          recorded as a provisional StopToolUse and reconciled against the
+          assembled content in Complete_stream_acc.finalize_stream_acc
+          (Stop_reason_wire.reconcile). SSOT: the wire vocabulary lives in
+          Stop_reason_wire, not in an unguarded chunk-level match.
+          "content_filter" stays Unknown — a moderation cutoff, not a refusal. *)
+       Stop_reason_wire.provisional_of_string reason
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
    | None ->
