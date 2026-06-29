@@ -92,6 +92,7 @@ type t =
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
   ; seed : int option
+  ; previous_response_id : string option
   ; connect_timeout_s : float option
   }
 
@@ -125,6 +126,7 @@ let make
       ?internal_model_rotation_count
       ?num_ctx
       ?seed
+      ?previous_response_id
       ?connect_timeout_s
       ()
   =
@@ -170,6 +172,7 @@ let make
   ; internal_model_rotation_count
   ; num_ctx
   ; seed
+  ; previous_response_id
   ; connect_timeout_s
   }
 ;;

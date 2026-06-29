@@ -148,6 +148,14 @@ type t =
       Anthropic (Claude) does not support seed — the field is silently
       ignored for that provider.
       @since 0.185.0 *)
+  ; previous_response_id : string option
+    (** OpenAI Responses API conversation-state pointer. When [Some id] and
+      [request_path] targets [/v1/responses], the Responses request includes
+      ["previous_response_id": id]. This is intentionally separate from manual
+      item replay: callers choose the state strategy explicitly instead of the
+      SDK inferring one from message history. Ignored by non-Responses request
+      builders.
+      @since 0.207.10 *)
   ; connect_timeout_s : float option
     (** Per-config override for the connect + initial-response-headers
       wall-clock timeout. See {!default_connect_timeout_s} for the
@@ -199,6 +207,7 @@ val make
   -> ?internal_model_rotation_count:int
   -> ?num_ctx:int
   -> ?seed:int
+  -> ?previous_response_id:string
   -> ?connect_timeout_s:float
   -> unit
   -> t

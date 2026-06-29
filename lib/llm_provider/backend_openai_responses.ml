@@ -320,6 +320,12 @@ let build_request
     ]
   in
   let body =
+    match config.previous_response_id with
+    | Some id when not (Api_common.string_is_blank id) ->
+      ("previous_response_id", `String id) :: body
+    | Some _ | None -> body
+  in
+  let body =
     match config.system_prompt with
     | Some s when not (Api_common.string_is_blank s) ->
       ("instructions", `String (Utf8_sanitize.sanitize s)) :: body

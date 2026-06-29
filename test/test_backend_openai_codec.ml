@@ -1621,6 +1621,28 @@ let test_responses_build_request_round_trips_tool_result_items () =
   check_bool "tool strict" true (Yojson.Safe.Util.to_bool (member "strict" tool_json))
 ;;
 
+let test_responses_build_request_includes_previous_response_id () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~previous_response_id:"resp_previous_123"
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request ~config ~messages:[ msg User [ Text "continue" ] ] ()
+    |> Yojson.Safe.from_string
+  in
+  check_string
+    "previous_response_id"
+    "resp_previous_123"
+    (member "previous_response_id" body |> to_string);
+  check_int "manual input still present" 1 (member "input" body |> to_list |> List.length)
+;;
+
 let test_responses_build_request_disabled_reasoning_omits_reasoning_config () =
   let config =
     Provider_config.make
@@ -1827,6 +1849,10 @@ let () =
             "build request round-trips tool result items"
             `Quick
             test_responses_build_request_round_trips_tool_result_items
+        ; Alcotest.test_case
+            "build request previous_response_id"
+            `Quick
+            test_responses_build_request_includes_previous_response_id
         ; Alcotest.test_case
             "build request disabled reasoning omits config"
             `Quick

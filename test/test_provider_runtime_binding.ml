@@ -268,6 +268,11 @@ let expect_named_tool_choice_rejected label cfg =
   match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
   | Error (Llm_provider.Provider_config.Unsupported_named_tool_choice { tool_name; _ }) ->
     Alcotest.(check string) (label ^ " tool") "calc" tool_name
+  | Error rejection ->
+    Alcotest.failf
+      "%s rejected named forced tool_choice with unexpected reason: %s"
+      label
+      (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
   | Ok () -> Alcotest.failf "%s unexpectedly accepted named forced tool_choice" label
   | Error rejection ->
     Alcotest.failf

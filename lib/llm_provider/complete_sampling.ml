@@ -120,6 +120,7 @@ let%test "gemini_url sync no api_key" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -157,6 +158,7 @@ let%test "gemini_url sync with api_key" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -194,6 +196,7 @@ let%test "gemini_url stream with api_key" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -232,6 +235,7 @@ let%test "gemini_url stream no api_key" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -270,6 +274,7 @@ let%test "gemini_url never leaks api_key even when set" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -321,6 +326,7 @@ let%test "gemini_url empty base_url no trailing slash" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -375,6 +381,7 @@ let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -412,6 +419,7 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -449,6 +457,7 @@ let%test "apply_sampling_defaults OpenAI_compat dashscope model keeps min_p defa
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -486,6 +495,7 @@ let%test "apply_sampling_defaults preserves explicit min_p override" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -523,6 +533,7 @@ let%test "apply_sampling_defaults Anthropic does not set min_p" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -560,6 +571,7 @@ let%test "apply_sampling_defaults preserves all explicit values" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -601,6 +613,7 @@ let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -638,6 +651,7 @@ let%test "reasoning_effort_of_config Ollama default is none" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -674,6 +688,7 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=4096 is medium"
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -710,6 +725,7 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=16384 is high" 
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -746,6 +762,7 @@ let%test "reasoning_effort_of_config non-Ollama is None" =
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
