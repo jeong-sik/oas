@@ -419,3 +419,7 @@ val zero_api_usage : api_usage
 (** Extract usage from a response, preserving [None] when the provider did not
     report usage. *)
 val usage_of_response : api_response -> api_usage option
+
+(** Billable token total: [input_tokens + output_tokens]. Cache tokens are
+    excluded — this counts the metered request/response pair, not full context. *)
+val total_tokens : api_usage -> int
