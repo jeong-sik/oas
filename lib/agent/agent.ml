@@ -390,18 +390,12 @@ let race_idle_watchdog ~clock ~idle_timeout_s ~last_activity f =
        watch ())
 ;;
 
-let with_idle_watchdog ~clock ~idle_timeout_s ~last_activity agent f =
+exception Execution_idle_timeout of float
+
+let with_idle_watchdog ~clock ~idle_timeout_s ~last_activity f =
   match race_idle_watchdog ~clock ~idle_timeout_s ~last_activity f with
   | `Completed result -> result
-  | `Idle_timeout idle_for ->
-    Error
-      (Error.Agent
-         (Error.AgentExecutionIdleTimeout
-            { idle_sec = idle_for
-            ; idle_timeout_sec = idle_timeout_s
-            ; turn_count = agent.state.turn_count
-            ; max_turns = agent.state.config.max_turns
-            }))
+  | `Idle_timeout idle_for -> raise (Execution_idle_timeout idle_for)
 ;;
 
 let%test "race_idle_watchdog: fires when f makes no progress" =
@@ -469,30 +463,107 @@ let%test "race_idle_watchdog: returns f's result immediately on fast completion"
    earlier versions. When both are set, the ceiling wraps the idle
    watchdog so either guard can fire. *)
 let with_optional_timeout ?clock ~last_activity agent f =
+  let execution_timeout_error ~started_at ~timeout_sec =
+    let elapsed_sec = Float.max 0.0 (Unix.gettimeofday () -. started_at) in
+    Error
+      (Error.Agent
+         (Error.AgentExecutionTimeout
+            { elapsed_sec
+            ; timeout_sec
+            ; turn_count = agent.state.turn_count
+            ; max_turns = agent.state.config.max_turns
+            }))
+  in
+  let execution_idle_timeout_error ~idle_timeout_s ~idle_for =
+    Error
+      (Error.Agent
+         (Error.AgentExecutionIdleTimeout
+            { idle_sec = idle_for
+            ; idle_timeout_sec = idle_timeout_s
+            ; turn_count = agent.state.turn_count
+            ; max_turns = agent.state.config.max_turns
+            }))
+  in
   match clock with
-  | None -> f ()
+  | None -> Eio.Switch.run (fun execution_sw -> f ~sw:execution_sw)
   | Some clock ->
-    let run_with_idle () =
+    let idle_timeout_s =
       match agent.options.execution_idle_timeout_s with
-      | Some idle_timeout_s when idle_timeout_s > 0.0 ->
-        with_idle_watchdog ~clock ~idle_timeout_s ~last_activity agent f
-      | _ -> f ()
+      | Some idle_timeout_s when idle_timeout_s > 0.0 -> Some idle_timeout_s
+      | Some _non_positive_idle_timeout_s -> None
+      | None -> None
+    in
+    let run_with_idle ~sw () =
+      match idle_timeout_s with
+      | Some idle_timeout_s ->
+        with_idle_watchdog ~clock ~idle_timeout_s ~last_activity (fun () -> f ~sw)
+      | None -> f ~sw
     in
     (match agent.options.max_execution_time_s with
-     | Some timeout_s ->
+     | Some timeout_sec ->
        let started_at = Unix.gettimeofday () in
-       (try Eio.Time.with_timeout_exn clock timeout_s run_with_idle with
-        | Eio.Time.Timeout ->
-          let elapsed_sec = Float.max 0.0 (Unix.gettimeofday () -. started_at) in
-          Error
-            (Error.Agent
-               (Error.AgentExecutionTimeout
-                  { elapsed_sec
-                  ; timeout_sec = timeout_s
-                  ; turn_count = agent.state.turn_count
-                  ; max_turns = agent.state.config.max_turns
-                  })))
-     | _ -> run_with_idle ())
+       (try
+          Eio.Switch.run (fun execution_sw ->
+            Eio.Time.with_timeout_exn clock timeout_sec (fun () ->
+              run_with_idle ~sw:execution_sw ()))
+        with
+        | Eio.Time.Timeout -> execution_timeout_error ~started_at ~timeout_sec
+        | Execution_idle_timeout idle_for ->
+          (match idle_timeout_s with
+           | Some idle_timeout_s -> execution_idle_timeout_error ~idle_timeout_s ~idle_for
+           | None -> raise (Execution_idle_timeout idle_for)))
+     | None ->
+       (try Eio.Switch.run (fun execution_sw -> run_with_idle ~sw:execution_sw ()) with
+        | Execution_idle_timeout idle_for ->
+          (match idle_timeout_s with
+           | Some idle_timeout_s -> execution_idle_timeout_error ~idle_timeout_s ~idle_for
+           | None -> raise (Execution_idle_timeout idle_for))))
+;;
+
+let%test "with_optional_timeout cancels owned execution switch" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let agent =
+    create
+      ~net:(Eio.Stdenv.net env)
+      ~options:{ default_options with max_execution_time_s = Some 0.02 }
+      ()
+  in
+  let released = Atomic.make false in
+  let last_activity = ref (Eio.Time.now clock) in
+  let result =
+    with_optional_timeout ~clock ~last_activity agent (fun ~sw ->
+      Eio.Switch.on_release sw (fun () -> Atomic.set released true);
+      Eio.Time.sleep clock 1.0;
+      Ok ())
+  in
+  match result with
+  | Error (Error.Agent (Error.AgentExecutionTimeout _)) -> Atomic.get released
+  | Ok () | Error _ -> false
+;;
+
+let%test "execution idle timeout cancels owned execution switch" =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let agent =
+    create
+      ~net:(Eio.Stdenv.net env)
+      ~options:{ default_options with execution_idle_timeout_s = Some 0.02 }
+      ()
+  in
+  let released = Atomic.make false in
+  let last_activity = ref (Eio.Time.now clock) in
+  let result =
+    with_optional_timeout ~clock ~last_activity agent (fun ~sw ->
+      Eio.Switch.on_release sw (fun () -> Atomic.set released true);
+      Eio.Time.sleep clock 1.0;
+      Ok ())
+  in
+  match result with
+  | Error (Error.Agent (Error.AgentExecutionIdleTimeout _)) -> Atomic.get released
+  | Ok () | Error _ -> false
 ;;
 
 let stop_once stop =
@@ -504,16 +575,17 @@ let with_periodic_callbacks ~sw:_ ?clock ~last_activity agent f =
   match agent.options.periodic_callbacks with
   | [] -> with_optional_timeout ?clock ~last_activity agent f
   | callbacks ->
-    Eio.Switch.run
-    @@ fun callback_sw ->
-    let stop = start_periodic_callbacks ~sw:callback_sw ?clock callbacks |> stop_once in
-    (match with_optional_timeout ?clock ~last_activity agent f with
-     | result ->
-       stop ();
-       result
-     | exception exn ->
-       stop ();
-       raise exn)
+    with_optional_timeout ?clock ~last_activity agent (fun ~sw ->
+      Eio.Switch.run
+      @@ fun callback_sw ->
+      let stop = start_periodic_callbacks ~sw:callback_sw ?clock callbacks |> stop_once in
+      match f ~sw with
+      | result ->
+        stop ();
+        result
+      | exception exn ->
+        stop ();
+        raise exn)
 ;;
 
 let run_blocks ~sw ?clock ?on_yield ?on_resume agent user_blocks =
@@ -522,7 +594,7 @@ let run_blocks ~sw ?clock ?on_yield ?on_resume agent user_blocks =
   | Ok () ->
     let last_activity = ref (now_or_zero clock) in
     let on_activity () = last_activity := now_or_zero clock in
-    with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
+    with_periodic_callbacks ~sw ?clock ~last_activity agent (fun ~sw ->
       run_loop
         ~sw
         ?clock
@@ -561,7 +633,7 @@ let run_stream_blocks ~sw ?clock ~on_event ?on_yield ?on_resume agent user_block
       on_activity ();
       protect_stream_callback caller_on_event ev
     in
-    with_periodic_callbacks ~sw ?clock ~last_activity agent (fun () ->
+    with_periodic_callbacks ~sw ?clock ~last_activity agent (fun ~sw ->
       run_loop
         ~sw
         ?clock
@@ -641,6 +713,7 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
                                 ; reason = prompt
                                 }))
                       with
+                      | Eio.Cancel.Cancelled _ as exn -> raise exn
                       | exn ->
                         Log.warn
                           _log
@@ -678,6 +751,7 @@ let run_with_handoffs_blocks ~sw ?clock agent ~targets user_blocks =
                                ; elapsed = handoff_elapsed
                                }))
                      with
+                     | Eio.Cancel.Cancelled _ as exn -> raise exn
                      | exn ->
                        Log.warn
                          _log
@@ -802,7 +876,7 @@ let run_turn_stream ~sw ?clock ~on_event ?on_telemetry agent =
     last_activity := now_or_zero clock;
     protect_stream_callback caller_on_event ev
   in
-  with_optional_timeout ?clock ~last_activity agent (fun () ->
+  with_optional_timeout ?clock ~last_activity agent (fun ~sw ->
     run_turn_core ~sw ?clock ~api_strategy:(Stream { on_event; on_telemetry }) agent)
 ;;
 

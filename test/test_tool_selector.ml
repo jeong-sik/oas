@@ -214,7 +214,7 @@ let test_topk_llm_with_mock () =
   check bool "at least 1" true (List.length result >= 1)
 ;;
 
-let test_topk_llm_fallback_on_failure () =
+let test_topk_llm_fail_closed_on_failure () =
   let failing_rerank ~context:_ ~candidates:_ = raise (Failure "LLM unavailable") in
   let result =
     Tool_selector.select
@@ -229,7 +229,25 @@ let test_topk_llm_fallback_on_failure () =
       ~context:"read file"
       ~tools:tools_5
   in
-  check bool "at least 1 (BM25 fallback)" true (List.length result >= 1)
+  check int "no tools selected on reranker failure" 0 (List.length result)
+;;
+
+let test_topk_llm_failure_preserves_always_include () =
+  let failing_rerank ~context:_ ~candidates:_ = raise (Failure "LLM unavailable") in
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (TopK_llm
+           { k = 3
+           ; bm25_prefilter_n = 5
+           ; always_include = [ "broadcast" ]
+           ; confidence_threshold = 0.0
+           ; rerank_fn = failing_rerank
+           })
+      ~context:"read file"
+      ~tools:tools_5
+  in
+  check (list string) "only always_include remains" [ "broadcast" ] (tool_names result)
 ;;
 
 let test_topk_llm_always_include () =
@@ -390,7 +408,7 @@ let test_topk_llm_candidates_preserve_first_duplicate_descriptor () =
   check (list string) "selected status once" [ "status" ] (tool_names result)
 ;;
 
-let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
+let test_default_rerank_fn_fail_closed_on_provider_error () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -412,33 +430,79 @@ let test_default_rerank_fn_falls_back_to_candidates_on_provider_error () =
         ; "write_file", "Write file contents"
         ]
   in
-  check (list string) "bm25 fallback order" [ "read_file"; "search" ] selected
+  check (list string) "no fallback candidates" [] selected
 ;;
 
-(* ── Categorical LLM stub ───────────────────────── *)
+(* ── Categorical LLM ─────────────────────────────── *)
 
-let expected_unimplemented_error =
-  Tool_selector.Unsupported_configuration "Categorical LLM classifier not implemented"
+let test_categorical_llm_with_mock_classifier () =
+  let groups =
+    [ "file_ops", [ "read_file"; "write_file" ]
+    ; "git_ops", [ "git_commit" ]
+    ; "comm", [ "broadcast" ]
+    ]
+  in
+  let classifier ~context ~candidates =
+    check string "context forwarded" "read a file" context;
+    check bool "file_ops candidate present" true (List.mem_assoc "file_ops" candidates);
+    [ "file_ops"; "missing_group" ]
+  in
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (Categorical
+           { groups; classifier = `Llm classifier; always_include = [ "broadcast" ] })
+      ~context:"read a file"
+      ~tools:tools_5
+  in
+  let names = tool_names result in
+  check bool "read_file selected" true (List.mem "read_file" names);
+  check bool "write_file selected" true (List.mem "write_file" names);
+  check bool "broadcast always included" true (List.mem "broadcast" names);
+  check bool "invalid group ignored" false (List.mem "missing_group" names);
+  check bool "git group not selected" false (List.mem "git_commit" names)
 ;;
 
-let test_categorical_llm_unimplemented_raises () =
-  check_raises "raises Unsupported_configuration" expected_unimplemented_error (fun () ->
-    ignore
-      (Tool_selector.select
-         ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
-         ~context:"q"
-         ~tools:tools_5))
-;;
-
-let test_categorical_llm_unimplemented_raises_with_index () =
+let test_categorical_llm_with_index_uses_classifier () =
+  let groups =
+    [ "file_ops", [ "read_file"; "write_file" ]
+    ; "git_ops", [ "git_commit" ]
+    ; "comm", [ "broadcast" ]
+    ]
+  in
+  let classifier ~context:_ ~candidates =
+    check bool "git_ops candidate present" true (List.mem_assoc "git_ops" candidates);
+    [ "git_ops" ]
+  in
   let index = Tool_index.of_tools tools_5 in
-  check_raises "raises Unsupported_configuration" expected_unimplemented_error (fun () ->
-    ignore
-      (Tool_selector.select_with_index
-         ~strategy:(Categorical { groups = []; classifier = `Llm; always_include = [] })
-         ~index
-         ~context:"q"
-         ~tools:tools_5))
+  let result =
+    Tool_selector.select_with_index
+      ~strategy:
+        (Categorical { groups; classifier = `Llm classifier; always_include = [] })
+      ~index
+      ~context:"read file"
+      ~tools:tools_5
+  in
+  check (list string) "selected group tools" [ "git_commit" ] (tool_names result)
+;;
+
+let test_categorical_llm_classifier_failure_fails_closed () =
+  let groups =
+    [ "file_ops", [ "read_file"; "write_file" ]
+    ; "git_ops", [ "git_commit" ]
+    ; "comm", [ "broadcast" ]
+    ]
+  in
+  let classifier ~context:_ ~candidates:_ = failwith "classifier unavailable" in
+  let result =
+    Tool_selector.select
+      ~strategy:
+        (Categorical
+           { groups; classifier = `Llm classifier; always_include = [ "broadcast" ] })
+      ~context:"commit changes"
+      ~tools:tools_5
+  in
+  check (list string) "only always_include remains" [ "broadcast" ] (tool_names result)
 ;;
 
 (* ── Confidence threshold ───────────────────────── *)
@@ -587,7 +651,11 @@ let () =
         ] )
     ; ( "topk_llm"
       , [ test_case "mock rerank selects" `Quick test_topk_llm_with_mock
-        ; test_case "fallback on failure" `Quick test_topk_llm_fallback_on_failure
+        ; test_case "fail closed on failure" `Quick test_topk_llm_fail_closed_on_failure
+        ; test_case
+            "failure preserves always_include"
+            `Quick
+            test_topk_llm_failure_preserves_always_include
         ; test_case "always_include" `Quick test_topk_llm_always_include
         ; test_case
             "low confidence skips LLM"
@@ -608,19 +676,23 @@ let () =
             `Quick
             test_topk_llm_candidates_preserve_first_duplicate_descriptor
         ; test_case
-            "default rerank falls back on provider error"
+            "default rerank fails closed on provider error"
             `Quick
-            test_default_rerank_fn_falls_back_to_candidates_on_provider_error
+            test_default_rerank_fn_fail_closed_on_provider_error
         ] )
-    ; ( "stubs"
+    ; ( "categorical_llm"
       , [ test_case
-            "Categorical Llm raises Unsupported_configuration"
+            "mock classifier selects groups"
             `Quick
-            test_categorical_llm_unimplemented_raises
+            test_categorical_llm_with_mock_classifier
         ; test_case
-            "Categorical Llm raises Unsupported_configuration with index"
+            "with index still uses classifier"
             `Quick
-            test_categorical_llm_unimplemented_raises_with_index
+            test_categorical_llm_with_index_uses_classifier
+        ; test_case
+            "classifier failure fails closed"
+            `Quick
+            test_categorical_llm_classifier_failure_fails_closed
         ] )
     ; ( "categorical_bm25"
       , [ test_case "file query matches file_ops" `Quick test_categorical_bm25

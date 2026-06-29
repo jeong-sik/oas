@@ -123,6 +123,31 @@ let registry_lookup_max_context registry id fallback =
   | _ -> fallback
 ;;
 
+let model_catalog_default_for_base_label base_label =
+  let base_label = normalize base_label in
+  match Llm_provider.Model_catalog.global () with
+  | None -> None
+  | Some catalog ->
+    List.find_map
+      (fun (entry : Llm_provider.Model_catalog.model_entry) ->
+         match entry.base_label with
+         | Some base when String.equal (normalize base) base_label ->
+           trim_non_empty entry.id_prefix
+         | Some _other_base -> None
+         | None -> None)
+      catalog
+;;
+
+let registry_default_model provider_id =
+  match normalize provider_id with
+  | "claude" | "anthropic" -> Some Model_registry.default_model_id
+  | "ollama" -> Some "default"
+  | provider_id ->
+    (match model_catalog_default_for_base_label provider_id with
+     | Some _ as model -> model
+     | None -> Some provider_id)
+;;
+
 let binding_of_catalog_entry registry (entry : PC.entry) =
   { id = normalize entry.id
   ; aliases = List.map normalize entry.aliases
@@ -151,7 +176,7 @@ let binding_of_registry_entry (entry : PR.entry) =
   ; request_path = entry.defaults.request_path
   ; api_key_env = entry.defaults.api_key_env
   ; auth = auth_of_defaults entry.defaults
-  ; default_model = None
+  ; default_model = registry_default_model entry.name
   ; max_context = (if entry.max_context > 0 then Some entry.max_context else None)
   ; capabilities = public_capabilities entry.capabilities
   ; available = entry.is_available ()
@@ -364,15 +389,23 @@ let capabilities_for_provider_config (cfg : PConfig.t) =
 ;;
 
 let resolve_model binding ~requested_model =
+  let fallback_default_model () =
+    match binding.kind with
+    | PConfig.Ollama -> "default"
+    | PConfig.Anthropic
+    | PConfig.Kimi
+    | PConfig.OpenAI_compat
+    | PConfig.Gemini
+    | PConfig.Glm
+    | PConfig.DashScope -> binding.id
+  in
   match Option.bind requested_model trim_non_empty with
   | Some model -> model
   | None ->
     (match binding.default_model with
      | Some model when String.trim model <> "" -> model
-     | _ ->
-       (match binding.kind with
-        | PConfig.Ollama -> "default"
-        | _ -> Model_registry.default_model_id_value ()))
+     | Some _blank_default_model -> fallback_default_model ()
+     | None -> fallback_default_model ())
 ;;
 
 let to_provider_config ?model binding =

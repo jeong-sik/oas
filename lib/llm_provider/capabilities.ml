@@ -870,10 +870,10 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
 
     The catalog itself is resolved by {!Model_catalog.global}, in order:
     runtime override installed via {!Model_catalog.set_global}, then the
-    [OAS_MODEL_CATALOG] environment variable, then a cwd-parent walk
-    (depth 10) for [models.toml] and then [oas-models.toml], then
-    [~/.config/oas/models.toml]. The ambient discovery (env + cwd walk +
-    XDG path) is sampled lazily once per process.
+    [OAS_MODEL_CATALOG] environment variable. The env discovery is cached
+    after first load; embedding hosts and test harnesses can call
+    [Model_catalog.preload_global] or inject [OAS_MODEL_CATALOG] during
+    bootstrap.
 
     Returns [None] when no catalog is available or when the catalog has
     no entry whose [id_prefix] matches [model_id]. There is no in-code
@@ -1040,9 +1040,8 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
    [Model_catalog.set_global] and restore the override afterwards, so they
    are insulated from BOTH ambient manifest overrides
    ([OAS_CAPABILITY_MANIFEST]) and ambient catalog discovery
-   ([OAS_MODEL_CATALOG] / cwd-parent walk / XDG path). Without the explicit
-   override these tests would only pass when the test runner's cwd happens
-   to sit under a directory containing [models.toml].
+   ([OAS_MODEL_CATALOG]). CI injects the repository [models.toml] through
+   [OAS_MODEL_CATALOG] for inline tests that exercise the production catalog.
 
    [test_catalog_entry] fills every field with [None]; each fixture entry
    then sets only the capability-relevant fields, mirroring the

@@ -50,7 +50,10 @@ val finalize_stream_acc : stream_acc -> (Types.api_response, string) result
 (** {1 HTTP Error Mapping} *)
 
 (** Map an HTTP client error to an {!Error.sdk_error}. *)
-val map_http_error : Llm_provider.Http_client.http_error -> Error.sdk_error
+val map_http_error
+  :  ?accept_rejected:Http_error_sdk.accept_rejected
+  -> Llm_provider.Http_client.http_error
+  -> Error.sdk_error
 
 (** {1 Streaming API Call} *)
 

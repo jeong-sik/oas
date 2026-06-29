@@ -12,24 +12,30 @@ type paused_participant =
 
 type state =
   { net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
+  ; clock : float Eio.Time.clock_ty Eio.Resource.t
   ; event_bus : Event_bus.t
   ; mutable session_root : string option
   ; next_control_id : int Atomic.t
   ; stdout_mu : Eio.Mutex.t
   ; store_mu : Eio.Mutex.t
+  ; control_waiters_mu : Eio.Mutex.t
+  ; control_waiters : (string, Runtime.control_response Eio.Promise.u) Hashtbl.t
   ; paused_inputs_mu : Eio.Mutex.t
   ; paused_inputs : (string * string, paused_participant) Hashtbl.t
   }
 
 let runtime_version = Sdk_version.version
 
-let create ~net () =
+let create ~net ~clock () =
   { net
+  ; clock
   ; event_bus = Event_bus.create ()
   ; session_root = None
   ; next_control_id = Atomic.make 1
   ; stdout_mu = Eio.Mutex.create ()
   ; store_mu = Eio.Mutex.create ()
+  ; control_waiters_mu = Eio.Mutex.create ()
+  ; control_waiters = Hashtbl.create 16
   ; paused_inputs_mu = Eio.Mutex.create ()
   ; paused_inputs = Hashtbl.create 16
   }

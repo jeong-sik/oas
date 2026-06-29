@@ -40,64 +40,6 @@ let request_fingerprint
 
 let schema_version = "1"
 
-let content_block_to_json = function
-  | Types.Text s -> `Assoc [ "type", `String "text"; "text", `String s ]
-  | Types.Thinking { content; _ } ->
-    `Assoc [ "type", `String "thinking"; "text", `String content ]
-  | Types.RedactedThinking data ->
-    `Assoc [ "type", `String "redacted_thinking"; "data", `String data ]
-  | Types.ToolUse { id; name; input } ->
-    `Assoc
-      [ "type", `String "tool_use"
-      ; "id", `String id
-      ; "name", `String name
-      ; "input", input
-      ]
-  | Types.ToolResult { tool_use_id; content; is_error; _ } ->
-    `Assoc
-      [ "type", `String "tool_result"
-      ; "tool_use_id", `String tool_use_id
-      ; "content", `String content
-      ; "is_error", `Bool is_error
-      ]
-  | Types.Image _ | Types.Document _ | Types.Audio _ ->
-    `Assoc [ "type", `String "binary" ]
-;;
-
-let content_block_of_json json =
-  let open Yojson.Safe.Util in
-  match json |> member "type" |> to_string with
-  | "text" -> Some (Types.Text (json |> member "text" |> to_string))
-  | "thinking" ->
-    Some
-      (Types.Thinking
-         { thinking_type = "thinking"; content = json |> member "text" |> to_string })
-  | "redacted_thinking" ->
-    (match json |> member "data" |> to_string_option with
-     | Some data when not (Api_common.string_is_blank data) ->
-       Some (Types.RedactedThinking data)
-     | Some _ | None -> None)
-  | "tool_use" ->
-    Some
-      (Types.ToolUse
-         { id = json |> member "id" |> to_string
-         ; name = json |> member "name" |> to_string
-         ; input = json |> member "input"
-         })
-  | "tool_result" ->
-    let content = json |> member "content" |> to_string in
-    let parsed_json = Types.try_parse_json content in
-    Some
-      (Types.ToolResult
-         { tool_use_id = json |> member "tool_use_id" |> to_string
-         ; content
-         ; is_error = Cli_common_json.member_bool "is_error" json
-         ; json = parsed_json
-         ; content_blocks = None
-         })
-  | _ -> None
-;;
-
 let stop_reason_to_string = function
   | Types.EndTurn -> "end_turn"
   | Types.StopToolUse -> "tool_use"
@@ -136,7 +78,7 @@ let response_to_json (resp : Types.api_response) : Yojson.Safe.t =
     ; "id", `String resp.id
     ; "model", `String resp.model
     ; "stop_reason", `String (stop_reason_to_string resp.stop_reason)
-    ; "content", `List (List.map content_block_to_json resp.content)
+    ; "content", `List (List.map Api_common.content_block_to_json resp.content)
     ; "usage", usage_json
     ]
 ;;
@@ -162,7 +104,10 @@ let response_of_json (json : Yojson.Safe.t) : Types.api_response option =
             }
       in
       let content =
-        json |> member "content" |> to_list |> List.filter_map content_block_of_json
+        json
+        |> member "content"
+        |> to_list
+        |> List.filter_map Api_common.content_block_of_json
       in
       Some
         { Types.id = json |> member "id" |> to_string

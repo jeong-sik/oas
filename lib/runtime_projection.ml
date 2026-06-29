@@ -122,7 +122,11 @@ let apply_event (session : session) (event : event) =
   match event.kind with
   | Session_started _ -> Ok { session with phase = Running; pending_input = None }
   | Session_settings_updated detail ->
-    Ok { session with model = detail.model; permission_mode = detail.permission_mode }
+    Ok
+      { session with
+        model = first_some detail.model session.model
+      ; permission_mode = first_some detail.permission_mode session.permission_mode
+      }
   | Turn_recorded _ ->
     let* session = ensure_active_phase session in
     Ok { session with turn_count = session.turn_count + 1 }

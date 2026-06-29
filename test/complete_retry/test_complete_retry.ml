@@ -88,8 +88,8 @@ let test_is_retryable_provider_malformed_json_prose_400 () =
 let test_is_retryable_provider_parse_error () =
   check
     bool
-    "typed provider parse error is retryable"
-    true
+    "typed provider parse error is not retryable"
+    false
     (Complete.is_retryable
        (Http_client.ProviderFailure
           { kind = Http_client.Provider_parse_error { parser = Some "glm" }
@@ -132,7 +132,7 @@ let test_complete_with_retry_stops_on_hard_quota_429 () =
   | Exit -> ()
 ;;
 
-let test_complete_with_retry_retries_provider_parse_error () =
+let test_complete_with_retry_stops_on_provider_parse_error () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -142,7 +142,7 @@ let test_complete_with_retry_retries_provider_parse_error () =
     let request_count = ref 0 in
     let transport =
       scripted_transport
-        [ Error provider_parse_error; Ok (mock_response "recovered after retry") ]
+        [ Error provider_parse_error; Ok (mock_response "must not retry") ]
         request_count
     in
     let config = make_config "http://unused.test" in
@@ -157,19 +157,11 @@ let test_complete_with_retry_retries_provider_parse_error () =
         ~retry_config:fast_retry_config
         ()
     with
-    | Ok resp ->
-      let text =
-        List.filter_map
-          (function
-            | Types.Text s -> Some s
-            | _ -> None)
-          resp.content
-        |> String.concat ""
-      in
-      check string "response text" "recovered after retry" text;
-      check int "two requests" 2 !request_count;
+    | Ok _ -> fail "expected provider parse failure"
+    | Error (Http_client.ProviderFailure { kind = Provider_parse_error _; _ }) ->
+      check int "single request" 1 !request_count;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected recovery after provider parse error"
+    | Error _ -> fail "expected provider parse failure"
   with
   | Exit -> ()
 ;;
@@ -211,7 +203,7 @@ let test_complete_stream_with_retry_stops_on_hard_quota_429 () =
   | Exit -> ()
 ;;
 
-let test_complete_stream_with_retry_retries_provider_parse_error () =
+let test_complete_stream_with_retry_stops_on_provider_parse_error () =
   Eio_main.run
   @@ fun env ->
   let clock = Eio.Stdenv.clock env in
@@ -221,7 +213,7 @@ let test_complete_stream_with_retry_retries_provider_parse_error () =
     let request_count = ref 0 in
     let transport =
       scripted_transport
-        [ Error provider_parse_error; Ok (mock_response "recovered after retry") ]
+        [ Error provider_parse_error; Ok (mock_response "must not retry") ]
         request_count
     in
     let config = make_config "http://unused.test" in
@@ -238,19 +230,11 @@ let test_complete_stream_with_retry_retries_provider_parse_error () =
         ~on_event
         ()
     with
-    | Ok resp ->
-      let text =
-        List.filter_map
-          (function
-            | Types.Text s -> Some s
-            | _ -> None)
-          resp.content
-        |> String.concat ""
-      in
-      check string "response text" "recovered after retry" text;
-      check int "two requests" 2 !request_count;
+    | Ok _ -> fail "expected provider parse failure"
+    | Error (Http_client.ProviderFailure { kind = Provider_parse_error _; _ }) ->
+      check int "single request" 1 !request_count;
       Eio.Switch.fail sw Exit
-    | Error _ -> fail "expected recovery after provider parse error"
+    | Error _ -> fail "expected provider parse failure"
   with
   | Exit -> ()
 ;;
@@ -272,17 +256,17 @@ let () =
             `Quick
             test_complete_with_retry_stops_on_hard_quota_429
         ; test_case
-            "provider parse error retries same provider"
+            "provider parse error stops immediately"
             `Quick
-            test_complete_with_retry_retries_provider_parse_error
+            test_complete_with_retry_stops_on_provider_parse_error
         ; test_case
             "stream hard quota stops immediately"
             `Quick
             test_complete_stream_with_retry_stops_on_hard_quota_429
         ; test_case
-            "stream provider parse error retries same provider"
+            "stream provider parse error stops immediately"
             `Quick
-            test_complete_stream_with_retry_retries_provider_parse_error
+            test_complete_stream_with_retry_stops_on_provider_parse_error
         ] )
     ]
 ;;

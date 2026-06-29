@@ -37,9 +37,8 @@ val shared_retry_config_of_complete : retry_config -> Retry.retry_config
       (e.g. claude_code internal max_turns); retry would re-trigger
       the same deterministic exit.
     - [ProviderFailure] — provider/runtime failures are semantic
-      routing inputs, not local retry inputs, except typed
-      [Provider_parse_error], which represents a parser-boundary
-      malformed response and is retryable. *)
+      routing inputs, not local retry inputs. Retrying the same
+      CLI/API lane would hide the typed reason from downstream policy. *)
 val classify_retry_error : Http_client.http_error -> Retry.api_error option
 
 (** Convenience wrapper: [true] iff [classify_retry_error] yields a

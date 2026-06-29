@@ -122,11 +122,12 @@ val lookup : t -> string -> entry option
         (e.g. the embedding host loading its declarative manifest) install
         a programmatic manifest at boot.
     + 2. [OAS_CAPABILITY_MANIFEST] env var pointing at a JSON file
-        (loaded lazily on first call when no runtime override is
-        installed, at most once per process).
+        (cached after first load when no runtime override is installed).
 
     Returns [None] when neither source supplies a manifest. *)
 val global : unit -> t option
+
+val preload_global : unit -> unit
 
 (** [set_global m] installs [m] as the runtime-override manifest,
     shadowing any [OAS_CAPABILITY_MANIFEST]-loaded entries until
