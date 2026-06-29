@@ -939,6 +939,57 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     (json |> member "thinking" |> member "clear_thinking" |> to_bool)
 ;;
 
+(* Complement of [test_build_openai_body_glm_preserves_reasoning_content]: that
+   test locks the [clear_thinking = false] (preserve) side of the GLM SSOT
+   ([Provider_config.glm_clear_thinking_value]). This locks the [true]
+   (non-preserve) side via the api_openai.ml builder. Before #2282 consolidated
+   the two thinking builders, api_openai.ml hardcoded [clear_thinking = true]
+   here while backend_openai_request.ml derived it from the config; the
+   consolidation made api_openai.ml respect the config, so both sides of the SSOT
+   now need a regression guard through the api builder. With [preserve_thinking =
+   Some false] the SSOT yields [not false = true]. *)
+let test_build_openai_body_glm_clears_thinking_when_not_preserving () =
+  let provider_config =
+    { Provider.provider =
+        Provider.OpenAICompat
+          { base_url = Llm_provider.Zai_catalog.general_base_url
+          ; auth_header = None
+          ; path = "/chat/completions"
+          ; static_token = None
+          }
+    ; model_id = "glm-5"
+    ; api_key_env = ""
+    }
+  in
+  let state =
+    { Types.config =
+        { Types.default_config with
+          model = provider_config.model_id
+        ; enable_thinking = Some true
+        ; preserve_thinking = Some false
+        }
+    ; messages = []
+    ; turn_count = 0
+    ; usage = Types.empty_usage
+    }
+  in
+  let json =
+    Api.build_openai_body ~provider_config ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check
+    string
+    "GLM thinking enabled"
+    "enabled"
+    (json |> member "thinking" |> member "type" |> to_string);
+  check
+    bool
+    "non-preserving GLM request clears thinking"
+    true
+    (json |> member "thinking" |> member "clear_thinking" |> to_bool)
+;;
+
 let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   let provider_config =
     { Provider.provider =
@@ -1888,6 +1939,10 @@ let () =
             "glm preserved reasoning replay"
             `Quick
             test_build_openai_body_glm_preserves_reasoning_content
+        ; test_case
+            "glm clears thinking when not preserving"
+            `Quick
+            test_build_openai_body_glm_clears_thinking_when_not_preserving
         ; test_case
             "non-zai glm avoids glm path"
             `Quick
