@@ -31,6 +31,15 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.26](https://github.com/jeong-sik/oas/compare/v0.207.25...v0.207.26) (2026-06-29)
+
+
+### Bug Fixes
+
+* **provider-catalog:** carry reasoning replay override ([#2290](https://github.com/jeong-sik/oas/issues/2290)) ([18611c0](https://github.com/jeong-sik/oas/commit/18611c0066c3f8a8d4d3639535f6022a756bc99b))
+* **streaming:** drop coordinator term from complete_stream comment ([#2284](https://github.com/jeong-sik/oas/issues/2284)) ([21ffac7](https://github.com/jeong-sik/oas/commit/21ffac7c491cba9b9c7d2973937358c280e115dc))
+* **streaming:** restore sdk-independent stream mirror ([#2285](https://github.com/jeong-sik/oas/issues/2285)) ([41d053a](https://github.com/jeong-sik/oas/commit/41d053a94faf1ef8f63b1e8d6463483fc0693d49))
+
 ## [0.207.25](https://github.com/jeong-sik/oas/compare/v0.207.24...v0.207.25) (2026-06-29)
 
 
