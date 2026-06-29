@@ -37,6 +37,98 @@ let to_string json = Yojson.Safe.Util.to_string json
 let to_int json = Yojson.Safe.Util.to_int json
 let to_list json = Yojson.Safe.Util.to_list json
 
+let rec find_repo_root dir =
+  if Sys.file_exists (Filename.concat dir "dune-project")
+  then dir
+  else (
+    let parent = Filename.dirname dir in
+    if String.equal parent dir
+    then Alcotest.fail "could not locate dune-project"
+    else find_repo_root parent)
+;;
+
+let source_path rel = Filename.concat (find_repo_root (Sys.getcwd ())) rel
+
+let require_assoc label = function
+  | `Assoc fields -> fields
+  | json -> Alcotest.failf "expected %s object, got %s" label (Yojson.Safe.to_string json)
+;;
+
+let require_field label key json =
+  match List.assoc_opt key (require_assoc label json) with
+  | Some value -> value
+  | None -> Alcotest.failf "missing %s.%s" label key
+;;
+
+let require_string label key json =
+  match require_field label key json with
+  | `String value -> value
+  | value ->
+    Alcotest.failf "expected %s.%s string, got %s" label key (Yojson.Safe.to_string value)
+;;
+
+let optional_bool ~default label key json =
+  match List.assoc_opt key (require_assoc label json) with
+  | None -> default
+  | Some (`Bool value) -> value
+  | Some value ->
+    Alcotest.failf "expected %s.%s bool, got %s" label key (Yojson.Safe.to_string value)
+;;
+
+let require_list label key json =
+  match require_field label key json with
+  | `List values -> values
+  | value ->
+    Alcotest.failf "expected %s.%s list, got %s" label key (Yojson.Safe.to_string value)
+;;
+
+let role_of_fixture = function
+  | "assistant" -> Assistant
+  | "user" -> User
+  | "tool" -> Tool
+  | "system" -> System
+  | role -> Alcotest.failf "unknown fixture role: %s" role
+;;
+
+let block_of_fixture json =
+  match require_string "block" "type" json with
+  | "text" -> Text (require_string "block" "text" json)
+  | "thinking" ->
+    Thinking { thinking_type = "reasoning"; content = require_string "block" "text" json }
+  | "tool_use" ->
+    ToolUse
+      { id = require_string "block" "id" json
+      ; name = require_string "block" "name" json
+      ; input = require_field "block" "input" json
+      }
+  | "tool_result" ->
+    ToolResult
+      { tool_use_id = require_string "block" "tool_use_id" json
+      ; content = require_string "block" "content" json
+      ; is_error = optional_bool ~default:false "block" "is_error" json
+      ; json = None
+      ; content_blocks = None
+      }
+  | block_type -> Alcotest.failf "unknown fixture block type: %s" block_type
+;;
+
+let message_of_fixture json =
+  { role = role_of_fixture (require_string "message" "role" json)
+  ; content = List.map block_of_fixture (require_list "message" "blocks" json)
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let masc_oas_replay_fixture_messages () =
+  let json =
+    Yojson.Safe.from_file
+      (source_path "test/fixtures/masc-oas-replay-interleaving.v1.json")
+  in
+  List.map message_of_fixture (require_list "fixture" "messages" json)
+;;
+
 let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_fields () =
   let message_fields =
     match message_fields with
@@ -608,53 +700,7 @@ let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
      The invariant is structural: tool results stay adjacent to the tool calls
      sent on the provider wire, and Thinking blocks never become visible
      assistant content. *)
-  let messages =
-    [ msg
-        Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "thought:first" }
-        ; Text "calling first lookup"
-        ; ToolUse
-            { id = "call-a"; name = "lookup"; input = `Assoc [ "city", `String "Seoul" ] }
-        ]
-    ; msg
-        Tool
-        [ ToolResult
-            { tool_use_id = "call-a"
-            ; content = {|{"temp_c":21}|}
-            ; is_error = false
-            ; json = None
-            ; content_blocks = None
-            }
-        ]
-    ; msg
-        Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "thought:plain" }
-        ; Text "first lookup complete"
-        ]
-    ; msg
-        Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "thought:second" }
-        ; ToolUse
-            { id = "call-b"; name = "lookup"; input = `Assoc [ "city", `String "Busan" ] }
-        ]
-    ; msg User [ Text "operator nudge before late tool result" ]
-    ; msg
-        Tool
-        [ ToolResult
-            { tool_use_id = "call-b"
-            ; content = {|{"temp_c":24}|}
-            ; is_error = false
-            ; json = None
-            ; content_blocks = None
-            }
-        ]
-    ; msg
-        Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "thought:final" }
-        ; Text "done"
-        ]
-    ]
-  in
+  let messages = masc_oas_replay_fixture_messages () in
   let closed = Serialize.close_tool_message_pairs_for_request messages in
   let deepseek_dialect =
     Reasoning_dialect.of_capabilities
@@ -676,7 +722,7 @@ let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
     roles;
   check_string
     "first reasoning replayed for tool turn"
-    "thought:first"
+    "trace-reasoning:first-tool"
     (List.nth wire 0 |> member "reasoning_content" |> to_string);
   Alcotest.(check bool)
     "plain assistant thinking is not replayed under DeepSeek-style policy"
@@ -684,12 +730,12 @@ let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
     (List.nth wire 2 |> member "reasoning_content" = `Null);
   check_string
     "second reasoning replayed for tool turn"
-    "thought:second"
+    "trace-reasoning:second-tool"
     (List.nth wire 3 |> member "reasoning_content" |> to_string);
   let synthetic_tool = List.nth wire 4 in
   check_string
     "synthetic tool id"
-    "call-b"
+    "trace-call-b"
     (member "tool_call_id" synthetic_tool |> to_string);
   check_bool
     "synthetic tool content"
@@ -715,7 +761,23 @@ let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
          | `Null | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> false)
       wire
   in
-  check_bool "thinking markers never leak into assistant content" false leaked
+  check_bool "thinking markers never leak into assistant content" false leaked;
+  let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in
+  let kimi_wire =
+    closed |> List.concat_map (Serialize.dialect_messages_of_message kimi_dialect)
+  in
+  check_string
+    "Kimi preserves tool-turn reasoning"
+    "trace-reasoning:first-tool"
+    (List.nth kimi_wire 0 |> member "reasoning_content" |> to_string);
+  check_string
+    "Kimi preserves plain historical reasoning"
+    "trace-reasoning:plain-progress"
+    (List.nth kimi_wire 2 |> member "reasoning_content" |> to_string);
+  check_string
+    "Kimi preserves final historical reasoning"
+    "trace-reasoning:final"
+    (List.nth kimi_wire 6 |> member "reasoning_content" |> to_string)
 ;;
 
 let test_kimi_replay_trace_preserves_all_historical_reasoning () =

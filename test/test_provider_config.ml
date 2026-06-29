@@ -354,7 +354,19 @@ let test_validate_output_schema_supported_non_openai () =
          (Provider_config.string_of_provider_kind kind ^ " accepts schema")
          true
          (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
-    [ Anthropic; Gemini; Ollama; DashScope ]
+    [ Anthropic; Gemini; DashScope ];
+  let ollama_cfg =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"devstral-2:123b"
+      ~base_url:"http://localhost:11434"
+      ~output_schema:schema
+      ()
+  in
+  check_bool
+    "ollama accepts schema only for models with a native SO guarantee"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request ollama_cfg))
 ;;
 
 let test_validate_output_schema_capability_rejected () =
