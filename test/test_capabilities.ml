@@ -1104,6 +1104,22 @@ let test_dashscope_capabilities () =
   check bool "has min_p" true c.supports_min_p
 ;;
 
+(* ── Kimi tool_choice preset ─────────────────────────── *)
+
+let test_kimi_tool_choice_capabilities () =
+  let c = Capabilities.kimi_capabilities in
+  (* Kimi's chat API documents [tools] but not [tool_choice] in any request
+     schema, and tool_choice=required is unsupported (developers prompt the model
+     to force a tool). Plain [auto] passes through the OpenAI-compatible endpoint
+     so [supports_tool_choice] stays true, but a forced named tool_choice has no
+     faithful wire representation — Kimi mirrors GLM: tools supported, named
+     forced tool_choice rejected (typed) rather than serialized. Ref checked
+     2026-06-30: platform.kimi.ai/docs/api/chat, platform.kimi.ai/docs/api/tool-use. *)
+  check bool "has tools" true c.supports_tools;
+  check bool "accepts auto tool_choice" true c.supports_tool_choice;
+  check bool "rejects named forced tool_choice" false c.supports_named_tool_choice
+;;
+
 let test_openai_compat_reasoning_records_have_explicit_control () =
   let cases =
     [ "openai_chat_extended", Some Capabilities.openai_compat_chat_extended_capabilities
@@ -1222,6 +1238,7 @@ let () =
         ; test_case "openai" `Quick test_openai_capabilities
         ; test_case "openai extended" `Quick test_openai_extended
         ; test_case "dashscope" `Quick test_dashscope_capabilities
+        ; test_case "kimi tool_choice" `Quick test_kimi_tool_choice_capabilities
         ; test_case
             "openai compat reasoning records have explicit control"
             `Quick

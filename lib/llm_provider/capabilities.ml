@@ -298,7 +298,20 @@ let kimi_capabilities =
   ; max_output_tokens = Some 32_768
   ; supports_tools = true
   ; supports_tool_choice = true
-  ; supports_named_tool_choice = true
+  ; (* Kimi's chat API documents [tools] but not [tool_choice] in any request
+     schema (platform.kimi.ai/docs/api/chat covers KimiK27Code/K26/K25/MoonshotV1
+     request bodies; none expose tool_choice), and tool_choice=required is
+     unsupported — developers prompt the model to force a tool instead. Plain
+     [auto] passes through the OpenAI-compatible endpoint so [supports_tool_choice]
+     stays true, but a forced *named* tool_choice has no faithful wire
+     representation. OAS therefore treats Kimi like GLM: tools supported, named
+     forced tool_choice rejected with a typed [Unsupported_named_tool_choice]
+     rather than serialized into a request the model cannot honor. This is the
+     conservative declaration-over-probing default (same rationale as the Ollama
+     profile); a deployment that verified native named support can still override
+     per-entry via the model catalog. Ref checked 2026-06-30:
+     platform.kimi.ai/docs/api/chat, platform.kimi.ai/docs/api/tool-use. *)
+    supports_named_tool_choice = false
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
   ; supports_extended_thinking = true
