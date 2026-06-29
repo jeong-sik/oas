@@ -145,7 +145,9 @@ let test_gemini3_disable_uses_low_level () =
 let test_gemini31_flash_lite_disable_uses_minimal_level () =
   (* gemini-3.1-flash-lite is the only family that accepts [minimal] (and it is
      the default there), so a disabled turn maps to [minimal]. *)
-  let config = gemini_config ~model_id:"gemini-3.1-flash-lite" ~enable_thinking:false () in
+  let config =
+    gemini_config ~model_id:"gemini-3.1-flash-lite" ~enable_thinking:false ()
+  in
   let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in
   check string "thinkingLevel" "minimal" (tc |> member "thinkingLevel" |> to_string);
@@ -1073,10 +1075,7 @@ let () =
             `Quick
             test_thinking_disabled_uses_budget_zero
         ; test_case "gemini 3 uses thinkingLevel" `Quick test_gemini3_uses_thinking_level
-        ; test_case
-            "gemini 3 disable uses low"
-            `Quick
-            test_gemini3_disable_uses_low_level
+        ; test_case "gemini 3 disable uses low" `Quick test_gemini3_disable_uses_low_level
         ; test_case
             "gemini 3.1 flash-lite disable uses minimal"
             `Quick
