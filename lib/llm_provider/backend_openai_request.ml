@@ -174,12 +174,6 @@ let zai_glm_preserve_thinking_request (config : Provider_config.t) =
   is_zai_glm_request config && Provider_config.glm_should_replay_reasoning config
 ;;
 
-let assistant_tool_content_format_for_config config caps =
-  if is_zai_glm_request config
-  then Capability_vocab.Assistant_tool_content_empty_string
-  else caps.Capabilities.assistant_tool_content_format
-;;
-
 let normalized_reasoning_effort dialect (config : Provider_config.t) =
   match
     Provider_config.reasoning_effort_request_value_typed
@@ -205,9 +199,7 @@ let build_request_assoc
   in
   let dialect = Reasoning_dialect.for_provider_config config in
   let caps = capabilities_of_config config in
-  let assistant_tool_content_format =
-    assistant_tool_content_format_for_config config caps
-  in
+  let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =
     let message_serializer =
       match config.kind with
