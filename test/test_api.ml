@@ -22,6 +22,27 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
+let rec find_repo_root dir =
+  if Sys.file_exists (Filename.concat dir "dune-project")
+  then dir
+  else (
+    let parent = Filename.dirname dir in
+    if String.equal parent dir
+    then fail "could not locate dune-project"
+    else find_repo_root parent)
+;;
+
+let source_path path =
+  if Filename.is_relative path
+  then (
+    match Sys.getenv_opt "DUNE_SOURCEROOT" with
+    | Some root -> Filename.concat root path
+    | None -> Filename.concat (find_repo_root (Sys.getcwd ())) path)
+  else path
+;;
+
+let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
+
 (* Helper: compare content_block via show string *)
 let check_block msg expected actual =
   check string msg (Types.show_content_block expected) (Types.show_content_block actual)
@@ -910,7 +931,12 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     string
     "auto tool_choice preserved"
     "auto"
-    (json |> member "tool_choice" |> to_string)
+    (json |> member "tool_choice" |> to_string);
+  check
+    bool
+    "preserved GLM request clears no thinking"
+    false
+    (json |> member "thinking" |> member "clear_thinking" |> to_bool)
 ;;
 
 let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
@@ -965,6 +991,23 @@ let test_build_openai_body_does_not_treat_non_zai_glm_as_glm () =
   match json |> member "tool_choice" with
   | `Assoc _ -> ()
   | _ -> fail "non-zai glm tool_choice should preserve named function form"
+;;
+
+let test_openai_api_uses_backend_thinking_builder_ssot () =
+  let api_source = read_source "lib/api_openai.ml" in
+  [ "chat_template_kwargs"
+  ; "reasoning_effort"
+  ; "thinking_budget"
+  ; "clear_thinking"
+  ; "enable_thinking"
+  ; "preserve_thinking"
+  ]
+  |> List.iter (fun field ->
+    check
+      bool
+      (field ^ " not duplicated in api_openai.ml")
+      false
+      (contains_substring ~sub:("\"" ^ field ^ "\"") api_source))
 ;;
 
 let test_build_openai_body_glm_tool_choice_none_omits_tools () =
@@ -1849,6 +1892,10 @@ let () =
             "non-zai glm avoids glm path"
             `Quick
             test_build_openai_body_does_not_treat_non_zai_glm_as_glm
+        ; test_case
+            "api thinking builder ssot"
+            `Quick
+            test_openai_api_uses_backend_thinking_builder_ssot
         ; test_case
             "glm none tool_choice omits tools"
             `Quick

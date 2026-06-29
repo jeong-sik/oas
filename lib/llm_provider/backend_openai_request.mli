@@ -21,6 +21,13 @@ val normalized_reasoning_effort
   -> Provider_config.t
   -> string option
 
+val thinking_request_fields
+  :  is_glm_request:bool
+  -> capabilities:Capabilities.capabilities
+  -> Reasoning_dialect.t
+  -> Provider_config.t
+  -> (string * Yojson.Safe.t) list
+
 (** [build_request_assoc] is {!build_request} before the final
     [Yojson.Safe.to_string]; sibling backends (e.g. {!Backend_glm}) mutate the
     Assoc directly instead of parsing the serialized string back. *)

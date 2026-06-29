@@ -56,35 +56,6 @@ let is_glm_request ?provider_config (config : agent_state) =
   | None -> Llm_provider.Zai_catalog.is_glm_model_id (model_to_string config.config.model)
 ;;
 
-let bool_field name = function
-  | Some value -> [ name, `Bool value ]
-  | None -> []
-;;
-
-let chat_template_kwargs_fields dialect (config : agent_state) =
-  bool_field "enable_thinking" config.config.enable_thinking
-  @ bool_field
-      "preserve_thinking"
-      (Llm_provider.Reasoning_dialect.chat_template_kwargs_preserve_field
-         dialect
-         ~preserve_thinking:config.config.preserve_thinking)
-;;
-
-let thinking_object_only_fields dialect (config : agent_state) =
-  let control =
-    Llm_provider.Reasoning_dialect.thinking_object_only_control
-      dialect
-      ~enable_thinking:config.config.enable_thinking
-      ~preserve_thinking:config.config.preserve_thinking
-  in
-  let fields =
-    match control.enabled with
-    | Some enabled -> [ "type", `String (if enabled then "enabled" else "disabled") ]
-    | None -> []
-  in
-  if control.keep_all then fields @ [ "keep", `String "all" ] else fields
-;;
-
 let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   : Llm_provider.Capabilities.capabilities
   =
@@ -190,6 +161,72 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
     else (
       let caps = capabilities_for_request config in
       Ok (PConfig.OpenAI_compat, model_id, llm_capabilities_of_provider_capabilities caps))
+;;
+
+let provider_config_for_thinking_fields ?provider_config ~model_id (config : agent_state) =
+  let cfg = config.config in
+  let kind, base_url, request_path, model_id =
+    match provider_config with
+    | Some
+        ({ Provider.provider = Provider.Custom_registered { name }; model_id; _ } :
+          Provider.config) ->
+      let registry = Llm_provider.Provider_registry.default () in
+      (match Llm_provider.Provider_registry.find registry name with
+       | Some entry ->
+         ( entry.defaults.kind
+         , entry.defaults.base_url
+         , entry.defaults.request_path
+         , model_id )
+       | None ->
+         (match Provider.find_provider name with
+          | Some impl ->
+            let kind = provider_config_kind_of_request_kind impl.Provider.request_kind in
+            kind, "", impl.Provider.request_path, model_id
+          | None ->
+            ( PConfig.OpenAI_compat
+            , ""
+            , PConfig.request_path_default_for_kind PConfig.OpenAI_compat
+            , model_id )))
+    | Some ({ provider = Provider.Anthropic; model_id; _ } : Provider.config) ->
+      ( PConfig.Anthropic
+      , ""
+      , PConfig.request_path_default_for_kind PConfig.Anthropic
+      , model_id )
+    | Some ({ provider = Provider.Local { base_url }; model_id; _ } : Provider.config) ->
+      let kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
+      kind, base_url, PConfig.request_path_default_for_kind kind, model_id
+    | Some
+        ({ provider = Provider.OpenAICompat { base_url; path; _ }; model_id; _ } :
+          Provider.config) ->
+      let kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
+      kind, base_url, path, model_id
+    | None ->
+      let kind =
+        if Llm_provider.Zai_catalog.is_glm_model_id model_id
+        then PConfig.Glm
+        else PConfig.OpenAI_compat
+      in
+      kind, "", PConfig.request_path_default_for_kind kind, model_id
+  in
+  PConfig.make
+    ~kind
+    ~model_id
+    ~base_url
+    ~request_path
+    ?max_tokens:cfg.max_tokens
+    ?temperature:cfg.temperature
+    ?top_p:cfg.top_p
+    ?top_k:cfg.top_k
+    ?min_p:cfg.min_p
+    ?system_prompt:cfg.system_prompt
+    ?enable_thinking:cfg.enable_thinking
+    ?preserve_thinking:cfg.preserve_thinking
+    ?thinking_budget:cfg.thinking_budget
+    ?tool_choice:cfg.tool_choice
+    ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
+    ~response_format:cfg.response_format
+    ~cache_system_prompt:cfg.cache_system_prompt
+    ()
 ;;
 
 let validate_tool_choice_request ?provider_config (config : agent_state) =
@@ -327,84 +364,12 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
       body_assoc
   in
   let body_assoc =
-    if not capabilities.supports_reasoning
-    then body_assoc
-    else (
-      match capabilities.thinking_control_format with
-      | Llm_provider.Capabilities.Chat_template_kwargs ->
-        (match chat_template_kwargs_fields dialect config with
-         | [] -> body_assoc
-         | fields -> ("chat_template_kwargs", `Assoc fields) :: body_assoc)
-      | Llm_provider.Capabilities.Chat_template_token -> body_assoc
-      | Llm_provider.Capabilities.Ollama_think -> body_assoc
-      | Llm_provider.Capabilities.Enable_thinking ->
-        let body_assoc =
-          match config.config.enable_thinking with
-          | Some enabled -> ("enable_thinking", `Bool enabled) :: body_assoc
-          | None -> body_assoc
-        in
-        let body_assoc =
-          match
-            Llm_provider.Reasoning_dialect.top_level_preserve_field
-              dialect
-              ~preserve_thinking:config.config.preserve_thinking
-          with
-          | Some preserve -> ("preserve_thinking", `Bool preserve) :: body_assoc
-          | None -> body_assoc
-        in
-        (match config.config.enable_thinking, config.config.thinking_budget with
-         | Some true, Some budget -> ("thinking_budget", `Int budget) :: body_assoc
-         | _ -> body_assoc)
-      | Llm_provider.Capabilities.Reasoning_effort ->
-        (match
-           Llm_provider.Provider_config.reasoning_effort_request_value_typed
-             ~enable_thinking:config.config.enable_thinking
-             ~thinking_budget:config.config.thinking_budget
-         with
-         | Some effort ->
-           (match
-              Llm_provider.Reasoning_dialect.normalize_effort_value dialect effort
-            with
-            | Some normalized -> ("reasoning_effort", `String normalized) :: body_assoc
-            | None -> body_assoc)
-         | None -> body_assoc)
-      | Llm_provider.Capabilities.Thinking_object ->
-        (match config.config.enable_thinking with
-         | Some true ->
-           let body_assoc =
-             match
-               Llm_provider.Provider_config.reasoning_effort_request_value_typed
-                 ~enable_thinking:config.config.enable_thinking
-                 ~thinking_budget:config.config.thinking_budget
-             with
-             | Some effort ->
-               (match
-                  Llm_provider.Reasoning_dialect.normalize_effort_value dialect effort
-                with
-                | Some normalized ->
-                  ("reasoning_effort", `String normalized) :: body_assoc
-                | None -> body_assoc)
-             | None -> body_assoc
-           in
-           ("thinking", `Assoc [ "type", `String "enabled" ]) :: body_assoc
-         | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: body_assoc
-         | None -> body_assoc)
-      | Llm_provider.Capabilities.Thinking_object_only ->
-        (match thinking_object_only_fields dialect config with
-         | [] -> body_assoc
-         | fields -> ("thinking", `Assoc fields) :: body_assoc)
-      | Llm_provider.Capabilities.No_thinking_control
-        when is_glm_request ?provider_config config ->
-        (match config.config.enable_thinking with
-         | Some enabled ->
-           let thinking =
-             if enabled
-             then `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool true ]
-             else `Assoc [ "type", `String "disabled" ]
-           in
-           ("thinking", thinking) :: body_assoc
-         | None -> body_assoc)
-      | Llm_provider.Capabilities.No_thinking_control -> body_assoc)
+    Llm_provider.Backend_openai_request.thinking_request_fields
+      ~is_glm_request:(is_glm_request ?provider_config config)
+      ~capabilities:(llm_capabilities_of_provider_capabilities capabilities)
+      dialect
+      (provider_config_for_thinking_fields ?provider_config ~model_id:model_str config)
+    @ body_assoc
   in
   let body_assoc =
     match tools_to_send with
