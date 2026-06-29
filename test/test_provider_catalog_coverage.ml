@@ -74,6 +74,7 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
               "supports_code_execution": true,
               "emits_usage_tokens": true,
               "thinking_control_format": "chat_template_kwargs",
+              "reasoning_replay": "preserve_always",
               "supported_models": [" rich-model ", "", 3, "rich-fast"]
             }
           },
@@ -136,6 +137,11 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
     "thinking format"
     true
     (caps.thinking_control_format = Capabilities.Chat_template_kwargs);
+  check
+    bool
+    "reasoning replay"
+    true
+    (caps.reasoning_replay_override = Capabilities.Force_preserve_always);
   check
     (option (list string))
     "supported models"
@@ -360,7 +366,11 @@ let test_removed_catalog_aliases_are_rejected () =
   assert_reject
     "thinking alias rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"thinking_control_format":"thinking-object"}}]}|}
-    "unknown thinking_control_format"
+    "unknown thinking_control_format";
+  assert_reject
+    "reasoning replay alias rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"reasoning_replay":"preserve-allways"}}]}|}
+    "unknown reasoning_replay"
 ;;
 
 let test_non_list_providers_is_empty_catalog () =

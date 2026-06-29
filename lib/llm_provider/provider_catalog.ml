@@ -256,6 +256,19 @@ let parse_reasoning_visibility = function
             other))
 ;;
 
+let parse_reasoning_replay = function
+  | None -> Ok None
+  | Some raw ->
+    (match Capability_vocab.reasoning_replay_override_of_string raw with
+     | Some policy -> Ok (Some policy)
+     | None ->
+       Error
+         (Printf.sprintf
+            "unknown reasoning_replay %S (canonical: %s)"
+            (String.lowercase_ascii (String.trim raw))
+            (String.concat ", " Capability_vocab.reasoning_replay_values)))
+;;
+
 let parse_assistant_tool_content_format = function
   | None -> Ok None
   | Some raw ->
@@ -321,6 +334,9 @@ let parse_capabilities provider_json =
   in
   let* reasoning_visibility =
     parse_reasoning_visibility (member_string "reasoning_visibility" cap_json)
+  in
+  let* reasoning_replay =
+    parse_reasoning_replay (member_string "reasoning_replay" cap_json)
   in
   let* assistant_tool_content_format =
     parse_assistant_tool_content_format
@@ -532,6 +548,12 @@ let parse_capabilities provider_json =
     | None -> caps
     | Some reasoning_visibility_override ->
       { caps with Capabilities.reasoning_visibility_override }
+  in
+  let caps =
+    match reasoning_replay with
+    | None -> caps
+    | Some reasoning_replay_override ->
+      { caps with Capabilities.reasoning_replay_override }
   in
   let caps =
     match member_supported_models cap_json with
