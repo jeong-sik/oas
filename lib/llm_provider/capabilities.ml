@@ -266,6 +266,20 @@ let kimi_capabilities =
   ; supports_extended_thinking = true
   ; supports_reasoning_budget = true
   ; thinking_control_format = Thinking_object_only
+  ; reasoning_replay_override =
+      Force_preserve_always
+      (* Kimi K2 docs (platform.moonshot.ai, checked 2026-06-29): reasoning_content
+       must be replayed across turns — hard-required on tool-call turns
+       ("otherwise an error will be thrown") and recommended on all turns;
+       kimi-k2.7-code keeps Preserved Thinking always-on. The base dialect for
+       [Thinking_object_only] inherits [default.replay_policy = No_replay]
+       (reasoning_dialect.ml), and [with_preserve_thinking] only lifts
+       Chat_template_kwargs/Enable_thinking — so without this override every
+       base="kimi" model (native kimi-k2, kimi-for-coding, kimi-k2.*:cloud, and
+       the bare api-name MASC actually sends) silently drops reasoning and
+       re-derives it next turn. This is the model property, independent of
+       transport; ollama_cloud/kimi-* rows (base="ollama_cloud") carry the same
+       policy via their per-entry [reasoning_replay] key. *)
   ; supports_response_format_json = true
   ; supports_structured_output = true
   ; supports_system_prompt = true
