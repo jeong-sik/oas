@@ -240,24 +240,13 @@ let test_cost_scales_with_tokens =
 
 (* ── Provider Resolve Properties ──────────────────────────────── *)
 
-let rec find_repo_root dir =
-  if Sys.file_exists (Filename.concat dir "dune-project")
-  then dir
-  else (
-    let parent = Filename.dirname dir in
-    if String.equal parent dir then dir else find_repo_root parent)
-;;
-
-let repo_model_catalog =
-  lazy
-    (let path = Filename.concat (find_repo_root (Sys.getcwd ())) "models.toml" in
-     Llm_provider.Model_catalog.load_file path)
-;;
-
 let with_repo_model_catalog f =
-  match Lazy.force repo_model_catalog with
-  | Error _ -> false
-  | Ok catalog ->
+  match Llm_provider.Model_catalog.global () with
+  | None ->
+    Alcotest.fail
+      "OAS_MODEL_CATALOG did not load the repository models.toml for capability \
+       property tests"
+  | Some catalog ->
     Llm_provider.Model_catalog.set_global catalog;
     Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f
 ;;
@@ -284,7 +273,7 @@ let test_capabilities_provider_m_reasoning =
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
           [ QCheck.Gen.return "dashscope-3.5-35b"
-          ; QCheck.Gen.return "qwen3.6:27b-coding-nvfp4"
+          ; QCheck.Gen.return "dashscope_3.6:27b-coding-nvfp4"
           ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
           ]))
     (fun model_id ->
