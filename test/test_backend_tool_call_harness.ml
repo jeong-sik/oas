@@ -293,6 +293,48 @@ let test_provider_convenience_validators_cover_tool_responses () =
   check int "gemini tool calls" 1 (List.length gemini.tool_calls_found)
 ;;
 
+let test_schema_validation_unknown_type_fails_closed () =
+  (* RFC-OAS-029 S8.1: a non-standard schema [type] must surface as a violation
+     instead of silently accepting any value (regression: the prior
+     [unsupported_type <> ""] catch-all passed every value). A valid "null"
+     type still validates a null value. *)
+  let schema =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "properties"
+        , `Assoc
+            [ "weird", `Assoc [ "type", `String "frobnicate" ]
+            ; "nullable", `Assoc [ "type", `String "null" ]
+            ] )
+      ]
+  in
+  let response =
+    mk_response
+      [ T.ToolUse
+          { id = "call-unknown-type"
+          ; name = "shape_check"
+          ; input = `Assoc [ "weird", `String "anything"; "nullable", `Null ]
+          }
+      ]
+  in
+  let result =
+    H.validate_response_with_schemas
+      ~declared_tools:[ "shape_check" ]
+      ~tool_schemas:[ "shape_check", schema ]
+      response
+  in
+  match result.tool_calls_found with
+  | [ call ] ->
+    check bool "unknown type makes args invalid" false call.arguments_valid;
+    check
+      (list string)
+      "only the unknown-type path violates (null type accepts null)"
+      [ "$.weird" ]
+      (List.map (fun (v : H.schema_violation) -> v.path) call.violations
+       |> List.sort String.compare)
+  | _ -> fail "expected one tool call"
+;;
+
 let () =
   run
     "backend_tool_call_harness"
@@ -328,6 +370,10 @@ let () =
             "provider convenience validators"
             `Quick
             test_provider_convenience_validators_cover_tool_responses
+        ; test_case
+            "unknown schema type fails closed"
+            `Quick
+            test_schema_validation_unknown_type_fails_closed
         ] )
     ]
 ;;

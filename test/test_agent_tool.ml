@@ -100,6 +100,29 @@ let test_execute_error_propagation () =
   | Ok _ -> Alcotest.fail "expected error"
 ;;
 
+let test_execute_untyped_malformed_input_errors () =
+  (* RFC-OAS-029 S4.3: the untyped handler delegates to the typed parser and
+     propagates its Error instead of silently serializing malformed input as
+     the prompt (regression: missing/non-string prompt used to echo back the
+     serialized JSON as a successful run). *)
+  let tool = Agent_tool.create_simple ~name:"echo" ~description:"d" echo_runner in
+  (match Tool.execute tool (`Assoc [ "other", `String "x" ]) with
+   | Error { message; _ } ->
+     Alcotest.(check string)
+       "missing prompt surfaced"
+       "Agent_tool input requires a prompt field"
+       message
+   | Ok { content; _meta = _ } -> Alcotest.failf "expected error (missing prompt), got: %s" content);
+  match Tool.execute tool (`Assoc [ "prompt", `Int 5 ]) with
+  | Error { message; _ } ->
+    Alcotest.(check string)
+      "non-string prompt surfaced"
+      "Agent_tool prompt must be a string"
+      message
+  | Ok { content; _meta = _ } ->
+    Alcotest.failf "expected error (non-string prompt), got: %s" content
+;;
+
 (* ── Output summarizer ───────────────────────────────────────── *)
 
 let test_output_summarizer () =
@@ -259,6 +282,10 @@ let () =
       , [ Alcotest.test_case "with_prompt" `Quick test_execute_with_prompt
         ; Alcotest.test_case "string_input" `Quick test_execute_with_string_input
         ; Alcotest.test_case "error" `Quick test_execute_error_propagation
+        ; Alcotest.test_case
+            "untyped malformed input errors"
+            `Quick
+            test_execute_untyped_malformed_input_errors
         ] )
     ; "summarizer", [ Alcotest.test_case "truncate" `Quick test_output_summarizer ]
     ; "params", [ Alcotest.test_case "extra" `Quick test_extra_parameters ]

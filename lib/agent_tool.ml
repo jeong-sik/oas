@@ -148,28 +148,23 @@ let prompt_of_input = function
 
 let make_handler config : Tool.tool_handler =
   fun (input : Yojson.Safe.t) ->
-  let prompt =
-    match input with
-    | `Assoc fields ->
-      (match List.assoc_opt "prompt" fields with
-       | Some (`String s) -> s
-       | _ ->
-         (* Fallback: serialize entire input as prompt *)
-         Yojson.Safe.to_string input)
-    | `String s -> s
-    | _ -> Yojson.Safe.to_string input
-  in
-  match config.runner prompt with
-  | Ok response ->
-    let text = text_of_response response in
-    let output =
-      match config.output_summarizer with
-      | Some summarize -> summarize text
-      | None -> text
-    in
-    Ok { content = output; _meta = None }
-  | Error e ->
-    Error { message = Error.to_string e; recoverable = false; error_class = None }
+  (* RFC-OAS-029 S4.3: the untyped handler delegates to the typed parser
+     [prompt_of_input] (the SSOT) and propagates its [Error] instead of
+     silently serializing malformed input as the prompt. *)
+  match prompt_of_input input with
+  | Error message -> Error { message; recoverable = false; error_class = None }
+  | Ok prompt ->
+    (match config.runner prompt with
+     | Ok response ->
+       let text = text_of_response response in
+       let output =
+         match config.output_summarizer with
+         | Some summarize -> summarize text
+         | None -> text
+       in
+       Ok { content = output; _meta = None }
+     | Error e ->
+       Error { message = Error.to_string e; recoverable = false; error_class = None })
 ;;
 
 let parse_child_invocation input =

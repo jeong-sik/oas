@@ -49,22 +49,45 @@ let json_string = function
   | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
+(* The complete JSON Schema primitive [type] vocabulary as a closed set. Parsing
+   the [type] string into this variant once (parse, don't validate) makes an
+   unknown/non-standard type explicit instead of a permissive default
+   (RFC-OAS-029 S8.1). Adding a future JSON Schema type is a single edit here. *)
+type json_schema_type =
+  | Schema_object
+  | Schema_array
+  | Schema_string
+  | Schema_number
+  | Schema_integer
+  | Schema_boolean
+  | Schema_null
+
+let json_schema_type_of_string = function
+  | "object" -> Some Schema_object
+  | "array" -> Some Schema_array
+  | "string" -> Some Schema_string
+  | "number" -> Some Schema_number
+  | "integer" -> Some Schema_integer
+  | "boolean" -> Some Schema_boolean
+  | "null" -> Some Schema_null
+  | _ -> None
+;;
+
 let json_matches_schema_type expected value =
-  match expected, value with
-  | "object", `Assoc _ -> true
-  | "array", `List _ -> true
-  | "string", `String _ -> true
-  | "number", (`Int _ | `Intlit _ | `Float _) -> true
-  | "integer", (`Int _ | `Intlit _) -> true
-  | "boolean", `Bool _ -> true
-  | "object", (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-  | "array", (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-  | "string", (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-  | "number", (`Assoc _ | `List _ | `String _ | `Bool _ | `Null)
-  | "integer", (`Assoc _ | `List _ | `String _ | `Float _ | `Bool _ | `Null)
-  | "boolean", (`Assoc _ | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Null) ->
+  match json_schema_type_of_string expected with
+  | None ->
+    (* Unknown/non-standard schema [type]: do not silently accept any value.
+       A malformed type keyword is surfaced as a violation, not a permissive
+       pass (RFC-OAS-029 S8.1; replaces the prior [unsupported_type <> ""]). *)
     false
-  | unsupported_type, _ -> unsupported_type <> ""
+  | Some Schema_object -> (match value with `Assoc _ -> true | _ -> false)
+  | Some Schema_array -> (match value with `List _ -> true | _ -> false)
+  | Some Schema_string -> (match value with `String _ -> true | _ -> false)
+  | Some Schema_number ->
+    (match value with `Int _ | `Intlit _ | `Float _ -> true | _ -> false)
+  | Some Schema_integer -> (match value with `Int _ | `Intlit _ -> true | _ -> false)
+  | Some Schema_boolean -> (match value with `Bool _ -> true | _ -> false)
+  | Some Schema_null -> (match value with `Null -> true | _ -> false)
 ;;
 
 let schema_if_present = function
