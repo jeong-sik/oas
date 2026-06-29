@@ -28,11 +28,18 @@ for path in "${legacy_files[@]}"; do
   fi
 done
 
+# Scope the scan to OCaml sources only. A legacy *module* reference
+# (Stage_execute.foo / open Stage_execute) can only exist in .ml/.mli; once the
+# files above are gone such a reference is an unbound-module compile error that
+# Build & Test catches. Scanning docs/README matched prose that merely describes
+# the pipeline (e.g. an audit doc saying "Stage_execute takes a Nonempty.t"),
+# producing false positives that blocked legitimate documentation. The nonexistent
+# `bin` path also emitted a spurious "No such file or directory" each run.
 pattern='\bStage_(input|parse|route|collect|execute|output)\b'
 if command -v rg >/dev/null 2>&1; then
-  matches="$(rg --no-heading -n -- "$pattern" lib test docs bin README.md || true)"
+  matches="$(rg --no-heading -n -g '*.ml' -g '*.mli' -- "$pattern" lib test || true)"
 else
-  matches="$(grep -RnE -- "$pattern" lib test docs bin README.md 2>/dev/null || true)"
+  matches="$(grep -RnE --include='*.ml' --include='*.mli' -- "$pattern" lib test 2>/dev/null || true)"
 fi
 
 if [ -n "$matches" ]; then
