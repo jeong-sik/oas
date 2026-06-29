@@ -422,6 +422,16 @@ type content_delta =
   | ThinkingDelta of string
   | ThinkingSignatureDelta of string
   | InputJsonDelta of string
+  | MediaDelta of
+      { media_type : string
+      ; source_type : string
+      ; data : string
+      }
+  (** A chunk of a streamed media (image/document/audio) content block.
+            Carries the block-level [media_type] and [source_type] alongside the
+            [data] payload so the SSE layer needs no new {!ContentBlockStart}
+            fields; the accumulator records the metadata (idempotent across
+            chunks) and concatenates [data]. *)
 
 type sse_event =
   | MessageStart of

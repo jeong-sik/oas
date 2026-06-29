@@ -28,6 +28,8 @@ type stream_acc =
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
+  ; block_media_types : (int, string) Hashtbl.t
+  ; block_media_sources : (int, string) Hashtbl.t
   }
 
 let create_stream_acc () =
@@ -45,6 +47,8 @@ let create_stream_acc () =
   ; block_tool_ids = Hashtbl.create 4
   ; block_tool_names = Hashtbl.create 4
   ; block_thinking_signatures = Hashtbl.create 4
+  ; block_media_types = Hashtbl.create 4
+  ; block_media_sources = Hashtbl.create 4
   }
 ;;
 
@@ -78,6 +82,10 @@ let accumulate_event (acc : stream_acc) = function
     in
     (match delta with
      | TextDelta s | ThinkingDelta s | InputJsonDelta s -> Buffer.add_string buf s
+     | MediaDelta { media_type; source_type; data } ->
+       Hashtbl.replace acc.block_media_types index media_type;
+       Hashtbl.replace acc.block_media_sources index source_type;
+       Buffer.add_string buf data
      | ThinkingSignatureDelta s ->
        let sig_buf =
          match Hashtbl.find_opt acc.block_thinking_signatures index with
@@ -136,82 +144,110 @@ let finalize_stream_acc (acc : stream_acc) =
   | None when not !(acc.stop_reason_received) ->
     Error "stream_terminated_without_stop_reason"
   | None ->
-    let content =
-      Hashtbl.fold
-        (fun index ctype items ->
-           let text =
-             match Hashtbl.find_opt acc.block_texts index with
-             | Some buf -> Buffer.contents buf
-             | None -> ""
-           in
-           let block =
-             match ctype with
-             | "text" -> Some (Text text)
-             | "thinking" ->
-               let thinking_type =
-                 match Hashtbl.find_opt acc.block_thinking_signatures index with
-                 | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
-                 | Some _ | None -> ""
-               in
-               Some (Thinking { thinking_type; content = text })
-             | "redacted_thinking" ->
-               (match Hashtbl.find_opt acc.block_tool_ids index with
-                | Some data when data <> "" -> Some (RedactedThinking data)
-                | Some _ | None -> None)
-             | "tool_use" ->
-               let tool_id =
-                 match Hashtbl.find_opt acc.block_tool_ids index with
-                 | Some id -> id
-                 | None -> ""
-               in
-               let tool_name =
-                 match Hashtbl.find_opt acc.block_tool_names index with
-                 | Some name -> name
-                 | None -> ""
-               in
-               (try
-                  Some
-                    (ToolUse
-                       { id = tool_id
-                       ; name = tool_name
-                       ; input = Yojson.Safe.from_string text
-                       })
-                with
-                | Yojson.Json_error _ -> Some (Text text))
-             | _ -> None
-           in
-           match block with
-           | Some b -> (index, b) :: items
-           | None -> items)
-        acc.block_types
-        []
-      |> List.sort (fun (a, _) (b, _) -> compare a b)
-      |> List.map snd
+    let indices =
+      Hashtbl.fold (fun index _ indices -> index :: indices) acc.block_types []
+      |> List.sort compare
     in
-    let usage =
-      if
-        !(acc.input_tokens) > 0
-        || !(acc.output_tokens) > 0
-        || !(acc.cache_creation) > 0
-        || !(acc.cache_read) > 0
-      then
-        Some
-          { input_tokens = !(acc.input_tokens)
-          ; output_tokens = !(acc.output_tokens)
-          ; cache_creation_input_tokens = !(acc.cache_creation)
-          ; cache_read_input_tokens = !(acc.cache_read)
-          ; cost_usd = None
-          }
-      else None
+    let content_of_index index =
+      let text =
+        match Hashtbl.find_opt acc.block_texts index with
+        | Some buf -> Buffer.contents buf
+        | None -> ""
+      in
+      let media_block kind make =
+        if String.trim text = ""
+        then Ok None
+        else (
+          match
+            ( Hashtbl.find_opt acc.block_media_types index
+            , Hashtbl.find_opt acc.block_media_sources index )
+          with
+          | Some media_type, Some source_type
+            when String.trim media_type <> "" && String.trim source_type <> "" ->
+            Ok (Some (make ~media_type ~data:text ~source_type))
+          | _ -> Error (Printf.sprintf "malformed_media_block:%s:index:%d" kind index))
+      in
+      match Hashtbl.find_opt acc.block_types index with
+      | None -> Ok None
+      | Some "text" -> Ok (Some (Text text))
+      | Some "thinking" ->
+        let thinking_type =
+          match Hashtbl.find_opt acc.block_thinking_signatures index with
+          | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
+          | Some _ | None -> ""
+        in
+        Ok (Some (Thinking { thinking_type; content = text }))
+      | Some "redacted_thinking" ->
+        (match Hashtbl.find_opt acc.block_tool_ids index with
+         | Some data when data <> "" -> Ok (Some (RedactedThinking data))
+         | Some _ | None -> Ok None)
+      | Some "tool_use" ->
+        let tool_id =
+          match Hashtbl.find_opt acc.block_tool_ids index with
+          | Some id -> id
+          | None -> ""
+        in
+        let tool_name =
+          match Hashtbl.find_opt acc.block_tool_names index with
+          | Some name -> name
+          | None -> ""
+        in
+        (try
+           Ok
+             (Some
+                (ToolUse
+                   { id = tool_id
+                   ; name = tool_name
+                   ; input = Yojson.Safe.from_string text
+                   }))
+         with
+         | Yojson.Json_error _ -> Ok (Some (Text text)))
+      | Some "image" ->
+        media_block "image" (fun ~media_type ~data ~source_type ->
+          Image { media_type; data; source_type })
+      | Some "document" ->
+        media_block "document" (fun ~media_type ~data ~source_type ->
+          Document { media_type; data; source_type })
+      | Some "audio" ->
+        media_block "audio" (fun ~media_type ~data ~source_type ->
+          Audio { media_type; data; source_type })
+      | Some _ -> Ok None
     in
-    Ok
-      { id = !(acc.msg_id)
-      ; model = !(acc.msg_model)
-      ; stop_reason = !(acc.stop_reason)
-      ; content
-      ; usage
-      ; telemetry = None
-      }
+    let rec collect_content acc = function
+      | [] -> Ok (List.rev acc)
+      | index :: rest ->
+        (match content_of_index index with
+         | Error _ as err -> err
+         | Ok None -> collect_content acc rest
+         | Ok (Some block) -> collect_content (block :: acc) rest)
+    in
+    (match collect_content [] indices with
+     | Error _ as err -> err
+     | Ok content ->
+       let usage =
+         if
+           !(acc.input_tokens) > 0
+           || !(acc.output_tokens) > 0
+           || !(acc.cache_creation) > 0
+           || !(acc.cache_read) > 0
+         then
+           Some
+             { input_tokens = !(acc.input_tokens)
+             ; output_tokens = !(acc.output_tokens)
+             ; cache_creation_input_tokens = !(acc.cache_creation)
+             ; cache_read_input_tokens = !(acc.cache_read)
+             ; cost_usd = None
+             }
+         else None
+       in
+       Ok
+         { id = !(acc.msg_id)
+         ; model = !(acc.msg_model)
+         ; stop_reason = !(acc.stop_reason)
+         ; content
+         ; usage
+         ; telemetry = None
+         })
 ;;
 
 (* ── HTTP error mapping ─────────────────────────────────────── *)

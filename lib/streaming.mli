@@ -35,6 +35,8 @@ type stream_acc =
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
+  ; block_media_types : (int, string) Hashtbl.t
+  ; block_media_sources : (int, string) Hashtbl.t
   }
 
 (** Create a fresh accumulator. *)

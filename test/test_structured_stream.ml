@@ -321,6 +321,7 @@ let test_extract_after_accumulation () =
        | InputJsonDelta s -> Buffer.add_string buf s
        | TextDelta s -> Buffer.add_string buf s
        | ThinkingDelta s -> Buffer.add_string buf s
+       | MediaDelta { data; _ } -> Buffer.add_string buf data
        | ThinkingSignatureDelta _ -> ())
     | _ -> ());
   (* Step 2: reconstruct content blocks (same as streaming.ml) *)

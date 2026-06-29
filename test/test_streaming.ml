@@ -418,7 +418,7 @@ let test_synthetic_tool_use () =
   | _ -> Alcotest.fail "expected InputJsonDelta"
 ;;
 
-let test_synthetic_image_no_delta () =
+let test_synthetic_image_media_delta () =
   let response : api_response =
     { id = "msg-img"
     ; model = "test"
@@ -430,9 +430,18 @@ let test_synthetic_image_no_delta () =
     }
   in
   let events = collect_events response in
-  (* MessageStart, ContentBlockStart, ContentBlockStop, MessageDelta, MessageStop *)
-  (* No delta for Image *)
-  Alcotest.(check int) "5 events (no delta)" 5 (List.length events)
+  Alcotest.(check int) "6 events" 6 (List.length events);
+  (match List.nth events 1 with
+   | ContentBlockStart { content_type; _ } ->
+     Alcotest.(check string) "image block type" "image" content_type
+   | _ -> Alcotest.fail "expected image ContentBlockStart");
+  match List.nth events 2 with
+  | ContentBlockDelta
+      { delta =
+          MediaDelta { media_type = "image/png"; source_type = "base64"; data = "abc" }
+      ; _
+      } -> ()
+  | _ -> Alcotest.fail "expected image MediaDelta"
 ;;
 
 let test_synthetic_multi_block () =
@@ -555,7 +564,7 @@ let () =
       , [ test_case "text only" `Quick test_synthetic_text_only
         ; test_case "thinking block" `Quick test_synthetic_thinking
         ; test_case "tool use" `Quick test_synthetic_tool_use
-        ; test_case "image no delta" `Quick test_synthetic_image_no_delta
+        ; test_case "image media delta" `Quick test_synthetic_image_media_delta
         ; test_case "multi block indexes" `Quick test_synthetic_multi_block
         ; test_case "usage propagation" `Quick test_synthetic_usage_propagation
         ] )

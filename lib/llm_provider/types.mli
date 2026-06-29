@@ -253,6 +253,14 @@ type content_delta =
   | ThinkingDelta of string
   | ThinkingSignatureDelta of string
   | InputJsonDelta of string
+  | MediaDelta of
+      { media_type : string
+      ; source_type : string
+      ; data : string
+      }
+  (** A chunk of a streamed media (image/document/audio) content block.
+            Carries block-level [media_type] and [source_type] with the [data]
+            payload so no new {!ContentBlockStart} fields are required. *)
 
 type sse_event =
   | MessageStart of

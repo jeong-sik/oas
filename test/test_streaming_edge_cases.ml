@@ -202,7 +202,7 @@ let test_synthetic_events_media_blocks () =
   let events = ref [] in
   S.emit_synthetic_events response (fun event -> events := event :: !events);
   let events = List.rev !events in
-  check_event_count "start + 5 block starts/stops + stop" 13 events;
+  check_event_count "start + 5 block starts/stops + 3 media deltas + stop" 16 events;
   let starts =
     List.filter_map
       (function
@@ -210,16 +210,15 @@ let test_synthetic_events_media_blocks () =
         | _ -> None)
       events
   in
-  (* Image/Document/Audio/ToolResult flatten to synthetic text blocks, but
-     RedactedThinking is preserved as a [redacted_thinking] block carrying its
-     opaque payload (#2061) so the thinking carrier round-trips for tool loops
-     instead of being silently dropped. *)
+  (* Image/Document/Audio use typed media starts/deltas so synthetic streaming
+     preserves non-text payloads; RedactedThinking keeps its opaque payload for
+     tool-loop round-trips (#2061). *)
   check
     (list (pair string (option string)))
     "media-like synthetic starts"
-    [ "text", None
-    ; "text", None
-    ; "text", None
+    [ "image", None
+    ; "document", None
+    ; "audio", None
     ; "redacted_thinking", Some "hidden"
     ; "text", None
     ]

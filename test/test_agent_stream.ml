@@ -259,7 +259,7 @@ let test_input_json_delta_content () =
   | _ -> Alcotest.fail "expected InputJsonDelta"
 ;;
 
-let test_image_block_as_text () =
+let test_image_block_media_delta () =
   let response =
     make_response
       [ Types.Image
@@ -267,16 +267,21 @@ let test_image_block_as_text () =
       ]
   in
   let events = collect_events response in
-  (* Image emits ContentBlockStart with type "text", no delta content *)
   (match List.nth events 1 with
    | Types.ContentBlockStart { content_type; tool_id = None; tool_name = None; _ } ->
-     Alcotest.(check string) "image as text type" "text" content_type
+     Alcotest.(check string) "image block type" "image" content_type
    | _ -> Alcotest.fail "expected ContentBlockStart");
-  (* CBS, CBStop but no CBD for Image (the match _ -> () branch) *)
-  Alcotest.(check int) "5 events (no delta for image)" 5 (List.length events)
+  (match List.nth events 2 with
+   | Types.ContentBlockDelta
+       { delta = Types.MediaDelta { media_type; source_type; data }; _ } ->
+     Alcotest.(check string) "image media type" "image/png" media_type;
+     Alcotest.(check string) "image source type" "base64" source_type;
+     Alcotest.(check string) "image data" "base64data" data
+   | _ -> Alcotest.fail "expected image MediaDelta");
+  Alcotest.(check int) "6 events" 6 (List.length events)
 ;;
 
-let test_document_block_as_text () =
+let test_document_block_media_delta () =
   let response =
     make_response
       [ Types.Document
@@ -286,9 +291,16 @@ let test_document_block_as_text () =
   let events = collect_events response in
   (match List.nth events 1 with
    | Types.ContentBlockStart { content_type; _ } ->
-     Alcotest.(check string) "document as text type" "text" content_type
+     Alcotest.(check string) "document block type" "document" content_type
    | _ -> Alcotest.fail "expected ContentBlockStart");
-  Alcotest.(check int) "5 events (no delta for doc)" 5 (List.length events)
+  (match List.nth events 2 with
+   | Types.ContentBlockDelta
+       { delta = Types.MediaDelta { media_type; source_type; data }; _ } ->
+     Alcotest.(check string) "document media type" "application/pdf" media_type;
+     Alcotest.(check string) "document source type" "base64" source_type;
+     Alcotest.(check string) "document data" "pdfdata" data
+   | _ -> Alcotest.fail "expected document MediaDelta");
+  Alcotest.(check int) "6 events" 6 (List.length events)
 ;;
 
 (* ------------------------------------------------------------------ *)
@@ -489,8 +501,8 @@ let () =
     ; ( "emit_delta_types"
       , [ test_case "thinking_delta_content" `Quick test_thinking_delta_content
         ; test_case "input_json_delta_content" `Quick test_input_json_delta_content
-        ; test_case "image_block_as_text" `Quick test_image_block_as_text
-        ; test_case "document_block_as_text" `Quick test_document_block_as_text
+        ; test_case "image_block_media_delta" `Quick test_image_block_media_delta
+        ; test_case "document_block_media_delta" `Quick test_document_block_media_delta
         ] )
     ; ( "emit_roundtrip"
       , [ test_case "text_event_count" `Quick test_roundtrip_text_event_count
