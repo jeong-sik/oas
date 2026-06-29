@@ -115,6 +115,31 @@ let accumulate_event (acc : stream_acc) = function
   | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
 
+(* Closed set of streamed content-block kinds. The wire [content_type] string
+   is converted to this variant exactly once (parse, don't validate) and the
+   finalizer below matches it exhaustively, so adding a kind breaks this compile
+   site rather than slipping through the prior [_ -> None] catch-all that
+   silently dropped any unrecognized block (RFC-OAS-029 S6.1). An unmodeled wire
+   kind becomes [Unknown_block] — handled explicitly and forward-compatibly
+   (S8.3), never silently. *)
+type block_kind =
+  | Text_block
+  | Thinking_block
+  | Redacted_thinking_block
+  | Tool_use_block
+  | Tool_result_block of { is_error : bool }
+  | Unknown_block of string
+
+let block_kind_of_string = function
+  | "text" -> Text_block
+  | "thinking" -> Thinking_block
+  | "redacted_thinking" -> Redacted_thinking_block
+  | "tool_use" -> Tool_use_block
+  | "tool_result" -> Tool_result_block { is_error = false }
+  | "tool_result_error" -> Tool_result_block { is_error = true }
+  | other -> Unknown_block other
+;;
+
 let finalize_stream_acc
       ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
       (acc : stream_acc)
@@ -142,20 +167,23 @@ let finalize_stream_acc
              | Some buf -> Buffer.contents buf
              | None -> ""
            in
-           match Hashtbl.find_opt acc.block_types idx with
-           | Some "text" -> Some (Types.Text text)
-           | Some "thinking" ->
+           match
+             Option.map block_kind_of_string (Hashtbl.find_opt acc.block_types idx)
+           with
+           | None -> None
+           | Some Text_block -> Some (Types.Text text)
+           | Some Thinking_block ->
              let thinking_type =
                match Hashtbl.find_opt acc.block_thinking_signatures idx with
                | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
                | Some _ | None -> "thinking"
              in
              Some (Types.Thinking { thinking_type; content = text })
-           | Some "redacted_thinking" ->
+           | Some Redacted_thinking_block ->
              (match Hashtbl.find_opt acc.block_tool_ids idx with
               | Some data when data <> "" -> Some (Types.RedactedThinking data)
               | Some _ | None -> None)
-           | Some "tool_use"
+           | Some Tool_use_block
              when !(acc.terminal_incomplete) || !(acc.stop_reason) = Types.MaxTokens ->
              (* A tool call only belongs to a turn the model finished at a tool
                 boundary. When the turn was cut off, the accumulated tool block is
@@ -176,7 +204,7 @@ let finalize_stream_acc
                 set [sse_error] instead, so finalize returns [Error] before content
                 assembly and never reaches this branch. *)
              None
-           | Some "tool_use" ->
+           | Some Tool_use_block ->
              let id =
                match Hashtbl.find_opt acc.block_tool_ids idx with
                | Some s -> s
@@ -192,16 +220,11 @@ let finalize_stream_acc
                | Yojson.Json_error _ -> `Assoc []
              in
              Some (Types.ToolUse { id; name; input })
-           | Some "tool_result" | Some "tool_result_error" ->
+           | Some (Tool_result_block { is_error }) ->
              let tool_use_id =
                match Hashtbl.find_opt acc.block_tool_ids idx with
                | Some s -> s
                | None -> ""
-             in
-             let is_error =
-               match Hashtbl.find_opt acc.block_types idx with
-               | Some "tool_result_error" -> true
-               | _ -> false
              in
              Some
                (Types.ToolResult
@@ -211,7 +234,16 @@ let finalize_stream_acc
                   ; json = (if is_error then None else Types.try_parse_json text)
                   ; content_blocks = None
                   })
-           | _ -> None)
+           | Some (Unknown_block _kind) ->
+             (* RFC-OAS-029 S6.1/S8.3: an unmodeled content-block kind is handled
+                explicitly, not silently dropped by a [_ -> None] catch-all.
+                Preserve any visible text it carried so newly introduced
+                text-bearing block kinds (e.g. provider server-tool result
+                blocks) survive in the response instead of vanishing. A kind that
+                accumulated no text has no renderable content; the raw kind string
+                remains inspectable in [acc.block_types]. Structurally malformed
+                SSE is a separate concern already surfaced via [sse_error]. *)
+             if String.trim text <> "" then Some (Types.Text text) else None)
         indices
     in
     (* Visible_text policy: a reasoning-only stream (no Text block, no tool
@@ -693,12 +725,29 @@ let%test "finalize_stream_acc empty produces empty content" =
   | Ok result -> result.content = []
 ;;
 
-let%test "finalize_stream_acc unknown block type filtered out" =
+let%test "finalize_stream_acc preserves text of unknown block kind (S6.1/S8.3)" =
+  (* RFC-OAS-029 S6.1/S8.3: an unmodeled content-block kind that carried visible
+     text is preserved as a Text block (forward-compatible with newly introduced
+     provider block kinds), not silently dropped by the former [_ -> None]
+     catch-all. Revert this fix -> content = [] (red). *)
   let acc = create_stream_acc () in
-  Hashtbl.replace acc.block_types 0 "unknown_type";
+  Hashtbl.replace acc.block_types 0 "server_tool_use";
   let buf = Buffer.create 16 in
   Buffer.add_string buf "data";
   Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error _ -> false
+  | Ok result -> result.content = [ Types.Text "data" ]
+;;
+
+let%test "finalize_stream_acc drops empty unknown block kind" =
+  (* An unmodeled kind with no accumulated text has no renderable content, so it
+     is omitted via the explicit Unknown_block branch (not a silent catch-all). *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "container_upload";
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc
