@@ -136,9 +136,28 @@ let bool_field name = function
   | None -> []
 ;;
 
-let chat_template_kwargs_fields (config : Provider_config.t) =
+let chat_template_kwargs_fields dialect (config : Provider_config.t) =
   bool_field "enable_thinking" config.enable_thinking
-  @ bool_field "preserve_thinking" config.preserve_thinking
+  @ bool_field
+      "preserve_thinking"
+      (Reasoning_dialect.chat_template_kwargs_preserve_field
+         dialect
+         ~preserve_thinking:config.preserve_thinking)
+;;
+
+let thinking_object_only_fields dialect (config : Provider_config.t) =
+  let control =
+    Reasoning_dialect.thinking_object_only_control
+      dialect
+      ~enable_thinking:config.enable_thinking
+      ~preserve_thinking:config.preserve_thinking
+  in
+  let fields =
+    match control.enabled with
+    | Some enabled -> [ "type", `String (if enabled then "enabled" else "disabled") ]
+    | None -> []
+  in
+  if control.keep_all then fields @ [ "keep", `String "all" ] else fields
 ;;
 
 let glm_clear_thinking_of_config (config : Provider_config.t) =
@@ -281,7 +300,7 @@ let build_request_assoc
   let body =
     match caps.thinking_control_format with
     | Chat_template_kwargs ->
-      (match chat_template_kwargs_fields config with
+      (match chat_template_kwargs_fields dialect config with
        | [] -> body
        | fields -> ("chat_template_kwargs", `Assoc fields) :: body)
     | Chat_template_token -> body
@@ -292,7 +311,11 @@ let build_request_assoc
         | None -> body
       in
       let body =
-        match config.preserve_thinking with
+        match
+          Reasoning_dialect.top_level_preserve_field
+            dialect
+            ~preserve_thinking:config.preserve_thinking
+        with
         | Some preserve -> ("preserve_thinking", `Bool preserve) :: body
         | None -> body
       in
@@ -315,12 +338,9 @@ let build_request_assoc
        | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: body
        | None -> body)
     | Thinking_object_only ->
-      (match config.enable_thinking with
-       | Some enabled ->
-         ( "thinking"
-         , `Assoc [ "type", `String (if enabled then "enabled" else "disabled") ] )
-         :: body
-       | None -> body)
+      (match thinking_object_only_fields dialect config with
+       | [] -> body
+       | fields -> ("thinking", `Assoc fields) :: body)
     | No_thinking_control when is_zai_glm_request config ->
       (match config.enable_thinking with
        | Some enabled ->

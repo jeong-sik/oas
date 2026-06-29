@@ -652,6 +652,24 @@ let test_catalog_rejects_unknown_thinking_control_format () =
     fail "unknown thinking_control_format should be rejected, not silently coerced"
 ;;
 
+let test_catalog_rejects_unknown_preserve_thinking_control_format () =
+  match
+    Provider_catalog.of_json
+      (Yojson.Safe.from_string
+         {|{
+           "schema_version": 1,
+           "providers": [
+             {"id": "x", "kind": "openai_compat",
+              "capabilities": {"preserve_thinking_control_format": "memory_palace"}}
+           ]
+         }|})
+  with
+  | Error _ -> ()
+  | Ok _ ->
+    fail
+      "unknown preserve_thinking_control_format should be rejected, not silently coerced"
+;;
+
 let test_catalog_accepts_explicit_thinking_control_formats () =
   match
     Provider_catalog.of_json
@@ -666,6 +684,10 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
              {"id": "openai-reasoning", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "reasoning_effort",
                                "reasoning_visibility": "visible_text"}}
+             ,
+             {"id": "kimi-latest", "kind": "openai_compat",
+              "capabilities": {"thinking_control_format": "none",
+                               "preserve_thinking_control_format": "always_preserved"}}
            ]
          }|})
   with
@@ -692,7 +714,16 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
          true
          (entry.capabilities.reasoning_visibility_override
           = Capabilities.Force_visible_text)
-     | None -> fail "openai-reasoning should exist")
+     | None -> fail "openai-reasoning should exist");
+    (match Provider_catalog.lookup catalog "kimi-latest" with
+     | Some entry ->
+       check
+         bool
+         "kimi-latest always preserved"
+         true
+         (entry.capabilities.preserve_thinking_control_format
+          = Capabilities.Always_preserved_thinking)
+     | None -> fail "kimi-latest should exist")
 ;;
 
 let test_catalog_lookup_first_match_wins () =
@@ -1110,6 +1141,10 @@ let () =
             "rejects unknown thinking_control_format"
             `Quick
             test_catalog_rejects_unknown_thinking_control_format
+        ; test_case
+            "rejects unknown preserve_thinking_control_format"
+            `Quick
+            test_catalog_rejects_unknown_preserve_thinking_control_format
         ; test_case
             "accepts explicit thinking_control_format values"
             `Quick

@@ -3,6 +3,12 @@
 open Alcotest
 open Agent_sdk
 
+let member_absent json name =
+  match Yojson.Safe.Util.member name json with
+  | `Null -> true
+  | `Assoc _ | `List _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `String _ -> false
+;;
+
 (* Helper: compare content_block via show string *)
 let check_block msg expected actual =
   check string msg (Types.show_content_block expected) (Types.show_content_block actual)
@@ -550,6 +556,46 @@ let test_build_openai_body_qwen_preserve_replays_reasoning () =
     string
     "reasoning_content replayed"
     "keep this"
+    (assistant |> member "reasoning_content" |> to_string)
+;;
+
+let test_build_openai_body_kimi_latest_omits_thinking_param () =
+  let state = make_state ~model:"kimi-k2.7-code" ~preserve_thinking:true () in
+  let json =
+    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+  in
+  check bool "thinking absent" true (member_absent json "thinking");
+  check
+    bool
+    "chat_template_kwargs absent"
+    true
+    (member_absent json "chat_template_kwargs");
+  check bool "preserve_thinking absent" true (member_absent json "preserve_thinking")
+;;
+
+let test_build_openai_body_kimi_latest_replays_reasoning () =
+  let state = make_state ~model:"kimi-k2.7-code" ~preserve_thinking:false () in
+  let messages =
+    [ { Types.role = Types.Assistant
+      ; content =
+          [ Types.Thinking { thinking_type = "reasoning"; content = "keep latest" }
+          ; Types.Text "answer"
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let json =
+    Api.build_openai_body ~config:state ~messages () |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let assistant = json |> member "messages" |> index 1 in
+  check
+    string
+    "reasoning_content replayed"
+    "keep latest"
     (assistant |> member "reasoning_content" |> to_string)
 ;;
 
@@ -1781,6 +1827,14 @@ let () =
             "qwen preserve replays reasoning"
             `Quick
             test_build_openai_body_qwen_preserve_replays_reasoning
+        ; test_case
+            "kimi latest omits thinking param"
+            `Quick
+            test_build_openai_body_kimi_latest_omits_thinking_param
+        ; test_case
+            "kimi latest replays reasoning"
+            `Quick
+            test_build_openai_body_kimi_latest_replays_reasoning
         ; test_case
             "deepseek dialect controls"
             `Quick
