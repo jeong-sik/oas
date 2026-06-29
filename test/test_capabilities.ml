@@ -976,6 +976,65 @@ reasoning_replay = "preserve-allways"
        | Ok _ -> Alcotest.fail "unknown model catalog reasoning_replay should reject")
 ;;
 
+let test_model_catalog_rejects_wrong_type_policy_string () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-policy-type"
+reasoning_replay = true
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions field" msg "reasoning_replay";
+         check_contains "mentions expected type" msg "expected string"
+       | Ok _ -> Alcotest.fail "wrong-type model catalog reasoning_replay should reject")
+;;
+
+let test_model_catalog_rejects_unknown_policy_strings () =
+  let cases =
+    [ "thinking_control_format", "mind_palace"
+    ; "preserve_thinking_control_format", "memory_palace"
+    ; "reasoning_visibility", "visible_ether"
+    ; "modality_priority", "image_only"
+    ]
+  in
+  List.iter
+    (fun (field, value) ->
+       with_temp_model_catalog
+         (Printf.sprintf
+            {|
+[[models]]
+id_prefix = "bad-%s"
+%s = "%s"
+|}
+            field
+            field
+            value)
+         (fun path ->
+            match Model_catalog.load_file path with
+            | Error msg ->
+              check_contains (field ^ " mentions field") msg field;
+              check_contains (field ^ " mentions value") msg value
+            | Ok _ -> Alcotest.failf "unknown model catalog %s should reject" field))
+    cases
+;;
+
+let test_model_catalog_rejects_wrong_type_base_label () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-base-type"
+base = 17
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions base" msg "base";
+         check_contains "mentions expected type" msg "expected string"
+       | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
+;;
+
 (* ── DashScope preset ────────────────────────────────── *)
 
 let test_dashscope_capabilities () =
@@ -1224,6 +1283,18 @@ let () =
             "model catalog rejects unknown reasoning_replay"
             `Quick
             test_model_catalog_rejects_unknown_reasoning_replay
+        ; test_case
+            "model catalog rejects wrong-type policy string"
+            `Quick
+            test_model_catalog_rejects_wrong_type_policy_string
+        ; test_case
+            "model catalog rejects unknown policy strings"
+            `Quick
+            test_model_catalog_rejects_unknown_policy_strings
+        ; test_case
+            "model catalog rejects wrong-type base"
+            `Quick
+            test_model_catalog_rejects_wrong_type_base_label
         ] )
     ; ( "prefix_ordering"
       , [ test_case
