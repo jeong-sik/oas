@@ -20,14 +20,19 @@ let rec find_repo_root dir =
 ;;
 
 let repo_root =
-  match find_repo_root (Sys.getcwd ()) with
+  let start_dir =
+    match Sys.getenv_opt "DUNE_SOURCEROOT" with
+    | Some root -> root
+    | None -> Sys.getcwd ()
+  in
+  match find_repo_root start_dir with
   | Some dir -> dir
   | None ->
     failwith
       (Printf.sprintf
          "telemetry_sca test: no dune-project marker found above %s — run the test from \
           inside the repo"
-         (Sys.getcwd ()))
+         start_dir)
 ;;
 
 let debug_file_exists file =

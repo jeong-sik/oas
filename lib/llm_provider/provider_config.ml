@@ -426,9 +426,7 @@ let validate_tool_choice_request_with_capabilities
       caps
   =
   match tool_choice with
-  | Some (Types.Tool tool_name)
-    when caps.Capabilities.supports_tool_choice
-         && not caps.Capabilities.supports_named_tool_choice ->
+  | Some (Types.Tool tool_name) when not caps.Capabilities.supports_named_tool_choice ->
     Error (Unsupported_named_tool_choice { provider_kind; model_id; tool_name })
   | Some (Types.Tool _) -> Ok ()
   | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()

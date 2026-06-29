@@ -269,6 +269,8 @@ let schema_tool_call_check schema_lookup = function
 
 let stop_reason_matches_tool_calls ~has_tool_calls = function
   | StopToolUse -> has_tool_calls
+  | Unknown _ as stop_reason ->
+    (not has_tool_calls) && Stop_reason_wire.is_unmatched_tool_calls stop_reason
   | EndTurn
   | MaxTokens
   | StopSequence
@@ -276,13 +278,6 @@ let stop_reason_matches_tool_calls ~has_tool_calls = function
   | PauseTurn
   | Compaction
   | ContextWindowExceeded -> not has_tool_calls
-  (* A reconciled-fail-closed stop (e.g. [Unknown "tool_calls"] from
-     Stop_reason_wire.reconcile when the wire claimed tool_use but no
-     ToolUse block exists) carries no executable tool, so it is consistent
-     exactly when there are no tool calls — same rule as the non-tool family.
-     This is not a permissive default: [Unknown] with tool calls present
-     still flags as a mismatch. *)
-  | Unknown _ -> not has_tool_calls
 ;;
 
 let is_dropped_content_block = function
@@ -341,7 +336,9 @@ let build_schema_map (tools : Yojson.Safe.t list) : (string * Yojson.Safe.t) lis
     Checks:
     - Every {!ToolUse} block has a name present in [declared_tools]
     - Every {!ToolUse} block has parseable input (valid Yojson)
-    - [stop_reason] is {!StopToolUse} when tool calls exist, {!EndTurn} otherwise
+    - [stop_reason] is {!StopToolUse} when tool calls exist, a non-tool terminal
+      reason otherwise, or the canonical fail-closed unmatched-tool-calls marker
+      when the provider claimed tool use without a tool block
     - No content blocks were silently dropped during parse (heuristic: empty text)
 
     For schema-aware validation, use {!validate_response_with_schemas}. *)

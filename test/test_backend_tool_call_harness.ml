@@ -314,6 +314,15 @@ let test_anthropic_tool_use_stop_without_tool_block_fails_closed () =
   check int "no tool calls found" 0 (List.length result.tool_calls_found)
 ;;
 
+let test_unknown_stop_reason_without_tool_block_still_fails_validation () =
+  let response =
+    mk_response ~stop_reason:(T.Unknown "provider_specific") [ T.Text "ok" ]
+  in
+  let result = H.validate_response ~declared_tools:[ "lookup" ] response in
+  check bool "arbitrary unknown stop reason rejected" false result.stop_reason_correct;
+  check int "no tool calls found" 0 (List.length result.tool_calls_found)
+;;
+
 let test_schema_validation_unknown_type_fails_closed () =
   (* RFC-OAS-029 S8.1: a non-standard schema [type] must surface as a violation
      instead of silently accepting any value (regression: the prior
@@ -400,6 +409,10 @@ let () =
             "anthropic tool_use stop without tool block fails closed"
             `Quick
             test_anthropic_tool_use_stop_without_tool_block_fails_closed
+        ; test_case
+            "unknown stop without tool block still fails validation"
+            `Quick
+            test_unknown_stop_reason_without_tool_block_still_fails_validation
         ; test_case
             "unknown schema type fails closed"
             `Quick
