@@ -149,13 +149,16 @@ let test_acc_content_block_start_image () =
        { index = 0
        ; delta =
            MediaDelta
-             { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+             { media_type = "image/png"
+             ; source_type = Types.Base64
+             ; data = "iVBORw0KGgo="
+             }
        });
   let resp = finalize_ok acc in
   match resp.content with
   | [ Image { media_type; source_type; data } ] ->
     check_string "media_type" "image/png" media_type;
-    check_string "source_type" "base64" source_type;
+    check_string "source_type" "base64" (Types.media_source_kind_to_string source_type);
     check_string "data" "iVBORw0KGgo=" data
   | _ -> Alcotest.fail "expected single Image block"
 ;;

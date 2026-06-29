@@ -171,7 +171,7 @@ let test_text_extractor_parse_returns_none () =
 let test_extract_ignores_image () =
   let input_json = `Assoc [ "name", `String "Alice"; "age", `Int 30 ] in
   let content =
-    [ Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
+    [ Image { media_type = "image/png"; data = "abc"; source_type = Types.Base64 }
     ; ToolUse { id = "tu_img"; name = "extract_person"; input = input_json }
     ]
   in
@@ -187,7 +187,7 @@ let test_extract_ignores_image () =
 let test_extract_ignores_document () =
   let input_json = `Assoc [ "name", `String "Bob"; "age", `Int 25 ] in
   let content =
-    [ Document { media_type = "application/pdf"; data = "x"; source_type = "base64" }
+    [ Document { media_type = "application/pdf"; data = "x"; source_type = Types.Base64 }
     ; ToolUse { id = "tu_doc"; name = "extract_person"; input = input_json }
     ]
   in
@@ -316,7 +316,7 @@ let test_schema_all_optional () =
 let test_extract_ignores_audio () =
   let input_json = `Assoc [ "name", `String "Dan"; "age", `Int 35 ] in
   let content =
-    [ Audio { media_type = "audio/mp3"; data = "bin"; source_type = "base64" }
+    [ Audio { media_type = "audio/mp3"; data = "bin"; source_type = Types.Base64 }
     ; ToolUse { id = "tu_aud"; name = "extract_person"; input = input_json }
     ]
   in
@@ -353,7 +353,7 @@ let test_extract_mixed_blocks () =
         ; json = None
         ; content_blocks = None
         }
-    ; Image { media_type = "image/png"; data = "img"; source_type = "base64" }
+    ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
     ; ToolUse { id = "tu_mix"; name = "wrong_tool"; input = `Null }
     ; ToolUse { id = "tu_right"; name = "extract_person"; input = input_json }
     ]

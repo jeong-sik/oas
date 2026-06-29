@@ -33,16 +33,14 @@ let content_block_gen =
         QCheck.Gen.string_printable
         QCheck.Gen.string_printable
         QCheck.Gen.bool
-    ; QCheck.Gen.map3
-        (fun mt d st -> Image { media_type = mt; data = d; source_type = st })
+    ; QCheck.Gen.map2
+        (fun mt d -> Image { media_type = mt; data = d; source_type = Base64 })
         (QCheck.Gen.return "image/png")
         QCheck.Gen.string_printable
-        (QCheck.Gen.return "base64")
-    ; QCheck.Gen.map3
-        (fun mt d st -> Document { media_type = mt; data = d; source_type = st })
+    ; QCheck.Gen.map2
+        (fun mt d -> Document { media_type = mt; data = d; source_type = Base64 })
         (QCheck.Gen.return "application/pdf")
         QCheck.Gen.string_printable
-        (QCheck.Gen.return "base64")
     ]
 ;;
 
@@ -242,6 +240,17 @@ let test_cost_scales_with_tokens =
 
 (* ── Provider Resolve Properties ──────────────────────────────── *)
 
+let with_repo_model_catalog f =
+  match Llm_provider.Model_catalog.global () with
+  | None ->
+    Alcotest.fail
+      "OAS_MODEL_CATALOG did not load the repository models.toml for capability \
+       property tests"
+  | Some catalog ->
+    Llm_provider.Model_catalog.set_global catalog;
+    Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f
+;;
+
 let test_local_provider_resolve_always_succeeds =
   QCheck.Test.make
     ~count:100
@@ -264,22 +273,23 @@ let test_capabilities_provider_m_reasoning =
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
           [ QCheck.Gen.return "dashscope-3.5-35b"
-          ; QCheck.Gen.return "qwen3.6:27b-coding-nvfp4"
+          ; QCheck.Gen.return "dashscope_3.6:27b-coding-nvfp4"
           ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
           ]))
     (fun model_id ->
-       let caps =
-         Provider.capabilities_for_model
-           ~provider:
-             (Provider.OpenAICompat
-                { base_url = "x"
-                ; auth_header = None
-                ; path = "/v1/chat/completions"
-                ; static_token = None
-                })
-           ~model_id
-       in
-       caps.supports_reasoning)
+       with_repo_model_catalog (fun () ->
+         let caps =
+           Provider.capabilities_for_model
+             ~provider:
+               (Provider.OpenAICompat
+                  { base_url = "x"
+                  ; auth_header = None
+                  ; path = "/v1/chat/completions"
+                  ; static_token = None
+                  })
+             ~model_id
+         in
+         caps.supports_reasoning))
 ;;
 
 (* ── Context Reducer Properties ──────────────────────────────── *)

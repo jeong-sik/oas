@@ -240,7 +240,7 @@ let%test "emit_synthetic_events round-trips a media block through the accumulato
      media arms) and the image collapses to empty text, so this goes red. This is
      the real producer that keeps the new MediaDelta path from being dead code. *)
   let image =
-    Image { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = "base64" }
+    Image { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = Types.Base64 }
   in
   let response : api_response =
     { id = "msg_rt"

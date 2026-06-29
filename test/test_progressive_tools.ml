@@ -183,7 +183,8 @@ let test_retrieval_hook_extracts_last_user_message () =
     [ { role = Types.User
       ; content =
           [ Types.Text "first"
-          ; Types.Image { media_type = "image/png"; data = ""; source_type = "base64" }
+          ; Types.Image
+              { media_type = "image/png"; data = ""; source_type = Types.Base64 }
           ]
       ; name = None
       ; tool_call_id = None

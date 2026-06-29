@@ -29,8 +29,8 @@ type stream_acc =
   ; block_media_types : (int, string) Hashtbl.t
     (** Per-block media MIME type from {!Types.MediaDelta}; payload is in
         {!block_texts}. *)
-  ; block_media_sources : (int, string) Hashtbl.t
-    (** Per-block media source kind from {!Types.MediaDelta} (e.g. "base64"). *)
+  ; block_media_sources : (int, Types.media_source_kind) Hashtbl.t
+    (** Per-block media source kind from {!Types.MediaDelta}. *)
   }
 
 (** Create a fresh accumulator with empty defaults. *)

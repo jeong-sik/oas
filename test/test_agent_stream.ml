@@ -263,7 +263,7 @@ let test_image_block_media_delta () =
   let response =
     make_response
       [ Types.Image
-          { media_type = "image/png"; data = "base64data"; source_type = "base64" }
+          { media_type = "image/png"; data = "base64data"; source_type = Types.Base64 }
       ]
   in
   let events = collect_events response in
@@ -275,7 +275,10 @@ let test_image_block_media_delta () =
    | Types.ContentBlockDelta
        { delta = Types.MediaDelta { media_type; source_type; data }; _ } ->
      Alcotest.(check string) "image media type" "image/png" media_type;
-     Alcotest.(check string) "image source type" "base64" source_type;
+     Alcotest.(check string)
+       "image source type"
+       "base64"
+       (Types.media_source_kind_to_string source_type);
      Alcotest.(check string) "image data" "base64data" data
    | _ -> Alcotest.fail "expected image MediaDelta");
   Alcotest.(check int) "6 events" 6 (List.length events)
@@ -285,7 +288,7 @@ let test_document_block_media_delta () =
   let response =
     make_response
       [ Types.Document
-          { media_type = "application/pdf"; data = "pdfdata"; source_type = "base64" }
+          { media_type = "application/pdf"; data = "pdfdata"; source_type = Types.Base64 }
       ]
   in
   let events = collect_events response in
@@ -297,7 +300,10 @@ let test_document_block_media_delta () =
    | Types.ContentBlockDelta
        { delta = Types.MediaDelta { media_type; source_type; data }; _ } ->
      Alcotest.(check string) "document media type" "application/pdf" media_type;
-     Alcotest.(check string) "document source type" "base64" source_type;
+     Alcotest.(check string)
+       "document source type"
+       "base64"
+       (Types.media_source_kind_to_string source_type);
      Alcotest.(check string) "document data" "pdfdata" data
    | _ -> Alcotest.fail "expected document MediaDelta");
   Alcotest.(check int) "6 events" 6 (List.length events)

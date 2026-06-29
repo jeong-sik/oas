@@ -64,10 +64,10 @@ let test_result_none_for_non_toolresult () =
     ; Types.Thinking { thinking_type = "thinking"; content = "..." }
     ; Types.RedactedThinking "redacted"
     ; Types.ToolUse { id = "call_x"; name = "t"; input = `Null }
-    ; Types.Image { media_type = "image/png"; data = "AAAA"; source_type = "base64" }
+    ; Types.Image { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }
     ; Types.Document
-        { media_type = "application/pdf"; data = "JVBE"; source_type = "base64" }
-    ; Types.Audio { media_type = "audio/wav"; data = "UklG"; source_type = "base64" }
+        { media_type = "application/pdf"; data = "JVBE"; source_type = Types.Base64 }
+    ; Types.Audio { media_type = "audio/wav"; data = "UklG"; source_type = Types.Base64 }
     ]
   in
   List.iter

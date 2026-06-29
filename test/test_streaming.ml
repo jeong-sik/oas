@@ -423,8 +423,7 @@ let test_synthetic_image_media_delta () =
     { id = "msg-img"
     ; model = "test"
     ; stop_reason = EndTurn
-    ; content =
-        [ Image { media_type = "image/png"; data = "abc"; source_type = "base64" } ]
+    ; content = [ Image { media_type = "image/png"; data = "abc"; source_type = Base64 } ]
     ; usage = None
     ; telemetry = None
     }
@@ -438,7 +437,7 @@ let test_synthetic_image_media_delta () =
   match List.nth events 2 with
   | ContentBlockDelta
       { delta =
-          MediaDelta { media_type = "image/png"; source_type = "base64"; data = "abc" }
+          MediaDelta { media_type = "image/png"; source_type = Base64; data = "abc" }
       ; _
       } -> ()
   | _ -> Alcotest.fail "expected image MediaDelta"
