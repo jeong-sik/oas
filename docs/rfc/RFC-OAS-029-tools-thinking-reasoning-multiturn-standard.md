@@ -36,7 +36,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 
 ## 2. The Standard (검증 가능한 불변식)
 
-각 규칙은 위반 시 `dune build` 실패(**Compiler**) / revert 시 red 되는 비-vacuous 테스트(**Test**) / CI grep(**Gate**) 중 하나로 강제된다.
+각 규칙은 위반 시 `dune build` 실패(**Compiler**) / revert 시 red 되는 비-vacuous 테스트(**Test**) / CI grep(**Gate**) 중 하나로 강제되며, 일부 보조 규칙은 리뷰 가이드(**Advisory**)로 작용한다. 강제 경로가 명시된 핵심 규칙은 반드시 해당 메커니즘을 통과해야 한다.
 
 ### S1 — 새 model / dialect 추가
 - **S1.1 (분류기는 하나).** model id → typed family/kind 변환은 parse 경계(`capabilities.ml`의 `*_of_id`, `provider_config.kind`)에서 **정확히 1회**. downstream은 variant로 switch한다. 그 단일 함수 밖에서 model/provider 이름에 `String.starts_with`/`String.equal` 금지. **Gate**: CI grep — classifier 밖의 `starts_with ~prefix:"glm`/`"gemini`/`"claude`/`"kimi`/`"deepseek`/`"qwen`/`"minimax` 금지.
@@ -131,7 +131,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | Kimi visibility | `Provider_hidden`+`No_streaming_reasoning` | `reasoning_content` side-channel, streamed before content | S3.2 |
 | P2 | OpenAI Responses `phase` | not modeled | `phase:commentary/final_answer` round-trips on stateless replay | S3.2 |
 
-Full per-finding verify reasoning and source URLs: audit artifact `wf_ad6e7c0c-aff` (2026-06-29), 51 agents, 6 provider docs scans.
+Full per-finding verify reasoning and source URLs: audit artifact `wf_ad6e7c0c-aff` (2026-06-29), 51 agents, 6 provider docs scans. (References: [Anthropic Tool Choice](https://docs.anthropic.com/en/docs/tool-use#tool-choice), [Gemini Reasoning](https://ai.google.dev/gemini-api/docs/reasoning), [OpenAI Reasoning](https://platform.openai.com/docs/guides/reasoning), [GLM Dev](https://open.bigmodel.cn/dev/api/normal-model/glm-4))
 
 ## 4. Enforcement (강제 방법)
 
@@ -140,7 +140,7 @@ Full per-finding verify reasoning and source URLs: audit artifact `wf_ad6e7c0c-a
 1. **Compiler** — S1.3/S1.4/S2.1/S6.1/S7.1은 closed sum + exhaustive match로 표현. 새 variant/format이 컴파일을 깨야 한다. (`_ -> ...` catch-all 추가는 CLAUDE.md 워크어라운드 체크리스트 4번에 걸린다.)
 2. **CI grep gate** — S1.1/S2.2/S3.1: classifier 함수 밖의 model-name `String.starts_with`/raw threshold literal/`is_glm_request` 패턴을 거부하는 grep 단계를 `.github/workflows/ci.yml`에 추가. (이미 있는 `util-ci-substring-str` 작업과 정렬.)
 3. **Non-vacuous test** — S5.2/S6.2/S9.3: revert 시 red 되는 테스트. (예: `supports_tool_choice=false`인 GLM 요청 body에 `tool_choice`가 없음을 단언.)
-4. **Workaround-signature gate** — §5의 remediation을 그 workaround twin으로 구현하는 PR은 `~/me/scripts/pr-rfc-check.sh`의 시그니처에 걸려 거부된다. counter-as-fix / string-classifier 보강 / N-of-M / cap-cooldown-dedup-repair 금지.
+4. **Workaround-signature gate** — §5의 remediation을 그 workaround twin으로 구현하는 PR은 `scripts/ci/pr-rfc-check.sh`의 시그니처에 걸려 거부된다. counter-as-fix / string-classifier 보강 / N-of-M / cap-cooldown-dedup-repair 금지.
 
 ## 5. Remediation backlog + sequencing
 
