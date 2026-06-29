@@ -276,7 +276,13 @@ let stop_reason_matches_tool_calls ~has_tool_calls = function
   | PauseTurn
   | Compaction
   | ContextWindowExceeded -> not has_tool_calls
-  | Unknown _ -> false
+  (* A reconciled-fail-closed stop (e.g. [Unknown "tool_calls"] from
+     Stop_reason_wire.reconcile when the wire claimed tool_use but no
+     ToolUse block exists) carries no executable tool, so it is consistent
+     exactly when there are no tool calls — same rule as the non-tool family.
+     This is not a permissive default: [Unknown] with tool calls present
+     still flags as a mismatch. *)
+  | Unknown _ -> not has_tool_calls
 ;;
 
 let is_dropped_content_block = function
