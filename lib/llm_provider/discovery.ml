@@ -58,7 +58,7 @@ let default_endpoint =
   | None -> Constants.Endpoints.default_url
 ;;
 
-let resolve_default_endpoint ?(getenv = Cli_common_env.get) () =
+let resolve_default_endpoint ?(getenv = fun name -> Cli_common_env.get name) () =
   match env_get_non_empty ~getenv local_llm_url_env_var with
   | Some v -> v
   | None -> Constants.Endpoints.default_url
@@ -70,19 +70,19 @@ let ollama_endpoint =
   | None -> default_ollama_endpoint
 ;;
 
-let resolve_ollama_endpoint ?(getenv = Cli_common_env.get) () =
+let resolve_ollama_endpoint ?(getenv = fun name -> Cli_common_env.get name) () =
   match env_get_non_empty ~getenv ollama_host_env_var with
   | Some url -> url
   | None -> default_ollama_endpoint
 ;;
 
-let parse_llm_endpoints_env ?(getenv = Cli_common_env.get) () =
+let parse_llm_endpoints_env ?(getenv = fun name -> Cli_common_env.get name) () =
   match env_get_non_empty ~getenv llm_endpoints_env_var with
   | Some urls -> Cli_common_env.split_on_char_trim ',' urls
   | None -> []
 ;;
 
-let endpoints_from_env ?(getenv = Cli_common_env.get) () =
+let endpoints_from_env ?(getenv = fun name -> Cli_common_env.get name) () =
   let explicit =
     match parse_llm_endpoints_env ~getenv () with
     | [] -> [ resolve_default_endpoint ~getenv () ]
@@ -380,7 +380,7 @@ let port_of_url (url : string) : int option =
     The port match is intentionally strict — substring matching on
     ":11434" gives false positives on userinfo (user:11434@host),
     paths (/api/:11434), and query strings (?p=:11434). *)
-let url_is_ollama ?(getenv = Cli_common_env.get) (url : string) : bool =
+let url_is_ollama ?(getenv = fun name -> Cli_common_env.get name) (url : string) : bool =
   match port_of_url url with
   | Some 11434 -> true
   | _ -> String.equal (String.trim url) (String.trim (resolve_ollama_endpoint ~getenv ()))
