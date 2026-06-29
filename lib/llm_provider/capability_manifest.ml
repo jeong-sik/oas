@@ -10,6 +10,7 @@ type entry =
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
+  ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
   ; supports_extended_thinking : bool option
   ; supports_reasoning_budget : bool option
@@ -154,6 +155,10 @@ let preserve_thinking_control_format_values =
   ]
 ;;
 
+let assistant_tool_content_format_values =
+  Capability_vocab.assistant_tool_content_format_values
+;;
+
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
 
 let known_entry_keys =
@@ -165,6 +170,7 @@ let known_entry_keys =
   ; "supports_tools"
   ; "supports_tool_choice"
   ; "supports_parallel_tool_calls"
+  ; "assistant_tool_content_format"
   ; "supports_reasoning"
   ; "supports_extended_thinking"
   ; "supports_reasoning_budget"
@@ -230,6 +236,12 @@ let parse_entry json =
       ~allowed:Capability_vocab.reasoning_replay_values
       json
   in
+  let* assistant_tool_content_format =
+    canonical_choice
+      "assistant_tool_content_format"
+      ~allowed:assistant_tool_content_format_values
+      json
+  in
   Ok
     { id_prefix
     ; base_label = member_string_opt "base" json
@@ -238,6 +250,7 @@ let parse_entry json =
     ; supports_tools = member_bool "supports_tools" json
     ; supports_tool_choice = member_bool "supports_tool_choice" json
     ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
+    ; assistant_tool_content_format
     ; supports_reasoning = member_bool "supports_reasoning" json
     ; supports_extended_thinking = member_bool "supports_extended_thinking" json
     ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
