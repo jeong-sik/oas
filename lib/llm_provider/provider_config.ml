@@ -398,6 +398,15 @@ type tool_choice_request_rejection =
       { provider_kind : provider_kind
       ; model_id : string
       }
+  | Unsupported_named_tool_choice_with_thinking of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; tool_name : string
+      }
+  | Unsupported_required_tool_choice_with_thinking of
+      { provider_kind : provider_kind
+      ; model_id : string
+      }
 
 let tool_choice_request_rejection_to_message = function
   | Unsupported_forced_tool_choice { provider_kind; model_id; requested } ->
@@ -417,6 +426,19 @@ let tool_choice_request_rejection_to_message = function
     Printf.sprintf
       "%s model %S does not support required forced tool_choice; use auto/none or remove \
        tool_choice"
+      (string_of_provider_kind provider_kind)
+      model_id
+  | Unsupported_named_tool_choice_with_thinking { provider_kind; model_id; tool_name } ->
+    Printf.sprintf
+      "%s model %S does not support named forced tool_choice %S when thinking is \
+       enabled; use auto/none or disable thinking"
+      (string_of_provider_kind provider_kind)
+      model_id
+      tool_name
+  | Unsupported_required_tool_choice_with_thinking { provider_kind; model_id } ->
+    Printf.sprintf
+      "%s model %S does not support required forced tool_choice when thinking is \
+       enabled; use auto/none or disable thinking"
       (string_of_provider_kind provider_kind)
       model_id
 ;;
@@ -459,13 +481,30 @@ let validate_tool_choice_request_with_capabilities
   | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
 ;;
 
+let validate_anthropic_thinking_tool_choice (config : t) =
+  match config.kind, config.enable_thinking, config.tool_choice with
+  | Anthropic, Some true, Some Types.Any ->
+    Error
+      (Unsupported_required_tool_choice_with_thinking
+         { provider_kind = config.kind; model_id = config.model_id })
+  | Anthropic, Some true, Some (Types.Tool tool_name) ->
+    Error
+      (Unsupported_named_tool_choice_with_thinking
+         { provider_kind = config.kind; model_id = config.model_id; tool_name })
+  | Anthropic, _, _ | (Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _, _ ->
+    Ok ()
+;;
+
 let validate_tool_choice_request_typed (config : t) =
-  let caps = tool_choice_capabilities_for_config config in
-  validate_tool_choice_request_with_capabilities
-    ~provider_kind:config.kind
-    ~model_id:config.model_id
-    ~tool_choice:config.tool_choice
-    caps
+  match validate_anthropic_thinking_tool_choice config with
+  | Error _ as error -> error
+  | Ok () ->
+    let caps = tool_choice_capabilities_for_config config in
+    validate_tool_choice_request_with_capabilities
+      ~provider_kind:config.kind
+      ~model_id:config.model_id
+      ~tool_choice:config.tool_choice
+      caps
 ;;
 
 let validate_tool_choice_request config =

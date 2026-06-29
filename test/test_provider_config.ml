@@ -443,6 +443,41 @@ let test_validate_kimi_k27_rejects_forced_tool_choice () =
     (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.None_)))
 ;;
 
+let test_validate_anthropic_thinking_rejects_forced_tool_choice () =
+  let cfg ?(enable_thinking = true) tool_choice =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ~enable_thinking
+      ~tool_choice
+      ()
+  in
+  check_bool
+    "thinking + named forced tool_choice rejects"
+    true
+    (Result.is_error
+       (Provider_config.validate_tool_choice_request (cfg (Types.Tool "lookup"))));
+  check_bool
+    "thinking + required forced tool_choice rejects"
+    true
+    (Result.is_error (Provider_config.validate_tool_choice_request (cfg Types.Any)));
+  check_bool
+    "thinking + auto tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.Auto)));
+  check_bool
+    "thinking + none tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.None_)));
+  check_bool
+    "non-thinking forced tool_choice remains accepted"
+    true
+    (Result.is_ok
+       (Provider_config.validate_tool_choice_request
+          (cfg ~enable_thinking:false (Types.Tool "lookup"))))
+;;
+
 (* ── make: headers default ────────────────────────────── *)
 
 let test_default_headers () =
@@ -1241,6 +1276,10 @@ let () =
             "kimi k2.7 forced tool_choice rejected"
             `Quick
             test_validate_kimi_k27_rejects_forced_tool_choice
+        ; Alcotest.test_case
+            "anthropic thinking forced tool_choice rejected"
+            `Quick
+            test_validate_anthropic_thinking_rejects_forced_tool_choice
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip

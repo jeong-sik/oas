@@ -127,6 +127,26 @@ let test_anthropic_disabled_thinking_omits_adaptive_effort () =
     (json |> member "output_config" = `Null)
 ;;
 
+let test_anthropic_thinking_forced_tool_choice_rejected_before_request () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ~enable_thinking:true
+      ~tool_choice:Any
+      ()
+  in
+  Alcotest.check_raises
+    "thinking + forced tool_choice fails before JSON body serialization"
+    (Invalid_argument
+       "Backend_anthropic.build_request: anthropic model \"claude-sonnet-4-6\" does not \
+        support required forced tool_choice when thinking is enabled; use auto/none or \
+        disable thinking")
+    (fun () ->
+       ignore (BA.build_request ~config ~messages:[ user_msg "think with a tool" ] ()))
+;;
+
 let test_anthropic_stream_flag () =
   let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
@@ -1208,6 +1228,10 @@ let () =
             "disabled thinking omits adaptive effort"
             `Quick
             test_anthropic_disabled_thinking_omits_adaptive_effort
+        ; test_case
+            "thinking forced tool_choice rejected before request"
+            `Quick
+            test_anthropic_thinking_forced_tool_choice_rejected_before_request
         ; test_case "with output schema" `Quick test_anthropic_output_schema
         ; test_case
             "with json schema response_format"

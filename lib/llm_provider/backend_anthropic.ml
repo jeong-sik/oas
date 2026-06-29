@@ -142,6 +142,9 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
+  (match Provider_config.validate_tool_choice_request config with
+   | Ok () -> ()
+   | Error reason -> invalid_arg ("Backend_anthropic.build_request: " ^ reason));
   let caps =
     match Capabilities.for_model_id config.model_id with
     | Some caps -> caps
