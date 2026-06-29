@@ -308,6 +308,37 @@ let stop_reason_of_string = function
   | other -> Unknown other
 ;;
 
+(* Canonical wire serialization of [stop_reason]: the exact inverse of
+   [stop_reason_of_string]. [stop_reason_of_string (stop_reason_to_string r) = r]
+   holds for every constructor (with the inherent caveat that [Unknown s]
+   collapses to its decoded constructor when [s] is itself a known wire token).
+   SSOT for stop-reason wire strings — callers must delegate here instead of
+   re-spelling the literals, which previously drifted across modules
+   (e.g. "tool_use" vs "stop_tool_use"). *)
+let stop_reason_to_string = function
+  | EndTurn -> "end_turn"
+  | StopToolUse -> "tool_use"
+  | MaxTokens -> "max_tokens"
+  | StopSequence -> "stop_sequence"
+  | Refusal -> "refusal"
+  | PauseTurn -> "pause_turn"
+  | Compaction -> "compaction"
+  | ContextWindowExceeded -> "model_context_window_exceeded"
+  | Unknown s -> s
+;;
+
+(* Stable, low-cardinality telemetry label for [stop_reason]. Identical to
+   [stop_reason_to_string] except [Unknown _] collapses to the constant
+   ["unknown"] so provider-supplied raw strings cannot explode metric-label
+   cardinality. Use for Otel/metric labels; use [stop_reason_to_string] for
+   wire/round-trip serialization. The explicit constructor list (rather than a
+   wildcard) forces a compile error if a new [stop_reason] variant is added. *)
+let stop_reason_to_metric_label = function
+  | Unknown _ -> "unknown"
+  | ( EndTurn | StopToolUse | MaxTokens | StopSequence | Refusal | PauseTurn
+    | Compaction | ContextWindowExceeded ) as r -> stop_reason_to_string r
+;;
+
 (** API usage from a single response *)
 type api_usage =
   { input_tokens : int

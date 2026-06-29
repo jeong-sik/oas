@@ -35,17 +35,8 @@ let text_of_response (resp : api_response) =
   |> String.concat "\n"
 ;;
 
-let stop_reason_to_string = function
-  | EndTurn -> "end_turn"
-  | StopToolUse -> "tool_use"
-  | MaxTokens -> "max_tokens"
-  | StopSequence -> "stop_sequence"
-  | Refusal -> "refusal"
-  | PauseTurn -> "pause_turn"
-  | Compaction -> "compaction"
-  | ContextWindowExceeded -> "model_context_window_exceeded"
-  | Unknown s -> s
-;;
+(* stop_reason wire serialization is the SSOT [Types.stop_reason_to_string]
+   (this module's former local copy was byte-identical). *)
 
 let api_usage_to_json = function
   | None -> `Null
@@ -116,7 +107,7 @@ let child_output_to_json output =
     [ "type", `String "agent_tool_child_output"
     ; "response_id", `String response.id
     ; "model", `String response.model
-    ; "stop_reason", `String (stop_reason_to_string response.stop_reason)
+    ; "stop_reason", `String (Types.stop_reason_to_string response.stop_reason)
     ; "text", `String output.text
     ; "content", `List (List.map content_block_to_json response.content)
     ; "usage", api_usage_to_json response.usage
