@@ -1130,12 +1130,17 @@ let%test "glm build_request drops tool_choice when unsupported" =
   | _ -> false
 ;;
 
-let%test "glm build_request replays reasoning_content without leaking it into content" =
+let%test
+    "glm build_request replays reasoning_content under preserved thinking without \
+     leaking it into content"
+  =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
       ~model_id:"glm-5.1"
       ~base_url:Zai_catalog.coding_base_url
+      ~enable_thinking:true
+      ~preserve_thinking:true
       ()
   in
   let messages =
