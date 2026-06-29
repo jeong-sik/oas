@@ -30,9 +30,9 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **이미 drift한 2중/3중 builder.** OpenAI-compat thinking-request body가 `lib/api_openai.ml`과 `lib/llm_provider/backend_openai_request.ml`에 각각 재구현돼 *실질적으로 갈라짐* (`clear_thinking`이 agent_sdk 경로에선 하드코딩 `true`, 다른 경로에선 config-driven). N-of-M workaround 시그니처가 물질화된 사례 — `#2228`이 preserve 축을 *양쪽 모두*에 추가(41+40줄)했지 통합하지 않았다.
 - **typed kind로 1회 승격하지 않고 런타임에 재유도되는 string 분류기.** GLM-ness가 `String.starts_with ~prefix:"glm-"`로 모듈마다 재평가되어 serializer를 분기하고, typed `replay_policy`를 우회한다(GLM은 `No_replay`로 resolve되어 죽은 값).
 - **typed 레이어가 제거한 휴리스틱을 다시 들여오는 lenient/repair shell.** `tool_use_recovery.ml`이 자유 텍스트에서 JSON tool call을 긁어내고 `Lenient_json` bracket/keyword completion 후 실행한다 (repair-on-read + JSON 휴리스틱).
-- **closed sum이 가능한 자리의 string 판별 + silent `_ -> None` drop.** stream finalizer가 `content_type`을 raw string으로 match하고 catch-all로 unknown/multimodal output block을 조용히 버린다(`Ok` 반환).
+- **closed sum이 가능한 자리의 string 판별 + silent `_ -> None` drop.** historical stream finalizer drift는 `content_type` raw-string match + catch-all drop이었다. Current branch ancestry already adds `block_kind`, `Unknown_block`, and typed SSE parse/unknown-event errors, so remaining D3 work must be policy-specific rather than a wholesale redo.
 - **같은 사실의 두 번째 SSOT.** 중복 stream accumulator(`lib/streaming.ml`, 자체 WORKAROUND 라벨, RFC/removal target 없음)가 reconcile + partial-tool-drop fix를 결여.
-- **doc/typed surface가 배포 모델에 뒤처짐.** GLM이 Kimi `No_thinking_control`로 오모델링; MiniMax M2/M3 미커버; Claude `tool_choice`-forcing-400 미모델, audit-reported `thinking.display` gap(공식 source refresh 필요), `Reasoning_effort` enum에 stale `Minimal`, `none` 누락.
+- **doc/typed surface가 배포 모델에 뒤처짐.** GLM이 Kimi `No_thinking_control`로 오모델링; MiniMax M2/M3 catalog rows exist but replay/tool-choice facts are under-sourced; Claude `tool_choice`-forcing-400 미모델, audit-reported `thinking.display` gap(공식 source refresh 필요), `Reasoning_effort` enum에 stale `Minimal`, `none` 누락.
 
 ## 2. The Standard (검증 가능한 불변식)
 
@@ -60,7 +60,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **S4.3 (untyped == typed).** untyped handler는 typed parser에 위임하고 그 `Error`를 전파한다. "input 전체를 prompt로 직렬화"하는 fallback 금지.
 
 ### S5 — Forced tool use
-- **S5.1 (forced-tool 제약은 provider별 typed).** `tool_choice` forcing capability는 provider에 대해 exhaustive한 capability 사실이다. 알려진 제약을 런타임 400으로 발견하지 말고 typed 사실로 노출: thinking active인 Anthropic은 `any`/`{tool,name}` 거부; Z.AI/GLM은 `auto`만; MiniMax는 `none`/`auto`만.
+- **S5.1 (forced-tool 제약은 provider별 typed).** `tool_choice` forcing capability는 provider에 대해 exhaustive한 capability 사실이다. 알려진 제약을 런타임 400으로 발견하지 말고 typed 사실로 노출: thinking active인 Anthropic은 `any`/`{tool,name}` 거부; Z.AI/GLM은 `auto`만. MiniMax `none`/`auto` restriction is audit-reported here and requires official/live evidence before implementation authority.
 - **S5.2 (capability flag와 builder 일치).** `supports_tool_choice=false`면 request builder가 named/`required` `tool_choice`를 내면 안 된다. **Test**.
 
 ### S6 — Interleaved / streaming
@@ -94,7 +94,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 |---|---|---|---|---|
 | P1 | D1-dup-thinking-builder-glm-drift | ssot | api_openai.ml:232-309; backend_openai_request.ml:300-358 | S2.1 |
 | P1 | D1-glm-replay-hardcoded-heuristic | heuristic | backend_openai_serialize.ml:228-246; api_openai.ml:193-195; backend_openai_request.ml:209-223 | S3.1 |
-| P1 | D3-finalize-content-type-string-catchall-silent-drop | string_match/silent | complete_stream_acc.ml:145-214 | S6.1 |
+| P1 | D3-finalize-content-type-string-catchall-silent-drop | partial: policy gap after typed block-kind conversion | complete_stream_acc.ml:118-140,237-244,675-700,746-756 | S6.1 |
 | P2 | D6-glm-identity-string-classifier-scattered | string_match | zai_catalog.ml:11-13; backend_glm.ml:92-136; backend_openai_request.ml:163-357 | S1.1, S9.2 |
 | P2 | D2-budget-to-effort-triplicated | ssot/hardcode | reasoning_effort.ml:26-33; backend_anthropic.ml:48-53; backend_gemini.ml:45-50 | S2.2 |
 | P2 | D5-anthropic-thinkmode-hardcoded-prefix-table | hardcode | capabilities.ml:182-221 | S1.2 |
@@ -125,7 +125,7 @@ items.
 | Sev | Provider / field | OAS now | Official | Standard |
 |---|---|---|---|---|
 | P1 | **GLM dialect** (recurs ×4 sources) | Kimi `No_thinking_control` | Z.AI docs show top-level `thinking:{type,clear_thinking}`, `reasoning_content`, GLM-5.2 `reasoning_effort` (default `max`), and ordered unmodified replay when `clear_thinking=false` | S1.4, S3.2 |
-| P1 | **MiniMax M2/M3** (recurs) | uncovered → `No_replay` default | audit artifact claims always-on thinking/replay and restricted `tool_choice`, but this PR has no independent official source capture yet; treat implementation as blocked until refreshed | S1.4 |
+| P1 | **MiniMax M2/M3** (recurs) | catalog rows exist, but replay/tool-choice semantics are not sourced row-by-row here | audit artifact claims always-on thinking/replay and restricted `tool_choice`, but this PR has no independent official source capture yet; treat implementation as blocked until refreshed | S1.4 |
 | P1 | **Anthropic `thinking.display`** | never emitted | audit artifact reports default `omitted`/`summarized` drift; official source capture required before implementation | S8.3 |
 | P1 | **Anthropic tool_choice vs thinking** | forced tool_choice unguarded | `any`/`{tool,name}` ⇒ 400 when thinking active | S5.1 |
 | P1 | **OpenAI `reasoning_effort` enum** | `Minimal\|Low\|Medium\|High\|XHigh`, no `None` | official docs say accepted values are model-dependent and can include `none`, `minimal`, `low`, `medium`, `high`, `xhigh`; OAS needs vocabulary + model subset, not one provider-wide enum | S2.3 |
@@ -166,7 +166,7 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 ### 먼저 (keystone, 가장 많이 unblock)
 1. **RFC-OAS-023 — GLM typed dialect reshape.** GLM-ness를 typed kind/capability로 1회 승격, `replay_policy`와 `Thinking_object`-style thinking-control variant 부여, 그 다음 2중/3중 thinking builder(S2.1)와 2중 `clear_thinking` helper(S9.2) 통합. 이 reshape 하나가 `D1-glm-replay-hardcoded-heuristic`(P1), `D6`(P2), GLM-row doc gap(P1×4), GLM effort/tool_choice/caps drift를 닫고 `is_glm_request` string fork를 제거한다. `D1-dup-thinking-builder-glm-drift`가 *re-drift 없이* 고쳐지려면 통합 builder가 string이 아니라 typed GLM dialect로 switch해야 하므로 이게 선행조건.
 2. **thinking-request builder 통합 (D1-dup, P1)** — (1) 직후/내부. `thinking_request_fields` 하나로. GLM clear_thinking drift는 agent_sdk 경로의 live wire-byte 정합성 버그.
-3. **content_type closed variant at stream boundary (D3-finalize, P1)** — GLM과 독립, streaming blast radius 최대(server-tool/multimodal output block의 silent drop을 `Ok`로 반환). `content_block_kind` 도입, 1회 변환, unknown fail closed.
+3. **content_type stream-boundary policy completion (D3-finalize, P1, partial)** — GLM과 독립, streaming blast radius 최대. Current branch ancestry already converts the wire `content_type` to `block_kind`, handles `Unknown_block` explicitly, and routes `SSEUnknownEventType`/parse failures to typed stream errors. Remaining work is narrower: decide and test the final parse/finalize policy for unknown content-block kinds that currently preserve visible text or omit empty blocks, and make that boundary fail closed if S6.1 chooses fail-closed over forward-compatible rendering.
 
 ### 다음 (배포/사용 surface의 정합성 drift)
 4. OpenAI enum + replay drift (P1×2) — `none`/`minimal`/`xhigh` 등을 model-dependent vocabulary/subset으로 분리하고 tool-turn mandatory replay를 모델링. GPT-5.5 multi-turn tool loop에 현재 영향.
@@ -176,6 +176,7 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 
 ### 미뤄도 안전 (latent, 현재 배포 모델 트리거 없음) — typed cleanup으로 batch
 - `D2-budget-to-effort-triplicated`, `D5-anthropic-thinkmode-hardcoded-prefix-table`, `D4-provider-preset-stale-numeric-limits` (SSOT/hardcode 부채; 현재 값이 일치해 active break 없음 — catalog-field RFC로 fold).
+- **Partially closed before this RFC update (do not redo wholesale)**: `D3-finalize` already has the `block_kind` conversion, explicit `Unknown_block` handling, and typed `SSEUnknownEventType`/parse-error propagation in `Complete_stream_acc`; keep only the residual policy/test work listed above.
 - **Closed before this RFC update (do not redo)**: `D-TOOLS-6`(agent_tool typed delegation), `D-TOOLS-9`(harness unknown schema type fail-closed), and `D-TOOLS-8`(deterministic recovery id) are historical violations already fixed in the current branch ancestry. They remain evidence for the standard, not open backlog.
 - **Direct, RFC 불필요, 저위험 (언제든)**: `D4-test-only-normalize-effort-wrapper` should be narrowed to any truly dead wrapper only; keep `Reasoning_dialect.normalize_effort_value`, which is a live backend dependency required by S2.2. Also: `D7-anthropic-prefix-list-literal-duplicates`(dedupe), `D4-budget-magic-defaults-silent`, `D8-manifest-precedence` 문서/테스트, Kimi visibility 사실.
 - `D7-gemini-family-leaks-second-string-match`(P3) + Gemini `supports_medium`/`thoughtSignature` strictness: 단일 Gemini variant reshape로 fold.
