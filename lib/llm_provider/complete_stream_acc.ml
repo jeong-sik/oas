@@ -919,14 +919,32 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
   | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
-let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
-  (* Non-truncated turn: an unparseable buffer still falls back to empty input
-     (existing behavior). Truncation is handled by the MaxTokens guard, below. *)
+let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
+  (* Non-truncated turn: a non-empty argument buffer that fails to parse is a
+     malformed tool call and surfaces a typed [Stream_parse_failed] rather than
+     silently coercing to empty arguments (RFC-OAS-029 S8: no silent permissive
+     default). Truncation is handled by the MaxTokens guard, below. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
   let buf = Buffer.create 16 in
   Buffer.add_string buf "not valid json";
   Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = "" && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+;;
+
+let%test "finalize_stream_acc keeps empty tool_use arguments as empty object" =
+  (* An empty argument buffer is the legitimate no-arguments call and must
+     remain [`Assoc []] (not be treated as malformed). *)
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "now";
   match
     acc.stop_reason_received := true;
     finalize_stream_acc acc
