@@ -27,6 +27,12 @@ type content_shape =
   | Mixed_without_deliverable_content
   | Has_deliverable_content
 
+(** [summarize_blocks blocks] computes the redacted shape counts over a bare
+    content-block list, independent of any response envelope. This is the core
+    of {!summarize}: [summarize r = summarize_blocks r.content]. Counts only
+    (lengths/counts; never the underlying text/thinking/tool payloads). *)
+val summarize_blocks : Types.content_block list -> t
+
 val summarize : Types.api_response -> t
 val content_shape : Types.api_response -> t -> content_shape
 val content_shape_to_string : content_shape -> string

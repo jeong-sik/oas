@@ -475,6 +475,11 @@
  (libraries agent_sdk llm_provider alcotest))
 
 (test
+ (name test_canonical_projections)
+ (modules test_canonical_projections)
+ (libraries agent_sdk llm_provider alcotest))
+
+(test
  (name test_telemetry_event)
  (modules test_telemetry_event)
  (libraries agent_sdk llm_provider alcotest eio_main))

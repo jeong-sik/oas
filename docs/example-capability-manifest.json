@@ -50,6 +50,7 @@
       "supports_tool_choice": true,
       "supports_reasoning": true,
       "supports_extended_thinking": true,
+      "assistant_tool_content_format": "empty_string",
       "supports_native_streaming": true
     },
     {
@@ -62,6 +63,7 @@
       "supports_tool_choice": true,
       "supports_reasoning": true,
       "supports_extended_thinking": true,
+      "assistant_tool_content_format": "empty_string",
       "supports_native_streaming": true
     },
     {
@@ -74,6 +76,7 @@
       "supports_tool_choice": true,
       "supports_reasoning": true,
       "supports_extended_thinking": true,
+      "assistant_tool_content_format": "empty_string",
       "supports_native_streaming": true
     },
     {

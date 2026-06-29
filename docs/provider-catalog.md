@@ -153,6 +153,7 @@ The `capabilities` object accepts the same capability field names used by
 
 - `max_context_tokens`, `max_output_tokens`
 - `supports_tools`, `supports_tool_choice`, `supports_parallel_tool_calls`
+- `assistant_tool_content_format`
 - `supports_runtime_mcp_tools`, `supports_runtime_tool_events`
 - `supports_reasoning`, `supports_extended_thinking`, `supports_reasoning_budget`
 - `thinking_control_format`, `preserve_thinking_control_format`
@@ -183,6 +184,11 @@ Accepted `preserve_thinking_control_format` values are:
 - `chat_template_kwargs_preserve_thinking`
 - `top_level_preserve_thinking`
 - `always_preserved` (historical reasoning must be replayed; no request field)
+
+Accepted `assistant_tool_content_format` values are:
+
+- `null` (`content: null` for assistant tool-call messages with no visible text)
+- `empty_string` (`content: ""` for assistant tool-call messages with no visible text)
 
 ## External Design References
 
