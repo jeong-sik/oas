@@ -541,6 +541,69 @@ let test_ollama_cloud_current_catalog_resolves () =
     cases
 ;;
 
+let test_ollama_cloud_grouped_so_rows_have_required_axes () =
+  (* Live grouped SO smokes for these Ollama Cloud rows exercise the same
+     production workflow: tool call -> tool_result replay -> final
+     response_format/json_schema answer while reasoning may stream on a side
+     channel. The catalog must not regress any one of those axes to a generic
+     text-only or no-structured-output profile. *)
+  let cases =
+    [ "qwen3.5:397b"
+    ; "gemma4:31b"
+    ; "kimi-k2.7-code"
+    ; "minimax-m3"
+    ; "nemotron-3-ultra"
+    ; "deepseek-v4-flash"
+    ; "deepseek-v4-pro"
+    ; "glm-5.2"
+    ; "gpt-oss:20b"
+    ; "gpt-oss:120b"
+    ]
+  in
+  List.iter
+    (fun model_id ->
+       match
+         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+       with
+       | None -> failf "ollama_cloud/%s should resolve" model_id
+       | Some c ->
+         check bool (model_id ^ " tools") true c.supports_tools;
+         check bool (model_id ^ " reasoning") true c.supports_reasoning;
+         check bool (model_id ^ " extended thinking") true c.supports_extended_thinking;
+         check bool (model_id ^ " native streaming") true c.supports_native_streaming;
+         check
+           bool
+           (model_id ^ " json response format")
+           true
+           c.supports_response_format_json;
+         check bool (model_id ^ " structured output") true c.supports_structured_output;
+         check_thinking_control
+           (model_id ^ " uses Ollama native think")
+           Capabilities.Ollama_think
+           c.thinking_control_format;
+         check
+           bool
+           (model_id ^ " visible-text reasoning override")
+           true
+           (c.reasoning_visibility_override = Capabilities.Force_visible_text))
+    cases
+;;
+
+let test_ollama_cloud_kimi_preserves_historical_reasoning () =
+  match
+    Capabilities.for_provider_model_id
+      ~provider_label:"ollama_cloud"
+      ~model_id:"kimi-k2.7-code"
+  with
+  | None -> fail "ollama_cloud/kimi-k2.7-code should resolve"
+  | Some c ->
+    check
+      bool
+      "Kimi Cloud preserves all reasoning"
+      true
+      (c.reasoning_replay_override = Capabilities.Force_preserve_always)
+;;
+
 let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let open Capabilities in
   let bare_glm =
@@ -1293,6 +1356,14 @@ let () =
             "ollama cloud current catalog"
             `Quick
             test_ollama_cloud_current_catalog_resolves
+        ; test_case
+            "ollama cloud grouped SO rows keep required axes"
+            `Quick
+            test_ollama_cloud_grouped_so_rows_have_required_axes
+        ; test_case
+            "ollama cloud Kimi preserves historical reasoning"
+            `Quick
+            test_ollama_cloud_kimi_preserves_historical_reasoning
         ; test_case
             "ollama cloud preserves shared bare families"
             `Quick
