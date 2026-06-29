@@ -224,6 +224,12 @@ let parse_entry json =
       ~allowed:preserve_thinking_control_format_values
       json
   in
+  let* reasoning_replay =
+    canonical_choice
+      "reasoning_replay"
+      ~allowed:Capability_vocab.reasoning_replay_values
+      json
+  in
   Ok
     { id_prefix
     ; base_label = member_string_opt "base" json
@@ -253,7 +259,7 @@ let parse_entry json =
     ; thinking_control_format
     ; preserve_thinking_control_format
     ; reasoning_visibility = member_string_opt "reasoning_visibility" json
-    ; reasoning_replay = member_string_opt "reasoning_replay" json
+    ; reasoning_replay
     }
 ;;
 

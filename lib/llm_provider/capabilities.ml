@@ -59,7 +59,7 @@ type reasoning_visibility_override =
     replaying [reasoning_content] on every turn, so [Force_preserve_always]).
 
     @since 0.207.16 *)
-type reasoning_replay_override =
+type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
   | Force_drop_without_tool_preserve_with_tool
@@ -610,13 +610,7 @@ let reasoning_visibility_override_of_catalog_string raw =
 ;;
 
 let reasoning_replay_override_of_catalog_string raw =
-  match String.lowercase_ascii (String.trim raw) with
-  | "" | "default" -> Some Default_reasoning_replay
-  | "no_replay" -> Some Force_no_replay
-  | "drop_without_tool" | "drop_without_tool_preserve_with_tool" ->
-    Some Force_drop_without_tool_preserve_with_tool
-  | "preserve_always" -> Some Force_preserve_always
-  | _ -> None
+  Capability_vocab.reasoning_replay_override_of_string raw
 ;;
 
 let modality_priority_of_catalog_string raw =
@@ -713,7 +707,9 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
        | Some s ->
          (match reasoning_replay_override_of_catalog_string s with
           | Some replay -> replay
-          | None -> base.reasoning_replay_override)
+          | None ->
+            warn_unknown_capability_value ~field:"reasoning_replay" s;
+            base.reasoning_replay_override)
        | None -> base.reasoning_replay_override)
   }
 ;;
@@ -863,7 +859,9 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
        | Some s ->
          (match reasoning_replay_override_of_catalog_string s with
           | Some replay -> replay
-          | None -> base.reasoning_replay_override)
+          | None ->
+            warn_unknown_capability_value ~field:"reasoning_replay" s;
+            base.reasoning_replay_override)
        | None -> base.reasoning_replay_override)
   }
 ;;

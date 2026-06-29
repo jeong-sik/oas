@@ -46,6 +46,23 @@ let find_string_opt toml path =
   | exception Otoml.Type_error _ -> None
 ;;
 
+let canonical_string_opt ~entry_id key ~allowed toml =
+  match find_string_opt toml [ key ] with
+  | None -> Ok None
+  | Some raw ->
+    let normalized = String.lowercase_ascii (String.trim raw) in
+    if List.mem normalized allowed
+    then Ok (Some raw)
+    else
+      Error
+        (Printf.sprintf
+           "model entry %S field %S has unknown value %S (canonical: %s)"
+           entry_id
+           key
+           normalized
+           (String.concat ", " allowed))
+;;
+
 let find_bool_opt toml path =
   match Otoml.find_opt toml Otoml.get_boolean path with
   | Some b -> Some b
@@ -71,50 +88,63 @@ let parse_entry entry_toml =
   match find_string_opt entry_toml [ "id_prefix" ] with
   | None -> Error "model entry missing required \"id_prefix\" field"
   | Some id_prefix ->
-    Ok
-      { id_prefix = String.trim id_prefix
-      ; base_label = find_string_opt entry_toml [ "base" ]
-      ; max_context_tokens = find_int_opt entry_toml [ "max_context_tokens" ]
-      ; max_output_tokens = find_int_opt entry_toml [ "max_output_tokens" ]
-      ; supports_tools = find_bool_opt entry_toml [ "supports_tools" ]
-      ; supports_tool_choice = find_bool_opt entry_toml [ "supports_tool_choice" ]
-      ; supports_parallel_tool_calls =
-          find_bool_opt entry_toml [ "supports_parallel_tool_calls" ]
-      ; supports_reasoning = find_bool_opt entry_toml [ "supports_reasoning" ]
-      ; supports_extended_thinking =
-          find_bool_opt entry_toml [ "supports_extended_thinking" ]
-      ; supports_reasoning_budget =
-          find_bool_opt entry_toml [ "supports_reasoning_budget" ]
-      ; supports_response_format_json =
-          find_bool_opt entry_toml [ "supports_response_format_json" ]
-      ; supports_structured_output =
-          find_bool_opt entry_toml [ "supports_structured_output" ]
-      ; supports_multimodal_inputs =
-          find_bool_opt entry_toml [ "supports_multimodal_inputs" ]
-      ; supports_image_input = find_bool_opt entry_toml [ "supports_image_input" ]
-      ; supports_audio_input = find_bool_opt entry_toml [ "supports_audio_input" ]
-      ; supports_video_input = find_bool_opt entry_toml [ "supports_video_input" ]
-      ; modality_priority = find_string_opt entry_toml [ "modality_priority" ]
-      ; supports_native_streaming =
-          find_bool_opt entry_toml [ "supports_native_streaming" ]
-      ; supports_system_prompt = find_bool_opt entry_toml [ "supports_system_prompt" ]
-      ; supports_caching = find_bool_opt entry_toml [ "supports_caching" ]
-      ; supports_prompt_caching = find_bool_opt entry_toml [ "supports_prompt_caching" ]
-      ; supports_top_k = find_bool_opt entry_toml [ "supports_top_k" ]
-      ; supports_min_p = find_bool_opt entry_toml [ "supports_min_p" ]
-      ; supports_seed = find_bool_opt entry_toml [ "supports_seed" ]
-      ; supports_computer_use = find_bool_opt entry_toml [ "supports_computer_use" ]
-      ; supports_code_execution = find_bool_opt entry_toml [ "supports_code_execution" ]
-      ; thinking_control_format = find_string_opt entry_toml [ "thinking_control_format" ]
-      ; preserve_thinking_control_format =
-          find_string_opt entry_toml [ "preserve_thinking_control_format" ]
-      ; reasoning_visibility = find_string_opt entry_toml [ "reasoning_visibility" ]
-      ; reasoning_replay = find_string_opt entry_toml [ "reasoning_replay" ]
-      ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]
-      ; output_per_million = find_float_opt entry_toml [ "output_per_million" ]
-      ; cache_write_multiplier = find_float_opt entry_toml [ "cache_write_multiplier" ]
-      ; cache_read_multiplier = find_float_opt entry_toml [ "cache_read_multiplier" ]
-      }
+    let id_prefix = String.trim id_prefix in
+    (match
+       canonical_string_opt
+         ~entry_id:id_prefix
+         "reasoning_replay"
+         ~allowed:Capability_vocab.reasoning_replay_values
+         entry_toml
+     with
+     | Error _ as e -> e
+     | Ok reasoning_replay ->
+       Ok
+         { id_prefix
+         ; base_label = find_string_opt entry_toml [ "base" ]
+         ; max_context_tokens = find_int_opt entry_toml [ "max_context_tokens" ]
+         ; max_output_tokens = find_int_opt entry_toml [ "max_output_tokens" ]
+         ; supports_tools = find_bool_opt entry_toml [ "supports_tools" ]
+         ; supports_tool_choice = find_bool_opt entry_toml [ "supports_tool_choice" ]
+         ; supports_parallel_tool_calls =
+             find_bool_opt entry_toml [ "supports_parallel_tool_calls" ]
+         ; supports_reasoning = find_bool_opt entry_toml [ "supports_reasoning" ]
+         ; supports_extended_thinking =
+             find_bool_opt entry_toml [ "supports_extended_thinking" ]
+         ; supports_reasoning_budget =
+             find_bool_opt entry_toml [ "supports_reasoning_budget" ]
+         ; supports_response_format_json =
+             find_bool_opt entry_toml [ "supports_response_format_json" ]
+         ; supports_structured_output =
+             find_bool_opt entry_toml [ "supports_structured_output" ]
+         ; supports_multimodal_inputs =
+             find_bool_opt entry_toml [ "supports_multimodal_inputs" ]
+         ; supports_image_input = find_bool_opt entry_toml [ "supports_image_input" ]
+         ; supports_audio_input = find_bool_opt entry_toml [ "supports_audio_input" ]
+         ; supports_video_input = find_bool_opt entry_toml [ "supports_video_input" ]
+         ; modality_priority = find_string_opt entry_toml [ "modality_priority" ]
+         ; supports_native_streaming =
+             find_bool_opt entry_toml [ "supports_native_streaming" ]
+         ; supports_system_prompt = find_bool_opt entry_toml [ "supports_system_prompt" ]
+         ; supports_caching = find_bool_opt entry_toml [ "supports_caching" ]
+         ; supports_prompt_caching =
+             find_bool_opt entry_toml [ "supports_prompt_caching" ]
+         ; supports_top_k = find_bool_opt entry_toml [ "supports_top_k" ]
+         ; supports_min_p = find_bool_opt entry_toml [ "supports_min_p" ]
+         ; supports_seed = find_bool_opt entry_toml [ "supports_seed" ]
+         ; supports_computer_use = find_bool_opt entry_toml [ "supports_computer_use" ]
+         ; supports_code_execution =
+             find_bool_opt entry_toml [ "supports_code_execution" ]
+         ; thinking_control_format =
+             find_string_opt entry_toml [ "thinking_control_format" ]
+         ; preserve_thinking_control_format =
+             find_string_opt entry_toml [ "preserve_thinking_control_format" ]
+         ; reasoning_visibility = find_string_opt entry_toml [ "reasoning_visibility" ]
+         ; reasoning_replay
+         ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]
+         ; output_per_million = find_float_opt entry_toml [ "output_per_million" ]
+         ; cache_write_multiplier = find_float_opt entry_toml [ "cache_write_multiplier" ]
+         ; cache_read_multiplier = find_float_opt entry_toml [ "cache_read_multiplier" ]
+         })
 ;;
 
 let load_file path =

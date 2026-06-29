@@ -48,7 +48,7 @@ type reasoning_visibility_override =
   | Force_visible_channel
   | Force_visible_text
 
-type reasoning_replay_override =
+type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
   | Force_drop_without_tool_preserve_with_tool
