@@ -82,6 +82,23 @@ val chat_template_kwargs_preserve_field
 val top_level_preserve_field : t -> preserve_thinking:bool option -> bool option
 val ignores_sampling_param : t -> enable_thinking:bool option -> string -> bool
 
+(** Canonical OpenAI-compatible thinking-control request fields for a dialect.
+
+    This is the single source of truth for the request-body fields emitted by
+    both the low-level [Provider_config]-based builder and the legacy
+    [agent_state]-based API builder. [zai_glm_clear_thinking] is only used for
+    ZAI GLM's historical [No_toggle] transport, where GLM still accepts a
+    provider-specific [thinking] object. *)
+val request_control_fields
+  :  t
+  -> enable_thinking:bool option
+  -> preserve_thinking:bool option
+  -> thinking_budget:int option
+  -> reasoning_effort:Reasoning_effort.t option
+  -> ?zai_glm_clear_thinking:bool
+  -> unit
+  -> (string * Yojson.Safe.t) list
+
 (** Normalize a typed caller effort for a provider dialect. *)
 val normalize_effort_value : t -> Reasoning_effort.t -> string option
 

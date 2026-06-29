@@ -204,6 +204,85 @@ let ignores_sampling_param dialect ~enable_thinking field =
   | Ignored_when_thinking params -> List.mem field params
 ;;
 
+let bool_field name = function
+  | Some value -> [ name, `Bool value ]
+  | None -> []
+;;
+
+let request_control_fields
+      dialect
+      ~enable_thinking
+      ~preserve_thinking
+      ~thinking_budget
+      ~reasoning_effort
+      ?zai_glm_clear_thinking
+      ()
+  =
+  let normalized_effort_field () =
+    match reasoning_effort with
+    | Some effort ->
+      (match normalize_effort_value dialect effort with
+       | Some normalized -> [ "reasoning_effort", `String normalized ]
+       | None -> [])
+    | None -> []
+  in
+  match dialect.toggle_wire with
+  | Chat_template_kwargs ->
+    (match
+       bool_field "enable_thinking" enable_thinking
+       @ bool_field
+           "preserve_thinking"
+           (chat_template_kwargs_preserve_field dialect ~preserve_thinking)
+     with
+     | [] -> []
+     | fields -> [ "chat_template_kwargs", `Assoc fields ])
+  | Chat_template_token | Ollama_think -> []
+  | Enable_thinking ->
+    let fields =
+      bool_field "enable_thinking" enable_thinking
+      @ bool_field
+          "preserve_thinking"
+          (top_level_preserve_field dialect ~preserve_thinking)
+    in
+    let fields =
+      match enable_thinking, thinking_budget with
+      | Some true, Some budget -> ("thinking_budget", `Int budget) :: fields
+      | _ -> fields
+    in
+    fields
+  | Reasoning_effort -> normalized_effort_field ()
+  | Thinking_object _ ->
+    (match enable_thinking with
+     | Some true ->
+       ("thinking", `Assoc [ "type", `String "enabled" ]) :: normalized_effort_field ()
+     | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+     | None -> [])
+  | Thinking_object_only ->
+    let control =
+      thinking_object_only_control dialect ~enable_thinking ~preserve_thinking
+    in
+    let fields =
+      match control.enabled with
+      | Some enabled -> [ "type", `String (if enabled then "enabled" else "disabled") ]
+      | None -> []
+    in
+    let fields =
+      if control.keep_all then fields @ [ "keep", `String "all" ] else fields
+    in
+    (match fields with
+     | [] -> []
+     | fields -> [ "thinking", `Assoc fields ])
+  | No_toggle ->
+    (match zai_glm_clear_thinking, enable_thinking with
+     | Some clear_thinking, Some true ->
+       [ ( "thinking"
+         , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
+       ]
+     | Some _, Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+     | Some _, None | None, _ -> [])
+  | Anthropic_thinking | Gemini_thinking_config -> []
+;;
+
 let provider_capabilities_of_kind kind =
   kind
   |> Provider_config.string_of_provider_kind
@@ -393,4 +472,58 @@ let%test
   let dialect = of_capabilities Capabilities.kimi_capabilities in
   should_replay_reasoning dialect ~assistant_had_tool_call:false
   && should_replay_reasoning dialect ~assistant_had_tool_call:true
+;;
+
+let%test "request_control_fields emits qwen chat_template kwargs" =
+  let dialect =
+    of_capabilities
+      { Capabilities.default_capabilities with
+        supports_reasoning = true
+      ; thinking_control_format = Capabilities.Chat_template_kwargs
+      ; preserve_thinking_control_format =
+          Capabilities.Chat_template_kwargs_preserve_thinking
+      }
+  in
+  request_control_fields
+    dialect
+    ~enable_thinking:(Some false)
+    ~preserve_thinking:(Some true)
+    ~thinking_budget:None
+    ~reasoning_effort:None
+    ()
+  = [ ( "chat_template_kwargs"
+      , `Assoc [ "enable_thinking", `Bool false; "preserve_thinking", `Bool true ] )
+    ]
+;;
+
+let%test "request_control_fields emits deepseek thinking object and normalized effort" =
+  let dialect =
+    of_capabilities
+      { Capabilities.default_capabilities with
+        supports_reasoning = true
+      ; thinking_control_format = Capabilities.Thinking_object
+      }
+  in
+  request_control_fields
+    dialect
+    ~enable_thinking:(Some true)
+    ~preserve_thinking:None
+    ~thinking_budget:(Some 4096)
+    ~reasoning_effort:(Some Reasoning_effort.Medium)
+    ()
+  = [ "thinking", `Assoc [ "type", `String "enabled" ]
+    ; "reasoning_effort", `String "high"
+    ]
+;;
+
+let%test "request_control_fields keeps zai glm no-toggle exception explicit" =
+  request_control_fields
+    default
+    ~enable_thinking:(Some true)
+    ~preserve_thinking:(Some true)
+    ~thinking_budget:None
+    ~reasoning_effort:None
+    ~zai_glm_clear_thinking:false
+    ()
+  = [ "thinking", `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool false ] ]
 ;;
