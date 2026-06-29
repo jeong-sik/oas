@@ -15,6 +15,11 @@ type stream_acc =
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; stop_reason_received : bool ref
+  ; done_sentinel_seen : bool ref
+    (** Set on {!Types.MessageStop}: an explicit terminal sentinel was seen
+        ([data: [DONE]] for OpenAI-compatible streams, [message_stop] for
+        Anthropic). Lets the finalizer tell a clean completion-without-stop_reason
+        apart from a truncated stream. *)
   ; terminal_incomplete : bool ref
   ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
@@ -37,6 +42,7 @@ let create_stream_acc () =
   ; cache_read = ref 0
   ; stop_reason = ref Types.EndTurn
   ; stop_reason_received = ref false
+  ; done_sentinel_seen = ref false
   ; terminal_incomplete = ref false
   ; sse_error = ref None
   ; block_texts = Hashtbl.create 4
@@ -122,7 +128,14 @@ let accumulate_event (acc : stream_acc) = function
   | Types.SSEUnknownEventType { event_type; raw } ->
     acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
   | Types.StreamIncomplete _ -> acc.terminal_incomplete := true
-  | Types.MessageStop | Types.Ping | Types.Connected | Types.Timeout _ -> ()
+  | Types.MessageStop ->
+    (* Explicit terminal sentinel from the provider ([data: [DONE]] for
+       OpenAI-compatible streams, [message_stop] for Anthropic). It carries no
+       stop_reason, but its presence proves the stream closed cleanly rather than
+       being truncated, so the finalizer may default a missing stop_reason to
+       EndTurn instead of failing closed. *)
+    acc.done_sentinel_seen := true
+  | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
 
 (* Closed set of streamed content-block kinds. The wire [content_type] string
@@ -162,12 +175,20 @@ let finalize_stream_acc
   =
   match !(acc.sse_error) with
   | Some serr -> Error serr
-  | None when not !(acc.stop_reason_received) ->
-    (* Stream ended without a terminal MessageDelta carrying a stop_reason.
-       This happens when the connection drops mid-stream (End_of_file in
-       sse_parser) or the provider sends no stop_reason.  Without this
-       check the default EndTurn would make a truncated stream look like
-       a successful completion (phantom completion). *)
+  | None when (not !(acc.stop_reason_received)) && not !(acc.done_sentinel_seen) ->
+    (* Stream ended without a terminal stop_reason AND without an explicit
+       terminal sentinel. This is a truncated stream: the connection dropped
+       mid-stream (End_of_file in sse_parser) before any [data: [DONE]] /
+       message_stop arrived. Without this check the default EndTurn would make a
+       truncated stream look like a successful completion (phantom completion).
+
+       When a sentinel WAS seen ([done_sentinel_seen] is true) the stream closed
+       cleanly, so we fall through to the success arm below even if no
+       stop_reason was reported -- some OpenAI-compatible providers send
+       [data: [DONE]] with every prior chunk carrying [finish_reason: null], and
+       [acc.stop_reason] already defaults to EndTurn. This mirrors the
+       Ollama-native ([done: true]) and Responses-API terminal defaults; only a
+       sentinel-less close is rejected. *)
     Error
       (Types.Stream_parse_failed
          { reason = "stream_terminated_without_stop_reason"; raw = "" })

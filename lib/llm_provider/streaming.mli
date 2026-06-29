@@ -101,6 +101,17 @@ val parse_openai_sse_chunk : string -> openai_chunk option
     @since 0.205.0 *)
 val openai_compat_error_event : string -> sse_event option
 
+(** Terminal events for an OpenAI-compatible SSE payload that
+    {!parse_openai_sse_chunk} returned [None] for. The explicit [data: [DONE]]
+    sentinel becomes a single [MessageStop] so the accumulator records a clean
+    stream close (and may default a missing [stop_reason] to [EndTurn] instead
+    of rejecting a phantom completion); a provider error object becomes a typed
+    [SSEError]; any other [None] payload yields no events. A stream truncated
+    without a [DONE] sentinel never reaches here and still finalizes as [Error].
+
+    @since 0.207.25 *)
+val openai_compat_terminal_events : string -> sse_event list
+
 (** RFC-OAS-020: [true] when the chunk carries either a non-empty
     [delta_content] or a non-empty [delta_reasoning] or any
     [delta_tool_calls] — that is, the consumer would surface a

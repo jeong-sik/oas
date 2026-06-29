@@ -244,6 +244,70 @@ let%test "truncated stream (no terminal stop_reason) finalizes Error, not phanto
   | Ok _ -> false
 ;;
 
+(* GAP 1: an OpenAI-compatible stream whose only completion signal is the
+   [data: [DONE]] sentinel (every content chunk carries [finish_reason: null]).
+   The sentinel parses to [None], so before the terminal-events helper it
+   produced no event and [finalize_stream_acc] rejected the stream as a phantom
+   truncation -- surfacing "SSE parse failed:
+   stream_terminated_without_stop_reason" to the caller. This is the exact shape
+   the keeper's default provider hit (https://ollama.com/v1, OpenAI-compat
+   wire). The helper now emits [MessageStop], so the stream finalizes [Ok] with
+   the default [EndTurn]. *)
+let%test
+    "clean stream finalizes Ok: OpenAI-compat [DONE] without finish_reason defaults \
+     EndTurn (covers GLM/Kimi/DashScope)"
+  =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  (match
+     Streaming.parse_openai_sse_chunk
+       {|{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}|}
+   with
+   | Some chunk -> accumulate_events acc (fst (Streaming.openai_chunk_to_events st chunk))
+   | None -> ());
+  accumulate_events acc (Streaming.openai_compat_terminal_events "[DONE]");
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Ok resp -> resp.stop_reason = Types.EndTurn
+  | Error _ -> false
+;;
+
+(* The [DONE] sentinel must not overwrite a real stop_reason that already
+   arrived: a [finish_reason: "length"] chunk followed by [data: [DONE]] keeps
+   MaxTokens (the sentinel only sets [done_sentinel_seen], which is ignored once
+   a stop_reason was received). Guards against the helper turning every
+   OpenAI-compat completion into EndTurn. *)
+let%test
+    "clean stream finalizes Ok: OpenAI-compat finish_reason:length then [DONE] keeps \
+     MaxTokens"
+  =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  (match
+     Streaming.parse_openai_sse_chunk
+       {|{"choices":[{"delta":{"content":"hi"},"finish_reason":"length"}]}|}
+   with
+   | Some chunk -> accumulate_events acc (fst (Streaming.openai_chunk_to_events st chunk))
+   | None -> ());
+  accumulate_events acc (Streaming.openai_compat_terminal_events "[DONE]");
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Ok resp -> resp.stop_reason = Types.MaxTokens
+  | Error _ -> false
+;;
+
+(* A provider error object routed through the same helper still finalizes Error,
+   never an [Ok] / a [MessageStop]: the helper's non-[DONE] branch surfaces a
+   typed SSEError so the consumer routes it through error classification. *)
+let%test "OpenAI-compat error object via terminal-events helper finalizes Error" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  accumulate_events
+    acc
+    (Streaming.openai_compat_terminal_events
+       {|{"error":{"type":"rate_limit_exceeded","message":"slow down"}}|});
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
 let complete_stream_http
       ~sw:_
       ~net
@@ -682,12 +746,11 @@ let complete_stream_http
                                 (* A [None] from the chunk parser is the [DONE]
                                    sentinel, a usage-only/empty chunk, OR a
                                    provider error object ([{"error": ...}]) that
-                                   has no [choices]. Surface the last as a typed
-                                   [SSEError] so the stream finalizes as [Error]
-                                   instead of a phantom completion. *)
-                                (match Streaming.openai_compat_error_event data with
-                                 | Some evt -> [ evt ], None
-                                 | None -> [], None))
+                                   has no [choices]. The helper maps [DONE] to a
+                                   [MessageStop] (clean close -> no phantom
+                                   completion) and an error object to a typed
+                                   [SSEError]; everything else yields no events. *)
+                                Streaming.openai_compat_terminal_events data, None)
                            | Provider_config.Gemini ->
                              (match Streaming.parse_gemini_sse_chunk data with
                               | Some chunk ->
@@ -704,9 +767,10 @@ let complete_stream_http
                               | Some chunk ->
                                 Streaming.openai_chunk_to_events (get_state ()) chunk
                               | None ->
-                                (match Streaming.openai_compat_error_event data with
-                                 | Some evt -> [ evt ], None
-                                 | None -> [], None))
+                                (* Same [None] cases as the OpenAI-compatible
+                                   branch: [DONE] -> [MessageStop], error object
+                                   -> [SSEError], else no events. *)
+                                Streaming.openai_compat_terminal_events data, None)
                            | Provider_config.Ollama ->
                              [], None (* unreachable: handled above *)
                          in

@@ -19,6 +19,13 @@ type stream_acc =
   ; cache_read : int ref
   ; stop_reason : Types.stop_reason ref
   ; stop_reason_received : bool ref
+  ; done_sentinel_seen : bool ref
+    (** Set when a {!Types.MessageStop} is observed: the provider sent an
+        explicit terminal sentinel (e.g. the OpenAI-compatible [data: [DONE]]
+        line or an Anthropic [message_stop]). Distinguishes a stream that
+        completed without a [finish_reason]/[stop_reason] from one truncated by
+        a dropped connection; {!finalize_stream_acc} uses it to default
+        {!stop_reason} (EndTurn) instead of rejecting a phantom completion. *)
   ; terminal_incomplete : bool ref
   ; sse_error : Types.stream_error option ref
   ; block_texts : (int, Buffer.t) Hashtbl.t
