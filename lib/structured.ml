@@ -6,7 +6,6 @@
     output via {!Llm_provider.Complete}. Unsupported providers fail fast
     instead of silently falling back to prompt-only JSON mode. *)
 
-module Retry = Llm_provider.Retry
 open Result_syntax
 open Types
 
@@ -106,21 +105,9 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
     parse_schema_text_json schema json
 ;;
 
-let sdk_error_of_http_error = function
-  | Llm_provider.Http_client.HttpError { code; body } ->
-    Error.Api (Llm_provider.Retry.classify_error ~status:code ~body)
-  | Llm_provider.Http_client.NetworkError { message; kind; _ } ->
-    Error.Api (Llm_provider.Retry.NetworkError { message; kind })
-  | Llm_provider.Http_client.TimeoutError _ as err ->
-    Error.Provider (Llm_provider.Error.of_http_error err)
-  | Llm_provider.Http_client.AcceptRejected { reason } ->
-    Error.Config (InvalidConfig { field = "output_schema"; detail = reason })
-  | Llm_provider.Http_client.ProviderTerminal { kind = Max_turns r; _ } ->
-    Error.Agent (MaxTurnsExceeded { turns = r.turns; limit = r.limit })
-  | Llm_provider.Http_client.ProviderTerminal { kind = Other _; _ } as err ->
-    Error.Provider (Llm_provider.Error.of_http_error err)
-  | Llm_provider.Http_client.ProviderFailure _ as err ->
-    Error.Provider (Llm_provider.Error.of_http_error err)
+let sdk_error_of_http_error =
+  Http_error_sdk.of_http_error
+    ~accept_rejected:(Config_invalid_config { field = "output_schema" })
 ;;
 
 let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =

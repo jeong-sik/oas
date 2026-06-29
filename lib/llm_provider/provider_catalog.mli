@@ -87,9 +87,10 @@ val default_model_for_provider : t -> string -> string option
 
     Resolution order:
     + 1. runtime override installed with {!set_global}
-    + 2. [OAS_PROVIDER_CATALOG] JSON file, loaded lazily once
+    + 2. [OAS_PROVIDER_CATALOG] JSON file, cached after first load
     + 3. no overlay *)
 val global : unit -> t option
 
+val preload_global : unit -> unit
 val set_global : t -> unit
 val clear_global : unit -> unit

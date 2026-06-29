@@ -5,10 +5,11 @@
     set before the LLM composes arguments.
 
     Determinism boundary:
-    - [All], [TopK_bm25], [Categorical] with [`Bm25] are fully
-      deterministic (same input produces same output).
-    - [TopK_llm], [Categorical] with [`Llm] are non-deterministic
-      but bounded by [always_include] and catalog validation.
+    - [All], [TopK_bm25], [Categorical] with [`Bm25] are fully deterministic
+      (same input produces same output).
+    - [TopK_llm], [Categorical] with [`Llm classifier_fn] are
+      non-deterministic when the supplied classifier performs I/O, but bounded
+      by [always_include] and catalog validation.
 
     @since 0.100.0 *)
 
@@ -54,8 +55,9 @@ type strategy =
         (** LLM reranking closure. Receives [(name, description)] pairs
           from BM25 pre-filter. Returns selected names in priority order.
 
-          If this function raises, the selector falls back to BM25 top-k
-          (self-healing). Invalid names in the return are silently dropped.
+          If this function raises, the selector fails closed by selecting no
+          reranked tools; [always_include] still applies. Invalid names in the
+          return are dropped.
 
           Use {!default_rerank_fn} for a ready-made implementation against
           a single {!Llm_provider.Provider_config.t}. *)
@@ -72,16 +74,28 @@ type strategy =
       { groups : (string * string list) list
         (** [(group_name, tool_name list)] pairs.
           e.g., [("git", ["git_commit"; "git_push"; "git_diff"])] *)
-      ; classifier : [ `Bm25 | `Llm ] (** How to pick the relevant group(s). *)
+      ; classifier :
+          [ `Bm25
+          | `Llm of context:string -> candidates:(string * string) list -> string list
+          ]
+        (** How to pick relevant group names.
+
+          [`Llm classifier_fn] receives [(group_name, group_description)] pairs.
+          Returned names are validated against [groups]; invalid names are
+          dropped. If [classifier_fn] raises, group selection fails closed and
+          only [always_include] remains. *)
       ; always_include : string list
       }
   (** Group-based selection.
 
-        [`Bm25] classification is implemented. [`Llm] classification is not
-        implemented yet and raises [Unsupported_configuration]. *)
+        [`Bm25] classification builds a deterministic index from group names
+        and grouped tool descriptions. [`Llm classifier_fn] lets callers plug
+        in the same provider-bound closure style as {!TopK_llm} without this
+        module inferring providers from process-global state. *)
 
-(** Raised when a selected strategy is syntactically valid but not implemented
-    by this module yet. *)
+(** Deprecated compatibility exception. Current built-in strategies are
+    implemented; callers should not rely on this exception for selector
+    capability detection. *)
 exception Unsupported_configuration of string
 
 (** Select tools relevant to the current turn context.
@@ -136,10 +150,11 @@ val auto : tools:Tool.t list -> strategy
 
 (** Construct a rerank closure for use with [TopK_llm].
 
-    Uses {!Llm_provider.Complete.complete} against a single provider
-    for the LLM call. Captures [sw] and [net] in the closure -- must
-    be called inside [Eio.Switch.run]. On LLM failure, returns
-    candidates in BM25 score order (graceful degradation).
+    Uses {!Llm_provider.Complete.complete} against a single provider for the
+    LLM call. Captures [sw] and [net] in the closure -- must be called inside
+    [Eio.Switch.run]. The provider must return a JSON string array of tool
+    names. On LLM failure or malformed JSON, returns [[]] so upstream selection
+    keeps only [always_include].
 
     OAS expects one resolved provider per call. Callers that want
     failover should resolve the winning provider externally and pass it

@@ -30,33 +30,33 @@ let record_streaming_metrics (metrics : Metrics.t) = function
 ;;
 
 (* Internal: HTTP-specific streaming implementation. *)
-(* Converge a stream-finalize error onto the same [Http_client.HttpError {code;
-   body}] representation the non-streaming path produces, so the downstream
-   [Pipeline_stage_route.sdk_error_of_http_error] -> [Retry.classify_error]
-   classifies a streamed rate-limit / auth / server error identically to an
-   initial HTTP error. A provider-reported error with a recognized [type]
-   becomes [HttpError]; an unrecognized type or a wire/parse failure stays an
-   unclassifiable [NetworkError {Unknown}] (the prior behavior for every stream
-   error) rather than guessing a classification. *)
+(* Converge a stream-finalize error onto the same typed carrier the
+   non-streaming path produces. A provider-reported error with a recognized
+   [type] becomes [HttpError] so rate-limit / auth / server errors classify
+   identically to an initial HTTP response. Parser/protocol failures are
+   provider failures, not synthetic network errors. *)
 let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_error =
   match serr with
   | Types.Stream_provider_error { message; error_type; raw } ->
     (match Option.bind error_type Retry.status_of_provider_error_type with
      | Some code -> Http_client.HttpError { code; body = raw }
      | None ->
-       Http_client.NetworkError
-         { message = Printf.sprintf "SSE stream error: %s" message
-         ; kind = Http_client.Unknown
+       Http_client.ProviderFailure
+         { kind =
+             Http_client.Unknown_provider_failure
+               { reason = Some (Option.value error_type ~default:"stream_provider_error")
+               }
+         ; message = Printf.sprintf "SSE stream error: %s" message
          })
   | Types.Stream_parse_failed { reason; _ } ->
-    Http_client.NetworkError
-      { message = Printf.sprintf "SSE parse failed: %s" reason
-      ; kind = Http_client.Unknown
+    Http_client.ProviderFailure
+      { kind = Http_client.Provider_parse_error { parser = Some "sse" }
+      ; message = Printf.sprintf "SSE parse failed: %s" reason
       }
   | Types.Stream_unknown_event { event_type; _ } ->
-    Http_client.NetworkError
-      { message = Printf.sprintf "SSE unknown event type: %s" event_type
-      ; kind = Http_client.Unknown
+    Http_client.ProviderFailure
+      { kind = Http_client.Provider_parse_error { parser = Some "sse" }
+      ; message = Printf.sprintf "SSE unknown event type: %s" event_type
       }
 ;;
 
@@ -102,25 +102,39 @@ let%test "stream auth error converges to typed AuthError" =
   | _ -> false
 ;;
 
-let%test
-    "stream unknown error type stays unclassifiable NetworkError Unknown (no guessing)"
-  =
+let%test "stream unknown error type stays non-retryable provider failure" =
   match
     http_error_of_stream_error
       (Types.Stream_provider_error
          { message = "weird"; error_type = Some "totally_unknown_type"; raw = "{}" })
   with
-  | Http_client.NetworkError { kind = Http_client.Unknown; _ } -> true
+  | Http_client.ProviderFailure
+      { kind =
+          Http_client.Unknown_provider_failure { reason = Some "totally_unknown_type" }
+      ; _
+      } -> true
   | _ -> false
 ;;
 
-let%test "stream parse failure stays NetworkError Unknown (genuine wire failure)" =
-  match
-    http_error_of_stream_error
-      (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
-  with
-  | Http_client.NetworkError { kind = Http_client.Unknown; _ } -> true
-  | _ -> false
+let maps_to_sse_parse_failure stream_error =
+  match http_error_of_stream_error stream_error with
+  | Http_client.ProviderFailure
+      { kind = Http_client.Provider_parse_error { parser = Some "sse" }; _ } -> true
+  | Http_client.HttpError _
+  | Http_client.NetworkError _
+  | Http_client.TimeoutError _
+  | Http_client.AcceptRejected _
+  | Http_client.ProviderTerminal _
+  | Http_client.ProviderFailure _ -> false
+;;
+
+let%test "stream parse failure stays provider parse failure" =
+  maps_to_sse_parse_failure (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+;;
+
+let%test "stream unknown event stays provider parse failure" =
+  maps_to_sse_parse_failure
+    (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
 ;;
 
 let%test "openai_compat_error_event surfaces a typed SSEError from an error chunk" =

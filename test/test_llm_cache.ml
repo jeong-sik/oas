@@ -228,6 +228,37 @@ let test_roundtrip_tool_result_error () =
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
+let test_roundtrip_tool_result_content_blocks () =
+  let blocks =
+    [ Text "preview"
+    ; Image { media_type = "image/png"; data = "abc"; source_type = "base64" }
+    ]
+  in
+  let resp =
+    simple_response
+      [ ToolResult
+          { tool_use_id = "tu_blocks"
+          ; content = "preview"
+          ; is_error = false
+          ; json = None
+          ; content_blocks = Some blocks
+          }
+      ]
+  in
+  let json = Cache.response_to_json resp in
+  match Cache.response_of_json json with
+  | Some r ->
+    (match r.content with
+     | [ ToolResult { tool_use_id; content; content_blocks = Some restored; _ } ] ->
+       Alcotest.(check string) "tool_use_id" "tu_blocks" tool_use_id;
+       Alcotest.(check string) "content from text blocks" "preview" content;
+       Alcotest.(check int) "content_blocks length" 2 (List.length restored)
+     | [ ToolResult { content_blocks = None; _ } ] ->
+       Alcotest.fail "expected structured content_blocks to survive cache roundtrip"
+     | _ -> Alcotest.fail "expected ToolResult block")
+  | None -> Alcotest.fail "roundtrip failed"
+;;
+
 let test_roundtrip_with_usage () =
   let resp = response_with_usage [ Text "hi" ] in
   let json = Cache.response_to_json resp in
@@ -362,8 +393,10 @@ let test_roundtrip_binary_block () =
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
   | Some r ->
-    (* binary blocks serialize as {"type":"binary"} which is not deserialized back *)
-    Alcotest.(check int) "binary filtered" 0 (List.length r.content)
+    (match r.content with
+     | [ Image { media_type = "image/png"; data = "base64data"; source_type = "base64" } ]
+       -> ()
+     | _ -> Alcotest.fail "expected image block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
@@ -390,7 +423,12 @@ let test_roundtrip_document_block () =
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
-  | Some r -> Alcotest.(check int) "document filtered" 0 (List.length r.content)
+  | Some r ->
+    (match r.content with
+     | [ Document
+           { media_type = "application/pdf"; data = "pdf-data"; source_type = "base64" }
+       ] -> ()
+     | _ -> Alcotest.fail "expected document block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
@@ -401,7 +439,11 @@ let test_roundtrip_audio_block () =
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
-  | Some r -> Alcotest.(check int) "audio filtered" 0 (List.length r.content)
+  | Some r ->
+    (match r.content with
+     | [ Audio { media_type = "audio/mp3"; data = "audio-data"; source_type = "base64" } ]
+       -> ()
+     | _ -> Alcotest.fail "expected audio block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
@@ -556,6 +598,10 @@ let () =
         ; Alcotest.test_case "tool_use" `Quick test_roundtrip_tool_use
         ; Alcotest.test_case "tool_result" `Quick test_roundtrip_tool_result
         ; Alcotest.test_case "tool_result error" `Quick test_roundtrip_tool_result_error
+        ; Alcotest.test_case
+            "tool_result content_blocks"
+            `Quick
+            test_roundtrip_tool_result_content_blocks
         ; Alcotest.test_case "redacted_thinking" `Quick test_roundtrip_redacted_thinking
         ; Alcotest.test_case "binary image" `Quick test_roundtrip_binary_block
         ; Alcotest.test_case "document" `Quick test_roundtrip_document_block

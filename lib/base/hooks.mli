@@ -164,6 +164,13 @@ type hook_decision =
   | ElicitInput of elicitation_request
   | Nudge of string
   (** OnIdle and BeforeTurn: inject message as User-role into the conversation, continue execution. On OnIdle the idle counter is preserved. On BeforeTurn the nudge is appended before tool preparation. *)
+  | HookFailed of
+      { stage : string
+      ; detail : string
+      }
+  (** Returned by [invoke] and [invoke_validated] when a user hook raises or
+      returns a stage-illegal decision. Call sites must handle this explicitly;
+      the SDK does not coerce it to [Continue]. *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -254,6 +261,7 @@ type hook_decision_kind =
   | K_AdjustParams
   | K_ElicitInput
   | K_Nudge
+  | K_HookFailed
 
 (** Extract the kind tag from a decision value. *)
 val classify_decision : hook_decision -> hook_decision_kind
@@ -273,9 +281,9 @@ val legal_decisions_for_stage : string -> hook_decision_kind list
 val validate_decision : stage:string -> hook_decision -> (hook_decision, string) result
 
 (** Like [invoke], but validates the decision against the matrix.
-    Illegal decisions fall back to [Continue]; the coercion is logged as
-    a warning (including [hook_name] when given) and [on_illegal] is
-    called with diagnostics when a violation is detected. *)
+    Illegal decisions return [HookFailed]; the rejection is logged as a warning
+    (including [hook_name] when given) and [on_illegal] is called with
+    diagnostics when a violation is detected. *)
 val invoke_validated
   :  ?hook_name:string
   -> ?on_illegal:(stage:string -> decision:hook_decision -> msg:string -> unit)

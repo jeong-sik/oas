@@ -21,6 +21,8 @@ jobs:
       matrix:
         ocaml-compiler: ['5.4.1']
       fail-fast: false
+    env:
+      OAS_MODEL_CATALOG: ${{ github.workspace }}/models.toml
 
     steps:
       - name: Checkout

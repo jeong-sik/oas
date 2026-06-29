@@ -432,6 +432,20 @@ let test_map_http_error_network () =
   | _ -> Alcotest.fail "expected NetworkError"
 ;;
 
+let test_map_http_error_provider_parse_failure () =
+  let err =
+    Streaming.map_http_error
+      (Llm_provider.Http_client.ProviderFailure
+         { kind = Provider_parse_error { parser = Some "sse" }
+         ; message = "SSE parse failed: bad json"
+         })
+  in
+  match err with
+  | Error.Provider (Llm_provider.Error.ParseError { detail }) ->
+    Alcotest.(check bool) "detail mentions sse parser" true (String.contains detail 's')
+  | _ -> Alcotest.fail "expected provider ParseError"
+;;
+
 (* ── Runner ───────────────────────────────────────────────── *)
 
 let () =
@@ -507,6 +521,10 @@ let () =
     ; ( "map_http_error"
       , [ Alcotest.test_case "http error" `Quick test_map_http_error_http
         ; Alcotest.test_case "network error" `Quick test_map_http_error_network
+        ; Alcotest.test_case
+            "provider parse failure"
+            `Quick
+            test_map_http_error_provider_parse_failure
         ] )
     ]
 ;;

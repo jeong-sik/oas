@@ -526,12 +526,13 @@ let%test "is_retryable 400 provider malformed-json prose is false" =
           }))
 ;;
 
-let%test "is_retryable provider parse error is true" =
-  is_retryable
-    (Http_client.ProviderFailure
-       { kind = Http_client.Provider_parse_error { parser = Some "glm" }
-       ; message = "Unexpected end of input"
-       })
+let%test "is_retryable provider parse error is false" =
+  not
+    (is_retryable
+       (Http_client.ProviderFailure
+          { kind = Http_client.Provider_parse_error { parser = Some "glm" }
+          ; message = "Unexpected end of input"
+          }))
 ;;
 
 let%test "is_retryable 401 not retryable" =

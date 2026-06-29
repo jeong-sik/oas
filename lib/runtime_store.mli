@@ -56,7 +56,7 @@ type run_window_events =
 
 (** {1 Store creation} *)
 
-val default_root : unit -> string
+val default_root : unit -> (string, Error.sdk_error) result
 val create : ?root:string -> unit -> (t, Error.sdk_error) result
 val ensure_dir : string -> (unit, Error.sdk_error) result
 val ensure_tree : t -> string -> (unit, Error.sdk_error) result

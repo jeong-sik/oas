@@ -201,6 +201,13 @@ type hook_decision =
   | ElicitInput of elicitation_request (** Request user input before proceeding *)
   | Nudge of string
   (** OnIdle and BeforeTurn: inject a nudge message into the conversation as a User-role message and continue execution. On OnIdle the idle counter is preserved (deliberate: lets the host hook escalate via Skip). On BeforeTurn the message is appended before tool preparation and reaches the model in the same turn. *)
+  | HookFailed of
+      { stage : string
+      ; detail : string
+      }
+  (** Internal failure decision returned when invoking a user hook raises or
+      returns a stage-illegal decision. Call sites must handle this explicitly;
+      it is never coerced to [Continue]. *)
 
 (** Decision from approval callback *)
 type approval_decision =
@@ -280,6 +287,7 @@ type hook_decision_kind =
   | K_AdjustParams
   | K_ElicitInput
   | K_Nudge
+  | K_HookFailed
 
 let classify_decision = function
   | Continue -> K_Continue
@@ -289,6 +297,7 @@ let classify_decision = function
   | AdjustParams _ -> K_AdjustParams
   | ElicitInput _ -> K_ElicitInput
   | Nudge _ -> K_Nudge
+  | HookFailed _ -> K_HookFailed
 ;;
 
 let decision_kind_to_string = function
@@ -299,6 +308,7 @@ let decision_kind_to_string = function
   | K_AdjustParams -> "AdjustParams"
   | K_ElicitInput -> "ElicitInput"
   | K_Nudge -> "Nudge"
+  | K_HookFailed -> "HookFailed"
 ;;
 
 (** Extract a stage name string from a hook_event. *)
@@ -377,71 +387,65 @@ let validate_decision ~stage decision =
     Error msg)
 ;;
 
-(* Run a user-supplied hook and capture its decision.  Reserved exceptions
+(* Run a user-supplied hook and capture its decision. Reserved exceptions
    ([Out_of_memory], [Stack_overflow], [Eio.Cancel.Cancelled]) propagate;
-   anything else is captured so callers can degrade to [Continue].  This
-   mirrors the context_injector exception-wrap in
-   [Agent_turn.apply_context_injection] so a buggy lifecycle hook cannot
-   abort an agent run. *)
+   anything else is captured so callers can fail closed without losing
+   stage/detail provenance. *)
 let try_hook f event =
   try Ok (f event) with
   | (Out_of_memory | Stack_overflow | Eio.Cancel.Cancelled _) as e -> raise e
   | exn -> Error exn
 ;;
 
+let hook_failed ~stage detail = HookFailed { stage; detail }
+
 let warn_hook_raised stage exn =
-  Eio.traceln
-    "[warn] [hooks] user hook for %s raised %s -- treating as Continue"
-    stage
-    (Printexc.to_string exn)
+  let detail = Printexc.to_string exn in
+  Eio.traceln "[warn] [hooks] user hook for %s raised %s" stage detail;
+  hook_failed ~stage detail
 ;;
 
 (** Invoke a hook if present, returning Continue if absent.
 
     If the hook raises a non-reserved exception, logs a warning via
-    [Eio.traceln] and returns [Continue] rather than propagating; this
-    matches the safety of the tool-path hooks (caught in [Agent_tools])
-    and the context-injector path. *)
+    [Eio.traceln] and returns [HookFailed] so callers can block progress
+    explicitly instead of continuing silently. *)
 let invoke hook_opt event =
   match hook_opt with
   | None -> Continue
   | Some f ->
     (match try_hook f event with
      | Ok decision -> decision
-     | Error exn ->
-       warn_hook_raised (stage_of_event event) exn;
-       Continue)
+     | Error exn -> warn_hook_raised (stage_of_event event) exn)
 ;;
 
 (** Invoke a hook with decision validation.
     If the hook returns an illegal decision for the stage,
     logs a warning (naming the stage, the rejected decision and, when
-    [hook_name] is given, the hook), falls back to [Continue] and calls
+    [hook_name] is given, the hook), returns [HookFailed] and calls
     [on_illegal] (if provided).
-    If the hook raises (non-reserved), the exception is logged and
-    [Continue] is returned without invoking [on_illegal] (which is
-    reserved for decision-shape errors, not exceptions). *)
+    If the hook raises (non-reserved), the exception is logged and [HookFailed]
+    is returned without invoking [on_illegal] (which is reserved for
+    decision-shape errors, not exceptions). *)
 let invoke_validated ?hook_name ?on_illegal hook_opt event =
   match hook_opt with
   | None -> Continue
   | Some f ->
     let stage = stage_of_event event in
     (match try_hook f event with
-     | Error exn ->
-       warn_hook_raised stage exn;
-       Continue
+     | Error exn -> warn_hook_raised stage exn
      | Ok decision ->
        (match validate_decision ~stage decision with
         | Ok d -> d
         | Error msg ->
           Eio.traceln
-            "[warn] [hooks] %s%s -- coercing to Continue"
+            "[warn] [hooks] %s%s"
             msg
             (match hook_name with
              | Some name -> Printf.sprintf " (hook: %s)" name
              | None -> "");
           Option.iter (fun cb -> cb ~stage ~decision ~msg) on_illegal;
-          Continue))
+          hook_failed ~stage msg))
 ;;
 
 (** Compose a single hook slot. [outer] fires first.
@@ -456,6 +460,7 @@ let compose_hook (outer : hook option) (inner : hook option) : hook option =
       (fun event ->
         match f_outer event with
         | Continue -> f_inner event
+        | HookFailed _ as failed -> failed
         | decision -> decision)
 ;;
 
@@ -495,19 +500,19 @@ let%test "invoke: None hook returns Continue" =
   | _ -> false
 ;;
 
-let%test "invoke: raising hook is caught and returns Continue" =
+let%test "invoke: raising hook is caught and returns HookFailed" =
   let event = BeforeTurn { turn = 0; messages = [] } in
   let raising _ = failwith "boom" in
   match invoke (Some raising) event with
-  | Continue -> true
+  | HookFailed { stage = "before_turn"; detail } -> String.length detail > 0
   | _ -> false
 ;;
 
-let%test "invoke_validated: raising hook is caught and returns Continue" =
+let%test "invoke_validated: raising hook is caught and returns HookFailed" =
   let event = BeforeTurn { turn = 0; messages = [] } in
   let raising _ = failwith "kaboom" in
   match invoke_validated (Some raising) event with
-  | Continue -> true
+  | HookFailed { stage = "before_turn"; detail } -> String.length detail > 0
   | _ -> false
 ;;
 
