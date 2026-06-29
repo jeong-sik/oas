@@ -303,10 +303,17 @@ let chunk_has_non_empty_delta (c : openai_chunk) : bool =
   || c.delta_tool_calls <> []
 ;;
 
+(* OpenAI-compatible / GLM / DashScope / Kimi streams terminate with this
+   literal SSE payload (the bare token after [data: ]), not a JSON object. SSOT
+   for the sentinel shared by the chunk parser, the terminal-event helper, and
+   the Responses-API trailer. *)
+let openai_done_sentinel = "[DONE]"
+
 (** Parse a single Openai SSE data payload into an {!openai_chunk}.
-    Returns [None] for the "[DONE]" sentinel or unparseable data. *)
+    Returns [None] for the {!openai_done_sentinel} ("[DONE]") or unparseable
+    data. *)
 let parse_openai_sse_chunk data_str : openai_chunk option =
-  if data_str = "[DONE]"
+  if String.equal data_str openai_done_sentinel
   then None
   else
     let open Yojson.Safe.Util in
@@ -443,6 +450,27 @@ let openai_compat_error_event data_str : sse_event option =
         | `String s -> Some (SSEError { message = s; error_type = None; raw = data_str })
         | _non_error_object -> None)
      | _non_object_payload -> None)
+;;
+
+(** Terminal events for an OpenAI-compatible SSE payload that
+    {!parse_openai_sse_chunk} returned [None] for. The explicit
+    {!openai_done_sentinel} ("[DONE]") becomes a single [MessageStop]: the
+    accumulator records a clean stream close and may default a missing
+    [stop_reason] to [EndTurn] rather than rejecting a phantom completion (some
+    providers send [data: [DONE]] with every prior chunk carrying
+    [finish_reason: null]). A provider error object becomes a typed [SSEError]
+    (see {!openai_compat_error_event}); any other [None] payload
+    (empty/usage-only/malformed) yields no events. A stream truncated WITHOUT a
+    [DONE] sentinel never reaches here, so it still finalizes as [Error].
+
+    @since 0.207.25 *)
+let openai_compat_terminal_events data_str : sse_event list =
+  if String.equal data_str openai_done_sentinel
+  then [ MessageStop ]
+  else (
+    match openai_compat_error_event data_str with
+    | Some evt -> [ evt ]
+    | None -> [])
 ;;
 
 (** Mutable state for converting Openai flat deltas to block-based events. *)
@@ -792,7 +820,10 @@ let responses_emit_redacted_reasoning_outputs state emit response =
 let responses_sse_to_events (state : openai_stream_state) event_type data_str
   : sse_event list * Telemetry_event.t option
   =
-  if String.equal data_str "[DONE]"
+  (* The Responses API delivers its terminal status via a [response.completed]
+     event before this trailing sentinel, so [DONE] needs no synthesized
+     terminal here -- the accumulator already has a stop_reason. *)
+  if String.equal data_str openai_done_sentinel
   then [], None
   else (
     match Yojson.Safe.from_string data_str with
