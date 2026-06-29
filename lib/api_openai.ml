@@ -162,7 +162,12 @@ let effective_tool_choice_json
   | Some Types.None_ when is_glm -> None
   | Some (Types.Auto | Types.Any) when is_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
-  | Some (Types.Tool _) when is_glm -> None
+  | Some (Types.Tool name) when is_glm ->
+    invalid_arg
+      (Printf.sprintf
+         "build_openai_body: Z.AI GLM does not support named forced tool_choice %S; use \
+          auto/any or remove tool_choice"
+         name)
   | Some Types.Auto when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->

@@ -69,7 +69,7 @@ let%test "tool_choice_to_openai_json Tool name" =
   && result |> member "function" |> member "name" |> to_string = "my_tool"
 ;;
 
-let%test "glm passes named tool_choice through (no coerce)" =
+let%test "glm rejects named forced tool_choice" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -78,12 +78,12 @@ let%test "glm passes named tool_choice through (no coerce)" =
       ~tool_choice:(Tool "calculator")
       ()
   in
-  effective_tool_choice cfg
-  = Some
-      (`Assoc
-          [ "type", `String "function"
-          ; "function", `Assoc [ "name", `String "calculator" ]
-          ])
+  match effective_tool_choice cfg with
+  | exception Invalid_argument msg ->
+    String.starts_with
+      ~prefix:"Backend_openai_request.build_request: Z.AI GLM does not support"
+      msg
+  | _ -> false
 ;;
 
 let%test "glm passes tool_choice any through (no coerce)" =
@@ -1114,7 +1114,7 @@ let%test "build_request omits tool_choice when tool_choice=None" =
   json_object_missing_key "tool_choice" json
 ;;
 
-let%test "glm build_request drops tool_choice when unsupported" =
+let%test "glm build_request rejects unsupported forced tool_choice" =
   let config =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -1123,10 +1123,11 @@ let%test "glm build_request drops tool_choice when unsupported" =
       ~tool_choice:(Tool "calc")
       ()
   in
-  let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  match json with
-  | `Assoc fields -> not (List.exists (fun (k, _) -> k = "tool_choice") fields)
+  match build_request ~config ~messages:[] () with
+  | exception Invalid_argument msg ->
+    String.starts_with
+      ~prefix:"Backend_openai_request.build_request: Z.AI GLM does not support"
+      msg
   | _ -> false
 ;;
 

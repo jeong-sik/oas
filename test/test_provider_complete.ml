@@ -629,7 +629,7 @@ let test_kimi_direct_tool_result_uses_text_blocks () =
     (block |> member "content" |> to_string)
 ;;
 
-let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
+let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
   let config =
     PC.make
       ~kind:Glm
@@ -638,7 +638,8 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
       ~enable_thinking:true
       ~clear_thinking:false
       ~tool_stream:true
-      ~tool_choice:(Tool "calculator")
+      ~tool_choice:Auto
+      ~supports_tool_choice_override:true
       ()
   in
   let messages =
@@ -676,12 +677,10 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
   let json = Yojson.Safe.from_string body in
   let open Yojson.Safe.Util in
   let assistant = json |> member "messages" |> index 0 in
-  Alcotest.(check bool)
-    "glm unsupported tool_choice dropped"
-    true
-    (match json with
-     | `Assoc fields -> not (List.mem_assoc "tool_choice" fields)
-     | _ -> false);
+  Alcotest.(check string)
+    "glm auto tool_choice preserved"
+    "auto"
+    (json |> member "tool_choice" |> to_string);
   Alcotest.(check string)
     "assistant content remains text channel"
     ""
@@ -698,6 +697,24 @@ let test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice () =
     "tool_stream enabled"
     true
     (json |> member "tool_stream" |> to_bool)
+;;
+
+let test_glm_rejects_named_forced_tool_choice () =
+  let config =
+    PC.make
+      ~kind:Glm
+      ~model_id:"glm-5.1"
+      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~enable_thinking:true
+      ~tool_choice:(Tool "calculator")
+      ()
+  in
+  Alcotest.check_raises
+    "glm rejects named forced tool_choice"
+    (Invalid_argument
+       "Backend_openai_request.build_request: Z.AI GLM does not support named forced \
+        tool_choice \"calculator\"; use auto/any or remove tool_choice")
+    (fun () -> ignore (BGlm.build_request ~stream:true ~config ~messages:[] ()))
 ;;
 
 (* ── Provider_config.make ────────────────────────────── *)
@@ -1218,7 +1235,11 @@ let () =
         ; test_case
             "glm preserved reasoning replay"
             `Quick
-            test_glm_preserved_reasoning_replay_and_drops_unsupported_tool_choice
+            test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice
+        ; test_case
+            "glm rejects named forced tool_choice"
+            `Quick
+            test_glm_rejects_named_forced_tool_choice
         ] )
     ; ( "gemini_build_request"
       , [ test_case "with json schema" `Quick test_gemini_with_json_schema ] )

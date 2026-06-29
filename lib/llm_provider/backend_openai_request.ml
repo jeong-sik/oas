@@ -62,10 +62,16 @@ let add_sampling_field dialect (config : Provider_config.t) field value body =
 (* ── Request building ──────────────────────────────────── *)
 
 let effective_tool_choice (config : Provider_config.t) =
-  match config.tool_choice with
-  | Some None_ -> None
-  | Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
-  | None -> None
+  match config.kind, config.tool_choice with
+  | Glm, Some (Tool name) ->
+    invalid_arg
+      (Printf.sprintf
+         "Backend_openai_request.build_request: Z.AI GLM does not support named forced \
+          tool_choice %S; use auto/any or remove tool_choice"
+         name)
+  | _, Some None_ -> None
+  | _, Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
+  | _, None -> None
 ;;
 
 let effective_tools (config : Provider_config.t) tools =
