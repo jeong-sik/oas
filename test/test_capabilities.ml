@@ -738,6 +738,10 @@ type streaming_contract =
   | Delta_stream of string
   | Template_stream
 
+type thinking_contract =
+  | Reasoning_only
+  | Extended_thinking
+
 type provider_route =
   | Direct_model
   | Provider_qualified of string
@@ -773,6 +777,7 @@ let check_frontier_model
       ~label
       ~route
       ~model_id
+      ~thinking_contract
       ~structured_contract
       ~replay_contract
       ~streaming_contract
@@ -783,7 +788,14 @@ let check_frontier_model
   | Some c ->
     check bool (label ^ " supports tools") true c.supports_tools;
     check bool (label ^ " supports reasoning") true c.supports_reasoning;
-    check bool (label ^ " supports extended thinking") true c.supports_extended_thinking;
+    (match thinking_contract with
+     | Reasoning_only -> ()
+     | Extended_thinking ->
+       check
+         bool
+         (label ^ " supports extended thinking")
+         true
+         c.supports_extended_thinking);
     check bool (label ^ " supports native streaming") true c.supports_native_streaming;
     check bool (label ^ " supports structured output") true c.supports_structured_output;
     (match structured_contract with
@@ -846,113 +858,137 @@ let test_frontier_grouped_tool_thinking_structured_models () =
     [ ( "Xiaomi MiMo V2.5"
       , Direct_model
       , "mimo-v2.5-pro"
+      , Reasoning_only
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Pro"
       , Direct_model
       , "deepseek-v4-pro"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "DeepSeek V4 Flash"
       , Direct_model
       , "deepseek-v4-flash"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "Kimi K2.7 Code native"
       , Direct_model
       , "kimi-k2.7-code"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_every_turn
       , Streaming_not_required )
     ; ( "MiniMax M3 native/openai-compatible"
       , Direct_model
       , "minimax-m3"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
     ; ( "OpenAI GPT-5.5"
       , Direct_model
       , "gpt-5.5"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "reasoning" )
     ; ( "OpenAI GPT-5.4 mini"
       , Direct_model
       , "gpt-5.4-mini"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "reasoning" )
     ; ( "Claude Haiku 4.5"
       , Native_provider Provider_config.Anthropic
       , "claude-haiku-4-5"
+      , Extended_thinking
       , Native_structured_output
       , Replay_every_turn
       , Delta_stream "thinking_delta" )
     ; ( "Claude Sonnet 4.6"
       , Native_provider Provider_config.Anthropic
       , "claude-sonnet-4-6"
+      , Extended_thinking
       , Native_structured_output
       , Replay_every_turn
       , Delta_stream "thinking_delta" )
     ; ( "Claude Opus 4.6"
       , Native_provider Provider_config.Anthropic
       , "claude-opus-4-6"
+      , Extended_thinking
       , Native_structured_output
       , Replay_every_turn
       , Delta_stream "thinking_delta" )
     ; ( "Qwen3.6 RunPod/self-hosted"
       , Direct_model
       , "qwen/qwen3.6-35b-a3b"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Template_stream )
     ; ( "Ollama Cloud Qwen3.5"
       , Provider_qualified "ollama_cloud"
       , "qwen3.5:397b"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud Kimi K2.7 Code"
       , Provider_qualified "ollama_cloud"
       , "kimi-k2.7-code"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_every_turn
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud MiniMax M3"
       , Provider_qualified "ollama_cloud"
       , "minimax-m3"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud Nemotron 3 Ultra"
       , Provider_qualified "ollama_cloud"
       , "nemotron-3-ultra"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud DeepSeek V4 Pro"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-pro"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "thinking" )
     ; ( "Ollama Cloud DeepSeek V4 Flash"
       , Provider_qualified "ollama_cloud"
       , "deepseek-v4-flash"
+      , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
       , Delta_stream "thinking" )
     ]
   in
   List.iter
-    (fun (label, route, model_id, structured_contract, replay_contract, streaming_contract) ->
+    (fun ( label
+         , route
+         , model_id
+         , thinking_contract
+         , structured_contract
+         , replay_contract
+         , streaming_contract ) ->
        check_frontier_model
          ~label
          ~route
          ~model_id
+         ~thinking_contract
          ~structured_contract
          ~replay_contract
          ~streaming_contract
