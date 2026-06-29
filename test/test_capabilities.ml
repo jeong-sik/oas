@@ -604,6 +604,46 @@ let test_ollama_cloud_kimi_preserves_historical_reasoning () =
       (c.reasoning_replay_override = Capabilities.Force_preserve_always)
 ;;
 
+let test_ollama_cloud_mistral_family_structured_output_is_model_specific () =
+  (* Live grouped SO checks on 2026-06-29 showed that these rows all accept
+     JSON-format requests and tool replay, but native schema-shaped final
+     output is not family-wide. Keep the model-specific support in the catalog
+     instead of inheriting the broad ollama_cloud default silently. *)
+  let cases =
+    [ "devstral-2:123b", true
+    ; "devstral-small-2:24b", true
+    ; "ministral-3:14b", true
+    ; "mistral-large-3:675b", false
+    ; "ministral-3:3b", false
+    ; "ministral-3:8b", false
+    ]
+  in
+  List.iter
+    (fun (model_id, structured_output) ->
+       match
+         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+       with
+       | None -> failf "ollama_cloud/%s should resolve" model_id
+       | Some c ->
+         check bool (model_id ^ " tools") true c.supports_tools;
+         check
+           bool
+           (model_id ^ " json response format")
+           true
+           c.supports_response_format_json;
+         check
+           bool
+           (model_id ^ " structured output guarantee")
+           structured_output
+           c.supports_structured_output;
+         check bool (model_id ^ " no reasoning") false c.supports_reasoning;
+         check_thinking_control
+           (model_id ^ " no thinking control")
+           Capabilities.No_thinking_control
+           c.thinking_control_format)
+    cases
+;;
+
 let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let open Capabilities in
   let bare_glm =
@@ -1364,6 +1404,10 @@ let () =
             "ollama cloud Kimi preserves historical reasoning"
             `Quick
             test_ollama_cloud_kimi_preserves_historical_reasoning
+        ; test_case
+            "ollama cloud Mistral-family SO is model-specific"
+            `Quick
+            test_ollama_cloud_mistral_family_structured_output_is_model_specific
         ; test_case
             "ollama cloud preserves shared bare families"
             `Quick

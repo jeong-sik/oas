@@ -383,9 +383,13 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [OpenAI_compat] is accepted only for official Openai hosts with a
-      model capability record that reports [supports_structured_output].
-    - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
+    - [OpenAI_compat] is accepted only for official Openai/Ollama Cloud hosts
+      with a model capability record that reports
+      [supports_structured_output].
+    - [Ollama] is accepted only when the selected model capability record
+      reports [supports_structured_output]; Ollama-family model rows can differ
+      even when the transport accepts a JSON-format field.
+    - [Gemini], [Anthropic], and [DashScope] are accepted.
       DashScope (DashScope) exposes [response_format.json_schema] on its
       OpenAI-compatible endpoint; the field is forwarded by
       [backend_openai.ml] without additional host validation.

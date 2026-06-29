@@ -402,6 +402,8 @@ thinking_control_format = "none"
 supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "ollama_cloud/devstral-small-2:24b"
@@ -417,6 +419,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "ollama_cloud/gemini-3-flash-preview"
@@ -704,6 +708,11 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+# Live grouped SO check 2026-06-29: accepts JSON-format requests, but did not
+# return exact schema-shaped final JSON. Keep JSON mode enabled and native
+# structured-output guarantee disabled.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/ministral-3:8b"
@@ -719,6 +728,11 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+# Live grouped SO check 2026-06-29: accepts JSON-format requests, but did not
+# return exact schema-shaped final JSON. Keep JSON mode enabled and native
+# structured-output guarantee disabled.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/ministral-3:14b"
@@ -734,6 +748,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "ollama_cloud/mistral-large-3:675b"
@@ -749,6 +765,10 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+# Live grouped SO check 2026-06-29: accepts JSON-format requests, but fenced or
+# drifted from the requested schema. Do not advertise native schema guarantee.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/nemotron-3-nano:30b"
@@ -893,6 +913,8 @@ thinking_control_format = "none"
 supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "devstral-small-2:24b"
@@ -908,6 +930,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "gemma3:4b"
@@ -1067,6 +1091,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ministral-3:8b"
@@ -1082,6 +1108,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ministral-3:14b"
@@ -1097,6 +1125,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "mistral-large-3:675b"
@@ -1112,6 +1142,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "nemotron-3-nano:30b"

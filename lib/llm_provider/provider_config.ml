@@ -546,6 +546,21 @@ let structured_schema_requested (config : t) : bool =
   | None, (Types.JsonMode | Types.Off) -> false
 ;;
 
+let validate_model_structured_output_capability (config : t) =
+  let caps =
+    match capabilities_for_config_model config with
+    | Some c -> c
+    | None -> Capabilities.default_capabilities
+  in
+  if not caps.supports_structured_output
+  then
+    Error
+      (Printf.sprintf
+         "model %s does not advertise native structured output"
+         config.model_id)
+  else Ok ()
+;;
+
 let request_path_targets_responses_api request_path =
   let lower = String.lowercase_ascii (String.trim request_path) in
   let path =
@@ -573,30 +588,24 @@ let validate_output_schema_request (config : t) =
   | false -> Ok ()
   | true ->
     (match config.kind with
-     | Gemini | Anthropic | Ollama | DashScope -> Ok ()
+     | Gemini | Anthropic | DashScope -> Ok ()
+     | Ollama -> validate_model_structured_output_capability config
      | Glm ->
        Error
          "Glm supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
      | Kimi | OpenAI_compat ->
-       let caps =
-         match capabilities_for_config_model config with
-         | Some c -> c
-         | None -> Capabilities.default_capabilities
-       in
-       if not caps.supports_structured_output
-       then
-         Error
-           (Printf.sprintf
-              "model %s does not advertise native structured output"
-              config.model_id)
-       else if openai_host_supports_output_schema config.base_url
-       then Ok ()
-       else
-         Error
-           (Printf.sprintf
-              "native structured output is only wired for official Openai hosts, got %s"
-              config.base_url))
+       (match validate_model_structured_output_capability config with
+        | Error _ as error -> error
+        | Ok () ->
+          if openai_host_supports_output_schema config.base_url
+          then Ok ()
+          else
+            Error
+              (Printf.sprintf
+                 "native structured output is only wired for official Openai/Ollama \
+                  Cloud hosts, got %s"
+                 config.base_url)))
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess
@@ -651,6 +660,44 @@ let%test "validate_output_schema_request: Ollama Cloud accepts json_schema" =
       ()
   in
   validate_output_schema_request config = Ok ()
+;;
+
+let%test
+    "validate_output_schema_request: Ollama Cloud rejects models without SO guarantee"
+  =
+  let config =
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"mistral-large-3:675b"
+      ~base_url:"https://ollama.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match validate_output_schema_request config with
+  | Error msg ->
+    String.equal
+      msg
+      "model mistral-large-3:675b does not advertise native structured output"
+  | Ok () -> false
+;;
+
+let%test
+    "validate_output_schema_request: native Ollama rejects models without SO guarantee"
+  =
+  let config =
+    make
+      ~kind:Ollama
+      ~model_id:"ministral-3:8b"
+      ~base_url:"http://localhost:11434"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match validate_output_schema_request config with
+  | Error msg ->
+    String.equal msg "model ministral-3:8b does not advertise native structured output"
+  | Ok () -> false
 ;;
 
 let%test
