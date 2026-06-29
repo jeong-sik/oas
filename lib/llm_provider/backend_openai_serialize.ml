@@ -193,13 +193,10 @@ let messages_of_message_with
     let tool_calls = tool_calls_fn msg.content in
     let assistant_content =
       if Api_common.string_is_blank text_content && tool_calls <> []
-      then
-        if include_reasoning_content
-        then `String text_content
-        else (
-          match assistant_tool_content_format with
-          | Capability_vocab.Assistant_tool_content_null -> `Null
-          | Capability_vocab.Assistant_tool_content_empty_string -> `String text_content)
+      then (
+        match assistant_tool_content_format with
+        | Capability_vocab.Assistant_tool_content_null -> `Null
+        | Capability_vocab.Assistant_tool_content_empty_string -> `String text_content)
       else `String text_content
     in
     let fields = [ "role", `String "assistant"; "content", assistant_content ] in
