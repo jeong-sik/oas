@@ -328,7 +328,10 @@ let kimi_capabilities =
        same replay contract for catalog rows whose per-entry capabilities inherit
        base="kimi" without repeating the policy. *)
   ; supports_response_format_json = true
-  ; supports_structured_output = true
+  ; (* Native Moonshot/Kimi docs used for K2/K2.7 do not document an OpenAI
+       json_schema-equivalent strict structured-output field. Ollama Cloud
+       Kimi rows are provider-qualified and declare their own schema support. *)
+    supports_structured_output = false
   ; supports_system_prompt = true
   ; supports_native_streaming = true
   ; supports_multimodal_inputs = true

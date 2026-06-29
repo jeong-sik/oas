@@ -167,6 +167,7 @@ let test_make_with_all_options () =
       ~response_format_json:true
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ~cache_system_prompt:true
+      ~supports_structured_output_override:true
       ()
   in
   check_string "api_key" "sk-test" (cfg.api_key :> string);
@@ -188,7 +189,11 @@ let test_make_with_all_options () =
     true
     (cfg.response_format = Types.JsonSchema expected_schema);
   check_bool "has output schema" true (Option.is_some cfg.output_schema);
-  check_bool "cache prompt" true cfg.cache_system_prompt
+  check_bool "cache prompt" true cfg.cache_system_prompt;
+  check_bool
+    "structured output override"
+    true
+    (cfg.supports_structured_output_override = Some true)
 ;;
 
 let test_make_response_format_json_mode () =
@@ -256,6 +261,54 @@ let test_validate_output_schema_openai_compat_rejected () =
   in
   check_bool
     "generic compat rejected"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_openai_compat_declared_endpoint_accepted () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen/qwen3.6-35b-a3b"
+      ~base_url:"https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:true
+      ()
+  in
+  check_bool
+    "declared self-hosted OpenAI-compatible endpoint accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_declared_endpoint_still_requires_model_capability () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"unknown-model-without-schema-capability"
+      ~base_url:"https://schema-capable.example.test/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:true
+      ()
+  in
+  check_bool
+    "endpoint declaration does not invent model capability"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_endpoint_override_can_fail_closed () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:false
+      ()
+  in
+  check_bool
+    "explicit endpoint override false rejects even official host"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -1285,6 +1338,18 @@ let () =
             "generic compat rejected"
             `Quick
             test_validate_output_schema_openai_compat_rejected
+        ; Alcotest.test_case
+            "declared compat endpoint accepted"
+            `Quick
+            test_validate_output_schema_openai_compat_declared_endpoint_accepted
+        ; Alcotest.test_case
+            "declared endpoint still requires model capability"
+            `Quick
+            test_validate_output_schema_declared_endpoint_still_requires_model_capability
+        ; Alcotest.test_case
+            "endpoint override can fail closed"
+            `Quick
+            test_validate_output_schema_endpoint_override_can_fail_closed
         ; Alcotest.test_case
             "glm rejected"
             `Quick

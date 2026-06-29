@@ -308,6 +308,11 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
       false
       native.supports_named_tool_choice;
     check bool "native Kimi reasoning" true native.supports_reasoning;
+    check
+      bool
+      "native Kimi does not claim strict structured output"
+      false
+      native.supports_structured_output;
     check_thinking_control
       "native latest Kimi has no thinking request toggle"
       Capabilities.No_thinking_control
@@ -348,6 +353,11 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          false
          bare_native.supports_named_tool_choice;
        check bool "bare native Kimi reasoning" true bare_native.supports_reasoning;
+       check
+         bool
+         "bare native Kimi does not claim strict structured output"
+         false
+         bare_native.supports_structured_output;
        check_thinking_control
          "bare native latest Kimi has no thinking request toggle"
          Capabilities.No_thinking_control
@@ -971,13 +981,6 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Response_format_json_schema
       , Replay_tool_turn_only
       , Delta_stream "reasoning_content" )
-    ; ( "Kimi K2.7 Code native"
-      , Direct_model
-      , "kimi-k2.7-code"
-      , Extended_thinking
-      , Response_format_json_schema
-      , Replay_every_turn
-      , Streaming_not_required )
     ; ( "MiniMax M3 native/openai-compatible"
       , Direct_model
       , "minimax-m3"

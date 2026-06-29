@@ -88,6 +88,7 @@ type t =
   ; output_schema : Yojson.Safe.t option
   ; cache_system_prompt : bool
   ; supports_tool_choice_override : bool option
+  ; supports_structured_output_override : bool option
   ; keep_alive : string option
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
@@ -122,6 +123,7 @@ let make
       ?output_schema
       ?(cache_system_prompt = false)
       ?supports_tool_choice_override
+      ?supports_structured_output_override
       ?keep_alive
       ?internal_model_rotation_count
       ?num_ctx
@@ -168,6 +170,7 @@ let make
   ; output_schema
   ; cache_system_prompt
   ; supports_tool_choice_override
+  ; supports_structured_output_override
   ; keep_alive
   ; internal_model_rotation_count
   ; num_ctx
@@ -653,6 +656,12 @@ let openai_host_supports_output_schema base_url =
     || String.ends_with ~suffix:".ollama.com" host
 ;;
 
+let endpoint_supports_openai_compat_output_schema (config : t) =
+  match config.supports_structured_output_override with
+  | Some supported -> supported
+  | None -> openai_host_supports_output_schema config.base_url
+;;
+
 (** A native-schema request is in effect when either field carries one.
     Callers can build a [Provider_config.t] directly with [response_format =
     JsonSchema _] and [output_schema = None]; gating only on [output_schema]
@@ -717,13 +726,13 @@ let validate_output_schema_request (config : t) =
        (match validate_model_structured_output_capability config with
         | Error _ as error -> error
         | Ok () ->
-          if openai_host_supports_output_schema config.base_url
+          if endpoint_supports_openai_compat_output_schema config
           then Ok ()
           else
             Error
               (Printf.sprintf
-                 "native structured output is only wired for official Openai/Ollama \
-                  Cloud hosts, got %s"
+                 "native structured output is only wired for declared OpenAI-compatible \
+                  endpoints, got %s"
                  config.base_url)))
 ;;
 

@@ -99,6 +99,20 @@ type t =
       the policy and declares it.
 
       @since 0.150.0 *)
+  ; supports_structured_output_override : bool option
+    (** Override whether this concrete OpenAI-compatible endpoint supports
+        provider-native JSON-schema output requests. This is intentionally an
+        endpoint declaration, not a model capability override:
+        {!validate_output_schema_request} still requires the resolved model
+        capability to advertise [supports_structured_output].
+
+        [None] keeps the built-in endpoint policy.
+        [Some true] allows verified self-hosted/OpenAI-compatible endpoints
+        such as RunPod/vLLM/SGLang gateways.
+        [Some false] fail-closes even when the host would otherwise be
+        accepted.
+
+        @since 0.207.0 *)
   ; keep_alive : string option
     (** Ollama [keep_alive] request field. Accepted values: integer
       seconds ({"-1"}, {"0"}, {"3600"}) or duration strings ({"5m"},
@@ -203,6 +217,7 @@ val make
   -> ?output_schema:Yojson.Safe.t
   -> ?cache_system_prompt:bool
   -> ?supports_tool_choice_override:bool
+  -> ?supports_structured_output_override:bool
   -> ?keep_alive:string
   -> ?internal_model_rotation_count:int
   -> ?num_ctx:int
@@ -393,9 +408,11 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [OpenAI_compat] is accepted only for official Openai/Ollama Cloud hosts
-      with a model capability record that reports
-      [supports_structured_output].
+    - [OpenAI_compat] is accepted only when the selected model capability
+      record reports [supports_structured_output] and the concrete endpoint is
+      declared schema-capable. [None] uses the built-in official
+      OpenAI/Ollama Cloud endpoint policy; [Some true] admits verified
+      self-hosted/OpenAI-compatible endpoints; [Some false] fail-closes.
     - [Ollama] is accepted only when the selected model capability record
       reports [supports_structured_output]; Ollama-family model rows can differ
       even when the transport accepts a JSON-format field.
@@ -403,7 +420,8 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
       DashScope (DashScope) exposes [response_format.json_schema] on its
       OpenAI-compatible endpoint; the field is forwarded by
       [backend_openai.ml] without additional host validation.
-    - [Kimi] is rejected until native json_schema support is verified.
+    - [Kimi] follows the same endpoint declaration path, but the native Kimi
+      capability profile currently does not advertise strict schema output.
     - [Glm] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.
     - CLI kinds are rejected.

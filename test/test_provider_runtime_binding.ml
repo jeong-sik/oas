@@ -209,6 +209,25 @@ let test_capabilities_for_provider_config_honors_override () =
       caps.supports_named_tool_choice)
 ;;
 
+let test_catalog_structured_output_capability_projects_to_provider_config () =
+  with_provider_catalog catalog_json (fun () ->
+    let binding = expect_binding "subscriber-local" in
+    let cfg =
+      Provider_runtime_binding.to_provider_config ~model:"qwen/qwen3.6-35b-a3b" binding
+    in
+    let schema = `Assoc [ "type", `String "object" ] in
+    let cfg =
+      { cfg with
+        Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+      ; output_schema = Some schema
+      }
+    in
+    Alcotest.(check bool)
+      "catalog endpoint accepts declared structured output"
+      true
+      (Result.is_ok (Llm_provider.Provider_config.validate_output_schema_request cfg)))
+;;
+
 let test_capabilities_for_provider_config_uses_provider_qualified_model_catalog () =
   with_model_catalog
     {|
@@ -618,6 +637,10 @@ let () =
             "capabilities honor tool_choice override"
             `Quick
             test_capabilities_for_provider_config_honors_override
+        ; Alcotest.test_case
+            "structured output projects to provider config"
+            `Quick
+            test_catalog_structured_output_capability_projects_to_provider_config
         ; Alcotest.test_case
             "provider-qualified model catalog capabilities"
             `Quick
