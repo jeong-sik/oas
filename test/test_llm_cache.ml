@@ -393,8 +393,10 @@ let test_roundtrip_binary_block () =
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
   | Some r ->
-    (* binary blocks serialize as {"type":"binary"} which is not deserialized back *)
-    Alcotest.(check int) "binary filtered" 0 (List.length r.content)
+    (match r.content with
+     | [ Image { media_type = "image/png"; data = "base64data"; source_type = "base64" } ]
+       -> ()
+     | _ -> Alcotest.fail "expected image block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
@@ -421,7 +423,12 @@ let test_roundtrip_document_block () =
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
-  | Some r -> Alcotest.(check int) "document filtered" 0 (List.length r.content)
+  | Some r ->
+    (match r.content with
+     | [ Document
+           { media_type = "application/pdf"; data = "pdf-data"; source_type = "base64" }
+       ] -> ()
+     | _ -> Alcotest.fail "expected document block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 
@@ -432,7 +439,11 @@ let test_roundtrip_audio_block () =
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with
-  | Some r -> Alcotest.(check int) "audio filtered" 0 (List.length r.content)
+  | Some r ->
+    (match r.content with
+     | [ Audio { media_type = "audio/mp3"; data = "audio-data"; source_type = "base64" } ]
+       -> ()
+     | _ -> Alcotest.fail "expected audio block to roundtrip")
   | None -> Alcotest.fail "roundtrip failed"
 ;;
 

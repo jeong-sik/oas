@@ -314,49 +314,38 @@ let test_mcp_with_env () =
   | Error e -> fail (Error.to_string e)
 ;;
 
-(* ── parse_tool: param type mapping ──────────────────── *)
+(* ── Inline config tools are rejected ──────────────────── *)
 
 let test_tool_param_types () =
-  let json =
-    `Assoc
-      [ "name", `String "multi"
-      ; ( "tools"
-        , `List
-            [ `Assoc
-                [ "name", `String "calc"
-                ; "description", `String "Calculator"
-                ; ( "parameters"
-                  , `List
-                      [ `Assoc [ "name", `String "x"; "type", `String "number" ]
-                      ; `Assoc
-                          [ "name", `String "op"
-                          ; "type", `String "string"
-                          ; "required", `Bool true
-                          ]
-                      ; `Assoc [ "name", `String "flag"; "type", `String "boolean" ]
-                      ] )
-                ]
-            ] )
-      ]
-  in
-  match Agent_config.of_json json with
-  | Ok cfg ->
-    let tool = List.hd cfg.tools in
-    check int "3 params" 3 (List.length tool.parameters)
-  | Error e -> fail (Error.to_string e)
+  expect_invalid_config_field
+    "tools"
+    (`Assoc
+        [ "name", `String "multi"
+        ; ( "tools"
+          , `List
+              [ `Assoc
+                  [ "name", `String "calc"
+                  ; "description", `String "Calculator"
+                  ; ( "parameters"
+                    , `List
+                        [ `Assoc [ "name", `String "x"; "type", `String "number" ]
+                        ; `Assoc
+                            [ "name", `String "op"
+                            ; "type", `String "string"
+                            ; "required", `Bool true
+                            ]
+                        ; `Assoc [ "name", `String "flag"; "type", `String "boolean" ]
+                        ] )
+                  ]
+              ] )
+        ])
 ;;
 
 let test_tool_no_params () =
-  let json =
-    `Assoc
-      [ "name", `String "test"; "tools", `List [ `Assoc [ "name", `String "simple" ] ] ]
-  in
-  match Agent_config.of_json json with
-  | Ok cfg ->
-    let tool = List.hd cfg.tools in
-    check string "default desc" "" tool.description;
-    check int "no params" 0 (List.length tool.parameters)
-  | Error e -> fail (Error.to_string e)
+  expect_invalid_config_field
+    "tools"
+    (`Assoc
+        [ "name", `String "test"; "tools", `List [ `Assoc [ "name", `String "simple" ] ] ])
 ;;
 
 (* ── HTTP MCP parsing ──────────────────────────────────── *)
@@ -451,8 +440,8 @@ let () =
         ; test_case "defaults" `Quick test_defaults
         ; test_case "mcp defaults" `Quick test_mcp_defaults
         ; test_case "mcp with env" `Quick test_mcp_with_env
-        ; test_case "tool param types" `Quick test_tool_param_types
-        ; test_case "tool no params" `Quick test_tool_no_params
+        ; test_case "reject tool param types" `Quick test_tool_param_types
+        ; test_case "reject tool no params" `Quick test_tool_no_params
         ; test_case "http mcp" `Quick test_http_mcp_config
         ; test_case "http mcp defaults" `Quick test_http_mcp_defaults
         ; test_case "mixed mcp" `Quick test_mixed_mcp_config
