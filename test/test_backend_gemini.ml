@@ -121,7 +121,11 @@ let test_thinking_disabled_uses_budget_zero () =
 
 let test_gemini3_uses_thinking_level () =
   let config =
-    gemini_config ~model_id:"gemini-3.5-flash" ~enable_thinking:true ~budget:1024 ()
+    gemini_config
+      ~model_id:"gemini-3.5-flash"
+      ~enable_thinking:true
+      ~budget:Reasoning_effort.low_budget_max_tokens
+      ()
   in
   let body =
     Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Think." ] ()

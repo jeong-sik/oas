@@ -531,6 +531,29 @@ let test_reasoning_effort_of_thinking_config () =
     (Some (Reasoning_effort.medium_budget_max_tokens + 1))
 ;;
 
+let test_reasoning_effort_top_tier_budget_mapping () =
+  let check_effort label expected budget =
+    Alcotest.(check (option string))
+      label
+      (Some expected)
+      (reasoning_effort_option_to_string (Reasoning_effort.of_budget_with_xhigh budget))
+  in
+  check_effort "low top-tier mapping" "low" Reasoning_effort.low_budget_max_tokens;
+  check_effort
+    "medium top-tier mapping"
+    "medium"
+    Reasoning_effort.medium_budget_max_tokens;
+  check_effort "high top-tier mapping" "high" Reasoning_effort.high_budget_max_tokens;
+  check_effort
+    "xhigh top-tier mapping"
+    "xhigh"
+    (Reasoning_effort.high_budget_max_tokens + 1);
+  Alcotest.(check (option string))
+    "non-positive budget omits effort"
+    None
+    (reasoning_effort_option_to_string (Reasoning_effort.of_budget_with_xhigh 0))
+;;
+
 let test_reasoning_effort_typed_roundtrip () =
   let cases =
     [ Provider_config.Minimal, "minimal"
@@ -1197,6 +1220,10 @@ let () =
             "thinking effort thresholds"
             `Quick
             test_reasoning_effort_of_thinking_config
+        ; Alcotest.test_case
+            "thinking effort top-tier thresholds"
+            `Quick
+            test_reasoning_effort_top_tier_budget_mapping
         ; Alcotest.test_case
             "reasoning effort by config"
             `Quick

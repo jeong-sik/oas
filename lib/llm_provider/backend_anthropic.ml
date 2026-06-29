@@ -60,11 +60,18 @@ let parse_response json =
   }
 ;;
 
-let effort_of_budget = function
-  | n when n <= 2_048 -> "low"
-  | n when n <= 8_192 -> "medium"
-  | n when n <= 32_768 -> "high"
-  | _ -> "max"
+let adaptive_effort_dialect =
+  { Reasoning_dialect.default with effort_alias_policy = Reasoning_dialect.Xhigh_as_max }
+;;
+
+let effort_of_budget budget =
+  let effort =
+    match Reasoning_effort.of_budget_with_xhigh budget with
+    | Some effort -> effort
+    | None -> Reasoning_effort.Low
+  in
+  Reasoning_dialect.normalize_effort_value adaptive_effort_dialect effort
+  |> Option.value ~default:"low"
 ;;
 
 let effort_for_config mode (config : Provider_config.t) =

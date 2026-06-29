@@ -20,6 +20,7 @@ type toggle_wire =
 type effort_alias_policy =
   | Preserve_effort
   | Deepseek_high_or_max
+  | Xhigh_as_max
 
 type sampling_policy =
   | Sampling_supported
@@ -286,6 +287,9 @@ let normalize_effort_value dialect effort =
     Some "high"
   | Deepseek_high_or_max, Reasoning_effort.XHigh -> Some "max"
   | Deepseek_high_or_max, Reasoning_effort.Minimal -> None
+  | Xhigh_as_max, Reasoning_effort.XHigh -> Some "max"
+  | Xhigh_as_max, Reasoning_effort.Minimal -> None
+  | Xhigh_as_max, effort -> Some (Reasoning_effort.to_string effort)
   | Preserve_effort, effort -> Some (Reasoning_effort.to_string effort)
 ;;
 
