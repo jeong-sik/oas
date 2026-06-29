@@ -17,6 +17,40 @@ type assistant_tool_content_format =
 
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
+let thinking_control_format_values =
+  [ "none"
+  ; "thinking_object"
+  ; "thinking_object_only"
+  ; "chat_template_kwargs"
+  ; "chat_template_token"
+  ; "ollama_think"
+  ; "reasoning_effort"
+  ; "enable_thinking"
+  ]
+;;
+
+let preserve_thinking_control_format_values =
+  [ "none"
+  ; "thinking_object_keep_all"
+  ; "chat_template_kwargs_preserve_thinking"
+  ; "top_level_preserve_thinking"
+  ; "always_preserved"
+  ]
+;;
+
+let reasoning_visibility_values =
+  [ "default"; "provider_hidden"; "hidden"; "visible_channel"; "visible_text" ]
+;;
+
+let modality_priority_values =
+  [ "preserve_input_order"
+  ; "preserve-input-order"
+  ; "preserve"
+  ; "visual_first"
+  ; "visual-first"
+  ]
+;;
+
 let reasoning_replay_table =
   [ "default", Default_reasoning_replay
   ; "no_replay", Force_no_replay

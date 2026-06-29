@@ -74,40 +74,6 @@ let canonical_string_opt ~entry_id key ~allowed toml =
            (String.concat ", " allowed))
 ;;
 
-let thinking_control_format_values =
-  [ "none"
-  ; "thinking_object"
-  ; "thinking_object_only"
-  ; "chat_template_kwargs"
-  ; "chat_template_token"
-  ; "ollama_think"
-  ; "reasoning_effort"
-  ; "enable_thinking"
-  ]
-;;
-
-let preserve_thinking_control_format_values =
-  [ "none"
-  ; "thinking_object_keep_all"
-  ; "chat_template_kwargs_preserve_thinking"
-  ; "top_level_preserve_thinking"
-  ; "always_preserved"
-  ]
-;;
-
-let reasoning_visibility_values =
-  [ "default"; "provider_hidden"; "hidden"; "visible_channel"; "visible_text" ]
-;;
-
-let modality_priority_values =
-  [ "preserve_input_order"
-  ; "preserve-input-order"
-  ; "preserve"
-  ; "visual_first"
-  ; "visual-first"
-  ]
-;;
-
 let find_bool_opt toml path =
   match Otoml.find_opt toml Otoml.get_boolean path with
   | Some b -> Some b
@@ -156,28 +122,28 @@ let parse_entry entry_toml =
          canonical_string_opt
            ~entry_id:id_prefix
            "modality_priority"
-           ~allowed:modality_priority_values
+           ~allowed:Capability_vocab.modality_priority_values
            entry_toml
        in
        let thinking_control_format_result =
          canonical_string_opt
            ~entry_id:id_prefix
            "thinking_control_format"
-           ~allowed:thinking_control_format_values
+           ~allowed:Capability_vocab.thinking_control_format_values
            entry_toml
        in
        let preserve_thinking_control_format_result =
          canonical_string_opt
            ~entry_id:id_prefix
            "preserve_thinking_control_format"
-           ~allowed:preserve_thinking_control_format_values
+           ~allowed:Capability_vocab.preserve_thinking_control_format_values
            entry_toml
        in
        let reasoning_visibility_result =
          canonical_string_opt
            ~entry_id:id_prefix
            "reasoning_visibility"
-           ~allowed:reasoning_visibility_values
+           ~allowed:Capability_vocab.reasoning_visibility_values
            entry_toml
        in
        (match

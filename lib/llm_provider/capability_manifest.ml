@@ -138,34 +138,6 @@ let canonical_choice key ~allowed json =
            (String.concat ", " allowed))
 ;;
 
-let thinking_control_format_values =
-  [ "none"
-  ; "thinking_object"
-  ; "thinking_object_only"
-  ; "chat_template_kwargs"
-  ; "chat_template_token"
-  ; "reasoning_effort"
-  ; "enable_thinking"
-  ]
-;;
-
-let preserve_thinking_control_format_values =
-  [ "none"
-  ; "thinking_object_keep_all"
-  ; "chat_template_kwargs_preserve_thinking"
-  ; "top_level_preserve_thinking"
-  ; "always_preserved"
-  ]
-;;
-
-let assistant_tool_content_format_values =
-  Capability_vocab.assistant_tool_content_format_values
-;;
-
-let reasoning_visibility_values =
-  [ "default"; "provider_hidden"; "hidden"; "visible_channel"; "visible_text" ]
-;;
-
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
 
 let known_entry_keys =
@@ -231,13 +203,13 @@ let parse_entry json =
   let* thinking_control_format =
     canonical_choice
       "thinking_control_format"
-      ~allowed:thinking_control_format_values
+      ~allowed:Capability_vocab.thinking_control_format_values
       json
   in
   let* preserve_thinking_control_format =
     canonical_choice
       "preserve_thinking_control_format"
-      ~allowed:preserve_thinking_control_format_values
+      ~allowed:Capability_vocab.preserve_thinking_control_format_values
       json
   in
   let* reasoning_replay =
@@ -247,12 +219,15 @@ let parse_entry json =
       json
   in
   let* reasoning_visibility =
-    canonical_choice "reasoning_visibility" ~allowed:reasoning_visibility_values json
+    canonical_choice
+      "reasoning_visibility"
+      ~allowed:Capability_vocab.reasoning_visibility_values
+      json
   in
   let* assistant_tool_content_format =
     canonical_choice
       "assistant_tool_content_format"
-      ~allowed:assistant_tool_content_format_values
+      ~allowed:Capability_vocab.assistant_tool_content_format_values
       json
   in
   Ok

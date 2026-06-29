@@ -854,6 +854,22 @@ let test_manifest_rejects_wrong_type_policy_string () =
   | Ok _ -> Alcotest.fail "wrong-type thinking_control_format should reject"
 ;;
 
+let test_manifest_accepts_ollama_think_policy_string () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"ollama-manifest","thinking_control_format":"ollama_think"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check_thinking_control
+      "manifest ollama_think"
+      Capabilities.Ollama_think
+      caps.thinking_control_format
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -1290,6 +1306,10 @@ let () =
             "wrong-type policy string rejects"
             `Quick
             test_manifest_rejects_wrong_type_policy_string
+        ; test_case
+            "ollama_think policy string accepted"
+            `Quick
+            test_manifest_accepts_ollama_think_policy_string
         ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
