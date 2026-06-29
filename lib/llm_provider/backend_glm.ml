@@ -102,11 +102,11 @@ let without_field name fields =
   List.filter (fun (key, _) -> not (String.equal key name)) fields
 ;;
 
-let normalize_tool_choice_fields fields =
-  List.map
-    (fun (key, value) ->
-       if String.equal key "tool_choice" then key, `String "auto" else key, value)
-    fields
+let normalize_tool_choice_fields ~(tool_choice : Types.tool_choice option) fields =
+  let fields = without_field "tool_choice" fields in
+  match tool_choice with
+  | Some (Auto | Any) -> ("tool_choice", `String "auto") :: fields
+  | Some (Tool _ | None_) | None -> fields
 ;;
 
 let build_request
@@ -135,7 +135,7 @@ let build_request
        [Glm_enable_thinking] is deferred to the RFC-OAS-023 axis reshape, which
        needs model-based [capabilities_of_config] resolution. *)
     let fields = without_field "thinking" fields in
-    let fields = normalize_tool_choice_fields fields in
+    let fields = normalize_tool_choice_fields ~tool_choice:config.tool_choice fields in
     let fields =
       match config.enable_thinking with
       | Some true ->

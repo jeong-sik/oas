@@ -160,8 +160,9 @@ let effective_tool_choice_json
   let is_glm = is_glm_request ?provider_config config in
   match config.config.tool_choice with
   | Some Types.None_ when is_glm -> None
-  | Some (Types.Auto | Types.Any | Types.Tool _) when is_glm ->
+  | Some (Types.Auto | Types.Any) when is_glm ->
     Some (tool_choice_to_openai_json Types.Auto)
+  | Some (Types.Tool _) when is_glm -> None
   | Some Types.Auto when capabilities.supports_tool_choice ->
     Some (tool_choice_to_openai_json Types.Auto)
   | Some choice when capabilities.supports_tool_choice ->
