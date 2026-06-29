@@ -686,6 +686,8 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
               "capabilities": {"thinking_control_format": "thinking_object_only"}},
              {"id": "dashscope", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "enable_thinking"}},
+             {"id": "ollama-cloud", "kind": "ollama",
+              "capabilities": {"thinking_control_format": "ollama_think"}},
              {"id": "openai-reasoning", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "reasoning_effort",
                                "reasoning_visibility": "visible_text"}}
@@ -710,6 +712,7 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
     in
     check_format "kimi-k2" Capabilities.Thinking_object_only;
     check_format "dashscope" Capabilities.Enable_thinking;
+    check_format "ollama-cloud" Capabilities.Ollama_think;
     check_format "openai-reasoning" Capabilities.Reasoning_effort;
     (match Provider_catalog.lookup catalog "openai-reasoning" with
      | Some entry ->

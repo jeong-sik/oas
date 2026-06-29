@@ -325,8 +325,8 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          (Some 262_144)
          cloud.max_context_tokens;
        check_thinking_control
-         "provider-qualified Ollama Cloud Kimi uses reasoning_effort"
-         Capabilities.Reasoning_effort
+         "provider-qualified Ollama Cloud Kimi uses native think"
+         Capabilities.Ollama_think
          cloud.thinking_control_format;
        check_visual_first "provider-qualified Ollama Cloud Kimi" cloud
      | None -> fail "should match provider-qualified Ollama Cloud Kimi route")
@@ -552,9 +552,27 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   check (option int) "bare GLM context" (Some 200_000) bare_glm.max_context_tokens;
   check (option int) "cloud GLM context" (Some 202_752) cloud_glm.max_context_tokens;
   check_thinking_control
-    "cloud GLM uses Ollama reasoning_effort"
-    Reasoning_effort
+    "cloud GLM uses Ollama native think"
+    Ollama_think
     cloud_glm.thinking_control_format;
+  let bare_glm52 =
+    match for_model_id "glm-5.2" with
+    | Some c -> c
+    | None -> fail "bare glm-5.2 should resolve"
+  in
+  let cloud_glm52 =
+    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"glm-5.2" with
+    | Some c -> c
+    | None -> fail "ollama_cloud/glm-5.2 should resolve"
+  in
+  check_thinking_control
+    "bare GLM-5.2 keeps ZAI GLM thinking control"
+    No_thinking_control
+    bare_glm52.thinking_control_format;
+  check_thinking_control
+    "cloud GLM-5.2 uses Ollama native think"
+    Ollama_think
+    cloud_glm52.thinking_control_format;
   let bare_kimi =
     match for_model_id "kimi-k2.7-code" with
     | Some c -> c
@@ -577,8 +595,8 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     true
     (bare_kimi.preserve_thinking_control_format = Always_preserved_thinking);
   check_thinking_control
-    "cloud Kimi uses Ollama reasoning_effort"
-    Reasoning_effort
+    "cloud Kimi uses Ollama native think"
+    Ollama_think
     cloud_kimi.thinking_control_format;
   check
     (option int)

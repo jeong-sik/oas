@@ -197,9 +197,9 @@ let test_discover_uses_call_time_ollama_host () =
              (fun (props : Discovery.server_props) -> props.ctx_size)
              status.props);
         Alcotest.(check bool)
-          "reasoning effort behavior"
+          "ollama think behavior"
           true
-          (status.capabilities.thinking_control_format = Capabilities.Reasoning_effort)
+          (status.capabilities.thinking_control_format = Capabilities.Ollama_think)
       | _ -> Alcotest.fail "expected one endpoint status"))
 ;;
 

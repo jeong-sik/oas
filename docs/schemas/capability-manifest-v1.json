@@ -151,6 +151,7 @@
             "thinking_object_only",
             "chat_template_kwargs",
             "chat_template_token",
+            "ollama_think",
             "reasoning_effort",
             "enable_thinking"
           ]

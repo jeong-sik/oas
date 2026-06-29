@@ -17,7 +17,8 @@ type provider_kind = Provider_kind.t =
   | Kimi (** Kimi direct API: Anthropic-compatible [/v1/messages]. @since 0.169.0 *)
   | OpenAI_compat
   | Ollama
-  (** Ollama: OpenAI_compat wire format + reasoning_effort + no tool_choice. @since 0.112.0 *)
+  (** Ollama native [/api/chat] wire format with [think] control and no
+      [tool_choice]. @since 0.112.0 *)
   | Gemini
   | Glm
   (** ZhipuAI GLM native: OpenAI_compat wire format + JWT auth + GLM error parsing. @since 0.83.0 *)
