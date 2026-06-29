@@ -240,7 +240,19 @@ let test_cost_scales_with_tokens =
 
 (* ── Provider Resolve Properties ──────────────────────────────── *)
 
-let repo_model_catalog = lazy (Llm_provider.Model_catalog.load_file "models.toml")
+let rec find_repo_root dir =
+  if Sys.file_exists (Filename.concat dir "dune-project")
+  then dir
+  else (
+    let parent = Filename.dirname dir in
+    if String.equal parent dir then dir else find_repo_root parent)
+;;
+
+let repo_model_catalog =
+  lazy
+    (let path = Filename.concat (find_repo_root (Sys.getcwd ())) "models.toml" in
+     Llm_provider.Model_catalog.load_file path)
+;;
 
 let with_repo_model_catalog f =
   match Lazy.force repo_model_catalog with
