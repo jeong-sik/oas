@@ -160,14 +160,10 @@ let thinking_object_only_fields dialect (config : Provider_config.t) =
   if control.keep_all then fields @ [ "keep", `String "all" ] else fields
 ;;
 
-let glm_clear_thinking_of_config (config : Provider_config.t) =
-  match config.clear_thinking with
-  | Some clear -> clear
-  | None ->
-    (match config.preserve_thinking with
-     | Some preserve -> not preserve
-     | None -> true)
-;;
+(* Resolution delegated to [Provider_config.glm_clear_thinking] (SSOT) so the
+   request-body clear_thinking field below and the reasoning-replay gate cannot
+   diverge. *)
+let glm_clear_thinking_of_config = Provider_config.glm_clear_thinking
 
 let is_zai_glm_request (config : Provider_config.t) =
   Zai_catalog.is_zai_base_url config.base_url
@@ -175,9 +171,7 @@ let is_zai_glm_request (config : Provider_config.t) =
 ;;
 
 let zai_glm_preserve_thinking_request (config : Provider_config.t) =
-  is_zai_glm_request config
-  && config.enable_thinking = Some true
-  && not (glm_clear_thinking_of_config config)
+  is_zai_glm_request config && Provider_config.glm_should_replay_reasoning config
 ;;
 
 let normalized_reasoning_effort dialect (config : Provider_config.t) =
@@ -207,13 +201,20 @@ let build_request_assoc
   let provider_messages =
     let message_serializer =
       match config.kind with
-      | Provider_config.Glm -> Backend_openai_serialize.glm_messages_of_message
+      | Provider_config.Glm when Provider_config.glm_should_replay_reasoning config ->
+        (* Native GLM replays historical reasoning_content only under Preserved
+           Thinking (thinking active AND clear_thinking=false). *)
+        Backend_openai_serialize.glm_messages_of_message
       | Provider_config.OpenAI_compat when zai_glm_preserve_thinking_request config ->
         (* ZAI GLM accepts reasoning_content in request messages only when the
            same request body enables thinking with clear_thinking=false. The
            generic OpenAI_compat serializer drops Thinking blocks, so route
            bare-ZAI GLM through the GLM serializer only for that wire shape. *)
         Backend_openai_serialize.glm_messages_of_message
+      | Provider_config.Glm
+      (* Default native GLM (clear_thinking=true): the server discards prior-turn
+         reasoning, so drop it via the No_replay dialect serializer rather than
+         replaying content the contract ignores (which bloats every request). *)
       | Provider_config.Anthropic
       | Provider_config.Kimi
       | Provider_config.OpenAI_compat
