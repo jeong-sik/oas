@@ -244,8 +244,8 @@ let with_repo_model_catalog f =
   match Llm_provider.Model_catalog.global () with
   | None ->
     Alcotest.fail
-      "OAS_MODEL_CATALOG did not load the repository models.toml for capability \
-       property tests"
+      "OAS_MODEL_CATALOG did not load the repository models.toml for capability property \
+       tests"
   | Some catalog ->
     Llm_provider.Model_catalog.set_global catalog;
     Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f
