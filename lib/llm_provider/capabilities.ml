@@ -1016,6 +1016,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_code_execution = None
   ; thinking_control_format = None
   ; reasoning_visibility = None
+  ; reasoning_replay = None
   ; input_per_million = None
   ; output_per_million = None
   ; cache_write_multiplier = None
