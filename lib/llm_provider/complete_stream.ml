@@ -395,6 +395,7 @@ let complete_stream_http
         | Types.ContentBlockStart { content_type = "tool_use"; _ } -> `Tool_call_start
         | Types.ContentBlockStart _ -> `Substrate
         | Types.ContentBlockDelta { delta = TextDelta _; _ } -> `Answer
+        | Types.ContentBlockDelta { delta = MediaDelta _; _ } -> `Answer
         | Types.ContentBlockDelta { delta = ThinkingDelta _; _ } -> `Thinking
         | Types.ContentBlockDelta { delta = ThinkingSignatureDelta _; _ } -> `Substrate
         | Types.ContentBlockDelta { delta = InputJsonDelta _; _ } -> `Tool_call_arg_delta

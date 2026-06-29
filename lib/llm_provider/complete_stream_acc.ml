@@ -22,6 +22,10 @@ type stream_acc =
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
+  ; block_media_types : (int, string) Hashtbl.t
+    (** Per-block media MIME type from {!Types.MediaDelta}. *)
+  ; block_media_sources : (int, string) Hashtbl.t
+    (** Per-block media source kind from {!Types.MediaDelta}. *)
   }
 
 let create_stream_acc () =
@@ -40,6 +44,8 @@ let create_stream_acc () =
   ; block_tool_ids = Hashtbl.create 4
   ; block_tool_names = Hashtbl.create 4
   ; block_thinking_signatures = Hashtbl.create 4
+  ; block_media_types = Hashtbl.create 4
+  ; block_media_sources = Hashtbl.create 4
   }
 ;;
 
@@ -74,6 +80,10 @@ let accumulate_event (acc : stream_acc) = function
     (match delta with
      | Types.TextDelta s | Types.ThinkingDelta s | Types.InputJsonDelta s ->
        Buffer.add_string buf s
+     | Types.MediaDelta { media_type; source_type; data } ->
+       Hashtbl.replace acc.block_media_types index media_type;
+       Hashtbl.replace acc.block_media_sources index source_type;
+       Buffer.add_string buf data
      | Types.ThinkingSignatureDelta s ->
        let sig_buf =
          match Hashtbl.find_opt acc.block_thinking_signatures index with
@@ -128,6 +138,9 @@ type block_kind =
   | Redacted_thinking_block
   | Tool_use_block
   | Tool_result_block of { is_error : bool }
+  | Image_block
+  | Document_block
+  | Audio_block
   | Unknown_block of string
 
 let block_kind_of_string = function
@@ -137,6 +150,9 @@ let block_kind_of_string = function
   | "tool_use" -> Tool_use_block
   | "tool_result" -> Tool_result_block { is_error = false }
   | "tool_result_error" -> Tool_result_block { is_error = true }
+  | "image" -> Image_block
+  | "document" -> Document_block
+  | "audio" -> Audio_block
   | other -> Unknown_block other
 ;;
 
@@ -164,6 +180,24 @@ let finalize_stream_acc
         match Hashtbl.find_opt acc.block_texts idx with
         | Some buf -> Buffer.contents buf
         | None -> ""
+      in
+      let media_block kind make =
+        if String.trim text = ""
+        then Ok None
+        else (
+          match
+            ( Hashtbl.find_opt acc.block_media_types idx
+            , Hashtbl.find_opt acc.block_media_sources idx )
+          with
+          | Some media_type, Some source_type
+            when String.trim media_type <> "" && String.trim source_type <> "" ->
+            Ok (Some (make ~media_type ~data:text ~source_type))
+          | _ ->
+            Error
+              (Types.Stream_parse_failed
+                 { reason = Printf.sprintf "malformed_media_block:%s:index:%d" kind idx
+                 ; raw = ""
+                 }))
       in
       match Option.map block_kind_of_string (Hashtbl.find_opt acc.block_types idx) with
       | None -> Ok None
@@ -231,6 +265,15 @@ let finalize_stream_acc
                 ; json = (if is_error then None else Types.try_parse_json text)
                 ; content_blocks = None
                 }))
+      | Some Image_block ->
+        media_block "image" (fun ~media_type ~data ~source_type ->
+          Types.Image { media_type; data; source_type })
+      | Some Document_block ->
+        media_block "document" (fun ~media_type ~data ~source_type ->
+          Types.Document { media_type; data; source_type })
+      | Some Audio_block ->
+        media_block "audio" (fun ~media_type ~data ~source_type ->
+          Types.Audio { media_type; data; source_type })
       | Some (Unknown_block kind) ->
         (* RFC-OAS-029 S6.1/S8.3: an unmodeled content-block kind is handled
            explicitly and fail-closed. Unknown wire semantics are not safely
@@ -773,6 +816,93 @@ let%test "finalize_stream_acc fails closed for empty unknown block kind" =
   | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
+let%test "finalize_stream_acc assembles a streamed image block (multimodal)" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "image"; tool_id = None; tool_name = None });
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta
+       { index = 0
+       ; delta =
+           Types.MediaDelta
+             { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+       });
+  accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    result.content
+    = [ Types.Image
+          { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = "base64" }
+      ]
+;;
+
+let%test "finalize_stream_acc concatenates multi-chunk media payload" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "audio"; tool_id = None; tool_name = None });
+  let chunk data =
+    accumulate_event
+      acc
+      (Types.ContentBlockDelta
+         { index = 0
+         ; delta =
+             Types.MediaDelta { media_type = "audio/mp3"; source_type = "base64"; data }
+         })
+  in
+  chunk "AAAA";
+  chunk "BBBB";
+  accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result ->
+    result.content
+    = [ Types.Audio
+          { media_type = "audio/mp3"; data = "AAAABBBB"; source_type = "base64" }
+      ]
+;;
+
+let%test "finalize_stream_acc drops a media block with no payload" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "document"; tool_id = None; tool_name = None });
+  accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.content = []
+;;
+
+let%test "finalize_stream_acc fails closed for media payload without metadata" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "image"; tool_id = None; tool_name = None });
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "payload" });
+  accumulate_event
+    acc
+    (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
+  match finalize_stream_acc acc with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = "" && reason = "malformed_media_block:image:index:0"
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+;;
+
 let%test "finalize_stream_acc tool_use with invalid json falls back to empty assoc" =
   (* Non-truncated turn: an unparseable buffer still falls back to empty input
      (existing behavior). Truncation is handled by the MaxTokens guard, below. *)
@@ -895,6 +1025,94 @@ let%test "finalize_stream_acc assembles tool_result block" =
            }
        ] -> true
      | _ -> false)
+;;
+
+let%test "finalize_stream_acc assembles a streamed image block" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "image"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta
+        { index = 0
+        ; delta =
+            Types.MediaDelta
+              { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+        }
+    ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok
+      { content =
+          [ Types.Image
+              { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+          ]
+      ; _
+      } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "finalize_stream_acc concatenates multi-chunk media payload" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "audio"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta
+        { index = 0
+        ; delta =
+            Types.MediaDelta
+              { media_type = "audio/mpeg"; source_type = "base64"; data = "AAA" }
+        }
+    ; Types.ContentBlockDelta
+        { index = 0
+        ; delta =
+            Types.MediaDelta
+              { media_type = "audio/mpeg"; source_type = "base64"; data = "BBB" }
+        }
+    ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok
+      { content =
+          [ Types.Audio
+              { media_type = "audio/mpeg"; source_type = "base64"; data = "AAABBB" }
+          ]
+      ; _
+      } -> true
+  | Ok _ | Error _ -> false
+;;
+
+let%test "finalize_stream_acc fails closed for media payload without metadata" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "image"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.TextDelta "payload" }
+    ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    reason = "malformed_media_block:image:index:0" && raw = ""
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+;;
+
+let%test "finalize_stream_acc drops a media block with no payload" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "document"; tool_id = None; tool_name = None }
+    ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok { content = []; _ } -> true
+  | Ok _ | Error _ -> false
 ;;
 
 let%test "finalize_stream_acc block with no text buffer produces empty text" =

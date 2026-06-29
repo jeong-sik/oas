@@ -137,6 +137,29 @@ let test_acc_content_block_start_thinking () =
   | _ -> Alcotest.fail "expected single Thinking block"
 ;;
 
+let test_acc_content_block_start_image () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event
+    acc
+    (ContentBlockStart
+       { index = 0; content_type = "image"; tool_id = None; tool_name = None });
+  Streaming.accumulate_event
+    acc
+    (ContentBlockDelta
+       { index = 0
+       ; delta =
+           MediaDelta
+             { media_type = "image/png"; source_type = "base64"; data = "iVBORw0KGgo=" }
+       });
+  let resp = finalize_ok acc in
+  match resp.content with
+  | [ Image { media_type; source_type; data } ] ->
+    check_string "media_type" "image/png" media_type;
+    check_string "source_type" "base64" source_type;
+    check_string "data" "iVBORw0KGgo=" data
+  | _ -> Alcotest.fail "expected single Image block"
+;;
+
 (* ── accumulate_event: ContentBlockDelta for missing index ──────── *)
 
 let test_acc_delta_creates_buffer_on_missing_index () =
@@ -740,6 +763,23 @@ let test_finalize_thinking_empty_content () =
   | _ -> Alcotest.fail "expected empty Thinking block"
 ;;
 
+let test_finalize_media_missing_metadata_fails () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event
+    acc
+    (ContentBlockStart
+       { index = 0; content_type = "image"; tool_id = None; tool_name = None });
+  Streaming.accumulate_event
+    acc
+    (ContentBlockDelta { index = 0; delta = TextDelta "payload-without-metadata" });
+  Streaming.accumulate_event
+    acc
+    (MessageDelta { stop_reason = Some EndTurn; usage = None });
+  match Streaming.finalize_stream_acc acc with
+  | Error msg -> check_string "error" "malformed_media_block:image:index:0" msg
+  | Ok _ -> Alcotest.fail "expected malformed media error"
+;;
+
 (* ── Suite ──────────────────────────────────────────────────────── *)
 
 let () =
@@ -768,6 +808,10 @@ let () =
             "content_block_start thinking"
             `Quick
             test_acc_content_block_start_thinking
+        ; Alcotest.test_case
+            "content_block_start image"
+            `Quick
+            test_acc_content_block_start_image
         ; Alcotest.test_case
             "delta missing index"
             `Quick
@@ -855,6 +899,10 @@ let () =
             "thinking empty content"
             `Quick
             test_finalize_thinking_empty_content
+        ; Alcotest.test_case
+            "media missing metadata"
+            `Quick
+            test_finalize_media_missing_metadata_fails
         ] )
     ; ( "full_sequence"
       , [ Alcotest.test_case "anthropic stream" `Quick test_full_anthropic_sequence

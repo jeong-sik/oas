@@ -173,14 +173,14 @@ type stop_reason =
 
 val stop_reason_of_string : string -> stop_reason
 
-val stop_reason_to_string : stop_reason -> string
 (** Canonical wire serialization — the exact inverse of {!stop_reason_of_string}.
     SSOT for stop-reason wire strings; consumers must delegate here rather than
     re-spell the literals. *)
+val stop_reason_to_string : stop_reason -> string
 
-val stop_reason_to_metric_label : stop_reason -> string
 (** Stable, low-cardinality telemetry label. Identical to
     {!stop_reason_to_string} except [Unknown _] collapses to ["unknown"]. *)
+val stop_reason_to_metric_label : stop_reason -> string
 
 (** API usage from a single provider response. Accumulated multi-call usage
     belongs in agent-level usage stats. *)
@@ -253,6 +253,14 @@ type content_delta =
   | ThinkingDelta of string
   | ThinkingSignatureDelta of string
   | InputJsonDelta of string
+  | MediaDelta of
+      { media_type : string
+      ; source_type : string
+      ; data : string
+      }
+  (** A chunk of a streamed media (image/document/audio) content block.
+            Carries block-level [media_type] and [source_type] with the [data]
+            payload so no new {!ContentBlockStart} fields are required. *)
 
 type sse_event =
   | MessageStart of

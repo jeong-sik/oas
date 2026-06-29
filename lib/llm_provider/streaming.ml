@@ -142,6 +142,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = ThinkingDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = MediaDelta { data; _ }; _ } -> non_empty data
   | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ } -> false
   | MessageStart _
   | ContentBlockStart _
@@ -162,6 +163,7 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   match e with
   | ContentBlockDelta { delta = TextDelta s; _ } -> non_empty s
   | ContentBlockDelta { delta = InputJsonDelta s; _ } -> non_empty s
+  | ContentBlockDelta { delta = MediaDelta { data; _ }; _ } -> non_empty data
   | ContentBlockStart { content_type = "tool_use"; _ } -> true
   | ContentBlockDelta { delta = ThinkingSignatureDelta _; _ }
   | ContentBlockDelta { delta = ThinkingDelta _; _ }
@@ -195,9 +197,9 @@ let emit_synthetic_events (response : api_response) on_event =
          | Text _ -> "text", None, None
          | Thinking _ -> "thinking", None, None
          | ToolUse { id; name; _ } -> "tool_use", Some id, Some name
-         | Image _ -> "text", None, None
-         | Document _ -> "text", None, None
-         | Audio _ -> "text", None, None
+         | Image _ -> "image", None, None
+         | Document _ -> "document", None, None
+         | Audio _ -> "audio", None, None
          | RedactedThinking data -> "redacted_thinking", Some data, None
          | ToolResult _ -> "text", None, None
        in
@@ -214,12 +216,48 @@ let emit_synthetic_events (response : api_response) on_event =
           on_event
             (ContentBlockDelta
                { index; delta = InputJsonDelta (Yojson.Safe.to_string input) })
-        | Image _ | Document _ | Audio _ | RedactedThinking _ | ToolResult _ -> ());
+        | Image { media_type; data; source_type }
+        | Document { media_type; data; source_type }
+        | Audio { media_type; data; source_type } ->
+          (* Re-emit media payload through the typed media channel so a
+             non-streamed media block survives an api_response -> synthetic SSE
+             -> accumulator round-trip instead of collapsing to empty text. *)
+          on_event
+            (ContentBlockDelta
+               { index; delta = MediaDelta { media_type; source_type; data } })
+        | RedactedThinking _ | ToolResult _ -> ());
        on_event (ContentBlockStop { index }))
     response.content;
   on_event
     (MessageDelta { stop_reason = Some response.stop_reason; usage = response.usage });
   on_event MessageStop
+;;
+
+let%test "emit_synthetic_events round-trips a media block through the accumulator" =
+  (* A non-streamed api_response carrying an Image survives the synthetic-SSE
+     fallback: emit_synthetic_events -> Complete_stream_acc -> finalize yields the
+     same Image. Revert the media delta/content_type arms here (or the accumulator
+     media arms) and the image collapses to empty text, so this goes red. This is
+     the real producer that keeps the new MediaDelta path from being dead code. *)
+  let image =
+    Image { media_type = "image/png"; data = "iVBORw0KGgo="; source_type = "base64" }
+  in
+  let response : api_response =
+    { id = "msg_rt"
+    ; model = "test-model"
+    ; stop_reason = EndTurn
+    ; content = [ image ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let events = ref [] in
+  emit_synthetic_events response (fun e -> events := e :: !events);
+  let acc = Complete_stream_acc.create_stream_acc () in
+  List.iter (Complete_stream_acc.accumulate_event acc) (List.rev !events);
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error _ -> false
+  | Ok result -> result.content = [ image ]
 ;;
 
 (** {1 OpenAI-compatible SSE Streaming}
