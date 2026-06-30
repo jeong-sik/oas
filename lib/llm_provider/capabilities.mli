@@ -245,6 +245,11 @@ val for_model_id : string -> capabilities option
     [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope],
     [xai], [mistral], [cohere], [mimo], [nvidia].
 
+    Provider-qualified catalog namespaces are not automatically provider-level
+    presets. For example ["runpod_mtp"] is resolved only by model catalog lookup
+    against [runpod_mtp/<model>] rows, so raw endpoints cannot inherit a broad
+    RunPod preset by label alone.
+
     Canonical labels and aliases for the closed {!Provider_kind.t} space are
     normalized to a typed kind first, then delegated to {!capabilities_of_kind}.
     String-only presets that are not expressible as a provider kind stay at this
@@ -265,7 +270,8 @@ val capabilities_for_provider_label : string -> capabilities option
     holds a typed {!Provider_kind.t}; {!capabilities_for_provider_label}
     delegates canonical labels here and only keeps string-only presets (e.g.
     ["openai_chat_extended"], ["ollama_cloud"], ["xai"], ["mistral"],
-    ["cohere"], ["mimo"], ["nvidia"]) at the label boundary.
+    ["cohere"], ["mimo"], ["nvidia"]) at the label boundary. Catalog-only
+    namespaces such as ["runpod_mtp"] remain outside this provider-preset API.
 
     @since 0.209.0 *)
 val capabilities_of_kind : Provider_kind.t -> capabilities

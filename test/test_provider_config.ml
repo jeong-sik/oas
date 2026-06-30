@@ -719,6 +719,24 @@ let test_openai_compat_runpod_proxy_uses_runpod_catalog_label () =
       Capabilities.(caps.thinking_control_format = Chat_template_kwargs)
 ;;
 
+let test_openai_compat_runpod_proxy_label_is_catalog_only () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen36-35b-a3b-mtp"
+      ~base_url:"https://abc123.proxy.runpod.net/v1"
+      ()
+  in
+  Alcotest.(check string)
+    "RunPod proxy capability namespace"
+    "runpod_mtp"
+    (Provider_config.capability_provider_label cfg);
+  Alcotest.(check bool)
+    "RunPod proxy namespace is not a provider preset"
+    true
+    (Option.is_none (Capabilities.capabilities_for_provider_label "runpod_mtp"))
+;;
+
 let test_validate_responses_request_path_allows_structured_output () =
   let cfg =
     Provider_config.make
@@ -2099,6 +2117,10 @@ let () =
             "runpod proxy qwen uses runpod catalog label"
             `Quick
             test_openai_compat_runpod_proxy_uses_runpod_catalog_label
+        ; Alcotest.test_case
+            "runpod proxy label is catalog-only"
+            `Quick
+            test_openai_compat_runpod_proxy_label_is_catalog_only
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
