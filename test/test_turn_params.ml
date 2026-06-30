@@ -41,7 +41,7 @@ let test_reasoning_with_thinking () =
     [ { role = Assistant
       ; content =
           [ Types.Thinking
-              { thinking_type = "thinking"; content = "I'm not sure about this approach" }
+              { signature = None; content = "I'm not sure about this approach" }
           ; Types.Text "Here is my answer"
           ]
       ; name = None
@@ -60,7 +60,7 @@ let test_reasoning_tool_rationale () =
     [ { role = Assistant
       ; content =
           [ Types.Thinking
-              { thinking_type = "thinking"
+              { signature = None
               ; content = "I should use the search tool to find information"
               }
           ; Types.Text "Let me search for that"

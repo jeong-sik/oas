@@ -126,7 +126,7 @@ let () =
               [ mk Types.User [ Text "first question" ]
               ; mk
                   Types.Assistant
-                  [ Thinking { thinking_type = "thinking"; content = "let me think" }
+                  [ Thinking { signature = None; content = "let me think" }
                   ; Text "first answer"
                   ]
               ; mk Types.User [ Text "second question" ]

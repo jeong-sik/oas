@@ -61,7 +61,7 @@ let test_result_preserves_is_error () =
 let test_result_none_for_non_toolresult () =
   let cases =
     [ Types.Text "hi"
-    ; Types.Thinking { thinking_type = "thinking"; content = "..." }
+    ; Types.Thinking { signature = None; content = "..." }
     ; Types.RedactedThinking "redacted"
     ; Types.ToolUse { id = "call_x"; name = "t"; input = `Null }
     ; Types.Image { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }

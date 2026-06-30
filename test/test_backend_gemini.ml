@@ -829,7 +829,7 @@ let test_thinking_part_roundtrip () =
   let messages =
     [ { Types.role = Assistant
       ; content =
-          [ Thinking { thinking_type = "thinking"; content = "Let me consider..." }
+          [ Thinking { signature = None; content = "Let me consider..." }
           ; Text "The answer is 42."
           ]
       ; name = None

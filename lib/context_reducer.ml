@@ -618,7 +618,7 @@ let%test "estimate_block_tokens Text uses CJK-aware estimation" =
 let%test "estimate_block_tokens Thinking uses CJK-aware estimation" =
   let block =
     Thinking
-      { thinking_type = "thinking"
+      { signature = None
       ; content =
           "\xEB\xB6\x84\xEC\x84\x9D \xEC\xA4\x91\xEC\x9E\x85\xEB\x8B\x88\xEB\x8B\xA4"
       }

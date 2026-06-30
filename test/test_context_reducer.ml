@@ -721,7 +721,7 @@ let test_drop_thinking_removes () =
     [ Types.
         { role = Assistant
         ; content =
-            [ Thinking { thinking_type = ""; content = "internal reasoning" }
+            [ Thinking { signature = None; content = "internal reasoning" }
             ; Text "answer"
             ]
         ; name = None
@@ -753,7 +753,7 @@ let test_drop_thinking_preserves_recent () =
     ; Types.
         { role = Assistant
         ; content =
-            [ Thinking { thinking_type = ""; content = "recent thinking" }
+            [ Thinking { signature = None; content = "recent thinking" }
             ; Text "answer"
             ]
         ; name = None
@@ -782,7 +782,7 @@ let test_drop_thinking_preserves_tool_use_thinking () =
     ; Types.
         { role = Assistant
         ; content =
-            [ Thinking { thinking_type = "thinking"; content = "pick tool" }
+            [ Thinking { signature = None; content = "pick tool" }
             ; RedactedThinking "encrypted"
             ; ToolUse { id = "t1"; name = "search"; input = `Assoc [] }
             ]
@@ -824,7 +824,7 @@ let test_compose () =
     [ Types.
         { role = Assistant
         ; content =
-            [ Thinking { thinking_type = ""; content = "old thinking" }
+            [ Thinking { signature = None; content = "old thinking" }
             ; Text "old answer"
             ]
         ; name = None

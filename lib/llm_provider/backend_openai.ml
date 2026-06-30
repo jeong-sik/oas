@@ -222,7 +222,7 @@ let%test "tool_calls_to_openai_json empty for no tool_use" =
 let%test "openai_content_parts_of_blocks filters text and image" =
   let blocks =
     [ Text "hello"
-    ; Thinking { thinking_type = "reasoning"; content = "..." }
+    ; Thinking { signature = None; content = "..." }
     ; ToolUse { id = "tc1"; name = "fn"; input = `Null }
     ]
   in
@@ -554,7 +554,7 @@ let%test "openai_messages_of_message assistant excludes reasoning from content" 
   let msg =
     { role = Assistant
     ; content =
-        [ Thinking { thinking_type = "reasoning"; content = "hidden chain of thought" }
+        [ Thinking { signature = None; content = "hidden chain of thought" }
         ; Text "final answer"
         ]
     ; name = None
@@ -573,7 +573,7 @@ let%test "glm_messages_of_message preserves reasoning_content separately" =
   let msg =
     { role = Assistant
     ; content =
-        [ Thinking { thinking_type = "reasoning"; content = "step one" }
+        [ Thinking { signature = None; content = "step one" }
         ; ToolUse { id = "tc1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
         ]
     ; name = None
@@ -1151,7 +1151,7 @@ let%test
   let messages =
     [ { role = Assistant
       ; content =
-          [ Thinking { thinking_type = "reasoning"; content = "use calculator" }
+          [ Thinking { signature = None; content = "use calculator" }
           ; ToolUse
               { id = "call_1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
           ]
@@ -1535,7 +1535,7 @@ let%test "strip_thinking_blocks removes Thinking from all messages" =
       }
     ; { role = Assistant
       ; content =
-          [ Text "hi"; Thinking { thinking_type = "reasoning"; content = "step 1" } ]
+          [ Text "hi"; Thinking { signature = None; content = "step 1" } ]
       ; name = None
       ; tool_call_id = None
       ; metadata = []

@@ -62,7 +62,7 @@ let test_text_round_trip () =
 
 let test_thinking_round_trip () =
   let block =
-    Types.Thinking { thinking_type = "sig123"; content = "I think therefore I am" }
+    Types.Thinking { signature = Some "sig123"; content = "I think therefore I am" }
   in
   let json = Api.content_block_to_json block in
   match Api.content_block_of_json json with
@@ -572,7 +572,7 @@ let test_build_openai_body_qwen_preserve_replays_reasoning () =
   let messages =
     [ { Types.role = Types.Assistant
       ; content =
-          [ Types.Thinking { thinking_type = "reasoning"; content = "keep this" }
+          [ Types.Thinking { signature = None; content = "keep this" }
           ; Types.Text "answer"
           ]
       ; name = None
@@ -612,7 +612,7 @@ let test_build_openai_body_kimi_latest_replays_reasoning () =
   let messages =
     [ { Types.role = Types.Assistant
       ; content =
-          [ Types.Thinking { thinking_type = "reasoning"; content = "keep latest" }
+          [ Types.Thinking { signature = None; content = "keep latest" }
           ; Types.Text "answer"
           ]
       ; name = None
@@ -684,12 +684,12 @@ let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
   let assistant_content tool =
     if tool
     then
-      [ Types.Thinking { thinking_type = "reasoning"; content = "call the tool" }
+      [ Types.Thinking { signature = None; content = "call the tool" }
       ; Types.ToolUse
           { id = "call_1"; name = "calculator"; input = `Assoc [ "expr", `String "2+2" ] }
       ]
     else
-      [ Types.Thinking { thinking_type = "reasoning"; content = "plain thought" }
+      [ Types.Thinking { signature = None; content = "plain thought" }
       ; Types.Text "answer"
       ]
   in
@@ -889,7 +889,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
     [ { Types.role = Types.Assistant
       ; content =
           [ Types.Thinking
-              { thinking_type = "reasoning"; content = "I should call the calculator." }
+              { signature = None; content = "I should call the calculator." }
           ; Types.ToolUse
               { id = "call_1"
               ; name = "calculator"
@@ -1227,8 +1227,8 @@ let test_parse_openai_response_reasoning_content () =
   | Ok resp ->
     check int "2 content blocks" 2 (List.length resp.content);
     (match resp.content with
-     | [ Types.Thinking { thinking_type; content }; Types.Text text ] ->
-       check string "thinking_type" "reasoning" thinking_type;
+     | [ Types.Thinking { signature; content }; Types.Text text ] ->
+       check bool "thinking unsigned" true (signature = None);
        check
          string
          "thinking content"
@@ -1787,7 +1787,7 @@ let test_openai_error_returns_result () =
 let test_text_blocks_to_string () =
   let blocks =
     [ Types.Text "hello"
-    ; Types.Thinking { thinking_type = "s"; content = "hmm" }
+    ; Types.Thinking { signature = Some "s"; content = "hmm" }
     ; Types.RedactedThinking "r"
     ; Types.ToolUse { id = "t"; name = "n"; input = `Null }
     ; Types.ToolResult

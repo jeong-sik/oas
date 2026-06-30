@@ -223,12 +223,12 @@ let finalize_stream_acc
       | None -> Ok None
       | Some Text_block -> Ok (Some (Types.Text text))
       | Some Thinking_block ->
-        let thinking_type =
+        let signature =
           match Hashtbl.find_opt acc.block_thinking_signatures idx with
-          | Some buf when Buffer.length buf > 0 -> Buffer.contents buf
-          | Some _ | None -> "thinking"
+          | Some buf when Buffer.length buf > 0 -> Some (Buffer.contents buf)
+          | Some _ | None -> None
         in
-        Ok (Some (Types.Thinking { thinking_type; content = text }))
+        Ok (Some (Types.Thinking { content = text; signature }))
       | Some Redacted_thinking_block ->
         (match Hashtbl.find_opt acc.block_tool_ids idx with
          | Some data when data <> "" -> Ok (Some (Types.RedactedThinking data))
@@ -539,7 +539,7 @@ let%test "finalize_stream_acc assembles thinking block" =
   | Error _ -> false
   | Ok result ->
     (match result.content with
-     | [ Types.Thinking { thinking_type = "thinking"; content = "reasoning..." } ] -> true
+     | [ Types.Thinking { content = "reasoning..."; signature = None } ] -> true
      | _ -> false)
 ;;
 
@@ -684,8 +684,8 @@ let%test "finalize_stream_acc preserves omitted thinking signature" =
     ; Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None }
     ];
   match finalize_stream_acc acc with
-  | Ok { content = [ Types.Thinking { thinking_type; content } ]; _ } ->
-    thinking_type = "sig_opaque" && content = ""
+  | Ok { content = [ Types.Thinking { content; signature } ]; _ } ->
+    signature = Some "sig_opaque" && content = ""
   | Ok _ | Error _ -> false
 ;;
 

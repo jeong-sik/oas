@@ -441,7 +441,7 @@ let parse_response json =
            | `String s ->
              let is_thought = Cli_common_json.member_bool "thought" part in
              if is_thought
-             then [ Thinking { thinking_type = "thinking"; content = s } ]
+             then [ Thinking { signature = None; content = s } ]
              else [ Text s ]
            | _ ->
              (match part |> member "functionCall" with

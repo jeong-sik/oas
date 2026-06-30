@@ -113,7 +113,7 @@ let test_json_extractor_skips_non_text () =
   in
   let resp =
     make_response
-      [ Thinking { thinking_type = "s"; content = "thinking" }
+      [ Thinking { signature = Some "s"; content = "thinking" }
       ; ToolUse { id = "tu"; name = "tool"; input = `Null }
       ; Text {|{"v": 99}|}
       ]
@@ -138,7 +138,7 @@ let test_text_extractor_only_non_text () =
   let resp =
     make_response
       [ ToolUse { id = "t"; name = "n"; input = `Null }
-      ; Thinking { thinking_type = "s"; content = "x" }
+      ; Thinking { signature = Some "s"; content = "x" }
       ]
   in
   match extract resp with
@@ -345,7 +345,7 @@ let test_extract_mixed_blocks () =
   let input_json = `Assoc [ "name", `String "Eve"; "age", `Int 50 ] in
   let content =
     [ Text "preamble"
-    ; Thinking { thinking_type = "s"; content = "reasoning" }
+    ; Thinking { signature = Some "s"; content = "reasoning" }
     ; ToolResult
         { tool_use_id = "old"
         ; content = "old result"

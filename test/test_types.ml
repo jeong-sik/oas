@@ -322,7 +322,7 @@ let test_tool_choice_of_json_error_non_object () =
 let test_show_content_block_variants () =
   let blocks =
     [ Types.Text "hello"
-    ; Types.Thinking { thinking_type = "sig"; content = "hmm" }
+    ; Types.Thinking { signature = Some "sig"; content = "hmm" }
     ; Types.RedactedThinking "redacted"
     ; Types.ToolUse { id = "tu1"; name = "read"; input = `Null }
     ; Types.ToolResult
@@ -738,7 +738,7 @@ let test_text_of_content_text_only () =
 let test_text_of_content_mixed () =
   let content =
     [ Types.Text "start"
-    ; Types.Thinking { thinking_type = "sig"; content = "hmm" }
+    ; Types.Thinking { signature = Some "sig"; content = "hmm" }
     ; Types.ToolUse { id = "tu1"; name = "search"; input = `Null }
     ; Types.Text "end"
     ]
@@ -801,7 +801,7 @@ let test_text_of_response_and_usage_helpers () =
             ; json = None
             ; content_blocks = None
             }
-        ; Types.Thinking { thinking_type = "sig"; content = "hidden" }
+        ; Types.Thinking { signature = Some "sig"; content = "hidden" }
         ]
     ; usage = Some usage
     ; telemetry = None
@@ -964,7 +964,7 @@ let summary_contains ~needle response =
 let test_response_shape_thinking_only_is_not_deliverable () =
   let response =
     response
-      ~content:[ Types.Thinking { thinking_type = "reasoning"; content = "hidden" } ]
+      ~content:[ Types.Thinking { signature = None; content = "hidden" } ]
       ()
   in
   let shape = Response_shape.summarize response in
@@ -1027,7 +1027,7 @@ let test_response_shape_thinking_plus_text_is_deliverable () =
   let response =
     response
       ~content:
-        [ Types.Thinking { thinking_type = "reasoning"; content = "hidden" }
+        [ Types.Thinking { signature = None; content = "hidden" }
         ; Types.Text " final answer "
         ]
       ()
@@ -1051,7 +1051,7 @@ let test_response_shape_thinking_plus_tool_use_is_deliverable () =
   let response =
     response
       ~content:
-        [ Types.Thinking { thinking_type = "reasoning"; content = "hidden" }
+        [ Types.Thinking { signature = None; content = "hidden" }
         ; Types.ToolUse { id = "tool-1"; name = "search"; input = `Assoc [] }
         ]
       ()

@@ -246,8 +246,15 @@ let media_source_kind_of_string raw =
 type content_block =
   | Text of string
   | Thinking of
-      { thinking_type : string
-      ; content : string
+      { content : string
+      ; signature : string option
+        (** [Some s]: Anthropic cryptographic signature, replayed byte-exact on
+            tool turns (never sanitized or re-encoded). [None]: provider
+            reasoning that carries no verification signature
+            (OpenAI-compatible / Gemini / GLM / Ollama). Replaces the former
+            [thinking_type : string], which conflated this signature with a
+            free-form provider label ("reasoning" / "thinking" /
+            "reasoning_summary") that no consumer read. *)
       }
   | RedactedThinking of string
   | ToolUse of

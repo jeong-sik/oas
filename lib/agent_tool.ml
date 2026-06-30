@@ -55,10 +55,10 @@ let api_usage_to_json = function
 
 let content_block_to_json = function
   | Text text -> `Assoc [ "type", `String "text"; "text", `String text ]
-  | Thinking { thinking_type; content } ->
+  | Thinking { content; signature } ->
     `Assoc
       [ "type", `String "thinking"
-      ; "thinking_type", `String thinking_type
+      ; "signature", (match signature with Some s -> `String s | None -> `Null)
       ; "content", `String content
       ]
   | RedactedThinking value ->

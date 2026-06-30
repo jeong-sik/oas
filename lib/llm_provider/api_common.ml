@@ -54,12 +54,26 @@ let rec content_block_to_json_with
   = function
   | Text s ->
     `Assoc [ "type", `String "text"; "text", `String (Utf8_sanitize.sanitize s) ]
-  | Thinking { thinking_type; content } ->
-    `Assoc
-      [ "type", `String "thinking"
-      ; "signature", `String thinking_type
-      ; "thinking", `String (Utf8_sanitize.sanitize content)
-      ]
+  | Thinking { content; signature } ->
+    (* Anthropic verifies [signature] against the exact thinking text, so a
+       signed block is serialized byte-exact (no sanitize); unsigned provider
+       reasoning is sanitized defensively. A block without a signature omits the
+       field rather than emitting a fabricated one. *)
+    let thinking_text =
+      match signature with
+      | Some _ -> content
+      | None -> Utf8_sanitize.sanitize content
+    in
+    let fields =
+      match signature with
+      | Some s ->
+        [ "type", `String "thinking"
+        ; "signature", `String s
+        ; "thinking", `String thinking_text
+        ]
+      | None -> [ "type", `String "thinking"; "thinking", `String thinking_text ]
+    in
+    `Assoc fields
   | RedactedThinking data ->
     `Assoc [ "type", `String "redacted_thinking"; "data", `String data ]
   | ToolUse { id; name; input } ->
@@ -136,9 +150,9 @@ let rec content_block_of_json json =
     let text = json |> member "text" |> to_string in
     Some (Text text)
   | Some "thinking" ->
-    let thinking_type = json |> member "signature" |> to_string in
+    let signature = json |> member "signature" |> to_string_option in
     let content = json |> member "thinking" |> to_string in
-    Some (Thinking { thinking_type; content })
+    Some (Thinking { content; signature })
   | Some "redacted_thinking" ->
     let data = json |> member "data" |> to_string in
     Some (RedactedThinking data)

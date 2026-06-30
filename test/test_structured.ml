@@ -175,7 +175,7 @@ let test_schema_optional_params () =
 let test_extract_with_thinking_blocks () =
   let input_json = `Assoc [ "name", `String "Bob"; "age", `Int 25 ] in
   let content =
-    [ Types.Thinking { thinking_type = "sig"; content = "some thinking..." }
+    [ Types.Thinking { signature = Some "sig"; content = "some thinking..." }
     ; Text "preamble"
     ; ToolUse { id = "tu_t"; name = "extract_person"; input = input_json }
     ]

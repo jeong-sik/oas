@@ -197,7 +197,7 @@ let test_reduce_aggressive_drops_thinking () =
     [ user_msg "turn1"
     ; { Types.role = Assistant
       ; content =
-          [ Types.Thinking { thinking_type = "thinking"; content = "long thought" }
+          [ Types.Thinking { signature = None; content = "long thought" }
           ; Types.Text "answer"
           ]
       ; name = None

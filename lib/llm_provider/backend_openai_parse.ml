@@ -299,7 +299,7 @@ let parse_openai_response_result_json
     in
     let thinking_blocks =
       match reasoning_text with
-      | Some s -> [ Thinking { thinking_type = "reasoning"; content = s } ]
+      | Some s -> [ Thinking { signature = None; content = s } ]
       | None -> []
     in
     let stop_reason =

@@ -146,7 +146,7 @@ let test_roundtrip_text () =
 let test_roundtrip_thinking () =
   let resp =
     simple_response
-      [ Thinking { thinking_type = "thinking"; content = "let me think..." }
+      [ Thinking { signature = None; content = "let me think..." }
       ; Text "answer"
       ]
   in
@@ -403,7 +403,7 @@ let test_roundtrip_binary_block () =
 let test_roundtrip_mixed_content () =
   let resp =
     simple_response
-      [ Thinking { thinking_type = "thinking"; content = "hmm" }
+      [ Thinking { signature = None; content = "hmm" }
       ; Text "answer"
       ; ToolUse { id = "tu_1"; name = "calc"; input = `Int 42 }
       ]

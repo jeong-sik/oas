@@ -277,7 +277,7 @@ let test_string_is_blank () =
 let test_text_blocks_to_string () =
   let blocks : Types.content_block list =
     [ Text "hello"
-    ; Thinking { thinking_type = "t"; content = "reason" }
+    ; Thinking { signature = Some "t"; content = "reason" }
     ; ToolUse { id = "t1"; name = "tool"; input = `Null }
     ; Text "world"
     ]
@@ -321,7 +321,7 @@ let test_content_block_to_json_text () =
 let test_content_block_to_json_thinking () =
   let json =
     Api_common.content_block_to_json
-      (Thinking { thinking_type = "sig123"; content = "reason" })
+      (Thinking { signature = Some "sig123"; content = "reason" })
   in
   let open Yojson.Safe.Util in
   Alcotest.(check string) "type" "thinking" (json |> member "type" |> to_string);
@@ -413,7 +413,7 @@ let test_content_block_of_json_thinking () =
       ]
   in
   match Api_common.content_block_of_json json with
-  | Some (Thinking { thinking_type = "sig"; content = "reason" }) -> ()
+  | Some (Thinking { signature = Some "sig"; content = "reason" }) -> ()
   | _ -> Alcotest.fail "thinking roundtrip"
 ;;
 

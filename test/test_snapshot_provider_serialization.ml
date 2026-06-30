@@ -399,7 +399,7 @@ let zai_glm_messages_with_reasoning =
   ; msg
       Assistant
       [ Text "answer"
-      ; Thinking { thinking_type = "reasoning"; content = "chain of thought" }
+      ; Thinking { signature = None; content = "chain of thought" }
       ]
   ]
 ;;
