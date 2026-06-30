@@ -432,6 +432,26 @@ let glm_clear_thinking (config : t) =
     ~preserve_thinking:config.preserve_thinking
 ;;
 
+let zai_glm_clear_thinking_request_field
+      ~thinking_control_format
+      ~is_zai_glm
+      ~clear_thinking
+      ~preserve_thinking
+  =
+  match thinking_control_format with
+  | Capabilities.No_thinking_control when is_zai_glm ->
+    Some (glm_clear_thinking_value ~clear_thinking ~preserve_thinking)
+  | Capabilities.No_thinking_control
+  | Capabilities.Thinking_object
+  | Capabilities.Thinking_object_adaptive
+  | Capabilities.Thinking_object_only
+  | Capabilities.Chat_template_kwargs
+  | Capabilities.Chat_template_token
+  | Capabilities.Ollama_think
+  | Capabilities.Reasoning_effort
+  | Capabilities.Enable_thinking -> None
+;;
+
 let glm_should_replay_reasoning (config : t) =
   glm_should_replay_reasoning_fields
     ~enable_thinking:config.enable_thinking

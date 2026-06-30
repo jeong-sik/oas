@@ -271,18 +271,11 @@ let build_request_assoc
   in
   let body =
     let zai_glm_clear_thinking =
-      match caps.thinking_control_format with
-      | No_thinking_control when is_zai_glm_request config ->
-        Some (glm_clear_thinking_of_config config)
-      | No_thinking_control
-      | Thinking_object
-      | Thinking_object_adaptive
-      | Thinking_object_only
-      | Chat_template_kwargs
-      | Chat_template_token
-      | Ollama_think
-      | Reasoning_effort
-      | Enable_thinking -> None
+      Provider_config.zai_glm_clear_thinking_request_field
+        ~thinking_control_format:caps.thinking_control_format
+        ~is_zai_glm:(is_zai_glm_request config)
+        ~clear_thinking:config.clear_thinking
+        ~preserve_thinking:config.preserve_thinking
     in
     (match Provider_config.validate_reasoning_effort_request config with
      | Ok () -> ()
