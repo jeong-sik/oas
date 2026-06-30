@@ -202,6 +202,44 @@ let compose strategies =
 
 let custom f = { strategy = Custom f }
 
+let rec strategy_preserving_thinking = function
+  | Drop_thinking -> None
+  | Compose strategies ->
+    (match List.filter_map strategy_preserving_thinking strategies with
+     | [] -> None
+     | [ strategy ] -> Some strategy
+     | strategies -> Some (Compose strategies))
+  | Dynamic selector ->
+    Some
+      (Dynamic
+         (fun ~cache ~turn ~messages ->
+           match strategy_preserving_thinking (selector ~cache ~turn ~messages) with
+           | Some strategy -> strategy
+           | None -> Custom (fun messages -> messages)))
+  | ( Keep_last_n _
+    | Token_budget _
+    | Prune_tool_outputs _
+    | Prune_tool_args _
+    | Repair_dangling_tool_calls
+    | Repair_orphaned_tool_results
+    | Merge_contiguous
+    | Keep_first_and_last _
+    | Prune_by_role _
+    | Summarize_old _
+    | Clear_tool_results _
+    | Stub_tool_results _
+    | Cap_message_tokens _
+    | Cache_alignment _
+    | Relocate_tool_results _
+    | Custom _ ) as strategy -> Some strategy
+;;
+
+let preserve_thinking reducer =
+  match strategy_preserving_thinking reducer.strategy with
+  | Some strategy -> { strategy }
+  | None -> custom (fun messages -> messages)
+;;
+
 let importance_scored ?(threshold = 0.3) ?boost ~scorer () =
   custom (Context_reducer_policy.filter_importance ~threshold ?boost ~scorer)
 ;;

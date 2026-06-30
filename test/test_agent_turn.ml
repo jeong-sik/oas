@@ -229,6 +229,52 @@ let test_prepare_messages_both_override_and_extra_context () =
   | _ -> Alcotest.fail "expected single Text block"
 ;;
 
+let test_prepare_messages_preserve_thinking_keeps_default_reducer_thinking () =
+  let mk role content : Types.message =
+    { Types.role; content; name = None; tool_call_id = None; metadata = [] }
+  in
+  let msgs =
+    [ mk Types.User [ Types.Text "User message 1" ]
+    ; mk
+        Types.Assistant
+        [ Types.Thinking { signature = None; content = "Thinking 1.1" }
+        ; Types.Text "Answer 1"
+        ]
+    ; mk Types.User [ Types.Text "User message 2" ]
+    ; mk Types.Assistant [ Types.Text "Answer 2" ]
+    ]
+  in
+  let config = { Types.default_config with preserve_thinking = Some true } in
+  let result =
+    Agent_turn.prepare_messages
+      ~config
+      ~messages:msgs
+      ~context_reducer:(Some Defaults.default_context_reducer)
+      ~turn_params:Hooks.default_turn_params
+      ()
+  in
+  match List.nth result 1 with
+  | { Types.content; _ } ->
+    let has_thinking =
+      List.exists
+        (function
+          | Types.Thinking { content = "Thinking 1.1"; _ } -> true
+          | Types.Thinking _
+          | Types.Text _
+          | Types.RedactedThinking _
+          | Types.ToolUse _
+          | Types.ToolResult _
+          | Types.Image _
+          | Types.Document _
+          | Types.Audio _ -> false)
+        content
+    in
+    Alcotest.(check bool)
+      "preserve_thinking keeps older thinking despite default reducer"
+      true
+      has_thinking
+;;
+
 let starts_with ~prefix s =
   let prefix_len = String.length prefix in
   String.length s >= prefix_len && String.sub s 0 prefix_len = prefix
@@ -997,6 +1043,10 @@ let () =
             "both override and extra_context"
             `Quick
             test_prepare_messages_both_override_and_extra_context
+        ; Alcotest.test_case
+            "preserve_thinking keeps default reducer thinking"
+            `Quick
+            test_prepare_messages_preserve_thinking_keeps_default_reducer_thinking
         ] )
     ; ( "accumulate_usage"
       , [ Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response

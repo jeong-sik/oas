@@ -46,9 +46,15 @@ val default_summarizer : Types.message list -> string
     - [Emergency] returns [[Summarize_old; PruneToolOutputs; Drop_thinking; Merge_contiguous]].
 
     The [summarizer] parameter is used only for [Emergency] phase.
-    If not provided, {!default_summarizer} is used. *)
+    If not provided, {!default_summarizer} is used.
+
+    When [preserve_thinking] is [true], strategies that erase retained
+    reasoning blocks ([Drop_thinking] and emergency [Summarize_old]) are omitted
+    rather than silently violating the provider/agent preserve-thinking request.
+*)
 val strategies_for_phase
-  :  ?summarizer:(Types.message list -> string)
+  :  ?preserve_thinking:bool
+  -> ?summarizer:(Types.message list -> string)
   -> compression_phase
   -> Context_reducer.strategy list
 
@@ -71,9 +77,12 @@ val phase_of_usage_ratio : float -> compression_phase
       (* apply Compose strategies to messages *)
     ]}
 
-    Returns messages unchanged when phase is [Full]. *)
+    Returns messages unchanged when phase is [Full].  When [preserve_thinking]
+    is [true], compaction keeps retained thinking blocks and may reduce less
+    aggressively. *)
 val reduce_for_budget
-  :  ?summarizer:(Types.message list -> string)
+  :  ?preserve_thinking:bool
+  -> ?summarizer:(Types.message list -> string)
   -> usage_ratio:float
   -> messages:Types.message list
   -> unit
