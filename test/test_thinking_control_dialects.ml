@@ -37,7 +37,15 @@ let with_manifest json f =
 ;;
 
 let load_repository_catalog () =
-  let candidates = [ "models.toml"; "../models.toml" ] in
+  let candidates =
+    List.filter_map
+      (fun x -> x)
+      [ Sys.getenv_opt "OAS_MODEL_CATALOG"
+      ; Some "models.toml"
+      ; Some "../models.toml"
+      ; Some "../../models.toml"
+      ]
+  in
   match List.find_opt Sys.file_exists candidates with
   | None -> fail "models.toml not found for thinking-control dialect tests"
   | Some path ->
