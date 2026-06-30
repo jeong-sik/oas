@@ -146,9 +146,7 @@ let test_roundtrip_text () =
 let test_roundtrip_thinking () =
   let resp =
     simple_response
-      [ Thinking { signature = None; content = "let me think..." }
-      ; Text "answer"
-      ]
+      [ Thinking { signature = None; content = "let me think..." }; Text "answer" ]
   in
   let json = Cache.response_to_json resp in
   match Cache.response_of_json json with

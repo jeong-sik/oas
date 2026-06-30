@@ -888,8 +888,7 @@ let test_build_openai_body_glm_preserves_reasoning_content () =
   let messages =
     [ { Types.role = Types.Assistant
       ; content =
-          [ Types.Thinking
-              { signature = None; content = "I should call the calculator." }
+          [ Types.Thinking { signature = None; content = "I should call the calculator." }
           ; Types.ToolUse
               { id = "call_1"
               ; name = "calculator"

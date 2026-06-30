@@ -753,9 +753,7 @@ let test_drop_thinking_preserves_recent () =
     ; Types.
         { role = Assistant
         ; content =
-            [ Thinking { signature = None; content = "recent thinking" }
-            ; Text "answer"
-            ]
+            [ Thinking { signature = None; content = "recent thinking" }; Text "answer" ]
         ; name = None
         ; tool_call_id = None
         ; metadata = []
@@ -824,9 +822,7 @@ let test_compose () =
     [ Types.
         { role = Assistant
         ; content =
-            [ Thinking { signature = None; content = "old thinking" }
-            ; Text "old answer"
-            ]
+            [ Thinking { signature = None; content = "old thinking" }; Text "old answer" ]
         ; name = None
         ; tool_call_id = None
         ; metadata = []

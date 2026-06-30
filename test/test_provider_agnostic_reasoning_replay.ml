@@ -95,8 +95,7 @@ let test_reasoning_never_in_content_any_provider () =
     (fun (name, caps) ->
        let dialect = RD.of_capabilities caps in
        let shapes =
-         [ ( "reasoning_only"
-           , [ Thinking { content = reasoning_marker; signature = None } ] )
+         [ "reasoning_only", [ Thinking { content = reasoning_marker; signature = None } ]
          ; ( "reasoning_then_answer"
            , [ Thinking { content = reasoning_marker; signature = None }
              ; Text answer_text
@@ -161,9 +160,7 @@ let test_replay_matches_should_replay_reasoning_any_provider () =
        let plain_msg =
          msg
            Assistant
-           [ Thinking { content = reasoning_marker; signature = None }
-           ; Text answer_text
-           ]
+           [ Thinking { content = reasoning_marker; signature = None }; Text answer_text ]
        in
        let expect_plain =
          RD.should_replay_reasoning dialect ~assistant_had_tool_call:false
@@ -192,9 +189,7 @@ let test_reasoning_only_replay_does_not_accumulate () =
     (fun (name, caps) ->
        let dialect = RD.of_capabilities caps in
        let reasoning_only =
-         msg
-           Assistant
-           [ Thinking { content = reasoning_marker; signature = None } ]
+         msg Assistant [ Thinking { content = reasoning_marker; signature = None } ]
        in
        for round = 1 to 5 do
          let j = serialized_assistant dialect reasoning_only in

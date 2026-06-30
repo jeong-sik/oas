@@ -228,11 +228,9 @@ let test_mimo_v25_uses_thinking_object_and_json_schema () =
     "toggle wire"
     "thinking_object_only"
     (RD.toggle_wire_to_string dialect.toggle_wire);
-  check
-    string
-    "visibility"
-    "side_channel:reasoning_content"
-    (RD.visibility_to_string dialect.visibility);
+  (* reasoning_visibility vocab was retired (#2304, #2236 CoT loop fix);
+     "side_channel:reasoning_content" is now governed by reasoning_replay
+     policy, exercised in test_provider_agnostic_reasoning_replay. *)
   let thinking = json |> member "thinking" in
   check string "thinking type" "disabled" (thinking |> member "type" |> to_string);
   check_member_absent "chat_template_kwargs" json;

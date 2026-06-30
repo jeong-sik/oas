@@ -58,7 +58,10 @@ let content_block_to_json = function
   | Thinking { content; signature } ->
     `Assoc
       [ "type", `String "thinking"
-      ; "signature", (match signature with Some s -> `String s | None -> `Null)
+      ; ( "signature"
+        , match signature with
+          | Some s -> `String s
+          | None -> `Null )
       ; "content", `String content
       ]
   | RedactedThinking value ->
