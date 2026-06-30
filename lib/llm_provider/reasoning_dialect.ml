@@ -383,14 +383,35 @@ let for_provider_config (config : Provider_config.t) =
     ; streaming = Delta_field "thought"
     }
   | Kimi | OpenAI_compat | Ollama | Glm ->
-    (match Provider_config.capabilities_for_config_model config with
-     | Some caps ->
-       of_capabilities caps
-       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-     | None ->
-       let caps = provider_capabilities_of_kind config.kind in
-       of_capabilities caps
-       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking)
+    let dialect =
+      match Provider_config.capabilities_for_config_model config with
+      | Some caps ->
+        of_capabilities caps
+        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+      | None ->
+        let caps = provider_capabilities_of_kind config.kind in
+        of_capabilities caps
+        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+    in
+    (* RFC-OAS-029 S3.1 + RFC-OAS-030: GLM reasoning replay is
+       clear_thinking-conditional (Preserved Thinking = thinking active AND
+       clear_thinking=false). The GLM capability profile carries
+       [No_thinking_control]/[No_preserve_thinking_control], so it resolves to
+       the default [No_replay] dialect and the typed [replay_policy] is a dead
+       value. Resolve the GLM conditional to a typed [replay_policy] here, at
+       the single dialect boundary, so the request serializer consumes only the
+       typed policy (via [should_replay_reasoning]) instead of re-deriving
+       GLM-ness with [is_glm_request]/[glm_should_replay_reasoning] at
+       serialize time (S3.1: replay is typed, one source). *)
+    if Provider_config.is_zai_glm_config config
+    then
+      { dialect with
+        replay_policy =
+          (if Provider_config.glm_should_replay_reasoning config
+           then Preserve_always
+           else No_replay)
+      }
+    else dialect
   | DashScope ->
     (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
        the model catalog. Backend_openai_request.capabilities_of_config is

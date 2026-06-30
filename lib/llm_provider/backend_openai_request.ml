@@ -138,7 +138,16 @@ let capabilities_of_config (config : Provider_config.t) =
         | Provider_config.Glm -> Capabilities.glm_capabilities
         | Provider_config.Gemini -> Capabilities.gemini_capabilities
         | Provider_config.Anthropic -> Capabilities.anthropic_capabilities
-        | Provider_config.OpenAI_compat -> Capabilities.default_capabilities
+        | Provider_config.OpenAI_compat ->
+          (* A ZAI-GLM config routed as [OpenAI_compat] (ZAI base URL + glm-
+             model id) with no catalog row still has GLM wire semantics — notably
+             the empty-string tool-only assistant content shape. Resolve it to
+             [glm_capabilities] at this single caps boundary so the typed dialect
+             serializer emits the same shape the dedicated GLM serializer did
+             (RFC-OAS-029 S3.1, S9.2). *)
+          if Provider_config.is_zai_glm_config config
+          then Capabilities.glm_capabilities
+          else Capabilities.default_capabilities
         | Provider_config.DashScope -> Capabilities.dashscope_capabilities))
 ;;
 
@@ -147,10 +156,6 @@ let capabilities_of_config (config : Provider_config.t) =
    diverge. *)
 let glm_clear_thinking_of_config = Provider_config.glm_clear_thinking
 let is_zai_glm_request = Provider_config.is_zai_glm_config
-
-let zai_glm_preserve_thinking_request (config : Provider_config.t) =
-  is_zai_glm_request config && Provider_config.glm_should_replay_reasoning config
-;;
 
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
     Returns a JSON string ready for HTTP POST. *)
@@ -169,31 +174,21 @@ let build_request_assoc
   let caps = capabilities_of_config config in
   let assistant_tool_content_format = caps.Capabilities.assistant_tool_content_format in
   let provider_messages =
+    (* RFC-OAS-029 S3.1: reasoning replay is decided by the typed dialect
+       ([Reasoning_dialect.should_replay_reasoning] via [replay_policy]),
+       resolved once in [Reasoning_dialect.for_provider_config]. The serializer
+       no longer branches on [config.kind = Glm] / [is_glm_request] to pick a
+       reasoning-preserving serializer: GLM's clear_thinking-conditional replay
+       is encoded in [dialect.replay_policy] at that single boundary, and the
+       GLM tool-only content shape comes from [assistant_tool_content_format]
+       ([Assistant_tool_content_empty_string] in [glm_capabilities]). The
+       previously GLM-specific [glm_messages_of_message] is therefore the
+       [dialect_messages_of_message] case where the dialect replays and the caps
+       request an empty-string tool content. *)
     let message_serializer =
-      match config.kind with
-      | Provider_config.Glm when Provider_config.glm_should_replay_reasoning config ->
-        (* Native GLM replays historical reasoning_content only under Preserved
-           Thinking (thinking active AND clear_thinking=false). *)
-        Backend_openai_serialize.glm_messages_of_message
-      | Provider_config.OpenAI_compat when zai_glm_preserve_thinking_request config ->
-        (* ZAI GLM accepts reasoning_content in request messages only when the
-           same request body enables thinking with clear_thinking=false. The
-           generic OpenAI_compat serializer drops Thinking blocks, so route
-           bare-ZAI GLM through the GLM serializer only for that wire shape. *)
-        Backend_openai_serialize.glm_messages_of_message
-      | Provider_config.Glm
-      (* Default native GLM (clear_thinking=true): the server discards prior-turn
-         reasoning, so drop it via the No_replay dialect serializer rather than
-         replaying content the contract ignores (which bloats every request). *)
-      | Provider_config.Anthropic
-      | Provider_config.Kimi
-      | Provider_config.OpenAI_compat
-      | Provider_config.Ollama
-      | Provider_config.DashScope
-      | Provider_config.Gemini ->
-        Backend_openai_serialize.dialect_messages_of_message
-          ~assistant_tool_content_format
-          dialect
+      Backend_openai_serialize.dialect_messages_of_message
+        ~assistant_tool_content_format
+        dialect
     in
     (match config.system_prompt with
      | Some s when not (Api_common.string_is_blank s) ->
