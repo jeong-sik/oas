@@ -692,6 +692,7 @@ let provider_config_of_agent
         ~request_path
         ~model_id
         ?supports_structured_output_override
+        ?model_capabilities_override
         ()
     =
     Ok
@@ -716,6 +717,7 @@ let provider_config_of_agent
          ~response_format:cfg.response_format
          ~cache_system_prompt:cfg.cache_system_prompt
          ?supports_structured_output_override
+         ?model_capabilities_override
          ())
   in
   match provider_opt with
@@ -761,6 +763,7 @@ let provider_config_of_agent
                   ~model_id:p.model_id
                   ~supports_structured_output_override:
                     entry.capabilities.supports_structured_output
+                  ~model_capabilities_override:entry.capabilities
                   ())
            | None ->
              let api_key =
@@ -781,6 +784,7 @@ let provider_config_of_agent
                ~model_id:p.model_id
                ~supports_structured_output_override:
                  entry.capabilities.supports_structured_output
+               ~model_capabilities_override:entry.capabilities
                ()))
      | Anthropic | Local _ | OpenAICompat _ ->
        (match resolve p with

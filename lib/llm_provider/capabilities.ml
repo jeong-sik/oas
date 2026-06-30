@@ -1181,10 +1181,14 @@ let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string
     loop candidates
 ;;
 
-let for_provider_model_id ~(provider_label : string) ~(model_id : string) =
+let for_provider_model_id
+      ~(allow_bare_fallback : bool)
+      ~(provider_label : string)
+      ~(model_id : string)
+  =
   match for_provider_model_id_catalog ~provider_label ~model_id with
   | Some _ as caps -> caps
-  | None -> for_model_id model_id
+  | None -> if allow_bare_fallback then for_model_id model_id else None
 ;;
 
 let exact_token = function

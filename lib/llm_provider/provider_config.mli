@@ -113,6 +113,17 @@ type t =
         accepted.
 
         @since 0.207.0 *)
+  ; model_capabilities_override : Capabilities.capabilities option
+    (** Explicit capability declaration for this concrete provider endpoint.
+        This is projected from provider catalog entries that have verified the
+        endpoint/runtime contract. It lets declared OpenAI-compatible runtimes
+        opt into non-default thinking/reasoning dialects without forcing raw
+        OpenAI-compatible endpoints to infer those dialects from model-id
+        prefixes alone.
+
+        [None] uses the normal provider/model catalog resolution policy.
+
+        @since 0.208.4 *)
   ; keep_alive : string option
     (** Ollama [keep_alive] request field. Accepted values: integer
       seconds ({"-1"}, {"0"}, {"3600"}) or duration strings ({"5m"},
@@ -218,6 +229,7 @@ val make
   -> ?cache_system_prompt:bool
   -> ?supports_tool_choice_override:bool
   -> ?supports_structured_output_override:bool
+  -> ?model_capabilities_override:Capabilities.capabilities
   -> ?keep_alive:string
   -> ?internal_model_rotation_count:int
   -> ?num_ctx:int
