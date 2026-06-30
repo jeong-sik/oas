@@ -192,7 +192,8 @@ type gemini_thinking_control =
 val gemini_family_of_id : string -> gemini_family
 
 (** Return the documented thinking-control protocol for a Gemini model id.
-    Input is expected lowercased, matching {!gemini_family_of_id}. *)
+    Accepts raw config values; trims and lowercases before delegating to the
+    bounded {!gemini_family_of_id} classifier. *)
 val gemini_thinking_control_of_id : string -> gemini_thinking_control
 
 (** Look up capabilities for [model_id] in the loaded model catalog only
