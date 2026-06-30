@@ -325,9 +325,10 @@ let test_openai_event_edge_branches () =
     S.openai_chunk_to_events tool_state (openai_chunk ~delta_tool_calls:[ tc_none ] ())
   in
   check_event_count "same tool index without args emits nothing" 0 reused_tool_events;
+  let finish_state = S.create_openai_stream_state () in
   let refusal_finish_events, _ =
     S.openai_chunk_to_events
-      tool_state
+      finish_state
       (openai_chunk ~finish_reason:"refusal" ~chunk_usage:(usage ()) ())
   in
   match refusal_finish_events with
