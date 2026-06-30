@@ -1478,8 +1478,10 @@ let%test "max_tokens passed through when within capability cap" =
   json |> member "max_tokens" |> to_int = 2_000
 ;;
 
-let%test "build_request emits chat_template_kwargs for nvidia (Chat_template_kwargs)" =
-  (* nvidia-ultra-253b resolves to provider_l_capabilities which has
+let%test
+    "build_request emits chat_template_kwargs for declared nvidia (Chat_template_kwargs)"
+  =
+  (* The declared endpoint capability resolves to provider_l_capabilities, which has
      thinking_control_format = Chat_template_kwargs. The serializer
      must emit {"chat_template_kwargs": {"enable_thinking": true}}
      when enable_thinking is set. This is the only thinking branch
@@ -1491,6 +1493,7 @@ let%test "build_request emits chat_template_kwargs for nvidia (Chat_template_kwa
       ~model_id:"nvidia-ultra-253b"
       ~base_url:"https://integrate.api.nvidia.com"
       ~enable_thinking:true
+      ~model_capabilities_override:Capabilities.provider_l_capabilities
       ()
   in
   let body = build_request ~config ~messages:[] () in
@@ -1500,13 +1503,14 @@ let%test "build_request emits chat_template_kwargs for nvidia (Chat_template_kwa
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request emits chat_template_kwargs for qwen3" =
+let%test "build_request emits chat_template_kwargs for declared qwen3 endpoint" =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"dashscope-3.5-35b-a3b"
       ~base_url:"http://localhost"
       ~enable_thinking:true
+      ~model_capabilities_override:Capabilities.provider_l_capabilities
       ()
   in
   let body = build_request ~config ~messages:[] () in
@@ -1516,7 +1520,10 @@ let%test "build_request emits chat_template_kwargs for qwen3" =
   ctk |> member "enable_thinking" |> to_bool = true && json |> member "thinking" = `Null
 ;;
 
-let%test "build_request emits chat_template_kwargs preserve_thinking for qwen3" =
+let%test
+    "build_request emits chat_template_kwargs preserve_thinking for declared qwen3 \
+     endpoint"
+  =
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1524,6 +1531,7 @@ let%test "build_request emits chat_template_kwargs preserve_thinking for qwen3" 
       ~base_url:"http://localhost"
       ~enable_thinking:true
       ~preserve_thinking:true
+      ~model_capabilities_override:Capabilities.provider_l_capabilities
       ()
   in
   let body = build_request ~config ~messages:[] () in
