@@ -207,6 +207,92 @@ let test_anthropic_json_schema_response_format_without_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
+let test_anthropic_build_request_preserves_multiturn_thinking_tool_order () =
+  let msg role content = make_message ~role content in
+  let signed_thinking signature content =
+    Thinking { signature = Some signature; content }
+  in
+  let tool_call id city =
+    ToolUse { id; name = "lookup_weather"; input = `Assoc [ "city", `String city ] }
+  in
+  let tool_result id content =
+    ToolResult
+      { tool_use_id = id
+      ; content
+      ; is_error = false
+      ; json = Some (`Assoc [ "content", `String content ])
+      ; content_blocks = None
+      }
+  in
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ~max_tokens:1024
+      ()
+  in
+  let body =
+    BA.build_request
+      ~config
+      ~messages:
+        [ msg User [ Text "User message 1" ]
+        ; msg
+            Assistant
+            [ signed_thinking "sig_1_1" "Thinking 1.1"; tool_call "call_1_1" "Seoul" ]
+        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+        ; msg
+            Assistant
+            [ signed_thinking "sig_1_2" "Thinking 1.2"; tool_call "call_1_2" "Busan" ]
+        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+        ; msg Assistant [ signed_thinking "sig_1_3" "Thinking 1.3"; Text "Answer 1" ]
+        ; msg User [ Text "User message 2" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let require_string_field key json =
+    match member key json with
+    | `String value -> value
+    | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+      Alcotest.failf "expected string field %s in %s" key (Yojson.Safe.to_string json)
+  in
+  let marker message =
+    let role = require_string_field "role" message in
+    message
+    |> member "content"
+    |> to_list
+    |> List.map (fun block ->
+      match require_string_field "type" block with
+      | "text" -> role ^ ":text:" ^ require_string_field "text" block
+      | "thinking" ->
+        role
+        ^ ":thinking:"
+        ^ require_string_field "signature" block
+        ^ ":"
+        ^ require_string_field "thinking" block
+      | "tool_use" -> role ^ ":tool_use:" ^ require_string_field "id" block
+      | "tool_result" -> role ^ ":tool_result:" ^ require_string_field "tool_use_id" block
+      | other -> role ^ ":" ^ other)
+  in
+  let markers = body |> member "messages" |> to_list |> List.concat_map marker in
+  Alcotest.(check (list string))
+    "Anthropic Turn 2.1 input keeps signed thinking/tool groups in order"
+    [ "user:text:User message 1"
+    ; "assistant:thinking:sig_1_1:Thinking 1.1"
+    ; "assistant:tool_use:call_1_1"
+    ; "user:tool_result:call_1_1"
+    ; "assistant:thinking:sig_1_2:Thinking 1.2"
+    ; "assistant:tool_use:call_1_2"
+    ; "user:tool_result:call_1_2"
+    ; "assistant:thinking:sig_1_3:Thinking 1.3"
+    ; "assistant:text:Answer 1"
+    ; "user:text:User message 2"
+    ]
+    markers
+;;
+
 let test_anthropic_parse_response_initializes_telemetry () =
   let json =
     Yojson.Safe.from_string
@@ -1236,6 +1322,10 @@ let () =
             "with json schema response_format"
             `Quick
             test_anthropic_json_schema_response_format_without_output_schema
+        ; test_case
+            "multi-turn signed thinking/tool order"
+            `Quick
+            test_anthropic_build_request_preserves_multiturn_thinking_tool_order
         ; test_case "stream flag" `Quick test_anthropic_stream_flag
         ; test_case
             "parse response initializes telemetry"
