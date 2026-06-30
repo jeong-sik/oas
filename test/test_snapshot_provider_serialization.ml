@@ -119,6 +119,25 @@ let gemini_cfg =
 let glm_cfg = cfg ~kind:Glm ~base_url:"https://open.bigmodel.cn/api/paas/v4"
 let ollama_cfg = cfg ~kind:Ollama ~base_url:"http://127.0.0.1:11434"
 
+let deepseek_v4_capabilities =
+  { Capabilities.openai_compat_chat_capabilities with
+    max_context_tokens = Some 1_000_000
+  ; max_output_tokens = Some 384_000
+  ; supports_tools = true
+  ; supports_tool_choice = true
+  ; supports_required_tool_choice = false
+  ; supports_named_tool_choice = false
+  ; supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; supports_reasoning_budget = true
+  ; thinking_control_format = Capabilities.Thinking_object
+  ; supports_response_format_json = true
+  ; supports_native_streaming = true
+  ; supports_caching = true
+  ; supports_prompt_caching = false
+  }
+;;
+
 let openai_no_parallel_capability_cfg =
   Provider_config.make
     ~kind:OpenAI_compat
@@ -132,18 +151,18 @@ let openai_no_parallel_capability_cfg =
 ;;
 
 (* RFC-OAS-023 fixture. Unlike the shared [cfg] above, this one uses the real
-   provider model id ([deepseek-v4-flash]) and deliberately OMITS
-   [supports_tool_choice_override], so
-   the OpenAI-compat request builder runs the real capability lookup
-   ([Capabilities.for_model_id]) instead of the override. DeepSeek's direct API
-   speaks the OpenAI-compatible Chat Completions wire, so [OpenAI_compat] is
-   the matching kind for this provider-contract fixture. *)
+   provider model id ([deepseek-v4-flash]) and an explicit catalog capability
+   declaration. DeepSeek's direct API speaks the OpenAI-compatible Chat
+   Completions wire, but provider-specific thinking/tool-choice semantics must
+   be declared on raw OpenAI-compatible configs rather than inferred from a bare
+   model id. *)
 let deepseek_cfg ?enable_thinking ?thinking_budget ~tool_choice () =
   Provider_config.make
     ~kind:OpenAI_compat
     ~model_id:"deepseek-v4-flash"
     ~base_url:"https://api.deepseek.com"
     ~api_key:"test-key"
+    ~model_capabilities_override:deepseek_v4_capabilities
     ~max_tokens:1024
     ~temperature:0.7
     ~tool_choice

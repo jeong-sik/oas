@@ -142,8 +142,8 @@ let%test "capability source is provider default for undeclared raw compat model"
   let config =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"grok-latest"
-      ~base_url:"https://api.x.ai/v1"
+      ~model_id:"gpt-4o"
+      ~base_url:"https://unknown-openai-compatible.example/v1"
       ()
   in
   match resolve_capabilities_for_config config with
