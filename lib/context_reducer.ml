@@ -203,7 +203,7 @@ let compose strategies =
 let custom f = { strategy = Custom f }
 
 let rec strategy_preserving_thinking = function
-  | Drop_thinking -> None
+  | Drop_thinking | Summarize_old _ -> None
   | Compose strategies ->
     (match List.filter_map strategy_preserving_thinking strategies with
      | [] -> None
@@ -225,7 +225,6 @@ let rec strategy_preserving_thinking = function
     | Merge_contiguous
     | Keep_first_and_last _
     | Prune_by_role _
-    | Summarize_old _
     | Clear_tool_results _
     | Stub_tool_results _
     | Cap_message_tokens _
