@@ -347,6 +347,12 @@ let request_control_fields
 
 let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
 
+let with_endpoint_streaming_override (config : Provider_config.t) dialect =
+  match config.kind, Provider_config.capability_provider_label config with
+  | OpenAI_compat, "ollama_cloud" -> { dialect with streaming = Delta_field "reasoning" }
+  | (Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _ -> dialect
+;;
+
 let for_provider_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic ->
@@ -366,10 +372,12 @@ let for_provider_config (config : Provider_config.t) =
      | Some caps ->
        of_capabilities caps
        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+       |> with_endpoint_streaming_override config
      | None ->
        let caps = provider_capabilities_of_kind config.kind in
        of_capabilities caps
-       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking)
+       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
+       |> with_endpoint_streaming_override config)
   | DashScope ->
     (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
        the model catalog. Backend_openai_request.capabilities_of_config is
