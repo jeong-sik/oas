@@ -301,26 +301,31 @@ let test_openai_parallel_disabled_by_capability () =
    lives in the inline [let%test "for_model_id_catalog: specific model IDs
    get correct (not shadowed) capabilities"] in [capabilities.ml] and in
    [test_capabilities.ml]'s cloud-suffix route checks. *)
-let deepseek_required_expected =
-  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"required","model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
+let deepseek_auto_expected =
+  {|{"parallel_tool_calls":false,"tools":[{"type":"function","function":{"name":"get_weather","description":"Get weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"auto","model":"deepseek-v4-flash","messages":[{"role":"user","content":"What's the weather in Seoul?"},{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}],"role":"assistant","content":null},{"role":"tool","tool_call_id":"call_1","content":"Sunny, 25C"}],"max_tokens":1024}|}
 ;;
 
-let test_deepseek_required () =
+let test_deepseek_auto_serializes_auto_tool_choice () =
   let body =
     Backend_openai_request.build_request
-      ~config:(deepseek_cfg ~tool_choice:Any ())
+      ~config:(deepseek_cfg ~tool_choice:Auto ())
       ~messages
       ~tools:[ tool_decl ]
       ()
   in
   snapshot
-    "deepseek-v4-flash openai-compat tool_choice=required(Any) snapshot"
-    deepseek_required_expected
+    "deepseek-v4-flash openai-compat tool_choice=auto snapshot"
+    deepseek_auto_expected
     body;
   check
     bool
-    "tool_choice emitted (capability lookup resolves supports_tool_choice)"
+    {|Auto maps to tool_choice:"auto"|}
     true
+    (contains ~needle:{|"tool_choice":"auto"|} body);
+  check
+    bool
+    {|Any-only required tool_choice is not emitted|}
+    false
     (contains ~needle:{|"tool_choice":"required"|} body);
   check
     bool
@@ -329,11 +334,30 @@ let test_deepseek_required () =
     (contains ~needle:{|"model":"deepseek-v4-flash"|} body)
 ;;
 
+let test_deepseek_required_rejected () =
+  match
+    Provider_config.validate_tool_choice_request_typed (deepseek_cfg ~tool_choice:Any ())
+  with
+  | Error (Provider_config.Unsupported_required_tool_choice { provider_kind; model_id })
+    ->
+    check
+      string
+      "required rejection provider"
+      "openai_compat"
+      (Provider_config.string_of_provider_kind provider_kind);
+    check string "required rejection model" "deepseek-v4-flash" model_id
+  | Error rejection ->
+    failf
+      "deepseek-v4-flash rejected required tool_choice with unexpected reason: %s"
+      (Provider_config.tool_choice_request_rejection_to_message rejection)
+  | Ok () -> fail "deepseek-v4-flash unexpectedly accepted required tool_choice"
+;;
+
 let test_deepseek_disabled_reasoning_omits_reasoning_effort () =
   let body =
     Backend_openai_request.build_request
       ~config:
-        (deepseek_cfg ~enable_thinking:false ~thinking_budget:4096 ~tool_choice:Any ())
+        (deepseek_cfg ~enable_thinking:false ~thinking_budget:4096 ~tool_choice:Auto ())
       ~messages
       ~tools:[ tool_decl ]
       ()
@@ -353,7 +377,7 @@ let test_deepseek_disabled_reasoning_omits_reasoning_effort () =
 let test_deepseek_zero_budget_omits_reasoning_effort () =
   let body =
     Backend_openai_request.build_request
-      ~config:(deepseek_cfg ~enable_thinking:true ~thinking_budget:0 ~tool_choice:Any ())
+      ~config:(deepseek_cfg ~enable_thinking:true ~thinking_budget:0 ~tool_choice:Auto ())
       ~messages
       ~tools:[ tool_decl ]
       ()
@@ -716,7 +740,14 @@ let () =
             "parallel disabled by capability"
             `Quick
             test_openai_parallel_disabled_by_capability
-        ; test_case "deepseek-v4-flash required(Any)" `Quick test_deepseek_required
+        ; test_case
+            "deepseek-v4-flash auto tool_choice"
+            `Quick
+            test_deepseek_auto_serializes_auto_tool_choice
+        ; test_case
+            "deepseek-v4-flash rejects required(Any)"
+            `Quick
+            test_deepseek_required_rejected
         ; test_case
             "deepseek-v4-flash disabled reasoning omits reasoning_effort"
             `Quick
