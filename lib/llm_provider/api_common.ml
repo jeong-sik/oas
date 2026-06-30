@@ -236,8 +236,7 @@ let rec content_block_of_json_result json =
     let* details =
       match details_json with
       | `List details -> Ok details
-      | `Null -> Ok []
-      | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+      | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
         Error
           (Missing_content_block_field
              { block_type = "reasoning_details"; field = "details" })

@@ -47,6 +47,20 @@ let reasoning_texts_of_details details =
   List.filter_map (fun (detail : reasoning_detail) -> detail.text) details
 ;;
 
+let reasoning_texts_of_block = function
+  | Thinking { content; _ } -> [ content ]
+  | ReasoningDetails { reasoning_content = Some content; _ } -> [ content ]
+  | ReasoningDetails { reasoning_content = None; details } ->
+    reasoning_texts_of_details details
+  | Text _
+  | RedactedThinking _
+  | ToolUse _
+  | ToolResult _
+  | Image _
+  | Document _
+  | Audio _ -> []
+;;
+
 let reasoning_content_blocks_of_message msg =
   let open Yojson.Safe.Util in
   let reasoning_content = non_blank_json_string (msg |> member "reasoning_content") in
@@ -293,14 +307,9 @@ let telemetry_of_openai_json json =
         let texts =
           if msg = `Null
           then []
-          else (
-            match reasoning_content_blocks_of_message msg with
-            | [ Thinking { content; _ } ] -> [ content ]
-            | [ ReasoningDetails { reasoning_content; details } ] ->
-              (match reasoning_content with
-               | Some content -> [ content ]
-               | None -> reasoning_texts_of_details details)
-            | _ -> [])
+          else
+            reasoning_content_blocks_of_message msg
+            |> List.concat_map reasoning_texts_of_block
         in
         match texts with
         | [] -> None
