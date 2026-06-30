@@ -49,6 +49,25 @@ val extract
 
 type 'a extractor = api_response -> ('a, string) result
 
+(** Shape requirement for extracting a provider-native structured-output JSON
+    payload from an API response. *)
+type response_json_shape =
+  | Any_json
+  | Object_json
+
+(** Extract the response text as JSON using the same provider-native
+    structured-output response boundary as {!schema_extractor}. *)
+val extract_response_json
+  :  ?shape:response_json_shape
+  -> api_response
+  -> (Yojson.Safe.t, Error.sdk_error) result
+
+(** Agent-level extractor form of {!extract_response_json}. *)
+val response_json_extractor
+  :  ?shape:response_json_shape
+  -> unit
+  -> Yojson.Safe.t extractor
+
 (** Build an {!extractor} from a typed schema.
 
     This is the Agent-level counterpart to {!extract}: it parses the response

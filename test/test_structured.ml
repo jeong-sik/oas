@@ -417,6 +417,43 @@ let test_json_extractor_no_text () =
   | Ok _ -> Alcotest.fail "expected error"
 ;;
 
+let test_response_json_extractor_object_success () =
+  let extract = Structured.response_json_extractor ~shape:Structured.Object_json () in
+  let resp = make_response [ Text {|{"value": 42}|} ] in
+  match extract resp with
+  | Ok (`Assoc fields) ->
+    Alcotest.(check bool) "value field present" true (List.mem_assoc "value" fields)
+  | Ok _ -> Alcotest.fail "expected JSON object"
+  | Error e -> Alcotest.fail e
+;;
+
+let test_response_json_extractor_fenced_object () =
+  let extract = Structured.response_json_extractor ~shape:Structured.Object_json () in
+  let resp = make_response [ Text "```json\n{\"ok\":true}\n```" ] in
+  match extract resp with
+  | Ok (`Assoc fields) ->
+    Alcotest.(check bool) "ok field present" true (List.mem_assoc "ok" fields)
+  | Ok _ -> Alcotest.fail "expected JSON object"
+  | Error e -> Alcotest.fail e
+;;
+
+let test_response_json_extractor_any_accepts_array () =
+  let extract = Structured.response_json_extractor () in
+  let resp = make_response [ Text "[1,2,3]" ] in
+  match extract resp with
+  | Ok (`List values) -> Alcotest.(check int) "array length" 3 (List.length values)
+  | Ok _ -> Alcotest.fail "expected JSON array"
+  | Error e -> Alcotest.fail e
+;;
+
+let test_response_json_extractor_object_rejects_array () =
+  let extract = Structured.response_json_extractor ~shape:Structured.Object_json () in
+  let resp = make_response [ Text "[1,2,3]" ] in
+  match extract resp with
+  | Error e -> Alcotest.(check bool) "has error text" true (String.length e > 0)
+  | Ok _ -> Alcotest.fail "expected object shape error"
+;;
+
 let test_text_extractor_success () =
   let extract =
     Structured.text_extractor (fun s ->
@@ -601,6 +638,22 @@ let () =
             `Quick
             test_json_extractor_invalid_json
         ; Alcotest.test_case "json_extractor no text" `Quick test_json_extractor_no_text
+        ; Alcotest.test_case
+            "response_json_extractor object"
+            `Quick
+            test_response_json_extractor_object_success
+        ; Alcotest.test_case
+            "response_json_extractor fenced object"
+            `Quick
+            test_response_json_extractor_fenced_object
+        ; Alcotest.test_case
+            "response_json_extractor any array"
+            `Quick
+            test_response_json_extractor_any_accepts_array
+        ; Alcotest.test_case
+            "response_json_extractor object rejects array"
+            `Quick
+            test_response_json_extractor_object_rejects_array
         ; Alcotest.test_case "text_extractor success" `Quick test_text_extractor_success
         ; Alcotest.test_case "text_extractor none" `Quick test_text_extractor_none
         ; Alcotest.test_case

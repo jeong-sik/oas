@@ -83,16 +83,21 @@ let parse_schema_text_json schema json =
   | Yojson.Json_error detail -> Error (Error.Serialization (JsonParseError { detail }))
 ;;
 
-(** Extract structured output from the response text JSON. *)
-let extract_text_json ~(schema : _ schema) (response : api_response)
-  : ('a, Error.sdk_error) result
+type response_json_shape =
+  | Any_json
+  | Object_json
+
+let text_json_of_response (response : api_response) =
+  response
+  |> Types.text_of_response
+  |> Llm_provider.Backend_openai.strip_json_markdown_fences
+  |> String.trim
+;;
+
+let extract_response_json ?(shape = Any_json) (response : api_response)
+  : (Yojson.Safe.t, Error.sdk_error) result
   =
-  let text =
-    response
-    |> Types.text_of_response
-    |> Llm_provider.Backend_openai.strip_json_markdown_fences
-    |> String.trim
-  in
+  let text = text_json_of_response response in
   if text = ""
   then
     Error
@@ -104,7 +109,22 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
       parse_json_string text
       |> Result.map_error (fun detail -> Error.Serialization (JsonParseError { detail }))
     in
-    parse_schema_text_json schema json
+    match shape, json with
+    | Any_json, _ -> Ok json
+    | Object_json, `Assoc _ -> Ok json
+    | Object_json, _ ->
+      Error
+        (Error.Serialization
+           (JsonParseError
+              { detail = "structured output response JSON was not an object" }))
+;;
+
+(** Extract structured output from the response text JSON. *)
+let extract_text_json ~(schema : _ schema) (response : api_response)
+  : ('a, Error.sdk_error) result
+  =
+  let* json = extract_response_json response in
+  parse_schema_text_json schema json
 ;;
 
 let sdk_error_of_http_error =
@@ -154,6 +174,11 @@ type 'a extractor = api_response -> ('a, string) result
 
 let schema_extractor (schema : 'a schema) : 'a extractor =
   fun response -> extract_text_json ~schema response |> Result.map_error Error.to_string
+;;
+
+let response_json_extractor ?shape () : Yojson.Safe.t extractor =
+  fun response ->
+  extract_response_json ?shape response |> Result.map_error Error.to_string
 ;;
 
 (* NOTE: keep [json_extractor] / [text_extractor] for callers who parse
