@@ -384,8 +384,23 @@ let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
     "enabled thinking type"
     "adaptive"
     (enabled_json |> member "thinking" |> member "type" |> to_string);
+  check
+    bool
+    "enabled reasoning split"
+    true
+    (enabled_json |> member "reasoning_split" |> to_bool);
   check_member_absent "reasoning_effort" enabled_json;
   check_member_absent "chat_template_kwargs" enabled_json;
+  let default_config = openai_compat_config "minimax-m3" in
+  let default_json =
+    BOR.build_request ~config:default_config ~messages:[ user_msg "hi" ] ()
+    |> json_of_body
+  in
+  check
+    bool
+    "default reasoning split"
+    true
+    (default_json |> member "reasoning_split" |> to_bool);
   let disabled_config = openai_compat_config ~enable_thinking:false "minimax-m3" in
   let disabled_json =
     BOR.build_request ~config:disabled_config ~messages:[ user_msg "hi" ] ()
@@ -396,6 +411,7 @@ let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
     "disabled thinking type"
     "disabled"
     (disabled_json |> member "thinking" |> member "type" |> to_string);
+  check_member_absent "reasoning_split" disabled_json;
   let auto_tool_choice_config =
     PC.make
       ~kind:OpenAI_compat

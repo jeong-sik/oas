@@ -192,6 +192,11 @@
             "always_preserved"
           ]
         },
+        "reasoning_output_format": {
+          "type": "string",
+          "description": "Provider/model request-side reasoning output split control.",
+          "enum": ["none", "split_reasoning_fields"]
+        },
         "reasoning_replay": {
           "type": "string",
           "description": "Optional override for multi-turn reasoning replay policy.",

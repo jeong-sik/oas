@@ -69,6 +69,10 @@ type assistant_tool_content_format = Capability_vocab.assistant_tool_content_for
   | Assistant_tool_content_null
   | Assistant_tool_content_empty_string
 
+type reasoning_output_format = Capability_vocab.reasoning_output_format =
+  | No_reasoning_output_format
+  | Split_reasoning_fields
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -106,6 +110,11 @@ type capabilities =
         This is intentionally separate from [thinking_control_format]: some
         models use [thinking.keep], some have no request toggle but require
         replay, and Qwen-style chat templates use a nested boolean. *)
+  ; reasoning_output_format : reasoning_output_format
+    (** Request-side control for where provider reasoning is returned. Some
+        OpenAI-compatible providers require an explicit split switch before
+        returning reasoning in side-channel fields instead of embedding it in
+        visible [content]. *)
   ; reasoning_replay_override : reasoning_replay_override
     (** Optional override for the multi-turn reasoning replay policy. Defaults to
         the policy implied by [thinking_control_format]; catalog entries set this
@@ -171,6 +180,7 @@ let default_capabilities =
   ; accepted_reasoning_efforts = None
   ; thinking_control_format = No_thinking_control
   ; preserve_thinking_control_format = No_preserve_thinking_control
+  ; reasoning_output_format = No_reasoning_output_format
   ; reasoning_replay_override = Default_reasoning_replay
   ; supports_response_format_json = false
   ; supports_structured_output = false
@@ -724,6 +734,10 @@ let assistant_tool_content_format_of_catalog_string raw =
   Capability_vocab.assistant_tool_content_format_of_string raw
 ;;
 
+let reasoning_output_format_of_catalog_string raw =
+  Capability_vocab.reasoning_output_format_of_string raw
+;;
+
 let modality_priority_of_catalog_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "preserve_input_order" | "preserve-input-order" | "preserve" ->
@@ -869,6 +883,15 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
             base.preserve_thinking_control_format)
        | None -> base.preserve_thinking_control_format)
+  ; reasoning_output_format =
+      (match entry.reasoning_output_format with
+       | Some s ->
+         (match reasoning_output_format_of_catalog_string s with
+          | Some format -> format
+          | None ->
+            warn_unknown_capability_value ~field:"reasoning_output_format" s;
+            base.reasoning_output_format)
+       | None -> base.reasoning_output_format)
   ; reasoning_replay_override =
       (match entry.reasoning_replay with
        | Some s ->
@@ -1062,6 +1085,15 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
             warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
             base.preserve_thinking_control_format)
        | None -> base.preserve_thinking_control_format)
+  ; reasoning_output_format =
+      (match entry.reasoning_output_format with
+       | Some s ->
+         (match reasoning_output_format_of_catalog_string s with
+          | Some format -> format
+          | None ->
+            warn_unknown_capability_value ~field:"reasoning_output_format" s;
+            base.reasoning_output_format)
+       | None -> base.reasoning_output_format)
   ; reasoning_replay_override =
       (match entry.reasoning_replay with
        | Some s ->
@@ -1375,6 +1407,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; thinking_control_format = None
   ; thinking_control_token = None
   ; preserve_thinking_control_format = None
+  ; reasoning_output_format = None
   ; reasoning_replay = None
   ; input_per_million = None
   ; output_per_million = None
@@ -2033,6 +2066,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.thinking_control_format = cb.thinking_control_format
       && ca.accepted_reasoning_efforts = cb.accepted_reasoning_efforts
       && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
+      && ca.reasoning_output_format = cb.reasoning_output_format
       && ca.assistant_tool_content_format = cb.assistant_tool_content_format
       && ca.reasoning_replay_override = cb.reasoning_replay_override
     | _ -> false

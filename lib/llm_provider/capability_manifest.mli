@@ -91,6 +91,9 @@ type entry =
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
         top_level_preserve_thinking / always_preserved); applied in
         {!Capabilities.apply_manifest_entry}. *)
+  ; reasoning_output_format : string option
+    (** Canonical request-side reasoning output split control (none /
+        split_reasoning_fields); applied in {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_replay : string option
     (** Optional multi-turn reasoning replay policy override (default /
         no_replay / drop_without_tool / preserve_always). *)

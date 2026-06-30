@@ -481,6 +481,11 @@ let test_lookup_minimax_m3_official_chat_dialect () =
       "uses MiniMax adaptive thinking object"
       Capabilities.Thinking_object_adaptive
       c.thinking_control_format;
+    check
+      bool
+      "uses split reasoning fields"
+      true
+      (c.reasoning_output_format = Capabilities.Split_reasoning_fields);
     check bool "no Chat response_format json" false c.supports_response_format_json;
     check bool "no Chat structured output" false c.supports_structured_output;
     check bool "multimodal" true c.supports_multimodal_inputs;
@@ -500,7 +505,12 @@ let test_lookup_minimax_m3_official_chat_dialect () =
       string
       "replay policy"
       "preserve_always"
-      (Reasoning_dialect.replay_policy_to_string dialect.replay_policy)
+      (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+    check
+      bool
+      "dialect emits reasoning split"
+      true
+      (dialect.output_wire = Reasoning_dialect.Reasoning_split)
   | None -> fail "should match minimax-m3"
 ;;
 
@@ -1488,6 +1498,23 @@ let test_manifest_accepts_thinking_object_adaptive_policy_string () =
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
+let test_manifest_accepts_reasoning_output_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"split-manifest","reasoning_output_format":"split_reasoning_fields"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check
+      bool
+      "manifest split_reasoning_fields"
+      true
+      (caps.reasoning_output_format = Capabilities.Split_reasoning_fields)
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -1496,6 +1523,18 @@ let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   match Capability_manifest.of_json json with
   | Error msg -> check_contains "mentions field" msg "preserve_thinking_control_format"
   | Ok _ -> Alcotest.fail "unknown preserve_thinking_control_format should reject"
+;;
+
+let test_manifest_rejects_unknown_reasoning_output_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-output","reasoning_output_format":"split_thoughts"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "reasoning_output_format";
+    check_contains "mentions value" msg "split_thoughts"
+  | Ok _ -> Alcotest.fail "unknown reasoning_output_format should reject"
 ;;
 
 let test_manifest_rejects_unknown_reasoning_replay () =
@@ -1697,6 +1736,7 @@ let test_model_catalog_rejects_unknown_policy_strings () =
   let cases =
     [ "thinking_control_format", "mind_palace"
     ; "preserve_thinking_control_format", "memory_palace"
+    ; "reasoning_output_format", "split_thoughts"
     ; "modality_priority", "image_only"
     ]
   in
@@ -2076,9 +2116,17 @@ let () =
             `Quick
             test_manifest_accepts_thinking_object_adaptive_policy_string
         ; test_case
+            "reasoning_output_format accepted"
+            `Quick
+            test_manifest_accepts_reasoning_output_format
+        ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
             test_manifest_rejects_unknown_preserve_thinking_control_format
+        ; test_case
+            "unknown reasoning_output_format rejects"
+            `Quick
+            test_manifest_rejects_unknown_reasoning_output_format
         ; test_case
             "unknown reasoning_replay rejects"
             `Quick

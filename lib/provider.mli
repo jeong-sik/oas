@@ -83,6 +83,10 @@ type assistant_tool_content_format =
   | Assistant_tool_content_null
   | Assistant_tool_content_empty_string
 
+type reasoning_output_format = Llm_provider.Capabilities.reasoning_output_format =
+  | No_reasoning_output_format
+  | Split_reasoning_fields
+
 type capabilities =
   { max_context_tokens : int option
   ; max_output_tokens : int option
@@ -100,6 +104,7 @@ type capabilities =
   ; accepted_reasoning_efforts : Llm_provider.Reasoning_effort.t list option
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
+  ; reasoning_output_format : reasoning_output_format
   ; reasoning_replay_override : reasoning_replay_override
   ; supports_response_format_json : bool
   ; supports_structured_output : bool

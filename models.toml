@@ -325,9 +325,10 @@ cache_read_multiplier = 0.02
 # polluted/emptied the JSON-mode body (librarian "empty response" / "invalid episode
 # JSON"). This entry supersedes the inert MASC runtime.toml [models.minimax-m3.capabilities]
 # block (#21521), which OAS for_model_id never reads.
-# MiniMax-M3 Chat uses thinking.type adaptive|disabled. The Chat schema documents
-# tools but no tool_choice or response_format field, and its interleaved-thinking
-# guide requires replaying the complete assistant message including reasoning_details
+# MiniMax-M3 Chat uses thinking.type adaptive|disabled plus reasoning_split=true
+# to expose thinking outside visible content. The Chat schema documents tools but
+# no tool_choice or response_format field, and its interleaved-thinking guide
+# requires replaying the complete assistant message including reasoning_details
 # or embedded <think> content.
 # Pricing intentionally omitted (float option): minimax-m3 rates not yet confirmed.
 [[models]]
@@ -342,6 +343,7 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = false
 thinking_control_format = "thinking_object_adaptive"
+reasoning_output_format = "split_reasoning_fields"
 reasoning_replay = "preserve_always"
 supports_response_format_json = false
 supports_structured_output = false

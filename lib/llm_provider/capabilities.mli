@@ -55,6 +55,10 @@ type assistant_tool_content_format = Capability_vocab.assistant_tool_content_for
   | Assistant_tool_content_null
   | Assistant_tool_content_empty_string
 
+type reasoning_output_format = Capability_vocab.reasoning_output_format =
+  | No_reasoning_output_format
+  | Split_reasoning_fields
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -79,6 +83,7 @@ type capabilities =
         serialization. *)
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
+  ; reasoning_output_format : reasoning_output_format
   ; reasoning_replay_override : reasoning_replay_override
   ; (* Output format *)
     supports_response_format_json : bool

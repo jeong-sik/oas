@@ -187,6 +187,11 @@ Accepted `preserve_thinking_control_format` values are:
 - `top_level_preserve_thinking`
 - `always_preserved` (historical reasoning must be replayed; no request field)
 
+Accepted `reasoning_output_format` values are:
+
+- `none`
+- `split_reasoning_fields` (emit provider split control such as `reasoning_split=true`)
+
 Accepted `assistant_tool_content_format` values are:
 
 - `null` (`content: null` for assistant tool-call messages with no visible text)

@@ -15,6 +15,10 @@ type assistant_tool_content_format =
   | Assistant_tool_content_null
   | Assistant_tool_content_empty_string
 
+type reasoning_output_format =
+  | No_reasoning_output_format
+  | Split_reasoning_fields
+
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
 let thinking_control_format_values =
@@ -79,4 +83,16 @@ let assistant_tool_content_format_of_string raw =
   match normalize raw with
   | "" -> Some Assistant_tool_content_null
   | normalized -> List.assoc_opt normalized assistant_tool_content_format_table
+;;
+
+let reasoning_output_format_table =
+  [ "none", No_reasoning_output_format; "split_reasoning_fields", Split_reasoning_fields ]
+;;
+
+let reasoning_output_format_values = List.map fst reasoning_output_format_table
+
+let reasoning_output_format_of_string raw =
+  match normalize raw with
+  | "" -> Some No_reasoning_output_format
+  | normalized -> List.assoc_opt normalized reasoning_output_format_table
 ;;
