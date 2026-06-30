@@ -11,6 +11,7 @@ module BOL = Llm_provider.Backend_ollama
 module BAN = Llm_provider.Backend_anthropic
 module CAP = Llm_provider.Capabilities
 module CM = Llm_provider.Capability_manifest
+module MC = Llm_provider.Model_catalog
 module RD = Llm_provider.Reasoning_dialect
 module RE = Llm_provider.Reasoning_effort
 open Alcotest
@@ -25,7 +26,24 @@ let with_manifest json f =
   | Error msg -> fail ("manifest parse failed: " ^ msg)
   | Ok manifest ->
     CM.set_global manifest;
-    Fun.protect ~finally:CM.clear_global f
+    Fun.protect ~finally:(fun () -> CM.set_global []) f
+;;
+
+let without_ambient_manifest f =
+  CM.set_global [];
+  let candidates = [ "models.toml"; "../models.toml" ] in
+  match List.find_opt Sys.file_exists candidates with
+  | None -> fail "models.toml not found for thinking-control dialect tests"
+  | Some path ->
+    (match MC.load_file path with
+     | Error msg -> fail ("failed to load " ^ path ^ ": " ^ msg)
+     | Ok catalog ->
+       MC.set_global catalog;
+       Fun.protect
+         ~finally:(fun () ->
+           MC.clear_global ();
+           CM.clear_global ())
+         f)
 ;;
 
 let check_member_absent name json =
@@ -761,133 +779,134 @@ let test_gemini_reasoning_dialect_uses_thinking_config () =
 ;;
 
 let () =
-  run
-    "thinking_control_dialects"
-    [ ( "openai_compat"
-      , [ test_case
-            "qwen uses chat_template_kwargs"
-            `Quick
-            test_qwen_openai_compat_uses_chat_template_kwargs
-        ; test_case
-            "qwen3.6 self-hosted uses chat_template_kwargs"
-            `Quick
-            test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs
-        ; test_case
-            "qwen3.6 reasoning dialect uses chat_template_kwargs"
-            `Quick
-            test_qwen36_reasoning_dialect_uses_chat_template_kwargs
-        ; test_case
-            "qwen3.6 reasoning dialect without preserve drops reasoning"
-            `Quick
-            test_qwen36_reasoning_dialect_without_preserve_drops_reasoning
-        ; test_case
-            "qwen3.6 dashscope uses top-level enable_thinking"
-            `Quick
-            test_qwen36_dashscope_uses_top_level_enable_thinking
-        ; test_case
-            "qwen3.6 dashscope dialect reports enable_thinking"
-            `Quick
-            test_qwen36_dashscope_dialect_reports_enable_thinking
-        ; test_case
-            "mimo v2.5 uses thinking object and json_schema"
-            `Quick
-            test_mimo_v25_uses_thinking_object_and_json_schema
-        ; test_case
-            "openai reasoning dialect uses reasoning_effort"
-            `Quick
-            test_openai_reasoning_dialect_uses_reasoning_effort
-        ; test_case
-            "openai reasoning request uses reasoning_effort"
-            `Quick
-            test_openai_reasoning_request_uses_reasoning_effort
-        ; test_case
-            "deepseek uses thinking object"
-            `Quick
-            test_deepseek_openai_compat_uses_thinking_object
-        ; test_case
-            "deepseek reasoning dialect semantics"
-            `Quick
-            test_deepseek_reasoning_dialect_semantics
-        ; test_case
-            "deepseek suppresses ignored sampling in thinking mode"
-            `Quick
-            test_deepseek_sampling_suppressed_in_thinking_mode
-        ; test_case
-            "deepseek disabled thinking keeps sampling"
-            `Quick
-            test_deepseek_disabled_thinking_keeps_sampling
-        ; test_case
-            "deepseek replays reasoning only for tool call turns"
-            `Quick
-            test_deepseek_replays_reasoning_only_for_tool_call_turns
-        ; test_case
-            "qwen preserve replays reasoning_content"
-            `Quick
-            test_qwen_preserve_replays_reasoning_content
-        ; test_case
-            "thinking_object_keep_all axis uses thinking keep all"
-            `Quick
-            test_thinking_object_keep_all_axis_uses_keep_all
-        ; test_case
-            "thinking_object_keep_all axis replays reasoning"
-            `Quick
-            test_thinking_object_keep_all_axis_replays_reasoning
-        ; test_case
-            "kimi latest always-preserved omits thinking param"
-            `Quick
-            test_kimi_latest_always_preserved_omits_thinking_param
-        ] )
-    ; ( "ollama"
-      , [ test_case
-            "qwen uses native think bool"
-            `Quick
-            test_ollama_qwen_uses_native_think_bool
-        ; test_case
-            "cloud GLM uses native think not ZAI thinking"
-            `Quick
-            test_ollama_cloud_glm_uses_native_think_not_zai_thinking
-        ; test_case
-            "gemma4 enabled uses chat template token"
-            `Quick
-            test_ollama_gemma4_enabled_uses_chat_template_token
-        ; test_case
-            "gemma4 disabled uses native think false"
-            `Quick
-            test_ollama_gemma4_disabled_uses_native_think_false
-        ; test_case
-            "gemma4 reasoning dialect uses template parser"
-            `Quick
-            test_gemma4_reasoning_dialect_uses_template_parser
-        ] )
-    ; ( "native"
-      , [ test_case
-            "anthropic reasoning dialect preserves thinking"
-            `Quick
-            test_anthropic_reasoning_dialect_preserves_thinking
-        ; test_case
-            "anthropic manual model uses budget_tokens"
-            `Quick
-            test_anthropic_manual_model_uses_budget_tokens
-        ; test_case
-            "anthropic opus 4.8 uses adaptive effort"
-            `Quick
-            test_anthropic_opus48_uses_adaptive_effort
-        ; test_case
-            "anthropic claude alias uses adaptive effort"
-            `Quick
-            test_anthropic_agent_llm_alias_uses_adaptive_effort
-        ; test_case
-            "anthropic sonnet 4.6 defaults to adaptive"
-            `Quick
-            test_anthropic_sonnet46_defaults_to_adaptive
-        ; test_case
-            "anthropic output_config merges format and effort"
-            `Quick
-            test_anthropic_output_config_merges_format_and_effort
-        ; test_case
-            "gemini reasoning dialect uses thinking config"
-            `Quick
-            test_gemini_reasoning_dialect_uses_thinking_config
-        ] )
-    ]
+  without_ambient_manifest (fun () ->
+    run
+      "thinking_control_dialects"
+      [ ( "openai_compat"
+        , [ test_case
+              "qwen uses chat_template_kwargs"
+              `Quick
+              test_qwen_openai_compat_uses_chat_template_kwargs
+          ; test_case
+              "qwen3.6 self-hosted uses chat_template_kwargs"
+              `Quick
+              test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs
+          ; test_case
+              "qwen3.6 reasoning dialect uses chat_template_kwargs"
+              `Quick
+              test_qwen36_reasoning_dialect_uses_chat_template_kwargs
+          ; test_case
+              "qwen3.6 reasoning dialect without preserve drops reasoning"
+              `Quick
+              test_qwen36_reasoning_dialect_without_preserve_drops_reasoning
+          ; test_case
+              "qwen3.6 dashscope uses top-level enable_thinking"
+              `Quick
+              test_qwen36_dashscope_uses_top_level_enable_thinking
+          ; test_case
+              "qwen3.6 dashscope dialect reports enable_thinking"
+              `Quick
+              test_qwen36_dashscope_dialect_reports_enable_thinking
+          ; test_case
+              "mimo v2.5 uses thinking object and json_schema"
+              `Quick
+              test_mimo_v25_uses_thinking_object_and_json_schema
+          ; test_case
+              "openai reasoning dialect uses reasoning_effort"
+              `Quick
+              test_openai_reasoning_dialect_uses_reasoning_effort
+          ; test_case
+              "openai reasoning request uses reasoning_effort"
+              `Quick
+              test_openai_reasoning_request_uses_reasoning_effort
+          ; test_case
+              "deepseek uses thinking object"
+              `Quick
+              test_deepseek_openai_compat_uses_thinking_object
+          ; test_case
+              "deepseek reasoning dialect semantics"
+              `Quick
+              test_deepseek_reasoning_dialect_semantics
+          ; test_case
+              "deepseek suppresses ignored sampling in thinking mode"
+              `Quick
+              test_deepseek_sampling_suppressed_in_thinking_mode
+          ; test_case
+              "deepseek disabled thinking keeps sampling"
+              `Quick
+              test_deepseek_disabled_thinking_keeps_sampling
+          ; test_case
+              "deepseek replays reasoning only for tool call turns"
+              `Quick
+              test_deepseek_replays_reasoning_only_for_tool_call_turns
+          ; test_case
+              "qwen preserve replays reasoning_content"
+              `Quick
+              test_qwen_preserve_replays_reasoning_content
+          ; test_case
+              "thinking_object_keep_all axis uses thinking keep all"
+              `Quick
+              test_thinking_object_keep_all_axis_uses_keep_all
+          ; test_case
+              "thinking_object_keep_all axis replays reasoning"
+              `Quick
+              test_thinking_object_keep_all_axis_replays_reasoning
+          ; test_case
+              "kimi latest always-preserved omits thinking param"
+              `Quick
+              test_kimi_latest_always_preserved_omits_thinking_param
+          ] )
+      ; ( "ollama"
+        , [ test_case
+              "qwen uses native think bool"
+              `Quick
+              test_ollama_qwen_uses_native_think_bool
+          ; test_case
+              "cloud GLM uses native think not ZAI thinking"
+              `Quick
+              test_ollama_cloud_glm_uses_native_think_not_zai_thinking
+          ; test_case
+              "gemma4 enabled uses chat template token"
+              `Quick
+              test_ollama_gemma4_enabled_uses_chat_template_token
+          ; test_case
+              "gemma4 disabled uses native think false"
+              `Quick
+              test_ollama_gemma4_disabled_uses_native_think_false
+          ; test_case
+              "gemma4 reasoning dialect uses template parser"
+              `Quick
+              test_gemma4_reasoning_dialect_uses_template_parser
+          ] )
+      ; ( "native"
+        , [ test_case
+              "anthropic reasoning dialect preserves thinking"
+              `Quick
+              test_anthropic_reasoning_dialect_preserves_thinking
+          ; test_case
+              "anthropic manual model uses budget_tokens"
+              `Quick
+              test_anthropic_manual_model_uses_budget_tokens
+          ; test_case
+              "anthropic opus 4.8 uses adaptive effort"
+              `Quick
+              test_anthropic_opus48_uses_adaptive_effort
+          ; test_case
+              "anthropic claude alias uses adaptive effort"
+              `Quick
+              test_anthropic_agent_llm_alias_uses_adaptive_effort
+          ; test_case
+              "anthropic sonnet 4.6 defaults to adaptive"
+              `Quick
+              test_anthropic_sonnet46_defaults_to_adaptive
+          ; test_case
+              "anthropic output_config merges format and effort"
+              `Quick
+              test_anthropic_output_config_merges_format_and_effort
+          ; test_case
+              "gemini reasoning dialect uses thinking config"
+              `Quick
+              test_gemini_reasoning_dialect_uses_thinking_config
+          ] )
+      ])
 ;;

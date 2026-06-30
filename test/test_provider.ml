@@ -37,6 +37,32 @@ let with_provider_catalog json f =
     Fun.protect ~finally:Llm_provider.Provider_catalog.clear_global f
 ;;
 
+let install_repo_model_catalog () =
+  let candidates = [ "models.toml"; "../models.toml"; "../../models.toml" ] in
+  match List.find_opt Sys.file_exists candidates with
+  | None -> Alcotest.fail "models.toml not found for provider tests"
+  | Some path ->
+    (match Llm_provider.Model_catalog.load_file path with
+     | Error msg -> Alcotest.fail (Printf.sprintf "models.toml should parse: %s" msg)
+     | Ok catalog -> Llm_provider.Model_catalog.set_global catalog)
+;;
+
+let with_empty_capability_sources f =
+  let original_catalog = Llm_provider.Model_catalog.global () in
+  let original_manifest = Llm_provider.Capability_manifest.global () in
+  Llm_provider.Model_catalog.set_global [];
+  Llm_provider.Capability_manifest.set_global [];
+  Fun.protect
+    ~finally:(fun () ->
+      (match original_catalog with
+       | Some catalog -> Llm_provider.Model_catalog.set_global catalog
+       | None -> Llm_provider.Model_catalog.clear_global ());
+      match original_manifest with
+      | Some manifest -> Llm_provider.Capability_manifest.set_global manifest
+      | None -> Llm_provider.Capability_manifest.clear_global ())
+    f
+;;
+
 let test_missing_env_var () =
   (* Anthropic provider checks env var; nonexistent key -> Error *)
   let cfg : Provider.config =
@@ -360,6 +386,24 @@ let test_extended_openai_capabilities () =
   Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
   Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
   Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
+;;
+
+let test_raw_openai_compat_does_not_infer_dashscope_from_model_id () =
+  with_empty_capability_sources (fun () ->
+    let capabilities =
+      Provider.capabilities_for_model
+        ~provider:
+          (Provider.OpenAICompat
+             { base_url = "https://compat.example.invalid/v1"
+             ; auth_header = None
+             ; path = "/chat/completions"
+             ; static_token = None
+             })
+        ~model_id:"dashscope-compatible-unknown"
+    in
+    Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
+    Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
+    Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p)
 ;;
 
 let test_anthropic_capabilities_consults_for_model_id () =
@@ -1017,6 +1061,7 @@ let test_provider_config_of_agent_custom_registered_unknown_name () =
 ;;
 
 let () =
+  install_repo_model_catalog ();
   Alcotest.run
     "Provider"
     [ ( "resolve"
@@ -1073,6 +1118,10 @@ let () =
             "extended openai capabilities"
             `Quick
             test_extended_openai_capabilities
+        ; Alcotest.test_case
+            "raw openai_compat does not infer dashscope"
+            `Quick
+            test_raw_openai_compat_does_not_infer_dashscope_from_model_id
         ; Alcotest.test_case
             "anthropic consults for_model_id (#824)"
             `Quick

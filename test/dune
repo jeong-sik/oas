@@ -439,6 +439,7 @@
   test_tool_op
   test_tool_set)
  (libraries agent_sdk alcotest qcheck-core qcheck-alcotest)
+ (deps ../models.toml)
  (action
   (run %{test})))
 
