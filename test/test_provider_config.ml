@@ -239,10 +239,10 @@ let test_validate_output_schema_openai_official () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
-      ~model_id:"gpt"
+      ~model_id:"gpt-4o"
       ~base_url:"https://api.openai.com/v1"
+      ~response_format_json:true
       ~output_schema:(`Assoc [ "type", `String "object" ])
-      ~model_capabilities_override:Capabilities.openai_compat_chat_capabilities
       ()
   in
   check_bool
@@ -281,6 +281,57 @@ let test_validate_output_schema_openai_compat_declared_endpoint_accepted () =
     "declared self-hosted OpenAI-compatible endpoint accepted"
     true
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_ollama_cloud_accepted () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"minimax-m3"
+      ~base_url:"https://ollama.com/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "ollama cloud model with native SO guarantee accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_ollama_cloud_rejects_unverified_model () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"mistral-large-3:675b"
+      ~base_url:"https://ollama.com/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "reason"
+      "model mistral-large-3:675b does not advertise native structured output"
+      msg
+  | Ok () -> Alcotest.fail "expected Ollama Cloud model capability rejection"
+;;
+
+let test_validate_output_schema_native_ollama_rejects_unverified_model () =
+  let cfg =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"ministral-3:8b"
+      ~base_url:"http://localhost:11434"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "reason"
+      "model ministral-3:8b does not advertise native structured output"
+      msg
+  | Ok () -> Alcotest.fail "expected native Ollama model capability rejection"
 ;;
 
 let test_validate_output_schema_declared_endpoint_still_requires_model_capability () =
@@ -632,6 +683,40 @@ let test_validate_anthropic_thinking_rejects_forced_tool_choice () =
     (Result.is_ok
        (Provider_config.validate_tool_choice_request
           (cfg ~enable_thinking:false (Types.Tool "lookup"))))
+;;
+
+let test_validate_cli_sampling_params_allows_min_p () =
+  let cfg =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-4"
+      ~base_url:"https://api.anthropic.com"
+      ~min_p:0.05
+      ()
+  in
+  check_bool
+    "sampling params currently accepted"
+    true
+    (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
+;;
+
+let test_connect_timeout_none_by_default () =
+  let cfg =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ()
+  in
+  Alcotest.(check (option (float 0.001))) "default" None cfg.connect_timeout_s
+;;
+
+let test_connect_timeout_explicit_override_preserved () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"https://x"
+      ~connect_timeout_s:600.0
+      ()
+  in
+  Alcotest.(check (option (float 0.001))) "override" (Some 600.0) cfg.connect_timeout_s
 ;;
 
 (* ── make: headers default ────────────────────────────── *)
@@ -1559,6 +1644,18 @@ let () =
             "output schema derivation"
             `Quick
             test_output_schema_of_response_format
+        ; Alcotest.test_case
+            "sampling params allow min_p"
+            `Quick
+            test_validate_cli_sampling_params_allows_min_p
+        ; Alcotest.test_case
+            "connect timeout none by default"
+            `Quick
+            test_connect_timeout_none_by_default
+        ; Alcotest.test_case
+            "connect timeout explicit override"
+            `Quick
+            test_connect_timeout_explicit_override_preserved
         ] )
     ; ( "output_schema"
       , [ Alcotest.test_case
@@ -1573,6 +1670,18 @@ let () =
             "declared compat endpoint accepted"
             `Quick
             test_validate_output_schema_openai_compat_declared_endpoint_accepted
+        ; Alcotest.test_case
+            "ollama cloud accepted"
+            `Quick
+            test_validate_output_schema_ollama_cloud_accepted
+        ; Alcotest.test_case
+            "ollama cloud rejects unverified model"
+            `Quick
+            test_validate_output_schema_ollama_cloud_rejects_unverified_model
+        ; Alcotest.test_case
+            "native ollama rejects unverified model"
+            `Quick
+            test_validate_output_schema_native_ollama_rejects_unverified_model
         ; Alcotest.test_case
             "declared endpoint still requires model capability"
             `Quick

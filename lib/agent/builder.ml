@@ -253,7 +253,7 @@ let with_context_thresholds
      1. explicit [?context_window_tokens] argument (caller knows the
         per-agent override),
      2. [Provider.resolve_max_context_tokens] on [b.provider] when set
-        (e.g. a [qwen3*] model_id → 262_144) — this shares the
+        (e.g. a provider-specific declared context window) — this shares the
         "provider → capabilities → max_context_tokens" resolution with
         [Pipeline.proactive_context_window_tokens] so the reducer budget
         and the compaction watermark agree for the same agent.

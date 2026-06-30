@@ -337,9 +337,9 @@ let test_non_zai_glm_capabilities_stay_openai_compat () =
 
 let test_validate_inference_contract_rejects_unsupported_modality () =
   let cfg : Provider.config =
-    { provider = Local { base_url = "http://127.0.0.1:8085" }
-    ; model_id = "glm-5"
-    ; api_key_env = "DUMMY_KEY"
+    { provider = Custom_registered { name = "text-only" }
+    ; model_id = "text-only-model"
+    ; api_key_env = ""
     }
   in
   let contract : Provider.inference_contract =
@@ -358,7 +358,8 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
     Alcotest.(check string) "field" "modality" field;
     Alcotest.(check string)
       "detail"
-      "Model 'glm-5' for provider 'local' does not support modality 'image'"
+      "Model 'text-only-model' for provider 'custom:text-only' does not support modality \
+       'image'"
       detail
   | Error e ->
     Alcotest.fail (Printf.sprintf "unexpected error variant: %s" (Error.to_string e))
@@ -421,6 +422,29 @@ let test_raw_openai_compat_does_not_infer_minimax_from_model_id () =
     "supports reasoning budget"
     false
     capabilities.supports_reasoning_budget
+;;
+
+let test_local_compat_does_not_infer_dialect_from_model_id () =
+  let capabilities =
+    Provider.capabilities_for_model
+      ~provider:(Provider.Local { base_url = "http://127.0.0.1:8085" })
+      ~model_id:"dashscope-3.5-35b"
+  in
+  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
+  Alcotest.(check bool)
+    "supports extended thinking"
+    false
+    capabilities.supports_extended_thinking;
+  Alcotest.(check bool)
+    "supports reasoning budget"
+    false
+    capabilities.supports_reasoning_budget;
+  Alcotest.(check bool)
+    "no thinking control"
+    true
+    (capabilities.thinking_control_format = Llm_provider.Capabilities.No_thinking_control);
+  Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
+  Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p
 ;;
 
 let test_anthropic_capabilities_consults_for_model_id () =
@@ -1176,6 +1200,10 @@ let () =
             "raw openai_compat does not infer minimax"
             `Quick
             test_raw_openai_compat_does_not_infer_minimax_from_model_id
+        ; Alcotest.test_case
+            "local compat does not infer dialect"
+            `Quick
+            test_local_compat_does_not_infer_dialect_from_model_id
         ; Alcotest.test_case
             "anthropic consults for_model_id (#824)"
             `Quick
