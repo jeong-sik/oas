@@ -8,6 +8,26 @@
 include Complete_common
 include Complete_sampling
 
+type request_body_debug_mode =
+  | Request_body_debug_off
+  | Request_body_debug_summary
+  | Request_body_debug_full_disabled
+  | Request_body_debug_invalid of string
+
+let request_body_debug_mode_of_string raw =
+  match String.lowercase_ascii (String.trim raw) with
+  | "" -> Request_body_debug_off
+  | "summary" -> Request_body_debug_summary
+  | "full" -> Request_body_debug_full_disabled
+  | other -> Request_body_debug_invalid other
+;;
+
+let request_body_debug_mode ?(getenv = Cli_common_env.default_getenv) () =
+  match Cli_common_env.get ~getenv "OAS_DEBUG_REQUEST_BODY" with
+  | None -> Request_body_debug_off
+  | Some raw -> request_body_debug_mode_of_string raw
+;;
+
 let complete_http
       ~sw
       ~net
@@ -111,14 +131,9 @@ let complete_http
      The previous "full" mode dumped the complete request body (including
      API keys, prompts, and tool context) to /tmp without scrubbing and has
      been removed as a secret-leak risk. *)
-        let debug_request_body =
-          Sys.getenv_opt "OAS_DEBUG_REQUEST_BODY"
-          |> Option.value ~default:""
-          |> String.lowercase_ascii
-        in
         let provider_label = provider_name in
-        (match debug_request_body with
-         | "summary" ->
+        (match request_body_debug_mode () with
+         | Request_body_debug_summary ->
            Diag.debug
              "complete"
              "%s %s → %s (%d bytes)"
@@ -126,13 +141,19 @@ let complete_http
              config.model_id
              url
              body_len
-         | "full" ->
+         | Request_body_debug_full_disabled ->
            Diag.warn
              "complete"
              "OAS_DEBUG_REQUEST_BODY=full is disabled: full request-body dumps to /tmp \
               have been removed because they leak API keys and prompts. Use 'summary' or \
               a scrubbing-aware logger instead."
-         | _other_debug_mode -> ());
+         | Request_body_debug_invalid mode ->
+           Diag.warn
+             "complete"
+             "OAS_DEBUG_REQUEST_BODY=%S is invalid; expected 'summary' or 'full'; \
+              request body diagnostics disabled"
+             mode
+         | Request_body_debug_off -> ());
         let latency_counter = start_latency_counter ?clock () in
         let post_sync_call () =
           Http_client.post_sync
@@ -321,6 +342,21 @@ let complete_http
         in
         let latency_ms = latency_ms_int latency_counter in
         result, latency_ms))
+;;
+
+let%test "request_body_debug_mode_of_string: summary is trimmed and case-insensitive" =
+  request_body_debug_mode_of_string " Summary " = Request_body_debug_summary
+;;
+
+let%test "request_body_debug_mode_of_string: invalid mode is explicit" =
+  request_body_debug_mode_of_string " verbose " = Request_body_debug_invalid "verbose"
+;;
+
+let%test "request_body_debug_mode: honors injected env boundary" =
+  let getenv name =
+    if String.equal name "OAS_DEBUG_REQUEST_BODY" then Some "full" else None
+  in
+  request_body_debug_mode ~getenv () = Request_body_debug_full_disabled
 ;;
 
 (* body_balanced else-branch *)
