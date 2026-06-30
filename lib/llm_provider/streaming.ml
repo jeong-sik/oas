@@ -719,33 +719,30 @@ let responses_output_has_function_call response =
   | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> false
 ;;
 
-let responses_incomplete_reason response =
+let responses_incomplete_reason_opt response =
   let open Yojson.Safe.Util in
   match response |> member "incomplete_details" with
-  | `Assoc _ as details ->
-    responses_member_string_opt "reason" details |> Option.value ~default:"incomplete"
-  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> "incomplete"
+  | `Assoc _ as details -> responses_member_string_opt "reason" details
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
+;;
+
+let responses_incomplete_reason response =
+  responses_incomplete_reason_opt response |> Option.value ~default:"incomplete"
+;;
+
+let responses_failed_message response =
+  let open Yojson.Safe.Util in
+  match response |> member "error" with
+  | `Assoc _ as err -> responses_member_string_opt "message" err
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
 ;;
 
 let responses_stop_reason_of_response response =
-  (* A cut-off generation ([status="incomplete"]/[status="failed"]) can still
-     carry a partial [function_call] item. The terminal status must win over
-     tool-call detection, otherwise the stream finalizes as [StopToolUse] and the
-     agent executes truncated arguments. Mirrors
-     [Backend_openai_responses.stop_reason_of_response_json] for the non-stream
-     path (Codex P2, #2073 streaming follow-up). [response.failed] events route
-     through [SSEError] before reaching here, but the status is handled for
-     symmetry. *)
-  match responses_member_string_opt "status" response with
-  | Some "incomplete" ->
-    if String.equal (responses_incomplete_reason response) "max_output_tokens"
-    then MaxTokens
-    else Unknown (responses_incomplete_reason response)
-  | Some "failed" -> Unknown "failed"
-  | Some "completed" | None ->
-    if responses_output_has_function_call response then StopToolUse else EndTurn
-  | Some other ->
-    if responses_output_has_function_call response then StopToolUse else Unknown other
+  Responses_stop_reason.of_status
+    ~status:(responses_member_string_opt "status" response)
+    ~incomplete_reason:(responses_incomplete_reason_opt response)
+    ~failed_message:(responses_failed_message response)
+    ~has_tool_calls:(responses_output_has_function_call response)
 ;;
 
 let responses_error_message json =
