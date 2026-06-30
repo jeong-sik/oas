@@ -53,6 +53,10 @@ type entry =
     (** Canonical request-side reasoning output split control (none /
         split_reasoning_fields). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. *)
+  ; reasoning_streaming_format : string option
+    (** Canonical streaming reasoning side-channel (default / none /
+        template_parser / delta:<field>). Parsed + applied in
+        {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_replay : string option
     (** Optional multi-turn reasoning replay policy override (default / no_replay
         / drop_without_tool / preserve_always); applied in
@@ -213,6 +217,24 @@ let canonical_string_list key ~allowed json =
             (String.concat ", " allowed)))
 ;;
 
+let canonical_reasoning_streaming_format key json =
+  let open Result_syntax in
+  let* value = member_string_closed key json in
+  match value with
+  | None -> Ok None
+  | Some raw ->
+    (match Capability_vocab.reasoning_streaming_format_of_string raw with
+     | Some _ -> Ok (Some raw)
+     | None ->
+       let normalized = String.lowercase_ascii (String.trim raw) in
+       Error
+         (Printf.sprintf
+            "entry field %S has unknown value %S (canonical: %s)"
+            key
+            normalized
+            Capability_vocab.reasoning_streaming_format_syntax))
+;;
+
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
 
 let known_entry_keys =
@@ -250,6 +272,7 @@ let known_entry_keys =
   ; "thinking_control_token"
   ; "preserve_thinking_control_format"
   ; "reasoning_output_format"
+  ; "reasoning_streaming_format"
   ; "reasoning_replay"
   ]
 ;;
@@ -296,6 +319,9 @@ let parse_entry json =
       "reasoning_output_format"
       ~allowed:Capability_vocab.reasoning_output_format_values
       json
+  in
+  let* reasoning_streaming_format =
+    canonical_reasoning_streaming_format "reasoning_streaming_format" json
   in
   let* reasoning_replay =
     canonical_choice
@@ -349,6 +375,7 @@ let parse_entry json =
     ; thinking_control_token
     ; preserve_thinking_control_format
     ; reasoning_output_format
+    ; reasoning_streaming_format
     ; reasoning_replay
     }
 ;;

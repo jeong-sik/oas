@@ -1140,7 +1140,7 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
-      , Delta_stream "thinking" )
+      , Delta_stream "reasoning" )
     ; ( "Ollama Cloud Nemotron 3 Ultra"
       , Provider_qualified "ollama_cloud"
       , "nemotron-3-ultra"
@@ -1530,6 +1530,23 @@ let test_manifest_accepts_reasoning_output_format () =
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
+let test_manifest_accepts_reasoning_streaming_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"stream-manifest","reasoning_streaming_format":"delta:reasoning"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check
+      bool
+      "manifest delta reasoning stream"
+      true
+      (caps.reasoning_streaming_format = Capabilities.Delta_reasoning_field "reasoning")
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -1550,6 +1567,18 @@ let test_manifest_rejects_unknown_reasoning_output_format () =
     check_contains "mentions field" msg "reasoning_output_format";
     check_contains "mentions value" msg "split_thoughts"
   | Ok _ -> Alcotest.fail "unknown reasoning_output_format should reject"
+;;
+
+let test_manifest_rejects_unknown_reasoning_streaming_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-stream","reasoning_streaming_format":"delta:"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "reasoning_streaming_format";
+    check_contains "mentions value" msg "delta:"
+  | Ok _ -> Alcotest.fail "unknown reasoning_streaming_format should reject"
 ;;
 
 let test_manifest_rejects_unknown_reasoning_replay () =
@@ -1752,6 +1781,7 @@ let test_model_catalog_rejects_unknown_policy_strings () =
     [ "thinking_control_format", "mind_palace"
     ; "preserve_thinking_control_format", "memory_palace"
     ; "reasoning_output_format", "split_thoughts"
+    ; "reasoning_streaming_format", "delta:"
     ; "modality_priority", "image_only"
     ]
   in
@@ -2135,6 +2165,10 @@ let () =
             `Quick
             test_manifest_accepts_reasoning_output_format
         ; test_case
+            "reasoning_streaming_format accepted"
+            `Quick
+            test_manifest_accepts_reasoning_streaming_format
+        ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
             test_manifest_rejects_unknown_preserve_thinking_control_format
@@ -2142,6 +2176,10 @@ let () =
             "unknown reasoning_output_format rejects"
             `Quick
             test_manifest_rejects_unknown_reasoning_output_format
+        ; test_case
+            "unknown reasoning_streaming_format rejects"
+            `Quick
+            test_manifest_rejects_unknown_reasoning_streaming_format
         ; test_case
             "unknown reasoning_replay rejects"
             `Quick
