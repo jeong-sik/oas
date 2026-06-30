@@ -635,9 +635,32 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
   }
 ;;
 
+(* OpenAI-compatible streams carry no wire [content_block_stop] event (unlike
+   Anthropic, whose stops are parsed straight off the wire). Synthesize one
+   [ContentBlockStop] per block this state opened so the emitted OAS event
+   sequence stays symmetric: every [ContentBlockStart] gets a matching
+   [ContentBlockStop]. The stream accumulator ignores stops, but block-lifecycle
+   consumers depend on them — a stop closes a tool block so the NEXT provider
+   message (a separate stream whose block indices restart at 0) reuses the same
+   index without colliding with a still-open block, and so a tool-call-end is
+   surfaced for that block. Called once on the terminal [finish_reason] chunk;
+   blank/missing-finish chunks never close blocks. *)
+let openai_open_block_stops (state : openai_stream_state) : sse_event list =
+  let indices =
+    (if state.thinking_block_started then [ state.thinking_block_index ] else [])
+    @ (if state.text_block_started then [ state.text_block_index ] else [])
+    @ Hashtbl.fold
+        (fun _tc_index block_index acc -> block_index :: acc)
+        state.tool_block_indices
+        []
+  in
+  indices |> List.sort_uniq compare |> List.map (fun index -> ContentBlockStop { index })
+;;
+
 (** Convert a parsed {!openai_chunk} into {!sse_event} list.
     Synthesizes [ContentBlockStart] events on first occurrence of
-    text content or each new tool_call index. *)
+    text content or each new tool_call index, and a matching
+    [ContentBlockStop] for every open block on the terminal finish chunk. *)
 let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
   : sse_event list * Telemetry_event.t option
   =
@@ -777,6 +800,12 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
           "content_filter" stays Unknown — a moderation cutoff, not a refusal. *)
          Stop_reason_wire.provisional_of_string reason
        in
+       (* Close every block this message opened before the terminal MessageDelta,
+          mirroring Anthropic's content_block_stop-then-message_delta ordering.
+          Without this the OpenAI-compat stream leaves tool blocks open and a
+          downstream per-message block-index consumer collides on the next
+          message's reused index. *)
+       List.iter emit (openai_open_block_stops state);
        emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.chunk_usage })
      | None ->
        (* With stream_options.include_usage the provider sends token totals in a
