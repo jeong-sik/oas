@@ -60,6 +60,7 @@ type capabilities =
   ; (* Tool use *)
     supports_tools : bool
   ; supports_tool_choice : bool
+  ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
@@ -69,6 +70,11 @@ type capabilities =
     supports_reasoning : bool
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
+  ; accepted_reasoning_efforts : Reasoning_effort.t list option
+    (** Model/provider-specific subset of canonical reasoning efforts accepted
+        by the request wire format. [None] means no subset is declared and the
+        dialect vocabulary applies; [Some values] is enforced before request
+        serialization. *)
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_replay_override : reasoning_replay_override

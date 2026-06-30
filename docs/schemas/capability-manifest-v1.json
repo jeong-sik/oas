@@ -59,7 +59,15 @@
         },
         "supports_tool_choice": {
           "type": "boolean",
-          "description": "Whether the model supports tool_choice (forced tool selection)."
+          "description": "Whether the model supports a tool_choice request field at all."
+        },
+        "supports_required_tool_choice": {
+          "type": "boolean",
+          "description": "Whether the model supports required/any forced tool_choice."
+        },
+        "supports_named_tool_choice": {
+          "type": "boolean",
+          "description": "Whether the model supports named forced tool_choice."
         },
         "supports_parallel_tool_calls": {
           "type": "boolean",
@@ -81,6 +89,15 @@
         "supports_reasoning_budget": {
           "type": "boolean",
           "description": "Whether the model supports reasoning budget control (budget_tokens, reasoning_effort, etc.)."
+        },
+        "accepted_reasoning_efforts": {
+          "type": "array",
+          "description": "Optional model-specific subset of canonical reasoning_effort values accepted by this model. Omit when the subset is not confirmed.",
+          "items": {
+            "type": "string",
+            "enum": ["none", "minimal", "low", "medium", "high", "xhigh"]
+          },
+          "uniqueItems": true
         },
         "supports_response_format_json": {
           "type": "boolean",
@@ -165,6 +182,16 @@
             "chat_template_kwargs_preserve_thinking",
             "top_level_preserve_thinking",
             "always_preserved"
+          ]
+        },
+        "reasoning_replay": {
+          "type": "string",
+          "description": "Optional override for multi-turn reasoning replay policy.",
+          "enum": [
+            "default",
+            "no_replay",
+            "drop_without_tool",
+            "preserve_always"
           ]
         }
       },

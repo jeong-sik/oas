@@ -37,6 +37,98 @@ let to_string json = Yojson.Safe.Util.to_string json
 let to_int json = Yojson.Safe.Util.to_int json
 let to_list json = Yojson.Safe.Util.to_list json
 
+let rec find_repo_root dir =
+  if Sys.file_exists (Filename.concat dir "dune-project")
+  then dir
+  else (
+    let parent = Filename.dirname dir in
+    if String.equal parent dir
+    then Alcotest.fail "could not locate dune-project"
+    else find_repo_root parent)
+;;
+
+let source_path rel = Filename.concat (find_repo_root (Sys.getcwd ())) rel
+
+let require_assoc label = function
+  | `Assoc fields -> fields
+  | json -> Alcotest.failf "expected %s object, got %s" label (Yojson.Safe.to_string json)
+;;
+
+let require_field label key json =
+  match List.assoc_opt key (require_assoc label json) with
+  | Some value -> value
+  | None -> Alcotest.failf "missing %s.%s" label key
+;;
+
+let require_string label key json =
+  match require_field label key json with
+  | `String value -> value
+  | value ->
+    Alcotest.failf "expected %s.%s string, got %s" label key (Yojson.Safe.to_string value)
+;;
+
+let optional_bool ~default label key json =
+  match List.assoc_opt key (require_assoc label json) with
+  | None -> default
+  | Some (`Bool value) -> value
+  | Some value ->
+    Alcotest.failf "expected %s.%s bool, got %s" label key (Yojson.Safe.to_string value)
+;;
+
+let require_list label key json =
+  match require_field label key json with
+  | `List values -> values
+  | value ->
+    Alcotest.failf "expected %s.%s list, got %s" label key (Yojson.Safe.to_string value)
+;;
+
+let role_of_fixture = function
+  | "assistant" -> Assistant
+  | "user" -> User
+  | "tool" -> Tool
+  | "system" -> System
+  | role -> Alcotest.failf "unknown fixture role: %s" role
+;;
+
+let block_of_fixture json =
+  match require_string "block" "type" json with
+  | "text" -> Text (require_string "block" "text" json)
+  | "thinking" ->
+    Thinking { signature = None; content = require_string "block" "text" json }
+  | "tool_use" ->
+    ToolUse
+      { id = require_string "block" "id" json
+      ; name = require_string "block" "name" json
+      ; input = require_field "block" "input" json
+      }
+  | "tool_result" ->
+    ToolResult
+      { tool_use_id = require_string "block" "tool_use_id" json
+      ; content = require_string "block" "content" json
+      ; is_error = optional_bool ~default:false "block" "is_error" json
+      ; json = None
+      ; content_blocks = None
+      }
+  | block_type -> Alcotest.failf "unknown fixture block type: %s" block_type
+;;
+
+let message_of_fixture json =
+  { role = role_of_fixture (require_string "message" "role" json)
+  ; content = List.map block_of_fixture (require_list "message" "blocks" json)
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let masc_oas_replay_fixture_messages () =
+  let json =
+    Yojson.Safe.from_file
+      (source_path "test/fixtures/masc-oas-replay-interleaving.v1.json")
+  in
+  List.map message_of_fixture (require_list "fixture" "messages" json)
+;;
+
 let response_json ?(content = `String "ok") ?(finish_reason = "stop") ?message_fields () =
   let message_fields =
     match message_fields with
@@ -360,15 +452,14 @@ let test_ollama_native_multimodal_variants () =
   let doc_images = member "images" doc_msg |> as_list "document images" in
   check_int "document images count" 1 (List.length doc_images);
   check_string "document payload" "pdf1" (List.nth doc_images 0 |> to_string);
-  (* Audio is not supported by Ollama native /api/chat and must not leak into
-     images; an audio-only user message produces no representable wire message. *)
-  let audio_msgs =
+  (* Audio is not supported by Ollama native /api/chat and must fail closed
+     instead of being silently dropped. *)
+  expect_invalid_arg "ollama audio input" (fun () ->
     Serialize.ollama_messages_of_message
       (msg
          User
          [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 } ])
-  in
-  check_int "audio-only produces no ollama messages" 0 (List.length audio_msgs);
+    |> ignore);
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
   let mixed =
     Serialize.ollama_messages_of_message
@@ -601,6 +692,133 @@ let test_close_tool_message_pairs_repairs_dangling_and_late_results () =
   check_bool "late result dropped" false late_survived
 ;;
 
+let test_masc_replay_trace_keeps_reasoning_and_tools_separated () =
+  (* Sanitized from the MASC OAS snapshot shape:
+     assistant(text/tool_use) -> tool(tool_result), repeated many times, with a
+     later operator nudge occasionally separating a tool call from its result.
+     The invariant is structural: tool results stay adjacent to the tool calls
+     sent on the provider wire, and Thinking blocks never become visible
+     assistant content. *)
+  let messages = masc_oas_replay_fixture_messages () in
+  let closed = Serialize.close_tool_message_pairs_for_request messages in
+  let deepseek_dialect =
+    Reasoning_dialect.of_capabilities
+      { Capabilities.openai_compat_chat_extended_capabilities with
+        thinking_control_format = Capabilities.Thinking_object
+      }
+  in
+  let wire =
+    closed
+    |> List.concat_map
+         (Serialize.dialect_messages_of_message
+            ~assistant_tool_content_format:Capability_vocab.Assistant_tool_content_null
+            deepseek_dialect)
+  in
+  let roles = List.map (fun m -> member "role" m |> to_string) wire in
+  Alcotest.(check (list string))
+    "wire roles keep synthetic result before nudge and drop late result"
+    [ "assistant"; "tool"; "assistant"; "assistant"; "tool"; "user"; "assistant" ]
+    roles;
+  check_string
+    "first reasoning replayed for tool turn"
+    "trace-reasoning:first-tool"
+    (List.nth wire 0 |> member "reasoning_content" |> to_string);
+  Alcotest.(check bool)
+    "plain assistant thinking is not replayed under DeepSeek-style policy"
+    true
+    (List.nth wire 2 |> member "reasoning_content" = `Null);
+  check_string
+    "second reasoning replayed for tool turn"
+    "trace-reasoning:second-tool"
+    (List.nth wire 3 |> member "reasoning_content" |> to_string);
+  let synthetic_tool = List.nth wire 4 in
+  check_string
+    "synthetic tool id"
+    "trace-call-b"
+    (member "tool_call_id" synthetic_tool |> to_string);
+  check_bool
+    "synthetic tool content"
+    true
+    (String.starts_with
+       ~prefix:"OAS synthesized"
+       (member "content" synthetic_tool |> to_string));
+  check_bool
+    "late tool result was not replayed"
+    false
+    (List.exists
+       (fun json ->
+          member "role" json = `String "tool"
+          && member "content" json = `String {|{"temp_c":24}|})
+       wire);
+  let leaked =
+    List.exists
+      (fun json ->
+         member "role" json = `String "assistant"
+         &&
+         match member "content" json with
+         | `String s -> String.contains s ':'
+         | `Null | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> false)
+      wire
+  in
+  check_bool "thinking markers never leak into assistant content" false leaked;
+  let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in
+  let kimi_wire =
+    closed |> List.concat_map (Serialize.dialect_messages_of_message kimi_dialect)
+  in
+  check_string
+    "Kimi preserves tool-turn reasoning"
+    "trace-reasoning:first-tool"
+    (List.nth kimi_wire 0 |> member "reasoning_content" |> to_string);
+  check_string
+    "Kimi preserves plain historical reasoning"
+    "trace-reasoning:plain-progress"
+    (List.nth kimi_wire 2 |> member "reasoning_content" |> to_string);
+  check_string
+    "Kimi preserves final historical reasoning"
+    "trace-reasoning:final"
+    (List.nth kimi_wire 6 |> member "reasoning_content" |> to_string)
+;;
+
+let test_kimi_replay_trace_preserves_all_historical_reasoning () =
+  let messages =
+    [ msg
+        Assistant
+        [ Thinking { signature = None; content = "k-thought:tool" }
+        ; ToolUse { id = "call-k"; name = "lookup"; input = `Assoc [] }
+        ]
+    ; msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "call-k"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; msg
+        Assistant
+        [ Thinking { signature = None; content = "k-thought:plain" }; Text "visible" ]
+    ]
+  in
+  let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in
+  let wire =
+    messages |> List.concat_map (Serialize.dialect_messages_of_message kimi_dialect)
+  in
+  check_string
+    "tool-turn reasoning preserved"
+    "k-thought:tool"
+    (List.nth wire 0 |> member "reasoning_content" |> to_string);
+  check_string
+    "plain-turn reasoning preserved"
+    "k-thought:plain"
+    (List.nth wire 2 |> member "reasoning_content" |> to_string);
+  check_string
+    "plain visible content"
+    "visible"
+    (List.nth wire 2 |> member "content" |> to_string)
+;;
+
 let test_openai_build_request_closes_dangling_tool_call () =
   let config =
     Provider_config.make
@@ -636,9 +854,7 @@ let test_openai_build_request_closes_dangling_tool_call () =
 
 let test_strip_thinking_blocks () =
   let messages =
-    [ msg
-        Assistant
-        [ Thinking { signature = None; content = "x" }; Text "visible" ]
+    [ msg Assistant [ Thinking { signature = None; content = "x" }; Text "visible" ]
     ; msg User [ Text "same" ]
     ]
   in
@@ -1011,7 +1227,7 @@ let test_parse_reasoning_estimate_and_fenced_json () =
   | _ -> Alcotest.fail "expected estimated reasoning telemetry"
 ;;
 
-let test_parse_tool_calls_filters_malformed_and_sets_stop_reason () =
+let test_parse_tool_calls_rejects_malformed_and_does_not_drop () =
   let json =
     response_json
       ~content:`Null
@@ -1032,13 +1248,66 @@ let test_parse_tool_calls_filters_malformed_and_sets_stop_reason () =
         ]
       ()
   in
-  let response = parse_ok json in
-  match response.stop_reason, response.content with
-  | StopToolUse, [ ToolUse { id; name; input } ] ->
-    check_string "tool id" "call-ok" id;
-    check_string "tool name" "lookup" name;
-    check_string "tool arg" "Seoul" (member "city" input |> to_string)
-  | _ -> Alcotest.fail "expected valid tool call and StopToolUse"
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error msg ->
+    check_bool
+      "malformed tool call is not silently dropped"
+      true
+      (String.starts_with ~prefix:"malformed_tool_call:index:1:" msg)
+  | Ok _ -> Alcotest.fail "expected malformed tool_calls to fail closed"
+;;
+
+let test_parse_tool_calls_rejects_malformed_arguments () =
+  let json =
+    response_json
+      ~content:`Null
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-bad"
+                  ; ( "function"
+                    , `Assoc
+                        [ "name", `String "lookup"; "arguments", `String {|{"city":|} ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error msg ->
+    check_bool
+      "malformed arguments are not repaired"
+      true
+      (String.starts_with ~prefix:"malformed_tool_call_arguments:index:0:" msg)
+  | Ok _ -> Alcotest.fail "expected malformed tool arguments to fail closed"
+;;
+
+let test_parse_tool_calls_rejects_non_object_arguments () =
+  let json =
+    response_json
+      ~content:`Null
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-scalar"
+                  ; ( "function"
+                    , `Assoc [ "name", `String "lookup"; "arguments", `String "42" ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error msg ->
+    check_string
+      "non-object arguments rejected"
+      "malformed_tool_call_arguments:index:0:not_object"
+      msg
+  | Ok _ -> Alcotest.fail "expected scalar tool arguments to fail closed"
 ;;
 
 let test_parse_error_default_message () =
@@ -1400,6 +1669,164 @@ let test_responses_build_request_round_trips_tool_result_items () =
   check_bool "tool strict" true (Yojson.Safe.Util.to_bool (member "strict" tool_json))
 ;;
 
+let test_responses_build_request_preserves_multiturn_reasoning_tool_order () =
+  let raw_reasoning ~id ~encrypted_content ~summary =
+    RedactedThinking
+      (Yojson.Safe.to_string
+         (`Assoc
+             [ "id", `String id
+             ; "type", `String "reasoning"
+             ; "status", `String "completed"
+             ; ( "summary"
+               , `List
+                   [ `Assoc [ "type", `String "summary_text"; "text", `String summary ] ]
+               )
+             ; "encrypted_content", `String encrypted_content
+             ]))
+  in
+  let tool_call id city =
+    ToolUse { id; name = "lookup_weather"; input = `Assoc [ "city", `String city ] }
+  in
+  let tool_result id content =
+    ToolResult
+      { tool_use_id = id
+      ; content
+      ; is_error = false
+      ; json = Some (`Assoc [ "content", `String content ])
+      ; content_blocks = None
+      }
+  in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request
+      ~config
+      ~messages:
+        [ msg User [ Text "User message 1" ]
+        ; msg
+            Assistant
+            [ raw_reasoning
+                ~id:"rs_1_1"
+                ~encrypted_content:"enc_1_1"
+                ~summary:"Thinking 1.1"
+            ; tool_call "call_1_1" "Seoul"
+            ]
+        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+        ; msg
+            Assistant
+            [ raw_reasoning
+                ~id:"rs_1_2"
+                ~encrypted_content:"enc_1_2"
+                ~summary:"Thinking 1.2"
+            ; tool_call "call_1_2" "Busan"
+            ]
+        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+        ; msg
+            Assistant
+            [ raw_reasoning
+                ~id:"rs_1_3"
+                ~encrypted_content:"enc_1_3"
+                ~summary:"Thinking 1.3"
+            ; Text "Answer 1"
+            ]
+        ; msg User [ Text "User message 2" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  Alcotest.(check (list string))
+    "include encrypted reasoning"
+    [ "reasoning.encrypted_content" ]
+    (member "include" body |> to_list |> List.map to_string);
+  let input = member "input" body |> to_list in
+  let string_field key json =
+    match member key json with
+    | `String value -> Some value
+    | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+  in
+  let require_string_field key json =
+    match string_field key json with
+    | Some value -> value
+    | None ->
+      Alcotest.failf "expected string field %s in %s" key (Yojson.Safe.to_string json)
+  in
+  let marker json =
+    match string_field "type" json with
+    | Some "reasoning" -> "reasoning:" ^ require_string_field "id" json
+    | Some "function_call" -> "tool_call:" ^ require_string_field "call_id" json
+    | Some "function_call_output" -> "tool_result:" ^ require_string_field "call_id" json
+    | Some "message" ->
+      let content = member "content" json |> to_list |> only "assistant message part" in
+      "assistant:" ^ require_string_field "text" content
+    | Some other -> "type:" ^ other
+    | None ->
+      (match string_field "role" json, string_field "content" json with
+       | Some "user", Some text -> "user:" ^ text
+       | Some "user", None ->
+         let content = member "content" json |> to_list |> only "user message part" in
+         "user:" ^ require_string_field "text" content
+       | Some role, Some text -> role ^ ":" ^ text
+       | Some role, None -> role ^ ":"
+       | None, Some text -> "content:" ^ text
+       | None, None -> "unknown")
+  in
+  Alcotest.(check (list string))
+    "turn 2.1 input keeps prior reasoning/tool groups in order"
+    [ "user:User message 1"
+    ; "reasoning:rs_1_1"
+    ; "tool_call:call_1_1"
+    ; "tool_result:call_1_1"
+    ; "reasoning:rs_1_2"
+    ; "tool_call:call_1_2"
+    ; "tool_result:call_1_2"
+    ; "reasoning:rs_1_3"
+    ; "assistant:Answer 1"
+    ; "user:User message 2"
+    ]
+    (List.map marker input);
+  check_string
+    "first encrypted content preserved"
+    "enc_1_1"
+    (List.nth input 1 |> member "encrypted_content" |> to_string);
+  check_string
+    "second encrypted content preserved"
+    "enc_1_2"
+    (List.nth input 4 |> member "encrypted_content" |> to_string);
+  check_string
+    "third encrypted content preserved"
+    "enc_1_3"
+    (List.nth input 7 |> member "encrypted_content" |> to_string)
+;;
+
+let test_responses_build_request_includes_previous_response_id () =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~previous_response_id:"resp_previous_123"
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request ~config ~messages:[ msg User [ Text "continue" ] ] ()
+    |> Yojson.Safe.from_string
+  in
+  check_string
+    "previous_response_id"
+    "resp_previous_123"
+    (member "previous_response_id" body |> to_string);
+  check_int "manual input still present" 1 (member "input" body |> to_list |> List.length)
+;;
+
 let test_responses_build_request_disabled_reasoning_omits_reasoning_config () =
   let config =
     Provider_config.make
@@ -1521,6 +1948,14 @@ let () =
             `Quick
             test_close_tool_message_pairs_repairs_dangling_and_late_results
         ; Alcotest.test_case
+            "MASC replay trace separates reasoning/tool/nudge"
+            `Quick
+            test_masc_replay_trace_keeps_reasoning_and_tools_separated
+        ; Alcotest.test_case
+            "Kimi replay preserves historical reasoning"
+            `Quick
+            test_kimi_replay_trace_preserves_all_historical_reasoning
+        ; Alcotest.test_case
             "build_request closes dangling tool call"
             `Quick
             test_openai_build_request_closes_dangling_tool_call
@@ -1561,9 +1996,17 @@ let () =
             `Quick
             test_parse_reasoning_estimate_and_fenced_json
         ; Alcotest.test_case
-            "tool calls filter malformed"
+            "tool calls reject malformed"
             `Quick
-            test_parse_tool_calls_filters_malformed_and_sets_stop_reason
+            test_parse_tool_calls_rejects_malformed_and_does_not_drop
+        ; Alcotest.test_case
+            "tool calls reject malformed arguments"
+            `Quick
+            test_parse_tool_calls_rejects_malformed_arguments
+        ; Alcotest.test_case
+            "tool calls reject non-object arguments"
+            `Quick
+            test_parse_tool_calls_rejects_non_object_arguments
         ; Alcotest.test_case
             "reasoning_content and tool_calls coexist"
             `Quick
@@ -1598,6 +2041,14 @@ let () =
             "build request round-trips tool result items"
             `Quick
             test_responses_build_request_round_trips_tool_result_items
+        ; Alcotest.test_case
+            "build request preserves multiturn reasoning/tool order"
+            `Quick
+            test_responses_build_request_preserves_multiturn_reasoning_tool_order
+        ; Alcotest.test_case
+            "build request previous_response_id"
+            `Quick
+            test_responses_build_request_includes_previous_response_id
         ; Alcotest.test_case
             "build request disabled reasoning omits config"
             `Quick

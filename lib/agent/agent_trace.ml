@@ -167,6 +167,40 @@ let set_terminal_lifecycle agent = function
       Failed
 ;;
 
+let final_text_of_response response =
+  let text = Types.text_of_response response in
+  if String.trim text = "" then None else Some text
+;;
+
+let%test "raw trace final_text excludes thinking blocks" =
+  let response =
+    { Types.id = "resp"
+    ; model = "model"
+    ; stop_reason = EndTurn
+    ; content =
+        [ Thinking { signature = None; content = "private reasoning" }
+        ; Text "visible answer"
+        ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  final_text_of_response response = Some "visible answer"
+;;
+
+let%test "raw trace final_text is absent for thinking-only responses" =
+  let response =
+    { Types.id = "resp"
+    ; model = "model"
+    ; stop_reason = EndTurn
+    ; content = [ Thinking { signature = None; content = "private reasoning" } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  final_text_of_response response = None
+;;
+
 let with_raw_trace_run agent user_prompt f =
   (* Reset lifecycle so each run() starts fresh — allows agent reuse
      after Completed/Failed without hitting invalid transition. *)
@@ -210,8 +244,7 @@ let with_raw_trace_run agent user_prompt f =
       let final_text, stop_reason, error =
         match result with
         | Ok response ->
-          let text = Api.text_blocks_to_string response.content in
-          ( (if String.trim text = "" then None else Some text)
+          ( final_text_of_response response
           , Some (Types.show_stop_reason response.stop_reason)
           , None )
         | Error err -> None, None, Some (Error.to_string err)

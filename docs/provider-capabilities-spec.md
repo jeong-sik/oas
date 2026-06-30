@@ -15,6 +15,7 @@ smoke on 2026-06-29.
 type capabilities = {
   supports_tools: bool;
   supports_tool_choice: bool;
+  supports_required_tool_choice: bool;
   supports_reasoning: bool;
   supports_response_format_json: bool;
   supports_multimodal_inputs: bool;
@@ -51,6 +52,8 @@ Cloud providers need hardcoded lookup tables keyed by model_id.
 |-------|---------|--------|-----------|
 | `supports_tools` | exists | keep | |
 | `supports_tool_choice` | exists | keep | |
+| `supports_required_tool_choice` | exists in code | keep separate | Required/any forced tool selection can differ from named forced tool selection. |
+| `supports_named_tool_choice` | exists in code | keep separate | Named forced tool selection can differ from `required`/`any` forced selection and from mere auto/none tool choice support. |
 | `supports_parallel_tool_calls` | exists | keep | Request builders derive effective `disable_parallel_tool_use` from caller intent plus provider/model capability. |
 | `assistant_tool_content_format` | exists in code | keep separate | Assistant tool-call content shape (`content:null` vs `content:""`) is a provider wire-contract axis, independent from reasoning replay. |
 | `supports_system_prompt` | missing | add | Most models support it, but some fine-tuned/distilled variants do not. Agent must fold system into first user message. |
@@ -59,6 +62,7 @@ Cloud providers need hardcoded lookup tables keyed by model_id.
 | `supports_think_tool` | missing | add | Anthropic-only. Mid-reasoning pause between tool calls. |
 | `supports_adaptive_reasoning` | missing | add | Model auto-selects depth. Opus 4.6, Gemini 3 dynamic. |
 | `supports_reasoning_budget` | missing | add | budget_tokens (Anthropic), reasoning_effort (OpenAI), thinking_level (Gemini). |
+| `accepted_reasoning_efforts` | exists in code | keep separate | Optional model-specific subset of canonical effort values. Do not infer this from `supports_reasoning_budget`; omit unless provider docs or live evidence confirm the accepted values. |
 | `thinking_control_format` / `preserve_thinking_control_format` | exists in code | keep separate | Enable/depth wire shape and historical reasoning replay wire shape are independent axes. |
 | `supports_structured_output` | exists in code | keep, tighten semantics | Use only for provider-native schema-constrained output APIs. Do not use it for JSON mode or "prompt with schema text + app-side validator" patterns. |
 | `supports_response_format_json` | exists in code | keep, separate from schema guarantee | JSON mode means "return valid JSON" only. It is not a subset of native schema support and still requires caller-side shape validation. |
@@ -113,13 +117,13 @@ The two flags are related but not interchangeable:
 
 | Provider | Official API surface | Guarantee level | Current OAS wiring | Note / risk |
 |----------|----------------------|-----------------|--------------------|-------------|
-| OpenAI | `response_format: {type: "json_schema", ...}` plus JSON mode `json_object` | Native schema guarantee + JSON mode | `backend_openai.ml` emits `json_schema` for `JsonSchema _` and `json_object` for `JsonMode` | OAS only accepts native schema for official OpenAI hosts after `Provider_config.validate_output_schema_request`. |
+| OpenAI | `response_format: {type: "json_schema", ...}` plus JSON mode `json_object` | Native schema guarantee + JSON mode | `backend_openai.ml` emits `json_schema` for `JsonSchema _` and `json_object` for `JsonMode` | OAS accepts native schema when both the model capability and concrete endpoint declaration pass `Provider_config.validate_output_schema_request`. |
 | Gemini | `generationConfig.responseMimeType = "application/json"` plus `responseJsonSchema` / `responseSchema` | Native schema guarantee + JSON mode | `backend_gemini.ml` emits `responseMimeType` plus `responseJsonSchema` for `JsonSchema _`; `JsonMode` keeps `responseMimeType` only | OAS uses `responseJsonSchema`; other documented field names remain provider aliases. |
 | Anthropic | `output_config.format` for JSON outputs; strict tool use is separate | Native schema guarantee for JSON outputs; strict tool use validates tool names and inputs, not assistant text shape | `backend_anthropic.ml` emits `output_config.format`; `lib/structured.ml` direct extraction uses native schema output | Strict tool use remains separate; do not describe Anthropic structured output as "tool-use only". |
 | Ollama | `/api/chat` `format` accepts `"json"` or a JSON schema | JSON mode or native schema guarantee, depending on `format` | `backend_ollama.ml` emits `/api/chat format` as `"json"` or a JSON schema | Native schema still depends on the target Ollama server honoring `format`. |
 | DashScope (Qwen) | `response_format: {type: "json_schema", "json_schema": {...}}` plus JSON mode `json_object` on the OpenAI-compatible endpoint (`dashscope-intl.aliyuncs.com/compatible-mode/v1`) | Native schema guarantee + JSON mode for Qwen3 series and newer models | OAS forwards `output_schema` via `backend_openai.ml` `json_schema` path; `validate_output_schema_request` accepts `DashScope` kind unconditionally without per-model capability check | All Qwen3 / qwen-max / qwen-turbo models support this on the OpenAI-compat endpoint. Ref: DashScope structured output guide — checked 2026-05-05. |
 | GLM | `response_format = {"type":"json_object"}` plus prompt/schema-in-text guidance | JSON mode only in the current official docs | OAS keeps GLM on the OpenAI-style `json_object` path and rejects `output_schema` up front | Keep caller-side validation; do not treat this as provider-native schema enforcement. |
-| Generic OpenAI-compatible / llama.cpp | Varies by server, release, and host integration | Host-specific; do not assume schema support | OAS rejects native schema by default for generic OpenAI-compatible hosts; only official OpenAI hosts pass validation today | OpenAI-compatible wire shape is not enough evidence for native schema support. |
+| Generic OpenAI-compatible / llama.cpp | Varies by server, release, and host integration | Host-specific; do not assume schema support | OAS rejects native schema by default for generic OpenAI-compatible hosts; verified provider/runtime catalog entries may declare endpoint support explicitly | OpenAI-compatible wire shape is not enough evidence for native schema support. |
 
 ## Thinking Taxonomy
 
@@ -138,6 +142,7 @@ add specific flags for SDK features that depend on the distinction.
 Minimum viable split:
 - `supports_extended_thinking` — enables `thinking_budget` in agent config
 - `supports_reasoning_budget` — enables cost-aware thinking control
+- `accepted_reasoning_efforts` — constrains which canonical effort values may be serialized for a model
 - `thinking_control_format` — request-time enable/depth wire shape
 - `preserve_thinking_control_format` — historical reasoning replay/preserve wire shape
 

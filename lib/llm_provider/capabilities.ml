@@ -74,6 +74,7 @@ type capabilities =
   ; (* ── Tool use ──────────────────────────────────────── *)
     supports_tools : bool
   ; supports_tool_choice : bool
+  ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
@@ -87,6 +88,11 @@ type capabilities =
     supports_reasoning : bool (** Any form of reasoning/thinking *)
   ; supports_extended_thinking : bool (** budget_tokens / reasoning_effort *)
   ; supports_reasoning_budget : bool (** Controllable reasoning depth *)
+  ; accepted_reasoning_efforts : Reasoning_effort.t list option
+    (** Model/provider-specific subset of canonical reasoning efforts accepted
+        by the request wire format. [None] means no subset is declared and the
+        dialect vocabulary applies; [Some values] is enforced before request
+        serialization. *)
   ; thinking_control_format : thinking_control_format
     (** Wire-format for thinking control on OpenAI-compat backends.
         Determines which JSON shape the backend emits for enable_thinking.
@@ -151,6 +157,7 @@ let default_capabilities =
   ; max_output_tokens = None
   ; supports_tools = false
   ; supports_tool_choice = false
+  ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; supports_parallel_tool_calls = false
   ; supports_runtime_mcp_tools = false
@@ -159,6 +166,7 @@ let default_capabilities =
   ; supports_reasoning = false
   ; supports_extended_thinking = false
   ; supports_reasoning_budget = false
+  ; accepted_reasoning_efforts = None
   ; thinking_control_format = No_thinking_control
   ; preserve_thinking_control_format = No_preserve_thinking_control
   ; reasoning_replay_override = Default_reasoning_replay
@@ -249,6 +257,7 @@ let anthropic_capabilities =
   ; (* default; higher for newer models *)
     supports_tools = true
   ; supports_tool_choice = true
+  ; supports_required_tool_choice = true
   ; supports_named_tool_choice = true
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
@@ -299,6 +308,9 @@ let kimi_capabilities =
      profile); a deployment that verified native named support can still override
      per-entry via the model catalog. Ref checked 2026-06-30:
      platform.kimi.ai/docs/api/chat, platform.kimi.ai/docs/api/tool-use. *)
+    supports_required_tool_choice = false
+  ; (* Same Kimi contract: named forced tool_choice has no faithful wire
+       representation. Keep required/named separated so Auto/None remain valid. *)
     supports_named_tool_choice = false
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
@@ -316,7 +328,10 @@ let kimi_capabilities =
        same replay contract for catalog rows whose per-entry capabilities inherit
        base="kimi" without repeating the policy. *)
   ; supports_response_format_json = true
-  ; supports_structured_output = true
+  ; (* Native Moonshot/Kimi docs used for K2/K2.7 do not document an OpenAI
+       json_schema-equivalent strict structured-output field. Ollama Cloud
+       Kimi rows are provider-qualified and declare their own schema support. *)
+    supports_structured_output = false
   ; supports_system_prompt = true
   ; supports_native_streaming = true
   ; supports_multimodal_inputs = true
@@ -334,6 +349,7 @@ let openai_compat_chat_capabilities =
   ; max_output_tokens = Some 16_384
   ; supports_tools = true
   ; supports_tool_choice = true
+  ; supports_required_tool_choice = true
   ; supports_named_tool_choice = true
   ; supports_parallel_tool_calls = true
   ; supports_response_format_json = true
@@ -396,6 +412,7 @@ let provider_l_capabilities =
 let ollama_capabilities =
   { openai_compat_chat_extended_capabilities with
     supports_tool_choice = false
+  ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; supports_seed = true
   ; supports_seed_with_images = true
@@ -439,6 +456,7 @@ let glm_capabilities =
      replies do not count as contract violations. Ref checked 2026-04-21:
      https://docs.z.ai/guides/capabilities/function-calling *)
     supports_tool_choice = true
+  ; supports_required_tool_choice = false
   ; supports_named_tool_choice = false
   ; assistant_tool_content_format = Assistant_tool_content_empty_string
   ; supports_reasoning = true
@@ -529,6 +547,7 @@ let gemini_capabilities =
   ; max_output_tokens = Some 65_000
   ; supports_tools = true
   ; supports_tool_choice = true
+  ; supports_required_tool_choice = true
   ; supports_parallel_tool_calls = true
   ; supports_reasoning = true
   ; supports_extended_thinking = true
@@ -652,6 +671,33 @@ let modality_priority_of_catalog_string raw =
   | _ -> None
 ;;
 
+let reasoning_efforts_of_catalog_strings ~field values =
+  let parsed =
+    List.map
+      (fun raw ->
+         match Reasoning_effort.of_string raw with
+         | Some effort -> Ok effort
+         | None -> Error raw)
+      values
+  in
+  let efforts, invalid =
+    List.partition_map
+      (function
+        | Ok effort -> Either.Left effort
+        | Error raw -> Either.Right raw)
+      parsed
+  in
+  match invalid with
+  | [] -> Some efforts
+  | values ->
+    Diag.warn
+      "capabilities"
+      "unknown %s value(s) %s; keeping provider base capability"
+      field
+      (String.concat ", " values);
+    None
+;;
+
 let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   let base =
     match entry.base_label with
@@ -667,6 +713,11 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   in
   let supports_tool_choice =
     override_bool base.supports_tool_choice entry.supports_tool_choice
+  in
+  let supports_required_tool_choice =
+    match entry.supports_required_tool_choice with
+    | Some required -> required && supports_tool_choice
+    | None -> base.supports_required_tool_choice && supports_tool_choice
   in
   let supports_named_tool_choice =
     match entry.supports_named_tool_choice, entry.supports_tool_choice with
@@ -684,6 +735,7 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
   ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
   ; supports_tools = override_bool base.supports_tools entry.supports_tools
   ; supports_tool_choice
+  ; supports_required_tool_choice
   ; supports_named_tool_choice
   ; supports_parallel_tool_calls =
       override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
@@ -701,6 +753,17 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
       override_bool base.supports_extended_thinking entry.supports_extended_thinking
   ; supports_reasoning_budget =
       override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; accepted_reasoning_efforts =
+      (match entry.accepted_reasoning_efforts with
+       | Some values ->
+         (match
+            reasoning_efforts_of_catalog_strings
+              ~field:"accepted_reasoning_efforts"
+              values
+          with
+          | Some efforts -> Some efforts
+          | None -> base.accepted_reasoning_efforts)
+       | None -> base.accepted_reasoning_efforts)
   ; supports_response_format_json =
       override_bool base.supports_response_format_json entry.supports_response_format_json
   ; supports_structured_output =
@@ -837,6 +900,11 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
   let supports_tool_choice =
     override_bool base.supports_tool_choice entry.supports_tool_choice
   in
+  let supports_required_tool_choice =
+    match entry.supports_required_tool_choice with
+    | Some required -> required && supports_tool_choice
+    | None -> base.supports_required_tool_choice && supports_tool_choice
+  in
   let supports_named_tool_choice =
     match entry.supports_named_tool_choice, entry.supports_tool_choice with
     | Some named, _ -> named && supports_tool_choice
@@ -853,6 +921,7 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
   ; max_output_tokens = override_int_opt base.max_output_tokens entry.max_output_tokens
   ; supports_tools = override_bool base.supports_tools entry.supports_tools
   ; supports_tool_choice
+  ; supports_required_tool_choice
   ; supports_named_tool_choice
   ; supports_parallel_tool_calls =
       override_bool base.supports_parallel_tool_calls entry.supports_parallel_tool_calls
@@ -870,6 +939,17 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
       override_bool base.supports_extended_thinking entry.supports_extended_thinking
   ; supports_reasoning_budget =
       override_bool base.supports_reasoning_budget entry.supports_reasoning_budget
+  ; accepted_reasoning_efforts =
+      (match entry.accepted_reasoning_efforts with
+       | Some values ->
+         (match
+            reasoning_efforts_of_catalog_strings
+              ~field:"accepted_reasoning_efforts"
+              values
+          with
+          | Some efforts -> Some efforts
+          | None -> base.accepted_reasoning_efforts)
+       | None -> base.accepted_reasoning_efforts)
   ; supports_response_format_json =
       override_bool base.supports_response_format_json entry.supports_response_format_json
   ; supports_structured_output =
@@ -1136,12 +1216,14 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; max_output_tokens = None
   ; supports_tools = None
   ; supports_tool_choice = None
+  ; supports_required_tool_choice = None
   ; supports_named_tool_choice = None
   ; supports_parallel_tool_calls = None
   ; assistant_tool_content_format = None
   ; supports_reasoning = None
   ; supports_extended_thinking = None
   ; supports_reasoning_budget = None
+  ; accepted_reasoning_efforts = None
   ; supports_response_format_json = None
   ; supports_structured_output = None
   ; supports_multimodal_inputs = None
@@ -1175,6 +1257,7 @@ let qwen3_family_test_entry id_prefix : Model_catalog.model_entry =
   ; max_output_tokens = Some 81_920
   ; supports_tools = Some true
   ; supports_tool_choice = Some true
+  ; supports_required_tool_choice = Some true
   ; supports_named_tool_choice = Some true
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
@@ -1191,6 +1274,7 @@ let glm_thinking_test_entry id_prefix ~ctx ~out : Model_catalog.model_entry =
   ; max_output_tokens = Some out
   ; supports_tools = Some true
   ; supports_tool_choice = Some false
+  ; supports_required_tool_choice = Some false
   ; supports_named_tool_choice = Some false
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
@@ -1209,6 +1293,9 @@ let deepseek_v4_test_entry id_prefix : Model_catalog.model_entry =
        400s on forced tool_choice — both required and named function choice.
        Mirrors the models.toml entries. Ref 2026-06-30: deepseek-ai/DeepSeek-V3
        issue #1376, api-docs.deepseek.com/guides/function_calling. *)
+    supports_required_tool_choice = Some false
+  ; (* Same DeepSeek V4 thinking-mode forced tool_choice rejection, split by
+       required vs named capability. *)
     supports_named_tool_choice = Some false
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
@@ -1223,6 +1310,7 @@ let gemma4_openai_test_entry id_prefix : Model_catalog.model_entry =
   ; max_context_tokens = Some 262_144
   ; supports_tools = Some true
   ; supports_tool_choice = Some true
+  ; supports_required_tool_choice = Some true
   ; supports_named_tool_choice = Some true
   ; supports_multimodal_inputs = Some true
   ; supports_image_input = Some true
@@ -1730,6 +1818,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.max_output_tokens = cb.max_output_tokens
       && ca.supports_image_input = cb.supports_image_input
       && ca.thinking_control_format = cb.thinking_control_format
+      && ca.accepted_reasoning_efforts = cb.accepted_reasoning_efforts
       && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
       && ca.assistant_tool_content_format = cb.assistant_tool_content_format
       && ca.reasoning_replay_override = cb.reasoning_replay_override

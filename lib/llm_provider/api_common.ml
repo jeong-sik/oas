@@ -143,78 +143,126 @@ let content_block_to_json =
   content_block_to_json_with ~tool_result_content_style:Tool_result_content_string
 ;;
 
-let rec content_block_of_json json =
+type content_block_decode_error =
+  | Missing_content_block_type
+  | Unsupported_content_block_type of string
+  | Missing_content_block_field of
+      { block_type : string
+      ; field : string
+      }
+  | Unsupported_media_source_kind of
+      { block_type : string
+      ; source_type : string
+      }
+
+let content_block_decode_error_to_string = function
+  | Missing_content_block_type -> "missing_content_block_type"
+  | Unsupported_content_block_type block_type ->
+    "unsupported_content_block_type:" ^ block_type
+  | Missing_content_block_field { block_type; field } ->
+    Printf.sprintf "missing_content_block_field:%s:%s" block_type field
+  | Unsupported_media_source_kind { block_type; source_type } ->
+    Printf.sprintf "unsupported_media_source_kind:%s:%s" block_type source_type
+;;
+
+let required_string_field ~block_type ~field json =
+  let open Yojson.Safe.Util in
+  match json |> member field |> to_string_option with
+  | Some value -> Ok value
+  | None -> Error (Missing_content_block_field { block_type; field })
+;;
+
+let parse_media_block ~block_type ~make json =
+  let open Yojson.Safe.Util in
+  let source = json |> member "source" in
+  match source |> member "type" |> to_string_option with
+  | None -> Error (Missing_content_block_field { block_type; field = "source.type" })
+  | Some raw_source_type ->
+    (match media_source_kind_of_string raw_source_type with
+     | None ->
+       Error (Unsupported_media_source_kind { block_type; source_type = raw_source_type })
+     | Some source_type ->
+       let ( let* ) = Result.bind in
+       let* media_type = required_string_field ~block_type ~field:"media_type" source in
+       let* data = required_string_field ~block_type ~field:"data" source in
+       Ok (make ~media_type ~data ~source_type))
+;;
+
+let rec content_block_of_json_result json =
   let open Yojson.Safe.Util in
   match json |> member "type" |> to_string_option with
   | Some "text" ->
-    let text = json |> member "text" |> to_string in
-    Some (Text text)
+    Result.map
+      (fun text -> Text text)
+      (required_string_field ~block_type:"text" ~field:"text" json)
   | Some "thinking" ->
     let signature = json |> member "signature" |> to_string_option in
-    let content = json |> member "thinking" |> to_string in
-    Some (Thinking { content; signature })
+    Result.map
+      (fun content -> Thinking { content; signature })
+      (required_string_field ~block_type:"thinking" ~field:"thinking" json)
   | Some "redacted_thinking" ->
-    let data = json |> member "data" |> to_string in
-    Some (RedactedThinking data)
+    Result.map
+      (fun data -> RedactedThinking data)
+      (required_string_field ~block_type:"redacted_thinking" ~field:"data" json)
   | Some "tool_use" ->
-    let id = json |> member "id" |> to_string in
-    let name = json |> member "name" |> to_string in
+    let ( let* ) = Result.bind in
+    let* id = required_string_field ~block_type:"tool_use" ~field:"id" json in
+    let* name = required_string_field ~block_type:"tool_use" ~field:"name" json in
     let input = json |> member "input" in
-    Some (ToolUse { id; name; input })
+    Ok (ToolUse { id; name; input })
   | Some "tool_result" ->
-    let tool_use_id = json |> member "tool_use_id" |> to_string in
+    let ( let* ) = Result.bind in
+    let* tool_use_id =
+      required_string_field ~block_type:"tool_result" ~field:"tool_use_id" json
+    in
     let content_json = json |> member "content" in
-    let content, content_blocks =
+    let* content, content_blocks =
       match content_json with
-      | `String content -> content, None
+      | `String content -> Ok (content, None)
       | `List blocks ->
-        let blocks = List.filter_map content_block_of_json blocks in
-        text_blocks_to_string blocks, Some blocks
-      | other -> Yojson.Safe.to_string other, None
+        let* blocks = content_blocks_of_json_result blocks in
+        Ok (text_blocks_to_string blocks, Some blocks)
+      | other -> Ok (Yojson.Safe.to_string other, None)
     in
     let is_error = Cli_common_json.member_bool "is_error" json in
     let json = Types.try_parse_json content in
-    Some (ToolResult { tool_use_id; content; is_error; json; content_blocks })
+    Ok (ToolResult { tool_use_id; content; is_error; json; content_blocks })
   | Some "image" ->
-    let source = json |> member "source" in
-    (match
-       source
-       |> member "type"
-       |> to_string_option
-       |> fun source_type -> Option.bind source_type media_source_kind_of_string
-     with
-     | Some source_type ->
-       let media_type = source |> member "media_type" |> to_string in
-       let data = source |> member "data" |> to_string in
-       Some (Image { media_type; data; source_type })
-     | None -> None)
+    parse_media_block
+      ~block_type:"image"
+      ~make:(fun ~media_type ~data ~source_type ->
+        Image { media_type; data; source_type })
+      json
   | Some "document" ->
-    let source = json |> member "source" in
-    (match
-       source
-       |> member "type"
-       |> to_string_option
-       |> fun source_type -> Option.bind source_type media_source_kind_of_string
-     with
-     | Some source_type ->
-       let media_type = source |> member "media_type" |> to_string in
-       let data = source |> member "data" |> to_string in
-       Some (Document { media_type; data; source_type })
-     | None -> None)
+    parse_media_block
+      ~block_type:"document"
+      ~make:(fun ~media_type ~data ~source_type ->
+        Document { media_type; data; source_type })
+      json
   | Some "audio" ->
-    let source = json |> member "source" in
-    (match
-       source
-       |> member "type"
-       |> to_string_option
-       |> fun source_type -> Option.bind source_type media_source_kind_of_string
-     with
-     | Some source_type ->
-       let media_type = source |> member "media_type" |> to_string in
-       let data = source |> member "data" |> to_string in
-       Some (Audio { media_type; data; source_type })
-     | None -> None)
-  | _ -> None
+    parse_media_block
+      ~block_type:"audio"
+      ~make:(fun ~media_type ~data ~source_type ->
+        Audio { media_type; data; source_type })
+      json
+  | Some other -> Error (Unsupported_content_block_type other)
+  | None -> Error Missing_content_block_type
+
+and content_blocks_of_json_result blocks =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc)
+    | block :: rest ->
+      (match content_block_of_json_result block with
+       | Ok parsed -> loop (parsed :: acc) rest
+       | Error _ as error -> error)
+  in
+  loop [] blocks
+;;
+
+let content_block_of_json json =
+  match content_block_of_json_result json with
+  | Ok block -> Some block
+  | Error _ -> None
 ;;
 
 let message_has_tool_result (msg : message) =

@@ -167,6 +167,7 @@ let test_make_with_all_options () =
       ~response_format_json:true
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ~cache_system_prompt:true
+      ~supports_structured_output_override:true
       ()
   in
   check_string "api_key" "sk-test" (cfg.api_key :> string);
@@ -188,7 +189,11 @@ let test_make_with_all_options () =
     true
     (cfg.response_format = Types.JsonSchema expected_schema);
   check_bool "has output schema" true (Option.is_some cfg.output_schema);
-  check_bool "cache prompt" true cfg.cache_system_prompt
+  check_bool "cache prompt" true cfg.cache_system_prompt;
+  check_bool
+    "structured output override"
+    true
+    (cfg.supports_structured_output_override = Some true)
 ;;
 
 let test_make_response_format_json_mode () =
@@ -256,6 +261,54 @@ let test_validate_output_schema_openai_compat_rejected () =
   in
   check_bool
     "generic compat rejected"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_openai_compat_declared_endpoint_accepted () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen/qwen3.6-35b-a3b"
+      ~base_url:"https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:true
+      ()
+  in
+  check_bool
+    "declared self-hosted OpenAI-compatible endpoint accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_declared_endpoint_still_requires_model_capability () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"unknown-model-without-schema-capability"
+      ~base_url:"https://schema-capable.example.test/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:true
+      ()
+  in
+  check_bool
+    "endpoint declaration does not invent model capability"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_endpoint_override_can_fail_closed () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com/v1"
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~supports_structured_output_override:false
+      ()
+  in
+  check_bool
+    "explicit endpoint override false rejects even official host"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
 ;;
@@ -354,7 +407,19 @@ let test_validate_output_schema_supported_non_openai () =
          (Provider_config.string_of_provider_kind kind ^ " accepts schema")
          true
          (Result.is_ok (Provider_config.validate_output_schema_request cfg)))
-    [ Anthropic; Gemini; Ollama; DashScope ]
+    [ Anthropic; Gemini; DashScope ];
+  let ollama_cfg =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"devstral-2:123b"
+      ~base_url:"http://localhost:11434"
+      ~output_schema:schema
+      ()
+  in
+  check_bool
+    "ollama accepts schema only for models with a native SO guarantee"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request ollama_cfg))
 ;;
 
 let test_validate_output_schema_capability_rejected () =
@@ -401,6 +466,69 @@ let test_validate_responses_request_path_allows_json_mode () =
     "responses json mode accepted at path layer"
     true
     (Result.is_ok (Provider_config.validate_request_path cfg))
+;;
+
+let test_validate_kimi_k27_rejects_forced_tool_choice () =
+  let cfg tool_choice =
+    Provider_config.make
+      ~kind:Kimi
+      ~model_id:"kimi-k2.7-code"
+      ~base_url:"https://api.moonshot.ai/v1"
+      ~tool_choice
+      ()
+  in
+  check_bool
+    "named forced tool_choice rejects"
+    true
+    (Result.is_error
+       (Provider_config.validate_tool_choice_request (cfg (Types.Tool "lookup"))));
+  check_bool
+    "required forced tool_choice rejects"
+    true
+    (Result.is_error (Provider_config.validate_tool_choice_request (cfg Types.Any)));
+  check_bool
+    "auto tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.Auto)));
+  check_bool
+    "none tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.None_)))
+;;
+
+let test_validate_anthropic_thinking_rejects_forced_tool_choice () =
+  let cfg ?(enable_thinking = true) tool_choice =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ~enable_thinking
+      ~tool_choice
+      ()
+  in
+  check_bool
+    "thinking + named forced tool_choice rejects"
+    true
+    (Result.is_error
+       (Provider_config.validate_tool_choice_request (cfg (Types.Tool "lookup"))));
+  check_bool
+    "thinking + required forced tool_choice rejects"
+    true
+    (Result.is_error (Provider_config.validate_tool_choice_request (cfg Types.Any)));
+  check_bool
+    "thinking + auto tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.Auto)));
+  check_bool
+    "thinking + none tool_choice accepted"
+    true
+    (Result.is_ok (Provider_config.validate_tool_choice_request (cfg Types.None_)));
+  check_bool
+    "non-thinking forced tool_choice remains accepted"
+    true
+    (Result.is_ok
+       (Provider_config.validate_tool_choice_request
+          (cfg ~enable_thinking:false (Types.Tool "lookup"))))
 ;;
 
 (* ── make: headers default ────────────────────────────── *)
@@ -528,7 +656,12 @@ let test_reasoning_effort_of_thinking_config () =
     "high budget"
     "high"
     (Some true)
-    (Some (Reasoning_effort.medium_budget_max_tokens + 1))
+    (Some Reasoning_effort.high_budget_max_tokens);
+  check_effort
+    "xhigh budget"
+    "xhigh"
+    (Some true)
+    (Some (Reasoning_effort.high_budget_max_tokens + 1))
 ;;
 
 let test_reasoning_effort_top_tier_budget_mapping () =
@@ -556,7 +689,8 @@ let test_reasoning_effort_top_tier_budget_mapping () =
 
 let test_reasoning_effort_typed_roundtrip () =
   let cases =
-    [ Provider_config.Minimal, "minimal"
+    [ Provider_config.None_, "none"
+    ; Provider_config.Minimal, "minimal"
     ; Provider_config.Low, "low"
     ; Provider_config.Medium, "medium"
     ; Provider_config.High, "high"
@@ -612,7 +746,12 @@ let test_reasoning_effort_typed_config_value () =
     "high typed"
     (Some "high")
     (Some true)
-    (Some (Reasoning_effort.medium_budget_max_tokens + 1));
+    (Some Reasoning_effort.high_budget_max_tokens);
+  check_value
+    "xhigh typed"
+    (Some "xhigh")
+    (Some true)
+    (Some (Reasoning_effort.high_budget_max_tokens + 1));
   let getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "xhigh" ] in
   Alcotest.(check (option string))
     "env default typed"
@@ -623,12 +762,60 @@ let test_reasoning_effort_typed_config_value () =
           ~enable_thinking:(Some true)
           ~thinking_budget:None
           ()));
+  let none_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "none" ] in
+  Alcotest.(check (option string))
+    "env none typed"
+    (Some "none")
+    (reasoning_effort_option_to_string
+       (Provider_config.effort_of_thinking_config_value
+          ~getenv:none_getenv
+          ~enable_thinking:(Some true)
+          ~thinking_budget:None
+          ()));
   let invalid_getenv = getenv_from [ "OAS_DEFAULT_REASONING_EFFORT", "urgent" ] in
   Alcotest.(check string)
     "invalid env defaults medium"
     "medium"
     (Provider_config.reasoning_effort_to_string
        (Provider_config.default_reasoning_effort_value ~getenv:invalid_getenv ()))
+;;
+
+let test_validate_reasoning_effort_subset_rejects_unsupported () =
+  let manifest =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"effort-subset-model","base":"openai_chat_extended","accepted_reasoning_efforts":["low"]}]}|}
+    |> Capability_manifest.of_json
+    |> Result.get_ok
+  in
+  Fun.protect ~finally:Capability_manifest.clear_global (fun () ->
+    Capability_manifest.set_global manifest;
+    let cfg thinking_budget =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"effort-subset-model"
+        ~base_url:"https://api.openai.com/v1"
+        ~enable_thinking:true
+        ~thinking_budget
+        ()
+    in
+    Alcotest.(check bool)
+      "low accepted"
+      true
+      (Result.is_ok
+         (Provider_config.validate_reasoning_effort_request_typed
+            (cfg Reasoning_effort.low_budget_max_tokens)));
+    match
+      Provider_config.validate_reasoning_effort_request_typed
+        (cfg Reasoning_effort.high_budget_max_tokens)
+    with
+    | Error
+        (Provider_config.Unsupported_reasoning_effort
+           { effort = Provider_config.High; accepted = [ Provider_config.Low ]; _ }) -> ()
+    | Error rejection ->
+      Alcotest.failf
+        "unexpected rejection: %s"
+        (Provider_config.reasoning_effort_request_rejection_to_message rejection)
+    | Ok () -> Alcotest.fail "high effort should be rejected by accepted subset")
 ;;
 
 let test_reasoning_effort_of_config () =
@@ -1152,6 +1339,18 @@ let () =
             `Quick
             test_validate_output_schema_openai_compat_rejected
         ; Alcotest.test_case
+            "declared compat endpoint accepted"
+            `Quick
+            test_validate_output_schema_openai_compat_declared_endpoint_accepted
+        ; Alcotest.test_case
+            "declared endpoint still requires model capability"
+            `Quick
+            test_validate_output_schema_declared_endpoint_still_requires_model_capability
+        ; Alcotest.test_case
+            "endpoint override can fail closed"
+            `Quick
+            test_validate_output_schema_endpoint_override_can_fail_closed
+        ; Alcotest.test_case
             "glm rejected"
             `Quick
             test_validate_output_schema_glm_rejected
@@ -1187,6 +1386,14 @@ let () =
             "responses json mode path accepted"
             `Quick
             test_validate_responses_request_path_allows_json_mode
+        ; Alcotest.test_case
+            "kimi k2.7 forced tool_choice rejected"
+            `Quick
+            test_validate_kimi_k27_rejects_forced_tool_choice
+        ; Alcotest.test_case
+            "anthropic thinking forced tool_choice rejected"
+            `Quick
+            test_validate_anthropic_thinking_rejects_forced_tool_choice
         ] )
     ; ( "locality"
       , [ Alcotest.test_case "loopback ip" `Quick test_is_local_loopback_ip
@@ -1232,6 +1439,10 @@ let () =
             "reasoning effort request value"
             `Quick
             test_reasoning_effort_request_value
+        ; Alcotest.test_case
+            "reasoning effort accepted subset"
+            `Quick
+            test_validate_reasoning_effort_subset_rejects_unsupported
         ; Alcotest.test_case
             "structured output names"
             `Quick

@@ -20,6 +20,25 @@ val json_of_string_or_raw : string -> Yojson.Safe.t
 (** {2 Content block JSON conversion} *)
 
 val content_block_to_json : Types.content_block -> Yojson.Safe.t
+
+type content_block_decode_error =
+  | Missing_content_block_type
+  | Unsupported_content_block_type of string
+  | Missing_content_block_field of
+      { block_type : string
+      ; field : string
+      }
+  | Unsupported_media_source_kind of
+      { block_type : string
+      ; source_type : string
+      }
+
+val content_block_decode_error_to_string : content_block_decode_error -> string
+
+val content_block_of_json_result
+  :  Yojson.Safe.t
+  -> (Types.content_block, content_block_decode_error) result
+
 val content_block_of_json : Yojson.Safe.t -> Types.content_block option
 val merge_tool_result_followup_user_messages : Types.message list -> Types.message list
 val message_to_json : Types.message -> Yojson.Safe.t

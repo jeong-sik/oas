@@ -567,6 +567,41 @@ let%test "finalize_stream_acc multiple blocks ordered by index" =
   | Ok result -> List.length result.content = 2
 ;;
 
+let%test "finalize_stream_acc separates interleaved thinking and tool deltas" =
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "msg"; model = "model"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "thinking"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "plan-" }
+    ; Types.ContentBlockStart
+        { index = 1
+        ; content_type = "tool_use"
+        ; tool_id = Some "call-1"
+        ; tool_name = Some "lookup"
+        }
+    ; Types.ContentBlockDelta { index = 1; delta = Types.InputJsonDelta {|{"city":|} }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "done" }
+    ; Types.ContentBlockDelta { index = 1; delta = Types.InputJsonDelta {|"Seoul"}|} }
+    ; Types.ContentBlockStart
+        { index = 2; content_type = "text"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta { index = 2; delta = Types.TextDelta "visible" }
+    ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok
+      { stop_reason = Types.StopToolUse
+      ; content =
+          [ Types.Thinking { content = "plan-done"; _ }
+          ; Types.ToolUse { id = "call-1"; name = "lookup"; input }
+          ; Types.Text "visible"
+          ]
+      ; _
+      } -> input = `Assoc [ "city", `String "Seoul" ]
+  | Ok _ | Error _ -> false
+;;
+
 let%test "finalize_stream_acc includes usage" =
   let acc = create_stream_acc () in
   acc.input_tokens := 100;

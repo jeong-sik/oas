@@ -8,6 +8,8 @@
 
 open Types
 
+let ( let* ) = Result.bind
+
 (* ── Request building ────────────────────────────────── *)
 
 let gemma4_think_token = "<|think|>"
@@ -191,11 +193,73 @@ let build_request
 
 (* ── Response parsing ────────────────────────────────── *)
 
-let ollama_tool_arguments_json (json : Yojson.Safe.t) =
+let parse_ollama_tool_arguments ~tool_index json =
   match json with
-  | `Null -> `Assoc []
-  | `String s -> Api_common.json_of_string_or_raw s
-  | json -> json
+  | `Assoc _ as input -> Ok input
+  | `String s when not (Api_common.string_is_blank s) ->
+    (match Yojson.Safe.from_string s with
+     | `Assoc _ as input -> Ok input
+     | `Null | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+       Error
+         (Printf.sprintf
+            "malformed_ollama_tool_call_arguments:index:%d:not_object"
+            tool_index)
+     | exception Yojson.Json_error msg ->
+       Error
+         (Printf.sprintf
+            "malformed_ollama_tool_call_arguments:index:%d:%s"
+            tool_index
+            msg))
+  | `Null | `String _ ->
+    Error
+      (Printf.sprintf "malformed_ollama_tool_call:index:%d:missing_arguments" tool_index)
+  | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error
+      (Printf.sprintf
+         "malformed_ollama_tool_call_arguments:index:%d:not_object"
+         tool_index)
+;;
+
+let parse_ollama_tool_call ~tool_index tc =
+  let open Yojson.Safe.Util in
+  let* fn =
+    match tc |> member "function" with
+    | `Assoc _ as fn -> Ok fn
+    | `Null | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+      Error
+        (Printf.sprintf "malformed_ollama_tool_call:index:%d:missing_function" tool_index)
+  in
+  let* name =
+    match fn |> member "name" |> to_string_option with
+    | Some name when not (Api_common.string_is_blank name) -> Ok name
+    | Some _ | None ->
+      Error (Printf.sprintf "malformed_ollama_tool_call:index:%d:missing_name" tool_index)
+  in
+  let* input = parse_ollama_tool_arguments ~tool_index (fn |> member "arguments") in
+  let synthetic_id =
+    Printf.sprintf "%s_%d" (Api_common.synthesize_tool_use_id ~name input) tool_index
+  in
+  let id =
+    match tc |> member "id" |> to_string_option with
+    | Some id when not (Api_common.string_is_blank id) -> id
+    | Some _ | None -> synthetic_id
+  in
+  Ok (ToolUse { id; name; input })
+;;
+
+let parse_ollama_tool_calls = function
+  | `Null -> Ok []
+  | `List calls ->
+    let rec loop acc index = function
+      | [] -> Ok (List.rev acc)
+      | tc :: rest ->
+        (match parse_ollama_tool_call ~tool_index:index tc with
+         | Ok tool_call -> loop (tool_call :: acc) (index + 1) rest
+         | Error _ as error -> error)
+    in
+    loop [] 0 calls
+  | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error "malformed_ollama_tool_calls:not_list"
 ;;
 
 let parse_ollama_response json_str =
@@ -206,7 +270,7 @@ let parse_ollama_response json_str =
   | `Assoc _ as err -> Error (Yojson.Safe.to_string err)
   | _ ->
     let message = json |> member "message" in
-    let text_content, tool_blocks, thinking_blocks =
+    let* text_content, tool_blocks, thinking_blocks =
       match message with
       | `Assoc _ ->
         let txt =
@@ -214,66 +278,21 @@ let parse_ollama_response json_str =
           | `String s -> s
           | _ -> ""
         in
-        let tools =
-          match message |> member "tool_calls" with
-          | `List calls ->
-            let parsed_rev, dropped =
-              List.fold_left
-                (fun (acc, dropped) (idx, tc) ->
-                   try
-                     let fn = tc |> member "function" in
-                     let name = fn |> member "name" |> to_string in
-                     let input = ollama_tool_arguments_json (fn |> member "arguments") in
-                     let synthetic_id =
-                       Printf.sprintf
-                         "%s_%d"
-                         (Api_common.synthesize_tool_use_id ~name input)
-                         idx
-                     in
-                     ( ToolUse
-                         { id =
-                             tc
-                             |> member "id"
-                             |> to_string_option
-                             |> Option.value ~default:synthetic_id
-                         ; name
-                         ; input
-                         }
-                       :: acc
-                     , dropped )
-                   with
-                   | Yojson.Safe.Util.Type_error _
-                   | Yojson.Safe.Util.Undefined _
-                   | Yojson.Json_error _ -> acc, dropped + 1)
-                ([], 0)
-                (List.mapi (fun idx tc -> idx, tc) calls)
-            in
-            let parsed = List.rev parsed_rev in
-            if dropped > 0
-            then
-              Diag.warn
-                "backend_ollama"
-                "dropped %d malformed Ollama tool_call item(s) while parsing response \
-                 (parsed=%d)"
-                dropped
-                (List.length parsed);
-            if List.length parsed > 1
-            then
-              Diag.debug
-                "backend_ollama"
-                "parsed %d Ollama tool_calls from one assistant response"
-                (List.length parsed);
-            parsed
-          | _ -> []
-        in
+        let* tools = parse_ollama_tool_calls (message |> member "tool_calls") in
+        if List.length tools > 1
+        then
+          Diag.debug
+            "backend_ollama"
+            "parsed %d Ollama tool_calls from one assistant response"
+            (List.length tools);
         let thinking =
           match message |> member "thinking" with
           | `String s when not (Api_common.string_is_blank s) ->
             [ Thinking { signature = None; content = s } ]
           | _ -> []
         in
-        txt, tools, thinking
-      | _ -> "", [], []
+        Ok (txt, tools, thinking)
+      | _ -> Ok ("", [], [])
     in
     let done_reason =
       json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"

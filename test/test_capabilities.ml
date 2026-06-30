@@ -27,6 +27,12 @@ let check_thinking_control label expected actual =
   check bool label true (actual = expected)
 ;;
 
+let accepted_reasoning_effort_strings caps =
+  Option.map
+    (List.map Reasoning_effort.to_string)
+    caps.Capabilities.accepted_reasoning_efforts
+;;
+
 let with_temp_manifest contents f =
   let path = Filename.temp_file "oas-capability-manifest" ".json" in
   let oc = open_out path in
@@ -124,7 +130,10 @@ let test_lookup_mimo_v25_pro () =
       "uses thinking object only"
       Capabilities.Thinking_object_only
       c.thinking_control_format;
-    check bool "has tools" true c.supports_tools
+    check bool "has tools" true c.supports_tools;
+    check bool "has response_format json" true c.supports_response_format_json;
+    check bool "has structured output" true c.supports_structured_output;
+    check bool "has native streaming" true c.supports_native_streaming
   | None -> fail "should match mimo-v2.5-pro"
 ;;
 
@@ -153,7 +162,20 @@ let test_lookup_gpt5 () =
     check (option int) "context 1.05M" (Some 1_050_000) c.max_context_tokens;
     check (option int) "output 128K" (Some 128_000) c.max_output_tokens;
     check bool "structured output" true c.supports_structured_output;
-    check bool "computer use" true c.supports_computer_use
+    check bool "computer use" true c.supports_computer_use;
+    check
+      (option (list string))
+      "gpt-5.4 accepted reasoning efforts"
+      (Some [ "none"; "minimal"; "low"; "medium"; "high"; "xhigh" ])
+      (accepted_reasoning_effort_strings c);
+    (match Capabilities.for_model_id "gpt-5" with
+     | Some gpt5 ->
+       check
+         (option (list string))
+         "gpt-5 accepted reasoning efforts"
+         (Some [ "minimal"; "low"; "medium"; "high" ])
+         (accepted_reasoning_effort_strings gpt5)
+     | None -> fail "should match bare gpt-5")
   | None -> fail "should match gpt-5"
 ;;
 
@@ -270,7 +292,27 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
     check (option int) "native Kimi context 256K" (Some 256_000) native.max_context_tokens;
     check (option int) "native Kimi output 32K" (Some 32_768) native.max_output_tokens;
     check bool "native Kimi tools" true native.supports_tools;
+    check
+      bool
+      "native Kimi supports auto/none tool_choice"
+      true
+      native.supports_tool_choice;
+    check
+      bool
+      "native Kimi rejects required tool_choice"
+      false
+      native.supports_required_tool_choice;
+    check
+      bool
+      "native Kimi rejects named tool_choice"
+      false
+      native.supports_named_tool_choice;
     check bool "native Kimi reasoning" true native.supports_reasoning;
+    check
+      bool
+      "native Kimi does not claim strict structured output"
+      false
+      native.supports_structured_output;
     check_thinking_control
       "native latest Kimi has no thinking request toggle"
       Capabilities.No_thinking_control
@@ -295,7 +337,27 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
          (Some 32_768)
          bare_native.max_output_tokens;
        check bool "bare native Kimi tools" true bare_native.supports_tools;
+       check
+         bool
+         "bare native Kimi supports auto/none tool_choice"
+         true
+         bare_native.supports_tool_choice;
+       check
+         bool
+         "bare native Kimi rejects required tool_choice"
+         false
+         bare_native.supports_required_tool_choice;
+       check
+         bool
+         "bare native Kimi rejects named tool_choice"
+         false
+         bare_native.supports_named_tool_choice;
        check bool "bare native Kimi reasoning" true bare_native.supports_reasoning;
+       check
+         bool
+         "bare native Kimi does not claim strict structured output"
+         false
+         bare_native.supports_structured_output;
        check_thinking_control
          "bare native latest Kimi has no thinking request toggle"
          Capabilities.No_thinking_control
@@ -538,6 +600,104 @@ let test_ollama_cloud_current_catalog_resolves () =
     cases
 ;;
 
+let test_ollama_cloud_grouped_so_rows_have_required_axes () =
+  (* Live grouped SO smokes for these Ollama Cloud rows exercise the same
+     production workflow: tool call -> tool_result replay -> final
+     response_format/json_schema answer while reasoning may stream on a side
+     channel. The catalog must not regress any one of those axes to a generic
+     text-only or no-structured-output profile. *)
+  let cases =
+    [ "qwen3.5:397b"
+    ; "gemma4:31b"
+    ; "kimi-k2.7-code"
+    ; "minimax-m3"
+    ; "nemotron-3-ultra"
+    ; "deepseek-v4-flash"
+    ; "deepseek-v4-pro"
+    ; "glm-5.2"
+    ; "gpt-oss:20b"
+    ; "gpt-oss:120b"
+    ]
+  in
+  List.iter
+    (fun model_id ->
+       match
+         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+       with
+       | None -> failf "ollama_cloud/%s should resolve" model_id
+       | Some c ->
+         check bool (model_id ^ " tools") true c.supports_tools;
+         check bool (model_id ^ " reasoning") true c.supports_reasoning;
+         check bool (model_id ^ " extended thinking") true c.supports_extended_thinking;
+         check bool (model_id ^ " native streaming") true c.supports_native_streaming;
+         check
+           bool
+           (model_id ^ " json response format")
+           true
+           c.supports_response_format_json;
+         check bool (model_id ^ " structured output") true c.supports_structured_output;
+         check_thinking_control
+           (model_id ^ " uses Ollama native think")
+           Capabilities.Ollama_think
+           c.thinking_control_format)
+    cases
+;;
+
+let test_ollama_cloud_kimi_preserves_historical_reasoning () =
+  match
+    Capabilities.for_provider_model_id
+      ~provider_label:"ollama_cloud"
+      ~model_id:"kimi-k2.7-code"
+  with
+  | None -> fail "ollama_cloud/kimi-k2.7-code should resolve"
+  | Some c ->
+    check
+      bool
+      "Kimi Cloud preserves all reasoning"
+      true
+      (c.reasoning_replay_override = Capabilities.Force_preserve_always)
+;;
+
+let test_ollama_cloud_mistral_family_structured_output_is_model_specific () =
+  (* Live grouped SO checks on 2026-06-29 showed that these rows all accept
+     JSON-format requests and tool replay, but native schema-shaped final
+     output is not family-wide. Keep the model-specific support in the catalog
+     instead of inheriting the broad ollama_cloud default silently. *)
+  let cases =
+    [ "devstral-2:123b", true
+    ; "devstral-small-2:24b", true
+    ; "ministral-3:14b", true
+    ; "mistral-large-3:675b", false
+    ; "ministral-3:3b", false
+    ; "ministral-3:8b", false
+    ]
+  in
+  List.iter
+    (fun (model_id, structured_output) ->
+       match
+         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+       with
+       | None -> failf "ollama_cloud/%s should resolve" model_id
+       | Some c ->
+         check bool (model_id ^ " tools") true c.supports_tools;
+         check
+           bool
+           (model_id ^ " json response format")
+           true
+           c.supports_response_format_json;
+         check
+           bool
+           (model_id ^ " structured output guarantee")
+           structured_output
+           c.supports_structured_output;
+         check bool (model_id ^ " no reasoning") false c.supports_reasoning;
+         check_thinking_control
+           (model_id ^ " no thinking control")
+           Capabilities.No_thinking_control
+           c.thinking_control_format)
+    cases
+;;
+
 let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   let open Capabilities in
   let bare_glm =
@@ -616,6 +776,345 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     (bare_kimi.max_context_tokens <> cloud_kimi.max_context_tokens);
   check bool "bare Kimi vision" true bare_kimi.supports_image_input;
   check bool "cloud Kimi vision" true cloud_kimi.supports_image_input
+;;
+
+type structured_contract =
+  | Response_format_json_schema
+  | Native_structured_output
+
+type replay_contract =
+  | Replay_not_required
+  | Replay_tool_turn_only
+  | Replay_every_turn
+
+type streaming_contract =
+  | Streaming_not_required
+  | Delta_stream of string
+  | Template_stream
+
+type thinking_contract =
+  | Reasoning_only
+  | Extended_thinking
+
+type provider_route =
+  | Direct_model
+  | Provider_qualified of string
+  | Native_provider of Provider_config.provider_kind
+
+let frontier_capabilities route model_id =
+  match route with
+  | Direct_model -> Capabilities.for_model_id model_id
+  | Provider_qualified provider_label ->
+    Capabilities.for_provider_model_id ~provider_label ~model_id
+  | Native_provider _ -> Capabilities.for_model_id model_id
+;;
+
+let frontier_dialect route model_id caps =
+  match route with
+  | Native_provider kind ->
+    let base_url =
+      match kind with
+      | Provider_config.Anthropic -> "https://api.anthropic.com"
+      | Provider_config.Gemini -> "https://generativelanguage.googleapis.com/v1beta"
+      | Provider_config.Kimi
+      | Provider_config.OpenAI_compat
+      | Provider_config.Ollama
+      | Provider_config.Glm
+      | Provider_config.DashScope -> "https://example.invalid"
+    in
+    Provider_config.make ~kind ~model_id ~base_url ()
+    |> Reasoning_dialect.for_provider_config
+  | Direct_model | Provider_qualified _ -> Reasoning_dialect.of_capabilities caps
+;;
+
+let check_frontier_model
+      ~label
+      ~route
+      ~model_id
+      ~thinking_contract
+      ~structured_contract
+      ~replay_contract
+      ~streaming_contract
+      ()
+  =
+  match frontier_capabilities route model_id with
+  | None -> failf "%s should resolve capabilities" label
+  | Some c ->
+    check bool (label ^ " supports tools") true c.supports_tools;
+    check bool (label ^ " supports reasoning") true c.supports_reasoning;
+    (match thinking_contract with
+     | Reasoning_only -> ()
+     | Extended_thinking ->
+       check
+         bool
+         (label ^ " supports extended thinking")
+         true
+         c.supports_extended_thinking);
+    check bool (label ^ " supports native streaming") true c.supports_native_streaming;
+    check bool (label ^ " supports structured output") true c.supports_structured_output;
+    (match structured_contract with
+     | Response_format_json_schema ->
+       check
+         bool
+         (label ^ " supports response_format/json_schema")
+         true
+         c.supports_response_format_json
+     | Native_structured_output -> ());
+    let dialect = frontier_dialect route model_id c in
+    (match replay_contract with
+     | Replay_not_required ->
+       check
+         bool
+         (label ^ " does not replay plain-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " does not replay tool-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true)
+     | Replay_tool_turn_only ->
+       check
+         string
+         (label ^ " replay policy")
+         "drop_without_tool_preserve_with_tool"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+       check
+         bool
+         (label ^ " drops plain-turn reasoning")
+         false
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " preserves tool-turn reasoning")
+         true
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true);
+       check
+         bool
+         (label ^ " requires replay only on tool call")
+         true
+         (Reasoning_dialect.requires_reasoning_replay_on_tool_call dialect)
+     | Replay_every_turn ->
+       check
+         string
+         (label ^ " replay policy")
+         "preserve_always"
+         (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+       check
+         bool
+         (label ^ " preserves plain-turn reasoning")
+         true
+         (Reasoning_dialect.should_replay_reasoning
+            dialect
+            ~assistant_had_tool_call:false);
+       check
+         bool
+         (label ^ " preserves tool-turn reasoning")
+         true
+         (Reasoning_dialect.should_replay_reasoning dialect ~assistant_had_tool_call:true);
+       check
+         bool
+         (label ^ " is not tool-only replay")
+         false
+         (Reasoning_dialect.requires_reasoning_replay_on_tool_call dialect));
+    (match streaming_contract with
+     | Streaming_not_required -> ()
+     | Delta_stream field ->
+       (match dialect.streaming with
+        | Reasoning_dialect.Delta_field actual ->
+          check string (label ^ " reasoning delta field") field actual
+        | other ->
+          failf
+            "%s expected Delta_field(%s), got %s"
+            label
+            field
+            (match other with
+             | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
+             | Reasoning_dialect.Template_parser -> "template_parser"
+             | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+     | Template_stream ->
+       check
+         string
+         (label ^ " template stream")
+         "template_parser"
+         (match dialect.streaming with
+          | Reasoning_dialect.Template_parser -> "template_parser"
+          | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
+          | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+;;
+
+let test_frontier_grouped_tool_thinking_structured_models () =
+  (* This matrix is intentionally named after current production-provider
+     evidence, not broad model families. Every row must keep the axes needed by
+     multi-turn + thinking/reasoning + tool-use + structured-output workflows.
+     Replay semantics are provider-specific: Kimi/Anthropic preserve every
+     turn, DeepSeek preserves tool-call turns, and other side-channel providers
+     only need stream separation here. *)
+  let cases =
+    [ ( "Xiaomi MiMo V2.5"
+      , Direct_model
+      , "mimo-v2.5-pro"
+      , Reasoning_only
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "reasoning_content" )
+    ; ( "DeepSeek V4 Pro"
+      , Direct_model
+      , "deepseek-v4-pro"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
+    ; ( "DeepSeek V4 Flash"
+      , Direct_model
+      , "deepseek-v4-flash"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
+    ; ( "MiniMax M3 native/openai-compatible"
+      , Direct_model
+      , "minimax-m3"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_tool_turn_only
+      , Delta_stream "reasoning_content" )
+    ; ( "OpenAI GPT-5.5"
+      , Direct_model
+      , "gpt-5.5"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "reasoning" )
+    ; ( "OpenAI GPT-5.4 mini"
+      , Direct_model
+      , "gpt-5.4-mini"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "reasoning" )
+    ; ( "Claude Haiku 4.5"
+      , Native_provider Provider_config.Anthropic
+      , "claude-haiku-4-5"
+      , Extended_thinking
+      , Native_structured_output
+      , Replay_every_turn
+      , Delta_stream "thinking_delta" )
+    ; ( "Claude Sonnet 4.6"
+      , Native_provider Provider_config.Anthropic
+      , "claude-sonnet-4-6"
+      , Extended_thinking
+      , Native_structured_output
+      , Replay_every_turn
+      , Delta_stream "thinking_delta" )
+    ; ( "Claude Opus 4.6"
+      , Native_provider Provider_config.Anthropic
+      , "claude-opus-4-6"
+      , Extended_thinking
+      , Native_structured_output
+      , Replay_every_turn
+      , Delta_stream "thinking_delta" )
+    ; ( "Qwen3.6 RunPod/self-hosted"
+      , Direct_model
+      , "qwen/qwen3.6-35b-a3b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Template_stream )
+    ; ( "Ollama Cloud Qwen3.5"
+      , Provider_qualified "ollama_cloud"
+      , "qwen3.5:397b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud Gemma4"
+      , Provider_qualified "ollama_cloud"
+      , "gemma4:31b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud Kimi K2.7 Code"
+      , Provider_qualified "ollama_cloud"
+      , "kimi-k2.7-code"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_every_turn
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud MiniMax M3"
+      , Provider_qualified "ollama_cloud"
+      , "minimax-m3"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud Nemotron 3 Ultra"
+      , Provider_qualified "ollama_cloud"
+      , "nemotron-3-ultra"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud DeepSeek V4 Pro"
+      , Provider_qualified "ollama_cloud"
+      , "deepseek-v4-pro"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud DeepSeek V4 Flash"
+      , Provider_qualified "ollama_cloud"
+      , "deepseek-v4-flash"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud GLM 5.2"
+      , Provider_qualified "ollama_cloud"
+      , "glm-5.2"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud GPT-OSS 20B"
+      , Provider_qualified "ollama_cloud"
+      , "gpt-oss:20b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ; ( "Ollama Cloud GPT-OSS 120B"
+      , Provider_qualified "ollama_cloud"
+      , "gpt-oss:120b"
+      , Extended_thinking
+      , Response_format_json_schema
+      , Replay_not_required
+      , Delta_stream "thinking" )
+    ]
+  in
+  List.iter
+    (fun ( label
+         , route
+         , model_id
+         , thinking_contract
+         , structured_contract
+         , replay_contract
+         , streaming_contract ) ->
+       check_frontier_model
+         ~label
+         ~route
+         ~model_id
+         ~thinking_contract
+         ~structured_contract
+         ~replay_contract
+         ~streaming_contract
+         ())
+    cases
 ;;
 
 (* ── with_context_size ───────────────────────────────── *)
@@ -910,6 +1409,35 @@ let test_manifest_rejects_retired_reasoning_visibility_key () =
   | Ok _ -> Alcotest.fail "retired reasoning_visibility key should reject"
 ;;
 
+let test_manifest_applies_accepted_reasoning_efforts () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"effort-ok","accepted_reasoning_efforts":["none","low","high"]}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    Alcotest.(check (option (list string)))
+      "accepted subset"
+      (Some [ "none"; "low"; "high" ])
+      (Option.map
+         (List.map Reasoning_effort.to_string)
+         (Capabilities.apply_manifest_entry entry).accepted_reasoning_efforts)
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
+let test_manifest_rejects_unknown_accepted_reasoning_effort () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"effort-bad","accepted_reasoning_efforts":["turbo"]}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "accepted_reasoning_efforts";
+    check_contains "mentions value" msg "turbo"
+  | Ok _ -> Alcotest.fail "unknown accepted reasoning effort should reject"
+;;
+
 let test_manifest_intlit_in_range_accepted () =
   (* Yojson.Safe represents large literals as `Intlit s. Build the JSON value
      directly to exercise the Intlit branch deterministically. *)
@@ -1088,6 +1616,22 @@ base = 17
          check_contains "mentions base" msg "base";
          check_contains "mentions expected type" msg "expected string"
        | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
+;;
+
+let test_model_catalog_rejects_unknown_accepted_reasoning_effort () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-effort"
+accepted_reasoning_efforts = ["low", "turbo"]
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions field" msg "accepted_reasoning_efforts";
+         check_contains "mentions value" msg "turbo"
+       | Ok _ ->
+         Alcotest.fail "unknown model catalog accepted_reasoning_effort should reject")
 ;;
 
 (* ── DashScope preset ────────────────────────────────── *)
@@ -1291,9 +1835,25 @@ let () =
             `Quick
             test_ollama_cloud_current_catalog_resolves
         ; test_case
+            "ollama cloud grouped SO rows keep required axes"
+            `Quick
+            test_ollama_cloud_grouped_so_rows_have_required_axes
+        ; test_case
+            "ollama cloud Kimi preserves historical reasoning"
+            `Quick
+            test_ollama_cloud_kimi_preserves_historical_reasoning
+        ; test_case
+            "ollama cloud Mistral-family SO is model-specific"
+            `Quick
+            test_ollama_cloud_mistral_family_structured_output_is_model_specific
+        ; test_case
             "ollama cloud preserves shared bare families"
             `Quick
             test_ollama_cloud_provider_qualified_preserves_shared_bare_family
+        ; test_case
+            "frontier grouped tool/thinking/structured models"
+            `Quick
+            test_frontier_grouped_tool_thinking_structured_models
         ; test_case "mimo-v2.5-pro" `Quick test_lookup_mimo_v25_pro
         ; test_case "qwen3 thinking control" `Quick test_lookup_qwen3_thinking_control
         ; test_case "unknown" `Quick test_lookup_unknown
@@ -1345,6 +1905,14 @@ let () =
             `Quick
             test_manifest_rejects_retired_reasoning_visibility_key
         ; test_case
+            "accepted reasoning efforts applied"
+            `Quick
+            test_manifest_applies_accepted_reasoning_efforts
+        ; test_case
+            "unknown accepted reasoning effort rejects"
+            `Quick
+            test_manifest_rejects_unknown_accepted_reasoning_effort
+        ; test_case
             "intlit in range accepted"
             `Quick
             test_manifest_intlit_in_range_accepted
@@ -1380,6 +1948,10 @@ let () =
             "model catalog rejects wrong-type base"
             `Quick
             test_model_catalog_rejects_wrong_type_base_label
+        ; test_case
+            "model catalog rejects unknown accepted reasoning effort"
+            `Quick
+            test_model_catalog_rejects_unknown_accepted_reasoning_effort
         ] )
     ; ( "prefix_ordering"
       , [ test_case

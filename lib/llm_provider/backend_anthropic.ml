@@ -13,7 +13,19 @@ let parse_response json =
   let model = json |> member "model" |> to_string in
   let stop_reason_str = json |> member "stop_reason" |> to_string in
   let content_list = json |> member "content" |> to_list in
-  let content = List.filter_map Api_common.content_block_of_json content_list in
+  let content =
+    let rec loop acc = function
+      | [] -> List.rev acc
+      | block :: rest ->
+        (match Api_common.content_block_of_json_result block with
+         | Ok content_block -> loop (content_block :: acc) rest
+         | Error err ->
+           invalid_arg
+             ("Backend_anthropic.parse_response: "
+              ^ Api_common.content_block_decode_error_to_string err))
+    in
+    loop [] content_list
+  in
   let usage =
     let u = json |> member "usage" in
     if u = `Null
@@ -60,18 +72,15 @@ let parse_response json =
   }
 ;;
 
-let adaptive_effort_dialect =
-  { Reasoning_dialect.default with effort_alias_policy = Reasoning_dialect.Xhigh_as_max }
-;;
-
 let effort_of_budget budget =
-  let effort =
-    match Reasoning_effort.of_budget_with_xhigh budget with
-    | Some effort -> effort
-    | None -> Reasoning_effort.Low
-  in
-  Reasoning_dialect.normalize_effort_value adaptive_effort_dialect effort
-  |> Option.value ~default:"low"
+  match Reasoning_effort.of_budget budget with
+  | Some Reasoning_effort.None_ -> None
+  | Some Reasoning_effort.Minimal -> None
+  | Some Reasoning_effort.Low -> Some "low"
+  | Some Reasoning_effort.Medium -> Some "medium"
+  | Some Reasoning_effort.High -> Some "high"
+  | Some Reasoning_effort.XHigh -> Some "max"
+  | None -> None
 ;;
 
 let effort_for_config mode (config : Provider_config.t) =
@@ -86,7 +95,7 @@ let effort_for_config mode (config : Provider_config.t) =
      | ( ( Capabilities.Anthropic_adaptive_only
          | Capabilities.Anthropic_adaptive_preferred
          | Capabilities.Anthropic_always_adaptive )
-       , Some budget ) -> Some (effort_of_budget budget)
+       , Some budget ) -> effort_of_budget budget
      | Capabilities.Anthropic_manual_budget, _
      | ( ( Capabilities.Anthropic_adaptive_only
          | Capabilities.Anthropic_adaptive_preferred
@@ -142,6 +151,9 @@ let build_request
       ?(tools : Yojson.Safe.t list = [])
       ()
   =
+  (match Provider_config.validate_tool_choice_request config with
+   | Ok () -> ()
+   | Error reason -> invalid_arg ("Backend_anthropic.build_request: " ^ reason));
   let caps =
     match Capabilities.for_model_id config.model_id with
     | Some caps -> caps

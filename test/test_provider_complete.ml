@@ -8,6 +8,16 @@ module BOL = Llm_provider.Backend_ollama
 module BGemini = Llm_provider.Backend_gemini
 open Llm_provider.Types
 
+let () =
+  let candidates = [ "models.toml"; "../models.toml" ] in
+  match List.find_opt Sys.file_exists candidates with
+  | None -> Alcotest.fail "models.toml not found for provider_complete tests"
+  | Some path ->
+    (match Llm_provider.Model_catalog.load_file path with
+     | Ok catalog -> Llm_provider.Model_catalog.set_global catalog
+     | Error msg -> Alcotest.failf "failed to load %s: %s" path msg)
+;;
+
 let contains_substring ~sub text =
   let sub_len = String.length sub in
   let text_len = String.length text in
@@ -127,6 +137,26 @@ let test_anthropic_disabled_thinking_omits_adaptive_effort () =
     (json |> member "output_config" = `Null)
 ;;
 
+let test_anthropic_thinking_forced_tool_choice_rejected_before_request () =
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ~enable_thinking:true
+      ~tool_choice:Any
+      ()
+  in
+  Alcotest.check_raises
+    "thinking + forced tool_choice fails before JSON body serialization"
+    (Invalid_argument
+       "Backend_anthropic.build_request: anthropic model \"claude-sonnet-4-6\" does not \
+        support required forced tool_choice when thinking is enabled; use auto/none or \
+        disable thinking")
+    (fun () ->
+       ignore (BA.build_request ~config ~messages:[ user_msg "think with a tool" ] ()))
+;;
+
 let test_anthropic_stream_flag () =
   let config = PC.make ~kind:Anthropic ~model_id:"m" ~base_url:"" () in
   let body = BA.build_request ~stream:true ~config ~messages:[ user_msg "hi" ] () in
@@ -187,6 +217,92 @@ let test_anthropic_json_schema_response_format_without_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
+let test_anthropic_build_request_preserves_multiturn_thinking_tool_order () =
+  let msg role content = make_message ~role content in
+  let signed_thinking signature content =
+    Thinking { signature = Some signature; content }
+  in
+  let tool_call id city =
+    ToolUse { id; name = "lookup_weather"; input = `Assoc [ "city", `String city ] }
+  in
+  let tool_result id content =
+    ToolResult
+      { tool_use_id = id
+      ; content
+      ; is_error = false
+      ; json = Some (`Assoc [ "content", `String content ])
+      ; content_blocks = None
+      }
+  in
+  let config =
+    PC.make
+      ~kind:Anthropic
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ~max_tokens:1024
+      ()
+  in
+  let body =
+    BA.build_request
+      ~config
+      ~messages:
+        [ msg User [ Text "User message 1" ]
+        ; msg
+            Assistant
+            [ signed_thinking "sig_1_1" "Thinking 1.1"; tool_call "call_1_1" "Seoul" ]
+        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+        ; msg
+            Assistant
+            [ signed_thinking "sig_1_2" "Thinking 1.2"; tool_call "call_1_2" "Busan" ]
+        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+        ; msg Assistant [ signed_thinking "sig_1_3" "Thinking 1.3"; Text "Answer 1" ]
+        ; msg User [ Text "User message 2" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  let require_string_field key json =
+    match member key json with
+    | `String value -> value
+    | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+      Alcotest.failf "expected string field %s in %s" key (Yojson.Safe.to_string json)
+  in
+  let marker message =
+    let role = require_string_field "role" message in
+    message
+    |> member "content"
+    |> to_list
+    |> List.map (fun block ->
+      match require_string_field "type" block with
+      | "text" -> role ^ ":text:" ^ require_string_field "text" block
+      | "thinking" ->
+        role
+        ^ ":thinking:"
+        ^ require_string_field "signature" block
+        ^ ":"
+        ^ require_string_field "thinking" block
+      | "tool_use" -> role ^ ":tool_use:" ^ require_string_field "id" block
+      | "tool_result" -> role ^ ":tool_result:" ^ require_string_field "tool_use_id" block
+      | other -> role ^ ":" ^ other)
+  in
+  let markers = body |> member "messages" |> to_list |> List.concat_map marker in
+  Alcotest.(check (list string))
+    "Anthropic Turn 2.1 input keeps signed thinking/tool groups in order"
+    [ "user:text:User message 1"
+    ; "assistant:thinking:sig_1_1:Thinking 1.1"
+    ; "assistant:tool_use:call_1_1"
+    ; "user:tool_result:call_1_1"
+    ; "assistant:thinking:sig_1_2:Thinking 1.2"
+    ; "assistant:tool_use:call_1_2"
+    ; "user:tool_result:call_1_2"
+    ; "assistant:thinking:sig_1_3:Thinking 1.3"
+    ; "assistant:text:Answer 1"
+    ; "user:text:User message 2"
+    ]
+    markers
+;;
+
 let test_anthropic_parse_response_initializes_telemetry () =
   let json =
     Yojson.Safe.from_string
@@ -217,6 +333,53 @@ let test_anthropic_parse_response_initializes_telemetry () =
       None
       t.canonical_model_id
   | None -> Alcotest.fail "expected telemetry placeholder"
+;;
+
+let test_anthropic_parse_response_rejects_unknown_content_block () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "id": "msg_future",
+    "model": "claude-sonnet-4-6-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {"type": "future_block", "payload": {"text": "do not drop me"}}
+    ],
+    "usage": {"input_tokens": 1, "output_tokens": 1}
+  }|}
+  in
+  Alcotest.check_raises
+    "unknown Anthropic content block fails closed"
+    (Invalid_argument
+       "Backend_anthropic.parse_response: unsupported_content_block_type:future_block")
+    (fun () -> ignore (BA.parse_response json))
+;;
+
+let test_anthropic_parse_response_rejects_unknown_media_source_kind () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "id": "msg_future_media",
+    "model": "claude-sonnet-4-6-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "image",
+        "source": {
+          "type": "bytes",
+          "media_type": "image/png",
+          "data": "abc"
+        }
+      }
+    ],
+    "usage": {"input_tokens": 1, "output_tokens": 1}
+  }|}
+  in
+  Alcotest.check_raises
+    "unknown Anthropic media source kind fails closed"
+    (Invalid_argument
+       "Backend_anthropic.parse_response: unsupported_media_source_kind:image:bytes")
+    (fun () -> ignore (BA.parse_response json))
 ;;
 
 (* ── Openai build_request ────────────────────────────── *)
@@ -426,7 +589,7 @@ let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
      | _ -> Alcotest.fail "expected one ToolUse block")
 ;;
 
-let test_ollama_parse_warns_on_malformed_tool_call () =
+let test_ollama_parse_rejects_malformed_tool_call () =
   let body =
     {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
@@ -435,28 +598,30 @@ let test_ollama_parse_warns_on_malformed_tool_call () =
            {"function":{"arguments":{"city":"Missing name"}}}
          ]}}|}
   in
-  let logs = ref [] in
-  let result =
-    Llm_provider.Diag.with_sink
-      (fun level ~ctx msg -> logs := (level, ctx, msg) :: !logs)
-      (fun () -> BOL.parse_ollama_response body)
+  match BOL.parse_ollama_response body with
+  | Error msg ->
+    Alcotest.(check string)
+      "malformed tool call rejected"
+      "malformed_ollama_tool_call:index:1:missing_name"
+      msg
+  | Ok _ -> Alcotest.fail "expected malformed Ollama tool_call to fail closed"
+;;
+
+let test_ollama_parse_rejects_non_object_tool_arguments () =
+  let body =
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[
+           {"function":{"name":"get_weather","arguments":"42"}}
+         ]}}|}
   in
-  (match result with
-   | Error msg -> Alcotest.fail msg
-   | Ok resp ->
-     (match resp.content with
-      | [ ToolUse tool_use ] ->
-        Alcotest.(check string) "surviving tool name" "ok_tool" tool_use.name
-      | _ -> Alcotest.fail "expected one surviving ToolUse block"));
-  let has_warning =
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Llm_provider.Diag.Warn
-         && ctx = "backend_ollama"
-         && contains_substring ~sub:"dropped 1 malformed Ollama tool_call" msg)
-      !logs
-  in
-  Alcotest.(check bool) "malformed tool call warning" true has_warning
+  match BOL.parse_ollama_response body with
+  | Error msg ->
+    Alcotest.(check string)
+      "non-object arguments rejected"
+      "malformed_ollama_tool_call_arguments:index:0:not_object"
+      msg
+  | Ok _ -> Alcotest.fail "expected non-object Ollama tool arguments to fail closed"
 ;;
 
 let test_openai_with_json_schema () =
@@ -645,8 +810,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
   let messages =
     [ { role = Assistant
       ; content =
-          [ Thinking
-              { signature = None; content = "I need the calculator result." }
+          [ Thinking { signature = None; content = "I need the calculator result." }
           ; ToolUse
               { id = "call_1"
               ; name = "calculator"
@@ -1208,16 +1372,32 @@ let () =
             "disabled thinking omits adaptive effort"
             `Quick
             test_anthropic_disabled_thinking_omits_adaptive_effort
+        ; test_case
+            "thinking forced tool_choice rejected before request"
+            `Quick
+            test_anthropic_thinking_forced_tool_choice_rejected_before_request
         ; test_case "with output schema" `Quick test_anthropic_output_schema
         ; test_case
             "with json schema response_format"
             `Quick
             test_anthropic_json_schema_response_format_without_output_schema
+        ; test_case
+            "multi-turn signed thinking/tool order"
+            `Quick
+            test_anthropic_build_request_preserves_multiturn_thinking_tool_order
         ; test_case "stream flag" `Quick test_anthropic_stream_flag
         ; test_case
             "parse response initializes telemetry"
             `Quick
             test_anthropic_parse_response_initializes_telemetry
+        ; test_case
+            "parse response rejects unknown content block"
+            `Quick
+            test_anthropic_parse_response_rejects_unknown_content_block
+        ; test_case
+            "parse response rejects unknown media source kind"
+            `Quick
+            test_anthropic_parse_response_rejects_unknown_media_source_kind
         ] )
     ; ( "openai_build_request"
       , [ test_case "basic body" `Quick test_openai_basic_body
@@ -1251,9 +1431,13 @@ let () =
             `Quick
             test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments
         ; test_case
-            "ollama malformed tool call warning"
+            "ollama malformed tool call rejected"
             `Quick
-            test_ollama_parse_warns_on_malformed_tool_call
+            test_ollama_parse_rejects_malformed_tool_call
+        ; test_case
+            "ollama non-object tool arguments rejected"
+            `Quick
+            test_ollama_parse_rejects_non_object_tool_arguments
         ; test_case
             "glm preserved reasoning replay"
             `Quick

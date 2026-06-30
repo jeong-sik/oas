@@ -189,10 +189,14 @@ let prepare_tools
   tools_json, visible_tool_names, effective_guardrails
 ;;
 
-let apply_context_reducer ~messages ~context_reducer =
+let apply_context_reducer ~preserve_thinking ~messages ~context_reducer =
   match context_reducer with
   | None -> messages
-  | Some reducer -> Context_reducer.reduce reducer messages
+  | Some reducer ->
+    let reducer =
+      if preserve_thinking then Context_reducer.preserve_thinking reducer else reducer
+    in
+    Context_reducer.reduce reducer messages
 ;;
 
 let prepare_messages ?config ~messages ~context_reducer ~turn_params () =
@@ -219,7 +223,14 @@ let prepare_messages ?config ~messages ~context_reducer ~turn_params () =
       ]
   in
   let pruned = Context_reducer.reduce call_time_pruner messages in
-  let effective = apply_context_reducer ~messages:pruned ~context_reducer in
+  let preserve_thinking =
+    match config with
+    | Some config -> config.preserve_thinking = Some true
+    | None -> false
+  in
+  let effective =
+    apply_context_reducer ~preserve_thinking ~messages:pruned ~context_reducer
+  in
   match turn_params.Hooks.extra_system_context with
   | None -> effective
   | Some ctx ->

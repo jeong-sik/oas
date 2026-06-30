@@ -754,6 +754,7 @@ let compact_messages
   let run_compaction () =
     let reduced =
       Budget_strategy.reduce_for_budget
+        ~preserve_thinking:(agent.state.config.preserve_thinking = Some true)
         ?summarizer:agent.options.summarizer
         ~usage_ratio:strategy_ratio
         ~messages
@@ -761,6 +762,7 @@ let compact_messages
     in
     let reduced =
       Agent_turn.apply_context_reducer
+        ~preserve_thinking:(agent.state.config.preserve_thinking = Some true)
         ~messages:reduced
         ~context_reducer:agent.options.context_reducer
     in

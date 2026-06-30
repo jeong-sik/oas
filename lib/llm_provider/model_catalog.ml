@@ -7,12 +7,14 @@ type model_entry =
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
+  ; supports_required_tool_choice : bool option
   ; supports_named_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
   ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
   ; supports_extended_thinking : bool option
   ; supports_reasoning_budget : bool option
+  ; accepted_reasoning_efforts : string list option
   ; supports_response_format_json : bool option
   ; supports_structured_output : bool option
   ; supports_multimodal_inputs : bool option
@@ -94,6 +96,36 @@ let find_float_opt toml path =
   | exception Otoml.Type_error _ -> None
 ;;
 
+let find_string_list_opt toml path =
+  match Otoml.find_opt toml (Otoml.get_array Otoml.get_string) path with
+  | Some values -> Some values
+  | None -> None
+  | exception Otoml.Type_error _ -> None
+;;
+
+let canonical_string_list_opt ~entry_id key ~allowed toml =
+  match find_string_list_opt toml [ key ] with
+  | None -> Ok None
+  | Some values ->
+    let unknown =
+      List.filter_map
+        (fun raw ->
+           let normalized = String.lowercase_ascii (String.trim raw) in
+           if List.mem normalized allowed then None else Some normalized)
+        values
+    in
+    (match unknown with
+     | [] -> Ok (Some values)
+     | values ->
+       Error
+         (Printf.sprintf
+            "model entry %S field %S has unknown value(s) %s (canonical: %s)"
+            entry_id
+            key
+            (String.concat ", " values)
+            (String.concat ", " allowed)))
+;;
+
 let parse_entry entry_toml =
   match find_string_opt entry_toml [ "id_prefix" ] with
   | None -> Error "model entry missing required \"id_prefix\" field"
@@ -113,9 +145,22 @@ let parse_entry entry_toml =
         ~allowed:Capability_vocab.assistant_tool_content_format_values
         entry_toml
     in
-    (match reasoning_replay_result, assistant_tool_content_format_result with
-     | (Error _ as e), _ | _, (Error _ as e) -> e
-     | Ok reasoning_replay, Ok assistant_tool_content_format ->
+    let accepted_reasoning_efforts_result =
+      canonical_string_list_opt
+        ~entry_id:id_prefix
+        "accepted_reasoning_efforts"
+        ~allowed:Reasoning_effort.all_wire_values
+        entry_toml
+    in
+    (match
+       ( reasoning_replay_result
+       , assistant_tool_content_format_result
+       , accepted_reasoning_efforts_result )
+     with
+     | (Error _ as e), _, _ | _, (Error _ as e), _ | _, _, (Error _ as e) -> e
+     | ( Ok reasoning_replay
+       , Ok assistant_tool_content_format
+       , Ok accepted_reasoning_efforts ) ->
        let base_label_result = find_string_field ~entry_id:id_prefix "base" entry_toml in
        let modality_priority_result =
          canonical_string_opt
@@ -159,6 +204,8 @@ let parse_entry entry_toml =
             ; max_output_tokens = find_int_opt entry_toml [ "max_output_tokens" ]
             ; supports_tools = find_bool_opt entry_toml [ "supports_tools" ]
             ; supports_tool_choice = find_bool_opt entry_toml [ "supports_tool_choice" ]
+            ; supports_required_tool_choice =
+                find_bool_opt entry_toml [ "supports_required_tool_choice" ]
             ; supports_named_tool_choice =
                 find_bool_opt entry_toml [ "supports_named_tool_choice" ]
             ; supports_parallel_tool_calls =
@@ -169,6 +216,7 @@ let parse_entry entry_toml =
                 find_bool_opt entry_toml [ "supports_extended_thinking" ]
             ; supports_reasoning_budget =
                 find_bool_opt entry_toml [ "supports_reasoning_budget" ]
+            ; accepted_reasoning_efforts
             ; supports_response_format_json =
                 find_bool_opt entry_toml [ "supports_response_format_json" ]
             ; supports_structured_output =

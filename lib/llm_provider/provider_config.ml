@@ -88,10 +88,12 @@ type t =
   ; output_schema : Yojson.Safe.t option
   ; cache_system_prompt : bool
   ; supports_tool_choice_override : bool option
+  ; supports_structured_output_override : bool option
   ; keep_alive : string option
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
   ; seed : int option
+  ; previous_response_id : string option
   ; connect_timeout_s : float option
   }
 
@@ -121,10 +123,12 @@ let make
       ?output_schema
       ?(cache_system_prompt = false)
       ?supports_tool_choice_override
+      ?supports_structured_output_override
       ?keep_alive
       ?internal_model_rotation_count
       ?num_ctx
       ?seed
+      ?previous_response_id
       ?connect_timeout_s
       ()
   =
@@ -166,10 +170,12 @@ let make
   ; output_schema
   ; cache_system_prompt
   ; supports_tool_choice_override
+  ; supports_structured_output_override
   ; keep_alive
   ; internal_model_rotation_count
   ; num_ctx
   ; seed
+  ; previous_response_id
   ; connect_timeout_s
   }
 ;;
@@ -256,6 +262,7 @@ let default_attempt_timeout_s = function
 ;;
 
 type reasoning_effort = Reasoning_effort.t =
+  | None_
   | Minimal
   | Low
   | Medium
@@ -270,7 +277,7 @@ let reasoning_effort_values_for_log = Reasoning_effort.values_for_log
 
 (** Default reasoning effort level when thinking is enabled but no budget
     is specified. Override with [OAS_DEFAULT_REASONING_EFFORT] env var.
-    Accepted values: "minimal", "low", "medium", "high", "xhigh". Invalid
+    Accepted values: "none", "minimal", "low", "medium", "high", "xhigh". Invalid
     values fall back to "medium".
     @since 0.185.0 *)
 let default_reasoning_effort_value ?(getenv = fun name -> Cli_common_env.get name) () =
@@ -384,31 +391,69 @@ let is_zai_glm_config (config : t) =
 ;;
 
 type tool_choice_request_rejection =
-  | Unsupported_forced_tool_choice of
-      { provider_kind : provider_kind
-      ; model_id : string
-      ; requested : Types.tool_choice
-      }
   | Unsupported_named_tool_choice of
       { provider_kind : provider_kind
       ; model_id : string
       ; tool_name : string
       }
+  | Unsupported_required_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      }
+  | Unsupported_named_tool_choice_with_thinking of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; tool_name : string
+      }
+  | Unsupported_required_tool_choice_with_thinking of
+      { provider_kind : provider_kind
+      ; model_id : string
+      }
 
 let tool_choice_request_rejection_to_message = function
-  | Unsupported_forced_tool_choice { provider_kind; model_id; requested } ->
-    Printf.sprintf
-      "%s model %S does not support forced tool_choice %S; use auto or remove tool_choice"
-      (string_of_provider_kind provider_kind)
-      model_id
-      (Types.show_tool_choice requested)
   | Unsupported_named_tool_choice { provider_kind; model_id; tool_name } ->
     Printf.sprintf
-      "%s model %S does not support named forced tool_choice %S; use auto/any or remove \
+      "%s model %S does not support named forced tool_choice %S; use auto/none or remove \
        tool_choice"
       (string_of_provider_kind provider_kind)
       model_id
       tool_name
+  | Unsupported_required_tool_choice { provider_kind; model_id } ->
+    Printf.sprintf
+      "%s model %S does not support required forced tool_choice; use auto/none or remove \
+       tool_choice"
+      (string_of_provider_kind provider_kind)
+      model_id
+  | Unsupported_named_tool_choice_with_thinking { provider_kind; model_id; tool_name } ->
+    Printf.sprintf
+      "%s model %S does not support named forced tool_choice %S when thinking is \
+       enabled; use auto/none or disable thinking"
+      (string_of_provider_kind provider_kind)
+      model_id
+      tool_name
+  | Unsupported_required_tool_choice_with_thinking { provider_kind; model_id } ->
+    Printf.sprintf
+      "%s model %S does not support required forced tool_choice when thinking is \
+       enabled; use auto/none or disable thinking"
+      (string_of_provider_kind provider_kind)
+      model_id
+;;
+
+let request_capabilities_for_config (config : t) =
+  let caps =
+    match capabilities_for_config_model config with
+    | Some caps -> caps
+    | None ->
+      (match config.kind with
+       | Glm -> Capabilities.glm_capabilities
+       | Anthropic -> Capabilities.anthropic_capabilities
+       | Kimi -> Capabilities.kimi_capabilities
+       | Ollama -> Capabilities.ollama_capabilities
+       | Gemini -> Capabilities.gemini_capabilities
+       | DashScope -> Capabilities.dashscope_capabilities
+       | OpenAI_compat -> Capabilities.default_capabilities)
+  in
+  caps
 ;;
 
 let tool_choice_capabilities_for_config (config : t) =
@@ -425,6 +470,7 @@ let tool_choice_capabilities_for_config (config : t) =
   | Some supports_tool_choice ->
     { caps with
       Capabilities.supports_tool_choice
+    ; supports_required_tool_choice = supports_tool_choice
     ; supports_named_tool_choice = supports_tool_choice
     }
   | None -> caps
@@ -437,29 +483,93 @@ let validate_tool_choice_request_with_capabilities
       caps
   =
   match tool_choice with
-  | Some (Types.Any as requested) when not caps.Capabilities.supports_tool_choice ->
-    Error (Unsupported_forced_tool_choice { provider_kind; model_id; requested })
-  | Some (Types.Tool _ as requested) when not caps.Capabilities.supports_tool_choice ->
-    Error (Unsupported_forced_tool_choice { provider_kind; model_id; requested })
-  | Some (Types.Tool tool_name) when not caps.Capabilities.supports_named_tool_choice ->
+  | Some Types.Any
+    when (not caps.Capabilities.supports_tool_choice)
+         || not caps.Capabilities.supports_required_tool_choice ->
+    Error (Unsupported_required_tool_choice { provider_kind; model_id })
+  | Some (Types.Tool tool_name)
+    when (not caps.Capabilities.supports_tool_choice)
+         || not caps.Capabilities.supports_named_tool_choice ->
     Error (Unsupported_named_tool_choice { provider_kind; model_id; tool_name })
   | Some (Types.Tool _) -> Ok ()
   | Some (Types.Auto | Types.Any | Types.None_) | None -> Ok ()
 ;;
 
+let validate_anthropic_thinking_tool_choice (config : t) =
+  match config.kind, config.enable_thinking, config.tool_choice with
+  | Anthropic, Some true, Some Types.Any ->
+    Error
+      (Unsupported_required_tool_choice_with_thinking
+         { provider_kind = config.kind; model_id = config.model_id })
+  | Anthropic, Some true, Some (Types.Tool tool_name) ->
+    Error
+      (Unsupported_named_tool_choice_with_thinking
+         { provider_kind = config.kind; model_id = config.model_id; tool_name })
+  | Anthropic, _, _ | (Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _, _ ->
+    Ok ()
+;;
+
 let validate_tool_choice_request_typed (config : t) =
-  let caps = tool_choice_capabilities_for_config config in
-  validate_tool_choice_request_with_capabilities
-    ~provider_kind:config.kind
-    ~model_id:config.model_id
-    ~tool_choice:config.tool_choice
-    caps
+  match validate_anthropic_thinking_tool_choice config with
+  | Error _ as error -> error
+  | Ok () ->
+    let caps = tool_choice_capabilities_for_config config in
+    validate_tool_choice_request_with_capabilities
+      ~provider_kind:config.kind
+      ~model_id:config.model_id
+      ~tool_choice:config.tool_choice
+      caps
 ;;
 
 let validate_tool_choice_request config =
   Result.map_error
     tool_choice_request_rejection_to_message
     (validate_tool_choice_request_typed config)
+;;
+
+type reasoning_effort_request_rejection =
+  | Unsupported_reasoning_effort of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
+      ; accepted : reasoning_effort list
+      }
+
+let reasoning_effort_list_to_message values =
+  values |> List.map reasoning_effort_to_string |> String.concat "/"
+;;
+
+let reasoning_effort_request_rejection_to_message = function
+  | Unsupported_reasoning_effort { provider_kind; model_id; effort; accepted } ->
+    Printf.sprintf
+      "%s model %S does not accept reasoning effort %S; accepted values: %s"
+      (string_of_provider_kind provider_kind)
+      model_id
+      (reasoning_effort_to_string effort)
+      (reasoning_effort_list_to_message accepted)
+;;
+
+let validate_reasoning_effort_request_typed (config : t) =
+  match
+    reasoning_effort_request_value_typed
+      ~enable_thinking:config.enable_thinking
+      ~thinking_budget:config.thinking_budget
+  with
+  | None -> Ok ()
+  | Some effort ->
+    let caps = request_capabilities_for_config config in
+    (match caps.Capabilities.accepted_reasoning_efforts with
+     | Some accepted when not (List.mem effort accepted) ->
+       Error
+         (Unsupported_reasoning_effort
+            { provider_kind = config.kind; model_id = config.model_id; effort; accepted })
+     | Some _ | None -> Ok ())
+;;
+
+let validate_reasoning_effort_request config =
+  Result.map_error
+    reasoning_effort_request_rejection_to_message
+    (validate_reasoning_effort_request_typed config)
 ;;
 
 (** Compute reasoning_effort for a provider config.
@@ -534,6 +644,12 @@ let openai_host_supports_output_schema base_url =
     || String.ends_with ~suffix:".ollama.com" host
 ;;
 
+let endpoint_supports_openai_compat_output_schema (config : t) =
+  match config.supports_structured_output_override with
+  | Some supported -> supported
+  | None -> openai_host_supports_output_schema config.base_url
+;;
+
 (** A native-schema request is in effect when either field carries one.
     Callers can build a [Provider_config.t] directly with [response_format =
     JsonSchema _] and [output_schema = None]; gating only on [output_schema]
@@ -544,6 +660,21 @@ let structured_schema_requested (config : t) : bool =
   | Some _, _ -> true
   | None, Types.JsonSchema _ -> true
   | None, (Types.JsonMode | Types.Off) -> false
+;;
+
+let validate_model_structured_output_capability (config : t) =
+  let caps =
+    match capabilities_for_config_model config with
+    | Some c -> c
+    | None -> Capabilities.default_capabilities
+  in
+  if not caps.supports_structured_output
+  then
+    Error
+      (Printf.sprintf
+         "model %s does not advertise native structured output"
+         config.model_id)
+  else Ok ()
 ;;
 
 let request_path_targets_responses_api request_path =
@@ -573,30 +704,24 @@ let validate_output_schema_request (config : t) =
   | false -> Ok ()
   | true ->
     (match config.kind with
-     | Gemini | Anthropic | Ollama | DashScope -> Ok ()
+     | Gemini | Anthropic | DashScope -> Ok ()
+     | Ollama -> validate_model_structured_output_capability config
      | Glm ->
        Error
          "Glm supports JSON mode (json_object) only; native json_schema output is not \
           documented in the current Z.AI API"
      | Kimi | OpenAI_compat ->
-       let caps =
-         match capabilities_for_config_model config with
-         | Some c -> c
-         | None -> Capabilities.default_capabilities
-       in
-       if not caps.supports_structured_output
-       then
-         Error
-           (Printf.sprintf
-              "model %s does not advertise native structured output"
-              config.model_id)
-       else if openai_host_supports_output_schema config.base_url
-       then Ok ()
-       else
-         Error
-           (Printf.sprintf
-              "native structured output is only wired for official Openai hosts, got %s"
-              config.base_url))
+       (match validate_model_structured_output_capability config with
+        | Error _ as error -> error
+        | Ok () ->
+          if endpoint_supports_openai_compat_output_schema config
+          then Ok ()
+          else
+            Error
+              (Printf.sprintf
+                 "native structured output is only wired for declared OpenAI-compatible \
+                  endpoints, got %s"
+                 config.base_url)))
 ;;
 
 (** Validate that sampling parameters not supported by CLI subprocess
@@ -615,10 +740,10 @@ let has_host_prefix ~url ~prefix =
   &&
   let next_index = prefix_len in
   String.length url = prefix_len
-  ||
-  match url.[next_index] with
-  | ':' | '/' | '?' | '#' -> true
-  | _ -> false
+  || Char.equal url.[next_index] ':'
+  || Char.equal url.[next_index] '/'
+  || Char.equal url.[next_index] '?'
+  || Char.equal url.[next_index] '#'
 ;;
 
 let is_local (config : t) =
@@ -651,6 +776,44 @@ let%test "validate_output_schema_request: Ollama Cloud accepts json_schema" =
       ()
   in
   validate_output_schema_request config = Ok ()
+;;
+
+let%test
+    "validate_output_schema_request: Ollama Cloud rejects models without SO guarantee"
+  =
+  let config =
+    make
+      ~kind:OpenAI_compat
+      ~model_id:"mistral-large-3:675b"
+      ~base_url:"https://ollama.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match validate_output_schema_request config with
+  | Error msg ->
+    String.equal
+      msg
+      "model mistral-large-3:675b does not advertise native structured output"
+  | Ok () -> false
+;;
+
+let%test
+    "validate_output_schema_request: native Ollama rejects models without SO guarantee"
+  =
+  let config =
+    make
+      ~kind:Ollama
+      ~model_id:"ministral-3:8b"
+      ~base_url:"http://localhost:11434"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match validate_output_schema_request config with
+  | Error msg ->
+    String.equal msg "model ministral-3:8b does not advertise native structured output"
+  | Ok () -> false
 ;;
 
 let%test

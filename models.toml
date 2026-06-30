@@ -83,12 +83,16 @@ cache_write_multiplier = 1.25
 cache_read_multiplier = 0.1
 
 # OpenAI Models
+# OpenAI Responses API reasoning.effort reference, checked 2026-06-29:
+# gpt-5.1+ rows may declare none/minimal/low/medium/high/xhigh; the bare
+# gpt-5 row predates gpt-5.1 and therefore omits none/xhigh here.
 [[models]]
 id_prefix = "gpt-5.5"
 base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 5.0
 output_per_million = 30.0
 cache_write_multiplier = 1.0
@@ -100,6 +104,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 0.75
 output_per_million = 4.5
 cache_write_multiplier = 1.0
@@ -111,6 +116,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 2.5
 output_per_million = 15.0
 cache_write_multiplier = 1.0
@@ -122,6 +128,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 input_per_million = 1.75
 output_per_million = 14.0
 cache_write_multiplier = 1.0
@@ -133,6 +140,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["minimal", "low", "medium", "high"]
 input_per_million = 5.0
 output_per_million = 30.0
 cache_write_multiplier = 1.0
@@ -213,9 +221,10 @@ cache_read_multiplier = 1.0
 # default for these rows (thinking_control_format = thinking_object). Both
 # tool_choice="required" and a named function tool_choice return HTTP 400.
 # Ref checked 2026-06-30: api-docs.deepseek.com/guides/function_calling and
-# deepseek-ai/DeepSeek-V3 issue #1376. supports_named_tool_choice=false makes OAS
-# reject a named forced tool_choice (typed Unsupported_named_tool_choice) instead
-# of serializing a request the model 400s on. Plain auto still works, so
+# deepseek-ai/DeepSeek-V3 issue #1376. supports_required_tool_choice=false and
+# supports_named_tool_choice=false make OAS reject forced tool_choice (typed
+# Unsupported_required_tool_choice / Unsupported_named_tool_choice) instead of
+# serializing a request the model 400s on. Plain auto still works, so
 # supports_tool_choice stays true (mirrors the Kimi/GLM profiles).
 [[models]]
 id_prefix = "deepseek-v4-pro"
@@ -224,6 +233,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -245,6 +255,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -266,6 +277,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -287,6 +299,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
@@ -402,6 +415,8 @@ thinking_control_format = "none"
 supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "ollama_cloud/devstral-small-2:24b"
@@ -417,6 +432,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "ollama_cloud/gemini-3-flash-preview"
@@ -704,6 +721,11 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+# Live grouped SO check 2026-06-29: accepts JSON-format requests, but did not
+# return exact schema-shaped final JSON. Keep JSON mode enabled and native
+# structured-output guarantee disabled.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/ministral-3:8b"
@@ -719,6 +741,11 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+# Live grouped SO check 2026-06-29: accepts JSON-format requests, but did not
+# return exact schema-shaped final JSON. Keep JSON mode enabled and native
+# structured-output guarantee disabled.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/ministral-3:14b"
@@ -734,6 +761,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "ollama_cloud/mistral-large-3:675b"
@@ -749,6 +778,10 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+# Live grouped SO check 2026-06-29: accepts JSON-format requests, but fenced or
+# drifted from the requested schema. Do not advertise native schema guarantee.
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ollama_cloud/nemotron-3-nano:30b"
@@ -893,6 +926,8 @@ thinking_control_format = "none"
 supports_multimodal_inputs = false
 supports_image_input = false
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "devstral-small-2:24b"
@@ -908,6 +943,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "gemma3:4b"
@@ -1067,6 +1104,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ministral-3:8b"
@@ -1082,6 +1121,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "ministral-3:14b"
@@ -1097,6 +1138,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = true
 
 [[models]]
 id_prefix = "mistral-large-3:675b"
@@ -1112,6 +1155,8 @@ supports_multimodal_inputs = true
 supports_image_input = true
 modality_priority = "visual_first"
 supports_native_streaming = true
+supports_response_format_json = true
+supports_structured_output = false
 
 [[models]]
 id_prefix = "nemotron-3-nano:30b"
@@ -1563,6 +1608,9 @@ output_per_million = 0.0
 id_prefix = "kimi-k2"
 base = "kimi"
 max_context_tokens = 256000
+supports_tool_choice = true
+supports_required_tool_choice = false
+supports_named_tool_choice = false
 input_per_million = 0.0
 output_per_million = 0.0
 
@@ -1570,6 +1618,9 @@ output_per_million = 0.0
 id_prefix = "kimi-k2.7-code"
 base = "kimi"
 max_context_tokens = 256000
+supports_tool_choice = true
+supports_required_tool_choice = false
+supports_named_tool_choice = false
 supports_reasoning_budget = false
 thinking_control_format = "none"
 preserve_thinking_control_format = "always_preserved"
@@ -1828,7 +1879,14 @@ supports_native_streaming = true
 id_prefix = "mimo-v2.5"
 base = "openai_chat"
 supports_reasoning = true
+# Live MiMo V2.5 OpenAI-compatible smoke, checked 2026-06-29: responses carry
+# reasoning in the `reasoning_content` side-channel, accept tool calls, stream
+# reasoning/tool deltas separately, and accept response_format/json_schema.
 thinking_control_format = "thinking_object_only"
+supports_tools = true
+supports_response_format_json = true
+supports_structured_output = true
+supports_native_streaming = true
 
 # Nvidia Models
 [[models]]
@@ -2045,6 +2103,7 @@ base = "openai_chat_extended"
 max_context_tokens = 1050000
 max_output_tokens = 128000
 supports_computer_use = true
+accepted_reasoning_efforts = ["none", "minimal", "low", "medium", "high", "xhigh"]
 
 [[models]]
 id_prefix = "o3-mini"

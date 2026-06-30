@@ -197,6 +197,23 @@ let test_parse_content_block_delta_input_json () =
   | None -> Alcotest.fail "parse returned None"
 ;;
 
+let test_parse_content_block_delta_unknown_fails_closed () =
+  let data =
+    {|{"type":"content_block_delta","index":2,"delta":{"type":"future_delta","value":"do not drop"}}|}
+  in
+  match Agent_sdk.Streaming.parse_sse_event None data with
+  | Some (SSEParseFailed { raw; reason }) ->
+    Alcotest.(check string) "raw preserved" data raw;
+    Alcotest.(check bool)
+      "reason names unsupported delta"
+      true
+      (String.starts_with
+         ~prefix:"type_error: unsupported content_block_delta type: future_delta"
+         reason)
+  | Some _ -> Alcotest.fail "expected SSEParseFailed for unknown delta subtype"
+  | None -> Alcotest.fail "parse returned None"
+;;
+
 let test_parse_content_block_stop () =
   let data = {|{"type":"content_block_stop","index":0}|} in
   match Agent_sdk.Streaming.parse_sse_event None data with
@@ -329,6 +346,123 @@ let test_parse_with_explicit_event_type () =
     Alcotest.(check string) "id via explicit event type" "msg_02" id
   | Some _ -> Alcotest.fail "unexpected event type"
   | None -> Alcotest.fail "parse returned None"
+;;
+
+let parse_openai_chunk_exn data =
+  match Agent_sdk.Llm_provider.Streaming.parse_openai_sse_chunk data with
+  | Some chunk -> chunk
+  | None -> Alcotest.fail "expected OpenAI-compatible stream chunk"
+;;
+
+let test_openai_compat_interleaved_reasoning_and_tool_deltas () =
+  (* Qwen/DeepSeek/Kimi/MiniMax/Nemotron-style OpenAI-compatible streams can
+     interleave reasoning side-channel deltas with incremental tool-call
+     argument JSON. They must become separate content blocks, not one visible
+     assistant text buffer and not one shared argument buffer. *)
+  let state =
+    Agent_sdk.Llm_provider.Streaming.create_openai_stream_state
+      ~provider:"ollama_cloud"
+      ~model:"qwen3.5:397b"
+      ()
+  in
+  let first =
+    parse_openai_chunk_exn
+      {|{"id":"chatcmpl-1","model":"qwen3.5:397b","choices":[{"delta":{"reasoning_content":"plan-","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"city\":"}}]},"finish_reason":null}]}|}
+  in
+  let first_events, first_telemetry =
+    Agent_sdk.Llm_provider.Streaming.openai_chunk_to_events state first
+  in
+  Alcotest.(check bool) "no first telemetry" true (Option.is_none first_telemetry);
+  (match first_events with
+   | [ ContentBlockStart { index = 0; content_type = "thinking"; _ }
+     ; ContentBlockDelta { index = 0; delta = ThinkingDelta "plan-" }
+     ; ContentBlockStart
+         { index = 1
+         ; content_type = "tool_use"
+         ; tool_id = Some "call_1"
+         ; tool_name = Some "lookup"
+         }
+     ; ContentBlockDelta { index = 1; delta = InputJsonDelta {|{"city":|} }
+     ] -> ()
+   | _ -> Alcotest.fail "expected separate thinking and tool argument events");
+  let second =
+    parse_openai_chunk_exn
+      {|{"id":"chatcmpl-1","model":"qwen3.5:397b","choices":[{"delta":{"reasoning_content":"done","content":"visible","tool_calls":[{"index":0,"function":{"arguments":"\"Seoul\"}"}}]},"finish_reason":null}]}|}
+  in
+  let second_events, _ =
+    Agent_sdk.Llm_provider.Streaming.openai_chunk_to_events state second
+  in
+  let finish =
+    parse_openai_chunk_exn
+      {|{"id":"chatcmpl-1","model":"qwen3.5:397b","choices":[{"delta":{},"finish_reason":"tool_calls"}]}|}
+  in
+  let finish_events, _ =
+    Agent_sdk.Llm_provider.Streaming.openai_chunk_to_events state finish
+  in
+  let acc = Agent_sdk.Llm_provider.Complete_stream_acc.create_stream_acc () in
+  List.iter
+    (Agent_sdk.Llm_provider.Complete_stream_acc.accumulate_event acc)
+    (first_events @ second_events @ finish_events);
+  match Agent_sdk.Llm_provider.Complete_stream_acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected finalized interleaved stream"
+  | Ok result ->
+    Alcotest.(check bool) "stop reason" true (result.stop_reason = StopToolUse);
+    (match result.content with
+     | [ Thinking { content = "plan-done"; _ }
+       ; ToolUse { id = "call_1"; name = "lookup"; input }
+       ; Text "visible"
+       ] ->
+       Alcotest.(check bool) "tool args" true (input = `Assoc [ "city", `String "Seoul" ])
+     | _ ->
+       Alcotest.fail "expected thinking, tool use, and visible text to stay separated")
+;;
+
+let parse_anthropic_event_exn ?event_type data =
+  match Agent_sdk.Streaming.parse_sse_event event_type data with
+  | Some event -> event
+  | None -> Alcotest.fail "expected Anthropic SSE event"
+;;
+
+let test_anthropic_interleaved_thinking_tool_text_finalizes () =
+  let module Acc = Agent_sdk.Llm_provider.Complete_stream_acc in
+  let raw_events =
+    [ parse_anthropic_event_exn
+        {|{"type":"message_start","message":{"id":"msg_anth","model":"claude-sonnet-4-6","usage":{"input_tokens":11}}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"plan-"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"lookup","input":{}}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"done"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"Seoul\"}"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"visible"}}|}
+    ; parse_anthropic_event_exn
+        {|{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}|}
+    ; parse_anthropic_event_exn {|{"type":"message_stop"}|}
+    ]
+  in
+  let acc = Acc.create_stream_acc () in
+  List.iter (Acc.accumulate_event acc) raw_events;
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected finalized Anthropic interleaved stream"
+  | Ok result ->
+    Alcotest.(check bool) "stop reason" true (result.stop_reason = StopToolUse);
+    (match result.content with
+     | [ Thinking { content = "plan-done"; _ }
+       ; ToolUse { id = "toolu_1"; name = "lookup"; input }
+       ; Text "visible"
+       ] ->
+       Alcotest.(check bool) "tool args" true (input = `Assoc [ "city", `String "Seoul" ])
+     | _ ->
+       Alcotest.fail "expected thinking, tool use, and visible text to stay separated")
 ;;
 
 (* ------------------------------------------------------------------ *)
@@ -544,6 +678,10 @@ let () =
             "content_block_delta_input_json"
             `Quick
             test_parse_content_block_delta_input_json
+        ; test_case
+            "content_block_delta_unknown_fails_closed"
+            `Quick
+            test_parse_content_block_delta_unknown_fails_closed
         ; test_case "content_block_stop" `Quick test_parse_content_block_stop
         ; test_case "message_delta_end_turn" `Quick test_parse_message_delta_end_turn
         ; test_case "message_stop" `Quick test_parse_message_stop
@@ -558,6 +696,14 @@ let () =
             "message_start_missing_output"
             `Quick
             test_message_start_missing_output_tokens
+        ; test_case
+            "openai_compat interleaved reasoning/tool deltas"
+            `Quick
+            test_openai_compat_interleaved_reasoning_and_tool_deltas
+        ; test_case
+            "anthropic interleaved thinking/tool/text finalizes"
+            `Quick
+            test_anthropic_interleaved_thinking_tool_text_finalizes
         ] )
     ; ( "emit_synthetic_events"
       , [ test_case "text only" `Quick test_synthetic_text_only

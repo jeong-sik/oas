@@ -116,10 +116,12 @@ let%test "gemini_url sync no api_key" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -153,10 +155,12 @@ let%test "gemini_url sync with api_key" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -190,10 +194,12 @@ let%test "gemini_url stream with api_key" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -228,10 +234,12 @@ let%test "gemini_url stream no api_key" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -266,10 +274,12 @@ let%test "gemini_url never leaks api_key even when set" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -317,10 +327,12 @@ let%test "gemini_url empty base_url no trailing slash" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -371,10 +383,12 @@ let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -408,10 +422,12 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -445,10 +461,12 @@ let%test "apply_sampling_defaults OpenAI_compat dashscope model keeps min_p defa
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -482,10 +500,12 @@ let%test "apply_sampling_defaults preserves explicit min_p override" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -519,10 +539,12 @@ let%test "apply_sampling_defaults Anthropic does not set min_p" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -556,10 +578,12 @@ let%test "apply_sampling_defaults preserves all explicit values" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -597,10 +621,12 @@ let%test "apply_sampling_defaults Anthropic preserves explicit top_p" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -634,10 +660,12 @@ let%test "reasoning_effort_of_config Ollama default is none" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -670,10 +698,12 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=4096 is medium"
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -706,10 +736,12 @@ let%test "reasoning_effort_of_config Ollama thinking=true budget=16384 is high" 
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in
@@ -742,10 +774,12 @@ let%test "reasoning_effort_of_config non-Ollama is None" =
     ; output_schema = None
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
+    ; supports_structured_output_override = None
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None
     ; seed = None
+    ; previous_response_id = None
     ; connect_timeout_s = None
     }
   in

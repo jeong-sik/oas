@@ -99,6 +99,20 @@ type t =
       the policy and declares it.
 
       @since 0.150.0 *)
+  ; supports_structured_output_override : bool option
+    (** Override whether this concrete OpenAI-compatible endpoint supports
+        provider-native JSON-schema output requests. This is intentionally an
+        endpoint declaration, not a model capability override:
+        {!validate_output_schema_request} still requires the resolved model
+        capability to advertise [supports_structured_output].
+
+        [None] keeps the built-in endpoint policy.
+        [Some true] allows verified self-hosted/OpenAI-compatible endpoints
+        such as RunPod/vLLM/SGLang gateways.
+        [Some false] fail-closes even when the host would otherwise be
+        accepted.
+
+        @since 0.207.0 *)
   ; keep_alive : string option
     (** Ollama [keep_alive] request field. Accepted values: integer
       seconds ({"-1"}, {"0"}, {"3600"}) or duration strings ({"5m"},
@@ -148,6 +162,14 @@ type t =
       Anthropic (Claude) does not support seed — the field is silently
       ignored for that provider.
       @since 0.185.0 *)
+  ; previous_response_id : string option
+    (** OpenAI Responses API conversation-state pointer. When [Some id] and
+      [request_path] targets [/v1/responses], the Responses request includes
+      ["previous_response_id": id]. This is intentionally separate from manual
+      item replay: callers choose the state strategy explicitly instead of the
+      SDK inferring one from message history. Ignored by non-Responses request
+      builders.
+      @since 0.207.10 *)
   ; connect_timeout_s : float option
     (** Per-config override for the connect + initial-response-headers
       wall-clock timeout. See {!default_connect_timeout_s} for the
@@ -195,10 +217,12 @@ val make
   -> ?output_schema:Yojson.Safe.t
   -> ?cache_system_prompt:bool
   -> ?supports_tool_choice_override:bool
+  -> ?supports_structured_output_override:bool
   -> ?keep_alive:string
   -> ?internal_model_rotation_count:int
   -> ?num_ctx:int
   -> ?seed:int
+  -> ?previous_response_id:string
   -> ?connect_timeout_s:float
   -> unit
   -> t
@@ -274,6 +298,7 @@ val default_attempt_timeout_s : provider_kind -> float option
     [reasoning_effort_to_string] is the only string serialization surface for
     these values. *)
 type reasoning_effort = Reasoning_effort.t =
+  | None_
   | Minimal
   | Low
   | Medium
@@ -383,13 +408,20 @@ val structured_output_name_of_schema : Yojson.Safe.t -> string
     before making an HTTP request.
 
     Conservative policy:
-    - [OpenAI_compat] is accepted only for official Openai hosts with a
-      model capability record that reports [supports_structured_output].
-    - [Gemini], [Anthropic], [Ollama], and [DashScope] are accepted.
+    - [OpenAI_compat] is accepted only when the selected model capability
+      record reports [supports_structured_output] and the concrete endpoint is
+      declared schema-capable. [None] uses the built-in official
+      OpenAI/Ollama Cloud endpoint policy; [Some true] admits verified
+      self-hosted/OpenAI-compatible endpoints; [Some false] fail-closes.
+    - [Ollama] is accepted only when the selected model capability record
+      reports [supports_structured_output]; Ollama-family model rows can differ
+      even when the transport accepts a JSON-format field.
+    - [Gemini], [Anthropic], and [DashScope] are accepted.
       DashScope (DashScope) exposes [response_format.json_schema] on its
       OpenAI-compatible endpoint; the field is forwarded by
       [backend_openai.ml] without additional host validation.
-    - [Kimi] is rejected until native json_schema support is verified.
+    - [Kimi] follows the same endpoint declaration path, but the native Kimi
+      capability profile currently does not advertise strict schema output.
     - [Glm] is rejected: Z.AI's current official docs document JSON mode
       ([json_object]) only; [response_format.json_schema] is not listed.
     - CLI kinds are rejected.
@@ -417,15 +449,23 @@ val validate_cli_sampling_params : t -> (unit, string) result
     typed config boundary instead of letting serializers raise exceptions after
     a turn has started. *)
 type tool_choice_request_rejection =
-  | Unsupported_forced_tool_choice of
-      { provider_kind : provider_kind
-      ; model_id : string
-      ; requested : Types.tool_choice
-      }
   | Unsupported_named_tool_choice of
       { provider_kind : provider_kind
       ; model_id : string
       ; tool_name : string
+      }
+  | Unsupported_required_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      }
+  | Unsupported_named_tool_choice_with_thinking of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; tool_name : string
+      }
+  | Unsupported_required_tool_choice_with_thinking of
+      { provider_kind : provider_kind
+      ; model_id : string
       }
 
 val tool_choice_request_rejection_to_message : tool_choice_request_rejection -> string
@@ -439,6 +479,28 @@ val validate_tool_choice_request_with_capabilities
   -> (unit, tool_choice_request_rejection) result
 
 val validate_tool_choice_request : t -> (unit, string) result
+
+(** Validate provider/model-specific reasoning effort subsets before request
+    serialization. The canonical effort vocabulary lives in
+    {!Reasoning_effort}; this guard enforces the selected model's accepted
+    subset when the capability catalog declares one. *)
+type reasoning_effort_request_rejection =
+  | Unsupported_reasoning_effort of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; effort : reasoning_effort
+      ; accepted : reasoning_effort list
+      }
+
+val reasoning_effort_request_rejection_to_message
+  :  reasoning_effort_request_rejection
+  -> string
+
+val validate_reasoning_effort_request_typed
+  :  t
+  -> (unit, reasoning_effort_request_rejection) result
+
+val validate_reasoning_effort_request : t -> (unit, string) result
 
 (** Whether the provider config points at a local loopback endpoint.
     This is the SSOT for locality checks derived from runtime configuration. *)

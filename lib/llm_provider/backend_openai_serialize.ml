@@ -291,11 +291,11 @@ let modality_priority_for_model_id model_id =
     array of content parts, Ollama's native chat API requires [content] to be a
     plain string and carries image payloads in a separate [images] array of
     base64-encoded strings. Audio is not supported by the native endpoint and
-    is dropped.
+    fails closed instead of being silently dropped.
 
     Returns [None] when the message carries no representable user content (e.g.
-    an audio-only or orphaned-tool-result message), so callers do not emit an
-    empty [content:""] placeholder on the wire. *)
+    an orphaned-tool-result message), so callers do not emit an empty
+    [content:""] placeholder on the wire. *)
 let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option =
   let ordered_content = Modality.reorder modality_priority content in
   let text_parts, images =
@@ -313,9 +313,8 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
            unsupported_media_source ~backend:"ollama_native" ~block:"image" source_type
          | Document { source_type; _ } ->
            unsupported_media_source ~backend:"ollama_native" ~block:"document" source_type
-         | Audio _ ->
-           (* Ollama native /api/chat does not support audio input. *)
-           texts, images
+         | Audio { source_type; _ } ->
+           unsupported_media_source ~backend:"ollama_native" ~block:"audio" source_type
          | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> texts, images)
       ([], [])
       ordered_content

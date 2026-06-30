@@ -13,10 +13,11 @@
     returns either the original response (unchanged) or a response with
     Text blocks promoted to ToolUse blocks.
 
-    This fallback deliberately does not repair malformed JSON. It may strip a
-    Markdown code fence wrapper, but promotion requires exactly one balanced
-    JSON object that parses with {!Yojson.Safe.from_string}. Ambiguous text or
-    repair-needed JSON remains Text.
+    This fallback deliberately does not repair malformed JSON or scrape JSON
+    out of surrounding prose. It may strip a Markdown code fence wrapper, but
+    promotion requires the entire resulting text to be exactly one balanced
+    JSON object that parses with {!Yojson.Safe.from_string}. Ambiguous text,
+    extra prose, or repair-needed JSON remains Text.
 
     @since 0.136.0 *)
 
@@ -93,18 +94,19 @@ let find_json_object (s : string) : (int * int) option =
 ;;
 
 (** Try to parse a JSON object from a string using strict JSON parsing after
-    locating exactly one balanced object. Returns [None] when no object can be
-    located, when more than one candidate exists, or when parsing fails. *)
+    locating exactly one balanced object that spans the whole text. Returns
+    [None] when no object can be located, when prose surrounds the object, when
+    more than one candidate exists, or when parsing fails. *)
 let try_parse_json_object (s : string) : Yojson.Safe.t option =
-  let stripped = strip_markdown_fence s in
+  let stripped = strip_markdown_fence s |> String.trim in
   match find_json_objects stripped with
-  | [ (start, length) ] ->
+  | [ (start, length) ] when start = 0 && length = String.length stripped ->
     let candidate = String.sub stripped start length in
     (match Yojson.Safe.from_string candidate with
      | `Assoc _ as parsed -> Some parsed
      | _ -> None
      | exception Yojson.Json_error _ -> None)
-  | [] | _ :: _ :: _ -> None
+  | [] | [ _ ] | _ :: _ :: _ -> None
 ;;
 
 (* ── Tool call shape matching ────────────────────────────── *)

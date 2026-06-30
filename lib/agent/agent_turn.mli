@@ -131,7 +131,8 @@ val prepare_tools
 (** Reduce messages and inject extra system context. *)
 
 val apply_context_reducer
-  :  messages:Types.message list
+  :  preserve_thinking:bool
+  -> messages:Types.message list
   -> context_reducer:Context_reducer.t option
   -> Types.message list
 

@@ -1,21 +1,25 @@
 (** Canonical OpenAI-compatible reasoning effort values. *)
 
 type t =
+  | None_
   | Minimal
   | Low
   | Medium
   | High
   | XHigh
 
-let all = [ Minimal; Low; Medium; High; XHigh ]
+let all = [ None_; Minimal; Low; Medium; High; XHigh ]
 
 let to_string = function
+  | None_ -> "none"
   | Minimal -> "minimal"
   | Low -> "low"
   | Medium -> "medium"
   | High -> "high"
   | XHigh -> "xhigh"
 ;;
+
+let all_wire_values = List.map to_string all
 
 let of_string value =
   let normalized = String.lowercase_ascii (String.trim value) in
@@ -31,7 +35,8 @@ let of_budget = function
   | n when n <= 0 -> None
   | n when n <= low_budget_max_tokens -> Some Low
   | n when n <= medium_budget_max_tokens -> Some Medium
-  | _ -> Some High
+  | n when n <= high_budget_max_tokens -> Some High
+  | _ -> Some XHigh
 ;;
 
 let of_budget_with_xhigh = function

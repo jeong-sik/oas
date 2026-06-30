@@ -10,12 +10,14 @@ type model_entry =
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
+  ; supports_required_tool_choice : bool option
   ; supports_named_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
   ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
   ; supports_extended_thinking : bool option
   ; supports_reasoning_budget : bool option
+  ; accepted_reasoning_efforts : string list option
   ; supports_response_format_json : bool option
   ; supports_structured_output : bool option
   ; supports_multimodal_inputs : bool option

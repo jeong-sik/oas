@@ -63,6 +63,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; max_output_tokens = caps.max_output_tokens
   ; supports_tools = caps.supports_tools
   ; supports_tool_choice = caps.supports_tool_choice
+  ; supports_required_tool_choice = caps.supports_required_tool_choice
   ; supports_named_tool_choice = caps.supports_named_tool_choice
   ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
   ; supports_runtime_mcp_tools = caps.supports_runtime_mcp_tools
@@ -71,6 +72,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_reasoning = caps.supports_reasoning
   ; supports_extended_thinking = caps.supports_extended_thinking
   ; supports_reasoning_budget = caps.supports_reasoning_budget
+  ; accepted_reasoning_efforts = caps.accepted_reasoning_efforts
   ; thinking_control_format = caps.thinking_control_format
   ; preserve_thinking_control_format = caps.preserve_thinking_control_format
   ; reasoning_replay_override = caps.reasoning_replay_override
@@ -160,72 +162,6 @@ let tool_choice_validation_context ?provider_config (config : agent_state) =
     else (
       let caps = capabilities_for_request config in
       Ok (PConfig.OpenAI_compat, model_id, llm_capabilities_of_provider_capabilities caps))
-;;
-
-let provider_config_for_thinking_fields ?provider_config ~model_id (config : agent_state) =
-  let cfg = config.config in
-  let kind, base_url, request_path, model_id =
-    match provider_config with
-    | Some
-        ({ Provider.provider = Provider.Custom_registered { name }; model_id; _ } :
-          Provider.config) ->
-      let registry = Llm_provider.Provider_registry.default () in
-      (match Llm_provider.Provider_registry.find registry name with
-       | Some entry ->
-         ( entry.defaults.kind
-         , entry.defaults.base_url
-         , entry.defaults.request_path
-         , model_id )
-       | None ->
-         (match Provider.find_provider name with
-          | Some impl ->
-            let kind = provider_config_kind_of_request_kind impl.Provider.request_kind in
-            kind, "", impl.Provider.request_path, model_id
-          | None ->
-            ( PConfig.OpenAI_compat
-            , ""
-            , PConfig.request_path_default_for_kind PConfig.OpenAI_compat
-            , model_id )))
-    | Some ({ provider = Provider.Anthropic; model_id; _ } : Provider.config) ->
-      ( PConfig.Anthropic
-      , ""
-      , PConfig.request_path_default_for_kind PConfig.Anthropic
-      , model_id )
-    | Some ({ provider = Provider.Local { base_url }; model_id; _ } : Provider.config) ->
-      let kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
-      kind, base_url, PConfig.request_path_default_for_kind kind, model_id
-    | Some
-        ({ provider = Provider.OpenAICompat { base_url; path; _ }; model_id; _ } :
-          Provider.config) ->
-      let kind = provider_config_kind_for_openai_compat ~base_url ~model_id in
-      kind, base_url, path, model_id
-    | None ->
-      let kind =
-        if Llm_provider.Zai_catalog.is_glm_model_id model_id
-        then PConfig.Glm
-        else PConfig.OpenAI_compat
-      in
-      kind, "", PConfig.request_path_default_for_kind kind, model_id
-  in
-  PConfig.make
-    ~kind
-    ~model_id
-    ~base_url
-    ~request_path
-    ?max_tokens:cfg.max_tokens
-    ?temperature:cfg.temperature
-    ?top_p:cfg.top_p
-    ?top_k:cfg.top_k
-    ?min_p:cfg.min_p
-    ?system_prompt:cfg.system_prompt
-    ?enable_thinking:cfg.enable_thinking
-    ?preserve_thinking:cfg.preserve_thinking
-    ?thinking_budget:cfg.thinking_budget
-    ?tool_choice:cfg.tool_choice
-    ~disable_parallel_tool_use:cfg.disable_parallel_tool_use
-    ~response_format:cfg.response_format
-    ~cache_system_prompt:cfg.cache_system_prompt
-    ()
 ;;
 
 let validate_tool_choice_request ?provider_config (config : agent_state) =
@@ -354,12 +290,38 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
       body_assoc
   in
   let body_assoc =
-    Llm_provider.Backend_openai_request.thinking_request_fields
-      ~is_glm_request:(is_glm_request ?provider_config config)
-      ~capabilities:(llm_capabilities_of_provider_capabilities capabilities)
-      dialect
-      (provider_config_for_thinking_fields ?provider_config ~model_id:model_str config)
-    @ body_assoc
+    if not capabilities.supports_reasoning
+    then body_assoc
+    else (
+      let zai_glm_clear_thinking =
+        match capabilities.thinking_control_format with
+        | Llm_provider.Capabilities.No_thinking_control
+          when is_glm_request ?provider_config config ->
+          Some
+            (Llm_provider.Provider_config.glm_clear_thinking_value
+               ~clear_thinking:None
+               ~preserve_thinking:config.config.preserve_thinking)
+        | Llm_provider.Capabilities.No_thinking_control
+        | Llm_provider.Capabilities.Thinking_object
+        | Llm_provider.Capabilities.Thinking_object_only
+        | Llm_provider.Capabilities.Chat_template_kwargs
+        | Llm_provider.Capabilities.Chat_template_token
+        | Llm_provider.Capabilities.Ollama_think
+        | Llm_provider.Capabilities.Reasoning_effort
+        | Llm_provider.Capabilities.Enable_thinking -> None
+      in
+      Llm_provider.Reasoning_dialect.request_control_fields
+        dialect
+        ~enable_thinking:config.config.enable_thinking
+        ~preserve_thinking:config.config.preserve_thinking
+        ~thinking_budget:config.config.thinking_budget
+        ~reasoning_effort:
+          (Llm_provider.Provider_config.reasoning_effort_request_value_typed
+             ~enable_thinking:config.config.enable_thinking
+             ~thinking_budget:config.config.thinking_budget)
+        ?zai_glm_clear_thinking
+        ()
+      @ body_assoc)
   in
   let body_assoc =
     match tools_to_send with

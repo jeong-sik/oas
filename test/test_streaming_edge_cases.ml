@@ -74,8 +74,20 @@ let test_anthropic_sse_parser_edges () =
        (Some "content_block_delta")
        {|{"index":0,"delta":{"type":"future_delta","value":"ignored"}}|}
    with
-   | Some (ContentBlockDelta { delta = TextDelta ""; _ }) -> ()
-   | _ -> fail "unknown delta type should surface empty TextDelta");
+   | Some (SSEParseFailed { reason; raw }) ->
+     check
+       string
+       "unknown delta raw"
+       {|{"index":0,"delta":{"type":"future_delta","value":"ignored"}}|}
+       raw;
+     check
+       bool
+       "unknown delta reason"
+       true
+       (String.starts_with
+          ~prefix:"type_error: unsupported content_block_delta type: future_delta"
+          reason)
+   | _ -> fail "unknown delta type should fail closed");
   (match
      S.parse_sse_event
        (Some "message_delta")

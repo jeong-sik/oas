@@ -67,20 +67,52 @@ let phase_of_usage_ratio (ratio : float) : compression_phase =
   else Emergency
 ;;
 
-let strategies_for_phase ?(summarizer = default_summarizer) (phase : compression_phase)
+let strategies_for_phase
+      ?(preserve_thinking = false)
+      ?(summarizer = default_summarizer)
+      (phase : compression_phase)
   : Context_reducer.strategy list
   =
-  match phase with
-  | Full -> []
-  | Compact -> [ Prune_tool_outputs { max_output_len = 500 } ]
-  | Aggressive ->
-    [ Prune_tool_outputs { max_output_len = 200 }; Drop_thinking; Merge_contiguous ]
-  | Emergency ->
-    [ Summarize_old { keep_recent = 4; summarizer }
-    ; Prune_tool_outputs { max_output_len = 100 }
-    ; Drop_thinking
-    ; Merge_contiguous
-    ]
+  let strategies =
+    match phase with
+    | Full -> []
+    | Compact -> [ Context_reducer.Prune_tool_outputs { max_output_len = 500 } ]
+    | Aggressive ->
+      [ Context_reducer.Prune_tool_outputs { max_output_len = 200 }
+      ; Context_reducer.Drop_thinking
+      ; Context_reducer.Merge_contiguous
+      ]
+    | Emergency ->
+      [ Context_reducer.Summarize_old { keep_recent = 4; summarizer }
+      ; Context_reducer.Prune_tool_outputs { max_output_len = 100 }
+      ; Context_reducer.Drop_thinking
+      ; Context_reducer.Merge_contiguous
+      ]
+  in
+  if preserve_thinking
+  then
+    List.filter
+      (function
+        | Context_reducer.Drop_thinking | Context_reducer.Summarize_old _ -> false
+        | Context_reducer.Keep_last_n _
+        | Context_reducer.Token_budget _
+        | Context_reducer.Prune_tool_outputs _
+        | Context_reducer.Prune_tool_args _
+        | Context_reducer.Repair_dangling_tool_calls
+        | Context_reducer.Repair_orphaned_tool_results
+        | Context_reducer.Merge_contiguous
+        | Context_reducer.Keep_first_and_last _
+        | Context_reducer.Prune_by_role _
+        | Context_reducer.Clear_tool_results _
+        | Context_reducer.Stub_tool_results _
+        | Context_reducer.Cap_message_tokens _
+        | Context_reducer.Cache_alignment _
+        | Context_reducer.Relocate_tool_results _
+        | Context_reducer.Compose _
+        | Context_reducer.Custom _
+        | Context_reducer.Dynamic _ -> true)
+      strategies
+  else strategies
 ;;
 
 type context_metrics =
@@ -105,14 +137,19 @@ let context_metrics ~estimated_tokens ~context_window =
   }
 ;;
 
-let reduce_for_budget ?(summarizer = default_summarizer) ~usage_ratio ~messages ()
+let reduce_for_budget
+      ?(preserve_thinking = false)
+      ?(summarizer = default_summarizer)
+      ~usage_ratio
+      ~messages
+      ()
   : message list
   =
   let phase = phase_of_usage_ratio usage_ratio in
-  let strategies = strategies_for_phase ~summarizer phase in
+  let strategies = strategies_for_phase ~preserve_thinking ~summarizer phase in
   match strategies with
   | [] -> messages
   | _ ->
-    let reducer = { Context_reducer.strategy = Compose strategies } in
+    let reducer = { Context_reducer.strategy = Context_reducer.Compose strategies } in
     Context_reducer.reduce reducer messages
 ;;

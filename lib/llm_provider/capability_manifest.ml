@@ -9,12 +9,16 @@ type entry =
   ; max_output_tokens : int option
   ; supports_tools : bool option
   ; supports_tool_choice : bool option
+  ; supports_required_tool_choice : bool option
   ; supports_named_tool_choice : bool option
   ; supports_parallel_tool_calls : bool option
   ; assistant_tool_content_format : string option
   ; supports_reasoning : bool option
   ; supports_extended_thinking : bool option
   ; supports_reasoning_budget : bool option
+  ; accepted_reasoning_efforts : string list option
+    (** Optional subset of canonical reasoning effort values this model accepts
+        (none / minimal / low / medium / high / xhigh). *)
   ; supports_response_format_json : bool option
   ; supports_structured_output : bool option
   ; supports_multimodal_inputs : bool option
@@ -119,6 +123,32 @@ let member_string_closed key json =
     Error (Printf.sprintf "entry field %S expected string, got %s" key (json_kind actual))
 ;;
 
+let member_string_list key json =
+  match Yojson.Safe.Util.member key json with
+  | `List values ->
+    let strings, invalid =
+      List.fold_right
+        (fun value (strings, invalid) ->
+           match value with
+           | `String s -> s :: strings, invalid
+           | other -> strings, json_kind other :: invalid)
+        values
+        ([], [])
+    in
+    (match invalid with
+     | [] -> Some strings
+     | kinds ->
+       Diag.warn
+         "capability_manifest"
+         "ignoring field %S: expected string array, got non-string item(s): %s"
+         key
+         (String.concat ", " kinds);
+       None)
+  | actual ->
+    warn_type_mismatch key ~expected:"string array" actual;
+    None
+;;
+
 let canonical_choice key ~allowed json =
   let open Result_syntax in
   let* value = member_string_closed key json in
@@ -137,6 +167,28 @@ let canonical_choice key ~allowed json =
            (String.concat ", " allowed))
 ;;
 
+let canonical_string_list key ~allowed json =
+  match member_string_list key json with
+  | None -> Ok None
+  | Some values ->
+    let unknown =
+      List.filter_map
+        (fun raw ->
+           let normalized = String.lowercase_ascii (String.trim raw) in
+           if List.mem normalized allowed then None else Some normalized)
+        values
+    in
+    (match unknown with
+     | [] -> Ok (Some values)
+     | values ->
+       Error
+         (Printf.sprintf
+            "entry field %S has unknown value(s) %s (canonical: %s)"
+            key
+            (String.concat ", " values)
+            (String.concat ", " allowed)))
+;;
+
 let known_manifest_keys = [ "_comment"; "schema_version"; "models" ]
 
 let known_entry_keys =
@@ -147,12 +199,14 @@ let known_entry_keys =
   ; "max_output_tokens"
   ; "supports_tools"
   ; "supports_tool_choice"
+  ; "supports_required_tool_choice"
   ; "supports_named_tool_choice"
   ; "supports_parallel_tool_calls"
   ; "assistant_tool_content_format"
   ; "supports_reasoning"
   ; "supports_extended_thinking"
   ; "supports_reasoning_budget"
+  ; "accepted_reasoning_efforts"
   ; "supports_response_format_json"
   ; "supports_structured_output"
   ; "supports_multimodal_inputs"
@@ -222,6 +276,12 @@ let parse_entry json =
       ~allowed:Capability_vocab.assistant_tool_content_format_values
       json
   in
+  let* accepted_reasoning_efforts =
+    canonical_string_list
+      "accepted_reasoning_efforts"
+      ~allowed:Reasoning_effort.all_wire_values
+      json
+  in
   Ok
     { id_prefix
     ; base_label
@@ -229,12 +289,14 @@ let parse_entry json =
     ; max_output_tokens = member_int "max_output_tokens" json
     ; supports_tools = member_bool "supports_tools" json
     ; supports_tool_choice = member_bool "supports_tool_choice" json
+    ; supports_required_tool_choice = member_bool "supports_required_tool_choice" json
     ; supports_named_tool_choice = member_bool "supports_named_tool_choice" json
     ; supports_parallel_tool_calls = member_bool "supports_parallel_tool_calls" json
     ; assistant_tool_content_format
     ; supports_reasoning = member_bool "supports_reasoning" json
     ; supports_extended_thinking = member_bool "supports_extended_thinking" json
     ; supports_reasoning_budget = member_bool "supports_reasoning_budget" json
+    ; accepted_reasoning_efforts
     ; supports_response_format_json = member_bool "supports_response_format_json" json
     ; supports_structured_output = member_bool "supports_structured_output" json
     ; supports_multimodal_inputs = member_bool "supports_multimodal_inputs" json

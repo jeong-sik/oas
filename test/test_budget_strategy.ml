@@ -152,6 +152,36 @@ let test_strategies_emergency_starts_with_summarize () =
   | _ -> Alcotest.fail "Emergency should start with Summarize_old"
 ;;
 
+let test_strategies_preserve_thinking_omits_erasing_steps () =
+  let strats =
+    Budget_strategy.strategies_for_phase ~preserve_thinking:true Budget_strategy.Emergency
+  in
+  let erases_thinking = function
+    | Context_reducer.Drop_thinking | Context_reducer.Summarize_old _ -> true
+    | Context_reducer.Keep_last_n _
+    | Context_reducer.Token_budget _
+    | Context_reducer.Prune_tool_outputs _
+    | Context_reducer.Prune_tool_args _
+    | Context_reducer.Repair_dangling_tool_calls
+    | Context_reducer.Repair_orphaned_tool_results
+    | Context_reducer.Merge_contiguous
+    | Context_reducer.Keep_first_and_last _
+    | Context_reducer.Prune_by_role _
+    | Context_reducer.Clear_tool_results _
+    | Context_reducer.Stub_tool_results _
+    | Context_reducer.Cap_message_tokens _
+    | Context_reducer.Cache_alignment _
+    | Context_reducer.Relocate_tool_results _
+    | Context_reducer.Compose _
+    | Context_reducer.Custom _
+    | Context_reducer.Dynamic _ -> false
+  in
+  Alcotest.(check bool)
+    "preserve_thinking removes erasing strategies"
+    false
+    (List.exists erases_thinking strats)
+;;
+
 (* --- reduce_for_budget --- *)
 
 let test_reduce_empty_messages () =
@@ -223,6 +253,52 @@ let test_reduce_aggressive_drops_thinking () =
   in
   (* Drop_thinking preserves last 2 messages, so thinking in earlier messages is dropped *)
   Alcotest.(check bool) "thinking dropped from old messages" false has_thinking
+;;
+
+let test_reduce_preserve_thinking_keeps_old_thinking () =
+  let msgs =
+    [ user_msg "turn1"
+    ; { Types.role = Assistant
+      ; content =
+          [ Types.Thinking { signature = None; content = "long thought" }
+          ; Types.Text "answer"
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ; user_msg "turn2"
+    ; asst_msg "response"
+    ]
+  in
+  let result =
+    Budget_strategy.reduce_for_budget
+      ~preserve_thinking:true
+      ~usage_ratio:0.9
+      ~messages:msgs
+      ()
+  in
+  let has_thinking =
+    List.exists
+      (fun (msg : Types.message) ->
+         List.exists
+           (function
+             | Types.Thinking { content = "long thought"; _ } -> true
+             | Types.Thinking _
+             | Types.Text _
+             | Types.RedactedThinking _
+             | Types.ToolUse _
+             | Types.ToolResult _
+             | Types.Image _
+             | Types.Document _
+             | Types.Audio _ -> false)
+           msg.content)
+      result
+  in
+  Alcotest.(check bool)
+    "preserve_thinking keeps old thinking under emergency compaction"
+    true
+    has_thinking
 ;;
 
 let test_reduce_emergency_summarizes () =
@@ -438,6 +514,10 @@ let () =
             "Emergency starts with Summarize"
             `Quick
             test_strategies_emergency_starts_with_summarize
+        ; Alcotest.test_case
+            "preserve_thinking omits erasing steps"
+            `Quick
+            test_strategies_preserve_thinking_omits_erasing_steps
         ] )
     ; ( "reduce_for_budget"
       , [ Alcotest.test_case "empty messages" `Quick test_reduce_empty_messages
@@ -450,6 +530,10 @@ let () =
             "Aggressive drops thinking"
             `Quick
             test_reduce_aggressive_drops_thinking
+        ; Alcotest.test_case
+            "preserve_thinking keeps old thinking"
+            `Quick
+            test_reduce_preserve_thinking_keeps_old_thinking
         ; Alcotest.test_case
             "Emergency summarizes"
             `Quick

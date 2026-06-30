@@ -62,14 +62,16 @@ let add_sampling_field dialect (config : Provider_config.t) field value body =
 (* ── Request building ──────────────────────────────────── *)
 
 let effective_tool_choice (config : Provider_config.t) =
-  match Provider_config.validate_tool_choice_request config with
-  | Error reason ->
-    invalid_arg (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
-  | Ok () ->
-    (match config.tool_choice with
-     | Some None_ -> None
-     | Some choice -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice)
-     | None -> None)
+  match config.kind, config.tool_choice with
+  | _, Some None_ | _, None -> None
+  | Provider_config.Glm, Some Any ->
+    Some (Backend_openai_serialize.tool_choice_to_openai_json Any)
+  | _, Some choice ->
+    (match Provider_config.validate_tool_choice_request config with
+     | Error reason ->
+       invalid_arg
+         (Printf.sprintf "Backend_openai_request.effective_tool_choice: %s" reason)
+     | Ok () -> Some (Backend_openai_serialize.tool_choice_to_openai_json choice))
 ;;
 
 let effective_tools (config : Provider_config.t) tools =
@@ -147,115 +149,6 @@ let is_zai_glm_request (config : Provider_config.t) =
 
 let zai_glm_preserve_thinking_request (config : Provider_config.t) =
   is_zai_glm_request config && Provider_config.glm_should_replay_reasoning config
-;;
-
-let normalized_reasoning_effort dialect (config : Provider_config.t) =
-  match
-    Provider_config.reasoning_effort_request_value_typed
-      ~enable_thinking:config.enable_thinking
-      ~thinking_budget:config.thinking_budget
-  with
-  | Some effort -> Reasoning_dialect.normalize_effort_value dialect effort
-  | None -> None
-;;
-
-let thinking_request_fields
-      ~is_glm_request
-      ~capabilities
-      dialect
-      (config : Provider_config.t)
-  =
-  let bool_field name = function
-    | Some value -> [ name, `Bool value ]
-    | None -> []
-  in
-  if not capabilities.Capabilities.supports_reasoning
-  then []
-  else (
-    match capabilities.thinking_control_format with
-    | Chat_template_kwargs ->
-      let fields =
-        bool_field "enable_thinking" config.enable_thinking
-        @ bool_field
-            "preserve_thinking"
-            (Reasoning_dialect.chat_template_kwargs_preserve_field
-               dialect
-               ~preserve_thinking:config.preserve_thinking)
-      in
-      (match fields with
-       | [] -> []
-       | fields -> [ "chat_template_kwargs", `Assoc fields ])
-    | Chat_template_token -> []
-    | Ollama_think -> []
-    | Enable_thinking ->
-      let enable_fields =
-        match config.enable_thinking with
-        | Some enabled -> [ "enable_thinking", `Bool enabled ]
-        | None -> []
-      in
-      let preserve_fields =
-        match
-          Reasoning_dialect.top_level_preserve_field
-            dialect
-            ~preserve_thinking:config.preserve_thinking
-        with
-        | Some preserve -> [ "preserve_thinking", `Bool preserve ]
-        | None -> []
-      in
-      let budget_fields =
-        match config.enable_thinking, config.thinking_budget with
-        | Some true, Some budget -> [ "thinking_budget", `Int budget ]
-        | _ -> []
-      in
-      budget_fields @ preserve_fields @ enable_fields
-    | Reasoning_effort ->
-      (match normalized_reasoning_effort dialect config with
-       | Some normalized -> [ "reasoning_effort", `String normalized ]
-       | None -> [])
-    | Thinking_object ->
-      (match config.enable_thinking with
-       | Some true ->
-         let effort_fields =
-           match normalized_reasoning_effort dialect config with
-           | Some normalized -> [ "reasoning_effort", `String normalized ]
-           | None -> []
-         in
-         ("thinking", `Assoc [ "type", `String "enabled" ]) :: effort_fields
-       | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
-       | None -> [])
-    | Thinking_object_only ->
-      let control =
-        Reasoning_dialect.thinking_object_only_control
-          dialect
-          ~enable_thinking:config.enable_thinking
-          ~preserve_thinking:config.preserve_thinking
-      in
-      let fields =
-        match control.enabled with
-        | Some enabled -> [ "type", `String (if enabled then "enabled" else "disabled") ]
-        | None -> []
-      in
-      let fields =
-        if control.keep_all then fields @ [ "keep", `String "all" ] else fields
-      in
-      (match fields with
-       | [] -> []
-       | fields -> [ "thinking", `Assoc fields ])
-    | No_thinking_control when is_glm_request ->
-      (match config.enable_thinking with
-       | Some enabled ->
-         let thinking =
-           if enabled
-           then
-             `Assoc
-               [ "type", `String "enabled"
-               ; "clear_thinking", `Bool (glm_clear_thinking_of_config config)
-               ]
-           else `Assoc [ "type", `String "disabled" ]
-         in
-         [ "thinking", thinking ]
-       | None -> [])
-    | No_thinking_control -> [])
 ;;
 
 (** Build Openai Chat Completions request body from {!Provider_config.t}.
@@ -376,11 +269,35 @@ let build_request_assoc
     | None -> body
   in
   let body =
-    thinking_request_fields
-      ~is_glm_request:(is_zai_glm_request config)
-      ~capabilities:caps
+    let zai_glm_clear_thinking =
+      match caps.thinking_control_format with
+      | No_thinking_control when is_zai_glm_request config ->
+        Some (glm_clear_thinking_of_config config)
+      | No_thinking_control
+      | Thinking_object
+      | Thinking_object_only
+      | Chat_template_kwargs
+      | Chat_template_token
+      | Ollama_think
+      | Reasoning_effort
+      | Enable_thinking -> None
+    in
+    (match Provider_config.validate_reasoning_effort_request config with
+     | Ok () -> ()
+     | Error reason ->
+       invalid_arg
+         (Printf.sprintf "Backend_openai_request.normalized_reasoning_effort: %s" reason));
+    Reasoning_dialect.request_control_fields
       dialect
-      config
+      ~enable_thinking:config.enable_thinking
+      ~preserve_thinking:config.preserve_thinking
+      ~thinking_budget:config.thinking_budget
+      ~reasoning_effort:
+        (Provider_config.reasoning_effort_request_value_typed
+           ~enable_thinking:config.enable_thinking
+           ~thinking_budget:config.thinking_budget)
+      ?zai_glm_clear_thinking
+      ()
     @ body
   in
   let supports_tool_choice =
@@ -389,10 +306,16 @@ let build_request_assoc
     | None -> caps.supports_tool_choice
   in
   let body =
-    match effective_tool_choice config with
-    | Some choice_json when supports_tool_choice -> ("tool_choice", choice_json) :: body
-    | None -> body
-    | Some _ -> body
+    match config.tool_choice with
+    | Some (Any | Tool _) ->
+      (match effective_tool_choice config with
+       | Some choice_json -> ("tool_choice", choice_json) :: body
+       | None -> body)
+    | _ when supports_tool_choice ->
+      (match effective_tool_choice config with
+       | Some choice_json -> ("tool_choice", choice_json) :: body
+       | None -> body)
+    | _ -> body
   in
   let body =
     match tools with

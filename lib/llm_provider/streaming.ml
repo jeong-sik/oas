@@ -71,8 +71,9 @@ let parse_sse_event event_type data_str =
         | "input_json_delta" ->
           InputJsonDelta (delta_json |> member "partial_json" |> to_string)
         | unknown_delta_type ->
-          let (_ : string) = unknown_delta_type in
-          TextDelta ""
+          raise
+            (Yojson.Safe.Util.Type_error
+               ("unsupported content_block_delta type: " ^ unknown_delta_type, delta_json))
       in
       Some (ContentBlockDelta { index; delta })
     | "content_block_stop" ->

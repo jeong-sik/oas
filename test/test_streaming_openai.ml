@@ -759,6 +759,72 @@ let test_responses_stream_hidden_reasoning_before_tool () =
   | _ -> Alcotest.fail "expected hidden reasoning carrier before terminal"
 ;;
 
+let test_responses_stream_interleaved_reasoning_tool_text_finalizes () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let state =
+    S.create_openai_stream_state ~provider:"openai_compat" ~model:"gpt-5.5" ()
+  in
+  let acc = Acc.create_stream_acc () in
+  let feed evt_type data =
+    let events, _ = S.responses_sse_to_events state (Some evt_type) data in
+    List.iter (Acc.accumulate_event acc) events
+  in
+  feed
+    "response.created"
+    {|{"type":"response.created","response":{"id":"resp_1","model":"gpt-5.5","status":"in_progress","usage":null}}|};
+  feed
+    "response.reasoning_summary_text.delta"
+    {|{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"Need "}|};
+  feed
+    "response.output_item.added"
+    {|{"type":"response.output_item.added","output_index":1,"item":{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":""}}|};
+  feed
+    "response.function_call_arguments.delta"
+    {|{"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","delta":"{\"q\":"}|};
+  feed
+    "response.output_text.delta"
+    {|{"type":"response.output_text.delta","output_index":2,"delta":"visible"}|};
+  feed
+    "response.reasoning_summary_text.delta"
+    {|{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","output_index":0,"summary_index":0,"delta":"lookup."}|};
+  feed
+    "response.function_call_arguments.delta"
+    {|{"type":"response.function_call_arguments.delta","output_index":1,"item_id":"fc_1","delta":"\"weather\"}"}|};
+  feed
+    "response.completed"
+    {|{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.5","status":"completed","output":[{"id":"rs_1","type":"reasoning","summary":[{"type":"summary_text","text":"Need lookup."}],"encrypted_content":"enc_reasoning_1"},{"id":"fc_1","type":"function_call","call_id":"call_lookup","name":"lookup","arguments":"{\"q\":\"weather\"}"},{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"visible"}]}],"usage":{"input_tokens":12,"output_tokens":8,"input_tokens_details":{"cached_tokens":2}}}}|};
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected finalized Responses interleaved stream"
+  | Ok response ->
+    Alcotest.(check string) "id" "resp_1" response.id;
+    Alcotest.(check string) "model" "gpt-5.5" response.model;
+    Alcotest.(check bool) "stop reason" true (response.stop_reason = StopToolUse);
+    (match response.content with
+     | [ RedactedThinking raw_reasoning
+       ; ToolUse { id = "call_lookup"; name = "lookup"; input }
+       ; Text "visible"
+       ] ->
+       let reasoning = Yojson.Safe.from_string raw_reasoning in
+       Alcotest.(check string)
+         "reasoning type"
+         "reasoning"
+         (Yojson.Safe.Util.member "type" reasoning |> Yojson.Safe.Util.to_string);
+       Alcotest.(check string)
+         "encrypted reasoning"
+         "enc_reasoning_1"
+         (Yojson.Safe.Util.member "encrypted_content" reasoning
+          |> Yojson.Safe.Util.to_string);
+       Alcotest.(check bool) "tool args" true (input = `Assoc [ "q", `String "weather" ])
+     | _ ->
+       Alcotest.fail "expected reasoning carrier, tool use, and visible text separated");
+    (match response.usage with
+     | Some usage ->
+       Alcotest.(check int) "input tokens" 12 usage.input_tokens;
+       Alcotest.(check int) "output tokens" 8 usage.output_tokens;
+       Alcotest.(check int) "cache read" 2 usage.cache_read_input_tokens
+     | None -> Alcotest.fail "expected terminal usage")
+;;
+
 (* Regression for the Codex P2 streaming follow-up (#2073): a Responses stream
    that emits a [function_call] whose arguments even parse as JSON, then
    terminates with [response.incomplete] (max_output_tokens), must finalize as
@@ -936,6 +1002,46 @@ let test_stream_tool_args_valid_parsed () =
      | _ -> Alcotest.fail "expected a single ToolUse block")
 ;;
 
+let parse_ollama_line_exn data =
+  match S.parse_ollama_ndjson_chunk data with
+  | Some chunk -> chunk
+  | None -> Alcotest.fail "expected Ollama NDJSON stream chunk"
+;;
+
+let test_ollama_native_interleaved_thinking_tool_text_finalizes () =
+  let module Acc = Llm_provider.Complete_stream_acc in
+  let state = S.create_openai_stream_state ~provider:"ollama" ~model:"qwen3.5:397b" () in
+  let acc = Acc.create_stream_acc () in
+  let feed line =
+    let chunk = parse_ollama_line_exn line in
+    let events, _ = S.ollama_chunk_to_events state chunk in
+    List.iter (Acc.accumulate_event acc) events
+  in
+  feed
+    {|{"model":"qwen3.5:397b","message":{"role":"assistant","thinking":"plan-"},"done":false}|};
+  feed
+    {|{"model":"qwen3.5:397b","message":{"role":"assistant","content":"visible"},"done":false}|};
+  feed
+    {|{"model":"qwen3.5:397b","message":{"role":"assistant","thinking":"done","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":{"city":"Seoul"}}}]},"done":true,"done_reason":"tool_calls","prompt_eval_count":13,"eval_count":8}|};
+  match Acc.finalize_stream_acc acc with
+  | Error _ -> Alcotest.fail "expected finalized Ollama native stream"
+  | Ok result ->
+    Alcotest.(check bool) "stop reason" true (result.stop_reason = StopToolUse);
+    (match result.usage with
+     | Some usage ->
+       Alcotest.(check int) "input tokens" 13 usage.input_tokens;
+       Alcotest.(check int) "output tokens" 8 usage.output_tokens
+     | None -> Alcotest.fail "expected done-line usage");
+    (match result.content with
+     | [ Thinking { content = "plan-done"; _ }
+       ; Text "visible"
+       ; ToolUse { id = "call_1"; name = "lookup"; input }
+       ] ->
+       Alcotest.(check bool) "tool args" true (input = `Assoc [ "city", `String "Seoul" ])
+     | _ ->
+       Alcotest.fail "expected thinking, visible text, and tool use to stay separated")
+;;
+
 let () =
   let open Alcotest in
   run
@@ -990,6 +1096,10 @@ let () =
             `Quick
             test_responses_stream_hidden_reasoning_before_tool
         ; test_case
+            "interleaved reasoning/tool/text finalizes"
+            `Quick
+            test_responses_stream_interleaved_reasoning_tool_text_finalizes
+        ; test_case
             "incomplete drops partial tool (#2073)"
             `Quick
             test_responses_stream_incomplete_drops_partial_tool
@@ -1011,6 +1121,12 @@ let () =
             "valid args -> parsed verbatim"
             `Quick
             test_stream_tool_args_valid_parsed
+        ] )
+    ; ( "ollama_ndjson_to_events"
+      , [ test_case
+            "native interleaved thinking/tool/text finalizes"
+            `Quick
+            test_ollama_native_interleaved_thinking_tool_text_finalizes
         ] )
     ]
 ;;

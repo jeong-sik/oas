@@ -190,6 +190,12 @@ val relocate_tool_results : state:Content_replacement_state.t -> keep_recent:int
 val compose : t list -> t
 val custom : (message list -> message list) -> t
 
+(** Return an equivalent reducer with implicit [Drop_thinking] steps removed.
+    This is used when the agent/provider config explicitly requests historical
+    thinking preservation; callers keep the same repair/windowing policy without
+    silently deleting reasoning blocks from retained messages. *)
+val preserve_thinking : t -> t
+
 val importance_scored
   :  ?threshold:float
   -> ?boost:importance_boost

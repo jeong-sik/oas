@@ -311,13 +311,29 @@ let build_request
   in
   let dialect = Reasoning_dialect.for_provider_config config in
   let reasoning_effort =
-    Backend_openai_request.normalized_reasoning_effort dialect config
+    (match Provider_config.validate_reasoning_effort_request config with
+     | Ok () -> ()
+     | Error reason ->
+       invalid_arg (Printf.sprintf "Backend_openai_responses.reasoning_effort: %s" reason));
+    match
+      Provider_config.reasoning_effort_request_value_typed
+        ~enable_thinking:config.enable_thinking
+        ~thinking_budget:config.thinking_budget
+    with
+    | Some effort -> Reasoning_dialect.normalize_effort_value dialect effort
+    | None -> None
   in
   let body =
     [ "model", `String config.model_id
     ; "input", `List (List.concat_map input_items_of_message sanitized_messages)
     ; "max_output_tokens", `Int (effective_max_output_tokens config)
     ]
+  in
+  let body =
+    match config.previous_response_id with
+    | Some id when not (Api_common.string_is_blank id) ->
+      ("previous_response_id", `String id) :: body
+    | Some _ | None -> body
   in
   let body =
     match config.system_prompt with

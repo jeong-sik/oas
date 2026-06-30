@@ -129,7 +129,7 @@ open backlog items.
 | P1 | **Anthropic `thinking.display`** | never emitted | audit artifact reports default `omitted`/`summarized` drift; official source capture required before implementation | S8.3 |
 | P1 | **Anthropic tool_choice vs thinking** | forced tool_choice unguarded | `any`/`{tool,name}` ⇒ 400 when thinking active | S5.1 |
 | P1 | **OpenAI `reasoning_effort` enum** | `Minimal\|Low\|Medium\|High\|XHigh`, no `None` | official docs say accepted values are model-dependent and can include `none`, `minimal`, `low`, `medium`, `high`, `xhigh`; OAS needs vocabulary + model subset, not one provider-wide enum | S2.3 |
-| P1 | **OpenAI replay policy** | "No mandatory replay yet" | reasoning items MUST replay with tool-call outputs (Responses) or `previous_response_id` | S3.2 |
+| P1 | **OpenAI replay policy** | Responses `previous_response_id`, encrypted reasoning-item replay, `function_call`, and `function_call_output` manual replay are implemented; Chat Completions vs Responses matrix remains incomplete | reasoning items MUST replay with tool-call outputs (Responses) or `previous_response_id` | S3.2 |
 | P2 | Gemini `thoughtSignature` | "soft preserve", summaries/signatures conflated | hard 400 if not echoed; parallel = first part only; signatures ≠ summaries | S3.2, S6.5 |
 | P2 | Gemini `thinkingLevel` matrix | `supports_minimal:bool` only | low/medium/high; medium absent on gemini-3-pro; minimal Flash-only | S1.3 |
 | P2 | Qwen DashScope `preserve_thinking` scope | applied to all DashScope | audit artifact says allowlist-only; official source capture required before implementation | S1.2 |
@@ -169,7 +169,7 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 3. **content_type stream-boundary policy completion (D3-finalize, P1, partial)** — GLM과 독립, streaming blast radius 최대. Current branch ancestry already converts the wire `content_type` to `block_kind`, handles `Unknown_block` explicitly, and routes `SSEUnknownEventType`/parse failures to typed stream errors. Remaining work is narrower: decide and test the final parse/finalize policy for unknown content-block kinds that currently preserve visible text or omit empty blocks, and make that boundary fail closed if S6.1 chooses fail-closed over forward-compatible rendering.
 
 ### 다음 (배포/사용 surface의 정합성 drift)
-4. OpenAI enum + replay drift (P1×2) — `none`/`minimal`/`xhigh` 등을 model-dependent vocabulary/subset으로 분리하고 tool-turn mandatory replay를 모델링. GPT-5.5 multi-turn tool loop에 현재 영향.
+4. OpenAI phase/replay matrix residual (P1/P2) — `none`/`minimal`/`xhigh` model-dependent vocabulary/subset, Responses `previous_response_id`, encrypted reasoning-item replay, and `function_call_output` manual replay are implemented in current branch ancestry. Remaining work is narrower: Chat Completions vs Responses replay-mode matrix, strict `json_schema` catalog facts, and `phase:commentary/final_answer` stateless replay modeling.
 5. Anthropic thinking drift + `tool_choice`-400 (P1×2) — forced tool + thinking hard-400 is verified; `thinking.display` visibility drift needs official source refresh before code changes.
 6. MiniMax replay/tool-choice evidence + catalog field fix (P1) — catalog rows already exist; do not add a duplicate provider. First capture official/live evidence, then update the existing capability/replay rows instead of relying on `No_replay` defaults that can silently break interleaved thinking.
 7. 중복 stream accumulator 제거 (D4, P2) — 삭제 후 `Complete_stream_acc`로 라우팅; RFC/removal target 없는 자체 WORKAROUND 라벨(상시 프로세스 위반).

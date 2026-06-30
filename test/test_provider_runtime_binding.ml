@@ -200,9 +200,32 @@ let test_capabilities_for_provider_config_honors_override () =
     let caps = Provider_runtime_binding.capabilities_for_provider_config cfg in
     Alcotest.(check bool) "override disables tool choice" false caps.supports_tool_choice;
     Alcotest.(check bool)
+      "override disables required tool choice"
+      false
+      caps.supports_required_tool_choice;
+    Alcotest.(check bool)
       "override disables named tool choice"
       false
       caps.supports_named_tool_choice)
+;;
+
+let test_catalog_structured_output_capability_projects_to_provider_config () =
+  with_provider_catalog catalog_json (fun () ->
+    let binding = expect_binding "subscriber-local" in
+    let cfg =
+      Provider_runtime_binding.to_provider_config ~model:"qwen/qwen3.6-35b-a3b" binding
+    in
+    let schema = `Assoc [ "type", `String "object" ] in
+    let cfg =
+      { cfg with
+        Llm_provider.Provider_config.response_format = Types.JsonSchema schema
+      ; output_schema = Some schema
+      }
+    in
+    Alcotest.(check bool)
+      "catalog endpoint accepts declared structured output"
+      true
+      (Result.is_ok (Llm_provider.Provider_config.validate_output_schema_request cfg)))
 ;;
 
 let test_capabilities_for_provider_config_uses_provider_qualified_model_catalog () =
@@ -268,28 +291,23 @@ let expect_named_tool_choice_rejected label cfg =
   match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
   | Error (Llm_provider.Provider_config.Unsupported_named_tool_choice { tool_name; _ }) ->
     Alcotest.(check string) (label ^ " tool") "calc" tool_name
-  | Ok () -> Alcotest.failf "%s unexpectedly accepted named forced tool_choice" label
   | Error rejection ->
     Alcotest.failf
-      "%s expected named forced tool_choice rejection, got: %s"
+      "%s rejected named forced tool_choice with unexpected reason: %s"
       label
       (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
+  | Ok () -> Alcotest.failf "%s unexpectedly accepted named forced tool_choice" label
 ;;
 
-let expect_forced_tool_choice_rejected label expected cfg =
+let expect_required_tool_choice_rejected label cfg =
   match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
-  | Error (Llm_provider.Provider_config.Unsupported_forced_tool_choice { requested; _ })
-    ->
-    Alcotest.(check string)
-      (label ^ " requested")
-      (Types.show_tool_choice expected)
-      (Types.show_tool_choice requested)
-  | Ok () -> Alcotest.failf "%s unexpectedly accepted forced tool_choice" label
+  | Error (Llm_provider.Provider_config.Unsupported_required_tool_choice _) -> ()
   | Error rejection ->
     Alcotest.failf
-      "%s expected forced tool_choice rejection, got: %s"
+      "%s rejected required forced tool_choice with unexpected reason: %s"
       label
       (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
+  | Ok () -> Alcotest.failf "%s unexpectedly accepted required forced tool_choice" label
 ;;
 
 let request_tool_choice_field cfg =
@@ -340,6 +358,7 @@ id_prefix = "claude-opus-4-6"
 base = "anthropic"
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = true
 supports_named_tool_choice = true
 
 [[models]]
@@ -347,6 +366,7 @@ id_prefix = "glm-5.1"
 base = "glm"
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 
 [[models]]
@@ -354,6 +374,7 @@ id_prefix = "minimax-m3"
 base = "openai_chat"
 supports_tools = true
 supports_tool_choice = true
+supports_required_tool_choice = true
 supports_named_tool_choice = true
 
 [[models]]
@@ -361,6 +382,7 @@ id_prefix = "ollama_cloud/minimax-m3"
 base = "ollama_cloud"
 supports_tools = true
 supports_tool_choice = false
+supports_required_tool_choice = false
 supports_named_tool_choice = false
 |}
     (fun () ->
@@ -411,10 +433,7 @@ supports_named_tool_choice = false
            ~tool_choice:named
            ()
        in
-       expect_forced_tool_choice_rejected
-         "ollama cloud minimax named"
-         named
-         hosted_minimax_named;
+       expect_named_tool_choice_rejected "ollama cloud minimax named" hosted_minimax_named;
        let hosted_minimax_any =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -424,10 +443,7 @@ supports_named_tool_choice = false
            ~tool_choice:Types.Any
            ()
        in
-       expect_forced_tool_choice_rejected
-         "ollama cloud minimax any"
-         Types.Any
-         hosted_minimax_any)
+       expect_required_tool_choice_rejected "ollama cloud minimax any" hosted_minimax_any)
 ;;
 
 let test_all_includes_catalog_entry_once () =
@@ -602,6 +618,10 @@ let () =
             "capabilities honor tool_choice override"
             `Quick
             test_capabilities_for_provider_config_honors_override
+        ; Alcotest.test_case
+            "structured output projects to provider config"
+            `Quick
+            test_catalog_structured_output_capability_projects_to_provider_config
         ; Alcotest.test_case
             "provider-qualified model catalog capabilities"
             `Quick

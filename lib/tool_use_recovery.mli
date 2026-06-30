@@ -2,8 +2,9 @@
     provider emits tool-call intent as text instead of a proper ToolUse
     block.
 
-    This fallback only promotes an exact, unambiguous JSON object. It may strip
-    a Markdown code fence wrapper, but it does not repair malformed JSON.
+    This fallback only promotes an exact, unambiguous JSON object that spans
+    the whole text. It may strip a Markdown code fence wrapper, but it does not
+    scrape surrounding prose or repair malformed JSON.
 
     @since 0.136.0 *)
 
@@ -15,8 +16,9 @@ open Types
 val find_json_object : string -> (int * int) option
 
 (** Try to parse a JSON object from a string. Strips Markdown fences, requires
-    exactly one balanced object, and parses it strictly. Returns [None] when the
-    text has no object, multiple object candidates, or malformed JSON. *)
+    exactly one balanced object that spans the whole text, and parses it
+    strictly. Returns [None] when the text has no object, surrounding prose,
+    multiple object candidates, or malformed JSON. *)
 val try_parse_json_object : string -> Yojson.Safe.t option
 
 (** Match a JSON value against known tool-call shapes and extract

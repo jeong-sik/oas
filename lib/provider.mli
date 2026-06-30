@@ -87,6 +87,7 @@ type capabilities =
   ; max_output_tokens : int option
   ; supports_tools : bool
   ; supports_tool_choice : bool
+  ; supports_required_tool_choice : bool
   ; supports_named_tool_choice : bool
   ; supports_parallel_tool_calls : bool
   ; supports_runtime_mcp_tools : bool
@@ -95,6 +96,7 @@ type capabilities =
   ; supports_reasoning : bool
   ; supports_extended_thinking : bool
   ; supports_reasoning_budget : bool
+  ; accepted_reasoning_efforts : Llm_provider.Reasoning_effort.t list option
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_replay_override : reasoning_replay_override
