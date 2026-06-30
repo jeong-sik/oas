@@ -516,39 +516,26 @@ let telemetry_of_response_json json =
     None
 ;;
 
+let response_status json = opt_bind (json_assoc_opt "status" json) json_string_opt
+
+let response_incomplete_reason json =
+  match json_assoc_opt "incomplete_details" json with
+  | Some details -> opt_bind (json_assoc_opt "reason" details) json_string_opt
+  | None -> None
+;;
+
+let response_failed_message json =
+  match json_assoc_opt "error" json with
+  | Some error -> opt_bind (json_assoc_opt "message" error) json_string_opt
+  | None -> None
+;;
+
 let stop_reason_of_response_json ~has_tool_calls json =
-  let status =
-    opt_bind (json_assoc_opt "status" json) json_string_opt |> Option.value ~default:""
-  in
-  (* A terminal [incomplete]/[failed] response status wins over tool-use
-     detection: a Responses result can carry a [function_call] item while the
-     generation was actually cut off (status="incomplete", e.g. max output
-     tokens). Returning [StopToolUse] there would execute partial/invalid tool
-     arguments instead of surfacing MaxTokens/an incomplete response. So we
-     match the cut-off statuses first, then fall back to tool-use, then the
-     normal completion path. (Codex P2, #2048.) *)
-  match String.lowercase_ascii status with
-  | "incomplete" ->
-    let reason =
-      match json_assoc_opt "incomplete_details" json with
-      | Some details ->
-        opt_bind (json_assoc_opt "reason" details) json_string_opt
-        |> Option.value ~default:"incomplete"
-      | None -> "incomplete"
-    in
-    if String.equal reason "max_output_tokens" then MaxTokens else Unknown reason
-  | "failed" ->
-    (match
-       match json_assoc_opt "error" json with
-       | Some error -> json_assoc_opt "message" error
-       | None -> None
-     with
-     | Some (`String message) -> Unknown message
-     | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
-       -> Unknown status)
-  | _ when has_tool_calls -> StopToolUse
-  | "completed" | "" -> EndTurn
-  | other -> Unknown other
+  Responses_stop_reason.of_status
+    ~status:(response_status json)
+    ~incomplete_reason:(response_incomplete_reason json)
+    ~failed_message:(response_failed_message json)
+    ~has_tool_calls
 ;;
 
 let parse_response_result json_str =
