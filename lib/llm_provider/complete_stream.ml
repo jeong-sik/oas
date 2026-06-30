@@ -35,8 +35,8 @@ let record_streaming_metrics (metrics : Metrics.t) = function
    [complete_common] already applies to provider error bodies -- before it
    reaches the operator-facing message. Redaction runs first so truncation
    cannot split a token past the redactor and leak a partial; the bound then
-   keeps a large buffer from bloating the keeper log. [%S] at the call site
-   escapes embedded quotes/newlines. *)
+   keeps a large buffer from bloating the operator-facing diagnostic log. [%S] at
+   the call site escapes embedded quotes/newlines. *)
 let max_parse_error_raw_excerpt = 256
 
 let parse_error_raw_excerpt raw =
@@ -73,8 +73,8 @@ let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_er
            | "" -> Printf.sprintf "SSE parse failed: %s" reason
            | raw ->
              (* Echo the offending buffer (bounded) so a rare, provider-specific
-                malformed wire is diagnosable from the keeper log instead of
-                discarded at the carrier boundary. *)
+                malformed wire is diagnosable from the operator-facing
+                diagnostic log instead of discarded at the carrier boundary. *)
              Printf.sprintf
                "SSE parse failed: %s raw=%S"
                reason
@@ -160,7 +160,7 @@ let%test "stream parse failure stays provider parse failure" =
 ;;
 
 let%test "parse failure echoes the offending raw buffer for diagnosis" =
-  (* The malformed tool-arg buffer must reach the keeper-visible message so a
+  (* The malformed tool-arg buffer must reach the operator-facing message so a
      rare, provider-specific malformed wire is debuggable instead of discarded
      at the carrier boundary. *)
   let reason = "malformed_tool_use_arguments:index:1:bad" in
