@@ -266,6 +266,7 @@ let test_prepare_messages_preserve_thinking_keeps_default_reducer_thinking () =
           | Types.ToolResult _
           | Types.Image _
           | Types.Document _
+          | Types.ReasoningDetails _
           | Types.Audio _ -> false)
         content
     in
