@@ -35,6 +35,19 @@ This RFC separates the two concerns and specifies fixes for each, both inside OA
 
 Version note: the live keeper runs the pinned `agent_sdk` (≤ v0.208.7); the fix targets the working tree (v0.208.8+). The replay logic is equivalent across both for the keeper config.
 
+### 1a. Live probe — `glm-coding` / `glm-5-turbo` (2026-06-30)
+
+Direct probes against `https://api.z.ai/api/coding/paas/v4/chat/completions` (model `glm-5-turbo`, `thinking={type:enabled, clear_thinking:false}`) confirm the I/O contract OAS implements:
+
+| Probe | Request | Observed | OAS mapping confirmed |
+|---|---|---|---|
+| 1 (tool turn) | user + 1 tool | `finish_reason=tool_calls`; `reasoning_content` present (115 chars); `content=""`; one `tool_calls` with stable `id` and complete-string `arguments` `{"city":"Seoul"}` | OUTPUT parse: reasoning→`Thinking`, empty content→no `Text` block, stable-id keying. Matches. |
+| 2 (replay) | user + assistant(`content:""` + replayed `reasoning_content` + `tool_calls`) + tool result, `clear_thinking:false` | Server **accepts** the replayed assistant shape (no 400); `finish_reason=stop`; final text answer; `tool_calls=0` (converges) | INPUT serialize: the exact `dialect_messages_of_message` wire shape (empty-string tool content + `reasoning_content` + `tool_calls`) is accepted and the model converges. Matches. |
+
+Conclusion: OAS's GLM multi-turn Thinking+Tools+Reasoning I/O is correct against the live server. A resolvable two-turn tool exchange converges to `stop` naturally — so the observed keeper loop is not an I/O defect but a task-blocked scenario (the keeper's task was environment-blocked) plus the missing convergence guard of §3.
+
+Evidence/currency: official Z.AI docs captured 2026-06-30 (thinking-mode guide + chat-completion API reference, the §5 authority); confidence High.
+
 ## 2. Fix 1 — typed reasoning replay (this PR)
 
 RFC-OAS-029 S3.1 requires that "does this provider replay reasoning?" is answered only by `should_replay_reasoning` via `replay_policy`, and that the serializer not branch on `config.kind=Glm`/`is_glm_request`.
@@ -58,9 +71,12 @@ Proposed OAS-canonical mechanism (design, not yet implemented):
 - **LLM-bounded, not heuristic.** Whether the loop should converge is decided by the model itself (the forced-final turn) or an LLM judge, never by a similarity score on tool arguments. The `Exact`-fingerprint idle guard stays as a cheap exact-repeat backstop only.
 - **No silent expiry.** `No_visible_reply` after the forced-final turn is surfaced as a typed outcome with the gathered tool context attached, not a blank render.
 
-Open questions requiring evidence before implementation:
-- Z.AI Preserved-Thinking replay scope: does GLM expect *all* historical reasoning replayed (`Preserve_always`) or only within the active tool sequence (`Drop_without_tool_preserve_with_tool`, as DeepSeek/Gemini)? If the latter, the re-priming driver shrinks and the replay_policy for GLM should change. Needs an official-doc capture and a live `glm-coding` probe (RFC-OAS-029 §3c lists the Z.AI API reference as the authority).
-- Whether the forced-final turn belongs in the OAS agent loop policy (canonical) or is exposed as a typed capability MASC drives. Boundary preference: the loop is OAS-owned, so the mechanism is OAS-canonical and MASC observes the typed outcome.
+Resolved (was an open question):
+- **Z.AI Preserved-Thinking replay scope — `Preserve_always` is correct.** The chat-completion API reference states `clear_thinking` default `true` "removes `reasoning_content` from prior turns" and `false` "retains `reasoning_content` from prior turns"; the thinking-mode guide requires "All consecutive reasoning_content blocks must exactly match the original sequence" (all preserved history, not just the active sequence). So GLM's replay is correctly clear_thinking-conditional, and when on it preserves the full history (`Preserve_always`), not `Drop_without_tool_preserve_with_tool`. Live probe 2 confirms the full-history replay shape is accepted and converges. The Fix 1 dialect resolution therefore uses `Preserve_always`.
+- Note: byte-exact replay is contractually required ("Do not reorder or edit"). GLM returns a single `reasoning_content` string, which OAS parses into one `Thinking` block and replays verbatim (sanitize is identity for clean UTF-8, no multi-block concat), so byte-exactness holds for GLM in practice. The sanitize/concat path remains a latent strictness risk for multi-block or non-UTF-8 reasoning (RFC-OAS-029 D1-replay note, low).
+
+Open question:
+- Whether the forced-final convergence turn belongs in the OAS agent loop policy (canonical) or is exposed as a typed capability MASC drives. Boundary preference: the loop is OAS-owned, so the mechanism is OAS-canonical and MASC observes the typed outcome.
 
 ## 4. Tests
 
