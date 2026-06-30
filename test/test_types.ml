@@ -763,6 +763,33 @@ let test_text_of_content_tool_result () =
     (Types.text_of_content content)
 ;;
 
+let test_visible_text_of_content_excludes_non_answer_blocks () =
+  let content =
+    [ Types.Text "answer"
+    ; Types.Thinking { signature = Some "sig"; content = "private reasoning" }
+    ; Types.RedactedThinking "opaque"
+    ; Types.ToolUse { id = "tu1"; name = "search"; input = `Assoc [] }
+    ; Types.ToolResult
+        { tool_use_id = "tu1"
+        ; content = "tool payload"
+        ; is_error = false
+        ; json = Some (`Assoc [ "ok", `Bool true ])
+        ; content_blocks = Some [ Types.Text "structured tool payload" ]
+        }
+    ; Types.Image { media_type = "image/png"; data = "bytes"; source_type = Types.Base64 }
+    ; Types.Document
+        { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
+    ; Types.Audio
+        { media_type = "audio/mpeg"; data = "audio"; source_type = Types.Base64 }
+    ; Types.Text "tail"
+    ]
+  in
+  Alcotest.(check string)
+    "visible text"
+    "answer\ntail"
+    (Types.visible_text_of_content content)
+;;
+
 let test_text_of_content_empty () =
   Alcotest.(check string) "empty" "" (Types.text_of_content [])
 ;;
@@ -811,6 +838,10 @@ let test_text_of_response_and_usage_helpers () =
     "response text"
     "hello\ntool text"
     (Types.text_of_response response);
+  Alcotest.(check string)
+    "visible response text excludes tool result and thinking"
+    "hello"
+    (Types.visible_text_of_response response);
   Alcotest.(check (option int))
     "usage"
     (Some 1)
@@ -963,9 +994,7 @@ let summary_contains ~needle response =
 
 let test_response_shape_thinking_only_is_not_deliverable () =
   let response =
-    response
-      ~content:[ Types.Thinking { signature = None; content = "hidden" } ]
-      ()
+    response ~content:[ Types.Thinking { signature = None; content = "hidden" } ] ()
   in
   let shape = Response_shape.summarize response in
   Alcotest.(check bool)
@@ -1215,6 +1244,10 @@ let () =
       , [ Alcotest.test_case "text only" `Quick test_text_of_content_text_only
         ; Alcotest.test_case "mixed" `Quick test_text_of_content_mixed
         ; Alcotest.test_case "tool result" `Quick test_text_of_content_tool_result
+        ; Alcotest.test_case
+            "visible text excludes non-answer blocks"
+            `Quick
+            test_visible_text_of_content_excludes_non_answer_blocks
         ; Alcotest.test_case "empty" `Quick test_text_of_content_empty
         ; Alcotest.test_case "text_of_message" `Quick test_text_of_message
         ; Alcotest.test_case

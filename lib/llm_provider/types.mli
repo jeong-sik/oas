@@ -439,6 +439,17 @@ val text_of_content : content_block list -> string
 val text_of_message : message -> string
 val text_of_response : api_response -> string
 
+(** End-user-visible assistant text projection.
+
+    Unlike {!text_of_content}, these helpers only include [Text] blocks. They
+    intentionally exclude [Thinking], [RedactedThinking], [ToolUse],
+    [ToolResult], and media blocks so downstream answer surfaces do not leak
+    reasoning or execution payloads. *)
+val visible_text_of_content : content_block list -> string
+
+val visible_text_of_message : message -> string
+val visible_text_of_response : api_response -> string
+
 (** {1 Usage Helpers}
 
     @since 0.78.0 *)
