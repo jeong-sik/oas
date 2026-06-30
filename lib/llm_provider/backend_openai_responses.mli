@@ -10,6 +10,11 @@
     ["commentary"] and ["final_answer"]. *)
 val response_phase_metadata_key : string
 
+type response_phase =
+  | Commentary
+  | Final_answer
+
+val response_phase_metadata : response_phase -> string * Yojson.Safe.t
 val responses_tool_json : Yojson.Safe.t -> Yojson.Safe.t
 
 val build_request

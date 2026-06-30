@@ -53,20 +53,30 @@ let assoc_remove keys fields =
 
 let response_phase_metadata_key = "openai.responses.phase"
 
+type response_phase =
+  | Commentary
+  | Final_answer
+
+let response_phase_to_wire = function
+  | Commentary -> "commentary"
+  | Final_answer -> "final_answer"
+;;
+
+let response_phase_metadata phase =
+  response_phase_metadata_key, `String (response_phase_to_wire phase)
+;;
+
 let response_phase_of_metadata metadata =
   match List.assoc_opt response_phase_metadata_key metadata with
   | None -> None
+  | Some (`String "commentary") -> Some Commentary
+  | Some (`String "final_answer") -> Some Final_answer
   | Some (`String raw) ->
-    let phase = String.trim raw in
-    (match phase with
-     | "" -> None
-     | "commentary" | "final_answer" -> Some phase
-     | _ ->
-       invalid_arg
-         (Printf.sprintf
-            "Backend_openai_responses.phase: unsupported %s=%S"
-            response_phase_metadata_key
-            raw))
+    invalid_arg
+      (Printf.sprintf
+         "Backend_openai_responses.phase: unsupported %s=%S"
+         response_phase_metadata_key
+         raw)
   | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) ->
     invalid_arg
       (Printf.sprintf
@@ -193,7 +203,7 @@ let output_text_content_part text =
 
 let with_response_phase phase fields =
   match phase with
-  | Some phase -> ("phase", `String phase) :: fields
+  | Some phase -> ("phase", `String (response_phase_to_wire phase)) :: fields
   | None -> fields
 ;;
 

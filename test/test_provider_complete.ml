@@ -460,13 +460,13 @@ let test_openai_responses_replays_assistant_phase_metadata () =
       ; content = [ Text "continue" ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = [ BOR.response_phase_metadata_key, `String "final_answer" ]
+      ; metadata = [ BOR.response_phase_metadata BOR.Final_answer ]
       }
     ; { role = Assistant
       ; content = [ Text "I will check." ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = [ BOR.response_phase_metadata_key, `String "commentary" ]
+      ; metadata = [ BOR.response_phase_metadata BOR.Commentary ]
       }
     ]
   in
@@ -487,22 +487,58 @@ let test_openai_responses_replays_assistant_phase_metadata () =
     (assistant_item |> member "phase" |> to_string)
 ;;
 
-let test_openai_responses_rejects_unknown_assistant_phase () =
+let unsupported_openai_responses_phase_message phase =
+  Printf.sprintf
+    "Backend_openai_responses.phase: unsupported %s=%S"
+    BOR.response_phase_metadata_key
+    phase
+;;
+
+let check_openai_responses_phase_metadata_rejected ~name ~metadata ~message =
   let config = openai_responses_config () in
   let messages =
     [ { role = Assistant
       ; content = [ Text "drafting" ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = [ BOR.response_phase_metadata_key, `String "analysis" ]
+      ; metadata = [ metadata ]
       }
     ]
   in
-  Alcotest.check_raises
-    "unknown Responses phase rejected"
-    (Invalid_argument
-       "Backend_openai_responses.phase: unsupported openai.responses.phase=\"analysis\"")
-    (fun () -> ignore (BOR.build_request ~config ~messages ()))
+  Alcotest.check_raises name (Invalid_argument message) (fun () ->
+    ignore (BOR.build_request ~config ~messages ()))
+;;
+
+let check_openai_responses_phase_rejected ~name ~phase =
+  check_openai_responses_phase_metadata_rejected
+    ~name
+    ~metadata:(BOR.response_phase_metadata_key, `String phase)
+    ~message:(unsupported_openai_responses_phase_message phase)
+;;
+
+let test_openai_responses_rejects_unknown_assistant_phase () =
+  check_openai_responses_phase_rejected
+    ~name:"unknown Responses phase rejected"
+    ~phase:"analysis"
+;;
+
+let test_openai_responses_rejects_padded_assistant_phase () =
+  check_openai_responses_phase_rejected
+    ~name:"padded Responses phase rejected"
+    ~phase:" commentary "
+;;
+
+let test_openai_responses_rejects_blank_assistant_phase () =
+  check_openai_responses_phase_rejected
+    ~name:"blank Responses phase rejected"
+    ~phase:"   "
+;;
+
+let test_openai_responses_rejects_non_string_assistant_phase () =
+  check_openai_responses_phase_metadata_rejected
+    ~name:"non-string Responses phase rejected"
+    ~metadata:(BOR.response_phase_metadata_key, `Int 1)
+    ~message:"Backend_openai_responses.phase: openai.responses.phase must be a string"
 ;;
 
 let test_openai_stream_flag () =
@@ -1483,6 +1519,18 @@ let () =
             "Responses unknown phase rejected"
             `Quick
             test_openai_responses_rejects_unknown_assistant_phase
+        ; test_case
+            "Responses padded phase rejected"
+            `Quick
+            test_openai_responses_rejects_padded_assistant_phase
+        ; test_case
+            "Responses blank phase rejected"
+            `Quick
+            test_openai_responses_rejects_blank_assistant_phase
+        ; test_case
+            "Responses non-string phase rejected"
+            `Quick
+            test_openai_responses_rejects_non_string_assistant_phase
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
         ; test_case
             "ollama gemma4 thinking uses template token"
