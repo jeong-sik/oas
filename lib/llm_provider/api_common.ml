@@ -233,10 +233,14 @@ let rec content_block_of_json_result json =
   | Some "reasoning_details" ->
     let ( let* ) = Result.bind in
     let details_json = json |> member "details" in
-    let details =
+    let* details =
       match details_json with
-      | `List details -> details
-      | _ -> []
+      | `List details -> Ok details
+      | `Null -> Ok []
+      | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+        Error
+          (Missing_content_block_field
+             { block_type = "reasoning_details"; field = "details" })
     in
     let* details = result_all (List.map reasoning_detail_of_json details) in
     let reasoning_content =
