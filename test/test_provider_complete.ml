@@ -325,6 +325,53 @@ let test_anthropic_parse_response_initializes_telemetry () =
   | None -> Alcotest.fail "expected telemetry placeholder"
 ;;
 
+let test_anthropic_parse_response_rejects_unknown_content_block () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "id": "msg_future",
+    "model": "claude-sonnet-4-6-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {"type": "future_block", "payload": {"text": "do not drop me"}}
+    ],
+    "usage": {"input_tokens": 1, "output_tokens": 1}
+  }|}
+  in
+  Alcotest.check_raises
+    "unknown Anthropic content block fails closed"
+    (Invalid_argument
+       "Backend_anthropic.parse_response: unsupported_content_block_type:future_block")
+    (fun () -> ignore (BA.parse_response json))
+;;
+
+let test_anthropic_parse_response_rejects_unknown_media_source_kind () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "id": "msg_future_media",
+    "model": "claude-sonnet-4-6-20250514",
+    "stop_reason": "end_turn",
+    "content": [
+      {
+        "type": "image",
+        "source": {
+          "type": "bytes",
+          "media_type": "image/png",
+          "data": "abc"
+        }
+      }
+    ],
+    "usage": {"input_tokens": 1, "output_tokens": 1}
+  }|}
+  in
+  Alcotest.check_raises
+    "unknown Anthropic media source kind fails closed"
+    (Invalid_argument
+       "Backend_anthropic.parse_response: unsupported_media_source_kind:image:bytes")
+    (fun () -> ignore (BA.parse_response json))
+;;
+
 (* ── Openai build_request ────────────────────────────── *)
 
 let test_openai_basic_body () =
@@ -1331,6 +1378,14 @@ let () =
             "parse response initializes telemetry"
             `Quick
             test_anthropic_parse_response_initializes_telemetry
+        ; test_case
+            "parse response rejects unknown content block"
+            `Quick
+            test_anthropic_parse_response_rejects_unknown_content_block
+        ; test_case
+            "parse response rejects unknown media source kind"
+            `Quick
+            test_anthropic_parse_response_rejects_unknown_media_source_kind
         ] )
     ; ( "openai_build_request"
       , [ test_case "basic body" `Quick test_openai_basic_body

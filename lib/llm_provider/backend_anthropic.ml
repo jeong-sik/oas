@@ -13,7 +13,19 @@ let parse_response json =
   let model = json |> member "model" |> to_string in
   let stop_reason_str = json |> member "stop_reason" |> to_string in
   let content_list = json |> member "content" |> to_list in
-  let content = List.filter_map Api_common.content_block_of_json content_list in
+  let content =
+    let rec loop acc = function
+      | [] -> List.rev acc
+      | block :: rest ->
+        (match Api_common.content_block_of_json_result block with
+         | Ok content_block -> loop (content_block :: acc) rest
+         | Error err ->
+           invalid_arg
+             ("Backend_anthropic.parse_response: "
+              ^ Api_common.content_block_decode_error_to_string err))
+    in
+    loop [] content_list
+  in
   let usage =
     let u = json |> member "usage" in
     if u = `Null
