@@ -44,9 +44,13 @@ let warn_parallel_disable_unsupported ~model_id =
 
 let thinking_level_of_budget ~supports_minimal = function
   | Some n when n <= 0 -> if supports_minimal then "minimal" else "low"
-  | Some n when n <= 2_048 -> "low"
-  | Some n when n <= 8_192 -> "medium"
-  | Some _ | None -> "high"
+  | Some n ->
+    (match Reasoning_effort.of_budget n with
+     | Some effort ->
+       Reasoning_dialect.normalize_effort_value Reasoning_dialect.default effort
+       |> Option.value ~default:"high"
+     | None -> "high")
+  | None -> "high"
 ;;
 
 let thinking_config_of_config (config : Provider_config.t) =

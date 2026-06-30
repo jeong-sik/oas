@@ -18,4 +18,8 @@ val of_string : string -> t option
 val values_for_log : string
 val low_budget_max_tokens : int
 val medium_budget_max_tokens : int
+val high_budget_max_tokens : int
 val of_budget : int -> t option
+
+(** Budget mapping for providers that expose the top effort tier separately. *)
+val of_budget_with_xhigh : int -> t option

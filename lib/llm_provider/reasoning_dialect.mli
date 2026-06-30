@@ -30,6 +30,7 @@ type toggle_wire =
 type effort_alias_policy =
   | Preserve_effort
   | Deepseek_high_or_max
+  | Xhigh_as_max
 
 type sampling_policy =
   | Sampling_supported

@@ -653,7 +653,10 @@ let test_anthropic_manual_model_uses_budget_tokens () =
 
 let test_anthropic_opus48_uses_adaptive_effort () =
   let config =
-    anthropic_config ~enable_thinking:true ~thinking_budget:4096 "claude-opus-4-8"
+    anthropic_config
+      ~enable_thinking:true
+      ~thinking_budget:(RE.low_budget_max_tokens + 1)
+      "claude-opus-4-8"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   let thinking = json |> member "thinking" in
@@ -670,7 +673,7 @@ let test_anthropic_agent_llm_alias_uses_adaptive_effort () =
   let config =
     anthropic_config
       ~enable_thinking:true
-      ~thinking_budget:4096
+      ~thinking_budget:(RE.low_budget_max_tokens + 1)
       "claude-sonnet-4-6-20250514"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -703,7 +706,7 @@ let test_anthropic_output_config_merges_format_and_effort () =
   let config =
     anthropic_config
       ~enable_thinking:true
-      ~thinking_budget:50_000
+      ~thinking_budget:(RE.high_budget_max_tokens + 1)
       ~output_schema:schema
       "claude-opus-4-8"
   in
