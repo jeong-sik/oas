@@ -527,16 +527,9 @@ let legacy_parameters_to_json_schema params =
                       | `Null )
                   | None -> "string")
              in
-             let property_fields =
-               [ "description", `String description ]
-               @
-               match Types.param_type_of_string type_name with
-               | Ok Types.Any_json -> []
-               | Ok param_type ->
-                 [ "type", `String (Types.param_type_to_string param_type) ]
-               | Error _ -> [ "type", `String type_name ]
+             let prop =
+               `Assoc [ "type", `String type_name; "description", `String description ]
              in
-             let prop = `Assoc property_fields in
              let req_acc =
                match List.assoc_opt "required" fields with
                | Some (`Bool true) -> `String name :: req_acc

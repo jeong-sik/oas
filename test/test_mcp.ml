@@ -147,7 +147,7 @@ let test_json_schema_no_description () =
   Alcotest.check check_param_type "bool type" Types.Boolean (List.hd params).param_type
 ;;
 
-let test_json_schema_missing_property_type_maps_to_any () =
+let test_json_schema_missing_property_type_fails () =
   let schema =
     Yojson.Safe.from_string
       {|{
@@ -157,10 +157,9 @@ let test_json_schema_missing_property_type_maps_to_any () =
     }
   }|}
   in
-  let params = Mcp.json_schema_to_params schema in
-  let payload = List.hd params in
-  Alcotest.(check string) "payload name" "payload" payload.name;
-  Alcotest.check check_param_type "any type" Types.Any_json payload.param_type
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected missing property type to fail"
 ;;
 
 let test_json_schema_nullable_union_uses_concrete_type () =
@@ -194,23 +193,7 @@ let test_json_schema_union_unknown_type_fails () =
   | Ok _ -> Alcotest.fail "expected unknown union type to fail"
 ;;
 
-let test_json_schema_null_type_maps_to_null () =
-  let schema =
-    Yojson.Safe.from_string
-      {|{
-    "type": "object",
-    "properties": {
-      "nothing": {"type": "null"}
-    }
-  }|}
-  in
-  let params = Mcp.json_schema_to_params schema in
-  let nothing = List.hd params in
-  Alcotest.(check string) "nothing name" "nothing" nothing.name;
-  Alcotest.check check_param_type "null type" Types.Null nothing.param_type
-;;
-
-let test_json_schema_union_null_only_maps_to_null () =
+let test_json_schema_union_null_only_fails () =
   let schema =
     Yojson.Safe.from_string
       {|{
@@ -220,10 +203,9 @@ let test_json_schema_union_null_only_maps_to_null () =
     }
   }|}
   in
-  let params = Mcp.json_schema_to_params schema in
-  let nothing = List.hd params in
-  Alcotest.(check string) "nothing name" "nothing" nothing.name;
-  Alcotest.check check_param_type "null union type" Types.Null nothing.param_type
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected null-only union type to fail"
 ;;
 
 let test_json_schema_union_multiple_concrete_types_fails () =
@@ -239,21 +221,6 @@ let test_json_schema_union_multiple_concrete_types_fails () =
   match Mcp.json_schema_to_params_result schema with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "expected multi-concrete union type to fail"
-;;
-
-let test_json_schema_union_empty_type_array_fails () =
-  let schema =
-    Yojson.Safe.from_string
-      {|{
-    "type": "object",
-    "properties": {
-      "value": {"type": []}
-    }
-  }|}
-  in
-  match Mcp.json_schema_to_params_result schema with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected empty type array to fail"
 ;;
 
 (* ── Tool bridge ────────────────────────────────────────────────── *)
@@ -519,33 +486,22 @@ let () =
         ; test_case "no required" `Quick test_json_schema_no_required
         ; test_case "no description" `Quick test_json_schema_no_description
         ; test_case
-            "missing property type maps to any"
+            "missing property type fails"
             `Quick
-            test_json_schema_missing_property_type_maps_to_any
+            test_json_schema_missing_property_type_fails
         ; test_case
             "nullable union uses concrete type"
             `Quick
             test_json_schema_nullable_union_uses_concrete_type
         ; test_case
-            "null type maps to null"
-            `Quick
-            test_json_schema_null_type_maps_to_null
-        ; test_case
             "union unknown type fails"
             `Quick
             test_json_schema_union_unknown_type_fails
-        ; test_case
-            "union null-only maps to null"
-            `Quick
-            test_json_schema_union_null_only_maps_to_null
+        ; test_case "union null-only fails" `Quick test_json_schema_union_null_only_fails
         ; test_case
             "union multiple concrete types fails"
             `Quick
             test_json_schema_union_multiple_concrete_types_fails
-        ; test_case
-            "union empty type array fails"
-            `Quick
-            test_json_schema_union_empty_type_array_fails
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool

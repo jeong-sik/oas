@@ -36,25 +36,21 @@ let role_of_string = function
 
 (** Tool parameter schema *)
 type param_type =
-  | Any_json
   | String
   | Integer
   | Number
   | Boolean
   | Array
   | Object
-  | Null
 [@@deriving yojson, show]
 
 let param_type_to_string = function
-  | Any_json -> "any"
   | String -> "string"
   | Integer -> "integer"
   | Number -> "number"
   | Boolean -> "boolean"
   | Array -> "array"
   | Object -> "object"
-  | Null -> "null"
 ;;
 
 (** Tool execution result types.
@@ -90,14 +86,12 @@ type tool_param =
 [@@deriving yojson, show]
 
 let param_type_of_string = function
-  | "any" -> Ok Any_json
   | "string" -> Ok String
   | "integer" -> Ok Integer
   | "number" -> Ok Number
   | "boolean" -> Ok Boolean
   | "array" -> Ok Array
   | "object" -> Ok Object
-  | "null" -> Ok Null
   | other -> Error other
 ;;
 
@@ -127,14 +121,11 @@ let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
   let properties =
     List.map
       (fun (p : tool_param) ->
-         let schema_fields =
-           [ "description", `String p.description ]
-           @
-           match p.param_type with
-           | Any_json -> []
-           | param_type -> [ "type", `String (param_type_to_string param_type) ]
-         in
-         p.name, `Assoc schema_fields)
+         ( p.name
+         , `Assoc
+             [ "type", `String (param_type_to_string p.param_type)
+             ; "description", `String p.description
+             ] ))
       params
   in
   let required =

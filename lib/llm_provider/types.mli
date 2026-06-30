@@ -26,14 +26,12 @@ val role_of_string : string -> role option
 (** {1 Tool Types} *)
 
 type param_type =
-  | Any_json
   | String
   | Integer
   | Number
   | Boolean
   | Array
   | Object
-  | Null
 [@@deriving yojson, show]
 
 val param_type_to_string : param_type -> string
