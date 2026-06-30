@@ -452,15 +452,15 @@ let test_ollama_native_multimodal_variants () =
   let doc_images = member "images" doc_msg |> as_list "document images" in
   check_int "document images count" 1 (List.length doc_images);
   check_string "document payload" "pdf1" (List.nth doc_images 0 |> to_string);
-  (* Audio is not supported by Ollama native /api/chat and must not leak into
-     images; an audio-only user message produces no representable wire message. *)
-  let audio_msgs =
+  (* Audio is not supported by Ollama native /api/chat and must fail closed
+     instead of being silently dropped. *)
+  expect_invalid_arg "ollama audio input" (fun () ->
     Serialize.ollama_messages_of_message
       (msg
          User
-         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 } ])
-  in
-  check_int "audio-only produces no ollama messages" 0 (List.length audio_msgs);
+         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 }
+         ])
+    |> ignore);
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
   let mixed =
     Serialize.ollama_messages_of_message
