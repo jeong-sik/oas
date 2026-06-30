@@ -365,7 +365,7 @@ let test_validate_inference_contract_rejects_unsupported_modality () =
   | Ok () -> Alcotest.fail "expected unsupported modality validation to fail"
 ;;
 
-let test_extended_openai_capabilities () =
+let test_raw_openai_compat_does_not_infer_extended_capabilities () =
   let capabilities =
     Provider.capabilities_for_model
       ~provider:
@@ -377,9 +377,9 @@ let test_extended_openai_capabilities () =
            })
       ~model_id:"dashscope-3.5-35b-a3b-ud-q8-xl"
   in
-  Alcotest.(check bool) "supports reasoning" true capabilities.supports_reasoning;
-  Alcotest.(check bool) "supports top_k" true capabilities.supports_top_k;
-  Alcotest.(check bool) "supports min_p" true capabilities.supports_min_p
+  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
+  Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
+  Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p
 ;;
 
 let test_raw_openai_compat_does_not_infer_dashscope_from_model_id () =
@@ -398,6 +398,29 @@ let test_raw_openai_compat_does_not_infer_dashscope_from_model_id () =
     Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
     Alcotest.(check bool) "supports top_k" false capabilities.supports_top_k;
     Alcotest.(check bool) "supports min_p" false capabilities.supports_min_p)
+;;
+
+let test_raw_openai_compat_does_not_infer_minimax_from_model_id () =
+  let capabilities =
+    Provider.capabilities_for_model
+      ~provider:
+        (Provider.OpenAICompat
+           { base_url = "https://compat.example.invalid/v1"
+           ; auth_header = None
+           ; path = "/chat/completions"
+           ; static_token = None
+           })
+      ~model_id:"minimax-m3"
+  in
+  Alcotest.(check bool) "supports reasoning" false capabilities.supports_reasoning;
+  Alcotest.(check bool)
+    "supports extended thinking"
+    false
+    capabilities.supports_extended_thinking;
+  Alcotest.(check bool)
+    "supports reasoning budget"
+    false
+    capabilities.supports_reasoning_budget
 ;;
 
 let test_anthropic_capabilities_consults_for_model_id () =
@@ -1142,13 +1165,17 @@ let () =
             `Quick
             test_validate_inference_contract_rejects_unsupported_modality
         ; Alcotest.test_case
-            "extended openai capabilities"
+            "raw OpenAI-compatible does not infer extended capabilities"
             `Quick
-            test_extended_openai_capabilities
+            test_raw_openai_compat_does_not_infer_extended_capabilities
         ; Alcotest.test_case
             "raw openai_compat does not infer dashscope"
             `Quick
             test_raw_openai_compat_does_not_infer_dashscope_from_model_id
+        ; Alcotest.test_case
+            "raw openai_compat does not infer minimax"
+            `Quick
+            test_raw_openai_compat_does_not_infer_minimax_from_model_id
         ; Alcotest.test_case
             "anthropic consults for_model_id (#824)"
             `Quick

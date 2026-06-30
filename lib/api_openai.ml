@@ -20,8 +20,24 @@ let system_message_json (config : agent_state) : Yojson.Safe.t list =
   | _ -> []
 ;;
 
+let capabilities_for_custom_registered name =
+  match Provider.find_provider name with
+  | Some impl -> Some impl.Provider.capabilities
+  | None ->
+    let registry = Llm_provider.Provider_registry.default () in
+    (match Llm_provider.Provider_registry.find registry name with
+     | Some entry -> Some entry.capabilities
+     | None -> None)
+;;
+
 let capabilities_for_request ?provider_config (config : agent_state) =
   match provider_config with
+  | Some
+      (({ Provider.provider = Provider.Custom_registered { name }; _ } : Provider.config)
+       as cfg) ->
+    (match capabilities_for_custom_registered name with
+     | Some caps -> caps
+     | None -> Provider.capabilities_for_config cfg)
   | Some cfg -> Provider.capabilities_for_config cfg
   | None ->
     Provider.capabilities_for_model

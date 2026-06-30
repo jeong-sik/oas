@@ -451,6 +451,20 @@ let test_openai_compat_raw_qwen_does_not_inherit_bare_capability () =
     (Option.is_none (Provider_config.capabilities_for_config_model cfg))
 ;;
 
+let test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"minimax-m3"
+      ~base_url:"https://unknown-openai-compatible.example/v1"
+      ()
+  in
+  check_bool
+    "raw OpenAI-compatible endpoint does not inherit bare reasoning dialect"
+    true
+    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
+;;
+
 let test_validate_responses_request_path_allows_structured_output () =
   let cfg =
     Provider_config.make
@@ -1456,6 +1470,10 @@ let () =
             "raw compat qwen does not inherit bare capability"
             `Quick
             test_openai_compat_raw_qwen_does_not_inherit_bare_capability
+        ; Alcotest.test_case
+            "raw compat minimax does not inherit reasoning dialect"
+            `Quick
+            test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
