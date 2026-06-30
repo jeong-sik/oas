@@ -68,8 +68,13 @@ val provider_config_for_judge
 val risk_of_score : float -> risk_level
 
 (** Parse LLM output text into a judgment.
-    Expects JSON with at least [score], [confidence], [risk], [summary] fields.
-    Returns [Error msg] on parse failure. *)
+
+    Accepts either an exact JSON object or an exact fenced JSON block. Prose
+    surrounding a JSON object is rejected instead of scraped. [score] and
+    [confidence] must be numbers in [0.0, 1.0], [risk] must be one of
+    [low|medium|high|critical], and [summary] must be a string. [evidence],
+    when present, must contain only strings. Returns [Error msg] on parse or
+    type failure. *)
 val parse_judgment : string -> (judgment, string) result
 
 (** Execute a single judgment against a single provider.
@@ -78,7 +83,8 @@ val parse_judgment : string -> (judgment, string) result
     as the system message and [context] as the user message.  Parses the
     structured JSON response into a {!judgment}.
 
-    If JSON parsing fails, creates a low-confidence judgment from raw text.
+    If JSON parsing fails, returns [Error] rather than fabricating a
+    low-confidence judgment from raw text.
 
     @param provider The LLM provider to evaluate with. Callers that need
                     multi-provider routing should handle that outside OAS. *)
