@@ -93,7 +93,14 @@ type reasoning_streaming_format = Llm_provider.Capabilities.reasoning_streaming_
   | Delta_reasoning_field of string
   | Template_reasoning_streaming
 
-type capabilities =
+(* Re-export the canonical capabilities record from [Llm_provider.Capabilities]
+   with its type equality exposed, so downstream consumers (e.g. catalog
+   overlays) can pass an [Llm_provider.Capabilities.capabilities] straight into
+   [register_provider] instead of hand-copying all fields. provider.ml already
+   [include]s [Llm_provider.Capabilities]; this only surfaces that identity
+   through the interface. The field list is kept for in-repo documentation and
+   is checked against the source record by the compiler. *)
+type capabilities = Llm_provider.Capabilities.capabilities =
   { max_context_tokens : int option
   ; max_output_tokens : int option
   ; supports_tools : bool

@@ -285,6 +285,33 @@ let test_custom_provider_dispatch_uses_registered_impl () =
          | _ -> Alcotest.fail "expected text response"))
 ;;
 
+(* ── capabilities type identity ──────────────────────────── *)
+
+(* Compile-time proof that [Provider.capabilities] is the SAME type as
+   [Llm_provider.Capabilities.capabilities] — provider.mli exposes the type
+   equation. If that equation is dropped, these identity coercions stop
+   compiling, which is exactly what forced downstream consumers (catalog
+   overlays) to hand-copy every field. *)
+let capabilities_as_provider (c : Llm_provider.Capabilities.capabilities)
+  : Provider.capabilities
+  =
+  c
+;;
+
+let capabilities_as_source (c : Provider.capabilities)
+  : Llm_provider.Capabilities.capabilities
+  =
+  c
+;;
+
+let test_capabilities_type_equality () =
+  let c = Provider.default_capabilities in
+  (* Round-trips through both directions with no conversion: the values are
+     physically identical because the two names denote one type. *)
+  let c' = capabilities_as_provider (capabilities_as_source c) in
+  Alcotest.(check bool) "capabilities round-trips by identity" true (c == c')
+;;
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -322,6 +349,12 @@ let () =
             "custom provider dispatch"
             `Quick
             test_custom_provider_dispatch_uses_registered_impl
+        ] )
+    ; ( "capabilities_identity"
+      , [ Alcotest.test_case
+            "Provider.capabilities = Llm_provider.Capabilities.capabilities"
+            `Quick
+            test_capabilities_type_equality
         ] )
     ]
 ;;
