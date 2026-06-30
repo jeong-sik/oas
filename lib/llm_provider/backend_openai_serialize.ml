@@ -136,17 +136,9 @@ let assistant_reasoning_content_of_blocks blocks =
     | Thinking { content; _ } when not (Api_common.string_is_blank content) ->
       Some (Utf8_sanitize.sanitize content)
     | Thinking _ -> None
-    | ReasoningDetails { reasoning_content = Some content; _ }
-      when not (Api_common.string_is_blank content) ->
-      Some (Utf8_sanitize.sanitize content)
-    | ReasoningDetails { reasoning_content = None; details } ->
-      let text =
-        details
-        |> List.filter_map (fun (detail : reasoning_detail) -> detail.text)
-        |> String.concat ""
-      in
+    | ReasoningDetails { reasoning_content; details } ->
+      let text = reasoning_details_text ~reasoning_content ~details in
       if Api_common.string_is_blank text then None else Some (Utf8_sanitize.sanitize text)
-    | ReasoningDetails { reasoning_content = Some _; _ } -> None
     | Text _
     | RedactedThinking _
     | ToolUse _

@@ -302,6 +302,21 @@ type content_block =
       }
 [@@deriving show]
 
+let reasoning_details_text
+      ~(reasoning_content : string option)
+      ~(details : reasoning_detail list)
+  : string
+  =
+  let details_text =
+    details
+    |> List.filter_map (fun (detail : reasoning_detail) -> detail.text)
+    |> String.concat ""
+  in
+  match reasoning_content with
+  | Some content -> if content = "" then details_text else content
+  | None -> details_text
+;;
+
 (** Message metadata: extensible typed key-value pairs attached to a message.
     Keys are caller-defined strings; values are JSON payloads. *)
 type metadata = (string * Yojson.Safe.t) list [@@deriving show]

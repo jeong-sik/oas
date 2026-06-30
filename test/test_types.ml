@@ -790,6 +790,45 @@ let test_visible_text_of_content_excludes_non_answer_blocks () =
     (Types.visible_text_of_content content)
 ;;
 
+let test_reasoning_details_text_prefers_reasoning_content () =
+  let details =
+    [ { Types.raw = `Assoc [ "text", `String "detail" ]; text = Some "detail" } ]
+  in
+  Alcotest.(check string)
+    "reasoning_content wins"
+    "content"
+    (Types.reasoning_details_text ~reasoning_content:(Some "content") ~details)
+;;
+
+let test_reasoning_details_text_projects_detail_text_in_order () =
+  let details =
+    [ { Types.raw = `Assoc [ "text", `String "a" ]; text = Some "a" }
+    ; { Types.raw = `Assoc [ "opaque", `Bool true ]; text = None }
+    ; { Types.raw = `Assoc [ "text", `String "b" ]; text = Some "b" }
+    ]
+  in
+  Alcotest.(check string)
+    "detail text"
+    "ab"
+    (Types.reasoning_details_text ~reasoning_content:None ~details);
+  Alcotest.(check string)
+    "empty reasoning_content falls back"
+    "ab"
+    (Types.reasoning_details_text ~reasoning_content:(Some "") ~details)
+;;
+
+let test_reasoning_details_text_ignores_raw_only_details () =
+  let details =
+    [ { Types.raw = `Assoc [ "opaque", `Bool true ]; text = None }
+    ; { Types.raw = `Assoc [ "encrypted", `String "payload" ]; text = None }
+    ]
+  in
+  Alcotest.(check string)
+    "raw-only details are not serialized"
+    ""
+    (Types.reasoning_details_text ~reasoning_content:None ~details)
+;;
+
 let test_text_of_content_empty () =
   Alcotest.(check string) "empty" "" (Types.text_of_content [])
 ;;
@@ -1269,6 +1308,18 @@ let () =
             "visible text excludes non-answer blocks"
             `Quick
             test_visible_text_of_content_excludes_non_answer_blocks
+        ; Alcotest.test_case
+            "reasoning details text prefers content"
+            `Quick
+            test_reasoning_details_text_prefers_reasoning_content
+        ; Alcotest.test_case
+            "reasoning details text projects details"
+            `Quick
+            test_reasoning_details_text_projects_detail_text_in_order
+        ; Alcotest.test_case
+            "reasoning details text ignores raw-only details"
+            `Quick
+            test_reasoning_details_text_ignores_raw_only_details
         ; Alcotest.test_case "empty" `Quick test_text_of_content_empty
         ; Alcotest.test_case "text_of_message" `Quick test_text_of_message
         ; Alcotest.test_case

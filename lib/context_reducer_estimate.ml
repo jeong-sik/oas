@@ -20,13 +20,8 @@ let estimate_block_tokens ?cache block =
     match block with
     | Text s -> estimate_char_tokens s
     | Thinking { content; _ } -> estimate_char_tokens content
-    | ReasoningDetails { reasoning_content = Some content; _ } ->
-      estimate_char_tokens content
-    | ReasoningDetails { reasoning_content = None; details } ->
-      details
-      |> List.filter_map (fun (detail : reasoning_detail) -> detail.text)
-      |> String.concat ""
-      |> estimate_char_tokens
+    | ReasoningDetails { reasoning_content; details } ->
+      reasoning_details_text ~reasoning_content ~details |> estimate_char_tokens
     | RedactedThinking _ -> 50
     | ToolUse { name; input; _ } ->
       let input_str = Yojson.Safe.to_string input in
