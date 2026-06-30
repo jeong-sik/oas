@@ -31,7 +31,6 @@ type model_entry =
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
   ; preserve_thinking_control_format : string option
-  ; reasoning_visibility : string option
   ; reasoning_replay : string option
   ; input_per_million : float option
   ; output_per_million : float option
@@ -139,30 +138,20 @@ let parse_entry entry_toml =
            ~allowed:Capability_vocab.preserve_thinking_control_format_values
            entry_toml
        in
-       let reasoning_visibility_result =
-         canonical_string_opt
-           ~entry_id:id_prefix
-           "reasoning_visibility"
-           ~allowed:Capability_vocab.reasoning_visibility_values
-           entry_toml
-       in
        (match
           ( base_label_result
           , modality_priority_result
           , thinking_control_format_result
-          , preserve_thinking_control_format_result
-          , reasoning_visibility_result )
+          , preserve_thinking_control_format_result )
         with
-        | (Error _ as e), _, _, _, _
-        | _, (Error _ as e), _, _, _
-        | _, _, (Error _ as e), _, _
-        | _, _, _, (Error _ as e), _
-        | _, _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _
+        | _, (Error _ as e), _, _
+        | _, _, (Error _ as e), _
+        | _, _, _, (Error _ as e) -> e
         | ( Ok base_label
           , Ok modality_priority
           , Ok thinking_control_format
-          , Ok preserve_thinking_control_format
-          , Ok reasoning_visibility ) ->
+          , Ok preserve_thinking_control_format ) ->
           Ok
             { id_prefix
             ; base_label
@@ -205,7 +194,6 @@ let parse_entry entry_toml =
                 find_bool_opt entry_toml [ "supports_code_execution" ]
             ; thinking_control_format
             ; preserve_thinking_control_format
-            ; reasoning_visibility
             ; reasoning_replay
             ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]
             ; output_per_million = find_float_opt entry_toml [ "output_per_million" ]

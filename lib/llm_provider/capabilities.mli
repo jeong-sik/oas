@@ -43,12 +43,6 @@ type preserve_thinking_control_format =
   (** Provider always requires historical reasoning replay and has no
       request-time preserve toggle. *)
 
-type reasoning_visibility_override =
-  | Default_reasoning_visibility
-  | Force_provider_hidden
-  | Force_visible_channel
-  | Force_visible_text
-
 type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
@@ -77,7 +71,6 @@ type capabilities =
   ; supports_reasoning_budget : bool
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
-  ; reasoning_visibility_override : reasoning_visibility_override
   ; reasoning_replay_override : reasoning_replay_override
   ; (* Output format *)
     supports_response_format_json : bool

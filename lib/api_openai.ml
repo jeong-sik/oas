@@ -73,7 +73,6 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; supports_reasoning_budget = caps.supports_reasoning_budget
   ; thinking_control_format = caps.thinking_control_format
   ; preserve_thinking_control_format = caps.preserve_thinking_control_format
-  ; reasoning_visibility_override = caps.reasoning_visibility_override
   ; reasoning_replay_override = caps.reasoning_replay_override
   ; supports_response_format_json = caps.supports_response_format_json
   ; supports_structured_output = caps.supports_structured_output
@@ -248,15 +247,6 @@ let reasoning_dialect_for_request capabilities (config : agent_state) =
   |> Llm_provider.Reasoning_dialect.of_capabilities
   |> Llm_provider.Reasoning_dialect.with_preserve_thinking
        ~preserve_thinking:config.config.preserve_thinking
-;;
-
-let reasoning_visibility_of_request ?provider_config (config : agent_state) =
-  (* Resolve the provider/model reasoning_visibility policy so the response
-     parser can promote a reasoning-only reply into visible Text only when an
-     explicit capability override asks for that behavior. *)
-  let capabilities = capabilities_for_request ?provider_config config in
-  (reasoning_dialect_for_request capabilities config)
-    .Llm_provider.Reasoning_dialect.visibility
 ;;
 
 let add_sampling_field dialect (config : agent_state) field value body_assoc =

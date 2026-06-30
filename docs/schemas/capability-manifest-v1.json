@@ -166,16 +166,6 @@
             "top_level_preserve_thinking",
             "always_preserved"
           ]
-        },
-        "reasoning_visibility": {
-          "type": "string",
-          "description": "Optional override for surfacing parsed reasoning output.",
-          "enum": [
-            "default",
-            "provider_hidden",
-            "visible_channel",
-            "visible_text"
-          ]
         }
       },
       "additionalProperties": false

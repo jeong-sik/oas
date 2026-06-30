@@ -3,7 +3,7 @@
     {!Capabilities.thinking_control_format} describes the request wire field
     used to toggle thinking. This module keeps the adjacent semantics in one
     typed record: default toggle state, effort aliases, sampling interactions,
-    reasoning visibility, and history replay policy.
+    and history replay policy.
 
     The intent is to keep provider policy in OAS while letting downstream
     agent runtimes decide how to surface or pause around reasoning events.
@@ -36,12 +36,6 @@ type sampling_policy =
   | Sampling_supported
   | Ignored_when_thinking of string list
 
-type reasoning_visibility =
-  | Provider_hidden
-  | Side_channel of string
-  | Visible_channel
-  | Visible_text
-
 type replay_policy =
   | No_replay
   | Drop_without_tool_preserve_with_tool
@@ -64,7 +58,6 @@ type t =
   ; preserve_wire : Capabilities.preserve_thinking_control_format
   ; effort_alias_policy : effort_alias_policy
   ; sampling_policy : sampling_policy
-  ; visibility : reasoning_visibility
   ; replay_policy : replay_policy
   ; streaming : streaming_reasoning
   }
@@ -121,4 +114,3 @@ val should_replay_reasoning : t -> assistant_had_tool_call:bool -> bool
 val requires_reasoning_replay_on_tool_call : t -> bool
 val toggle_wire_to_string : toggle_wire -> string
 val replay_policy_to_string : replay_policy -> string
-val visibility_to_string : reasoning_visibility -> string

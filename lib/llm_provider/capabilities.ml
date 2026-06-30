@@ -51,12 +51,6 @@ type preserve_thinking_control_format =
   (** Provider always requires historical reasoning replay and has no
       request-time preserve toggle. *)
 
-type reasoning_visibility_override =
-  | Default_reasoning_visibility
-  | Force_provider_hidden
-  | Force_visible_channel
-  | Force_visible_text
-
 (** Optional override for the multi-turn reasoning replay policy. Most providers
     inherit the policy implied by [thinking_control_format]; catalog entries set
     this when a model's documented replay contract differs (e.g. Kimi K2 requires
@@ -104,11 +98,6 @@ type capabilities =
         This is intentionally separate from [thinking_control_format]: some
         models use [thinking.keep], some have no request toggle but require
         replay, and Qwen-style chat templates use a nested boolean. *)
-  ; reasoning_visibility_override : reasoning_visibility_override
-    (** Optional override for how parsed reasoning content is surfaced. Most
-        providers inherit from [thinking_control_format]; catalog entries use
-        this only when a provider/model returns final answers solely in its
-        reasoning field and that field must become visible text. *)
   ; reasoning_replay_override : reasoning_replay_override
     (** Optional override for the multi-turn reasoning replay policy. Defaults to
         the policy implied by [thinking_control_format]; catalog entries set this
@@ -172,7 +161,6 @@ let default_capabilities =
   ; supports_reasoning_budget = false
   ; thinking_control_format = No_thinking_control
   ; preserve_thinking_control_format = No_preserve_thinking_control
-  ; reasoning_visibility_override = Default_reasoning_visibility
   ; reasoning_replay_override = Default_reasoning_replay
   ; supports_response_format_json = false
   ; supports_structured_output = false
@@ -415,9 +403,13 @@ let ollama_capabilities =
   }
 ;;
 
-let ollama_cloud_capabilities =
-  { ollama_capabilities with reasoning_visibility_override = Force_visible_text }
-;;
+(* Ollama Cloud is a distinct provider identity (its own base_url + auth) but its
+   capability profile is currently identical to local Ollama. Reasoning-only
+   replies still reach the user through the display path
+   ([Api.text_blocks_to_string] includes [Thinking] blocks); they are no longer
+   promoted into assistant answer text, which previously re-injected reasoning on
+   replay and caused the CoT loop (#2236). *)
+let ollama_cloud_capabilities = ollama_capabilities
 
 let dashscope_capabilities =
   { openai_compat_chat_extended_capabilities with
@@ -644,15 +636,6 @@ let warn_unknown_capability_value ~field raw =
     raw
 ;;
 
-let reasoning_visibility_override_of_catalog_string raw =
-  match String.lowercase_ascii (String.trim raw) with
-  | "" | "default" -> Some Default_reasoning_visibility
-  | "provider_hidden" | "hidden" -> Some Force_provider_hidden
-  | "visible_channel" -> Some Force_visible_channel
-  | "visible_text" -> Some Force_visible_text
-  | _ -> None
-;;
-
 let reasoning_replay_override_of_catalog_string raw =
   Capability_vocab.reasoning_replay_override_of_string raw
 ;;
@@ -762,13 +745,6 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
             base.preserve_thinking_control_format)
        | None -> base.preserve_thinking_control_format)
-  ; reasoning_visibility_override =
-      (match entry.reasoning_visibility with
-       | Some s ->
-         (match reasoning_visibility_override_of_catalog_string s with
-          | Some visibility -> visibility
-          | None -> base.reasoning_visibility_override)
-       | None -> base.reasoning_visibility_override)
   ; reasoning_replay_override =
       (match entry.reasoning_replay with
        | Some s ->
@@ -945,13 +921,6 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
             warn_unknown_capability_value ~field:"preserve_thinking_control_format" s;
             base.preserve_thinking_control_format)
        | None -> base.preserve_thinking_control_format)
-  ; reasoning_visibility_override =
-      (match entry.reasoning_visibility with
-       | Some s ->
-         (match reasoning_visibility_override_of_catalog_string s with
-          | Some visibility -> visibility
-          | None -> base.reasoning_visibility_override)
-       | None -> base.reasoning_visibility_override)
   ; reasoning_replay_override =
       (match entry.reasoning_replay with
        | Some s ->
@@ -1191,7 +1160,6 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_code_execution = None
   ; thinking_control_format = None
   ; preserve_thinking_control_format = None
-  ; reasoning_visibility = None
   ; reasoning_replay = None
   ; input_per_million = None
   ; output_per_million = None
@@ -1764,7 +1732,6 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.thinking_control_format = cb.thinking_control_format
       && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
       && ca.assistant_tool_content_format = cb.assistant_tool_content_format
-      && ca.reasoning_visibility_override = cb.reasoning_visibility_override
       && ca.reasoning_replay_override = cb.reasoning_replay_override
     | _ -> false
   in

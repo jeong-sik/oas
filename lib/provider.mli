@@ -71,13 +71,6 @@ type preserve_thinking_control_format =
   | Top_level_preserve_thinking
   | Always_preserved_thinking
 
-type reasoning_visibility_override =
-      Llm_provider.Capabilities.reasoning_visibility_override =
-  | Default_reasoning_visibility
-  | Force_provider_hidden
-  | Force_visible_channel
-  | Force_visible_text
-
 type reasoning_replay_override = Llm_provider.Capabilities.reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
@@ -104,7 +97,6 @@ type capabilities =
   ; supports_reasoning_budget : bool
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
-  ; reasoning_visibility_override : reasoning_visibility_override
   ; reasoning_replay_override : reasoning_replay_override
   ; supports_response_format_json : bool
   ; supports_structured_output : bool

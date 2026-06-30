@@ -176,10 +176,7 @@ let block_kind_of_string = function
   | other -> Unknown_block other
 ;;
 
-let finalize_stream_acc
-      ?(reasoning_visibility = Reasoning_dialect.Provider_hidden)
-      (acc : stream_acc)
-  =
+let finalize_stream_acc (acc : stream_acc) =
   match !(acc.sse_error) with
   | Some serr -> Error serr
   | None when (not !(acc.stop_reason_received)) && not !(acc.done_sentinel_seen) ->
@@ -342,24 +339,12 @@ let finalize_stream_acc
     (match collect_content [] indices with
      | Error _ as e -> e
      | Ok content ->
-       (* Visible_text policy: a reasoning-only stream (no Text block, no tool
-       calls) collapses to content=[Thinking] which every Text-only projection
-       reads as empty. Promote the reasoning into a visible Text block for
-       provider/model contracts that expose reasoning-only answer text. Mirrors
-       the non-streaming parser promotion. *)
-       let has_text =
-         List.exists
-           (function
-             | Types.Text _ -> true
-             | Types.Thinking _
-             | Types.RedactedThinking _
-             | Types.ToolUse _
-             | Types.ToolResult _
-             | Types.Image _
-             | Types.Document _
-             | Types.Audio _ -> false)
-           content
-       in
+       (* Reasoning stays typed as [Thinking]: a reasoning-only stream is never
+          promoted into a [Text] block. Promotion erased the type distinction so
+          the request serializer re-fed reasoning as the assistant answer on the
+          next turn (#2236 CoT re-injection loop). Surfacing reasoning-only
+          replies for display is a read-side projection concern, not an
+          accumulation-time mutation that also pollutes replay. *)
        let has_tool =
          List.exists
            (function
@@ -372,25 +357,6 @@ let finalize_stream_acc
              | Types.Document _
              | Types.Audio _ -> false)
            content
-       in
-       let reasoning_text =
-         List.find_map
-           (function
-             | Types.Thinking { content = c; _ } -> Some c
-             | Types.Text _
-             | Types.RedactedThinking _
-             | Types.ToolUse _
-             | Types.ToolResult _
-             | Types.Image _
-             | Types.Document _
-             | Types.Audio _ -> None)
-           content
-       in
-       let promoted_reasoning =
-         match reasoning_visibility, has_text, has_tool, reasoning_text with
-         | Reasoning_dialect.Visible_text, false, false, Some r when String.trim r <> ""
-           -> [ Types.Text r ]
-         | _ -> []
        in
        (* Enforce the StopToolUse => has-tool-block invariant now that the full
        block set (including dropped partial tool calls above) is known. A
@@ -406,7 +372,7 @@ let finalize_stream_acc
          { Types.id = !(acc.id)
          ; model = !(acc.model)
          ; stop_reason
-         ; content = content @ promoted_reasoning
+         ; content
          ; usage =
              Some
                { input_tokens = !(acc.input_tokens)

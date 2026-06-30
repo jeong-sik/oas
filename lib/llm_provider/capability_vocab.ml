@@ -38,10 +38,6 @@ let preserve_thinking_control_format_values =
   ]
 ;;
 
-let reasoning_visibility_values =
-  [ "default"; "provider_hidden"; "hidden"; "visible_channel"; "visible_text" ]
-;;
-
 let modality_priority_values =
   [ "preserve_input_order"
   ; "preserve-input-order"

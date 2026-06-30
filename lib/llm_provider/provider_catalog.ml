@@ -247,23 +247,6 @@ let parse_preserve_thinking_control_format = function
             other))
 ;;
 
-let parse_reasoning_visibility = function
-  | None -> Ok None
-  | Some raw ->
-    let trimmed = String.lowercase_ascii (String.trim raw) in
-    (match trimmed with
-     | "" | "default" -> Ok (Some Capabilities.Default_reasoning_visibility)
-     | "provider_hidden" | "hidden" -> Ok (Some Capabilities.Force_provider_hidden)
-     | "visible_channel" -> Ok (Some Capabilities.Force_visible_channel)
-     | "visible_text" -> Ok (Some Capabilities.Force_visible_text)
-     | other ->
-       Error
-         (Printf.sprintf
-            "unknown reasoning_visibility %S (canonical: default, provider_hidden, \
-             visible_channel, visible_text)"
-            other))
-;;
-
 let parse_reasoning_replay = function
   | None -> Ok None
   | Some raw ->
@@ -340,10 +323,6 @@ let parse_capabilities provider_json =
   let* preserve_thinking_control_format =
     let* raw = member_string_strict "preserve_thinking_control_format" cap_json in
     parse_preserve_thinking_control_format raw
-  in
-  let* reasoning_visibility =
-    let* raw = member_string_strict "reasoning_visibility" cap_json in
-    parse_reasoning_visibility raw
   in
   let* reasoning_replay =
     let* raw = member_string_strict "reasoning_replay" cap_json in
@@ -553,12 +532,6 @@ let parse_capabilities provider_json =
     | None -> caps
     | Some preserve_thinking_control_format ->
       { caps with Capabilities.preserve_thinking_control_format }
-  in
-  let caps =
-    match reasoning_visibility with
-    | None -> caps
-    | Some reasoning_visibility_override ->
-      { caps with Capabilities.reasoning_visibility_override }
   in
   let caps =
     match reasoning_replay with
