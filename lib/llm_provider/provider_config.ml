@@ -752,10 +752,10 @@ let has_host_prefix ~url ~prefix =
   &&
   let next_index = prefix_len in
   String.length url = prefix_len
-  ||
-  match url.[next_index] with
-  | ':' | '/' | '?' | '#' -> true
-  | _ -> false
+  || Char.equal url.[next_index] ':'
+  || Char.equal url.[next_index] '/'
+  || Char.equal url.[next_index] '?'
+  || Char.equal url.[next_index] '#'
 ;;
 
 let is_local (config : t) =
