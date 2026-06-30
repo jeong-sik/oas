@@ -31,6 +31,18 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.2](https://github.com/jeong-sik/oas/compare/v0.208.1...v0.208.2) (2026-06-30)
+
+
+### Bug Fixes
+
+* harden thinking capability fallbacks ([#2313](https://github.com/jeong-sik/oas/issues/2313)) ([a7a153a](https://github.com/jeong-sik/oas/commit/a7a153a6ff9fe84f347d60457e662da37ae38724))
+* **main:** restore CI broken by [#2232](https://github.com/jeong-sik/oas/issues/2232) stale visibility ref + format drift ([#2311](https://github.com/jeong-sik/oas/issues/2311)) ([2d89004](https://github.com/jeong-sik/oas/commit/2d8900499da19e43c8081cab9ae7a573e6a5dbed))
+* **provider:** classify openai-compatible provider identity ([#2317](https://github.com/jeong-sik/oas/issues/2317)) ([f324a57](https://github.com/jeong-sik/oas/commit/f324a57f9f7de23a645f17ea8f6a5c840e4f90a8))
+* **streaming:** preserve malformed tool-arg buffer for keeper-log diagnosis ([#2315](https://github.com/jeong-sik/oas/issues/2315)) ([ac32c79](https://github.com/jeong-sik/oas/commit/ac32c79bf5b294b3ccce6a739b5f5aa338f96eac))
+* **streaming:** read reasoning deltas from dialect ([#2314](https://github.com/jeong-sik/oas/issues/2314)) ([1caeb75](https://github.com/jeong-sik/oas/commit/1caeb7583c468fa59b4d0e7e2e4714179137df5f))
+* **test:** include model catalog in sandboxed provider suites ([#2318](https://github.com/jeong-sik/oas/issues/2318)) ([fd0731e](https://github.com/jeong-sik/oas/commit/fd0731ec3a77db9814cb3e8d3353c01b4cde9f9a))
+
 ## [0.208.1](https://github.com/jeong-sik/oas/compare/v0.208.0...v0.208.1) (2026-06-30)
 
 
