@@ -7,9 +7,10 @@
 
     Scope (RFC-OAS-024 §7): Increment 1 shipped [tool_result_of_block].
     Increment 2 adds [provider_tool_call] and [tool_calls_of_response] as a
-    structural projection for downstream renderers/executors. Reasoning is only
-    linked when it is immediately adjacent in the canonical content order; this
-    module never infers semantic ownership across Text/media/result boundaries.
+    structural projection for downstream renderers/executors. Reasoning metadata
+    is only linked when it is immediately adjacent in the canonical content
+    order; this module never infers semantic ownership across Text/media/result
+    boundaries and never exposes raw provider reasoning payloads.
 
     Boundary (RFC-OAS-024 §1): OAS-owned provider canonicalization only. Depends
     solely on provider-boundary types and references no execution, policy, or
@@ -23,16 +24,16 @@ type provider_reasoning_kind =
   | Visible_thinking
   | Redacted_thinking
 
-(** A provider reasoning block observed in a response.
+(** Public metadata for a provider reasoning block observed in a response.
 
     [order_index] is the zero-based position in {!Types.api_response.content}.
-    [content] is the provider payload verbatim; for {!Redacted_thinking} it is
-    opaque redacted data, not display text. [signature] is present only for
-    signed visible thinking blocks. *)
+    Raw provider reasoning payloads are intentionally not exposed by this
+    renderer/executor projection; provider replay paths must use
+    {!Types.content_block} directly. [signature] is present only for signed
+    visible thinking blocks. *)
 type provider_reasoning_block =
   { order_index : int
   ; kind : provider_reasoning_kind
-  ; content : string
   ; signature : string option
   }
 

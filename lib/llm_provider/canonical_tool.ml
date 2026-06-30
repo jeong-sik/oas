@@ -1,8 +1,9 @@
 (** Canonical tool projections (RFC-OAS-024, WP8 Increments 1-2).
 
     Increment 1 shipped the {e result} projection. Increment 2 adds the call
-    projection plus structural reasoning adjacency for consumers that need to
-    render or execute interleaved Thinking -> ToolUse responses.
+    projection plus structural reasoning-adjacency metadata for consumers that
+    need to render or execute interleaved Thinking -> ToolUse responses without
+    receiving raw provider reasoning payloads.
 
     Pure, total projections over [Types.content_block]. This is {b not} a second
     in-memory SSOT: [content_block] remains the canonical representation and the
@@ -22,7 +23,6 @@ type provider_reasoning_kind =
 type provider_reasoning_block =
   { order_index : int
   ; kind : provider_reasoning_kind
-  ; content : string
   ; signature : string option
   }
 
@@ -58,15 +58,15 @@ let provider_kind_of_response (response : Types.api_response) =
 
 let reasoning_of_block ~order_index (block : Types.content_block) =
   match block with
-  | Types.Thinking { content; signature } ->
-    Some { order_index; kind = Visible_thinking; content; signature }
+  | Types.Thinking { signature; _ } ->
+    Some { order_index; kind = Visible_thinking; signature }
   | Types.ReasoningDetails { reasoning_content; details } ->
     let content = Types.reasoning_details_text ~reasoning_content ~details in
     if String.trim content = ""
     then None
-    else Some { order_index; kind = Visible_thinking; content; signature = None }
-  | Types.RedactedThinking content ->
-    Some { order_index; kind = Redacted_thinking; content; signature = None }
+    else Some { order_index; kind = Visible_thinking; signature = None }
+  | Types.RedactedThinking _ ->
+    Some { order_index; kind = Redacted_thinking; signature = None }
   | Types.Text _
   | Types.ToolUse _
   | Types.ToolResult _

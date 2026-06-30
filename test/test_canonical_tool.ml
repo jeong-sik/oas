@@ -59,7 +59,6 @@ let check_no_adjacent_reasoning label = function
 let check_visible_reasoning
       label
       expected_order
-      expected_content
       expected_signature
       (block : Ct.provider_reasoning_block)
   =
@@ -67,25 +66,38 @@ let check_visible_reasoning
   (match block.Ct.kind with
    | Ct.Visible_thinking -> ()
    | Ct.Redacted_thinking -> Alcotest.failf "%s expected visible thinking" label);
-  Alcotest.(check string) (label ^ " content") expected_content block.Ct.content;
   Alcotest.(check (option string))
     (label ^ " signature")
     expected_signature
     block.Ct.signature
 ;;
 
-let check_redacted_reasoning
-      label
-      expected_order
-      expected_content
-      (block : Ct.provider_reasoning_block)
-  =
+let check_redacted_reasoning label expected_order (block : Ct.provider_reasoning_block) =
   Alcotest.(check int) (label ^ " order") expected_order block.Ct.order_index;
   (match block.Ct.kind with
    | Ct.Redacted_thinking -> ()
    | Ct.Visible_thinking -> Alcotest.failf "%s expected redacted thinking" label);
-  Alcotest.(check string) (label ^ " content") expected_content block.Ct.content;
   Alcotest.(check (option string)) (label ^ " signature") None block.Ct.signature
+;;
+
+let metadata_only_copy (block : Ct.provider_reasoning_block) =
+  { Ct.order_index = block.Ct.order_index
+  ; kind = block.Ct.kind
+  ; signature = block.Ct.signature
+  }
+;;
+
+let exposed_reasoning_strings block =
+  let block = metadata_only_copy block in
+  match block.Ct.signature with
+  | Some signature -> [ signature ]
+  | None -> []
+;;
+
+let check_no_exposed_payload label payload block =
+  let exposed = exposed_reasoning_strings block in
+  if List.exists (String.equal payload) exposed
+  then Alcotest.failf "%s leaked reasoning payload %S" label payload
 ;;
 
 let test_tool_call_projection_preserves_fields_and_adjacent_reasoning () =
@@ -106,7 +118,7 @@ let test_tool_call_projection_preserves_fields_and_adjacent_reasoning () =
   check_provider_kind "call" (Some PK.Ollama) call.Ct.provider_kind;
   match call.Ct.adjacent_reasoning with
   | Ct.Adjacent_reasoning [ block ] ->
-    check_visible_reasoning "adjacent reasoning" 1 "call weather" (Some "sig_1") block
+    check_visible_reasoning "adjacent reasoning" 1 (Some "sig_1") block
   | Ct.Adjacent_reasoning blocks ->
     Alcotest.failf "expected one adjacent reasoning block, got %d" (List.length blocks)
   | Ct.No_adjacent_reasoning -> Alcotest.fail "expected adjacent reasoning"
@@ -130,14 +142,14 @@ let test_tool_calls_keep_interleaved_reasoning_groups () =
     Alcotest.(check int) "first order" 1 first.Ct.order_index;
     (match first.Ct.adjacent_reasoning with
      | Ct.Adjacent_reasoning [ block ] ->
-       check_visible_reasoning "first reasoning" 0 "first plan" None block
+       check_visible_reasoning "first reasoning" 0 None block
      | _ -> Alcotest.fail "first call should have one adjacent reasoning block");
     Alcotest.(check string) "second id" "call_2" second.Ct.call_id;
     Alcotest.(check int) "second order" 4 second.Ct.order_index;
     (match second.Ct.adjacent_reasoning with
      | Ct.Adjacent_reasoning [ visible; redacted ] ->
-       check_visible_reasoning "second visible reasoning" 2 "second plan" None visible;
-       check_redacted_reasoning "second redacted reasoning" 3 "opaque_blob" redacted
+       check_visible_reasoning "second visible reasoning" 2 None visible;
+       check_redacted_reasoning "second redacted reasoning" 3 redacted
      | Ct.Adjacent_reasoning blocks ->
        Alcotest.failf
          "second call expected two adjacent reasoning blocks, got %d"
@@ -165,11 +177,7 @@ let test_text_breaks_reasoning_adjacency () =
 let test_tool_call_of_block_preserves_fields_without_inference () =
   let input = `Assoc [ "path", `String "lib/" ] in
   let reasoning =
-    { Ct.order_index = 2
-    ; kind = Ct.Visible_thinking
-    ; content = "inspect tree"
-    ; signature = Some "sig-tool"
-    }
+    { Ct.order_index = 2; kind = Ct.Visible_thinking; signature = Some "sig-tool" }
   in
   let block = Types.ToolUse { id = "call_read"; name = "read"; input } in
   match
@@ -187,16 +195,33 @@ let test_tool_call_of_block_preserves_fields_without_inference () =
     check_provider_kind "block call" (Some PK.Anthropic) call.Ct.provider_kind;
     (match call.Ct.adjacent_reasoning with
      | Ct.Adjacent_reasoning [ block ] ->
-       check_visible_reasoning
-         "block adjacent reasoning"
-         2
-         "inspect tree"
-         (Some "sig-tool")
-         block
+       check_visible_reasoning "block adjacent reasoning" 2 (Some "sig-tool") block
      | Ct.Adjacent_reasoning blocks ->
        Alcotest.failf "expected one adjacent reasoning block, got %d" (List.length blocks)
      | Ct.No_adjacent_reasoning -> Alcotest.fail "expected supplied adjacent reasoning")
   | None -> Alcotest.fail "expected ToolUse projection"
+;;
+
+let test_adjacent_reasoning_projection_omits_payloads () =
+  let visible_payload = "VISIBLE_REASONING_PAYLOAD_DO_NOT_RENDER" in
+  let redacted_payload = "REDACTED_REASONING_PAYLOAD_DO_NOT_RENDER" in
+  let resp =
+    response
+      [ Types.Thinking { signature = Some "payload-sig"; content = visible_payload }
+      ; Types.RedactedThinking redacted_payload
+      ; Types.ToolUse { id = "call_private"; name = "private_tool"; input = `Null }
+      ]
+  in
+  let call = one_tool_call resp in
+  match call.Ct.adjacent_reasoning with
+  | Ct.Adjacent_reasoning [ visible; redacted ] ->
+    check_visible_reasoning "visible metadata" 0 (Some "payload-sig") visible;
+    check_redacted_reasoning "redacted metadata" 1 redacted;
+    check_no_exposed_payload "visible metadata" visible_payload visible;
+    check_no_exposed_payload "redacted metadata" redacted_payload redacted
+  | Ct.Adjacent_reasoning blocks ->
+    Alcotest.failf "expected two adjacent reasoning blocks, got %d" (List.length blocks)
+  | Ct.No_adjacent_reasoning -> Alcotest.fail "expected adjacent reasoning"
 ;;
 
 let test_tool_call_of_block_defaults_to_no_context () =
@@ -323,6 +348,10 @@ let () =
             "text breaks reasoning adjacency"
             `Quick
             test_text_breaks_reasoning_adjacency
+        ; Alcotest.test_case
+            "omits reasoning payloads"
+            `Quick
+            test_adjacent_reasoning_projection_omits_payloads
         ] )
     ; ( "tool_call_of_block"
       , [ Alcotest.test_case
