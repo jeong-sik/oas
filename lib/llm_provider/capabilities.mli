@@ -135,6 +135,14 @@ val glm_capabilities : capabilities
     @since 0.185.0 *)
 val provider_l_capabilities : capabilities
 
+(** Resolve the exact chat-template token for models whose
+    [thinking_control_format] is [Chat_template_token]. The token is catalog /
+    manifest data, not a hardcoded backend constant. *)
+val thinking_control_token_for_provider_model_id
+  :  provider_label:string
+  -> model_id:string
+  -> string option
+
 (** Effective request-level parallel tool-use disablement.
 
     Explicit caller disablement always wins. Otherwise, when a request carries

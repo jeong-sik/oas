@@ -39,6 +39,7 @@ type model_entry =
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
+  ; thinking_control_token : string option
   ; preserve_thinking_control_format : string option
   ; reasoning_replay : string option
   ; input_per_million : float option

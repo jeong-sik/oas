@@ -102,6 +102,7 @@ for the full JSON Schema (draft-07).
 | `supports_computer_use` | bool | from base | Computer-use tools. |
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
 | `thinking_control_format` | string | from base | Thinking enable/depth wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `ollama_think`, `reasoning_effort`, `enable_thinking`. |
+| `thinking_control_token` | string | absent | Exact chat-template token used when `thinking_control_format = "chat_template_token"`. |
 | `preserve_thinking_control_format` | string | from base | Historical reasoning replay/preserve wire control. Accepted values: `none`, `thinking_object_keep_all`, `chat_template_kwargs_preserve_thinking`, `top_level_preserve_thinking`, `always_preserved`. |
 | `reasoning_replay` | string | `default` | Optional multi-turn reasoning replay override. Accepted values: `default`, `no_replay`, `drop_without_tool`, `preserve_always`. |
 

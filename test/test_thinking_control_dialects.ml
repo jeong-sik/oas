@@ -21,6 +21,13 @@ open Yojson.Safe.Util
 let json_of_body body = Yojson.Safe.from_string body
 let member_is_absent name json = json |> member name = `Null
 
+let string_contains_sub s sub =
+  let len = String.length s
+  and sub_len = String.length sub in
+  let rec loop i = i + sub_len <= len && (String.sub s i sub_len = sub || loop (i + 1)) in
+  sub_len = 0 || loop 0
+;;
+
 let with_manifest json f =
   match CM.of_json (Yojson.Safe.from_string json) with
   | Error msg -> fail ("manifest parse failed: " ^ msg)
@@ -29,21 +36,42 @@ let with_manifest json f =
     Fun.protect ~finally:(fun () -> CM.set_global []) f
 ;;
 
-let without_ambient_manifest f =
-  CM.set_global [];
+let load_repository_catalog () =
   let candidates = [ "models.toml"; "../models.toml" ] in
   match List.find_opt Sys.file_exists candidates with
   | None -> fail "models.toml not found for thinking-control dialect tests"
   | Some path ->
     (match MC.load_file path with
      | Error msg -> fail ("failed to load " ^ path ^ ": " ^ msg)
-     | Ok catalog ->
-       MC.set_global catalog;
-       Fun.protect
-         ~finally:(fun () ->
-           MC.clear_global ();
-           CM.clear_global ())
-         f)
+     | Ok catalog -> catalog)
+;;
+
+let without_ambient_manifest f =
+  CM.set_global [];
+  MC.set_global (load_repository_catalog ());
+  Fun.protect
+    ~finally:(fun () ->
+      MC.clear_global ();
+      CM.clear_global ())
+    f
+;;
+
+let with_catalog_toml contents f =
+  let path = Filename.temp_file "oas-thinking-catalog" ".toml" in
+  let oc = open_out path in
+  Fun.protect
+    ~finally:(fun () ->
+      close_out_noerr oc;
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () ->
+       output_string oc contents;
+       close_out oc;
+       match MC.load_file path with
+       | Error msg -> fail ("custom catalog parse failed: " ^ msg)
+       | Ok catalog ->
+         MC.set_global catalog;
+         Fun.protect ~finally:(fun () -> MC.set_global (load_repository_catalog ())) f)
 ;;
 
 let check_member_absent name json =
@@ -610,6 +638,69 @@ let test_ollama_gemma4_enabled_uses_chat_template_token () =
        (first_message |> member "content" |> to_string))
 ;;
 
+let test_ollama_chat_template_token_uses_catalog_token () =
+  with_catalog_toml
+    {|
+[[models]]
+id_prefix = "local-token-model"
+base = "ollama"
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_token"
+thinking_control_token = "<|custom_think|>"
+|}
+    (fun () ->
+       let config =
+         ollama_config
+           ~system_prompt:"Keep replies short."
+           ~enable_thinking:true
+           "local-token-model:latest"
+       in
+       let json =
+         BOL.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body
+       in
+       check_member_absent "think" json;
+       let first_message = json |> member "messages" |> index 0 in
+       check
+         bool
+         "system prompt starts with catalog token"
+         true
+         (String.starts_with
+            ~prefix:"<|custom_think|>\n"
+            (first_message |> member "content" |> to_string)))
+;;
+
+let test_ollama_chat_template_token_missing_token_fails_closed () =
+  with_catalog_toml
+    {|
+[[models]]
+id_prefix = "tokenless-template-model"
+base = "ollama"
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_token"
+|}
+    (fun () ->
+       let config =
+         ollama_config ~enable_thinking:true "tokenless-template-model:latest"
+       in
+       let rejection =
+         try
+           ignore (BOL.build_request ~config ~messages:[ user_msg "hi" ] ());
+           None
+         with
+         | Invalid_argument msg -> Some msg
+       in
+       match rejection with
+       | Some msg ->
+         check
+           bool
+           "mentions missing token"
+           true
+           (string_contains_sub msg "no thinking_control_token")
+       | None -> fail "missing thinking_control_token should reject the request")
+;;
+
 let test_ollama_gemma4_disabled_uses_native_think_false () =
   let config =
     ollama_config
@@ -869,6 +960,14 @@ let () =
               "gemma4 enabled uses chat template token"
               `Quick
               test_ollama_gemma4_enabled_uses_chat_template_token
+          ; test_case
+              "chat_template_token uses catalog token"
+              `Quick
+              test_ollama_chat_template_token_uses_catalog_token
+          ; test_case
+              "chat_template_token without token fails closed"
+              `Quick
+              test_ollama_chat_template_token_missing_token_fails_closed
           ; test_case
               "gemma4 disabled uses native think false"
               `Quick
