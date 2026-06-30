@@ -148,9 +148,12 @@ let test_gemini3_disable_uses_low_level () =
 
 let test_gemini31_flash_lite_disable_uses_minimal_level () =
   (* gemini-3.1-flash-lite is the only family that accepts [minimal] (and it is
-     the default there), so a disabled turn maps to [minimal]. *)
+     the default there), so a disabled turn maps to [minimal]. The config value
+     is intentionally raw-cased/padded: backend_gemini must not reclassify model
+     strings itself; [Capabilities.gemini_thinking_control_of_id] owns the
+     normalization boundary. *)
   let config =
-    gemini_config ~model_id:"gemini-3.1-flash-lite" ~enable_thinking:false ()
+    gemini_config ~model_id:" Gemini-3.1-Flash-Lite " ~enable_thinking:false ()
   in
   let body = Backend_gemini.build_request ~config ~messages:[ Types.user_msg "Hi." ] () in
   let tc = parse_body body |> member "generationConfig" |> member "thinkingConfig" in

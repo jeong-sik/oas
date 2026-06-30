@@ -523,7 +523,8 @@ let gemini_family_of_id (id : string) : gemini_family =
   else Gemini_other id
 ;;
 
-let gemini_thinking_control_of_id id =
+let gemini_thinking_control_of_id raw_id =
+  let id = String.lowercase_ascii (String.trim raw_id) in
   match gemini_family_of_id id with
   | Gemini_3_1 ->
     (* Per ai.google.dev/gemini-api/docs/thinking and the gemini-3.1-flash-lite

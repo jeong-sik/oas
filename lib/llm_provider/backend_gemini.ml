@@ -55,8 +55,7 @@ let thinking_level_of_budget ~supports_minimal = function
 ;;
 
 let thinking_config_of_config (config : Provider_config.t) =
-  let model_id = String.lowercase_ascii (String.trim config.model_id) in
-  match Capabilities.gemini_thinking_control_of_id model_id with
+  match Capabilities.gemini_thinking_control_of_id config.model_id with
   | Capabilities.Gemini_thinking_level { supports_minimal } ->
     (match config.enable_thinking with
      | Some false ->
