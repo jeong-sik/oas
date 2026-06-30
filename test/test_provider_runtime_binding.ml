@@ -269,6 +269,27 @@ let expect_named_tool_choice_rejected label cfg =
   | Error (Llm_provider.Provider_config.Unsupported_named_tool_choice { tool_name; _ }) ->
     Alcotest.(check string) (label ^ " tool") "calc" tool_name
   | Ok () -> Alcotest.failf "%s unexpectedly accepted named forced tool_choice" label
+  | Error rejection ->
+    Alcotest.failf
+      "%s expected named forced tool_choice rejection, got: %s"
+      label
+      (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
+;;
+
+let expect_forced_tool_choice_rejected label expected cfg =
+  match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
+  | Error (Llm_provider.Provider_config.Unsupported_forced_tool_choice { requested; _ })
+    ->
+    Alcotest.(check string)
+      (label ^ " requested")
+      (Types.show_tool_choice expected)
+      (Types.show_tool_choice requested)
+  | Ok () -> Alcotest.failf "%s unexpectedly accepted forced tool_choice" label
+  | Error rejection ->
+    Alcotest.failf
+      "%s expected forced tool_choice rejection, got: %s"
+      label
+      (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
 ;;
 
 let request_tool_choice_field cfg =
@@ -390,7 +411,10 @@ supports_named_tool_choice = false
            ~tool_choice:named
            ()
        in
-       expect_named_tool_choice_rejected "ollama cloud minimax named" hosted_minimax_named;
+       expect_forced_tool_choice_rejected
+         "ollama cloud minimax named"
+         named
+         hosted_minimax_named;
        let hosted_minimax_any =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -400,8 +424,10 @@ supports_named_tool_choice = false
            ~tool_choice:Types.Any
            ()
        in
-       expect_tool_choice_ok "ollama cloud minimax any" hosted_minimax_any;
-       expect_no_tool_choice_field "ollama cloud minimax any" hosted_minimax_any)
+       expect_forced_tool_choice_rejected
+         "ollama cloud minimax any"
+         Types.Any
+         hosted_minimax_any)
 ;;
 
 let test_all_includes_catalog_entry_once () =

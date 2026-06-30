@@ -417,6 +417,11 @@ val validate_cli_sampling_params : t -> (unit, string) result
     typed config boundary instead of letting serializers raise exceptions after
     a turn has started. *)
 type tool_choice_request_rejection =
+  | Unsupported_forced_tool_choice of
+      { provider_kind : provider_kind
+      ; model_id : string
+      ; requested : Types.tool_choice
+      }
   | Unsupported_named_tool_choice of
       { provider_kind : provider_kind
       ; model_id : string
