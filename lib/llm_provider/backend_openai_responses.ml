@@ -7,6 +7,8 @@
 
 open Types
 
+let ( let* ) = Result.bind
+
 let json_assoc_opt key = function
   | `Assoc fields -> List.assoc_opt key fields
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
@@ -33,6 +35,16 @@ let non_blank_json_string json =
   match json_string_opt json with
   | Some s when not (Api_common.string_is_blank s) -> Some s
   | Some _ | None -> None
+;;
+
+let ok_concat_map f xs =
+  let rec loop acc = function
+    | [] -> Ok (List.rev acc |> List.concat)
+    | x :: rest ->
+      let* blocks = f x in
+      loop (blocks :: acc) rest
+  in
+  loop [] xs
 ;;
 
 let assoc_remove keys fields =
@@ -442,38 +454,51 @@ let content_blocks_of_reasoning_item item =
      | None -> [])
 ;;
 
-let content_block_of_function_call item =
-  let call_id =
-    match opt_bind (json_assoc_opt "call_id" item) json_string_opt with
-    | Some s -> s
-    | None ->
-      (match opt_bind (json_assoc_opt "id" item) json_string_opt with
-       | Some s -> s
-       | None -> "")
-  in
-  let name =
-    opt_bind (json_assoc_opt "name" item) json_string_opt |> Option.value ~default:""
-  in
-  let arguments =
-    opt_bind (json_assoc_opt "arguments" item) json_string_opt
-    |> Option.value ~default:"{}"
-  in
-  if Api_common.string_is_blank call_id || Api_common.string_is_blank name
-  then None
-  else
-    Some
-      (ToolUse { id = call_id; name; input = Api_common.json_of_string_or_raw arguments })
+let function_call_required_string ~field item =
+  match opt_bind (json_assoc_opt field item) json_string_opt with
+  | Some s when not (Api_common.string_is_blank s) -> Ok s
+  | Some _ | None ->
+    Error (Printf.sprintf "malformed_responses_function_call:missing_%s" field)
 ;;
 
-let content_blocks_of_output_item item =
+let function_call_arguments ~call_id item =
+  let* arguments = function_call_required_string ~field:"arguments" item in
+  match Yojson.Safe.from_string arguments with
+  | `Assoc _ as input -> Ok input
+  | `Null | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error
+      (Printf.sprintf "malformed_responses_function_call:%s:arguments:not_object" call_id)
+  | exception Yojson.Json_error msg ->
+    Error
+      (Printf.sprintf
+         "malformed_responses_function_call:%s:arguments:json_parse_error:%s"
+         call_id
+         msg)
+;;
+
+let content_block_of_function_call item =
+  let* call_id = function_call_required_string ~field:"call_id" item in
+  let* name = function_call_required_string ~field:"name" item in
+  let* input = function_call_arguments ~call_id item in
+  Ok (ToolUse { id = call_id; name; input })
+;;
+
+let content_blocks_of_output_item ~drop_function_call item =
   match opt_bind (json_assoc_opt "type" item) json_string_opt with
-  | Some "message" -> content_blocks_of_output_message item
-  | Some "reasoning" -> content_blocks_of_reasoning_item item
+  | Some "message" -> Ok (content_blocks_of_output_message item)
+  | Some "reasoning" -> Ok (content_blocks_of_reasoning_item item)
+  | Some "function_call" when drop_function_call -> Ok []
   | Some "function_call" ->
-    (match content_block_of_function_call item with
-     | Some block -> [ block ]
-     | None -> [])
-  | Some _ | None -> []
+    let* block = content_block_of_function_call item in
+    Ok [ block ]
+  | Some _ ->
+    (* Responses output items are an extensible set. Hosted-tool items such as
+       web-search calls are valid non-content for this parser; preserve later
+       message/reasoning/function_call items instead of failing the whole
+       response because OpenAI added a new output item type. Malformed
+       supported items (notably function_call) still fail closed above. *)
+    Ok []
+  | None -> Error "malformed_responses_output_item:missing_type"
 ;;
 
 let usage_of_response_json json =
@@ -556,7 +581,6 @@ let parse_response_result json_str =
         | Some (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
         | None -> []
       in
-      let content = List.concat_map content_blocks_of_output_item output in
       (* Terminal [incomplete]/[failed] responses may carry a partial [function_call]
          item; do not expose it as a dangling ToolUse that the pipeline would try to
          execute or repair. Drop such blocks so the stop reason dominates. *)
@@ -564,15 +588,13 @@ let parse_response_result json_str =
         opt_bind (json_assoc_opt "status" json) json_string_opt
         |> Option.value ~default:""
       in
-      let content =
+      let drop_function_call =
         match String.lowercase_ascii status with
-        | "incomplete" | "failed" ->
-          List.filter
-            (function
-              | ToolUse _ -> false
-              | _ -> true)
-            content
-        | _ -> content
+        | "incomplete" | "failed" -> true
+        | _ -> false
+      in
+      let* content =
+        ok_concat_map (content_blocks_of_output_item ~drop_function_call) output
       in
       let has_tool_calls =
         List.exists
