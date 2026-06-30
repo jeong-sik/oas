@@ -71,10 +71,10 @@ val default : unit -> t
     registry-level distinctions that share a wire kind but differ by
     endpoint (for example [glm] vs [glm-coding], or
     [openai_compat] vs [openrouter]). For unmatched OpenAI-compatible
-    endpoints, the model catalog may still classify provider identity via
-    [Model_catalog.model_entry.provider_name] (for example xAI, Mistral,
-    Cohere, or MiMo). Falls back to a stable kind-derived label when neither
-    endpoint nor catalog classification matches. *)
+    endpoints, falls back to a stable kind-derived label. Model catalog
+    provider names are intentionally not used as provider identity without
+    an explicit provider kind or endpoint registry binding: request
+    compatibility and provider identity are orthogonal. *)
 val provider_name_of_config : Provider_config.t -> string
 
 (** Initial fallback endpoint snapshot. This is intentionally not parsed from

@@ -1023,7 +1023,7 @@ let test_provider_name_of_config_unmatched_openai_compat () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
-let check_provider_name_from_catalog_model ~label ~model_id ~expected =
+let check_unmatched_provider_name_ignores_catalog_model ~label ~model_id =
   with_repository_model_catalog (fun () ->
     let cfg =
       Provider_config.make
@@ -1033,35 +1033,74 @@ let check_provider_name_from_catalog_model ~label ~model_id ~expected =
         ~request_path:"/chat/completions"
         ()
     in
-    check_string label expected (Provider_registry.provider_name_of_config cfg))
+    check_string label "openai_compat" (Provider_registry.provider_name_of_config cfg))
 ;;
 
-let test_provider_name_of_config_xai_model_catalog () =
-  check_provider_name_from_catalog_model
-    ~label:"xai model catalog provider"
+let check_provider_name_from_registered_endpoint ~label ~provider ~model_id =
+  match Provider_registry.find (Provider_registry.default ()) provider with
+  | None -> Alcotest.failf "provider %S not registered" provider
+  | Some (entry : Provider_registry.entry) ->
+    let cfg =
+      Provider_config.make
+        ~kind:entry.defaults.kind
+        ~model_id
+        ~base_url:entry.defaults.base_url
+        ~request_path:entry.defaults.request_path
+        ()
+    in
+    check_string label provider (Provider_registry.provider_name_of_config cfg)
+;;
+
+let test_provider_name_of_config_ignores_xai_catalog_model () =
+  check_unmatched_provider_name_ignores_catalog_model
+    ~label:"unmatched endpoint ignores xai catalog provider"
     ~model_id:"grok-4.3"
-    ~expected:"xai"
 ;;
 
-let test_provider_name_of_config_mistral_model_catalog () =
-  check_provider_name_from_catalog_model
-    ~label:"mistral model catalog provider"
+let test_provider_name_of_config_ignores_mistral_catalog_model () =
+  check_unmatched_provider_name_ignores_catalog_model
+    ~label:"unmatched endpoint ignores mistral catalog provider"
     ~model_id:"mistral-large"
-    ~expected:"mistral"
 ;;
 
-let test_provider_name_of_config_cohere_model_catalog () =
-  check_provider_name_from_catalog_model
-    ~label:"cohere model catalog provider"
+let test_provider_name_of_config_ignores_cohere_catalog_model () =
+  check_unmatched_provider_name_ignores_catalog_model
+    ~label:"unmatched endpoint ignores cohere catalog provider"
     ~model_id:"command-r-plus"
-    ~expected:"cohere"
 ;;
 
-let test_provider_name_of_config_mimo_model_catalog () =
-  check_provider_name_from_catalog_model
-    ~label:"mimo model catalog provider"
+let test_provider_name_of_config_ignores_mimo_catalog_model () =
+  check_unmatched_provider_name_ignores_catalog_model
+    ~label:"unmatched endpoint ignores mimo catalog provider"
     ~model_id:"mimo-v2.5-pro"
-    ~expected:"mimo"
+;;
+
+let test_provider_name_of_config_xai_registered_endpoint () =
+  check_provider_name_from_registered_endpoint
+    ~label:"xai registered endpoint"
+    ~provider:"xai"
+    ~model_id:"grok-4.3"
+;;
+
+let test_provider_name_of_config_mistral_registered_endpoint () =
+  check_provider_name_from_registered_endpoint
+    ~label:"mistral registered endpoint"
+    ~provider:"mistral"
+    ~model_id:"mistral-large"
+;;
+
+let test_provider_name_of_config_cohere_registered_endpoint () =
+  check_provider_name_from_registered_endpoint
+    ~label:"cohere registered endpoint"
+    ~provider:"cohere"
+    ~model_id:"command-r-plus"
+;;
+
+let test_provider_name_of_config_mimo_registered_endpoint () =
+  check_provider_name_from_registered_endpoint
+    ~label:"mimo registered endpoint"
+    ~provider:"mimo"
+    ~model_id:"mimo-v2.5-pro"
 ;;
 
 (* ── provider_kind_of_string ─────────────────────────── *)
@@ -1573,21 +1612,37 @@ let () =
             `Quick
             test_provider_name_of_config_unmatched_openai_compat
         ; Alcotest.test_case
-            "xai model catalog"
+            "ignores xai catalog model"
             `Quick
-            test_provider_name_of_config_xai_model_catalog
+            test_provider_name_of_config_ignores_xai_catalog_model
         ; Alcotest.test_case
-            "mistral model catalog"
+            "ignores mistral catalog model"
             `Quick
-            test_provider_name_of_config_mistral_model_catalog
+            test_provider_name_of_config_ignores_mistral_catalog_model
         ; Alcotest.test_case
-            "cohere model catalog"
+            "ignores cohere catalog model"
             `Quick
-            test_provider_name_of_config_cohere_model_catalog
+            test_provider_name_of_config_ignores_cohere_catalog_model
         ; Alcotest.test_case
-            "mimo model catalog"
+            "ignores mimo catalog model"
             `Quick
-            test_provider_name_of_config_mimo_model_catalog
+            test_provider_name_of_config_ignores_mimo_catalog_model
+        ; Alcotest.test_case
+            "xai registered endpoint"
+            `Quick
+            test_provider_name_of_config_xai_registered_endpoint
+        ; Alcotest.test_case
+            "mistral registered endpoint"
+            `Quick
+            test_provider_name_of_config_mistral_registered_endpoint
+        ; Alcotest.test_case
+            "cohere registered endpoint"
+            `Quick
+            test_provider_name_of_config_cohere_registered_endpoint
+        ; Alcotest.test_case
+            "mimo registered endpoint"
+            `Quick
+            test_provider_name_of_config_mimo_registered_endpoint
         ] )
     ; ( "kind_of_string"
       , [ Alcotest.test_case "roundtrip all variants" `Quick test_kind_roundtrip
