@@ -7,6 +7,47 @@ let member key json = Yojson.Safe.Util.member key json
 let to_bool json = Yojson.Safe.Util.to_bool json
 let to_string json = Yojson.Safe.Util.to_string json
 
+let contains_substring ~sub text =
+  let sub_len = String.length sub in
+  let text_len = String.length text in
+  let rec loop i =
+    i + sub_len <= text_len && (String.sub text i sub_len = sub || loop (i + 1))
+  in
+  sub_len = 0 || loop 0
+;;
+
+let source_path path =
+  let rec find_up dir remaining =
+    let candidate = Filename.concat dir path in
+    if Sys.file_exists candidate
+    then Some candidate
+    else if remaining = 0
+    then None
+    else (
+      let parent = Filename.dirname dir in
+      if String.equal parent dir then None else find_up parent (remaining - 1))
+  in
+  match find_up (Sys.getcwd ()) 12 with
+  | Some candidate -> candidate
+  | None -> path
+;;
+
+let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
+
+let source_before_inline_tests source =
+  source
+  |> String.split_on_char '\n'
+  |> List.fold_left
+       (fun (keep, lines) line ->
+          if (not keep) || String.equal line "[@@@coverage off]"
+          then false, lines
+          else true, line :: lines)
+       (true, [])
+  |> snd
+  |> List.rev
+  |> String.concat "\n"
+;;
+
 let glm_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
   PC.make
     ~kind:PC.Glm
@@ -132,6 +173,19 @@ let test_build_request_thinking_modes_and_tool_stream () =
   check bool "thinking omitted" true (passthrough |> member "thinking" = `Null)
 ;;
 
+let test_backend_glm_delegates_thinking_builder_to_shared_request_builder () =
+  let source =
+    read_source "lib/llm_provider/backend_glm.ml" |> source_before_inline_tests
+  in
+  [ "clear_thinking"; "chat_template_kwargs"; "reasoning_effort"; "enable_thinking" ]
+  |> List.iter (fun field ->
+    check
+      bool
+      (field ^ " not emitted directly in backend_glm.ml")
+      false
+      (contains_substring ~sub:("\"" ^ field ^ "\"") source))
+;;
+
 let test_parse_response_extracts_reasoning_and_usage () =
   let resp = K.parse_response (response_json ()) in
   check string "id" "chatcmpl-provider-k" resp.id;
@@ -227,6 +281,10 @@ let () =
             "thinking modes and tool_stream"
             `Quick
             test_build_request_thinking_modes_and_tool_stream
+        ; test_case
+            "thinking builder delegated"
+            `Quick
+            test_backend_glm_delegates_thinking_builder_to_shared_request_builder
         ] )
     ; ( "response"
       , [ test_case

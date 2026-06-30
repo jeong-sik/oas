@@ -141,11 +141,7 @@ let capabilities_of_config (config : Provider_config.t) =
    request-body clear_thinking field below and the reasoning-replay gate cannot
    diverge. *)
 let glm_clear_thinking_of_config = Provider_config.glm_clear_thinking
-
-let is_zai_glm_request (config : Provider_config.t) =
-  Zai_catalog.is_zai_base_url config.base_url
-  && Zai_catalog.is_glm_model_id config.model_id
-;;
+let is_zai_glm_request = Provider_config.is_zai_glm_config
 
 let zai_glm_preserve_thinking_request (config : Provider_config.t) =
   is_zai_glm_request config && Provider_config.glm_should_replay_reasoning config
