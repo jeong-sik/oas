@@ -1285,39 +1285,47 @@ let%test
 ;;
 
 let%test "build_request serializes thinking object for deepseek-v4-flash" =
-  let config =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-flash"
-      ~base_url:"https://api.deepseek.com"
-      ~enable_thinking:true
-      ~thinking_budget:2048
-      ()
-  in
-  let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  (* thinking_budget 2048 -> typed effort [Low], but the DeepSeek dialect
-     (Deepseek_high_or_max) normalizes low/medium/high -> "high" (see
-     test_thinking_control_dialects.ml "low maps high"). *)
-  json |> member "thinking" |> member "type" |> to_string = "enabled"
-  && json |> member "reasoning_effort" |> to_string = "high"
+  match Capabilities.for_model_id "deepseek-v4-flash" with
+  | None -> false
+  | Some model_capabilities_override ->
+    let config =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"deepseek-v4-flash"
+        ~base_url:"https://api.deepseek.com"
+        ~enable_thinking:true
+        ~thinking_budget:2048
+        ~model_capabilities_override
+        ()
+    in
+    let body = build_request ~config ~messages:[] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    (* thinking_budget 2048 -> typed effort [Low], but the DeepSeek dialect
+       (Deepseek_high_or_max) normalizes low/medium/high -> "high" (see
+       test_thinking_control_dialects.ml "low maps high"). *)
+    json |> member "thinking" |> member "type" |> to_string = "enabled"
+    && json |> member "reasoning_effort" |> to_string = "high"
 ;;
 
 let%test "build_request serializes disabled thinking for deepseek-v4-pro" =
-  let config =
-    Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-pro"
-      ~base_url:"https://api.deepseek.com"
-      ~enable_thinking:false
-      ()
-  in
-  let body = build_request ~config ~messages:[] () in
-  let json = Yojson.Safe.from_string body in
-  let open Yojson.Safe.Util in
-  json |> member "thinking" |> member "type" |> to_string = "disabled"
-  && json |> member "reasoning_effort" = `Null
+  match Capabilities.for_model_id "deepseek-v4-pro" with
+  | None -> false
+  | Some model_capabilities_override ->
+    let config =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"deepseek-v4-pro"
+        ~base_url:"https://api.deepseek.com"
+        ~enable_thinking:false
+        ~model_capabilities_override
+        ()
+    in
+    let body = build_request ~config ~messages:[] () in
+    let json = Yojson.Safe.from_string body in
+    let open Yojson.Safe.Util in
+    json |> member "thinking" |> member "type" |> to_string = "disabled"
+    && json |> member "reasoning_effort" = `Null
 ;;
 
 let%test "build_request serializes ZAI thinking object for bare GLM compat model" =
