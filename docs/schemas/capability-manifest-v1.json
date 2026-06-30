@@ -184,16 +184,6 @@
             "always_preserved"
           ]
         },
-        "reasoning_visibility": {
-          "type": "string",
-          "description": "Optional override for surfacing parsed reasoning output.",
-          "enum": [
-            "default",
-            "provider_hidden",
-            "visible_channel",
-            "visible_text"
-          ]
-        },
         "reasoning_replay": {
           "type": "string",
           "description": "Optional override for multi-turn reasoning replay policy.",

@@ -639,12 +639,7 @@ let test_ollama_cloud_grouped_so_rows_have_required_axes () =
          check_thinking_control
            (model_id ^ " uses Ollama native think")
            Capabilities.Ollama_think
-           c.thinking_control_format;
-         check
-           bool
-           (model_id ^ " visible-text reasoning override")
-           true
-           (c.reasoning_visibility_override = Capabilities.Force_visible_text))
+           c.thinking_control_format)
     cases
 ;;
 
