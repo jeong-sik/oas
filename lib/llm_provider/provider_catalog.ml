@@ -283,6 +283,42 @@ let parse_reasoning_streaming_format = function
             Capability_vocab.reasoning_streaming_format_syntax))
 ;;
 
+let parse_modality_priority = function
+  | None -> Ok None
+  | Some raw ->
+    let normalized = String.lowercase_ascii (String.trim raw) in
+    (match normalized with
+     | "" -> Ok None
+     | "preserve_input_order" | "preserve-input-order" | "preserve" ->
+       Ok (Some Modality.Preserve_input_order)
+     | "visual_first" | "visual-first" -> Ok (Some Modality.Visual_first)
+     | other ->
+       Error
+         (Printf.sprintf
+            "unknown modality_priority %S (canonical: %s)"
+            other
+            (String.concat ", " Capability_vocab.modality_priority_values)))
+;;
+
+let parse_accepted_reasoning_efforts = function
+  | None -> Ok None
+  | Some values ->
+    let rec loop acc = function
+      | [] -> Ok (Some (List.rev acc))
+      | raw :: rest ->
+        let normalized = String.lowercase_ascii (String.trim raw) in
+        (match Reasoning_effort.of_string normalized with
+         | Some effort -> loop (effort :: acc) rest
+         | None ->
+           Error
+             (Printf.sprintf
+                "unknown accepted_reasoning_efforts value %S (canonical: %s)"
+                normalized
+                (String.concat ", " Reasoning_effort.all_wire_values)))
+    in
+    loop [] values
+;;
+
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
@@ -349,6 +385,14 @@ let parse_capabilities provider_json =
   let* reasoning_streaming_format =
     let* raw = member_string_strict "reasoning_streaming_format" cap_json in
     parse_reasoning_streaming_format raw
+  in
+  let* modality_priority =
+    let* raw = member_string_strict "modality_priority" cap_json in
+    parse_modality_priority raw
+  in
+  let* accepted_reasoning_efforts =
+    parse_accepted_reasoning_efforts
+      (member_string_list "accepted_reasoning_efforts" cap_json)
   in
   let caps =
     base
@@ -495,6 +539,10 @@ let parse_capabilities provider_json =
       (fun caps v -> { caps with Capabilities.supports_video_input = v })
       cap_json
     |> fun caps ->
+    (match modality_priority with
+     | Some modality_priority -> { caps with Capabilities.modality_priority }
+     | None -> caps)
+    |> fun caps ->
     override_bool
       "supports_native_streaming"
       caps
@@ -587,6 +635,14 @@ let parse_capabilities provider_json =
   let caps =
     match member_supported_models cap_json with
     | Some models -> { caps with Capabilities.supported_models = Some models }
+    | None -> caps
+  in
+  let caps =
+    match accepted_reasoning_efforts with
+    | Some accepted_reasoning_efforts ->
+      { caps with
+        Capabilities.accepted_reasoning_efforts = Some accepted_reasoning_efforts
+      }
     | None -> caps
   in
   Ok caps

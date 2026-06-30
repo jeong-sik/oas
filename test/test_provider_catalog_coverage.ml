@@ -74,6 +74,8 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
               "supports_code_execution": true,
               "emits_usage_tokens": true,
               "thinking_control_format": "chat_template_kwargs",
+              "accepted_reasoning_efforts": ["low", "high"],
+              "modality_priority": "visual_first",
               "reasoning_replay": "preserve_always",
               "supported_models": [" rich-model ", "", 3, "rich-fast"]
             }
@@ -132,6 +134,12 @@ let test_full_entry_parses_auth_transport_and_capabilities () =
   check bool "computer use" true caps.supports_computer_use;
   check bool "code execution" true caps.supports_code_execution;
   check bool "usage tokens" true caps.emits_usage_tokens;
+  check
+    (option (list string))
+    "accepted reasoning efforts"
+    (Some [ "low"; "high" ])
+    (Option.map (List.map Reasoning_effort.to_string) caps.accepted_reasoning_efforts);
+  check bool "visual first" true (caps.modality_priority = Modality.Visual_first);
   check
     bool
     "thinking format"
@@ -374,7 +382,15 @@ let test_removed_catalog_aliases_are_rejected () =
   assert_reject
     "reasoning replay type rejected"
     {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"reasoning_replay":true}}]}|}
-    "expected string"
+    "expected string";
+  assert_reject
+    "accepted reasoning effort rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"accepted_reasoning_efforts":["low","turbo"]}}]}|}
+    "unknown accepted_reasoning_efforts";
+  assert_reject
+    "modality priority rejected"
+    {|{"schema_version":1,"providers":[{"id":"p","capabilities":{"modality_priority":"image_only"}}]}|}
+    "unknown modality_priority"
 ;;
 
 let test_non_list_providers_is_empty_catalog () =
