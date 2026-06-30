@@ -45,6 +45,7 @@
   test_async_agent
   test_atomic_write_race
   test_backend_openai_codec
+  test_provider_agnostic_reasoning_replay
   test_backend_glm_coverage
   test_backend_tool_call_harness
   test_backend_gemini
@@ -245,6 +246,7 @@
   test_async_agent
   test_atomic_write_race
   test_backend_openai_codec
+  test_provider_agnostic_reasoning_replay
   test_backend_glm_coverage
   test_backend_tool_call_harness
   test_backend_gemini
