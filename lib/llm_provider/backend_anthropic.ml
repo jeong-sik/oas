@@ -73,15 +73,10 @@ let parse_response json =
   }
 ;;
 
-let effort_of_budget budget =
-  match Reasoning_effort.of_budget budget with
-  | Some Reasoning_effort.None_ -> None
-  | Some Reasoning_effort.Minimal -> None
-  | Some Reasoning_effort.Low -> Some "low"
-  | Some Reasoning_effort.Medium -> Some "medium"
-  | Some Reasoning_effort.High -> Some "high"
-  | Some Reasoning_effort.XHigh -> Some "max"
-  | None -> None
+let effort_of_budget dialect budget =
+  Option.bind
+    (Reasoning_effort.of_budget budget)
+    (Reasoning_dialect.normalize_effort_value dialect)
 ;;
 
 let effort_for_config mode (config : Provider_config.t) =
@@ -92,11 +87,12 @@ let effort_for_config mode (config : Provider_config.t) =
   match config.enable_thinking with
   | Some false | None -> None
   | Some true ->
+    let dialect = Reasoning_dialect.for_provider_config config in
     (match mode, config.thinking_budget with
      | ( ( Capabilities.Anthropic_adaptive_only
          | Capabilities.Anthropic_adaptive_preferred
          | Capabilities.Anthropic_always_adaptive )
-       , Some budget ) -> effort_of_budget budget
+       , Some budget ) -> effort_of_budget dialect budget
      | Capabilities.Anthropic_manual_budget, _
      | ( ( Capabilities.Anthropic_adaptive_only
          | Capabilities.Anthropic_adaptive_preferred
