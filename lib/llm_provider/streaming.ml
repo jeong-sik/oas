@@ -62,19 +62,45 @@ let parse_sse_event event_type data_str =
       let index = json |> member "index" |> to_int in
       let delta_json = json |> member "delta" in
       let delta_type = delta_json |> member "type" |> to_string in
-      let delta =
-        match delta_type with
-        | "text_delta" -> TextDelta (delta_json |> member "text" |> to_string)
-        | "thinking_delta" -> ThinkingDelta (delta_json |> member "thinking" |> to_string)
-        | "signature_delta" ->
-          ThinkingSignatureDelta (delta_json |> member "signature" |> to_string)
-        | "input_json_delta" ->
-          InputJsonDelta (delta_json |> member "partial_json" |> to_string)
-        | unknown_delta_type ->
-          let (_ : string) = unknown_delta_type in
-          TextDelta ""
-      in
-      Some (ContentBlockDelta { index; delta })
+      (match delta_type with
+       | "text_delta" ->
+         Some
+           (ContentBlockDelta
+              { index; delta = TextDelta (delta_json |> member "text" |> to_string) })
+       | "thinking_delta" ->
+         Some
+           (ContentBlockDelta
+              { index
+              ; delta = ThinkingDelta (delta_json |> member "thinking" |> to_string)
+              })
+       | "signature_delta" ->
+         Some
+           (ContentBlockDelta
+              { index
+              ; delta =
+                  ThinkingSignatureDelta (delta_json |> member "signature" |> to_string)
+              })
+       | "input_json_delta" ->
+         Some
+           (ContentBlockDelta
+              { index
+              ; delta =
+                  InputJsonDelta (delta_json |> member "partial_json" |> to_string)
+              })
+       | unknown_delta_type ->
+         (* An unrecognized content_block_delta subtype is content we cannot
+            represent as a typed delta. Mirror the unknown-event-type contract
+            ([SSEUnknownEventType] at the event level): surface a typed
+            [SSEParseFailed] so [accumulate_event] marks [sse_error] and
+            [finalize_stream_acc] yields [Error _], letting the caller route to
+            another provider. The previous branch coerced this to [TextDelta ""],
+            silently dropping the provider's output and finalizing a phantom
+            completion (the exact silent-drop the event-level fix already closed). *)
+         Some
+           (SSEParseFailed
+              { raw = data_str
+              ; reason = "unknown content_block_delta type: " ^ unknown_delta_type
+              }))
     | "content_block_stop" ->
       let index = json |> member "index" |> to_int in
       Some (ContentBlockStop { index })
@@ -1709,6 +1735,29 @@ let%test
   match parse_sse_event None raw with
   | Some (SSEUnknownEventType { event_type = ""; _ }) -> true
   | Some (SSEParseFailed _) -> true
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
+;;
+
+let%test
+    "parse_sse_event: unknown content_block_delta type yields SSEParseFailed (not \
+     silent empty TextDelta)"
+  =
+  (* Same silent-drop class as the unknown-event-type case, one level deeper:
+     a recognized [content_block_delta] event carrying an unrecognized inner
+     [delta.type]. The previous implementation coerced it to [TextDelta ""],
+     fabricating empty text and silently discarding the provider's output, so
+     the accumulator finalized a phantom completion. The contract is that the
+     parser surfaces a typed failure the accumulator marks as [sse_error]. *)
+  let raw =
+    "{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"citations_delta\",\"citation\":{}}}"
+  in
+  match parse_sse_event None raw with
+  | Some (SSEParseFailed { raw = r; reason }) ->
+    (* raw is carried verbatim; reason names the offending subtype verbatim so
+       operators can diagnose which delta the provider sent. *)
+    r = raw && reason = "unknown content_block_delta type: citations_delta"
   | unexpected_event ->
     let (_ : sse_event option) = unexpected_event in
     false
