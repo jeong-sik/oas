@@ -491,7 +491,13 @@ let content_blocks_of_output_item ~drop_function_call item =
   | Some "function_call" ->
     let* block = content_block_of_function_call item in
     Ok [ block ]
-  | Some item_type -> Error ("unsupported_responses_output_item:" ^ item_type)
+  | Some _ ->
+    (* Responses output items are an extensible set. Hosted-tool items such as
+       web-search calls are valid non-content for this parser; preserve later
+       message/reasoning/function_call items instead of failing the whole
+       response because OpenAI added a new output item type. Malformed
+       supported items (notably function_call) still fail closed above. *)
+    Ok []
   | None -> Error "malformed_responses_output_item:missing_type"
 ;;
 

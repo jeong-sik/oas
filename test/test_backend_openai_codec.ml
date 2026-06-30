@@ -1453,17 +1453,35 @@ let test_responses_parse_reasoning_and_function_call () =
      | None -> Alcotest.fail "expected telemetry")
 ;;
 
-let test_responses_rejects_unknown_output_item () =
-  expect_responses_parse_error
-    "unknown responses output item"
-    "unsupported_responses_output_item:web_search_call"
-    (responses_with_output
-       [ `Assoc
-           [ "id", `String "ws_1"
-           ; "type", `String "web_search_call"
-           ; "status", `String "completed"
-           ]
-       ])
+let test_responses_ignores_hosted_tool_item_and_preserves_message () =
+  let json =
+    responses_with_output
+      [ `Assoc
+          [ "id", `String "ws_1"
+          ; "type", `String "web_search_call"
+          ; "status", `String "completed"
+          ]
+      ; `Assoc
+          [ "id", `String "msg_1"
+          ; "type", `String "message"
+          ; "role", `String "assistant"
+          ; ( "content"
+            , `List
+                [ `Assoc
+                    [ "type", `String "output_text"
+                    ; "text", `String "It is sunny in Paris."
+                    ]
+                ] )
+          ]
+      ]
+  in
+  match Responses.parse_response_result (Yojson.Safe.to_string json) with
+  | Error msg -> Alcotest.fail ("unexpected responses parse error: " ^ msg)
+  | Ok response ->
+    check_bool "stop end turn" true (response.stop_reason = EndTurn);
+    (match response.content with
+     | [ Text text ] -> check_string "message text" "It is sunny in Paris." text
+     | _ -> Alcotest.fail "expected hosted-tool item skipped and message preserved")
 ;;
 
 let test_responses_rejects_function_call_missing_call_id () =
@@ -2138,9 +2156,9 @@ let () =
             `Quick
             test_responses_parse_reasoning_and_function_call
         ; Alcotest.test_case
-            "rejects unknown output item"
+            "ignores hosted tool item and preserves message"
             `Quick
-            test_responses_rejects_unknown_output_item
+            test_responses_ignores_hosted_tool_item_and_preserves_message
         ; Alcotest.test_case
             "rejects function_call missing call_id"
             `Quick
