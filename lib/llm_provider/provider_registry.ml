@@ -515,12 +515,6 @@ let default () =
   t
 ;;
 
-let provider_name_of_catalog_model_id model_id =
-  match Model_catalog.global () with
-  | None -> None
-  | Some catalog -> Model_catalog.provider_name_for_model_id catalog model_id
-;;
-
 let provider_name_of_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic -> "claude"
@@ -551,7 +545,9 @@ let provider_name_of_config (config : Provider_config.t) =
       with
       | Some entry -> entry.name
       | None ->
-        (match provider_name_of_catalog_model_id config.model_id with
-         | Some provider_name -> provider_name
-         | None -> "openai_compat"))
+        (* Provider identity must come from the concrete kind or an explicit
+           endpoint registry binding. Catalog provider names describe model
+           provenance/capabilities; using them here would infer transport
+           semantics from a model id on arbitrary compatible gateways. *)
+        "openai_compat")
 ;;
