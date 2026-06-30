@@ -203,7 +203,9 @@ jobs:
 
   lint:
     name: Lint
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    # Run on drafts: catching drift at draft time prevents main from going
+    # red after a draft merge (#2311, #2319 were post-merge format/lint fixes
+    # a draft-time check would have caught).
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -227,7 +229,9 @@ jobs:
 
   ocamlformat:
     name: OCaml Format
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    # Run on drafts: catching drift at draft time prevents main from going
+    # red after a draft merge (#2311, #2319 were post-merge format/lint fixes
+    # a draft-time check would have caught).
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -249,7 +253,9 @@ jobs:
 
   version-check:
     name: Version Consistency
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    # Run on drafts: catching drift at draft time prevents main from going
+    # red after a draft merge (#2311, #2319 were post-merge format/lint fixes
+    # a draft-time check would have caught).
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -277,7 +283,9 @@ jobs:
 
   transport-drift:
     name: Transport Drift Gate
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    # Run on drafts: catching drift at draft time prevents main from going
+    # red after a draft merge (#2311, #2319 were post-merge format/lint fixes
+    # a draft-time check would have caught).
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
