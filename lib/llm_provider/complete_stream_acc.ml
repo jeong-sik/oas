@@ -65,7 +65,8 @@ let create_stream_acc () =
    we prevent from reaching [finalize]. *)
 let is_complete_json_value s =
   match Yojson.Safe.from_string s with
-  | _ -> true
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _ ->
+    true
   | exception Yojson.Json_error _ -> false
 ;;
 
