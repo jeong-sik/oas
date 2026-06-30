@@ -45,6 +45,25 @@ let text_blocks_to_string blocks =
 
 let json_of_string_or_raw s = Lenient_json.parse s
 
+let unsupported_media_source ~backend ~block source_type =
+  invalid_arg
+    (Printf.sprintf
+       "%s does not support %s media source kind %s"
+       backend
+       block
+       (Types.media_source_kind_to_string source_type))
+;;
+
+let base64_media_data_url ~backend ~block ~media_type ~data = function
+  | Base64 -> Printf.sprintf "data:%s;base64,%s" media_type data
+  | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
+;;
+
+let base64_media_payload ~backend ~block ~data = function
+  | Base64 -> data
+  | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
+;;
+
 type tool_result_content_style =
   | Tool_result_content_string
   | Tool_result_content_text_blocks

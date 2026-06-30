@@ -310,6 +310,47 @@ let test_json_of_string_or_raw_invalid () =
   | _ -> Alcotest.fail "expected raw fallback"
 ;;
 
+let test_base64_media_data_url () =
+  let result =
+    Api_common.base64_media_data_url
+      ~backend:"test_backend"
+      ~block:"image"
+      ~media_type:"image/png"
+      ~data:"abc"
+      Types.Base64
+  in
+  Alcotest.(check string) "data URL" "data:image/png;base64,abc" result
+;;
+
+let test_base64_media_payload () =
+  let result =
+    Api_common.base64_media_payload
+      ~backend:"test_backend"
+      ~block:"audio"
+      ~data:"abc"
+      Types.Base64
+  in
+  Alcotest.(check string) "payload" "abc" result
+;;
+
+let test_base64_media_source_rejects_url () =
+  try
+    ignore
+      (Api_common.base64_media_data_url
+         ~backend:"test_backend"
+         ~block:"image"
+         ~media_type:"image/png"
+         ~data:"https://example.invalid/image.png"
+         Types.Url);
+    Alcotest.fail "expected Url media source to fail closed"
+  with
+  | Invalid_argument message ->
+    Alcotest.(check string)
+      "message"
+      "test_backend does not support image media source kind url"
+      message
+;;
+
 (* content_block_to_json *)
 let test_content_block_to_json_text () =
   let json = Api_common.content_block_to_json (Text "hello") in
@@ -1946,6 +1987,12 @@ let () =
             "json_of_string_or_raw invalid"
             `Quick
             test_json_of_string_or_raw_invalid
+        ; Alcotest.test_case "base64_media_data_url" `Quick test_base64_media_data_url
+        ; Alcotest.test_case "base64_media_payload" `Quick test_base64_media_payload
+        ; Alcotest.test_case
+            "base64_media_source rejects url"
+            `Quick
+            test_base64_media_source_rejects_url
         ] )
     ; ( "api_common.content_block_to_json"
       , [ Alcotest.test_case "text" `Quick test_content_block_to_json_text
