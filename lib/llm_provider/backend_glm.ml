@@ -353,8 +353,10 @@ let%test "build_request maps preserve_thinking to GLM clear_thinking=false" =
   json |> member "thinking" |> member "clear_thinking" |> to_bool = false
 ;;
 
-let%test "build_request replays reasoning via typed dialect, not serialize-time \
-          branch (RFC-OAS-029 S3.1)" =
+let%test
+    "build_request replays reasoning via typed dialect, not serialize-time branch \
+     (RFC-OAS-029 S3.1)"
+  =
   (* The reasoning-replay decision now flows from the typed
      [Reasoning_dialect.replay_policy] resolved once in [for_provider_config],
      not from a serialize-time [config.kind = Glm]/[glm_should_replay_reasoning]
@@ -367,9 +369,7 @@ let%test "build_request replays reasoning via typed dialect, not serialize-time 
   let messages =
     [ { role = Assistant
       ; content =
-          [ Thinking { content = "prior reasoning"; signature = None }
-          ; Text "answer"
-          ]
+          [ Thinking { content = "prior reasoning"; signature = None }; Text "answer" ]
       ; name = None
       ; tool_call_id = None
       ; metadata = []
