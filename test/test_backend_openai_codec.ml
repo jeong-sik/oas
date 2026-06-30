@@ -1401,6 +1401,27 @@ let responses_response_json () =
     ]
 ;;
 
+let responses_with_output output =
+  `Assoc
+    [ "id", `String "resp_bad"
+    ; "model", `String "gpt-5.5"
+    ; "status", `String "completed"
+    ; "output", `List output
+    ]
+;;
+
+let expect_responses_parse_error label expected json =
+  match Responses.parse_response_result (Yojson.Safe.to_string json) with
+  | Error msg -> check_string label expected msg
+  | Ok _ -> Alcotest.fail (label ^ " should fail closed")
+;;
+
+let expect_responses_parse_error_prefix label prefix json =
+  match Responses.parse_response_result (Yojson.Safe.to_string json) with
+  | Error msg -> check_bool label true (String.starts_with ~prefix msg)
+  | Ok _ -> Alcotest.fail (label ^ " should fail closed")
+;;
+
 let test_responses_parse_reasoning_and_function_call () =
   match
     Responses.parse_response_result (responses_response_json () |> Yojson.Safe.to_string)
@@ -1430,6 +1451,63 @@ let test_responses_parse_reasoning_and_function_call () =
          (Some 3)
          telemetry.reasoning_tokens
      | None -> Alcotest.fail "expected telemetry")
+;;
+
+let test_responses_rejects_unknown_output_item () =
+  expect_responses_parse_error
+    "unknown responses output item"
+    "unsupported_responses_output_item:web_search_call"
+    (responses_with_output
+       [ `Assoc
+           [ "id", `String "ws_1"
+           ; "type", `String "web_search_call"
+           ; "status", `String "completed"
+           ]
+       ])
+;;
+
+let test_responses_rejects_function_call_missing_call_id () =
+  expect_responses_parse_error
+    "missing call_id"
+    "malformed_responses_function_call:missing_call_id"
+    (responses_with_output
+       [ `Assoc
+           [ "id", `String "fc_item_1"
+           ; "type", `String "function_call"
+           ; "name", `String "get_weather"
+           ; "arguments", `String {|{"city":"Paris"}|}
+           ]
+       ])
+;;
+
+let test_responses_rejects_function_call_non_object_arguments () =
+  expect_responses_parse_error
+    "non-object arguments"
+    "malformed_responses_function_call:call_weather:arguments:not_object"
+    (responses_with_output
+       [ `Assoc
+           [ "id", `String "fc_1"
+           ; "type", `String "function_call"
+           ; "call_id", `String "call_weather"
+           ; "name", `String "get_weather"
+           ; "arguments", `String {|["Paris"]|}
+           ]
+       ])
+;;
+
+let test_responses_rejects_function_call_malformed_arguments () =
+  expect_responses_parse_error_prefix
+    "malformed arguments"
+    "malformed_responses_function_call:call_weather:arguments:json_parse_error:"
+    (responses_with_output
+       [ `Assoc
+           [ "id", `String "fc_1"
+           ; "type", `String "function_call"
+           ; "call_id", `String "call_weather"
+           ; "name", `String "get_weather"
+           ; "arguments", `String {|{"city":"Par|}
+           ]
+       ])
 ;;
 
 (* Regression for Codex P2 (#2048): a Responses result whose generation was cut
@@ -2059,6 +2137,22 @@ let () =
             "parse reasoning and function_call items"
             `Quick
             test_responses_parse_reasoning_and_function_call
+        ; Alcotest.test_case
+            "rejects unknown output item"
+            `Quick
+            test_responses_rejects_unknown_output_item
+        ; Alcotest.test_case
+            "rejects function_call missing call_id"
+            `Quick
+            test_responses_rejects_function_call_missing_call_id
+        ; Alcotest.test_case
+            "rejects function_call non-object arguments"
+            `Quick
+            test_responses_rejects_function_call_non_object_arguments
+        ; Alcotest.test_case
+            "rejects function_call malformed arguments"
+            `Quick
+            test_responses_rejects_function_call_malformed_arguments
         ; Alcotest.test_case
             "incomplete status wins over function_call (#2048)"
             `Quick
