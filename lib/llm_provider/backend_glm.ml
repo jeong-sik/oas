@@ -404,6 +404,38 @@ let%test
   replays preserved && not (replays default_config)
 ;;
 
+let%test "build_request preserves ZAI GLM OpenAI-compatible replay and tool content shape"
+  =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"glm-5-turbo"
+      ~base_url:Zai_catalog.coding_base_url
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let messages =
+    [ { role = Assistant
+      ; content =
+          [ Thinking { content = "prior reasoning"; signature = None }
+          ; ToolUse
+              { id = "call_1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let body = build_request ~config ~messages () |> Yojson.Safe.from_string in
+  let open Yojson.Safe.Util in
+  let assistant = body |> member "messages" |> index 0 in
+  assistant |> member "content" |> to_string = ""
+  && assistant |> member "reasoning_content" |> to_string = "prior reasoning"
+  && assistant |> member "tool_calls" |> to_list <> []
+;;
+
 let%test "build_request emits exactly one thinking key for ZAI GLM (RFC-OAS-023)" =
   (* Regression guard for the duplicate-[thinking]-key bug: GLM thinking now
      comes from the shared OpenAI-compatible request builder. Backend_glm must
