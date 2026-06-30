@@ -120,14 +120,12 @@ let test_role_to_string () =
 ;;
 
 let test_param_type_to_string () =
-  Alcotest.(check string) "any" "any" (Types.param_type_to_string Types.Any_json);
   Alcotest.(check string) "string" "string" (Types.param_type_to_string Types.String);
   Alcotest.(check string) "integer" "integer" (Types.param_type_to_string Types.Integer);
   Alcotest.(check string) "number" "number" (Types.param_type_to_string Types.Number);
   Alcotest.(check string) "boolean" "boolean" (Types.param_type_to_string Types.Boolean);
   Alcotest.(check string) "array" "array" (Types.param_type_to_string Types.Array);
-  Alcotest.(check string) "object" "object" (Types.param_type_to_string Types.Object);
-  Alcotest.(check string) "null" "null" (Types.param_type_to_string Types.Null)
+  Alcotest.(check string) "object" "object" (Types.param_type_to_string Types.Object)
 ;;
 
 let test_tool_choice_auto () =
@@ -286,14 +284,12 @@ let test_role_yojson_roundtrip () =
 
 let test_param_type_yojson_roundtrip () =
   let variants =
-    [ Types.Any_json
-    ; Types.String
+    [ Types.String
     ; Types.Integer
     ; Types.Number
     ; Types.Boolean
     ; Types.Array
     ; Types.Object
-    ; Types.Null
     ]
   in
   List.iter
@@ -419,16 +415,6 @@ let test_tool_param_manual_json_helpers () =
       ; param_type = Types.Integer
       ; required = false
       }
-    ; { Types.name = "payload"
-      ; description = "Any payload"
-      ; param_type = Types.Any_json
-      ; required = false
-      }
-    ; { Types.name = "nothing"
-      ; description = "Null marker"
-      ; param_type = Types.Null
-      ; required = false
-      }
     ]
   in
   let schema = Types.params_to_input_schema params in
@@ -438,15 +424,6 @@ let test_tool_param_manual_json_helpers () =
     "required count"
     1
     (schema |> member "required" |> to_list |> List.length);
-  let properties = schema |> member "properties" in
-  Alcotest.(check bool)
-    "any omits type"
-    true
-    (properties |> member "payload" |> member "type" = `Null);
-  Alcotest.(check string)
-    "null schema type"
-    "null"
-    (properties |> member "nothing" |> member "type" |> to_string);
   let param_json = Types.tool_param_to_json (List.hd params) in
   (match Types.tool_param_of_json param_json with
    | Ok decoded -> Alcotest.(check string) "decoded" "q" decoded.name

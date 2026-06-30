@@ -57,14 +57,12 @@ let coercion_stage = { name = "coercion"; apply = coercion_apply }
 (* ── Stage 2: Default Injection ─────────────────────────── *)
 
 let zero_default = function
-  | Types.Any_json -> `Null
   | Types.String -> `String ""
   | Types.Integer -> `Int 0
   | Types.Number -> `Float 0.0
   | Types.Boolean -> `Bool false
   | Types.Array -> `List []
   | Types.Object -> `Assoc []
-  | Types.Null -> `Null
 ;;
 
 let make_default_injection_stage

@@ -53,32 +53,6 @@ let test_null_treated_as_missing () =
   | Tool_input_validation.Valid _ -> fail "expected Invalid for null required field"
 ;;
 
-let test_any_accepts_all_json_values () =
-  let schema = make_schema [ make_param ~param_type:Types.Any_json "payload" ] in
-  List.iter
-    (fun value ->
-       match Tool_input_validation.validate schema (`Assoc [ "payload", value ]) with
-       | Tool_input_validation.Valid _ -> ()
-       | Tool_input_validation.Invalid errors ->
-         fail
-           ("Any_json rejected value: "
-            ^ Tool_input_validation.format_errors ~tool_name:"test_tool" errors))
-    [ `Null; `String "x"; `Int 1; `Bool true; `List []; `Assoc [] ]
-;;
-
-let test_null_accepts_only_null () =
-  let schema = make_schema [ make_param ~param_type:Types.Null "nothing" ] in
-  (match Tool_input_validation.validate schema (`Assoc [ "nothing", `Null ]) with
-   | Tool_input_validation.Valid _ -> ()
-   | Tool_input_validation.Invalid errors ->
-     fail
-       ("Null rejected null: "
-        ^ Tool_input_validation.format_errors ~tool_name:"test_tool" errors));
-  match Tool_input_validation.validate schema (`Assoc [ "nothing", `String "null" ]) with
-  | Tool_input_validation.Invalid _ -> ()
-  | Tool_input_validation.Valid _ -> fail "Null accepted a non-null value"
-;;
-
 (* ── Type checking tests ──────────────────────────────── *)
 
 let test_type_match_string () =
@@ -483,8 +457,6 @@ let () =
         ; test_case "present required" `Quick test_required_present
         ; test_case "optional missing" `Quick test_optional_missing
         ; test_case "null as missing" `Quick test_null_treated_as_missing
-        ; test_case "any accepts all json values" `Quick test_any_accepts_all_json_values
-        ; test_case "null accepts only null" `Quick test_null_accepts_only_null
         ] )
     ; ( "type_check"
       , [ test_case "string matches String" `Quick test_type_match_string
