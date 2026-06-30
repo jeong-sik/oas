@@ -1052,6 +1052,21 @@ let test_response_shape_empty_end_turn_is_not_deliverable () =
     (summary_contains ~needle:"content_kinds=[none]" response)
 ;;
 
+let test_response_shape_unknown_stop_reason_is_escaped_in_diagnostics () =
+  let response = response ~stop_reason:(Types.Unknown "provider\nmessage") () in
+  let summary = Response_shape.diagnostic_summary response in
+  Alcotest.(check bool)
+    "escapes unknown stop reason"
+    true
+    (summary_contains ~needle:"stop_reason=unknown(\"provider\\nmessage\")" response);
+  Alcotest.(check bool) "keeps summary single-line" false (String.contains summary '\n');
+  let empty = response ~stop_reason:(Types.Unknown "") () in
+  Alcotest.(check bool)
+    "empty unknown remains visible"
+    true
+    (summary_contains ~needle:"stop_reason=unknown(\"\")" empty)
+;;
+
 let test_response_shape_thinking_plus_text_is_deliverable () =
   let response =
     response
@@ -1135,6 +1150,10 @@ let () =
             "empty end_turn is not deliverable"
             `Quick
             test_response_shape_empty_end_turn_is_not_deliverable
+        ; Alcotest.test_case
+            "unknown stop reason is escaped in diagnostics"
+            `Quick
+            test_response_shape_unknown_stop_reason_is_escaped_in_diagnostics
         ; Alcotest.test_case
             "thinking plus text is deliverable"
             `Quick
