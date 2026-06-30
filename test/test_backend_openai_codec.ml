@@ -458,8 +458,7 @@ let test_ollama_native_multimodal_variants () =
     Serialize.ollama_messages_of_message
       (msg
          User
-         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 }
-         ])
+         [ Audio { media_type = "audio/wav"; data = "wav1"; source_type = Types.Base64 } ])
     |> ignore);
   (* Mixed text + image + document preserves text in content and both payloads in images. *)
   let mixed =
