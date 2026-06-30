@@ -1,15 +1,166 @@
-(** Tests for {!Llm_provider.Canonical_tool} — RFC-OAS-024 WP8 Increment 1.
+(** Tests for {!Llm_provider.Canonical_tool} — RFC-OAS-024 WP8 Increments 1-2.
 
-    Covers the result projection (round-trip fidelity, is_error, totality). The
-    call projection and reasoning types are deferred to Increment 2 (no live
-    consumer yet), so they are not implemented or tested here. The {e wiring} of
+    Covers result projection (round-trip fidelity, is_error, totality) and the
+    structural call projection used by downstream consumers that need to render
+    interleaved Thinking -> ToolUse responses. The {e wiring} of
     [tool_result_of_block] into the turn pipeline is covered by the inline tests
     on [Pipeline_stage_prepare.last_tool_results_from]. *)
 
 module Ct = Llm_provider.Canonical_tool
+module PK = Llm_provider.Provider_kind
 module Types = Llm_provider.Types
 
 let json_eq = Alcotest.testable Yojson.Safe.pp Yojson.Safe.equal
+
+let response ?provider_kind content : Types.api_response =
+  let telemetry =
+    match provider_kind with
+    | Some provider_kind ->
+      Some { Types.default_inference_telemetry with provider_kind = Some provider_kind }
+    | None -> None
+  in
+  { id = "resp_1"
+  ; model = "model"
+  ; stop_reason = Types.StopToolUse
+  ; content
+  ; usage = None
+  ; telemetry
+  }
+;;
+
+let one_tool_call resp =
+  match Ct.tool_calls_of_response resp with
+  | [ call ] -> call
+  | calls -> Alcotest.failf "expected one tool call, got %d" (List.length calls)
+;;
+
+let check_provider_kind label expected actual =
+  match expected, actual with
+  | None, None -> ()
+  | Some PK.Ollama, Some PK.Ollama -> ()
+  | Some PK.Anthropic, Some PK.Anthropic -> ()
+  | Some PK.Kimi, Some PK.Kimi -> ()
+  | Some PK.OpenAI_compat, Some PK.OpenAI_compat -> ()
+  | Some PK.Gemini, Some PK.Gemini -> ()
+  | Some PK.Glm, Some PK.Glm -> ()
+  | Some PK.DashScope, Some PK.DashScope -> ()
+  | _ -> Alcotest.failf "%s provider kind mismatch" label
+;;
+
+let check_no_adjacent_reasoning label = function
+  | Ct.No_adjacent_reasoning -> ()
+  | Ct.Adjacent_reasoning blocks ->
+    Alcotest.failf
+      "%s expected no adjacent reasoning, got %d blocks"
+      label
+      (List.length blocks)
+;;
+
+let check_visible_reasoning
+      label
+      expected_order
+      expected_content
+      expected_signature
+      (block : Ct.provider_reasoning_block)
+  =
+  Alcotest.(check int) (label ^ " order") expected_order block.Ct.order_index;
+  (match block.Ct.kind with
+   | Ct.Visible_thinking -> ()
+   | Ct.Redacted_thinking -> Alcotest.failf "%s expected visible thinking" label);
+  Alcotest.(check string) (label ^ " content") expected_content block.Ct.content;
+  Alcotest.(check (option string))
+    (label ^ " signature")
+    expected_signature
+    block.Ct.signature
+;;
+
+let check_redacted_reasoning
+      label
+      expected_order
+      expected_content
+      (block : Ct.provider_reasoning_block)
+  =
+  Alcotest.(check int) (label ^ " order") expected_order block.Ct.order_index;
+  (match block.Ct.kind with
+   | Ct.Redacted_thinking -> ()
+   | Ct.Visible_thinking -> Alcotest.failf "%s expected redacted thinking" label);
+  Alcotest.(check string) (label ^ " content") expected_content block.Ct.content;
+  Alcotest.(check (option string)) (label ^ " signature") None block.Ct.signature
+;;
+
+let test_tool_call_projection_preserves_fields_and_adjacent_reasoning () =
+  let input = `Assoc [ "city", `String "Seoul" ] in
+  let resp =
+    response
+      ~provider_kind:PK.Ollama
+      [ Types.Text "visible preface"
+      ; Types.Thinking { signature = Some "sig_1"; content = "call weather" }
+      ; Types.ToolUse { id = "call_weather"; name = "get_weather"; input }
+      ]
+  in
+  let call = one_tool_call resp in
+  Alcotest.(check string) "call_id" "call_weather" call.Ct.call_id;
+  Alcotest.(check string) "name" "get_weather" call.Ct.name;
+  Alcotest.check json_eq "input" input call.Ct.input;
+  Alcotest.(check int) "order_index" 2 call.Ct.order_index;
+  check_provider_kind "call" (Some PK.Ollama) call.Ct.provider_kind;
+  match call.Ct.adjacent_reasoning with
+  | Ct.Adjacent_reasoning [ block ] ->
+    check_visible_reasoning "adjacent reasoning" 1 "call weather" (Some "sig_1") block
+  | Ct.Adjacent_reasoning blocks ->
+    Alcotest.failf "expected one adjacent reasoning block, got %d" (List.length blocks)
+  | Ct.No_adjacent_reasoning -> Alcotest.fail "expected adjacent reasoning"
+;;
+
+let test_tool_calls_keep_interleaved_reasoning_groups () =
+  let resp =
+    response
+      [ Types.Thinking { signature = None; content = "first plan" }
+      ; Types.ToolUse { id = "call_1"; name = "lookup"; input = `Assoc [] }
+      ; Types.Thinking { signature = None; content = "second plan" }
+      ; Types.RedactedThinking "opaque_blob"
+      ; Types.ToolUse
+          { id = "call_2"; name = "search"; input = `Assoc [ "q", `String "x" ] }
+      ; Types.ToolUse { id = "call_3"; name = "summarize"; input = `Assoc [] }
+      ]
+  in
+  match Ct.tool_calls_of_response resp with
+  | [ first; second; third ] ->
+    Alcotest.(check string) "first id" "call_1" first.Ct.call_id;
+    Alcotest.(check int) "first order" 1 first.Ct.order_index;
+    (match first.Ct.adjacent_reasoning with
+     | Ct.Adjacent_reasoning [ block ] ->
+       check_visible_reasoning "first reasoning" 0 "first plan" None block
+     | _ -> Alcotest.fail "first call should have one adjacent reasoning block");
+    Alcotest.(check string) "second id" "call_2" second.Ct.call_id;
+    Alcotest.(check int) "second order" 4 second.Ct.order_index;
+    (match second.Ct.adjacent_reasoning with
+     | Ct.Adjacent_reasoning [ visible; redacted ] ->
+       check_visible_reasoning "second visible reasoning" 2 "second plan" None visible;
+       check_redacted_reasoning "second redacted reasoning" 3 "opaque_blob" redacted
+     | Ct.Adjacent_reasoning blocks ->
+       Alcotest.failf
+         "second call expected two adjacent reasoning blocks, got %d"
+         (List.length blocks)
+     | Ct.No_adjacent_reasoning -> Alcotest.fail "second call should have reasoning");
+    Alcotest.(check string) "third id" "call_3" third.Ct.call_id;
+    Alcotest.(check int) "third order" 5 third.Ct.order_index;
+    check_no_adjacent_reasoning "third call" third.Ct.adjacent_reasoning
+  | calls -> Alcotest.failf "expected three tool calls, got %d" (List.length calls)
+;;
+
+let test_text_breaks_reasoning_adjacency () =
+  let resp =
+    response
+      [ Types.Thinking { signature = None; content = "not adjacent" }
+      ; Types.Text "visible answer fragment"
+      ; Types.ToolUse { id = "call_late"; name = "late_tool"; input = `Null }
+      ]
+  in
+  let call = one_tool_call resp in
+  Alcotest.(check int) "order_index" 2 call.Ct.order_index;
+  check_no_adjacent_reasoning "text break" call.Ct.adjacent_reasoning
+;;
 
 let test_result_roundtrip_preserves_fields () =
   let json = `Assoc [ "rows", `Int 3 ] in
@@ -82,7 +233,21 @@ let test_result_none_for_non_toolresult () =
 let () =
   Alcotest.run
     "canonical_tool"
-    [ ( "tool_result_of_block"
+    [ ( "tool_calls_of_response"
+      , [ Alcotest.test_case
+            "preserves call fields and adjacent reasoning"
+            `Quick
+            test_tool_call_projection_preserves_fields_and_adjacent_reasoning
+        ; Alcotest.test_case
+            "keeps interleaved reasoning groups"
+            `Quick
+            test_tool_calls_keep_interleaved_reasoning_groups
+        ; Alcotest.test_case
+            "text breaks reasoning adjacency"
+            `Quick
+            test_text_breaks_reasoning_adjacency
+        ] )
+    ; ( "tool_result_of_block"
       , [ Alcotest.test_case
             "roundtrip preserves fields"
             `Quick
