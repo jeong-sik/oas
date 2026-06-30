@@ -242,6 +242,11 @@ val for_model_id : string -> capabilities option
     [anthropic] / [claude], [openai_compat] / [openai],
     [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope], [nvidia].
 
+    Canonical labels and aliases for the closed {!Provider_kind.t} space are
+    normalized to a typed kind first, then delegated to {!capabilities_of_kind}.
+    String-only presets that are not expressible as a provider kind stay at this
+    label boundary.
+
     Returns [None] for labels outside this set. Intended for adapter
     layers that track provider kind as a string (e.g. config loaders,
     metrics exporters) and want a single SSOT for provider-level
@@ -249,6 +254,18 @@ val for_model_id : string -> capabilities option
 
     @since 0.170.9 *)
 val capabilities_for_provider_label : string -> capabilities option
+
+(** Capabilities preset for a canonical {!Provider_kind.t}.
+
+    Maps the 7 closed variants directly to their presets without serialising
+    the kind to a string and re-parsing it. Use this when the caller already
+    holds a typed {!Provider_kind.t}; {!capabilities_for_provider_label}
+    delegates canonical labels here and only keeps string-only presets (e.g.
+    ["openai_chat_extended"], ["ollama_cloud"], ["nvidia"]) at the label
+    boundary.
+
+    @since 0.209.0 *)
+val capabilities_of_kind : Provider_kind.t -> capabilities
 
 (** Merge Discovery ctx_size into existing capabilities. *)
 val with_context_size : capabilities -> ctx_size:int -> capabilities
