@@ -96,13 +96,13 @@ let test_reasoning_never_in_content_any_provider () =
        let dialect = RD.of_capabilities caps in
        let shapes =
          [ ( "reasoning_only"
-           , [ Thinking { thinking_type = "reasoning"; content = reasoning_marker } ] )
+           , [ Thinking { content = reasoning_marker; signature = None } ] )
          ; ( "reasoning_then_answer"
-           , [ Thinking { thinking_type = "reasoning"; content = reasoning_marker }
+           , [ Thinking { content = reasoning_marker; signature = None }
              ; Text answer_text
              ] )
          ; ( "reasoning_then_tool_call"
-           , [ Thinking { thinking_type = "reasoning"; content = reasoning_marker }
+           , [ Thinking { content = reasoning_marker; signature = None }
              ; ToolUse
                  { id = "call-1"; name = "lookup"; input = `Assoc [ "q", `String "x" ] }
              ] )
@@ -143,7 +143,7 @@ let test_replay_matches_should_replay_reasoning_any_provider () =
        let tool_msg =
          msg
            Assistant
-           [ Thinking { thinking_type = "reasoning"; content = reasoning_marker }
+           [ Thinking { content = reasoning_marker; signature = None }
            ; ToolUse { id = "c"; name = "f"; input = `Assoc [] }
            ]
        in
@@ -161,7 +161,7 @@ let test_replay_matches_should_replay_reasoning_any_provider () =
        let plain_msg =
          msg
            Assistant
-           [ Thinking { thinking_type = "reasoning"; content = reasoning_marker }
+           [ Thinking { content = reasoning_marker; signature = None }
            ; Text answer_text
            ]
        in
@@ -194,7 +194,7 @@ let test_reasoning_only_replay_does_not_accumulate () =
        let reasoning_only =
          msg
            Assistant
-           [ Thinking { thinking_type = "reasoning"; content = reasoning_marker } ]
+           [ Thinking { content = reasoning_marker; signature = None } ]
        in
        for round = 1 to 5 do
          let j = serialized_assistant dialect reasoning_only in
