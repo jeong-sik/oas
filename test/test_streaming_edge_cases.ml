@@ -14,9 +14,11 @@ let usage ?(input_tokens = 1) ?(output_tokens = 2) () =
 let openai_chunk
       ?delta_content
       ?delta_reasoning
+      ?delta_reasoning_details
       ?(delta_tool_calls = [])
       ?finish_reason
       ?chunk_usage
+      ?chunk_parse_error
       ()
   : S.openai_chunk
   =
@@ -24,9 +26,11 @@ let openai_chunk
   ; chunk_model = "model-1"
   ; delta_content
   ; delta_reasoning
+  ; delta_reasoning_details
   ; delta_tool_calls
   ; finish_reason
   ; chunk_usage
+  ; chunk_parse_error
   }
 ;;
 

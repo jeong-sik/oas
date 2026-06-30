@@ -3,6 +3,7 @@
 open Llm_provider.Types
 module S = Llm_provider.Streaming
 module RD = Llm_provider.Reasoning_dialect
+module Acc = Llm_provider.Complete_stream_acc
 
 (* ── parse_openai_sse_chunk ─────────────────────────────── *)
 
@@ -105,9 +106,11 @@ let test_events_text_first_chunk () =
     ; chunk_model = "m"
     ; delta_content = Some "Hi"
     ; delta_reasoning = None
+    ; delta_reasoning_details = None
     ; delta_tool_calls = []
     ; finish_reason = None
     ; chunk_usage = None
+    ; chunk_parse_error = None
     }
   in
   let events, _tel = S.openai_chunk_to_events state chunk in
@@ -132,9 +135,11 @@ let test_events_text_subsequent () =
       ; chunk_model = "m"
       ; delta_content = Some "A"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   (* Second chunk: no ContentBlockStart *)
@@ -145,9 +150,11 @@ let test_events_text_subsequent () =
       ; chunk_model = "m"
       ; delta_content = Some "B"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "1 event" 1 (List.length events);
@@ -172,9 +179,11 @@ let test_events_tool_call () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = [ tc ]
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "2 events" 2 (List.length events);
@@ -200,8 +209,10 @@ let test_events_finish_reason () =
       ; delta_content = None
       ; delta_tool_calls = []
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; finish_reason = Some "stop"
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "1 event" 1 (List.length events);
@@ -220,8 +231,10 @@ let test_events_tool_calls_finish () =
       ; delta_content = None
       ; delta_tool_calls = []
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; finish_reason = Some "tool_calls"
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   match List.hd events with
@@ -239,8 +252,10 @@ let test_events_length_finish () =
       ; delta_content = None
       ; delta_tool_calls = []
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; finish_reason = Some "length"
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   match List.hd events with
@@ -257,9 +272,11 @@ let test_events_empty_content_ignored () =
       ; chunk_model = "m"
       ; delta_content = Some ""
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "0 events" 0 (List.length events)
@@ -347,6 +364,69 @@ let test_parse_reasoning_respects_no_streaming_dialect () =
   | None -> Alcotest.fail "expected Some chunk"
 ;;
 
+let test_parse_minimax_split_reasoning_details () =
+  let data =
+    {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"reasoning_content":"inspect schema","reasoning_details":[{"type":"text","text":"inspect schema"}]},"finish_reason":null}]}|}
+  in
+  match S.parse_openai_sse_chunk ~streaming_reasoning:RD.Delta_reasoning_details data with
+  | Some chunk ->
+    Alcotest.(check (option string)) "no visible content" None chunk.delta_content;
+    Alcotest.(check (option string)) "legacy reasoning unused" None chunk.delta_reasoning;
+    (match chunk.delta_reasoning_details with
+     | Some { delta_reasoning_content; delta_details } ->
+       Alcotest.(check (option string))
+         "reasoning content"
+         (Some "inspect schema")
+         delta_reasoning_content;
+       (match delta_details with
+        | [ detail ] ->
+          Alcotest.(check (option string))
+            "detail text"
+            (Some "inspect schema")
+            detail.text
+        | _ -> Alcotest.fail "expected one reasoning detail")
+     | None -> Alcotest.fail "expected typed reasoning_details delta")
+  | None -> Alcotest.fail "expected Some chunk"
+;;
+
+let expect_split_parse_failed label expected_reason data =
+  match S.parse_openai_sse_chunk ~streaming_reasoning:RD.Delta_reasoning_details data with
+  | Some chunk ->
+    (match chunk.chunk_parse_error with
+     | Some { reason; raw } ->
+       Alcotest.(check string) (label ^ " reason") expected_reason reason;
+       Alcotest.(check string) (label ^ " raw") data raw
+     | None -> Alcotest.fail (label ^ ": expected chunk_parse_error"));
+    let events, _tel = S.openai_chunk_to_events (S.create_openai_stream_state ()) chunk in
+    (match events with
+     | [ SSEParseFailed { reason; raw } ] ->
+       Alcotest.(check string) (label ^ " event reason") expected_reason reason;
+       Alcotest.(check string) (label ^ " event raw") data raw
+     | _ -> Alcotest.fail (label ^ ": expected only SSEParseFailed"))
+  | None -> Alcotest.fail (label ^ ": expected Some chunk")
+;;
+
+let test_parse_minimax_split_malformed_details_fails_closed () =
+  expect_split_parse_failed
+    "non-list details"
+    "malformed_delta_reasoning_details:not_list"
+    {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"reasoning_details":{"text":"bad"}},"finish_reason":null}]}|}
+;;
+
+let test_parse_minimax_split_malformed_detail_item_fails_closed () =
+  expect_split_parse_failed
+    "non-object detail"
+    "malformed_delta_reasoning_details:index:0:not_object"
+    {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"reasoning_details":["bad"]},"finish_reason":null}]}|}
+;;
+
+let test_parse_minimax_split_inline_think_fails_closed () =
+  expect_split_parse_failed
+    "inline thinking"
+    "inline_thinking_in_split_stream_content"
+    {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"content":"<think>hidden</think>visible"},"finish_reason":null}]}|}
+;;
+
 let test_events_reasoning_then_text () =
   let state = S.create_openai_stream_state () in
   let r_events, _tel =
@@ -356,9 +436,11 @@ let test_events_reasoning_then_text () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = Some "thinking..."
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "2 events (start+delta)" 2 (List.length r_events);
@@ -377,9 +459,11 @@ let test_events_reasoning_then_text () =
       ; chunk_model = "m"
       ; delta_content = Some "answer"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "2 events (start+delta)" 2 (List.length t_events);
@@ -405,9 +489,11 @@ let test_events_reasoning_delta_index_multi_chunk () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = Some "step 1"
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "2 events (start+delta)" 2 (List.length r1);
@@ -428,9 +514,11 @@ let test_events_reasoning_delta_index_multi_chunk () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = Some "step 2"
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "1 event (delta only)" 1 (List.length r2);
@@ -447,9 +535,11 @@ let test_events_reasoning_delta_index_multi_chunk () =
       ; chunk_model = "m"
       ; delta_content = Some "answer"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   match List.nth t_events 1 with
@@ -477,9 +567,11 @@ let test_events_tool_first_then_text () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = [ tc ]
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "2 tool events" 2 (List.length tool_events);
@@ -500,9 +592,11 @@ let test_events_tool_first_then_text () =
       ; chunk_model = "m"
       ; delta_content = Some "sunny"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "2 text events" 2 (List.length text_events);
@@ -524,9 +618,11 @@ let test_events_tool_first_then_text () =
       ; chunk_model = "m"
       ; delta_content = Some " today"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "1 event (delta only)" 1 (List.length text2_events);
@@ -562,9 +658,11 @@ let test_events_multi_tool_then_text () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = [ tc0; tc1 ]
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "next_block_index after 2 tools" 2 state.next_block_index;
@@ -576,9 +674,11 @@ let test_events_multi_tool_then_text () =
       ; chunk_model = "m"
       ; delta_content = Some "result"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   (match List.nth text_events 0 with
@@ -602,9 +702,11 @@ let test_events_thinking_tool_text () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = Some "planning"
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "next after thinking" 1 state.next_block_index;
@@ -623,9 +725,11 @@ let test_events_thinking_tool_text () =
       ; chunk_model = "m"
       ; delta_content = None
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = [ tc ]
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   Alcotest.(check int) "next after tool" 2 state.next_block_index;
@@ -637,9 +741,11 @@ let test_events_thinking_tool_text () =
       ; chunk_model = "m"
       ; delta_content = Some "found it"
       ; delta_reasoning = None
+      ; delta_reasoning_details = None
       ; delta_tool_calls = []
       ; finish_reason = None
       ; chunk_usage = None
+      ; chunk_parse_error = None
       }
   in
   (match List.nth text_events 0 with
@@ -651,6 +757,55 @@ let test_events_thinking_tool_text () =
     Alcotest.(check int) "text delta index" 2 index;
     Alcotest.(check string) "text" "found it" s
   | _ -> Alcotest.fail "expected TextDelta at index 2"
+;;
+
+let test_events_reasoning_details_accumulates_typed () =
+  let data =
+    {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"reasoning_content":"inspect schema","reasoning_details":[{"type":"text","text":"inspect schema"}]},"finish_reason":null}]}|}
+  in
+  let chunk =
+    match
+      S.parse_openai_sse_chunk ~streaming_reasoning:RD.Delta_reasoning_details data
+    with
+    | Some chunk -> chunk
+    | None -> Alcotest.fail "expected Some chunk"
+  in
+  let events, _tel = S.openai_chunk_to_events (S.create_openai_stream_state ()) chunk in
+  (match events with
+   | [ ContentBlockStart { index = 0; content_type = "reasoning_details"; _ }
+     ; ContentBlockDelta
+         { index = 0
+         ; delta =
+             ReasoningDetailsDelta
+               { reasoning_content = Some "inspect schema"; details = [ detail ] }
+         }
+     ] ->
+     Alcotest.(check (option string))
+       "streamed detail text"
+       (Some "inspect schema")
+       detail.text
+   | _ -> Alcotest.fail "expected reasoning_details start+delta");
+  let acc = Acc.create_stream_acc () in
+  Acc.accumulate_event
+    acc
+    (MessageStart { id = "msg"; model = "minimax-m3"; usage = None });
+  List.iter (Acc.accumulate_event acc) events;
+  Acc.accumulate_event acc (MessageDelta { stop_reason = Some EndTurn; usage = None });
+  match Acc.finalize_stream_acc acc with
+  | Ok { content = [ ReasoningDetails { reasoning_content; details } ]; _ } ->
+    Alcotest.(check (option string))
+      "final reasoning content"
+      (Some "inspect schema")
+      reasoning_content;
+    (match details with
+     | [ detail ] ->
+       Alcotest.(check (option string))
+         "final detail text"
+         (Some "inspect schema")
+         detail.text
+     | _ -> Alcotest.fail "expected one final reasoning detail")
+  | Ok _ -> Alcotest.fail "expected final ReasoningDetails block"
+  | Error _ -> Alcotest.fail "expected successful accumulator finalization"
 ;;
 
 let test_responses_stream_reasoning_tool_and_terminal () =
@@ -1102,6 +1257,22 @@ let () =
             "no streaming reasoning dialect"
             `Quick
             test_parse_reasoning_respects_no_streaming_dialect
+        ; test_case
+            "minimax split reasoning details"
+            `Quick
+            test_parse_minimax_split_reasoning_details
+        ; test_case
+            "minimax split malformed details"
+            `Quick
+            test_parse_minimax_split_malformed_details_fails_closed
+        ; test_case
+            "minimax split malformed detail item"
+            `Quick
+            test_parse_minimax_split_malformed_detail_item_fails_closed
+        ; test_case
+            "minimax split inline thinking fail-closed"
+            `Quick
+            test_parse_minimax_split_inline_think_fails_closed
         ] )
     ; ( "openai_chunk_to_events"
       , [ test_case "text first chunk" `Quick test_events_text_first_chunk
@@ -1119,6 +1290,10 @@ let () =
         ; test_case "tool-first then text (#333)" `Quick test_events_tool_first_then_text
         ; test_case "multi-tool then text (#333)" `Quick test_events_multi_tool_then_text
         ; test_case "thinking + tool + text (#333)" `Quick test_events_thinking_tool_text
+        ; test_case
+            "reasoning details accumulates typed"
+            `Quick
+            test_events_reasoning_details_accumulates_typed
         ] )
     ; ( "responses_sse_to_events"
       , [ test_case
