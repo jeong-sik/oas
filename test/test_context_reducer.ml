@@ -814,6 +814,71 @@ let test_drop_thinking_preserves_tool_use_thinking () =
     Alcotest.(check bool) "redacted thinking preserved beside tool_use" true has_redacted
 ;;
 
+let test_preserve_thinking_removes_summarize_old () =
+  let msgs =
+    [ user_msg "turn1"
+    ; Types.
+        { role = Assistant
+        ; content =
+            [ Thinking { signature = None; content = "old reasoning" }
+            ; Text "old answer"
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+    ; user_msg "turn2"
+    ; asst_msg "new answer"
+    ]
+  in
+  let reducer =
+    Context_reducer.compose
+      [ Context_reducer.summarize_old ~keep_recent:1 ~summarizer:(fun _ ->
+          "summary erased reasoning")
+      ; Context_reducer.drop_thinking
+      ; Context_reducer.merge_contiguous
+      ]
+    |> Context_reducer.preserve_thinking
+  in
+  let result = Context_reducer.reduce reducer msgs in
+  let has_old_reasoning =
+    List.exists
+      (fun (msg : Types.message) ->
+         List.exists
+           (function
+             | Types.Thinking { content = "old reasoning"; _ } -> true
+             | Types.Thinking _
+             | Types.Text _
+             | Types.RedactedThinking _
+             | Types.ToolUse _
+             | Types.ToolResult _
+             | Types.Image _
+             | Types.Document _
+             | Types.Audio _ -> false)
+           msg.content)
+      result
+  in
+  let has_summary =
+    List.exists
+      (fun (msg : Types.message) ->
+         List.exists
+           (function
+             | Types.Text "summary erased reasoning" -> true
+             | Types.Text _
+             | Types.Thinking _
+             | Types.RedactedThinking _
+             | Types.ToolUse _
+             | Types.ToolResult _
+             | Types.Image _
+             | Types.Document _
+             | Types.Audio _ -> false)
+           msg.content)
+      result
+  in
+  Alcotest.(check bool) "old reasoning retained" true has_old_reasoning;
+  Alcotest.(check bool) "summarizer omitted" false has_summary
+;;
+
 (* --- compose --- *)
 
 let test_compose () =
@@ -1608,6 +1673,10 @@ let () =
             "preserves tool-use thinking"
             `Quick
             test_drop_thinking_preserves_tool_use_thinking
+        ; Alcotest.test_case
+            "preserve_thinking removes summarize_old"
+            `Quick
+            test_preserve_thinking_removes_summarize_old
         ] )
     ; "compose", [ Alcotest.test_case "compose strategies" `Quick test_compose ]
     ; ( "keep_first_and_last"
