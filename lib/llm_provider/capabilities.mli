@@ -6,44 +6,24 @@
     @stability Internal
     @since 0.93.1 *)
 
-type thinking_control_format =
+type thinking_control_format = Capability_vocab.thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
   | Thinking_object_adaptive
-  (** Top-level [thinking] object whose enabled value is [adaptive]. *)
   | Thinking_object_only
-  (** Kimi-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
-  (** llama-server/vLLM/SGLang style:
-      [{"chat_template_kwargs":{"enable_thinking":b,"preserve_thinking":b}}] *)
   | Chat_template_token
-  (** Chat-template control token style: the request builder injects a model
-      token such as [<|think|>] into the rendered conversation instead of
-      sending a top-level thinking field. *)
-  | Ollama_think (** Ollama native [/api/chat] top-level [think] bool or effort level. *)
+  | Ollama_think
   | Reasoning_effort
-  (** Openai-style top-level [reasoning_effort] string field. The typed value
-      set lives in {!Reasoning_effort}; provider-specific aliases are applied
-      by {!Reasoning_dialect.normalize_effort_value}. Disabled reasoning is
-      represented by omitting the field. Ollama's OpenAI-compatible mode uses
-      this shape. *)
   | Enable_thinking
-  (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
-      plus optional [thinking_budget]. *)
 
 type preserve_thinking_control_format =
+      Capability_vocab.preserve_thinking_control_format =
   | No_preserve_thinking_control
   | Thinking_object_keep_all
-  (** [thinking.keep = "all"] inside the top-level
-      [thinking] object. *)
   | Chat_template_kwargs_preserve_thinking
-  (** Self-hosted chat-template kwargs [preserve_thinking] flag. *)
   | Top_level_preserve_thinking
-  (** Provider top-level [preserve_thinking] flag, separate from
-      [enable_thinking]. *)
   | Always_preserved_thinking
-  (** Provider always requires historical reasoning replay and has no
-      request-time preserve toggle. *)
 
 type reasoning_replay_override = Capability_vocab.reasoning_replay_override =
   | Default_reasoning_replay

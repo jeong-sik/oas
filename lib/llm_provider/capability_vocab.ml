@@ -5,6 +5,24 @@
     same operator-facing strings, so the canonical wire vocabulary must live in
     a leaf module to avoid duplicate enum tables and dependency cycles. *)
 
+type thinking_control_format =
+  | No_thinking_control
+  | Thinking_object
+  | Thinking_object_adaptive
+  | Thinking_object_only
+  | Chat_template_kwargs
+  | Chat_template_token
+  | Ollama_think
+  | Reasoning_effort
+  | Enable_thinking
+
+type preserve_thinking_control_format =
+  | No_preserve_thinking_control
+  | Thinking_object_keep_all
+  | Chat_template_kwargs_preserve_thinking
+  | Top_level_preserve_thinking
+  | Always_preserved_thinking
+
 type reasoning_replay_override =
   | Default_reasoning_replay
   | Force_no_replay
@@ -27,26 +45,56 @@ type reasoning_streaming_format =
 
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
-let thinking_control_format_values =
-  [ "none"
-  ; "thinking_object"
-  ; "thinking_object_adaptive"
-  ; "thinking_object_only"
-  ; "chat_template_kwargs"
-  ; "chat_template_token"
-  ; "ollama_think"
-  ; "reasoning_effort"
-  ; "enable_thinking"
+let thinking_control_format_table =
+  [ "none", No_thinking_control
+  ; "thinking_object", Thinking_object
+  ; "thinking_object_adaptive", Thinking_object_adaptive
+  ; "thinking_object_only", Thinking_object_only
+  ; "chat_template_kwargs", Chat_template_kwargs
+  ; "chat_template_token", Chat_template_token
+  ; "ollama_think", Ollama_think
+  ; "reasoning_effort", Reasoning_effort
+  ; "enable_thinking", Enable_thinking
+  ]
+;;
+
+let thinking_control_format_values = List.map fst thinking_control_format_table
+
+let thinking_control_format_of_string raw =
+  match normalize raw with
+  | "" -> None
+  | normalized -> List.assoc_opt normalized thinking_control_format_table
+;;
+
+let preserve_thinking_control_format_table =
+  [ "none", No_preserve_thinking_control
+  ; "thinking_object_keep_all", Thinking_object_keep_all
+  ; "chat_template_kwargs_preserve_thinking", Chat_template_kwargs_preserve_thinking
+  ; "top_level_preserve_thinking", Top_level_preserve_thinking
+  ; "always_preserved", Always_preserved_thinking
   ]
 ;;
 
 let preserve_thinking_control_format_values =
-  [ "none"
-  ; "thinking_object_keep_all"
-  ; "chat_template_kwargs_preserve_thinking"
-  ; "top_level_preserve_thinking"
-  ; "always_preserved"
-  ]
+  List.map fst preserve_thinking_control_format_table
+;;
+
+let preserve_thinking_control_format_of_string raw =
+  match normalize raw with
+  | "" -> None
+  | normalized -> List.assoc_opt normalized preserve_thinking_control_format_table
+;;
+
+let%test "thinking_control_format values parse through the canonical table" =
+  List.for_all
+    (fun raw -> Option.is_some (thinking_control_format_of_string raw))
+    thinking_control_format_values
+;;
+
+let%test "preserve_thinking_control_format values parse through the canonical table" =
+  List.for_all
+    (fun raw -> Option.is_some (preserve_thinking_control_format_of_string raw))
+    preserve_thinking_control_format_values
 ;;
 
 let modality_priority_values =
