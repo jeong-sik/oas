@@ -334,8 +334,7 @@ let lookup (t : t) model_id =
   List.find_opt
     (fun entry ->
        let prefix = String.lowercase_ascii entry.id_prefix in
-       String.length m >= String.length prefix
-       && String.sub m 0 (String.length prefix) = prefix)
+       String.starts_with ~prefix m)
     t
 ;;
 
