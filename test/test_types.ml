@@ -963,9 +963,7 @@ let summary_contains ~needle response =
 
 let test_response_shape_thinking_only_is_not_deliverable () =
   let response =
-    response
-      ~content:[ Types.Thinking { signature = None; content = "hidden" } ]
-      ()
+    response ~content:[ Types.Thinking { signature = None; content = "hidden" } ] ()
   in
   let shape = Response_shape.summarize response in
   Alcotest.(check bool)

@@ -397,9 +397,7 @@ let zai_glm_messages_with_reasoning =
   [ msg User [ Text "solve" ]
   ; msg
       Assistant
-      [ Text "answer"
-      ; Thinking { signature = None; content = "chain of thought" }
-      ]
+      [ Text "answer"; Thinking { signature = None; content = "chain of thought" } ]
   ]
 ;;
 

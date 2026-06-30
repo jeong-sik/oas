@@ -34,9 +34,7 @@ let test_reasoning_multiple_messages () =
     ; { role = Assistant
       ; content =
           [ Types.Thinking
-              { signature = None
-              ; content = "Second thought, I'm not sure about this"
-              }
+              { signature = None; content = "Second thought, I'm not sure about this" }
           ; Types.Text "response 2"
           ]
       ; name = None
@@ -111,9 +109,7 @@ let test_reasoning_no_uncertainty_marker_inference () =
        let messages : Types.message list =
          [ { role = Assistant
            ; content =
-               [ Types.Thinking
-                   { signature = None; content = "Analysis: " ^ marker }
-               ]
+               [ Types.Thinking { signature = None; content = "Analysis: " ^ marker } ]
            ; name = None
            ; tool_call_id = None
            ; metadata = []
@@ -133,9 +129,7 @@ let test_reasoning_no_uncertainty () =
   let messages : Types.message list =
     [ { role = Assistant
       ; content =
-          [ Types.Thinking
-              { signature = None; content = "The answer is clearly 42" }
-          ]
+          [ Types.Thinking { signature = None; content = "The answer is clearly 42" } ]
       ; name = None
       ; tool_call_id = None
       ; metadata = []

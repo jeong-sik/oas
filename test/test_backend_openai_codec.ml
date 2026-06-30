@@ -610,9 +610,7 @@ let test_openai_build_request_closes_dangling_tool_call () =
 
 let test_strip_thinking_blocks () =
   let messages =
-    [ msg
-        Assistant
-        [ Thinking { signature = None; content = "x" }; Text "visible" ]
+    [ msg Assistant [ Thinking { signature = None; content = "x" }; Text "visible" ]
     ; msg User [ Text "same" ]
     ]
   in
