@@ -16,6 +16,9 @@ type thinking_control_format = Capability_vocab.thinking_control_format =
   | Ollama_think
   | Reasoning_effort
   | Enable_thinking
+  (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
+      plus optional [thinking_budget]. *)
+[@@deriving show, eq]
 
 type preserve_thinking_control_format =
       Capability_vocab.preserve_thinking_control_format =

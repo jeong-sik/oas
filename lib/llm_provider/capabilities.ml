@@ -22,6 +22,15 @@ type thinking_control_format = Capability_vocab.thinking_control_format =
   | Ollama_think
   | Reasoning_effort
   | Enable_thinking
+  (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
+      plus optional [thinking_budget]. *)
+[@@deriving show, eq]
+
+let%test "thinking_control_format derives equal and show" =
+  equal_thinking_control_format No_thinking_control No_thinking_control
+  && (not (equal_thinking_control_format No_thinking_control Enable_thinking))
+  && String.length (show_thinking_control_format Enable_thinking) > 0
+;;
 
 type preserve_thinking_control_format =
       Capability_vocab.preserve_thinking_control_format =
