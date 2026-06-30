@@ -1515,6 +1515,26 @@ let test_provider_name_of_config_unmatched_openai_compat () =
     (Provider_registry.provider_name_of_config cfg)
 ;;
 
+let test_provider_name_of_config_runpod_proxy_capability_label_not_identity () =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id:"qwen36-35b-a3b-mtp"
+        ~base_url:"https://abc123.proxy.runpod.net/v1"
+        ~request_path:"/chat/completions"
+        ()
+    in
+    check_string
+      "runpod proxy provider identity"
+      "openai_compat"
+      (Provider_registry.provider_name_of_config cfg);
+    check_string
+      "runpod proxy capability namespace"
+      "runpod_mtp"
+      (Provider_config.capability_provider_label cfg))
+;;
+
 let check_unmatched_provider_name_ignores_catalog_model ~label ~model_id =
   with_repository_model_catalog (fun () ->
     let cfg =
@@ -2211,6 +2231,10 @@ let () =
             "unmatched openai_compat"
             `Quick
             test_provider_name_of_config_unmatched_openai_compat
+        ; Alcotest.test_case
+            "runpod capability label is not provider identity"
+            `Quick
+            test_provider_name_of_config_runpod_proxy_capability_label_not_identity
         ; Alcotest.test_case
             "ignores xai catalog model"
             `Quick
