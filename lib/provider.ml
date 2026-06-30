@@ -47,18 +47,7 @@ type model_spec =
   ; capabilities : capabilities
   }
 
-(** Check if a model needs extended OpenAI capabilities
-    (reasoning, top_k, min_p). Currently triggers on dashscope family models. *)
-let needs_extended_capabilities model_id =
-  let normalized = String.lowercase_ascii (String.trim model_id) in
-  Util.string_contains ~needle:"dashscope" normalized
-;;
-
-let default_openai_compat_capabilities model_id =
-  if needs_extended_capabilities model_id
-  then openai_compat_chat_extended_capabilities
-  else openai_compat_chat_capabilities
-;;
+let default_openai_compat_capabilities () = openai_compat_chat_capabilities
 
 let uses_native_glm_capabilities ~base_url ~model_id =
   Llm_provider.Zai_catalog.is_zai_base_url base_url
@@ -289,11 +278,11 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
     if
       Llm_provider.Zai_catalog.is_glm_model_id model_id
       && not (uses_native_glm_capabilities ~base_url ~model_id)
-    then default_openai_compat_capabilities model_id
+    then default_openai_compat_capabilities ()
     else (
       match Llm_provider.Capabilities.for_model_id model_id with
       | Some caps -> caps
-      | None -> default_openai_compat_capabilities model_id)
+      | None -> default_openai_compat_capabilities ())
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.capabilities
