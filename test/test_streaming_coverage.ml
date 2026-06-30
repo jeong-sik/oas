@@ -396,7 +396,9 @@ let test_finalize_tool_use_invalid_json () =
     (MessageDelta { stop_reason = Some EndTurn; usage = None });
   match Streaming.finalize_stream_acc acc with
   | Error (Stream_parse_failed { reason; raw }) ->
-    check_string "raw omitted" "" raw;
+    (* The offending tool-arg buffer is preserved in [raw] for keeper-log
+       diagnosis (the Unknown_block/media arms still omit it). *)
+    check_string "raw preserved" "not valid json{{{" raw;
     check_bool
       "malformed tool args"
       true

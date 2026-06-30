@@ -284,11 +284,21 @@ let finalize_stream_acc (acc : stream_acc) =
           match Yojson.Safe.from_string text with
           | input -> Ok (Some (Types.ToolUse { id; name; input }))
           | exception Yojson.Json_error reason ->
+            (* Preserve the offending accumulated buffer in [raw] so the rare,
+               provider-specific malformed tool-arg wire is diagnosable from the
+               keeper log (the [Complete_stream] renderer bounds it to 256 bytes).
+               [raw] reaches operator-facing logs only, never replayed into
+               conversation history. It may hold model-generated tool-argument
+               values, so it carries the same sensitivity as any logged request
+               payload -- not a new exposure surface, but not leak-free either.
+               The deliberately-empty [Unknown_block] arm below stays empty
+               because an unrecognized block payload has neither this bound nor a
+               known shape. *)
             Error
               (Types.Stream_parse_failed
                  { reason =
                      Printf.sprintf "malformed_tool_use_arguments:index:%d:%s" idx reason
-                 ; raw = ""
+                 ; raw = text
                  }))
       | Some (Tool_result_block { is_error }) ->
         let tool_use_id =
@@ -1013,7 +1023,10 @@ let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
     finalize_stream_acc acc
   with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
-    raw = "" && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
+    (* [raw] now preserves the offending buffer so the malformed wire is
+       diagnosable from the keeper log instead of being discarded. *)
+    raw = "not valid json"
+    && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
   | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
