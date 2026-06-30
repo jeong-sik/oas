@@ -1,21 +1,43 @@
-(** Canonical tool-result projection (RFC-OAS-024, WP8 Increment 1).
+(** Canonical tool projections (RFC-OAS-024, WP8 Increments 1-2).
 
-    Increment 1 ships only the {e result} projection — the one piece wired into
-    a live consumer (the turn pipeline, see [Pipeline_stage_prepare]). The call
-    projection ([provider_tool_call] / [tool_calls_of_response]) and the
-    reasoning-link types are deferred to Increment 2, where a per-provider parse
-    path will consume them; shipping them now would be a fan-in==0 surface
-    (RFC-OAS-024 §7).
+    Increment 1 shipped the {e result} projection. Increment 2 adds the call
+    projection plus structural reasoning adjacency for consumers that need to
+    render or execute interleaved Thinking -> ToolUse responses.
 
-    Pure, total function over [Types.content_block]. It is {b not} a second
+    Pure, total projections over [Types.content_block]. This is {b not} a second
     in-memory SSOT: [content_block] remains the canonical representation and the
     projected value is derived from it at the provider boundary. Depends only on
-    [{Types; Yojson}] and references no execution, policy, or coordinator
-    concept (RFC-OAS-024 §1).
+    provider-boundary types and references no execution, policy, or coordinator
+    concept (RFC-OAS-024 §1). Reasoning adjacency is purely structural: only
+    contiguous reasoning blocks immediately before a ToolUse are linked.
 
     Lane A (Keystone K): no [id_origin]. [call_id] is the block's id verbatim,
     already the native wire id or a synthesized id depending on the provider
     parse path; ids are neither re-synthesized nor re-classified here. *)
+
+type provider_reasoning_kind =
+  | Visible_thinking
+  | Redacted_thinking
+
+type provider_reasoning_block =
+  { order_index : int
+  ; kind : provider_reasoning_kind
+  ; content : string
+  ; signature : string option
+  }
+
+type adjacent_reasoning =
+  | No_adjacent_reasoning
+  | Adjacent_reasoning of provider_reasoning_block list
+
+type provider_tool_call =
+  { call_id : string
+  ; name : string
+  ; input : Yojson.Safe.t
+  ; order_index : int
+  ; provider_kind : Provider_kind.t option
+  ; adjacent_reasoning : adjacent_reasoning
+  }
 
 type provider_tool_result =
   { call_id : string (** Correlates with the originating tool call. *)
@@ -27,6 +49,78 @@ type provider_tool_result =
         fresh parse, and not [provider_config.output_schema] (RFC-OAS-024 D7). *)
   ; is_error : bool
   }
+
+let provider_kind_of_response (response : Types.api_response) =
+  match response.telemetry with
+  | Some telemetry -> telemetry.provider_kind
+  | None -> None
+;;
+
+let reasoning_of_block ~order_index (block : Types.content_block) =
+  match block with
+  | Types.Thinking { content; signature } ->
+    Some { order_index; kind = Visible_thinking; content; signature }
+  | Types.RedactedThinking content ->
+    Some { order_index; kind = Redacted_thinking; content; signature = None }
+  | Types.Text _
+  | Types.ToolUse _
+  | Types.ToolResult _
+  | Types.Image _
+  | Types.Document _
+  | Types.Audio _ -> None
+;;
+
+type scan_state =
+  { order_index : int
+  ; provider_kind : Provider_kind.t option
+  ; pending_reasoning_rev : provider_reasoning_block list
+  ; tool_calls_rev : provider_tool_call list
+  }
+
+let adjacent_reasoning_of_pending = function
+  | [] -> No_adjacent_reasoning
+  | pending_reasoning_rev -> Adjacent_reasoning (List.rev pending_reasoning_rev)
+;;
+
+let scan_tool_call state (block : Types.content_block) =
+  match block with
+  | Types.ToolUse { id; name; input } ->
+    let tool_call =
+      { call_id = id
+      ; name
+      ; input
+      ; order_index = state.order_index
+      ; provider_kind = state.provider_kind
+      ; adjacent_reasoning = adjacent_reasoning_of_pending state.pending_reasoning_rev
+      }
+    in
+    { state with
+      order_index = state.order_index + 1
+    ; pending_reasoning_rev = []
+    ; tool_calls_rev = tool_call :: state.tool_calls_rev
+    }
+  | Types.Thinking _ | Types.RedactedThinking _ ->
+    let pending_reasoning_rev =
+      match reasoning_of_block ~order_index:state.order_index block with
+      | Some reasoning -> reasoning :: state.pending_reasoning_rev
+      | None -> state.pending_reasoning_rev
+    in
+    { state with order_index = state.order_index + 1; pending_reasoning_rev }
+  | Types.Text _ | Types.ToolResult _ | Types.Image _ | Types.Document _ | Types.Audio _
+    -> { state with order_index = state.order_index + 1; pending_reasoning_rev = [] }
+;;
+
+let tool_calls_of_response (response : Types.api_response) : provider_tool_call list =
+  let initial =
+    { order_index = 0
+    ; provider_kind = provider_kind_of_response response
+    ; pending_reasoning_rev = []
+    ; tool_calls_rev = []
+    }
+  in
+  let final_state = List.fold_left scan_tool_call initial response.content in
+  List.rev final_state.tool_calls_rev
+;;
 
 let tool_result_of_block (block : Types.content_block) : provider_tool_result option =
   match block with
