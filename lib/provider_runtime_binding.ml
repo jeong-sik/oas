@@ -427,6 +427,7 @@ let to_provider_config ?model binding =
     ~model_id
     ~base_url:binding.base_url
     ~supports_structured_output_override:binding.capabilities.supports_structured_output
+    ~model_capabilities_override:binding.capabilities
     ?request_path
     ?max_context
     ()
