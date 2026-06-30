@@ -1483,6 +1483,36 @@ let test_responses_incomplete_status_wins_over_function_call () =
          response.content)
 ;;
 
+let test_responses_stop_reason_ssot_status_table () =
+  check_bool
+    "failed message wins over tool calls"
+    true
+    (Responses_stop_reason.of_status
+       ~status:(Some "failed")
+       ~incomplete_reason:None
+       ~failed_message:(Some "quota exhausted")
+       ~has_tool_calls:true
+     = Unknown "quota exhausted");
+  check_bool
+    "completed with tool calls is tool use"
+    true
+    (Responses_stop_reason.of_status
+       ~status:(Some "completed")
+       ~incomplete_reason:None
+       ~failed_message:None
+       ~has_tool_calls:true
+     = StopToolUse);
+  check_bool
+    "unknown status without tools is preserved"
+    true
+    (Responses_stop_reason.of_status
+       ~status:(Some "queued")
+       ~incomplete_reason:None
+       ~failed_message:None
+       ~has_tool_calls:false
+     = Unknown "queued")
+;;
+
 let test_responses_preserves_encrypted_reasoning_item_for_replay () =
   let encrypted_reasoning_item =
     `Assoc
@@ -2033,6 +2063,10 @@ let () =
             "incomplete status wins over function_call (#2048)"
             `Quick
             test_responses_incomplete_status_wins_over_function_call
+        ; Alcotest.test_case
+            "stop reason status table SSOT"
+            `Quick
+            test_responses_stop_reason_ssot_status_table
         ; Alcotest.test_case
             "preserve encrypted reasoning item for replay"
             `Quick
