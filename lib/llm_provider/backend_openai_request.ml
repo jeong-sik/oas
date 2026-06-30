@@ -307,7 +307,7 @@ let build_request_assoc
   in
   let body =
     match config.tool_choice with
-    | Some (Tool _) ->
+    | Some (Any | Tool _) ->
       (match effective_tool_choice config with
        | Some choice_json -> ("tool_choice", choice_json) :: body
        | None -> body)
