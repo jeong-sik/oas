@@ -50,8 +50,12 @@ type model_spec =
 let default_openai_compat_capabilities () = openai_compat_chat_capabilities
 
 let uses_native_glm_capabilities ~base_url ~model_id =
-  Llm_provider.Zai_catalog.is_zai_base_url base_url
-  && Llm_provider.Zai_catalog.is_glm_model_id model_id
+  Llm_provider.Provider_config.is_zai_glm_config
+    (Llm_provider.Provider_config.make
+       ~kind:Llm_provider.Provider_config.OpenAI_compat
+       ~model_id
+       ~base_url
+       ())
 ;;
 
 let provider_name = function
