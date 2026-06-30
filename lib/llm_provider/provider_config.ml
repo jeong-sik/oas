@@ -211,6 +211,12 @@ let capabilities_for_config_model (config : t) =
     ~model_id:config.model_id
 ;;
 
+let thinking_control_token_for_config_model (config : t) =
+  Capabilities.thinking_control_token_for_provider_model_id
+    ~provider_label:(capability_provider_label config)
+    ~model_id:config.model_id
+;;
+
 (** Compute auth headers from a provider kind and secret. This is the core
     implementation shared by {!auth_headers_for_config} and
     {!auth_headers_for_kind_and_key}; it avoids constructing a dummy

@@ -1094,6 +1094,77 @@ let for_provider_model_id ~(provider_label : string) ~(model_id : string) =
   | None -> for_model_id model_id
 ;;
 
+let exact_token = function
+  | Some raw ->
+    let value = String.trim raw in
+    if value = "" then None else Some value
+  | None -> None
+;;
+
+let thinking_control_token_for_model_id_catalog model_id =
+  match Model_catalog.global () with
+  | Some catalog ->
+    (match Model_catalog.lookup catalog model_id with
+     | Some entry -> exact_token entry.thinking_control_token
+     | None -> None)
+  | None -> None
+;;
+
+let thinking_control_token_for_model_id_with_manifest manifest model_id =
+  match Capability_manifest.lookup manifest model_id with
+  | Some entry -> exact_token entry.thinking_control_token
+  | None -> thinking_control_token_for_model_id_catalog model_id
+;;
+
+let thinking_control_token_for_model_id model_id =
+  match Model_catalog.global () with
+  | Some catalog ->
+    (match Model_catalog.lookup catalog model_id with
+     | Some entry -> exact_token entry.thinking_control_token
+     | None ->
+       (match Capability_manifest.global () with
+        | Some manifest ->
+          thinking_control_token_for_model_id_with_manifest manifest model_id
+        | None -> thinking_control_token_for_model_id_catalog model_id))
+  | None ->
+    (match Capability_manifest.global () with
+     | Some manifest ->
+       thinking_control_token_for_model_id_with_manifest manifest model_id
+     | None -> thinking_control_token_for_model_id_catalog model_id)
+;;
+
+let thinking_control_token_for_provider_model_id
+      ~(provider_label : string)
+      ~(model_id : string)
+  =
+  let provider_label = String.lowercase_ascii (String.trim provider_label) in
+  let model_id = String.trim model_id in
+  let candidates = [ provider_label ^ "/" ^ model_id; provider_label ^ ":" ^ model_id ] in
+  let qualified_prefixes = [ provider_label ^ "/"; provider_label ^ ":" ] in
+  let provider_catalog_match =
+    match Model_catalog.global () with
+    | None -> None
+    | Some catalog ->
+      let rec loop = function
+        | [] -> None
+        | candidate :: rest ->
+          (match Model_catalog.lookup catalog candidate with
+           | Some entry
+             when List.exists
+                    (fun prefix ->
+                       String.starts_with
+                         ~prefix
+                         (String.lowercase_ascii (String.trim entry.id_prefix)))
+                    qualified_prefixes -> Some (exact_token entry.thinking_control_token)
+           | Some _ | None -> loop rest)
+      in
+      loop candidates
+  in
+  match provider_catalog_match with
+  | Some token -> token
+  | None -> thinking_control_token_for_model_id model_id
+;;
+
 [@@@coverage off]
 
 let%test "for_model_id glm-4.5 has reasoning" =
@@ -1242,6 +1313,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; supports_computer_use = None
   ; supports_code_execution = None
   ; thinking_control_format = None
+  ; thinking_control_token = None
   ; preserve_thinking_control_format = None
   ; reasoning_replay = None
   ; input_per_million = None
@@ -1407,6 +1479,7 @@ let test_catalog : Model_catalog.t =
     ; supports_reasoning = Some true
     ; supports_extended_thinking = Some true
     ; thinking_control_format = Some "chat_template_token"
+    ; thinking_control_token = Some "<|think|>"
     ; supports_multimodal_inputs = Some true
     ; supports_image_input = Some true
     ; modality_priority = Some "visual_first"

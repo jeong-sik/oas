@@ -13,9 +13,10 @@ tools, and vision capability, but rejects a top-level `think: true` request.
 The working path is:
 
 1. Register the model with `thinking_control_format = "chat_template_token"`.
-2. Omit the top-level `think` field when thinking is enabled.
-3. Prefix the system turn with `<|think|>`.
-4. Parse `message.thinking` from the Ollama response.
+2. Register the exact token with `thinking_control_token = "<|think|>"`.
+3. Omit the top-level `think` field when thinking is enabled.
+4. Prefix the system turn with the catalog-declared token.
+5. Parse `message.thinking` from the Ollama response.
 
 OAS now handles that path for model IDs matching:
 
@@ -38,6 +39,7 @@ supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = false
 thinking_control_format = "chat_template_token"
+thinking_control_token = "<|think|>"
 supports_multimodal_inputs = true
 supports_image_input = true
 supports_native_streaming = true
