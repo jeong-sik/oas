@@ -14,9 +14,10 @@ module Env = struct
   let anthropic_thinking_budget = "OAS_ANTHROPIC_THINKING_BUDGET"
   let gemini_thinking_budget = "OAS_GEMINI_THINKING_BUDGET"
   let prompt_cache_min_chars = "OAS_PROMPT_CACHE_MIN_CHARS"
+  let default_seed = "OAS_DEFAULT_SEED"
 end
 
-let positive_int_env_opt ?(getenv = Sys.getenv_opt) var =
+let positive_int_env_opt ?(getenv = Cli_common_env.default_getenv) var =
   match getenv var with
   | None -> None
   | Some s ->
@@ -245,14 +246,14 @@ module Deterministic = struct
       @since 0.185.0 *)
   let default_seed = 42
 
-  let seed_of_env () =
-    match Sys.getenv "OAS_DEFAULT_SEED" with
-    | exception Not_found -> None
-    | s ->
+  let seed_of_env ?(getenv = Cli_common_env.default_getenv) () =
+    match getenv Env.default_seed with
+    | None -> None
+    | Some s ->
       (match int_of_string_opt s with
        | Some n -> Some n
        | None ->
-         Diag.warn "constants" "OAS_DEFAULT_SEED=%S is not a valid int, ignoring" s;
+         Diag.warn "constants" "%s=%S is not a valid int, ignoring" Env.default_seed s;
          None)
   ;;
 end
