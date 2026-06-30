@@ -428,6 +428,15 @@ let default () =
       ; is_available = (fun () -> has_api_key defaults.api_key_env)
       }
   in
+  let capabilities_for_registered_label label =
+    match Capabilities.capabilities_for_provider_label label with
+    | Some caps -> caps
+    | None ->
+      invalid_arg
+        (Printf.sprintf
+           "Provider_registry.default: no capabilities for registered provider %S"
+           label)
+  in
   reg
     "nous"
     (llama_defaults ())
@@ -477,26 +486,18 @@ let default () =
     siliconflow_defaults
     ~max_context:128_000
     Capabilities.openai_compat_chat_capabilities;
-  reg
-    "xai"
-    xai_defaults
-    ~max_context:1_000_000
-    Capabilities.openai_compat_chat_extended_capabilities;
+  reg "xai" xai_defaults ~max_context:1_000_000 (capabilities_for_registered_label "xai");
   reg
     "mistral"
     mistral_defaults
     ~max_context:260_000
-    Capabilities.openai_compat_chat_extended_capabilities;
+    (capabilities_for_registered_label "mistral");
   reg
     "cohere"
     cohere_defaults
     ~max_context:256_000
-    Capabilities.openai_compat_chat_capabilities;
-  reg
-    "mimo"
-    mimo_defaults
-    ~max_context:128_000
-    Capabilities.openai_compat_chat_capabilities;
+    (capabilities_for_registered_label "cohere");
+  reg "mimo" mimo_defaults ~max_context:128_000 (capabilities_for_registered_label "mimo");
   register
     t
     { name = "ollama"

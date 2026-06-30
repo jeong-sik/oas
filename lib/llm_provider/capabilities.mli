@@ -236,7 +236,8 @@ val for_model_id : string -> capabilities option
 
     Recognized labels (case-insensitive, whitespace trimmed):
     [anthropic] / [claude], [openai_compat] / [openai],
-    [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope], [nvidia].
+    [gemini], [ollama], [glm] / [zhipu], [kimi], [dashscope],
+    [xai], [mistral], [cohere], [mimo], [nvidia].
 
     Canonical labels and aliases for the closed {!Provider_kind.t} space are
     normalized to a typed kind first, then delegated to {!capabilities_of_kind}.
@@ -257,8 +258,8 @@ val capabilities_for_provider_label : string -> capabilities option
     the kind to a string and re-parsing it. Use this when the caller already
     holds a typed {!Provider_kind.t}; {!capabilities_for_provider_label}
     delegates canonical labels here and only keeps string-only presets (e.g.
-    ["openai_chat_extended"], ["ollama_cloud"], ["nvidia"]) at the label
-    boundary.
+    ["openai_chat_extended"], ["ollama_cloud"], ["xai"], ["mistral"],
+    ["cohere"], ["mimo"], ["nvidia"]) at the label boundary.
 
     @since 0.209.0 *)
 val capabilities_of_kind : Provider_kind.t -> capabilities

@@ -638,6 +638,8 @@ let capabilities_for_provider_label label =
     (match label with
      | "openai_compat_chat_extended" | "openai_chat_extended" ->
        Some openai_compat_chat_extended_capabilities
+     | "xai" | "mistral" -> Some openai_compat_chat_extended_capabilities
+     | "cohere" | "mimo" -> Some openai_compat_chat_capabilities
      | "ollama_cloud" -> Some ollama_cloud_capabilities
      | "nvidia" -> Some provider_l_capabilities
      | _ -> None)
@@ -2073,6 +2075,10 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
   && Option.is_some (resolve "gemini")
   && Option.is_some (resolve "ollama")
   && Option.is_some (resolve "kimi")
+  && Option.is_some (resolve "xai")
+  && Option.is_some (resolve "mistral")
+  && Option.is_some (resolve "cohere")
+  && Option.is_some (resolve "mimo")
   && Option.is_some (resolve "nvidia")
 ;;
 
@@ -2089,6 +2095,10 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
     ; "ollama"
     ; "glm"
     ; "glm-coding"
+    ; "xai"
+    ; "mistral"
+    ; "cohere"
+    ; "mimo"
     ; "nvidia"
     ; "kimi"
     ]
