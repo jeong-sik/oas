@@ -412,8 +412,10 @@ val reasoning_effort_of_config : t -> string option
     OpenAI-compatible wire kind. *)
 val capability_provider_label : t -> string
 
-(** Resolve model capabilities using provider-qualified catalog entries first,
-    then bare model entries. *)
+(** Resolve model capabilities using provider-qualified catalog entries first.
+    Raw OpenAI-compatible endpoints may use bare catalog entries only for
+    generic model facts; entries that change thinking/reasoning/replay wire
+    semantics require an explicit endpoint capability declaration. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
 (** Resolve the exact chat-template token for token-based thinking control,

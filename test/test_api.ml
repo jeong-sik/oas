@@ -43,6 +43,109 @@ let source_path path =
 
 let read_source path = In_channel.with_open_text (source_path path) In_channel.input_all
 
+let with_provider_catalog json f =
+  let previous = Llm_provider.Provider_catalog.global () in
+  let restore () =
+    match previous with
+    | Some catalog -> Llm_provider.Provider_catalog.set_global catalog
+    | None -> Llm_provider.Provider_catalog.clear_global ()
+  in
+  match Llm_provider.Provider_catalog.of_json (Yojson.Safe.from_string json) with
+  | Error msg -> fail ("provider catalog parse failed: " ^ msg)
+  | Ok catalog ->
+    Llm_provider.Provider_catalog.set_global catalog;
+    Fun.protect ~finally:restore f
+;;
+
+let declared_openai_compat_provider_catalog =
+  {|{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "api-deepseek-v4",
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "https://api.deepseek.com",
+      "request_path": "/v1/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "max_context_tokens": 1000000,
+        "max_output_tokens": 384000,
+        "supports_tools": true,
+        "supports_tool_choice": true,
+        "supports_required_tool_choice": false,
+        "supports_named_tool_choice": false,
+        "supports_reasoning": true,
+        "supports_extended_thinking": true,
+        "supports_reasoning_budget": true,
+        "thinking_control_format": "thinking_object",
+        "supports_response_format_json": true,
+        "supports_native_streaming": true,
+        "supports_caching": true,
+        "supports_prompt_caching": false
+      }
+    },
+    {
+      "id": "api-minimax-m3",
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "https://api.minimaxi.com/v1",
+      "request_path": "/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "max_context_tokens": 524288,
+        "supports_tools": true,
+        "supports_tool_choice": false,
+        "supports_required_tool_choice": false,
+        "supports_named_tool_choice": false,
+        "supports_reasoning": true,
+        "supports_extended_thinking": true,
+        "supports_reasoning_budget": false,
+        "thinking_control_format": "thinking_object_adaptive",
+        "reasoning_output_format": "split_reasoning_fields",
+        "reasoning_replay": "preserve_always",
+        "supports_response_format_json": false,
+        "supports_structured_output": false,
+        "supports_multimodal_inputs": true,
+        "supports_image_input": true,
+        "supports_native_streaming": true
+      }
+    },
+    {
+      "id": "api-qwen36",
+      "kind": "openai_compat",
+      "transport": "http",
+      "base_url": "https://declared-qwen.example/v1",
+      "request_path": "/v1/chat/completions",
+      "auth": {"type": "none"},
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "max_context_tokens": 131072,
+        "supports_tools": true,
+        "supports_tool_choice": true,
+        "supports_parallel_tool_calls": true,
+        "supports_reasoning": true,
+        "supports_extended_thinking": true,
+        "supports_reasoning_budget": true,
+        "thinking_control_format": "chat_template_kwargs",
+        "preserve_thinking_control_format": "chat_template_kwargs_preserve_thinking",
+        "supports_native_streaming": true
+      }
+    }
+  ]
+}|}
+;;
+
+let with_declared_openai_compat_provider_catalog f =
+  with_provider_catalog declared_openai_compat_provider_catalog f
+;;
+
+let declared_provider_config name model_id : Provider.config =
+  { Provider.provider = Provider.Custom_registered { name }; model_id; api_key_env = "" }
+;;
+
 (* Helper: compare content_block via show string *)
 let check_block msg expected actual =
   check string msg (Types.show_content_block expected) (Types.show_content_block actual)
@@ -464,10 +567,13 @@ let test_build_body_sampling_params_omitted_when_none () =
 ;;
 
 let test_build_openai_body_with_provider_m_sampling () =
+  let provider_config =
+    declared_provider_config "dashscope" "dashscope-3.5-35b-a3b-ud-q8-xl"
+  in
   let state =
     { Types.config =
         { Types.default_config with
-          model = "dashscope-3.5-35b-a3b-ud-q8-xl"
+          model = provider_config.model_id
         ; temperature = Some 0.6
         ; top_p = Some 0.95
         ; top_k = Some 20
@@ -480,7 +586,8 @@ let test_build_openai_body_with_provider_m_sampling () =
     }
   in
   let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_openai_body ~provider_config ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   check
@@ -494,123 +601,142 @@ let test_build_openai_body_with_provider_m_sampling () =
     "min_p"
     (Some 0.01)
     (json |> member "min_p" |> to_float_option);
+  check bool "enable_thinking false" false (json |> member "enable_thinking" |> to_bool);
   check
     bool
-    "enable_thinking false"
-    false
-    (json |> member "chat_template_kwargs" |> member "enable_thinking" |> to_bool)
+    "chat_template_kwargs absent"
+    true
+    (member_absent json "chat_template_kwargs")
 ;;
 
 let test_build_openai_body_deepseek_thinking_drops_sampling () =
-  (* Public agent path must drop temperature/top_p for a DeepSeek (Thinking_object)
-     config while thinking is enabled, matching Backend_openai_request.build_request.
-     Thinking defaults on, so no enable_thinking is set here. *)
-  let state =
-    { Types.config =
-        { Types.default_config with
-          model = "deepseek-v4-flash"
-        ; temperature = Some 0.7
-        ; top_p = Some 0.9
-        }
-    ; messages = []
-    ; turn_count = 0
-    ; usage = Types.empty_usage
-    }
-  in
-  let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  check
-    (option (float 0.001))
-    "temperature dropped while thinking"
-    None
-    (json |> member "temperature" |> to_float_option);
-  check
-    (option (float 0.001))
-    "top_p dropped while thinking"
-    None
-    (json |> member "top_p" |> to_float_option)
+  with_declared_openai_compat_provider_catalog (fun () ->
+    (* Declared DeepSeek endpoints drop temperature/top_p while thinking is
+       enabled, matching Backend_openai_request.build_request. Thinking defaults
+       on, so no enable_thinking is set here. *)
+    let provider_config =
+      declared_provider_config "api-deepseek-v4" "deepseek-v4-flash"
+    in
+    let state =
+      { Types.config =
+          { Types.default_config with
+            model = provider_config.model_id
+          ; temperature = Some 0.7
+          ; top_p = Some 0.9
+          }
+      ; messages = []
+      ; turn_count = 0
+      ; usage = Types.empty_usage
+      }
+    in
+    let json =
+      Api.build_openai_body ~provider_config ~config:state ~messages:[] ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    check
+      (option (float 0.001))
+      "temperature dropped while thinking"
+      None
+      (json |> member "temperature" |> to_float_option);
+    check
+      (option (float 0.001))
+      "top_p dropped while thinking"
+      None
+      (json |> member "top_p" |> to_float_option))
 ;;
 
 let test_build_openai_body_deepseek_disabled_thinking_keeps_sampling () =
-  (* With thinking explicitly disabled the suppression must not fire. *)
-  let state =
-    { Types.config =
-        { Types.default_config with
-          model = "deepseek-v4-flash"
-        ; temperature = Some 0.7
-        ; top_p = Some 0.9
-        ; enable_thinking = Some false
-        }
-    ; messages = []
-    ; turn_count = 0
-    ; usage = Types.empty_usage
-    }
-  in
-  let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  check
-    (option (float 0.001))
-    "temperature kept when thinking disabled"
-    (Some 0.7)
-    (json |> member "temperature" |> to_float_option);
-  check
-    (option (float 0.001))
-    "top_p kept when thinking disabled"
-    (Some 0.9)
-    (json |> member "top_p" |> to_float_option)
+  with_declared_openai_compat_provider_catalog (fun () ->
+    (* With thinking explicitly disabled the suppression must not fire. *)
+    let provider_config =
+      declared_provider_config "api-deepseek-v4" "deepseek-v4-flash"
+    in
+    let state =
+      { Types.config =
+          { Types.default_config with
+            model = provider_config.model_id
+          ; temperature = Some 0.7
+          ; top_p = Some 0.9
+          ; enable_thinking = Some false
+          }
+      ; messages = []
+      ; turn_count = 0
+      ; usage = Types.empty_usage
+      }
+    in
+    let json =
+      Api.build_openai_body ~provider_config ~config:state ~messages:[] ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    check
+      (option (float 0.001))
+      "temperature kept when thinking disabled"
+      (Some 0.7)
+      (json |> member "temperature" |> to_float_option);
+    check
+      (option (float 0.001))
+      "top_p kept when thinking disabled"
+      (Some 0.9)
+      (json |> member "top_p" |> to_float_option))
 ;;
 
 let test_build_openai_body_with_qwen_preserve_thinking () =
-  let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
-  let state =
-    { state with config = { state.config with model = "qwen36-35b-a3b-mtp" } }
-  in
-  let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  let ctk = json |> member "chat_template_kwargs" in
-  check bool "enable_thinking true" true (ctk |> member "enable_thinking" |> to_bool);
-  check bool "preserve_thinking true" true (ctk |> member "preserve_thinking" |> to_bool)
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let provider_config = declared_provider_config "api-qwen36" "qwen36-35b-a3b-mtp" in
+    let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
+    let state =
+      { state with config = { state.config with model = provider_config.model_id } }
+    in
+    let json =
+      Api.build_openai_body ~provider_config ~config:state ~messages:[] ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    let ctk = json |> member "chat_template_kwargs" in
+    check bool "enable_thinking true" true (ctk |> member "enable_thinking" |> to_bool);
+    check bool "preserve_thinking true" true (ctk |> member "preserve_thinking" |> to_bool))
 ;;
 
 let test_build_openai_body_qwen_preserve_replays_reasoning () =
-  let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
-  let state =
-    { state with config = { state.config with model = "qwen36-35b-a3b-mtp" } }
-  in
-  let messages =
-    [ { Types.role = Types.Assistant
-      ; content =
-          [ Types.Thinking { signature = None; content = "keep this" }
-          ; Types.Text "answer"
-          ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    ]
-  in
-  let json =
-    Api.build_openai_body ~config:state ~messages () |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  let assistant = json |> member "messages" |> index 1 in
-  check
-    string
-    "reasoning_content replayed"
-    "keep this"
-    (assistant |> member "reasoning_content" |> to_string)
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let provider_config = declared_provider_config "api-qwen36" "qwen36-35b-a3b-mtp" in
+    let state = make_state ~enable_thinking:true ~preserve_thinking:true () in
+    let state =
+      { state with config = { state.config with model = provider_config.model_id } }
+    in
+    let messages =
+      [ { Types.role = Types.Assistant
+        ; content =
+            [ Types.Thinking { signature = None; content = "keep this" }
+            ; Types.Text "answer"
+            ]
+        ; name = None
+        ; tool_call_id = None
+        ; metadata = []
+        }
+      ]
+    in
+    let json =
+      Api.build_openai_body ~provider_config ~config:state ~messages ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    let assistant = json |> member "messages" |> index 1 in
+    check
+      string
+      "reasoning_content replayed"
+      "keep this"
+      (assistant |> member "reasoning_content" |> to_string))
 ;;
 
 let test_build_openai_body_kimi_latest_omits_thinking_param () =
-  let state = make_state ~model:"kimi-k2.7-code" ~preserve_thinking:true () in
+  let provider_config = declared_provider_config "kimi" "kimi-k2.7-code" in
+  let state = make_state ~model:provider_config.model_id ~preserve_thinking:true () in
   let json =
-    Api.build_openai_body ~config:state ~messages:[] () |> Yojson.Safe.from_string
+    Api.build_openai_body ~provider_config ~config:state ~messages:[] ()
+    |> Yojson.Safe.from_string
   in
   check bool "thinking absent" true (member_absent json "thinking");
   check
@@ -622,7 +748,8 @@ let test_build_openai_body_kimi_latest_omits_thinking_param () =
 ;;
 
 let test_build_openai_body_kimi_latest_replays_reasoning () =
-  let state = make_state ~model:"kimi-k2.7-code" ~preserve_thinking:false () in
+  let provider_config = declared_provider_config "kimi" "kimi-k2.7-code" in
+  let state = make_state ~model:provider_config.model_id ~preserve_thinking:false () in
   let messages =
     [ { Types.role = Types.Assistant
       ; content =
@@ -636,7 +763,8 @@ let test_build_openai_body_kimi_latest_replays_reasoning () =
     ]
   in
   let json =
-    Api.build_openai_body ~config:state ~messages () |> Yojson.Safe.from_string
+    Api.build_openai_body ~provider_config ~config:state ~messages ()
+    |> Yojson.Safe.from_string
   in
   let open Yojson.Safe.Util in
   let assistant = json |> member "messages" |> index 1 in
@@ -648,164 +776,152 @@ let test_build_openai_body_kimi_latest_replays_reasoning () =
 ;;
 
 let deepseek_provider_config : Provider.config =
-  { Provider.provider =
-      Provider.OpenAICompat
-        { base_url = "https://api.deepseek.com"
-        ; auth_header = None
-        ; path = "/v1/chat/completions"
-        ; static_token = None
-        }
-  ; model_id = "deepseek-v4-pro"
-  ; api_key_env = ""
-  }
+  declared_provider_config "api-deepseek-v4" "deepseek-v4-pro"
 ;;
 
 let minimax_m3_provider_config : Provider.config =
-  { Provider.provider =
-      Provider.OpenAICompat
-        { base_url = "https://api.minimaxi.com/v1"
-        ; auth_header = None
-        ; path = "/chat/completions"
-        ; static_token = None
-        }
-  ; model_id = "minimax-m3"
-  ; api_key_env = "MINIMAX_API_KEY"
-  }
+  declared_provider_config "api-minimax-m3" "minimax-m3"
 ;;
 
 let test_build_openai_body_deepseek_uses_dialect_controls () =
-  let state =
-    { Types.config =
-        { Types.default_config with
-          model = deepseek_provider_config.model_id
-        ; enable_thinking = Some true
-        ; thinking_budget = Some 2048
-        ; temperature = Some 0.7
-        ; top_p = Some 0.9
-        }
-    ; messages = []
-    ; turn_count = 0
-    ; usage = Types.empty_usage
-    }
-  in
-  let json =
-    Api.build_openai_body
-      ~provider_config:deepseek_provider_config
-      ~config:state
-      ~messages:[]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  check
-    string
-    "thinking enabled"
-    "enabled"
-    (json |> member "thinking" |> member "type" |> to_string);
-  check string "low maps high" "high" (json |> member "reasoning_effort" |> to_string);
-  check bool "temperature omitted" true (json |> member "temperature" = `Null);
-  check bool "top_p omitted" true (json |> member "top_p" = `Null)
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let state =
+      { Types.config =
+          { Types.default_config with
+            model = deepseek_provider_config.model_id
+          ; enable_thinking = Some true
+          ; thinking_budget = Some 2048
+          ; temperature = Some 0.7
+          ; top_p = Some 0.9
+          }
+      ; messages = []
+      ; turn_count = 0
+      ; usage = Types.empty_usage
+      }
+    in
+    let json =
+      Api.build_openai_body
+        ~provider_config:deepseek_provider_config
+        ~config:state
+        ~messages:[]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    check
+      string
+      "thinking enabled"
+      "enabled"
+      (json |> member "thinking" |> member "type" |> to_string);
+    check string "low maps high" "high" (json |> member "reasoning_effort" |> to_string);
+    check bool "temperature omitted" true (json |> member "temperature" = `Null);
+    check bool "top_p omitted" true (json |> member "top_p" = `Null))
 ;;
 
 let test_build_openai_body_minimax_uses_public_projection_dialect_controls () =
-  let state =
-    make_state
-      ~model:minimax_m3_provider_config.model_id
-      ~enable_thinking:true
-      ~tool_choice:Types.Auto
-      ()
-  in
-  let tool_json =
-    `Assoc
-      [ "name", `String "calculator"
-      ; "description", `String "math"
-      ; "input_schema", `Assoc [ "type", `String "object" ]
-      ]
-  in
-  let json =
-    Api.build_openai_body
-      ~provider_config:minimax_m3_provider_config
-      ~config:state
-      ~messages:[]
-      ~tools:[ tool_json ]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  check
-    string
-    "thinking adaptive"
-    "adaptive"
-    (json |> member "thinking" |> member "type" |> to_string);
-  check bool "reasoning split enabled" true (json |> member "reasoning_split" |> to_bool);
-  check bool "tools preserved" false (member_absent json "tools");
-  check bool "tool_choice omitted" true (member_absent json "tool_choice");
-  check bool "reasoning_effort omitted" true (member_absent json "reasoning_effort");
-  check
-    bool
-    "chat_template_kwargs omitted"
-    true
-    (member_absent json "chat_template_kwargs")
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let state =
+      make_state
+        ~model:minimax_m3_provider_config.model_id
+        ~enable_thinking:true
+        ~tool_choice:Types.Auto
+        ()
+    in
+    let tool_json =
+      `Assoc
+        [ "name", `String "calculator"
+        ; "description", `String "math"
+        ; "input_schema", `Assoc [ "type", `String "object" ]
+        ]
+    in
+    let json =
+      Api.build_openai_body
+        ~provider_config:minimax_m3_provider_config
+        ~config:state
+        ~messages:[]
+        ~tools:[ tool_json ]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    check
+      string
+      "thinking adaptive"
+      "adaptive"
+      (json |> member "thinking" |> member "type" |> to_string);
+    check bool "reasoning split enabled" true (json |> member "reasoning_split" |> to_bool);
+    check bool "tools preserved" false (member_absent json "tools");
+    check bool "tool_choice omitted" true (member_absent json "tool_choice");
+    check bool "reasoning_effort omitted" true (member_absent json "reasoning_effort");
+    check
+      bool
+      "chat_template_kwargs omitted"
+      true
+      (member_absent json "chat_template_kwargs"))
 ;;
 
 let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
-  let assistant_content tool =
-    if tool
-    then
-      [ Types.Thinking { signature = None; content = "call the tool" }
-      ; Types.ToolUse
-          { id = "call_1"; name = "calculator"; input = `Assoc [ "expr", `String "2+2" ] }
-      ]
-    else
-      [ Types.Thinking { signature = None; content = "plain thought" }
-      ; Types.Text "answer"
-      ]
-  in
-  let assistant_msg tool =
-    { Types.role = Types.Assistant
-    ; content = assistant_content tool
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
-  in
-  let state =
-    { Types.config =
-        { Types.default_config with model = deepseek_provider_config.model_id }
-    ; messages = []
-    ; turn_count = 0
-    ; usage = Types.empty_usage
-    }
-  in
-  let plain =
-    Api.build_openai_body
-      ~provider_config:deepseek_provider_config
-      ~config:state
-      ~messages:[ assistant_msg false ]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let tool =
-    Api.build_openai_body
-      ~provider_config:deepseek_provider_config
-      ~config:state
-      ~messages:[ assistant_msg true ]
-      ()
-    |> Yojson.Safe.from_string
-  in
-  let open Yojson.Safe.Util in
-  let plain_assistant = plain |> member "messages" |> index 0 in
-  let tool_assistant = tool |> member "messages" |> index 0 in
-  check
-    bool
-    "plain reasoning omitted"
-    true
-    (plain_assistant |> member "reasoning_content" = `Null);
-  check
-    string
-    "tool reasoning_content"
-    "call the tool"
-    (tool_assistant |> member "reasoning_content" |> to_string)
+  with_declared_openai_compat_provider_catalog (fun () ->
+    let assistant_content tool =
+      if tool
+      then
+        [ Types.Thinking { signature = None; content = "call the tool" }
+        ; Types.ToolUse
+            { id = "call_1"
+            ; name = "calculator"
+            ; input = `Assoc [ "expr", `String "2+2" ]
+            }
+        ]
+      else
+        [ Types.Thinking { signature = None; content = "plain thought" }
+        ; Types.Text "answer"
+        ]
+    in
+    let assistant_msg tool =
+      { Types.role = Types.Assistant
+      ; content = assistant_content tool
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    in
+    let state =
+      { Types.config =
+          { Types.default_config with model = deepseek_provider_config.model_id }
+      ; messages = []
+      ; turn_count = 0
+      ; usage = Types.empty_usage
+      }
+    in
+    let plain =
+      Api.build_openai_body
+        ~provider_config:deepseek_provider_config
+        ~config:state
+        ~messages:[ assistant_msg false ]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    let tool =
+      Api.build_openai_body
+        ~provider_config:deepseek_provider_config
+        ~config:state
+        ~messages:[ assistant_msg true ]
+        ()
+      |> Yojson.Safe.from_string
+    in
+    let open Yojson.Safe.Util in
+    let plain_assistant = plain |> member "messages" |> index 0 in
+    let tool_assistant = tool |> member "messages" |> index 0 in
+    check
+      bool
+      "plain reasoning omitted"
+      true
+      (plain_assistant |> member "reasoning_content" = `Null);
+    check
+      string
+      "tool reasoning_content"
+      "call the tool"
+      (tool_assistant |> member "reasoning_content" |> to_string))
 ;;
 
 let test_build_openai_body_omits_provider_m_only_fields_for_generic_compat () =

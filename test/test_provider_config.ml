@@ -242,6 +242,7 @@ let test_validate_output_schema_openai_official () =
       ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~model_capabilities_override:Capabilities.openai_compat_chat_capabilities
       ()
   in
   check_bool
@@ -415,6 +416,8 @@ let test_validate_output_schema_supported_non_openai () =
       ~model_id:"devstral-2:123b"
       ~base_url:"http://localhost:11434"
       ~output_schema:schema
+      ~model_capabilities_override:
+        { Capabilities.ollama_capabilities with supports_structured_output = true }
       ()
   in
   check_bool
@@ -449,6 +452,90 @@ let test_openai_compat_raw_qwen_does_not_inherit_bare_capability () =
     "raw OpenAI-compatible endpoint does not inherit bare qwen capability"
     true
     (Option.is_none (Provider_config.capabilities_for_config_model cfg))
+;;
+
+let test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"minimax-m3"
+      ~base_url:"https://unknown-openai-compatible.example/v1"
+      ()
+  in
+  check_bool
+    "raw OpenAI-compatible endpoint does not inherit bare reasoning dialect"
+    true
+    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
+;;
+
+let with_model_catalog_toml contents f =
+  let previous_catalog = Model_catalog.global () in
+  let restore () =
+    match previous_catalog with
+    | Some catalog -> Model_catalog.set_global catalog
+    | None -> Model_catalog.clear_global ()
+  in
+  let path = Filename.temp_file "oas-provider-config-models" ".toml" in
+  Fun.protect
+    ~finally:(fun () ->
+      try Sys.remove path with
+      | Sys_error _ -> ())
+    (fun () ->
+       Out_channel.with_open_text path (fun oc -> output_string oc contents);
+       match Model_catalog.load_file path with
+       | Error msg -> Alcotest.failf "failed to load model catalog: %s" msg
+       | Ok catalog ->
+         Model_catalog.set_global catalog;
+         Fun.protect f ~finally:restore)
+;;
+
+let test_openai_compat_raw_tool_capability_requires_endpoint_declaration () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "raw-tool-only-model"
+base = "openai_chat"
+supports_tools = true
+supports_tool_choice = true
+|}
+    (fun () ->
+       let cfg =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"raw-tool-only-model"
+           ~base_url:"https://unknown-openai-compatible.example/v1"
+           ()
+       in
+       check_bool
+         "raw OpenAI-compatible endpoint does not inherit bare tool wire capability"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+;;
+
+let test_openai_compat_raw_template_dialect_requires_endpoint_declaration () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "raw-template-model"
+base = "openai_chat"
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+|}
+    (fun () ->
+       let cfg =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"raw-template-model"
+           ~base_url:"https://unknown-openai-compatible.example/v1"
+           ()
+       in
+       check_bool
+         "raw OpenAI-compatible endpoint does not inherit template thinking dialect"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
 let test_validate_responses_request_path_allows_structured_output () =
@@ -519,6 +606,7 @@ let test_validate_anthropic_thinking_rejects_forced_tool_choice () =
       ~base_url:"https://api.anthropic.com"
       ~enable_thinking
       ~tool_choice
+      ~model_capabilities_override:Capabilities.anthropic_capabilities
       ()
   in
   check_bool
@@ -1525,6 +1613,18 @@ let () =
             "raw compat qwen does not inherit bare capability"
             `Quick
             test_openai_compat_raw_qwen_does_not_inherit_bare_capability
+        ; Alcotest.test_case
+            "raw compat minimax does not inherit reasoning dialect"
+            `Quick
+            test_openai_compat_raw_minimax_does_not_inherit_bare_reasoning_dialect
+        ; Alcotest.test_case
+            "raw compat tool capability requires endpoint declaration"
+            `Quick
+            test_openai_compat_raw_tool_capability_requires_endpoint_declaration
+        ; Alcotest.test_case
+            "raw compat template dialect requires endpoint declaration"
+            `Quick
+            test_openai_compat_raw_template_dialect_requires_endpoint_declaration
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick

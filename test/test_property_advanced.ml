@@ -274,7 +274,28 @@ let test_local_provider_resolve_always_succeeds =
 let test_capabilities_provider_m_reasoning =
   QCheck.Test.make
     ~count:50
-    ~name:"DashScope_3 models get reasoning capability"
+    ~name:"Local DashScope_3 models get reasoning capability"
+    (QCheck.make
+       ~print:(fun s -> s)
+       (QCheck.Gen.oneof
+          [ QCheck.Gen.return "dashscope-3.5-35b"
+          ; QCheck.Gen.return "dashscope_3.6:27b-coding-nvfp4"
+          ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
+          ]))
+    (fun model_id ->
+       with_repo_model_catalog (fun () ->
+         let caps =
+           Provider.capabilities_for_model
+             ~provider:(Provider.Local { base_url = "http://127.0.0.1:8080" })
+             ~model_id
+         in
+         caps.supports_reasoning))
+;;
+
+let test_raw_openai_compat_dashscope_requires_endpoint_declaration =
+  QCheck.Test.make
+    ~count:50
+    ~name:"Raw OpenAICompat DashScope_3 models require endpoint declaration"
     (QCheck.make
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
@@ -295,7 +316,8 @@ let test_capabilities_provider_m_reasoning =
                   })
              ~model_id
          in
-         caps.supports_reasoning))
+         (not caps.supports_reasoning)
+         && caps.thinking_control_format = Llm_provider.Capabilities.No_thinking_control))
 ;;
 
 (* ── Context Reducer Properties ──────────────────────────────── *)
@@ -397,6 +419,7 @@ let () =
       ; (* Provider resolve *)
         test_local_provider_resolve_always_succeeds
       ; test_capabilities_provider_m_reasoning
+      ; test_raw_openai_compat_dashscope_requires_endpoint_declaration
       ; (* Context reducer *)
         test_context_reducer_never_adds
       ; test_token_budget_reducer_respects_limit

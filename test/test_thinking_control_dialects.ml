@@ -84,6 +84,38 @@ let openai_compat_config ?enable_thinking ?preserve_thinking ?thinking_budget mo
     ()
 ;;
 
+let catalog_capabilities model_id =
+  match CAP.for_model_id model_id with
+  | Some caps -> caps
+  | None -> fail ("expected catalog capabilities for " ^ model_id)
+;;
+
+let declared_catalog_openai_compat_config
+      ?(base_url = "https://declared-openai-compat.example/v1")
+      ?enable_thinking
+      ?preserve_thinking
+      ?thinking_budget
+      ?temperature
+      ?top_p
+      ?tool_choice
+      ?output_schema
+      model_id
+  =
+  PC.make
+    ~kind:OpenAI_compat
+    ~model_id
+    ~base_url
+    ~model_capabilities_override:(catalog_capabilities model_id)
+    ?enable_thinking
+    ?preserve_thinking
+    ?thinking_budget
+    ?temperature
+    ?top_p
+    ?tool_choice
+    ?output_schema
+    ()
+;;
+
 let declared_qwen_openai_compat_capabilities =
   { CAP.openai_compat_chat_capabilities with
     supports_reasoning = true
@@ -295,13 +327,11 @@ let test_mimo_v25_uses_thinking_object_and_json_schema () =
       ]
   in
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"mimo-v2.5-pro"
+    declared_catalog_openai_compat_config
       ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
       ~enable_thinking:false
       ~output_schema:schema
-      ()
+      "mimo-v2.5-pro"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   let dialect = RD.for_provider_config config in
@@ -390,13 +420,11 @@ let test_openai_reasoning_request_uses_reasoning_effort () =
 
 let test_deepseek_openai_compat_uses_thinking_object () =
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-flash"
+    declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
       ~enable_thinking:false
       ~thinking_budget:4096
-      ()
+      "deepseek-v4-flash"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   check
@@ -410,7 +438,9 @@ let test_deepseek_openai_compat_uses_thinking_object () =
 ;;
 
 let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
-  let enabled_config = openai_compat_config ~enable_thinking:true "minimax-m3" in
+  let enabled_config =
+    declared_catalog_openai_compat_config ~enable_thinking:true "minimax-m3"
+  in
   let enabled_json =
     BOR.build_request ~config:enabled_config ~messages:[ user_msg "hi" ] ()
     |> json_of_body
@@ -427,7 +457,7 @@ let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
     (enabled_json |> member "reasoning_split" |> to_bool);
   check_member_absent "reasoning_effort" enabled_json;
   check_member_absent "chat_template_kwargs" enabled_json;
-  let default_config = openai_compat_config "minimax-m3" in
+  let default_config = declared_catalog_openai_compat_config "minimax-m3" in
   let default_json =
     BOR.build_request ~config:default_config ~messages:[ user_msg "hi" ] ()
     |> json_of_body
@@ -437,7 +467,9 @@ let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
     "default reasoning split"
     true
     (default_json |> member "reasoning_split" |> to_bool);
-  let disabled_config = openai_compat_config ~enable_thinking:false "minimax-m3" in
+  let disabled_config =
+    declared_catalog_openai_compat_config ~enable_thinking:false "minimax-m3"
+  in
   let disabled_json =
     BOR.build_request ~config:disabled_config ~messages:[ user_msg "hi" ] ()
     |> json_of_body
@@ -449,12 +481,10 @@ let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
     (disabled_json |> member "thinking" |> member "type" |> to_string);
   check_member_absent "reasoning_split" disabled_json;
   let auto_tool_choice_config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"minimax-m3"
+    declared_catalog_openai_compat_config
       ~base_url:"https://api.minimaxi.com/v1"
       ~tool_choice:Auto
-      ()
+      "minimax-m3"
   in
   let auto_tool_choice_json =
     BOR.build_request ~config:auto_tool_choice_config ~messages:[ user_msg "hi" ] ()
@@ -541,12 +571,10 @@ let test_ollama_cloud_openai_compat_streams_reasoning_delta () =
 
 let test_deepseek_reasoning_dialect_semantics () =
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-pro"
+    declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
       ~enable_thinking:true
-      ()
+      "deepseek-v4-pro"
   in
   let dialect = RD.for_provider_config config in
   check
@@ -604,13 +632,11 @@ let test_deepseek_reasoning_dialect_semantics () =
 
 let test_deepseek_sampling_suppressed_in_thinking_mode () =
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-flash"
+    declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
       ~temperature:0.7
       ~top_p:0.9
-      ()
+      "deepseek-v4-flash"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   check_member_absent "temperature" json;
@@ -619,14 +645,12 @@ let test_deepseek_sampling_suppressed_in_thinking_mode () =
 
 let test_deepseek_disabled_thinking_keeps_sampling () =
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-flash"
+    declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
       ~enable_thinking:false
       ~temperature:0.7
       ~top_p:0.9
-      ()
+      "deepseek-v4-flash"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
   check (float 0.001) "temperature" 0.7 (json |> member "temperature" |> to_float);
@@ -647,11 +671,9 @@ let assistant_with_reasoning ?(tool = false) () =
 
 let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
   let config =
-    PC.make
-      ~kind:OpenAI_compat
-      ~model_id:"deepseek-v4-flash"
+    declared_catalog_openai_compat_config
       ~base_url:"https://api.deepseek.com"
-      ()
+      "deepseek-v4-flash"
   in
   let plain =
     BOR.build_request ~config ~messages:[ assistant_with_reasoning () ] () |> json_of_body
@@ -694,7 +716,9 @@ let keep_all_axis_manifest =
 
 let test_thinking_object_keep_all_axis_uses_keep_all () =
   with_manifest keep_all_axis_manifest (fun () ->
-    let config = openai_compat_config ~preserve_thinking:true "keep-all-axis-test" in
+    let config =
+      declared_catalog_openai_compat_config ~preserve_thinking:true "keep-all-axis-test"
+    in
     let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
     let thinking = json |> member "thinking" in
     check string "thinking type" "enabled" (thinking |> member "type" |> to_string);
@@ -705,7 +729,9 @@ let test_thinking_object_keep_all_axis_uses_keep_all () =
 
 let test_thinking_object_keep_all_axis_replays_reasoning () =
   with_manifest keep_all_axis_manifest (fun () ->
-    let config = openai_compat_config ~preserve_thinking:true "keep-all-axis-test" in
+    let config =
+      declared_catalog_openai_compat_config ~preserve_thinking:true "keep-all-axis-test"
+    in
     let dialect = RD.for_provider_config config in
     check
       string

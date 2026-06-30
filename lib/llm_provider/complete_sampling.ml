@@ -430,7 +430,7 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
     ; cache_system_prompt = false
     ; supports_tool_choice_override = None
     ; supports_structured_output_override = None
-    ; model_capabilities_override = None
+    ; model_capabilities_override = Some Capabilities.gemini_capabilities
     ; keep_alive = None
     ; internal_model_rotation_count = None
     ; num_ctx = None

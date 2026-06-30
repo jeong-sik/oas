@@ -229,6 +229,7 @@ cache_read_multiplier = 1.0
 [[models]]
 id_prefix = "deepseek-v4-pro"
 base = "openai_chat"
+provider_name = "deepseek"
 max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
@@ -251,6 +252,7 @@ cache_read_multiplier = 0.008333333333333333
 [[models]]
 id_prefix = "deepseek-ai/deepseek-v4-pro"
 base = "openai_chat"
+provider_name = "deepseek"
 max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
@@ -273,6 +275,7 @@ cache_read_multiplier = 0.008333333333333333
 [[models]]
 id_prefix = "deepseek-v4-flash"
 base = "openai_chat"
+provider_name = "deepseek"
 max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
@@ -295,6 +298,7 @@ cache_read_multiplier = 0.02
 [[models]]
 id_prefix = "deepseek-ai/deepseek-v4-flash"
 base = "openai_chat"
+provider_name = "deepseek"
 max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
@@ -1584,6 +1588,7 @@ cache_read_multiplier = 0.18333333333333332
 
 [[models]]
 id_prefix = "glm-4-flash"
+provider_name = "glm"
 max_context_tokens = 128000
 max_output_tokens = 4096
 supports_tools = true
@@ -1591,6 +1596,7 @@ supports_native_streaming = true
 
 [[models]]
 id_prefix = "glm-4v"
+provider_name = "glm"
 max_context_tokens = 128000
 max_output_tokens = 4096
 supports_tools = true
@@ -1600,6 +1606,7 @@ supports_native_streaming = true
 
 [[models]]
 id_prefix = "glm-4"
+provider_name = "glm"
 max_context_tokens = 128000
 max_output_tokens = 4096
 supports_tools = true

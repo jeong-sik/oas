@@ -32,6 +32,12 @@ let contains_substring ~sub text =
   if sub_len = 0 then true else loop 0
 ;;
 
+let catalog_capabilities model_id =
+  match Llm_provider.Capabilities.for_model_id model_id with
+  | Some caps -> caps
+  | None -> Alcotest.failf "expected catalog capabilities for %s" model_id
+;;
+
 let with_env name value f =
   let saved = Sys.getenv_opt name in
   (match value with
@@ -1145,7 +1151,8 @@ let test_model_capability_thinking_drift_remains_warn () =
     PC.make
       ~kind:OpenAI_compat
       ~model_id:"glm-4-flash"
-      ~base_url:"https://example.invalid/v1"
+      ~base_url:"https://declared-openai-compat.example/v1"
+      ~model_capabilities_override:(catalog_capabilities "glm-4-flash")
       ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
@@ -1162,17 +1169,18 @@ let test_model_capability_thinking_drift_remains_warn () =
        entries)
 ;;
 
-let test_bare_glm_model_thinking_uses_model_capability () =
+let test_declared_glm_model_thinking_uses_model_capability () =
   let config =
     PC.make
       ~kind:OpenAI_compat
       ~model_id:"glm-5"
-      ~base_url:"https://api.z.ai/api/coding/paas/v4"
+      ~base_url:"https://declared-zai-openai-compat.example/v1"
+      ~model_capabilities_override:(catalog_capabilities "glm-5")
       ()
   in
   let entries = complete_with_captured_diag ~config ~response:response_with_thinking in
   Alcotest.(check bool)
-    "bare glm-5 thinking does not emit capability drift"
+    "declared glm-5 thinking does not emit capability drift"
     false
     (List.exists
        (fun (_level, ctx, message) ->
@@ -1591,9 +1599,9 @@ let () =
             `Quick
             test_model_capability_thinking_drift_remains_warn
         ; test_case
-            "bare glm thinking uses model capability"
+            "declared glm thinking uses model capability"
             `Quick
-            test_bare_glm_model_thinking_uses_model_capability
+            test_declared_glm_model_thinking_uses_model_capability
         ] )
     ; ( "cost"
       , [ test_case "annotate response cost" `Quick test_annotate_response_cost

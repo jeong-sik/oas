@@ -283,8 +283,20 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
       Llm_provider.Zai_catalog.is_glm_model_id model_id
       && not (uses_native_glm_capabilities ~base_url ~model_id)
     then default_openai_compat_capabilities ()
-    else (
+    else if uses_native_glm_capabilities ~base_url ~model_id
+    then (
       match Llm_provider.Capabilities.for_model_id model_id with
+      | Some caps -> caps
+      | None -> default_openai_compat_capabilities ())
+    else (
+      let config =
+        Llm_provider.Provider_config.make
+          ~kind:Llm_provider.Provider_config.OpenAI_compat
+          ~model_id
+          ~base_url
+          ()
+      in
+      match Llm_provider.Provider_config.capabilities_for_config_model config with
       | Some caps -> caps
       | None -> default_openai_compat_capabilities ())
   | Custom_registered { name } ->

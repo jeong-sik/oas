@@ -125,17 +125,33 @@ let%test "model capability thinking drift remains high-confidence warning" =
   && info_observations = []
 ;;
 
-let%test "capability source is model when catalog resolves config model" =
+let%test "capability source is model when native catalog resolves config model" =
   let config =
     Provider_config.make
-      ~kind:OpenAI_compat
-      ~model_id:"grok-latest"
-      ~base_url:"https://api.x.ai/v1"
+      ~kind:Provider_config.Glm
+      ~model_id:"glm-5"
+      ~base_url:Zai_catalog.general_base_url
       ()
   in
   match resolve_capabilities_for_config config with
   | _, Model_capability -> true
   | _, Provider_default_capability -> false
+;;
+
+let%test "capability source is provider default for undeclared raw compat model" =
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-4o"
+      ~base_url:"https://unknown-openai-compatible.example/v1"
+      ()
+  in
+  match resolve_capabilities_for_config config with
+  | caps, Provider_default_capability ->
+    caps.supports_tools = Capabilities.openai_compat_chat_capabilities.supports_tools
+    && caps.thinking_control_format
+       = Capabilities.openai_compat_chat_capabilities.thinking_control_format
+  | _, Model_capability -> false
 ;;
 
 let%test "capability source is provider default when model is unknown" =
