@@ -25,12 +25,6 @@ type sampling_policy =
   | Sampling_supported
   | Ignored_when_thinking of string list
 
-type reasoning_visibility =
-  | Provider_hidden
-  | Side_channel of string
-  | Visible_channel
-  | Visible_text
-
 type replay_policy =
   | No_replay
   | Drop_without_tool_preserve_with_tool
@@ -53,7 +47,6 @@ type t =
   ; preserve_wire : Capabilities.preserve_thinking_control_format
   ; effort_alias_policy : effort_alias_policy
   ; sampling_policy : sampling_policy
-  ; visibility : reasoning_visibility
   ; replay_policy : replay_policy
   ; streaming : streaming_reasoning
   }
@@ -64,7 +57,6 @@ let default =
   ; preserve_wire = No_preserve_thinking_control
   ; effort_alias_policy = Preserve_effort
   ; sampling_policy = Sampling_supported
-  ; visibility = Provider_hidden
   ; replay_policy = No_replay
   ; streaming = No_streaming_reasoning
   }
@@ -78,11 +70,7 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
   let preserve_wire = caps.preserve_thinking_control_format in
   match caps.thinking_control_format with
   | No_thinking_control ->
-    let dialect =
-      if caps.supports_reasoning
-      then { default with visibility = Provider_hidden; preserve_wire }
-      else { default with preserve_wire }
-    in
+    let dialect = { default with preserve_wire } in
     (match preserve_wire with
      | Always_preserved_thinking -> { dialect with replay_policy = Preserve_always }
      | No_preserve_thinking_control
@@ -95,7 +83,6 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; preserve_wire
     ; effort_alias_policy = Deepseek_high_or_max
     ; sampling_policy = Ignored_when_thinking deepseek_ignored_sampling_params
-    ; visibility = Side_channel "reasoning_content"
     ; replay_policy = Drop_without_tool_preserve_with_tool
     ; streaming = Delta_field "reasoning_content"
     }
@@ -104,52 +91,38 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
       toggle_default = Provider_default
     ; toggle_wire = Thinking_object_only
     ; preserve_wire
-    ; visibility = Side_channel "reasoning_content"
     ; streaming = Delta_field "reasoning_content"
     }
   | Chat_template_kwargs ->
     { default with
       toggle_wire = Chat_template_kwargs
     ; preserve_wire
-    ; visibility = Visible_channel
     ; streaming = Template_parser
     }
   | Chat_template_token ->
     { default with
       toggle_wire = Chat_template_token
     ; preserve_wire
-    ; visibility = Visible_channel
     ; streaming = Template_parser
     }
   | Ollama_think ->
     { default with
       toggle_wire = Ollama_think
     ; preserve_wire
-    ; visibility = Side_channel "thinking"
     ; streaming = Delta_field "thinking"
     }
   | Reasoning_effort ->
     { default with
       toggle_wire = Reasoning_effort
     ; preserve_wire
-    ; visibility = Side_channel "reasoning"
     ; streaming = Delta_field "reasoning"
     }
   | Enable_thinking ->
     { default with
       toggle_wire = Enable_thinking
     ; preserve_wire
-    ; visibility = Side_channel "reasoning_content"
     ; streaming = Delta_field "reasoning_content"
     }
-;;
-
-let apply_visibility_override caps dialect =
-  match caps.Capabilities.reasoning_visibility_override with
-  | Default_reasoning_visibility -> dialect
-  | Force_provider_hidden -> { dialect with visibility = Provider_hidden }
-  | Force_visible_channel -> { dialect with visibility = Visible_channel }
-  | Force_visible_text -> { dialect with visibility = Visible_text }
 ;;
 
 let apply_replay_override caps dialect =
@@ -161,11 +134,7 @@ let apply_replay_override caps dialect =
   | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
 ;;
 
-let of_capabilities caps =
-  base_of_capabilities caps
-  |> apply_visibility_override caps
-  |> apply_replay_override caps
-;;
+let of_capabilities caps = base_of_capabilities caps |> apply_replay_override caps
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match dialect.preserve_wire, preserve_thinking with
@@ -245,14 +214,12 @@ let for_provider_config (config : Provider_config.t) =
   | Anthropic ->
     { default with
       toggle_wire = Anthropic_thinking
-    ; visibility = Visible_channel
     ; replay_policy = Preserve_always
     ; streaming = Delta_field "thinking_delta"
     }
   | Gemini ->
     { default with
       toggle_wire = Gemini_thinking_config
-    ; visibility = Visible_channel
     ; replay_policy = Drop_without_tool_preserve_with_tool
     ; streaming = Delta_field "thought"
     }
@@ -364,13 +331,6 @@ let replay_policy_to_string = function
   | Drop_without_tool_preserve_with_tool -> "drop_without_tool_preserve_with_tool"
   | Preserve_always -> "preserve_always"
   | Provider_hidden_replay -> "provider_hidden_replay"
-;;
-
-let visibility_to_string = function
-  | Provider_hidden -> "provider_hidden"
-  | Side_channel field -> "side_channel:" ^ field
-  | Visible_channel -> "visible_channel"
-  | Visible_text -> "visible_text"
 ;;
 
 [@@@coverage off]

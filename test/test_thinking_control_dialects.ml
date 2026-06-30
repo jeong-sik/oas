@@ -130,7 +130,6 @@ let test_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
     "toggle wire"
     "chat_template_kwargs"
     (RD.toggle_wire_to_string dialect.toggle_wire);
-  check string "visibility" "visible_channel" (RD.visibility_to_string dialect.visibility);
   check
     string
     "replay policy"
@@ -215,11 +214,6 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     (RD.toggle_wire_to_string dialect.toggle_wire);
   check
     string
-    "visibility"
-    "side_channel:reasoning"
-    (RD.visibility_to_string dialect.visibility);
-  check
-    string
     "replay policy"
     "no_replay"
     (RD.replay_policy_to_string dialect.replay_policy);
@@ -239,16 +233,6 @@ let test_openai_reasoning_dialect_uses_reasoning_effort () =
     "typed preserve xhigh"
     (Some "xhigh")
     (RD.normalize_effort_value dialect RE.XHigh)
-;;
-
-let test_reasoning_visibility_override_visible_text () =
-  let caps =
-    { CAP.openai_compat_chat_extended_capabilities with
-      reasoning_visibility_override = CAP.Force_visible_text
-    }
-  in
-  let dialect = RD.of_capabilities caps in
-  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility)
 ;;
 
 let test_openai_reasoning_request_uses_reasoning_effort () =
@@ -313,11 +297,6 @@ let test_deepseek_reasoning_dialect_semantics () =
     "toggle wire"
     "thinking_object"
     (RD.toggle_wire_to_string dialect.toggle_wire);
-  check
-    string
-    "visibility"
-    "side_channel:reasoning_content"
-    (RD.visibility_to_string dialect.visibility);
   check
     string
     "replay policy"
@@ -546,8 +525,7 @@ let test_ollama_cloud_glm_uses_native_think_not_zai_thinking () =
   check_member_absent "reasoning_effort" json;
   check_member_absent "tool_stream" json;
   let dialect = RD.for_provider_config config in
-  check string "toggle wire" "ollama_think" (RD.toggle_wire_to_string dialect.toggle_wire);
-  check string "visibility" "visible_text" (RD.visibility_to_string dialect.visibility)
+  check string "toggle wire" "ollama_think" (RD.toggle_wire_to_string dialect.toggle_wire)
 ;;
 
 let test_ollama_gemma4_enabled_uses_chat_template_token () =
@@ -601,7 +579,6 @@ let test_gemma4_reasoning_dialect_uses_template_parser () =
     "toggle wire"
     "chat_template_token"
     (RD.toggle_wire_to_string dialect.toggle_wire);
-  check string "visibility" "visible_channel" (RD.visibility_to_string dialect.visibility);
   check
     string
     "replay policy"
@@ -770,10 +747,6 @@ let () =
             "openai reasoning dialect uses reasoning_effort"
             `Quick
             test_openai_reasoning_dialect_uses_reasoning_effort
-        ; test_case
-            "reasoning visibility override visible text"
-            `Quick
-            test_reasoning_visibility_override_visible_text
         ; test_case
             "openai reasoning request uses reasoning_effort"
             `Quick

@@ -528,12 +528,7 @@ let test_ollama_cloud_current_catalog_resolves () =
        | Some c ->
          check (option int) (model_id ^ " context") (Some context) c.max_context_tokens;
          check bool (model_id ^ " vision") vision c.supports_image_input;
-         check bool (model_id ^ " multimodal") vision c.supports_multimodal_inputs;
-         check
-           bool
-           (model_id ^ " reasoning visibility")
-           true
-           (c.reasoning_visibility_override = Capabilities.Force_visible_text))
+         check bool (model_id ^ " multimodal") vision c.supports_multimodal_inputs)
     cases
 ;;
 
@@ -892,16 +887,21 @@ let test_manifest_rejects_unknown_reasoning_replay () =
   | Ok _ -> Alcotest.fail "unknown reasoning_replay should reject"
 ;;
 
-let test_manifest_rejects_unknown_reasoning_visibility () =
+(* [reasoning_visibility] was retired with the #2236 CoT-loop fix: the parsed
+   override only ever drove the reasoning->Text promotion that re-injected
+   reasoning as answer content. The manifest key is now unknown, so a stale
+   config is rejected fail-closed (via [reject_unknown_keys]) rather than
+   silently ignored. *)
+let test_manifest_rejects_retired_reasoning_visibility_key () =
   let json =
     Yojson.Safe.from_string
-      {|{"schema_version":1,"models":[{"id_prefix":"bad-visibility","reasoning_visibility":"translucent"}]}|}
+      {|{"schema_version":1,"models":[{"id_prefix":"retired-visibility","reasoning_visibility":"visible_text"}]}|}
   in
   match Capability_manifest.of_json json with
   | Error msg ->
-    check_contains "mentions field" msg "reasoning_visibility";
-    check_contains "mentions value" msg "translucent"
-  | Ok _ -> Alcotest.fail "unknown reasoning_visibility should reject"
+    check_contains "names the retired key" msg "reasoning_visibility";
+    check_contains "rejected as unknown field" msg "unknown field"
+  | Ok _ -> Alcotest.fail "retired reasoning_visibility key should reject"
 ;;
 
 let test_manifest_intlit_in_range_accepted () =
@@ -1045,7 +1045,6 @@ let test_model_catalog_rejects_unknown_policy_strings () =
   let cases =
     [ "thinking_control_format", "mind_palace"
     ; "preserve_thinking_control_format", "memory_palace"
-    ; "reasoning_visibility", "visible_ether"
     ; "modality_priority", "image_only"
     ]
   in
@@ -1319,9 +1318,9 @@ let () =
             `Quick
             test_manifest_rejects_unknown_reasoning_replay
         ; test_case
-            "unknown reasoning_visibility rejects"
+            "retired reasoning_visibility key rejects"
             `Quick
-            test_manifest_rejects_unknown_reasoning_visibility
+            test_manifest_rejects_retired_reasoning_visibility_key
         ; test_case
             "intlit in range accepted"
             `Quick

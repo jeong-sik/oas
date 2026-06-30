@@ -100,7 +100,6 @@ for the full JSON Schema (draft-07).
 | `supports_code_execution` | bool | from base | Server-side code sandbox. |
 | `thinking_control_format` | string | from base | Thinking enable/depth wire control. Accepted values: `none`, `thinking_object`, `thinking_object_only`, `chat_template_kwargs`, `chat_template_token`, `ollama_think`, `reasoning_effort`, `enable_thinking`. |
 | `preserve_thinking_control_format` | string | from base | Historical reasoning replay/preserve wire control. Accepted values: `none`, `thinking_object_keep_all`, `chat_template_kwargs_preserve_thinking`, `top_level_preserve_thinking`, `always_preserved`. |
-| `reasoning_visibility` | string | `default` | Optional parsed reasoning visibility override. Accepted values: `default`, `provider_hidden`, `visible_channel`, `visible_text`. |
 
 Unknown fields and unknown enum values are rejected. Additive schema changes
 must update the parser and this schema together.

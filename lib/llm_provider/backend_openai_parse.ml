@@ -285,10 +285,9 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
       | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
     in
     (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
-       Check both, preferring reasoning_content. reasoning_text is hoisted out
-       of [thinking_blocks] so the content-assembly below can promote it to a
-       visible Text block when the provider/model reasoning_visibility policy is
-       Visible_text. *)
+       Check both, preferring reasoning_content. The extracted reasoning becomes a
+       [Thinking] block below and stays typed as reasoning end-to-end (see the
+       content-assembly comment). *)
     let reasoning_text =
       match non_blank_json_string (msg |> member "reasoning_content") with
       | Some _ as text -> text

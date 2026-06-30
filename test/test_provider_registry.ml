@@ -285,7 +285,7 @@ let test_default_ollama_cloud_entry () =
       bool
       "ollama_cloud uses ollama_cloud_capabilities"
       true
-      (e.capabilities.reasoning_visibility_override = Capabilities.Force_visible_text)
+      (e.capabilities.thinking_control_format = Capabilities.Ollama_think)
   | None -> fail "ollama_cloud should exist"
 ;;
 
@@ -689,8 +689,7 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
              {"id": "ollama-cloud", "kind": "ollama",
               "capabilities": {"thinking_control_format": "ollama_think"}},
              {"id": "openai-reasoning", "kind": "openai_compat",
-              "capabilities": {"thinking_control_format": "reasoning_effort",
-                               "reasoning_visibility": "visible_text"}}
+              "capabilities": {"thinking_control_format": "reasoning_effort"}}
              ,
              {"id": "kimi-latest", "kind": "openai_compat",
               "capabilities": {"thinking_control_format": "none",
@@ -714,15 +713,6 @@ let test_catalog_accepts_explicit_thinking_control_formats () =
     check_format "dashscope" Capabilities.Enable_thinking;
     check_format "ollama-cloud" Capabilities.Ollama_think;
     check_format "openai-reasoning" Capabilities.Reasoning_effort;
-    (match Provider_catalog.lookup catalog "openai-reasoning" with
-     | Some entry ->
-       check
-         bool
-         "openai-reasoning visible_text override"
-         true
-         (entry.capabilities.reasoning_visibility_override
-          = Capabilities.Force_visible_text)
-     | None -> fail "openai-reasoning should exist");
     (match Provider_catalog.lookup catalog "kimi-latest" with
      | Some entry ->
        check

@@ -41,7 +41,6 @@ type entry =
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
         top_level_preserve_thinking / always_preserved). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. *)
-  ; reasoning_visibility : string option
   ; reasoning_replay : string option
     (** Optional multi-turn reasoning replay policy override (default / no_replay
         / drop_without_tool / preserve_always); applied in
@@ -171,7 +170,6 @@ let known_entry_keys =
   ; "supports_code_execution"
   ; "thinking_control_format"
   ; "preserve_thinking_control_format"
-  ; "reasoning_visibility"
   ; "reasoning_replay"
   ]
 ;;
@@ -218,12 +216,6 @@ let parse_entry json =
       ~allowed:Capability_vocab.reasoning_replay_values
       json
   in
-  let* reasoning_visibility =
-    canonical_choice
-      "reasoning_visibility"
-      ~allowed:Capability_vocab.reasoning_visibility_values
-      json
-  in
   let* assistant_tool_content_format =
     canonical_choice
       "assistant_tool_content_format"
@@ -260,7 +252,6 @@ let parse_entry json =
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format
     ; preserve_thinking_control_format
-    ; reasoning_visibility
     ; reasoning_replay
     }
 ;;
