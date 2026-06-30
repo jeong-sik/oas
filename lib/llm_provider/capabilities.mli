@@ -59,6 +59,12 @@ type reasoning_output_format = Capability_vocab.reasoning_output_format =
   | No_reasoning_output_format
   | Split_reasoning_fields
 
+type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
+  | Default_reasoning_streaming
+  | No_reasoning_streaming
+  | Delta_reasoning_field of string
+  | Template_reasoning_streaming
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -84,6 +90,7 @@ type capabilities =
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_output_format : reasoning_output_format
+  ; reasoning_streaming_format : reasoning_streaming_format
   ; reasoning_replay_override : reasoning_replay_override
   ; (* Output format *)
     supports_response_format_json : bool
@@ -227,12 +234,14 @@ val for_model_id_catalog : string -> capabilities option
 
     Provider-qualified entries use [<provider_label>/<model_id>] or
     [<provider_label>:<model_id>] prefixes in [models.toml]. When no qualified
-    entry matches, this falls back to {!for_model_id}. This lets transports
-    such as Ollama Cloud override bare model-family entries that are shared
-    with other providers (for example [glm-5] or [kimi-k2.6]) without coupling
-    the catalog to any embedding application. *)
+    entry matches, [allow_bare_fallback] controls whether this falls back to
+    {!for_model_id}. This lets transports such as Ollama Cloud override bare
+    model-family entries that are shared with other providers (for example
+    [glm-5] or [kimi-k2.6]) without coupling the catalog to any embedding
+    application. *)
 val for_provider_model_id
-  :  provider_label:string
+  :  allow_bare_fallback:bool
+  -> provider_label:string
   -> model_id:string
   -> capabilities option
 

@@ -36,6 +36,7 @@ type model_entry =
   ; thinking_control_token : string option
   ; preserve_thinking_control_format : string option
   ; reasoning_output_format : string option
+  ; reasoning_streaming_format : string option
   ; reasoning_replay : string option
   ; input_per_million : float option
   ; output_per_million : float option
@@ -158,6 +159,24 @@ let canonical_string_list_opt ~entry_id key ~allowed toml =
             (String.concat ", " allowed)))
 ;;
 
+let reasoning_streaming_format_opt ~entry_id key toml =
+  match find_string_field ~entry_id key toml with
+  | Error _ as e -> e
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    (match Capability_vocab.reasoning_streaming_format_of_string raw with
+     | Some _ -> Ok (Some raw)
+     | None ->
+       let normalized = String.lowercase_ascii (String.trim raw) in
+       Error
+         (Printf.sprintf
+            "model entry %S field %S has unknown value %S (canonical: %s)"
+            entry_id
+            key
+            normalized
+            Capability_vocab.reasoning_streaming_format_syntax))
+;;
+
 let parse_entry entry_toml =
   match find_string_opt entry_toml [ "id_prefix" ] with
   | None -> Error "model entry missing required \"id_prefix\" field"
@@ -225,6 +244,12 @@ let parse_entry entry_toml =
            ~allowed:Capability_vocab.reasoning_output_format_values
            entry_toml
        in
+       let reasoning_streaming_format_result =
+         reasoning_streaming_format_opt
+           ~entry_id:id_prefix
+           "reasoning_streaming_format"
+           entry_toml
+       in
        let thinking_control_token_result =
          exact_non_empty_string_field
            ~entry_id:id_prefix
@@ -238,21 +263,24 @@ let parse_entry entry_toml =
           , thinking_control_format_result
           , preserve_thinking_control_format_result
           , reasoning_output_format_result
+          , reasoning_streaming_format_result
           , thinking_control_token_result )
         with
-        | (Error _ as e), _, _, _, _, _, _
-        | _, (Error _ as e), _, _, _, _, _
-        | _, _, (Error _ as e), _, _, _, _
-        | _, _, _, (Error _ as e), _, _, _
-        | _, _, _, _, (Error _ as e), _, _
-        | _, _, _, _, _, (Error _ as e), _
-        | _, _, _, _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _, _, _, _, _
+        | _, (Error _ as e), _, _, _, _, _, _
+        | _, _, (Error _ as e), _, _, _, _, _
+        | _, _, _, (Error _ as e), _, _, _, _
+        | _, _, _, _, (Error _ as e), _, _, _
+        | _, _, _, _, _, (Error _ as e), _, _
+        | _, _, _, _, _, _, (Error _ as e), _
+        | _, _, _, _, _, _, _, (Error _ as e) -> e
         | ( Ok base_label
           , Ok provider_name
           , Ok modality_priority
           , Ok thinking_control_format
           , Ok preserve_thinking_control_format
           , Ok reasoning_output_format
+          , Ok reasoning_streaming_format
           , Ok thinking_control_token ) ->
           Ok
             { id_prefix
@@ -302,6 +330,7 @@ let parse_entry entry_toml =
             ; thinking_control_token
             ; preserve_thinking_control_format
             ; reasoning_output_format
+            ; reasoning_streaming_format
             ; reasoning_replay
             ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]
             ; output_per_million = find_float_opt entry_toml [ "output_per_million" ]

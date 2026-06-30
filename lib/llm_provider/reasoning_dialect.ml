@@ -35,6 +35,7 @@ type replay_policy =
 type streaming_reasoning =
   | No_streaming_reasoning
   | Delta_field of string
+  | Delta_reasoning_details
   | Template_parser
 
 type output_wire =
@@ -108,7 +109,10 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
       toggle_default = Enabled
     ; toggle_wire = Thinking_object_adaptive
     ; preserve_wire
-    ; streaming = Delta_field "reasoning_content"
+    ; streaming =
+        (match output_wire with
+         | Reasoning_split -> Delta_reasoning_details
+         | No_output_control -> Delta_field "reasoning_content")
     ; output_wire
     }
   | Thinking_object_only ->
@@ -165,7 +169,17 @@ let apply_replay_override caps dialect =
   | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
 ;;
 
-let of_capabilities caps = base_of_capabilities caps |> apply_replay_override caps
+let apply_streaming_format caps dialect =
+  match caps.Capabilities.reasoning_streaming_format with
+  | Default_reasoning_streaming -> dialect
+  | No_reasoning_streaming -> { dialect with streaming = No_streaming_reasoning }
+  | Delta_reasoning_field field -> { dialect with streaming = Delta_field field }
+  | Template_reasoning_streaming -> { dialect with streaming = Template_parser }
+;;
+
+let of_capabilities caps =
+  base_of_capabilities caps |> apply_streaming_format caps |> apply_replay_override caps
+;;
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match dialect.preserve_wire, preserve_thinking with

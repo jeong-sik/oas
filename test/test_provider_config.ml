@@ -273,6 +273,7 @@ let test_validate_output_schema_openai_compat_declared_endpoint_accepted () =
       ~base_url:"https://ma8xbr1kgbclkl-64411be1.proxy.runpod.net/v1"
       ~output_schema:(`Assoc [ "type", `String "object" ])
       ~supports_structured_output_override:true
+      ~model_capabilities_override:Capabilities.openai_compat_chat_capabilities
       ()
   in
   check_bool
@@ -434,6 +435,20 @@ let test_validate_output_schema_capability_rejected () =
   match Provider_config.validate_output_schema_request cfg with
   | Error msg -> check_bool "returns explanatory error" true (String.length msg > 0)
   | Ok () -> Alcotest.fail "expected model capability rejection"
+;;
+
+let test_openai_compat_raw_qwen_does_not_inherit_bare_capability () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen/qwen3.6-35b-a3b"
+      ~base_url:"https://unknown-openai-compatible.example/v1"
+      ()
+  in
+  check_bool
+    "raw OpenAI-compatible endpoint does not inherit bare qwen capability"
+    true
+    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
 ;;
 
 let test_validate_responses_request_path_allows_structured_output () =
@@ -1437,6 +1452,10 @@ let () =
             "openai capability rejection"
             `Quick
             test_validate_output_schema_capability_rejected
+        ; Alcotest.test_case
+            "raw compat qwen does not inherit bare capability"
+            `Quick
+            test_openai_compat_raw_qwen_does_not_inherit_bare_capability
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick

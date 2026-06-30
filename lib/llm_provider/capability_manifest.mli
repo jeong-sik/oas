@@ -94,6 +94,10 @@ type entry =
   ; reasoning_output_format : string option
     (** Canonical request-side reasoning output split control (none /
         split_reasoning_fields); applied in {!Capabilities.apply_manifest_entry}. *)
+  ; reasoning_streaming_format : string option
+    (** Canonical streaming reasoning side-channel (default / none /
+        template_parser / delta:<field>); applied in
+        {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_replay : string option
     (** Optional multi-turn reasoning replay policy override (default /
         no_replay / drop_without_tool / preserve_always). *)

@@ -73,6 +73,12 @@ type reasoning_output_format = Capability_vocab.reasoning_output_format =
   | No_reasoning_output_format
   | Split_reasoning_fields
 
+type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
+  | Default_reasoning_streaming
+  | No_reasoning_streaming
+  | Delta_reasoning_field of string
+  | Template_reasoning_streaming
+
 type capabilities =
   { (* ── Numeric limits ────────────────────────────────── *)
     max_context_tokens : int option (** Model's context window. None = unknown. *)
@@ -115,6 +121,11 @@ type capabilities =
         OpenAI-compatible providers require an explicit split switch before
         returning reasoning in side-channel fields instead of embedding it in
         visible [content]. *)
+  ; reasoning_streaming_format : reasoning_streaming_format
+    (** Optional streaming side-channel override. [Default_reasoning_streaming]
+        derives the parser field from [thinking_control_format]; catalog entries
+        set a concrete value when the endpoint stream field differs from the
+        request-side thinking control shape. *)
   ; reasoning_replay_override : reasoning_replay_override
     (** Optional override for the multi-turn reasoning replay policy. Defaults to
         the policy implied by [thinking_control_format]; catalog entries set this
@@ -181,6 +192,7 @@ let default_capabilities =
   ; thinking_control_format = No_thinking_control
   ; preserve_thinking_control_format = No_preserve_thinking_control
   ; reasoning_output_format = No_reasoning_output_format
+  ; reasoning_streaming_format = Default_reasoning_streaming
   ; reasoning_replay_override = Default_reasoning_replay
   ; supports_response_format_json = false
   ; supports_structured_output = false
@@ -738,6 +750,10 @@ let reasoning_output_format_of_catalog_string raw =
   Capability_vocab.reasoning_output_format_of_string raw
 ;;
 
+let reasoning_streaming_format_of_catalog_string raw =
+  Capability_vocab.reasoning_streaming_format_of_string raw
+;;
+
 let modality_priority_of_catalog_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "preserve_input_order" | "preserve-input-order" | "preserve" ->
@@ -892,6 +908,15 @@ let apply_manifest_entry (entry : Capability_manifest.entry) : capabilities =
             warn_unknown_capability_value ~field:"reasoning_output_format" s;
             base.reasoning_output_format)
        | None -> base.reasoning_output_format)
+  ; reasoning_streaming_format =
+      (match entry.reasoning_streaming_format with
+       | Some s ->
+         (match reasoning_streaming_format_of_catalog_string s with
+          | Some format -> format
+          | None ->
+            warn_unknown_capability_value ~field:"reasoning_streaming_format" s;
+            base.reasoning_streaming_format)
+       | None -> base.reasoning_streaming_format)
   ; reasoning_replay_override =
       (match entry.reasoning_replay with
        | Some s ->
@@ -1094,6 +1119,15 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
             warn_unknown_capability_value ~field:"reasoning_output_format" s;
             base.reasoning_output_format)
        | None -> base.reasoning_output_format)
+  ; reasoning_streaming_format =
+      (match entry.reasoning_streaming_format with
+       | Some s ->
+         (match reasoning_streaming_format_of_catalog_string s with
+          | Some format -> format
+          | None ->
+            warn_unknown_capability_value ~field:"reasoning_streaming_format" s;
+            base.reasoning_streaming_format)
+       | None -> base.reasoning_streaming_format)
   ; reasoning_replay_override =
       (match entry.reasoning_replay with
        | Some s ->
@@ -1181,10 +1215,14 @@ let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string
     loop candidates
 ;;
 
-let for_provider_model_id ~(provider_label : string) ~(model_id : string) =
+let for_provider_model_id
+      ~(allow_bare_fallback : bool)
+      ~(provider_label : string)
+      ~(model_id : string)
+  =
   match for_provider_model_id_catalog ~provider_label ~model_id with
   | Some _ as caps -> caps
-  | None -> for_model_id model_id
+  | None -> if allow_bare_fallback then for_model_id model_id else None
 ;;
 
 let exact_token = function
@@ -1408,6 +1446,7 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; thinking_control_token = None
   ; preserve_thinking_control_format = None
   ; reasoning_output_format = None
+  ; reasoning_streaming_format = None
   ; reasoning_replay = None
   ; input_per_million = None
   ; output_per_million = None
@@ -1450,6 +1489,7 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; thinking_control_token = None
   ; preserve_thinking_control_format = None
   ; reasoning_output_format = None
+  ; reasoning_streaming_format = None
   ; reasoning_replay = None
   }
 ;;
@@ -2068,6 +2108,7 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
       && ca.accepted_reasoning_efforts = cb.accepted_reasoning_efforts
       && ca.preserve_thinking_control_format = cb.preserve_thinking_control_format
       && ca.reasoning_output_format = cb.reasoning_output_format
+      && ca.reasoning_streaming_format = cb.reasoning_streaming_format
       && ca.assistant_tool_content_format = cb.assistant_tool_content_format
       && ca.reasoning_replay_override = cb.reasoning_replay_override
     | _ -> false

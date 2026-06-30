@@ -327,6 +327,8 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
      | Reasoning_dialect.Delta_field "reasoning_content" -> ()
      | Reasoning_dialect.Delta_field field ->
        fail ("native latest Kimi reasoning delta field drifted: " ^ field)
+     | Reasoning_dialect.Delta_reasoning_details ->
+       fail "native latest Kimi should not use split reasoning_details streaming"
      | Reasoning_dialect.No_streaming_reasoning ->
        fail "native latest Kimi reasoning stream field was dropped"
      | Reasoning_dialect.Template_parser ->
@@ -386,6 +388,7 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
      | None -> fail "should match native bare Kimi route");
     (match
        Capabilities.for_provider_model_id
+         ~allow_bare_fallback:true
          ~provider_label:"ollama_cloud"
          ~model_id:"kimi-k2.7-code"
      with
@@ -510,7 +513,12 @@ let test_lookup_minimax_m3_official_chat_dialect () =
       bool
       "dialect emits reasoning split"
       true
-      (dialect.output_wire = Reasoning_dialect.Reasoning_split)
+      (dialect.output_wire = Reasoning_dialect.Reasoning_split);
+    check
+      bool
+      "dialect streams typed reasoning details"
+      true
+      (dialect.streaming = Reasoning_dialect.Delta_reasoning_details)
   | None -> fail "should match minimax-m3"
 ;;
 
@@ -646,7 +654,10 @@ let test_ollama_cloud_current_catalog_resolves () =
   List.iter
     (fun (model_id, context, vision) ->
        match
-         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
@@ -678,7 +689,10 @@ let test_ollama_cloud_grouped_so_rows_have_required_axes () =
   List.iter
     (fun model_id ->
        match
-         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
@@ -702,6 +716,7 @@ let test_ollama_cloud_grouped_so_rows_have_required_axes () =
 let test_ollama_cloud_kimi_preserves_historical_reasoning () =
   match
     Capabilities.for_provider_model_id
+      ~allow_bare_fallback:true
       ~provider_label:"ollama_cloud"
       ~model_id:"kimi-k2.7-code"
   with
@@ -731,7 +746,10 @@ let test_ollama_cloud_mistral_family_structured_output_is_model_specific () =
   List.iter
     (fun (model_id, structured_output) ->
        match
-         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
@@ -762,7 +780,12 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     | None -> fail "bare glm-5.1 should resolve"
   in
   let cloud_glm =
-    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"glm-5.1" with
+    match
+      for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label:"ollama_cloud"
+        ~model_id:"glm-5.1"
+    with
     | Some c -> c
     | None -> fail "ollama_cloud/glm-5.1 should resolve"
   in
@@ -778,7 +801,12 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     | None -> fail "bare glm-5.2 should resolve"
   in
   let cloud_glm52 =
-    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"glm-5.2" with
+    match
+      for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label:"ollama_cloud"
+        ~model_id:"glm-5.2"
+    with
     | Some c -> c
     | None -> fail "ollama_cloud/glm-5.2 should resolve"
   in
@@ -797,7 +825,10 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   in
   let cloud_kimi =
     match
-      for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"kimi-k2.7-code"
+      for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label:"ollama_cloud"
+        ~model_id:"kimi-k2.7-code"
     with
     | Some c -> c
     | None -> fail "ollama_cloud/kimi-k2.7-code should resolve"
@@ -847,7 +878,15 @@ type replay_contract =
 type streaming_contract =
   | Streaming_not_required
   | Delta_stream of string
+  | Delta_reasoning_details_stream
   | Template_stream
+
+let streaming_reasoning_to_string = function
+  | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
+  | Reasoning_dialect.Template_parser -> "template_parser"
+  | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual
+  | Reasoning_dialect.Delta_reasoning_details -> "delta_reasoning_details"
+;;
 
 type thinking_contract =
   | Reasoning_only
@@ -862,7 +901,7 @@ let frontier_capabilities route model_id =
   match route with
   | Direct_model -> Capabilities.for_model_id model_id
   | Provider_qualified provider_label ->
-    Capabilities.for_provider_model_id ~provider_label ~model_id
+    Capabilities.for_provider_model_id ~allow_bare_fallback:true ~provider_label ~model_id
   | Native_provider _ -> Capabilities.for_model_id model_id
 ;;
 
@@ -1005,19 +1044,19 @@ let check_frontier_model
             "%s expected Delta_field(%s), got %s"
             label
             field
-            (match other with
-             | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
-             | Reasoning_dialect.Template_parser -> "template_parser"
-             | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+            (streaming_reasoning_to_string other))
+     | Delta_reasoning_details_stream ->
+       check
+         string
+         (label ^ " reasoning details stream")
+         "delta_reasoning_details"
+         (streaming_reasoning_to_string dialect.streaming)
      | Template_stream ->
        check
          string
          (label ^ " template stream")
          "template_parser"
-         (match dialect.streaming with
-          | Reasoning_dialect.Template_parser -> "template_parser"
-          | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
-          | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+         (streaming_reasoning_to_string dialect.streaming))
 ;;
 
 let test_frontier_grouped_tool_thinking_structured_models () =
@@ -1055,7 +1094,7 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Extended_thinking
       , No_structured_output
       , Replay_every_turn
-      , Delta_stream "reasoning_content" )
+      , Delta_reasoning_details_stream )
     ; ( "OpenAI GPT-5.5"
       , Direct_model
       , "gpt-5.5"
@@ -1125,7 +1164,7 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Extended_thinking
       , Response_format_json_schema
       , Replay_not_required
-      , Delta_stream "thinking" )
+      , Delta_stream "reasoning" )
     ; ( "Ollama Cloud Nemotron 3 Ultra"
       , Provider_qualified "ollama_cloud"
       , "nemotron-3-ultra"
@@ -1515,6 +1554,23 @@ let test_manifest_accepts_reasoning_output_format () =
   | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
 ;;
 
+let test_manifest_accepts_reasoning_streaming_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"stream-manifest","reasoning_streaming_format":"delta:reasoning"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check
+      bool
+      "manifest delta reasoning stream"
+      true
+      (caps.reasoning_streaming_format = Capabilities.Delta_reasoning_field "reasoning")
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -1535,6 +1591,18 @@ let test_manifest_rejects_unknown_reasoning_output_format () =
     check_contains "mentions field" msg "reasoning_output_format";
     check_contains "mentions value" msg "split_thoughts"
   | Ok _ -> Alcotest.fail "unknown reasoning_output_format should reject"
+;;
+
+let test_manifest_rejects_unknown_reasoning_streaming_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-stream","reasoning_streaming_format":"delta:"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "reasoning_streaming_format";
+    check_contains "mentions value" msg "delta:"
+  | Ok _ -> Alcotest.fail "unknown reasoning_streaming_format should reject"
 ;;
 
 let test_manifest_rejects_unknown_reasoning_replay () =
@@ -1737,6 +1805,7 @@ let test_model_catalog_rejects_unknown_policy_strings () =
     [ "thinking_control_format", "mind_palace"
     ; "preserve_thinking_control_format", "memory_palace"
     ; "reasoning_output_format", "split_thoughts"
+    ; "reasoning_streaming_format", "delta:"
     ; "modality_priority", "image_only"
     ]
   in
@@ -2120,6 +2189,10 @@ let () =
             `Quick
             test_manifest_accepts_reasoning_output_format
         ; test_case
+            "reasoning_streaming_format accepted"
+            `Quick
+            test_manifest_accepts_reasoning_streaming_format
+        ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
             test_manifest_rejects_unknown_preserve_thinking_control_format
@@ -2127,6 +2200,10 @@ let () =
             "unknown reasoning_output_format rejects"
             `Quick
             test_manifest_rejects_unknown_reasoning_output_format
+        ; test_case
+            "unknown reasoning_streaming_format rejects"
+            `Quick
+            test_manifest_rejects_unknown_reasoning_streaming_format
         ; test_case
             "unknown reasoning_replay rejects"
             `Quick

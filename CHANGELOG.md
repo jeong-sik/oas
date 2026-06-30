@@ -31,6 +31,25 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.5](https://github.com/jeong-sik/oas/compare/v0.208.4...v0.208.5) (2026-06-30)
+
+
+### Bug Fixes
+
+* **streaming:** avoid wildcard JSON success match ([#2352](https://github.com/jeong-sik/oas/issues/2352)) ([2def5f1](https://github.com/jeong-sik/oas/commit/2def5f11b4b6cbc562e6a8f85b51f6afc10ca701))
+
+## [0.208.4](https://github.com/jeong-sik/oas/compare/v0.208.3...v0.208.4) (2026-06-30)
+
+
+### Features
+
+* **canonical-tool:** expose block tool call projection ([#2349](https://github.com/jeong-sik/oas/issues/2349)) ([191bc84](https://github.com/jeong-sik/oas/commit/191bc84a089db7f67818bd496294807ea368bedb))
+
+
+### Bug Fixes
+
+* **streaming:** preserve MiniMax split reasoning details ([#2347](https://github.com/jeong-sik/oas/issues/2347)) ([c60f544](https://github.com/jeong-sik/oas/commit/c60f544b6e3bfdd2d82ce152c82f699dc9468361))
+
 ## [0.208.3](https://github.com/jeong-sik/oas/compare/v0.208.2...v0.208.3) (2026-06-30)
 
 
