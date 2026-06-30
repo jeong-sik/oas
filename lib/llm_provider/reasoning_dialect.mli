@@ -45,6 +45,7 @@ type replay_policy =
 type streaming_reasoning =
   | No_streaming_reasoning
   | Delta_field of string
+  | Delta_reasoning_details
   | Template_parser
 
 type output_wire =

@@ -94,32 +94,58 @@ let adjacent_reasoning_of_pending = function
   | pending_reasoning_rev -> Adjacent_reasoning (List.rev pending_reasoning_rev)
 ;;
 
-let scan_tool_call state (block : Types.content_block) =
+let tool_call_of_block
+      ?(order_index = 0)
+      ?provider_kind
+      ?(adjacent_reasoning = No_adjacent_reasoning)
+      (block : Types.content_block)
+  : provider_tool_call option
+  =
   match block with
   | Types.ToolUse { id; name; input } ->
-    let tool_call =
-      { call_id = id
-      ; name
-      ; input
-      ; order_index = state.order_index
-      ; provider_kind = state.provider_kind
-      ; adjacent_reasoning = adjacent_reasoning_of_pending state.pending_reasoning_rev
-      }
-    in
+    Some { call_id = id; name; input; order_index; provider_kind; adjacent_reasoning }
+  | Types.Text _
+  | Types.Thinking _
+  | Types.ReasoningDetails _
+  | Types.RedactedThinking _
+  | Types.ToolResult _
+  | Types.Image _
+  | Types.Document _
+  | Types.Audio _ -> None
+;;
+
+let scan_tool_call state (block : Types.content_block) =
+  let provider_kind = state.provider_kind in
+  let adjacent_reasoning = adjacent_reasoning_of_pending state.pending_reasoning_rev in
+  match
+    tool_call_of_block
+      ~order_index:state.order_index
+      ?provider_kind
+      ~adjacent_reasoning
+      block
+  with
+  | Some tool_call ->
     { state with
       order_index = state.order_index + 1
     ; pending_reasoning_rev = []
     ; tool_calls_rev = tool_call :: state.tool_calls_rev
     }
-  | Types.Thinking _ | Types.ReasoningDetails _ | Types.RedactedThinking _ ->
-    let pending_reasoning_rev =
-      match reasoning_of_block ~order_index:state.order_index block with
-      | Some reasoning -> reasoning :: state.pending_reasoning_rev
-      | None -> state.pending_reasoning_rev
-    in
-    { state with order_index = state.order_index + 1; pending_reasoning_rev }
-  | Types.Text _ | Types.ToolResult _ | Types.Image _ | Types.Document _ | Types.Audio _
-    -> { state with order_index = state.order_index + 1; pending_reasoning_rev = [] }
+  | None ->
+    (match block with
+     | Types.Thinking _ | Types.ReasoningDetails _ | Types.RedactedThinking _ ->
+       let pending_reasoning_rev =
+         match reasoning_of_block ~order_index:state.order_index block with
+         | Some reasoning -> reasoning :: state.pending_reasoning_rev
+         | None -> state.pending_reasoning_rev
+       in
+       { state with order_index = state.order_index + 1; pending_reasoning_rev }
+     | Types.Text _
+     | Types.ToolUse _
+     | Types.ToolResult _
+     | Types.Image _
+     | Types.Document _
+     | Types.Audio _ ->
+       { state with order_index = state.order_index + 1; pending_reasoning_rev = [] })
 ;;
 
 let tool_calls_of_response (response : Types.api_response) : provider_tool_call list =

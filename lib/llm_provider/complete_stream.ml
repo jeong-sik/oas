@@ -527,6 +527,7 @@ let complete_stream_http
         | Types.ContentBlockDelta { delta = TextDelta _; _ } -> `Answer
         | Types.ContentBlockDelta { delta = MediaDelta _; _ } -> `Answer
         | Types.ContentBlockDelta { delta = ThinkingDelta _; _ } -> `Thinking
+        | Types.ContentBlockDelta { delta = ReasoningDetailsDelta _; _ } -> `Thinking
         | Types.ContentBlockDelta { delta = ThinkingSignatureDelta _; _ } -> `Substrate
         | Types.ContentBlockDelta { delta = InputJsonDelta _ | InputJsonSnapshot _; _ } ->
           `Tool_call_arg_delta

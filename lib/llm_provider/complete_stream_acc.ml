@@ -27,6 +27,7 @@ type stream_acc =
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
+  ; block_reasoning_details : (int, Types.reasoning_detail list ref) Hashtbl.t
   ; block_media_types : (int, string) Hashtbl.t
     (** Per-block media MIME type from {!Types.MediaDelta}. *)
   ; block_media_sources : (int, Types.media_source_kind) Hashtbl.t
@@ -50,9 +51,22 @@ let create_stream_acc () =
   ; block_tool_ids = Hashtbl.create 4
   ; block_tool_names = Hashtbl.create 4
   ; block_thinking_signatures = Hashtbl.create 4
+  ; block_reasoning_details = Hashtbl.create 4
   ; block_media_types = Hashtbl.create 4
   ; block_media_sources = Hashtbl.create 4
   }
+;;
+
+(* [true] iff [s] parses as one complete JSON value. Used by the
+   [InputJsonDelta] re-emit guard below: a buffer that already holds a complete
+   value, followed by a delta starting a fresh object, is a provider re-emit
+   (replace) rather than an incremental fragment (concat). Yojson rejects
+   trailing bytes, so ["{}{}"] is [false] here -- exactly the malformed shape
+   we prevent from reaching [finalize]. *)
+let is_complete_json_value s =
+  match Yojson.Safe.from_string s with
+  | _ -> true
+  | exception Yojson.Json_error _ -> false
 ;;
 
 let accumulate_event (acc : stream_acc) = function
@@ -84,8 +98,39 @@ let accumulate_event (acc : stream_acc) = function
         b
     in
     (match delta with
-     | Types.TextDelta s | Types.ThinkingDelta s | Types.InputJsonDelta s ->
-       Buffer.add_string buf s
+     | Types.TextDelta s | Types.ThinkingDelta s -> Buffer.add_string buf s
+     | Types.InputJsonDelta s ->
+       (* A provider may re-emit a whole tool-call arguments value as an
+          InputJsonDelta rather than an InputJsonSnapshot. If the buffer
+          already holds a complete JSON value and the incoming delta starts a
+          fresh object, treat it as a re-emit and replace (not concatenate),
+          mirroring the [InputJsonSnapshot] arm below. Without this, an
+          OpenAI-compat/Ollama/Gemini provider that re-emits "{}" concatenates
+          into malformed "{}{}" (raw="{}{}", malformed_tool_use_arguments).
+          The re-emit vs incremental decision derives from the buffer state,
+          not the delta tag (SSOT). *)
+       if
+         String.length s > 0
+         && s.[0] = '{'
+         && Buffer.length buf > 0
+         && is_complete_json_value (Buffer.contents buf)
+       then (
+         Buffer.clear buf;
+         Buffer.add_string buf s)
+       else Buffer.add_string buf s
+     | Types.ReasoningDetailsDelta { reasoning_content; details } ->
+       (match reasoning_content with
+        | Some content -> Buffer.add_string buf content
+        | None -> ());
+       let details_ref =
+         match Hashtbl.find_opt acc.block_reasoning_details index with
+         | Some details_ref -> details_ref
+         | None ->
+           let details_ref = ref [] in
+           Hashtbl.replace acc.block_reasoning_details index details_ref;
+           details_ref
+       in
+       details_ref := List.rev_append details !details_ref
      | Types.InputJsonSnapshot s ->
        (* A complete tool-call arguments value replaces the block buffer rather
           than appending, so a provider that re-emits the same whole value over
@@ -155,6 +200,7 @@ let accumulate_event (acc : stream_acc) = function
 type block_kind =
   | Text_block
   | Thinking_block
+  | Reasoning_details_block
   | Redacted_thinking_block
   | Tool_use_block
   | Tool_result_block of { is_error : bool }
@@ -166,6 +212,7 @@ type block_kind =
 let block_kind_of_string = function
   | "text" -> Text_block
   | "thinking" -> Thinking_block
+  | "reasoning_details" -> Reasoning_details_block
   | "redacted_thinking" -> Redacted_thinking_block
   | "tool_use" -> Tool_use_block
   | "tool_result" -> Tool_result_block { is_error = false }
@@ -233,6 +280,17 @@ let finalize_stream_acc (acc : stream_acc) =
           | Some _ | None -> None
         in
         Ok (Some (Types.Thinking { content = text; signature }))
+      | Some Reasoning_details_block ->
+        let details =
+          match Hashtbl.find_opt acc.block_reasoning_details idx with
+          | Some details_ref -> List.rev !details_ref
+          | None -> []
+        in
+        let reasoning_content = if String.trim text = "" then None else Some text in
+        (match reasoning_content, details with
+         | None, [] -> Ok None
+         | Some _, _ | None, _ :: _ ->
+           Ok (Some (Types.ReasoningDetails { reasoning_content; details })))
       | Some Redacted_thinking_block ->
         (match Hashtbl.find_opt acc.block_tool_ids idx with
          | Some data when data <> "" -> Ok (Some (Types.RedactedThinking data))
@@ -787,6 +845,53 @@ let%test "finalize_stream_acc repeated tool-arg snapshot stays valid JSON" =
   match finalize_stream_acc acc with
   | Ok { content = [ Types.ToolUse { input; name; _ } ]; _ } ->
     name = "list" && input = `Assoc [ "limit", `Int 10 ]
+  | Ok _ | Error _ -> false
+;;
+
+let%test "accumulate_event InputJsonDelta replaces buffer on re-emit (no concat)" =
+  (* Regression: an OpenAI-compat/Ollama/Gemini provider that re-emits a whole
+     arguments value as an InputJsonDelta (not InputJsonSnapshot) used to
+     concatenate into "{}{}" or [{"limit":10}{"limit":10}], which finalize
+     rejected as [malformed_tool_use_arguments]. When the buffer already holds
+     a complete JSON value and the incoming delta starts a fresh object, the
+     accumulator now replaces. *)
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.ContentBlockStart
+       { index = 0; content_type = "tool_use"; tool_id = None; tool_name = None });
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|{}|} });
+  accumulate_event
+    acc
+    (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|{}|} });
+  let buf = Hashtbl.find acc.block_texts 0 in
+  Buffer.contents buf = {|{}|}
+;;
+
+let%test "finalize_stream_acc InputJsonDelta empty-object re-emit stays valid" =
+  (* The live malformed_tool_use_arguments raw="{}{}" regression: a provider
+     re-emits the empty arguments object "{}" as InputJsonDelta. Without the
+     re-emit guard the buffer concatenates into "{}{}" and finalize fails
+     closed. With the guard the second "{}" replaces the first. *)
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "m"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0
+        ; content_type = "tool_use"
+        ; tool_id = Some "call_1"
+        ; tool_name = Some "noop"
+        }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|{}|} }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|{}|} }
+    ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Ok { content = [ Types.ToolUse { input; name; _ } ]; _ } ->
+    name = "noop" && input = `Assoc []
   | Ok _ | Error _ -> false
 ;;
 

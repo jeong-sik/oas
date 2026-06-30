@@ -35,6 +35,7 @@ type replay_policy =
 type streaming_reasoning =
   | No_streaming_reasoning
   | Delta_field of string
+  | Delta_reasoning_details
   | Template_parser
 
 type output_wire =
@@ -108,7 +109,10 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
       toggle_default = Enabled
     ; toggle_wire = Thinking_object_adaptive
     ; preserve_wire
-    ; streaming = Delta_field "reasoning_content"
+    ; streaming =
+        (match output_wire with
+         | Reasoning_split -> Delta_reasoning_details
+         | No_output_control -> Delta_field "reasoning_content")
     ; output_wire
     }
   | Thinking_object_only ->

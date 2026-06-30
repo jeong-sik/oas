@@ -114,16 +114,24 @@ let test_terminal_cancelled_roundtrip () =
 module Streaming = Llm_provider.Streaming
 module Types = Llm_provider.Types
 
-let make_openai_chunk ?delta_content ?delta_reasoning ?(delta_tool_calls = []) ()
+let make_openai_chunk
+      ?delta_content
+      ?delta_reasoning
+      ?delta_reasoning_details
+      ?(delta_tool_calls = [])
+      ?chunk_parse_error
+      ()
   : Streaming.openai_chunk
   =
   { chunk_id = "c1"
   ; chunk_model = "m"
   ; delta_content
   ; delta_reasoning
+  ; delta_reasoning_details
   ; delta_tool_calls
   ; finish_reason = None
   ; chunk_usage = None
+  ; chunk_parse_error
   }
 ;;
 
@@ -148,6 +156,34 @@ let test_chunk_only_reasoning_is_token () =
   Alcotest.(check bool)
     "reasoning-only chunk is a token"
     true
+    (Streaming.chunk_has_non_empty_delta c)
+;;
+
+let test_chunk_reasoning_details_is_token () =
+  let detail : Types.reasoning_detail =
+    { raw = `Assoc [ "text", `String "thinking..." ]; text = Some "thinking..." }
+  in
+  let c =
+    make_openai_chunk
+      ~delta_reasoning_details:
+        { delta_reasoning_content = None; delta_details = [ detail ] }
+      ()
+  in
+  Alcotest.(check bool)
+    "reasoning_details chunk is a token"
+    true
+    (Streaming.chunk_has_non_empty_delta c)
+;;
+
+let test_chunk_empty_reasoning_details_is_not_token () =
+  let c =
+    make_openai_chunk
+      ~delta_reasoning_details:{ delta_reasoning_content = None; delta_details = [] }
+      ()
+  in
+  Alcotest.(check bool)
+    "empty reasoning_details chunk is not a token"
+    false
     (Streaming.chunk_has_non_empty_delta c)
 ;;
 
@@ -198,6 +234,27 @@ let test_sse_event_empty_text_delta_is_not_token () =
     (Streaming.sse_event_is_first_token_signal e)
 ;;
 
+let test_sse_event_reasoning_details_is_token_not_deliverable () =
+  let detail : Types.reasoning_detail =
+    { raw = `Assoc [ "text", `String "thinking..." ]; text = Some "thinking..." }
+  in
+  let e =
+    Types.ContentBlockDelta
+      { index = 0
+      ; delta =
+          Types.ReasoningDetailsDelta { reasoning_content = None; details = [ detail ] }
+      }
+  in
+  Alcotest.(check bool)
+    "ReasoningDetailsDelta is a token"
+    true
+    (Streaming.sse_event_is_first_token_signal e);
+  Alcotest.(check bool)
+    "ReasoningDetailsDelta is not deliverable progress"
+    false
+    (Streaming.sse_event_is_deliverable_progress_signal e)
+;;
+
 let test_sse_event_ping_is_not_token () =
   Alcotest.(check bool)
     "Ping is not a token"
@@ -246,6 +303,14 @@ let () =
             `Quick
             test_chunk_only_reasoning_is_token
         ; Alcotest.test_case
+            "chunk_has_non_empty_delta: reasoning details"
+            `Quick
+            test_chunk_reasoning_details_is_token
+        ; Alcotest.test_case
+            "chunk_has_non_empty_delta: empty reasoning details rejected"
+            `Quick
+            test_chunk_empty_reasoning_details_is_not_token
+        ; Alcotest.test_case
             "chunk_has_non_empty_delta: tool call"
             `Quick
             test_chunk_tool_call_is_token
@@ -265,6 +330,10 @@ let () =
             "sse_event_is_first_token_signal: empty TextDelta rejected"
             `Quick
             test_sse_event_empty_text_delta_is_not_token
+        ; Alcotest.test_case
+            "sse_event_is_first_token_signal: ReasoningDetailsDelta hidden"
+            `Quick
+            test_sse_event_reasoning_details_is_token_not_deliverable
         ; Alcotest.test_case
             "sse_event_is_first_token_signal: Ping rejected"
             `Quick

@@ -21,11 +21,11 @@ val emit_synthetic_events : api_response -> (sse_event -> unit) -> unit
 
 (** [true] when the SSE event represents the first generated
     token delta. That means a [ContentBlockDelta] carrying a
-    non-empty [TextDelta] / [ThinkingDelta] / [InputJsonDelta] /
-    [InputJsonSnapshot] payload. Prelude events ([MessageStart],
-    [ContentBlockStart], [ThinkingSignatureDelta] carriers,
-    [Ping]), terminator events ([MessageStop], [MessageDelta] with
-    no usage), and error events return [false].
+    non-empty [TextDelta] / [ThinkingDelta] / [ReasoningDetailsDelta] /
+    [InputJsonDelta] / [InputJsonSnapshot] payload. Prelude events
+    ([MessageStart], [ContentBlockStart], [ThinkingSignatureDelta] carriers,
+    [Ping]), terminator events ([MessageStop], [MessageDelta] with no usage),
+    and error events return [false].
 
     @stability Internal *)
 val sse_event_is_first_token_signal : sse_event -> bool
@@ -33,9 +33,9 @@ val sse_event_is_first_token_signal : sse_event -> bool
 (** [true] when the SSE event represents progress that a downstream
     application can act on without exposing model-private reasoning:
     non-empty text, non-empty tool-call JSON, or a tool-use block start.
-    Thinking deltas intentionally return [false]. Complete uses this to
-    distinguish "the model is generating hidden reasoning" from "the
-    stream has produced a deliverable answer/tool signal".
+    Thinking/reasoning details deltas intentionally return [false]. Complete
+    uses this to distinguish "the model is generating hidden reasoning" from
+    "the stream has produced a deliverable answer/tool signal".
 
     @stability Internal
     @since 0.205.12 *)
@@ -71,14 +71,26 @@ type openai_tool_call_delta =
   ; tc_arguments : tool_call_arguments option
   }
 
+type openai_reasoning_details_delta =
+  { delta_reasoning_content : string option
+  ; delta_details : reasoning_detail list
+  }
+
+type openai_chunk_parse_error =
+  { reason : string
+  ; raw : string
+  }
+
 type openai_chunk =
   { chunk_id : string
   ; chunk_model : string
   ; delta_content : string option
   ; delta_reasoning : string option
+  ; delta_reasoning_details : openai_reasoning_details_delta option
   ; delta_tool_calls : openai_tool_call_delta list
   ; finish_reason : string option
   ; chunk_usage : api_usage option
+  ; chunk_parse_error : openai_chunk_parse_error option
   }
 
 type thinking_state =
