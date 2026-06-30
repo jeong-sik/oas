@@ -55,10 +55,14 @@ let property_type_from_union name values =
          | Ok selected, `String type_name ->
            (match json_schema_type_member_to_param_type_option type_name with
             | Ok (Some param_type) ->
-              Ok
-                (match selected with
-                 | Some _ -> selected
-                 | None -> Some param_type)
+              (match selected with
+               | None -> Ok (Some param_type)
+               | Some selected_param_type when selected_param_type = param_type -> Ok selected
+               | Some _ ->
+                 Error
+                   (Printf.sprintf
+                      "property %S type array must contain exactly one non-null type"
+                      name))
             | Ok None -> Ok selected
             | Error _ as error -> error)
          | Ok _, _ ->
@@ -66,21 +70,24 @@ let property_type_from_union name values =
       (Ok None)
       values
   in
-  Result.map (Option.value ~default:String) result
+  match result with
+  | Ok (Some param_type) -> Ok param_type
+  | Ok None ->
+    Error
+      (Printf.sprintf
+         "property %S type array must include a supported non-null type"
+         name)
+  | Error _ as error -> error
 ;;
 
 let property_type name prop =
   match prop with
   | `Assoc fields ->
     (match List.assoc_opt "type" fields with
-     | Some (`String type_name) ->
-       (match json_schema_type_member_to_param_type_option type_name with
-        | Ok (Some param_type) -> Ok param_type
-        | Ok None -> Ok String
-        | Error _ as error -> error)
+     | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
      | Some (`List values) -> property_type_from_union name values
      | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
-     | None -> Ok String)
+     | None -> Error (Printf.sprintf "property %S is missing type" name))
   | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
 ;;
 
