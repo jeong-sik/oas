@@ -353,6 +353,57 @@ let%test "build_request maps preserve_thinking to GLM clear_thinking=false" =
   json |> member "thinking" |> member "clear_thinking" |> to_bool = false
 ;;
 
+let%test "build_request replays reasoning via typed dialect, not serialize-time \
+          branch (RFC-OAS-029 S3.1)" =
+  (* The reasoning-replay decision now flows from the typed
+     [Reasoning_dialect.replay_policy] resolved once in [for_provider_config],
+     not from a serialize-time [config.kind = Glm]/[glm_should_replay_reasoning]
+     branch in the request builder. A GLM config under Preserved Thinking
+     (enable_thinking + clear_thinking=false) must echo a prior assistant
+     [Thinking] block back as [reasoning_content]; the default config
+     (clear_thinking=true) must not. Reverting the dialect resolution leaves the
+     GLM dialect at the dead [No_replay] default and turns the [preserved] case
+     red. *)
+  let messages =
+    [ { role = Assistant
+      ; content =
+          [ Thinking { content = "prior reasoning"; signature = None }
+          ; Text "answer"
+          ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+    ]
+  in
+  let replays config =
+    let body = build_request ~config ~messages () in
+    let open Yojson.Safe.Util in
+    Yojson.Safe.from_string body
+    |> member "messages"
+    |> to_list
+    |> List.exists (fun m ->
+      m |> member "reasoning_content" |> to_string_option = Some "prior reasoning")
+  in
+  let preserved =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"glm-5"
+      ~base_url:Zai_catalog.coding_base_url
+      ~enable_thinking:true
+      ~preserve_thinking:true
+      ()
+  in
+  let default_config =
+    Provider_config.make
+      ~kind:Glm
+      ~model_id:"glm-5"
+      ~base_url:Zai_catalog.coding_base_url
+      ()
+  in
+  replays preserved && not (replays default_config)
+;;
+
 let%test "build_request emits exactly one thinking key for ZAI GLM (RFC-OAS-023)" =
   (* Regression guard for the duplicate-[thinking]-key bug: GLM thinking now
      comes from the shared OpenAI-compatible request builder. Backend_glm must
