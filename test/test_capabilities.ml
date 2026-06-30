@@ -388,6 +388,7 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
      | None -> fail "should match native bare Kimi route");
     (match
        Capabilities.for_provider_model_id
+         ~allow_bare_fallback:true
          ~provider_label:"ollama_cloud"
          ~model_id:"kimi-k2.7-code"
      with
@@ -653,7 +654,10 @@ let test_ollama_cloud_current_catalog_resolves () =
   List.iter
     (fun (model_id, context, vision) ->
        match
-         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
@@ -685,7 +689,10 @@ let test_ollama_cloud_grouped_so_rows_have_required_axes () =
   List.iter
     (fun model_id ->
        match
-         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
@@ -709,6 +716,7 @@ let test_ollama_cloud_grouped_so_rows_have_required_axes () =
 let test_ollama_cloud_kimi_preserves_historical_reasoning () =
   match
     Capabilities.for_provider_model_id
+      ~allow_bare_fallback:true
       ~provider_label:"ollama_cloud"
       ~model_id:"kimi-k2.7-code"
   with
@@ -738,7 +746,10 @@ let test_ollama_cloud_mistral_family_structured_output_is_model_specific () =
   List.iter
     (fun (model_id, structured_output) ->
        match
-         Capabilities.for_provider_model_id ~provider_label:"ollama_cloud" ~model_id
+         Capabilities.for_provider_model_id
+           ~allow_bare_fallback:true
+           ~provider_label:"ollama_cloud"
+           ~model_id
        with
        | None -> failf "ollama_cloud/%s should resolve" model_id
        | Some c ->
@@ -769,7 +780,12 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     | None -> fail "bare glm-5.1 should resolve"
   in
   let cloud_glm =
-    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"glm-5.1" with
+    match
+      for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label:"ollama_cloud"
+        ~model_id:"glm-5.1"
+    with
     | Some c -> c
     | None -> fail "ollama_cloud/glm-5.1 should resolve"
   in
@@ -785,7 +801,12 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
     | None -> fail "bare glm-5.2 should resolve"
   in
   let cloud_glm52 =
-    match for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"glm-5.2" with
+    match
+      for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label:"ollama_cloud"
+        ~model_id:"glm-5.2"
+    with
     | Some c -> c
     | None -> fail "ollama_cloud/glm-5.2 should resolve"
   in
@@ -804,7 +825,10 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
   in
   let cloud_kimi =
     match
-      for_provider_model_id ~provider_label:"ollama_cloud" ~model_id:"kimi-k2.7-code"
+      for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label:"ollama_cloud"
+        ~model_id:"kimi-k2.7-code"
     with
     | Some c -> c
     | None -> fail "ollama_cloud/kimi-k2.7-code should resolve"
@@ -877,7 +901,7 @@ let frontier_capabilities route model_id =
   match route with
   | Direct_model -> Capabilities.for_model_id model_id
   | Provider_qualified provider_label ->
-    Capabilities.for_provider_model_id ~provider_label ~model_id
+    Capabilities.for_provider_model_id ~allow_bare_fallback:true ~provider_label ~model_id
   | Native_provider _ -> Capabilities.for_model_id model_id
 ;;
 

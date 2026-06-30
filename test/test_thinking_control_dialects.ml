@@ -84,6 +84,33 @@ let openai_compat_config ?enable_thinking ?preserve_thinking ?thinking_budget mo
     ()
 ;;
 
+let declared_qwen_openai_compat_capabilities =
+  { CAP.openai_compat_chat_capabilities with
+    supports_reasoning = true
+  ; supports_extended_thinking = true
+  ; supports_reasoning_budget = true
+  ; thinking_control_format = CAP.Chat_template_kwargs
+  ; preserve_thinking_control_format = CAP.Chat_template_kwargs_preserve_thinking
+  }
+;;
+
+let declared_qwen_openai_compat_config
+      ?enable_thinking
+      ?preserve_thinking
+      ?thinking_budget
+      model_id
+  =
+  PC.make
+    ~kind:OpenAI_compat
+    ~model_id
+    ~base_url:"https://declared-qwen.example/v1"
+    ~model_capabilities_override:declared_qwen_openai_compat_capabilities
+    ?enable_thinking
+    ?preserve_thinking
+    ?thinking_budget
+    ()
+;;
+
 let kimi_config ?enable_thinking ?preserve_thinking ?thinking_budget model_id =
   PC.make
     ~kind:Kimi
@@ -128,23 +155,21 @@ let anthropic_config ?enable_thinking ?thinking_budget ?output_schema model_id =
     ()
 ;;
 
-let test_qwen_openai_compat_uses_chat_template_kwargs () =
+let test_raw_qwen_openai_compat_does_not_infer_chat_template_kwargs () =
   let config =
     openai_compat_config ~enable_thinking:false ~preserve_thinking:true "qwen3-32b"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
-  let ctk = json |> member "chat_template_kwargs" in
-  check bool "enable_thinking false" false (ctk |> member "enable_thinking" |> to_bool);
-  check bool "preserve_thinking true" true (ctk |> member "preserve_thinking" |> to_bool);
+  check_member_absent "chat_template_kwargs" json;
   check_member_absent "thinking" json;
   check_member_absent "reasoning_effort" json;
   check_member_absent "think" json;
   check_member_absent "enable_thinking" json
 ;;
 
-let test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs () =
+let test_declared_qwen36_openai_compat_uses_chat_template_kwargs () =
   let config =
-    openai_compat_config
+    declared_qwen_openai_compat_config
       ~enable_thinking:false
       ~preserve_thinking:true
       "Qwen/Qwen3.6-35B-A3B"
@@ -158,9 +183,25 @@ let test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs () =
   check_member_absent "enable_thinking" json
 ;;
 
-let test_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
+let test_raw_qwen36_reasoning_dialect_does_not_infer_chat_template_kwargs () =
   let config =
     openai_compat_config
+      ~enable_thinking:false
+      ~preserve_thinking:true
+      "Qwen/Qwen3.6-35B-A3B"
+  in
+  let dialect = RD.for_provider_config config in
+  check string "toggle wire" "no_toggle" (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "no_replay"
+    (RD.replay_policy_to_string dialect.replay_policy)
+;;
+
+let test_declared_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
+  let config =
+    declared_qwen_openai_compat_config
       ~enable_thinking:false
       ~preserve_thinking:true
       "Qwen/Qwen3.6-35B-A3B"
@@ -190,7 +231,7 @@ let test_qwen36_reasoning_dialect_uses_chat_template_kwargs () =
 
 let test_qwen36_reasoning_dialect_without_preserve_drops_reasoning () =
   let config =
-    openai_compat_config
+    declared_qwen_openai_compat_config
       ~enable_thinking:true
       ~preserve_thinking:false
       "Qwen/Qwen3.6-35B-A3B"
@@ -629,7 +670,7 @@ let test_deepseek_replays_reasoning_only_for_tool_call_turns () =
 
 let test_qwen_preserve_replays_reasoning_content () =
   let config =
-    openai_compat_config
+    declared_qwen_openai_compat_config
       ~enable_thinking:true
       ~preserve_thinking:true
       "Qwen/Qwen3.6-35B-A3B"
@@ -998,19 +1039,23 @@ let () =
       "thinking_control_dialects"
       [ ( "openai_compat"
         , [ test_case
-              "qwen uses chat_template_kwargs"
+              "raw qwen does not infer chat_template_kwargs"
               `Quick
-              test_qwen_openai_compat_uses_chat_template_kwargs
+              test_raw_qwen_openai_compat_does_not_infer_chat_template_kwargs
           ; test_case
-              "qwen3.6 self-hosted uses chat_template_kwargs"
+              "declared qwen3.6 endpoint uses chat_template_kwargs"
               `Quick
-              test_qwen36_self_hosted_openai_compat_uses_chat_template_kwargs
+              test_declared_qwen36_openai_compat_uses_chat_template_kwargs
           ; test_case
-              "qwen3.6 reasoning dialect uses chat_template_kwargs"
+              "raw qwen3.6 dialect does not infer chat_template_kwargs"
               `Quick
-              test_qwen36_reasoning_dialect_uses_chat_template_kwargs
+              test_raw_qwen36_reasoning_dialect_does_not_infer_chat_template_kwargs
           ; test_case
-              "qwen3.6 reasoning dialect without preserve drops reasoning"
+              "declared qwen3.6 dialect uses chat_template_kwargs"
+              `Quick
+              test_declared_qwen36_reasoning_dialect_uses_chat_template_kwargs
+          ; test_case
+              "declared qwen3.6 dialect without preserve drops reasoning"
               `Quick
               test_qwen36_reasoning_dialect_without_preserve_drops_reasoning
           ; test_case

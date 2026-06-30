@@ -956,7 +956,14 @@ let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
       "request_path": "/v1/chat/completions",
       "auth": {"type": "none"},
       "capabilities_base": "openai_chat",
-      "capabilities": {"supports_structured_output": true}
+      "capabilities": {
+        "supports_structured_output": true,
+        "supports_reasoning": true,
+        "supports_extended_thinking": true,
+        "supports_reasoning_budget": true,
+        "thinking_control_format": "chat_template_kwargs",
+        "preserve_thinking_control_format": "chat_template_kwargs_preserve_thinking"
+      }
     }
   ]
 }
@@ -990,6 +997,23 @@ let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
          "catalog endpoint declaration projected"
          (Some true)
          declared_pc.supports_structured_output_override;
+       Alcotest.(check bool)
+         "catalog capability declaration projected"
+         true
+         (Option.is_some declared_pc.model_capabilities_override);
+       let declared_caps =
+         Llm_provider.Provider_config.capabilities_for_config_model declared_pc
+       in
+       Alcotest.(check bool)
+         "catalog capability uses chat_template_kwargs"
+         true
+         (match declared_caps with
+          | Some caps ->
+            caps.Llm_provider.Capabilities.thinking_control_format
+            = Llm_provider.Capabilities.Chat_template_kwargs
+            && caps.preserve_thinking_control_format
+               = Llm_provider.Capabilities.Chat_template_kwargs_preserve_thinking
+          | None -> false);
        Alcotest.(check bool)
          "catalog-declared endpoint validates schema output"
          true
@@ -1026,6 +1050,15 @@ let test_provider_config_of_agent_catalog_structured_output_endpoint_declaration
          "raw OpenAICompat does not invent endpoint declaration"
          None
          raw_pc.supports_structured_output_override;
+       Alcotest.(check bool)
+         "raw OpenAICompat has no endpoint capability override"
+         true
+         (Option.is_none raw_pc.model_capabilities_override);
+       Alcotest.(check bool)
+         "raw OpenAICompat does not inherit qwen capability fallback"
+         true
+         (Option.is_none
+            (Llm_provider.Provider_config.capabilities_for_config_model raw_pc));
        Alcotest.(check bool)
          "raw OpenAICompat endpoint remains fail-closed"
          true

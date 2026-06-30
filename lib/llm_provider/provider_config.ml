@@ -89,6 +89,7 @@ type t =
   ; cache_system_prompt : bool
   ; supports_tool_choice_override : bool option
   ; supports_structured_output_override : bool option
+  ; model_capabilities_override : Capabilities.capabilities option
   ; keep_alive : string option
   ; internal_model_rotation_count : int option
   ; num_ctx : int option
@@ -124,6 +125,7 @@ let make
       ?(cache_system_prompt = false)
       ?supports_tool_choice_override
       ?supports_structured_output_override
+      ?model_capabilities_override
       ?keep_alive
       ?internal_model_rotation_count
       ?num_ctx
@@ -171,6 +173,7 @@ let make
   ; cache_system_prompt
   ; supports_tool_choice_override
   ; supports_structured_output_override
+  ; model_capabilities_override
   ; keep_alive
   ; internal_model_rotation_count
   ; num_ctx
@@ -199,16 +202,65 @@ let base_url_targets_ollama_cloud base_url =
   || String.starts_with ~prefix:"http://ollama.com" base_url
 ;;
 
+let base_url_targets_openai base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
   else string_of_provider_kind config.kind
 ;;
 
+let raw_openai_compat_without_builtin_source config provider_label =
+  match config.kind, provider_label with
+  | OpenAI_compat, "openai_compat" -> not (base_url_targets_openai config.base_url)
+  | (Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _ -> false
+;;
+
+let capability_requires_endpoint_declaration (caps : Capabilities.capabilities) =
+  match caps.thinking_control_format, caps.preserve_thinking_control_format with
+  | Capabilities.Chat_template_kwargs, _
+  | _, Capabilities.Chat_template_kwargs_preserve_thinking -> true
+  | ( ( Capabilities.No_thinking_control
+      | Capabilities.Thinking_object
+      | Capabilities.Thinking_object_adaptive
+      | Capabilities.Thinking_object_only
+      | Capabilities.Chat_template_token
+      | Capabilities.Ollama_think
+      | Capabilities.Reasoning_effort
+      | Capabilities.Enable_thinking )
+    , ( Capabilities.No_preserve_thinking_control
+      | Capabilities.Thinking_object_keep_all
+      | Capabilities.Top_level_preserve_thinking
+      | Capabilities.Always_preserved_thinking ) ) -> false
+;;
+
 let capabilities_for_config_model (config : t) =
-  Capabilities.for_provider_model_id
-    ~provider_label:(capability_provider_label config)
-    ~model_id:config.model_id
+  match config.model_capabilities_override with
+  | Some caps -> Some caps
+  | None ->
+    let provider_label = capability_provider_label config in
+    if raw_openai_compat_without_builtin_source config provider_label
+    then (
+      match
+        Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label
+          ~model_id:config.model_id
+      with
+      | Some _ as caps -> caps
+      | None ->
+        (match Capabilities.for_model_id config.model_id with
+         | Some caps when capability_requires_endpoint_declaration caps -> None
+         | other -> other))
+    else
+      Capabilities.for_provider_model_id
+        ~allow_bare_fallback:true
+        ~provider_label
+        ~model_id:config.model_id
 ;;
 
 let thinking_control_token_for_config_model (config : t) =
