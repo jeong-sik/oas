@@ -61,14 +61,7 @@ let reasoning_of_block ~order_index (block : Types.content_block) =
   | Types.Thinking { content; signature } ->
     Some { order_index; kind = Visible_thinking; content; signature }
   | Types.ReasoningDetails { reasoning_content; details } ->
-    let content =
-      match reasoning_content with
-      | Some content -> content
-      | None ->
-        details
-        |> List.filter_map (fun (detail : Types.reasoning_detail) -> detail.text)
-        |> String.concat ""
-    in
+    let content = Types.reasoning_details_text ~reasoning_content ~details in
     if String.trim content = ""
     then None
     else Some { order_index; kind = Visible_thinking; content; signature = None }

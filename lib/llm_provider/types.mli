@@ -169,6 +169,16 @@ type content_block =
       }
 [@@deriving show]
 
+(** [reasoning_details_text ~reasoning_content ~details] projects provider
+    reasoning details to their textual reasoning channel. Non-empty
+    [reasoning_content] wins; otherwise the function concatenates
+    [details[].text] in order and ignores raw-only detail payloads. It never
+    serializes [raw] as a fallback. *)
+val reasoning_details_text
+  :  reasoning_content:string option
+  -> details:reasoning_detail list
+  -> string
+
 (** Message metadata: extensible typed key-value pairs attached to a message. *)
 type metadata = (string * Yojson.Safe.t) list [@@deriving show]
 

@@ -60,15 +60,11 @@ let reasoning_details_of_message msg =
     Error "malformed_reasoning_details:not_list"
 ;;
 
-let reasoning_texts_of_details details =
-  List.filter_map (fun (detail : reasoning_detail) -> detail.text) details
-;;
-
 let reasoning_texts_of_block = function
   | Thinking { content; _ } -> [ content ]
-  | ReasoningDetails { reasoning_content = Some content; _ } -> [ content ]
-  | ReasoningDetails { reasoning_content = None; details } ->
-    reasoning_texts_of_details details
+  | ReasoningDetails { reasoning_content; details } ->
+    let content = reasoning_details_text ~reasoning_content ~details in
+    if Api_common.string_is_blank content then [] else [ content ]
   | Text _
   | RedactedThinking _
   | ToolUse _
