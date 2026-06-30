@@ -441,6 +441,21 @@ let test_ollama_cloud_openai_compat_streams_reasoning_delta () =
       ~base_url:"https://ollama.com/v1"
       ()
   in
+  let caps =
+    match PC.capabilities_for_config_model config with
+    | Some caps -> caps
+    | None -> fail "expected Ollama Cloud MiniMax-M3 catalog capabilities"
+  in
+  (match caps.CAP.reasoning_streaming_format with
+   | CAP.Delta_reasoning_field "reasoning" -> ()
+   | CAP.Delta_reasoning_field field ->
+     fail (Printf.sprintf "unexpected catalog reasoning stream field: %s" field)
+   | CAP.Default_reasoning_streaming ->
+     fail "catalog reasoning stream override was not applied"
+   | CAP.No_reasoning_streaming ->
+     fail "catalog reasoning stream override disabled streaming"
+   | CAP.Template_reasoning_streaming ->
+     fail "catalog reasoning stream override selected template parser");
   let dialect = RD.for_provider_config config in
   (match dialect.streaming with
    | RD.Delta_field "reasoning" -> ()

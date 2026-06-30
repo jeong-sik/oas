@@ -59,6 +59,12 @@ type reasoning_output_format = Capability_vocab.reasoning_output_format =
   | No_reasoning_output_format
   | Split_reasoning_fields
 
+type reasoning_streaming_format = Capability_vocab.reasoning_streaming_format =
+  | Default_reasoning_streaming
+  | No_reasoning_streaming
+  | Delta_reasoning_field of string
+  | Template_reasoning_streaming
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -84,6 +90,7 @@ type capabilities =
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
   ; reasoning_output_format : reasoning_output_format
+  ; reasoning_streaming_format : reasoning_streaming_format
   ; reasoning_replay_override : reasoning_replay_override
   ; (* Output format *)
     supports_response_format_json : bool

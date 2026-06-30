@@ -19,6 +19,12 @@ type reasoning_output_format =
   | No_reasoning_output_format
   | Split_reasoning_fields
 
+type reasoning_streaming_format =
+  | Default_reasoning_streaming
+  | No_reasoning_streaming
+  | Delta_reasoning_field of string
+  | Template_reasoning_streaming
+
 let normalize raw = String.lowercase_ascii (String.trim raw)
 
 let thinking_control_format_values =
@@ -95,4 +101,31 @@ let reasoning_output_format_of_string raw =
   match normalize raw with
   | "" -> Some No_reasoning_output_format
   | normalized -> List.assoc_opt normalized reasoning_output_format_table
+;;
+
+let reasoning_streaming_format_values =
+  [ "default"; "none"; "template_parser"; "delta:<field>" ]
+;;
+
+let reasoning_streaming_format_syntax =
+  String.concat ", " reasoning_streaming_format_values
+;;
+
+let reasoning_streaming_delta_prefix = "delta:"
+
+let reasoning_streaming_format_of_string raw =
+  match normalize raw with
+  | "" | "default" -> Some Default_reasoning_streaming
+  | "none" -> Some No_reasoning_streaming
+  | "template_parser" -> Some Template_reasoning_streaming
+  | normalized when String.starts_with ~prefix:reasoning_streaming_delta_prefix normalized
+    ->
+    let prefix_len = String.length reasoning_streaming_delta_prefix in
+    let field =
+      String.sub normalized prefix_len (String.length normalized - prefix_len)
+    in
+    if field = "" || String.contains field ' '
+    then None
+    else Some (Delta_reasoning_field field)
+  | _ -> None
 ;;

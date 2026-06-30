@@ -165,7 +165,17 @@ let apply_replay_override caps dialect =
   | Force_preserve_always -> { dialect with replay_policy = Preserve_always }
 ;;
 
-let of_capabilities caps = base_of_capabilities caps |> apply_replay_override caps
+let apply_streaming_format caps dialect =
+  match caps.Capabilities.reasoning_streaming_format with
+  | Default_reasoning_streaming -> dialect
+  | No_reasoning_streaming -> { dialect with streaming = No_streaming_reasoning }
+  | Delta_reasoning_field field -> { dialect with streaming = Delta_field field }
+  | Template_reasoning_streaming -> { dialect with streaming = Template_parser }
+;;
+
+let of_capabilities caps =
+  base_of_capabilities caps |> apply_streaming_format caps |> apply_replay_override caps
+;;
 
 let with_preserve_thinking ~preserve_thinking dialect =
   match dialect.preserve_wire, preserve_thinking with
@@ -347,12 +357,6 @@ let request_control_fields
 
 let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
 
-let with_endpoint_streaming_override (config : Provider_config.t) dialect =
-  match config.kind, Provider_config.capability_provider_label config with
-  | OpenAI_compat, "ollama_cloud" -> { dialect with streaming = Delta_field "reasoning" }
-  | (Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _ -> dialect
-;;
-
 let for_provider_config (config : Provider_config.t) =
   match config.kind with
   | Anthropic ->
@@ -372,12 +376,10 @@ let for_provider_config (config : Provider_config.t) =
      | Some caps ->
        of_capabilities caps
        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-       |> with_endpoint_streaming_override config
      | None ->
        let caps = provider_capabilities_of_kind config.kind in
        of_capabilities caps
-       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-       |> with_endpoint_streaming_override config)
+       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking)
   | DashScope ->
     (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
        the model catalog. Backend_openai_request.capabilities_of_config is

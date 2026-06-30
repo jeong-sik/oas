@@ -76,6 +76,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; thinking_control_format = caps.thinking_control_format
   ; preserve_thinking_control_format = caps.preserve_thinking_control_format
   ; reasoning_output_format = caps.reasoning_output_format
+  ; reasoning_streaming_format = caps.reasoning_streaming_format
   ; reasoning_replay_override = caps.reasoning_replay_override
   ; supports_response_format_json = caps.supports_response_format_json
   ; supports_structured_output = caps.supports_structured_output

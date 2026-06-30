@@ -287,6 +287,19 @@ let parse_reasoning_output_format = function
             (String.concat ", " Capability_vocab.reasoning_output_format_values)))
 ;;
 
+let parse_reasoning_streaming_format = function
+  | None -> Ok None
+  | Some raw ->
+    (match Capability_vocab.reasoning_streaming_format_of_string raw with
+     | Some format -> Ok (Some format)
+     | None ->
+       Error
+         (Printf.sprintf
+            "unknown reasoning_streaming_format %S (canonical: %s)"
+            (String.lowercase_ascii (String.trim raw))
+            Capability_vocab.reasoning_streaming_format_syntax))
+;;
+
 let member_supported_models json = member_string_list "supported_models" json
 
 let capability_base json =
@@ -349,6 +362,10 @@ let parse_capabilities provider_json =
   let* reasoning_output_format =
     let* raw = member_string_strict "reasoning_output_format" cap_json in
     parse_reasoning_output_format raw
+  in
+  let* reasoning_streaming_format =
+    let* raw = member_string_strict "reasoning_streaming_format" cap_json in
+    parse_reasoning_streaming_format raw
   in
   let caps =
     base
@@ -434,6 +451,11 @@ let parse_capabilities provider_json =
     |> fun caps ->
     (match reasoning_output_format with
      | Some reasoning_output_format -> { caps with Capabilities.reasoning_output_format }
+     | None -> caps)
+    |> fun caps ->
+    (match reasoning_streaming_format with
+     | Some reasoning_streaming_format ->
+       { caps with Capabilities.reasoning_streaming_format }
      | None -> caps)
     |> fun caps ->
     override_bool
