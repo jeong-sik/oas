@@ -97,7 +97,7 @@ let accumulate_event (acc : stream_acc) = function
           buffer already parsed as one complete JSON value and the next delta
           started with '{', it cleared and replaced. It could not tell a genuine
           re-emit apart from ONE tool call whose arguments are two concatenated
-          JSON objects (deepseek-v4-flash emitting [keeper_tasks_list] as
+          JSON objects (deepseek-v4-flash emitting [list_tasks] as
           {"include_done":false}{"exclude_automation":true,"limit":5} in a single
           call). When the second object's '{' was buffer-aligned, the guard
           silently dropped the first object and dispatched the tool with wrong
@@ -891,15 +891,16 @@ let%test "finalize_stream_acc fails closed on InputJsonDelta multi-object args (
   | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
-let%test "finalize_stream_acc fails closed on the live keeper multi-object tool args" =
-  (* Exact reproduction of the reported keeper failure: deepseek-v4-flash (Ollama
-     Cloud, OpenAI-compatible) opened a reasoning block (OAS block index 0) then
-     emitted ONE keeper_tasks_list call whose arguments string was two concatenated
+let%test "finalize_stream_acc fails closed on live multi-object tool args" =
+  (* Exact reproduction of the reported tool-argument failure:
+     deepseek-v4-flash (Ollama Cloud, OpenAI-compatible) opened a reasoning
+     block (OAS block index 0) then emitted ONE list_tasks call whose arguments
+     string was two concatenated
      objects -- {"include_done":false} then {"exclude_automation":true,"limit":5}
      (together a single valid arg set the model wrongly split). The tool block is
      index 1 (after thinking), matching the observed
      malformed_tool_use_arguments:index:1. Asserts the turn fails closed with both
-     objects preserved in [raw] -- never silently dispatching keeper_tasks_list with
+     objects preserved in [raw] -- never silently dispatching list_tasks with
      only the second object's params. *)
   let acc = create_stream_acc () in
   List.iter
@@ -912,7 +913,7 @@ let%test "finalize_stream_acc fails closed on the live keeper multi-object tool 
         { index = 1
         ; content_type = "tool_use"
         ; tool_id = Some "call_1"
-        ; tool_name = Some "keeper_tasks_list"
+        ; tool_name = Some "list_tasks"
         }
     ; Types.ContentBlockDelta
         { index = 1; delta = Types.InputJsonDelta {|{"include_done":false}|} }
