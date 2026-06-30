@@ -419,7 +419,9 @@ val reasoning_effort_of_config : t -> string option
     provider identity for telemetry/routing; see
     {!Provider_registry.provider_name_of_config}. ["runpod_mtp"] is
     intentionally catalog-qualified-only, not a provider-level preset accepted
-    by {!Capabilities.capabilities_for_provider_label}. *)
+    by {!Capabilities.capabilities_for_provider_label}. Raw OpenAI-compatible
+    configs still reject endpoint-declared capabilities unless the endpoint is
+    explicitly declared through model capability overrides. *)
 val capability_provider_label : t -> string
 
 (** Resolve model capabilities using provider-qualified catalog entries first.

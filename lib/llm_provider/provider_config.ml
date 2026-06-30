@@ -229,7 +229,8 @@ let capability_provider_label (config : t) =
 
 let raw_openai_compat_without_builtin_source config provider_label =
   match config.kind, provider_label with
-  | OpenAI_compat, "openai_compat" -> not (base_url_targets_openai config.base_url)
+  | OpenAI_compat, ("openai_compat" | "runpod_mtp") ->
+    not (base_url_targets_openai config.base_url)
   | (Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope), _ -> false
 ;;
 
@@ -337,6 +338,7 @@ let capabilities_for_config_model (config : t) =
           ~provider_label
           ~model_id:config.model_id
       with
+      | Some caps when capability_requires_endpoint_declaration caps -> None
       | Some _ as caps -> caps
       | None ->
         (match Capabilities.for_model_id config.model_id with

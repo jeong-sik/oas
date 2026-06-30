@@ -702,7 +702,7 @@ thinking_control_format = "chat_template_kwargs"
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
-let test_openai_compat_runpod_proxy_uses_runpod_catalog_label () =
+let test_openai_compat_runpod_proxy_label_stays_raw_fail_closed () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -710,13 +710,14 @@ let test_openai_compat_runpod_proxy_uses_runpod_catalog_label () =
       ~base_url:"https://abc123.proxy.runpod.net/v1"
       ()
   in
-  match Provider_config.capabilities_for_config_model cfg with
-  | None -> Alcotest.fail "expected RunPod proxy model to resolve via runpod_mtp label"
-  | Some caps ->
-    Alcotest.(check bool)
-      "RunPod proxy qwen3.6 uses chat_template_kwargs"
-      true
-      Capabilities.(caps.thinking_control_format = Chat_template_kwargs)
+  Alcotest.(check string)
+    "RunPod proxy capability namespace"
+    "runpod_mtp"
+    (Provider_config.capability_provider_label cfg);
+  Alcotest.(check bool)
+    "raw RunPod proxy does not inherit endpoint-declared capabilities"
+    true
+    (Option.is_none (Provider_config.capabilities_for_config_model cfg))
 ;;
 
 let test_openai_compat_runpod_proxy_label_is_catalog_only () =
@@ -2134,9 +2135,9 @@ let () =
             `Quick
             test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration
         ; Alcotest.test_case
-            "runpod proxy qwen uses runpod catalog label"
+            "runpod proxy label stays raw fail-closed"
             `Quick
-            test_openai_compat_runpod_proxy_uses_runpod_catalog_label
+            test_openai_compat_runpod_proxy_label_stays_raw_fail_closed
         ; Alcotest.test_case
             "runpod proxy label is catalog-only"
             `Quick
