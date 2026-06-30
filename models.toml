@@ -209,6 +209,14 @@ cache_write_multiplier = 1.0
 cache_read_multiplier = 1.0
 
 # DeepSeek Models
+# DeepSeek V4 (pro/flash) rejects forced tool_choice in thinking mode — the
+# default for these rows (thinking_control_format = thinking_object). Both
+# tool_choice="required" and a named function tool_choice return HTTP 400.
+# Ref checked 2026-06-30: api-docs.deepseek.com/guides/function_calling and
+# deepseek-ai/DeepSeek-V3 issue #1376. supports_named_tool_choice=false makes OAS
+# reject a named forced tool_choice (typed Unsupported_named_tool_choice) instead
+# of serializing a request the model 400s on. Plain auto still works, so
+# supports_tool_choice stays true (mirrors the Kimi/GLM profiles).
 [[models]]
 id_prefix = "deepseek-v4-pro"
 base = "openai_chat"
@@ -216,6 +224,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
@@ -236,6 +245,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
@@ -256,6 +266,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true
@@ -276,6 +287,7 @@ max_context_tokens = 1000000
 max_output_tokens = 384000
 supports_tools = true
 supports_tool_choice = true
+supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
 supports_reasoning_budget = true

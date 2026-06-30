@@ -366,6 +366,9 @@ let test_lookup_deepseek_v4_flash () =
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
+    (* thinking mode (default) 400s on forced tool_choice; auto stays valid *)
+    check bool "accepts auto tool_choice" true c.supports_tool_choice;
+    check bool "rejects named forced tool_choice" false c.supports_named_tool_choice;
     check bool "reasoning" true c.supports_reasoning;
     check_thinking_control
       "uses thinking object"
@@ -381,6 +384,9 @@ let test_lookup_deepseek_v4_pro () =
     check (option int) "context 1M" (Some 1_000_000) c.max_context_tokens;
     check (option int) "output 384K" (Some 384_000) c.max_output_tokens;
     check bool "tools" true c.supports_tools;
+    (* thinking mode (default) 400s on forced tool_choice; auto stays valid *)
+    check bool "accepts auto tool_choice" true c.supports_tool_choice;
+    check bool "rejects named forced tool_choice" false c.supports_named_tool_choice;
     check bool "reasoning" true c.supports_reasoning;
     check_thinking_control
       "uses thinking object"

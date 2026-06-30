@@ -1242,7 +1242,11 @@ let deepseek_v4_test_entry id_prefix : Model_catalog.model_entry =
   ; max_output_tokens = Some 384_000
   ; supports_tools = Some true
   ; supports_tool_choice = Some true
-  ; supports_named_tool_choice = Some true
+  ; (* DeepSeek V4 thinking mode (the default for these thinking_object rows)
+       400s on forced tool_choice — both required and named function choice.
+       Mirrors the models.toml entries. Ref 2026-06-30: deepseek-ai/DeepSeek-V3
+       issue #1376, api-docs.deepseek.com/guides/function_calling. *)
+    supports_named_tool_choice = Some false
   ; supports_reasoning = Some true
   ; supports_extended_thinking = Some true
   ; thinking_control_format = Some "thinking_object"
