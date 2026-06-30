@@ -29,15 +29,21 @@ let record_streaming_metrics (metrics : Metrics.t) = function
   | Context_window_usage _ -> ()
 ;;
 
-(* Bound the offending payload echoed into a parse-failure message so a large
-   tool-argument buffer cannot bloat the keeper log. [%S] at the call site
+(* Scrub-then-bound the offending payload echoed into a parse-failure message.
+   Tool arguments can carry credentials (Bearer tokens, API keys, URL userinfo),
+   so the buffer passes through the [Secret_redactor] SSOT -- the same boundary
+   [complete_common] already applies to provider error bodies -- before it
+   reaches the operator-facing message. Redaction runs first so truncation
+   cannot split a token past the redactor and leak a partial; the bound then
+   keeps a large buffer from bloating the keeper log. [%S] at the call site
    escapes embedded quotes/newlines. *)
 let max_parse_error_raw_excerpt = 256
 
 let parse_error_raw_excerpt raw =
-  if String.length raw <= max_parse_error_raw_excerpt
-  then raw
-  else String.sub raw 0 max_parse_error_raw_excerpt ^ "...(truncated)"
+  let redacted = Secret_redactor.redact_string raw in
+  if String.length redacted <= max_parse_error_raw_excerpt
+  then redacted
+  else String.sub redacted 0 max_parse_error_raw_excerpt ^ "...(truncated)"
 ;;
 
 (* Internal: HTTP-specific streaming implementation. *)
@@ -173,6 +179,21 @@ let%test "parse failure raw excerpt is bounded" =
   match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
   | Http_client.ProviderFailure { message; _ } ->
     String.length message < String.length raw
+  | _ -> false
+;;
+
+let%test "parse failure redacts secret tokens in the echoed raw buffer" =
+  (* Tool arguments can carry credentials; the operator-visible message must
+     scrub them through the [Secret_redactor] SSOT rather than echo the token
+     verbatim. A [ghp_]-prefixed token is redacted to [[REDACTED]] (see
+     [Secret_redactor]'s own tests), so the rendered message must equal the
+     redacted form -- which definitionally no longer contains the token. *)
+  let reason = "malformed_tool_use_arguments:index:0:bad" in
+  let raw = {|{"auth":"ghp_xxxxxxxxxxxx"}{}|} in
+  match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
+  | Http_client.ProviderFailure { message; _ } ->
+    message
+    = Printf.sprintf "SSE parse failed: %s raw=%S" reason {|{"auth":"[REDACTED]"}{}|}
   | _ -> false
 ;;
 
