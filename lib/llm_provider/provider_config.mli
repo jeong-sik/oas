@@ -393,6 +393,10 @@ val capability_provider_label : t -> string
     then bare model entries. *)
 val capabilities_for_config_model : t -> Capabilities.capabilities option
 
+(** Resolve the exact chat-template token for token-based thinking control,
+    using the same provider-qualified lookup order as model capabilities. *)
+val thinking_control_token_for_config_model : t -> string option
+
 (** True when [config] targets Z.AI GLM semantics, either through the native
     [Glm] kind or an OpenAI-compatible Z.AI endpoint with a GLM model id. *)
 val is_zai_glm_config : t -> bool

@@ -40,6 +40,10 @@ type entry =
         reasoning_effort / enable_thinking). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
         entry silently dropped the model's thinking knob (RFC-OAS-023). *)
+  ; thinking_control_token : string option
+    (** Exact chat-template token for [thinking_control_format =
+        chat_template_token], for example [<|think|>]. Parsed separately from
+        the enum so request builders do not hardcode model-family tokens. *)
   ; preserve_thinking_control_format : string option
     (** Canonical historical reasoning preservation wire format (none /
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
@@ -121,6 +125,18 @@ let member_string_closed key json =
   | `Null -> Ok None
   | actual ->
     Error (Printf.sprintf "entry field %S expected string, got %s" key (json_kind actual))
+;;
+
+let non_empty_member_string key json =
+  let open Result_syntax in
+  let* value = member_string_closed key json in
+  match value with
+  | None -> Ok None
+  | Some raw ->
+    let value = String.trim raw in
+    if value = ""
+    then Error (Printf.sprintf "entry field %S must not be empty" key)
+    else Ok (Some value)
 ;;
 
 let member_string_list key json =
@@ -223,6 +239,7 @@ let known_entry_keys =
   ; "supports_computer_use"
   ; "supports_code_execution"
   ; "thinking_control_format"
+  ; "thinking_control_token"
   ; "preserve_thinking_control_format"
   ; "reasoning_replay"
   ]
@@ -258,6 +275,7 @@ let parse_entry json =
       ~allowed:Capability_vocab.thinking_control_format_values
       json
   in
+  let* thinking_control_token = non_empty_member_string "thinking_control_token" json in
   let* preserve_thinking_control_format =
     canonical_choice
       "preserve_thinking_control_format"
@@ -313,6 +331,7 @@ let parse_entry json =
     ; supports_computer_use = member_bool "supports_computer_use" json
     ; supports_code_execution = member_bool "supports_code_execution" json
     ; thinking_control_format
+    ; thinking_control_token
     ; preserve_thinking_control_format
     ; reasoning_replay
     }

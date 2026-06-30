@@ -173,6 +173,12 @@
             "enable_thinking"
           ]
         },
+        "thinking_control_token": {
+          "type": "string",
+          "description": "Exact chat-template token to inject when thinking_control_format is chat_template_token.",
+          "minLength": 1,
+          "examples": ["<|think|>"]
+        },
         "preserve_thinking_control_format": {
           "type": "string",
           "description": "Provider/model historical reasoning replay/preserve wire shape.",

@@ -33,6 +33,7 @@ type model_entry =
   ; supports_computer_use : bool option
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
+  ; thinking_control_token : string option
   ; preserve_thinking_control_format : string option
   ; reasoning_replay : string option
   ; input_per_million : float option
@@ -64,6 +65,17 @@ let non_empty_string_field ~entry_id key toml =
   | Ok None -> Ok None
   | Ok (Some raw) ->
     let value = String.lowercase_ascii (String.trim raw) in
+    if value = ""
+    then Error (Printf.sprintf "model entry %S field %S must not be empty" entry_id key)
+    else Ok (Some value)
+;;
+
+let exact_non_empty_string_field ~entry_id key toml =
+  match find_string_field ~entry_id key toml with
+  | Error _ as e -> e
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    let value = String.trim raw in
     if value = ""
     then Error (Printf.sprintf "model entry %S field %S must not be empty" entry_id key)
     else Ok (Some value)
@@ -198,23 +210,32 @@ let parse_entry entry_toml =
            ~allowed:Capability_vocab.preserve_thinking_control_format_values
            entry_toml
        in
+       let thinking_control_token_result =
+         exact_non_empty_string_field
+           ~entry_id:id_prefix
+           "thinking_control_token"
+           entry_toml
+       in
        (match
           ( base_label_result
           , provider_name_result
           , modality_priority_result
           , thinking_control_format_result
-          , preserve_thinking_control_format_result )
+          , preserve_thinking_control_format_result
+          , thinking_control_token_result )
         with
-        | (Error _ as e), _, _, _, _
-        | _, (Error _ as e), _, _, _
-        | _, _, (Error _ as e), _, _
-        | _, _, _, (Error _ as e), _
-        | _, _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _, _, _
+        | _, (Error _ as e), _, _, _, _
+        | _, _, (Error _ as e), _, _, _
+        | _, _, _, (Error _ as e), _, _
+        | _, _, _, _, (Error _ as e), _
+        | _, _, _, _, _, (Error _ as e) -> e
         | ( Ok base_label
           , Ok provider_name
           , Ok modality_priority
           , Ok thinking_control_format
-          , Ok preserve_thinking_control_format ) ->
+          , Ok preserve_thinking_control_format
+          , Ok thinking_control_token ) ->
           Ok
             { id_prefix
             ; base_label
@@ -260,6 +281,7 @@ let parse_entry entry_toml =
             ; supports_code_execution =
                 find_bool_opt entry_toml [ "supports_code_execution" ]
             ; thinking_control_format
+            ; thinking_control_token
             ; preserve_thinking_control_format
             ; reasoning_replay
             ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]
