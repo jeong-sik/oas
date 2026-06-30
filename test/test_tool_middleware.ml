@@ -487,6 +487,7 @@ let test_heal_max_retries_zero () =
 (* ── strip_orphaned_tool_results ──────────────────────────── *)
 
 module Serialize = Llm_provider.Backend_openai_serialize
+module Tool_pairs = Llm_provider.Tool_message_pairs
 
 let mk_msg role content : Types.message =
   { role; content; name = None; tool_call_id = None; metadata = [] }
@@ -535,6 +536,45 @@ let test_strip_removes_orphan () =
   match List.hd user_msg.content with
   | Text _ -> ()
   | _ -> Alcotest.fail "expected Text to survive"
+;;
+
+let test_strip_report_names_orphaned_and_duplicate_results () =
+  let msgs =
+    [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
+    ; mk_msg
+        User
+        [ ToolResult
+            { tool_use_id = "t1"
+            ; content = "ok"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ; ToolResult
+            { tool_use_id = "t1"
+            ; content = "duplicate"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ; ToolResult
+            { tool_use_id = "orphan-id"
+            ; content = "stale"
+            ; is_error = true
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ]
+  in
+  let result, report = Serialize.strip_orphaned_tool_results_with_report msgs in
+  let user_msg = List.nth result 1 in
+  Alcotest.(check int) "one result survives" 1 (List.length user_msg.content);
+  match report.dropped_tool_results with
+  | [ { tool_use_id = "t1"; reason = Tool_pairs.Duplicate_tool_result }
+    ; { tool_use_id = "orphan-id"; reason = Tool_pairs.Orphaned_tool_result }
+    ] -> ()
+  | drops -> Alcotest.failf "unexpected drop report length=%d" (List.length drops)
 ;;
 
 let test_strip_preserves_matched () =
@@ -635,6 +675,44 @@ let test_strip_keeps_tool_role_results_before_nudge_text () =
   Alcotest.(check int) "nudge preserved" 1 (List.length nudge_msg.content)
 ;;
 
+let test_close_report_names_dropped_result_and_synthetic_repair () =
+  let msgs =
+    [ mk_msg Assistant [ ToolUse { id = "t1"; name = "f"; input = `Null } ]
+    ; mk_msg User [ Text "nudge: try a different tool" ]
+    ; mk_msg
+        Tool
+        [ ToolResult
+            { tool_use_id = "t1"
+            ; content = "late"
+            ; is_error = false
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ]
+  in
+  let result, report = Serialize.close_tool_message_pairs_for_request_with_report msgs in
+  Alcotest.(check int) "closed length" 3 (List.length result);
+  (match List.nth result 1 with
+   | { Types.metadata; content = [ ToolResult { tool_use_id; is_error; _ } ]; _ } ->
+     Alcotest.(check string) "synthetic id" "t1" tool_use_id;
+     Alcotest.(check bool) "synthetic error" true is_error;
+     Alcotest.(check (option bool))
+       "synthetic metadata"
+       (Some true)
+       (match List.assoc_opt "oas.synthetic_tool_result" metadata with
+        | Some (`Bool value) -> Some value
+        | _ -> None)
+   | _ -> Alcotest.fail "expected synthetic result immediately after assistant");
+  match report.dropped_tool_results, report.synthesized_tool_result_ids with
+  | [ { tool_use_id = "t1"; reason = Tool_pairs.Orphaned_tool_result } ], [ "t1" ] -> ()
+  | drops, synthetic ->
+    Alcotest.failf
+      "unexpected close report drops=%d synthetic=%d"
+      (List.length drops)
+      (List.length synthetic)
+;;
+
 (* ── Runner ──────────────────────────────────────────────── *)
 
 let () =
@@ -701,6 +779,10 @@ let () =
       , [ Alcotest.test_case "no orphans" `Quick test_strip_no_orphans
         ; Alcotest.test_case "removes orphaned result" `Quick test_strip_removes_orphan
         ; Alcotest.test_case
+            "report names orphaned and duplicate results"
+            `Quick
+            test_strip_report_names_orphaned_and_duplicate_results
+        ; Alcotest.test_case
             "preserves matched result"
             `Quick
             test_strip_preserves_matched
@@ -713,6 +795,10 @@ let () =
             "tool role result before nudge keeps results"
             `Quick
             test_strip_keeps_tool_role_results_before_nudge_text
+        ; Alcotest.test_case
+            "close report names drop and repair"
+            `Quick
+            test_close_report_names_dropped_result_and_synthetic_repair
         ] )
     ]
 ;;
