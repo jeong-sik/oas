@@ -149,6 +149,20 @@ let test_unknown_type_returns_none () =
   | Some _ -> fail "expected None for unknown type"
 ;;
 
+let test_reasoning_details_requires_details_list () =
+  let cases =
+    [ `Assoc [ "type", `String "reasoning_details" ]
+    ; `Assoc [ "type", `String "reasoning_details"; "details", `Null ]
+    ]
+  in
+  List.iter
+    (fun json ->
+       match Api.content_block_of_json json with
+       | None -> ()
+       | Some _ -> fail "expected malformed reasoning_details to fail closed")
+    cases
+;;
+
 let test_kimi_message_to_json_tool_result_uses_text_blocks () =
   let msg =
     { Types.role = Tool
@@ -1911,6 +1925,10 @@ let () =
         ; test_case "image" `Quick test_image_round_trip
         ; test_case "document" `Quick test_document_round_trip
         ; test_case "unknown type" `Quick test_unknown_type_returns_none
+        ; test_case
+            "reasoning_details requires details"
+            `Quick
+            test_reasoning_details_requires_details_list
         ] )
     ; ( "build_body_assoc"
       , [ test_case "basic" `Quick test_build_body_basic
