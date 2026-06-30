@@ -521,13 +521,13 @@ let%test
     "kimi base profile replays reasoning on every turn (live path: bare kimi-k2.* -> \
      base=kimi)"
   =
-  (* MASC sends a bare api-name (e.g. "kimi-k2.6"); OAS longest-prefix-match
-     resolves it to the native "kimi-k2" catalog row whose base="kimi", so this
-     profile is the dialect applied on the live path. Kimi requires reasoning
-     replay (hard-required on tool turns, recommended always). The Kimi base
-     profile now carries both Always_preserved_thinking and Force_preserve_always
-     so catalog inheritance keeps replay explicit. Revert that override -> both
-     arms go false. *)
+  (* A consumer may send a bare API name (e.g. "kimi-k2.6"). Longest-prefix
+     matching resolves it to the native "kimi-k2" catalog row whose base="kimi",
+     so this profile is the dialect applied on that path. Kimi requires
+     reasoning replay (hard-required on tool turns, recommended always). The
+     Kimi base profile now carries both Always_preserved_thinking and
+     Force_preserve_always so catalog inheritance keeps replay explicit. Revert
+     that override -> both arms go false. *)
   let dialect = of_capabilities Capabilities.kimi_capabilities in
   should_replay_reasoning dialect ~assistant_had_tool_call:false
   && should_replay_reasoning dialect ~assistant_had_tool_call:true
