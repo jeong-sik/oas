@@ -27,6 +27,32 @@ let non_blank_json_string = function
     None
 ;;
 
+let reasoning_detail_text = function
+  | `Assoc fields ->
+    (match List.assoc_opt "text" fields with
+     | Some text -> non_blank_json_string text
+     | None -> None)
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let reasoning_detail_texts = function
+  | `List details -> List.filter_map reasoning_detail_text details
+  | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
+;;
+
+let reasoning_texts_of_message msg =
+  let open Yojson.Safe.Util in
+  match non_blank_json_string (msg |> member "reasoning_content") with
+  | Some text -> [ text ]
+  | None ->
+    (match reasoning_detail_texts (msg |> member "reasoning_details") with
+     | _ :: _ as texts -> texts
+     | [] ->
+       (match non_blank_json_string (msg |> member "reasoning") with
+        | Some text -> [ text ]
+        | None -> []))
+;;
+
 let text_of_openai_content_block = function
   | `String s -> Some s
   | `Assoc fields ->
@@ -256,12 +282,9 @@ let telemetry_of_openai_json json =
         | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> `Null
       in
       let reasoning_text =
-        if msg = `Null
-        then None
-        else (
-          match non_blank_json_string (msg |> member "reasoning_content") with
-          | Some _ as text -> text
-          | None -> non_blank_json_string (msg |> member "reasoning"))
+        match if msg = `Null then [] else reasoning_texts_of_message msg with
+        | [] -> None
+        | texts -> Some (String.concat "" texts)
       in
       (match reasoning_text with
        | Some s ->
@@ -313,19 +336,13 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
         | Yojson.Json_error _ -> text_content)
     in
     let* tool_blocks = parse_tool_calls_field (msg |> member "tool_calls") in
-    (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
-       Check both, preferring reasoning_content. The extracted reasoning becomes a
-       [Thinking] block below and stays typed as reasoning end-to-end (see the
-       content-assembly comment). *)
-    let reasoning_text =
-      match non_blank_json_string (msg |> member "reasoning_content") with
-      | Some _ as text -> text
-      | None -> non_blank_json_string (msg |> member "reasoning")
-    in
+    (* Ollama uses "reasoning"; OpenAI-compatible providers commonly use
+       "reasoning_content"; MiniMax split mode may return "reasoning_details".
+       The extracted reasoning becomes [Thinking] blocks below and stays typed
+       as reasoning end-to-end (see the content-assembly comment). *)
+    let reasoning_texts = reasoning_texts_of_message msg in
     let thinking_blocks =
-      match reasoning_text with
-      | Some s -> [ Thinking { signature = None; content = s } ]
-      | None -> []
+      List.map (fun content -> Thinking { signature = None; content }) reasoning_texts
     in
     let stop_reason =
       (* SSOT: Stop_reason_wire owns the wire finish-reason -> stop_reason table

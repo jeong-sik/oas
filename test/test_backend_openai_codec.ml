@@ -195,6 +195,76 @@ let test_parse_reasoning_content_and_tool_calls_coexist () =
   check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
 ;;
 
+let test_parse_reasoning_details_and_tool_calls_coexist () =
+  (* MiniMax-M3 reasoning_split mode documents structured reasoning_details on
+     tool-call turns. If reasoning_content is absent, the detail text must still
+     stay typed as Thinking rather than leaking through assistant content. *)
+  let json =
+    response_json
+      ~content:(`String "")
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ ( "reasoning_details"
+          , `List
+              [ `Assoc
+                  [ "type", `String "reasoning.text"
+                  ; "id", `String "reasoning-text-1"
+                  ; "format", `String "MiniMax-response-v1"
+                  ; "index", `Int 0
+                  ; "text", `String "use weather tool"
+                  ]
+              ; `Assoc
+                  [ "type", `String "reasoning.text"
+                  ; "id", `String "reasoning-text-2"
+                  ; "format", `String "MiniMax-response-v1"
+                  ; "index", `Int 1
+                  ; "text", `String "  "
+                  ]
+              ] )
+        ; ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-1"
+                  ; "type", `String "function"
+                  ; ( "function"
+                    , `Assoc
+                        [ "name", `String "get_weather"
+                        ; "arguments", `String {|{"location":"San Francisco, US"}|}
+                        ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  let response = parse_ok json in
+  let has_visible_text =
+    List.exists
+      (function
+        | Text s -> not (Api_common.string_is_blank s)
+        | _ -> false)
+      response.content
+  in
+  let has_thinking =
+    List.exists
+      (function
+        | Thinking { content; _ } -> content = "use weather tool"
+        | _ -> false)
+      response.content
+  in
+  let has_tool =
+    List.exists
+      (function
+        | ToolUse { name; _ } -> name = "get_weather"
+        | _ -> false)
+      response.content
+  in
+  check_bool "reasoning_details.text -> Thinking" true has_thinking;
+  check_bool "blank reasoning_details text ignored" true (List.length response.content = 2);
+  check_bool "reasoning_details does not leak as visible text" false has_visible_text;
+  check_bool "tool_calls -> ToolUse" true has_tool;
+  check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
+;;
+
 let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
   (* End-to-end #2236 regression guard. Provider-agnostic: it exercises the
      Types<->serialize boundary every OpenAI-compatible family (DeepSeek, Kimi,
@@ -2137,6 +2207,10 @@ let () =
             "reasoning_content and tool_calls coexist"
             `Quick
             test_parse_reasoning_content_and_tool_calls_coexist
+        ; Alcotest.test_case
+            "reasoning_details and tool_calls coexist"
+            `Quick
+            test_parse_reasoning_details_and_tool_calls_coexist
         ; Alcotest.test_case
             "reasoning-only stays Thinking and is never re-injected on replay"
             `Quick
