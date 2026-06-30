@@ -162,6 +162,82 @@ let test_text_breaks_reasoning_adjacency () =
   check_no_adjacent_reasoning "text break" call.Ct.adjacent_reasoning
 ;;
 
+let test_tool_call_of_block_preserves_fields_without_inference () =
+  let input = `Assoc [ "path", `String "lib/" ] in
+  let reasoning =
+    { Ct.order_index = 2
+    ; kind = Ct.Visible_thinking
+    ; content = "inspect tree"
+    ; signature = Some "sig-tool"
+    }
+  in
+  let block = Types.ToolUse { id = "call_read"; name = "read"; input } in
+  match
+    Ct.tool_call_of_block
+      ~order_index:3
+      ~provider_kind:PK.Anthropic
+      ~adjacent_reasoning:(Ct.Adjacent_reasoning [ reasoning ])
+      block
+  with
+  | Some call ->
+    Alcotest.(check string) "call_id" "call_read" call.Ct.call_id;
+    Alcotest.(check string) "name" "read" call.Ct.name;
+    Alcotest.check json_eq "input" input call.Ct.input;
+    Alcotest.(check int) "order_index" 3 call.Ct.order_index;
+    check_provider_kind "block call" (Some PK.Anthropic) call.Ct.provider_kind;
+    (match call.Ct.adjacent_reasoning with
+     | Ct.Adjacent_reasoning [ block ] ->
+       check_visible_reasoning
+         "block adjacent reasoning"
+         2
+         "inspect tree"
+         (Some "sig-tool")
+         block
+     | Ct.Adjacent_reasoning blocks ->
+       Alcotest.failf "expected one adjacent reasoning block, got %d" (List.length blocks)
+     | Ct.No_adjacent_reasoning -> Alcotest.fail "expected supplied adjacent reasoning")
+  | None -> Alcotest.fail "expected ToolUse projection"
+;;
+
+let test_tool_call_of_block_defaults_to_no_context () =
+  let block = Types.ToolUse { id = "call_default"; name = "noop"; input = `Null } in
+  match Ct.tool_call_of_block block with
+  | Some call ->
+    Alcotest.(check string) "call_id" "call_default" call.Ct.call_id;
+    Alcotest.(check int) "default order" 0 call.Ct.order_index;
+    check_provider_kind "default provider kind" None call.Ct.provider_kind;
+    check_no_adjacent_reasoning "default adjacency" call.Ct.adjacent_reasoning
+  | None -> Alcotest.fail "expected ToolUse projection"
+;;
+
+let test_tool_call_none_for_non_tooluse () =
+  let cases =
+    [ Types.Text "hi"
+    ; Types.Thinking { signature = None; content = "..." }
+    ; Types.ReasoningDetails { reasoning_content = Some "why"; details = [] }
+    ; Types.RedactedThinking "redacted"
+    ; Types.ToolResult
+        { tool_use_id = "call_x"
+        ; content = "ok"
+        ; is_error = false
+        ; json = None
+        ; content_blocks = None
+        }
+    ; Types.Image { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }
+    ; Types.Document
+        { media_type = "application/pdf"; data = "JVBE"; source_type = Types.Base64 }
+    ; Types.Audio { media_type = "audio/wav"; data = "UklG"; source_type = Types.Base64 }
+    ]
+  in
+  List.iter
+    (fun block ->
+       Alcotest.(check bool)
+         "non-ToolUse projects to None"
+         true
+         (Option.is_none (Ct.tool_call_of_block block)))
+    cases
+;;
+
 let test_result_roundtrip_preserves_fields () =
   let json = `Assoc [ "rows", `Int 3 ] in
   let blocks = [ Types.Text "ignored" ] in
@@ -213,6 +289,7 @@ let test_result_none_for_non_toolresult () =
   let cases =
     [ Types.Text "hi"
     ; Types.Thinking { signature = None; content = "..." }
+    ; Types.ReasoningDetails { reasoning_content = Some "why"; details = [] }
     ; Types.RedactedThinking "redacted"
     ; Types.ToolUse { id = "call_x"; name = "t"; input = `Null }
     ; Types.Image { media_type = "image/png"; data = "AAAA"; source_type = Types.Base64 }
@@ -246,6 +323,20 @@ let () =
             "text breaks reasoning adjacency"
             `Quick
             test_text_breaks_reasoning_adjacency
+        ] )
+    ; ( "tool_call_of_block"
+      , [ Alcotest.test_case
+            "preserves fields without inferring context"
+            `Quick
+            test_tool_call_of_block_preserves_fields_without_inference
+        ; Alcotest.test_case
+            "defaults to no structural context"
+            `Quick
+            test_tool_call_of_block_defaults_to_no_context
+        ; Alcotest.test_case
+            "None for non-ToolUse"
+            `Quick
+            test_tool_call_none_for_non_tooluse
         ] )
     ; ( "tool_result_of_block"
       , [ Alcotest.test_case

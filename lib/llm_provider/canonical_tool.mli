@@ -59,6 +59,18 @@ type provider_tool_call =
   ; adjacent_reasoning : adjacent_reasoning
   }
 
+(** Project a single content block into a tool call. Returns [None] for any
+    block that is not a [ToolUse]. The optional structural fields are caller
+    supplied; this function never infers provider kind or reasoning adjacency
+    outside the supplied block context. Defaults are [order_index = 0],
+    [provider_kind = None], and [No_adjacent_reasoning]. Pure and total. *)
+val tool_call_of_block
+  :  ?order_index:int
+  -> ?provider_kind:Provider_kind.t
+  -> ?adjacent_reasoning:adjacent_reasoning
+  -> Types.content_block
+  -> provider_tool_call option
+
 (** Project tool calls from a response while preserving response order.
 
     The projection is pure and total. Non-[ToolUse] blocks are ignored as tool
