@@ -242,6 +242,63 @@ let test_events_tool_calls_finish () =
   | _ -> Alcotest.fail "expected StopToolUse"
 ;;
 
+let test_events_finish_closes_open_tool_block () =
+  (* A tool block opened in an earlier chunk must receive a matching
+     ContentBlockStop on the terminal finish chunk, so a per-message
+     block-index consumer closes it before the next provider message reuses the
+     same index. OpenAI-compat analogue of Anthropic's wire content_block_stop.
+     Regression guard for the keeper-stream [tool_args_without_start]
+     cross-message collision (deepseek-v4-flash via ollama_cloud). *)
+  let state = S.create_openai_stream_state () in
+  let tc : S.openai_tool_call_delta =
+    { tc_index = 0
+    ; tc_id = Some "call_xq02glug"
+    ; tc_name = Some "get_weather"
+    ; tc_arguments = Some (S.Args_fragment {|{"city":"Seoul"}|})
+    }
+  in
+  let _open, _ =
+    S.openai_chunk_to_events
+      state
+      { chunk_id = "c"
+      ; chunk_model = "m"
+      ; delta_content = None
+      ; delta_reasoning = None
+      ; delta_reasoning_details = None
+      ; delta_tool_calls = [ tc ]
+      ; finish_reason = None
+      ; chunk_usage = None
+      ; chunk_parse_error = None
+      }
+  in
+  let events, _tel =
+    S.openai_chunk_to_events
+      state
+      { chunk_id = "c"
+      ; chunk_model = "m"
+      ; delta_content = None
+      ; delta_reasoning = None
+      ; delta_reasoning_details = None
+      ; delta_tool_calls = []
+      ; finish_reason = Some "tool_calls"
+      ; chunk_usage = None
+      ; chunk_parse_error = None
+      }
+  in
+  Alcotest.(check int) "stop + message_delta" 2 (List.length events);
+  let stop_indices =
+    List.filter_map
+      (function
+        | ContentBlockStop { index } -> Some index
+        | _ -> None)
+      events
+  in
+  Alcotest.(check (list int)) "open tool block 0 closed on finish" [ 0 ] stop_indices;
+  match List.rev events with
+  | MessageDelta { stop_reason = Some StopToolUse; _ } :: _ -> ()
+  | _ -> Alcotest.fail "finish chunk must end with MessageDelta after closing blocks"
+;;
+
 let test_events_length_finish () =
   let state = S.create_openai_stream_state () in
   let events, _tel =
@@ -1269,6 +1326,10 @@ let () =
         ; test_case "tool_call" `Quick test_events_tool_call
         ; test_case "finish stop" `Quick test_events_finish_reason
         ; test_case "finish tool_calls" `Quick test_events_tool_calls_finish
+        ; test_case
+            "finish closes open tool block"
+            `Quick
+            test_events_finish_closes_open_tool_block
         ; test_case "finish length" `Quick test_events_length_finish
         ; test_case "empty content ignored" `Quick test_events_empty_content_ignored
         ; test_case "reasoning then text" `Quick test_events_reasoning_then_text
