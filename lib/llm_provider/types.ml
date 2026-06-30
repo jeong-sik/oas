@@ -676,6 +676,30 @@ let text_of_message (msg : message) = text_of_content msg.content
 (** Extract text from an api_response. *)
 let text_of_response (resp : api_response) = text_of_content resp.content
 
+(** Extract end-user-visible assistant text from content blocks.
+    This is intentionally narrower than [text_of_content]: tool results are
+    model-visible execution payloads, and Thinking blocks are provider reasoning
+    payloads. Neither belongs in an answer-text projection. *)
+let visible_text_of_content content =
+  content
+  |> List.filter_map (function
+    | Text s -> Some s
+    | Thinking _
+    | RedactedThinking _
+    | ToolUse _
+    | ToolResult _
+    | Image _
+    | Document _
+    | Audio _ -> None)
+  |> String.concat "\n"
+;;
+
+(** Extract end-user-visible assistant text from a message. *)
+let visible_text_of_message (msg : message) = visible_text_of_content msg.content
+
+(** Extract end-user-visible assistant text from an api_response. *)
+let visible_text_of_response (resp : api_response) = visible_text_of_content resp.content
+
 (** {1 Usage Helpers} *)
 
 let zero_api_usage =
