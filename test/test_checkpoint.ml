@@ -398,12 +398,14 @@ let () =
               List.map
                 (fun (n, pt) ->
                    { Types.name = n; description = n; param_type = pt; required = true })
-                [ "s", Types.String
+                [ "any", Types.Any_json
+                ; "s", Types.String
                 ; "i", Types.Integer
                 ; "n", Types.Number
                 ; "b", Types.Boolean
                 ; "a", Types.Array
                 ; "o", Types.Object
+                ; "null", Types.Null
                 ]
             in
             let tool : Types.tool_schema =

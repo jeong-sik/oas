@@ -281,6 +281,7 @@ let test_type_mapping_all () =
     ; "boolean", Types.Boolean
     ; "array", Types.Array
     ; "object", Types.Object
+    ; "null", Types.Null
     ]
   in
   List.iter
@@ -293,7 +294,7 @@ let test_type_mapping_all () =
        match Mcp.json_schema_type_to_param_type_result input with
        | Error _ -> ()
        | Ok _ -> Alcotest.failf "expected unknown type %S to fail" input)
-    [ "null"; ""; "custom" ]
+    [ ""; "custom" ]
 ;;
 
 (* ── mcp_tool_to_sdk_tool extended ────────────────────────── *)

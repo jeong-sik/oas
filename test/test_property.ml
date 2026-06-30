@@ -22,12 +22,14 @@ let role_gen = QCheck.Gen.oneof [ QCheck.Gen.return User; QCheck.Gen.return Assi
 
 let param_type_gen =
   QCheck.Gen.oneof
-    [ QCheck.Gen.return String
+    [ QCheck.Gen.return Any_json
+    ; QCheck.Gen.return String
     ; QCheck.Gen.return Integer
     ; QCheck.Gen.return Number
     ; QCheck.Gen.return Boolean
     ; QCheck.Gen.return Array
     ; QCheck.Gen.return Object
+    ; QCheck.Gen.return Null
     ]
 ;;
 

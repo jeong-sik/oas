@@ -89,6 +89,7 @@ let try_coerce (expected : Types.param_type) (value : Yojson.Safe.t)
 
 let matches_type (expected : Types.param_type) (value : Yojson.Safe.t) : bool =
   match expected, value with
+  | Types.Any_json, _ -> true
   | Types.String, `String _ -> true
   | Types.Integer, `Int _ -> true
   | Types.Integer, `Intlit _ -> true
@@ -98,6 +99,7 @@ let matches_type (expected : Types.param_type) (value : Yojson.Safe.t) : bool =
   | Types.Boolean, `Bool _ -> true
   | Types.Array, `List _ -> true
   | Types.Object, `Assoc _ -> true
+  | Types.Null, `Null -> true
   | _ -> false
 ;;
 
@@ -121,7 +123,16 @@ let validate (schema : Types.tool_schema) (input : Yojson.Safe.t) : validation_r
       (fun (p : Types.tool_param) ->
          let path = "/" ^ p.name in
          match List.assoc_opt p.name fields with
-         | None | Some `Null ->
+         | None ->
+           if p.required
+           then
+             errors
+             := { path
+                ; expected = string_of_param_type p.param_type
+                ; actual = missing_actual
+                }
+                :: !errors
+         | Some `Null when p.param_type <> Types.Any_json && p.param_type <> Types.Null ->
            if p.required
            then
              errors
