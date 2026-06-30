@@ -51,6 +51,29 @@ let assoc_remove keys fields =
   List.filter (fun (key, _) -> not (List.mem key keys)) fields
 ;;
 
+let response_phase_metadata_key = "openai.responses.phase"
+
+let response_phase_of_metadata metadata =
+  match List.assoc_opt response_phase_metadata_key metadata with
+  | None -> None
+  | Some (`String raw) ->
+    let phase = String.trim raw in
+    (match phase with
+     | "" -> None
+     | "commentary" | "final_answer" -> Some phase
+     | _ ->
+       invalid_arg
+         (Printf.sprintf
+            "Backend_openai_responses.phase: unsupported %s=%S"
+            response_phase_metadata_key
+            raw))
+  | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) ->
+    invalid_arg
+      (Printf.sprintf
+         "Backend_openai_responses.phase: %s must be a string"
+         response_phase_metadata_key)
+;;
+
 let responses_raw_reasoning_item_of_redacted data =
   try
     match Yojson.Safe.from_string data with
@@ -168,6 +191,12 @@ let output_text_content_part text =
   `Assoc [ "type", `String "output_text"; "text", `String (Utf8_sanitize.sanitize text) ]
 ;;
 
+let with_response_phase phase fields =
+  match phase with
+  | Some phase -> ("phase", `String phase) :: fields
+  | None -> fields
+;;
+
 let message_item ~role content_blocks =
   match List.filter_map input_content_part_of_block content_blocks with
   | [] ->
@@ -180,7 +209,7 @@ let message_item ~role content_blocks =
   | parts -> [ `Assoc [ "role", `String role; "content", `List parts ] ]
 ;;
 
-let assistant_output_item_of_block = function
+let assistant_output_item_of_block ?phase = function
   | Thinking { content; _ } when not (Api_common.string_is_blank content) ->
     Some
       (`Assoc
@@ -192,10 +221,12 @@ let assistant_output_item_of_block = function
   | Text s when not (Api_common.string_is_blank s) ->
     Some
       (`Assoc
-          [ "type", `String "message"
-          ; "role", `String "assistant"
-          ; "content", `List [ output_text_content_part s ]
-          ])
+          (with_response_phase
+             phase
+             [ "type", `String "message"
+             ; "role", `String "assistant"
+             ; "content", `List [ output_text_content_part s ]
+             ]))
   | RedactedThinking data -> responses_raw_reasoning_item_of_redacted data
   | ToolUse { id; name; input } ->
     Some
@@ -249,7 +280,9 @@ let input_items_of_message (msg : message) =
         msg.content
     in
     tool_results @ message_item ~role:"user" non_tool_content
-  | Assistant -> List.filter_map assistant_output_item_of_block msg.content
+  | Assistant ->
+    let phase = response_phase_of_metadata msg.metadata in
+    List.filter_map (assistant_output_item_of_block ?phase) msg.content
   | Tool -> tool_result_items msg.content
 ;;
 

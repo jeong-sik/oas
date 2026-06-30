@@ -3,6 +3,7 @@
 module PC = Llm_provider.Provider_config
 module BA = Llm_provider.Backend_anthropic
 module BO = Llm_provider.Backend_openai
+module BOR = Llm_provider.Backend_openai_responses
 module BGlm = Llm_provider.Backend_glm
 module BOL = Llm_provider.Backend_ollama
 module BGemini = Llm_provider.Backend_gemini
@@ -441,6 +442,67 @@ let test_openai_with_tools () =
   let open Yojson.Safe.Util in
   let tools = json |> member "tools" |> to_list in
   Alcotest.(check int) "1 tool" 1 (List.length tools)
+;;
+
+let openai_responses_config () =
+  PC.make
+    ~kind:OpenAI_compat
+    ~model_id:"gpt-5.5"
+    ~base_url:"https://api.openai.com/v1"
+    ~request_path:"/v1/responses"
+    ()
+;;
+
+let test_openai_responses_replays_assistant_phase_metadata () =
+  let config = openai_responses_config () in
+  let messages =
+    [ { role = User
+      ; content = [ Text "continue" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = [ BOR.response_phase_metadata_key, `String "final_answer" ]
+      }
+    ; { role = Assistant
+      ; content = [ Text "I will check." ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = [ BOR.response_phase_metadata_key, `String "commentary" ]
+      }
+    ]
+  in
+  let body = BOR.build_request ~config ~messages () in
+  let json = Yojson.Safe.from_string body in
+  let open Yojson.Safe.Util in
+  let input = json |> member "input" |> to_list in
+  let user_item = List.nth input 0 in
+  let assistant_item = List.nth input 1 in
+  Alcotest.(check bool) "user phase omitted" true (user_item |> member "phase" = `Null);
+  Alcotest.(check string)
+    "assistant type"
+    "message"
+    (assistant_item |> member "type" |> to_string);
+  Alcotest.(check string)
+    "assistant phase"
+    "commentary"
+    (assistant_item |> member "phase" |> to_string)
+;;
+
+let test_openai_responses_rejects_unknown_assistant_phase () =
+  let config = openai_responses_config () in
+  let messages =
+    [ { role = Assistant
+      ; content = [ Text "drafting" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = [ BOR.response_phase_metadata_key, `String "analysis" ]
+      }
+    ]
+  in
+  Alcotest.check_raises
+    "unknown Responses phase rejected"
+    (Invalid_argument
+       "Backend_openai_responses.phase: unsupported openai.responses.phase=\"analysis\"")
+    (fun () -> ignore (BOR.build_request ~config ~messages ()))
 ;;
 
 let test_openai_stream_flag () =
@@ -1413,6 +1475,14 @@ let () =
             test_kimi_direct_tool_result_uses_text_blocks
         ; test_case "stream flag" `Quick test_openai_stream_flag
         ; test_case "with json schema" `Quick test_openai_with_json_schema
+        ; test_case
+            "Responses assistant phase metadata"
+            `Quick
+            test_openai_responses_replays_assistant_phase_metadata
+        ; test_case
+            "Responses unknown phase rejected"
+            `Quick
+            test_openai_responses_rejects_unknown_assistant_phase
         ; test_case "ollama output schema" `Quick test_ollama_output_schema
         ; test_case
             "ollama gemma4 thinking uses template token"
