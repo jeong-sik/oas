@@ -281,17 +281,19 @@ let test_type_mapping_all () =
     ; "boolean", Types.Boolean
     ; "array", Types.Array
     ; "object", Types.Object
-    ; "null", Types.String
-    ; (* unknown -> String *)
-      "", Types.String
-    ; "custom", Types.String
     ]
   in
   List.iter
     (fun (input, expected) ->
        let result = Mcp.json_schema_type_to_param_type input in
        Alcotest.(check bool) (Printf.sprintf "type %s" input) true (result = expected))
-    cases
+    cases;
+  List.iter
+    (fun input ->
+       match Mcp.json_schema_type_to_param_type_result input with
+       | Error _ -> ()
+       | Ok _ -> Alcotest.failf "expected unknown type %S to fail" input)
+    [ "null"; ""; "custom" ]
 ;;
 
 (* ── mcp_tool_to_sdk_tool extended ────────────────────────── *)

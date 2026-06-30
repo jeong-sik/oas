@@ -5,6 +5,7 @@
     MCP servers that paginate [tools/list] and add non-standard fields. *)
 
 open Types
+open Result_syntax
 include Mcp_schema
 module Sdk_client = Mcp_protocol_eio.Client
 
@@ -244,11 +245,18 @@ let call_tool t ~name ~arguments : Types.tool_result =
 (** Convert MCP tools to SDK [Tool.t] list.
     Each tool's handler delegates to {!call_tool} on [t]. *)
 let to_tools t (tools : mcp_tool list) =
-  List.map
-    (fun (mt : mcp_tool) ->
+  let schema_error detail =
+    Error.Config (InvalidConfig { field = "mcp.tools"; detail })
+  in
+  List.fold_right
+    (fun (mt : mcp_tool) acc ->
+       let* tools = acc in
        let call_fn input = call_tool t ~name:mt.name ~arguments:input in
-       mcp_tool_to_sdk_tool ~call_fn mt)
+       match mcp_tool_to_sdk_tool_result ~call_fn mt with
+       | Ok tool_ -> Ok (tool_ :: tools)
+       | Error detail -> Error (schema_error detail))
     tools
+    (Ok [])
 ;;
 
 (** Check if the MCP server subprocess is still responsive.
@@ -517,8 +525,12 @@ let connect_and_load ~sw ~mgr spec =
                close client;
                Error e
              | Ok mcp_tools ->
-               let tools = to_tools client mcp_tools in
-               Ok { tools; name = spec.name; transport = Stdio { client; spec } })
+               (match to_tools client mcp_tools with
+                | Ok tools ->
+                  Ok { tools; name = spec.name; transport = Stdio { client; spec } }
+                | Error e ->
+                  close client;
+                  Error e))
         with
         | Out_of_memory ->
           close client;

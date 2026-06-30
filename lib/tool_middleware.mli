@@ -55,12 +55,19 @@ val validate_shell_constraints
 
 (** Build a [Types.tool_schema] from a name and raw JSON Schema.
     Description defaults to [""].
-    Extracts parameters via {!Mcp_schema.json_schema_to_params}. *)
+    Extracts parameters via {!Mcp_schema.json_schema_to_params}. Raises
+    [Invalid_argument] when the schema cannot be converted. *)
 val tool_schema_of_json
   :  name:string
   -> ?description:string
   -> Yojson.Safe.t
   -> Types.tool_schema
+
+val tool_schema_of_json_result
+  :  name:string
+  -> ?description:string
+  -> Yojson.Safe.t
+  -> (Types.tool_schema, string) result
 
 (** {1 Hook factory}
 

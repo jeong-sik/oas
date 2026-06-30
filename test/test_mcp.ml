@@ -67,7 +67,6 @@ let test_type_mapping () =
     ; "boolean", Types.Boolean
     ; "array", Types.Array
     ; "object", Types.Object
-    ; "unknown_type", Types.String
     ]
   in
   List.iter
@@ -78,6 +77,12 @@ let test_type_mapping () =
          expected
          (Mcp.json_schema_type_to_param_type input))
     cases
+;;
+
+let test_type_mapping_unknown_fails () =
+  match Mcp.json_schema_type_to_param_type_result "unknown_type" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected unknown JSON Schema type to fail"
 ;;
 
 let test_json_schema_to_params () =
@@ -399,6 +404,7 @@ let () =
     "MCP"
     [ ( "schema_conversion"
       , [ test_case "type mapping" `Quick test_type_mapping
+        ; test_case "unknown type fails" `Quick test_type_mapping_unknown_fails
         ; test_case "full schema" `Quick test_json_schema_to_params
         ; test_case "empty schema" `Quick test_json_schema_empty
         ; test_case "no required" `Quick test_json_schema_no_required

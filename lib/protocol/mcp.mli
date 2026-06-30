@@ -23,13 +23,20 @@ type mcp_prompt = Mcp_schema.mcp_prompt
 type mcp_prompt_result = Mcp_schema.mcp_prompt_result
 
 val json_schema_type_to_param_type : string -> Types.param_type
+val json_schema_type_to_param_type_result : string -> (Types.param_type, string) result
 val json_schema_to_params : Yojson.Safe.t -> Types.tool_param list
+val json_schema_to_params_result : Yojson.Safe.t -> (Types.tool_param list, string) result
 val mcp_tool_of_sdk_tool : Mcp_schema.Sdk_types.tool -> mcp_tool
 
 val mcp_tool_to_sdk_tool
   :  call_fn:(Yojson.Safe.t -> Types.tool_result)
   -> mcp_tool
   -> Tool.t
+
+val mcp_tool_to_sdk_tool_result
+  :  call_fn:(Yojson.Safe.t -> Types.tool_result)
+  -> mcp_tool
+  -> (Tool.t, string) result
 
 val mcp_tool_of_json : Yojson.Safe.t -> mcp_tool option
 
@@ -56,7 +63,7 @@ val is_alive : t -> bool
 
 val list_tools : t -> (mcp_tool list, Error.sdk_error) result
 val call_tool : t -> name:string -> arguments:Yojson.Safe.t -> Types.tool_result
-val to_tools : t -> mcp_tool list -> Tool.t list
+val to_tools : t -> mcp_tool list -> (Tool.t list, Error.sdk_error) result
 
 (** {1 Resource and prompt operations} *)
 

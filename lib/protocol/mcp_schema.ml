@@ -3,40 +3,86 @@ module Sdk_types = Mcp_protocol.Mcp_types
 
 (* ── JSON Schema -> SDK tool_param (oas-specific bridge) ─────────── *)
 
-let json_schema_type_to_param_type = function
-  | "string" -> String
-  | "integer" -> Integer
-  | "number" -> Number
-  | "boolean" -> Boolean
-  | "array" -> Array
-  | "object" -> Object
-  | _ -> String
+let json_schema_type_to_param_type_result = function
+  | "string" -> Ok String
+  | "integer" -> Ok Integer
+  | "number" -> Ok Number
+  | "boolean" -> Ok Boolean
+  | "array" -> Ok Array
+  | "object" -> Ok Object
+  | value -> Error (Printf.sprintf "unsupported JSON Schema type %S" value)
+;;
+
+let json_schema_type_to_param_type value =
+  match json_schema_type_to_param_type_result value with
+  | Ok param_type -> param_type
+  | Error detail -> invalid_arg detail
+;;
+
+let required_list_of_schema schema =
+  match schema with
+  | `Assoc fields ->
+    (match List.assoc_opt "required" fields with
+     | None | Some `Null -> Ok []
+     | Some (`List items) ->
+       List.fold_right
+         (fun item acc ->
+            match item, acc with
+            | `String value, Ok values -> Ok (value :: values)
+            | _, Ok _ -> Error "required must contain only strings"
+            | _, (Error _ as error) -> error)
+         items
+         (Ok [])
+     | Some _ -> Error "required must be an array of strings")
+  | _ -> Error "schema must be a JSON object"
+;;
+
+let property_type name prop =
+  match prop with
+  | `Assoc fields ->
+    (match List.assoc_opt "type" fields with
+     | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
+     | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
+     | None -> Error (Printf.sprintf "property %S is missing type" name))
+  | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
+;;
+
+let property_description prop =
+  match prop with
+  | `Assoc fields ->
+    (match List.assoc_opt "description" fields with
+     | Some (`String value) -> Ok value
+     | None | Some `Null -> Ok ""
+     | Some _ -> Error "description must be a string")
+  | _ -> Error "property must be a JSON object"
+;;
+
+let json_schema_to_params_result schema =
+  let ( let* ) = Result.bind in
+  let required_list = required_list_of_schema schema in
+  let* required_list = required_list in
+  match schema with
+  | `Assoc fields ->
+    (match List.assoc_opt "properties" fields with
+     | None | Some `Null -> Ok []
+     | Some (`Assoc pairs) ->
+       List.fold_right
+         (fun (name, prop) acc ->
+            let* params = acc in
+            let* param_type = property_type name prop in
+            let* description = property_description prop in
+            let required = List.mem name required_list in
+            Ok ({ name; description; param_type; required } :: params))
+         pairs
+         (Ok [])
+     | Some _ -> Error "properties must be a JSON object")
+  | _ -> Error "schema must be a JSON object"
 ;;
 
 let json_schema_to_params schema =
-  let open Yojson.Safe.Util in
-  let properties = schema |> member "properties" in
-  let required_list =
-    match schema |> member "required" with
-    | `List items -> List.filter_map to_string_option items
-    | _ -> []
-  in
-  match properties with
-  | `Assoc pairs ->
-    List.map
-      (fun (name, prop) ->
-         let param_type =
-           prop
-           |> member "type"
-           |> to_string_option
-           |> Option.value ~default:"string"
-           |> json_schema_type_to_param_type
-         in
-         let description = Util.json_member_str "description" prop in
-         let required = List.mem name required_list in
-         { name; description; param_type; required })
-      pairs
-  | _ -> []
+  match json_schema_to_params_result schema with
+  | Ok params -> params
+  | Error detail -> invalid_arg detail
 ;;
 
 (* ── MCP tool type (oas-local, bridged from SDK) ─────────────────── *)
@@ -67,13 +113,23 @@ let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
    enrichment hook. *)
 
 (** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
+let mcp_tool_to_sdk_tool_result ~call_fn mcp_tool =
+  match json_schema_to_params_result mcp_tool.input_schema with
+  | Error detail ->
+    Error (Printf.sprintf "tool %S schema invalid: %s" mcp_tool.name detail)
+  | Ok params ->
+    Ok
+      (Tool.create
+         ~name:mcp_tool.name
+         ~description:mcp_tool.description
+         ~parameters:params
+         call_fn)
+;;
+
 let mcp_tool_to_sdk_tool ~call_fn mcp_tool =
-  let params = json_schema_to_params mcp_tool.input_schema in
-  Tool.create
-    ~name:mcp_tool.name
-    ~description:mcp_tool.description
-    ~parameters:params
-    call_fn
+  match mcp_tool_to_sdk_tool_result ~call_fn mcp_tool with
+  | Ok tool_ -> tool_
+  | Error detail -> invalid_arg detail
 ;;
 
 [@@@coverage off]
@@ -103,8 +159,10 @@ let%test "json_schema_type_to_param_type object" =
   json_schema_type_to_param_type "object" = Types.Object
 ;;
 
-let%test "json_schema_type_to_param_type unknown defaults to string" =
-  json_schema_type_to_param_type "foobar" = Types.String
+let%test "json_schema_type_to_param_type_result unknown fails" =
+  match json_schema_type_to_param_type_result "foobar" with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "json_schema_to_params basic schema" =
@@ -137,9 +195,11 @@ let%test "json_schema_to_params no properties key" =
   json_schema_to_params schema = []
 ;;
 
-let%test "json_schema_to_params non-assoc properties" =
+let%test "json_schema_to_params_result non-assoc properties fails" =
   let schema = `Assoc [ "properties", `List [] ] in
-  json_schema_to_params schema = []
+  match json_schema_to_params_result schema with
+  | Error _ -> true
+  | Ok _ -> false
 ;;
 
 let%test "mcp_tool_of_sdk_tool converts correctly" =
