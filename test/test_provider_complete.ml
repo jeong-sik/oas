@@ -579,7 +579,7 @@ let test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments () =
      | _ -> Alcotest.fail "expected one ToolUse block")
 ;;
 
-let test_ollama_parse_warns_on_malformed_tool_call () =
+let test_ollama_parse_rejects_malformed_tool_call () =
   let body =
     {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
        "message":{"role":"assistant","content":"",
@@ -588,28 +588,30 @@ let test_ollama_parse_warns_on_malformed_tool_call () =
            {"function":{"arguments":{"city":"Missing name"}}}
          ]}}|}
   in
-  let logs = ref [] in
-  let result =
-    Llm_provider.Diag.with_sink
-      (fun level ~ctx msg -> logs := (level, ctx, msg) :: !logs)
-      (fun () -> BOL.parse_ollama_response body)
+  match BOL.parse_ollama_response body with
+  | Error msg ->
+    Alcotest.(check string)
+      "malformed tool call rejected"
+      "malformed_ollama_tool_call:index:1:missing_name"
+      msg
+  | Ok _ -> Alcotest.fail "expected malformed Ollama tool_call to fail closed"
+;;
+
+let test_ollama_parse_rejects_non_object_tool_arguments () =
+  let body =
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[
+           {"function":{"name":"get_weather","arguments":"42"}}
+         ]}}|}
   in
-  (match result with
-   | Error msg -> Alcotest.fail msg
-   | Ok resp ->
-     (match resp.content with
-      | [ ToolUse tool_use ] ->
-        Alcotest.(check string) "surviving tool name" "ok_tool" tool_use.name
-      | _ -> Alcotest.fail "expected one surviving ToolUse block"));
-  let has_warning =
-    List.exists
-      (fun (level, ctx, msg) ->
-         level = Llm_provider.Diag.Warn
-         && ctx = "backend_ollama"
-         && contains_substring ~sub:"dropped 1 malformed Ollama tool_call" msg)
-      !logs
-  in
-  Alcotest.(check bool) "malformed tool call warning" true has_warning
+  match BOL.parse_ollama_response body with
+  | Error msg ->
+    Alcotest.(check string)
+      "non-object arguments rejected"
+      "malformed_ollama_tool_call_arguments:index:0:not_object"
+      msg
+  | Ok _ -> Alcotest.fail "expected non-object Ollama tool arguments to fail closed"
 ;;
 
 let test_openai_with_json_schema () =
@@ -1419,9 +1421,13 @@ let () =
             `Quick
             test_ollama_parse_tool_call_preserves_explicit_id_and_string_arguments
         ; test_case
-            "ollama malformed tool call warning"
+            "ollama malformed tool call rejected"
             `Quick
-            test_ollama_parse_warns_on_malformed_tool_call
+            test_ollama_parse_rejects_malformed_tool_call
+        ; test_case
+            "ollama non-object tool arguments rejected"
+            `Quick
+            test_ollama_parse_rejects_non_object_tool_arguments
         ; test_case
             "glm preserved reasoning replay"
             `Quick
