@@ -268,7 +268,11 @@ let parse_response body =
 (** Parse Glm SSE chunk.  Glm uses Openai SSE format but adds
     [delta.reasoning_content] for thinking. We parse this as
     [delta_reasoning] in the openai_chunk type. *)
-let parse_stream_chunk = Streaming.parse_openai_sse_chunk
+let parse_stream_chunk data =
+  Streaming.parse_openai_sse_chunk
+    ~streaming_reasoning:(Reasoning_dialect.Delta_field "reasoning_content")
+    data
+;;
 
 (* ── Inline tests ────────────────────────────────── *)
 

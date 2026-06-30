@@ -550,6 +550,9 @@ let complete_stream_http
             let body_logic () =
               let acc = Complete_stream_acc.create_stream_acc () in
               let openai_state = ref None in
+              let streaming_reasoning =
+                (Reasoning_dialect.for_provider_config config).streaming
+              in
               (* RFC-OAS-019: first_chunk_seen / chunk_counter / last_chunk_t
                  hoisted out of body_logic so publish_summary on
                  exception paths sees consistent state. *)
@@ -741,7 +744,11 @@ let complete_stream_http
                            | Provider_config.OpenAI_compat
                            | Provider_config.DashScope
                            | Provider_config.Kimi ->
-                             (match Streaming.parse_openai_sse_chunk data with
+                             (match
+                                Streaming.parse_openai_sse_chunk
+                                  ~streaming_reasoning
+                                  data
+                              with
                               | Some chunk ->
                                 Streaming.openai_chunk_to_events (get_state ()) chunk
                               | None ->

@@ -322,6 +322,15 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
       "native latest Kimi always preserves reasoning"
       true
       (native.preserve_thinking_control_format = Capabilities.Always_preserved_thinking);
+    let native_kimi_dialect = Reasoning_dialect.of_capabilities native in
+    (match native_kimi_dialect.streaming with
+     | Reasoning_dialect.Delta_field "reasoning_content" -> ()
+     | Reasoning_dialect.Delta_field field ->
+       fail ("native latest Kimi reasoning delta field drifted: " ^ field)
+     | Reasoning_dialect.No_streaming_reasoning ->
+       fail "native latest Kimi reasoning stream field was dropped"
+     | Reasoning_dialect.Template_parser ->
+       fail "native latest Kimi should not use template parser streaming");
     check_preserve_order "native Kimi latest" native;
     check bool "native Kimi code execution" true native.supports_code_execution;
     (match Capabilities.for_model_id "kimi-k2" with

@@ -2,6 +2,7 @@
 
 open Llm_provider.Types
 module S = Llm_provider.Streaming
+module RD = Llm_provider.Reasoning_dialect
 
 (* ── parse_openai_sse_chunk ─────────────────────────────── *)
 
@@ -318,6 +319,33 @@ let test_parse_blank_reasoning_content_falls_back () =
       "blank falls back"
       (Some "actual thinking")
       chunk.delta_reasoning
+  | None -> Alcotest.fail "expected Some chunk"
+;;
+
+let test_parse_reasoning_uses_dialect_delta_field () =
+  let data =
+    {|{"id":"c-dialect","model":"dialect","choices":[{"index":0,"delta":{"reasoning_content":"wrong","reasoning":"selected"},"finish_reason":null}]}|}
+  in
+  match
+    S.parse_openai_sse_chunk ~streaming_reasoning:(RD.Delta_field "reasoning") data
+  with
+  | Some chunk ->
+    Alcotest.(check (option string))
+      "dialect-selected reasoning"
+      (Some "selected")
+      chunk.delta_reasoning
+  | None -> Alcotest.fail "expected Some chunk"
+;;
+
+let test_parse_reasoning_respects_no_streaming_dialect () =
+  let data =
+    {|{"id":"c-none","model":"dialect","choices":[{"index":0,"delta":{"reasoning_content":"hidden"},"finish_reason":null}]}|}
+  in
+  match
+    S.parse_openai_sse_chunk ~streaming_reasoning:RD.No_streaming_reasoning data
+  with
+  | Some chunk ->
+    Alcotest.(check (option string)) "no reasoning" None chunk.delta_reasoning
   | None -> Alcotest.fail "expected Some chunk"
 ;;
 
@@ -1068,6 +1096,14 @@ let () =
             "blank reasoning_content falls back"
             `Quick
             test_parse_blank_reasoning_content_falls_back
+        ; test_case
+            "reasoning dialect field"
+            `Quick
+            test_parse_reasoning_uses_dialect_delta_field
+        ; test_case
+            "no streaming reasoning dialect"
+            `Quick
+            test_parse_reasoning_respects_no_streaming_dialect
         ] )
     ; ( "openai_chunk_to_events"
       , [ test_case "text first chunk" `Quick test_events_text_first_chunk

@@ -98,7 +98,10 @@ type openai_stream_state =
   ; model : string
   }
 
-val parse_openai_sse_chunk : string -> openai_chunk option
+val parse_openai_sse_chunk
+  :  ?streaming_reasoning:Reasoning_dialect.streaming_reasoning
+  -> string
+  -> openai_chunk option
 
 (** Surface an OpenAI-compatible mid-stream error object
     ([{"error": {"type"; "message"; ...}}]) as a typed [SSEError]. Call this
