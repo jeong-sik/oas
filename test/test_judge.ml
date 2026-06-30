@@ -51,18 +51,17 @@ let test_parse_valid_json () =
       j.recommended_action
 ;;
 
-(* ── parse_judgment: minimal JSON ────────────────────────── *)
-
-let test_parse_minimal_json () =
-  let json = {|{"score": 0.2}|} in
+let expect_parse_error label json =
   match Judge.parse_judgment json with
-  | Error e -> Alcotest.fail (Printf.sprintf "Expected Ok, got Error: %s" e)
-  | Ok j ->
-    Alcotest.(check (float 0.001)) "score" 0.2 j.score;
-    (* confidence defaults to 0.5 when missing *)
-    Alcotest.(check (float 0.001)) "confidence" 0.5 j.confidence;
-    (* risk derived from score: 0.2 < 0.3 = Low *)
-    Alcotest.check risk_testable "risk" Judge.Low j.risk
+  | Ok _ -> Alcotest.fail (Printf.sprintf "Expected Error for %s" label)
+  | Error msg -> Alcotest.(check bool) "has error message" true (String.length msg > 0)
+;;
+
+(* ── parse_judgment: missing required fields ─────────────── *)
+
+let test_parse_missing_required_fields () =
+  let json = {|{"score": 0.2}|} in
+  expect_parse_error "missing required fields" json
 ;;
 
 (* ── parse_judgment: malformed JSON returns Error ────────── *)
@@ -89,21 +88,23 @@ let test_parse_json_with_fencing () =
     Alcotest.(check (float 0.001)) "confidence" 0.8 j.confidence
 ;;
 
-(* ── parse_judgment: score clamped to 0-1 ────────────────── *)
+(* ── parse_judgment: score/confidence range ──────────────── *)
 
-let test_parse_clamps_score () =
-  let json = {|{"score": 1.5, "confidence": -0.3}|} in
-  match Judge.parse_judgment json with
-  | Error e -> Alcotest.fail (Printf.sprintf "Expected Ok, got Error: %s" e)
-  | Ok j ->
-    Alcotest.(check (float 0.001)) "score clamped" 1.0 j.score;
-    Alcotest.(check (float 0.001)) "confidence clamped" 0.0 j.confidence
+let test_parse_rejects_out_of_range_score_confidence () =
+  expect_parse_error
+    "score out of range"
+    {|{"score": 1.5, "confidence": 0.3, "risk": "high", "summary": "bad"}|};
+  expect_parse_error
+    "confidence out of range"
+    {|{"score": 0.5, "confidence": -0.3, "risk": "medium", "summary": "bad"}|}
 ;;
 
 (* ── parse_judgment: null recommended_action ─────────────── *)
 
 let test_parse_null_action () =
-  let json = {|{"score": 0.5, "recommended_action": null}|} in
+  let json =
+    {|{"score": 0.5, "confidence": 0.8, "risk": "medium", "summary": "ok", "recommended_action": null}|}
+  in
   match Judge.parse_judgment json with
   | Error e -> Alcotest.fail (Printf.sprintf "Expected Ok, got Error: %s" e)
   | Ok j -> Alcotest.(check (option string)) "null action" None j.recommended_action
@@ -260,21 +261,23 @@ let test_risk_level_roundtrip () =
 
 (* ── parse_judgment: evidence with non-string items ──────── *)
 
-let test_parse_evidence_filters_non_strings () =
-  let json = {|{"score": 0.5, "evidence": ["valid", 42, "also valid", null]}|} in
-  match Judge.parse_judgment json with
-  | Error e -> Alcotest.fail (Printf.sprintf "Expected Ok, got Error: %s" e)
-  | Ok j -> Alcotest.(check int) "evidence filtered" 2 (List.length j.evidence)
+let test_parse_evidence_rejects_non_strings () =
+  let json =
+    {|{"score": 0.5, "confidence": 0.9, "risk": "medium", "summary": "ok", "evidence": ["valid", 42, "also valid", null]}|}
+  in
+  expect_parse_error "non-string evidence" json
 ;;
 
 (* ── parse_judgment: risk string variants ────────────────── *)
 
 let test_parse_risk_string_variants () =
   let cases =
-    [ {|{"score": 0.5, "risk": "LOW"}|}, Judge.Low
-    ; {|{"score": 0.5, "risk": "Medium"}|}, Judge.Medium
-    ; {|{"score": 0.5, "risk": "HIGH"}|}, Judge.High
-    ; {|{"score": 0.5, "risk": "CRITICAL"}|}, Judge.Critical
+    [ {|{"score": 0.5, "confidence": 0.9, "risk": "LOW", "summary": "ok"}|}, Judge.Low
+    ; ( {|{"score": 0.5, "confidence": 0.9, "risk": "Medium", "summary": "ok"}|}
+      , Judge.Medium )
+    ; {|{"score": 0.5, "confidence": 0.9, "risk": "HIGH", "summary": "ok"}|}, Judge.High
+    ; ( {|{"score": 0.5, "confidence": 0.9, "risk": "CRITICAL", "summary": "ok"}|}
+      , Judge.Critical )
     ]
   in
   List.iter
@@ -291,21 +294,33 @@ let test_parse_risk_string_variants () =
     cases
 ;;
 
+let test_parse_unknown_risk_errors () =
+  expect_parse_error
+    "unknown risk"
+    {|{"score": 0.5, "confidence": 0.9, "risk": "unknown", "summary": "ok"}|}
+;;
+
+let test_parse_rejects_prose_wrapped_json () =
+  expect_parse_error
+    "prose-wrapped JSON"
+    {|The result is {"score": 0.5, "confidence": 0.9, "risk": "medium", "summary": "ok"}.|}
+;;
+
 (* ── parse_judgment: score boundary values ───────────────── *)
 
 let test_parse_score_boundaries () =
   (* Exactly at boundary: 0.3 -> Medium *)
-  let json = {|{"score": 0.3}|} in
+  let json = {|{"score": 0.3, "confidence": 0.9, "risk": "medium", "summary": "ok"}|} in
   (match Judge.parse_judgment json with
    | Error e -> Alcotest.fail e
    | Ok j -> Alcotest.check risk_testable "0.3" Judge.Medium j.risk);
   (* Exactly at boundary: 0.6 -> High *)
-  let json = {|{"score": 0.6}|} in
+  let json = {|{"score": 0.6, "confidence": 0.9, "risk": "high", "summary": "ok"}|} in
   (match Judge.parse_judgment json with
    | Error e -> Alcotest.fail e
    | Ok j -> Alcotest.check risk_testable "0.6" Judge.High j.risk);
   (* Exactly at boundary: 0.8 -> Critical *)
-  let json = {|{"score": 0.8}|} in
+  let json = {|{"score": 0.8, "confidence": 0.9, "risk": "critical", "summary": "ok"}|} in
   match Judge.parse_judgment json with
   | Error e -> Alcotest.fail e
   | Ok j -> Alcotest.check risk_testable "0.8" Judge.Critical j.risk
@@ -318,16 +333,27 @@ let () =
     "Judge"
     [ ( "parse_judgment"
       , [ Alcotest.test_case "valid JSON" `Quick test_parse_valid_json
-        ; Alcotest.test_case "minimal JSON" `Quick test_parse_minimal_json
+        ; Alcotest.test_case
+            "missing required fields"
+            `Quick
+            test_parse_missing_required_fields
         ; Alcotest.test_case "malformed JSON" `Quick test_parse_malformed_json
         ; Alcotest.test_case "JSON with fencing" `Quick test_parse_json_with_fencing
-        ; Alcotest.test_case "clamps score/confidence" `Quick test_parse_clamps_score
+        ; Alcotest.test_case
+            "rejects out-of-range score/confidence"
+            `Quick
+            test_parse_rejects_out_of_range_score_confidence
         ; Alcotest.test_case "null action" `Quick test_parse_null_action
         ; Alcotest.test_case
-            "evidence filters non-strings"
+            "evidence rejects non-strings"
             `Quick
-            test_parse_evidence_filters_non_strings
+            test_parse_evidence_rejects_non_strings
         ; Alcotest.test_case "risk string variants" `Quick test_parse_risk_string_variants
+        ; Alcotest.test_case "unknown risk errors" `Quick test_parse_unknown_risk_errors
+        ; Alcotest.test_case
+            "rejects prose-wrapped JSON"
+            `Quick
+            test_parse_rejects_prose_wrapped_json
         ; Alcotest.test_case "score boundaries" `Quick test_parse_score_boundaries
         ] )
     ; "default_config", [ Alcotest.test_case "values" `Quick test_default_config ]

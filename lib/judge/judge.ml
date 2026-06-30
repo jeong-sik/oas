@@ -62,95 +62,109 @@ let risk_of_score score =
 (* ── JSON parsing helpers ───────────────────────────────── *)
 
 let risk_level_of_string = function
-  | "low" -> Low
-  | "medium" -> Medium
-  | "high" -> High
-  | "critical" -> Critical
-  | _ -> Low (* conservative default *)
+  | "low" -> Ok Low
+  | "medium" -> Ok Medium
+  | "high" -> Ok High
+  | "critical" -> Ok Critical
+  | value -> Error (Printf.sprintf "unsupported risk level: %S" value)
 ;;
 
-let clamp_01 v = Float.max 0.0 (Float.min 1.0 v)
+let parse_unit_float ~field value =
+  match value with
+  | `Float v ->
+    if Float.is_nan v || v < 0.0 || v > 1.0
+    then Error (Printf.sprintf "%s must be a number between 0.0 and 1.0" field)
+    else Ok v
+  | `Int v ->
+    let v = float_of_int v in
+    if v < 0.0 || v > 1.0
+    then Error (Printf.sprintf "%s must be a number between 0.0 and 1.0" field)
+    else Ok v
+  | _ -> Error (Printf.sprintf "%s must be a number" field)
+;;
 
-(** Extract the first JSON object from a string that may contain
-    markdown fencing or surrounding prose. *)
-let extract_json_substring text =
-  match String.index_opt text '{' with
-  | None -> None
-  | Some start ->
-    let len = String.length text in
-    let depth = ref 0 in
-    let in_string = ref false in
-    let escape = ref false in
-    let found = ref None in
-    let i = ref start in
-    while !i < len && Option.is_none !found do
-      let c = text.[!i] in
-      if !escape
-      then escape := false
-      else if c = '\\' && !in_string
-      then escape := true
-      else if c = '"'
-      then in_string := not !in_string
-      else if not !in_string
-      then
-        if c = '{'
-        then incr depth
-        else if c = '}'
-        then (
-          decr depth;
-          if !depth = 0 then found := Some (String.sub text start (!i - start + 1)));
-      incr i
-    done;
-    !found
+let required_member name fields =
+  match List.assoc_opt name fields with
+  | Some value -> Ok value
+  | None -> Error (Printf.sprintf "missing required field: %s" name)
+;;
+
+let parse_required_string ~field value =
+  match value with
+  | `String value -> Ok value
+  | _ -> Error (Printf.sprintf "%s must be a string" field)
+;;
+
+let parse_evidence = function
+  | None | Some `Null -> Ok []
+  | Some (`List items) ->
+    List.fold_right
+      (fun item acc ->
+         match item, acc with
+         | `String value, Ok values -> Ok (value :: values)
+         | _, Ok _ -> Error "evidence must contain only strings"
+         | _, (Error _ as error) -> error)
+      items
+      (Ok [])
+  | Some _ -> Error "evidence must be an array of strings"
+;;
+
+let parse_recommended_action = function
+  | None | Some `Null -> Ok None
+  | Some (`String value) -> Ok (Some value)
+  | Some _ -> Error "recommended_action must be a string or null"
+;;
+
+let strip_exact_json_fence text =
+  let text = String.trim text in
+  let len = String.length text in
+  if len >= 6 && String.sub text 0 3 = "```"
+  then (
+    let closing = len - 3 in
+    if String.sub text closing 3 <> "```"
+    then Error "JSON fence is not closed at the end of the response"
+    else (
+      let body = String.sub text 3 (closing - 3) in
+      match String.index_opt body '\n' with
+      | None -> Ok (String.trim body)
+      | Some first_newline ->
+        let fence_label = String.sub body 0 first_newline |> String.trim in
+        let payload =
+          String.sub body (first_newline + 1) (String.length body - first_newline - 1)
+          |> String.trim
+        in
+        if fence_label = "" || String.lowercase_ascii fence_label = "json"
+        then Ok payload
+        else Error (Printf.sprintf "unsupported JSON fence label: %S" fence_label)))
+  else Ok text
 ;;
 
 let parse_judgment text =
-  let json_str =
-    match extract_json_substring text with
-    | Some s -> s
-    | None -> text
-  in
+  let ( let* ) = Result.bind in
   try
+    let* json_str = strip_exact_json_fence text in
     let json = Yojson.Safe.from_string json_str in
-    let open Yojson.Safe.Util in
-    let score = clamp_01 (json |> member "score" |> to_float) in
-    let confidence =
-      clamp_01
-        (try json |> member "confidence" |> to_float with
-         | Type_error _ -> 0.5)
+    let* fields =
+      match json with
+      | `Assoc fields -> Ok fields
+      | _ -> Error "judgment response must be a JSON object"
     in
-    let risk =
-      try
-        json
-        |> member "risk"
-        |> to_string
-        |> String.lowercase_ascii
-        |> risk_level_of_string
-      with
-      | Type_error _ -> risk_of_score score
+    let* score_json = required_member "score" fields in
+    let* score = parse_unit_float ~field:"score" score_json in
+    let* confidence =
+      let* confidence_json = required_member "confidence" fields in
+      parse_unit_float ~field:"confidence" confidence_json
     in
-    let summary =
-      try json |> member "summary" |> to_string with
-      | Type_error _ -> "No summary provided"
+    let* risk =
+      let* risk_json = required_member "risk" fields in
+      let* value = parse_required_string ~field:"risk" risk_json in
+      risk_level_of_string (String.lowercase_ascii value)
     in
-    let evidence =
-      try
-        json
-        |> member "evidence"
-        |> to_list
-        |> List.filter_map (fun j ->
-          try Some (to_string j) with
-          | Type_error _ -> None)
-      with
-      | Type_error _ -> []
-    in
-    let recommended_action =
-      try
-        match json |> member "recommended_action" with
-        | `Null -> None
-        | j -> Some (to_string j)
-      with
-      | Type_error _ -> None
+    let* summary_json = required_member "summary" fields in
+    let* summary = parse_required_string ~field:"summary" summary_json in
+    let* evidence = parse_evidence (List.assoc_opt "evidence" fields) in
+    let* recommended_action =
+      parse_recommended_action (List.assoc_opt "recommended_action" fields)
     in
     Ok { score; confidence; risk; summary; evidence; recommended_action }
   with
@@ -221,16 +235,6 @@ let judge ~sw ~net ~provider ~config ~context () =
     else (
       match parse_judgment text with
       | Ok j -> Ok j
-      | Error _parse_err ->
-        (* Fallback: create low-confidence judgment from raw text *)
-        Ok
-          { score = 0.5
-          ; confidence = 0.1
-          ; risk = Medium
-          ; summary =
-              (if String.length text > 200 then String.sub text 0 200 ^ "..." else text)
-          ; evidence = []
-          ; recommended_action =
-              Some "Manual review recommended (structured parse failed)"
-          })
+      | Error parse_err ->
+        Error (Printf.sprintf "Judge LLM returned invalid JSON: %s" parse_err))
 ;;
