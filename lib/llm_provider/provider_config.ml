@@ -208,10 +208,23 @@ let base_url_targets_openai base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
 ;;
 
+let base_url_targets_runpod_proxy base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host ->
+    let host = String.lowercase_ascii (String.trim host) in
+    String.equal host "proxy.runpod.net"
+    || String.ends_with ~suffix:".proxy.runpod.net" host
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
-  else string_of_provider_kind config.kind
+  else (
+    match config.kind with
+    | OpenAI_compat when base_url_targets_runpod_proxy config.base_url -> "runpod_mtp"
+    | Anthropic | Kimi | OpenAI_compat | Ollama | Gemini | Glm | DashScope ->
+      string_of_provider_kind config.kind)
 ;;
 
 let raw_openai_compat_without_builtin_source config provider_label =

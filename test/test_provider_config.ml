@@ -702,6 +702,23 @@ thinking_control_format = "chat_template_kwargs"
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
+let test_openai_compat_runpod_proxy_uses_runpod_catalog_label () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen36-35b-a3b-mtp"
+      ~base_url:"https://abc123.proxy.runpod.net/v1"
+      ()
+  in
+  match Provider_config.capabilities_for_config_model cfg with
+  | None -> Alcotest.fail "expected RunPod proxy model to resolve via runpod_mtp label"
+  | Some caps ->
+    Alcotest.(check bool)
+      "RunPod proxy qwen3.6 uses chat_template_kwargs"
+      true
+      Capabilities.(caps.thinking_control_format = Chat_template_kwargs)
+;;
+
 let test_validate_responses_request_path_allows_structured_output () =
   let cfg =
     Provider_config.make
@@ -2078,6 +2095,10 @@ let () =
             "raw compat dot-qualified provider row requires endpoint declaration"
             `Quick
             test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration
+        ; Alcotest.test_case
+            "runpod proxy qwen uses runpod catalog label"
+            `Quick
+            test_openai_compat_runpod_proxy_uses_runpod_catalog_label
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
