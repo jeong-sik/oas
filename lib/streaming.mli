@@ -18,40 +18,11 @@ val emit_synthetic_events : Types.api_response -> (Types.sse_event -> unit) -> u
 
 (** {1 Stream Accumulation} *)
 
-(** Mutable accumulator for building an {!Types.api_response} from
-    a sequence of SSE events. *)
-type stream_acc =
-  { id : string ref
-  ; model : string ref
-  ; input_tokens : int ref
-  ; output_tokens : int ref
-  ; cache_creation : int ref
-  ; cache_read : int ref
-  ; stop_reason : Types.stop_reason ref
-  ; stop_reason_received : bool ref
-  ; done_sentinel_seen : bool ref
-  ; terminal_incomplete : bool ref
-  ; sse_error : Types.stream_error option ref
-  ; block_texts : (int, Buffer.t) Hashtbl.t
-  ; block_types : (int, string) Hashtbl.t
-  ; block_tool_ids : (int, string) Hashtbl.t
-  ; block_tool_names : (int, string) Hashtbl.t
-  ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
-  ; block_reasoning_details : (int, Types.reasoning_detail list ref) Hashtbl.t
-  ; block_media_types : (int, string) Hashtbl.t
-  ; block_media_sources : (int, Types.media_source_kind) Hashtbl.t
-  }
-
-(** Create a fresh accumulator. *)
-val create_stream_acc : unit -> stream_acc
-
-(** Feed a single SSE event into the accumulator. *)
-val accumulate_event : stream_acc -> Types.sse_event -> unit
-
-(** Finalize the accumulator into a complete API response.
-    Returns [Error stream_error] if an SSE error or fail-closed stream parse
-    error was recorded during the stream. *)
-val finalize_stream_acc : stream_acc -> (Types.api_response, Types.stream_error) result
+(** Legacy streaming accumulation surface.
+    Re-exports the canonical {!Llm_provider.Complete_stream_acc} signature so
+    record labels such as [Streaming.stop_reason_received] remain source
+    compatible without copying the accumulator shape here. *)
+include module type of Llm_provider.Complete_stream_acc
 
 (** {1 HTTP Error Mapping} *)
 
