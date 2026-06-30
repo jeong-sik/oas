@@ -192,7 +192,7 @@ let truthy_env value =
   | _ -> false
 ;;
 
-let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =
+let is_experiment_enabled ?(getenv = Llm_provider.Cli_common_env.default_getenv) () =
   match getenv experimental_env_var with
   | Some value -> truthy_env value
   | None -> false

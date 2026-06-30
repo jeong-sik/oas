@@ -61,6 +61,10 @@ val compare_task
 val evaluate : ?gate:gate -> comparison list -> gate_result
 val metrics_of_gate_result : gate_result -> Eval.metric list
 val verdict_of_gate_result : gate_result -> Harness.verdict
+
+(** [is_experiment_enabled ?getenv ()] reads the experiment flag through the
+    canonical environment boundary by default. [?getenv] lets tests/callers
+    avoid reading process env directly. *)
 val is_experiment_enabled : ?getenv:(string -> string option) -> unit -> bool
 
 val require_experiment_enabled
