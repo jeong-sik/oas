@@ -354,7 +354,7 @@ let test_finalize_invalid_tool_json () =
     (Types.MessageDelta { stop_reason = Some Types.EndTurn; usage = None });
   match Streaming.finalize_stream_acc acc with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
-    (* The offending tool-arg buffer is preserved in [raw] for keeper-log
+    (* The offending tool-arg buffer is preserved in [raw] for operator-log
        diagnosis (the Unknown_block/media arms still omit it). *)
     Alcotest.(check string) "raw preserved" "not json{" raw;
     Alcotest.(check bool)

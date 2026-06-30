@@ -286,7 +286,7 @@ let finalize_stream_acc (acc : stream_acc) =
           | exception Yojson.Json_error reason ->
             (* Preserve the offending accumulated buffer in [raw] so the rare,
                provider-specific malformed tool-arg wire is diagnosable from the
-               keeper log (the [Complete_stream] renderer bounds it to 256 bytes).
+               operator log (the [Complete_stream] renderer bounds it to 256 bytes).
                [raw] reaches operator-facing logs only, never replayed into
                conversation history. It may hold model-generated tool-argument
                values, so it carries the same sensitivity as any logged request
@@ -1024,7 +1024,7 @@ let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
   with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     (* [raw] now preserves the offending buffer so the malformed wire is
-       diagnosable from the keeper log instead of being discarded. *)
+       diagnosable from the operator log instead of being discarded. *)
     raw = "not valid json"
     && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
   | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
