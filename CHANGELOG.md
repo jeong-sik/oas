@@ -10,17 +10,6 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Bug Fixes
 
-* **llm_provider:** keep model reasoning typed as `Thinking` end-to-end instead
-  of promoting it to a `Text` answer block. The promotion erased the type
-  distinction between reasoning and answer, so the request serializer re-fed the
-  reasoning as the assistant's answer on the next turn and the model re-reasoned
-  over it (the #2236 CoT re-injection / parrot loop). Reasoning-only replies
-  still reach the user through the display path (`Api.text_blocks_to_string`
-  includes `Thinking` blocks); multi-turn replay follows the provider's
-  `reasoning_dialect` policy (e.g. DeepSeek/MiMo drop-without-tool /
-  preserve-with-tool, which keeps `reasoning_content` on tool-call turns to
-  satisfy their 400-on-missing contract)
-  ([#2236](https://github.com/jeong-sik/oas/issues/2236)).
 * **context_offload:** emit a diagnostic warning when tool-result offload write
   fails before preserving the original content.
 * **defaults:** restore `Context_offload.default_config` and
@@ -33,15 +22,6 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Behavioral Changes
 
 * **tool:** unknown `mutation_class` strings are now rejected at `Tool.create` time instead of falling back silently.
-* **llm_provider:** retire the `reasoning_visibility` capability vocabulary. Its
-  only runtime effect was the reasoning→`Text` promotion fixed in #2236; every
-  other use parsed and stored a value that was never read. Removed from the
-  public API: `Capabilities.reasoning_visibility_override` (type + record field +
-  `Force_visible_text`/`Force_provider_hidden`/`Force_visible_channel`/`Default_reasoning_visibility`),
-  the same re-exports on `Provider`, and `Reasoning_dialect`'s `visibility`
-  field / `visibility_to_string`. The `reasoning_visibility` capability-manifest
-  key is now rejected as an unknown field (fail-closed) rather than silently
-  ignored. No behavior change to thinking toggle, replay, streaming, or effort.
 
 ### Features
 
@@ -50,6 +30,13 @@ original tag dates. `0.100.4` was never tagged or released.
 * **mcp:** `OAS_MCP_OUTPUT_MAX_TOKENS=0` is now treated as "unlimited" by `truncate_output` instead of truncating every non-empty result to the marker.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
+
+## [0.207.28](https://github.com/jeong-sik/oas/compare/v0.207.27...v0.207.28) (2026-06-30)
+
+
+### Features
+
+* **types:** expose visible answer text projection ([#2306](https://github.com/jeong-sik/oas/issues/2306)) ([3a692b9](https://github.com/jeong-sik/oas/commit/3a692b9988ad72738cf22eb69296cd7452cfbd7d))
 
 ## [0.207.27](https://github.com/jeong-sik/oas/compare/v0.207.26...v0.207.27) (2026-06-30)
 
