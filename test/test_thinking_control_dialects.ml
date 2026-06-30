@@ -931,7 +931,17 @@ let test_anthropic_reasoning_dialect_preserves_thinking () =
     string
     "replay policy"
     "preserve_always"
-    (RD.replay_policy_to_string dialect.replay_policy)
+    (RD.replay_policy_to_string dialect.replay_policy);
+  check
+    (option string)
+    "xhigh effort alias"
+    (Some "max")
+    (RD.normalize_effort_value dialect RE.XHigh);
+  check
+    (option string)
+    "minimal effort omitted"
+    None
+    (RD.normalize_effort_value dialect RE.Minimal)
 ;;
 
 let test_anthropic_manual_model_uses_budget_tokens () =
