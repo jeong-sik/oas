@@ -7,6 +7,20 @@ let member key json = Yojson.Safe.Util.member key json
 let to_bool json = Yojson.Safe.Util.to_bool json
 let to_string json = Yojson.Safe.Util.to_string json
 
+let assoc_fields label = function
+  | `Assoc fields -> fields
+  | json ->
+    fail (Printf.sprintf "expected %s object, got %s" label (Yojson.Safe.to_string json))
+;;
+
+let field_count key json =
+  json
+  |> assoc_fields "request body"
+  |> List.fold_left
+       (fun count (field, _) -> if String.equal field key then count + 1 else count)
+       0
+;;
+
 let glm_config ?enable_thinking ?clear_thinking ?(tool_stream = false) () =
   PC.make
     ~kind:PC.Glm
@@ -98,6 +112,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
       ()
     |> Yojson.Safe.from_string
   in
+  check int "thinking enabled field count" 1 (field_count "thinking" enabled);
   check
     string
     "thinking enabled"
@@ -116,6 +131,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
       ()
     |> Yojson.Safe.from_string
   in
+  check int "thinking disabled field count" 1 (field_count "thinking" disabled);
   check
     string
     "thinking disabled"
@@ -129,6 +145,7 @@ let test_build_request_thinking_modes_and_tool_stream () =
   let passthrough =
     K.build_request ~config:(glm_config ()) ~messages () |> Yojson.Safe.from_string
   in
+  check int "thinking omitted field count" 0 (field_count "thinking" passthrough);
   check bool "thinking omitted" true (passthrough |> member "thinking" = `Null)
 ;;
 
