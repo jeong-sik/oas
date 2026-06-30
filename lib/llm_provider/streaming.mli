@@ -98,13 +98,17 @@ type thinking_state =
   | Thinking_started of float
   | Thinking_done
 
+type tool_index_route =
+  | Tool_index_single of int
+  | Tool_index_ambiguous of int list
+
 type openai_stream_state =
   { mutable thinking_block_started : bool
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
   ; mutable text_block_index : int
   ; tool_blocks_by_id : (string, int) Hashtbl.t
-  ; tool_block_indices : (int, int) Hashtbl.t
+  ; tool_block_indices : (int, tool_index_route) Hashtbl.t
   ; mutable next_block_index : int
   ; mutable thinking_state : thinking_state
   ; provider : string
