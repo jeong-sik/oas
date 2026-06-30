@@ -75,10 +75,17 @@ let exact_non_empty_string_field ~entry_id key toml =
   | Error _ as e -> e
   | Ok None -> Ok None
   | Ok (Some raw) ->
-    let value = String.trim raw in
-    if value = ""
+    let trimmed = String.trim raw in
+    if trimmed = ""
     then Error (Printf.sprintf "model entry %S field %S must not be empty" entry_id key)
-    else Ok (Some value)
+    else if raw <> trimmed
+    then
+      Error
+        (Printf.sprintf
+           "model entry %S field %S must not have leading or trailing whitespace"
+           entry_id
+           key)
+    else Ok (Some raw)
 ;;
 
 let canonical_string_opt ~entry_id key ~allowed toml =

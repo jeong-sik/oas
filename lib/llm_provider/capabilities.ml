@@ -1153,9 +1153,8 @@ let for_provider_model_id ~(provider_label : string) ~(model_id : string) =
 ;;
 
 let exact_token = function
-  | Some raw ->
-    let value = String.trim raw in
-    if value = "" then None else Some value
+  | Some "" -> None
+  | Some raw -> Some raw
   | None -> None
 ;;
 
