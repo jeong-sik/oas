@@ -1053,12 +1053,14 @@ let test_response_shape_empty_end_turn_is_not_deliverable () =
 ;;
 
 let test_response_shape_unknown_stop_reason_is_escaped_in_diagnostics () =
-  let response = response ~stop_reason:(Types.Unknown "provider\nmessage") () in
-  let summary = Response_shape.diagnostic_summary response in
+  let unknown_response = response ~stop_reason:(Types.Unknown "provider\nmessage") () in
+  let summary = Response_shape.diagnostic_summary unknown_response in
   Alcotest.(check bool)
     "escapes unknown stop reason"
     true
-    (summary_contains ~needle:"stop_reason=unknown(\"provider\\nmessage\")" response);
+    (summary_contains
+       ~needle:"stop_reason=unknown(\"provider\\nmessage\")"
+       unknown_response);
   Alcotest.(check bool) "keeps summary single-line" false (String.contains summary '\n');
   let empty = response ~stop_reason:(Types.Unknown "") () in
   Alcotest.(check bool)
