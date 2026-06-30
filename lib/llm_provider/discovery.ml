@@ -257,22 +257,25 @@ let apply_ollama_think_overlay (caps : Capabilities.capabilities)
 ;;
 
 (** Infer capabilities from model info and server props.
-    Priority: model-specific lookup > generic inference > default.
-    When [uses_ollama_think] is [true] the endpoint speaks Ollama native
-    [/api/chat] [think] format, so {!apply_ollama_think_overlay} is layered on
-    top of the model-specific lookup result, or [ollama_capabilities] is used as
-    the fallback base when no lookup match exists. *)
+    Non-Ollama discovery probes generic OpenAI-compatible endpoints, so
+    [/v1/models] names are not enough evidence to import provider-specific
+    thinking/reasoning/tool dialects. When [uses_ollama_think] is [true] the
+    endpoint speaks Ollama native [/api/chat] [think] format, so
+    {!apply_ollama_think_overlay} is layered on top of the model-specific lookup
+    result, or [ollama_capabilities] is used as the fallback base when no lookup
+    match exists. *)
 let infer_capabilities ~uses_ollama_think models props =
-  (* 1. Try model-specific lookup *)
   let from_lookup =
-    List.find_map (fun (m : model_info) -> Capabilities.for_model_id m.id) models
+    if uses_ollama_think
+    then List.find_map (fun (m : model_info) -> Capabilities.for_model_id m.id) models
+    else None
   in
   let base =
     match from_lookup with
     | Some caps ->
       (* Overlay Ollama endpoint flags while keeping model-specific
          context-window and reasoning metadata. *)
-      if uses_ollama_think then apply_ollama_think_overlay caps else caps
+      apply_ollama_think_overlay caps
     | None ->
       if uses_ollama_think
       then
@@ -281,19 +284,9 @@ let infer_capabilities ~uses_ollama_think models props =
            format. Dynamic tool support from /api/show template analysis is
            merged below via props handling in step 3. *)
         Capabilities.ollama_capabilities
-      else (
-        (* 2. Generic inference by model name for non-Ollama endpoints *)
-        let needs_extended =
-          List.exists
-            (fun (m : model_info) ->
-               Retry.contains_case_insensitive ~haystack:m.id ~needle:"dashscope")
-            models
-        in
-        if needs_extended
-        then Capabilities.openai_compat_chat_extended_capabilities
-        else Capabilities.openai_compat_chat_capabilities)
+      else Capabilities.openai_compat_chat_capabilities
   in
-  (* 3. Merge ctx_size from /props into capabilities *)
+  (* Merge endpoint-declared context/tool facts from /props into capabilities. *)
   match props with
   | Some (p : server_props) ->
     let c = Capabilities.with_context_size base ~ctx_size:p.ctx_size in
@@ -1027,12 +1020,14 @@ let%test "contains_case_insensitive exact match" =
 
 (* --- infer_capabilities --- *)
 
-let%test "infer_capabilities dashscope model gets extended" =
+let%test "infer_capabilities non-ollama dashscope name stays generic compat" =
   let models = [ { id = "DashScope_3.5-35B-A3B"; owned_by = "local" } ] in
   let caps = infer_capabilities ~uses_ollama_think:false models None in
-  caps.supports_reasoning = true
-  && caps.supports_top_k = true
-  && caps.supports_min_p = true
+  caps.supports_tools = true
+  && caps.supports_reasoning = false
+  && caps.supports_extended_thinking = false
+  && caps.supports_top_k = false
+  && caps.supports_min_p = false
 ;;
 
 let%test "infer_capabilities unknown model gets basic openai" =
@@ -1041,10 +1036,12 @@ let%test "infer_capabilities unknown model gets basic openai" =
   caps.supports_tools = true && caps.supports_reasoning = false
 ;;
 
-let%test "infer_capabilities known model lookup has priority" =
+let%test "infer_capabilities non-ollama known provider name stays generic compat" =
   let models = [ { id = "claude-opus-4-20260320"; owned_by = "anthropic" } ] in
   let caps = infer_capabilities ~uses_ollama_think:false models None in
-  caps.supports_caching = true && caps.supports_computer_use = true
+  caps.supports_tools = true
+  && caps.supports_computer_use = false
+  && caps.thinking_control_format = Capabilities.No_thinking_control
 ;;
 
 let%test "infer_capabilities merges ctx_size from props" =

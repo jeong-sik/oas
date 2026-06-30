@@ -483,8 +483,8 @@ let test_refresh_and_sync_mock_server_updates_indexes () =
          Alcotest.(check int) "idle" 2 slots.idle
        | None -> Alcotest.fail "expected slots");
       Alcotest.(check bool)
-        "dashscope model infers extended reasoning"
-        true
+        "openai-compatible discovery does not infer extended reasoning"
+        false
         status.capabilities.supports_extended_thinking
     | _ -> Alcotest.fail "expected one endpoint status")
 ;;
