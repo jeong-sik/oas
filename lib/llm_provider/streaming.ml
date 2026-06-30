@@ -392,8 +392,8 @@ let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_chunk option =
           match streaming_reasoning with
           | Some (Reasoning_dialect.Delta_field field) -> non_blank_delta_field field
           | Some
-              (Reasoning_dialect.No_streaming_reasoning | Reasoning_dialect.Template_parser)
-            -> None
+              ( Reasoning_dialect.No_streaming_reasoning
+              | Reasoning_dialect.Template_parser ) -> None
           | None ->
             (match non_blank_delta_field "reasoning_content" with
              | Some _ as reasoning -> reasoning

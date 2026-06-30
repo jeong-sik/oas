@@ -745,9 +745,7 @@ let complete_stream_http
                            | Provider_config.DashScope
                            | Provider_config.Kimi ->
                              (match
-                                Streaming.parse_openai_sse_chunk
-                                  ~streaming_reasoning
-                                  data
+                                Streaming.parse_openai_sse_chunk ~streaming_reasoning data
                               with
                               | Some chunk ->
                                 Streaming.openai_chunk_to_events (get_state ()) chunk
