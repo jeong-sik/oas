@@ -146,6 +146,11 @@ let ended_without_deliverable_content response =
   response.Types.stop_reason = Types.EndTurn && not (has_deliverable_content shape)
 ;;
 
+let stop_reason_diagnostic_string = function
+  | Types.Unknown raw -> Printf.sprintf "unknown(%S)" raw
+  | stop_reason -> Types.stop_reason_to_string stop_reason
+;;
+
 let diagnostic_summary response =
   let shape = summarize response in
   let content_kinds =
@@ -158,7 +163,7 @@ let diagnostic_summary response =
      tool_use_count=%d tool_result_count=%d thinking_blocks=%d thinking_chars=%d \
      redacted_thinking_blocks=%d image_count=%d document_count=%d audio_count=%d"
     (content_shape_to_string (content_shape response shape))
-    (Types.stop_reason_to_string response.stop_reason)
+    (stop_reason_diagnostic_string response.stop_reason)
     shape.text_chars
     (List.length response.content)
     content_kinds
