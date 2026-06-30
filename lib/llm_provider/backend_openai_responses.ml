@@ -165,36 +165,38 @@ let content_string_of_tool_result ~content ~content_blocks =
   | None -> Utf8_sanitize.sanitize content
 ;;
 
-let unsupported_media_source ~block source_type =
-  invalid_arg
-    (Printf.sprintf
-       "openai_responses does not support %s media source kind %s"
-       block
-       (Types.media_source_kind_to_string source_type))
-;;
-
-let base64_data_url ~block ~media_type ~data = function
-  | Base64 -> Printf.sprintf "data:%s;base64,%s" media_type data
-  | (Url | File_id) as source_type -> unsupported_media_source ~block source_type
-;;
-
-let base64_audio_data ~block ~data = function
-  | Base64 -> data
-  | (Url | File_id) as source_type -> unsupported_media_source ~block source_type
-;;
-
 let input_content_part_of_block = function
   | Text s ->
     Some
       (`Assoc [ "type", `String "input_text"; "text", `String (Utf8_sanitize.sanitize s) ])
   | Image { media_type; data; source_type } ->
-    let image_url = base64_data_url ~block:"image" ~media_type ~data source_type in
+    let image_url =
+      Api_common.base64_media_data_url
+        ~backend:"openai_responses"
+        ~block:"image"
+        ~media_type
+        ~data
+        source_type
+    in
     Some (`Assoc [ "type", `String "input_image"; "image_url", `String image_url ])
   | Document { media_type; data; source_type } ->
-    let file_data = base64_data_url ~block:"document" ~media_type ~data source_type in
+    let file_data =
+      Api_common.base64_media_data_url
+        ~backend:"openai_responses"
+        ~block:"document"
+        ~media_type
+        ~data
+        source_type
+    in
     Some (`Assoc [ "type", `String "input_file"; "file_data", `String file_data ])
   | Audio { media_type; data; source_type } ->
-    let data = base64_audio_data ~block:"audio" ~data source_type in
+    let data =
+      Api_common.base64_media_payload
+        ~backend:"openai_responses"
+        ~block:"audio"
+        ~data
+        source_type
+    in
     Some
       (`Assoc
           [ "type", `String "input_audio"

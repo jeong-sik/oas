@@ -7,25 +7,6 @@
 
 open Types
 
-let unsupported_media_source ~backend ~block source_type =
-  invalid_arg
-    (Printf.sprintf
-       "%s does not support %s media source kind %s"
-       backend
-       block
-       (Types.media_source_kind_to_string source_type))
-;;
-
-let base64_data_url ~backend ~block ~media_type ~data = function
-  | Base64 -> Printf.sprintf "data:%s;base64,%s" media_type data
-  | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
-;;
-
-let base64_audio_data ~backend ~block ~data = function
-  | Base64 -> data
-  | (Url | File_id) as source_type -> unsupported_media_source ~backend ~block source_type
-;;
-
 let tool_calls_to_openai_json blocks =
   blocks
   |> List.filter_map (function
@@ -80,7 +61,7 @@ let openai_content_parts_of_blocks blocks =
       Some (`Assoc [ "type", `String "text"; "text", `String (Utf8_sanitize.sanitize s) ])
     | Image { media_type; data; source_type } ->
       let url =
-        base64_data_url
+        Api_common.base64_media_data_url
           ~backend:"openai_chat"
           ~block:"image"
           ~media_type
@@ -92,7 +73,7 @@ let openai_content_parts_of_blocks blocks =
             [ "type", `String "image_url"; "image_url", `Assoc [ "url", `String url ] ])
     | Document { media_type; data; source_type } ->
       let url =
-        base64_data_url
+        Api_common.base64_media_data_url
           ~backend:"openai_chat"
           ~block:"document"
           ~media_type
@@ -104,7 +85,11 @@ let openai_content_parts_of_blocks blocks =
             [ "type", `String "image_url"; "image_url", `Assoc [ "url", `String url ] ])
     | Audio { media_type; data; source_type } ->
       let data =
-        base64_audio_data ~backend:"openai_chat" ~block:"audio" ~data source_type
+        Api_common.base64_media_payload
+          ~backend:"openai_chat"
+          ~block:"audio"
+          ~data
+          source_type
       in
       Some
         (`Assoc
@@ -369,11 +354,20 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
               vision models can attempt to process them as pages. *)
            texts, data :: images
          | Image { source_type; _ } ->
-           unsupported_media_source ~backend:"ollama_native" ~block:"image" source_type
+           Api_common.unsupported_media_source
+             ~backend:"ollama_native"
+             ~block:"image"
+             source_type
          | Document { source_type; _ } ->
-           unsupported_media_source ~backend:"ollama_native" ~block:"document" source_type
+           Api_common.unsupported_media_source
+             ~backend:"ollama_native"
+             ~block:"document"
+             source_type
          | Audio { source_type; _ } ->
-           unsupported_media_source ~backend:"ollama_native" ~block:"audio" source_type
+           Api_common.unsupported_media_source
+             ~backend:"ollama_native"
+             ~block:"audio"
+             source_type
          | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolUse _ | ToolResult _
            -> texts, images)
       ([], [])
