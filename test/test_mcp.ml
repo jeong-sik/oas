@@ -147,6 +147,69 @@ let test_json_schema_no_description () =
   Alcotest.check check_param_type "bool type" Types.Boolean (List.hd params).param_type
 ;;
 
+let test_json_schema_missing_property_type_defaults_to_string () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "payload": {"description": "Any payload"}
+    }
+  }|}
+  in
+  let params = Mcp.json_schema_to_params schema in
+  let payload = List.hd params in
+  Alcotest.(check string) "payload name" "payload" payload.name;
+  Alcotest.check check_param_type "default type" Types.String payload.param_type
+;;
+
+let test_json_schema_nullable_union_uses_concrete_type () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "label": {"type": ["null", "string"], "description": "Nullable label"}
+    }
+  }|}
+  in
+  let params = Mcp.json_schema_to_params schema in
+  let label = List.hd params in
+  Alcotest.(check string) "label name" "label" label.name;
+  Alcotest.check check_param_type "nullable string" Types.String label.param_type
+;;
+
+let test_json_schema_null_type_defaults_to_string () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "nothing": {"type": "null"}
+    }
+  }|}
+  in
+  let params = Mcp.json_schema_to_params schema in
+  let nothing = List.hd params in
+  Alcotest.(check string) "nothing name" "nothing" nothing.name;
+  Alcotest.check check_param_type "null default type" Types.String nothing.param_type
+;;
+
+let test_json_schema_union_unknown_type_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "value": {"type": ["string", "mystery"]}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected unknown union type to fail"
+;;
+
 (* ── Tool bridge ────────────────────────────────────────────────── *)
 
 let test_mcp_tool_to_sdk_tool () =
@@ -409,6 +472,22 @@ let () =
         ; test_case "empty schema" `Quick test_json_schema_empty
         ; test_case "no required" `Quick test_json_schema_no_required
         ; test_case "no description" `Quick test_json_schema_no_description
+        ; test_case
+            "missing property type defaults"
+            `Quick
+            test_json_schema_missing_property_type_defaults_to_string
+        ; test_case
+            "nullable union uses concrete type"
+            `Quick
+            test_json_schema_nullable_union_uses_concrete_type
+        ; test_case
+            "null type defaults"
+            `Quick
+            test_json_schema_null_type_defaults_to_string
+        ; test_case
+            "union unknown type fails"
+            `Quick
+            test_json_schema_union_unknown_type_fails
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool

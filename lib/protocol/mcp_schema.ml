@@ -19,6 +19,15 @@ let json_schema_type_to_param_type value =
   | Error detail -> invalid_arg detail
 ;;
 
+let json_schema_type_member_to_param_type_option type_name =
+  match type_name with
+  | "null" -> Ok None
+  | value ->
+    (match json_schema_type_to_param_type_result value with
+     | Ok param_type -> Ok (Some param_type)
+     | Error _ as error -> error)
+;;
+
 let required_list_of_schema schema =
   match schema with
   | `Assoc fields ->
@@ -37,13 +46,41 @@ let required_list_of_schema schema =
   | _ -> Error "schema must be a JSON object"
 ;;
 
+let property_type_from_union name values =
+  let result =
+    List.fold_left
+      (fun acc item ->
+         match acc, item with
+         | Error _, _ -> acc
+         | Ok selected, `String type_name ->
+           (match json_schema_type_member_to_param_type_option type_name with
+            | Ok (Some param_type) ->
+              Ok
+                (match selected with
+                 | Some _ -> selected
+                 | None -> Some param_type)
+            | Ok None -> Ok selected
+            | Error _ as error -> error)
+         | Ok _, _ ->
+           Error (Printf.sprintf "property %S type array must contain only strings" name))
+      (Ok None)
+      values
+  in
+  Result.map (Option.value ~default:String) result
+;;
+
 let property_type name prop =
   match prop with
   | `Assoc fields ->
     (match List.assoc_opt "type" fields with
-     | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
+     | Some (`String type_name) ->
+       (match json_schema_type_member_to_param_type_option type_name with
+        | Ok (Some param_type) -> Ok param_type
+        | Ok None -> Ok String
+        | Error _ as error -> error)
+     | Some (`List values) -> property_type_from_union name values
      | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
-     | None -> Error (Printf.sprintf "property %S is missing type" name))
+     | None -> Ok String)
   | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
 ;;
 
