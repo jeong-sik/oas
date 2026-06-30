@@ -29,6 +29,17 @@ let record_streaming_metrics (metrics : Metrics.t) = function
   | Context_window_usage _ -> ()
 ;;
 
+(* Bound the offending payload echoed into a parse-failure message so a large
+   tool-argument buffer cannot bloat the keeper log. [%S] at the call site
+   escapes embedded quotes/newlines. *)
+let max_parse_error_raw_excerpt = 256
+
+let parse_error_raw_excerpt raw =
+  if String.length raw <= max_parse_error_raw_excerpt
+  then raw
+  else String.sub raw 0 max_parse_error_raw_excerpt ^ "...(truncated)"
+;;
+
 (* Internal: HTTP-specific streaming implementation. *)
 (* Converge a stream-finalize error onto the same typed carrier the
    non-streaming path produces. A provider-reported error with a recognized
@@ -48,10 +59,20 @@ let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_er
                }
          ; message = Printf.sprintf "SSE stream error: %s" message
          })
-  | Types.Stream_parse_failed { reason; _ } ->
+  | Types.Stream_parse_failed { reason; raw } ->
     Http_client.ProviderFailure
       { kind = Http_client.Provider_parse_error { parser = Some "sse" }
-      ; message = Printf.sprintf "SSE parse failed: %s" reason
+      ; message =
+          (match raw with
+           | "" -> Printf.sprintf "SSE parse failed: %s" reason
+           | raw ->
+             (* Echo the offending buffer (bounded) so a rare, provider-specific
+                malformed wire is diagnosable from the keeper log instead of
+                discarded at the carrier boundary. *)
+             Printf.sprintf
+               "SSE parse failed: %s raw=%S"
+               reason
+               (parse_error_raw_excerpt raw))
       }
   | Types.Stream_unknown_event { event_type; _ } ->
     Http_client.ProviderFailure
@@ -130,6 +151,29 @@ let maps_to_sse_parse_failure stream_error =
 
 let%test "stream parse failure stays provider parse failure" =
   maps_to_sse_parse_failure (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+;;
+
+let%test "parse failure echoes the offending raw buffer for diagnosis" =
+  (* The malformed tool-arg buffer must reach the keeper-visible message so a
+     rare, provider-specific malformed wire is debuggable instead of discarded
+     at the carrier boundary. *)
+  let reason = "malformed_tool_use_arguments:index:1:bad" in
+  let raw = {|{"location":"Tokyo"}{}|} in
+  match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
+  | Http_client.ProviderFailure { message; _ } ->
+    message = Printf.sprintf "SSE parse failed: %s raw=%S" reason raw
+  | _ -> false
+;;
+
+let%test "parse failure raw excerpt is bounded" =
+  (* A large argument buffer must not bloat the log line: the echoed excerpt is
+     bounded well below the full buffer length. *)
+  let reason = "malformed_tool_use_arguments:index:0:bad" in
+  let raw = String.make 1000 'x' in
+  match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
+  | Http_client.ProviderFailure { message; _ } ->
+    String.length message < String.length raw
+  | _ -> false
 ;;
 
 let%test "stream unknown event stays provider parse failure" =
