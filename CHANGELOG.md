@@ -31,6 +31,15 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.6](https://github.com/jeong-sik/oas/compare/v0.208.5...v0.208.6) (2026-06-30)
+
+
+### Bug Fixes
+
+* **mcp:** fail closed on unknown schema types ([#2343](https://github.com/jeong-sik/oas/issues/2343)) ([be716c3](https://github.com/jeong-sik/oas/commit/be716c3c21cd9900acbbf0a45c3b38b6d91303f4))
+* **stream-acc:** fail closed on multi-object tool args; drop misdiagnosed re-emit guard ([#2354](https://github.com/jeong-sik/oas/issues/2354)) ([c080e3d](https://github.com/jeong-sik/oas/commit/c080e3d2c9a612f924285df546b00bb5230c27b0))
+* **streaming:** emit ContentBlockStop for open blocks on OpenAI-compat finish ([#2356](https://github.com/jeong-sik/oas/issues/2356)) ([d8e5cff](https://github.com/jeong-sik/oas/commit/d8e5cff51ed0840dfd8d61f64b08686e1ac3791a))
+
 ## [0.208.5](https://github.com/jeong-sik/oas/compare/v0.208.4...v0.208.5) (2026-06-30)
 
 
