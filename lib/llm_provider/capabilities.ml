@@ -581,27 +581,6 @@ let gemini_capabilities =
 
 (* ── Model-specific overrides (lookup table) ─────────── *)
 
-(** Lookup capabilities by provider label string.
-
-    Returns [None] for labels outside the recognized set so callers can
-    fail closed rather than silently treating unknown providers as
-    having default capabilities. *)
-let capabilities_for_provider_label label =
-  match String.lowercase_ascii (String.trim label) with
-  | "anthropic" | "claude" -> Some anthropic_capabilities
-  | "openai_compat" | "openai" | "openai_chat" -> Some openai_compat_chat_capabilities
-  | "openai_compat_chat_extended" | "openai_chat_extended" ->
-    Some openai_compat_chat_extended_capabilities
-  | "gemini" -> Some gemini_capabilities
-  | "ollama" -> Some ollama_capabilities
-  | "ollama_cloud" -> Some ollama_cloud_capabilities
-  | "glm" | "zhipu" | "glm-coding" -> Some glm_capabilities
-  | "dashscope" -> Some dashscope_capabilities
-  | "nvidia" -> Some provider_l_capabilities
-  | "kimi" -> Some kimi_capabilities
-  | _ -> None
-;;
-
 (** Capabilities preset for a canonical {!Provider_kind.t}.
 
     Typed counterpart of {!capabilities_for_provider_label}: maps the 7 closed
@@ -630,18 +609,46 @@ let capabilities_of_kind (kind : Provider_kind.t) : capabilities =
   | Provider_kind.DashScope -> dashscope_capabilities
 ;;
 
+let provider_kind_alias_of_label label =
+  match Provider_kind.of_string label with
+  | Some kind -> Some kind
+  | None ->
+    (match label with
+     | "claude" -> Some Provider_kind.Anthropic
+     | "openai" | "openai_chat" -> Some Provider_kind.OpenAI_compat
+     | "zhipu" | "glm-coding" -> Some Provider_kind.Glm
+     | _ -> None)
+;;
+
+(** Lookup capabilities by provider label string.
+
+    Canonical labels and aliases for the closed {!Provider_kind.t} space are
+    normalized to a typed kind first, then delegated to {!capabilities_of_kind}.
+    String-only presets that are not expressible as a provider kind stay at this
+    label boundary. Returns [None] for labels outside the recognized set so
+    callers can fail closed rather than silently treating unknown providers as
+    having default capabilities. *)
+let capabilities_for_provider_label label =
+  let label = String.lowercase_ascii (String.trim label) in
+  match provider_kind_alias_of_label label with
+  | Some kind -> Some (capabilities_of_kind kind)
+  | None ->
+    (match label with
+     | "openai_compat_chat_extended" | "openai_chat_extended" ->
+       Some openai_compat_chat_extended_capabilities
+     | "ollama_cloud" -> Some ollama_cloud_capabilities
+     | "nvidia" -> Some provider_l_capabilities
+     | _ -> None)
+;;
+
 let%test "capabilities_of_kind aliases the same presets as the label classifier" =
-  (* SSOT guard: the typed variant path and the wire label path must resolve
-     the 7 canonical kinds to the same preset. Assert on the two axes that
-     distinguish presets rather than physical identity, so a future change
-     that makes either route synthesise a fresh record is still caught. *)
+  (* SSOT guard: the label path delegates canonical kinds to the typed variant
+     path, so the resolved preset must be the exact same record. *)
   List.for_all
     (fun (kind, label) ->
        let via_kind = capabilities_of_kind kind in
        match capabilities_for_provider_label label with
-       | Some via_label ->
-         via_label.thinking_control_format = via_kind.thinking_control_format
-         && via_label.supports_reasoning = via_kind.supports_reasoning
+       | Some via_label -> via_label == via_kind
        | None -> false)
     [ Provider_kind.Anthropic, "anthropic"
     ; Provider_kind.Kimi, "kimi"
