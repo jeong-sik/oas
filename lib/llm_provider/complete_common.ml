@@ -365,8 +365,7 @@ let thinking_control_disable_unsatisfiable
     let glm_special_case =
       (* backend_openai_request encodes thinking for zai/GLM even under
          No_thinking_control, so that combination IS satisfiable. *)
-      Zai_catalog.is_zai_base_url config.base_url
-      && Zai_catalog.is_glm_model_id config.model_id
+      Provider_config.is_zai_glm_config config
     in
     caps.supports_reasoning
     && caps.thinking_control_format = Capabilities.No_thinking_control
