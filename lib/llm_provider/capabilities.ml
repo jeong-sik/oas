@@ -1449,6 +1449,7 @@ let test_manifest_entry id_prefix : Capability_manifest.entry =
   ; thinking_control_format = None
   ; thinking_control_token = None
   ; preserve_thinking_control_format = None
+  ; reasoning_output_format = None
   ; reasoning_replay = None
   }
 ;;
