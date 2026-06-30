@@ -27,20 +27,37 @@ let non_blank_json_string = function
     None
 ;;
 
-let reasoning_detail_of_json = function
+let assoc_field_opt name = function
+  | `Assoc fields -> List.assoc_opt name fields
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let reasoning_detail_of_json ~index = function
   | `Assoc fields as raw ->
     let text =
       match List.assoc_opt "text" fields with
       | Some text -> non_blank_json_string text
       | None -> None
     in
-    Some { raw; text }
-  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+    Ok { raw; text }
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    Error (Printf.sprintf "malformed_reasoning_details:index:%d:not_object" index)
 ;;
 
-let reasoning_details_of_json = function
-  | `List details -> List.filter_map reasoning_detail_of_json details
-  | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
+let reasoning_details_of_message msg =
+  match assoc_field_opt "reasoning_details" msg with
+  | None -> Ok None
+  | Some (`List details) ->
+    let rec loop index acc = function
+      | [] -> Ok (Some (List.rev acc))
+      | detail :: rest ->
+        (match reasoning_detail_of_json ~index detail with
+         | Ok parsed -> loop (index + 1) (parsed :: acc) rest
+         | Error _ as error -> error)
+    in
+    loop 0 [] details
+  | Some (`Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) ->
+    Error "malformed_reasoning_details:not_list"
 ;;
 
 let reasoning_texts_of_details details =
@@ -61,18 +78,19 @@ let reasoning_texts_of_block = function
   | Audio _ -> []
 ;;
 
-let reasoning_content_blocks_of_message msg =
+let reasoning_content_blocks_of_message_result msg =
   let open Yojson.Safe.Util in
   let reasoning_content = non_blank_json_string (msg |> member "reasoning_content") in
-  match reasoning_details_of_json (msg |> member "reasoning_details") with
-  | _ :: _ as details -> [ ReasoningDetails { reasoning_content; details } ]
-  | [] ->
+  let* reasoning_details = reasoning_details_of_message msg in
+  match reasoning_details with
+  | Some details -> Ok [ ReasoningDetails { reasoning_content; details } ]
+  | None ->
     (match reasoning_content with
-     | Some content -> [ Thinking { signature = None; content } ]
+     | Some content -> Ok [ Thinking { signature = None; content } ]
      | None ->
        (match non_blank_json_string (msg |> member "reasoning") with
-        | Some content -> [ Thinking { signature = None; content } ]
-        | None -> []))
+        | Some content -> Ok [ Thinking { signature = None; content } ]
+        | None -> Ok []))
 ;;
 
 let text_of_openai_content_block = function
@@ -307,9 +325,10 @@ let telemetry_of_openai_json json =
         let texts =
           if msg = `Null
           then []
-          else
-            reasoning_content_blocks_of_message msg
-            |> List.concat_map reasoning_texts_of_block
+          else (
+            match reasoning_content_blocks_of_message_result msg with
+            | Ok blocks -> List.concat_map reasoning_texts_of_block blocks
+            | Error (_msg : string) -> [])
         in
         match texts with
         | [] -> None
@@ -370,7 +389,7 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
        MiniMax split reasoning stays as [ReasoningDetails] so the original
        provider message shape can be replayed without overloading visible or
        redacted thinking channels. Other reasoning text stays [Thinking]. *)
-    let thinking_blocks = reasoning_content_blocks_of_message msg in
+    let* thinking_blocks = reasoning_content_blocks_of_message_result msg in
     let stop_reason =
       (* SSOT: Stop_reason_wire owns the wire finish-reason -> stop_reason table
          and the StopToolUse => has-tool-block invariant (previously duplicated

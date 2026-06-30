@@ -330,6 +330,51 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
      | _ -> false)
 ;;
 
+let test_parse_reasoning_details_rejects_malformed () =
+  let expect_error label expected_prefix reasoning_details =
+    let json =
+      response_json
+        ~content:(`String "")
+        ~finish_reason:"tool_calls"
+        ~message_fields:
+          [ "reasoning_content", `String "use weather tool"
+          ; "reasoning_details", reasoning_details
+          ; ( "tool_calls"
+            , `List
+                [ `Assoc
+                    [ "id", `String "call-1"
+                    ; "type", `String "function"
+                    ; ( "function"
+                      , `Assoc
+                          [ "name", `String "get_weather"
+                          ; "arguments", `String {|{"location":"San Francisco, US"}|}
+                          ] )
+                    ]
+                ] )
+          ]
+        ()
+    in
+    match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+    | Error msg -> check_bool label true (String.starts_with ~prefix:expected_prefix msg)
+    | Ok _ -> Alcotest.fail (label ^ " should fail closed")
+  in
+  expect_error
+    "non-list reasoning_details"
+    "malformed_reasoning_details:not_list"
+    (`Assoc [ "text", `String "bad shape" ]);
+  expect_error
+    "non-object reasoning detail"
+    "malformed_reasoning_details:index:1:not_object"
+    (`List
+        [ `Assoc
+            [ "type", `String "reasoning.text"
+            ; "id", `String "reasoning-text-1"
+            ; "text", `String "valid"
+            ]
+        ; `String "bad detail"
+        ])
+;;
+
 let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
   (* End-to-end #2236 regression guard. Provider-agnostic: it exercises the
      Types<->serialize boundary every OpenAI-compatible family (DeepSeek, Kimi,
@@ -2276,6 +2321,10 @@ let () =
             "reasoning_details and tool_calls coexist"
             `Quick
             test_parse_reasoning_details_and_tool_calls_coexist
+        ; Alcotest.test_case
+            "reasoning_details rejects malformed"
+            `Quick
+            test_parse_reasoning_details_rejects_malformed
         ; Alcotest.test_case
             "reasoning-only stays Thinking and is never re-injected on replay"
             `Quick
