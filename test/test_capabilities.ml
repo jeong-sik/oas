@@ -1627,6 +1627,21 @@ base = 17
        | Ok _ -> Alcotest.fail "wrong-type model catalog base should reject")
 ;;
 
+let test_model_catalog_rejects_empty_provider_name () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-provider-name"
+provider_name = "   "
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions provider_name" msg "provider_name";
+         check_contains "mentions empty" msg "must not be empty"
+       | Ok _ -> Alcotest.fail "empty model catalog provider_name should reject")
+;;
+
 let test_model_catalog_rejects_unknown_accepted_reasoning_effort () =
   with_temp_model_catalog
     {|
@@ -1957,6 +1972,10 @@ let () =
             "model catalog rejects wrong-type base"
             `Quick
             test_model_catalog_rejects_wrong_type_base_label
+        ; test_case
+            "model catalog rejects empty provider_name"
+            `Quick
+            test_model_catalog_rejects_empty_provider_name
         ; test_case
             "model catalog rejects unknown accepted reasoning effort"
             `Quick

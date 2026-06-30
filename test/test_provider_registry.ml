@@ -215,10 +215,10 @@ let test_find_capable_composite () =
 
 (* ── Default registry ───────────────────────────────── *)
 
-let test_default_has_14 () =
+let test_default_has_18 () =
   let reg = Provider_registry.default () in
   let all = Provider_registry.all reg in
-  check int "14 known providers" 14 (List.length all);
+  check int "18 known providers" 18 (List.length all);
   check bool "llama exists" true (Option.is_some (Provider_registry.find reg "nous"));
   check bool "ollama exists" true (Option.is_some (Provider_registry.find reg "ollama"));
   check
@@ -256,7 +256,11 @@ let test_default_has_14 () =
     bool
     "siliconflow exists"
     true
-    (Option.is_some (Provider_registry.find reg "siliconflow"))
+    (Option.is_some (Provider_registry.find reg "siliconflow"));
+  check bool "xai exists" true (Option.is_some (Provider_registry.find reg "xai"));
+  check bool "mistral exists" true (Option.is_some (Provider_registry.find reg "mistral"));
+  check bool "cohere exists" true (Option.is_some (Provider_registry.find reg "cohere"));
+  check bool "mimo exists" true (Option.is_some (Provider_registry.find reg "mimo"))
 ;;
 
 let test_default_capabilities () =
@@ -1074,7 +1078,7 @@ let () =
         ; test_case "requires_any" `Quick test_requires_any
         ] )
     ; ( "default"
-      , [ test_case "has 14 providers" `Quick test_default_has_14
+      , [ test_case "has 18 providers" `Quick test_default_has_18
         ; test_case "correct capabilities" `Quick test_default_capabilities
         ; test_case "ollama_cloud entry" `Quick test_default_ollama_cloud_entry
         ; test_case "deepseek entry" `Quick test_default_deepseek_entry

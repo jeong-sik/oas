@@ -3,6 +3,7 @@
 type model_entry =
   { id_prefix : string
   ; base_label : string option
+  ; provider_name : string option
   ; max_context_tokens : int option
   ; max_output_tokens : int option
   ; supports_tools : bool option
@@ -55,6 +56,17 @@ let find_string_field ~entry_id key toml =
   | None -> Ok None
   | exception Otoml.Type_error _ ->
     Error (Printf.sprintf "model entry %S field %S expected string" entry_id key)
+;;
+
+let non_empty_string_field ~entry_id key toml =
+  match find_string_field ~entry_id key toml with
+  | Error _ as e -> e
+  | Ok None -> Ok None
+  | Ok (Some raw) ->
+    let value = String.lowercase_ascii (String.trim raw) in
+    if value = ""
+    then Error (Printf.sprintf "model entry %S field %S must not be empty" entry_id key)
+    else Ok (Some value)
 ;;
 
 let canonical_string_opt ~entry_id key ~allowed toml =
@@ -162,6 +174,9 @@ let parse_entry entry_toml =
        , Ok assistant_tool_content_format
        , Ok accepted_reasoning_efforts ) ->
        let base_label_result = find_string_field ~entry_id:id_prefix "base" entry_toml in
+       let provider_name_result =
+         non_empty_string_field ~entry_id:id_prefix "provider_name" entry_toml
+       in
        let modality_priority_result =
          canonical_string_opt
            ~entry_id:id_prefix
@@ -185,21 +200,25 @@ let parse_entry entry_toml =
        in
        (match
           ( base_label_result
+          , provider_name_result
           , modality_priority_result
           , thinking_control_format_result
           , preserve_thinking_control_format_result )
         with
-        | (Error _ as e), _, _, _
-        | _, (Error _ as e), _, _
-        | _, _, (Error _ as e), _
-        | _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _, _
+        | _, (Error _ as e), _, _, _
+        | _, _, (Error _ as e), _, _
+        | _, _, _, (Error _ as e), _
+        | _, _, _, _, (Error _ as e) -> e
         | ( Ok base_label
+          , Ok provider_name
           , Ok modality_priority
           , Ok thinking_control_format
           , Ok preserve_thinking_control_format ) ->
           Ok
             { id_prefix
             ; base_label
+            ; provider_name
             ; max_context_tokens = find_int_opt entry_toml [ "max_context_tokens" ]
             ; max_output_tokens = find_int_opt entry_toml [ "max_output_tokens" ]
             ; supports_tools = find_bool_opt entry_toml [ "supports_tools" ]
@@ -308,6 +327,12 @@ let lookup t model_id =
        let prefix = String.lowercase_ascii entry.id_prefix in
        String.starts_with ~prefix m)
     sorted_t
+;;
+
+let provider_name_for_model_id t model_id =
+  match lookup t model_id with
+  | Some { provider_name = Some provider_name; _ } -> Some provider_name
+  | Some _ | None -> None
 ;;
 
 type env_cache =
