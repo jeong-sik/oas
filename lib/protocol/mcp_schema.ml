@@ -10,6 +10,7 @@ let json_schema_type_to_param_type_result = function
   | "boolean" -> Ok Boolean
   | "array" -> Ok Array
   | "object" -> Ok Object
+  | "null" -> Ok Null
   | value -> Error (Printf.sprintf "unsupported JSON Schema type %S" value)
 ;;
 
@@ -17,15 +18,6 @@ let json_schema_type_to_param_type value =
   match json_schema_type_to_param_type_result value with
   | Ok param_type -> param_type
   | Error detail -> invalid_arg detail
-;;
-
-let json_schema_type_member_to_param_type_option type_name =
-  match type_name with
-  | "null" -> Ok None
-  | value ->
-    (match json_schema_type_to_param_type_result value with
-     | Ok param_type -> Ok (Some param_type)
-     | Error _ as error -> error)
 ;;
 
 let required_list_of_schema schema =
@@ -47,33 +39,36 @@ let required_list_of_schema schema =
 ;;
 
 let property_type_from_union name values =
+  let add_union_type (selected_concrete, has_null) item =
+    match item with
+    | `String type_name ->
+      (match json_schema_type_to_param_type_result type_name with
+       | Ok Null -> Ok (selected_concrete, true)
+       | Ok param_type ->
+         (match selected_concrete with
+          | None -> Ok (Some param_type, has_null)
+          | Some selected when selected = param_type -> Ok (selected_concrete, has_null)
+          | Some _ ->
+            Error
+              (Printf.sprintf
+                 "property %S type array must contain exactly one non-null type"
+                 name))
+       | Error _ as error -> error)
+    | _ -> Error (Printf.sprintf "property %S type array must contain only strings" name)
+  in
   let result =
     List.fold_left
       (fun acc item ->
-         match acc, item with
-         | Error _, _ -> acc
-         | Ok selected, `String type_name ->
-           (match json_schema_type_member_to_param_type_option type_name with
-            | Ok (Some param_type) ->
-              (match selected with
-               | None -> Ok (Some param_type)
-               | Some selected_param_type when selected_param_type = param_type ->
-                 Ok selected
-               | Some _ ->
-                 Error
-                   (Printf.sprintf
-                      "property %S type array must contain exactly one non-null type"
-                      name))
-            | Ok None -> Ok selected
-            | Error _ as error -> error)
-         | Ok _, _ ->
-           Error (Printf.sprintf "property %S type array must contain only strings" name))
-      (Ok None)
+         match acc with
+         | Error _ -> acc
+         | Ok state -> add_union_type state item)
+      (Ok (None, false))
       values
   in
   match result with
-  | Ok (Some param_type) -> Ok param_type
-  | Ok None ->
+  | Ok (Some param_type, _) -> Ok param_type
+  | Ok (None, true) -> Ok Null
+  | Ok (None, false) ->
     Error
       (Printf.sprintf
          "property %S type array must include a supported non-null type"
@@ -88,7 +83,7 @@ let property_type name prop =
      | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
      | Some (`List values) -> property_type_from_union name values
      | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
-     | None -> Error (Printf.sprintf "property %S is missing type" name))
+     | None -> Ok Any_json)
   | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
 ;;
 
