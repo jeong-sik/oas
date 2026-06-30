@@ -303,6 +303,7 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
                ~preserve_thinking:config.config.preserve_thinking)
         | Llm_provider.Capabilities.No_thinking_control
         | Llm_provider.Capabilities.Thinking_object
+        | Llm_provider.Capabilities.Thinking_object_adaptive
         | Llm_provider.Capabilities.Thinking_object_only
         | Llm_provider.Capabilities.Chat_template_kwargs
         | Llm_provider.Capabilities.Chat_template_token

@@ -18,6 +18,7 @@ type toggle_default =
 type toggle_wire =
   | No_toggle
   | Thinking_object of { includes_reasoning_effort : bool }
+  | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
   | Chat_template_token

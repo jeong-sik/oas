@@ -36,8 +36,8 @@ type entry =
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
     (** Canonical thinking-wire format the model uses (none / thinking_object /
-        thinking_object_only / chat_template_kwargs / chat_template_token /
-        reasoning_effort / enable_thinking). Parsed + applied in
+        thinking_object_adaptive / thinking_object_only / chat_template_kwargs /
+        chat_template_token / reasoning_effort / enable_thinking). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
         entry silently dropped the model's thinking knob (RFC-OAS-023). *)
   ; thinking_control_token : string option

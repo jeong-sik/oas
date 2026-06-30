@@ -20,6 +20,7 @@ let normalize raw = String.lowercase_ascii (String.trim raw)
 let thinking_control_format_values =
   [ "none"
   ; "thinking_object"
+  ; "thinking_object_adaptive"
   ; "thinking_object_only"
   ; "chat_template_kwargs"
   ; "chat_template_token"

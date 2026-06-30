@@ -15,6 +15,8 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
+  | Thinking_object_adaptive
+  (** Top-level [thinking] object whose enabled value is [adaptive]. *)
   | Thinking_object_only
   (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
@@ -682,6 +684,7 @@ let thinking_control_format_of_manifest_string raw =
   match String.lowercase_ascii (String.trim raw) with
   | "none" -> Some No_thinking_control
   | "thinking_object" -> Some Thinking_object
+  | "thinking_object_adaptive" -> Some Thinking_object_adaptive
   | "thinking_object_only" -> Some Thinking_object_only
   | "chat_template_kwargs" -> Some Chat_template_kwargs
   | "chat_template_token" -> Some Chat_template_token

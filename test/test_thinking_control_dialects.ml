@@ -373,6 +373,55 @@ let test_deepseek_openai_compat_uses_thinking_object () =
   check_member_absent "think" json
 ;;
 
+let test_minimax_m3_openai_compat_uses_adaptive_thinking_object () =
+  let enabled_config = openai_compat_config ~enable_thinking:true "minimax-m3" in
+  let enabled_json =
+    BOR.build_request ~config:enabled_config ~messages:[ user_msg "hi" ] ()
+    |> json_of_body
+  in
+  check
+    string
+    "enabled thinking type"
+    "adaptive"
+    (enabled_json |> member "thinking" |> member "type" |> to_string);
+  check_member_absent "reasoning_effort" enabled_json;
+  check_member_absent "chat_template_kwargs" enabled_json;
+  let disabled_config = openai_compat_config ~enable_thinking:false "minimax-m3" in
+  let disabled_json =
+    BOR.build_request ~config:disabled_config ~messages:[ user_msg "hi" ] ()
+    |> json_of_body
+  in
+  check
+    string
+    "disabled thinking type"
+    "disabled"
+    (disabled_json |> member "thinking" |> member "type" |> to_string);
+  let auto_tool_choice_config =
+    PC.make
+      ~kind:OpenAI_compat
+      ~model_id:"minimax-m3"
+      ~base_url:"https://api.minimaxi.com/v1"
+      ~tool_choice:Auto
+      ()
+  in
+  let auto_tool_choice_json =
+    BOR.build_request ~config:auto_tool_choice_config ~messages:[ user_msg "hi" ] ()
+    |> json_of_body
+  in
+  check_member_absent "tool_choice" auto_tool_choice_json;
+  let dialect = RD.for_provider_config enabled_config in
+  check
+    string
+    "toggle wire"
+    "thinking_object_adaptive"
+    (RD.toggle_wire_to_string dialect.toggle_wire);
+  check
+    string
+    "replay policy"
+    "preserve_always"
+    (RD.replay_policy_to_string dialect.replay_policy)
+;;
+
 let test_deepseek_reasoning_dialect_semantics () =
   let config =
     PC.make
@@ -914,6 +963,10 @@ let () =
               "deepseek uses thinking object"
               `Quick
               test_deepseek_openai_compat_uses_thinking_object
+          ; test_case
+              "minimax m3 uses adaptive thinking object"
+              `Quick
+              test_minimax_m3_openai_compat_uses_adaptive_thinking_object
           ; test_case
               "deepseek reasoning dialect semantics"
               `Quick

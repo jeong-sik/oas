@@ -315,7 +315,9 @@ cache_write_multiplier = 1.0
 cache_read_multiplier = 0.02
 
 # MiniMax Models
-# Source: ollama-cloud /api/show 2026-06-17 caps=[completion,tools,thinking,vision].
+# Source: official MiniMax docs checked 2026-06-30:
+# - https://platform.minimaxi.com/docs/api-reference/text-chat-openai.md
+# - https://platform.minimaxi.com/docs/guides/text-m3-function-call.md
 # minimax-m3 is the memory-os librarian runtime (runtime.toml [runtime].librarian).
 # Without this entry it resolved to provider_default (OpenAI_compat) whose
 # thinking_control_format = No_thinking_control, so the librarian's
@@ -323,22 +325,27 @@ cache_read_multiplier = 0.02
 # polluted/emptied the JSON-mode body (librarian "empty response" / "invalid episode
 # JSON"). This entry supersedes the inert MASC runtime.toml [models.minimax-m3.capabilities]
 # block (#21521), which OAS for_model_id never reads.
-# thinking_control_format mirrors the sibling ollama-cloud deepseek-v4 entries
-# ("thinking_object" -> request emits {"thinking":{"type":"disabled"}}); verify against
-# a live ollama-cloud probe if minimax uses a different disable dialect.
+# MiniMax-M3 Chat uses thinking.type adaptive|disabled. The Chat schema documents
+# tools but no tool_choice or response_format field, and its interleaved-thinking
+# guide requires replaying the complete assistant message including reasoning_details
+# or embedded <think> content.
 # Pricing intentionally omitted (float option): minimax-m3 rates not yet confirmed.
 [[models]]
 id_prefix = "minimax-m3"
 base = "openai_chat"
 max_context_tokens = 524288
 supports_tools = true
-supports_tool_choice = true
+supports_tool_choice = false
+supports_required_tool_choice = false
+supports_named_tool_choice = false
 supports_reasoning = true
 supports_extended_thinking = true
-supports_reasoning_budget = true
-thinking_control_format = "thinking_object"
-supports_response_format_json = true
-supports_structured_output = true
+supports_reasoning_budget = false
+thinking_control_format = "thinking_object_adaptive"
+reasoning_replay = "preserve_always"
+supports_response_format_json = false
+supports_structured_output = false
+supports_multimodal_inputs = true
 supports_image_input = true
 supports_native_streaming = true
 

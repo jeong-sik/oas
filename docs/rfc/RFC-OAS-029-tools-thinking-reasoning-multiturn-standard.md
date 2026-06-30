@@ -188,7 +188,7 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 
 경계는 대체로 올바르다: MASC는 `Llm_provider.Capabilities`를 typed로 직접 소비하고(`runtime_wire_overlay.ml: agent_capabilities_of_llm_capabilities`가 OAS variant를 verbatim 통과) model 이름 string-match로 reasoning을 결정하지 않는다. OAS는 MASC를 모른다.
 
-단 하나의 경계 부채(MASC측, 정보용): `masc lib/runtime/runtime_schema.ml`이 자체 `thinking_control_format`를 **재선언(5/7 variant, `Thinking_object_only`/`Enable_thinking` 누락)** 한다. parse는 unknown에서 fail-closed(silent 아님)지만, OAS에 8번째 variant가 추가돼도 MASC 컴파일이 깨지지 않아 drift 무방비다. 게다가 그 필드는 wire 경로에서 읽히지 않아 운영자 TOML 설정이 inert no-op(의도-침묵)이다. **P2 SSOT 부채(데이터 경로는 안전).** 해결: 필드 삭제(OAS catalog가 단일 SSOT) 또는 OAS variant 집합에 대한 exhaustive drift 테스트. 이는 OAS 변경이 아니라 MASC 후속 작업이며, 본 RFC의 S9.1을 경계 너머로 확장한 사례로 기록한다. Tracking issue: [jeong-sik/masc#22654](https://github.com/jeong-sik/masc/issues/22654).
+단 하나의 경계 부채(MASC측, 정보용): `masc lib/runtime/runtime_schema.ml`이 자체 `thinking_control_format`를 **재선언(5/9 variant, `Thinking_object_adaptive`/`Thinking_object_only`/`Enable_thinking`/`Ollama_think` 누락)** 한다. parse는 unknown에서 fail-closed(silent 아님)지만, OAS에 새 variant가 추가돼도 MASC 컴파일이 깨지지 않아 drift 무방비다. 게다가 그 필드는 wire 경로에서 읽히지 않아 운영자 TOML 설정이 inert no-op(의도-침묵)이다. **P2 SSOT 부채(데이터 경로는 안전).** 해결: 필드 삭제(OAS catalog가 단일 SSOT) 또는 OAS variant 집합에 대한 exhaustive drift 테스트. 이는 OAS 변경이 아니라 MASC 후속 작업이며, 본 RFC의 S9.1을 경계 너머로 확장한 사례로 기록한다. Tracking issue: [jeong-sik/masc#22654](https://github.com/jeong-sik/masc/issues/22654).
 
 ## 7. Relationships
 - **RFC-OAS-023** (capability axis reshape) — GLM/MiniMax dialect 작업과 model×transport two-record가 여기 land. 본 RFC는 그 작업이 만족해야 할 표준을 정의한다.

@@ -8,6 +8,7 @@ type toggle_default =
 type toggle_wire =
   | No_toggle
   | Thinking_object of { includes_reasoning_effort : bool }
+  | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
   | Chat_template_token
@@ -88,6 +89,13 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; effort_alias_policy = Deepseek_high_or_max
     ; sampling_policy = Ignored_when_thinking deepseek_ignored_sampling_params
     ; replay_policy = Drop_without_tool_preserve_with_tool
+    ; streaming = Delta_field "reasoning_content"
+    }
+  | Thinking_object_adaptive ->
+    { default with
+      toggle_default = Enabled
+    ; toggle_wire = Thinking_object_adaptive
+    ; preserve_wire
     ; streaming = Delta_field "reasoning_content"
     }
   | Thinking_object_only ->
@@ -270,6 +278,11 @@ let request_control_fields
        ("thinking", `Assoc [ "type", `String "enabled" ]) :: normalized_effort_field ()
      | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
      | None -> [])
+  | Thinking_object_adaptive ->
+    (match enable_thinking with
+     | Some true -> [ "thinking", `Assoc [ "type", `String "adaptive" ] ]
+     | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+     | None -> [])
   | Thinking_object_only ->
     let control =
       thinking_object_only_control dialect ~enable_thinking ~preserve_thinking
@@ -359,6 +372,7 @@ let sampling_params_ignored_for_format
   = function
   | Capabilities.Thinking_object -> deepseek_ignored_sampling_params
   | Capabilities.No_thinking_control
+  | Capabilities.Thinking_object_adaptive
   | Capabilities.Thinking_object_only
   | Capabilities.Chat_template_kwargs
   | Capabilities.Chat_template_token
@@ -393,6 +407,7 @@ let toggle_wire_to_string = function
   | No_toggle -> "no_toggle"
   | Thinking_object { includes_reasoning_effort = true } -> "thinking_object"
   | Thinking_object { includes_reasoning_effort = false } -> "thinking_object_no_effort"
+  | Thinking_object_adaptive -> "thinking_object_adaptive"
   | Thinking_object_only -> "thinking_object_only"
   | Chat_template_kwargs -> "chat_template_kwargs"
   | Chat_template_token -> "chat_template_token"

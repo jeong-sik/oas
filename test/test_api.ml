@@ -646,6 +646,19 @@ let deepseek_provider_config : Provider.config =
   }
 ;;
 
+let minimax_m3_provider_config : Provider.config =
+  { Provider.provider =
+      Provider.OpenAICompat
+        { base_url = "https://api.minimaxi.com/v1"
+        ; auth_header = None
+        ; path = "/chat/completions"
+        ; static_token = None
+        }
+  ; model_id = "minimax-m3"
+  ; api_key_env = "MINIMAX_API_KEY"
+  }
+;;
+
 let test_build_openai_body_deepseek_uses_dialect_controls () =
   let state =
     { Types.config =
@@ -678,6 +691,47 @@ let test_build_openai_body_deepseek_uses_dialect_controls () =
   check string "low maps high" "high" (json |> member "reasoning_effort" |> to_string);
   check bool "temperature omitted" true (json |> member "temperature" = `Null);
   check bool "top_p omitted" true (json |> member "top_p" = `Null)
+;;
+
+let test_build_openai_body_minimax_uses_public_projection_dialect_controls () =
+  let state =
+    make_state
+      ~model:minimax_m3_provider_config.model_id
+      ~enable_thinking:true
+      ~tool_choice:Types.Auto
+      ()
+  in
+  let tool_json =
+    `Assoc
+      [ "name", `String "calculator"
+      ; "description", `String "math"
+      ; "input_schema", `Assoc [ "type", `String "object" ]
+      ]
+  in
+  let json =
+    Api.build_openai_body
+      ~provider_config:minimax_m3_provider_config
+      ~config:state
+      ~messages:[]
+      ~tools:[ tool_json ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  let open Yojson.Safe.Util in
+  check
+    string
+    "thinking adaptive"
+    "adaptive"
+    (json |> member "thinking" |> member "type" |> to_string);
+  check bool "reasoning split enabled" true (json |> member "reasoning_split" |> to_bool);
+  check bool "tools preserved" false (member_absent json "tools");
+  check bool "tool_choice omitted" true (member_absent json "tool_choice");
+  check bool "reasoning_effort omitted" true (member_absent json "reasoning_effort");
+  check
+    bool
+    "chat_template_kwargs omitted"
+    true
+    (member_absent json "chat_template_kwargs")
 ;;
 
 let test_build_openai_body_deepseek_replays_tool_reasoning_only () =
@@ -1918,6 +1972,10 @@ let () =
             "deepseek dialect controls"
             `Quick
             test_build_openai_body_deepseek_uses_dialect_controls
+        ; test_case
+            "minimax public projection dialect controls"
+            `Quick
+            test_build_openai_body_minimax_uses_public_projection_dialect_controls
         ; test_case
             "deepseek tool reasoning replay"
             `Quick

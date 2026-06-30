@@ -9,6 +9,8 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
+  | Thinking_object_adaptive
+  (** Top-level [thinking] object whose enabled value is [adaptive]. *)
   | Thinking_object_only
   (** Kimi-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs

@@ -171,6 +171,7 @@ Accepted `thinking_control_format` values are:
 
 - `none`
 - `thinking_object` (top-level `thinking` object plus `reasoning_effort`)
+- `thinking_object_adaptive` (top-level `thinking` object with `type: "adaptive"` / `type: "disabled"`)
 - `thinking_object_only` (top-level `thinking` object only)
 - `chat_template_kwargs`
 - `chat_template_token` (inject the catalog/manifest `thinking_control_token` into the chat template)

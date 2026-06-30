@@ -211,6 +211,7 @@ let parse_thinking_control_format = function
      | "" -> Ok None
      | "none" -> Ok (Some Capabilities.No_thinking_control)
      | "thinking_object" -> Ok (Some Capabilities.Thinking_object)
+     | "thinking_object_adaptive" -> Ok (Some Capabilities.Thinking_object_adaptive)
      | "thinking_object_only" -> Ok (Some Capabilities.Thinking_object_only)
      | "chat_template_kwargs" -> Ok (Some Capabilities.Chat_template_kwargs)
      | "chat_template_token" -> Ok (Some Capabilities.Chat_template_token)
@@ -221,8 +222,8 @@ let parse_thinking_control_format = function
        Error
          (Printf.sprintf
             "unknown thinking_control_format %S (canonical: none, thinking_object, \
-             thinking_object_only, chat_template_kwargs, chat_template_token, \
-             ollama_think, reasoning_effort, enable_thinking)"
+             thinking_object_adaptive, thinking_object_only, chat_template_kwargs, \
+             chat_template_token, ollama_think, reasoning_effort, enable_thinking)"
             other))
 ;;
 

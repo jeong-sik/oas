@@ -56,6 +56,7 @@ type modality =
 type thinking_control_format = Llm_provider.Capabilities.thinking_control_format =
   | No_thinking_control
   | Thinking_object
+  | Thinking_object_adaptive (** @since 0.207.33 *)
   | Thinking_object_only (** @since 0.196.11 *)
   | Chat_template_kwargs
   | Chat_template_token
