@@ -242,13 +242,19 @@ let test_cost_scales_with_tokens =
 
 let with_repo_model_catalog f =
   match Llm_provider.Model_catalog.global () with
-  | None ->
-    Alcotest.fail
-      "OAS_MODEL_CATALOG did not load the repository models.toml for capability property \
-       tests"
   | Some catalog ->
     Llm_provider.Model_catalog.set_global catalog;
     Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f
+  | None ->
+    let candidates = [ "models.toml"; "../models.toml"; "../../models.toml" ] in
+    (match List.find_opt Sys.file_exists candidates with
+     | None -> Alcotest.fail "models.toml not found for capability property tests"
+     | Some path ->
+       (match Llm_provider.Model_catalog.load_file path with
+        | Error msg -> Alcotest.fail (Printf.sprintf "models.toml should parse: %s" msg)
+        | Ok catalog ->
+          Llm_provider.Model_catalog.set_global catalog;
+          Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f))
 ;;
 
 let test_local_provider_resolve_always_succeeds =

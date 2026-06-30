@@ -417,7 +417,7 @@
   test_v024_fixes
   test_vcs_graph_snapshot)
  (libraries agent_sdk agent_sdk.llm_provider alcotest eio_main)
- (deps ../docs/example-capability-manifest.json)
+ (deps ../docs/example-capability-manifest.json ../models.toml)
  (action
   (run %{test})))
 
