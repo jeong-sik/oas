@@ -1,7 +1,7 @@
 (** ZhipuAI Glm native backend.
 
     Openai wire format with Glm-specific extensions:
-    - [thinking] parameter: [{"type":"enabled","clear_thinking":true}]
+    - thinking control parameter with type=enabled and clear_thinking=true
     - [reasoning_content] in response message and streaming delta
     - String error codes (e.g., ["1305"])
     - Temperature range 0-1 (not 0-2)
@@ -89,15 +89,6 @@ exception Glm_api_error of glm_error
 
 (* ── Request building ────────────────────────────── *)
 
-let clear_thinking_of_config (config : Provider_config.t) =
-  match config.clear_thinking with
-  | Some clear -> clear
-  | None ->
-    (match config.preserve_thinking with
-     | Some preserve -> not preserve
-     | None -> true)
-;;
-
 let without_field name fields =
   List.filter (fun (key, _) -> not (String.equal key name)) fields
 ;;
@@ -135,27 +126,12 @@ let build_request
   in
   match base_assoc with
   | `Assoc fields ->
-    (* [thinking] single-owner normalization. The shared request builder's
-       ZAI/GLM branch may already have emitted a [thinking] field (it fires for
-       api.z.ai base URLs); strip it so Backend_glm is the authoritative owner
-       and the key is never duplicated for [kind:Glm] (mirrors the response-path
-       dedup at [extract_reasoning_content]). Bare GLM via [kind:OpenAI_compat]
-       does not pass through here and is covered by that shared branch instead.
-       The capability-driven unification of both emitters via
-       [Glm_enable_thinking] is deferred to the RFC-OAS-023 axis reshape, which
-       needs model-based [capabilities_of_config] resolution. *)
-    let fields = without_field "thinking" fields in
+    (* GLM thinking-control fields are emitted by the shared
+       [Reasoning_dialect.request_control_fields] path inside the OpenAI
+       request builder. Keep Backend_glm limited to GLM-only post-processing
+       that is not a thinking builder: Z.AI's [tool_choice=auto] normalization
+       and [tool_stream]. *)
     let fields = normalize_tool_choice_fields ~tool_choice:config.tool_choice fields in
-    let fields =
-      match config.enable_thinking with
-      | Some true ->
-        let clear_thinking = clear_thinking_of_config config in
-        ( "thinking"
-        , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
-        :: fields
-      | Some false -> ("thinking", `Assoc [ "type", `String "disabled" ]) :: fields
-      | None -> fields
-    in
     let fields =
       (* GLM streams tool-call arguments incrementally only when both
          [stream] and [tool_stream] are set; [config.tool_stream] defaults
@@ -378,12 +354,10 @@ let%test "build_request maps preserve_thinking to GLM clear_thinking=false" =
 ;;
 
 let%test "build_request emits exactly one thinking key for ZAI GLM (RFC-OAS-023)" =
-  (* Regression guard for the duplicate-[thinking]-key bug: before the fix,
-     both Backend_glm.build_request (overlay) and the shared OpenAI-compat
-     builder (No_thinking_control + is_zai_glm workaround) emitted a [thinking]
-     field, producing a duplicate JSON key. The fix routes GLM thinking through
-     the single [Glm_enable_thinking] capability path. Yojson [member] is blind
-     to duplicates, so count the keys directly on the assoc list. *)
+  (* Regression guard for the duplicate-[thinking]-key bug: GLM thinking now
+     comes from the shared OpenAI-compatible request builder. Backend_glm must
+     not add a second key. Yojson [member] is blind to duplicates, so count the
+     keys directly on the assoc list. *)
   let config =
     Provider_config.make
       ~kind:Glm
