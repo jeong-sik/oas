@@ -450,6 +450,15 @@ type content_delta =
   | ThinkingDelta of string
   | ThinkingSignatureDelta of string
   | InputJsonDelta of string
+  (** Incremental fragment of a tool-call arguments JSON string. The
+          accumulator appends successive fragments to the block buffer. *)
+  | InputJsonSnapshot of string
+  (** A whole tool-call arguments value serialized in a single delta, used
+          by providers that stream [arguments] as a JSON object/array instead of
+          string fragments. The accumulator replaces the block buffer rather
+          than appending, so a provider that re-emits the same complete value
+          does not concatenate it into invalid JSON (e.g.
+          [{"limit":10}{"limit":10}]). *)
   | MediaDelta of
       { media_type : string
       ; source_type : media_source_kind

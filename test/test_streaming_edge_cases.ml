@@ -259,11 +259,16 @@ let test_openai_object_arguments () =
   let chunk = require_some "openai object args" (S.parse_openai_sse_chunk object_args) in
   match chunk.delta_tool_calls with
   | [ tc ] ->
-    check
-      (option string)
-      "object arguments serialized (not dropped to None)"
-      (Some {|{"x":1}|})
-      tc.tc_arguments
+    (match tc.tc_arguments with
+     | Some (S.Args_complete s) ->
+       check
+         string
+         "object arguments serialized as a complete value (not dropped to None)"
+         {|{"x":1}|}
+         s
+     | Some (S.Args_fragment _) ->
+       fail "object arguments must be tagged Args_complete, not a fragment"
+     | None -> fail "object arguments dropped to None")
   | _ -> fail "expected exactly one tool call"
 ;;
 
@@ -292,7 +297,7 @@ let test_openai_event_edge_branches () =
     { S.tc_index = 0
     ; tc_id = Some "call-1"
     ; tc_name = Some "search"
-    ; tc_arguments = Some ""
+    ; tc_arguments = Some (S.Args_fragment "")
     }
   in
   let tc_none = { S.tc_index = 0; tc_id = None; tc_name = None; tc_arguments = None } in
@@ -427,9 +432,15 @@ let test_ollama_parse_edge_shapes () =
   check int "three tool calls" 3 (List.length args_variants.oll_tool_calls);
   (match args_variants.oll_tool_calls with
    | [ first; second; third ] ->
-     check (option string) "null args" None first.oll_tc_arguments;
-     check (option string) "string args" (Some {|{"x":1}|}) second.oll_tc_arguments;
-     check (option string) "bool args" (Some "true") third.oll_tc_arguments
+     (match first.oll_tc_arguments with
+      | None -> ()
+      | Some _ -> fail "expected None for null args");
+     (match second.oll_tc_arguments with
+      | Some (S.Args_fragment s) -> check string "string args" {|{"x":1}|} s
+      | _ -> fail "expected Args_fragment for string args");
+     (match third.oll_tc_arguments with
+      | Some (S.Args_complete s) -> check string "bool args" "true" s
+      | _ -> fail "expected Args_complete for bool args")
    | _ -> fail "unexpected tool calls");
   (match args_variants.oll_timings with
    | Some t ->
@@ -473,7 +484,7 @@ let test_ollama_event_edge_branches () =
     { S.oll_tc_index = 0
     ; oll_tc_id = Some "call"
     ; oll_tc_name = Some "lookup"
-    ; oll_tc_arguments = Some ""
+    ; oll_tc_arguments = Some (S.Args_fragment "")
     }
   in
   let tc_none =

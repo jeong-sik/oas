@@ -113,9 +113,9 @@ let test_synthetic_events_for_tool_use () =
      Alcotest.(check bool) "tool_name" true (tool_name = Some "extract_person")
    | _ -> Alcotest.fail "expected ContentBlockStart");
   (match List.nth events 2 with
-   | ContentBlockDelta { index; delta = InputJsonDelta _ } ->
+   | ContentBlockDelta { index; delta = InputJsonSnapshot _ } ->
      Alcotest.(check int) "delta index" 0 index
-   | _ -> Alcotest.fail "expected InputJsonDelta");
+   | _ -> Alcotest.fail "expected InputJsonSnapshot");
   (match List.nth events 3 with
    | ContentBlockStop { index } -> Alcotest.(check int) "stop" 0 index
    | _ -> Alcotest.fail "expected ContentBlockStop");
@@ -187,7 +187,8 @@ let test_tool_use_json_parseable () =
   let json_parts = ref [] in
   Streaming.emit_synthetic_events response (fun e ->
     match e with
-    | ContentBlockDelta { delta = InputJsonDelta s; _ } -> json_parts := s :: !json_parts
+    | ContentBlockDelta { delta = InputJsonSnapshot s; _ } ->
+      json_parts := s :: !json_parts
     | _ -> ());
   let combined = String.concat "" (List.rev !json_parts) in
   try
@@ -319,6 +320,9 @@ let test_extract_after_accumulation () =
       in
       (match delta with
        | InputJsonDelta s -> Buffer.add_string buf s
+       | InputJsonSnapshot s ->
+         Buffer.clear buf;
+         Buffer.add_string buf s
        | TextDelta s -> Buffer.add_string buf s
        | ThinkingDelta s -> Buffer.add_string buf s
        | MediaDelta { data; _ } -> Buffer.add_string buf data

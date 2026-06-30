@@ -944,7 +944,7 @@ let test_gemini_stream_tool_first_then_text () =
      let events, _tel = Streaming.gemini_chunk_to_events state chunk in
      (match events with
       | [ ContentBlockStart { index; content_type = "tool_use"; _ }
-        ; ContentBlockDelta { index = d_idx; delta = InputJsonDelta _; _ }
+        ; ContentBlockDelta { index = d_idx; delta = InputJsonSnapshot _; _ }
         ] ->
         check int "tool start index" 0 index;
         check int "tool delta index" 0 d_idx
@@ -1026,7 +1026,8 @@ let test_gemini_stream_function_call_preserves_thought_signature () =
            ; tool_id = Some tool_id
            ; tool_name = Some "search"
            }
-       ; ContentBlockDelta { index = delta_idx; delta = InputJsonDelta {|{"q":"test"}|} }
+       ; ContentBlockDelta
+           { index = delta_idx; delta = InputJsonSnapshot {|{"q":"test"}|} }
        ; MessageDelta { stop_reason = Some StopToolUse; _ }
        ] ->
        check int "redacted index" 0 redacted_idx;
