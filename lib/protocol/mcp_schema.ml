@@ -57,7 +57,8 @@ let property_type_from_union name values =
             | Ok (Some param_type) ->
               (match selected with
                | None -> Ok (Some param_type)
-               | Some selected_param_type when selected_param_type = param_type -> Ok selected
+               | Some selected_param_type when selected_param_type = param_type ->
+                 Ok selected
                | Some _ ->
                  Error
                    (Printf.sprintf

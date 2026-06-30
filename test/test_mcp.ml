@@ -193,6 +193,36 @@ let test_json_schema_union_unknown_type_fails () =
   | Ok _ -> Alcotest.fail "expected unknown union type to fail"
 ;;
 
+let test_json_schema_union_null_only_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "nothing": {"type": ["null"]}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected null-only union type to fail"
+;;
+
+let test_json_schema_union_multiple_concrete_types_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "value": {"type": ["string", "number", "null"]}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected multi-concrete union type to fail"
+;;
+
 (* ── Tool bridge ────────────────────────────────────────────────── *)
 
 let test_mcp_tool_to_sdk_tool () =
@@ -467,6 +497,11 @@ let () =
             "union unknown type fails"
             `Quick
             test_json_schema_union_unknown_type_fails
+        ; test_case "union null-only fails" `Quick test_json_schema_union_null_only_fails
+        ; test_case
+            "union multiple concrete types fails"
+            `Quick
+            test_json_schema_union_multiple_concrete_types_fails
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool
