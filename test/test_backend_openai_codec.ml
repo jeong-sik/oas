@@ -94,7 +94,7 @@ let block_of_fixture json =
   match require_string "block" "type" json with
   | "text" -> Text (require_string "block" "text" json)
   | "thinking" ->
-    Thinking { thinking_type = "reasoning"; content = require_string "block" "text" json }
+    Thinking { signature = None; content = require_string "block" "text" json }
   | "tool_use" ->
     ToolUse
       { id = require_string "block" "id" json
@@ -784,7 +784,7 @@ let test_kimi_replay_trace_preserves_all_historical_reasoning () =
   let messages =
     [ msg
         Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "k-thought:tool" }
+        [ Thinking { signature = None; content = "k-thought:tool" }
         ; ToolUse { id = "call-k"; name = "lookup"; input = `Assoc [] }
         ]
     ; msg
@@ -799,9 +799,7 @@ let test_kimi_replay_trace_preserves_all_historical_reasoning () =
         ]
     ; msg
         Assistant
-        [ Thinking { thinking_type = "reasoning"; content = "k-thought:plain" }
-        ; Text "visible"
-        ]
+        [ Thinking { signature = None; content = "k-thought:plain" }; Text "visible" ]
     ]
   in
   let kimi_dialect = Reasoning_dialect.of_capabilities Capabilities.kimi_capabilities in

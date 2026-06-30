@@ -178,7 +178,7 @@ let%test "raw trace final_text excludes thinking blocks" =
     ; model = "model"
     ; stop_reason = EndTurn
     ; content =
-        [ Thinking { thinking_type = "reasoning"; content = "private reasoning" }
+        [ Thinking { signature = None; content = "private reasoning" }
         ; Text "visible answer"
         ]
     ; usage = None
@@ -193,8 +193,7 @@ let%test "raw trace final_text is absent for thinking-only responses" =
     { Types.id = "resp"
     ; model = "model"
     ; stop_reason = EndTurn
-    ; content =
-        [ Thinking { thinking_type = "reasoning"; content = "private reasoning" } ]
+    ; content = [ Thinking { signature = None; content = "private reasoning" } ]
     ; usage = None
     ; telemetry = None
     }

@@ -310,22 +310,6 @@ let expect_required_tool_choice_rejected label cfg =
   | Ok () -> Alcotest.failf "%s unexpectedly accepted required forced tool_choice" label
 ;;
 
-let expect_forced_tool_choice_rejected label expected cfg =
-  match Llm_provider.Provider_config.validate_tool_choice_request_typed cfg with
-  | Error (Llm_provider.Provider_config.Unsupported_forced_tool_choice { requested; _ })
-    ->
-    Alcotest.(check string)
-      (label ^ " requested")
-      (Types.show_tool_choice expected)
-      (Types.show_tool_choice requested)
-  | Error rejection ->
-    Alcotest.failf
-      "%s expected forced tool_choice rejection, got: %s"
-      label
-      (Llm_provider.Provider_config.tool_choice_request_rejection_to_message rejection)
-  | Ok () -> Alcotest.failf "%s unexpectedly accepted forced tool_choice" label
-;;
-
 let request_tool_choice_field cfg =
   let body =
     Llm_provider.Backend_openai.build_request ~config:cfg ~messages:[] ()
@@ -459,10 +443,7 @@ supports_named_tool_choice = false
            ~tool_choice:Types.Any
            ()
        in
-       expect_forced_tool_choice_rejected
-         "ollama cloud minimax any"
-         Types.Any
-         hosted_minimax_any)
+       expect_required_tool_choice_rejected "ollama cloud minimax any" hosted_minimax_any)
 ;;
 
 let test_all_includes_catalog_entry_once () =
