@@ -509,9 +509,6 @@ let test_ollama_cloud_openai_compat_streams_reasoning_delta () =
      fail "ollama cloud OpenAI-compatible should not use reasoning_details streaming"
    | RD.No_streaming_reasoning ->
      fail "ollama cloud OpenAI-compatible reasoning stream field was dropped"
-   | RD.Delta_reasoning_details ->
-     fail
-       "ollama cloud OpenAI-compatible should not use reasoning_details split streaming"
    | RD.Template_parser ->
      fail "ollama cloud OpenAI-compatible should not use template parser streaming");
   let live_shape =
