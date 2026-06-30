@@ -155,7 +155,15 @@ let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
   check_bool
     "reasoning must NOT be re-injected as assistant answer content on replay"
     false
-    (String.trim content_str = reasoning_text)
+    (String.trim content_str = reasoning_text);
+  (* Stronger than "not equal to the reasoning text": a reasoning-only reply has
+     no Text answer block, so the serialized assistant [content] must be empty.
+     This catches any future leak that smuggles the reasoning into [content] in a
+     transformed shape (truncated, prefixed, re-encoded) rather than verbatim. *)
+  check_string
+    "reasoning-only reply serializes to empty assistant content"
+    ""
+    (String.trim content_str)
 ;;
 
 let test_content_parts_cover_modalities () =
