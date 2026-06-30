@@ -67,7 +67,6 @@ let test_type_mapping () =
     ; "boolean", Types.Boolean
     ; "array", Types.Array
     ; "object", Types.Object
-    ; "unknown_type", Types.String
     ]
   in
   List.iter
@@ -78,6 +77,12 @@ let test_type_mapping () =
          expected
          (Mcp.json_schema_type_to_param_type input))
     cases
+;;
+
+let test_type_mapping_unknown_fails () =
+  match Mcp.json_schema_type_to_param_type_result "unknown_type" with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected unknown JSON Schema type to fail"
 ;;
 
 let test_json_schema_to_params () =
@@ -140,6 +145,82 @@ let test_json_schema_no_description () =
   let params = Mcp.json_schema_to_params schema in
   Alcotest.(check string) "default desc" "" (List.hd params).description;
   Alcotest.check check_param_type "bool type" Types.Boolean (List.hd params).param_type
+;;
+
+let test_json_schema_missing_property_type_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "payload": {"description": "Any payload"}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected missing property type to fail"
+;;
+
+let test_json_schema_nullable_union_uses_concrete_type () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "label": {"type": ["null", "string"], "description": "Nullable label"}
+    }
+  }|}
+  in
+  let params = Mcp.json_schema_to_params schema in
+  let label = List.hd params in
+  Alcotest.(check string) "label name" "label" label.name;
+  Alcotest.check check_param_type "nullable string" Types.String label.param_type
+;;
+
+let test_json_schema_union_unknown_type_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "value": {"type": ["string", "mystery"]}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected unknown union type to fail"
+;;
+
+let test_json_schema_union_null_only_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "nothing": {"type": ["null"]}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected null-only union type to fail"
+;;
+
+let test_json_schema_union_multiple_concrete_types_fails () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "value": {"type": ["string", "number", "null"]}
+    }
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected multi-concrete union type to fail"
 ;;
 
 (* ── Tool bridge ────────────────────────────────────────────────── *)
@@ -399,10 +480,28 @@ let () =
     "MCP"
     [ ( "schema_conversion"
       , [ test_case "type mapping" `Quick test_type_mapping
+        ; test_case "unknown type fails" `Quick test_type_mapping_unknown_fails
         ; test_case "full schema" `Quick test_json_schema_to_params
         ; test_case "empty schema" `Quick test_json_schema_empty
         ; test_case "no required" `Quick test_json_schema_no_required
         ; test_case "no description" `Quick test_json_schema_no_description
+        ; test_case
+            "missing property type fails"
+            `Quick
+            test_json_schema_missing_property_type_fails
+        ; test_case
+            "nullable union uses concrete type"
+            `Quick
+            test_json_schema_nullable_union_uses_concrete_type
+        ; test_case
+            "union unknown type fails"
+            `Quick
+            test_json_schema_union_unknown_type_fails
+        ; test_case "union null-only fails" `Quick test_json_schema_union_null_only_fails
+        ; test_case
+            "union multiple concrete types fails"
+            `Quick
+            test_json_schema_union_multiple_concrete_types_fails
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool

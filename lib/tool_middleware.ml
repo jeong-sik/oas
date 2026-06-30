@@ -104,9 +104,16 @@ let validate_shell_constraints ~tool_name ~(descriptor : Tool.descriptor) args =
 
 (* ── Schema conversion ────────────────────────────────────── *)
 
+let tool_schema_of_json_result ~name ?(description = "") json_schema =
+  match Mcp_schema.json_schema_to_params_result json_schema with
+  | Ok parameters -> Ok { Types.name; description; parameters; strict = None }
+  | Error detail -> Error detail
+;;
+
 let tool_schema_of_json ~name ?(description = "") json_schema : Types.tool_schema =
-  let parameters = Mcp_schema.json_schema_to_params json_schema in
-  { name; description; parameters; strict = None }
+  match tool_schema_of_json_result ~name ~description json_schema with
+  | Ok schema -> schema
+  | Error detail -> invalid_arg detail
 ;;
 
 (* ── Hook factory ─────────────────────────────────────────── *)

@@ -157,6 +157,13 @@ let test_schema_of_json_empty () =
   Alcotest.(check int) "no params" 0 (List.length schema.parameters)
 ;;
 
+let test_schema_of_json_rejects_unknown_type () =
+  let json = make_schema [ "room", "mystery" ] in
+  match Tool_middleware.tool_schema_of_json_result ~name:"bad" json with
+  | Error _ -> ()
+  | Ok _ -> Alcotest.fail "expected unknown schema type to fail"
+;;
+
 (* ── make_validation_hook ────────────────────────────────── *)
 
 let test_hook_unknown_tool () =
@@ -647,6 +654,10 @@ let () =
     ; ( "tool_schema_of_json"
       , [ Alcotest.test_case "basic conversion" `Quick test_schema_of_json
         ; Alcotest.test_case "empty schema" `Quick test_schema_of_json_empty
+        ; Alcotest.test_case
+            "unknown type fails"
+            `Quick
+            test_schema_of_json_rejects_unknown_type
         ] )
     ; ( "make_validation_hook"
       , [ Alcotest.test_case "unknown tool -> Pass" `Quick test_hook_unknown_tool

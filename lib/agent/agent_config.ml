@@ -206,12 +206,19 @@ let parse_param json =
   try
     let name = json |> member "name" |> to_string in
     let description = Util.json_member_str "description" json in
-    let param_type =
-      json
-      |> member "type"
-      |> to_string_option
-      |> Option.value ~default:"string"
-      |> Mcp.json_schema_type_to_param_type
+    let* param_type =
+      match json |> member "type" with
+      | `String type_name ->
+        (match Mcp.json_schema_type_to_param_type_result type_name with
+         | Ok param_type -> Ok param_type
+         | Error detail ->
+           Error (Error.Config (InvalidConfig { field = "parameter.type"; detail })))
+      | `Null ->
+        Error
+          (Error.Config
+             (InvalidConfig
+                { field = "parameter.type"; detail = "missing required field" }))
+      | other -> invalid_type ~field:"parameter.type" ~expected:"string" other
     in
     let required = Util.json_member_bool "required" json in
     Ok { Types.name; description; param_type; required }

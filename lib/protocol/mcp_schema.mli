@@ -8,7 +8,9 @@ module Sdk_types = Mcp_protocol.Mcp_types
 (** {1 Schema conversion} *)
 
 val json_schema_type_to_param_type : string -> Types.param_type
+val json_schema_type_to_param_type_result : string -> (Types.param_type, string) result
 val json_schema_to_params : Yojson.Safe.t -> Types.tool_param list
+val json_schema_to_params_result : Yojson.Safe.t -> (Types.tool_param list, string) result
 
 (** {1 MCP tool types} *)
 
@@ -25,3 +27,8 @@ type mcp_prompt_result = Sdk_types.prompt_result
 
 val mcp_tool_of_sdk_tool : Sdk_types.tool -> mcp_tool
 val mcp_tool_to_sdk_tool : call_fn:Tool.tool_handler -> mcp_tool -> Tool.t
+
+val mcp_tool_to_sdk_tool_result
+  :  call_fn:Tool.tool_handler
+  -> mcp_tool
+  -> (Tool.t, string) result
