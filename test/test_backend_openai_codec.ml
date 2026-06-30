@@ -1717,6 +1717,9 @@ let test_responses_build_request_preserves_multiturn_reasoning_tool_order () =
     | None ->
       (match string_field "role" json, string_field "content" json with
        | Some "user", Some text -> "user:" ^ text
+       | Some "user", None ->
+         let content = member "content" json |> to_list |> only "user message part" in
+         "user:" ^ require_string_field "text" content
        | Some role, Some text -> role ^ ":" ^ text
        | Some role, None -> role ^ ":"
        | None, Some text -> "content:" ^ text
