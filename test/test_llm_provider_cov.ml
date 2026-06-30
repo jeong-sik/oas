@@ -808,6 +808,7 @@ let test_constants_env_helpers () =
       ; Constants.Env.anthropic_thinking_budget, "2048"
       ; Constants.Env.gemini_thinking_budget, "3072"
       ; Constants.Env.prompt_cache_min_chars, "4096"
+      ; Constants.Env.default_seed, "123"
       ]
   in
   Alcotest.(check int)
@@ -830,10 +831,15 @@ let test_constants_env_helpers () =
     "prompt cache chars env override"
     4096
     (Constants.Anthropic.prompt_cache_min_chars_for_env ~getenv ());
+  Alcotest.(check (option int))
+    "seed env override"
+    (Some 123)
+    (Constants.Deterministic.seed_of_env ~getenv ());
   let invalid_getenv =
     getenv_from
       [ Constants.Env.max_tokens_default, "0"
       ; Constants.Env.prompt_cache_min_chars, "not-an-int"
+      ; Constants.Env.default_seed, "not-an-int"
       ]
   in
   Alcotest.(check int)
@@ -844,16 +850,10 @@ let test_constants_env_helpers () =
     "prompt cache invalid env fallback"
     Constants.Anthropic.default_prompt_cache_min_chars
     (Constants.Anthropic.prompt_cache_min_chars_for_env ~getenv:invalid_getenv ());
-  with_env "OAS_DEFAULT_SEED" (Some "123") (fun () ->
-    Alcotest.(check (option int))
-      "seed valid"
-      (Some 123)
-      (Constants.Deterministic.seed_of_env ()));
-  with_env "OAS_DEFAULT_SEED" (Some "not-an-int") (fun () ->
-    Alcotest.(check (option int))
-      "seed invalid"
-      None
-      (Constants.Deterministic.seed_of_env ()));
+  Alcotest.(check (option int))
+    "seed invalid"
+    None
+    (Constants.Deterministic.seed_of_env ~getenv:invalid_getenv ());
   with_env "OAS_THINKING_BUDGET_DEFAULT" (Some "4096") (fun () ->
     Alcotest.(check (option int))
       "env budget valid"
