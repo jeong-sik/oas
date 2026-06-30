@@ -405,6 +405,15 @@ supports_named_tool_choice = false
            ()
        in
        expect_named_tool_choice_rejected "minimax named" minimax;
+       let minimax_any =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"minimax-m3"
+           ~base_url:"https://api.minimax.chat/v1"
+           ~tool_choice:Types.Any
+           ()
+       in
+       expect_required_tool_choice_rejected "minimax any" minimax_any;
        let minimax_auto =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -424,6 +433,15 @@ supports_named_tool_choice = false
            ()
        in
        expect_named_tool_choice_rejected "glm named" glm;
+       let glm_any =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.Glm
+           ~model_id:"glm-5.1"
+           ~base_url:Llm_provider.Zai_catalog.coding_base_url
+           ~tool_choice:Types.Any
+           ()
+       in
+       expect_required_tool_choice_rejected "glm any" glm_any;
        let bare_zai_glm =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
@@ -433,6 +451,15 @@ supports_named_tool_choice = false
            ()
        in
        expect_named_tool_choice_rejected "bare zai glm named" bare_zai_glm;
+       let bare_zai_glm_any =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"glm-5.1"
+           ~base_url:Llm_provider.Zai_catalog.coding_base_url
+           ~tool_choice:Types.Any
+           ()
+       in
+       expect_required_tool_choice_rejected "bare zai glm any" bare_zai_glm_any;
        let hosted_minimax_named =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.OpenAI_compat
