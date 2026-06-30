@@ -31,7 +31,11 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **typed kind로 1회 승격하지 않고 런타임에 재유도되는 string 분류기.** GLM-ness가 `String.starts_with ~prefix:"glm-"`로 모듈마다 재평가되어 serializer를 분기하고, typed `replay_policy`를 우회한다(GLM은 `No_replay`로 resolve되어 죽은 값).
 - **typed 레이어가 제거한 휴리스틱을 다시 들여오는 lenient/repair shell.** Historical: `tool_use_recovery.ml` used to scrape JSON tool calls from free text and run `Lenient_json` bracket/keyword completion before execution. Current remediation keeps only a strict, provider-telemetry-gated fallback for GLM/Ollama-family responses and leaves ambiguous or repair-needed JSON as `Text`.
 - **closed sum이 가능한 자리의 string 판별 + silent `_ -> None` drop.** historical stream finalizer drift는 `content_type` raw-string match + catch-all drop이었다. Current branch ancestry already adds `block_kind`, `Unknown_block`, and typed SSE parse/unknown-event errors, so remaining D3 work must be policy-specific rather than a wholesale redo.
-- **같은 사실의 두 번째 SSOT.** 중복 stream accumulator(`lib/streaming.ml`, 자체 WORKAROUND 라벨, RFC/removal target 없음)가 reconcile + partial-tool-drop fix를 결여.
+- **같은 사실의 두 번째 SSOT.** Historical: `lib/streaming.ml` carried a
+  duplicate stream accumulator that lacked reconcile + partial-tool-drop fixes.
+  Current code routes the legacy `Agent_sdk.Streaming` surface through
+  `Complete_stream_acc`; the remaining guard is to re-export the canonical
+  signature, not copy the record shape.
 - **doc/typed surface가 배포 모델에 뒤처짐.** GLM이 Kimi `No_thinking_control`로 오모델링; MiniMax M2/M3 catalog rows exist but replay/tool-choice facts are under-sourced; Claude `tool_choice`-forcing-400 미모델, audit-reported `thinking.display` gap(공식 source refresh 필요), `Reasoning_effort` enum에 stale `Minimal`, `none` 누락.
 
 ## 2. The Standard (검증 가능한 불변식)
@@ -88,7 +92,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 - **S10.1 (정직한 계약).** "Pure"로 문서화된 모듈은 pure여야 한다; 효과(wall-clock, mutable global)는 경계로 옮기거나 `.mli`에 문서화. recovered id는 결정론적(block index + content hash) 또는 주입된 generator로 유도.
 - **S10.2 (데이터 손실은 관측되되, 관측이 fix는 아니다).** block을 drop하면 `repair_dangling_tool_calls`가 synthesized block에 태그하듯 태그한다. counter/log는 typed fix와 함께하는 *alarm*으로만 허용, fix 자체로는 금지(telemetry-as-fix = reject 시그니처).
 
-## 3. Evidence — confirmed/historical violations (22 findings: 18 open, 4 resolved in current branch ancestry, 16 refuted/boundary-acceptable)
+## 3. Evidence — confirmed/historical violations (22 findings: 17 open, 5 resolved in current branch ancestry, 16 refuted/boundary-acceptable)
 
 | Sev | ID | Principle | File:line | Standard |
 |---|---|---|---|---|
@@ -100,7 +104,7 @@ OAS의 Tools / Thinking / Reasoning / Multi-turn 처리는 **코어는 견고하
 | P2 | D5-anthropic-thinkmode-hardcoded-prefix-table | hardcode | capabilities.ml:182-221 | S1.2 |
 | P2 | D4-provider-preset-stale-numeric-limits | hardcode | capabilities.ml:223-255; provider_registry.ml:408; builder.ml:256 | S9.1 |
 | P2 | D2-streaming-reasoning-dialect-dead-and-field-guess | ssot | reasoning_dialect.ml:39-42; streaming.ml:331-335; backend_openai_parse.ml:208-298 | S6.3 |
-| P2 | D4-duplicate-stream-accumulator-missing-reconcile | ssot | streaming.ml:16-215 | S6.2 |
+| P2 | D4-duplicate-stream-accumulator-missing-reconcile | resolved: legacy surface re-exports Complete_stream_acc | streaming.ml:16-35; streaming.mli:23 | S6.2 |
 | P2 | D-TOOLS-1-recovery-text-scrape-heuristic | historical heuristic, now strict provider-gated fallback | tool_use_recovery.ml:32-237; pipeline.ml:31-39,1124-1134 | S4.2 |
 | P2 | D-TOOLS-6-agent_tool-untyped-silent-prompt-fallback | silent_failure | agent_tool.ml:149-161 | S4.3 |
 | P2 | D-TOOLS-9-harness-unknown-schema-type-permissive | silent_failure | backend_tool_call_harness.ml:52-68 | S8.1 |
@@ -172,7 +176,10 @@ RFC 컬럼: **RFC** = dialect/capability *type shape* 변경 또는 N-of-M resha
 4. OpenAI phase/replay matrix residual (P1/P2) — `none`/`minimal`/`xhigh` model-dependent vocabulary/subset, Responses `previous_response_id`, encrypted reasoning-item replay, and `function_call_output` manual replay are implemented in current branch ancestry. Remaining work is narrower: Chat Completions vs Responses replay-mode matrix, strict `json_schema` catalog facts, and `phase:commentary/final_answer` stateless replay modeling.
 5. Anthropic thinking drift + `tool_choice`-400 (P1×2) — forced tool + thinking hard-400 is verified; `thinking.display` visibility drift needs official source refresh before code changes.
 6. MiniMax replay/tool-choice evidence + catalog field fix (P1) — catalog rows already exist; do not add a duplicate provider. First capture official/live evidence, then update the existing capability/replay rows instead of relying on `No_replay` defaults that can silently break interleaved thinking.
-7. 중복 stream accumulator 제거 (D4, P2) — 삭제 후 `Complete_stream_acc`로 라우팅; RFC/removal target 없는 자체 WORKAROUND 라벨(상시 프로세스 위반).
+7. ~~중복 stream accumulator 제거 (D4, P2)~~ — resolved: legacy
+   `Agent_sdk.Streaming` accumulation functions route to `Complete_stream_acc`,
+   and the public wrapper re-exports the canonical signature instead of copying
+   the record shape.
 
 ### 미뤄도 안전 (latent, 현재 배포 모델 트리거 없음) — typed cleanup으로 batch
 - `D2-budget-to-effort-triplicated`, `D5-anthropic-thinkmode-hardcoded-prefix-table`, `D4-provider-preset-stale-numeric-limits` (SSOT/hardcode 부채; 현재 값이 일치해 active break 없음 — catalog-field RFC로 fold).
