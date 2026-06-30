@@ -203,49 +203,32 @@ let parse_auth json =
   | _ -> Ok No_auth
 ;;
 
-let parse_thinking_control_format = function
+let parse_optional_capability_value ~field ~canonical parse = function
   | None -> Ok None
   | Some raw ->
-    let trimmed = String.lowercase_ascii (String.trim raw) in
-    (match trimmed with
-     | "" -> Ok None
-     | "none" -> Ok (Some Capabilities.No_thinking_control)
-     | "thinking_object" -> Ok (Some Capabilities.Thinking_object)
-     | "thinking_object_adaptive" -> Ok (Some Capabilities.Thinking_object_adaptive)
-     | "thinking_object_only" -> Ok (Some Capabilities.Thinking_object_only)
-     | "chat_template_kwargs" -> Ok (Some Capabilities.Chat_template_kwargs)
-     | "chat_template_token" -> Ok (Some Capabilities.Chat_template_token)
-     | "ollama_think" -> Ok (Some Capabilities.Ollama_think)
-     | "reasoning_effort" -> Ok (Some Capabilities.Reasoning_effort)
-     | "enable_thinking" -> Ok (Some Capabilities.Enable_thinking)
-     | other ->
-       Error
-         (Printf.sprintf
-            "unknown thinking_control_format %S (canonical: none, thinking_object, \
-             thinking_object_adaptive, thinking_object_only, chat_template_kwargs, \
-             chat_template_token, ollama_think, reasoning_effort, enable_thinking)"
-            other))
+    let normalized = String.lowercase_ascii (String.trim raw) in
+    if String.equal normalized ""
+    then Ok None
+    else (
+      match parse normalized with
+      | Some value -> Ok (Some value)
+      | None ->
+        Error (Printf.sprintf "unknown %s %S (canonical: %s)" field normalized canonical))
 ;;
 
-let parse_preserve_thinking_control_format = function
-  | None -> Ok None
-  | Some raw ->
-    let trimmed = String.lowercase_ascii (String.trim raw) in
-    (match trimmed with
-     | "" -> Ok None
-     | "none" -> Ok (Some Capabilities.No_preserve_thinking_control)
-     | "thinking_object_keep_all" -> Ok (Some Capabilities.Thinking_object_keep_all)
-     | "chat_template_kwargs_preserve_thinking" ->
-       Ok (Some Capabilities.Chat_template_kwargs_preserve_thinking)
-     | "top_level_preserve_thinking" -> Ok (Some Capabilities.Top_level_preserve_thinking)
-     | "always_preserved" -> Ok (Some Capabilities.Always_preserved_thinking)
-     | other ->
-       Error
-         (Printf.sprintf
-            "unknown preserve_thinking_control_format %S (canonical: none, \
-             thinking_object_keep_all, chat_template_kwargs_preserve_thinking, \
-             top_level_preserve_thinking, always_preserved)"
-            other))
+let parse_thinking_control_format =
+  parse_optional_capability_value
+    ~field:"thinking_control_format"
+    ~canonical:(String.concat ", " Capability_vocab.thinking_control_format_values)
+    Capability_vocab.thinking_control_format_of_string
+;;
+
+let parse_preserve_thinking_control_format =
+  parse_optional_capability_value
+    ~field:"preserve_thinking_control_format"
+    ~canonical:
+      (String.concat ", " Capability_vocab.preserve_thinking_control_format_values)
+    Capability_vocab.preserve_thinking_control_format_of_string
 ;;
 
 let parse_reasoning_replay = function

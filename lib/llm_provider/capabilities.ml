@@ -12,46 +12,24 @@
     thinking, so the runtime must know which format to emit.
 
     @since 0.184.0 *)
-type thinking_control_format =
+type thinking_control_format = Capability_vocab.thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
   | Thinking_object_adaptive
-  (** Top-level [thinking] object whose enabled value is [adaptive]. *)
   | Thinking_object_only
-  (** Kimi K2.5-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
-  (** llama-server/vLLM/SGLang style:
-      [{"chat_template_kwargs":{"enable_thinking":b,"preserve_thinking":b}}] *)
   | Chat_template_token
-  (** Chat-template control token style: inject a model-specific thinking token
-      into the conversation instead of sending a top-level thinking field. *)
   | Ollama_think
-  (** Ollama native [/api/chat] top-level [think] bool or effort level. This is
-      distinct from OpenAI-compatible [reasoning_effort] even when the model
-      family name is shared with a cloud provider such as GLM. *)
   | Reasoning_effort
-  (** Openai-style top-level [reasoning_effort] string field. The typed value
-      set lives in {!Reasoning_effort}; provider-specific aliases are applied
-      by {!Reasoning_dialect.normalize_effort_value}. Disabled reasoning is
-      represented by omitting the field. Ollama's OpenAI-compatible mode uses
-      this shape. *)
   | Enable_thinking
-  (** DashScope-style top-level [enable_thinking] / [preserve_thinking] bools
-      plus optional [thinking_budget]. *)
 
 type preserve_thinking_control_format =
+      Capability_vocab.preserve_thinking_control_format =
   | No_preserve_thinking_control
   | Thinking_object_keep_all
-  (** [thinking.keep = "all"] inside the top-level
-      [thinking] object. *)
   | Chat_template_kwargs_preserve_thinking
-  (** Self-hosted chat-template kwargs [preserve_thinking] flag. *)
   | Top_level_preserve_thinking
-  (** Provider top-level [preserve_thinking] flag, separate from
-      [enable_thinking]. *)
   | Always_preserved_thinking
-  (** Provider always requires historical reasoning replay and has no
-      request-time preserve toggle. *)
 
 (** Optional override for the multi-turn reasoning replay policy. Most providers
     inherit the policy implied by [thinking_control_format]; catalog entries set
@@ -660,6 +638,8 @@ let capabilities_for_provider_label label =
     (match label with
      | "openai_compat_chat_extended" | "openai_chat_extended" ->
        Some openai_compat_chat_extended_capabilities
+     | "xai" | "mistral" -> Some openai_compat_chat_extended_capabilities
+     | "cohere" | "mimo" -> Some openai_compat_chat_capabilities
      | "ollama_cloud" -> Some ollama_cloud_capabilities
      | "nvidia" -> Some provider_l_capabilities
      | _ -> None)
@@ -698,36 +678,12 @@ let with_tool_support caps ~supports_tools = { caps with supports_tools }
     when absent or unrecognised.  Each [Some] field in [entry] overrides
     the corresponding field of the base; [None] fields are left unchanged. *)
 
-(* Parse the manifest's [thinking_control_format] string into the typed
-   variant. Mirrors {!Provider_catalog.parse_thinking_control_format}; kept
-   local to avoid a Provider_catalog -> Capabilities dependency cycle. An
-   unrecognised value leaves the base format unchanged (handled by the caller). *)
 let thinking_control_format_of_manifest_string raw =
-  match String.lowercase_ascii (String.trim raw) with
-  | "none" -> Some No_thinking_control
-  | "thinking_object" -> Some Thinking_object
-  | "thinking_object_adaptive" -> Some Thinking_object_adaptive
-  | "thinking_object_only" -> Some Thinking_object_only
-  | "chat_template_kwargs" -> Some Chat_template_kwargs
-  | "chat_template_token" -> Some Chat_template_token
-  | "ollama_think" -> Some Ollama_think
-  | "reasoning_effort" -> Some Reasoning_effort
-  | "enable_thinking" -> Some Enable_thinking
-  | _ -> None
-;;
-
-let preserve_thinking_control_manifest_values =
-  [ "none", No_preserve_thinking_control
-  ; "thinking_object_keep_all", Thinking_object_keep_all
-  ; "chat_template_kwargs_preserve_thinking", Chat_template_kwargs_preserve_thinking
-  ; "top_level_preserve_thinking", Top_level_preserve_thinking
-  ; "always_preserved", Always_preserved_thinking
-  ]
+  Capability_vocab.thinking_control_format_of_string raw
 ;;
 
 let preserve_thinking_control_format_of_manifest_string raw =
-  String.lowercase_ascii (String.trim raw)
-  |> Fun.flip List.assoc_opt preserve_thinking_control_manifest_values
+  Capability_vocab.preserve_thinking_control_format_of_string raw
 ;;
 
 let warn_unknown_capability_value ~field raw =
@@ -2119,6 +2075,10 @@ let%test "capabilities_for_provider_label: aliases resolve to identical capabili
   && Option.is_some (resolve "gemini")
   && Option.is_some (resolve "ollama")
   && Option.is_some (resolve "kimi")
+  && Option.is_some (resolve "xai")
+  && Option.is_some (resolve "mistral")
+  && Option.is_some (resolve "cohere")
+  && Option.is_some (resolve "mimo")
   && Option.is_some (resolve "nvidia")
 ;;
 
@@ -2135,6 +2095,10 @@ let%test "capabilities_for_provider_label: all declared labels resolve" =
     ; "ollama"
     ; "glm"
     ; "glm-coding"
+    ; "xai"
+    ; "mistral"
+    ; "cohere"
+    ; "mimo"
     ; "nvidia"
     ; "kimi"
     ]
