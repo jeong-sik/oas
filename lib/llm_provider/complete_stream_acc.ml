@@ -57,19 +57,6 @@ let create_stream_acc () =
   }
 ;;
 
-(* [true] iff [s] parses as one complete JSON value. Used by the
-   [InputJsonDelta] re-emit guard below: a buffer that already holds a complete
-   value, followed by a delta starting a fresh object, is a provider re-emit
-   (replace) rather than an incremental fragment (concat). Yojson rejects
-   trailing bytes, so ["{}{}"] is [false] here -- exactly the malformed shape
-   we prevent from reaching [finalize]. *)
-let is_complete_json_value s =
-  match Yojson.Safe.from_string s with
-  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ | `List _ ->
-    true
-  | exception Yojson.Json_error _ -> false
-;;
-
 let accumulate_event (acc : stream_acc) = function
   | Types.MessageStart { id; model; usage } ->
     acc.id := id;
@@ -99,26 +86,27 @@ let accumulate_event (acc : stream_acc) = function
         b
     in
     (match delta with
-     | Types.TextDelta s | Types.ThinkingDelta s -> Buffer.add_string buf s
-     | Types.InputJsonDelta s ->
-       (* A provider may re-emit a whole tool-call arguments value as an
-          InputJsonDelta rather than an InputJsonSnapshot. If the buffer
-          already holds a complete JSON value and the incoming delta starts a
-          fresh object, treat it as a re-emit and replace (not concatenate),
-          mirroring the [InputJsonSnapshot] arm below. Without this, an
-          OpenAI-compat/Ollama/Gemini provider that re-emits "{}" concatenates
-          into malformed "{}{}" (raw="{}{}", malformed_tool_use_arguments).
-          The re-emit vs incremental decision derives from the buffer state,
-          not the delta tag (SSOT). *)
-       if
-         String.length s > 0
-         && s.[0] = '{'
-         && Buffer.length buf > 0
-         && is_complete_json_value (Buffer.contents buf)
-       then (
-         Buffer.clear buf;
-         Buffer.add_string buf s)
-       else Buffer.add_string buf s
+     | Types.TextDelta s | Types.ThinkingDelta s | Types.InputJsonDelta s ->
+       (* [InputJsonDelta] is an incremental tool-argument fragment by
+          definition, so it appends unconditionally. A whole-value re-emit
+          arrives as the typed [InputJsonSnapshot] arm below, which replaces.
+          Replace-vs-concat derives solely from the typed event tag, never from
+          buffer contents.
+
+          A buffer-content "re-emit guard" once lived here (#2344): if the
+          buffer already parsed as one complete JSON value and the next delta
+          started with '{', it cleared and replaced. It could not tell a genuine
+          re-emit apart from ONE tool call whose arguments are two concatenated
+          JSON objects (deepseek-v4-flash emitting [keeper_tasks_list] as
+          {"include_done":false}{"exclude_automation":true,"limit":5} in a single
+          call). When the second object's '{' was buffer-aligned, the guard
+          silently dropped the first object and dispatched the tool with wrong
+          arguments; the empty case {}{} it "fixed" was the same model bug, not a
+          provider re-emit (Gemini re-emits via InputJsonSnapshot, not Delta).
+          Concatenating instead surfaces multi-object arguments as a typed
+          [malformed_tool_use_arguments] at finalize -- RFC-OAS-029 S8: reject on
+          read, never silently coerce or drop. *)
+       Buffer.add_string buf s
      | Types.ReasoningDetailsDelta { reasoning_content; details } ->
        (match reasoning_content with
         | Some content -> Buffer.add_string buf content
@@ -849,13 +837,16 @@ let%test "finalize_stream_acc repeated tool-arg snapshot stays valid JSON" =
   | Ok _ | Error _ -> false
 ;;
 
-let%test "accumulate_event InputJsonDelta replaces buffer on re-emit (no concat)" =
-  (* Regression: an OpenAI-compat/Ollama/Gemini provider that re-emits a whole
-     arguments value as an InputJsonDelta (not InputJsonSnapshot) used to
-     concatenate into "{}{}" or [{"limit":10}{"limit":10}], which finalize
-     rejected as [malformed_tool_use_arguments]. When the buffer already holds
-     a complete JSON value and the incoming delta starts a fresh object, the
-     accumulator now replaces. *)
+let%test
+    "accumulate_event InputJsonDelta concatenates fragments (no content-based replace)"
+  =
+  (* [InputJsonDelta] is incremental and concatenates unconditionally: two
+     object-shaped deltas accumulate into "{}{}". The removed #2344 buffer-content
+     guard replaced here to coerce a re-emit, but it could not distinguish a
+     re-emit from one tool call serialized as two objects, silently dropping the
+     first object for distinct {a}{b} args. Replace is now reachable only via the
+     typed [InputJsonSnapshot] arm; multi-object [InputJsonDelta] reaches finalize
+     and fails closed. *)
   let acc = create_stream_acc () in
   accumulate_event
     acc
@@ -868,14 +859,17 @@ let%test "accumulate_event InputJsonDelta replaces buffer on re-emit (no concat)
     acc
     (Types.ContentBlockDelta { index = 0; delta = Types.InputJsonDelta {|{}|} });
   let buf = Hashtbl.find acc.block_texts 0 in
-  Buffer.contents buf = {|{}|}
+  Buffer.contents buf = {|{}{}|}
 ;;
 
-let%test "finalize_stream_acc InputJsonDelta empty-object re-emit stays valid" =
-  (* The live malformed_tool_use_arguments raw="{}{}" regression: a provider
-     re-emits the empty arguments object "{}" as InputJsonDelta. Without the
-     re-emit guard the buffer concatenates into "{}{}" and finalize fails
-     closed. With the guard the second "{}" replaces the first. *)
+let%test "finalize_stream_acc fails closed on InputJsonDelta multi-object args (empty)" =
+  (* The live malformed_tool_use_arguments raw="{}{}" case: a model emitted one
+     tool call whose arguments were two concatenated JSON objects. #2344 coerced
+     this to a single "{}" via the content-based re-emit guard, and the same guard
+     silently dropped the FIRST object for distinct {a}{b} args. OAS now fails
+     closed with a typed malformed_tool_use_arguments (RFC-OAS-029 S8) -- the model
+     bug is surfaced to operators, never silently coerced to empty args nor
+     dropped. *)
   let acc = create_stream_acc () in
   List.iter
     (accumulate_event acc)
@@ -891,9 +885,48 @@ let%test "finalize_stream_acc InputJsonDelta empty-object re-emit stays valid" =
     ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
     ];
   match finalize_stream_acc acc with
-  | Ok { content = [ Types.ToolUse { input; name; _ } ]; _ } ->
-    name = "noop" && input = `Assoc []
-  | Ok _ | Error _ -> false
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = {|{}{}|}
+    && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+;;
+
+let%test "finalize_stream_acc fails closed on the live keeper multi-object tool args" =
+  (* Exact reproduction of the reported keeper failure: deepseek-v4-flash (Ollama
+     Cloud, OpenAI-compatible) opened a reasoning block (OAS block index 0) then
+     emitted ONE keeper_tasks_list call whose arguments string was two concatenated
+     objects -- {"include_done":false} then {"exclude_automation":true,"limit":5}
+     (together a single valid arg set the model wrongly split). The tool block is
+     index 1 (after thinking), matching the observed
+     malformed_tool_use_arguments:index:1. Asserts the turn fails closed with both
+     objects preserved in [raw] -- never silently dispatching keeper_tasks_list with
+     only the second object's params. *)
+  let acc = create_stream_acc () in
+  List.iter
+    (accumulate_event acc)
+    [ Types.MessageStart { id = "m"; model = "deepseek-v4-flash"; usage = None }
+    ; Types.ContentBlockStart
+        { index = 0; content_type = "thinking"; tool_id = None; tool_name = None }
+    ; Types.ContentBlockDelta { index = 0; delta = Types.ThinkingDelta "checking tasks" }
+    ; Types.ContentBlockStart
+        { index = 1
+        ; content_type = "tool_use"
+        ; tool_id = Some "call_1"
+        ; tool_name = Some "keeper_tasks_list"
+        }
+    ; Types.ContentBlockDelta
+        { index = 1; delta = Types.InputJsonDelta {|{"include_done":false}|} }
+    ; Types.ContentBlockDelta
+        { index = 1
+        ; delta = Types.InputJsonDelta {|{"exclude_automation":true,"limit":5}|}
+        }
+    ; Types.MessageDelta { stop_reason = Some Types.StopToolUse; usage = None }
+    ];
+  match finalize_stream_acc acc with
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    raw = {|{"include_done":false}{"exclude_automation":true,"limit":5}|}
+    && String.starts_with ~prefix:"malformed_tool_use_arguments:index:1" reason
+  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
 ;;
 
 let%test "accumulate_event MessageDelta None stop_reason keeps default" =
