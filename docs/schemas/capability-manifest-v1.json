@@ -175,8 +175,9 @@
         },
         "thinking_control_token": {
           "type": "string",
-          "description": "Exact chat-template token to inject when thinking_control_format is chat_template_token.",
+          "description": "Exact chat-template token to inject when thinking_control_format is chat_template_token. Leading or trailing whitespace is rejected.",
           "minLength": 1,
+          "pattern": "^\\S(?:[\\s\\S]*\\S)?$",
           "examples": ["<|think|>"]
         },
         "preserve_thinking_control_format": {

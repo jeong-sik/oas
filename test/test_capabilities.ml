@@ -1406,6 +1406,18 @@ let test_manifest_rejects_blank_thinking_control_token () =
   | Ok _ -> Alcotest.fail "blank thinking_control_token should reject"
 ;;
 
+let test_manifest_rejects_padded_thinking_control_token () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"token-model","thinking_control_token":" <|custom_think|> "}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "thinking_control_token";
+    check_contains "mentions exact rejection" msg "leading or trailing whitespace"
+  | Ok _ -> Alcotest.fail "padded thinking_control_token should reject"
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -1682,6 +1694,21 @@ thinking_control_token = "   "
          check_contains "mentions thinking_control_token" msg "thinking_control_token";
          check_contains "mentions empty" msg "must not be empty"
        | Ok _ -> Alcotest.fail "empty model catalog thinking_control_token should reject")
+;;
+
+let test_model_catalog_rejects_padded_thinking_control_token () =
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "bad-thinking-token"
+thinking_control_token = " <|custom_think|> "
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg ->
+         check_contains "mentions thinking_control_token" msg "thinking_control_token";
+         check_contains "mentions exact" msg "leading or trailing whitespace"
+       | Ok _ -> Alcotest.fail "padded model catalog thinking_control_token should reject")
 ;;
 
 let test_model_catalog_rejects_unknown_accepted_reasoning_effort () =
@@ -1967,6 +1994,10 @@ let () =
             `Quick
             test_manifest_rejects_blank_thinking_control_token
         ; test_case
+            "padded thinking_control_token rejects"
+            `Quick
+            test_manifest_rejects_padded_thinking_control_token
+        ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
             test_manifest_rejects_unknown_preserve_thinking_control_format
@@ -2030,6 +2061,10 @@ let () =
             "model catalog rejects empty thinking_control_token"
             `Quick
             test_model_catalog_rejects_empty_thinking_control_token
+        ; test_case
+            "model catalog rejects padded thinking_control_token"
+            `Quick
+            test_model_catalog_rejects_padded_thinking_control_token
         ; test_case
             "model catalog rejects unknown accepted reasoning effort"
             `Quick

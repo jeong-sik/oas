@@ -133,10 +133,14 @@ let non_empty_member_string key json =
   match value with
   | None -> Ok None
   | Some raw ->
-    let value = String.trim raw in
-    if value = ""
+    let trimmed = String.trim raw in
+    if trimmed = ""
     then Error (Printf.sprintf "entry field %S must not be empty" key)
-    else Ok (Some value)
+    else if raw <> trimmed
+    then
+      Error
+        (Printf.sprintf "entry field %S must not have leading or trailing whitespace" key)
+    else Ok (Some raw)
 ;;
 
 let member_string_list key json =

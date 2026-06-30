@@ -1153,9 +1153,8 @@ let for_provider_model_id ~(provider_label : string) ~(model_id : string) =
 ;;
 
 let exact_token = function
-  | Some raw ->
-    let value = String.trim raw in
-    if value = "" then None else Some value
+  | Some raw when String.trim raw = "" || raw <> String.trim raw -> None
+  | Some raw -> Some raw
   | None -> None
 ;;
 
@@ -1378,6 +1377,43 @@ let test_catalog_entry id_prefix : Model_catalog.model_entry =
   ; output_per_million = None
   ; cache_write_multiplier = None
   ; cache_read_multiplier = None
+  }
+;;
+
+let test_manifest_entry id_prefix : Capability_manifest.entry =
+  { id_prefix
+  ; base_label = None
+  ; max_context_tokens = None
+  ; max_output_tokens = None
+  ; supports_tools = None
+  ; supports_tool_choice = None
+  ; supports_required_tool_choice = None
+  ; supports_named_tool_choice = None
+  ; supports_parallel_tool_calls = None
+  ; assistant_tool_content_format = None
+  ; supports_reasoning = None
+  ; supports_extended_thinking = None
+  ; supports_reasoning_budget = None
+  ; accepted_reasoning_efforts = None
+  ; supports_response_format_json = None
+  ; supports_structured_output = None
+  ; supports_multimodal_inputs = None
+  ; supports_image_input = None
+  ; supports_audio_input = None
+  ; supports_video_input = None
+  ; supports_native_streaming = None
+  ; supports_system_prompt = None
+  ; supports_caching = None
+  ; supports_prompt_caching = None
+  ; supports_top_k = None
+  ; supports_min_p = None
+  ; supports_seed = None
+  ; supports_computer_use = None
+  ; supports_code_execution = None
+  ; thinking_control_format = None
+  ; thinking_control_token = None
+  ; preserve_thinking_control_format = None
+  ; reasoning_replay = None
   }
 ;;
 
@@ -1637,6 +1673,48 @@ let%test "for_model_id_catalog empty catalog returns None" =
   Model_catalog.set_global [];
   Fun.protect ~finally:Model_catalog.clear_global (fun () ->
     Option.is_none (for_model_id_catalog "qwen3-32b"))
+;;
+
+let%test "thinking_control_token catalog runtime override rejects blank or padded token" =
+  Model_catalog.set_global
+    [ { (test_catalog_entry "programmatic-blank-catalog-token") with
+        thinking_control_token = Some " \t "
+      }
+    ; { (test_catalog_entry "programmatic-padded-catalog-token") with
+        thinking_control_token = Some " <|think|> "
+      }
+    ; { (test_catalog_entry "programmatic-exact-catalog-token") with
+        thinking_control_token = Some "<|think|>"
+      }
+    ];
+  Fun.protect ~finally:Model_catalog.clear_global (fun () ->
+    Option.is_none
+      (thinking_control_token_for_model_id "programmatic-blank-catalog-token")
+    && Option.is_none
+         (thinking_control_token_for_model_id "programmatic-padded-catalog-token")
+    && thinking_control_token_for_model_id "programmatic-exact-catalog-token"
+       = Some "<|think|>")
+;;
+
+let%test "thinking_control_token manifest runtime override rejects blank or padded token" =
+  Capability_manifest.set_global
+    [ { (test_manifest_entry "programmatic-blank-manifest-token") with
+        thinking_control_token = Some " \t "
+      }
+    ; { (test_manifest_entry "programmatic-padded-manifest-token") with
+        thinking_control_token = Some " <|think|> "
+      }
+    ; { (test_manifest_entry "programmatic-exact-manifest-token") with
+        thinking_control_token = Some "<|think|>"
+      }
+    ];
+  Fun.protect ~finally:Capability_manifest.clear_global (fun () ->
+    Option.is_none
+      (thinking_control_token_for_model_id "programmatic-blank-manifest-token")
+    && Option.is_none
+         (thinking_control_token_for_model_id "programmatic-padded-manifest-token")
+    && thinking_control_token_for_model_id "programmatic-exact-manifest-token"
+       = Some "<|think|>")
 ;;
 
 (* --- emits_usage_tokens / capabilities_for_provider_label --- *)
