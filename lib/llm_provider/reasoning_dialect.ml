@@ -72,7 +72,11 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
   | No_thinking_control ->
     let dialect = { default with preserve_wire } in
     (match preserve_wire with
-     | Always_preserved_thinking -> { dialect with replay_policy = Preserve_always }
+     | Always_preserved_thinking ->
+       { dialect with
+         replay_policy = Preserve_always
+       ; streaming = Delta_field "reasoning_content"
+       }
      | No_preserve_thinking_control
      | Thinking_object_keep_all
      | Chat_template_kwargs_preserve_thinking

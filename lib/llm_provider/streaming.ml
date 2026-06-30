@@ -322,7 +322,7 @@ let openai_done_sentinel = "[DONE]"
 (** Parse a single Openai SSE data payload into an {!openai_chunk}.
     Returns [None] for the {!openai_done_sentinel} ("[DONE]") or unparseable
     data. *)
-let parse_openai_sse_chunk data_str : openai_chunk option =
+let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_chunk option =
   if String.equal data_str openai_done_sentinel
   then None
   else
@@ -383,10 +383,21 @@ let parse_openai_sse_chunk data_str : openai_chunk option =
       | choice :: _ ->
         let delta = choice |> member "delta" in
         let delta_content = delta |> member "content" |> to_string_option in
-        let delta_reasoning =
-          match delta |> member "reasoning_content" |> to_string_option with
+        let non_blank_delta_field field =
+          match delta |> member field |> to_string_option with
           | Some s when String.trim s <> "" -> Some s
-          | Some _ | None -> delta |> member "reasoning" |> to_string_option
+          | Some _ | None -> None
+        in
+        let delta_reasoning =
+          match streaming_reasoning with
+          | Some (Reasoning_dialect.Delta_field field) -> non_blank_delta_field field
+          | Some
+              (Reasoning_dialect.No_streaming_reasoning | Reasoning_dialect.Template_parser)
+            -> None
+          | None ->
+            (match non_blank_delta_field "reasoning_content" with
+             | Some _ as reasoning -> reasoning
+             | None -> delta |> member "reasoning" |> to_string_option)
         in
         let delta_tool_calls =
           match delta |> member "tool_calls" with
