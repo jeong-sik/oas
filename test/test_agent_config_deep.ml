@@ -124,13 +124,26 @@ let test_tool_parameters_not_list () =
 ;;
 
 let test_param_defaults () =
-  let json = Yojson.Safe.from_string {|{"name": "t1", "parameters": [{"name": "x"}]}|} in
+  let json =
+    Yojson.Safe.from_string
+      {|{"name": "t1", "parameters": [{"name": "x", "type": "string"}]}|}
+  in
   match Agent_config.parse_tool json with
   | Error e -> Alcotest.fail ("param defaults: " ^ Error.to_string e)
   | Ok t ->
     let p = List.nth t.parameters 0 in
     Alcotest.(check string) "default desc" "" p.description;
     Alcotest.(check bool) "default required" false p.required
+;;
+
+let test_param_missing_type_rejected () =
+  let json = Yojson.Safe.from_string {|{"name": "t1", "parameters": [{"name": "x"}]}|} in
+  match Agent_config.parse_tool json with
+  | Error (Error.Config (InvalidConfig { field; detail })) ->
+    Alcotest.(check string) "field" "parameter.type" field;
+    Alcotest.(check string) "detail" "missing required field" detail
+  | Error e -> Alcotest.fail ("missing type: unexpected error: " ^ Error.to_string e)
+  | Ok _ -> Alcotest.fail "missing type: expected InvalidConfig"
 ;;
 
 (* ── MCP server parsing ──────────────────────────────────────── *)
@@ -551,6 +564,7 @@ let () =
         ; tc "tool no params key" test_tool_no_parameters_key
         ; tc "tool params not list" test_tool_parameters_not_list
         ; tc "param defaults" test_param_defaults
+        ; tc "param missing type rejected" test_param_missing_type_rejected
         ; tc "tools not list" test_of_json_tools_not_list
         ; tc "mcp not list" test_of_json_mcp_not_list
         ; tc "bad param" test_of_json_bad_param
