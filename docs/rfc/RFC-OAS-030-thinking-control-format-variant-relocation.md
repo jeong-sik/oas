@@ -38,7 +38,13 @@ The current state violates that intent for `thinking_control_format`: the enum t
 
 ### 2.1 Option A — relocate variants into `capability_vocab` (RECOMMENDED)
 
-Move the **variant definitions** out of `capabilities.ml` into `capability_vocab.ml`, alongside the existing `reasoning_replay_override` / `assistant_tool_content_format`. Add the canonical `to_string` / `of_string` / `values` triple there (matching the existing `reasoning_replay_table` shape).
+Move the **variant definitions** out of `capabilities.ml` into `capability_vocab.ml`, alongside the existing `reasoning_replay_override` / `assistant_tool_content_format`. Define a single canonical table there and derive every public vocabulary surface from it:
+
+- `values = List.map fst table`
+- `of_string = List.assoc_opt normalized table`
+- `to_string` only if a real serializer consumer is introduced in the same PR; if present, it must be reverse-derived from the same table, not a third hand-written match.
+
+The current consumers only need `values` and `of_string`, so the initial move should not add an unused `to_string` surface.
 
 `capabilities.ml` becomes a consumer with a type alias and constructor re-export:
 
@@ -67,20 +73,22 @@ Over-engineered for a flat 8-constructor enum. Rejected.
 
 | step | change | blast radius |
 |---|---|---|
-| 1 | `capability_vocab`: add `type thinking_control_format` + `preserve_thinking_control_format` + `to_string`/`of_string`/`values` (mirror `reasoning_replay_table`) | leaf only |
+| 1 | `capability_vocab`: add `type thinking_control_format` + `preserve_thinking_control_format` + one canonical table per vocabulary; derive `values` and `of_string` from that table. Add `to_string` only with a same-PR consumer and derive it from the table. | leaf only |
 | 2 | `capabilities.ml` (+`.mli`): replace `type` defs with alias `= Capability_vocab.*`; re-export constructors | type-only, all callers unchanged |
 | 3 | `provider_catalog.ml`: `parse_thinking_control_format` / `parse_preserve_thinking_control_format` → delegate to `Capability_vocab` | 2 parsers collapse |
 | 4 | `capabilities.ml`: delete `thinking_control_format_of_manifest_string` + `preserve_thinking_control_*_of_manifest_string`; callers use `Capability_vocab` | 2 local parsers collapse |
 | 5 | `capability_manifest.ml` / `model_catalog.ml`: route through `Capability_vocab` | parser sites |
-| 6 | tests: property (`of_string ∘ to_string = id` for all variants), exhaustive `values` ↔ constructors | guard |
+| 6 | tests: table-derived `values`, every value parses, every constructor is represented exactly once, unknown inputs still fail closed and existing warning call sites stay observable | guard |
 
 Steps 1–2 are one PR (the move). Steps 3–5 are a second PR (the delegation swap, mechanical). Step 6 lands with each.
 
 ## 4. Verification
 
 - **Compiler**: after the move, the only `match thinking_control_format` arms that compile are exhaustive ones. Adding a variant to `capability_vocab` flags every match site at compile time — the property the current duplication defeats.
-- **Property test**: `List.for_all Capability_vocab.thinking_control_format_values (fun s -> Capability_vocab.thinking_control_format_of_string s <> None)` and the round-trip `of_string (to_string v) = Some v`.
+- **Single-table proof**: tests must assert that exported `values` are derived from the same table used by `of_string`; the table must represent every constructor exactly once. A round-trip test is allowed only as a secondary check, because three independent encodings can still round-trip accidentally.
+- **Property test**: `List.for_all Capability_vocab.thinking_control_format_values (fun s -> Capability_vocab.thinking_control_format_of_string s <> None)` plus constructor coverage against the table.
 - **Delegation test**: assert the surviving parser returns identical results to the deleted local matches (pin output before deletion).
+- **Warning preservation**: manifest/catalog unknown-value call sites must keep the existing observable warning behavior after delegating to `Capability_vocab`; `None` without a warning is a silent failure regression.
 
 ## 5. Why not bundle into the SSOT-audit subset PRs
 
