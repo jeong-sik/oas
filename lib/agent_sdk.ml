@@ -224,6 +224,7 @@ let create_agent
     ; priority = default_config.priority
     ; yield_on_tool = default_config.yield_on_tool
     ; exit_condition = default_config.exit_condition
+    ; ensure_final_text = default_config.ensure_final_text
     ; call_time_pruner_keep_recent = default_config.call_time_pruner_keep_recent
     ; call_time_pruner_keep_last = default_config.call_time_pruner_keep_last
     }

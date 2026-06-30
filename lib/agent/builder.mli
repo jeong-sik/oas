@@ -56,6 +56,17 @@ val with_yield_on_tool : bool -> t -> t
     @since 0.115.0 *)
 val with_exit_condition : (int -> bool) -> t -> t
 
+(** Require the run to end with user-facing final text.
+
+    When [true], if a run is about to terminate with tool activity but no
+    visible text (the "tool-only turn ended without a final reply" symptom) —
+    either a terminal turn with no text, or [max_turns] reached after a tool
+    turn — the agent performs exactly ONE additional model turn with tools
+    withheld, so the model itself authors a textual answer. This adds no
+    turn/token limit (the answer is LLM-authored, not synthesized) and runs at
+    most once per run. Default [false]. *)
+val with_ensure_final_text : bool -> t -> t
+
 (** {2 Tools and MCP} *)
 
 val with_tools : Tool.t list -> t -> t

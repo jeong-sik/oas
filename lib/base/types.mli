@@ -63,6 +63,15 @@ type agent_config =
   ; yield_on_tool : bool (** Release LLM slot during tool execution. @since 0.100.0 *)
   ; exit_condition : ((int -> bool)[@opaque]) option
     (** Custom exit predicate called with turn_count after each turn. When it returns true the agent loop exits cleanly. @since 0.115.0 *)
+  ; ensure_final_text : bool
+    (** When [true], a run must not terminate with tool activity but no
+        user-facing final text (downstream renders this as "Tool-only turn
+        ended without a final reply"). If the run is about to end that way —
+        either a terminal turn with no visible text, or [max_turns] reached
+        after a tool turn — the agent performs exactly ONE additional model
+        turn with the tool set withheld, so the model itself authors a textual
+        answer. Convergence, not a cap: it adds no turn/token limit and the
+        answer is LLM-authored. Default [false] preserves prior behavior. *)
   ; call_time_pruner_keep_recent : int
     (** Number of most recent turns whose tool results are NOT stubbed by the
         call-time pruner in {!Agent_turn.prepare_messages}.  Default [2]. *)

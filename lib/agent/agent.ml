@@ -248,9 +248,45 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
      timeouts requires knowing whether the budget was spent on many
      moderate turns or a single slow one. *)
   let run_start = Unix.gettimeofday () in
+  (* Convergence turn for [ensure_final_text]: the run's contract is to produce
+     a user-facing answer, but the model ended with tool activity and no visible
+     text (downstream renders this as "Tool-only turn ended without a final
+     reply"). We run exactly ONE more model turn with the tool set withheld
+     ([Tool_set.empty] — the same swap {!run_with_handoffs_blocks} uses). With no
+     tools the model cannot emit a tool call, so it must author a textual final
+     answer: the answer is LLM-authored, not synthesized, and this adds no
+     turn/token cap. This is a single [run_turn_core] call — never a recursion
+     into [loop] — so it runs at most once and cannot itself trigger another
+     final-answer turn. *)
+  let run_final_answer_turn () =
+    let tool_withheld_agent = { agent with tools = Tool_set.empty } in
+    let turn_index = agent.state.turn_count + 1 in
+    let max_turns = agent.state.config.max_turns in
+    let turn_start = Unix.gettimeofday () in
+    let result =
+      run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run tool_withheld_agent
+    in
+    log_turn
+      ~run_start
+      ~turn_start
+      ~turn_index
+      ~max_turns
+      ~model:tool_withheld_agent.state.config.model
+      ~stop:"ensure_final_text";
+    result
+  in
   (* First turn: caller already holds slot, no resume needed *)
   let rec loop ~is_first_turn =
     match check_loop_guard agent with
+    | Some (Error.Agent (Error.MaxTurnsExceeded _) as err)
+      when agent.state.config.ensure_final_text ->
+      (* Hit the turn limit after a tool turn with no final text. Converge with
+         one tool-withheld answer turn before surfacing the limit error. If that
+         turn does not yield a [`Complete] response (degenerate [`ToolsExecuted],
+         or a hard error), fall back to the original MaxTurnsExceeded error. *)
+      (match run_final_answer_turn () with
+       | Ok (`Complete final_response) -> Ok final_response
+       | Ok `ToolsExecuted | Error _ -> Error err)
     | Some err -> Error err
     | None ->
       (* Resume slot before LLM turn (skip on first turn) *)
@@ -288,7 +324,20 @@ let run_loop ~sw ?clock ~api_strategy ?on_yield ?on_resume ?on_activity agent us
            ~max_turns
            ~model:response.model
            ~stop:(stop_reason_label response.stop_reason);
-         Ok response
+         if
+           agent.state.config.ensure_final_text
+           && Option.is_none (final_text_of_response response)
+         then (
+           (* Terminal turn carried no visible text: converge with one
+              tool-withheld answer turn. Return whatever it yields and do NOT
+              retry — a [`Complete] result is returned even if it is still
+              text-free; a degenerate [`ToolsExecuted] falls back to the
+              original response; a hard error is surfaced honestly. *)
+           match run_final_answer_turn () with
+           | Ok (`Complete final_response) -> Ok final_response
+           | Ok `ToolsExecuted -> Ok response
+           | Error e -> Error e)
+         else Ok response
        | Ok `ToolsExecuted ->
          log_turn
            ~run_start
@@ -886,4 +935,103 @@ let save_journal agent path =
   match agent.options.journal with
   | Some j -> Durable_event.save_to_file j path
   | None -> Error "no journal"
+;;
+
+(* ── ensure_final_text convergence ───────────────────────────── *)
+
+let%test
+    "ensure_final_text runs one tool-withheld answer turn on a text-free terminal turn; \
+     default leaves the run unchanged"
+  =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  (* The model's terminal turn carries no user-facing text (thinking-only — the
+     real "tool-only turn ended without a final reply" symptom). With
+     [ensure_final_text] the loop must run exactly ONE more turn with tools
+     withheld so the model authors a textual answer; with the default it must
+     return the text-free terminal turn unchanged. *)
+  let thinking_only : Types.api_response =
+    { id = "r0"
+    ; model = "mock-model"
+    ; stop_reason = EndTurn
+    ; content = [ Thinking { signature = None; content = "private reasoning" } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let final_answer : Types.api_response =
+    { id = "r1"
+    ; model = "mock-model"
+    ; stop_reason = EndTurn
+    ; content = [ Text "the final answer" ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let run_with ~ensure_final_text =
+    let call_index = ref 0 in
+    let tools_seen = ref [] in
+    let next (req : Llm_provider.Llm_transport.completion_request) =
+      tools_seen := !tools_seen @ [ List.length req.tools ];
+      let resp = if !call_index = 0 then thinking_only else final_answer in
+      incr call_index;
+      resp
+    in
+    let transport : Llm_provider.Llm_transport.t =
+      { complete_sync =
+          (fun req ->
+            { Llm_provider.Llm_transport.response = Ok (next req); latency_ms = None })
+      ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ req -> Ok (next req))
+      }
+    in
+    let options =
+      { default_options with
+        transport = Some transport
+      ; provider =
+          Some
+            { Provider.provider = Provider.Local { base_url = "http://mock:0/v1" }
+            ; model_id = "mock-model"
+            ; api_key_env = ""
+            }
+      }
+    in
+    let tool =
+      Agent_tool.create_simple ~name:"noop" ~description:"noop" (fun _ -> Ok final_answer)
+    in
+    let agent =
+      create
+        ~net
+        ~config:
+          { Types.default_config with
+            name = "ensure-final-text-test"
+          ; max_turns = 4
+          ; ensure_final_text
+          }
+        ~tools:[ tool ]
+        ~options
+        ()
+    in
+    Eio.Switch.run
+    @@ fun sw ->
+    let result = run_blocks ~sw agent [ Text "hi" ] in
+    result, !call_index, !tools_seen
+  in
+  let has_text = function
+    | Ok resp -> Option.is_some (final_text_of_response resp)
+    | Error _ -> false
+  in
+  let on_result, on_calls, on_tools = run_with ~ensure_final_text:true in
+  let off_result, off_calls, _off_tools = run_with ~ensure_final_text:false in
+  (* ON: the extra tool-withheld turn ran (2 transport calls), the second
+     carried no tools while the first carried the registered tool, and the run
+     ends with visible text. *)
+  has_text on_result
+  && on_calls = 2
+  && (match on_tools with
+      | [ first; 0 ] -> first >= 1
+      | _ -> false)
+  (* OFF (default): no extra turn — the run ends on the text-free terminal turn. *)
+  && off_calls = 1
+  && not (has_text off_result)
 ;;

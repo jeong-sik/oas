@@ -62,6 +62,7 @@ type t =
   ; priority : Llm_provider.Request_priority.t option
   ; yield_on_tool : bool
   ; exit_condition : (int -> bool) option
+  ; ensure_final_text : bool
   ; tool_selector : Tool_selector.strategy option
   ; disclosure_level : Tool.disclosure_level option
   ; disclosure_resolver : (Types.tool_result list -> Tool.disclosure_level option) option
@@ -141,6 +142,7 @@ let create ~net ~model =
   ; priority = None
   ; yield_on_tool = false
   ; exit_condition = None
+  ; ensure_final_text = default_config.ensure_final_text
   ; tool_selector = None
   ; disclosure_level = None
   ; disclosure_resolver = None
@@ -311,6 +313,7 @@ let with_cache_system_prompt v b = { b with cache_system_prompt = v }
 let with_cache_extended_ttl v b = { b with cache_extended_ttl = v }
 let with_yield_on_tool v b = { b with yield_on_tool = v }
 let with_exit_condition pred b = { b with exit_condition = Some pred }
+let with_ensure_final_text v b = { b with ensure_final_text = v }
 let with_event_bus bus b = { b with event_bus = Some bus }
 let without_event_bus b = { b with event_bus = None }
 let with_max_execution_time s b = { b with max_execution_time_s = Some s }
@@ -382,6 +385,7 @@ let build b =
     ; priority = b.priority
     ; yield_on_tool = b.yield_on_tool
     ; exit_condition = b.exit_condition
+    ; ensure_final_text = b.ensure_final_text
     ; call_time_pruner_keep_recent = Types.default_config.call_time_pruner_keep_recent
     ; call_time_pruner_keep_last = Types.default_config.call_time_pruner_keep_last
     }
