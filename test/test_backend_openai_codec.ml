@@ -1617,6 +1617,139 @@ let test_responses_build_request_round_trips_tool_result_items () =
   check_bool "tool strict" true (Yojson.Safe.Util.to_bool (member "strict" tool_json))
 ;;
 
+let test_responses_build_request_preserves_multiturn_reasoning_tool_order () =
+  let raw_reasoning ~id ~encrypted_content ~summary =
+    RedactedThinking
+      (Yojson.Safe.to_string
+         (`Assoc
+             [ "id", `String id
+             ; "type", `String "reasoning"
+             ; "status", `String "completed"
+             ; ( "summary"
+               , `List
+                   [ `Assoc [ "type", `String "summary_text"; "text", `String summary ] ]
+               )
+             ; "encrypted_content", `String encrypted_content
+             ]))
+  in
+  let tool_call id city =
+    ToolUse { id; name = "lookup_weather"; input = `Assoc [ "city", `String city ] }
+  in
+  let tool_result id content =
+    ToolResult
+      { tool_use_id = id
+      ; content
+      ; is_error = false
+      ; json = Some (`Assoc [ "content", `String content ])
+      ; content_blocks = None
+      }
+  in
+  let config =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-5.5"
+      ~base_url:"https://api.openai.com"
+      ~request_path:"/v1/responses"
+      ~max_tokens:128
+      ()
+  in
+  let body =
+    Responses.build_request
+      ~config
+      ~messages:
+        [ msg User [ Text "User message 1" ]
+        ; msg
+            Assistant
+            [ raw_reasoning
+                ~id:"rs_1_1"
+                ~encrypted_content:"enc_1_1"
+                ~summary:"Thinking 1.1"
+            ; tool_call "call_1_1" "Seoul"
+            ]
+        ; msg Tool [ tool_result "call_1_1" "Tool result 1.1" ]
+        ; msg
+            Assistant
+            [ raw_reasoning
+                ~id:"rs_1_2"
+                ~encrypted_content:"enc_1_2"
+                ~summary:"Thinking 1.2"
+            ; tool_call "call_1_2" "Busan"
+            ]
+        ; msg Tool [ tool_result "call_1_2" "Tool result 1.2" ]
+        ; msg
+            Assistant
+            [ raw_reasoning
+                ~id:"rs_1_3"
+                ~encrypted_content:"enc_1_3"
+                ~summary:"Thinking 1.3"
+            ; Text "Answer 1"
+            ]
+        ; msg User [ Text "User message 2" ]
+        ]
+      ()
+    |> Yojson.Safe.from_string
+  in
+  Alcotest.(check (list string))
+    "include encrypted reasoning"
+    [ "reasoning.encrypted_content" ]
+    (member "include" body |> to_list |> List.map to_string);
+  let input = member "input" body |> to_list in
+  let string_field key json =
+    match member key json with
+    | `String value -> Some value
+    | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+  in
+  let require_string_field key json =
+    match string_field key json with
+    | Some value -> value
+    | None ->
+      Alcotest.failf "expected string field %s in %s" key (Yojson.Safe.to_string json)
+  in
+  let marker json =
+    match string_field "type" json with
+    | Some "reasoning" -> "reasoning:" ^ require_string_field "id" json
+    | Some "function_call" -> "tool_call:" ^ require_string_field "call_id" json
+    | Some "function_call_output" -> "tool_result:" ^ require_string_field "call_id" json
+    | Some "message" ->
+      let content = member "content" json |> to_list |> only "assistant message part" in
+      "assistant:" ^ require_string_field "text" content
+    | Some other -> "type:" ^ other
+    | None ->
+      (match string_field "role" json, string_field "content" json with
+       | Some "user", Some text -> "user:" ^ text
+       | Some role, Some text -> role ^ ":" ^ text
+       | Some role, None -> role ^ ":"
+       | None, Some text -> "content:" ^ text
+       | None, None -> "unknown")
+  in
+  Alcotest.(check (list string))
+    "turn 2.1 input keeps prior reasoning/tool groups in order"
+    [ "user:User message 1"
+    ; "reasoning:rs_1_1"
+    ; "tool_call:call_1_1"
+    ; "tool_result:call_1_1"
+    ; "reasoning:rs_1_2"
+    ; "tool_call:call_1_2"
+    ; "tool_result:call_1_2"
+    ; "reasoning:rs_1_3"
+    ; "assistant:Answer 1"
+    ; "user:User message 2"
+    ]
+    (List.map marker input);
+  check_string
+    "first encrypted content preserved"
+    "enc_1_1"
+    (List.nth input 1 |> member "encrypted_content" |> to_string);
+  check_string
+    "second encrypted content preserved"
+    "enc_1_2"
+    (List.nth input 4 |> member "encrypted_content" |> to_string);
+  check_string
+    "third encrypted content preserved"
+    "enc_1_3"
+    (List.nth input 7 |> member "encrypted_content" |> to_string)
+;;
+
 let test_responses_build_request_includes_previous_response_id () =
   let config =
     Provider_config.make
@@ -1845,6 +1978,10 @@ let () =
             "build request round-trips tool result items"
             `Quick
             test_responses_build_request_round_trips_tool_result_items
+        ; Alcotest.test_case
+            "build request preserves multiturn reasoning/tool order"
+            `Quick
+            test_responses_build_request_preserves_multiturn_reasoning_tool_order
         ; Alcotest.test_case
             "build request previous_response_id"
             `Quick
