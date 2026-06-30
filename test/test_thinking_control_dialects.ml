@@ -505,6 +505,8 @@ let test_ollama_cloud_openai_compat_streams_reasoning_delta () =
        (Printf.sprintf
           "ollama cloud OpenAI-compatible reasoning delta field drifted: %s"
           field)
+   | RD.Delta_reasoning_details ->
+     fail "ollama cloud OpenAI-compatible should not use reasoning_details streaming"
    | RD.No_streaming_reasoning ->
      fail "ollama cloud OpenAI-compatible reasoning stream field was dropped"
    | RD.Delta_reasoning_details ->
