@@ -540,13 +540,9 @@ let test_lookup_qwen3_thinking_control () =
      No_thinking_control and [supports_extended_thinking=true] never reached
      the wire.
 
-     This asserts the built-in static table. [for_model_id] consults the
-     ambient OAS_CAPABILITY_MANIFEST first, and that manifest may carry a
-     generic [qwen] entry that the [apply_manifest_entry] codec resolves
-     WITHOUT a thinking_control_format (the manifest schema has no such
-     field). We pin the static fallback by routing through
-     [for_model_id_with_manifest] with a non-matching manifest, mirroring
-     [test_manifest_fallback_to_static]. *)
+     Route through [for_model_id_with_manifest] with a non-matching manifest
+     so this assertion pins the catalog fallback instead of any ambient
+     manifest entry supplied by the test environment. *)
   let non_matching =
     match
       Capability_manifest.of_json
@@ -1261,9 +1257,9 @@ let make_manifest ?(base = "default_capabilities") ?(extra_fields = []) prefix =
   | Error e -> Alcotest.failf "manifest parse error: %s" e
 ;;
 
-let test_manifest_overrides_static_table () =
-  (* Build a manifest that declares a model with same prefix as claude-opus
-     but different capabilities — manifest must win. *)
+let test_explicit_manifest_lookup_precedes_catalog_fallback () =
+  (* [for_model_id_with_manifest] is the explicit-manifest API, so the supplied
+     manifest wins before falling back to the globally loaded catalog. *)
   let m =
     make_manifest
       ~base:"openai_chat"
@@ -1282,18 +1278,19 @@ let test_manifest_overrides_static_table () =
   | None -> fail "expected Some from manifest"
 ;;
 
-let test_manifest_fallback_to_static () =
-  (* Manifest has no entry for claude-opus — should fall through to static table. *)
+let test_explicit_manifest_lookup_falls_back_to_catalog () =
+  (* Manifest has no entry for claude-opus, so the lookup should fall through to
+     the loaded model catalog. *)
   let m = make_manifest "totally-other-model" in
   match Capabilities.for_model_id_with_manifest m "claude-opus-4-6" with
   | Some c ->
     check (option int) "fallback ctx 1M" (Some 1_000_000) c.max_context_tokens;
     check bool "fallback computer_use" true c.supports_computer_use
-  | None -> fail "should fall through to static table"
+  | None -> fail "should fall through to model catalog"
 ;;
 
 let test_manifest_unknown_model_still_none () =
-  (* Neither manifest nor static table knows this model. *)
+  (* Neither manifest nor model catalog knows this model. *)
   let m = make_manifest "known-prefix" in
   check
     bool
@@ -1379,9 +1376,9 @@ let test_example_manifest_base_labels_are_canonical () =
       entries
 ;;
 
-let test_manifest_prefix_wins_over_longer_static_prefix () =
-  (* Manifest entry "dashscope-3" must win over static table "dashscope-3" prefix too,
-     letting operator override even well-known models. *)
+let test_explicit_manifest_prefix_precedes_catalog_fallback () =
+  (* Explicit manifest lookup lets callers test or apply a manifest before
+     consulting the global catalog fallback. *)
   let m =
     make_manifest
       ~base:"openai_chat"
@@ -1393,6 +1390,51 @@ let test_manifest_prefix_wins_over_longer_static_prefix () =
     check bool "manifest disables reasoning" false c.supports_reasoning;
     check bool "base openai_chat: tools" true c.supports_tools
   | None -> fail "expected Some"
+;;
+
+let test_global_catalog_precedes_global_manifest () =
+  let manifest =
+    make_manifest
+      ~base:"anthropic"
+      ~extra_fields:
+        [ "max_context_tokens", "999999"
+        ; "supports_tools", "false"
+        ; "supports_computer_use", "true"
+        ; "thinking_control_format", {|"thinking_object"|}
+        ]
+      "s9-precedence-model"
+  in
+  with_temp_model_catalog
+    {|
+[[models]]
+id_prefix = "s9-precedence-model"
+base = "openai_chat"
+max_context_tokens = 123456
+supports_tools = true
+supports_computer_use = false
+thinking_control_format = "chat_template_kwargs"
+|}
+    (fun path ->
+       match Model_catalog.load_file path with
+       | Error msg -> Alcotest.failf "model catalog parse error: %s" msg
+       | Ok catalog ->
+         Model_catalog.set_global catalog;
+         Capability_manifest.set_global manifest;
+         Fun.protect
+           ~finally:(fun () ->
+             Capability_manifest.clear_global ();
+             Model_catalog.clear_global ())
+           (fun () ->
+              match Capabilities.for_model_id "s9-precedence-model-v1" with
+              | Some c ->
+                check (option int) "catalog ctx wins" (Some 123456) c.max_context_tokens;
+                check bool "catalog tools wins" true c.supports_tools;
+                check bool "catalog computer_use wins" false c.supports_computer_use;
+                check_thinking_control
+                  "catalog thinking format wins"
+                  Capabilities.Chat_template_kwargs
+                  c.thinking_control_format
+              | None -> fail "expected catalog-backed capabilities"))
 ;;
 
 let test_apply_manifest_entry_all_none_uses_base () =
@@ -2137,8 +2179,14 @@ let () =
         ] )
     ; "merge", [ test_case "with_context_size" `Quick test_with_context_size ]
     ; ( "manifest"
-      , [ test_case "overrides static table" `Quick test_manifest_overrides_static_table
-        ; test_case "fallback to static" `Quick test_manifest_fallback_to_static
+      , [ test_case
+            "explicit manifest precedes catalog fallback"
+            `Quick
+            test_explicit_manifest_lookup_precedes_catalog_fallback
+        ; test_case
+            "explicit manifest falls back to catalog"
+            `Quick
+            test_explicit_manifest_lookup_falls_back_to_catalog
         ; test_case "unknown model → None" `Quick test_manifest_unknown_model_still_none
         ; test_case "base openai_chat" `Quick test_manifest_base_label_openai_chat
         ; test_case "base anthropic" `Quick test_manifest_base_label_anthropic
@@ -2148,9 +2196,13 @@ let () =
             `Quick
             test_example_manifest_base_labels_are_canonical
         ; test_case
-            "manifest prefix wins"
+            "explicit manifest prefix precedes catalog fallback"
             `Quick
-            test_manifest_prefix_wins_over_longer_static_prefix
+            test_explicit_manifest_prefix_precedes_catalog_fallback
+        ; test_case
+            "global catalog precedes global manifest"
+            `Quick
+            test_global_catalog_precedes_global_manifest
         ; test_case
             "all-None entry matches base"
             `Quick

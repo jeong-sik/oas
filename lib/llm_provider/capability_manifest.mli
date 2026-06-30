@@ -22,13 +22,15 @@
     ]}
 
     Set [OAS_CAPABILITY_MANIFEST] to the file path to load it at
-    runtime.  When the env var is unset the manifest layer is
-    transparent — [Capabilities.for_model_id] falls through to the
-    built-in static table exactly as before.
+    runtime.  The manifest layer sits below the model catalog used by
+    [Capabilities.for_model_id]; catalog rows remain the authoritative
+    model capability source when both layers match the same model.
+    When no catalog row matches, the manifest can supply capabilities
+    for custom deployments.
 
     Priority (highest first):
-    + 1. Manifest entry matching by [id_prefix] (case-insensitive prefix)
-    + 2. Built-in [Capabilities.for_model_id] prefix table
+    + 1. Model catalog row matching by [id_prefix] (case-insensitive prefix)
+    + 2. Manifest entry matching by [id_prefix] (case-insensitive prefix)
     + 3. Discovery-based inference / caller-provided default
 
     @since 0.188.0 *)
