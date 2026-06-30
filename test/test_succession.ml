@@ -245,9 +245,7 @@ let test_normalize_strips_thinking () =
   let msgs =
     [ { Types.role = Types.Assistant
       ; content =
-          [ Types.Thinking { signature = None; content = "hmm" }
-          ; Types.Text "answer"
-          ]
+          [ Types.Thinking { signature = None; content = "hmm" }; Types.Text "answer" ]
       ; name = None
       ; tool_call_id = None
       ; metadata = []

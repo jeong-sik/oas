@@ -44,17 +44,17 @@ let sanitize s =
     let i = ref 0 in
     while !i < len do
       let dec = String.get_utf_8_uchar s !i in
-      (if Uchar.utf_decode_is_valid dec
-       then (
-         let u = Uchar.utf_decode_uchar dec in
-         let code = Uchar.to_int u in
-         if code < 0x80 && is_disallowed_control code
-         then Buffer.add_char buf ' '
-         else Buffer.add_utf_8_uchar buf u)
-       else
-         (* Malformed: the decoder reports a U+FFFD decode spanning the maximal
+      if Uchar.utf_decode_is_valid dec
+      then (
+        let u = Uchar.utf_decode_uchar dec in
+        let code = Uchar.to_int u in
+        if code < 0x80 && is_disallowed_control code
+        then Buffer.add_char buf ' '
+        else Buffer.add_utf_8_uchar buf u)
+      else
+        (* Malformed: the decoder reports a U+FFFD decode spanning the maximal
             invalid subpart; emit one replacement for it. *)
-         Buffer.add_string buf replacement);
+        Buffer.add_string buf replacement;
       i := !i + Uchar.utf_decode_length dec
     done;
     Buffer.contents buf)
@@ -164,5 +164,4 @@ let%test "out of range code point rejected" =
 let%test "NUL replaced with space" = sanitize "ab\x00cd" = "ab cd"
 let%test "BEL replaced with space" = sanitize "x\x07y" = "x y"
 let%test "DEL replaced with space" = sanitize "a\x7Fb" = "a b"
-
 let%test "mixed control chars" = sanitize "\x01hello\x00\nworld\x1F" = " hello \nworld "
