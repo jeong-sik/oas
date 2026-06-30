@@ -327,6 +327,8 @@ let test_lookup_kimi_k2_native_cloud_suffix () =
      | Reasoning_dialect.Delta_field "reasoning_content" -> ()
      | Reasoning_dialect.Delta_field field ->
        fail ("native latest Kimi reasoning delta field drifted: " ^ field)
+     | Reasoning_dialect.Delta_reasoning_details ->
+       fail "native latest Kimi should not use split reasoning_details streaming"
      | Reasoning_dialect.No_streaming_reasoning ->
        fail "native latest Kimi reasoning stream field was dropped"
      | Reasoning_dialect.Template_parser ->
@@ -510,7 +512,12 @@ let test_lookup_minimax_m3_official_chat_dialect () =
       bool
       "dialect emits reasoning split"
       true
-      (dialect.output_wire = Reasoning_dialect.Reasoning_split)
+      (dialect.output_wire = Reasoning_dialect.Reasoning_split);
+    check
+      bool
+      "dialect streams typed reasoning details"
+      true
+      (dialect.streaming = Reasoning_dialect.Delta_reasoning_details)
   | None -> fail "should match minimax-m3"
 ;;
 
@@ -847,7 +854,15 @@ type replay_contract =
 type streaming_contract =
   | Streaming_not_required
   | Delta_stream of string
+  | Delta_reasoning_details_stream
   | Template_stream
+
+let streaming_reasoning_to_string = function
+  | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
+  | Reasoning_dialect.Template_parser -> "template_parser"
+  | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual
+  | Reasoning_dialect.Delta_reasoning_details -> "delta_reasoning_details"
+;;
 
 type thinking_contract =
   | Reasoning_only
@@ -1005,19 +1020,19 @@ let check_frontier_model
             "%s expected Delta_field(%s), got %s"
             label
             field
-            (match other with
-             | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
-             | Reasoning_dialect.Template_parser -> "template_parser"
-             | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+            (streaming_reasoning_to_string other))
+     | Delta_reasoning_details_stream ->
+       check
+         string
+         (label ^ " reasoning details stream")
+         "delta_reasoning_details"
+         (streaming_reasoning_to_string dialect.streaming)
      | Template_stream ->
        check
          string
          (label ^ " template stream")
          "template_parser"
-         (match dialect.streaming with
-          | Reasoning_dialect.Template_parser -> "template_parser"
-          | Reasoning_dialect.No_streaming_reasoning -> "no_streaming_reasoning"
-          | Reasoning_dialect.Delta_field actual -> "delta_field:" ^ actual))
+         (streaming_reasoning_to_string dialect.streaming))
 ;;
 
 let test_frontier_grouped_tool_thinking_structured_models () =
@@ -1055,7 +1070,7 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Extended_thinking
       , No_structured_output
       , Replay_every_turn
-      , Delta_stream "reasoning_content" )
+      , Delta_reasoning_details_stream )
     ; ( "OpenAI GPT-5.5"
       , Direct_model
       , "gpt-5.5"

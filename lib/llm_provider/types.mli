@@ -276,6 +276,10 @@ type content_delta =
   | TextDelta of string
   | ThinkingDelta of string
   | ThinkingSignatureDelta of string
+  | ReasoningDetailsDelta of
+      { reasoning_content : string option
+      ; details : reasoning_detail list
+      }
   | InputJsonDelta of string
   (** Incremental fragment of a tool-call arguments JSON string. The
           accumulator appends successive fragments to the block buffer. *)
