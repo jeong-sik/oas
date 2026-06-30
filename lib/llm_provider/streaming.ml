@@ -348,31 +348,6 @@ let chunk_has_non_empty_delta (c : openai_chunk) : bool =
    the Responses-API trailer. *)
 let openai_done_sentinel = "[DONE]"
 
-let string_contains_substring ~needle haystack =
-  let needle_len = String.length needle in
-  let haystack_len = String.length haystack in
-  if needle_len = 0
-  then true
-  else if needle_len > haystack_len
-  then false
-  else (
-    let last_start = haystack_len - needle_len in
-    let rec loop i =
-      if i > last_start
-      then false
-      else if String.sub haystack i needle_len = needle
-      then true
-      else loop (i + 1)
-    in
-    loop 0)
-;;
-
-let contains_inline_thinking_tag text =
-  let lower = String.lowercase_ascii text in
-  string_contains_substring ~needle:"<think" lower
-  || string_contains_substring ~needle:"<mm:think" lower
-;;
-
 let assoc_field_opt name = function
   | `Assoc fields -> List.assoc_opt name fields
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
@@ -504,22 +479,14 @@ let parse_openai_sse_chunk ?streaming_reasoning data_str : openai_chunk option =
             let split_result =
               match reasoning_content_result, details_result with
               | Ok reasoning_content, Ok details ->
-                let inline_thinking =
-                  match delta_content with
-                  | Some text -> contains_inline_thinking_tag text
-                  | None -> false
-                in
-                if inline_thinking
-                then Error "inline_thinking_in_split_stream_content"
-                else (
-                  match reasoning_content, details with
-                  | None, None -> Ok None
-                  | Some _, None | _, Some _ ->
-                    Ok
-                      (Some
-                         { delta_reasoning_content = reasoning_content
-                         ; delta_details = Option.value details ~default:[]
-                         }))
+                (match reasoning_content, details with
+                 | None, None -> Ok None
+                 | Some _, None | _, Some _ ->
+                   Ok
+                     (Some
+                        { delta_reasoning_content = reasoning_content
+                        ; delta_details = Option.value details ~default:[]
+                        }))
               | Error reason, Ok _ | Ok _, Error reason | Error reason, Error _ ->
                 Error reason
             in

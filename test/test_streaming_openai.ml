@@ -420,13 +420,6 @@ let test_parse_minimax_split_malformed_detail_item_fails_closed () =
     {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"reasoning_details":["bad"]},"finish_reason":null}]}|}
 ;;
 
-let test_parse_minimax_split_inline_think_fails_closed () =
-  expect_split_parse_failed
-    "inline thinking"
-    "inline_thinking_in_split_stream_content"
-    {|{"id":"c-minimax","model":"minimax-m3","choices":[{"index":0,"delta":{"content":"<think>hidden</think>visible"},"finish_reason":null}]}|}
-;;
-
 let test_events_reasoning_then_text () =
   let state = S.create_openai_stream_state () in
   let r_events, _tel =
@@ -1269,10 +1262,6 @@ let () =
             "minimax split malformed detail item"
             `Quick
             test_parse_minimax_split_malformed_detail_item_fails_closed
-        ; test_case
-            "minimax split inline thinking fail-closed"
-            `Quick
-            test_parse_minimax_split_inline_think_fails_closed
         ] )
     ; ( "openai_chunk_to_events"
       , [ test_case "text first chunk" `Quick test_events_text_first_chunk
