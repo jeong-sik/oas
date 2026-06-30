@@ -156,9 +156,12 @@ The `capabilities` object accepts the same capability field names used by
 - `assistant_tool_content_format`
 - `supports_runtime_mcp_tools`, `supports_runtime_tool_events`
 - `supports_reasoning`, `supports_extended_thinking`, `supports_reasoning_budget`
+- `accepted_reasoning_efforts`
 - `thinking_control_format`, `preserve_thinking_control_format`
+- `reasoning_output_format`, `reasoning_streaming_format`
 - `supports_response_format_json`, `supports_structured_output`
 - `supports_image_input`, `supports_audio_input`, `supports_video_input`
+- `modality_priority`
 - `supports_native_streaming`, `supports_system_prompt`
 - `supports_top_k`, `supports_min_p`, `supports_seed`
 - `emits_usage_tokens`, `supported_models`
@@ -191,6 +194,30 @@ Accepted `reasoning_output_format` values are:
 
 - `none`
 - `split_reasoning_fields` (emit provider split control such as `reasoning_split=true`)
+
+Accepted `reasoning_streaming_format` values are:
+
+- `default`
+- `none`
+- `template_parser`
+- `delta:<field>` (parse the named streaming delta field as reasoning)
+
+Accepted `accepted_reasoning_efforts` values are:
+
+- `none`
+- `minimal`
+- `low`
+- `medium`
+- `high`
+- `xhigh`
+
+Accepted `modality_priority` values are:
+
+- `preserve_input_order`
+- `preserve-input-order`
+- `preserve`
+- `visual_first`
+- `visual-first`
 
 Accepted `assistant_tool_content_format` values are:
 
