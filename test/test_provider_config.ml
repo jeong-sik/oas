@@ -897,6 +897,24 @@ let test_structured_output_name_of_schema () =
 
 (* ── provider_name_of_config ─────────────────────────── *)
 
+let with_repository_model_catalog f =
+  let previous_catalog = Model_catalog.global () in
+  let restore () =
+    match previous_catalog with
+    | Some catalog -> Model_catalog.set_global catalog
+    | None -> Model_catalog.clear_global ()
+  in
+  let candidates = [ "models.toml"; "../models.toml" ] in
+  match List.find_opt Sys.file_exists candidates with
+  | None -> Alcotest.fail "models.toml not found for provider_name tests"
+  | Some path ->
+    (match Model_catalog.load_file path with
+     | Error msg -> Alcotest.failf "failed to load %s: %s" path msg
+     | Ok catalog ->
+       Model_catalog.set_global catalog;
+       Fun.protect f ~finally:restore)
+;;
+
 let test_provider_name_of_config_glm_general () =
   let cfg =
     Provider_config.make
@@ -958,6 +976,47 @@ let test_provider_name_of_config_unmatched_openai_compat () =
     "unmatched openai compat"
     "openai_compat"
     (Provider_registry.provider_name_of_config cfg)
+;;
+
+let check_provider_name_from_catalog_model ~label ~model_id ~expected =
+  with_repository_model_catalog (fun () ->
+    let cfg =
+      Provider_config.make
+        ~kind:OpenAI_compat
+        ~model_id
+        ~base_url:"https://unlisted.example/v1"
+        ~request_path:"/chat/completions"
+        ()
+    in
+    check_string label expected (Provider_registry.provider_name_of_config cfg))
+;;
+
+let test_provider_name_of_config_xai_model_catalog () =
+  check_provider_name_from_catalog_model
+    ~label:"xai model catalog provider"
+    ~model_id:"grok-4.3"
+    ~expected:"xai"
+;;
+
+let test_provider_name_of_config_mistral_model_catalog () =
+  check_provider_name_from_catalog_model
+    ~label:"mistral model catalog provider"
+    ~model_id:"mistral-large"
+    ~expected:"mistral"
+;;
+
+let test_provider_name_of_config_cohere_model_catalog () =
+  check_provider_name_from_catalog_model
+    ~label:"cohere model catalog provider"
+    ~model_id:"command-r-plus"
+    ~expected:"cohere"
+;;
+
+let test_provider_name_of_config_mimo_model_catalog () =
+  check_provider_name_from_catalog_model
+    ~label:"mimo model catalog provider"
+    ~model_id:"mimo-v2.5-pro"
+    ~expected:"mimo"
 ;;
 
 (* ── provider_kind_of_string ─────────────────────────── *)
@@ -1460,6 +1519,22 @@ let () =
             "unmatched openai_compat"
             `Quick
             test_provider_name_of_config_unmatched_openai_compat
+        ; Alcotest.test_case
+            "xai model catalog"
+            `Quick
+            test_provider_name_of_config_xai_model_catalog
+        ; Alcotest.test_case
+            "mistral model catalog"
+            `Quick
+            test_provider_name_of_config_mistral_model_catalog
+        ; Alcotest.test_case
+            "cohere model catalog"
+            `Quick
+            test_provider_name_of_config_cohere_model_catalog
+        ; Alcotest.test_case
+            "mimo model catalog"
+            `Quick
+            test_provider_name_of_config_mimo_model_catalog
         ] )
     ; ( "kind_of_string"
       , [ Alcotest.test_case "roundtrip all variants" `Quick test_kind_roundtrip

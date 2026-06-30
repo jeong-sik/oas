@@ -6,6 +6,10 @@
 type model_entry =
   { id_prefix : string
   ; base_label : string option
+    (** Registry provider identity for OpenAI-compatible model families whose
+        wire kind alone would otherwise collapse to [openai_compat]. This is
+        not a capability preset; [base_label] remains the capability base. *)
+  ; provider_name : string option
   ; max_context_tokens : int option
   ; max_output_tokens : int option
   ; supports_tools : bool option
@@ -48,6 +52,11 @@ type t = model_entry list
 val load_file : string -> (t, string) result
 val load_runtime_file : string -> t option
 val lookup : t -> string -> model_entry option
+
+(** Return the catalog-declared provider identity for the longest matching
+    [id_prefix], if that entry declares one. *)
+val provider_name_for_model_id : t -> string -> string option
+
 val global : unit -> t option
 val preload_global : unit -> unit
 val set_global : t -> unit

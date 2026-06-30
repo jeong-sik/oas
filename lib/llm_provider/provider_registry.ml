@@ -364,6 +364,38 @@ let siliconflow_defaults =
   }
 ;;
 
+let xai_defaults =
+  { kind = OpenAI_compat
+  ; base_url = env_or_default "XAI_BASE_URL" "https://api.x.ai/v1"
+  ; api_key_env = "XAI_API_KEY"
+  ; request_path = "/chat/completions"
+  }
+;;
+
+let mistral_defaults =
+  { kind = OpenAI_compat
+  ; base_url = env_or_default "MISTRAL_BASE_URL" "https://api.mistral.ai/v1"
+  ; api_key_env = "MISTRAL_API_KEY"
+  ; request_path = "/chat/completions"
+  }
+;;
+
+let cohere_defaults =
+  { kind = OpenAI_compat
+  ; base_url = env_or_default "COHERE_BASE_URL" "https://api.cohere.com/compatibility/v1"
+  ; api_key_env = "COHERE_API_KEY"
+  ; request_path = "/chat/completions"
+  }
+;;
+
+let mimo_defaults =
+  { kind = OpenAI_compat
+  ; base_url = env_or_default "MIMO_BASE_URL" "https://token-plan-sgp.xiaomimimo.com/v1"
+  ; api_key_env = "MIMO_API_KEY"
+  ; request_path = "/chat/completions"
+  }
+;;
+
 let normalize_url value =
   let trimmed = String.trim value in
   if trimmed = ""
@@ -445,6 +477,26 @@ let default () =
     siliconflow_defaults
     ~max_context:128_000
     Capabilities.openai_compat_chat_capabilities;
+  reg
+    "xai"
+    xai_defaults
+    ~max_context:1_000_000
+    Capabilities.openai_compat_chat_extended_capabilities;
+  reg
+    "mistral"
+    mistral_defaults
+    ~max_context:260_000
+    Capabilities.openai_compat_chat_extended_capabilities;
+  reg
+    "cohere"
+    cohere_defaults
+    ~max_context:256_000
+    Capabilities.openai_compat_chat_capabilities;
+  reg
+    "mimo"
+    mimo_defaults
+    ~max_context:128_000
+    Capabilities.openai_compat_chat_capabilities;
   register
     t
     { name = "ollama"
@@ -460,6 +512,12 @@ let default () =
     Capabilities.ollama_cloud_capabilities;
   overlay_provider_catalog t;
   t
+;;
+
+let provider_name_of_catalog_model_id model_id =
+  match Model_catalog.global () with
+  | None -> None
+  | Some catalog -> Model_catalog.provider_name_for_model_id catalog model_id
 ;;
 
 let provider_name_of_config (config : Provider_config.t) =
@@ -491,5 +549,8 @@ let provider_name_of_config (config : Provider_config.t) =
           && String.equal (String.trim entry.defaults.request_path) request_path)
       with
       | Some entry -> entry.name
-      | None -> "openai_compat")
+      | None ->
+        (match provider_name_of_catalog_model_id config.model_id with
+         | Some provider_name -> provider_name
+         | None -> "openai_compat"))
 ;;

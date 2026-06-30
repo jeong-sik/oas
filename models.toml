@@ -1648,6 +1648,7 @@ output_per_million = 0.0
 [[models]]
 id_prefix = "xai/grok-4.3"
 base = "openai_chat_extended"
+provider_name = "xai"
 max_context_tokens = 1000000
 supports_tools = true
 supports_tool_choice = true
@@ -1664,6 +1665,7 @@ supports_caching = true
 [[models]]
 id_prefix = "grok-4.3"
 base = "openai_chat_extended"
+provider_name = "xai"
 max_context_tokens = 1000000
 supports_tools = true
 supports_tool_choice = true
@@ -1680,6 +1682,7 @@ supports_caching = true
 [[models]]
 id_prefix = "grok-latest"
 base = "openai_chat_extended"
+provider_name = "xai"
 max_context_tokens = 1000000
 supports_tools = true
 supports_tool_choice = true
@@ -1697,6 +1700,7 @@ supports_caching = true
 [[models]]
 id_prefix = "mistral-large"
 base = "openai_chat"
+provider_name = "mistral"
 max_context_tokens = 260000
 supports_tools = true
 supports_tool_choice = true
@@ -1707,6 +1711,7 @@ supports_native_streaming = true
 [[models]]
 id_prefix = "mistral-small"
 base = "openai_chat_extended"
+provider_name = "mistral"
 max_context_tokens = 256000
 supports_tools = true
 supports_tool_choice = true
@@ -1722,6 +1727,7 @@ supports_native_streaming = true
 [[models]]
 id_prefix = "command-r-plus"
 base = "openai_chat"
+provider_name = "cohere"
 max_context_tokens = 256000
 max_output_tokens = 32000
 supports_tools = true
@@ -1878,6 +1884,7 @@ supports_native_streaming = true
 [[models]]
 id_prefix = "mimo-v2.5"
 base = "openai_chat"
+provider_name = "mimo"
 supports_reasoning = true
 # Live MiMo V2.5 OpenAI-compatible smoke, checked 2026-06-29: responses carry
 # reasoning in the `reasoning_content` side-channel, accept tool calls, stream

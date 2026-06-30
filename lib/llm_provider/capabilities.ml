@@ -1212,6 +1212,7 @@ let%test "for_model_id glm-4.5-flash has GLM-4.5 thinking limits" =
 let test_catalog_entry id_prefix : Model_catalog.model_entry =
   { id_prefix
   ; base_label = None
+  ; provider_name = None
   ; max_context_tokens = None
   ; max_output_tokens = None
   ; supports_tools = None
