@@ -369,7 +369,9 @@ let test_finalize_tool_use_invalid_json () =
     ];
   match Streaming.finalize_stream_acc acc with
   | Error (Stream_parse_failed { reason; raw }) ->
-    Alcotest.(check string) "raw omitted" "" raw;
+    (* The offending tool-arg buffer is preserved in [raw] for keeper-log
+       diagnosis (the Unknown_block/media arms still omit it). *)
+    Alcotest.(check string) "raw preserved" "not json{" raw;
     Alcotest.(check bool)
       "malformed tool args"
       true
