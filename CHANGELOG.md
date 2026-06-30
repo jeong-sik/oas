@@ -31,6 +31,22 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.3](https://github.com/jeong-sik/oas/compare/v0.208.2...v0.208.3) (2026-06-30)
+
+
+### Bug Fixes
+
+* **capabilities:** reject padded exact thinking tokens ([#2338](https://github.com/jeong-sik/oas/issues/2338)) ([dadc9a8](https://github.com/jeong-sik/oas/commit/dadc9a8b8eb5638d6460ac9b299f989605e859e4))
+* **context:** preserve thinking skips summarization ([#2325](https://github.com/jeong-sik/oas/issues/2325)) ([8ab2ef1](https://github.com/jeong-sik/oas/commit/8ab2ef1d78a83109e2407f90408de5b2e500193d))
+* **glm:** route thinking fields through shared builder ([#2309](https://github.com/jeong-sik/oas/issues/2309)) ([ae2f3ee](https://github.com/jeong-sik/oas/commit/ae2f3ee115e274c6a916b529a4d27b634f9049b2))
+* **judge:** fail closed on invalid structured output ([#2342](https://github.com/jeong-sik/oas/issues/2342)) ([7137dd9](https://github.com/jeong-sik/oas/commit/7137dd960000f774a7c9b774fd4ad950ab18eb44))
+* **ollama:** declare chat template thinking token ([#2332](https://github.com/jeong-sik/oas/issues/2332)) ([45a0ef4](https://github.com/jeong-sik/oas/commit/45a0ef44bc6356cfa26e3e7f7e144a4713b886fc))
+* **responses:** centralize stop reason status mapping ([#2323](https://github.com/jeong-sik/oas/issues/2323)) ([9ee098f](https://github.com/jeong-sik/oas/commit/9ee098fc1a48e3e86f5f8c801e879de96b60dbb3))
+* **stream-acc:** replace InputJsonDelta buffer on whole-value re-emit (malformed {}{}) ([#2344](https://github.com/jeong-sik/oas/issues/2344)) ([e4a128a](https://github.com/jeong-sik/oas/commit/e4a128a13777c6b9aa71b1c78bfb6aff232ac686))
+* **streaming:** remove coordinator term from provider comments ([#2321](https://github.com/jeong-sik/oas/issues/2321)) ([15276bd](https://github.com/jeong-sik/oas/commit/15276bd18f66b2023565ae4489702b992cf7caec))
+* **test:** avoid response helper shadowing ([#2340](https://github.com/jeong-sik/oas/issues/2340)) ([66553e2](https://github.com/jeong-sik/oas/commit/66553e2f28c89f4f995c63d6a465cc551b88cbb2))
+* **test:** prefer OAS_MODEL_CATALOG in provider suites ([#2319](https://github.com/jeong-sik/oas/issues/2319)) ([41d64c6](https://github.com/jeong-sik/oas/commit/41d64c6bd3ec52f16f9a5cb32db3ec80cb3f141e))
+
 ## [0.208.2](https://github.com/jeong-sik/oas/compare/v0.208.1...v0.208.2) (2026-06-30)
 
 
