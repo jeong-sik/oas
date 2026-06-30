@@ -96,8 +96,7 @@ let accumulate_event (acc : stream_acc) = function
         b
     in
     (match delta with
-     | Types.TextDelta s | Types.ThinkingDelta s ->
-       Buffer.add_string buf s
+     | Types.TextDelta s | Types.ThinkingDelta s -> Buffer.add_string buf s
      | Types.InputJsonDelta s ->
        (* A provider may re-emit a whole tool-call arguments value as an
           InputJsonDelta rather than an InputJsonSnapshot. If the buffer
@@ -108,10 +107,14 @@ let accumulate_event (acc : stream_acc) = function
           into malformed "{}{}" (raw="{}{}", malformed_tool_use_arguments).
           The re-emit vs incremental decision derives from the buffer state,
           not the delta tag (SSOT). *)
-       if String.length s > 0 && s.[0] = '{'
-          && Buffer.length buf > 0
-          && is_complete_json_value (Buffer.contents buf)
-       then (Buffer.clear buf; Buffer.add_string buf s)
+       if
+         String.length s > 0
+         && s.[0] = '{'
+         && Buffer.length buf > 0
+         && is_complete_json_value (Buffer.contents buf)
+       then (
+         Buffer.clear buf;
+         Buffer.add_string buf s)
        else Buffer.add_string buf s
      | Types.InputJsonSnapshot s ->
        (* A complete tool-call arguments value replaces the block buffer rather
