@@ -615,7 +615,14 @@ type openai_stream_state =
   ; mutable thinking_block_index : int
   ; mutable text_block_started : bool
   ; mutable text_block_index : int
-  ; tool_block_indices : (int, int) Hashtbl.t (** tool_call index -> block index *)
+  ; tool_blocks_by_id : (string, int) Hashtbl.t
+    (** tool_call id -> block index. Primary identity: a distinct id always gets
+        a distinct block, even when a provider reuses the wire index across
+        parallel calls (minimax-m3 on Ollama Cloud stamps every parallel call
+        index:0). *)
+  ; tool_block_indices : (int, int) Hashtbl.t
+    (** tool_call wire index -> block index. Routes id-less continuation
+        fragments (OpenAI streams a call's id only on its first chunk). *)
   ; mutable next_block_index : int
   ; mutable thinking_state : thinking_state
   ; provider : string
@@ -627,6 +634,7 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
   ; thinking_block_index = -1
   ; text_block_started = false
   ; text_block_index = -1
+  ; tool_blocks_by_id = Hashtbl.create 4
   ; tool_block_indices = Hashtbl.create 4
   ; next_block_index = 0
   ; thinking_state = Not_thinking
@@ -762,21 +770,47 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
     (* Tool call deltas *)
     List.iter
       (fun (tc : openai_tool_call_delta) ->
+         let open_block () =
+           let idx = state.next_block_index in
+           emit
+             (ContentBlockStart
+                { index = idx
+                ; content_type = "tool_use"
+                ; tool_id = tc.tc_id
+                ; tool_name = tc.tc_name
+                });
+           state.next_block_index <- state.next_block_index + 1;
+           idx
+         in
          let block_idx =
-           match Hashtbl.find_opt state.tool_block_indices tc.tc_index with
-           | Some idx -> idx
+           match tc.tc_id with
+           | Some id ->
+             (* A tool_call delta carrying an id identifies a distinct call. Key
+                its block on the stable id, not the wire index: some
+                OpenAI-compatible providers (minimax-m3 on Ollama Cloud) stamp
+                every parallel tool call index:0, so keying on tc_index alone
+                collapsed distinct calls into one block and concatenated their
+                arguments into invalid JSON ([malformed_tool_use_arguments]).
+                Record index -> block too so an id-less continuation fragment
+                (OpenAI sends id only on a call's first chunk) routes back here. *)
+             (match Hashtbl.find_opt state.tool_blocks_by_id id with
+              | Some idx -> idx
+              | None ->
+                let idx = open_block () in
+                Hashtbl.replace state.tool_blocks_by_id id idx;
+                Hashtbl.replace state.tool_block_indices tc.tc_index idx;
+                idx)
            | None ->
-             let idx = state.next_block_index in
-             Hashtbl.replace state.tool_block_indices tc.tc_index idx;
-             emit
-               (ContentBlockStart
-                  { index = idx
-                  ; content_type = "tool_use"
-                  ; tool_id = tc.tc_id
-                  ; tool_name = tc.tc_name
-                  });
-             state.next_block_index <- state.next_block_index + 1;
-             idx
+             (* Continuation fragment with no id: route by the wire index to the
+                call opened at that index. If none was opened (a provider that
+                never sends an id), fall back to index-keyed allocation so the
+                call is surfaced rather than dropped. *)
+             (match Hashtbl.find_opt state.tool_block_indices tc.tc_index with
+              | Some idx -> idx
+              | None ->
+                let idx = open_block () in
+                Hashtbl.replace state.tool_block_indices tc.tc_index idx;
+                idx)
          in
          match tc.tc_arguments with
          | Some (Args_fragment args) when args <> "" ->
@@ -818,6 +852,200 @@ let openai_chunk_to_events (state : openai_stream_state) (chunk : openai_chunk)
         | Some _ -> emit (MessageDelta { stop_reason = None; usage = chunk.chunk_usage })
         | None -> ()));
     List.rev !events, !telemetry_event
+;;
+
+let test_tool_use_start_with_name = function
+  | ContentBlockStart { index; content_type = "tool_use"; tool_name; _ } ->
+    Some (index, tool_name)
+  | MessageStart _
+  | ContentBlockStart _
+  | ContentBlockDelta _
+  | ContentBlockStop _
+  | MessageDelta _
+  | MessageStop
+  | Ping
+  | SSEError _
+  | SSEParseFailed _
+  | SSEUnknownEventType _
+  | Connected
+  | Timeout _
+  | StreamIncomplete _ -> None
+;;
+
+let test_tool_use_start = function
+  | ContentBlockStart { content_type = "tool_use"; _ } -> Some ()
+  | MessageStart _
+  | ContentBlockStart _
+  | ContentBlockDelta _
+  | ContentBlockStop _
+  | MessageDelta _
+  | MessageStop
+  | Ping
+  | SSEError _
+  | SSEParseFailed _
+  | SSEUnknownEventType _
+  | Connected
+  | Timeout _
+  | StreamIncomplete _ -> None
+;;
+
+let test_input_json_delta = function
+  | ContentBlockDelta { index; delta = InputJsonDelta s } -> Some (index, s)
+  | MessageStart _
+  | ContentBlockStart _
+  | ContentBlockDelta _
+  | ContentBlockStop _
+  | MessageDelta _
+  | MessageStop
+  | Ping
+  | SSEError _
+  | SSEParseFailed _
+  | SSEUnknownEventType _
+  | Connected
+  | Timeout _
+  | StreamIncomplete _ -> None
+;;
+
+let%test
+    "openai_chunk_to_events: parallel tool calls sharing wire index:0 get distinct blocks"
+  =
+  (* minimax-m3 (Ollama Cloud) stamps every parallel tool call index:0 but gives
+     each a distinct id. Blocks are keyed by id so the three calls do not collapse
+     into one buffer, which previously concatenated their arguments into invalid
+     JSON and failed the turn with malformed_tool_use_arguments. *)
+  let mk id name args : openai_tool_call_delta =
+    { tc_index = 0
+    ; tc_id = Some id
+    ; tc_name = Some name
+    ; tc_arguments = Some (Args_fragment args)
+    }
+  in
+  let state = create_openai_stream_state () in
+  let chunk =
+    { chunk_id = "c"
+    ; chunk_model = "minimax-m3"
+    ; delta_content = None
+    ; delta_reasoning = None
+    ; delta_reasoning_details = None
+    ; delta_tool_calls =
+        [ mk "a" "list_tasks" {|{"limit":5}|}
+        ; mk "b" "run_shell" {|{"argv":["git"]}|}
+        ; mk "c" "read_file" {|{"file_path":"x"}|}
+        ]
+    ; finish_reason = None
+    ; chunk_usage = None
+    ; chunk_parse_error = None
+    }
+  in
+  let events, _ = openai_chunk_to_events state chunk in
+  let starts = List.filter_map test_tool_use_start_with_name events in
+  let deltas = List.filter_map test_input_json_delta events in
+  starts = [ 0, Some "list_tasks"; 1, Some "run_shell"; 2, Some "read_file" ]
+  && deltas = [ 0, {|{"limit":5}|}; 1, {|{"argv":["git"]}|}; 2, {|{"file_path":"x"}|} ]
+;;
+
+let%test "openai_chunk_to_events: id-less continuation fragment stays in its call's block"
+  =
+  (* OpenAI streams a tool call's id and name only on its first chunk, then sends
+     argument fragments carrying just the index. An id-less continuation must
+     route back to the block opened for that index, not open a new one. *)
+  let base =
+    { chunk_id = "c"
+    ; chunk_model = "m"
+    ; delta_content = None
+    ; delta_reasoning = None
+    ; delta_reasoning_details = None
+    ; delta_tool_calls = []
+    ; finish_reason = None
+    ; chunk_usage = None
+    ; chunk_parse_error = None
+    }
+  in
+  let state = create_openai_stream_state () in
+  let ev1, _ =
+    openai_chunk_to_events
+      state
+      { base with
+        delta_tool_calls =
+          [ { tc_index = 0
+            ; tc_id = Some "a"
+            ; tc_name = Some "calc"
+            ; tc_arguments = Some (Args_fragment {|{"x":|})
+            }
+          ]
+      }
+  in
+  let ev2, _ =
+    openai_chunk_to_events
+      state
+      { base with
+        delta_tool_calls =
+          [ { tc_index = 0
+            ; tc_id = None
+            ; tc_name = None
+            ; tc_arguments = Some (Args_fragment {|1}|})
+            }
+          ]
+      }
+  in
+  let starts = List.filter_map test_tool_use_start (ev1 @ ev2) in
+  let deltas = List.filter_map test_input_json_delta (ev1 @ ev2) in
+  List.length starts = 1 && deltas = [ 0, {|{"x":|}; 0, {|1}|} ]
+;;
+
+let%test
+    "openai_chunk_to_events: gemma-style fragmented parallel calls keep distinct blocks"
+  =
+  (* gemma4-coder-fable5 (RunPod llama-server) emits parallel tool calls the
+     spec-compliant way: distinct wire indices, id and name only on each call's
+     first chunk, then argument fragments carrying just the index. Each call's
+     fragments must accumulate into its own block (one Start per call, fragments
+     routed back by index). Captured wire, 2026-06-30. *)
+  let base =
+    { chunk_id = "c"
+    ; chunk_model = "gemma4-coder-fable5"
+    ; delta_content = None
+    ; delta_reasoning = None
+    ; delta_reasoning_details = None
+    ; delta_tool_calls = []
+    ; finish_reason = None
+    ; chunk_usage = None
+    ; chunk_parse_error = None
+    }
+  in
+  let tc tc_index tc_id tc_name args =
+    { tc_index; tc_id; tc_name; tc_arguments = Some (Args_fragment args) }
+  in
+  let state = create_openai_stream_state () in
+  let chunks =
+    [ [ tc 0 (Some "a") (Some "list_tasks") {|{"li|} ]
+    ; [ tc 0 None None {|mit":5}|} ]
+    ; [ tc 1 (Some "b") (Some "run_shell") {|{"ar|} ]
+    ; [ tc 1 None None {|gv":["git"]}|} ]
+    ]
+  in
+  let events =
+    List.concat_map
+      (fun tcs -> fst (openai_chunk_to_events state { base with delta_tool_calls = tcs }))
+      chunks
+  in
+  let starts =
+    List.filter_map
+      (function
+        | ContentBlockStart { index; content_type = "tool_use"; tool_name; _ } ->
+          Some (index, tool_name)
+        | _ -> None)
+      events
+  in
+  let deltas =
+    List.filter_map
+      (function
+        | ContentBlockDelta { index; delta = InputJsonDelta s } -> Some (index, s)
+        | _ -> None)
+      events
+  in
+  starts = [ 0, Some "list_tasks"; 1, Some "run_shell" ]
+  && deltas = [ 0, {|{"li|}; 0, {|mit":5}|}; 1, {|{"ar|}; 1, {|gv":["git"]}|} ]
 ;;
 
 (** {1 OpenAI Responses API SSE Streaming}
