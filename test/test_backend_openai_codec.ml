@@ -286,10 +286,14 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
   (match projected_calls with
    | [ { Canonical_tool.adjacent_reasoning =
            Canonical_tool.Adjacent_reasoning
-             [ { Canonical_tool.kind = Canonical_tool.Visible_thinking; content; _ } ]
+             [ { Canonical_tool.kind = Canonical_tool.Visible_thinking
+               ; order_index = 0
+               ; signature = None
+               }
+             ]
        ; _
        }
-     ] -> check_string "adjacent reasoning text" "use weather tool" content
+     ] -> ()
    | _ -> Alcotest.fail "expected one visible adjacent reasoning block");
   let minimax_dialect =
     { Reasoning_dialect.default with

@@ -127,7 +127,9 @@ type reasoning_kind =
 
 type reasoning_state =
   { kind : reasoning_kind
-  ; content : string
+  ; signature : string option
+      (** Raw provider reasoning payload is not renderer-facing display data.
+          Replay paths use Types.content_block directly. *)
   ; tokens : int option (** provider가 보고할 때 telemetry에서. *)
   }
 
