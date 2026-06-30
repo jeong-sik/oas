@@ -31,6 +31,20 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.207.27](https://github.com/jeong-sik/oas/compare/v0.207.26...v0.207.27) (2026-06-30)
+
+
+### Bug Fixes
+
+* **capabilities:** Kimi rejects named forced tool_choice (auto-only API) ([#2298](https://github.com/jeong-sik/oas/issues/2298)) ([2871202](https://github.com/jeong-sik/oas/commit/2871202ad6a6c5663eb308ba77df2d08e4029a75))
+* **catalog:** DeepSeek V4 rejects named forced tool_choice (thinking-mode 400) ([#2299](https://github.com/jeong-sik/oas/issues/2299)) ([a8a668f](https://github.com/jeong-sik/oas/commit/a8a668fd1dc21a765a8987797913d746c46cdbfd))
+* **catalog:** fail closed on policy string drift ([#2293](https://github.com/jeong-sik/oas/issues/2293)) ([e7a5e51](https://github.com/jeong-sik/oas/commit/e7a5e511dd9abf32005fe8540ce8ffb8cf3b7fe9))
+* **llm_provider:** validate UTF-8 via Stdlib decoder, not byte-length ([#2301](https://github.com/jeong-sik/oas/issues/2301)) ([8e353b9](https://github.com/jeong-sik/oas/commit/8e353b97b64b423a26ef4a6ae68e9d3b1f570b4f))
+* **multimodal:** close media source kinds ([#2283](https://github.com/jeong-sik/oas/issues/2283)) ([3860340](https://github.com/jeong-sik/oas/commit/38603406a8b679b8823ebbd57e188eef6b33fc5b))
+* **provider-catalog:** fail closed on enum field type drift ([#2292](https://github.com/jeong-sik/oas/issues/2292)) ([e2d634d](https://github.com/jeong-sik/oas/commit/e2d634d5b9ba4b273b947036d8f3f8b76e032961))
+* **reasoning:** centralize budget effort thresholds ([#2297](https://github.com/jeong-sik/oas/issues/2297)) ([2139b10](https://github.com/jeong-sik/oas/commit/2139b101a8024897a183c13c15a34ff2f903a0c2))
+* **streaming:** tool-call arguments 완성값 snapshot은 append 대신 replace (keeper transport_failure 근본 수정) ([#2296](https://github.com/jeong-sik/oas/issues/2296)) ([45a86f3](https://github.com/jeong-sik/oas/commit/45a86f328827665e91842640b3f0f3678c8b8a22))
+
 ## [0.207.26](https://github.com/jeong-sik/oas/compare/v0.207.25...v0.207.26) (2026-06-29)
 
 
