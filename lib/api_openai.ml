@@ -296,22 +296,11 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
     then body_assoc
     else (
       let zai_glm_clear_thinking =
-        match capabilities.thinking_control_format with
-        | Llm_provider.Capabilities.No_thinking_control
-          when is_glm_request ?provider_config config ->
-          Some
-            (Llm_provider.Provider_config.glm_clear_thinking_value
-               ~clear_thinking:None
-               ~preserve_thinking:config.config.preserve_thinking)
-        | Llm_provider.Capabilities.No_thinking_control
-        | Llm_provider.Capabilities.Thinking_object
-        | Llm_provider.Capabilities.Thinking_object_adaptive
-        | Llm_provider.Capabilities.Thinking_object_only
-        | Llm_provider.Capabilities.Chat_template_kwargs
-        | Llm_provider.Capabilities.Chat_template_token
-        | Llm_provider.Capabilities.Ollama_think
-        | Llm_provider.Capabilities.Reasoning_effort
-        | Llm_provider.Capabilities.Enable_thinking -> None
+        Llm_provider.Provider_config.zai_glm_clear_thinking_request_field
+          ~thinking_control_format:capabilities.thinking_control_format
+          ~is_zai_glm:(is_glm_request ?provider_config config)
+          ~clear_thinking:None
+          ~preserve_thinking:config.config.preserve_thinking
       in
       Llm_provider.Reasoning_dialect.request_control_fields
         dialect

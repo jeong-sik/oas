@@ -833,6 +833,36 @@ let test_validate_reasoning_effort_subset_rejects_unsupported () =
     | Ok () -> Alcotest.fail "high effort should be rejected by accepted subset")
 ;;
 
+let test_zai_glm_clear_thinking_request_field () =
+  let resolve
+        ?(thinking_control_format = Capabilities.No_thinking_control)
+        ?(is_zai_glm = true)
+        ?clear_thinking
+        ?preserve_thinking
+        ()
+    =
+    Provider_config.zai_glm_clear_thinking_request_field
+      ~thinking_control_format
+      ~is_zai_glm
+      ~clear_thinking
+      ~preserve_thinking
+  in
+  Alcotest.(check (option bool)) "default GLM clears" (Some true) (resolve ());
+  Alcotest.(check (option bool))
+    "preserve disables clear"
+    (Some false)
+    (resolve ~preserve_thinking:true ());
+  Alcotest.(check (option bool))
+    "explicit clear wins"
+    (Some true)
+    (resolve ~clear_thinking:true ~preserve_thinking:true ());
+  Alcotest.(check (option bool)) "non-GLM omits" None (resolve ~is_zai_glm:false ());
+  Alcotest.(check (option bool))
+    "typed thinking control omits"
+    None
+    (resolve ~thinking_control_format:Capabilities.Thinking_object ())
+;;
+
 let test_reasoning_effort_of_config () =
   let ollama =
     Provider_config.make
@@ -1521,6 +1551,10 @@ let () =
             "reasoning effort accepted subset"
             `Quick
             test_validate_reasoning_effort_subset_rejects_unsupported
+        ; Alcotest.test_case
+            "zai glm clear_thinking request field"
+            `Quick
+            test_zai_glm_clear_thinking_request_field
         ; Alcotest.test_case
             "structured output names"
             `Quick

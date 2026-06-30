@@ -376,6 +376,17 @@ val glm_clear_thinking_value
 
 val glm_clear_thinking : t -> bool
 
+(** Top-level GLM [thinking.clear_thinking] request-field resolver for
+    OpenAI-compatible ZAI GLM rows that do not expose a normal thinking control
+    capability. Non-GLM rows and rows with an explicit thinking control format
+    omit the compatibility field. *)
+val zai_glm_clear_thinking_request_field
+  :  thinking_control_format:Capabilities.thinking_control_format
+  -> is_zai_glm:bool
+  -> clear_thinking:bool option
+  -> preserve_thinking:bool option
+  -> bool option
+
 (** [true] iff GLM should replay prior-turn [reasoning_content] into request
     history: thinking active AND [clear_thinking] false (Preserved Thinking).
     Under the default [clear_thinking=true] the server discards prior reasoning,
