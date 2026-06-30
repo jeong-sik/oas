@@ -7,6 +7,8 @@
 
 open Types
 
+let ( let* ) = Result.bind
+
 let first_some a b =
   match a with
   | Some _ -> a
@@ -41,6 +43,58 @@ let text_content_of_openai_content = function
   | `List blocks ->
     blocks |> List.filter_map text_of_openai_content_block |> String.concat ""
   | `Assoc _ | `Int _ | `Intlit _ | `Float _ | `Bool _ -> ""
+;;
+
+let parse_tool_call_string_field ~tool_index ~field json =
+  let open Yojson.Safe.Util in
+  match json |> member field |> to_string_option with
+  | Some value when not (Api_common.string_is_blank value) -> Ok value
+  | Some _ | None ->
+    Error (Printf.sprintf "malformed_tool_call:index:%d:missing_%s" tool_index field)
+;;
+
+let parse_tool_call_function ~tool_index json =
+  let open Yojson.Safe.Util in
+  match json |> member "function" with
+  | `Assoc _ as fn -> Ok fn
+  | `Null | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error (Printf.sprintf "malformed_tool_call:index:%d:missing_function" tool_index)
+;;
+
+let parse_tool_call_arguments ~tool_index raw =
+  try
+    match Yojson.Safe.from_string raw with
+    | `Assoc _ as input -> Ok input
+    | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+      Error
+        (Printf.sprintf "malformed_tool_call_arguments:index:%d:not_object" tool_index)
+  with
+  | Yojson.Json_error msg ->
+    Error (Printf.sprintf "malformed_tool_call_arguments:index:%d:%s" tool_index msg)
+;;
+
+let parse_tool_call ~tool_index tc =
+  let* id = parse_tool_call_string_field ~tool_index ~field:"id" tc in
+  let* fn = parse_tool_call_function ~tool_index tc in
+  let* name = parse_tool_call_string_field ~tool_index ~field:"name" fn in
+  let* raw_arguments = parse_tool_call_string_field ~tool_index ~field:"arguments" fn in
+  let* input = parse_tool_call_arguments ~tool_index raw_arguments in
+  Ok (ToolUse { id; name; input })
+;;
+
+let parse_tool_calls_field = function
+  | `Null -> Ok []
+  | `List calls ->
+    let rec loop acc index = function
+      | [] -> Ok (List.rev acc)
+      | tc :: rest ->
+        (match parse_tool_call ~tool_index:index tc with
+         | Ok tool_call -> loop (tool_call :: acc) (index + 1) rest
+         | Error _ as error -> error)
+    in
+    loop [] 0 calls
+  | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
+    Error "malformed_tool_calls:not_list"
 ;;
 
 let member_int_fallback json field_names =
@@ -258,32 +312,7 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
         with
         | Yojson.Json_error _ -> text_content)
     in
-    let tool_blocks =
-      match msg |> member "tool_calls" with
-      | `List calls ->
-        List.filter_map
-          (fun tc ->
-             try
-               let fn = tc |> member "function" in
-               let arguments =
-                 fn
-                 |> member "arguments"
-                 |> to_string_option
-                 |> Option.value ~default:"{}"
-               in
-               Some
-                 (ToolUse
-                    { id = tc |> member "id" |> to_string
-                    ; name = fn |> member "name" |> to_string
-                    ; input = Api_common.json_of_string_or_raw arguments
-                    })
-             with
-             | Yojson.Safe.Util.Type_error _
-             | Yojson.Safe.Util.Undefined _
-             | Yojson.Json_error _ -> None)
-          calls
-      | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
-    in
+    let* tool_blocks = parse_tool_calls_field (msg |> member "tool_calls") in
     (* Ollama uses "reasoning" field; Openai/Deepseek use "reasoning_content".
        Check both, preferring reasoning_content. The extracted reasoning becomes a
        [Thinking] block below and stays typed as reasoning end-to-end (see the

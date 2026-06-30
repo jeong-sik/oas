@@ -1228,7 +1228,7 @@ let test_parse_reasoning_estimate_and_fenced_json () =
   | _ -> Alcotest.fail "expected estimated reasoning telemetry"
 ;;
 
-let test_parse_tool_calls_filters_malformed_and_sets_stop_reason () =
+let test_parse_tool_calls_rejects_malformed_and_does_not_drop () =
   let json =
     response_json
       ~content:`Null
@@ -1249,13 +1249,66 @@ let test_parse_tool_calls_filters_malformed_and_sets_stop_reason () =
         ]
       ()
   in
-  let response = parse_ok json in
-  match response.stop_reason, response.content with
-  | StopToolUse, [ ToolUse { id; name; input } ] ->
-    check_string "tool id" "call-ok" id;
-    check_string "tool name" "lookup" name;
-    check_string "tool arg" "Seoul" (member "city" input |> to_string)
-  | _ -> Alcotest.fail "expected valid tool call and StopToolUse"
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error msg ->
+    check_bool
+      "malformed tool call is not silently dropped"
+      true
+      (String.starts_with ~prefix:"malformed_tool_call:index:1:" msg)
+  | Ok _ -> Alcotest.fail "expected malformed tool_calls to fail closed"
+;;
+
+let test_parse_tool_calls_rejects_malformed_arguments () =
+  let json =
+    response_json
+      ~content:`Null
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-bad"
+                  ; ( "function"
+                    , `Assoc
+                        [ "name", `String "lookup"; "arguments", `String {|{"city":|} ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error msg ->
+    check_bool
+      "malformed arguments are not repaired"
+      true
+      (String.starts_with ~prefix:"malformed_tool_call_arguments:index:0:" msg)
+  | Ok _ -> Alcotest.fail "expected malformed tool arguments to fail closed"
+;;
+
+let test_parse_tool_calls_rejects_non_object_arguments () =
+  let json =
+    response_json
+      ~content:`Null
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-scalar"
+                  ; ( "function"
+                    , `Assoc [ "name", `String "lookup"; "arguments", `String "42" ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+  | Error msg ->
+    check_string
+      "non-object arguments rejected"
+      "malformed_tool_call_arguments:index:0:not_object"
+      msg
+  | Ok _ -> Alcotest.fail "expected scalar tool arguments to fail closed"
 ;;
 
 let test_parse_error_default_message () =
@@ -1944,9 +1997,17 @@ let () =
             `Quick
             test_parse_reasoning_estimate_and_fenced_json
         ; Alcotest.test_case
-            "tool calls filter malformed"
+            "tool calls reject malformed"
             `Quick
-            test_parse_tool_calls_filters_malformed_and_sets_stop_reason
+            test_parse_tool_calls_rejects_malformed_and_does_not_drop
+        ; Alcotest.test_case
+            "tool calls reject malformed arguments"
+            `Quick
+            test_parse_tool_calls_rejects_malformed_arguments
+        ; Alcotest.test_case
+            "tool calls reject non-object arguments"
+            `Quick
+            test_parse_tool_calls_rejects_non_object_arguments
         ; Alcotest.test_case
             "reasoning_content and tool_calls coexist"
             `Quick
