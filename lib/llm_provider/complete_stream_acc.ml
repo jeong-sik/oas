@@ -27,6 +27,7 @@ type stream_acc =
   ; block_tool_ids : (int, string) Hashtbl.t
   ; block_tool_names : (int, string) Hashtbl.t
   ; block_thinking_signatures : (int, Buffer.t) Hashtbl.t
+  ; block_reasoning_details : (int, Types.reasoning_detail list ref) Hashtbl.t
   ; block_media_types : (int, string) Hashtbl.t
     (** Per-block media MIME type from {!Types.MediaDelta}. *)
   ; block_media_sources : (int, Types.media_source_kind) Hashtbl.t
@@ -50,6 +51,7 @@ let create_stream_acc () =
   ; block_tool_ids = Hashtbl.create 4
   ; block_tool_names = Hashtbl.create 4
   ; block_thinking_signatures = Hashtbl.create 4
+  ; block_reasoning_details = Hashtbl.create 4
   ; block_media_types = Hashtbl.create 4
   ; block_media_sources = Hashtbl.create 4
   }
@@ -116,6 +118,19 @@ let accumulate_event (acc : stream_acc) = function
          Buffer.clear buf;
          Buffer.add_string buf s)
        else Buffer.add_string buf s
+     | Types.ReasoningDetailsDelta { reasoning_content; details } ->
+       (match reasoning_content with
+        | Some content -> Buffer.add_string buf content
+        | None -> ());
+       let details_ref =
+         match Hashtbl.find_opt acc.block_reasoning_details index with
+         | Some details_ref -> details_ref
+         | None ->
+           let details_ref = ref [] in
+           Hashtbl.replace acc.block_reasoning_details index details_ref;
+           details_ref
+       in
+       details_ref := List.rev_append details !details_ref
      | Types.InputJsonSnapshot s ->
        (* A complete tool-call arguments value replaces the block buffer rather
           than appending, so a provider that re-emits the same whole value over
@@ -185,6 +200,7 @@ let accumulate_event (acc : stream_acc) = function
 type block_kind =
   | Text_block
   | Thinking_block
+  | Reasoning_details_block
   | Redacted_thinking_block
   | Tool_use_block
   | Tool_result_block of { is_error : bool }
@@ -196,6 +212,7 @@ type block_kind =
 let block_kind_of_string = function
   | "text" -> Text_block
   | "thinking" -> Thinking_block
+  | "reasoning_details" -> Reasoning_details_block
   | "redacted_thinking" -> Redacted_thinking_block
   | "tool_use" -> Tool_use_block
   | "tool_result" -> Tool_result_block { is_error = false }
@@ -263,6 +280,17 @@ let finalize_stream_acc (acc : stream_acc) =
           | Some _ | None -> None
         in
         Ok (Some (Types.Thinking { content = text; signature }))
+      | Some Reasoning_details_block ->
+        let details =
+          match Hashtbl.find_opt acc.block_reasoning_details idx with
+          | Some details_ref -> List.rev !details_ref
+          | None -> []
+        in
+        let reasoning_content = if String.trim text = "" then None else Some text in
+        (match reasoning_content, details with
+         | None, [] -> Ok None
+         | Some _, _ | None, _ :: _ ->
+           Ok (Some (Types.ReasoningDetails { reasoning_content; details })))
       | Some Redacted_thinking_block ->
         (match Hashtbl.find_opt acc.block_tool_ids idx with
          | Some data when data <> "" -> Ok (Some (Types.RedactedThinking data))

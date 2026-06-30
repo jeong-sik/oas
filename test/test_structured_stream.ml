@@ -325,6 +325,9 @@ let test_extract_after_accumulation () =
          Buffer.add_string buf s
        | TextDelta s -> Buffer.add_string buf s
        | ThinkingDelta s -> Buffer.add_string buf s
+       | ReasoningDetailsDelta { reasoning_content = Some s; _ } ->
+         Buffer.add_string buf s
+       | ReasoningDetailsDelta { reasoning_content = None; _ } -> ()
        | MediaDelta { data; _ } -> Buffer.add_string buf data
        | ThinkingSignatureDelta _ -> ())
     | _ -> ());
