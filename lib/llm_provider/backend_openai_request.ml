@@ -123,7 +123,12 @@ let response_format_of_config (config : Provider_config.t) =
 let capabilities_of_config (config : Provider_config.t) =
   match config.kind with
   | Provider_config.DashScope -> Capabilities.dashscope_capabilities
-  | _ ->
+  | Provider_config.Anthropic
+  | Provider_config.Kimi
+  | Provider_config.OpenAI_compat
+  | Provider_config.Ollama
+  | Provider_config.Glm
+  | Provider_config.Gemini ->
     (match Provider_config.capabilities_for_config_model config with
      | Some caps -> caps
      | None ->

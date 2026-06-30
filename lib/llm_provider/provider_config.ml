@@ -36,7 +36,7 @@ let request_path_default_for_kind = function
     phase only, not total stream duration. *)
 let default_connect_timeout_s = function
   | Ollama -> 600.0
-  | _ -> 60.0
+  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
 ;;
 
 (** Default inter-chunk idle timeout (seconds) for a provider kind. For
@@ -45,7 +45,7 @@ let default_connect_timeout_s = function
     default. Cloud providers keep 60s as a generation-stall detector. *)
 let default_stream_idle_timeout_s = function
   | Ollama -> 600.0
-  | _ -> 60.0
+  | Anthropic | Kimi | OpenAI_compat | Gemini | Glm | DashScope -> 60.0
 ;;
 
 (** [output_schema] derived from [response_format] when no explicit

@@ -346,7 +346,7 @@ let ollama_messages_of_message ?(model_id = "") msg =
     (match user_msg with
      | None -> tool_msgs
      | Some m -> tool_msgs @ [ m ])
-  | _ ->
+  | System | Assistant | Tool ->
     messages_of_message_with
       ~tool_calls_fn:tool_calls_to_ollama_json
       ~modality_priority
