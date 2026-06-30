@@ -1560,8 +1560,7 @@ let%test "strip_thinking_blocks removes Thinking from all messages" =
       ; metadata = []
       }
     ; { role = Assistant
-      ; content =
-          [ Text "hi"; Thinking { signature = None; content = "step 1" } ]
+      ; content = [ Text "hi"; Thinking { signature = None; content = "step 1" } ]
       ; name = None
       ; tool_call_id = None
       ; metadata = []

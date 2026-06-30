@@ -665,8 +665,7 @@ let test_glm_preserved_reasoning_replay_and_preserves_auto_tool_choice () =
   let messages =
     [ { role = Assistant
       ; content =
-          [ Thinking
-              { signature = None; content = "I need the calculator result." }
+          [ Thinking { signature = None; content = "I need the calculator result." }
           ; ToolUse
               { id = "call_1"
               ; name = "calculator"

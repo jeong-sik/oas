@@ -430,10 +430,7 @@ let assistant_with_reasoning ?(tool = false) () =
       [ Thinking { signature = None; content = "use calculator" }
       ; ToolUse { id = "call_1"; name = "calc"; input = `Assoc [ "expr", `String "2+2" ] }
       ]
-    else
-      [ Thinking { signature = None; content = "plain thought" }
-      ; Text "answer"
-      ]
+    else [ Thinking { signature = None; content = "plain thought" }; Text "answer" ]
   in
   { role = Assistant; content; name = None; tool_call_id = None; metadata = [] }
 ;;
