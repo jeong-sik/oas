@@ -276,6 +276,7 @@ let build_request_assoc
         Some (glm_clear_thinking_of_config config)
       | No_thinking_control
       | Thinking_object
+      | Thinking_object_adaptive
       | Thinking_object_only
       | Chat_template_kwargs
       | Chat_template_token

@@ -42,6 +42,7 @@ let tool_calls_to_openai_json blocks =
             ])
     | Text _
     | Thinking _
+    | ReasoningDetails _
     | RedactedThinking _
     | ToolResult _
     | Image _
@@ -64,6 +65,7 @@ let tool_calls_to_ollama_json blocks =
             ])
     | Text _
     | Thinking _
+    | ReasoningDetails _
     | RedactedThinking _
     | ToolResult _
     | Image _
@@ -109,7 +111,8 @@ let openai_content_parts_of_blocks blocks =
             [ "type", `String "input_audio"
             ; "input_audio", `Assoc [ "data", `String data; "format", `String media_type ]
             ])
-    | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
+    | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolUse _ | ToolResult _ ->
+      None)
 ;;
 
 let assistant_text_content_of_blocks blocks =
@@ -117,6 +120,7 @@ let assistant_text_content_of_blocks blocks =
   |> List.filter_map (function
     | Text s -> Some (Utf8_sanitize.sanitize s)
     | Thinking _
+    | ReasoningDetails _
     | RedactedThinking _
     | ToolUse _
     | ToolResult _
@@ -132,6 +136,17 @@ let assistant_reasoning_content_of_blocks blocks =
     | Thinking { content; _ } when not (Api_common.string_is_blank content) ->
       Some (Utf8_sanitize.sanitize content)
     | Thinking _ -> None
+    | ReasoningDetails { reasoning_content = Some content; _ }
+      when not (Api_common.string_is_blank content) ->
+      Some (Utf8_sanitize.sanitize content)
+    | ReasoningDetails { reasoning_content = None; details } ->
+      let text =
+        details
+        |> List.filter_map (fun (detail : reasoning_detail) -> detail.text)
+        |> String.concat ""
+      in
+      if Api_common.string_is_blank text then None else Some (Utf8_sanitize.sanitize text)
+    | ReasoningDetails { reasoning_content = Some _; _ } -> None
     | Text _
     | RedactedThinking _
     | ToolUse _
@@ -140,6 +155,26 @@ let assistant_reasoning_content_of_blocks blocks =
     | Document _
     | Audio _ -> None)
   |> String.concat ""
+;;
+
+let assistant_reasoning_details_of_blocks blocks =
+  let details =
+    blocks
+    |> List.concat_map (function
+      | ReasoningDetails { details; _ } ->
+        List.map (fun (detail : reasoning_detail) -> detail.raw) details
+      | Text _
+      | Thinking _
+      | RedactedThinking _
+      | ToolUse _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ -> [])
+  in
+  match details with
+  | [] -> None
+  | _ :: _ -> Some details
 ;;
 
 let openai_tool_message_of_result ~tool_use_id ~content ~content_blocks =
@@ -165,6 +200,7 @@ let openai_tool_messages_of_blocks blocks =
       Some (openai_tool_message_of_result ~tool_use_id ~content ~content_blocks)
     | Text _
     | Thinking _
+    | ReasoningDetails _
     | RedactedThinking _
     | ToolUse _
     | Image _
@@ -175,6 +211,7 @@ let openai_tool_messages_of_blocks blocks =
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(include_reasoning_content = false)
+      ?(include_reasoning_details = false)
       ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
       ?(modality_priority = Modality.Preserve_input_order)
       (msg : message)
@@ -193,7 +230,12 @@ let messages_of_message_with
       List.exists
         (function
           | Image _ | Document _ | Audio _ -> true
-          | Text _ | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> false)
+          | Text _
+          | Thinking _
+          | ReasoningDetails _
+          | RedactedThinking _
+          | ToolUse _
+          | ToolResult _ -> false)
         msg.content
     in
     let user_msgs =
@@ -218,6 +260,11 @@ let messages_of_message_with
       then assistant_reasoning_content_of_blocks msg.content
       else ""
     in
+    let reasoning_details =
+      if include_reasoning_details
+      then assistant_reasoning_details_of_blocks msg.content
+      else None
+    in
     let tool_calls = tool_calls_fn msg.content in
     let assistant_content =
       if Api_common.string_is_blank text_content && tool_calls <> []
@@ -229,7 +276,19 @@ let messages_of_message_with
     in
     let fields = [ "role", `String "assistant"; "content", assistant_content ] in
     let fields =
-      if include_reasoning_content && not (Api_common.string_is_blank reasoning_content)
+      match reasoning_details with
+      | Some details -> ("reasoning_details", `List details) :: fields
+      | None
+        when include_reasoning_content
+             && not (Api_common.string_is_blank reasoning_content) ->
+        ("reasoning_content", `String reasoning_content) :: fields
+      | None -> fields
+    in
+    let fields =
+      if
+        include_reasoning_content
+        && reasoning_details <> None
+        && not (Api_common.string_is_blank reasoning_content)
       then ("reasoning_content", `String reasoning_content) :: fields
       else fields
     in
@@ -273,9 +332,17 @@ let dialect_messages_of_message
       dialect
       ~assistant_had_tool_call:(tool_calls <> [])
   in
+  let include_reasoning_details =
+    include_reasoning_content
+    &&
+    match dialect.Reasoning_dialect.output_wire with
+    | Reasoning_dialect.Reasoning_split -> true
+    | Reasoning_dialect.No_output_control -> false
+  in
   messages_of_message_with
     ~tool_calls_fn:(fun _ -> tool_calls)
     ~include_reasoning_content
+    ~include_reasoning_details
     ~assistant_tool_content_format
     msg
 ;;
@@ -315,7 +382,8 @@ let ollama_native_user_message ~modality_priority content : Yojson.Safe.t option
            unsupported_media_source ~backend:"ollama_native" ~block:"document" source_type
          | Audio { source_type; _ } ->
            unsupported_media_source ~backend:"ollama_native" ~block:"audio" source_type
-         | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> texts, images)
+         | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolUse _ | ToolResult _
+           -> texts, images)
       ([], [])
       ordered_content
   in
@@ -383,7 +451,7 @@ let strip_thinking_blocks (messages : message list) : message list =
        let filtered =
          List.filter
            (function
-             | Thinking _ -> false
+             | Thinking _ | ReasoningDetails _ -> false
              | Text _
              | RedactedThinking _
              | ToolUse _

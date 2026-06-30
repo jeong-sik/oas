@@ -20,6 +20,7 @@ let case_failure ?detail ?response_text ?metrics ?raw_trace_path (case_ : Harnes
 let response_text_block = function
   | Types.Text text -> Some text
   | Types.Thinking _
+  | Types.ReasoningDetails _
   | Types.RedactedThinking _
   | Types.ToolUse _
   | Types.ToolResult _

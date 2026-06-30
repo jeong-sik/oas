@@ -103,8 +103,14 @@ let message_has_responses_raw_reasoning (msg : message) =
     (function
       | RedactedThinking data ->
         Option.is_some (responses_raw_reasoning_item_of_redacted data)
-      | Text _ | Thinking _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
-        false)
+      | Text _
+      | Thinking _
+      | ReasoningDetails _
+      | ToolUse _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ -> false)
     msg.content
 ;;
 
@@ -194,7 +200,8 @@ let input_content_part_of_block = function
           [ "type", `String "input_audio"
           ; "input_audio", `Assoc [ "data", `String data; "format", `String media_type ]
           ])
-  | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None
+  | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolUse _ | ToolResult _ ->
+    None
 ;;
 
 let output_text_content_part text =
@@ -228,6 +235,7 @@ let assistant_output_item_of_block ?phase = function
             , `List [ `Assoc [ "type", `String "summary_text"; "text", `String content ] ]
             )
           ])
+  | ReasoningDetails _ -> None
   | Text s when not (Api_common.string_is_blank s) ->
     Some
       (`Assoc
@@ -264,6 +272,7 @@ let tool_result_items blocks =
       Some (function_call_output_item ~tool_use_id ~content ~content_blocks)
     | Text _
     | Thinking _
+    | ReasoningDetails _
     | RedactedThinking _
     | ToolUse _
     | Image _
@@ -282,6 +291,7 @@ let input_items_of_message (msg : message) =
           | ToolResult _ -> false
           | Text _
           | Thinking _
+          | ReasoningDetails _
           | RedactedThinking _
           | ToolUse _
           | Image _
@@ -645,6 +655,7 @@ let parse_response_result json_str =
             | ToolUse _ -> true
             | Text _
             | Thinking _
+            | ReasoningDetails _
             | RedactedThinking _
             | ToolResult _
             | Image _

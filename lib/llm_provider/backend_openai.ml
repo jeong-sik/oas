@@ -971,6 +971,7 @@ let%test "parse_openai_response_result with reasoning_content" =
          match block with
          | Thinking _ -> true
          | Text _
+         | ReasoningDetails _
          | RedactedThinking _
          | ToolUse _
          | ToolResult _
@@ -1576,6 +1577,7 @@ let%test "strip_thinking_blocks removes Thinking from all messages" =
                match block with
                | Thinking _ -> true
                | Text _
+               | ReasoningDetails _
                | RedactedThinking _
                | ToolUse _
                | ToolResult _

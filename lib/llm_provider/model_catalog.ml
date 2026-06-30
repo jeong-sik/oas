@@ -35,6 +35,7 @@ type model_entry =
   ; thinking_control_format : string option
   ; thinking_control_token : string option
   ; preserve_thinking_control_format : string option
+  ; reasoning_output_format : string option
   ; reasoning_replay : string option
   ; input_per_million : float option
   ; output_per_million : float option
@@ -217,6 +218,13 @@ let parse_entry entry_toml =
            ~allowed:Capability_vocab.preserve_thinking_control_format_values
            entry_toml
        in
+       let reasoning_output_format_result =
+         canonical_string_opt
+           ~entry_id:id_prefix
+           "reasoning_output_format"
+           ~allowed:Capability_vocab.reasoning_output_format_values
+           entry_toml
+       in
        let thinking_control_token_result =
          exact_non_empty_string_field
            ~entry_id:id_prefix
@@ -229,19 +237,22 @@ let parse_entry entry_toml =
           , modality_priority_result
           , thinking_control_format_result
           , preserve_thinking_control_format_result
+          , reasoning_output_format_result
           , thinking_control_token_result )
         with
-        | (Error _ as e), _, _, _, _, _
-        | _, (Error _ as e), _, _, _, _
-        | _, _, (Error _ as e), _, _, _
-        | _, _, _, (Error _ as e), _, _
-        | _, _, _, _, (Error _ as e), _
-        | _, _, _, _, _, (Error _ as e) -> e
+        | (Error _ as e), _, _, _, _, _, _
+        | _, (Error _ as e), _, _, _, _, _
+        | _, _, (Error _ as e), _, _, _, _
+        | _, _, _, (Error _ as e), _, _, _
+        | _, _, _, _, (Error _ as e), _, _
+        | _, _, _, _, _, (Error _ as e), _
+        | _, _, _, _, _, _, (Error _ as e) -> e
         | ( Ok base_label
           , Ok provider_name
           , Ok modality_priority
           , Ok thinking_control_format
           , Ok preserve_thinking_control_format
+          , Ok reasoning_output_format
           , Ok thinking_control_token ) ->
           Ok
             { id_prefix
@@ -290,6 +301,7 @@ let parse_entry entry_toml =
             ; thinking_control_format
             ; thinking_control_token
             ; preserve_thinking_control_format
+            ; reasoning_output_format
             ; reasoning_replay
             ; input_per_million = find_float_opt entry_toml [ "input_per_million" ]
             ; output_per_million = find_float_opt entry_toml [ "output_per_million" ]

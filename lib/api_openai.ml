@@ -75,6 +75,7 @@ let llm_capabilities_of_provider_capabilities (caps : Provider.capabilities)
   ; accepted_reasoning_efforts = caps.accepted_reasoning_efforts
   ; thinking_control_format = caps.thinking_control_format
   ; preserve_thinking_control_format = caps.preserve_thinking_control_format
+  ; reasoning_output_format = caps.reasoning_output_format
   ; reasoning_replay_override = caps.reasoning_replay_override
   ; supports_response_format_json = caps.supports_response_format_json
   ; supports_structured_output = caps.supports_structured_output
@@ -303,6 +304,7 @@ let build_openai_body_unchecked ?provider_config ~config ~messages ?tools ?slot_
                ~preserve_thinking:config.config.preserve_thinking)
         | Llm_provider.Capabilities.No_thinking_control
         | Llm_provider.Capabilities.Thinking_object
+        | Llm_provider.Capabilities.Thinking_object_adaptive
         | Llm_provider.Capabilities.Thinking_object_only
         | Llm_provider.Capabilities.Chat_template_kwargs
         | Llm_provider.Capabilities.Chat_template_token

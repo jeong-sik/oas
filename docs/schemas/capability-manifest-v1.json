@@ -165,6 +165,7 @@
           "enum": [
             "none",
             "thinking_object",
+            "thinking_object_adaptive",
             "thinking_object_only",
             "chat_template_kwargs",
             "chat_template_token",
@@ -190,6 +191,11 @@
             "top_level_preserve_thinking",
             "always_preserved"
           ]
+        },
+        "reasoning_output_format": {
+          "type": "string",
+          "description": "Provider/model request-side reasoning output split control.",
+          "enum": ["none", "split_reasoning_fields"]
         },
         "reasoning_replay": {
           "type": "string",

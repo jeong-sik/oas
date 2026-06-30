@@ -53,6 +53,7 @@ let parse_response json =
         | ToolUse _ -> true
         | Text _
         | Thinking _
+        | ReasoningDetails _
         | RedactedThinking _
         | ToolResult _
         | Image _

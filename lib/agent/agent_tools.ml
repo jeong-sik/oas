@@ -925,6 +925,7 @@ let execute_tools
          | ToolUse { id; name; input } -> Some (id, name, input)
          | Text _
          | Thinking _
+         | ReasoningDetails _
          | RedactedThinking _
          | ToolResult _
          | Image _

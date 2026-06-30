@@ -36,8 +36,8 @@ type entry =
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
     (** Canonical thinking-wire format the model uses (none / thinking_object /
-        thinking_object_only / chat_template_kwargs / chat_template_token /
-        reasoning_effort / enable_thinking). Parsed + applied in
+        thinking_object_adaptive / thinking_object_only / chat_template_kwargs /
+        chat_template_token / reasoning_effort / enable_thinking). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. Without this field a manifest
         entry silently dropped the model's thinking knob (RFC-OAS-023). *)
   ; thinking_control_token : string option
@@ -48,6 +48,10 @@ type entry =
     (** Canonical historical reasoning preservation wire format (none /
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
         top_level_preserve_thinking / always_preserved). Parsed + applied in
+        {!Capabilities.apply_manifest_entry}. *)
+  ; reasoning_output_format : string option
+    (** Canonical request-side reasoning output split control (none /
+        split_reasoning_fields). Parsed + applied in
         {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_replay : string option
     (** Optional multi-turn reasoning replay policy override (default / no_replay
@@ -245,6 +249,7 @@ let known_entry_keys =
   ; "thinking_control_format"
   ; "thinking_control_token"
   ; "preserve_thinking_control_format"
+  ; "reasoning_output_format"
   ; "reasoning_replay"
   ]
 ;;
@@ -284,6 +289,12 @@ let parse_entry json =
     canonical_choice
       "preserve_thinking_control_format"
       ~allowed:Capability_vocab.preserve_thinking_control_format_values
+      json
+  in
+  let* reasoning_output_format =
+    canonical_choice
+      "reasoning_output_format"
+      ~allowed:Capability_vocab.reasoning_output_format_values
       json
   in
   let* reasoning_replay =
@@ -337,6 +348,7 @@ let parse_entry json =
     ; thinking_control_format
     ; thinking_control_token
     ; preserve_thinking_control_format
+    ; reasoning_output_format
     ; reasoning_replay
     }
 ;;

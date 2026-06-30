@@ -467,6 +467,53 @@ let test_lookup_deepseek_v4_pro () =
   | None -> fail "should match deepseek-v4-pro"
 ;;
 
+let test_lookup_minimax_m3_official_chat_dialect () =
+  match Capabilities.for_model_id "minimax-m3" with
+  | Some c ->
+    check bool "has tools" true c.supports_tools;
+    check bool "omits explicit Chat tool_choice" false c.supports_tool_choice;
+    check bool "rejects required forced tool_choice" false c.supports_required_tool_choice;
+    check bool "rejects named forced tool_choice" false c.supports_named_tool_choice;
+    check bool "reasoning" true c.supports_reasoning;
+    check bool "extended thinking" true c.supports_extended_thinking;
+    check bool "no reasoning depth budget" false c.supports_reasoning_budget;
+    check_thinking_control
+      "uses MiniMax adaptive thinking object"
+      Capabilities.Thinking_object_adaptive
+      c.thinking_control_format;
+    check
+      bool
+      "uses split reasoning fields"
+      true
+      (c.reasoning_output_format = Capabilities.Split_reasoning_fields);
+    check bool "no Chat response_format json" false c.supports_response_format_json;
+    check bool "no Chat structured output" false c.supports_structured_output;
+    check bool "multimodal" true c.supports_multimodal_inputs;
+    check bool "image input" true c.supports_image_input;
+    check
+      bool
+      "complete assistant replay"
+      true
+      (c.reasoning_replay_override = Capabilities.Force_preserve_always);
+    let dialect = Reasoning_dialect.of_capabilities c in
+    check
+      string
+      "toggle wire"
+      "thinking_object_adaptive"
+      (Reasoning_dialect.toggle_wire_to_string dialect.toggle_wire);
+    check
+      string
+      "replay policy"
+      "preserve_always"
+      (Reasoning_dialect.replay_policy_to_string dialect.replay_policy);
+    check
+      bool
+      "dialect emits reasoning split"
+      true
+      (dialect.output_wire = Reasoning_dialect.Reasoning_split)
+  | None -> fail "should match minimax-m3"
+;;
+
 let test_lookup_grok () =
   match Capabilities.for_model_id "grok-4.3" with
   | Some c ->
@@ -790,6 +837,7 @@ let test_ollama_cloud_provider_qualified_preserves_shared_bare_family () =
 type structured_contract =
   | Response_format_json_schema
   | Native_structured_output
+  | No_structured_output
 
 type replay_contract =
   | Replay_not_required
@@ -860,15 +908,31 @@ let check_frontier_model
          true
          c.supports_extended_thinking);
     check bool (label ^ " supports native streaming") true c.supports_native_streaming;
-    check bool (label ^ " supports structured output") true c.supports_structured_output;
     (match structured_contract with
      | Response_format_json_schema ->
+       check
+         bool
+         (label ^ " supports structured output")
+         true
+         c.supports_structured_output;
        check
          bool
          (label ^ " supports response_format/json_schema")
          true
          c.supports_response_format_json
-     | Native_structured_output -> ());
+     | Native_structured_output ->
+       check
+         bool
+         (label ^ " supports structured output")
+         true
+         c.supports_structured_output
+     | No_structured_output ->
+       check bool (label ^ " no structured output") false c.supports_structured_output;
+       check
+         bool
+         (label ^ " no response_format/json_schema")
+         false
+         c.supports_response_format_json);
     let dialect = frontier_dialect route model_id c in
     (match replay_contract with
      | Replay_not_required ->
@@ -989,8 +1053,8 @@ let test_frontier_grouped_tool_thinking_structured_models () =
       , Direct_model
       , "minimax-m3"
       , Extended_thinking
-      , Response_format_json_schema
-      , Replay_tool_turn_only
+      , No_structured_output
+      , Replay_every_turn
       , Delta_stream "reasoning_content" )
     ; ( "OpenAI GPT-5.5"
       , Direct_model
@@ -1418,6 +1482,39 @@ let test_manifest_rejects_padded_thinking_control_token () =
   | Ok _ -> Alcotest.fail "padded thinking_control_token should reject"
 ;;
 
+let test_manifest_accepts_thinking_object_adaptive_policy_string () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"adaptive-manifest","thinking_control_format":"thinking_object_adaptive"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check_thinking_control
+      "manifest thinking_object_adaptive"
+      Capabilities.Thinking_object_adaptive
+      caps.thinking_control_format
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
+let test_manifest_accepts_reasoning_output_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"split-manifest","reasoning_output_format":"split_reasoning_fields"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Ok [ entry ] ->
+    let caps = Capabilities.apply_manifest_entry entry in
+    check
+      bool
+      "manifest split_reasoning_fields"
+      true
+      (caps.reasoning_output_format = Capabilities.Split_reasoning_fields)
+  | Ok _ -> Alcotest.fail "expected one manifest entry"
+  | Error msg -> Alcotest.failf "unexpected parse error: %s" msg
+;;
+
 let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   let json =
     Yojson.Safe.from_string
@@ -1426,6 +1523,18 @@ let test_manifest_rejects_unknown_preserve_thinking_control_format () =
   match Capability_manifest.of_json json with
   | Error msg -> check_contains "mentions field" msg "preserve_thinking_control_format"
   | Ok _ -> Alcotest.fail "unknown preserve_thinking_control_format should reject"
+;;
+
+let test_manifest_rejects_unknown_reasoning_output_format () =
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"bad-output","reasoning_output_format":"split_thoughts"}]}|}
+  in
+  match Capability_manifest.of_json json with
+  | Error msg ->
+    check_contains "mentions field" msg "reasoning_output_format";
+    check_contains "mentions value" msg "split_thoughts"
+  | Ok _ -> Alcotest.fail "unknown reasoning_output_format should reject"
 ;;
 
 let test_manifest_rejects_unknown_reasoning_replay () =
@@ -1627,6 +1736,7 @@ let test_model_catalog_rejects_unknown_policy_strings () =
   let cases =
     [ "thinking_control_format", "mind_palace"
     ; "preserve_thinking_control_format", "memory_palace"
+    ; "reasoning_output_format", "split_thoughts"
     ; "modality_priority", "image_only"
     ]
   in
@@ -1918,6 +2028,10 @@ let () =
         ; test_case "dashscope runpod name" `Quick test_lookup_provider_m_runpod_name
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
         ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
+        ; test_case
+            "minimax m3 official chat dialect"
+            `Quick
+            test_lookup_minimax_m3_official_chat_dialect
         ; test_case "grok 4.3 1M context" `Quick test_lookup_grok
         ; test_case "glm-5 text only" `Quick test_lookup_glm5_text_only
         ; test_case "glm-5v vision" `Quick test_lookup_glm5v_vision
@@ -1998,9 +2112,21 @@ let () =
             `Quick
             test_manifest_rejects_padded_thinking_control_token
         ; test_case
+            "thinking_object_adaptive policy string accepted"
+            `Quick
+            test_manifest_accepts_thinking_object_adaptive_policy_string
+        ; test_case
+            "reasoning_output_format accepted"
+            `Quick
+            test_manifest_accepts_reasoning_output_format
+        ; test_case
             "unknown preserve_thinking_control_format rejects"
             `Quick
             test_manifest_rejects_unknown_preserve_thinking_control_format
+        ; test_case
+            "unknown reasoning_output_format rejects"
+            `Quick
+            test_manifest_rejects_unknown_reasoning_output_format
         ; test_case
             "unknown reasoning_replay rejects"
             `Quick

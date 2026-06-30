@@ -21,6 +21,7 @@ let extract_text (resp : Types.api_response) =
   |> List.filter_map (function
     | Types.Text s -> Some s
     | Types.Thinking _
+    | Types.ReasoningDetails _
     | Types.RedactedThinking _
     | Types.ToolUse _
     | Types.ToolResult _

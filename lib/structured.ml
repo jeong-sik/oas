@@ -32,6 +32,7 @@ let schema_to_json_schema (s : _ schema) : Yojson.Safe.t =
 let text_block = function
   | Text s -> Some s
   | Thinking _
+  | ReasoningDetails _
   | RedactedThinking _
   | Image _
   | Document _
@@ -49,6 +50,7 @@ let extract_tool_input ~(schema : _ schema) (content : content_block list) =
         | ToolUse { name; input; _ } when name = schema.name -> Some input
         | Text _
         | Thinking _
+        | ReasoningDetails _
         | RedactedThinking _
         | Image _
         | Document _

@@ -446,6 +446,7 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
                 | ToolUse { name; _ } -> Some name
                 | Text _
                 | Thinking _
+                | ReasoningDetails _
                 | RedactedThinking _
                 | ToolResult _
                 | Image _
@@ -627,6 +628,7 @@ let stage_output ?raw_trace_run agent ~effective_guardrails response =
                 | ToolUse _ -> true
                 | Text _
                 | Thinking _
+                | ReasoningDetails _
                 | RedactedThinking _
                 | ToolResult _
                 | Image _

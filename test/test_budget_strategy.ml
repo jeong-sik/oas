@@ -285,6 +285,7 @@ let test_reduce_preserve_thinking_keeps_old_thinking () =
            (function
              | Types.Thinking { content = "long thought"; _ } -> true
              | Types.Thinking _
+             | Types.ReasoningDetails _
              | Types.Text _
              | Types.RedactedThinking _
              | Types.ToolUse _

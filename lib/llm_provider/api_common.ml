@@ -37,6 +37,7 @@ let text_blocks_to_string blocks =
   |> List.filter_map (function
     | Text s -> Some (Utf8_sanitize.sanitize s)
     | Thinking { content = s; _ } -> Some (Utf8_sanitize.sanitize s)
+    | ReasoningDetails _ -> None
     | RedactedThinking _ -> None
     | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ -> None)
   |> String.concat "\n"
@@ -74,6 +75,19 @@ let rec content_block_to_json_with
       | None -> [ "type", `String "thinking"; "thinking", `String thinking_text ]
     in
     `Assoc fields
+  | ReasoningDetails { reasoning_content; details } ->
+    let fields =
+      [ ( "details"
+        , `List (List.map (fun (detail : reasoning_detail) -> detail.raw) details) )
+      ]
+    in
+    let fields =
+      match reasoning_content with
+      | Some content ->
+        ("reasoning_content", `String (Utf8_sanitize.sanitize content)) :: fields
+      | None -> fields
+    in
+    `Assoc (("type", `String "reasoning_details") :: fields)
   | RedactedThinking data ->
     `Assoc [ "type", `String "redacted_thinking"; "data", `String data ]
   | ToolUse { id; name; input } ->
@@ -172,6 +186,22 @@ let required_string_field ~block_type ~field json =
   | None -> Error (Missing_content_block_field { block_type; field })
 ;;
 
+let reasoning_detail_of_json json =
+  let open Yojson.Safe.Util in
+  match json with
+  | `Assoc _ ->
+    let text =
+      match json |> member "text" |> to_string_option with
+      | Some text when not (string_is_blank text) -> Some text
+      | Some _ | None -> None
+    in
+    Ok { raw = json; text }
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    Error
+      (Missing_content_block_field
+         { block_type = "reasoning_details"; field = "details[]" })
+;;
+
 let parse_media_block ~block_type ~make json =
   let open Yojson.Safe.Util in
   let source = json |> member "source" in
@@ -200,6 +230,24 @@ let rec content_block_of_json_result json =
     Result.map
       (fun content -> Thinking { content; signature })
       (required_string_field ~block_type:"thinking" ~field:"thinking" json)
+  | Some "reasoning_details" ->
+    let ( let* ) = Result.bind in
+    let details_json = json |> member "details" in
+    let* details =
+      match details_json with
+      | `List details -> Ok details
+      | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+        Error
+          (Missing_content_block_field
+             { block_type = "reasoning_details"; field = "details" })
+    in
+    let* details = result_all (List.map reasoning_detail_of_json details) in
+    let reasoning_content =
+      match json |> member "reasoning_content" |> to_string_option with
+      | Some content when not (string_is_blank content) -> Some content
+      | Some _ | None -> None
+    in
+    Ok (ReasoningDetails { reasoning_content; details })
   | Some "redacted_thinking" ->
     Result.map
       (fun data -> RedactedThinking data)
@@ -271,6 +319,7 @@ let message_has_tool_result (msg : message) =
       | ToolResult _ -> true
       | Text _
       | Thinking _
+      | ReasoningDetails _
       | RedactedThinking _
       | ToolUse _
       | Image _

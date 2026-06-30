@@ -326,6 +326,7 @@ let%test "content_block_of_json text block" =
   | Some
       ( Types.Text _
       | Types.Thinking _
+      | Types.ReasoningDetails _
       | Types.RedactedThinking _
       | Types.Image _
       | Types.Document _
@@ -407,6 +408,7 @@ let%test "content_block_of_json tool_use block" =
   | Some
       ( Types.Text _
       | Types.Thinking _
+      | Types.ReasoningDetails _
       | Types.RedactedThinking _
       | Types.Image _
       | Types.Document _
@@ -429,6 +431,7 @@ let%test "content_block_of_json tool_result" =
   | Some
       ( Types.Text _
       | Types.Thinking _
+      | Types.ReasoningDetails _
       | Types.RedactedThinking _
       | Types.Image _
       | Types.Document _

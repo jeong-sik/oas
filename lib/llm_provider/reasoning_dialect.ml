@@ -8,6 +8,7 @@ type toggle_default =
 type toggle_wire =
   | No_toggle
   | Thinking_object of { includes_reasoning_effort : bool }
+  | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
   | Chat_template_token
@@ -36,6 +37,10 @@ type streaming_reasoning =
   | Delta_field of string
   | Template_parser
 
+type output_wire =
+  | No_output_control
+  | Reasoning_split
+
 type thinking_object_only_control =
   { enabled : bool option
   ; keep_all : bool
@@ -49,6 +54,7 @@ type t =
   ; sampling_policy : sampling_policy
   ; replay_policy : replay_policy
   ; streaming : streaming_reasoning
+  ; output_wire : output_wire
   }
 
 let default =
@@ -59,6 +65,7 @@ let default =
   ; sampling_policy = Sampling_supported
   ; replay_policy = No_replay
   ; streaming = No_streaming_reasoning
+  ; output_wire = No_output_control
   }
 ;;
 
@@ -68,9 +75,14 @@ let deepseek_ignored_sampling_params =
 
 let base_of_capabilities (caps : Capabilities.capabilities) =
   let preserve_wire = caps.preserve_thinking_control_format in
+  let output_wire =
+    match caps.reasoning_output_format with
+    | No_reasoning_output_format -> No_output_control
+    | Split_reasoning_fields -> Reasoning_split
+  in
   match caps.thinking_control_format with
   | No_thinking_control ->
-    let dialect = { default with preserve_wire } in
+    let dialect = { default with preserve_wire; output_wire } in
     (match preserve_wire with
      | Always_preserved_thinking ->
        { dialect with
@@ -89,6 +101,15 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; sampling_policy = Ignored_when_thinking deepseek_ignored_sampling_params
     ; replay_policy = Drop_without_tool_preserve_with_tool
     ; streaming = Delta_field "reasoning_content"
+    ; output_wire
+    }
+  | Thinking_object_adaptive ->
+    { default with
+      toggle_default = Enabled
+    ; toggle_wire = Thinking_object_adaptive
+    ; preserve_wire
+    ; streaming = Delta_field "reasoning_content"
+    ; output_wire
     }
   | Thinking_object_only ->
     { default with
@@ -96,36 +117,42 @@ let base_of_capabilities (caps : Capabilities.capabilities) =
     ; toggle_wire = Thinking_object_only
     ; preserve_wire
     ; streaming = Delta_field "reasoning_content"
+    ; output_wire
     }
   | Chat_template_kwargs ->
     { default with
       toggle_wire = Chat_template_kwargs
     ; preserve_wire
     ; streaming = Template_parser
+    ; output_wire
     }
   | Chat_template_token ->
     { default with
       toggle_wire = Chat_template_token
     ; preserve_wire
     ; streaming = Template_parser
+    ; output_wire
     }
   | Ollama_think ->
     { default with
       toggle_wire = Ollama_think
     ; preserve_wire
     ; streaming = Delta_field "thinking"
+    ; output_wire
     }
   | Reasoning_effort ->
     { default with
       toggle_wire = Reasoning_effort
     ; preserve_wire
     ; streaming = Delta_field "reasoning"
+    ; output_wire
     }
   | Enable_thinking ->
     { default with
       toggle_wire = Enable_thinking
     ; preserve_wire
     ; streaming = Delta_field "reasoning_content"
+    ; output_wire
     }
 ;;
 
@@ -212,6 +239,12 @@ let bool_field name = function
   | None -> []
 ;;
 
+let reasoning_output_fields dialect ~enable_thinking =
+  match dialect.output_wire, thinking_enabled ~enable_thinking with
+  | Reasoning_split, true -> [ "reasoning_split", `Bool true ]
+  | Reasoning_split, false | No_output_control, _ -> []
+;;
+
 let normalize_effort_value dialect effort =
   match dialect.effort_alias_policy, (effort : Reasoning_effort.t) with
   | ( Deepseek_high_or_max
@@ -231,6 +264,7 @@ let request_control_fields
       ?zai_glm_clear_thinking
       ()
   =
+  let output_fields = reasoning_output_fields dialect ~enable_thinking in
   let normalized_effort_field () =
     match reasoning_effort with
     | Some effort ->
@@ -241,15 +275,17 @@ let request_control_fields
   in
   match dialect.toggle_wire with
   | Chat_template_kwargs ->
-    (match
-       bool_field "enable_thinking" enable_thinking
-       @ bool_field
-           "preserve_thinking"
-           (chat_template_kwargs_preserve_field dialect ~preserve_thinking)
-     with
-     | [] -> []
-     | fields -> [ "chat_template_kwargs", `Assoc fields ])
-  | Chat_template_token | Ollama_think -> []
+    output_fields
+    @
+      (match
+         bool_field "enable_thinking" enable_thinking
+         @ bool_field
+             "preserve_thinking"
+             (chat_template_kwargs_preserve_field dialect ~preserve_thinking)
+       with
+      | [] -> []
+      | fields -> [ "chat_template_kwargs", `Assoc fields ])
+  | Chat_template_token | Ollama_think -> output_fields
   | Enable_thinking ->
     let fields =
       bool_field "enable_thinking" enable_thinking
@@ -262,14 +298,23 @@ let request_control_fields
       | Some true, Some budget -> ("thinking_budget", `Int budget) :: fields
       | _ -> fields
     in
-    fields
-  | Reasoning_effort -> normalized_effort_field ()
+    output_fields @ fields
+  | Reasoning_effort -> output_fields @ normalized_effort_field ()
   | Thinking_object _ ->
-    (match enable_thinking with
-     | Some true ->
-       ("thinking", `Assoc [ "type", `String "enabled" ]) :: normalized_effort_field ()
-     | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
-     | None -> [])
+    output_fields
+    @
+      (match enable_thinking with
+      | Some true ->
+        ("thinking", `Assoc [ "type", `String "enabled" ]) :: normalized_effort_field ()
+      | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+      | None -> [])
+  | Thinking_object_adaptive ->
+    output_fields
+    @
+      (match enable_thinking with
+      | Some true -> [ "thinking", `Assoc [ "type", `String "adaptive" ] ]
+      | Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+      | None -> [])
   | Thinking_object_only ->
     let control =
       thinking_object_only_control dialect ~enable_thinking ~preserve_thinking
@@ -282,18 +327,22 @@ let request_control_fields
     let fields =
       if control.keep_all then fields @ [ "keep", `String "all" ] else fields
     in
-    (match fields with
-     | [] -> []
-     | fields -> [ "thinking", `Assoc fields ])
+    output_fields
+    @
+      (match fields with
+      | [] -> []
+      | fields -> [ "thinking", `Assoc fields ])
   | No_toggle ->
-    (match zai_glm_clear_thinking, enable_thinking with
-     | Some clear_thinking, Some true ->
-       [ ( "thinking"
-         , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
-       ]
-     | Some _, Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
-     | Some _, None | None, _ -> [])
-  | Anthropic_thinking | Gemini_thinking_config -> []
+    output_fields
+    @
+      (match zai_glm_clear_thinking, enable_thinking with
+      | Some clear_thinking, Some true ->
+        [ ( "thinking"
+          , `Assoc [ "type", `String "enabled"; "clear_thinking", `Bool clear_thinking ] )
+        ]
+      | Some _, Some false -> [ "thinking", `Assoc [ "type", `String "disabled" ] ]
+      | Some _, None | None, _ -> [])
+  | Anthropic_thinking | Gemini_thinking_config -> output_fields
 ;;
 
 let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
@@ -359,6 +408,7 @@ let sampling_params_ignored_for_format
   = function
   | Capabilities.Thinking_object -> deepseek_ignored_sampling_params
   | Capabilities.No_thinking_control
+  | Capabilities.Thinking_object_adaptive
   | Capabilities.Thinking_object_only
   | Capabilities.Chat_template_kwargs
   | Capabilities.Chat_template_token
@@ -393,6 +443,7 @@ let toggle_wire_to_string = function
   | No_toggle -> "no_toggle"
   | Thinking_object { includes_reasoning_effort = true } -> "thinking_object"
   | Thinking_object { includes_reasoning_effort = false } -> "thinking_object_no_effort"
+  | Thinking_object_adaptive -> "thinking_object_adaptive"
   | Thinking_object_only -> "thinking_object_only"
   | Chat_template_kwargs -> "chat_template_kwargs"
   | Chat_template_token -> "chat_template_token"
