@@ -60,6 +60,8 @@ let reasoning_of_block ~order_index (block : Types.content_block) =
   match block with
   | Types.Thinking { content; signature } ->
     Some { order_index; kind = Visible_thinking; content; signature }
+  | Types.RedactedThinking content
+    when Api_common.is_openai_chat_reasoning_details_redacted content -> None
   | Types.RedactedThinking content ->
     Some { order_index; kind = Redacted_thinking; content; signature = None }
   | Types.Text _

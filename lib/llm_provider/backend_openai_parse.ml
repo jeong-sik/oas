@@ -40,6 +40,14 @@ let reasoning_detail_texts = function
   | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
 ;;
 
+let reasoning_details_of_message msg =
+  let open Yojson.Safe.Util in
+  match msg |> member "reasoning_details" with
+  | `List (_ :: _ as details) -> Some details
+  | `List [] | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
+    None
+;;
+
 let reasoning_texts_of_message msg =
   let open Yojson.Safe.Util in
   match non_blank_json_string (msg |> member "reasoning_content") with
@@ -338,8 +346,16 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
     let* tool_blocks = parse_tool_calls_field (msg |> member "tool_calls") in
     (* Ollama uses "reasoning"; OpenAI-compatible providers commonly use
        "reasoning_content"; MiniMax split mode may return "reasoning_details".
-       The extracted reasoning becomes [Thinking] blocks below and stays typed
-       as reasoning end-to-end (see the content-assembly comment). *)
+       The extracted text becomes [Thinking] blocks below and stays typed as
+       reasoning end-to-end (see the content-assembly comment). The raw
+       MiniMax details are also kept as an opaque replay carrier so
+       reasoning-split histories can be sent back without inventing a local CoT
+       representation. *)
+    let reasoning_detail_blocks =
+      match reasoning_details_of_message msg with
+      | Some details -> [ Api_common.openai_chat_reasoning_details_to_redacted details ]
+      | None -> []
+    in
     let reasoning_texts = reasoning_texts_of_message msg in
     let thinking_blocks =
       List.map (fun content -> Thinking { signature = None; content }) reasoning_texts
@@ -369,7 +385,7 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
               projection concern (see [Api_common.text_blocks_to_string] and the
               runtime text extractors), not a parse-time mutation that also
               pollutes replay. *)
-           thinking_blocks @ text_blocks @ tool_blocks)
+           reasoning_detail_blocks @ thinking_blocks @ text_blocks @ tool_blocks)
       ; usage = usage_of_openai_json json
       ; telemetry = telemetry_of_openai_json json
       }

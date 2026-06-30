@@ -237,6 +237,14 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
       ()
   in
   let response = parse_ok json in
+  let raw_details =
+    List.filter_map
+      (function
+        | RedactedThinking data ->
+          Api_common.openai_chat_reasoning_details_of_redacted data
+        | _ -> None)
+      response.content
+  in
   let has_visible_text =
     List.exists
       (function
@@ -259,10 +267,26 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
       response.content
   in
   check_bool "reasoning_details.text -> Thinking" true has_thinking;
-  check_bool "blank reasoning_details text ignored" true (List.length response.content = 2);
+  check_int "raw reasoning_details carrier count" 1 (List.length raw_details);
+  check_int
+    "raw reasoning_details entries preserved"
+    2
+    (match raw_details with
+     | [ details ] -> List.length details
+     | _ -> 0);
+  check_bool "blank reasoning_details text ignored" true (List.length response.content = 3);
   check_bool "reasoning_details does not leak as visible text" false has_visible_text;
   check_bool "tool_calls -> ToolUse" true has_tool;
   check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse);
+  let projected_calls = Canonical_tool.tool_calls_of_response response in
+  (match projected_calls with
+   | [ { Canonical_tool.adjacent_reasoning =
+           Canonical_tool.Adjacent_reasoning
+             [ { Canonical_tool.kind = Canonical_tool.Visible_thinking; content; _ } ]
+       ; _
+       }
+     ] -> check_string "adjacent reasoning text" "use weather tool" content
+   | _ -> Alcotest.fail "expected one visible adjacent reasoning block");
   let minimax_dialect =
     match Capabilities.for_model_id "minimax-m3" with
     | Some caps -> Reasoning_dialect.of_capabilities caps
@@ -272,6 +296,12 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
     Serialize.dialect_messages_of_message minimax_dialect (msg Assistant response.content)
     |> only "assistant replay"
   in
+  let replay_details = member "reasoning_details" replay |> as_list "reasoning_details" in
+  check_int "replay preserves reasoning_details entries" 2 (List.length replay_details);
+  check_string
+    "replay preserves reasoning_details text"
+    "use weather tool"
+    (List.nth replay_details 0 |> member "text" |> to_string);
   check_string
     "reasoning_details text replays as reasoning_content"
     "use weather tool"

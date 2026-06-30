@@ -43,6 +43,36 @@ let text_blocks_to_string blocks =
 ;;
 
 let json_of_string_or_raw s = Lenient_json.parse s
+let openai_chat_reasoning_details_carrier_type = "openai_chat.reasoning_details.v1"
+
+let openai_chat_reasoning_details_to_redacted details =
+  RedactedThinking
+    (Yojson.Safe.to_string
+       (`Assoc
+           [ "type", `String openai_chat_reasoning_details_carrier_type
+           ; "reasoning_details", `List details
+           ]))
+;;
+
+let openai_chat_reasoning_details_of_redacted data =
+  try
+    match Yojson.Safe.from_string data with
+    | `Assoc fields ->
+      (match List.assoc_opt "type" fields, List.assoc_opt "reasoning_details" fields with
+       | Some (`String carrier_type), Some (`List details)
+         when String.equal carrier_type openai_chat_reasoning_details_carrier_type ->
+         Some details
+       | _ -> None)
+    | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+  with
+  | Yojson.Json_error _ -> None
+;;
+
+let is_openai_chat_reasoning_details_redacted data =
+  match openai_chat_reasoning_details_of_redacted data with
+  | Some _ -> true
+  | None -> false
+;;
 
 type tool_result_content_style =
   | Tool_result_content_string

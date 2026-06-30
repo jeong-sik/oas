@@ -142,6 +142,14 @@ let assistant_reasoning_content_of_blocks blocks =
   |> String.concat ""
 ;;
 
+let assistant_reasoning_details_of_blocks blocks =
+  blocks
+  |> List.find_map (function
+    | RedactedThinking data -> Api_common.openai_chat_reasoning_details_of_redacted data
+    | Text _ | Thinking _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
+      None)
+;;
+
 let openai_tool_message_of_result ~tool_use_id ~content ~content_blocks =
   let content_str =
     match content_blocks with
@@ -175,6 +183,7 @@ let openai_tool_messages_of_blocks blocks =
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(include_reasoning_content = false)
+      ?(reasoning_output_wire = Reasoning_dialect.No_output_control)
       ?(assistant_tool_content_format = Capability_vocab.Assistant_tool_content_null)
       ?(modality_priority = Modality.Preserve_input_order)
       (msg : message)
@@ -218,6 +227,15 @@ let messages_of_message_with
       then assistant_reasoning_content_of_blocks msg.content
       else ""
     in
+    let reasoning_details =
+      if include_reasoning_content
+      then (
+        match reasoning_output_wire with
+        | Reasoning_dialect.Reasoning_split ->
+          assistant_reasoning_details_of_blocks msg.content
+        | Reasoning_dialect.No_output_control -> None)
+      else None
+    in
     let tool_calls = tool_calls_fn msg.content in
     let assistant_content =
       if Api_common.string_is_blank text_content && tool_calls <> []
@@ -229,7 +247,19 @@ let messages_of_message_with
     in
     let fields = [ "role", `String "assistant"; "content", assistant_content ] in
     let fields =
-      if include_reasoning_content && not (Api_common.string_is_blank reasoning_content)
+      match reasoning_details with
+      | Some details -> ("reasoning_details", `List details) :: fields
+      | None
+        when include_reasoning_content
+             && not (Api_common.string_is_blank reasoning_content) ->
+        ("reasoning_content", `String reasoning_content) :: fields
+      | None -> fields
+    in
+    let fields =
+      if
+        include_reasoning_content
+        && reasoning_details <> None
+        && not (Api_common.string_is_blank reasoning_content)
       then ("reasoning_content", `String reasoning_content) :: fields
       else fields
     in
@@ -276,6 +306,7 @@ let dialect_messages_of_message
   messages_of_message_with
     ~tool_calls_fn:(fun _ -> tool_calls)
     ~include_reasoning_content
+    ~reasoning_output_wire:dialect.Reasoning_dialect.output_wire
     ~assistant_tool_content_format
     msg
 ;;
