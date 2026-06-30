@@ -36,27 +36,13 @@ let with_manifest json f =
     Fun.protect ~finally:(fun () -> CM.set_global []) f
 ;;
 
-let load_repository_catalog () =
-  let candidates =
-    List.filter_map
-      (fun x -> x)
-      [ Sys.getenv_opt "OAS_MODEL_CATALOG"
-      ; Some "models.toml"
-      ; Some "../models.toml"
-      ; Some "../../models.toml"
-      ]
-  in
-  match List.find_opt Sys.file_exists candidates with
-  | None -> fail "models.toml not found for thinking-control dialect tests"
-  | Some path ->
-    (match MC.load_file path with
-     | Error msg -> fail ("failed to load " ^ path ^ ": " ^ msg)
-     | Ok catalog -> catalog)
+let install_repository_catalog () =
+  Model_catalog_test_support.install_repo_model_catalog ~suite:"thinking-control dialect"
 ;;
 
 let without_ambient_manifest f =
   CM.set_global [];
-  MC.set_global (load_repository_catalog ());
+  install_repository_catalog ();
   Fun.protect
     ~finally:(fun () ->
       MC.clear_global ();
@@ -79,7 +65,7 @@ let with_catalog_toml contents f =
        | Error msg -> fail ("custom catalog parse failed: " ^ msg)
        | Ok catalog ->
          MC.set_global catalog;
-         Fun.protect ~finally:(fun () -> MC.set_global (load_repository_catalog ())) f)
+         Fun.protect ~finally:install_repository_catalog f)
 ;;
 
 let check_member_absent name json =

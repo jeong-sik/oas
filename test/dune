@@ -216,6 +216,7 @@
   test_v024_fixes
   test_vcs_graph_snapshot)
  (modules
+  model_catalog_test_support
   test_metrics_aggregating
   test_modality
   test_capabilities

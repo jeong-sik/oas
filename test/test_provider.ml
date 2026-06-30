@@ -38,21 +38,7 @@ let with_provider_catalog json f =
 ;;
 
 let install_repo_model_catalog () =
-  let candidates =
-    List.filter_map
-      (fun x -> x)
-      [ Sys.getenv_opt "OAS_MODEL_CATALOG"
-      ; Some "models.toml"
-      ; Some "../models.toml"
-      ; Some "../../models.toml"
-      ]
-  in
-  match List.find_opt Sys.file_exists candidates with
-  | None -> Alcotest.fail "models.toml not found for provider tests"
-  | Some path ->
-    (match Llm_provider.Model_catalog.load_file path with
-     | Error msg -> Alcotest.fail (Printf.sprintf "models.toml should parse: %s" msg)
-     | Ok catalog -> Llm_provider.Model_catalog.set_global catalog)
+  Model_catalog_test_support.install_repo_model_catalog ~suite:"provider"
 ;;
 
 let with_empty_capability_sources f =
