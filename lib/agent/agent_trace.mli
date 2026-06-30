@@ -47,6 +47,13 @@ val trace_assistant_blocks
   -> Types.content_block list
   -> (unit, Error.sdk_error) result
 
+(** {1 Response inspection} *)
+
+(** The user-facing final text of a response, or [None] when the response
+    carries no visible text (e.g. thinking-only or tool-only turns).  Thinking
+    blocks are excluded; whitespace-only text is treated as absent. *)
+val final_text_of_response : Types.api_response -> string option
+
 (** {1 Run lifecycle} *)
 
 (** Execute [f] within a raw-trace run, handling start/finish recording
