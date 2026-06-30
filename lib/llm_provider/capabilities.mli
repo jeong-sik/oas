@@ -250,6 +250,18 @@ val for_model_id : string -> capabilities option
     @since 0.170.9 *)
 val capabilities_for_provider_label : string -> capabilities option
 
+(** Capabilities preset for a canonical {!Provider_kind.t}.
+
+    Typed counterpart of {!capabilities_for_provider_label}: maps the 7 closed
+    variants directly to their presets without serialising the kind to a string
+    and re-parsing it. Use this when the caller already holds a typed
+    {!Provider_kind.t}; use {!capabilities_for_provider_label} only at the
+    catalog/env parse boundary where wire aliases and extra presets (e.g.
+    ["claude"], ["openai_chat_extended"], ["ollama_cloud"], ["nvidia"]) apply.
+
+    @since 0.209.0 *)
+val capabilities_of_kind : Provider_kind.t -> capabilities
+
 (** Merge Discovery ctx_size into existing capabilities. *)
 val with_context_size : capabilities -> ctx_size:int -> capabilities
 

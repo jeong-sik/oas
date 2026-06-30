@@ -296,11 +296,7 @@ let request_control_fields
   | Anthropic_thinking | Gemini_thinking_config -> []
 ;;
 
-let provider_capabilities_of_kind kind =
-  kind
-  |> Provider_config.string_of_provider_kind
-  |> Capabilities.capabilities_for_provider_label
-;;
+let provider_capabilities_of_kind kind = Capabilities.capabilities_of_kind kind
 
 let for_provider_config (config : Provider_config.t) =
   match config.kind with
@@ -322,11 +318,9 @@ let for_provider_config (config : Provider_config.t) =
        of_capabilities caps
        |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
      | None ->
-       (match provider_capabilities_of_kind config.kind with
-        | Some caps ->
-          of_capabilities caps
-          |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking
-        | None -> default))
+       let caps = provider_capabilities_of_kind config.kind in
+       of_capabilities caps
+       |> with_preserve_thinking ~preserve_thinking:config.preserve_thinking)
   | DashScope ->
     (* DashScope emits top-level enable_thinking/preserve_thinking regardless of
        the model catalog. Backend_openai_request.capabilities_of_config is

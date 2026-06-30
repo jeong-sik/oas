@@ -602,6 +602,57 @@ let capabilities_for_provider_label label =
   | _ -> None
 ;;
 
+(** Capabilities preset for a canonical {!Provider_kind.t}.
+
+    Typed counterpart of {!capabilities_for_provider_label}: maps the 7 closed
+    variants directly to their presets without serialising the kind to a string
+    and re-parsing it. Adding a new variant to {!Provider_kind.t} forces a
+    compile error here, instead of silently falling through the [_ -> None] arm
+    of the label classifier. This is the path callers that already hold a typed
+    [kind] should use, so the
+    [kind |> string_of_provider_kind |> capabilities_for_provider_label]
+    round-trip disappears.
+
+    Wire aliases and presets not expressible as a {!Provider_kind.t}
+    (e.g. ["claude"], ["zhipu"], ["openai_chat_extended"], ["ollama_cloud"],
+    ["nvidia"]) remain reachable only through {!capabilities_for_provider_label}
+    at the catalog/env parse boundary.
+
+    @since 0.209.0 *)
+let capabilities_of_kind (kind : Provider_kind.t) : capabilities =
+  match kind with
+  | Provider_kind.Anthropic -> anthropic_capabilities
+  | Provider_kind.Kimi -> kimi_capabilities
+  | Provider_kind.OpenAI_compat -> openai_compat_chat_capabilities
+  | Provider_kind.Ollama -> ollama_capabilities
+  | Provider_kind.Gemini -> gemini_capabilities
+  | Provider_kind.Glm -> glm_capabilities
+  | Provider_kind.DashScope -> dashscope_capabilities
+;;
+
+let%test "capabilities_of_kind aliases the same presets as the label classifier" =
+  (* SSOT guard: the typed variant path and the wire label path must resolve
+     the 7 canonical kinds to the same preset. Assert on the two axes that
+     distinguish presets rather than physical identity, so a future change
+     that makes either route synthesise a fresh record is still caught. *)
+  List.for_all
+    (fun (kind, label) ->
+       let via_kind = capabilities_of_kind kind in
+       match capabilities_for_provider_label label with
+       | Some via_label ->
+         via_label.thinking_control_format = via_kind.thinking_control_format
+         && via_label.supports_reasoning = via_kind.supports_reasoning
+       | None -> false)
+    [ Provider_kind.Anthropic, "anthropic"
+    ; Provider_kind.Kimi, "kimi"
+    ; Provider_kind.OpenAI_compat, "openai_compat"
+    ; Provider_kind.Ollama, "ollama"
+    ; Provider_kind.Gemini, "gemini"
+    ; Provider_kind.Glm, "glm"
+    ; Provider_kind.DashScope, "dashscope"
+    ]
+;;
+
 (** Merge Discovery ctx_size into capabilities. *)
 let with_context_size caps ~ctx_size = { caps with max_context_tokens = Some ctx_size }
 
