@@ -48,6 +48,27 @@ let test_find_object_none () =
   check (option (pair int int)) "no object" None (TUR.find_json_object "no braces here")
 ;;
 
+(* ── try_parse_json_object ───────────────────────────────── *)
+
+let test_try_parse_rejects_embedded_object () =
+  check
+    (option string)
+    "embedded JSON is not scraped from prose"
+    None
+    (Option.map
+       Yojson.Safe.to_string
+       (TUR.try_parse_json_object "please call {\"name\":\"my_tool\",\"input\":{}} now"))
+;;
+
+let test_try_parse_accepts_exact_fenced_object () =
+  match
+    TUR.try_parse_json_object "```json\n{\"name\":\"my_tool\",\"input\":{\"x\":1}}\n```"
+  with
+  | Some (`Assoc _) -> ()
+  | Some _ -> fail "expected object"
+  | None -> fail "expected fenced object"
+;;
+
 (* ── extract_name_and_input ──────────────────────────────── *)
 
 let test_extract_anthropic_style () =
@@ -234,6 +255,16 @@ let () =
         ; test_case "nested" `Quick test_find_object_nested
         ; test_case "string braces" `Quick test_find_object_string_with_braces
         ; test_case "none" `Quick test_find_object_none
+        ] )
+    ; ( "try_parse_json_object"
+      , [ test_case
+            "embedded object rejected"
+            `Quick
+            test_try_parse_rejects_embedded_object
+        ; test_case
+            "exact fenced object accepted"
+            `Quick
+            test_try_parse_accepts_exact_fenced_object
         ] )
     ; ( "extract_name_and_input"
       , [ test_case "anthropic style" `Quick test_extract_anthropic_style

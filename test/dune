@@ -454,6 +454,7 @@
 (test
  (name test_provider_complete)
  (modules test_provider_complete)
+ (deps ../models.toml)
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test

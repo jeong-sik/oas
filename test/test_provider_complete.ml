@@ -8,6 +8,16 @@ module BOL = Llm_provider.Backend_ollama
 module BGemini = Llm_provider.Backend_gemini
 open Llm_provider.Types
 
+let () =
+  let candidates = [ "models.toml"; "../models.toml" ] in
+  match List.find_opt Sys.file_exists candidates with
+  | None -> Alcotest.fail "models.toml not found for provider_complete tests"
+  | Some path ->
+    (match Llm_provider.Model_catalog.load_file path with
+     | Ok catalog -> Llm_provider.Model_catalog.set_global catalog
+     | Error msg -> Alcotest.failf "failed to load %s: %s" path msg)
+;;
+
 let contains_substring ~sub text =
   let sub_len = String.length sub in
   let text_len = String.length text in
