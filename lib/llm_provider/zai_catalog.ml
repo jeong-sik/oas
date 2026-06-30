@@ -116,10 +116,7 @@ let resolve_glm_coding_alias ~default_model model_id =
 
 let general_concurrency_for_model model_id =
   let m = String.lowercase_ascii model_id in
-  let starts_with prefix =
-    String.length m >= String.length prefix
-    && String.sub m 0 (String.length prefix) = prefix
-  in
+  let starts_with prefix = String.starts_with ~prefix m in
   if starts_with "glm-4-plus"
   then 20
   else if starts_with "glm-4-32b-0414-128k"

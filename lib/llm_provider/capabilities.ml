@@ -1015,11 +1015,6 @@ let for_model_id model_id =
      | None -> for_model_id_catalog model_id)
 ;;
 
-let starts_with ~prefix s =
-  String.length s >= String.length prefix
-  && String.sub s 0 (String.length prefix) = prefix
-;;
-
 let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string) =
   let provider_label = String.lowercase_ascii (String.trim provider_label) in
   let model_id = String.trim model_id in
@@ -1035,7 +1030,7 @@ let for_provider_model_id_catalog ~(provider_label : string) ~(model_id : string
          | Some entry
            when List.exists
                   (fun prefix ->
-                     starts_with
+                     String.starts_with
                        ~prefix
                        (String.lowercase_ascii (String.trim entry.id_prefix)))
                   qualified_prefixes -> Some (apply_catalog_entry entry)
