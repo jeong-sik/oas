@@ -407,23 +407,59 @@ let test_finalize_tool_use_invalid_json () =
   | Ok _ -> Alcotest.fail "expected invalid tool_use JSON to fail closed"
 ;;
 
-(* ── finalize: tool_use with missing tool_id/tool_name ──────────── *)
+(* ── finalize: tool_use metadata boundary ───────────────────────── *)
 
-let test_finalize_tool_use_missing_ids () =
+let test_finalize_tool_use_missing_name () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event
     acc
     (ContentBlockStart
-       { index = 0; content_type = "tool_use"; tool_id = None; tool_name = None });
+       { index = 0
+       ; content_type = "tool_use"
+       ; tool_id = Some "tool-id-1"
+       ; tool_name = None
+       });
+  Streaming.accumulate_event
+    acc
+    (ContentBlockDelta { index = 0; delta = InputJsonDelta {|{"ok": true}|} });
+  Streaming.accumulate_event
+    acc
+    (MessageDelta { stop_reason = Some EndTurn; usage = None });
+  match Streaming.finalize_stream_acc acc with
+  | Error (Stream_parse_failed { reason; raw }) ->
+    check_string "missing name reason" "malformed_tool_use:index:0:missing_name" reason;
+    check_string "raw omitted" "" raw
+  | Error err -> fail_unexpected_stream_error err
+  | Ok response ->
+    let (_ : api_response) = response in
+    Alcotest.fail "expected missing tool name to fail closed"
+;;
+
+let test_finalize_tool_use_missing_id_synthesizes () =
+  let acc = Streaming.create_stream_acc () in
+  Streaming.accumulate_event
+    acc
+    (ContentBlockStart
+       { index = 0; content_type = "tool_use"; tool_id = None; tool_name = Some "lookup" });
   Streaming.accumulate_event
     acc
     (ContentBlockDelta { index = 0; delta = InputJsonDelta {|{"ok": true}|} });
   let resp = finalize_ok acc in
   match resp.content with
-  | [ ToolUse { id; name; _ } ] ->
-    check_string "default tool_id" "" id;
-    check_string "default tool_name" "" name
-  | _ -> Alcotest.fail "expected ToolUse with empty defaults"
+  | [ ToolUse { id; name; input } ] ->
+    check_bool "synthetic id prefix" true (String.starts_with ~prefix:"call_lookup_" id);
+    check_string "tool_name" "lookup" name;
+    let input_ok =
+      match input with
+      | `Assoc [ ("ok", `Bool true) ] -> true
+      | unexpected ->
+        let (_ : Yojson.Safe.t) = unexpected in
+        false
+    in
+    check_bool "input ok" true input_ok
+  | unexpected ->
+    let (_ : content_block list) = unexpected in
+    Alcotest.fail "expected ToolUse with synthetic id"
 ;;
 
 (* ── finalize: text block with no delta (empty text) ────────────── *)
@@ -779,7 +815,7 @@ let test_acc_partial_tool_metadata () =
   let resp = finalize_ok acc in
   match resp.content with
   | [ ToolUse { id; name; _ } ] ->
-    check_string "default id" "" id;
+    check_bool "synthetic id" true (String.starts_with ~prefix:"call_partial_" id);
     check_string "partial name" "partial" name
   | _ -> Alcotest.fail "expected ToolUse with partial metadata"
 ;;
@@ -910,9 +946,13 @@ let () =
             `Quick
             test_finalize_tool_use_invalid_json
         ; Alcotest.test_case
-            "tool_use missing ids"
+            "tool_use missing name"
             `Quick
-            test_finalize_tool_use_missing_ids
+            test_finalize_tool_use_missing_name
+        ; Alcotest.test_case
+            "tool_use missing id synthesizes"
+            `Quick
+            test_finalize_tool_use_missing_id_synthesizes
         ; Alcotest.test_case
             "text block no delta"
             `Quick

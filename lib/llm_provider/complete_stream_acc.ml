@@ -1,11 +1,14 @@
 (** Stream accumulator: gather SSE events into a {!Types.api_response}.
 
     Extracts the stream_acc type and its operations from [Complete].
-    Depends only on [Types] -- no provider/backend/transport references.
+    Depends only on [Types] and shared API helpers -- no
+    provider/backend/transport references.
 
     @since 0.79.0 *)
 
 (** Internal: accumulate SSE events into content blocks. *)
+let ( let* ) = Result.bind
+
 type stream_acc =
   { id : string ref
   ; model : string ref
@@ -306,15 +309,15 @@ let finalize_stream_acc (acc : stream_acc) =
                 assembly and never reaches this branch. *)
         Ok None
       | Some Tool_use_block ->
-        let id =
-          match Hashtbl.find_opt acc.block_tool_ids idx with
-          | Some s -> s
-          | None -> ""
-        in
-        let name =
+        let* name =
           match Hashtbl.find_opt acc.block_tool_names idx with
-          | Some s -> s
-          | None -> ""
+          | Some s when not (Api_common.string_is_blank s) -> Ok s
+          | Some _ | None ->
+            Error
+              (Types.Stream_parse_failed
+                 { reason = Printf.sprintf "malformed_tool_use:index:%d:missing_name" idx
+                 ; raw = ""
+                 })
         in
         (* Tool arguments must parse. An empty argument buffer is the
            legitimate "no arguments" case and becomes the empty object; a
@@ -325,13 +328,14 @@ let finalize_stream_acc (acc : stream_acc) =
            the [Unknown_block] fail-closed arm and the typed-absence policy of
            the sibling [Tool_result_block] branch (which carries [json = None]
            rather than fabricating an object). *)
-        if String.trim text = ""
-        then Ok (Some (Types.ToolUse { id; name; input = `Assoc [] }))
-        else (
-          match Yojson.Safe.from_string text with
-          | input -> Ok (Some (Types.ToolUse { id; name; input }))
-          | exception Yojson.Json_error reason ->
-            (* Preserve the offending accumulated buffer in [raw] so the rare,
+        let* input =
+          if String.trim text = ""
+          then Ok (`Assoc [])
+          else (
+            match Yojson.Safe.from_string text with
+            | input -> Ok input
+            | exception Yojson.Json_error reason ->
+              (* Preserve the offending accumulated buffer in [raw] so the rare,
                provider-specific malformed tool-arg wire is diagnosable from the
                operator-facing diagnostic log (the [Complete_stream] renderer
                bounds it to 256 bytes).
@@ -342,12 +346,23 @@ let finalize_stream_acc (acc : stream_acc) =
                The deliberately-empty [Unknown_block] arm below stays empty
                because an unrecognized block payload has neither this bound nor a
                known shape. *)
-            Error
-              (Types.Stream_parse_failed
-                 { reason =
-                     Printf.sprintf "malformed_tool_use_arguments:index:%d:%s" idx reason
-                 ; raw = text
-                 }))
+              Error
+                (Types.Stream_parse_failed
+                   { reason =
+                       Printf.sprintf
+                         "malformed_tool_use_arguments:index:%d:%s"
+                         idx
+                         reason
+                   ; raw = text
+                   }))
+        in
+        let id =
+          match Hashtbl.find_opt acc.block_tool_ids idx with
+          | Some s when not (Api_common.string_is_blank s) -> s
+          | Some _ | None ->
+            Printf.sprintf "%s_%d" (Api_common.synthesize_tool_use_id ~name input) idx
+        in
+        Ok (Some (Types.ToolUse { id; name; input }))
       | Some (Tool_result_block { is_error }) ->
         let tool_use_id =
           match Hashtbl.find_opt acc.block_tool_ids idx with
@@ -1157,6 +1172,8 @@ let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
      default). Truncation is handled by the MaxTokens guard, below. *)
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
+  Hashtbl.replace acc.block_tool_names 0 "broken_tool";
   let buf = Buffer.create 16 in
   Buffer.add_string buf "not valid json";
   Hashtbl.replace acc.block_texts 0 buf;
@@ -1255,9 +1272,10 @@ let%test "finalize_stream_acc keeps tool_use on StopToolUse (no over-drop)" =
      | _ -> false)
 ;;
 
-let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
+let%test "finalize_stream_acc tool_use missing name fails closed" =
   let acc = create_stream_acc () in
   Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 "tool-id-1";
   let buf = Buffer.create 16 in
   Buffer.add_string buf "{}";
   Hashtbl.replace acc.block_texts 0 buf;
@@ -1265,11 +1283,61 @@ let%test "finalize_stream_acc tool_use missing id/name defaults to empty" =
     acc.stop_reason_received := true;
     finalize_stream_acc acc
   with
-  | Error _ -> false
+  | Error (Types.Stream_parse_failed { reason; raw }) ->
+    reason = "malformed_tool_use:index:0:missing_name" && raw = ""
+  | Error err ->
+    let (_ : Types.stream_error) = err in
+    false
+  | Ok result ->
+    let (_ : Types.api_response) = result in
+    false
+;;
+
+let%test "finalize_stream_acc tool_use missing id synthesizes stable id" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error err ->
+    let (_ : Types.stream_error) = err in
+    false
   | Ok result ->
     (match result.content with
-     | [ Types.ToolUse { id = ""; name = ""; _ } ] -> true
-     | _ -> false)
+     | [ Types.ToolUse { id; name = "get_weather"; input = `Assoc [] } ] ->
+       String.starts_with ~prefix:"call_get_weather_" id
+     | unexpected ->
+       let (_ : Types.content_block list) = unexpected in
+       false)
+;;
+
+let%test "finalize_stream_acc tool_use blank id synthesizes stable id" =
+  let acc = create_stream_acc () in
+  Hashtbl.replace acc.block_types 0 "tool_use";
+  Hashtbl.replace acc.block_tool_ids 0 " ";
+  Hashtbl.replace acc.block_tool_names 0 "get_weather";
+  let buf = Buffer.create 16 in
+  Buffer.add_string buf "{}";
+  Hashtbl.replace acc.block_texts 0 buf;
+  match
+    acc.stop_reason_received := true;
+    finalize_stream_acc acc
+  with
+  | Error err ->
+    let (_ : Types.stream_error) = err in
+    false
+  | Ok result ->
+    (match result.content with
+     | [ Types.ToolUse { id; name = "get_weather"; input = `Assoc [] } ] ->
+       String.starts_with ~prefix:"call_get_weather_" id
+     | unexpected ->
+       let (_ : Types.content_block list) = unexpected in
+       false)
 ;;
 
 let%test "finalize_stream_acc assembles tool_result block" =
