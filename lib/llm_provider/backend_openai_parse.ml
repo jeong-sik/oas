@@ -27,37 +27,37 @@ let non_blank_json_string = function
     None
 ;;
 
-let reasoning_detail_text = function
-  | `Assoc fields ->
-    (match List.assoc_opt "text" fields with
-     | Some text -> non_blank_json_string text
-     | None -> None)
+let reasoning_detail_of_json = function
+  | `Assoc fields as raw ->
+    let text =
+      match List.assoc_opt "text" fields with
+      | Some text -> non_blank_json_string text
+      | None -> None
+    in
+    Some { raw; text }
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
-let reasoning_detail_texts = function
-  | `List details -> List.filter_map reasoning_detail_text details
+let reasoning_details_of_json = function
+  | `List details -> List.filter_map reasoning_detail_of_json details
   | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> []
 ;;
 
-let reasoning_details_of_message msg =
-  let open Yojson.Safe.Util in
-  match msg |> member "reasoning_details" with
-  | `List (_ :: _ as details) -> Some details
-  | `List [] | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-    None
+let reasoning_texts_of_details details =
+  List.filter_map (fun (detail : reasoning_detail) -> detail.text) details
 ;;
 
-let reasoning_texts_of_message msg =
+let reasoning_content_blocks_of_message msg =
   let open Yojson.Safe.Util in
-  match non_blank_json_string (msg |> member "reasoning_content") with
-  | Some text -> [ text ]
-  | None ->
-    (match reasoning_detail_texts (msg |> member "reasoning_details") with
-     | _ :: _ as texts -> texts
-     | [] ->
+  let reasoning_content = non_blank_json_string (msg |> member "reasoning_content") in
+  match reasoning_details_of_json (msg |> member "reasoning_details") with
+  | _ :: _ as details -> [ ReasoningDetails { reasoning_content; details } ]
+  | [] ->
+    (match reasoning_content with
+     | Some content -> [ Thinking { signature = None; content } ]
+     | None ->
        (match non_blank_json_string (msg |> member "reasoning") with
-        | Some text -> [ text ]
+        | Some content -> [ Thinking { signature = None; content } ]
         | None -> []))
 ;;
 
@@ -290,7 +290,19 @@ let telemetry_of_openai_json json =
         | `Assoc _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> `Null
       in
       let reasoning_text =
-        match if msg = `Null then [] else reasoning_texts_of_message msg with
+        let texts =
+          if msg = `Null
+          then []
+          else (
+            match reasoning_content_blocks_of_message msg with
+            | [ Thinking { content; _ } ] -> [ content ]
+            | [ ReasoningDetails { reasoning_content; details } ] ->
+              (match reasoning_content with
+               | Some content -> [ content ]
+               | None -> reasoning_texts_of_details details)
+            | _ -> [])
+        in
+        match texts with
         | [] -> None
         | texts -> Some (String.concat "" texts)
       in
@@ -346,20 +358,10 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
     let* tool_blocks = parse_tool_calls_field (msg |> member "tool_calls") in
     (* Ollama uses "reasoning"; OpenAI-compatible providers commonly use
        "reasoning_content"; MiniMax split mode may return "reasoning_details".
-       The extracted text becomes [Thinking] blocks below and stays typed as
-       reasoning end-to-end (see the content-assembly comment). The raw
-       MiniMax details are also kept as an opaque replay carrier so
-       reasoning-split histories can be sent back without inventing a local CoT
-       representation. *)
-    let reasoning_detail_blocks =
-      match reasoning_details_of_message msg with
-      | Some details -> [ Api_common.openai_chat_reasoning_details_to_redacted details ]
-      | None -> []
-    in
-    let reasoning_texts = reasoning_texts_of_message msg in
-    let thinking_blocks =
-      List.map (fun content -> Thinking { signature = None; content }) reasoning_texts
-    in
+       MiniMax split reasoning stays as [ReasoningDetails] so the original
+       provider message shape can be replayed without overloading visible or
+       redacted thinking channels. Other reasoning text stays [Thinking]. *)
+    let thinking_blocks = reasoning_content_blocks_of_message msg in
     let stop_reason =
       (* SSOT: Stop_reason_wire owns the wire finish-reason -> stop_reason table
          and the StopToolUse => has-tool-block invariant (previously duplicated
@@ -385,7 +387,7 @@ let parse_openai_response_result_json (raw_json : Yojson.Safe.t) =
               projection concern (see [Api_common.text_blocks_to_string] and the
               runtime text extractors), not a parse-time mutation that also
               pollutes replay. *)
-           reasoning_detail_blocks @ thinking_blocks @ text_blocks @ tool_blocks)
+           thinking_blocks @ text_blocks @ tool_blocks)
       ; usage = usage_of_openai_json json
       ; telemetry = telemetry_of_openai_json json
       }

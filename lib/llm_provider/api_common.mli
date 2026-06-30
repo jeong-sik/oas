@@ -17,15 +17,6 @@ val string_is_blank : string -> bool
 val text_blocks_to_string : Types.content_block list -> string
 val json_of_string_or_raw : string -> Yojson.Safe.t
 
-(** Opaque OpenAI-compatible Chat replay carrier for providers that require
-    structured [reasoning_details] to be returned in assistant history. The
-    carrier is stored as {!Types.RedactedThinking} so visible text projections
-    never treat it as assistant answer text. *)
-val openai_chat_reasoning_details_to_redacted : Yojson.Safe.t list -> Types.content_block
-
-val openai_chat_reasoning_details_of_redacted : string -> Yojson.Safe.t list option
-val is_openai_chat_reasoning_details_redacted : string -> bool
-
 (** {2 Content block JSON conversion} *)
 
 val content_block_to_json : Types.content_block -> Yojson.Safe.t

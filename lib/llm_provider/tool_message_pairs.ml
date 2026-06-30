@@ -6,6 +6,7 @@ let tool_use_ids (msg : message) =
       | ToolUse { id; _ } -> Some id
       | Text _
       | Thinking _
+      | ReasoningDetails _
       | RedactedThinking _
       | ToolResult _
       | Image _
@@ -20,6 +21,7 @@ let tool_uses (msg : message) =
       | ToolUse { id; name; _ } -> Some (id, name)
       | Text _
       | Thinking _
+      | ReasoningDetails _
       | RedactedThinking _
       | ToolResult _
       | Image _
@@ -34,6 +36,7 @@ let tool_result_ids (msg : message) =
       | ToolResult { tool_use_id; _ } -> Some tool_use_id
       | Text _
       | Thinking _
+      | ReasoningDetails _
       | RedactedThinking _
       | ToolUse _
       | Image _
@@ -66,6 +69,7 @@ let strip_orphaned_tool_results (messages : message list) : message list =
             keep
           | Text _
           | Thinking _
+          | ReasoningDetails _
           | RedactedThinking _
           | ToolUse _
           | Image _

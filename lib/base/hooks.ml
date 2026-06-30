@@ -76,6 +76,14 @@ let extract_reasoning (messages : message list) : reasoning_summary =
          List.filter_map
            (function
              | Thinking { content; _ } -> Some content
+             | ReasoningDetails { reasoning_content = Some content; _ } -> Some content
+             | ReasoningDetails { reasoning_content = None; details } ->
+               let content =
+                 details
+                 |> List.filter_map (fun (detail : reasoning_detail) -> detail.text)
+                 |> String.concat ""
+               in
+               if content = "" then None else Some content
              | Text _
              | RedactedThinking _
              | ToolUse _

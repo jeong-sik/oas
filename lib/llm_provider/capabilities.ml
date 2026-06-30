@@ -2031,7 +2031,7 @@ let detect_drift (caps : capabilities) (resp : Types.api_response)
     (fun (block : Types.content_block) ->
        match block with
        | ToolUse _ -> has_tool_use := true
-       | Thinking _ | RedactedThinking _ -> has_thinking := true
+       | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> has_thinking := true
        | Text _ | ToolResult _ | Image _ | Document _ | Audio _ ->
          (* No capability-drift signal: these blocks are valid against any
            capability set the response declares. *)

@@ -31,6 +31,7 @@ let compute_fingerprints ?(normalize_tool_call = identity_tool_call_normalizer) 
          Some { fp_name; fp_input = Yojson.Safe.to_string fp_input }
        | Text _
        | Thinking _
+       | ReasoningDetails _
        | RedactedThinking _
        | ToolResult _
        | Image _
@@ -95,6 +96,7 @@ let extract_last_user_text (messages : message list) : string =
                match block with
                | Text s -> Some s
                | Thinking _
+               | ReasoningDetails _
                | RedactedThinking _
                | ToolUse _
                | ToolResult _
@@ -363,6 +365,7 @@ let resolve_turn_params ~hooks ~messages ~max_turns ~turn ~invoke_hook =
                     else Some (Ok { content; _meta = None } : tool_result)
                   | Text _
                   | Thinking _
+                  | ReasoningDetails _
                   | RedactedThinking _
                   | ToolUse _
                   | Image _
@@ -462,6 +465,7 @@ let apply_context_injection ~context ~messages ~injector ~tool_uses ~results =
               [ S ("tool", name); S ("error", Printexc.to_string exn) ])
        | Text _
        | Thinking _
+       | ReasoningDetails _
        | RedactedThinking _
        | ToolResult _
        | Image _
@@ -779,6 +783,7 @@ let single_tool_result = function
   | []
   | [ Text _ ]
   | [ Thinking _ ]
+  | [ ReasoningDetails _ ]
   | [ RedactedThinking _ ]
   | [ ToolUse _ ]
   | [ Image _ ]

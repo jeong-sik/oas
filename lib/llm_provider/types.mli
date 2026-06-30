@@ -117,6 +117,12 @@ type media_source_kind =
 val media_source_kind_to_string : media_source_kind -> string
 val media_source_kind_of_string : string -> media_source_kind option
 
+type reasoning_detail =
+  { raw : Yojson.Safe.t
+  ; text : string option
+  }
+[@@deriving show]
+
 type content_block =
   | Text of string
   | Thinking of
@@ -125,6 +131,10 @@ type content_block =
         (** [Some s]: Anthropic cryptographic signature, replayed byte-exact on
             tool turns. [None]: provider reasoning without a verification
             signature (OpenAI-compatible / Gemini / GLM / Ollama). *)
+      }
+  | ReasoningDetails of
+      { reasoning_content : string option
+      ; details : reasoning_detail list
       }
   | RedactedThinking of string
   | ToolUse of

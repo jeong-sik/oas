@@ -134,7 +134,8 @@ let trace_prompt_of_blocks blocks =
           (Printf.sprintf "[document:%s data_chars=%d]" media_type (String.length data))
       | Audio { media_type; data; _ } ->
         Some (Printf.sprintf "[audio:%s data_chars=%d]" media_type (String.length data))
-      | Thinking _ | RedactedThinking _ | ToolUse _ | ToolResult _ -> None)
+      | Thinking _ | ReasoningDetails _ | RedactedThinking _ | ToolUse _ | ToolResult _ ->
+        None)
   in
   match String.concat "\n" parts with
   | "" -> "[multimodal input]"
@@ -147,6 +148,7 @@ let validate_user_input_blocks blocks =
       (function
         | Text _ | Image _ | Document _ | Audio _ -> None
         | Thinking _ -> Some "Thinking"
+        | ReasoningDetails _ -> Some "ReasoningDetails"
         | RedactedThinking _ -> Some "RedactedThinking"
         | ToolUse _ -> Some "ToolUse"
         | ToolResult _ -> Some "ToolResult")

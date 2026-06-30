@@ -52,6 +52,15 @@ let dedupe_keep_order values =
 ;;
 
 let summarize_blocks (content : Types.content_block list) =
+  let reasoning_details_chars reasoning_content details =
+    match reasoning_content with
+    | Some content -> String.length content
+    | None ->
+      details
+      |> List.filter_map (fun (detail : Types.reasoning_detail) -> detail.text)
+      |> String.concat ""
+      |> String.length
+  in
   let shape =
     List.fold_left
       (fun shape -> function
@@ -64,6 +73,12 @@ let summarize_blocks (content : Types.content_block list) =
            { (add_kind "thinking" shape) with
              thinking_blocks = shape.thinking_blocks + 1
            ; thinking_chars = shape.thinking_chars + String.length content
+           }
+         | Types.ReasoningDetails { reasoning_content; details } ->
+           { (add_kind "reasoning_details" shape) with
+             thinking_blocks = shape.thinking_blocks + 1
+           ; thinking_chars =
+               shape.thinking_chars + reasoning_details_chars reasoning_content details
            }
          | Types.RedactedThinking _ ->
            { (add_kind "redacted_thinking" shape) with

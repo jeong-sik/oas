@@ -64,6 +64,18 @@ let content_block_to_json = function
           | None -> `Null )
       ; "content", `String content
       ]
+  | ReasoningDetails { reasoning_content; details } ->
+    let fields =
+      [ ( "details"
+        , `List (List.map (fun (detail : reasoning_detail) -> detail.raw) details) )
+      ]
+    in
+    let fields =
+      match reasoning_content with
+      | Some content -> ("reasoning_content", `String content) :: fields
+      | None -> fields
+    in
+    `Assoc (("type", `String "reasoning_details") :: fields)
   | RedactedThinking value ->
     `Assoc [ "type", `String "redacted_thinking"; "content", `String value ]
   | ToolUse { id; name; input } ->

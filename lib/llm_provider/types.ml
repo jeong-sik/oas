@@ -242,6 +242,12 @@ let media_source_kind_of_string raw =
   | _ -> None
 ;;
 
+type reasoning_detail =
+  { raw : Yojson.Safe.t
+  ; text : string option
+  }
+[@@deriving show]
+
 (** Content block types -- inline records for clarity *)
 type content_block =
   | Text of string
@@ -255,6 +261,10 @@ type content_block =
             [thinking_type : string], which conflated this signature with a
             free-form provider label ("reasoning" / "thinking" /
             "reasoning_summary") that no consumer read. *)
+      }
+  | ReasoningDetails of
+      { reasoning_content : string option
+      ; details : reasoning_detail list
       }
   | RedactedThinking of string
   | ToolUse of
@@ -685,6 +695,7 @@ let visible_text_of_content content =
   |> List.filter_map (function
     | Text s -> Some s
     | Thinking _
+    | ReasoningDetails _
     | RedactedThinking _
     | ToolUse _
     | ToolResult _

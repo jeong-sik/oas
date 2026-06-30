@@ -168,6 +168,7 @@ let tool_call_check_of_content = function
     Some { name; arguments_valid = true; violations = [] }
   | Text _
   | Thinking _
+  | ReasoningDetails _
   | RedactedThinking _
   | ToolResult _
   | Image _
@@ -260,6 +261,7 @@ let schema_tool_call_check schema_lookup = function
     Some { name; arguments_valid = violations = []; violations }
   | Text _
   | Thinking _
+  | ReasoningDetails _
   | RedactedThinking _
   | ToolResult _
   | Image _
@@ -284,6 +286,7 @@ let is_dropped_content_block = function
   | Text s when String.trim s = "" -> true
   | Text _
   | Thinking _
+  | ReasoningDetails _
   | RedactedThinking _
   | ToolUse _
   | ToolResult _

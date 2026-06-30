@@ -288,6 +288,7 @@ let tool_use_count (content : Types.content_block list) =
        | Types.ToolUse _ -> acc + 1
        | Text _
        | Thinking _
+       | ReasoningDetails _
        | RedactedThinking _
        | ToolResult _
        | Image _

@@ -197,6 +197,7 @@ let emit_synthetic_events (response : api_response) on_event =
          match block with
          | Text _ -> "text", None, None
          | Thinking _ -> "thinking", None, None
+         | ReasoningDetails _ -> "thinking", None, None
          | ToolUse { id; name; _ } -> "tool_use", Some id, Some name
          | Image _ -> "image", None, None
          | Document _ -> "document", None, None
@@ -213,6 +214,17 @@ let emit_synthetic_events (response : api_response) on_event =
            | Some s ->
              on_event (ContentBlockDelta { index; delta = ThinkingSignatureDelta s })
            | None -> ())
+        | ReasoningDetails { reasoning_content; details } ->
+          let content =
+            match reasoning_content with
+            | Some content -> content
+            | None ->
+              details
+              |> List.filter_map (fun (detail : reasoning_detail) -> detail.text)
+              |> String.concat ""
+          in
+          if content <> ""
+          then on_event (ContentBlockDelta { index; delta = ThinkingDelta content })
         | ToolUse { input; _ } ->
           on_event
             (ContentBlockDelta

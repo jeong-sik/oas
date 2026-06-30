@@ -527,6 +527,7 @@ let record_assistant_block active ~block_index block =
     match block with
     | Text _ -> "text"
     | Thinking _ -> "thinking"
+    | ReasoningDetails _ -> "reasoning_details"
     | RedactedThinking _ -> "redacted_thinking"
     | ToolUse _ -> "tool_use"
     | ToolResult _ -> "tool_result"
