@@ -195,6 +195,186 @@ let test_parse_reasoning_content_and_tool_calls_coexist () =
   check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
 ;;
 
+let test_parse_reasoning_details_and_tool_calls_coexist () =
+  (* MiniMax-M3 reasoning_split mode documents structured reasoning_details on
+     tool-call turns. Preserve that message shape for replay rather than
+     flattening it into generic reasoning_content text. *)
+  let json =
+    response_json
+      ~content:(`String "")
+      ~finish_reason:"tool_calls"
+      ~message_fields:
+        [ "reasoning_content", `String "use weather tool"
+        ; ( "reasoning_details"
+          , `List
+              [ `Assoc
+                  [ "type", `String "reasoning.text"
+                  ; "id", `String "reasoning-text-1"
+                  ; "format", `String "MiniMax-response-v1"
+                  ; "index", `Int 0
+                  ; "text", `String "use weather tool"
+                  ]
+              ; `Assoc
+                  [ "type", `String "reasoning.text"
+                  ; "id", `String "reasoning-text-2"
+                  ; "format", `String "MiniMax-response-v1"
+                  ; "index", `Int 1
+                  ; "text", `String "  "
+                  ]
+              ] )
+        ; ( "tool_calls"
+          , `List
+              [ `Assoc
+                  [ "id", `String "call-1"
+                  ; "type", `String "function"
+                  ; ( "function"
+                    , `Assoc
+                        [ "name", `String "get_weather"
+                        ; "arguments", `String {|{"location":"San Francisco, US"}|}
+                        ] )
+                  ]
+              ] )
+        ]
+      ()
+  in
+  let response = parse_ok json in
+  let has_visible_text =
+    List.exists
+      (function
+        | Text s -> not (Api_common.string_is_blank s)
+        | _ -> false)
+      response.content
+  in
+  let has_flat_thinking =
+    List.exists
+      (function
+        | Thinking _ -> true
+        | _ -> false)
+      response.content
+  in
+  let reasoning_content, details =
+    match response.content with
+    | ReasoningDetails { reasoning_content; details } :: ToolUse { name; _ } :: _
+      when name = "get_weather" -> reasoning_content, details
+    | _ -> Alcotest.fail "expected [ReasoningDetails; ToolUse]"
+  in
+  let has_tool =
+    List.exists
+      (function
+        | ToolUse { name; _ } -> name = "get_weather"
+        | _ -> false)
+      response.content
+  in
+  Alcotest.(check (option string))
+    "reasoning_content preserved"
+    (Some "use weather tool")
+    reasoning_content;
+  check_bool "reasoning_details block count" true (List.length details = 2);
+  check_string
+    "reasoning_details raw id preserved"
+    "reasoning-text-1"
+    (member "id" (List.hd details).raw |> to_string);
+  check_string
+    "reasoning_details text captured"
+    "use weather tool"
+    (Option.value ~default:"" (List.hd details).text);
+  check_bool "reasoning_details does not leak as visible text" false has_visible_text;
+  check_bool "reasoning_details are not flattened to Thinking" false has_flat_thinking;
+  check_bool "tool_calls -> ToolUse" true has_tool;
+  check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse);
+  let projected_calls = Canonical_tool.tool_calls_of_response response in
+  (match projected_calls with
+   | [ { Canonical_tool.adjacent_reasoning =
+           Canonical_tool.Adjacent_reasoning
+             [ { Canonical_tool.kind = Canonical_tool.Visible_thinking; content; _ } ]
+       ; _
+       }
+     ] -> check_string "adjacent reasoning text" "use weather tool" content
+   | _ -> Alcotest.fail "expected one visible adjacent reasoning block");
+  let minimax_dialect =
+    { Reasoning_dialect.default with
+      replay_policy = Preserve_always
+    ; output_wire = Reasoning_split
+    }
+  in
+  let replay =
+    Serialize.dialect_messages_of_message minimax_dialect (msg Assistant response.content)
+    |> only "assistant replay"
+  in
+  let replay_details = member "reasoning_details" replay |> as_list "reasoning_details" in
+  check_int "replay preserves reasoning_details entries" 2 (List.length replay_details);
+  check_string
+    "reasoning_content preserved on replay"
+    "use weather tool"
+    (member "reasoning_content" replay |> to_string);
+  let first_detail = List.hd replay_details in
+  check_string
+    "reasoning_details replay id"
+    "reasoning-text-1"
+    (member "id" first_detail |> to_string);
+  check_string
+    "reasoning_details replay format"
+    "MiniMax-response-v1"
+    (member "format" first_detail |> to_string);
+  check_int "reasoning_details replay index" 0 (member "index" first_detail |> to_int);
+  check_string
+    "reasoning_details replay text"
+    "use weather tool"
+    (member "text" first_detail |> to_string);
+  check_bool
+    "reasoning_details text still absent from visible content on replay"
+    true
+    (match member "content" replay with
+     | `Null -> true
+     | `String s -> Api_common.string_is_blank s
+     | _ -> false)
+;;
+
+let test_parse_reasoning_details_rejects_malformed () =
+  let expect_error label expected_prefix reasoning_details =
+    let json =
+      response_json
+        ~content:(`String "")
+        ~finish_reason:"tool_calls"
+        ~message_fields:
+          [ "reasoning_content", `String "use weather tool"
+          ; "reasoning_details", reasoning_details
+          ; ( "tool_calls"
+            , `List
+                [ `Assoc
+                    [ "id", `String "call-1"
+                    ; "type", `String "function"
+                    ; ( "function"
+                      , `Assoc
+                          [ "name", `String "get_weather"
+                          ; "arguments", `String {|{"location":"San Francisco, US"}|}
+                          ] )
+                    ]
+                ] )
+          ]
+        ()
+    in
+    match Parse.parse_openai_response_result (Yojson.Safe.to_string json) with
+    | Error msg -> check_bool label true (String.starts_with ~prefix:expected_prefix msg)
+    | Ok _ -> Alcotest.fail (label ^ " should fail closed")
+  in
+  expect_error
+    "non-list reasoning_details"
+    "malformed_reasoning_details:not_list"
+    (`Assoc [ "text", `String "bad shape" ]);
+  expect_error
+    "non-object reasoning detail"
+    "malformed_reasoning_details:index:1:not_object"
+    (`List
+        [ `Assoc
+            [ "type", `String "reasoning.text"
+            ; "id", `String "reasoning-text-1"
+            ; "text", `String "valid"
+            ]
+        ; `String "bad detail"
+        ])
+;;
+
 let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
   (* End-to-end #2236 regression guard. Provider-agnostic: it exercises the
      Types<->serialize boundary every OpenAI-compatible family (DeepSeek, Kimi,
@@ -2137,6 +2317,14 @@ let () =
             "reasoning_content and tool_calls coexist"
             `Quick
             test_parse_reasoning_content_and_tool_calls_coexist
+        ; Alcotest.test_case
+            "reasoning_details and tool_calls coexist"
+            `Quick
+            test_parse_reasoning_details_and_tool_calls_coexist
+        ; Alcotest.test_case
+            "reasoning_details rejects malformed"
+            `Quick
+            test_parse_reasoning_details_rejects_malformed
         ; Alcotest.test_case
             "reasoning-only stays Thinking and is never re-injected on replay"
             `Quick

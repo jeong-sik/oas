@@ -41,6 +41,7 @@ type model_entry =
   ; thinking_control_format : string option
   ; thinking_control_token : string option
   ; preserve_thinking_control_format : string option
+  ; reasoning_output_format : string option
   ; reasoning_replay : string option
   ; input_per_million : float option
   ; output_per_million : float option

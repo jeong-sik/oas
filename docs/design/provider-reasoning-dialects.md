@@ -20,6 +20,7 @@ accepting no request-time thinking parameter.
 | Thinking control format | Preserve control format | Dialect meaning | Replay policy |
 | --- | --- | --- | --- |
 | `Thinking_object` | `No_preserve_thinking_control` | DeepSeek-style top-level `thinking` object, optional `reasoning_effort`, side-channel `reasoning_content` | Drop reasoning between plain user turns, preserve reasoning after assistant tool calls |
+| `Thinking_object_adaptive` | `No_preserve_thinking_control` + `reasoning_output_format="split_reasoning_fields"` / `reasoning_replay="preserve_always"` when documented | MiniMax-style top-level `thinking` object with `type:"adaptive"` / `type:"disabled"` plus `reasoning_split=true` for side-channel output, no effort/depth field | Replay policy is explicit catalog data; MiniMax-M3 requires complete assistant replay |
 | `Thinking_object_only` | `Thinking_object_keep_all` | Top-level `thinking` object without effort plus `thinking.keep="all"` when requested | Preserve historical `reasoning_content` when `preserve_thinking=true` |
 | `Chat_template_kwargs` | `Chat_template_kwargs_preserve_thinking` | Self-hosted chat-template kwargs such as Qwen `enable_thinking` / `preserve_thinking` | Preserve historical reasoning only when requested |
 | `Enable_thinking` | `Top_level_preserve_thinking` | DashScope-style top-level `enable_thinking` plus separate `preserve_thinking` | Preserve historical reasoning only when requested |

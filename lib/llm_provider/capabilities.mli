@@ -9,6 +9,8 @@
 type thinking_control_format =
   | No_thinking_control (** No thinking control supported *)
   | Thinking_object (** Top-level [thinking] object plus optional [reasoning_effort]. *)
+  | Thinking_object_adaptive
+  (** Top-level [thinking] object whose enabled value is [adaptive]. *)
   | Thinking_object_only
   (** Kimi-style: top-level [thinking] object without [reasoning_effort]. *)
   | Chat_template_kwargs
@@ -53,6 +55,10 @@ type assistant_tool_content_format = Capability_vocab.assistant_tool_content_for
   | Assistant_tool_content_null
   | Assistant_tool_content_empty_string
 
+type reasoning_output_format = Capability_vocab.reasoning_output_format =
+  | No_reasoning_output_format
+  | Split_reasoning_fields
+
 type capabilities =
   { (* Numeric limits *)
     max_context_tokens : int option
@@ -77,6 +83,7 @@ type capabilities =
         serialization. *)
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
+  ; reasoning_output_format : reasoning_output_format
   ; reasoning_replay_override : reasoning_replay_override
   ; (* Output format *)
     supports_response_format_json : bool

@@ -10,6 +10,7 @@ let block_kind = function
   | Types.Audio _ -> "Audio"
   | Types.Document _ -> "Document"
   | Types.Thinking _ -> "Thinking"
+  | Types.ReasoningDetails _ -> "ReasoningDetails"
   | Types.RedactedThinking _ -> "RedactedThinking"
   | Types.ToolUse _ -> "ToolUse"
   | Types.ToolResult _ -> "ToolResult"

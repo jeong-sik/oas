@@ -362,6 +362,7 @@ let finalize_stream_acc (acc : stream_acc) =
              | Types.ToolUse _ -> true
              | Types.Text _
              | Types.Thinking _
+             | Types.ReasoningDetails _
              | Types.RedactedThinking _
              | Types.ToolResult _
              | Types.Image _

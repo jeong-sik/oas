@@ -60,6 +60,18 @@ let reasoning_of_block ~order_index (block : Types.content_block) =
   match block with
   | Types.Thinking { content; signature } ->
     Some { order_index; kind = Visible_thinking; content; signature }
+  | Types.ReasoningDetails { reasoning_content; details } ->
+    let content =
+      match reasoning_content with
+      | Some content -> content
+      | None ->
+        details
+        |> List.filter_map (fun (detail : Types.reasoning_detail) -> detail.text)
+        |> String.concat ""
+    in
+    if String.trim content = ""
+    then None
+    else Some { order_index; kind = Visible_thinking; content; signature = None }
   | Types.RedactedThinking content ->
     Some { order_index; kind = Redacted_thinking; content; signature = None }
   | Types.Text _
@@ -99,7 +111,7 @@ let scan_tool_call state (block : Types.content_block) =
     ; pending_reasoning_rev = []
     ; tool_calls_rev = tool_call :: state.tool_calls_rev
     }
-  | Types.Thinking _ | Types.RedactedThinking _ ->
+  | Types.Thinking _ | Types.ReasoningDetails _ | Types.RedactedThinking _ ->
     let pending_reasoning_rev =
       match reasoning_of_block ~order_index:state.order_index block with
       | Some reasoning -> reasoning :: state.pending_reasoning_rev
@@ -134,6 +146,7 @@ let tool_result_of_block (block : Types.content_block) : provider_tool_result op
       }
   | Types.Text _
   | Types.Thinking _
+  | Types.ReasoningDetails _
   | Types.RedactedThinking _
   | Types.ToolUse _
   | Types.Image _

@@ -80,8 +80,8 @@ type entry =
   ; supports_code_execution : bool option
   ; thinking_control_format : string option
     (** Canonical thinking-wire format (none / thinking_object /
-        thinking_object_only / chat_template_kwargs / chat_template_token /
-        reasoning_effort / enable_thinking); applied in
+        thinking_object_adaptive / thinking_object_only / chat_template_kwargs /
+        chat_template_token / reasoning_effort / enable_thinking); applied in
         {!Capabilities.apply_manifest_entry}. *)
   ; thinking_control_token : string option
     (** Exact chat-template token used when [thinking_control_format] is
@@ -91,6 +91,9 @@ type entry =
         thinking_object_keep_all / chat_template_kwargs_preserve_thinking /
         top_level_preserve_thinking / always_preserved); applied in
         {!Capabilities.apply_manifest_entry}. *)
+  ; reasoning_output_format : string option
+    (** Canonical request-side reasoning output split control (none /
+        split_reasoning_fields); applied in {!Capabilities.apply_manifest_entry}. *)
   ; reasoning_replay : string option
     (** Optional multi-turn reasoning replay policy override (default /
         no_replay / drop_without_tool / preserve_always). *)

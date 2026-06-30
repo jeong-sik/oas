@@ -848,6 +848,7 @@ let test_preserve_thinking_removes_summarize_old () =
            (function
              | Types.Thinking { content = "old reasoning"; _ } -> true
              | Types.Thinking _
+             | Types.ReasoningDetails _
              | Types.Text _
              | Types.RedactedThinking _
              | Types.ToolUse _
@@ -866,6 +867,7 @@ let test_preserve_thinking_removes_summarize_old () =
              | Types.Text "summary erased reasoning" -> true
              | Types.Text _
              | Types.Thinking _
+             | Types.ReasoningDetails _
              | Types.RedactedThinking _
              | Types.ToolUse _
              | Types.ToolResult _

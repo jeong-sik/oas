@@ -18,6 +18,7 @@ type toggle_default =
 type toggle_wire =
   | No_toggle
   | Thinking_object of { includes_reasoning_effort : bool }
+  | Thinking_object_adaptive
   | Thinking_object_only
   | Chat_template_kwargs
   | Chat_template_token
@@ -46,6 +47,10 @@ type streaming_reasoning =
   | Delta_field of string
   | Template_parser
 
+type output_wire =
+  | No_output_control
+  | Reasoning_split
+
 type thinking_object_only_control =
   { enabled : bool option
   ; keep_all : bool
@@ -59,6 +64,7 @@ type t =
   ; sampling_policy : sampling_policy
   ; replay_policy : replay_policy
   ; streaming : streaming_reasoning
+  ; output_wire : output_wire
   }
 
 val default : t

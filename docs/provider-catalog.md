@@ -171,6 +171,7 @@ Accepted `thinking_control_format` values are:
 
 - `none`
 - `thinking_object` (top-level `thinking` object plus `reasoning_effort`)
+- `thinking_object_adaptive` (top-level `thinking` object with `type: "adaptive"` / `type: "disabled"`)
 - `thinking_object_only` (top-level `thinking` object only)
 - `chat_template_kwargs`
 - `chat_template_token` (inject the catalog/manifest `thinking_control_token` into the chat template)
@@ -185,6 +186,11 @@ Accepted `preserve_thinking_control_format` values are:
 - `chat_template_kwargs_preserve_thinking`
 - `top_level_preserve_thinking`
 - `always_preserved` (historical reasoning must be replayed; no request field)
+
+Accepted `reasoning_output_format` values are:
+
+- `none`
+- `split_reasoning_fields` (emit provider split control such as `reasoning_split=true`)
 
 Accepted `assistant_tool_content_format` values are:
 

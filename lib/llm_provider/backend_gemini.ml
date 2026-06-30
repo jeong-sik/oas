@@ -134,8 +134,14 @@ let gemini_tool_signatures_of_blocks blocks =
         (match gemini_thought_signature_of_redacted data with
          | Some (tool_use_id, signature) -> Hashtbl.replace tbl tool_use_id signature
          | None -> ())
-      | Text _ | Thinking _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
-        ())
+      | Text _
+      | Thinking _
+      | ReasoningDetails _
+      | ToolUse _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ -> ())
     blocks;
   tbl
 ;;
@@ -180,6 +186,7 @@ let part_of_content_block id_to_name tool_signatures = function
   | Thinking { content; _ } ->
     Some
       (`Assoc [ "thought", `Bool true; "text", `String (Utf8_sanitize.sanitize content) ])
+  | ReasoningDetails _ -> None
   | Image { media_type; data; source_type } ->
     inline_data_part ~block:"image" ~media_type ~data source_type
   | Audio { media_type; data; source_type } ->
@@ -478,6 +485,7 @@ let parse_response json =
            | ToolUse _ -> true
            | Text _
            | Thinking _
+           | ReasoningDetails _
            | RedactedThinking _
            | ToolResult _
            | Image _

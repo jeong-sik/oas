@@ -56,6 +56,7 @@ type modality =
 type thinking_control_format = Llm_provider.Capabilities.thinking_control_format =
   | No_thinking_control
   | Thinking_object
+  | Thinking_object_adaptive (** @since 0.207.33 *)
   | Thinking_object_only (** @since 0.196.11 *)
   | Chat_template_kwargs
   | Chat_template_token
@@ -82,6 +83,10 @@ type assistant_tool_content_format =
   | Assistant_tool_content_null
   | Assistant_tool_content_empty_string
 
+type reasoning_output_format = Llm_provider.Capabilities.reasoning_output_format =
+  | No_reasoning_output_format
+  | Split_reasoning_fields
+
 type capabilities =
   { max_context_tokens : int option
   ; max_output_tokens : int option
@@ -99,6 +104,7 @@ type capabilities =
   ; accepted_reasoning_efforts : Llm_provider.Reasoning_effort.t list option
   ; thinking_control_format : thinking_control_format
   ; preserve_thinking_control_format : preserve_thinking_control_format
+  ; reasoning_output_format : reasoning_output_format
   ; reasoning_replay_override : reasoning_replay_override
   ; supports_response_format_json : bool
   ; supports_structured_output : bool

@@ -7,6 +7,7 @@ let has_tool_result_message (msg : message) =
        | ToolResult _ -> true
        | Text _
        | Thinking _
+       | ReasoningDetails _
        | RedactedThinking _
        | ToolUse _
        | Image _

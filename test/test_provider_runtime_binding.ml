@@ -373,9 +373,9 @@ supports_named_tool_choice = false
 id_prefix = "minimax-m3"
 base = "openai_chat"
 supports_tools = true
-supports_tool_choice = true
-supports_required_tool_choice = true
-supports_named_tool_choice = true
+supports_tool_choice = false
+supports_required_tool_choice = false
+supports_named_tool_choice = false
 
 [[models]]
 id_prefix = "ollama_cloud/minimax-m3"
@@ -404,8 +404,17 @@ supports_named_tool_choice = false
            ~tool_choice:named
            ()
        in
-       expect_tool_choice_ok "minimax named" minimax;
-       expect_named_tool_choice_serialized "minimax named" minimax;
+       expect_named_tool_choice_rejected "minimax named" minimax;
+       let minimax_auto =
+         Llm_provider.Provider_config.make
+           ~kind:Llm_provider.Provider_config.OpenAI_compat
+           ~model_id:"minimax-m3"
+           ~base_url:"https://api.minimax.chat/v1"
+           ~tool_choice:Types.Auto
+           ()
+       in
+       expect_tool_choice_ok "minimax auto" minimax_auto;
+       expect_no_tool_choice_field "minimax auto" minimax_auto;
        let glm =
          Llm_provider.Provider_config.make
            ~kind:Llm_provider.Provider_config.Glm

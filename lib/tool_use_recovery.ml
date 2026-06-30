@@ -231,6 +231,7 @@ let recover_response ~(valid_tool_names : string list) (response : api_response)
            | ToolUse _ -> true
            | Text _
            | Thinking _
+           | ReasoningDetails _
            | RedactedThinking _
            | ToolResult _
            | Image _

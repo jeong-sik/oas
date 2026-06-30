@@ -90,6 +90,7 @@ let tool_use_ids (msg : message) =
       | ToolUse { id; _ } -> Some id
       | Text _
       | Thinking _
+      | ReasoningDetails _
       | RedactedThinking _
       | ToolResult _
       | Image _
@@ -104,6 +105,7 @@ let tool_result_ids (msg : message) =
       | ToolResult { tool_use_id; _ } -> Some tool_use_id
       | Text _
       | Thinking _
+      | ReasoningDetails _
       | RedactedThinking _
       | ToolUse _
       | Image _
@@ -190,6 +192,7 @@ let apply_repair_orphaned_tool_results messages =
             keep
           | Text _
           | Thinking _
+          | ReasoningDetails _
           | RedactedThinking _
           | ToolUse _
           | Image _
@@ -248,6 +251,7 @@ let apply_merge_contiguous messages =
                           | ToolResult _ -> true
                           | Text _
                           | Thinking _
+                          | ReasoningDetails _
                           | RedactedThinking _
                           | ToolUse _
                           | Image _
@@ -261,6 +265,7 @@ let apply_merge_contiguous messages =
                          | ToolResult _ -> true
                          | Text _
                          | Thinking _
+                         | ReasoningDetails _
                          | RedactedThinking _
                          | ToolUse _
                          | Image _
@@ -285,7 +290,7 @@ let apply_drop_thinking messages =
            List.filter
              (fun (block : content_block) ->
                 match block with
-                | Thinking _ | RedactedThinking _ -> false
+                | Thinking _ | ReasoningDetails _ | RedactedThinking _ -> false
                 | Text _ | ToolUse _ | ToolResult _ | Image _ | Document _ | Audio _ ->
                   true)
              msg.content
@@ -304,6 +309,7 @@ let apply_prune_by_role ~drop_roles messages =
                 | ToolResult _ -> true
                 | Text _
                 | Thinking _
+                | ReasoningDetails _
                 | RedactedThinking _
                 | ToolUse _
                 | Image _
@@ -317,6 +323,7 @@ let apply_prune_by_role ~drop_roles messages =
                | ToolUse _ -> true
                | Text _
                | Thinking _
+               | ReasoningDetails _
                | RedactedThinking _
                | ToolResult _
                | Image _
@@ -454,8 +461,13 @@ let apply_cap_message_tokens ?cache ~max_tokens ~keep_recent messages =
       let is_pair_block (block : content_block) =
         match block with
         | ToolUse _ | ToolResult _ -> true
-        | Text _ | Thinking _ | RedactedThinking _ | Image _ | Document _ | Audio _ ->
-          false
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | Image _
+        | Document _
+        | Audio _ -> false
       in
       let cap_message (msg : message) =
         let msg_tokens = estimate_message_tokens ?cache msg in
