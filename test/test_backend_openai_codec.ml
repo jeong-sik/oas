@@ -262,7 +262,27 @@ let test_parse_reasoning_details_and_tool_calls_coexist () =
   check_bool "blank reasoning_details text ignored" true (List.length response.content = 2);
   check_bool "reasoning_details does not leak as visible text" false has_visible_text;
   check_bool "tool_calls -> ToolUse" true has_tool;
-  check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse)
+  check_bool "stop_reason is StopToolUse" true (response.stop_reason = StopToolUse);
+  let minimax_dialect =
+    match Capabilities.for_model_id "minimax-m3" with
+    | Some caps -> Reasoning_dialect.of_capabilities caps
+    | None -> Alcotest.fail "minimax-m3 capabilities missing"
+  in
+  let replay =
+    Serialize.dialect_messages_of_message minimax_dialect (msg Assistant response.content)
+    |> only "assistant replay"
+  in
+  check_string
+    "reasoning_details text replays as reasoning_content"
+    "use weather tool"
+    (member "reasoning_content" replay |> to_string);
+  check_bool
+    "reasoning_details text still absent from visible content on replay"
+    true
+    (match member "content" replay with
+     | `Null -> true
+     | `String s -> Api_common.string_is_blank s
+     | _ -> false)
 ;;
 
 let test_reasoning_only_stays_thinking_and_never_reinjected_on_replay () =
