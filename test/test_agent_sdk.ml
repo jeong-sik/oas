@@ -138,7 +138,7 @@ let test_build_safe_invalid_turns () =
   @@ fun env ->
   let result =
     Builder.create ~net:env#net ~model:"claude-sonnet-4-6"
-    |> Builder.with_max_turns 0
+    |> Builder.with_max_turns (-1)
     |> Builder.build_safe
   in
   Alcotest.(check bool) "build_safe error" true (Result.is_error result)

@@ -38,6 +38,7 @@ type agent_config =
   ; system_prompt : string option
   ; max_tokens : int option
   ; max_turns : int
+    (** [0] = no turn-count limit; positive values enforce a finite limit. *)
   ; temperature : float option
   ; top_p : float option
   ; top_k : int option
@@ -80,6 +81,8 @@ type agent_config =
         in {!Agent_turn.prepare_messages}.  Default [100]. *)
   }
 [@@deriving show]
+
+val has_finite_max_turns : int -> bool
 
 (** Build a fresh default configuration.
 

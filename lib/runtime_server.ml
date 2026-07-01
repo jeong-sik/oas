@@ -944,7 +944,9 @@ let run_paused_participant_to_completion store state session_id paused runtime_r
     in
     let rec loop () =
       let agent_state = Agent.state paused.agent in
-      if agent_state.turn_count >= agent_state.config.max_turns
+      if
+        Types.has_finite_max_turns agent_state.config.max_turns
+        && agent_state.turn_count >= agent_state.config.max_turns
       then
         Error
           { error =

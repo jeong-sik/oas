@@ -232,7 +232,7 @@ let test_agent_run_blocks_appends_multimodal_input () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let config = { Types.default_config with max_turns = 0 } in
+  let config = { Types.default_config with exit_condition = Some (fun _ -> true) } in
   let agent = Agent.create ~net:env#net ~config () in
   let blocks =
     [ Types.text_block "Inspect this"
@@ -242,8 +242,8 @@ let test_agent_run_blocks_appends_multimodal_input () =
     ]
   in
   (match Agent.run_blocks ~sw agent blocks with
-   | Error (Error.Agent (Error.MaxTurnsExceeded { turns = 0; limit = 0 })) -> ()
-   | Ok _ -> Alcotest.fail "expected max-turn guard before provider call"
+   | Error (Error.Agent (Error.ExitConditionMet { turn = 0 })) -> ()
+   | Ok _ -> Alcotest.fail "expected exit-condition guard before provider call"
    | Error err -> Alcotest.fail ("unexpected error: " ^ Error.to_string err));
   match List.rev (Agent.state agent).messages with
   | { Types.role = User; content; _ } :: _ ->

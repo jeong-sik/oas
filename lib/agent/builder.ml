@@ -475,13 +475,13 @@ let build b =
 ;;
 
 let build_safe b =
-  if b.max_turns <= 0
+  if b.max_turns < 0
   then
     Error
       (Error.Config
          (Error.InvalidConfig
             { field = "max_turns"
-            ; detail = Printf.sprintf "must be > 0, got %d" b.max_turns
+            ; detail = Printf.sprintf "must be >= 0, got %d" b.max_turns
             }))
   else (
     match b.max_tokens with

@@ -103,13 +103,13 @@ let test_build_safe_invalid_max_turns () =
   @@ fun env ->
   let b =
     Builder.create ~net:env#net ~model:Types.default_config.model
-    |> Builder.with_max_turns 0
+    |> Builder.with_max_turns (-1)
   in
   match Builder.build_safe b with
   | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
     Alcotest.(check string) "field" "max_turns" field
   | Error _ -> Alcotest.fail "expected InvalidConfig for max_turns"
-  | Ok _ -> Alcotest.fail "expected Error for max_turns <= 0"
+  | Ok _ -> Alcotest.fail "expected Error for max_turns < 0"
 ;;
 
 let test_build_safe_invalid_max_tokens () =

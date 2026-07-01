@@ -127,7 +127,7 @@ let test_initial_session_defaults () =
     }
   in
   let session = Runtime_projection.initial_session req in
-  Alcotest.(check int) "default max_turns=8" 8 session.max_turns;
+  Alcotest.(check int) "default max_turns=0" 0 session.max_turns;
   Alcotest.(check bool) "session_id non-empty" true (String.length session.session_id > 0)
 ;;
 

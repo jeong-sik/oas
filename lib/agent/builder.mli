@@ -15,6 +15,9 @@ val create : net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t -> model:Types.m
 val with_name : string -> t -> t
 val with_system_prompt : string -> t -> t
 val with_max_tokens : int -> t -> t
+
+(* [with_max_turns 0] disables the turn-count limit; positive values enforce
+    a finite limit. *)
 val with_max_turns : int -> t -> t
 val with_temperature : float -> t -> t
 val with_top_p : float -> t -> t
@@ -373,5 +376,5 @@ val with_auto_dump_journal : path:string -> t -> t
 (** {2 Build} *)
 
 (** Build with validation. Returns [Error] for invalid config
-    (e.g. max_turns <= 0, thinking_budget without enable_thinking). *)
+    (e.g. max_turns < 0, thinking_budget without enable_thinking). *)
 val build_safe : t -> (Agent.t, Error.sdk_error) result
