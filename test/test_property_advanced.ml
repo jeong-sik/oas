@@ -274,7 +274,7 @@ let test_local_provider_resolve_always_succeeds =
 let test_capabilities_provider_m_reasoning =
   QCheck.Test.make
     ~count:50
-    ~name:"Local DashScope_3 models get reasoning capability"
+    ~name:"Local DashScope_3 models require endpoint declaration"
     (QCheck.make
        ~print:(fun s -> s)
        (QCheck.Gen.oneof
@@ -289,7 +289,7 @@ let test_capabilities_provider_m_reasoning =
              ~provider:(Provider.Local { base_url = "http://127.0.0.1:8080" })
              ~model_id
          in
-         caps.supports_reasoning))
+         not caps.supports_reasoning))
 ;;
 
 let test_raw_openai_compat_dashscope_requires_endpoint_declaration =
