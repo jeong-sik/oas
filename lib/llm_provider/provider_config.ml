@@ -197,9 +197,17 @@ let provider_kind_to_yojson = Provider_kind.to_yojson
 let provider_kind_of_yojson = Provider_kind.of_yojson
 
 let base_url_targets_ollama_cloud base_url =
-  let base_url = String.lowercase_ascii (String.trim base_url) in
-  String.starts_with ~prefix:"https://ollama.com" base_url
-  || String.starts_with ~prefix:"http://ollama.com" base_url
+  (* Match the ollama cloud vendor host by exact [Uri.host] equality, mirroring
+     [base_url_targets_openai]. A raw prefix match on the URL string
+     ([String.starts_with ~prefix:"https://ollama.com"]) also accepts
+     lookalike hosts such as [https://ollama.company.com] and
+     [https://ollama.com.evil.example], because the prefix ends inside a longer
+     hostname. Parsing the host first and comparing it exactly is the sanctioned
+     vendor-identity binding (RFC-OAS-034: host is transport/identity, matched by
+     exact host equality, not fuzzy string prefix). *)
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "ollama.com"
 ;;
 
 let base_url_targets_openai base_url =
