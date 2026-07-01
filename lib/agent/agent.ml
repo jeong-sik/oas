@@ -936,3 +936,102 @@ let save_journal agent path =
   | Some j -> Durable_event.save_to_file j path
   | None -> Error "no journal"
 ;;
+
+(* ── ensure_final_text convergence ───────────────────────────── *)
+
+let%test
+    "ensure_final_text runs one tool-withheld answer turn on a text-free terminal turn; \
+     default leaves the run unchanged"
+  =
+  Eio_main.run
+  @@ fun env ->
+  let net = Eio.Stdenv.net env in
+  (* The model's terminal turn carries no user-facing text (thinking-only — the
+     real "tool-only turn ended without a final reply" symptom). With
+     [ensure_final_text] the loop must run exactly ONE more turn with tools
+     withheld so the model authors a textual answer; with the default it must
+     return the text-free terminal turn unchanged. *)
+  let thinking_only : Types.api_response =
+    { id = "r0"
+    ; model = "mock-model"
+    ; stop_reason = EndTurn
+    ; content = [ Thinking { signature = None; content = "private reasoning" } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let final_answer : Types.api_response =
+    { id = "r1"
+    ; model = "mock-model"
+    ; stop_reason = EndTurn
+    ; content = [ Text "the final answer" ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let run_with ~ensure_final_text =
+    let call_index = ref 0 in
+    let tools_seen = ref [] in
+    let next (req : Llm_provider.Llm_transport.completion_request) =
+      tools_seen := !tools_seen @ [ List.length req.tools ];
+      let resp = if !call_index = 0 then thinking_only else final_answer in
+      incr call_index;
+      resp
+    in
+    let transport : Llm_provider.Llm_transport.t =
+      { complete_sync =
+          (fun req ->
+            { Llm_provider.Llm_transport.response = Ok (next req); latency_ms = None })
+      ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ req -> Ok (next req))
+      }
+    in
+    let options =
+      { default_options with
+        transport = Some transport
+      ; provider =
+          Some
+            { Provider.provider = Provider.Local { base_url = "http://mock:0/v1" }
+            ; model_id = "mock-model"
+            ; api_key_env = ""
+            }
+      }
+    in
+    let tool =
+      Agent_tool.create_simple ~name:"noop" ~description:"noop" (fun _ -> Ok final_answer)
+    in
+    let agent =
+      create
+        ~net
+        ~config:
+          { Types.default_config with
+            name = "ensure-final-text-test"
+          ; max_turns = 4
+          ; ensure_final_text
+          }
+        ~tools:[ tool ]
+        ~options
+        ()
+    in
+    Eio.Switch.run
+    @@ fun sw ->
+    let result = run_blocks ~sw agent [ Text "hi" ] in
+    result, !call_index, !tools_seen
+  in
+  let has_text = function
+    | Ok resp -> Option.is_some (final_text_of_response resp)
+    | Error _ -> false
+  in
+  let on_result, on_calls, on_tools = run_with ~ensure_final_text:true in
+  let off_result, off_calls, _off_tools = run_with ~ensure_final_text:false in
+  (* ON: the extra tool-withheld turn ran (2 transport calls), the second
+     carried no tools while the first carried the registered tool, and the run
+     ends with visible text. *)
+  has_text on_result
+  && on_calls = 2
+  && (match on_tools with
+      | [ first; 0 ] -> first >= 1
+      | _ -> false)
+  (* OFF (default): no extra turn — the run ends on the text-free terminal turn. *)
+  && off_calls = 1
+  && not (has_text off_result)
+;;

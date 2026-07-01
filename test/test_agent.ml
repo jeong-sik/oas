@@ -1,4 +1,4 @@
-(** Unit tests for Agent module. *)
+(** Unit tests for Agent module — pure functions only (no Eio, no network). *)
 
 open Agent_sdk
 open Types
@@ -245,98 +245,6 @@ let test_replace_preserves_other_results () =
     Alcotest.fail (Printf.sprintf "unexpected content: %d blocks" (List.length other))
 ;;
 
-let test_ensure_final_text_extra_tool_withheld_turn () =
-  Eio_main.run
-  @@ fun env ->
-  let net = Eio.Stdenv.net env in
-  let thinking_only : Types.api_response =
-    { id = "r0"
-    ; model = "mock-model"
-    ; stop_reason = EndTurn
-    ; content = [ Thinking { signature = None; content = "private reasoning" } ]
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  let final_answer : Types.api_response =
-    { id = "r1"
-    ; model = "mock-model"
-    ; stop_reason = EndTurn
-    ; content = [ Text "the final answer" ]
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  let run_with ~ensure_final_text =
-    let call_index = ref 0 in
-    let tools_seen = ref [] in
-    let next (req : Llm_provider.Llm_transport.completion_request) =
-      tools_seen := !tools_seen @ [ List.length req.tools ];
-      let resp = if !call_index = 0 then thinking_only else final_answer in
-      incr call_index;
-      resp
-    in
-    let transport : Llm_provider.Llm_transport.t =
-      { complete_sync =
-          (fun req ->
-            { Llm_provider.Llm_transport.response = Ok (next req); latency_ms = None })
-      ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ req -> Ok (next req))
-      }
-    in
-    let options =
-      { Agent.default_options with
-        transport = Some transport
-      ; provider =
-          Some
-            { Provider.provider = Provider.Local { base_url = "http://mock:0/v1" }
-            ; model_id = "mock-model"
-            ; api_key_env = ""
-            }
-      }
-    in
-    let tool =
-      Agent_tool.create_simple ~name:"noop" ~description:"noop" (fun _ -> Ok final_answer)
-    in
-    let agent =
-      Agent.create
-        ~net
-        ~config:
-          { Types.default_config with
-            name = "ensure-final-text-test"
-          ; max_turns = 4
-          ; ensure_final_text
-          }
-        ~tools:[ tool ]
-        ~options
-        ()
-    in
-    Eio.Switch.run (fun sw ->
-      Agent.run_blocks ~sw agent [ Text "hi" ], !call_index, !tools_seen)
-  in
-  let has_text = function
-    | Ok resp ->
-      List.exists
-        (function
-          | Text _ -> true
-          | _ -> false)
-        resp.content
-    | Error _ -> false
-  in
-  let on_result, on_calls, on_tools = run_with ~ensure_final_text:true in
-  let off_result, off_calls, _ = run_with ~ensure_final_text:false in
-  Alcotest.(check bool)
-    "ensure final text produces visible text"
-    true
-    (has_text on_result);
-  Alcotest.(check int) "extra answer turn" 2 on_calls;
-  (match on_tools with
-   | [ first; 0 ] ->
-     Alcotest.(check bool) "withholds tools on extra turn" true (first >= 1)
-   | _ -> Alcotest.fail "expected first turn tools and second turn none");
-  Alcotest.(check int) "default keeps one turn" 1 off_calls;
-  Alcotest.(check bool) "default leaves text-free result" false (has_text off_result)
-;;
-
 let () =
   Alcotest.run
     "Agent"
@@ -355,12 +263,6 @@ let () =
             "preserves siblings"
             `Quick
             test_replace_preserves_other_results
-        ] )
-    ; ( "ensure_final_text"
-      , [ Alcotest.test_case
-            "extra tool-withheld answer turn"
-            `Quick
-            test_ensure_final_text_extra_tool_withheld_turn
         ] )
     ; ( "exit_condition"
       , [ Alcotest.test_case "error type round-trip" `Quick (fun () ->
