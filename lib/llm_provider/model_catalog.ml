@@ -308,7 +308,17 @@ let parse_entry entry_toml =
        , Ok reasoning_replay
        , Ok assistant_tool_content_format
        , Ok accepted_reasoning_efforts ) ->
-       let base_label_result = find_string_field ~entry_id:id_prefix "base" entry_toml in
+       (* [base] names a provider preset; validate it against the closed vocab at
+          parse time so an unknown/misspelled label fails closed here rather than
+          silently resolving to [default_capabilities] downstream in
+          [Capabilities.apply_declarative_capability_overrides] (RFC-OAS-034). *)
+       let base_label_result =
+         canonical_string_opt
+           ~entry_id:id_prefix
+           "base"
+           ~allowed:Capability_vocab.base_label_values
+           entry_toml
+       in
        let provider_name_result =
          non_empty_string_field ~entry_id:id_prefix "provider_name" entry_toml
        in
@@ -477,6 +487,22 @@ let%test "parse_entry leaves task undeclared as None" =
   match parse_entry entry with
   | Ok { task = None; _ } -> true
   | Ok _ | Error _ -> false
+;;
+
+let%test "parse_entry rejects an unknown base preset, not silent default" =
+  (* An unknown [base] must fail closed here rather than resolve to
+     [default_capabilities] downstream (RFC-OAS-034 §2 rule 4). *)
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\nbase = \"not_a_preset\"" in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
+let%test "parse_entry accepts a known base preset" =
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\nbase = \"openai_chat\"" in
+  match parse_entry entry with
+  | Ok _ -> true
+  | Error _ -> false
 ;;
 
 let load_file path =

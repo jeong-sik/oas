@@ -158,5 +158,6 @@ stale-high(monotone-safe)이며, 전체 rebaseline은 별도 hygiene 작업으�
 | B7 min_p catalog-declared (host 비의존) | Draft | #2425 |
 | model_catalog unknown 키 fail-closed | Draft | #2426 |
 | B5 discovery / B6 manifest | false-positive (미구현) | — |
-| B4'(:804 host→output_schema) / :840(base label) | defer (설계 변경) | — |
+| :840 (unknown base label → silent default) | Draft — 기존 `Capability_vocab` SSOT 패턴으로 catalog+manifest parse fail-closed (설계 변경 아님) | 이 PR |
+| B4'(:804 host→output_schema) | defer (override 우선이라 fallback 제거 시 behavior 파손 → catalog-declared 마이그레이션) | — |
 | B1/B2 (#2374·#2408 흡수) | Draft — namespace `runpod_mtp`→`vllm-qwen3-mtp` rename + host-불변 회귀 테스트. #2374·#2408은 불필요(명시 선언 경로가 이미 작동)로 close | 이 PR |

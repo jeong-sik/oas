@@ -300,7 +300,12 @@ let parse_entry json =
     | Ok None -> Error "entry missing required \"id_prefix\" field"
     | Ok (Some id_prefix) -> Ok id_prefix
   in
-  let* base_label = member_string_closed "base" json in
+  (* Validate [base] against the closed preset vocab at parse time (mirrors the
+     other canonical fields below) so an unknown label fails closed instead of
+     silently resolving to [default_capabilities] downstream (RFC-OAS-034). *)
+  let* base_label =
+    canonical_choice "base" ~allowed:Capability_vocab.base_label_values json
+  in
   let* thinking_control_format =
     canonical_choice
       "thinking_control_format"
@@ -632,6 +637,18 @@ let%test "of_json: unknown root fields return error" =
   in
   match of_json json with
   | Error msg -> String.equal msg "manifest contains unknown field(s): future_field"
+  | Ok _ -> false
+;;
+
+let%test "of_json: unknown base preset returns error, not silent default" =
+  (* A [base] value outside the closed preset vocab must fail closed at parse
+     rather than resolve to [default_capabilities] downstream (RFC-OAS-034). *)
+  let json =
+    Yojson.Safe.from_string
+      {|{"schema_version":1,"models":[{"id_prefix":"m","base":"not_a_preset"}]}|}
+  in
+  match of_json json with
+  | Error _ -> true
   | Ok _ -> false
 ;;
 

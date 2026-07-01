@@ -220,3 +220,41 @@ let reasoning_streaming_format_of_string raw =
     else Some (Delta_reasoning_field field)
   | _ -> None
 ;;
+
+(* Closed vocabulary of catalog/manifest [base] labels — the provider presets a
+   model entry may name as its capability base. This is the SSOT that the catalog
+   ([Model_catalog.parse_entry]) and manifest ([Capability_manifest]) parsers
+   validate against at parse time, so an unknown/misspelled [base] fails closed
+   instead of silently resolving to [default_capabilities]
+   (RFC-OAS-034 §2 rule 4 — unknown -> None, not permissive default).
+
+   Must stay in sync with the set of labels [Capabilities.capabilities_for_provider_label]
+   resolves to [Some]; a drift-guard test in [test/test_capabilities.ml] pins the
+   forward direction (every value here resolves). Labels are normalized
+   (lowercase + trim) before membership checks, matching that resolver. *)
+let base_label_values =
+  [ (* Provider_kind.of_string canonical kinds *)
+    "anthropic"
+  ; "kimi"
+  ; "openai_compat"
+  ; "ollama"
+  ; "gemini"
+  ; "glm"
+  ; "dashscope"
+  ; (* provider-kind aliases *)
+    "claude"
+  ; "openai"
+  ; "openai_chat"
+  ; "zhipu"
+  ; "glm-coding"
+  ; (* string-only presets not expressible as a Provider_kind.t *)
+    "openai_compat_chat_extended"
+  ; "openai_chat_extended"
+  ; "xai"
+  ; "mistral"
+  ; "cohere"
+  ; "mimo"
+  ; "ollama_cloud"
+  ; "nvidia"
+  ]
+;;
