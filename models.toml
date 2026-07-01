@@ -1853,6 +1853,7 @@ supports_min_p = true
 [[models]]
 id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
 base = "openai_chat"
+provider_name = "runpod_mtp"
 max_context_tokens = 131072
 supports_tools = true
 supports_tool_choice = true

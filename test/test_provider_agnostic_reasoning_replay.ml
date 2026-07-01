@@ -42,9 +42,12 @@ let msg role content : message =
 let reasoning_marker = "REASONING_MUST_NOT_BECOME_ANSWER"
 let answer_text = "the visible answer"
 
-(* Every exported provider capability profile. Adding a provider profile to
-   capabilities.ml and here keeps the invariant coverage exhaustive. *)
-let provider_profiles : (string * Capabilities.capabilities) list =
+(* Every exported provider capability profile plus representative catalog model
+   entries for current frontier families. Provider profiles cover protocol base
+   behavior; catalog entries cover model-specific thinking / replay overrides
+   where the latest Kimi, MiniMax, GLM, DeepSeek, Qwen, MiMo, and DashScope
+   contracts actually live. *)
+let base_provider_profiles : (string * Capabilities.capabilities) list =
   [ "default", Capabilities.default_capabilities
   ; "anthropic", Capabilities.anthropic_capabilities
   ; "kimi", Capabilities.kimi_capabilities
@@ -57,6 +60,42 @@ let provider_profiles : (string * Capabilities.capabilities) list =
   ; "glm", Capabilities.glm_capabilities
   ; "provider_l", Capabilities.provider_l_capabilities
   ]
+;;
+
+let catalog_model_profile_resolvers
+  : (string * (unit -> Capabilities.capabilities option)) list
+  =
+  [ ("model:mimo-v2.5-pro", fun () -> Capabilities.for_model_id "mimo-v2.5-pro")
+  ; ("model:deepseek-v4-flash", fun () -> Capabilities.for_model_id "deepseek-v4-flash")
+  ; ("model:deepseek-v4-pro", fun () -> Capabilities.for_model_id "deepseek-v4-pro")
+  ; ("model:minimax-m3", fun () -> Capabilities.for_model_id "minimax-m3")
+  ; ("model:kimi-k2.7-code", fun () -> Capabilities.for_model_id "kimi-k2.7-code")
+  ; ("model:glm-5.2", fun () -> Capabilities.for_model_id "glm-5.2")
+  ; ( "model:qwen/qwen3.6-35b-a3b"
+    , fun () -> Capabilities.for_model_id "qwen/qwen3.6-35b-a3b" )
+  ; ( "model:dashscope-3.5-35b-a3b"
+    , fun () -> Capabilities.for_model_id "dashscope-3.5-35b-a3b" )
+  ; ( "provider:runpod_mtp.runpod_mtp.qwen36-35b-a3b-mtp"
+    , fun () ->
+        Capabilities.for_provider_model_id
+          ~allow_bare_fallback:false
+          ~provider_label:"runpod_mtp"
+          ~model_id:"runpod_mtp.qwen36-35b-a3b-mtp" )
+  ]
+;;
+
+let profile_cases () =
+  Model_catalog_test_support.install_repo_model_catalog
+    ~suite:"provider_agnostic_reasoning_replay";
+  let catalog_profiles =
+    List.map
+      (fun (name, resolve) ->
+         match resolve () with
+         | Some caps -> name, caps
+         | None -> Alcotest.failf "expected catalog capabilities for %s" name)
+      catalog_model_profile_resolvers
+  in
+  base_provider_profiles @ catalog_profiles
 ;;
 
 let serialized_assistant dialect msg =
@@ -119,7 +158,7 @@ let test_reasoning_never_in_content_any_provider () =
               false
               (contains ~needle:reasoning_marker c))
          shapes)
-    provider_profiles
+    (profile_cases ())
 ;;
 
 (* INV2: the replay decision is one shared function of (policy, had_tool_call),
@@ -177,7 +216,7 @@ let test_replay_matches_should_replay_reasoning_any_provider () =
          (Printf.sprintf "[%s] plain answer content is the answer text only" name)
          answer_text
          (content_string j_plain))
-    provider_profiles
+    (profile_cases ())
 ;;
 
 (* INV3 (recursion closure): simulate N replay rounds of a reasoning-only reply
@@ -199,7 +238,7 @@ let test_reasoning_only_replay_does_not_accumulate () =
            ""
            c
        done)
-    provider_profiles
+    (profile_cases ())
 ;;
 
 (* End-to-end loop closure: parse a real provider response carrying
@@ -272,7 +311,7 @@ let test_parse_then_serialize_round_trip_any_provider () =
          (Printf.sprintf "[%s] reasoning marker absent from answer content" name)
          false
          (contains ~needle:reasoning_marker (content_string j)))
-    provider_profiles
+    (profile_cases ())
 ;;
 
 let () =

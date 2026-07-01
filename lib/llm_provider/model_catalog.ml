@@ -385,18 +385,43 @@ let load_runtime_file path =
     None
 ;;
 
+let dot_qualified_aliases model_id =
+  let original_model_id = String.trim model_id in
+  match String.index_opt original_model_id '.' with
+  | None -> []
+  | Some index when index = 0 || index = String.length original_model_id - 1 -> []
+  | Some index ->
+    let provider_label = String.lowercase_ascii (String.sub original_model_id 0 index) in
+    let model_id =
+      String.sub
+        original_model_id
+        (index + 1)
+        (String.length original_model_id - index - 1)
+    in
+    [ provider_label ^ "/" ^ model_id; provider_label ^ ":" ^ model_id ]
+;;
+
 let lookup t model_id =
-  let m = String.lowercase_ascii (String.trim model_id) in
   let sorted_t =
     List.fast_sort
       (fun a b -> compare (String.length b.id_prefix) (String.length a.id_prefix))
       t
   in
-  List.find_opt
-    (fun entry ->
-       let prefix = String.lowercase_ascii entry.id_prefix in
-       String.starts_with ~prefix m)
-    sorted_t
+  let rec lookup_candidates = function
+    | [] -> None
+    | candidate :: rest ->
+      let m = String.lowercase_ascii (String.trim candidate) in
+      (match
+         List.find_opt
+           (fun entry ->
+              let prefix = String.lowercase_ascii entry.id_prefix in
+              String.starts_with ~prefix m)
+           sorted_t
+       with
+       | Some _ as entry -> entry
+       | None -> lookup_candidates rest)
+  in
+  lookup_candidates (model_id :: dot_qualified_aliases model_id)
 ;;
 
 let provider_name_for_model_id t model_id =

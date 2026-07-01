@@ -216,13 +216,15 @@ val for_model_id_catalog : string -> capabilities option
 (** Look up capabilities for [model_id] with a provider-qualified catalog
     override first.
 
-    Provider-qualified entries use [<provider_label>/<model_id>] or
-    [<provider_label>:<model_id>] prefixes in [models.toml]. When no qualified
-    entry matches, [allow_bare_fallback] controls whether this falls back to
-    {!for_model_id}. This lets transports such as Ollama Cloud override bare
-    model-family entries that are shared with other providers (for example
-    [glm-5] or [kimi-k2.6]) without coupling the catalog to any embedding
-    application. *)
+    Provider-qualified entries use [<provider_label>/<model_id>],
+    [<provider_label>:<model_id>], or [<provider_label>.<model_id>] prefixes in
+    [models.toml]. The dot form covers embedding runtimes that flatten
+    [provider_label] and [model_id] into one model identifier while keeping the
+    same provider-qualified catalog semantics. When no qualified entry matches,
+    [allow_bare_fallback] controls whether this falls back to {!for_model_id}.
+    This lets transports such as Ollama Cloud override bare model-family entries
+    that are shared with other providers (for example [glm-5] or [kimi-k2.6])
+    without coupling the catalog to any embedding application. *)
 val for_provider_model_id
   :  allow_bare_fallback:bool
   -> provider_label:string

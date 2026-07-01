@@ -675,6 +675,33 @@ thinking_control_format = "chat_template_kwargs"
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
+let test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+base = "openai_chat"
+provider_name = "runpod_mtp"
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+|}
+    (fun () ->
+       let cfg =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"runpod_mtp.qwen36-35b-a3b-mtp"
+           ~base_url:"https://unknown-openai-compatible.example/v1"
+           ()
+       in
+       check_bool
+         "provider_name alone is not raw endpoint identity proof"
+         true
+         (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
+;;
+
 let test_validate_responses_request_path_allows_structured_output () =
   let cfg =
     Provider_config.make
@@ -2043,6 +2070,10 @@ let () =
             "raw compat template dialect requires endpoint declaration"
             `Quick
             test_openai_compat_raw_template_dialect_requires_endpoint_declaration
+        ; Alcotest.test_case
+            "raw compat dot-qualified provider row requires endpoint declaration"
+            `Quick
+            test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
