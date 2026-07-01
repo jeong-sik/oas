@@ -1409,6 +1409,10 @@ let test_provider_name_of_config_glm_coding () =
 ;;
 
 let test_provider_name_of_config_local_openai_compat () =
+  (* A local OpenAI-compatible endpoint resolves to the neutral kind label, not
+     the "nous" vendor entry: locality is transport, not vendor identity
+     (RFC-OAS-034). Capabilities for the canonical local llama endpoint come from
+     its explicit endpoint binding, not from this name. *)
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
@@ -1417,8 +1421,8 @@ let test_provider_name_of_config_local_openai_compat () =
       ()
   in
   check_string
-    "local openai compat resolves to llama"
-    "nous"
+    "local openai compat resolves to neutral kind label"
+    "openai_compat"
     (Provider_registry.provider_name_of_config cfg)
 ;;
 

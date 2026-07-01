@@ -530,8 +530,17 @@ let provider_name_of_config (config : Provider_config.t) =
     else "ollama"
   | DashScope -> "dashscope"
   | OpenAI_compat ->
+    (* A local OpenAI-compatible endpoint (llama.cpp / vLLM / LM Studio / ...) is
+       a generic gateway that can serve any model; locality is a transport fact,
+       not a vendor identity. Resolve it to the neutral kind label rather than the
+       "nous" vendor entry, so telemetry is not misattributed to a specific vendor
+       and host locality does not, by itself, grant the extended capability
+       preset. The canonical local llama endpoint still receives its declared
+       capabilities through the exact endpoint binding in
+       [Provider_runtime_binding], not from this name. See RFC-OAS-034 (endpoint
+       capability boundary). *)
     if Provider_config.is_local config
-    then "nous"
+    then "openai_compat"
     else (
       let request_path = String.trim config.request_path in
       let base_url = normalize_url config.base_url in
