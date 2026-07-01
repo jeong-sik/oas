@@ -1,39 +1,87 @@
 (** See [wire_capture.mli]. *)
 
 let env_dir = "OAS_WIRE_CAPTURE_DIR"
+let capture_filename = "raw-stream.jsonl"
 
 type sink = string -> unit
 
 let noop : sink = fun _ -> ()
 
-let write_line ~dir ~provider ~model chunk =
-  (try if not (Sys.file_exists dir) then Unix.mkdir dir 0o700 with
-   | _ -> ());
-  let path = Filename.concat dir "raw-stream.jsonl" in
-  try
-    let oc = open_out_gen [ Open_append; Open_creat ] 0o600 path in
-    Fun.protect
-      ~finally:(fun () -> close_out_noerr oc)
-      (fun () ->
-         let json : Yojson.Safe.t =
-           `Assoc
-             [ "provider", `String provider
-             ; "model", `String model
-             ; "chunk", `String (Secret_redactor.redact_string chunk)
-             ]
-         in
-         output_string oc (Yojson.Safe.to_string json ^ "\n"))
-  with
-  | _ -> ()
+let unix_error_message err fn arg =
+  Printf.sprintf "%s(%S): %s" fn arg (Unix.error_message err)
 ;;
 
-let make_sink ~provider ~model =
-  match Sys.getenv_opt env_dir with
-  | None | Some "" -> noop
-  | Some dir -> fun chunk -> write_line ~dir ~provider ~model chunk
+let warn_activation_failure ~dir reason =
+  Diag.warn "wire_capture" "disabled OAS wire capture for %S: %s" dir reason
+;;
+
+let ensure_capture_dir dir =
+  try
+    match (Unix.stat dir).st_kind with
+    | Unix.S_DIR -> Ok ()
+    | _ -> Error "path exists but is not a directory"
+  with
+  | Unix.Unix_error (Unix.ENOENT, _, _) ->
+    (try Ok (Unix.mkdir dir 0o700) with
+     | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg))
+  | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg)
+;;
+
+let append_json_line ~path line =
+  let oc =
+    open_out_gen [ Open_wronly; Open_append; Open_creat; Open_binary ] 0o600 path
+  in
+  Fun.protect
+    ~finally:(fun () -> close_out_noerr oc)
+    (fun () ->
+       output_string oc line;
+       flush oc)
+;;
+
+let write_line ~path ~provider ~model ~warned chunk =
+  let json : Yojson.Safe.t =
+    `Assoc
+      [ "provider", `String provider
+      ; "model", `String model
+      ; "chunk", `String (Secret_redactor.redact_string chunk)
+      ]
+  in
+  let line = Yojson.Safe.to_string json ^ "\n" in
+  try append_json_line ~path line with
+  | Sys_error msg ->
+    if not !warned
+    then (
+      warned := true;
+      Diag.warn "wire_capture" "write failed for %S: %s" path msg)
+  | Unix.Unix_error (err, fn, arg) ->
+    if not !warned
+    then (
+      warned := true;
+      Diag.warn
+        "wire_capture"
+        "write failed for %S: %s"
+        path
+        (unix_error_message err fn arg))
+;;
+
+let make_sink ?getenv ~provider ~model =
+  match Cli_common_env.get ?getenv env_dir with
+  | None -> noop
+  | Some dir ->
+    (match ensure_capture_dir dir with
+     | Error reason ->
+       warn_activation_failure ~dir reason;
+       noop
+     | Ok () ->
+       let path = Filename.concat dir capture_filename in
+       let warned = ref false in
+       fun chunk -> write_line ~path ~provider ~model ~warned chunk)
 ;;
 
 (* ── Inline tests ─────────────────────────────────────────────── *)
+
+let getenv_of_pairs pairs name = List.assoc_opt name pairs
+let capture_getenv dir name = if String.equal name env_dir then Some dir else None
 
 let contains ~needle haystack =
   let nl = String.length needle
@@ -47,38 +95,62 @@ let contains ~needle haystack =
     loop 0)
 ;;
 
-let%test "make_sink is a no-op when env is unset" =
-  Unix.putenv env_dir "";
-  let s = make_sink ~provider:"p" ~model:"m" in
-  s "raw chunk";
+let read_file path =
+  let ic = open_in_bin path in
+  Fun.protect
+    ~finally:(fun () -> close_in ic)
+    (fun () -> really_input_string ic (in_channel_length ic))
+;;
+
+let%test "make_sink is a no-op when env is unset or empty" =
+  let unset = make_sink ~getenv:(fun _ -> None) ~provider:"p" ~model:"m" in
+  let empty =
+    make_sink ~getenv:(getenv_of_pairs [ env_dir, "   " ]) ~provider:"p" ~model:"m"
+  in
+  unset "raw chunk";
+  empty "raw chunk";
   (* no exception, no output path assumed *)
   true
 ;;
 
-let%test "make_sink writes a redacted line when env is set" =
+let%test "make_sink writes redacted binary JSONL when env is set" =
   let dir = Filename.temp_dir "oas_wire" "" in
-  Unix.putenv env_dir dir;
-  let s = make_sink ~provider:"ollama_cloud" ~model:"deepseek-v4-flash" in
+  let s =
+    make_sink
+      ~getenv:(capture_getenv dir)
+      ~provider:"ollama_cloud"
+      ~model:"deepseek-v4-flash"
+  in
   (* Built at runtime so no literal secret appears in source. *)
   let token = "ghp_" ^ String.make 36 '7' in
   s ("delta content " ^ token ^ " end");
-  Unix.putenv env_dir "";
-  let path = Filename.concat dir "raw-stream.jsonl" in
-  let ic = open_in path in
-  let content =
-    Fun.protect
-      ~finally:(fun () -> close_in ic)
-      (fun () -> really_input_string ic (in_channel_length ic))
-  in
+  let path = Filename.concat dir capture_filename in
+  let content = read_file path in
   (not (contains ~needle:token content))
   && contains ~needle:"[REDACTED]" content
   && contains ~needle:"deepseek-v4-flash" content
 ;;
 
+let%test "make_sink disables capture when env path is a file" =
+  let path = Filename.temp_file "oas_wire_file" ".txt" in
+  let warnings = ref [] in
+  let s =
+    Diag.with_sink
+      (fun level ~ctx msg -> warnings := (level, ctx, msg) :: !warnings)
+      (fun () -> make_sink ~getenv:(capture_getenv path) ~provider:"p" ~model:"m")
+  in
+  s "chunk";
+  List.exists
+    (fun (level, ctx, msg) ->
+       level = Diag.Warn
+       && String.equal ctx "wire_capture"
+       && contains ~needle:"not a directory" msg)
+    !warnings
+;;
+
 let%test "disabled sink writes nothing" =
   let dir = Filename.temp_dir "oas_wire_off" "" in
-  Unix.putenv env_dir "";
-  let s = make_sink ~provider:"p" ~model:"m" in
+  let s = make_sink ~getenv:(fun _ -> None) ~provider:"p" ~model:"m" in
   s "chunk";
-  not (Sys.file_exists (Filename.concat dir "raw-stream.jsonl"))
+  not (Sys.file_exists (Filename.concat dir capture_filename))
 ;;
