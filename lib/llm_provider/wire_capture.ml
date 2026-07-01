@@ -15,6 +15,15 @@ let warn_activation_failure ~dir reason =
   Diag.warn "wire_capture" "disabled OAS wire capture for %S: %s" dir reason
 ;;
 
+let require_capture_dir dir =
+  try
+    match (Unix.stat dir).st_kind with
+    | Unix.S_DIR -> Ok ()
+    | _ -> Error "path exists but is not a directory"
+  with
+  | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg)
+;;
+
 let ensure_capture_dir dir =
   try
     match (Unix.stat dir).st_kind with
@@ -23,19 +32,54 @@ let ensure_capture_dir dir =
   with
   | Unix.Unix_error (Unix.ENOENT, _, _) ->
     (try Ok (Unix.mkdir dir 0o700) with
+     | Unix.Unix_error (Unix.EEXIST, _, _) -> require_capture_dir dir
      | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg))
   | Unix.Unix_error (err, fn, arg) -> Error (unix_error_message err fn arg)
 ;;
 
+let append_mutex = Mutex.create ()
+
+let with_append_mutex f =
+  Mutex.lock append_mutex;
+  Fun.protect f ~finally:(fun () -> Mutex.unlock append_mutex)
+;;
+
+let close_noerr fd =
+  try Unix.close fd with
+  | Unix.Unix_error _ -> ()
+;;
+
+let unlock_noerr fd =
+  try Unix.lockf fd Unix.F_ULOCK 0 with
+  | Unix.Unix_error _ -> ()
+;;
+
+let rec write_all fd line offset remaining =
+  if remaining > 0
+  then (
+    match Unix.write_substring fd line offset remaining with
+    | 0 -> raise (Sys_error "write returned 0")
+    | written -> write_all fd line (offset + written) (remaining - written))
+;;
+
 let append_json_line ~path line =
-  let oc =
-    open_out_gen [ Open_wronly; Open_append; Open_creat; Open_binary ] 0o600 path
-  in
-  Fun.protect
-    ~finally:(fun () -> close_out_noerr oc)
-    (fun () ->
-       output_string oc line;
-       flush oc)
+  with_append_mutex (fun () ->
+    let fd =
+      Unix.openfile
+        path
+        [ Unix.O_WRONLY; Unix.O_APPEND; Unix.O_CREAT; Unix.O_CLOEXEC ]
+        0o600
+    in
+    let locked = ref false in
+    Fun.protect
+      ~finally:(fun () ->
+        if !locked then unlock_noerr fd;
+        close_noerr fd)
+      (fun () ->
+         ignore (Unix.lseek fd 0 Unix.SEEK_SET : int);
+         Unix.lockf fd Unix.F_TLOCK 0;
+         locked := true;
+         write_all fd line 0 (String.length line)))
 ;;
 
 let write_line ~path ~provider ~model ~warned chunk =
@@ -102,6 +146,15 @@ let read_file path =
     (fun () -> really_input_string ic (in_channel_length ic))
 ;;
 
+let with_cwd dir f =
+  let original = Sys.getcwd () in
+  Fun.protect
+    ~finally:(fun () -> Sys.chdir original)
+    (fun () ->
+       Sys.chdir dir;
+       f ())
+;;
+
 let%test "make_sink is a no-op when env is unset or empty" =
   let unset = make_sink ~getenv:(fun _ -> None) ~provider:"p" ~model:"m" in
   let empty =
@@ -131,6 +184,21 @@ let%test "make_sink writes redacted binary JSONL when env is set" =
   && contains ~needle:"deepseek-v4-flash" content
 ;;
 
+let%test "multiple active sinks append complete JSONL lines" =
+  let dir = Filename.temp_dir "oas_wire_multi" "" in
+  let s1 = make_sink ~getenv:(capture_getenv dir) ~provider:"p1" ~model:"m1" in
+  let s2 = make_sink ~getenv:(capture_getenv dir) ~provider:"p2" ~model:"m2" in
+  s1 (String.make 4096 'a');
+  s2 (String.make 4096 'b');
+  let content = read_file (Filename.concat dir capture_filename) in
+  let lines = String.split_on_char '\n' content |> List.filter (fun line -> line <> "") in
+  match lines with
+  | [ line1; line2 ] ->
+    contains ~needle:"\"provider\":\"p1\"" line1
+    && contains ~needle:"\"provider\":\"p2\"" line2
+  | _ -> false
+;;
+
 let%test "make_sink disables capture when env path is a file" =
   let path = Filename.temp_file "oas_wire_file" ".txt" in
   let warnings = ref [] in
@@ -151,6 +219,7 @@ let%test "make_sink disables capture when env path is a file" =
 let%test "disabled sink writes nothing" =
   let dir = Filename.temp_dir "oas_wire_off" "" in
   let s = make_sink ~getenv:(fun _ -> None) ~provider:"p" ~model:"m" in
-  s "chunk";
-  not (Sys.file_exists (Filename.concat dir capture_filename))
+  with_cwd dir (fun () ->
+    s "chunk";
+    not (Sys.file_exists capture_filename))
 ;;
