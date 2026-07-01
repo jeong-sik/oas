@@ -251,6 +251,22 @@ let test_validate_output_schema_openai_official () =
     (Result.is_ok (Provider_config.validate_output_schema_request cfg))
 ;;
 
+let test_validate_output_schema_openai_official_catalog_model () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"gpt-4o"
+      ~base_url:"https://api.openai.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "official OpenAI catalog model accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
 let test_validate_output_schema_openai_compat_rejected () =
   let cfg =
     Provider_config.make
@@ -264,6 +280,76 @@ let test_validate_output_schema_openai_compat_rejected () =
     "generic compat rejected"
     true
     (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_unknown_openai_compat_rejected () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"generic"
+      ~base_url:"https://openai-compatible.example.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "unknown OpenAI-compatible host rejected"
+    true
+    (Result.is_error (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_ollama_cloud_minimax_accepted () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"minimax-m3"
+      ~base_url:"https://ollama.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  check_bool
+    "Ollama Cloud minimax accepted"
+    true
+    (Result.is_ok (Provider_config.validate_output_schema_request cfg))
+;;
+
+let test_validate_output_schema_ollama_cloud_mistral_rejected () =
+  let cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"mistral-large-3:675b"
+      ~base_url:"https://ollama.com/v1"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "rejection"
+      "model mistral-large-3:675b does not advertise native structured output"
+      msg
+  | Ok () -> Alcotest.fail "expected Ollama Cloud model capability rejection"
+;;
+
+let test_validate_output_schema_native_ollama_ministral_rejected () =
+  let cfg =
+    Provider_config.make
+      ~kind:Ollama
+      ~model_id:"ministral-3:8b"
+      ~base_url:"http://localhost:11434"
+      ~response_format_json:true
+      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ()
+  in
+  match Provider_config.validate_output_schema_request cfg with
+  | Error msg ->
+    check_string
+      "rejection"
+      "model ministral-3:8b does not advertise native structured output"
+      msg
+  | Ok () -> Alcotest.fail "expected native Ollama model capability rejection"
 ;;
 
 let test_validate_output_schema_openai_compat_declared_endpoint_accepted () =
@@ -722,6 +808,43 @@ let test_default_attempt_timeout_s () =
   in
   check_timeout "ollama has no default hard attempt timeout" None Ollama;
   check_timeout "openai_compat has no default hard attempt timeout" None OpenAI_compat
+;;
+
+let test_connect_timeout_s_default_and_override () =
+  let default_cfg =
+    Provider_config.make ~kind:OpenAI_compat ~model_id:"m" ~base_url:"https://x" ()
+  in
+  Alcotest.(check (option (float 0.001)))
+    "default defers to downstream kind default"
+    None
+    default_cfg.connect_timeout_s;
+  let explicit_cfg =
+    Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"m"
+      ~base_url:"https://x"
+      ~connect_timeout_s:600.0
+      ()
+  in
+  Alcotest.(check (option (float 0.001)))
+    "explicit override preserved"
+    (Some 600.0)
+    explicit_cfg.connect_timeout_s
+;;
+
+let test_validate_cli_sampling_params_anthropic_min_p_ok () =
+  let cfg =
+    Provider_config.make
+      ~kind:Anthropic
+      ~model_id:"claude-4"
+      ~base_url:"https://api.anthropic.com"
+      ~min_p:0.05
+      ()
+  in
+  check_bool
+    "Anthropic min_p is accepted by current validator"
+    true
+    (Result.is_ok (Provider_config.validate_cli_sampling_params cfg))
 ;;
 
 let test_max_turns_hard_cap_and_clamp () =
@@ -1690,6 +1813,14 @@ let () =
       , [ Alcotest.test_case "all options" `Quick test_make_with_all_options
         ; Alcotest.test_case "custom headers" `Quick test_custom_headers
         ; Alcotest.test_case
+            "connect timeout default and override"
+            `Quick
+            test_connect_timeout_s_default_and_override
+        ; Alcotest.test_case
+            "cli sampling params accepted"
+            `Quick
+            test_validate_cli_sampling_params_anthropic_min_p_ok
+        ; Alcotest.test_case
             "response_format_json mode"
             `Quick
             test_make_response_format_json_mode
@@ -1704,6 +1835,10 @@ let () =
             `Quick
             test_validate_output_schema_openai_official
         ; Alcotest.test_case
+            "official openai catalog model"
+            `Quick
+            test_validate_output_schema_openai_official_catalog_model
+        ; Alcotest.test_case
             "official openai catalog"
             `Quick
             test_validate_output_schema_openai_official_catalog
@@ -1711,6 +1846,22 @@ let () =
             "generic compat rejected"
             `Quick
             test_validate_output_schema_openai_compat_rejected
+        ; Alcotest.test_case
+            "unknown compat rejected"
+            `Quick
+            test_validate_output_schema_unknown_openai_compat_rejected
+        ; Alcotest.test_case
+            "ollama cloud minimax accepted"
+            `Quick
+            test_validate_output_schema_ollama_cloud_minimax_accepted
+        ; Alcotest.test_case
+            "ollama cloud mistral rejected"
+            `Quick
+            test_validate_output_schema_ollama_cloud_mistral_rejected
+        ; Alcotest.test_case
+            "native ollama ministral rejected"
+            `Quick
+            test_validate_output_schema_native_ollama_ministral_rejected
         ; Alcotest.test_case
             "declared compat endpoint accepted"
             `Quick
