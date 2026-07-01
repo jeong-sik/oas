@@ -31,6 +31,26 @@ original tag dates. `0.100.4` was never tagged or released.
 * **pipeline:** `OAS_COMPACT_WATERMARK` parsing emits a single local `Log.warn` for all invalid cases, preserving the original raw string.
 * **util:** mark `Util.get` as `[@@ocaml.deprecated]` in favor of `Llm_provider.Cli_common_env.get`.
 
+## [0.208.9](https://github.com/jeong-sik/oas/compare/v0.208.8...v0.208.9) (2026-07-01)
+
+
+### Features
+
+* **agent:** ensure_final_text convergence — one tool-withheld answer turn ([#2385](https://github.com/jeong-sik/oas/issues/2385)) ([287f0fe](https://github.com/jeong-sik/oas/commit/287f0fec7b2dcdb19eb74d55fc7c0df48acf7e00))
+* **capabilities:** derive show+eq on thinking_control_format ([#2398](https://github.com/jeong-sik/oas/issues/2398)) ([96716ba](https://github.com/jeong-sik/oas/commit/96716bacdb0b0346c90cc32ff3ebb4c36bf7efe0))
+* **provider:** parse catalog capability controls ([#2386](https://github.com/jeong-sik/oas/issues/2386)) ([2896068](https://github.com/jeong-sik/oas/commit/289606808a12b264057be08eb515ab5fdbb41250))
+* **provider:** report tool pair repair drops ([#2389](https://github.com/jeong-sik/oas/issues/2389)) ([bc323fe](https://github.com/jeong-sik/oas/commit/bc323feca0a9ddd15e0809470db10d279eaf567d))
+* **structured:** expose response JSON extractor ([#2379](https://github.com/jeong-sik/oas/issues/2379)) ([df8f473](https://github.com/jeong-sik/oas/commit/df8f473902d45373b1b8a7ce4a4ea2168d685b1c))
+
+
+### Bug Fixes
+
+* **canonical:** omit reasoning payloads from tool projection ([#2376](https://github.com/jeong-sik/oas/issues/2376)) ([fb9beed](https://github.com/jeong-sik/oas/commit/fb9beed6b763282680db2c74bc3eb3398b501b2d))
+* **canonical:** use tool-only order index ([#2399](https://github.com/jeong-sik/oas/issues/2399)) ([f22ebbb](https://github.com/jeong-sik/oas/commit/f22ebbbce04e607aaa2b062d5541fd06753912d1))
+* **provider:** keep local compat dialect generic ([#2402](https://github.com/jeong-sik/oas/issues/2402)) ([5ca29c9](https://github.com/jeong-sik/oas/commit/5ca29c96a2d0f7cf831330707cb69b3242f12343))
+* **provider:** require endpoint declaration for compat dialects ([#2383](https://github.com/jeong-sik/oas/issues/2383)) ([898f26c](https://github.com/jeong-sik/oas/commit/898f26cbfebc61b0cd441693d7f834ab5858d537))
+* **provider:** stop inferring identity from model id ([#2373](https://github.com/jeong-sik/oas/issues/2373)) ([120078f](https://github.com/jeong-sik/oas/commit/120078fe961334b285c3a09afa89b389707f0a0d))
+
 ## [0.208.8](https://github.com/jeong-sik/oas/compare/v0.208.7...v0.208.8) (2026-06-30)
 
 
