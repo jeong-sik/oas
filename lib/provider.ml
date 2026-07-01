@@ -58,6 +58,36 @@ let uses_native_glm_capabilities ~base_url ~model_id =
        ())
 ;;
 
+(* Shared by the [Local] and [OpenAICompat] branches of [capabilities_for_model]:
+   both send requests over the OpenAI-compatible envelope and must resolve
+   capabilities identically. [Provider_config.catalog_entry_requires_endpoint_declaration]
+   deliberately trusts catalog entries whose [base_label] is ["glm"], because that
+   trust is only valid for a *declared* Z.AI GLM endpoint. Without the guard below,
+   any endpoint (including an undeclared [Local] one) serving a model id that merely
+   matches a GLM catalog prefix would inherit real GLM reasoning/tool capabilities. *)
+let openai_compat_capabilities_for ~base_url ~model_id =
+  if
+    Llm_provider.Zai_catalog.is_glm_model_id model_id
+    && not (uses_native_glm_capabilities ~base_url ~model_id)
+  then default_openai_compat_capabilities ()
+  else if uses_native_glm_capabilities ~base_url ~model_id
+  then (
+    match Llm_provider.Capabilities.for_model_id model_id with
+    | Some caps -> caps
+    | None -> default_openai_compat_capabilities ())
+  else (
+    let config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~model_id
+        ~base_url
+        ()
+    in
+    match Llm_provider.Provider_config.capabilities_for_config_model config with
+    | Some caps -> caps
+    | None -> default_openai_compat_capabilities ())
+;;
+
 let provider_name = function
   | Local _ -> "local"
   | Anthropic -> "anthropic"
@@ -275,40 +305,11 @@ let capabilities_for_model ~(provider : provider) ~(model_id : string) =
   | Local { base_url } ->
     (* Local llama-server/vLLM/LM Studio endpoints use the OpenAI-compatible
        request envelope, but a bare model id is not an endpoint declaration for
-       thinking/reasoning/tool/schema dialects. Reuse the Provider_config
-       boundary so local compat endpoints follow the same fail-closed rule as
-       raw OpenAICompat providers. *)
-    let config =
-      Llm_provider.Provider_config.make
-        ~kind:Llm_provider.Provider_config.OpenAI_compat
-        ~model_id
-        ~base_url
-        ()
-    in
-    (match Llm_provider.Provider_config.capabilities_for_config_model config with
-     | Some caps -> caps
-     | None -> default_openai_compat_capabilities ())
-  | OpenAICompat { base_url; _ } ->
-    if
-      Llm_provider.Zai_catalog.is_glm_model_id model_id
-      && not (uses_native_glm_capabilities ~base_url ~model_id)
-    then default_openai_compat_capabilities ()
-    else if uses_native_glm_capabilities ~base_url ~model_id
-    then (
-      match Llm_provider.Capabilities.for_model_id model_id with
-      | Some caps -> caps
-      | None -> default_openai_compat_capabilities ())
-    else (
-      let config =
-        Llm_provider.Provider_config.make
-          ~kind:Llm_provider.Provider_config.OpenAI_compat
-          ~model_id
-          ~base_url
-          ()
-      in
-      match Llm_provider.Provider_config.capabilities_for_config_model config with
-      | Some caps -> caps
-      | None -> default_openai_compat_capabilities ())
+       thinking/reasoning/tool/schema dialects. Route through the same helper
+       as [OpenAICompat] so local compat endpoints get identical fail-closed
+       and GLM-native-detection treatment as raw OpenAICompat providers. *)
+    openai_compat_capabilities_for ~base_url ~model_id
+  | OpenAICompat { base_url; _ } -> openai_compat_capabilities_for ~base_url ~model_id
   | Custom_registered { name } ->
     (match find_provider name with
      | Some impl -> impl.capabilities
