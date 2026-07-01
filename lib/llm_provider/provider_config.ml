@@ -208,9 +208,24 @@ let base_url_targets_openai base_url =
   | Some host -> String.equal (String.lowercase_ascii host) "api.openai.com"
 ;;
 
+(* RFC-OAS-034 §2 rule 2: a vendor-canonical domain (host == vendor) may bind a
+   provider label, matched by exact [Uri.host] equality (no prefix, no look-alike).
+   [api.deepseek.com] is DeepSeek's canonical vendor host, so its endpoint carries
+   the vendor identity "deepseek" rather than the generic transport kind
+   "openai_compat". This is host->identity (allowed), not host->capability of a
+   generic rental edge (forbidden, e.g. *.proxy.runpod.net). Mirrors
+   [base_url_targets_openai]. *)
+let base_url_targets_deepseek base_url =
+  match Uri.of_string base_url |> Uri.host with
+  | None -> false
+  | Some host -> String.equal (String.lowercase_ascii host) "api.deepseek.com"
+;;
+
 let capability_provider_label (config : t) =
   if base_url_targets_ollama_cloud config.base_url
   then "ollama_cloud"
+  else if base_url_targets_deepseek config.base_url
+  then "deepseek"
   else string_of_provider_kind config.kind
 ;;
 
