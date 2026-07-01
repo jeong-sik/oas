@@ -303,12 +303,23 @@ let catalog_entry_requires_endpoint_declaration (entry : Model_catalog.model_ent
   | None, None -> true
 ;;
 
-let raw_openai_compat_requires_endpoint_declaration config caps =
-  capability_requires_endpoint_declaration caps
-  ||
-  match catalog_entry_for_model_id config.model_id with
-  | Some entry -> catalog_entry_requires_endpoint_declaration entry
+let catalog_entry_explicitly_declared_by_model_id
+      config
+      (entry : Model_catalog.model_entry)
+  =
+  match normalized_catalog_label entry.provider_name with
+  | Some provider_label ->
+    Capabilities.model_id_has_provider_label ~provider_label ~model_id:config.model_id
   | None -> false
+;;
+
+let raw_openai_compat_requires_endpoint_declaration config caps =
+  match catalog_entry_for_model_id config.model_id with
+  | Some entry when catalog_entry_explicitly_declared_by_model_id config entry -> false
+  | Some entry ->
+    capability_requires_endpoint_declaration caps
+    || catalog_entry_requires_endpoint_declaration entry
+  | None -> capability_requires_endpoint_declaration caps
 ;;
 
 let capabilities_for_config_model (config : t) =

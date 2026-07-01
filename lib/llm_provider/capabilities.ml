@@ -1111,6 +1111,15 @@ let apply_catalog_entry (entry : Model_catalog.model_entry) : capabilities =
     model specifications were externalized to the TOML catalog. *)
 let provider_qualified_separators = [ "/"; ":"; "." ]
 
+let model_id_has_provider_label ~provider_label ~model_id =
+  let provider_label = String.lowercase_ascii (String.trim provider_label) in
+  let model_id = String.lowercase_ascii (String.trim model_id) in
+  provider_label <> ""
+  && List.exists
+       (fun separator -> String.starts_with ~prefix:(provider_label ^ separator) model_id)
+       provider_qualified_separators
+;;
+
 let provider_qualified_model_id_candidates ~provider_label ~model_id =
   let normalized_model_id = String.lowercase_ascii model_id in
   let provider_prefixes =

@@ -675,7 +675,7 @@ thinking_control_format = "chat_template_kwargs"
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
 
-let test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration () =
+let test_openai_compat_explicit_provider_qualified_model_id_resolves_catalog_row () =
   with_model_catalog_toml
     {|
 [[models]]
@@ -696,8 +696,48 @@ thinking_control_format = "chat_template_kwargs"
            ~base_url:"https://unknown-openai-compatible.example/v1"
            ()
        in
+       match Provider_config.capabilities_for_config_model cfg with
+       | Some caps ->
+         check_bool
+           "explicit provider-qualified model keeps tools"
+           true
+           caps.supports_tools;
+         check_bool
+           "explicit provider-qualified model keeps reasoning"
+           true
+           caps.supports_reasoning;
+         check_bool
+           "explicit provider-qualified model uses chat template kwargs"
+           true
+           (caps.thinking_control_format = Capabilities.Chat_template_kwargs)
+       | None ->
+         Alcotest.fail
+           "explicit provider-qualified model id should resolve its catalog row")
+;;
+
+let test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row () =
+  with_model_catalog_toml
+    {|
+[[models]]
+id_prefix = "runpod_mtp/qwen36-35b-a3b-mtp"
+base = "openai_chat"
+provider_name = "runpod_mtp"
+supports_tools = true
+supports_tool_choice = true
+supports_reasoning = true
+supports_extended_thinking = true
+thinking_control_format = "chat_template_kwargs"
+|}
+    (fun () ->
+       let cfg =
+         Provider_config.make
+           ~kind:OpenAI_compat
+           ~model_id:"qwen36-35b-a3b-mtp"
+           ~base_url:"https://unknown-openai-compatible.example/v1"
+           ()
+       in
        check_bool
-         "provider_name alone is not raw endpoint identity proof"
+         "bare raw model id does not inherit provider-qualified row"
          true
          (Option.is_none (Provider_config.capabilities_for_config_model cfg)))
 ;;
@@ -2075,9 +2115,13 @@ let () =
             `Quick
             test_openai_compat_raw_template_dialect_requires_endpoint_declaration
         ; Alcotest.test_case
-            "raw compat dot-qualified provider row requires endpoint declaration"
+            "explicit provider-qualified model id resolves catalog row"
             `Quick
-            test_openai_compat_raw_dot_qualified_provider_row_requires_endpoint_declaration
+            test_openai_compat_explicit_provider_qualified_model_id_resolves_catalog_row
+        ; Alcotest.test_case
+            "bare model id does not resolve provider-qualified row"
+            `Quick
+            test_openai_compat_bare_model_id_does_not_resolve_provider_qualified_row
         ; Alcotest.test_case
             "responses structured path accepted"
             `Quick
