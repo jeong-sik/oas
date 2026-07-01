@@ -20,7 +20,10 @@ let gemini_url ~(config : Provider_config.t) ~stream =
 ;;
 
 (** Provider-aware sampling parameter defaults.
-    Local providers get min_p=0.05 (2026 llama.cpp standard).
+    OpenAI_compat / DashScope / Kimi carry the min_p=0.05 floor (2026 llama.cpp
+    standard); for OpenAI_compat it is applied only when the model's catalog
+    entry declares [supports_min_p] — capability is catalog-declared, not
+    inferred from host locality (RFC-OAS-034).
     Anthropic gets no top_p (incompatible with temperature).
     Explicit agent_config values always take priority (overlay pattern). *)
 type sampling_defaults =
@@ -54,7 +57,16 @@ let provider_sampling_defaults (kind : Provider_config.provider_kind) : sampling
 let openai_compat_should_default_min_p (config : Provider_config.t) : bool =
   match Provider_config.capabilities_for_config_model config with
   | Some caps -> caps.supports_min_p
-  | None -> Provider_config.is_local config
+  | None ->
+    (* Unknown capability: do NOT inject the min_p floor. min_p support is a
+       model capability (catalog-declared), not a property of host locality
+       (RFC-OAS-034: host/transport is orthogonal to capability). The previous
+       [Provider_config.is_local config] made an uncatalogued *local* model
+       receive min_p while the identical model served remotely did not, and it
+       diverged from the send-time gate (default_capabilities.supports_min_p =
+       false), which then dropped the floor and emitted a misleading
+       "remove the field" WARN. Fail closed to the send-time behavior. *)
+    false
 ;;
 
 (** Apply provider defaults to a config, preserving explicit values (overlay pattern).
@@ -363,7 +375,13 @@ let%test "provider_sampling_defaults Gemini has no min_p" =
   d.default_min_p = None
 ;;
 
-let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
+let%test
+    "apply_sampling_defaults does not default min_p for uncatalogued local OpenAI_compat \
+     (RFC-OAS-034)"
+  =
+  (* An uncatalogued model on a local endpoint must NOT receive the min_p floor:
+     locality is transport, not a declared min_p capability. Before RFC-OAS-034
+     this asserted [Some ...] purely because [is_local] was true. *)
   let config : Provider_config.t =
     { kind = OpenAI_compat
     ; model_id = "local-model"
@@ -400,7 +418,7 @@ let%test "apply_sampling_defaults fills min_p for OpenAI_compat" =
     }
   in
   let applied = apply_sampling_defaults config in
-  applied.min_p = Some Constants.Sampling.openai_compat_min_p
+  applied.min_p = None
 ;;
 
 let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p" =
@@ -443,9 +461,16 @@ let%test "apply_sampling_defaults OpenAI_compat Gemini model does not set min_p"
   applied.min_p = None
 ;;
 
-let%test "apply_sampling_defaults OpenAI_compat dashscope model keeps min_p default" =
+let%test
+    "apply_sampling_defaults DashScope model keeps min_p default (kind-declared, not \
+     host)"
+  =
+  (* DashScope carries the min_p floor via provider_sampling_defaults regardless
+     of host — the kind declares the capability. Uses kind=DashScope (qwen is a
+     DashScope model) so the assertion no longer relies on is_local, which
+     RFC-OAS-034 removes from the capability decision. *)
   let config : Provider_config.t =
-    { kind = OpenAI_compat
+    { kind = DashScope
     ; model_id = "qwen-turbo"
     ; base_url = "http://localhost:11434"
     ; api_key = Secret.empty
