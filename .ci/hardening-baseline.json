@@ -1,6 +1,11 @@
 {
   "_comment": "Production hardening ratchet baseline. Source: docs/rfc/RFC-OAS-023-hardening-ratchet.md. Regenerate with scripts/hardening-ratchet.sh --rebaseline.",
   "examples": {
+    "base_url_host_fuzzy_classifiers": [
+      "lib/llm_provider/provider_config.ml:201:String.starts_with ~prefix:\"https://ollama.com\" base_url",
+      "lib/llm_provider/provider_config.ml:202:|| String.starts_with ~prefix:\"http://ollama.com\" base_url",
+      "lib/llm_provider/provider_config.ml:796:|| String.ends_with ~suffix:\".ollama.com\" host"
+    ],
     "direct_env_reads": [
       "lib/code_snippet_eval.ml:195:let is_experiment_enabled ?(getenv = Sys.getenv_opt) () =",
       "lib/llm_provider/backend_ollama.ml:367:let orig = Sys.getenv_opt \"OAS_OLLAMA_KEEP_ALIVE\" in",
@@ -48,6 +53,7 @@
   },
   "lastUpdatedCommit": "66170abd52fe8265fb97e6c54eece06ce55b279f",
   "metrics": {
+    "base_url_host_fuzzy_classifiers": 3,
     "direct_env_reads": 21,
     "direct_env_reads_outside_env_boundary": 16,
     "exception_message_classifiers": 1,
@@ -59,6 +65,7 @@
     "workaround_markers": 0
   },
   "removalTargets": {
+    "base_url_host_fuzzy_classifiers": "RFC-OAS-034: host/URL is transport, not capability provenance. New fuzzy String matching (starts_with/ends_with/contains/is_substring) on base_url/host is forbidden; bind vendor identity via exact Uri.host equality and capability via the model catalog. Existing ollama.com matchers are reducible debt (migrate to exact Uri.host).",
     "direct_env_reads": "RFC-OAS-023: reduce by moving runtime env access behind config/env boundary modules.",
     "direct_env_reads_outside_env_boundary": "RFC-OAS-023: target zero outside explicit envBoundaryPaths.",
     "exception_message_classifiers": "RFC-OAS-023: target zero after typed Unix_error/Eio/http_error classifiers land.",
