@@ -213,6 +213,12 @@ val gemini_thinking_control_of_id : string -> gemini_thinking_control
     prefix-matches [model_id]; there is no in-code fallback table. *)
 val for_model_id_catalog : string -> capabilities option
 
+(** True when [model_id] explicitly carries [provider_label] using the same
+    provider-qualified separators as {!for_provider_model_id}. This is syntax
+    recognition only; callers still decide whether the declaration is
+    authoritative for their boundary. *)
+val model_id_has_provider_label : provider_label:string -> model_id:string -> bool
+
 (** Look up capabilities for [model_id] with a provider-qualified catalog
     override first.
 
@@ -225,12 +231,6 @@ val for_model_id_catalog : string -> capabilities option
     This lets transports such as Ollama Cloud override bare model-family entries
     that are shared with other providers (for example [glm-5] or [kimi-k2.6])
     without coupling the catalog to any embedding application. *)
-val model_id_has_provider_label : provider_label:string -> model_id:string -> bool
-(** True when [model_id] explicitly carries [provider_label] using the same
-    provider-qualified separators as {!for_provider_model_id}. This is syntax
-    recognition only; callers still decide whether the declaration is
-    authoritative for their boundary. *)
-
 val for_provider_model_id
   :  allow_bare_fallback:bool
   -> provider_label:string
