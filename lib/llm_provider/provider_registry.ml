@@ -17,16 +17,28 @@ type entry =
   ; is_available : unit -> bool
   }
 
+type mutex =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
 type t =
-  { mu : Mutex.t
+  { mu : mutex option
   ; entries : (string, entry) Hashtbl.t
   }
 
-let create () = { mu = Mutex.create (); entries = Hashtbl.create 8 }
+let create () = { mu = Some (Eio_mu (Eio.Mutex.create ())); entries = Hashtbl.create 8 }
+
+let create_sync () =
+  { mu = Some (Stdlib_mu (Mutex.create ())); entries = Hashtbl.create 8 }
+;;
 
 let with_lock t f =
-  Mutex.lock t.mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+  match t.mu with
+  | None -> f ()
+  | Some (Stdlib_mu mu) ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+  | Some (Eio_mu mu) -> Eio.Mutex.use_rw ~protect:true mu f
 ;;
 
 let register' t entry = Hashtbl.replace t.entries entry.name entry
@@ -411,7 +423,10 @@ let normalize_url value =
 ;;
 
 let default () =
-  let t = create () in
+  (* The default registry is populated once and then treated as read-only.
+     It is accessed from both Eio fibers and synchronous config-building code,
+     so we avoid any mutex on the read path after construction. *)
+  let t = { mu = None; entries = Hashtbl.create 8 } in
   let max_context_from_capabilities ~default caps =
     match caps.Capabilities.max_context_tokens with
     | Some ctx when ctx > default -> ctx

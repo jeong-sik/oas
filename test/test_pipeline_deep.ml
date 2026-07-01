@@ -460,7 +460,7 @@ let test_resolve_params_max_turns_passed () =
 
 (** Context injection sets context values. *)
 let test_context_injection_sets_values () =
-  let context = Context.create ~eio:false () in
+  let context = Context.create_sync () in
   let messages : Types.message list =
     [ { role = User
       ; content = [ Text "query" ]
@@ -506,7 +506,7 @@ let test_context_injection_sets_values () =
 
 (** Context injection returns None (no injection). *)
 let test_context_injection_none () =
-  let context = Context.create ~eio:false () in
+  let context = Context.create_sync () in
   let messages : Types.message list =
     [ { role = User
       ; content = [ Text "query" ]
@@ -537,7 +537,7 @@ let test_context_injection_none () =
 
 (** Context injection with extra_messages. *)
 let test_context_injection_extra_messages () =
-  let context = Context.create ~eio:false () in
+  let context = Context.create_sync () in
   let messages : Types.message list =
     [ { role = User
       ; content = [ Text "query" ]
@@ -586,7 +586,7 @@ let test_context_injection_extra_messages () =
 
 (** Context injection with error tool result. *)
 let test_context_injection_error_result () =
-  let context = Context.create ~eio:false () in
+  let context = Context.create_sync () in
   let received_output = ref None in
   let messages : Types.message list =
     [ { role = User
@@ -625,7 +625,7 @@ let test_context_injection_error_result () =
 
 (** Context injection: injector raises exception. *)
 let test_context_injection_raises () =
-  let context = Context.create ~eio:false () in
+  let context = Context.create_sync () in
   let messages : Types.message list =
     [ { role = User
       ; content = [ Text "query" ]

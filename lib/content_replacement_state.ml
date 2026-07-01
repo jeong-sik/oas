@@ -14,8 +14,12 @@ type replacement =
   ; original_chars : int
   }
 
+type mutex =
+  | Stdlib_mu of Mutex.t
+  | Eio_mu of Eio.Mutex.t
+
 type t =
-  { mu : Mutex.t
+  { mu : mutex
   ; seen_ids : (string, unit) Hashtbl.t
   ; replacements : (string, replacement) Hashtbl.t
   }
@@ -23,12 +27,27 @@ type t =
 (* ── Lifecycle ──────────────────────────────────────────────── *)
 
 let create () =
-  { mu = Mutex.create (); seen_ids = Hashtbl.create 64; replacements = Hashtbl.create 32 }
+  { mu = Eio_mu (Eio.Mutex.create ())
+  ; seen_ids = Hashtbl.create 64
+  ; replacements = Hashtbl.create 32
+  }
+;;
+
+let create_sync () =
+  { mu = Stdlib_mu (Mutex.create ())
+  ; seen_ids = Hashtbl.create 64
+  ; replacements = Hashtbl.create 32
+  }
 ;;
 
 let with_lock t f =
-  Mutex.lock t.mu;
-  Fun.protect f ~finally:(fun () -> Mutex.unlock t.mu)
+  match t.mu with
+  | Stdlib_mu mu ->
+    Mutex.lock mu;
+    Fun.protect f ~finally:(fun () -> Mutex.unlock mu)
+  | Eio_mu mu ->
+    Eio.Mutex.lock mu;
+    Fun.protect ~finally:(fun () -> Eio.Mutex.unlock mu) f
 ;;
 
 (* ── Query ──────────────────────────────────────────────────── *)
@@ -122,12 +141,12 @@ let to_json t =
       ])
 ;;
 
-let of_json json =
+let of_json ?(eio = false) json =
   try
     let open Yojson.Safe.Util in
     let seen_list = json |> member "seen_ids" |> to_list in
     let replacements_list = json |> member "replacements" |> to_list in
-    let t = create () in
+    let t = if eio then create () else create_sync () in
     with_lock t (fun () ->
       List.iter
         (fun j ->
@@ -160,10 +179,11 @@ let context_key = "session:crs"
 let persist_to_context (ctx : Context.t) t = Context.set ctx context_key (to_json t)
 
 let restore_from_context (ctx : Context.t) =
+  let eio = Context.concurrency_backend ctx = Context.Eio_mutex in
   match Context.get ctx context_key with
-  | None -> create ()
+  | None -> if eio then create () else create_sync ()
   | Some json ->
-    (match of_json json with
+    (match of_json ~eio json with
      | Ok t -> t
      | Error e ->
        Printf.eprintf
@@ -171,30 +191,30 @@ let restore_from_context (ctx : Context.t) =
           failed (%s), starting fresh\n\
           %!"
          (Error.to_string e);
-       create ())
+       if eio then create () else create_sync ())
 ;;
 
 (* === Inline tests === *)
 
 let%test "create: empty state" =
-  let t = create () in
+  let t = create_sync () in
   seen_count t = 0
 ;;
 
 let%test "record_replacement: freezes ID" =
-  let t = create () in
+  let t = create_sync () in
   record_replacement t { tool_use_id = "t1"; preview = "pre"; original_chars = 100 };
   is_frozen t "t1" && not (is_frozen t "t2")
 ;;
 
 let%test "record_kept: freezes without replacement" =
-  let t = create () in
+  let t = create_sync () in
   record_kept t "t1";
   is_frozen t "t1" && lookup_replacement t "t1" = None
 ;;
 
 let%test "record_replacement on frozen raises" =
-  let t = create () in
+  let t = create_sync () in
   record_kept t "t1";
   try
     record_replacement t { tool_use_id = "t1"; preview = "p"; original_chars = 10 };
@@ -204,7 +224,7 @@ let%test "record_replacement on frozen raises" =
 ;;
 
 let%test "record_kept on frozen raises" =
-  let t = create () in
+  let t = create_sync () in
   record_replacement t { tool_use_id = "t1"; preview = "p"; original_chars = 10 };
   try
     record_kept t "t1";
@@ -214,7 +234,7 @@ let%test "record_kept on frozen raises" =
 ;;
 
 let%test "lookup_replacement: returns recorded preview" =
-  let t = create () in
+  let t = create_sync () in
   record_replacement
     t
     { tool_use_id = "t1"; preview = "preview text"; original_chars = 5000 };
@@ -224,7 +244,7 @@ let%test "lookup_replacement: returns recorded preview" =
 ;;
 
 let%test "apply_frozen: replaces frozen, collects fresh" =
-  let t = create () in
+  let t = create_sync () in
   record_replacement t { tool_use_id = "t1"; preview = "short"; original_chars = 9000 };
   record_kept t "t2";
   let blocks =
@@ -267,7 +287,7 @@ let%test "apply_frozen: replaces frozen, collects fresh" =
 ;;
 
 let%test "apply_frozen: idempotent" =
-  let t = create () in
+  let t = create_sync () in
   record_replacement t { tool_use_id = "t1"; preview = "p"; original_chars = 100 };
   let blocks =
     [ ToolResult
@@ -285,7 +305,7 @@ let%test "apply_frozen: idempotent" =
 ;;
 
 let%test "to_json / of_json round-trip" =
-  let t = create () in
+  let t = create_sync () in
   record_replacement t { tool_use_id = "t1"; preview = "p1"; original_chars = 100 };
   record_kept t "t2";
   let json = to_json t in

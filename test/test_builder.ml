@@ -339,7 +339,7 @@ let test_with_transport () =
 let test_with_context () =
   with_net
   @@ fun net ->
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "key" (`String "value");
   let agent =
     Builder.create ~net ~model:"claude-sonnet-4-6"
@@ -534,7 +534,7 @@ let test_with_tool_grants_filters_tools () =
 let test_with_contract_injects_context_metadata () =
   with_net
   @@ fun net ->
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "original" (`String "kept");
   let contract =
     Contract.empty |> Contract.with_runtime_awareness "Aware of explicit grants."

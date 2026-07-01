@@ -31,8 +31,12 @@ type entry =
 (** Mutable provider registry. *)
 type t
 
-(** Create an empty registry. *)
+(** Create an empty registry using {!Eio.Mutex}. *)
 val create : unit -> t
+
+(** Create an empty registry using {!Stdlib.Mutex} for synchronous tests and
+    serialization code that runs outside of an Eio scheduler. *)
+val create_sync : unit -> t
 
 (** Register a provider. Overwrites if name already exists. *)
 val register : t -> entry -> unit

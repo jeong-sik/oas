@@ -24,6 +24,14 @@ let hook_failed_sdk_error ~hook_name ~stage ~detail =
   Error.Internal (Printf.sprintf "hook %s failed at %s: %s" hook_name stage detail)
 ;;
 
+let illegal_hook_decision ~stage ~decision =
+  Error.Internal
+    (Printf.sprintf
+       "illegal hook decision %s in %s"
+       (Agent_lifecycle.hook_decision_to_string decision)
+       stage)
+;;
+
 (* Shared with Pipeline_stage_prepare via Pipeline_common (re-raises Eio
    cancellation); the thin wrapper keeps this module's log label. *)
 let safe_publish bus event = Pipeline_common.safe_publish ~log:_log bus event
@@ -491,9 +499,14 @@ let stage_execute ?raw_trace_run agent ~effective_guardrails tool_uses_nonempty 
          | Hooks.ApprovalRequired
          | Hooks.AdjustParams _
          | Hooks.ElicitInput _ ->
-           (* Unreachable after [Hooks.invoke_validated] for on_idle. Fail-fast
-              so a validation bypass cannot silently change idle behavior. *)
-           assert false);
+           (* Reject illegal hook decisions with a typed error instead of crashing.
+              Stash the failure so the existing idle-hook error path returns it. *)
+           idle_hook_failed
+             := Some
+                  ( "illegal_decision"
+                  , Printf.sprintf
+                      "illegal hook decision %s in on_idle"
+                      (Agent_lifecycle.hook_decision_to_string idle_decision) ));
        (* Early exit: skip tool execution when on_idle hook says Skip.
           Prevents executing redundant tools and avoids further counter drift. *)
        match !idle_hook_failed with
@@ -823,22 +836,21 @@ let compact_messages
       true)
   in
   match hook_decision with
-  | Hooks.Skip -> false
-  | Hooks.Continue -> run_compaction ()
+  | Hooks.Skip -> Ok false
+  | Hooks.Continue -> Ok (run_compaction ())
   | Hooks.HookFailed { stage; detail } ->
     Log.error
       _log
       "pre_compact hook failed; skipping compaction"
       [ Log.S ("stage", stage); Log.S ("detail", detail) ];
-    false
+    Error (hook_failed_sdk_error ~hook_name:"pre_compact" ~stage ~detail)
   | Hooks.Override _
   | Hooks.ApprovalRequired
   | Hooks.AdjustParams _
   | Hooks.ElicitInput _
   | Hooks.Nudge _ ->
-    (* Unreachable after [Hooks.invoke_validated] for pre_compact. Fail-fast
-       so a validation bypass cannot silently compact. *)
-    assert false
+    (* Reject illegal hook decisions with a typed error instead of crashing. *)
+    Error (illegal_hook_decision ~stage:"pre_compact" ~decision:hook_decision)
 ;;
 
 (** Apply proactive compaction when context usage exceeds the configured
@@ -861,7 +873,7 @@ let proactive_compact ?raw_trace_run ?clock agent ~watermark () =
   let context_window_tokens = proactive_context_window_tokens agent in
   let usage_ratio = float_of_int est_tokens /. float_of_int context_window_tokens in
   if usage_ratio < watermark
-  then false
+  then Ok false
   else (
     (* Remap [watermark, 1.0] → [0.5, 1.0] so Budget_strategy always picks
        at least the Compact phase when the watermark is crossed.  Without
@@ -969,7 +981,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
      triggers compaction.
      This prevents the silent pass-through that caused a downstream consumer's
      CTX 101% overrun (observed in upstream issue #7083). *)
-  let prep =
+  let* prep =
     let watermark = proactive_watermark agent in
     let est_tokens = total_prompt_tokens_for_agent agent agent.state.messages in
     let context_window = proactive_context_window_tokens agent in
@@ -1004,9 +1016,9 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
                  { agent_name = agent.state.config.name; trigger = "proactive" }
            }
        | None -> ());
-      let compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
-      if compacted then prepare_turn_for_agent agent ~turn_params else prep)
-    else prep
+      let* compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
+      if compacted then Ok (prepare_turn_for_agent agent ~turn_params) else Ok prep)
+    else Ok prep
   in
   (* Stage 2.5: Async input validation *)
   let async_guard = agent.options.guardrails_async in
@@ -1033,7 +1045,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
       in
       if ratio >= watermark
       then (
-        let compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
+        let* compacted = proactive_compact ?raw_trace_run ?clock agent ~watermark () in
         if compacted
         then (
           update_state agent (fun s -> { s with config = original_config });
@@ -1107,7 +1119,7 @@ let run_turn ~sw ?clock ~api_strategy ?raw_trace_run agent =
                    { agent_name = agent.state.config.name; trigger = "emergency" }
              }
          | None -> ());
-        let compacted = emergency_compact ?raw_trace_run ?clock agent ?limit () in
+        let* compacted = emergency_compact ?raw_trace_run ?clock agent ?limit () in
         if not compacted
         then api_result
         else (

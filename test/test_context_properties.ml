@@ -40,7 +40,7 @@ let test_copy_independence =
     ~name:"copy_independence"
     QCheck.(pair (make gen_kv_list) (make gen_kv_pair))
     (fun (initial_pairs, (new_key, new_value)) ->
-       let ctx = Context.create ~eio:false () in
+       let ctx = Context.create_sync () in
        List.iter (fun (k, v) -> Context.set ctx k v) initial_pairs;
        let copy = Context.copy ctx in
        (* Mutate copy *)
@@ -67,7 +67,7 @@ let test_json_roundtrip =
     ~name:"json_roundtrip"
     (QCheck.make gen_kv_list)
     (fun pairs ->
-       let ctx = Context.create ~eio:false () in
+       let ctx = Context.create_sync () in
        List.iter (fun (k, v) -> Context.set ctx k v) pairs;
        let json = Context.to_json ctx in
        let restored = Context.of_json json in
@@ -89,7 +89,7 @@ let test_scope_no_leakage =
         (make gen_kv_list))
     (* propagate_down/up lists *)
     (fun (parent_pairs, child_pairs, prop_pairs) ->
-       let parent = Context.create ~eio:false () in
+       let parent = Context.create_sync () in
        List.iter (fun (k, v) -> Context.set parent k v) parent_pairs;
        let parent_before = Context.snapshot parent in
        (* Choose propagate lists from prop_pairs keys *)
@@ -138,7 +138,7 @@ let test_propagate_down_complete =
     ~name:"propagate_down_complete"
     (QCheck.make gen_kv_list)
     (fun pairs ->
-       let parent = Context.create ~eio:false () in
+       let parent = Context.create_sync () in
        List.iter (fun (k, v) -> Context.set parent k v) pairs;
        let all_keys = List.sort_uniq String.compare (List.map fst pairs) in
        let scope =
@@ -161,7 +161,7 @@ let test_propagate_up_selective =
     ~name:"propagate_up_selective"
     QCheck.(pair (make gen_kv_list) (make gen_kv_list))
     (fun (child_pairs, extra_pairs) ->
-       let parent = Context.create ~eio:false () in
+       let parent = Context.create_sync () in
        (* Only first pair's key is in propagate_up (if any) *)
        let up_keys =
          match child_pairs with
@@ -188,8 +188,8 @@ let test_diff_correct =
     ~name:"diff_correct"
     QCheck.(pair (make gen_kv_list) (make gen_kv_list))
     (fun (before_pairs, after_pairs) ->
-       let before = Context.create ~eio:false () in
-       let after = Context.create ~eio:false () in
+       let before = Context.create_sync () in
+       let after = Context.create_sync () in
        List.iter (fun (k, v) -> Context.set before k v) before_pairs;
        List.iter (fun (k, v) -> Context.set after k v) after_pairs;
        let d = Context.diff before after in
@@ -227,7 +227,7 @@ let test_scope_isolation_parallel =
     ~name:"parallel_scope_isolation"
     QCheck.(pair (make gen_kv_list) (make gen_kv_list))
     (fun (pairs_a, pairs_b) ->
-       let parent = Context.create ~eio:false () in
+       let parent = Context.create_sync () in
        (* Two isolated scopes from same parent *)
        let scope_a =
          Context.create_scope ~parent ~propagate_down:[] ~propagate_up:[ "result_a" ]

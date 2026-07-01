@@ -348,8 +348,10 @@ let test_aggregating_inner_delegation () =
 ;;
 
 let () =
-  (* Intentionally not wrapped in Eio_main.run: snapshot/export APIs must work
-     for ordinary periodic exporters and tests that have no Eio scheduler. *)
+  (* Aggregating now uses Eio.Mutex, so the whole suite runs under an Eio
+     scheduler. Each test case executes as an Eio fiber. *)
+  Eio_main.run
+  @@ fun _env ->
   run
     "Metrics.Aggregating"
     [ "create", [ test_case "empty snapshot" `Quick test_aggregating_create_empty ]

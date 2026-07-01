@@ -18,7 +18,7 @@ let generate_id () =
   Printf.sprintf "session-%06x%04x" hi lo
 ;;
 
-let create ?id ?resumed_from ?cwd ?(metadata = Context.create ~eio:false ()) () =
+let create ?id ?resumed_from ?cwd ?(metadata = Context.create_sync ()) () =
   let now = Unix.gettimeofday () in
   { id = Option.value id ~default:(generate_id ())
   ; started_at = now
@@ -75,7 +75,7 @@ let of_json json =
     let open Yojson.Safe.Util in
     let metadata =
       match json |> member "metadata" with
-      | `Null -> Context.create ~eio:false ()
+      | `Null -> Context.create_sync ()
       | v -> Context.of_json v
     in
     Ok

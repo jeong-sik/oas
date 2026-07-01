@@ -111,7 +111,7 @@ let demo_context () =
   Printf.printf "\n--- 4. Context Sharing ---\n";
   Eio_main.run
   @@ fun env ->
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "shared_key" (`String "shared_value");
   let agent =
     Builder.create ~net:env#net ~model:"test-model"

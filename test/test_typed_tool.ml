@@ -197,7 +197,7 @@ let test_descriptor_some () =
 ;;
 
 let test_context_handler () =
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "prefix" (`String "Dear");
   let input = `Assoc [ "name", `String "Admin" ] in
   match Typed_tool.execute ~context:ctx greet_ctx_tool input with
@@ -217,7 +217,7 @@ let test_context_handler_no_context () =
 
 let test_to_untyped_context_bridge () =
   let untyped = Typed_tool.to_untyped greet_ctx_tool in
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "prefix" (`String "Hey");
   let input = `Assoc [ "name", `String "World" ] in
   match Tool.execute ~context:ctx untyped input with

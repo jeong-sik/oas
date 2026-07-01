@@ -68,6 +68,7 @@
   test_consumer
   test_content_replacement_event_bridge
   test_context
+  test_context_concurrency
   test_context_flow_proof
   test_context_intent
   test_context_offload
@@ -144,6 +145,7 @@
   test_pipeline
   test_pipeline_common_coverage
   test_pipeline_deep
+  test_pipeline_illegal_hook
   test_pipeline_metrics
   test_plan
   test_policy
@@ -271,6 +273,7 @@
   test_consumer
   test_content_replacement_event_bridge
   test_context
+  test_context_concurrency
   test_context_flow_proof
   test_context_intent
   test_context_offload
@@ -347,6 +350,7 @@
   test_pipeline
   test_pipeline_common_coverage
   test_pipeline_deep
+  test_pipeline_illegal_hook
   test_pipeline_metrics
   test_plan
   test_policy

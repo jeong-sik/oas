@@ -13,7 +13,7 @@ let make_agent env =
 ;;
 
 let make_agent_with_context env =
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "key1" (`String "val1");
   Context.set ctx "key2" (`Int 42);
   Agent.create

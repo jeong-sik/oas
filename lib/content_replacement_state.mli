@@ -33,8 +33,11 @@ type replacement =
     Not thread-safe; each agent/session owns one instance. *)
 type t
 
-(** Create empty state. *)
+(** Create empty state using {!Eio.Mutex} for fiber-safe use inside an Eio agent run. *)
 val create : unit -> t
+
+(** Create empty state using {!Stdlib.Mutex} for synchronous tests and serialization. *)
+val create_sync : unit -> t
 
 (** {1 Query} *)
 
@@ -79,8 +82,9 @@ val apply_frozen : t -> Types.content_block list -> Types.content_block list * s
 val to_json : t -> Yojson.Safe.t
 
 (** Deserialize state from JSON.
-    Returns [Error] on malformed input. *)
-val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
+    [~eio:true] rehydrates with an {!Eio.Mutex}; the default [~eio:false]
+    is for synchronous deserialization. Returns [Error] on malformed input. *)
+val of_json : ?eio:bool -> Yojson.Safe.t -> (t, Error.sdk_error) result
 
 (** {1 Context checkpoint persistence}
 

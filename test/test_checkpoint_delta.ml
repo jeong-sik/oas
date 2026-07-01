@@ -85,7 +85,7 @@ let context_gen =
   let open QCheck.Gen in
   map
     (fun pairs ->
-       let ctx = Context.create ~eio:false () in
+       let ctx = Context.create_sync () in
        List.iter (fun (key, value) -> Context.set ctx key value) pairs;
        ctx)
     (list_size (int_range 0 3) (pair small_string_gen yojson_simple_gen))
@@ -205,7 +205,7 @@ let make_unit_checkpoint
       ?(session_id = "sess-a")
       ?(agent_name = "agent-a")
       ?(turn_count = 0)
-      ?(context = Context.create ~eio:false ())
+      ?(context = Context.create_sync ())
       ?(tool_choice = None)
       ?(working_context = None)
       ()
@@ -283,7 +283,7 @@ let test_delta_json_roundtrip () =
         ]
       ()
   in
-  let ctx = Context.create ~eio:false () in
+  let ctx = Context.create_sync () in
   Context.set ctx "trace_id" (`String "abc");
   let target =
     make_unit_checkpoint
@@ -437,8 +437,8 @@ let test_delta_json_null_and_legacy_limit_paths () =
 ;;
 
 let test_delta_json_rejects_malformed_context_removed () =
-  let base_context = Context.create ~eio:false () in
-  let target_context = Context.create ~eio:false () in
+  let base_context = Context.create_sync () in
+  let target_context = Context.create_sync () in
   Context.set target_context "trace_id" (`String "abc");
   let base = make_unit_checkpoint ~context:base_context () in
   let target =

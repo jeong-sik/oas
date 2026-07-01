@@ -33,7 +33,7 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) ()
   ; response_format = Types.Off
   ; thinking_budget = None
   ; cache_system_prompt = false
-  ; context = Context.create ~eio:false ()
+  ; context = Context.create_sync ()
   ; mcp_sessions = []
   ; working_context = None
   }

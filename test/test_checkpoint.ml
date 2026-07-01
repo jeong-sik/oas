@@ -22,7 +22,7 @@ let make_checkpoint
       ?(turn_count = 0)
       ?(tools = [])
       ?(tool_choice = None)
-      ?(context = Context.create ~eio:false ())
+      ?(context = Context.create_sync ())
       ?(enable_thinking = None)
       ?(preserve_thinking = None)
       ?(thinking_budget = None)
@@ -172,7 +172,7 @@ let () =
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             check (option string) "system_prompt" (Some "Be concise.") cp2.system_prompt)
         ; test_case "context roundtrip" `Quick (fun () ->
-            let ctx = Context.create ~eio:false () in
+            let ctx = Context.create_sync () in
             Context.set_scoped ctx Context.Session "trace_id" (`String "abc");
             Context.set_scoped ctx Context.User "theme" (`String "dark");
             let cp = make_checkpoint ~context:ctx () in
@@ -564,7 +564,7 @@ let () =
         ] )
     ; ( "build_resume"
       , [ test_case "roundtrip preserves fields" `Quick (fun () ->
-            let ctx = Context.create ~eio:false () in
+            let ctx = Context.create_sync () in
             Context.set ctx "key" (`String "val");
             let cp =
               make_checkpoint
@@ -593,7 +593,7 @@ let () =
         ; test_case "eio_context rehydrates checkpoint context backend" `Quick (fun () ->
             Eio_main.run
             @@ fun _env ->
-            let ctx = Context.create ~eio:false () in
+            let ctx = Context.create_sync () in
             Context.set ctx "key" (`String "val");
             let cp = make_checkpoint ~context:ctx () in
             let { Agent_checkpoint.context = ctx2; _ } =
@@ -672,10 +672,10 @@ let () =
               (Some 2048)
               state.config.thinking_budget)
         ; test_case "override context replaces checkpoint context" `Quick (fun () ->
-            let cp_ctx = Context.create ~eio:false () in
+            let cp_ctx = Context.create_sync () in
             Context.set cp_ctx "old" (`String "old-val");
             let cp = make_checkpoint ~context:cp_ctx () in
-            let new_ctx = Context.create ~eio:false () in
+            let new_ctx = Context.create_sync () in
             Context.set new_ctx "new" (`String "new-val");
             let { Agent_checkpoint.context = result_ctx; _ } =
               Agent_checkpoint.build_resume ~checkpoint:cp ~context:new_ctx ()
@@ -730,7 +730,7 @@ let () =
                Eio_main.run
                @@ fun env ->
                let net = Eio.Stdenv.net env in
-               let ctx = Context.create ~eio:false () in
+               let ctx = Context.create_sync () in
                Context.set ctx "resume-key" (`String "resume-value");
                let cp = make_checkpoint ~context:ctx () in
                let decoded =

@@ -31,10 +31,9 @@ type concurrency_backend =
   | Stdlib_mutex
   | Eio_mutex
 
-let create ~(eio : bool) () : t =
-  let mu = if eio then Eio_mu (Eio.Mutex.create ()) else Stdlib_mu (Mutex.create ()) in
-  { mu; tbl = Hashtbl.create 16 }
-;;
+let create () : t = { mu = Eio_mu (Eio.Mutex.create ()); tbl = Hashtbl.create 16 }
+
+let create_sync () : t = { mu = Stdlib_mu (Mutex.create ()); tbl = Hashtbl.create 16 };;
 
 let is_eio_backed ctx =
   match ctx.mu with
@@ -136,7 +135,7 @@ let to_json (ctx : t) : Yojson.Safe.t =
 let of_json ?(eio = false) (json : Yojson.Safe.t) : t =
   match json with
   | `Assoc pairs ->
-    let ctx = create ~eio () in
+    let ctx = if eio then create () else create_sync () in
     List.iter (fun (k, v) -> Hashtbl.replace ctx.tbl k v) pairs;
     ctx
   | _ -> invalid_arg "Context.of_json: expected JSON object"
@@ -149,7 +148,7 @@ let copy ?eio (ctx : t) : t =
       | Some value -> value
       | None -> is_eio_backed ctx
     in
-    let new_ctx = create ~eio:use_eio () in
+    let new_ctx = if use_eio then create () else create_sync () in
     Hashtbl.iter (fun k v -> Hashtbl.replace new_ctx.tbl k v) ctx.tbl;
     new_ctx)
 ;;
@@ -172,7 +171,7 @@ type isolated_scope =
     Only keys listed in [propagate_down] are copied to the local context.
     Reads from parent under lock, then populates new local context. *)
 let create_scope ~parent ~propagate_down ~propagate_up =
-  let local = create ~eio:(is_eio_backed parent) () in
+  let local = if is_eio_backed parent then create () else create_sync () in
   let pairs =
     with_lock parent (fun () ->
       List.filter_map
