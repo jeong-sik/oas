@@ -109,5 +109,8 @@ val load_pricing_file : string -> (unit, string) result
     Falls back to [OAS_PRICING_OVERRIDES] if [OAS_PRICING_FILE] is absent:
     expects an inline JSON array string; logs parse errors as warnings.
 
+    [?getenv] is forwarded to the canonical env boundary and is useful for
+    tests/callers that need to resolve values without reading process env.
+
     Call this once at application startup before serving requests. *)
-val pricing_overrides_from_env : unit -> unit
+val pricing_overrides_from_env : ?getenv:(string -> string option) -> unit -> unit

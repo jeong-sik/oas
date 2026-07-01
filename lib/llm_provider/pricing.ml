@@ -499,10 +499,9 @@ let load_pricing_file path =
 
     A warning is logged when either source is present but fails to parse,
     so callers fall back to the static table with an observable signal. *)
-let pricing_overrides_from_env () =
-  match Sys.getenv_opt "OAS_PRICING_FILE" with
-  | Some path when String.trim path <> "" ->
-    let path = String.trim path in
+let pricing_overrides_from_env ?(getenv = Cli_common_env.default_getenv) () =
+  match Cli_common_env.get ~getenv "OAS_PRICING_FILE" with
+  | Some path ->
     (match load_pricing_file path with
      | Ok () ->
        let n =
@@ -513,10 +512,9 @@ let pricing_overrides_from_env () =
        Diag.info "pricing" "loaded %d pricing overrides from %s" n path
      | Error msg ->
        Diag.warn "pricing" "failed to load %s: %s; using static table" path msg)
-  | _ ->
-    (match Sys.getenv_opt "OAS_PRICING_OVERRIDES" with
-     | Some raw when String.trim raw <> "" ->
-       let raw = String.trim raw in
+  | None ->
+    (match Cli_common_env.get ~getenv "OAS_PRICING_OVERRIDES" with
+     | Some raw ->
        (match
           try Ok (Yojson.Safe.from_string raw) with
           | Yojson.Json_error msg -> Error ("JSON parse error: " ^ msg)
@@ -539,7 +537,7 @@ let pricing_overrides_from_env () =
                "pricing"
                "OAS_PRICING_OVERRIDES parse error: %s; using static table"
                msg))
-     | _ -> ())
+     | None -> ())
 ;;
 
 [@@@coverage off]
@@ -1379,18 +1377,20 @@ let%test "load_pricing_file: non-existent file returns Error" =
   | Ok () -> false
 ;;
 
-let%test "pricing_overrides_from_env: OAS_PRICING_OVERRIDES inline JSON" =
+let%test "pricing_overrides_from_env: OAS_PRICING_OVERRIDES inline JSON via env boundary" =
   let json_str =
     {|[{"pattern":"env-test-model","input_per_million":7.0,"output_per_million":21.0}]|}
   in
-  Unix.putenv "OAS_PRICING_OVERRIDES" json_str;
-  pricing_overrides_from_env ();
+  let getenv = function
+    | "OAS_PRICING_OVERRIDES" -> Some ("  " ^ json_str ^ "  ")
+    | _ -> None
+  in
+  pricing_overrides_from_env ~getenv ();
   let result =
     match pricing_for_model_opt "env-test-model-v2" with
     | Some p -> close_enough p.input_per_million 7.0
     | None -> false
   in
-  Unix.putenv "OAS_PRICING_OVERRIDES" "";
   clear_pricing_overrides ();
   result
 ;;
