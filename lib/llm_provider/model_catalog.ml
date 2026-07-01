@@ -179,11 +179,77 @@ let reasoning_streaming_format_opt ~entry_id key toml =
             Capability_vocab.reasoning_streaming_format_syntax))
 ;;
 
+(* Every field [parse_entry] reads below. A misspelled or stale key (e.g.
+   [suports_tools]) would otherwise be silently ignored, leaving the capability
+   at its default and hiding the misconfiguration. Enumerate the table keys and
+   fail closed on anything unknown, mirroring
+   [Capability_manifest.reject_unknown_keys]. Keep this list in sync with the
+   record construction below. *)
+let known_entry_keys =
+  [ "id_prefix"
+  ; "base"
+  ; "provider_name"
+  ; "max_context_tokens"
+  ; "max_output_tokens"
+  ; "supports_tools"
+  ; "supports_tool_choice"
+  ; "supports_required_tool_choice"
+  ; "supports_named_tool_choice"
+  ; "supports_parallel_tool_calls"
+  ; "assistant_tool_content_format"
+  ; "supports_reasoning"
+  ; "supports_extended_thinking"
+  ; "supports_reasoning_budget"
+  ; "accepted_reasoning_efforts"
+  ; "supports_response_format_json"
+  ; "supports_structured_output"
+  ; "supports_multimodal_inputs"
+  ; "supports_image_input"
+  ; "supports_audio_input"
+  ; "supports_video_input"
+  ; "modality_priority"
+  ; "supports_native_streaming"
+  ; "supports_system_prompt"
+  ; "supports_caching"
+  ; "supports_prompt_caching"
+  ; "supports_top_k"
+  ; "supports_min_p"
+  ; "supports_seed"
+  ; "supports_computer_use"
+  ; "supports_code_execution"
+  ; "thinking_control_format"
+  ; "thinking_control_token"
+  ; "preserve_thinking_control_format"
+  ; "reasoning_output_format"
+  ; "reasoning_streaming_format"
+  ; "reasoning_replay"
+  ; "input_per_million"
+  ; "output_per_million"
+  ; "cache_write_multiplier"
+  ; "cache_read_multiplier"
+  ]
+;;
+
+let reject_unknown_entry_keys ~entry_id entry_toml =
+  match Otoml.list_table_keys_result entry_toml with
+  | Error _ -> Ok () (* not a table; the id_prefix shape check already handled it *)
+  | Ok keys ->
+    (match List.filter (fun k -> not (List.mem k known_entry_keys)) keys with
+     | [] -> Ok ()
+     | unknown ->
+       Error
+         (Printf.sprintf
+            "model entry %S contains unknown field(s): %s"
+            entry_id
+            (String.concat ", " unknown)))
+;;
+
 let parse_entry entry_toml =
   match find_string_opt entry_toml [ "id_prefix" ] with
   | None -> Error "model entry missing required \"id_prefix\" field"
   | Some id_prefix ->
     let id_prefix = String.trim id_prefix in
+    let unknown_keys_result = reject_unknown_entry_keys ~entry_id:id_prefix entry_toml in
     let reasoning_replay_result =
       canonical_string_opt
         ~entry_id:id_prefix
@@ -206,12 +272,17 @@ let parse_entry entry_toml =
         entry_toml
     in
     (match
-       ( reasoning_replay_result
+       ( unknown_keys_result
+       , reasoning_replay_result
        , assistant_tool_content_format_result
        , accepted_reasoning_efforts_result )
      with
-     | (Error _ as e), _, _ | _, (Error _ as e), _ | _, _, (Error _ as e) -> e
-     | ( Ok reasoning_replay
+     | (Error _ as e), _, _, _
+     | _, (Error _ as e), _, _
+     | _, _, (Error _ as e), _
+     | _, _, _, (Error _ as e) -> e
+     | ( Ok ()
+       , Ok reasoning_replay
        , Ok assistant_tool_content_format
        , Ok accepted_reasoning_efforts ) ->
        let base_label_result = find_string_field ~entry_id:id_prefix "base" entry_toml in
@@ -341,6 +412,22 @@ let parse_entry entry_toml =
             ; cache_read_multiplier =
                 find_float_opt entry_toml [ "cache_read_multiplier" ]
             }))
+;;
+
+let%test "parse_entry rejects an unknown/misspelled field, not silently dropped" =
+  (* A typo like [suports_tools] must fail closed rather than leave
+     supports_tools at its default with no signal (RFC-OAS-034 silent-swallow). *)
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\nsuports_tools = true" in
+  match parse_entry entry with
+  | Error _ -> true
+  | Ok _ -> false
+;;
+
+let%test "parse_entry accepts an entry whose fields are all known" =
+  let entry = Otoml.Parser.from_string "id_prefix = \"m\"\nsupports_tools = true" in
+  match parse_entry entry with
+  | Ok _ -> true
+  | Error _ -> false
 ;;
 
 let load_file path =
