@@ -454,6 +454,37 @@ let test_lookup_provider_m_qwen3_mtp_dot_name () =
   | None -> fail "should match dot-qualified qwen3.6 model id"
 ;;
 
+let test_lookup_runpod_rtxa6000_gemma4_coder_catalog () =
+  let check_gemma4_coder label c =
+    check (option int) (label ^ " context 256K") (Some 262_144) c.max_context_tokens;
+    check bool (label ^ " tools") true c.supports_tools;
+    check bool (label ^ " tool_choice") true c.supports_tool_choice;
+    check bool (label ^ " parallel tools") true c.supports_parallel_tool_calls;
+    check bool (label ^ " reasoning") true c.supports_reasoning;
+    check bool (label ^ " extended thinking") true c.supports_extended_thinking;
+    check
+      bool
+      (label ^ " chat_template_token thinking control")
+      true
+      (c.thinking_control_format = Capabilities.Chat_template_token);
+    check bool (label ^ " json response format") true c.supports_response_format_json;
+    check bool (label ^ " native streaming") true c.supports_native_streaming;
+    check bool (label ^ " top_k") true c.supports_top_k;
+    check bool (label ^ " seed") true c.supports_seed
+  in
+  (match
+     Capabilities.for_provider_model_id
+       ~allow_bare_fallback:false
+       ~provider_label:"runpod_rtxa6000"
+       ~model_id:"gemma4-coder-fable5-q4km"
+   with
+   | Some c -> check_gemma4_coder "runpod_rtxa6000 gemma4 coder" c
+   | None -> fail "strict provider lookup should match runpod_rtxa6000 gemma4 coder");
+  match Capabilities.for_model_id "gemma4-coder-fable5-q4km" with
+  | Some c -> check_gemma4_coder "bare gemma4 coder" c
+  | None -> fail "bare lookup should match gemma4-coder-fable5-q4km"
+;;
+
 let test_lookup_deepseek_v4_flash () =
   match Capabilities.for_model_id "deepseek-v4-flash" with
   | Some c ->
@@ -2312,6 +2343,10 @@ let () =
             "vllm-qwen3-mtp dot-qualified name"
             `Quick
             test_lookup_provider_m_qwen3_mtp_dot_name
+        ; test_case
+            "runpod rtxa6000 gemma4 coder catalog"
+            `Quick
+            test_lookup_runpod_rtxa6000_gemma4_coder_catalog
         ; test_case "deepseek v4 flash" `Quick test_lookup_deepseek_v4_flash
         ; test_case "deepseek v4 pro" `Quick test_lookup_deepseek_v4_pro
         ; test_case
