@@ -27,7 +27,7 @@ RFC-OAS-023이 이미 축을 선언했다 — capability = `model_caps ∩ trans
 
 2026-07-01 감사 (`oas-endpoint-capability-boundary-audit`, 29 agents, 7 finder 차원 + 적대 검증): 41 dedup 사이트 중 **confirmed 4 / borderline 5 / legit 32**.
 
-핵심은 `runpod_mtp`가 신규 실수 하나가 아니라 **이미 main에 사는 계열의 재발**이라는 것이다. main에 `provider_registry.ml`의 `is_local → "nous"`가 이미 있었고(§3 B3), #2374·#2408은 그 선례를 두 번 따랐다. `~/me/instructions/software-development.md` §워크어라운드 거부 기준의 "한 번 들어간 패턴이 *합리적 선례*로 학습돼 누적되는 나선"이 코드로 실측된 사례다.
+핵심은 `runpod_mtp`가 신규 실수 하나가 아니라 **이미 main에 사는 계열의 재발**이라는 것이다. main에 `provider_registry.ml`의 `is_local → "nous"`가 이미 있었고(§3 B3), #2374·#2408은 그 선례를 두 번 따랐다. 한 번 워크어라운드 패턴이 main에 들어가면 이후 코드 생성(AI든 사람이든)이 그 패턴을 *합리적 선례*로 학습해 누적되는 나선 — 이 RFC가 문서화하는 반복이 바로 그 실측 사례다.
 
 ### 1.2 구체 증거 — host를 옮기면 capability가 사라진다
 
@@ -87,8 +87,8 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 | # | 위치 | 증상 | 조치 |
 |---|------|------|------|
 | B4 | `provider_config.ml:199` `base_url_targets_ollama_cloud` | vendor-canonical `ollama.com`은 정당하나 loose `String.starts_with` prefix라 `https://ollama.com.attacker.example` look-alike가 `ollama_cloud` namespace 상속. 형제 `base_url_targets_openai`(205)·`openai_host_supports_output_schema`(789)는 이미 `Uri.host` 정확 비교. | prefix → `Uri.host` 파싱 후 `= "ollama.com" || ends_with ".ollama.com"`. |
-| B5 | `discovery.ml:287` `infer_capabilities` | unknown model_id의 probed generic 엔드포인트가 `structured_output`/`image_input`/`required·named tool_choice`=true를 무근거 부여. reasoning/thinking은 올바르게 fail-closed(정상). blast radius는 discovery 리포팅 메타로 제한(completion-contract 미사용). | generic base를 해당 필드 false로 시작, `/props`·catalog 선언 시 상향. reasoning에 이미 적용한 declaration-over-probing을 이 필드들에도. |
-| B6 | `capabilities.ml:761` `apply_manifest_entry` | manifest 오타 `base_label`이 `capabilities_for_provider_label = None`을 거쳐 **경고 없이** `default_capabilities`로 붕괴. 형제 필드 핸들러(805·856)는 `Diag.warn`함. 함수 docstring 자체가 fail-closed를 명시. host 무관(config→capability), 권한 손실이라 low. | `Some label` + `None` lookup 시 `Diag.warn` 또는 `None` 반환으로 오타 표면화. |
+| B5 | `discovery.ml:287` `infer_capabilities` | unknown model_id의 probed generic 엔드포인트가 `structured_output`/`image_input`/`required·named tool_choice`=true를 무근거 부여. reasoning/thinking은 올바르게 fail-closed(정상). blast radius는 discovery 리포팅 메타로 제한(completion-contract 미사용). | **false-positive로 강등, 조치 없음** — discovery capability는 애초 `f(probed runtime)`이 legit contract이라 §4/§7 재감사에서 기각. |
+| B6 | `capabilities.ml:761` `apply_manifest_entry` | manifest 오타 `base_label`이 `capabilities_for_provider_label = None`을 거쳐 **경고 없이** `default_capabilities`로 붕괴. 형제 필드 핸들러(805·856)는 `Diag.warn`함. 함수 docstring 자체가 fail-closed를 명시. host 무관(config→capability), 권한 손실이라 low. | **false-positive로 강등, 조치 없음** — 이미 fail-closed(권한 상승 아님)라 §4/§7 재감사에서 기각. |
 | B7 | `complete_sampling.ml:57` `openai_compat_should_default_min_p` | capabilities 미상일 때 `None → is_local`로 min_p default 결정. host locality가 sampling default 선택. `config.min_p` 명시값 우선이라 blast radius 최소. | 명시 runtime/model capability 우선; 미상이면 미설정 또는 선언된 runtime kind로 키잉. |
 
 ### Legit 32건 (대조군 — 변경 없음, 경계의 정답례)
@@ -146,7 +146,7 @@ stale-high(monotone-safe)이며, 전체 rebaseline은 별도 hygiene 작업으�
 - **RFC-OAS-018** provider-model catalog externalization — namespace의 선언 출처가 catalog임을 전제.
 - **PR #2404** declarative override SSOT — B1/B2/B3의 root fix가 안착할 기반.
 - **PR #2374, #2408** — 본 RFC가 흡수하는 트리거 (host→capability namespace, 중복 구현).
-- `~/me/instructions/software-development.md` §워크어라운드 거부 기준, AI 코드 생성 안티패턴 #1(scattered hardcoded)·#2(unknown→permissive)·#3(boundary violation).
+- AI 코드 생성 안티패턴 3종(§1.1의 재발 논의가 근거하는 분류): #1 scattered hardcoded defaults(같은 설정값이 여러 파일에 리터럴로 산포), #2 unknown → permissive default(모르는 입력을 에러 대신 편리한 기본값으로 매핑 — 본 RFC의 B1-B7이 정확히 이 패턴), #3 boundary violation(하위 모듈이 상위 소비자의 타입/모듈을 참조).
 
 ### 구현 현황 (추적 이슈 #2414)
 
