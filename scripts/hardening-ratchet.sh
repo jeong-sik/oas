@@ -61,24 +61,39 @@ MODEL_ID_STRING_CLASSIFIER_RE = re.compile(
 # identifiers [host]/[base_url]) so fuzzy matching performed directly on a
 # freshly-extracted `Uri.host` value -- without first binding it to a `host`-
 # named variable -- is still caught.
+# The gap between the matcher and the host token is a "tempered dot": it spans
+# arbitrary text but stops at an OCaml statement separator (`in` / `let` / `;`).
+# Without this bound the greedy `.*` matched across independent statements on
+# one physical line -- e.g. `let host = Uri.host uri in
+# String.starts_with ~prefix:"qwen" model_id` counted as a host classifier even
+# though the classifier operates on `model_id`, not the host binding that
+# precedes it. Genuine same-statement classifiers (including `host |> String.x`
+# pipelines) contain no separator between the tokens and still match.
+_HOST_FUZZY_GAP = r"(?:(?!\b(?:in|let)\b|;).)*"
 HOST_URL_FUZZY_CLASSIFIER_RE = re.compile(
     r"\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
-    r".*\b(?:base_url|host|Uri\.host)\b"
+    + _HOST_FUZZY_GAP
+    + r"\b(?:base_url|host|Uri\.host)\b"
     r"|\b(?:base_url|host|Uri\.host)\b"
-    r".*\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
+    + _HOST_FUZZY_GAP
+    + r"\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
 )
-# ocamlformat commonly breaks a long application by putting the callee alone
-# on one line and its arguments (which may include the host/base_url token)
-# on the next. This "dangling call at end of line" regex identifies that
-# specific continuation shape so the 2-line join below only fires on it.
-# Deliberately one-directional: only a bare qualified stdlib function name
-# alone at line-end is a rare, specific signal that the call continues.
-# Joining on a dangling *token* (bare `host`/`base_url` identifier at
-# line-end) was tried and reverted -- those identifiers are common enough
-# as the tail of an unrelated statement that it produced false joins across
-# two independent statements (verified via self-test).
-HOST_FUZZY_DANGLING_CALL_RE = re.compile(
+STRING_MATCHER_RE = re.compile(
+    r"\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
+)
+# ocamlformat breaks a long matcher application across lines, leaving the
+# host/base_url argument one or two physical lines below the callee. Two split
+# shapes end a line "dangling" (the call is not yet complete): the bare callee
+# alone (`String.ends_with`), or the callee plus a labelled argument with the
+# haystack still pending (`String.ends_with ~suffix:sfx`). host_fuzzy_classifier_hit
+# joins forward only while the accumulated text stays dangling AND still holds a
+# String matcher, bounded to MAX_HOST_FUZZY_JOIN extra lines, so two unrelated
+# adjacent statements are never stitched together (an earlier attempt to join on
+# a dangling bare identifier was reverted for exactly that false-join reason).
+MAX_HOST_FUZZY_JOIN = 2
+HOST_FUZZY_DANGLING_RE = re.compile(
     r"\bString\.(?:starts_with|ends_with|contains|is_substring)\s*$"
+    r"|~\w+:\S+\s*$"
 )
 STUB_RE = re.compile(
     r"\bNot_implemented\b"
@@ -224,6 +239,31 @@ def bump(metrics, examples, max_examples, metric: str, path: str, lineno: int, l
         examples[metric].append(f"{path}:{lineno}:{line.strip()}")
 
 
+def host_fuzzy_classifier_hit(code_lines, idx):
+    """Return True if the (already string-masked) line at 0-based ``idx`` -- on
+    its own or once ocamlformat's line-wrapped continuation is stitched back --
+    fuzzy-classifies a base_url/host. Forward joins are bounded and only occur
+    while the accumulated text still dangles on an incomplete String matcher, so
+    two unrelated adjacent statements are never merged into a spurious match."""
+    acc = code_lines[idx]
+    if HOST_URL_FUZZY_CLASSIFIER_RE.search(acc):
+        return True
+    joins = 0
+    j = idx
+    while (
+        joins < MAX_HOST_FUZZY_JOIN
+        and j + 1 < len(code_lines)
+        and STRING_MATCHER_RE.search(acc)
+        and HOST_FUZZY_DANGLING_RE.search(acc)
+    ):
+        j += 1
+        acc = f"{acc} {code_lines[j]}"
+        joins += 1
+        if HOST_URL_FUZZY_CLASSIFIER_RE.search(acc):
+            return True
+    return False
+
+
 def measure_texts(files, config):
     metrics, examples, max_examples = empty_result(config)
     for path, text in files.items():
@@ -265,22 +305,11 @@ def measure_texts(files, config):
                         raw_line,
                     )
                 # ocamlformat routinely splits a matcher call and its host/
-                # base_url argument across two physical lines (e.g.
-                # `String.starts_with\n  ~prefix:base_url ...`), so neither
-                # line alone contains both tokens even though the AST is a
-                # fuzzy host match. Only join with the next line when this
-                # line ends dangling on exactly the matcher-call shape
-                # ocamlformat produces -- joining every adjacent line pair
-                # unconditionally would false-match two unrelated statements
-                # that each happen to contain one half of the pattern.
-                joined_next = (
-                    f"{code_line} {code_lines[lineno]}"
-                    if HOST_FUZZY_DANGLING_CALL_RE.search(code_line) and lineno < len(code_lines)
-                    else None
-                )
-                if HOST_URL_FUZZY_CLASSIFIER_RE.search(code_line) or (
-                    joined_next is not None and HOST_URL_FUZZY_CLASSIFIER_RE.search(joined_next)
-                ):
+                # base_url argument across physical lines, so neither line alone
+                # contains both tokens even though the AST is a fuzzy host match.
+                # host_fuzzy_classifier_hit re-stitches only the dangling
+                # continuation shapes ocamlformat produces (see its docstring).
+                if host_fuzzy_classifier_hit(code_lines, lineno - 1):
                     bump(
                         metrics,
                         examples,
@@ -386,6 +415,19 @@ def self_test(config):
             "  String.starts_with",
             "    ~prefix:sfx host",
             "let direct_uri_check = String.ends_with (Uri.host uri) ~suffix:\".ollama.com\"",
+            # RFC-OAS-034 detector mutation cases -- guard both failure modes of
+            # the line-regex host classifier. FN: ocamlformat wraps the host arg
+            # one or two lines below the matcher; the forward join must re-stitch
+            # it. Each block counts exactly once (at the callee line).
+            "    String.ends_with",
+            "      ~suffix:proxy_a",
+            "      host",
+            "  String.ends_with ~suffix:proxy_b",
+            "    host",
+            # FP: an unrelated host binding sharing one physical line with a
+            # classifier on `model_id` must NOT count -- the tempered gap stops
+            # at `in`, so `Uri.host` never reaches `String.starts_with`.
+            "let host = Uri.host uri in String.starts_with ~prefix:\"Bearer \" auth_header",
             "| _ -> None",
             "let path = \\\\\"/home/alice/me/tmp\\\\\"",
             "let impossible = assert false",
@@ -402,9 +444,12 @@ def self_test(config):
         "heuristic_markers": 1,
         "local_workspace_path_literals": 1,
         "model_id_string_classifiers_outside_catalog": 2,
-        # 1 original single-line match + 1 caught only via the 2-line dangling-
-        # call join (the ocamlformat split shape) + 1 via the Uri.host token.
-        "base_url_host_fuzzy_classifiers": 3,
+        # 3 baseline (single-line + 2-line dangling join + Uri.host token) plus 2
+        # multi-line wraps re-stitched by the forward join (~suffix on its own
+        # line, and a 3-line split). The same-line `Uri.host ... in ... model_id`
+        # false positive is deliberately excluded, so a detector that regressed
+        # either fix would not land on exactly 5.
+        "base_url_host_fuzzy_classifiers": 5,
         "stub_markers": 0,
         "workaround_markers": 1,
         "wildcard_silent_defaults": 1,
