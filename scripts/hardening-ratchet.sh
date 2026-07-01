@@ -62,14 +62,14 @@ MODEL_ID_STRING_CLASSIFIER_RE = re.compile(
 # freshly-extracted `Uri.host` value -- without first binding it to a `host`-
 # named variable -- is still caught.
 # The gap between the matcher and the host token is a "tempered dot": it spans
-# arbitrary text but stops at an OCaml statement separator (`in` / `let` / `;`).
+# arbitrary text but stops at OCaml statement/branch/tuple separators.
 # Without this bound the greedy `.*` matched across independent statements on
 # one physical line -- e.g. `let host = Uri.host uri in
 # String.starts_with ~prefix:"qwen" model_id` counted as a host classifier even
 # though the classifier operates on `model_id`, not the host binding that
 # precedes it. Genuine same-statement classifiers (including `host |> String.x`
 # pipelines) contain no separator between the tokens and still match.
-_HOST_FUZZY_GAP = r"(?:(?!\b(?:in|let)\b|;).)*"
+_HOST_FUZZY_GAP = r"(?:(?!\b(?:in|let|then|else)\b|[;,]|->).)*"
 HOST_URL_FUZZY_CLASSIFIER_RE = re.compile(
     r"\bString\.(?:starts_with|ends_with|contains|is_substring)\b"
     + _HOST_FUZZY_GAP
@@ -93,7 +93,7 @@ STRING_MATCHER_RE = re.compile(
 MAX_HOST_FUZZY_JOIN = 2
 HOST_FUZZY_DANGLING_RE = re.compile(
     r"\bString\.(?:starts_with|ends_with|contains|is_substring)\s*$"
-    r"|~\w+:\S+\s*$"
+    r"|~\w+:[^\s,)\]}]+\s*$"
 )
 STUB_RE = re.compile(
     r"\bNot_implemented\b"
@@ -428,6 +428,13 @@ def self_test(config):
             # classifier on `model_id` must NOT count -- the tempered gap stops
             # at `in`, so `Uri.host` never reaches `String.starts_with`.
             "let host = Uri.host uri in String.starts_with ~prefix:\"Bearer \" auth_header",
+            "let route = if String.contains user_agent ~sub:\"bot\" then host else fallback",
+            "let tuple = (String.starts_with ~prefix:\"qwen\" request_name, host)",
+            "| Some host -> String.ends_with ~suffix:\"qwen\" request_name",
+            "  String.contains user_agent ~sub:bot_name",
+            "  then host else fallback",
+            "  String.ends_with ~suffix:model_suffix)",
+            "  host",
             "| _ -> None",
             "let path = \\\\\"/home/alice/me/tmp\\\\\"",
             "let impossible = assert false",
